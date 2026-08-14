@@ -1,17 +1,33 @@
 <div align="center">
 
-# 哔哩终端
+# RE:哔哩终端
 
-轻量的第三方B站Android客户端
-[安装包下载点这里](https://gitee.com/RobinNotBad/BiliClient/releases)
+轻量的第三方B站Android客户端（基于哔哩终端 BiliClient 的改版分支）
 
-[官方 Gitee 仓库](https://gitee.com/RobinNotBad/BiliClient) | [Github 仓库 (由huanli233 fork)](https://github.com/huanli233/BiliClient) | [Action Build (Github)](https://github.com/huanli233/action_build_biliclient/actions)
-
+[官方 Gitee 仓库](https://gitee.com/RobinNotBad/BiliClient) | [Github 仓库 (由huanli233 fork)](https://github.com/huanli233/BiliClient)
 
 </div>
 
 # 介绍
-这是一个**极其轻量级**的**B站客户端**，名字来源于原神中的“虚空终端”。使用远古技术 `java` + `xml`开发，最低支持**安卓4.0.4**。（部分4.0.4设备无法运行，但也无法解决）~~这么古老的设备解码视频都费劲，要不还是留作收藏吧（~~
+
+这是一个**极其轻量级**的**B站客户端**，名字来源于原神中的“虚空终端”。本项目是 [哔哩终端 BiliClient](https://gitee.com/RobinNotBad/BiliClient) 停更后的改版分支，基于原版 26.05.30 开发，在保留原版轻量、流畅、低配设备友好的特性的同时，对代码进行了**全面 Kotlin 重构**，并新增了大量功能。
+
+## 新增功能
+
+- **全面 Kotlin 重构**：项目代码由 Java 全面重构为 Kotlin，结构更清晰、更易维护
+- **多主题系统**：内置B站粉、知乎蓝、爱奇艺绿、紫色幻想、彩虹幻想、经典灰等多种主题，可在设置中自由切换
+- **手机模式布局**：专为手机竖屏优化的单列布局（参考 PiliPala 移动端样式），与横屏模式互斥
+- **短视频**：支持浏览B站短视频内容
+- **音频播放**：支持纯音频播放、歌词显示与歌单管理
+- **Aria2 高速下载**：内置多线程高速下载引擎（亦可配置外部 Aria2），支持分片加速下载视频、音频与图片
+- **缓存增强**：新增快捷缓存、默认缓存画质（4K/2K/1080P/720P/480P/360P/仅音频/弹出选择）
+- **搜索设置**：搜索建议开关、默认搜索内容、搜索类别排序
+- **教程管理**：一键通过所有教程、清除教程进度、重置页面滑动引导
+- **账号切换**：支持多账号快速切换
+- **后台自动检查更新**：启动应用时自动检查是否有新版本
+- **新版启动页**：全新现代风格的启动页面
+
+最低支持**安卓4.0.4**。（部分4.0.4设备无法运行，但也无法解决）~~这么古老的设备解码视频都费劲，要不还是留作收藏吧（~~
 
 本项目借鉴了 [WearBili](https://github.com/SpaceXC/WearBili) 和 [腕上哔哩](https://github.com/luern0313/WristBilibili) 的部分开源代码和它们收集的部分 API 。
 界面曾使用 [WearBili](https://github.com/SpaceXC/WearBili) 的布局（现已重做）。
