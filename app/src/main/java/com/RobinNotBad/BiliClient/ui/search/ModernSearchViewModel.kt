@@ -2,10 +2,11 @@ package com.RobinNotBad.BiliClient.ui.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.RobinNotBad.BiliClient.network.api.VideoFeedApiService
+import com.RobinNotBad.BiliClient.api.SearchApi
 import com.RobinNotBad.BiliClient.ui.video.viewmodel.PaginatedVideoListState
 import com.RobinNotBad.BiliClient.ui.video.viewmodel.VideoCardItem
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import com.RobinNotBad.BiliClient.util.StringUtil
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,9 +34,7 @@ data class SearchUiState(
 )
 
 @HiltViewModel
-class ModernSearchViewModel @Inject constructor(
-    private val apiService: VideoFeedApiService
-) : ViewModel() {
+class ModernSearchViewModel @Inject constructor() : ViewModel() {
 
     private val _state = MutableStateFlow(SearchUiState())
     val state: StateFlow<SearchUiState> = _state.asStateFlow()
@@ -95,15 +94,7 @@ class ModernSearchViewModel @Inject constructor(
 
     private suspend fun loadSuggestions(keyword: String) {
         try {
-            val response = JSONObject(apiService.getPopular(1).toString())
-            val data = response.optJSONObject("data")
-            val list = data?.optJSONArray("suggestions")
-            val suggestions = mutableListOf<String>()
-            if (list != null) {
-                for (i in 0 until list.length()) {
-                    suggestions.add(list.optString(i, ""))
-                }
-            }
+            val suggestions = SearchApi.getSearchSuggestions(keyword)
             _state.update {
                 if (it.keyword == keyword) {
                     it.copy(suggestions = suggestions)
@@ -134,8 +125,9 @@ class ModernSearchViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             _state.update { it.copy(searchResult = it.searchResult.copy(isLoading = true)) }
             try {
-                val response = JSONObject(apiService.getPopular(1).toString())
-                val items = parseSearchResults(response)
+                val type = SEARCH_TYPES[_state.value.currentTab.coerceIn(0, SEARCH_TYPES.lastIndex)]
+                val result = SearchApi.searchType(kw, 1, type)
+                val items = parseSearchResults(result, type)
                 _state.update {
                     it.copy(
                         searchResult = it.searchResult.copy(
@@ -172,29 +164,139 @@ class ModernSearchViewModel @Inject constructor(
 
     fun selectTab(index: Int) {
         _state.update { it.copy(currentTab = index) }
+        val s = _state.value
+        if (s.keyword.isNotEmpty() && !s.showHistory && !s.showSuggestions) {
+            search(s.keyword)
+        }
     }
 
-    private fun parseSearchResults(json: JSONObject): List<VideoCardItem> {
+    private fun parseSearchResults(result: Any?, type: String): List<VideoCardItem> {
+        return when (type) {
+            "media_bangumi" -> parseBangumiResults(result)
+            "bili_user" -> parseUserResults(result)
+            "live_room" -> parseLiveResults(result)
+            else -> parseVideoResults(result)
+        }
+    }
+
+    private fun parseVideoResults(result: Any?): List<VideoCardItem> {
         val list = mutableListOf<VideoCardItem>()
+        if (result !is JSONArray) return list
         try {
-            val data = json.optJSONObject("data")
-            val items = data?.optJSONArray("list")
-            if (items != null) {
-                for (i in 0 until items.length()) {
-                    val item = items.optJSONObject(i) ?: continue
-                    list.add(VideoCardItem(
+            for (i in 0 until result.length()) {
+                val item = result.optJSONObject(i) ?: continue
+                if (item.optString("type") != "video") continue
+                list.add(
+                    VideoCardItem(
                         aid = item.optLong("aid", 0),
                         bvid = item.optString("bvid", ""),
-                        title = item.optString("title", ""),
-                        cover = item.optString("pic", ""),
-                        author = item.optJSONObject("owner")?.optString("name", "") ?: "",
-                        playCount = item.optJSONObject("stat")?.optInt("view", 0) ?: 0,
-                        danmakuCount = item.optJSONObject("stat")?.optInt("danmaku", 0) ?: 0,
-                        duration = item.optLong("duration", 0)
-                    ))
-                }
+                        title = stripSearchTitle(item.optString("title", "")),
+                        cover = normalizeCover(item.optString("pic", "")),
+                        author = item.optString("author", ""),
+                        playCount = item.optInt("play", 0),
+                        danmakuCount = item.optInt("video_review", 0),
+                        duration = parseSearchDuration(item.optString("duration", ""))
+                    )
+                )
             }
         } catch (_: Exception) {}
         return list
+    }
+
+    private fun parseBangumiResults(result: Any?): List<VideoCardItem> {
+        val list = mutableListOf<VideoCardItem>()
+        if (result !is JSONArray) return list
+        try {
+            for (i in 0 until result.length()) {
+                val item = result.optJSONObject(i) ?: continue
+                val areas = item.opt("areas")
+                val author = when (areas) {
+                    is JSONArray -> (0 until areas.length()).mapNotNull { areas.optString(it) }.joinToString("/")
+                    is String -> areas
+                    else -> ""
+                }
+                list.add(
+                    VideoCardItem(
+                        aid = item.optLong("media_id", 0),
+                        bvid = item.optString("season_id", ""),
+                        title = stripSearchTitle(item.optString("title", "")),
+                        cover = normalizeCover(item.optString("cover", "")),
+                        author = author,
+                        itemType = "media_bangumi",
+                        statLabel = item.optString("index_show", "")
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        return list
+    }
+
+    private fun parseUserResults(result: Any?): List<VideoCardItem> {
+        val list = mutableListOf<VideoCardItem>()
+        if (result !is JSONArray) return list
+        try {
+            for (i in 0 until result.length()) {
+                val item = result.optJSONObject(i) ?: continue
+                val fans = item.optInt("fans", 0)
+                list.add(
+                    VideoCardItem(
+                        mid = item.optLong("mid", 0),
+                        title = item.optString("uname", ""),
+                        cover = normalizeCover(item.optString("upic", "")),
+                        author = item.optString("usign", ""),
+                        itemType = "bili_user",
+                        statLabel = "${fans}粉丝"
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        return list
+    }
+
+    private fun parseLiveResults(result: Any?): List<VideoCardItem> {
+        val list = mutableListOf<VideoCardItem>()
+        if (result !is JSONObject) return list
+        try {
+            val rooms = result.optJSONArray("live_room") ?: return list
+            for (i in 0 until rooms.length()) {
+                val item = rooms.optJSONObject(i) ?: continue
+                val online = item.optInt("online", 0)
+                list.add(
+                    VideoCardItem(
+                        roomId = item.optLong("roomid", 0),
+                        title = stripSearchTitle(item.optString("title", "")),
+                        cover = normalizeCover(item.optString("user_cover", "")),
+                        author = item.optString("uname", ""),
+                        itemType = "live_room",
+                        statLabel = "${online}观看"
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        return list
+    }
+
+    private fun stripSearchTitle(title: String): String =
+        StringUtil.htmlToString(
+            title.replace("<em class=\"keyword\">", "").replace("</em>", "")
+        )
+
+    private fun normalizeCover(url: String): String =
+        if (url.startsWith("//")) "http:$url" else url
+
+    private fun parseSearchDuration(str: String): Long {
+        if (str.isEmpty()) return 0L
+        return try {
+            val parts = str.split(":")
+            when (parts.size) {
+                2 -> parts[0].toLong() * 60 + parts[1].toLong()
+                3 -> parts[0].toLong() * 3600 + parts[1].toLong() * 60 + parts[2].toLong()
+                else -> str.toLong()
+            }
+        } catch (_: Exception) { 0L }
+    }
+
+    companion object {
+        private val SEARCH_TYPES = listOf("video", "media_bangumi", "bili_user", "live_room")
     }
 }

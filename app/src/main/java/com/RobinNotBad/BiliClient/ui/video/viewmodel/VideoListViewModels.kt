@@ -31,7 +31,10 @@ data class VideoCardItem(
     val statView: Int = 0,
     val statDanmaku: Int = 0,
     val dateLabel: String = "",
-    val viewAt: Long = 0
+    val viewAt: Long = 0,
+    val itemType: String = "",
+    val roomId: Long = 0,
+    val statLabel: String = ""
 )
 
 data class PaginatedVideoListState(

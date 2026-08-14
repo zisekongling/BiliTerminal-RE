@@ -36,8 +36,15 @@ class ModernVideoCardAdapter(
         val item = getItem(position)
         holder.titleText.text = item.title
         holder.authorText.text = item.author
-        holder.durationText.text = formatDuration(item.duration)
-        holder.statText.text = "${formatCount(item.playCount)}播放  ${formatCount(item.danmakuCount)}弹幕"
+        val isVideoType = item.itemType.isEmpty() || item.itemType == "video"
+        if (isVideoType) {
+            holder.durationText.visibility = View.VISIBLE
+            holder.durationText.text = formatDuration(item.duration)
+        } else {
+            holder.durationText.visibility = View.GONE
+        }
+        holder.statText.text = if (item.statLabel.isNotEmpty()) item.statLabel
+            else "${formatCount(item.playCount)}播放  ${formatCount(item.danmakuCount)}弹幕"
         holder.titleText.setTextColor(ThemeManager.TEXT_PRIMARY)
         holder.authorText.setTextColor(ThemeManager.TEXT_SECONDARY)
         holder.statText.setTextColor(ThemeManager.TEXT_TERTIARY)

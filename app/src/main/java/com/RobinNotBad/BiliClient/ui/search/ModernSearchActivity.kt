@@ -17,6 +17,7 @@ import com.RobinNotBad.BiliClient.ui.theme.BiliColors
 import com.RobinNotBad.BiliClient.ui.theme.BiliDimens
 import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
 import com.RobinNotBad.BiliClient.ui.video.ModernVideoCardAdapter
+import com.RobinNotBad.BiliClient.util.TerminalContext
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -146,7 +147,14 @@ class ModernSearchActivity : AppCompatActivity() {
             }
 
             resultAdapter = ModernVideoCardAdapter(this@ModernSearchActivity) { v ->
-                BiliTerminal.jumpToVideo(this@ModernSearchActivity, v.aid)
+                when (v.itemType) {
+                    "media_bangumi" -> TerminalContext.getInstance()
+                        .enterVideoDetailPage(this@ModernSearchActivity, v.aid, v.bvid, "media")
+                    "bili_user" -> BiliTerminal.jumpToUser(this@ModernSearchActivity, v.mid)
+                    "live_room" -> TerminalContext.getInstance()
+                        .enterLiveDetailPage(this@ModernSearchActivity, v.roomId)
+                    else -> BiliTerminal.jumpToVideo(this@ModernSearchActivity, v.aid)
+                }
             }
             resultRecycler.adapter = resultAdapter
             historyRecycler.adapter = SearchHistoryAdapter(this@ModernSearchActivity, viewModel)

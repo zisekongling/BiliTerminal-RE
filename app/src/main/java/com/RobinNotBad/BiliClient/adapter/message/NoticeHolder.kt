@@ -157,6 +157,8 @@ class NoticeHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         } catch (e: Exception) {
             MsgUtil.err("跳转出错？", e)
         }
+            }
+        }
     }
 
     companion object {
@@ -165,7 +167,5 @@ class NoticeHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val requestManager = Glide.with(BiliTerminal.context)
         private val avatarSize: Int = ToolsUtil.dp2px(32f)
         private val avatarSpacing: Int = ToolsUtil.dp2px(3f)
-    }
-}
     }
 }

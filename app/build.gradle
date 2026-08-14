@@ -11,9 +11,9 @@ int betaVer = 0
 android {
 
     namespace 'com.RobinNotBad.BiliClient'
-    compileSdk 34
+    compileSdk 35
 
-    buildToolsVersion '34.0.0'
+    buildToolsVersion '36.0.0'
 
     sourceSets {
         main{
@@ -25,8 +25,8 @@ android {
         applicationId "com.RobinNotBad.BiliClient"
         minSdk 24
         targetSdk 34
-        versionCode 2606200
-        versionName "26.06.20"
+        versionCode 2608140
+        versionName "26.08.14"
 
         if (betaVer) {
             versionName += "-BETA" + betaVer

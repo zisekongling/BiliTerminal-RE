@@ -57,7 +57,7 @@ public class StringUtil {
             "(https?|ftp|file)://[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]");
     private static final Pattern ESCAPE_PATTERN = Pattern.compile("\\\\(.)");
 
-    private static volatile Float cachedTextHeight;
+    private static volatile float cachedTextHeight;
 
     static final int[] levelBadges = {
             R.mipmap.level_0,
