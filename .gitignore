@@ -1,0 +1,29 @@
+*.iml
+.gradle
+/.idea/*
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+.androidide
+
+# 构建产物（所有模块）
+**/build/
+
+# IDE / 工具目录
+.kotlin/
+.trae/
+.idea/
+
+# 签名密钥与凭据
+*.jks
+*.keystore
+*.p12
+*.pfx
+
+# JVM 崩溃日志
+hs_err_pid*.log
+replay_pid*.log
+

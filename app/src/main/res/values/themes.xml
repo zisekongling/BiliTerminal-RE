@@ -1,0 +1,664 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <style name="Theme.BiliClient" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/background_dark</item>
+        <item name="statusBarBackground">@color/pink_brand</item>
+        <item name="android:colorForeground">@color/text_primary_dark</item>
+        <item name="colorOnPrimary">@color/text_primary_dark</item>
+        <item name="colorPrimary">@color/pink_brand</item>
+        <item name="colorPrimaryDark">@color/pink_deep</item>
+        <item name="colorPrimaryVariant">@color/pink_accent</item>
+        <item name="colorAccent">@color/pink_accent</item>
+        <item name="colorSecondary">@color/pink_light</item>
+        <item name="colorSurface">@color/surface_dark</item>
+        <item name="android:colorBackground">@color/background_dark</item>
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">true</item>
+
+        <item name="android:textViewStyle">@style/TextViewStyle</item>
+        <item name="editTextStyle">@style/EditTextStyle</item>
+        <item name="materialCardViewStyle">@style/CardStyle</item>
+        <item name="materialButtonStyle">@style/ButtonStyle</item>
+        <item name="switchStyle">@style/SwitchCompatStyle</item>
+        <item name="radioButtonStyle">@style/RadioButtonStyle</item>
+        <item name="recyclerViewStyle">@style/ListStyle</item>
+
+        <item name="colorSwitchThumbNormal">@color/text_primary_dark</item>
+        <item name="colorControlActivated">@color/pink_brand</item>
+        <item name="colorControlNormal">@color/color_ripple</item>
+        <item name="colorControlHighlight">@color/color_ripple</item>
+        <item name="android:textColor">@color/text_primary_dark</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="Theme.BiliClient.Splash" parent="Theme.BiliClient">
+        <item name="android:windowBackground">@drawable/splash_text</item>
+    </style>
+
+    <style name="Theme.BiliClient.Dark" parent="Theme.BiliClient">
+        <item name="android:windowBackground">@color/background_dark</item>
+    </style>
+
+    <style name="Theme.BiliClient.Light" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/background_light</item>
+        <item name="statusBarBackground">@color/pink_brand</item>
+        <item name="android:colorForeground">@color/text_primary_light</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorPrimary">@color/pink_brand</item>
+        <item name="colorPrimaryDark">@color/pink_deep</item>
+        <item name="colorPrimaryVariant">@color/pink_accent</item>
+        <item name="colorAccent">@color/pink_accent</item>
+        <item name="colorSecondary">@color/pink_light</item>
+        <item name="colorSurface">@color/surface_light</item>
+        <item name="android:colorBackground">@color/background_light</item>
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">true</item>
+
+        <item name="android:textViewStyle">@style/TextViewStyleLight</item>
+        <item name="editTextStyle">@style/EditTextStyleLight</item>
+        <item name="materialCardViewStyle">@style/CardStyleLight</item>
+        <item name="materialButtonStyle">@style/ButtonStyleLight</item>
+        <item name="switchStyle">@style/SwitchCompatStyleLight</item>
+        <item name="recyclerViewStyle">@style/ListStyle</item>
+
+        <item name="colorSwitchThumbNormal">@color/text_secondary_light</item>
+        <item name="colorControlActivated">@color/pink_brand</item>
+        <item name="colorControlNormal">@color/color_ripple</item>
+        <item name="colorControlHighlight">@color/pink_very_light</item>
+        <item name="android:textColor">@color/text_primary_light</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="Theme.NoSwipe" parent="android:Theme.Black">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">false</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/bgblack</item>
+        <item name="statusBarBackground">@color/pink_brand</item>
+        <item name="colorOnPrimary">@color/text_primary_dark</item>
+    </style>
+
+    <style name="Theme.NoSwipe.AppCompat" parent="Theme.BiliClient">
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">false</item>
+    </style>
+
+    <!-- =========================================================== -->
+    <!-- 知乎蓝主题 (Zhihu Blue Theme) -->
+    <!-- =========================================================== -->
+
+    <style name="Theme.ZhihuBlue" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/zhihu_background_dark</item>
+        <item name="statusBarBackground">@color/zhihu_brand</item>
+        <item name="android:colorForeground">@color/zhihu_text_primary_dark</item>
+        <item name="colorOnPrimary">@color/zhihu_text_primary_dark</item>
+        <item name="colorPrimary">@color/zhihu_brand</item>
+        <item name="colorPrimaryDark">@color/zhihu_deep</item>
+        <item name="colorPrimaryVariant">@color/zhihu_accent</item>
+        <item name="colorAccent">@color/zhihu_accent</item>
+        <item name="colorSecondary">@color/zhihu_light</item>
+        <item name="colorSurface">@color/zhihu_surface_dark</item>
+        <item name="android:colorBackground">@color/zhihu_background_dark</item>
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">true</item>
+
+        <item name="android:textViewStyle">@style/TextViewStyleZhihu</item>
+        <item name="editTextStyle">@style/EditTextStyleZhihu</item>
+        <item name="materialCardViewStyle">@style/CardStyleZhihu</item>
+        <item name="materialButtonStyle">@style/ButtonStyleZhihu</item>
+        <item name="switchStyle">@style/SwitchCompatStyleZhihu</item>
+        <item name="radioButtonStyle">@style/RadioButtonStyleZhihu</item>
+        <item name="recyclerViewStyle">@style/ListStyleZhihu</item>
+
+        <item name="colorSwitchThumbNormal">@color/zhihu_text_primary_dark</item>
+        <item name="colorControlActivated">@color/zhihu_brand</item>
+        <item name="colorControlNormal">@color/color_ripple</item>
+        <item name="colorControlHighlight">@color/color_ripple</item>
+        <item name="android:textColor">@color/zhihu_text_primary_dark</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="Theme.ZhihuBlue.Splash" parent="Theme.ZhihuBlue">
+        <item name="android:windowBackground">@drawable/splash_text</item>
+    </style>
+
+    <style name="Theme.ZhihuBlue.Dark" parent="Theme.ZhihuBlue">
+        <item name="android:windowBackground">@color/zhihu_background_dark</item>
+    </style>
+
+    <style name="Theme.ZhihuBlue.NoSwipe" parent="android:Theme.Black">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">false</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/bgblack</item>
+        <item name="statusBarBackground">@color/zhihu_brand</item>
+        <item name="colorOnPrimary">@color/zhihu_text_primary_dark</item>
+    </style>
+
+    <style name="Theme.ZhihuBlue.NoSwipe.AppCompat" parent="Theme.ZhihuBlue">
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">false</item>
+    </style>
+
+    <!-- =========================================================== -->
+    <!-- 知乎蓝主题组件样式 -->
+    <!-- =========================================================== -->
+
+    <style name="TextViewStyleZhihu" parent="Widget.AppCompat.TextView">
+        <item name="android:textColor">@color/zhihu_text_primary_dark</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="EditTextStyleZhihu" parent="Widget.AppCompat.EditText">
+        <item name="android:textColorHint">@color/zhihu_text_tertiary_dark</item>
+        <item name="android:textCursorDrawable">@drawable/cursor_drawable</item>
+        <item name="android:textColor">@color/zhihu_text_primary_dark</item>
+    </style>
+
+    <style name="CardStyleZhihu" parent="Widget.MaterialComponents.CardView">
+        <item name="rippleColor" tools:ignore="PrivateResource">@color/zhihu_color_ripple</item>
+        <item name="android:foreground">?android:attr/selectableItemBackground</item>
+        <item name="cardBackgroundColor">@color/zhihu_card_dark</item>
+        <item name="cardCornerRadius">12dp</item>
+        <item name="cardElevation">4dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="strokeColor">@color/zhihu_divider_dark</item>
+        <item name="strokeWidth">1dp</item>
+    </style>
+
+    <style name="ButtonStyleZhihu" parent="Widget.MaterialComponents.Button">
+        <item name="background">@drawable/gradient_button_bg_zhihu</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="android:textColor">@color/zhihu_text_primary_dark</item>
+        <item name="android:insetTop">2dp</item>
+        <item name="android:insetBottom">2dp</item>
+        <item name="android:paddingLeft">16dp</item>
+        <item name="android:paddingRight">16dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="elevation">2dp</item>
+        <item name="rippleColor">@color/zhihu_accent</item>
+    </style>
+
+    <style name="SwitchCompatStyleZhihu" parent="Widget.AppCompat.CompoundButton.Switch">
+        <item name="android:paddingLeft">6dp</item>
+        <item name="android:paddingRight">2dp</item>
+        <item name="android:background">@drawable/background_edittext_setting</item>
+        <item name="android:textColor">@color/zhihu_text_primary_dark</item>
+    </style>
+
+    <style name="RadioButtonStyleZhihu" parent="Widget.MaterialComponents.CompoundButton.RadioButton">
+        <item name="android:minHeight">10dp</item>
+        <item name="buttonTint">@color/zhihu_brand</item>
+    </style>
+
+    <style name="ListStyleZhihu">
+        <item name="android:descendantFocusability">afterDescendants</item>
+    </style>
+
+    <!-- =========================================================== -->
+    <!-- 爱奇艺绿主题 (IQIYI Green Theme) -->
+    <!-- =========================================================== -->
+
+    <style name="Theme.IQIYIGreen" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/iqiyi_background_dark</item>
+        <item name="statusBarBackground">@color/iqiyi_brand</item>
+        <item name="android:colorForeground">@color/iqiyi_text_primary_dark</item>
+        <item name="colorOnPrimary">@color/iqiyi_text_primary_dark</item>
+        <item name="colorPrimary">@color/iqiyi_brand</item>
+        <item name="colorPrimaryDark">@color/iqiyi_deep</item>
+        <item name="colorPrimaryVariant">@color/iqiyi_accent</item>
+        <item name="colorAccent">@color/iqiyi_accent</item>
+        <item name="colorSecondary">@color/iqiyi_light</item>
+        <item name="colorSurface">@color/iqiyi_surface_dark</item>
+        <item name="android:colorBackground">@color/iqiyi_background_dark</item>
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">true</item>
+
+        <item name="android:textViewStyle">@style/TextViewStyleIQIYI</item>
+        <item name="editTextStyle">@style/EditTextStyleIQIYI</item>
+        <item name="materialCardViewStyle">@style/CardStyleIQIYI</item>
+        <item name="materialButtonStyle">@style/ButtonStyleIQIYI</item>
+        <item name="switchStyle">@style/SwitchCompatStyleIQIYI</item>
+        <item name="radioButtonStyle">@style/RadioButtonStyleIQIYI</item>
+        <item name="recyclerViewStyle">@style/ListStyleIQIYI</item>
+
+        <item name="colorSwitchThumbNormal">@color/iqiyi_text_primary_dark</item>
+        <item name="colorControlActivated">@color/iqiyi_brand</item>
+        <item name="colorControlNormal">@color/iqiyi_color_ripple</item>
+        <item name="colorControlHighlight">@color/iqiyi_color_ripple</item>
+        <item name="android:textColor">@color/iqiyi_text_primary_dark</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="Theme.IQIYIGreen.Splash" parent="Theme.IQIYIGreen">
+        <item name="android:windowBackground">@drawable/splash_text</item>
+    </style>
+
+    <style name="Theme.IQIYIGreen.Dark" parent="Theme.IQIYIGreen">
+        <item name="android:windowBackground">@color/iqiyi_background_dark</item>
+    </style>
+
+    <style name="Theme.IQIYIGreen.NoSwipe" parent="android:Theme.Black">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">false</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/bgblack</item>
+        <item name="statusBarBackground">@color/iqiyi_brand</item>
+        <item name="colorOnPrimary">@color/iqiyi_text_primary_dark</item>
+    </style>
+
+    <style name="Theme.IQIYIGreen.NoSwipe.AppCompat" parent="Theme.IQIYIGreen">
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">false</item>
+    </style>
+
+    <!-- =========================================================== -->
+    <!-- 爱奇艺绿主题组件样式 -->
+    <!-- =========================================================== -->
+
+    <style name="TextViewStyleIQIYI" parent="Widget.AppCompat.TextView">
+        <item name="android:textColor">@color/iqiyi_text_primary_dark</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="EditTextStyleIQIYI" parent="Widget.AppCompat.EditText">
+        <item name="android:textColorHint">@color/iqiyi_text_tertiary_dark</item>
+        <item name="android:textCursorDrawable">@drawable/cursor_drawable</item>
+        <item name="android:textColor">@color/iqiyi_text_primary_dark</item>
+    </style>
+
+    <style name="CardStyleIQIYI" parent="Widget.MaterialComponents.CardView">
+        <item name="rippleColor" tools:ignore="PrivateResource">@color/iqiyi_color_ripple</item>
+        <item name="android:foreground">?android:attr/selectableItemBackground</item>
+        <item name="cardBackgroundColor">@color/iqiyi_card_dark</item>
+        <item name="cardCornerRadius">12dp</item>
+        <item name="cardElevation">4dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="strokeColor">@color/iqiyi_divider_dark</item>
+        <item name="strokeWidth">1dp</item>
+    </style>
+
+    <style name="ButtonStyleIQIYI" parent="Widget.MaterialComponents.Button">
+        <item name="background">@drawable/gradient_button_bg_iqiyi</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="android:textColor">@color/iqiyi_text_primary_dark</item>
+        <item name="android:insetTop">2dp</item>
+        <item name="android:insetBottom">2dp</item>
+        <item name="android:paddingLeft">16dp</item>
+        <item name="android:paddingRight">16dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="elevation">2dp</item>
+        <item name="rippleColor">@color/iqiyi_accent</item>
+    </style>
+
+    <style name="SwitchCompatStyleIQIYI" parent="Widget.AppCompat.CompoundButton.Switch">
+        <item name="android:paddingLeft">6dp</item>
+        <item name="android:paddingRight">2dp</item>
+        <item name="android:background">@drawable/background_edittext_setting</item>
+        <item name="android:textColor">@color/iqiyi_text_primary_dark</item>
+    </style>
+
+    <style name="RadioButtonStyleIQIYI" parent="Widget.MaterialComponents.CompoundButton.RadioButton">
+        <item name="android:minHeight">10dp</item>
+        <item name="buttonTint">@color/iqiyi_brand</item>
+    </style>
+
+    <style name="ListStyleIQIYI">
+        <item name="android:descendantFocusability">afterDescendants</item>
+    </style>
+
+    <!-- =========================================================== -->
+    <!-- 紫色空灵主题 (Purple Fantasy Theme) -->
+    <!-- =========================================================== -->
+
+    <style name="Theme.PurpleFantasy" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/purple_fantasy_background_dark</item>
+        <item name="statusBarBackground">@color/purple_fantasy_brand</item>
+        <item name="android:colorForeground">@color/purple_fantasy_text_primary_dark</item>
+        <item name="colorOnPrimary">@color/purple_fantasy_text_primary_dark</item>
+        <item name="colorPrimary">@color/purple_fantasy_brand</item>
+        <item name="colorPrimaryDark">@color/purple_fantasy_deep</item>
+        <item name="colorPrimaryVariant">@color/purple_fantasy_accent</item>
+        <item name="colorAccent">@color/purple_fantasy_accent</item>
+        <item name="colorSecondary">@color/purple_fantasy_light</item>
+        <item name="colorSurface">@color/purple_fantasy_surface_dark</item>
+        <item name="android:colorBackground">@color/purple_fantasy_background_dark</item>
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">true</item>
+
+        <item name="android:textViewStyle">@style/TextViewStylePurpleFantasy</item>
+        <item name="editTextStyle">@style/EditTextStylePurpleFantasy</item>
+        <item name="materialCardViewStyle">@style/CardStylePurpleFantasy</item>
+        <item name="materialButtonStyle">@style/ButtonStylePurpleFantasy</item>
+        <item name="switchStyle">@style/SwitchCompatStylePurpleFantasy</item>
+        <item name="radioButtonStyle">@style/RadioButtonStylePurpleFantasy</item>
+        <item name="recyclerViewStyle">@style/ListStylePurpleFantasy</item>
+
+        <item name="colorSwitchThumbNormal">@color/purple_fantasy_text_primary_dark</item>
+        <item name="colorControlActivated">@color/purple_fantasy_brand</item>
+        <item name="colorControlNormal">@color/purple_fantasy_color_ripple</item>
+        <item name="colorControlHighlight">@color/purple_fantasy_color_ripple</item>
+        <item name="android:textColor">@color/purple_fantasy_text_primary_dark</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="Theme.PurpleFantasy.Splash" parent="Theme.PurpleFantasy">
+        <item name="android:windowBackground">@drawable/splash_text</item>
+    </style>
+
+    <style name="Theme.PurpleFantasy.Dark" parent="Theme.PurpleFantasy">
+        <item name="android:windowBackground">@color/purple_fantasy_background_dark</item>
+    </style>
+
+    <style name="Theme.PurpleFantasy.NoSwipe" parent="android:Theme.Black">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">false</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/bgblack</item>
+        <item name="statusBarBackground">@color/purple_fantasy_brand</item>
+        <item name="colorOnPrimary">@color/purple_fantasy_text_primary_dark</item>
+    </style>
+
+    <style name="Theme.PurpleFantasy.NoSwipe.AppCompat" parent="Theme.PurpleFantasy">
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">false</item>
+    </style>
+
+    <!-- =========================================================== -->
+    <!-- 紫色空灵主题组件样式 -->
+    <!-- =========================================================== -->
+
+    <style name="TextViewStylePurpleFantasy" parent="Widget.AppCompat.TextView">
+        <item name="android:textColor">@color/purple_fantasy_text_primary_dark</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="EditTextStylePurpleFantasy" parent="Widget.AppCompat.EditText">
+        <item name="android:textColorHint">@color/purple_fantasy_text_tertiary_dark</item>
+        <item name="android:textCursorDrawable">@drawable/cursor_drawable</item>
+        <item name="android:textColor">@color/purple_fantasy_text_primary_dark</item>
+    </style>
+
+    <style name="CardStylePurpleFantasy" parent="Widget.MaterialComponents.CardView">
+        <item name="rippleColor" tools:ignore="PrivateResource">@color/purple_fantasy_color_ripple</item>
+        <item name="android:foreground">?android:attr/selectableItemBackground</item>
+        <item name="cardBackgroundColor">@color/purple_fantasy_card_dark</item>
+        <item name="cardCornerRadius">12dp</item>
+        <item name="cardElevation">4dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="strokeColor">@color/purple_fantasy_divider_dark</item>
+        <item name="strokeWidth">1dp</item>
+    </style>
+
+    <style name="ButtonStylePurpleFantasy" parent="Widget.MaterialComponents.Button">
+        <item name="background">@drawable/gradient_button_bg_purple_fantasy</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="android:textColor">@color/purple_fantasy_text_primary_dark</item>
+        <item name="android:insetTop">2dp</item>
+        <item name="android:insetBottom">2dp</item>
+        <item name="android:paddingLeft">16dp</item>
+        <item name="android:paddingRight">16dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="elevation">2dp</item>
+        <item name="rippleColor">@color/purple_fantasy_accent</item>
+    </style>
+
+    <style name="SwitchCompatStylePurpleFantasy" parent="Widget.AppCompat.CompoundButton.Switch">
+        <item name="android:paddingLeft">6dp</item>
+        <item name="android:paddingRight">2dp</item>
+        <item name="android:background">@drawable/background_edittext_setting</item>
+        <item name="android:textColor">@color/purple_fantasy_text_primary_dark</item>
+    </style>
+
+    <style name="RadioButtonStylePurpleFantasy" parent="Widget.MaterialComponents.CompoundButton.RadioButton">
+        <item name="android:minHeight">10dp</item>
+        <item name="buttonTint">@color/purple_fantasy_brand</item>
+    </style>
+
+    <style name="ListStylePurpleFantasy">
+        <item name="android:descendantFocusability">afterDescendants</item>
+    </style>
+
+    <!-- =========================================================== -->
+    <!-- 五彩斑斓主题 (Rainbow Fantasy Theme) -->
+    <!-- =========================================================== -->
+
+    <style name="Theme.RainbowFantasy" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/rainbow_background_dark</item>
+        <item name="statusBarBackground">@color/rainbow_brand</item>
+        <item name="android:colorForeground">@color/rainbow_text_primary_dark</item>
+        <item name="colorOnPrimary">@color/rainbow_text_primary_dark</item>
+        <item name="colorPrimary">@color/rainbow_brand</item>
+        <item name="colorPrimaryDark">@color/rainbow_deep</item>
+        <item name="colorPrimaryVariant">@color/rainbow_accent</item>
+        <item name="colorAccent">@color/rainbow_accent</item>
+        <item name="colorSecondary">@color/rainbow_light</item>
+        <item name="colorSurface">@color/rainbow_surface_dark</item>
+        <item name="android:colorBackground">@color/rainbow_background_dark</item>
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">true</item>
+
+        <item name="android:textViewStyle">@style/TextViewStyleRainbow</item>
+        <item name="editTextStyle">@style/EditTextStyleRainbow</item>
+        <item name="materialCardViewStyle">@style/CardStyleRainbow</item>
+        <item name="materialButtonStyle">@style/ButtonStyleRainbow</item>
+        <item name="switchStyle">@style/SwitchCompatStyleRainbow</item>
+        <item name="radioButtonStyle">@style/RadioButtonStyleRainbow</item>
+        <item name="recyclerViewStyle">@style/ListStyleRainbow</item>
+
+        <item name="colorSwitchThumbNormal">@color/rainbow_text_primary_dark</item>
+        <item name="colorControlActivated">@color/rainbow_brand</item>
+        <item name="colorControlNormal">@color/rainbow_color_ripple</item>
+        <item name="colorControlHighlight">@color/rainbow_color_ripple</item>
+        <item name="android:textColor">@color/rainbow_text_primary_dark</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="Theme.RainbowFantasy.Splash" parent="Theme.RainbowFantasy">
+        <item name="android:windowBackground">@drawable/splash_text</item>
+    </style>
+
+    <style name="Theme.RainbowFantasy.Dark" parent="Theme.RainbowFantasy">
+        <item name="android:windowBackground">@color/rainbow_background_dark</item>
+    </style>
+
+    <style name="Theme.RainbowFantasy.NoSwipe" parent="android:Theme.Black">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">false</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/bgblack</item>
+        <item name="statusBarBackground">@color/rainbow_brand</item>
+        <item name="colorOnPrimary">@color/rainbow_text_primary_dark</item>
+    </style>
+
+    <style name="Theme.RainbowFantasy.NoSwipe.AppCompat" parent="Theme.RainbowFantasy">
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">false</item>
+    </style>
+
+    <!-- =========================================================== -->
+    <!-- 五彩斑斓主题组件样式 -->
+    <!-- =========================================================== -->
+
+    <style name="TextViewStyleRainbow" parent="Widget.AppCompat.TextView">
+        <item name="android:textColor">@color/rainbow_text_primary_dark</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="EditTextStyleRainbow" parent="Widget.AppCompat.EditText">
+        <item name="android:textColorHint">@color/rainbow_text_tertiary_dark</item>
+        <item name="android:textCursorDrawable">@drawable/cursor_drawable</item>
+        <item name="android:textColor">@color/rainbow_text_primary_dark</item>
+    </style>
+
+    <style name="CardStyleRainbow" parent="Widget.MaterialComponents.CardView">
+        <item name="rippleColor" tools:ignore="PrivateResource">@color/rainbow_color_ripple</item>
+        <item name="android:foreground">?android:attr/selectableItemBackground</item>
+        <item name="cardBackgroundColor">@color/rainbow_card_dark</item>
+        <item name="cardCornerRadius">12dp</item>
+        <item name="cardElevation">4dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="strokeColor">@color/rainbow_divider_dark</item>
+        <item name="strokeWidth">1dp</item>
+    </style>
+
+    <style name="ButtonStyleRainbow" parent="Widget.MaterialComponents.Button">
+        <item name="background">@drawable/gradient_button_bg_rainbow</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="android:textColor">@color/rainbow_text_primary_dark</item>
+        <item name="android:insetTop">2dp</item>
+        <item name="android:insetBottom">2dp</item>
+        <item name="android:paddingLeft">16dp</item>
+        <item name="android:paddingRight">16dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="elevation">2dp</item>
+        <item name="rippleColor">@color/rainbow_accent</item>
+    </style>
+
+    <style name="SwitchCompatStyleRainbow" parent="Widget.AppCompat.CompoundButton.Switch">
+        <item name="android:paddingLeft">6dp</item>
+        <item name="android:paddingRight">2dp</item>
+        <item name="android:background">@drawable/background_edittext_setting</item>
+        <item name="android:textColor">@color/rainbow_text_primary_dark</item>
+    </style>
+
+    <style name="RadioButtonStyleRainbow" parent="Widget.MaterialComponents.CompoundButton.RadioButton">
+        <item name="android:minHeight">10dp</item>
+        <item name="buttonTint">@color/rainbow_brand</item>
+    </style>
+
+    <style name="ListStyleRainbow">
+        <item name="android:descendantFocusability">afterDescendants</item>
+    </style>
+
+    <!-- =========================================================== -->
+    <!-- 经典灰主题 (Classic Gray Theme) -->
+    <!-- =========================================================== -->
+
+    <style name="Theme.ClassicGray" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/classic_gray_background_dark</item>
+        <item name="statusBarBackground">@color/classic_gray_brand</item>
+        <item name="android:colorForeground">@color/classic_gray_text_primary_dark</item>
+        <item name="colorOnPrimary">@color/classic_gray_text_primary_dark</item>
+        <item name="colorPrimary">@color/classic_gray_brand</item>
+        <item name="colorPrimaryDark">@color/classic_gray_deep</item>
+        <item name="colorPrimaryVariant">@color/classic_gray_accent</item>
+        <item name="colorAccent">@color/classic_gray_accent</item>
+        <item name="colorSecondary">@color/classic_gray_light</item>
+        <item name="colorSurface">@color/classic_gray_surface_dark</item>
+        <item name="android:colorBackground">@color/classic_gray_background_dark</item>
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">true</item>
+
+        <item name="android:textViewStyle">@style/TextViewStyleClassicGray</item>
+        <item name="editTextStyle">@style/EditTextStyleClassicGray</item>
+        <item name="materialCardViewStyle">@style/CardStyleClassicGray</item>
+        <item name="materialButtonStyle">@style/ButtonStyleClassicGray</item>
+        <item name="switchStyle">@style/SwitchCompatStyleClassicGray</item>
+        <item name="radioButtonStyle">@style/RadioButtonStyleClassicGray</item>
+        <item name="recyclerViewStyle">@style/ListStyleClassicGray</item>
+
+        <item name="colorSwitchThumbNormal">@color/classic_gray_text_primary_dark</item>
+        <item name="colorControlActivated">@color/classic_gray_brand</item>
+        <item name="colorControlNormal">@color/classic_gray_color_ripple</item>
+        <item name="colorControlHighlight">@color/classic_gray_color_ripple</item>
+        <item name="android:textColor">@color/classic_gray_text_primary_dark</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="Theme.ClassicGray.Splash" parent="Theme.ClassicGray">
+        <item name="android:windowBackground">@drawable/splash_text</item>
+    </style>
+
+    <style name="Theme.ClassicGray.Dark" parent="Theme.ClassicGray">
+        <item name="android:windowBackground">@color/classic_gray_background_dark</item>
+    </style>
+
+    <style name="Theme.ClassicGray.NoSwipe" parent="android:Theme.Black">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">false</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/bgblack</item>
+        <item name="statusBarBackground">@color/classic_gray_brand</item>
+        <item name="colorOnPrimary">@color/classic_gray_text_primary_dark</item>
+    </style>
+
+    <style name="Theme.ClassicGray.NoSwipe.AppCompat" parent="Theme.ClassicGray">
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">false</item>
+    </style>
+
+    <!-- =========================================================== -->
+    <!-- 经典灰主题组件样式 -->
+    <!-- =========================================================== -->
+
+    <style name="TextViewStyleClassicGray" parent="Widget.AppCompat.TextView">
+        <item name="android:textColor">@color/classic_gray_text_primary_dark</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="EditTextStyleClassicGray" parent="Widget.AppCompat.EditText">
+        <item name="android:textColorHint">@color/classic_gray_text_tertiary_dark</item>
+        <item name="android:textCursorDrawable">@drawable/cursor_drawable</item>
+        <item name="android:textColor">@color/classic_gray_text_primary_dark</item>
+    </style>
+
+    <style name="CardStyleClassicGray" parent="Widget.MaterialComponents.CardView">
+        <item name="rippleColor" tools:ignore="PrivateResource">@color/classic_gray_color_ripple</item>
+        <item name="android:foreground">?android:attr/selectableItemBackground</item>
+        <item name="cardBackgroundColor">@color/classic_gray_card_dark</item>
+        <item name="cardCornerRadius">12dp</item>
+        <item name="cardElevation">4dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="strokeColor">@color/classic_gray_divider_dark</item>
+        <item name="strokeWidth">1dp</item>
+    </style>
+
+    <style name="ButtonStyleClassicGray" parent="Widget.MaterialComponents.Button">
+        <item name="background">@drawable/gradient_button_bg_classic_gray</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="android:textColor">@color/classic_gray_text_primary_dark</item>
+        <item name="android:insetTop">2dp</item>
+        <item name="android:insetBottom">2dp</item>
+        <item name="android:paddingLeft">16dp</item>
+        <item name="android:paddingRight">16dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="elevation">2dp</item>
+        <item name="rippleColor">@color/classic_gray_accent</item>
+    </style>
+
+    <style name="SwitchCompatStyleClassicGray" parent="Widget.AppCompat.CompoundButton.Switch">
+        <item name="android:paddingLeft">6dp</item>
+        <item name="android:paddingRight">2dp</item>
+        <item name="android:background">@drawable/background_edittext_setting</item>
+        <item name="android:textColor">@color/classic_gray_text_primary_dark</item>
+    </style>
+
+    <style name="RadioButtonStyleClassicGray" parent="Widget.MaterialComponents.CompoundButton.RadioButton">
+        <item name="android:minHeight">10dp</item>
+        <item name="buttonTint">@color/classic_gray_brand</item>
+    </style>
+
+    <style name="ListStyleClassicGray">
+        <item name="android:descendantFocusability">afterDescendants</item>
+    </style>
+
+</resources>

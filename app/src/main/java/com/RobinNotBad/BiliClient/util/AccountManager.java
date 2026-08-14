@@ -1,0 +1,246 @@
+package com.RobinNotBad.BiliClient.util;
+
+import com.RobinNotBad.BiliClient.api.UserInfoApi;
+import com.RobinNotBad.BiliClient.model.UserInfo;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class AccountManager {
+
+    private static final String ACCOUNT_LIST_KEY = "account_list";
+    private static final String CURRENT_ACCOUNT_KEY = "current_account_mid";
+    private static final Object lock = new Object();
+
+    public static class AccountInfo {
+        public long mid;
+        public String name;
+        public String cookies;
+        public String refreshToken;
+        public String accessKey;
+        public String csrf;
+        public String avatar;
+
+        public AccountInfo(long mid, String name, String cookies, String refreshToken, String csrf) {
+            this.mid = mid;
+            this.name = name != null ? name : "";
+            this.cookies = cookies != null ? cookies : "";
+            this.refreshToken = refreshToken != null ? refreshToken : "";
+            this.accessKey = "";
+            this.csrf = csrf != null ? csrf : "";
+            this.avatar = "";
+        }
+
+        public AccountInfo(long mid, String name, String cookies, String refreshToken, String csrf, String avatar) {
+            this.mid = mid;
+            this.name = name != null ? name : "";
+            this.cookies = cookies != null ? cookies : "";
+            this.refreshToken = refreshToken != null ? refreshToken : "";
+            this.accessKey = "";
+            this.csrf = csrf != null ? csrf : "";
+            this.avatar = avatar != null ? avatar : "";
+        }
+
+        public AccountInfo(long mid, String name, String cookies, String refreshToken, String accessKey, String csrf, String avatar) {
+            this.mid = mid;
+            this.name = name != null ? name : "";
+            this.cookies = cookies != null ? cookies : "";
+            this.refreshToken = refreshToken != null ? refreshToken : "";
+            this.accessKey = accessKey != null ? accessKey : "";
+            this.csrf = csrf != null ? csrf : "";
+            this.avatar = avatar != null ? avatar : "";
+        }
+
+        public static AccountInfo fromJson(JSONObject json) throws JSONException {
+            if (json == null) return null;
+            return new AccountInfo(
+                    json.optLong("mid", 0),
+                    json.optString("name", ""),
+                    json.optString("cookies", ""),
+                    json.optString("refresh_token", ""),
+                    json.optString("access_key", ""),
+                    json.optString("csrf", ""),
+                    json.optString("avatar", "")
+            );
+        }
+
+        public JSONObject toJson() throws JSONException {
+            JSONObject json = new JSONObject();
+            json.put("mid", mid);
+            json.put("name", name);
+            json.put("cookies", cookies);
+            json.put("refresh_token", refreshToken);
+            json.put("access_key", accessKey);
+            json.put("csrf", csrf);
+            json.put("avatar", avatar);
+            return json;
+        }
+
+        public boolean isValid() {
+            return mid > 0 && cookies != null && !cookies.isEmpty();
+        }
+    }
+
+    public static List<AccountInfo> getAccounts() {
+        synchronized (lock) {
+            List<AccountInfo> accounts = new ArrayList<>();
+            String jsonStr = SharedPreferencesUtil.getString(ACCOUNT_LIST_KEY, "");
+            if (jsonStr.isEmpty()) return accounts;
+            try {
+                JSONArray array = new JSONArray(jsonStr);
+                for (int i = 0; i < array.length(); i++) {
+                    AccountInfo info = AccountInfo.fromJson(array.getJSONObject(i));
+                    if (info != null && info.isValid()) {
+                        accounts.add(info);
+                    }
+                }
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+            return accounts;
+        }
+    }
+
+    private static void saveAccounts(List<AccountInfo> accounts) {
+        synchronized (lock) {
+            JSONArray array = new JSONArray();
+            for (AccountInfo account : accounts) {
+                if (account != null && account.isValid()) {
+                    try {
+                        array.put(account.toJson());
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+            SharedPreferencesUtil.putString(ACCOUNT_LIST_KEY, array.toString());
+        }
+    }
+
+    public static void saveCurrentAccount() {
+        synchronized (lock) {
+            long mid = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0);
+            if (mid == 0) return;
+
+            String cookies = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "");
+            if (cookies.isEmpty()) return;
+
+            String refreshToken = SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, "");
+            String accessKey = SharedPreferencesUtil.getString(SharedPreferencesUtil.access_key, "");
+            String csrf = SharedPreferencesUtil.getString(SharedPreferencesUtil.csrf, "");
+
+            String avatar = "";
+            String name = "UID:" + mid;
+
+            try {
+                UserInfo userInfo = UserInfoApi.getUserInfo(mid);
+                if (userInfo != null) {
+                    avatar = userInfo.avatar;
+                    name = userInfo.name;
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+            List<AccountInfo> accounts = getAccounts();
+            boolean found = false;
+            for (int i = 0; i < accounts.size(); i++) {
+                if (accounts.get(i).mid == mid) {
+                    accounts.get(i).cookies = cookies;
+                    accounts.get(i).refreshToken = refreshToken;
+                    accounts.get(i).accessKey = accessKey;
+                    accounts.get(i).csrf = csrf;
+                    accounts.get(i).avatar = avatar;
+                    accounts.get(i).name = name;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                accounts.add(new AccountInfo(mid, name, cookies, refreshToken, accessKey, csrf, avatar));
+            }
+            saveAccounts(accounts);
+            SharedPreferencesUtil.putLong(CURRENT_ACCOUNT_KEY, mid);
+        }
+    }
+
+    public static AccountInfo getAccountByMid(long mid) {
+        synchronized (lock) {
+            List<AccountInfo> accounts = getAccounts();
+            for (AccountInfo account : accounts) {
+                if (account.mid == mid) {
+                    return account;
+                }
+            }
+            return null;
+        }
+    }
+
+    public static void updateAccountName(long mid, String name) {
+        synchronized (lock) {
+            List<AccountInfo> accounts = getAccounts();
+            for (AccountInfo account : accounts) {
+                if (account.mid == mid) {
+                    account.name = name;
+                    break;
+                }
+            }
+            saveAccounts(accounts);
+        }
+    }
+
+    public static void switchToAccount(AccountInfo account) {
+        if (account == null || !account.isValid()) return;
+
+        synchronized (lock) {
+            SharedPreferencesUtil.putLong(SharedPreferencesUtil.mid, account.mid);
+            SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, account.cookies);
+            SharedPreferencesUtil.putString(SharedPreferencesUtil.refresh_token, account.refreshToken);
+            SharedPreferencesUtil.putString(SharedPreferencesUtil.access_key, account.accessKey);
+            SharedPreferencesUtil.putString(SharedPreferencesUtil.csrf, account.csrf);
+            SharedPreferencesUtil.putLong(CURRENT_ACCOUNT_KEY, account.mid);
+            SharedPreferencesUtil.putBoolean(SharedPreferencesUtil.cookie_refresh, true);
+            SharedPreferencesUtil.putBoolean(SharedPreferencesUtil.setup, true);
+
+            NetWorkUtil.refreshHeaders();
+        }
+    }
+
+    public static void removeAccount(long mid) {
+        synchronized (lock) {
+            List<AccountInfo> accounts = getAccounts();
+            for (int i = accounts.size() - 1; i >= 0; i--) {
+                if (accounts.get(i).mid == mid) {
+                    accounts.remove(i);
+                }
+            }
+            saveAccounts(accounts);
+
+            long currentMid = SharedPreferencesUtil.getLong(CURRENT_ACCOUNT_KEY, 0);
+            if (currentMid == mid) {
+                SharedPreferencesUtil.putLong(CURRENT_ACCOUNT_KEY, 0);
+            }
+        }
+    }
+
+    public static boolean isCurrentAccount(long mid) {
+        long currentMid = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0);
+        return currentMid == mid;
+    }
+
+    public static long getCurrentMid() {
+        return SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0);
+    }
+
+    public static boolean hasAccounts() {
+        return !getAccounts().isEmpty();
+    }
+
+    public static int getAccountCount() {
+        return getAccounts().size();
+    }
+}

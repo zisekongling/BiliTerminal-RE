@@ -1,0 +1,464 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- =========================================================== -->
+    <!-- B站粉系列主题设计系统 (Bilibili Pink Theme)                 -->
+    <!-- 基于B站品牌粉色调，适用于移动端与组件库开发                 -->
+    <!-- =========================================================== -->
+
+    <!-- 品牌主色系 (Brand Primary Colors) -->
+    <color name="pink_brand">#FF6699</color>
+    <color name="pink_accent">#FF8CB0</color>
+    <color name="pink_deep">#E84B85</color>
+    <color name="pink_light">#FFB3CA</color>
+    <color name="pink_very_light">#FFECF1</color>
+    <color name="pink_ultra_light">#FFF5F7</color>
+
+    <!-- 按钮状态色 (Button State Colors) -->
+    <color name="btn_default">#FF8CB0</color>
+    <color name="btn_hover">#FFB3CA</color>
+    <color name="btn_pressed">#E84B85</color>
+    <color name="btn_disabled_bg">#FFECF1</color>
+    <color name="btn_disabled_text">#FFB3CA</color>
+    <color name="btn_primary_default">#FF6699</color>
+    <color name="btn_primary_hover">#FF8CB0</color>
+    <color name="btn_primary_pressed">#E84B85</color>
+
+    <!-- 背景与表面层级 - 浅色主题 (Background & Surface - Light) -->
+    <color name="background_light">#F8F9FC</color>
+    <color name="surface_light">#FFFFFF</color>
+    <color name="card_light">#FFECF1</color>
+    <color name="card_light_secondary">#FFF5F7</color>
+
+    <!-- 背景与表面层级 - 暗色主题 (Background & Surface - Dark) -->
+    <color name="background_dark">#1B1B24</color>
+    <color name="surface_dark">#24242E</color>
+    <color name="card_dark">#2A2A35</color>
+    <color name="card_dark_secondary">#30303D</color>
+
+    <!-- 文字层级 - 浅色背景 (Text Hierarchy - Light Background) -->
+    <color name="text_primary_light">#1E1E2A</color>
+    <color name="text_secondary_light">#5A5A6E</color>
+    <color name="text_tertiary_light">#C0C0D0</color>
+    <color name="text_link_light">#FF6699</color>
+
+    <!-- 文字层级 - 暗色背景 (Text Hierarchy - Dark Background) -->
+    <color name="text_primary_dark">#F0E8EC</color>
+    <color name="text_secondary_dark">#B0A0AA</color>
+    <color name="text_tertiary_dark">#7A6A74</color>
+    <color name="text_link_dark">#FF8CB0</color>
+
+    <!-- 分割线与描边 (Dividers & Borders) -->
+    <color name="divider_color">#FFD9E4</color>
+    <color name="border_color">#FFD9E4</color>
+    <color name="divider_dark">#3A3640</color>
+
+    <!-- 状态色 (Status Colors) -->
+    <color name="status_success">#52C41A</color>
+    <color name="status_warning">#FAAD14</color>
+    <color name="status_error">#E84B85</color>
+    <color name="status_info">#1890FF</color>
+    <color name="zhihu_status_info">#056DE8</color>
+
+    <!-- 播放器色 (Player Colors) -->
+    <color name="player_bg">#000000</color>
+    <color name="player_control_bg">#4D000000</color>
+    <color name="player_progress_bg">#55FFFFFF</color>
+    <color name="player_progress_fill">#FF6699</color>
+
+    <!-- 特殊色 (Special Colors) -->
+    <color name="gold">#FFB800</color>
+    <color name="vip_pink">#FF6699</color>
+
+    <!-- 渐变 (Gradients) -->
+    <color name="gradient_start">#FF6699</color>
+    <color name="gradient_end">#FF8CB0</color>
+
+    <!-- =========================================================== -->
+    <!-- 兼容旧颜色名 (Legacy → Pink Theme)                         -->
+    <!-- =========================================================== -->
+
+    <!-- 品牌色兼容 -->
+    <color name="bili_primary">#FF6699</color>
+    <color name="bili_primary_dark">#E84B85</color>
+    <color name="bili_primary_light">#FF8CB0</color>
+    <color name="bili_secondary">#FFB3CA</color>
+    <color name="bili_secondary_dark">#FF8CB0</color>
+
+    <!-- 紫色兼容别名 (purple_* -> pink) -->
+    <color name="purple_primary">#FF6699</color>
+    <color name="purple_primary_dark">#E84B85</color>
+    <color name="purple_primary_light">#FF8CB0</color>
+    <color name="purple_primary_very_light">#FFECF1</color>
+    <color name="purple_accent">#FF8CB0</color>
+    <color name="purple_secondary">#FFB3CA</color>
+    <color name="purple_secondary_dark">#FF8CB0</color>
+
+    <!-- 表面层级兼容 -->
+    <color name="surface_darker">#1B1B24</color>
+    <color name="card_darker">#2A2A35</color>
+
+    <!-- 旧颜色名兼容 -->
+    <color name="bgblack">#000000</color>
+    <color name="textwhite">#F0E8EC</color>
+    <color name="pink">#FF6699</color>
+    <color name="low_pink">#99FF6699</color>
+    <color name="color_ripple">#30FF6699</color>
+    <color name="text_transparent">#30F0E8EC</color>
+
+    <!-- 其他遗留色 -->
+    <color name="gray">#70707070</color>
+    <color name="light_green">#bfb</color>
+    <color name="link">#FF6699</color>
+
+    <!-- 文章专栏颜色 -->
+    <color name="blockquote_bg">#1AFF6699</color>
+    <color name="code_bg">#1B1B24</color>
+    <color name="code_text">#FF8CB0</color>
+    <color name="text_primary">#F0E8EC</color>
+    <color name="text_secondary">#B0A0AA</color>
+    <color name="theme_color">#FF6699</color>
+    <color name="colorPrimary">#FF6699</color>
+
+    <!-- =========================================================== -->
+    <!-- 知乎蓝系列主题设计系统 (Zhihu Blue Theme)                    -->
+    <!-- 基于知乎品牌蓝色调 #056DE8，适用于移动端与组件库开发         -->
+    <!-- =========================================================== -->
+
+    <!-- 品牌主色系 (Brand Primary Colors) -->
+    <color name="zhihu_brand">#056DE8</color>
+    <color name="zhihu_accent">#3B8AF2</color>
+    <color name="zhihu_deep">#0354B5</color>
+    <color name="zhihu_light">#6DB0FF</color>
+    <color name="zhihu_very_light">#E8F1FF</color>
+    <color name="zhihu_ultra_light">#F0F7FF</color>
+
+    <!-- 按钮状态色 (Button State Colors) -->
+    <color name="zhihu_btn_default">#3B8AF2</color>
+    <color name="zhihu_btn_hover">#6DB0FF</color>
+    <color name="zhihu_btn_pressed">#0354B5</color>
+    <color name="zhihu_btn_disabled_bg">#E8F1FF</color>
+    <color name="zhihu_btn_disabled_text">#8BB8E8</color>
+    <color name="zhihu_btn_primary_default">#056DE8</color>
+    <color name="zhihu_btn_primary_hover">#3B8AF2</color>
+    <color name="zhihu_btn_primary_pressed">#0354B5</color>
+
+    <!-- 背景与表面层级 - 浅色主题 (Background & Surface - Light) -->
+    <color name="zhihu_card_light">#E8F1FF</color>
+    <color name="zhihu_card_light_secondary">#F0F7FF</color>
+
+    <!-- 背景与表面层级 - 暗色主题 (Background & Surface - Dark) -->
+    <color name="zhihu_background_dark">#1B1B24</color>
+    <color name="zhihu_surface_dark">#24242E</color>
+    <color name="zhihu_card_dark">#2A2A35</color>
+    <color name="zhihu_card_dark_secondary">#30303D</color>
+
+    <!-- 文字层级 - 暗色背景 (Text Hierarchy - Dark Background) -->
+    <color name="zhihu_text_primary_dark">#F0F7FF</color>
+    <color name="zhihu_text_secondary_dark">#8BB8E8</color>
+    <color name="zhihu_text_tertiary_dark">#5A7FA5</color>
+    <color name="zhihu_text_link_dark">#3B8AF2</color>
+
+    <!-- 分割线与描边 (Dividers & Borders) -->
+    <color name="zhihu_divider_color">#204A87</color>
+    <color name="zhihu_border_color">#204A87</color>
+    <color name="zhihu_divider_dark">#1A3A6E</color>
+
+    <!-- 播放器色 (Player Colors) -->
+    <color name="zhihu_player_progress_fill">#056DE8</color>
+
+    <!-- 特殊色 (Special Colors) -->
+    <color name="zhihu_gold">#FFB800</color>
+    <color name="zhihu_vip">#056DE8</color>
+
+    <!-- 渐变 (Gradients) -->
+    <color name="zhihu_gradient_start">#056DE8</color>
+    <color name="zhihu_gradient_end">#3B8AF2</color>
+
+    <!-- 互动元素状态色 -->
+    <color name="zhihu_like_color">#FF6A6A</color>
+    <color name="zhihu_coin_color">#FFB800</color>
+    <color name="zhihu_fav_color">#056DE8</color>
+    <color name="zhihu_share_color">#3B8AF2</color>
+
+    <!-- 知乎蓝兼容旧颜色名 -->
+    <color name="zhihu_pink">#056DE8</color>
+    <color name="zhihu_low_pink">#99056DE8</color>
+    <color name="zhihu_color_ripple">#30056DE8</color>
+    <color name="zhihu_link">#056DE8</color>
+    <color name="zhihu_blockquote_bg">#1A056DE8</color>
+    <color name="zhihu_code_text">#3B8AF2</color>
+    <color name="zhihu_text_link_light">#056DE8</color>
+
+    <!-- =========================================================== -->
+    <!-- 爱奇艺绿系列主题设计系统 (IQIYI Green Theme)                  -->
+    <!-- 基于爱奇艺品牌绿色调 #00DC5A，适用于移动端与组件库开发        -->
+    <!-- =========================================================== -->
+
+    <!-- 品牌主色系 (Brand Primary Colors) -->
+    <color name="iqiyi_brand">#00DC5A</color>
+    <color name="iqiyi_accent">#33E67A</color>
+    <color name="iqiyi_deep">#00B347</color>
+    <color name="iqiyi_light">#66F0A3</color>
+    <color name="iqiyi_very_light">#CCF9DE</color>
+    <color name="iqiyi_ultra_light">#E6FDF0</color>
+
+    <!-- 按钮状态色 (Button State Colors) -->
+    <color name="iqiyi_btn_default">#33E67A</color>
+    <color name="iqiyi_btn_hover">#66F0A3</color>
+    <color name="iqiyi_btn_pressed">#00B347</color>
+    <color name="iqiyi_btn_disabled_bg">#CCF9DE</color>
+    <color name="iqiyi_btn_disabled_text">#80E6AB</color>
+    <color name="iqiyi_btn_primary_default">#00DC5A</color>
+    <color name="iqiyi_btn_primary_hover">#33E67A</color>
+    <color name="iqiyi_btn_primary_pressed">#00B347</color>
+
+    <!-- 背景与表面层级 - 暗色主题 (Background & Surface - Dark) -->
+    <color name="iqiyi_background_dark">#1B1B24</color>
+    <color name="iqiyi_surface_dark">#24242E</color>
+    <color name="iqiyi_card_dark">#2A2A35</color>
+    <color name="iqiyi_card_dark_secondary">#30303D</color>
+
+    <!-- 文字层级 - 暗色背景 (Text Hierarchy - Dark Background) -->
+    <color name="iqiyi_text_primary_dark">#E6FDF0</color>
+    <color name="iqiyi_text_secondary_dark">#80E6AB</color>
+    <color name="iqiyi_text_tertiary_dark">#55B37A</color>
+    <color name="iqiyi_text_link_dark">#33E67A</color>
+
+    <!-- 分割线与描边 (Dividers & Borders) -->
+    <color name="iqiyi_divider_color">#006633</color>
+    <color name="iqiyi_border_color">#006633</color>
+    <color name="iqiyi_divider_dark">#004D29</color>
+
+    <!-- 播放器色 (Player Colors) -->
+    <color name="iqiyi_player_progress_fill">#00DC5A</color>
+
+    <!-- 特殊色 (Special Colors) -->
+    <color name="iqiyi_gold">#FFB800</color>
+    <color name="iqiyi_vip">#00DC5A</color>
+
+    <!-- 渐变 (Gradients) -->
+    <color name="iqiyi_gradient_start">#00DC5A</color>
+    <color name="iqiyi_gradient_end">#33E67A</color>
+
+    <!-- 互动元素状态色 -->
+    <color name="iqiyi_like_color">#FF6A6A</color>
+    <color name="iqiyi_coin_color">#FFB800</color>
+    <color name="iqiyi_fav_color">#00DC5A</color>
+    <color name="iqiyi_share_color">#33E67A</color>
+
+    <!-- 爱奇艺绿兼容旧颜色名 -->
+    <color name="iqiyi_pink">#00DC5A</color>
+    <color name="iqiyi_low_pink">#9900DC5A</color>
+    <color name="iqiyi_color_ripple">#3000DC5A</color>
+    <color name="iqiyi_link">#00DC5A</color>
+    <color name="iqiyi_blockquote_bg">#1A00DC5A</color>
+    <color name="iqiyi_code_text">#33E67A</color>
+    <color name="iqiyi_text_link_light">#00DC5A</color>
+
+    <!-- =========================================================== -->
+    <!-- 紫色空灵系列主题设计系统 (Purple Fantasy Theme)               -->
+    <!-- 基于深紫色调 #7B2CBF，适用于移动端与组件库开发               -->
+    <!-- =========================================================== -->
+
+    <!-- 品牌主色系 (Brand Primary Colors) -->
+    <color name="purple_fantasy_brand">#7B2CBF</color>
+    <color name="purple_fantasy_accent">#9B59D0</color>
+    <color name="purple_fantasy_deep">#5A1F8F</color>
+    <color name="purple_fantasy_light">#BA7FE8</color>
+    <color name="purple_fantasy_very_light">#E8D5F5</color>
+    <color name="purple_fantasy_ultra_light">#F5EBFC</color>
+
+    <!-- 按钮状态色 (Button State Colors) -->
+    <color name="purple_fantasy_btn_default">#9B59D0</color>
+    <color name="purple_fantasy_btn_hover">#BA7FE8</color>
+    <color name="purple_fantasy_btn_pressed">#5A1F8F</color>
+    <color name="purple_fantasy_btn_disabled_bg">#E8D5F5</color>
+    <color name="purple_fantasy_btn_disabled_text">#C4A8E0</color>
+    <color name="purple_fantasy_btn_primary_default">#7B2CBF</color>
+    <color name="purple_fantasy_btn_primary_hover">#9B59D0</color>
+    <color name="purple_fantasy_btn_primary_pressed">#5A1F8F</color>
+
+    <!-- 背景与表面层级 - 暗色主题 (Background & Surface - Dark) -->
+    <color name="purple_fantasy_background_dark">#1B1B24</color>
+    <color name="purple_fantasy_surface_dark">#24242E</color>
+    <color name="purple_fantasy_card_dark">#2A2A35</color>
+    <color name="purple_fantasy_card_dark_secondary">#30303D</color>
+
+    <!-- 文字层级 - 暗色背景 (Text Hierarchy - Dark Background) -->
+    <color name="purple_fantasy_text_primary_dark">#F5EBFC</color>
+    <color name="purple_fantasy_text_secondary_dark">#C4A8E0</color>
+    <color name="purple_fantasy_text_tertiary_dark">#8B6BA8</color>
+    <color name="purple_fantasy_text_link_dark">#9B59D0</color>
+
+    <!-- 分割线与描边 (Dividers & Borders) -->
+    <color name="purple_fantasy_divider_color">#3D1A66</color>
+    <color name="purple_fantasy_border_color">#3D1A66</color>
+    <color name="purple_fantasy_divider_dark">#2E124D</color>
+
+    <!-- 播放器色 (Player Colors) -->
+    <color name="purple_fantasy_player_progress_fill">#7B2CBF</color>
+
+    <!-- 特殊色 (Special Colors) -->
+    <color name="purple_fantasy_gold">#FFB800</color>
+    <color name="purple_fantasy_vip">#7B2CBF</color>
+
+    <!-- 渐变 (Gradients) -->
+    <color name="purple_fantasy_gradient_start">#7B2CBF</color>
+    <color name="purple_fantasy_gradient_end">#9B59D0</color>
+
+    <!-- 互动元素状态色 -->
+    <color name="purple_fantasy_like_color">#FF6A6A</color>
+    <color name="purple_fantasy_coin_color">#FFB800</color>
+    <color name="purple_fantasy_fav_color">#7B2CBF</color>
+    <color name="purple_fantasy_share_color">#9B59D0</color>
+
+    <!-- 紫色空灵兼容旧颜色名 -->
+    <color name="purple_fantasy_pink">#7B2CBF</color>
+    <color name="purple_fantasy_low_pink">#997B2CBF</color>
+    <color name="purple_fantasy_color_ripple">#307B2CBF</color>
+    <color name="purple_fantasy_link">#7B2CBF</color>
+    <color name="purple_fantasy_blockquote_bg">#1A7B2CBF</color>
+    <color name="purple_fantasy_code_text">#9B59D0</color>
+    <color name="purple_fantasy_text_link_light">#7B2CBF</color>
+
+    <!-- =========================================================== -->
+    <!-- 五彩斑斓系列主题设计系统 (Rainbow Fantasy Theme)               -->
+    <!-- 基于彩虹渐变色，适用于移动端与组件库开发                       -->
+    <!-- =========================================================== -->
+
+    <!-- 品牌主色系 (Brand Primary Colors) -->
+    <color name="rainbow_brand">#FF6B6B</color>
+    <color name="rainbow_accent">#FFE66D</color>
+    <color name="rainbow_deep">#CC5555</color>
+    <color name="rainbow_light">#FF8E8E</color>
+    <color name="rainbow_very_light">#FFE8E8</color>
+    <color name="rainbow_ultra_light">#FFF5F5</color>
+
+    <!-- 彩虹渐变色 -->
+    <color name="rainbow_red">#FF6B6B</color>
+    <color name="rainbow_orange">#FF9F43</color>
+    <color name="rainbow_yellow">#FFE66D</color>
+    <color name="rainbow_green">#4ECDC4</color>
+    <color name="rainbow_blue">#45B7D1</color>
+    <color name="rainbow_purple">#96CEB4</color>
+
+    <!-- 按钮状态色 (Button State Colors) -->
+    <color name="rainbow_btn_default">#FF9F43</color>
+    <color name="rainbow_btn_hover">#FFE66D</color>
+    <color name="rainbow_btn_pressed">#CC5555</color>
+    <color name="rainbow_btn_disabled_bg">#FFE8E8</color>
+    <color name="rainbow_btn_disabled_text">#FFAFAF</color>
+    <color name="rainbow_btn_primary_default">#FF6B6B</color>
+    <color name="rainbow_btn_primary_hover">#FF9F43</color>
+    <color name="rainbow_btn_primary_pressed">#CC5555</color>
+
+    <!-- 背景与表面层级 - 暗色主题 (Background & Surface - Dark) -->
+    <color name="rainbow_background_dark">#1B1B24</color>
+    <color name="rainbow_surface_dark">#24242E</color>
+    <color name="rainbow_card_dark">#2A2A35</color>
+    <color name="rainbow_card_dark_secondary">#30303D</color>
+
+    <!-- 文字层级 - 暗色背景 (Text Hierarchy - Dark Background) -->
+    <color name="rainbow_text_primary_dark">#FFF5F5</color>
+    <color name="rainbow_text_secondary_dark">#FFAFAF</color>
+    <color name="rainbow_text_tertiary_dark">#CC8888</color>
+    <color name="rainbow_text_link_dark">#FF9F43</color>
+
+    <!-- 分割线与描边 (Dividers & Borders) -->
+    <color name="rainbow_divider_color">#663333</color>
+    <color name="rainbow_border_color">#663333</color>
+    <color name="rainbow_divider_dark">#4D2929</color>
+
+    <!-- 播放器色 (Player Colors) -->
+    <color name="rainbow_player_progress_fill">#FF6B6B</color>
+
+    <!-- 特殊色 (Special Colors) -->
+    <color name="rainbow_gold">#FFE66D</color>
+    <color name="rainbow_vip">#FF6B6B</color>
+
+    <!-- 渐变 (Gradients) -->
+    <color name="rainbow_gradient_start">#FF6B6B</color>
+    <color name="rainbow_gradient_end">#FFE66D</color>
+
+    <!-- 互动元素状态色 -->
+    <color name="rainbow_like_color">#FF6A6A</color>
+    <color name="rainbow_coin_color">#FFE66D</color>
+    <color name="rainbow_fav_color">#FF6B6B</color>
+    <color name="rainbow_share_color">#FF9F43</color>
+
+    <!-- 五彩斑斓兼容旧颜色名 -->
+    <color name="rainbow_pink">#FF6B6B</color>
+    <color name="rainbow_low_pink">#99FF6B6B</color>
+    <color name="rainbow_color_ripple">#30FF6B6B</color>
+    <color name="rainbow_link">#FF6B6B</color>
+    <color name="rainbow_blockquote_bg">#1AFF6B6B</color>
+    <color name="rainbow_code_text">#FF9F43</color>
+    <color name="rainbow_text_link_light">#FF6B6B</color>
+
+    <!-- =========================================================== -->
+    <!-- 经典灰系列主题设计系统 (Classic Gray Theme)                  -->
+    <!-- 基于灰色调 #8787FB，适用于移动端与组件库开发        -->
+    <!-- =========================================================== -->
+
+    <!-- 品牌主色系 (Brand Primary Colors) -->
+    <color name="classic_gray_brand">#8787FB</color>
+    <color name="classic_gray_accent">#A3A3FD</color>
+    <color name="classic_gray_deep">#6B6BDC</color>
+    <color name="classic_gray_light">#C8C8FF</color>
+    <color name="classic_gray_very_light">#E8E8FF</color>
+    <color name="classic_gray_ultra_light">#F5F5FF</color>
+
+    <!-- 按钮状态色 (Button State Colors) -->
+    <color name="classic_gray_btn_default">#A3A3FD</color>
+    <color name="classic_gray_btn_hover">#C8C8FF</color>
+    <color name="classic_gray_btn_pressed">#6B6BDC</color>
+    <color name="classic_gray_btn_disabled_bg">#E8E8FF</color>
+    <color name="classic_gray_btn_disabled_text">#A0A0E0</color>
+    <color name="classic_gray_btn_primary_default">#8787FB</color>
+    <color name="classic_gray_btn_primary_hover">#A3A3FD</color>
+    <color name="classic_gray_btn_primary_pressed">#6B6BDC</color>
+
+    <!-- 背景与表面层级 - 暗色主题 (Background & Surface - Dark) -->
+    <color name="classic_gray_background_dark">#1B1B24</color>
+    <color name="classic_gray_surface_dark">#24242E</color>
+    <color name="classic_gray_card_dark">#2A2A35</color>
+    <color name="classic_gray_card_dark_secondary">#30303D</color>
+
+    <!-- 文字层级 - 暗色背景 (Text Hierarchy - Dark Background) -->
+    <color name="classic_gray_text_primary_dark">#EBE0E2</color>
+    <color name="classic_gray_text_secondary_dark">#A09098</color>
+    <color name="classic_gray_text_tertiary_dark">#706870</color>
+    <color name="classic_gray_text_link_dark">#A3A3FD</color>
+
+    <!-- 分割线与描边 (Dividers & Borders) -->
+    <color name="classic_gray_divider_color">#454555</color>
+    <color name="classic_gray_border_color">#454555</color>
+    <color name="classic_gray_divider_dark">#353545</color>
+
+    <!-- 播放器色 (Player Colors) -->
+    <color name="classic_gray_player_progress_fill">#8787FB</color>
+
+    <!-- 特殊色 (Special Colors) -->
+    <color name="classic_gray_gold">#FFB800</color>
+    <color name="classic_gray_vip">#8787FB</color>
+
+    <!-- 渐变 (Gradients) -->
+    <color name="classic_gray_gradient_start">#8787FB</color>
+    <color name="classic_gray_gradient_end">#A3A3FD</color>
+
+    <!-- 互动元素状态色 -->
+    <color name="classic_gray_like_color">#FF6A6A</color>
+    <color name="classic_gray_coin_color">#FFB800</color>
+    <color name="classic_gray_fav_color">#8787FB</color>
+    <color name="classic_gray_share_color">#66CCFF</color>
+
+    <!-- 经典灰兼容旧颜色名 -->
+    <color name="classic_gray_pink">#8787FB</color>
+    <color name="classic_gray_low_pink">#998787FB</color>
+    <color name="classic_gray_color_ripple">#308787FB</color>
+    <color name="classic_gray_link">#8787FB</color>
+    <color name="classic_gray_blockquote_bg">#1A8787FB</color>
+    <color name="classic_gray_code_text">#A3A3FD</color>
+    <color name="classic_gray_text_link_light">#8787FB</color>
+
+</resources>

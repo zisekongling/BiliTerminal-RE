@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/modernSplashActivity">
+
+    <activity
+        android:id="@+id/modernSplashActivity"
+        android:name="com.RobinNotBad.BiliClient.ui.splash.ModernSplashActivity"
+        android:label="启动页" />
+
+    <activity
+        android:id="@+id/modernMenuActivity"
+        android:name="com.RobinNotBad.BiliClient.ui.menu.ModernMenuActivity"
+        android:label="主菜单">
+        <argument
+            android:name="from"
+            android:defaultValue="start"
+            app:argType="string" />
+    </activity>
+
+    <activity
+        android:id="@+id/modernRecommendActivity"
+        android:name="com.RobinNotBad.BiliClient.ui.video.ModernRecommendActivity"
+        android:label="推荐" />
+
+    <activity
+        android:id="@+id/modernPopularActivity"
+        android:name="com.RobinNotBad.BiliClient.ui.video.ModernPopularActivity"
+        android:label="热门" />
+
+    <activity
+        android:id="@+id/modernRankingActivity"
+        android:name="com.RobinNotBad.BiliClient.ui.video.ModernRankingActivity"
+        android:label="排行榜" />
+
+    <activity
+        android:id="@+id/modernSearchActivity"
+        android:name="com.RobinNotBad.BiliClient.ui.search.ModernSearchActivity"
+        android:label="搜索" />
+
+    <activity
+        android:id="@+id/modernMessageActivity"
+        android:name="com.RobinNotBad.BiliClient.ui.message.ModernMessageActivity"
+        android:label="消息" />
+
+    <activity
+        android:id="@+id/modernMySpaceActivity"
+        android:name="com.RobinNotBad.BiliClient.ui.user.ModernMySpaceActivity"
+        android:label="我的" />
+
+    <activity
+        android:id="@+id/modernHistoryActivity"
+        android:name="com.RobinNotBad.BiliClient.ui.user.ModernHistoryActivity"
+        android:label="历史记录" />
+
+    <activity
+        android:id="@+id/modernLiveRecommendActivity"
+        android:name="com.RobinNotBad.BiliClient.ui.live.ModernLiveRecommendActivity"
+        android:label="直播" />
+
+    <activity
+        android:id="@+id/modernVideoListActivity"
+        android:name="com.RobinNotBad.BiliClient.ui.video.ModernVideoListActivity"
+        android:label="视频列表">
+        <argument
+            android:name="type"
+            android:defaultValue="recommend"
+            app:argType="string" />
+    </activity>
+
+    <activity
+        android:id="@+id/modernPlayerActivity"
+        android:name="com.RobinNotBad.BiliClient.ui.player.ModernPlayerActivity"
+        android:label="播放器">
+        <argument
+            android:name="url"
+            android:defaultValue=""
+            app:argType="string" />
+        <argument
+            android:name="danmaku"
+            android:defaultValue=""
+            app:argType="string" />
+        <argument
+            android:name="title"
+            android:defaultValue="播放中..."
+            app:argType="string" />
+        <argument
+            android:name="aid"
+            android:defaultValue="0L"
+            app:argType="long" />
+        <argument
+            android:name="cid"
+            android:defaultValue="0L"
+            app:argType="long" />
+        <argument
+            android:name="live_mode"
+            android:defaultValue="false"
+            app:argType="boolean" />
+    </activity>
+
+</navigation>

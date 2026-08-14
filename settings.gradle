@@ -1,0 +1,33 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven { url "https://maven.aliyun.com/repository/public" }
+        google()
+        mavenCentral()
+        maven { url "https://www.jitpack.io" }
+    }
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.namespace == 'com.android') {
+                useModule("com.android.tools.build:gradle:${requested.version}")
+            }
+            if (requested.id.namespace == 'org.jetbrains.kotlin') {
+                useModule("org.jetbrains.kotlin:kotlin-gradle-plugin:${requested.version}")
+            }
+        }
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        maven { url "https://maven.aliyun.com/repository/public" }
+        google()
+        mavenCentral()
+        maven { url "https://www.jitpack.io" }
+    }
+}
+rootProject.name = "BiliTerminal"
+include ':app'
+include ':ijkplayer-java'
+include ':DanmakuFlameMaster'
+include ':brotlij'

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="@color/card_dark">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="新建文件夹"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:textColor="@color/text_primary_dark"
+        android:layout_marginBottom="12dp" />
+
+    <EditText
+        android:id="@+id/editFolderName"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:hint="请输入文件夹名称"
+        android:textSize="14sp"
+        android:paddingHorizontal="12dp"
+        android:background="@drawable/edit_bg"
+        android:maxLength="30"
+        android:singleLine="true"
+        android:inputType="text"
+        android:textColor="@color/text_primary_dark"
+        android:textColorHint="@color/text_tertiary_dark" />
+
+    <TextView
+        android:id="@+id/textError"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/status_error"
+        android:textSize="11sp"
+        android:layout_marginTop="4dp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="16dp"
+        android:gravity="end">
+
+        <TextView
+            android:id="@+id/btnCancel"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:paddingHorizontal="20dp"
+            android:gravity="center"
+            android:text="取消"
+            android:textSize="13sp"
+            android:alpha="0.65"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground" />
+
+        <TextView
+            android:id="@+id/btnConfirm"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:paddingHorizontal="20dp"
+            android:gravity="center"
+            android:text="确认"
+            android:textSize="13sp"
+            android:textColor="@color/pink_light"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+</LinearLayout>

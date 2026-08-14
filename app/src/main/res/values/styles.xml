@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <style name="CardStyle" parent="Widget.MaterialComponents.CardView">
+        <item name="rippleColor" tools:ignore="PrivateResource">@color/bili_secondary</item>
+        <item name="android:foreground">?android:attr/selectableItemBackground</item>
+        <item name="cardBackgroundColor">@color/card_dark</item>
+        <item name="cardCornerRadius">12dp</item>
+        <item name="cardElevation">4dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="strokeColor">@color/divider_dark</item>
+        <item name="strokeWidth">1dp</item>
+    </style>
+
+    <style name="CardStyleLight" parent="Widget.MaterialComponents.CardView">
+        <item name="rippleColor" tools:ignore="PrivateResource">@color/bili_secondary</item>
+        <item name="android:foreground">?android:attr/selectableItemBackground</item>
+        <item name="cardBackgroundColor">@color/card_light</item>
+        <item name="cardCornerRadius">12dp</item>
+        <item name="cardElevation">2dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="strokeColor">@color/divider_color</item>
+        <item name="strokeWidth">1dp</item>
+    </style>
+
+    <style name="ButtonStyle" parent="Widget.MaterialComponents.Button">
+        <item name="backgroundTint">@color/pink</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="android:textColor">@color/text_primary_dark</item>
+        <item name="android:insetTop">2dp</item>
+        <item name="android:insetBottom">2dp</item>
+        <item name="android:paddingLeft">16dp</item>
+        <item name="android:paddingRight">16dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="elevation">2dp</item>
+        <item name="rippleColor">@color/bili_primary_light</item>
+    </style>
+
+    <style name="ButtonStyleLight" parent="Widget.MaterialComponents.Button">
+        <item name="backgroundTint">@color/pink</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="android:textColor">@android:color/white</item>
+        <item name="android:insetTop">2dp</item>
+        <item name="android:insetBottom">2dp</item>
+        <item name="android:paddingLeft">16dp</item>
+        <item name="android:paddingRight">16dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="elevation">2dp</item>
+        <item name="rippleColor">@color/bili_primary_light</item>
+    </style>
+
+    <style name="ButtonSecondaryStyle" parent="Widget.MaterialComponents.Button">
+        <item name="backgroundTint">@color/btn_default</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="android:textColor">@color/text_primary_dark</item>
+        <item name="android:insetTop">2dp</item>
+        <item name="android:insetBottom">2dp</item>
+        <item name="android:paddingLeft">16dp</item>
+        <item name="android:paddingRight">16dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="elevation">1dp</item>
+        <item name="rippleColor">@color/btn_hover</item>
+    </style>
+
+    <style name="ButtonSecondaryStyleLight" parent="Widget.MaterialComponents.Button">
+        <item name="backgroundTint">@color/btn_default</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="android:textColor">@android:color/white</item>
+        <item name="android:insetTop">2dp</item>
+        <item name="android:insetBottom">2dp</item>
+        <item name="android:paddingLeft">16dp</item>
+        <item name="android:paddingRight">16dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="elevation">1dp</item>
+        <item name="rippleColor">@color/btn_hover</item>
+    </style>
+
+    <style name="ButtonDangerStyle" parent="Widget.MaterialComponents.Button">
+        <item name="backgroundTint">@color/bili_primary_dark</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="android:textColor">@color/text_primary_dark</item>
+        <item name="android:insetTop">2dp</item>
+        <item name="android:insetBottom">2dp</item>
+        <item name="android:paddingLeft">16dp</item>
+        <item name="android:paddingRight">16dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="elevation">2dp</item>
+        <item name="rippleColor">@color/btn_hover</item>
+    </style>
+
+    <style name="EditTextStyle" parent="Widget.AppCompat.EditText">
+        <item name="android:textColorHint">@color/text_tertiary_dark</item>
+        <item name="android:textCursorDrawable">@drawable/cursor_drawable</item>
+        <item name="android:textColor">@color/text_primary_dark</item>
+    </style>
+
+    <style name="EditTextStyleLight" parent="Widget.AppCompat.EditText">
+        <item name="android:textColorHint">@color/text_tertiary_light</item>
+        <item name="android:textCursorDrawable">@drawable/cursor_drawable</item>
+        <item name="android:textColor">@color/text_primary_light</item>
+    </style>
+
+    <style name="SwitchCompatStyle" parent="Widget.AppCompat.CompoundButton.Switch">
+        <item name="android:paddingLeft">6dp</item>
+        <item name="android:paddingRight">2dp</item>
+        <item name="android:background">@drawable/background_edittext_setting</item>
+        <item name="android:textColor">@color/text_primary_dark</item>
+    </style>
+
+    <style name="SwitchCompatStyleLight" parent="Widget.AppCompat.CompoundButton.Switch">
+        <item name="android:paddingLeft">6dp</item>
+        <item name="android:paddingRight">2dp</item>
+        <item name="android:textColor">@color/text_primary_light</item>
+    </style>
+
+    <style name="RadioButtonStyle" parent="Widget.MaterialComponents.CompoundButton.RadioButton">
+        <item name="android:minHeight">10dp</item>
+    </style>
+
+    <style name="ListStyle">
+        <item name="android:descendantFocusability">afterDescendants</item>
+    </style>
+
+    <style name="TextViewStyle" parent="Widget.AppCompat.TextView">
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="TextViewStyleLight" parent="Widget.AppCompat.TextView">
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <!-- 兼容旧名称 -->
+    <style name="TextViewSytle" parent="TextViewStyle" />
+</resources>

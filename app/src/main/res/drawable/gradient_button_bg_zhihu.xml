@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <gradient
+                android:startColor="@color/zhihu_deep"
+                android:endColor="@color/zhihu_accent"
+                android:angle="135" />
+            <corners android:radius="12dp" />
+        </shape>
+    </item>
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <gradient
+                android:startColor="@color/zhihu_light"
+                android:endColor="@color/zhihu_accent"
+                android:angle="135" />
+            <corners android:radius="12dp" />
+        </shape>
+    </item>
+    <item android:state_enabled="false">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/zhihu_btn_disabled_bg" />
+            <corners android:radius="12dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:startColor="@color/zhihu_brand"
+                android:endColor="@color/zhihu_accent"
+                android:angle="135" />
+            <corners android:radius="12dp" />
+        </shape>
+    </item>
+</selector>

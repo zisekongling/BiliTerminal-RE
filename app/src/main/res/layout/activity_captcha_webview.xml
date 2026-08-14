@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#f5f5f5">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="32dp"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:background="#ffffff">
+
+        <Button
+            android:id="@+id/btnZoomOut"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:text="−"
+            android:textSize="16sp"
+            android:textColor="#ffffff"
+            android:background="@drawable/zoom_btn_bg"
+            android:layout_marginEnd="14dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:padding="0dp" />
+
+        <Button
+            android:id="@+id/btnZoomReset"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:text="1:1"
+            android:textSize="9sp"
+            android:textColor="#666666"
+            android:background="@android:color/transparent"
+            android:layout_marginEnd="14dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:padding="0dp" />
+
+        <Button
+            android:id="@+id/btnZoomIn"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:text="+"
+            android:textSize="16sp"
+            android:textColor="#ffffff"
+            android:background="@drawable/zoom_btn_bg"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:padding="0dp" />
+
+    </LinearLayout>
+
+    <WebView
+        android:id="@+id/captchaWebView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+</LinearLayout>

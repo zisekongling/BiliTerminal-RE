@@ -1,0 +1,108 @@
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/cardView"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginHorizontal="@dimen/activity_padding_horizontal"
+    android:layout_marginVertical="@dimen/list_margin_vertical">
+
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <CheckBox
+            android:id="@+id/checkbox_select"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_alignParentStart="true"
+            android:layout_centerVertical="true"
+            android:layout_marginStart="4dp"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/linearLayout"
+            android:paddingVertical="14dp"
+            android:paddingHorizontal="12dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_toEndOf="@id/checkbox_select"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/img_cover"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="0.48"
+                android:adjustViewBounds="true"
+                android:scaleType="fitCenter"
+                android:src="@mipmap/placeholder"
+                app:layout_constraintDimensionRatio="16:9" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:layout_marginStart="4dp"
+                android:layout_weight="0.52"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/text_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="3"
+                    android:text="标题标题标题标题标题标题标题标题标题标题标题标题标题标题标题标题"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:id="@+id/text_extra"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:alpha="0.75"
+                    android:text="11.4M"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:id="@+id/text_speed"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:alpha="0.9"
+                    android:textColor="#FF8B5CF6"
+                    android:textSize="10sp"
+                    android:visibility="gone"
+                    android:drawableStart="@drawable/icon_download"
+                    android:drawablePadding="4dp" />
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <View
+            android:id="@+id/progress"
+            android:layout_width="0px"
+            android:layout_height="0dp"
+            android:layout_alignTop="@+id/linearLayout"
+            android:layout_alignBottom="@id/linearLayout"
+            android:alpha="0.3"
+            android:background="#74a864"
+            android:visibility="gone" />
+
+        <!-- 视频设置面板 (从右滑入) -->
+        <LinearLayout
+            android:id="@+id/videoSettingsPanel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_alignTop="@id/linearLayout"
+            android:layout_alignBottom="@id/linearLayout"
+            android:orientation="vertical"
+            android:background="@color/card_dark_secondary"
+            android:visibility="gone">
+
+            <include layout="@layout/panel_video_settings" />
+        </LinearLayout>
+    </RelativeLayout>
+
+
+</com.google.android.material.card.MaterialCardView>

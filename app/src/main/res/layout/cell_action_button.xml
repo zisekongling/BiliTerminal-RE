@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/text"
+    android:layout_width="match_parent"
+    android:layout_height="40dp"
+    android:layout_marginHorizontal="@dimen/activity_padding_horizontal"
+    android:layout_marginVertical="@dimen/list_margin_vertical"
+    android:gravity="center"
+    android:text="操作"
+    android:textSize="13sp"
+    android:textColor="@color/pink_light"
+    android:alpha="0.85"
+    android:clickable="true"
+    android:focusable="true"
+    android:background="@drawable/edit_bg" />

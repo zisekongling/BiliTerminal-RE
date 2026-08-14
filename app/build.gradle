@@ -1,0 +1,278 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.serialization'
+    id 'com.google.dagger.hilt.android'
+    id 'com.google.devtools.ksp'
+}
+
+int betaVer = 0
+
+android {
+
+    namespace 'com.RobinNotBad.BiliClient'
+    compileSdk 34
+
+    buildToolsVersion '34.0.0'
+
+    sourceSets {
+        main{
+            jniLibs.srcDirs = ['libs']
+        }
+    }
+
+    defaultConfig {
+        applicationId "com.RobinNotBad.BiliClient"
+        minSdk 24
+        targetSdk 34
+        versionCode 2606200
+        versionName "26.06.20"
+
+        if (betaVer) {
+            versionName += "-BETA" + betaVer
+        }
+
+        multiDexEnabled true
+
+        ndk {
+            abiFilters 'armeabi-v7a', 'x86'
+        }
+
+        resConfigs 'zh'
+
+        vectorDrawables {
+            useSupportLibrary true
+        }
+    }
+
+    signingConfigs {
+        release {
+            def localProps = project.rootProject.file("local.properties")
+            if (localProps.exists()) {
+                Properties pro = new Properties()
+                pro.load(localProps.newDataInputStream())
+                if (pro.containsKey("KEY_PATH")) {
+                    storeFile project.rootProject.file(pro.getProperty("KEY_PATH", "key.jks"))
+                    storePassword pro.getProperty("KEY_PASSWORD")
+                    keyAlias pro.getProperty("ALIAS_NAME")
+                    keyPassword pro.getProperty("ALIAS_PASSWORD")
+                }
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            buildConfigField "boolean", "BETA", String.valueOf(betaVer > 0)
+            buildConfigField "boolean", "LOG_DEBUG", "false"
+            shrinkResources false
+            minifyEnabled false
+            def localProps = project.rootProject.file("local.properties")
+            if (localProps.exists()) {
+                Properties pro = new Properties()
+                pro.load(localProps.newDataInputStream())
+                if (pro.containsKey("KEY_PATH")) {
+                    signingConfig signingConfigs.release
+                }
+            }
+
+            zipAlignEnabled true
+            crunchPngs false
+        }
+        debug {
+            buildConfigField "boolean", "BETA", String.valueOf(betaVer > 0)
+            signingConfig signingConfigs.debug
+            minifyEnabled false
+            shrinkResources false
+
+            zipAlignEnabled true
+            crunchPngs false
+        }
+    }
+
+    compileOptions {
+        incremental true
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+        freeCompilerArgs += [
+                '-opt-in=kotlin.RequiresOptIn',
+                '-Xinline-classes',
+                '-Xjvm-default=all'
+        ]
+    }
+
+    ksp {
+        arg("room.schemaLocation", "$projectDir/schemas")
+    }
+
+    packagingOptions {
+        exclude 'META-INF/androidx.cardview_cardview.version'
+        resources {
+            excludes += '/META-INF/{AL2.0,LGPL2.1}'
+            excludes += '/META-INF/*.kotlin_module'
+            excludes += '/META-INF/*.version'
+            excludes += '/kotlin/**'
+            excludes += '/DebugProbesKt.bin'
+            excludes += '/okhttp3/internal/publicsuffix/*'
+            excludes += '/META-INF/maven/**'
+            excludes += '/META-INF/proguard/**'
+            excludes += '/META-INF/*.kotlin_builtins'
+        }
+    }
+
+    buildFeatures {
+        viewBinding false
+        buildConfig true
+        compose false
+        dataBinding false
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+        disable 'UnusedResources', 'UnusedIds', 'MissingTranslation', 'ExtraTranslation'
+    }
+
+    dexOptions {
+        preDexLibraries true
+        dexInProcess true
+        javaMaxHeapSize "8g"
+    }
+
+    bundle {
+        language {
+            enableSplit true
+        }
+        density {
+            enableSplit true
+        }
+        abi {
+            enableSplit true
+        }
+    }
+}
+
+def desktopPath = "${System.getProperty('user.home')}/Desktop"
+def apkOutputPath = "${projectDir}/build/outputs/apk/release"
+
+task copyApkToDesktop {
+    dependsOn 'assembleRelease'
+    
+    doLast {
+        def desktopDir = new File(desktopPath)
+        def apkDir = new File(apkOutputPath)
+        
+        if (!apkDir.exists()) {
+            println "APK directory not found: ${apkDir.absolutePath}"
+            return
+        }
+        
+        apkDir.eachFileMatch(~/.*\.apk/) { apkFile ->
+            def destFile = new File(desktopDir, apkFile.name)
+            
+            if (destFile.exists()) {
+                println "Removing old APK: ${destFile.absolutePath}"
+                destFile.delete()
+            }
+            
+            println "Copying APK to desktop: ${apkFile.name}"
+            destFile.withOutputStream { os ->
+                apkFile.withInputStream { is ->
+                    os << is
+                }
+            }
+            
+            println "APK copied successfully to: ${destFile.absolutePath}"
+            
+            println "Installing APK via ADB..."
+            def adbCmd = "adb install -r ${destFile.absolutePath}"
+            println "Executing: $adbCmd"
+            def process = adbCmd.execute()
+            process.in.eachLine { line -> println "ADB output: $line" }
+            process.err.eachLine { line -> println "ADB error: $line" }
+            process.waitFor()
+            
+            if (process.exitValue() == 0) {
+                println "APK installed successfully!"
+            } else {
+                println "ADB install failed with exit code: ${process.exitValue()}"
+            }
+        }
+    }
+}
+
+afterEvaluate {
+    assembleRelease.finalizedBy copyApkToDesktop
+}
+
+dependencies {
+    // Kotlin
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.activity:activity-ktx:1.9.0'
+    implementation 'androidx.fragment:fragment-ktx:1.8.0'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.2'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.2'
+    implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.8.2'
+
+    // Coroutines
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.0'
+
+    // Hilt DI
+    implementation 'com.google.dagger:hilt-android:2.51.1'
+    ksp 'com.google.dagger:hilt-compiler:2.51.1'
+
+    // Networking
+    implementation 'com.squareup.retrofit2:retrofit:2.11.0'
+    implementation 'com.squareup.retrofit2:converter-kotlinx-serialization:2.11.0'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    debugImplementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'
+
+    // UI
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'androidx.viewpager2:viewpager2:1.1.0'
+    implementation 'androidx.cardview:cardview:1.0.0'
+
+    // Jetpack Navigation
+    implementation 'androidx.navigation:navigation-fragment-ktx:2.7.7'
+    implementation 'androidx.navigation:navigation-ui-ktx:2.7.7'
+
+    // Image Loading
+    implementation 'com.github.bumptech.glide:glide:4.16.0'
+    implementation 'com.github.bumptech.glide:okhttp3-integration:4.16.0'
+    // Glide annotation processor
+    annotationProcessor 'com.github.bumptech.glide:compiler:4.16.0'
+
+    // Existing essential deps
+    implementation 'com.google.zxing:core:3.5.3'
+    implementation 'org.jsoup:jsoup:1.17.2'
+    implementation 'com.github.chrisbanes:PhotoView:2.3.0'
+    implementation 'org.greenrobot:eventbus:3.3.1'
+
+    // Player & Danmaku
+    implementation project(path: ':ijkplayer-java')
+    implementation project(path: ':DanmakuFlameMaster')
+    implementation project(path: ':brotlij')
+
+    // Utility
+    implementation 'androidx.asynclayoutinflater:asynclayoutinflater:1.0.0'
+    def multidex_version = "2.0.1"
+    implementation "androidx.multidex:multidex:$multidex_version"
+    implementation "org.brotli:dec:0.1.2"
+    implementation 'com.google.protobuf:protobuf-javalite:3.21.12'
+    
+    // Geetest (极验) 安全验证 SDK
+    implementation 'com.geetest.sensebot:sensebot:4.3.5'
+
+    // Testing
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20231013'
+}

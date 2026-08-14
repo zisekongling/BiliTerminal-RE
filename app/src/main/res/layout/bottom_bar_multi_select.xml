@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/multiSelectBar"
+    android:layout_width="match_parent"
+    android:layout_height="48dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingHorizontal="8dp"
+    android:background="@color/surface_dark"
+    android:visibility="gone"
+    android:elevation="4dp">
+
+    <TextView
+        android:id="@+id/textSelectedCount"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:text="已选 0 项"
+        android:textSize="13sp" />
+
+    <TextView
+        android:id="@+id/btnBatchDelete"
+        android:layout_width="wrap_content"
+        android:layout_height="32dp"
+        android:paddingHorizontal="12dp"
+        android:gravity="center"
+        android:text="删除"
+        android:textSize="12sp"
+        android:textColor="@color/status_error"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackground" />
+
+    <TextView
+        android:id="@+id/btnBatchDanmaku"
+        android:layout_width="wrap_content"
+        android:layout_height="32dp"
+        android:paddingHorizontal="12dp"
+        android:gravity="center"
+        android:text="更新弹幕"
+        android:textSize="12sp"
+        android:textColor="@color/pink_light"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackground" />
+
+    <TextView
+        android:id="@+id/btnBatchMove"
+        android:layout_width="wrap_content"
+        android:layout_height="32dp"
+        android:paddingHorizontal="12dp"
+        android:gravity="center"
+        android:text="移动到文件夹"
+        android:textSize="12sp"
+        android:textColor="@color/pink_light"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackground" />
+
+    <TextView
+        android:id="@+id/btnCancelSelect"
+        android:layout_width="wrap_content"
+        android:layout_height="32dp"
+        android:paddingHorizontal="12dp"
+        android:gravity="center"
+        android:text="取消"
+        android:textSize="12sp"
+        android:alpha="0.5"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackground" />
+</LinearLayout>
