@@ -295,10 +295,9 @@ class QRLoginFragment : Fragment() {
                                 val value = cookie.getString("value")
                                 cookies.set(name, value)
                             }
-                            SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, cookies.toString())
+                            NetWorkUtil.setCookiesString(cookies.toString())
                             SharedPreferencesUtil.putString(SharedPreferencesUtil.csrf,
                                 cookies.getOrDefault("bili_jct", ""))
-                            NetWorkUtil.refreshHeaders()
                         }
                     }
 

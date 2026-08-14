@@ -19,6 +19,11 @@ public class GlideUtil {
     public static final int MAX_W_HIGH = 1024;
     public static final int MAX_W_LOW = 512;
 
+    private static final DrawableCrossFadeFactory CROSS_FADE_FACTORY =
+            new DrawableCrossFadeFactory.Builder(300).setCrossFadeEnabled(true).build();
+
+    private static volatile Boolean transitionEnabled;
+
     public static String url(String url) {
         if (!url.startsWith("http") || url.endsWith("gif") || url.contains("@") || url.contains("afdian"))
             return url;
@@ -85,8 +90,13 @@ public class GlideUtil {
     }
 
     public static TransitionOptions<?, ? super Drawable> getTransitionOptions() {
-        if (SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.LOAD_TRANSITION, true)) {
-            return DrawableTransitionOptions.with(new DrawableCrossFadeFactory.Builder(300).setCrossFadeEnabled(true).build());
+        Boolean enabled = transitionEnabled;
+        if (enabled == null) {
+            enabled = SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.LOAD_TRANSITION, true);
+            transitionEnabled = enabled;
+        }
+        if (enabled) {
+            return DrawableTransitionOptions.with(CROSS_FADE_FACTORY);
         } else {
             return new DrawableTransitionOptions();
         }

@@ -61,6 +61,10 @@ class ReplyAdapter(
     var count: Long = -1
     var listener: OnItemClickListener? = null
 
+    private val roundSmallPx = context.resources.getDimension(R.dimen.round_small).toInt()
+    private val likeDrawable0 = ContextCompat.getDrawable(context, R.drawable.icon_reply_like0)
+    private val likeDrawable1 = ContextCompat.getDrawable(context, R.drawable.icon_reply_like1)
+
     fun setOnSortSwitchListener(listener: OnItemClickListener) {
         this.listener = listener
     }
@@ -140,7 +144,7 @@ class ReplyAdapter(
                 name_str.append(" UP ")
                 name_str.append(reply.sender!!.name)
                 name_str.setSpan(
-                        RadiusBackgroundSpan(2, context.resources.getDimension(R.dimen.round_small).toInt(),
+                        RadiusBackgroundSpan(2, roundSmallPx,
                                 Color.WHITE, Color.rgb(207, 75, 95)),
                         0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 name_str.setSpan(RelativeSizeSpan(0.8f), 0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -158,7 +162,7 @@ class ReplyAdapter(
                 name_str.append("  ").append(sender.medal_name).append("Lv").append(sender.medal_level.toString())
                         .append(" ")
                 name_str.setSpan(
-                        RadiusBackgroundSpan(2, context.resources.getDimension(R.dimen.round_small).toInt(),
+                        RadiusBackgroundSpan(2, roundSmallPx,
                                 Color.WHITE, Color.argb(140, 158, 186, 232)),
                         last_length + 1, name_str.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 name_str.setSpan(RelativeSizeSpan(0.8f), last_length + 1, name_str.length,
@@ -177,18 +181,18 @@ class ReplyAdapter(
 
             replyHolder.message.text = reply.message
             StringUtil.setCopy(replyHolder.message)
-            replyHolder.message.setOnTouchListener(StringUtil.ClickableSpanTouchListener())
+            replyHolder.message.setOnTouchListener(StringUtil.ClickableSpanTouchListener.getInstance())
 
             replyHolder.likeCount.text = StringUtil.toWan(reply.likeCount.toLong())
 
             if (reply.liked) {
                 replyHolder.likeCount.setTextColor(ThemeManager.LIKE_COLOR)
                 replyHolder.likeCount.setCompoundDrawablesWithIntrinsicBounds(
-                        ContextCompat.getDrawable(context, R.drawable.icon_reply_like1), null, null, null)
+                        likeDrawable1, null, null, null)
             } else {
                 replyHolder.likeCount.setTextColor(Color.rgb(0xff, 0xff, 0xff))
                 replyHolder.likeCount.setCompoundDrawablesWithIntrinsicBounds(
-                        ContextCompat.getDrawable(context, R.drawable.icon_reply_like0), null, null, null)
+                        likeDrawable0, null, null, null)
             }
 
             if (reply.childCount != 0 && !(realPosition == 0 && isDetail)) {
@@ -214,7 +218,7 @@ class ReplyAdapter(
                             childMsg.append(" UP ")
                             childMsg.append(child.sender!!.name)
                             childMsg.setSpan(RadiusBackgroundSpan(2,
-                                    context.resources.getDimension(R.dimen.round_small).toInt(), Color.WHITE,
+                                    roundSmallPx, Color.WHITE,
                                     Color.rgb(207, 75, 95)), 0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                             childMsg.setSpan(RelativeSizeSpan(0.8f), 0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                         } else
@@ -305,7 +309,7 @@ class ReplyAdapter(
                                     replyHolder.likeCount.text = StringUtil.toWan((++reply.likeCount).toLong())
                                     replyHolder.likeCount.setTextColor(ThemeManager.LIKE_COLOR)
                                     replyHolder.likeCount.setCompoundDrawablesWithIntrinsicBounds(
-                                            ContextCompat.getDrawable(context, R.drawable.icon_reply_like1), null, null,
+                                            likeDrawable1, null, null,
                                             null)
                                 }
                             } else
@@ -324,7 +328,7 @@ class ReplyAdapter(
                                     replyHolder.likeCount.text = StringUtil.toWan((--reply.likeCount).toLong())
                                     replyHolder.likeCount.setTextColor(Color.rgb(0xff, 0xff, 0xff))
                                     replyHolder.likeCount.setCompoundDrawablesWithIntrinsicBounds(
-                                            ContextCompat.getDrawable(context, R.drawable.icon_reply_like0), null, null,
+                                            likeDrawable0, null, null,
                                             null)
                                 }
                             } else

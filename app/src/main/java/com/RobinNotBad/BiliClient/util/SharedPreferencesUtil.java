@@ -122,6 +122,15 @@ public class SharedPreferencesUtil {
     }
 
     /**
+     * 原子批量写入：多个键值对合并为一次 apply()
+     */
+    public static void edit(java.util.function.Consumer<SharedPreferences.Editor> operation) {
+        SharedPreferences.Editor editor = sharedPreferences.edit();
+        operation.accept(editor);
+        editor.apply();
+    }
+
+    /**
      * 使用commit同步写入（仅在必要时使用，如应用退出前）
      */
     public static void putBooleanSync(String key, boolean value) {

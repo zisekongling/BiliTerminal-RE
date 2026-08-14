@@ -28,7 +28,6 @@ import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.DecodeFormat
 import com.bumptech.glide.load.engine.DiskCacheStrategy
-import com.bumptech.glide.request.target.Target
 import com.google.android.material.card.MaterialCardView
 import org.json.JSONArray
 import org.json.JSONException
@@ -142,7 +141,7 @@ class PrivateMsgAdapter(
                             .asDrawable()
                             .load(GlideUtil.url(picUrl))
                             .transition(GlideUtil.getTransitionOptions())
-                            .override(Target.SIZE_ORIGINAL)
+                            .override(512)
                             .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                             .into(holder.picMsg)
                         holder.picMsg.setOnClickListener {

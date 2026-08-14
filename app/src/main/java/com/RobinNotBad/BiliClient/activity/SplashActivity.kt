@@ -177,9 +177,8 @@ class SplashActivity : Activity() {
     private fun resetLogin() {
         SharedPreferencesUtil.putLong(SharedPreferencesUtil.mid, 0L)
         SharedPreferencesUtil.putString(SharedPreferencesUtil.csrf, "")
-        SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, "")
+        NetWorkUtil.setCookiesString("")
         SharedPreferencesUtil.putString(SharedPreferencesUtil.refresh_token, "")
-        NetWorkUtil.refreshHeaders()
     }
 
     private fun applyTheme() {

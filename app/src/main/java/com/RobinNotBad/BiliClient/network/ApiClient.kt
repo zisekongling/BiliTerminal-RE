@@ -1,8 +1,8 @@
 package com.RobinNotBad.BiliClient.network
 
 import com.RobinNotBad.BiliClient.BuildConfig
+import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import com.RobinNotBad.BiliClient.util.PerformanceManager
-import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -25,7 +25,7 @@ class ApiClient @Inject constructor() {
 
     private val authInterceptor = Interceptor { chain ->
         val original = chain.request()
-        val cookies = SharedPreferencesUtil.getString("cookies", "")
+        val cookies = NetWorkUtil.getCachedCookies()
         val request = if (cookies.isNotEmpty()) {
             original.newBuilder()
                 .header("Cookie", cookies)

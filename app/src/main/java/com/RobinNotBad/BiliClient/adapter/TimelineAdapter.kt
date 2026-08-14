@@ -18,7 +18,6 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
 import com.bumptech.glide.request.RequestOptions
 import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
 class TimelineAdapter(
@@ -28,6 +27,7 @@ class TimelineAdapter(
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+    private val requestManager = Glide.with(BiliTerminal.context)
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DayViewHolder {
         val view = LayoutInflater.from(context).inflate(R.layout.cell_timeline_day, parent, false)
@@ -46,8 +46,9 @@ class TimelineAdapter(
         holder.episodesLayout.removeAllViews()
 
         if (dayInfo.episodes != null && dayInfo.episodes!!.isNotEmpty()) {
-            for (episode in dayInfo.episodes!!) {
-                val episodeView = LayoutInflater.from(context).inflate(R.layout.cell_timeline_episode, holder.episodesLayout, false)
+            for (i in dayInfo.episodes!!.indices) {
+                val episode = dayInfo.episodes!![i]
+                val episodeView = holder.obtainEpisodeView(i)
 
                 val cover = episodeView.findViewById<ImageView>(R.id.img_cover)
                 val title = episodeView.findViewById<TextView>(R.id.text_title)
@@ -58,21 +59,17 @@ class TimelineAdapter(
                 episodeText.text = episode.pub_index
 
                 if (episode.pub_ts > 0) {
-                    val pubDate = Date(episode.pub_ts * 1000)
-                    timeText.text = timeFormat.format(pubDate)
+                    timeText.text = timeFormat.format(episode.pub_ts * 1000L)
                 } else {
                     timeText.text = episode.pub_time
                 }
 
                 val coverUrl = GlideUtil.url(episode.cover)
-                Glide.with(BiliTerminal.context).asDrawable().load(coverUrl)
+                requestManager.asDrawable().load(coverUrl)
                     .placeholder(R.mipmap.placeholder)
                     .format(DecodeFormat.PREFER_RGB_565)
                     .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
-                    .apply(
-                        RequestOptions.bitmapTransform(RoundedCorners(8))
-                            .sizeMultiplier(0.85f)
-                    )
+                    .apply(EPISODE_OPTIONS)
                     .into(cover)
 
                 holder.episodesLayout.addView(episodeView)
@@ -87,5 +84,20 @@ class TimelineAdapter(
     class DayViewHolder(@androidx.annotation.NonNull itemView: View) : RecyclerView.ViewHolder(itemView) {
         var dateText: TextView = itemView.findViewById(R.id.text_date)
         var episodesLayout: LinearLayout = itemView.findViewById(R.id.episodes_layout)
+        private val pooledViews = ArrayList<View>()
+
+        fun obtainEpisodeView(index: Int): View {
+            if (index < pooledViews.size) return pooledViews[index]
+            val view = LayoutInflater.from(itemView.context)
+                .inflate(R.layout.cell_timeline_episode, episodesLayout, false)
+            pooledViews.add(view)
+            return view
+        }
+    }
+
+    companion object {
+        private val ROUNDED_CORNERS = RoundedCorners(8)
+        private val EPISODE_OPTIONS: RequestOptions =
+            RequestOptions.bitmapTransform(ROUNDED_CORNERS).sizeMultiplier(0.85f)
     }
 }

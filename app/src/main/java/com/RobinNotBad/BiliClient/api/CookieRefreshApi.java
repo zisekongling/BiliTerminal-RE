@@ -92,7 +92,7 @@ public class CookieRefreshApi {
             int confirmCode = new JSONObject(Objects.requireNonNull(NetWorkUtil.post("https://passport.bilibili.com/x/passport-login/web/confirm/refresh", "csrf=" + NetWorkUtil.getInfoFromCookie("bili_jct", cookies_new) + "&refresh_token=" + SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, ""), NetWorkUtil.webHeaders).body()).string()).getInt("code");
             if (confirmCode != 0) { //必须要等确认更新Cookie成功，不然就无法完成Cookie的刷新
                 Logu.e("Cookie刷新失败", "确认刷新时返回:" + confirmCode);
-                SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, cookies_old);
+                NetWorkUtil.setCookiesString(cookies_old);
                 return false;
             }
             SharedPreferencesUtil.putString(SharedPreferencesUtil.refresh_token, refreshToken_new);

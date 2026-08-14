@@ -53,6 +53,12 @@ import java.util.regex.Pattern;
 
 @SuppressLint("ClickableViewAccessibility")
 public class StringUtil {
+    private static final Pattern URL_PATTERN = Pattern.compile(
+            "(https?|ftp|file)://[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]");
+    private static final Pattern ESCAPE_PATTERN = Pattern.compile("\\\\(.)");
+
+    private static volatile Float cachedTextHeight;
+
     static final int[] levelBadges = {
             R.mipmap.level_0,
             R.mipmap.level_1,
@@ -108,18 +114,42 @@ public class StringUtil {
     }
 
     public static String htmlToString(String html) {
-        return html.replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replace("&quot;", "\"")
-                .replace("&amp;", "&")
-                .replace("&#39;", "'")
-                .replace("&#34;", "\"")
-                .replace("&#38;", "&")
-                .replace("&#60;", "<")
-                .replace("&#62;", ">");
+        if (html == null || html.length() < 4) return html;
+        StringBuilder sb = new StringBuilder(html.length());
+        int len = html.length();
+        for (int i = 0; i < len; i++) {
+            char c = html.charAt(i);
+            if (c == '&') {
+                int semi = html.indexOf(';', i + 1);
+                if (semi != -1 && semi - i <= 7) {
+                    String ent = html.substring(i + 1, semi);
+                    char decoded = 0;
+                    switch (ent) {
+                        case "lt": decoded = '<'; break;
+                        case "gt": decoded = '>'; break;
+                        case "quot": decoded = '"'; break;
+                        case "amp": decoded = '&'; break;
+                        case "#39": decoded = '\''; break;
+                        case "#34": decoded = '"'; break;
+                        case "#38": decoded = '&'; break;
+                        case "#60": decoded = '<'; break;
+                        case "#62": decoded = '>'; break;
+                        default: decoded = 0;
+                    }
+                    if (decoded != 0) {
+                        sb.append(decoded);
+                        i = semi;
+                        continue;
+                    }
+                }
+            }
+            sb.append(c);
+        }
+        return sb.toString();
     }
 
     public static String htmlReString(String html) {
+        if (html == null || html.length() == 0) return html;
         return html.replace("<p>", "")
                 .replace("</p>", "\n")
                 .replace("<br>", "\n")
@@ -128,11 +158,12 @@ public class StringUtil {
     }
 
     public static String removeHtml(String html) {
+        if (html == null || html.length() == 0 || html.indexOf('<') < 0) return html;
         return Jsoup.parse(html).text();
     }
 
     public static String unEscape(String str) {
-        return str.replaceAll("\\\\(.)", "$1");
+        return ESCAPE_PATTERN.matcher(str).replaceAll("$1");
     }
 
     public static void setCopy(TextView textView, String customText) {
@@ -166,8 +197,7 @@ public class StringUtil {
 
         String text = spannableString.toString();
 
-        Pattern urlPattern = Pattern.compile("(https?|ftp|file)://[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]");
-        Matcher urlMatcher = urlPattern.matcher(text);
+        Matcher urlMatcher = URL_PATTERN.matcher(text);
         while (urlMatcher.find()) {
             int start = urlMatcher.start();
             int end = urlMatcher.end();
@@ -209,12 +239,12 @@ public class StringUtil {
             SpannableStringBuilder spannableString = new SpannableStringBuilder(textView.getText());
             setLink(spannableString);
             textView.setText(spannableString);
-            textView.setOnTouchListener(new ClickableSpanTouchListener());
+            textView.setOnTouchListener(ClickableSpanTouchListener.getInstance());
         }
     }
 
     public static void setSingleAt(SpannableStringBuilder spannableString, String atName, long atMid) {
-        Pattern pattern = Pattern.compile("@" + atName);
+        Pattern pattern = Pattern.compile("@" + Pattern.quote(atName));
         String text = spannableString.toString();
         Matcher matcher = pattern.matcher(text);
         while (matcher.find()) {
@@ -244,7 +274,7 @@ public class StringUtil {
             }
 
             textView.setText(spannableString);
-            textView.setOnTouchListener(new ClickableSpanTouchListener());
+            textView.setOnTouchListener(ClickableSpanTouchListener.getInstance());
         }
     }
 
@@ -268,10 +298,14 @@ public class StringUtil {
     }
 
     public static float getTextHeightWithSize(Context context) {
+        float cached = cachedTextHeight;
+        if (cached > 0) return cached;
         Paint paint = new Paint();
         paint.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 12, context.getResources().getDisplayMetrics()));
         Paint.FontMetrics fontMetrics = paint.getFontMetrics();
-        return fontMetrics.descent - fontMetrics.ascent;
+        float height = fontMetrics.descent - fontMetrics.ascent;
+        cachedTextHeight = height;
+        return height;
     }
 
     public static Drawable getDrawable(Context context, @DrawableRes int res) {
@@ -329,6 +363,12 @@ public class StringUtil {
 
     // 查到的一种LinkMovementMethod问题的解决方法
     public static class ClickableSpanTouchListener implements View.OnTouchListener {
+        private static final ClickableSpanTouchListener INSTANCE = new ClickableSpanTouchListener();
+
+        public static ClickableSpanTouchListener getInstance() {
+            return INSTANCE;
+        }
+
         @Override
         public boolean onTouch(View v, MotionEvent event) {
             if (!(v instanceof TextView)) {

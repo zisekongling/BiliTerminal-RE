@@ -38,6 +38,10 @@ public class ConfInfoApi {
             61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11,
             36, 20, 34, 44, 52};
 
+    private static volatile String lastWbiQuery = null;
+    private static volatile long lastWbiWts = 0;
+    private static volatile String lastWbiSignedUrl = null;
+
     public static String getWBIRawKey() throws IOException, JSONException {
         JSONObject getJson = NetWorkUtil.getJson("https://api.bilibili.com/x/web-interface/nav");
         JSONObject wbi_img = getJson.getJSONObject("data").getJSONObject("wbi_img");  //不要被名称骗了，这玩意是签名用的
@@ -67,13 +71,21 @@ public class ConfInfoApi {
             SharedPreferencesUtil.putString("wbi_mixin_key", mixin_key);
         } else mixin_key = SharedPreferencesUtil.getString("wbi_mixin_key", "");
 
-        String wts = String.valueOf(System.currentTimeMillis() / 1000);
-        String calc_str = sortUrlParams(Uri.encode(url_query, "@#&=*+-_.,:!?()/~'%") + "&wts=" + wts) + mixin_key;
+        long wts = System.currentTimeMillis() / 1000;
+        if (url_query.equals(lastWbiQuery) && wts == lastWbiWts) {
+            return lastWbiSignedUrl;
+        }
+
+        String wtsStr = String.valueOf(wts);
+        String calc_str = sortUrlParams(Uri.encode(url_query, "@#&=*+-_.,:!?()/~'%") + "&wts=" + wtsStr) + mixin_key;
         Logu.d(calc_str);
 
         String w_rid = ToolsUtil.md5(calc_str);
 
-        return Objects.requireNonNull(HttpUrl.parse(url_query)).newBuilder().addQueryParameter("w_rid", w_rid).addQueryParameter("wts", wts).build().toString();
+        lastWbiQuery = url_query;
+        lastWbiWts = wts;
+        lastWbiSignedUrl = Objects.requireNonNull(HttpUrl.parse(url_query)).newBuilder().addQueryParameter("w_rid", w_rid).addQueryParameter("wts", wtsStr).build().toString();
+        return lastWbiSignedUrl;
     }
 
     public static String sortUrlParams(String url) {

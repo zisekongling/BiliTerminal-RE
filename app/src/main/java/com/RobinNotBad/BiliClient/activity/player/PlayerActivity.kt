@@ -988,6 +988,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     private fun progressChange() {
+        progressTimer?.cancel()
+        progressTimer = null
         progressTimer = Timer()
         val task = object : TimerTask() {
             @SuppressLint("SetTextI18n")
@@ -1004,13 +1006,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                             } else {
                                 seekbar_progress.progress = video_now
                             }
+                            if (subtitles == null) text_subtitle.visibility = View.GONE
+
+                            if (viewPointAdapter != null && viewPoints != null && viewPoints!!.isNotEmpty()) {
+                                viewPointAdapter!!.updateCurrentPosition(currSec.toInt())
+                            }
                         }
                         if (subtitles != null) showSubtitle(currSec + subtitle_delta)
-                        else runOnUiThread { text_subtitle.visibility = View.GONE }
-
-                        if (viewPointAdapter != null && viewPoints != null && viewPoints!!.isNotEmpty()) {
-                            viewPointAdapter!!.updateCurrentPosition(currSec.toInt())
-                        }
 
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && mediaSession != null) {
                             updateMediaSessionPlaybackState()
@@ -1026,6 +1028,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (!SharedPreferencesUtil.getBoolean("player_show_online", false) || isLiveMode || aid == 0L || cid == 0L)
             return
 
+        onlineTimer?.cancel()
+        onlineTimer = null
         onlineTimer = Timer()
         val task = object : TimerTask() {
             @SuppressLint("SetTextI18n")

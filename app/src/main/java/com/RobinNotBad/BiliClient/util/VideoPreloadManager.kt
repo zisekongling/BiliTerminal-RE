@@ -10,6 +10,7 @@ class VideoPreloadManager(private val preloadCount: Int = 2) {
 
     private val preloadedItems = ConcurrentLinkedQueue<ShortVideoItem>()
     private val allItems = mutableListOf<ShortVideoItem>()
+    private val inFlightPreloads = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var currentIndex = 0
     private var isLoading = false
@@ -61,12 +62,17 @@ class VideoPreloadManager(private val preloadCount: Int = 2) {
 
     fun preloadVideoUrl(index: Int) {
         if (index < 0 || index >= allItems.size) return
+        if (!inFlightPreloads.add(index)) return
 
         CenterThreadPool.run {
-            val item = allItems[index]
-            if (item.videoUrl.isEmpty()) {
-                Logu.d("PreloadManager", "Preloading video URL for index=$index, aid=${item.aid}")
-                ShortVideoFeedApi.fetchVideoUrl(item)
+            try {
+                val item = allItems[index]
+                if (item.videoUrl.isEmpty()) {
+                    Logu.d("PreloadManager", "Preloading video URL for index=$index, aid=${item.aid}")
+                    ShortVideoFeedApi.fetchVideoUrl(item)
+                }
+            } finally {
+                inFlightPreloads.remove(index)
             }
         }
     }
@@ -89,5 +95,6 @@ class VideoPreloadManager(private val preloadCount: Int = 2) {
     fun release() {
         allItems.clear()
         preloadedItems.clear()
+        inFlightPreloads.clear()
     }
 }

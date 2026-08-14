@@ -972,6 +972,18 @@ class DownloadService : Service() {
         return downFileNormal(url, file, sectionId, baseProgress, endProgress)
     }
 
+    private fun resetFile(file: File): Boolean {
+        return try {
+            if (file.exists()) {
+                file.delete() && file.createNewFile()
+            } else {
+                file.createNewFile()
+            }
+        } catch (e: IOException) {
+            false
+        }
+    }
+
     @Throws(IOException::class)
     private fun downFileNormal(url: String, file: File, sectionId: Long = -1, baseProgress: Float = 0f, endProgress: Float = 1.0f): Int {
         val response: Response
@@ -983,9 +995,7 @@ class DownloadService : Service() {
         var inputStream: InputStream? = null
         var fileOutputStream: FileOutputStream? = null
         try {
-            if (!file.exists() && !file.createNewFile())
-                return ERR_FILE
-            else if (!file.delete() || !file.createNewFile())
+            if (!resetFile(file))
                 return ERR_FILE
 
             val body = response.body
@@ -994,23 +1004,34 @@ class DownloadService : Service() {
             inputStream = body.byteStream()
             fileOutputStream = FileOutputStream(file)
             var len: Int
-            val bytes = ByteArray(1024 * 10)
+            val bytes = ByteArray(256 * 1024)
             val TotalFileSize = body.contentLength()
             var totalDown: Long = 0
+            var lastProgressUpdate = 0L
+            val progressUpdateInterval = if (TotalFileSize > 0) Math.max(TotalFileSize / 1000, 65536) else 1L
             while ((inputStream.read(bytes).also { len = it }) != -1 && started) {
                 fileOutputStream.write(bytes, 0, len)
                 totalDown += len
                 totalBytesDownloaded += len
-                val CompleteFileSize = file.length()
-                percent = baseProgress + (1.0f * CompleteFileSize / TotalFileSize) * (endProgress - baseProgress)
-                updateSpeed(totalDown)
-                
-                // 更新进度到进度映射表
-                if (sectionId > 0 && TotalFileSize > 0) {
-                    val fileProgress = 1.0f * CompleteFileSize / TotalFileSize
-                    val actualProgress = baseProgress + fileProgress * (endProgress - baseProgress)
-                    setDownloadProgress(sectionId, actualProgress, state ?: "下载中")
+                if (totalDown - lastProgressUpdate >= progressUpdateInterval) {
+                    lastProgressUpdate = totalDown
+                    if (TotalFileSize > 0) {
+                        percent = baseProgress + (1.0f * totalDown / TotalFileSize) * (endProgress - baseProgress)
+                    }
+                    updateSpeed(totalDown)
+
+                    // 更新进度到进度映射表
+                    if (sectionId > 0 && TotalFileSize > 0) {
+                        val fileProgress = 1.0f * totalDown / TotalFileSize
+                        val actualProgress = baseProgress + fileProgress * (endProgress - baseProgress)
+                        setDownloadProgress(sectionId, actualProgress, state ?: "下载中")
+                    }
                 }
+            }
+            if (TotalFileSize <= 0) {
+                percent = endProgress
+            } else {
+                percent = baseProgress + (1.0f * totalDown / TotalFileSize) * (endProgress - baseProgress)
             }
             if (!started)
                 return ERR_UNKNOWN
@@ -1027,9 +1048,7 @@ class DownloadService : Service() {
 
     @Throws(IOException::class)
     private fun downFileSpeed(url: String, file: File, sectionId: Long = -1, baseProgress: Float = 0f, endProgress: Float = 1.0f): Int {
-        if (!file.exists() && !file.createNewFile())
-            return ERR_FILE
-        if (!file.delete() || !file.createNewFile())
+        if (!resetFile(file))
             return ERR_FILE
 
         val client = NetWorkUtil.getOkHttpInstance()
@@ -1085,20 +1104,26 @@ class DownloadService : Service() {
                     val buffer = ByteArray(65536)
                     var downloaded: Long = 0
                     var read: Int
+                    var lastProgressUpdate = 0L
+                    val progressUpdateInterval = if (effectiveTotalSize > 1) Math.max(effectiveTotalSize / 1000, 65536) else 1L
                     while ((inputStream.read(buffer).also { read = it }) != -1 && started) {
                         fos.write(buffer, 0, read)
                         downloaded += read
                         totalBytesDownloaded += read.toLong()
-                        percent = baseProgress + (1.0f * downloaded / effectiveTotalSize) * (endProgress - baseProgress)
-                        updateSpeed(downloaded)
-                        
-                        // 更新进度到进度映射表
-                        if (sectionId > 0) {
-                            val fileProgress = 1.0f * downloaded / effectiveTotalSize
-                            val actualProgress = baseProgress + fileProgress * (endProgress - baseProgress)
-                            setDownloadProgress(sectionId, actualProgress, state ?: "下载中")
+                        if (downloaded - lastProgressUpdate >= progressUpdateInterval) {
+                            lastProgressUpdate = downloaded
+                            percent = baseProgress + (1.0f * downloaded / effectiveTotalSize) * (endProgress - baseProgress)
+                            updateSpeed(downloaded)
+
+                            // 更新进度到进度映射表
+                            if (sectionId > 0) {
+                                val fileProgress = 1.0f * downloaded / effectiveTotalSize
+                                val actualProgress = baseProgress + fileProgress * (endProgress - baseProgress)
+                                setDownloadProgress(sectionId, actualProgress, state ?: "下载中")
+                            }
                         }
                     }
+                    percent = baseProgress + (1.0f * downloaded / effectiveTotalSize) * (endProgress - baseProgress)
                 }
             }
         }
@@ -1208,9 +1233,7 @@ class DownloadService : Service() {
         }
         var bufferedSink: BufferedSink? = null
         try {
-            if (!danmakuFile.exists() && !danmakuFile.createNewFile())
-                return ERR_FILE
-            else if (!danmakuFile.delete() || !danmakuFile.createNewFile())
+            if (!resetFile(danmakuFile))
                 return ERR_FILE
 
             val sink: Sink = danmakuFile.sink()

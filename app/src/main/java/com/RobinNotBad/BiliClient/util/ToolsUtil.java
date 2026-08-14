@@ -42,8 +42,9 @@ public class ToolsUtil {
             throw new RuntimeException("没有md5这个算法！");
         }
         StringBuilder md5code = new StringBuilder(new BigInteger(1, secretBytes).toString(16));
-        for (int i = 0; i < 32 - md5code.length(); i++) {
-            md5code.insert(0, "0");
+        int pad = 32 - md5code.length();
+        if (pad > 0) {
+            md5code.insert(0, "00000000000000000000000000000000", 0, pad);
         }
         return md5code.toString();
     }

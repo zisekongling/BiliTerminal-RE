@@ -122,30 +122,30 @@ public class AccountManager {
     }
 
     public static void saveCurrentAccount() {
-        synchronized (lock) {
-            long mid = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0);
-            if (mid == 0) return;
+        long mid = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0);
+        if (mid == 0) return;
 
-            String cookies = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "");
-            if (cookies.isEmpty()) return;
+        String cookies = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "");
+        if (cookies.isEmpty()) return;
 
-            String refreshToken = SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, "");
-            String accessKey = SharedPreferencesUtil.getString(SharedPreferencesUtil.access_key, "");
-            String csrf = SharedPreferencesUtil.getString(SharedPreferencesUtil.csrf, "");
+        String refreshToken = SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, "");
+        String accessKey = SharedPreferencesUtil.getString(SharedPreferencesUtil.access_key, "");
+        String csrf = SharedPreferencesUtil.getString(SharedPreferencesUtil.csrf, "");
 
-            String avatar = "";
-            String name = "UID:" + mid;
+        String avatar = "";
+        String name = "UID:" + mid;
 
-            try {
-                UserInfo userInfo = UserInfoApi.getUserInfo(mid);
-                if (userInfo != null) {
-                    avatar = userInfo.avatar;
-                    name = userInfo.name;
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
+        try {
+            UserInfo userInfo = UserInfoApi.getUserInfo(mid);
+            if (userInfo != null) {
+                avatar = userInfo.avatar;
+                name = userInfo.name;
             }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
 
+        synchronized (lock) {
             List<AccountInfo> accounts = getAccounts();
             boolean found = false;
             for (int i = 0; i < accounts.size(); i++) {
@@ -197,16 +197,17 @@ public class AccountManager {
         if (account == null || !account.isValid()) return;
 
         synchronized (lock) {
-            SharedPreferencesUtil.putLong(SharedPreferencesUtil.mid, account.mid);
-            SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, account.cookies);
-            SharedPreferencesUtil.putString(SharedPreferencesUtil.refresh_token, account.refreshToken);
-            SharedPreferencesUtil.putString(SharedPreferencesUtil.access_key, account.accessKey);
-            SharedPreferencesUtil.putString(SharedPreferencesUtil.csrf, account.csrf);
-            SharedPreferencesUtil.putLong(CURRENT_ACCOUNT_KEY, account.mid);
-            SharedPreferencesUtil.putBoolean(SharedPreferencesUtil.cookie_refresh, true);
-            SharedPreferencesUtil.putBoolean(SharedPreferencesUtil.setup, true);
-
-            NetWorkUtil.refreshHeaders();
+            SharedPreferencesUtil.edit(editor -> {
+                editor.putLong(SharedPreferencesUtil.mid, account.mid);
+                editor.putString(SharedPreferencesUtil.cookies, account.cookies);
+                editor.putString(SharedPreferencesUtil.refresh_token, account.refreshToken);
+                editor.putString(SharedPreferencesUtil.access_key, account.accessKey);
+                editor.putString(SharedPreferencesUtil.csrf, account.csrf);
+                editor.putLong(CURRENT_ACCOUNT_KEY, account.mid);
+                editor.putBoolean(SharedPreferencesUtil.cookie_refresh, true);
+                editor.putBoolean(SharedPreferencesUtil.setup, true);
+            });
+            NetWorkUtil.setCookiesString(account.cookies);
         }
     }
 

@@ -34,11 +34,33 @@ class NoticeHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
     lateinit var pubdate: TextView
     lateinit var extraCard: ConstraintLayout
 
+    private val pooledAvatars = ArrayList<ImageView>()
+    private val pooledSpacers = ArrayList<View>()
+
     init {
         avaterList = itemView.findViewById(R.id.avatar_list)
         action = itemView.findViewById(R.id.action)
         pubdate = itemView.findViewById(R.id.pubdate)
         extraCard = itemView.findViewById(R.id.extraCard)
+    }
+
+    private fun obtainAvatar(index: Int): ImageView {
+        if (index < pooledAvatars.size) return pooledAvatars[index]
+        val imageView = ImageView(itemView.context)
+        val imageLp = LinearLayout.LayoutParams(avatarSize, avatarSize)
+        imageView.layoutParams = imageLp
+        imageView.left = avatarSpacing
+        pooledAvatars.add(imageView)
+        return imageView
+    }
+
+    private fun obtainSpacer(index: Int): View {
+        if (index < pooledSpacers.size) return pooledSpacers[index]
+        val view = View(itemView.context)
+        val viewLp = LinearLayout.LayoutParams(avatarSpacing, avatarSize)
+        view.layoutParams = viewLp
+        pooledSpacers.add(view)
+        return view
     }
 
     @SuppressLint("SetTextI18n")
@@ -47,21 +69,15 @@ class NoticeHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         if (message.user.isEmpty()) avaterList.visibility = View.GONE
         else avaterList.visibility = View.VISIBLE
         for (i in message.user.indices) {
-            val imageView = ImageView(context)
-            Glide.with(BiliTerminal.context)
+            val imageView = obtainAvatar(i)
+            requestManager
                 .asDrawable()
                 .load(GlideUtil.url(message.user[i].avatar))
                 .transition(GlideUtil.getTransitionOptions())
                 .placeholder(R.mipmap.akari)
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
-                .apply(RequestOptions.circleCropTransform())
+                .apply(CIRCLE_OPTIONS)
                 .into(imageView)
-            val imageSize: Int = ToolsUtil.dp2px(32f)
-            val imageLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            imageLp.width = imageSize
-            imageLp.height = imageSize
-            imageView.layoutParams = imageLp
-            imageView.left = ToolsUtil.dp2px(3f)
             val finalI = i
             imageView.setOnClickListener {
                 val intent = Intent()
@@ -71,18 +87,11 @@ class NoticeHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             }
             avaterList.addView(imageView)
 
-            val view = View(context)
-            val viewLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            viewLp.width = ToolsUtil.dp2px(3f)
-            viewLp.height = ToolsUtil.dp2px(32f)
-            view.layoutParams = viewLp
-            avaterList.addView(view)
+            avaterList.addView(obtainSpacer(i))
         }
 
         if (message.timeStamp != 0L) {
-            @SuppressLint("SimpleDateFormat")
-            val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm")
-            pubdate.text = sdf.format(message.timeStamp * 1000)
+            pubdate.text = TIME_FORMAT.format(message.timeStamp * 1000)
         } else pubdate.text = message.timeDesc
 
         action.text = message.content
@@ -145,10 +154,18 @@ class NoticeHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
                             }
                         }
                     }
-                } catch (e: Exception) {
-                    MsgUtil.err("跳转出错？", e)
-                }
-            }
+        } catch (e: Exception) {
+            MsgUtil.err("跳转出错？", e)
         }
+    }
+
+    companion object {
+        private val TIME_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm")
+        private val CIRCLE_OPTIONS = RequestOptions.circleCropTransform()
+        private val requestManager = Glide.with(BiliTerminal.context)
+        private val avatarSize: Int = ToolsUtil.dp2px(32f)
+        private val avatarSpacing: Int = ToolsUtil.dp2px(3f)
+    }
+}
     }
 }

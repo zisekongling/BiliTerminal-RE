@@ -13,6 +13,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import okhttp3.Response;
 
@@ -117,27 +120,47 @@ public class DanmakuApi {
      */
     public static List<DmSegMobileReply> getAllVideoDanmaku(long aid, long cid, int maxDuration)
             throws IOException, JSONException {
-        List<DmSegMobileReply> allSegments = new ArrayList<>();
-
         // 计算需要获取的分段数（每段 6 分钟 = 360 秒）
         int segmentCount = (maxDuration / 360) + 1;
 
         Logu.d("新版弹幕API", "视频时长: " + maxDuration + "秒, 需要获取 " + segmentCount + " 个分段");
 
-        // 逐段获取弹幕
-        for (int i = 0; i < segmentCount; i++) {
+        // 并发获取各分段，按顺序汇总（网络 IO 是主要耗时，串行等待多个 RTT 太慢）
+        DmSegMobileReply[] segments = new DmSegMobileReply[segmentCount];
+        if (segmentCount <= 1) {
             try {
-                DmSegMobileReply segment = getVideoDanmakuSegment(aid, cid, i + 1);
-                if (segment != null && !segment.elems.isEmpty()) {
-                    allSegments.add(segment);
-                } else if (segment != null && segment.elems.isEmpty()) {
-                    // 如果某一段为空，可能已经到达最后
-                    Logu.d("新版弹幕API", "分段 " + (i + 1) + " 为空，停止获取");
-                    break;
-                }
+                segments[0] = getVideoDanmakuSegment(aid, cid, 1);
             } catch (Exception e) {
-                Logu.e("新版弹幕API", "获取分段 " + (i + 1) + " 失败: " + e.getMessage());
-                // 继续尝试下一段
+                Logu.e("新版弹幕API", "获取分段 1 失败: " + e.getMessage());
+            }
+        } else {
+            ExecutorService executor = Executors.newFixedThreadPool(Math.min(segmentCount, 4));
+            List<Future<DmSegMobileReply>> futures = new ArrayList<>(segmentCount);
+            for (int i = 0; i < segmentCount; i++) {
+                final int index = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        return getVideoDanmakuSegment(aid, cid, index + 1);
+                    } catch (Exception e) {
+                        Logu.e("新版弹幕API", "获取分段 " + (index + 1) + " 失败: " + e.getMessage());
+                        return null;
+                    }
+                }));
+            }
+            executor.shutdown();
+            for (int i = 0; i < segmentCount; i++) {
+                try {
+                    segments[i] = futures.get(i).get();
+                } catch (Exception e) {
+                    Logu.e("新版弹幕API", "获取分段 " + (i + 1) + " 失败: " + e.getMessage());
+                }
+            }
+        }
+
+        List<DmSegMobileReply> allSegments = new ArrayList<>();
+        for (DmSegMobileReply segment : segments) {
+            if (segment != null && !segment.elems.isEmpty()) {
+                allSegments.add(segment);
             }
         }
 

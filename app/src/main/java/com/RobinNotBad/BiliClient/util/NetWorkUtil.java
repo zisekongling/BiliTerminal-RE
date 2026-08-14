@@ -45,6 +45,29 @@ import okhttp3.ResponseBody;
 
 public class NetWorkUtil {
     private static final AtomicReference<OkHttpClient> INSTANCE = new AtomicReference<>();
+    private static volatile String cachedCookies = null;
+
+    /**
+     * 返回内存缓存的 cookie 字符串，避免每次请求都读 SharedPreferences。
+     * 在 putCookie / setCookies / saveCookiesFromResponse 中更新。
+     */
+    public static String getCachedCookies() {
+        String cookies = cachedCookies;
+        if (cookies == null) {
+            cookies = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "");
+            cachedCookies = cookies;
+        }
+        return cookies;
+    }
+
+    /**
+     * 直接写入 cookie 字符串并同步内存缓存（供登录/刷新等场景使用）
+     */
+    public static void setCookiesString(String cookies) {
+        SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, cookies);
+        cachedCookies = cookies;
+        refreshHeaders();
+    }
 
     public static class Inet4Selector implements Dns {
         @NonNull
@@ -296,7 +319,7 @@ public class NetWorkUtil {
 
         //如果没有新cookies，直接返回
         if (newCookies.isEmpty()) return;
-        String cookiesStr = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "");
+        String cookiesStr = getCachedCookies();
         ArrayList<String> oldCookies = (cookiesStr.equals("") ? new ArrayList<>() : new ArrayList<>(Arrays.asList(cookiesStr.split("; "))));  //转list
 
         for (String newCookie : newCookies) {  //对每一条新cookie遍历
@@ -334,9 +357,12 @@ public class NetWorkUtil {
         }
         //如果一次setCookies都没有，就不要存了， 因为是个空字符串
         if (setCookies.length() >= 2) {
-            Logu.d("save-result", setCookies.substring(0, setCookies.length() - 2));
-            SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, setCookies.substring(0, setCookies.length() - 2));
-            refreshHeaders();
+            String result = setCookies.substring(0, setCookies.length() - 2);
+            if (!result.equals(cookiesStr)) {
+                SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, result);
+                cachedCookies = result;
+                refreshHeaders();
+            }
         }
     }
 
@@ -348,9 +374,11 @@ public class NetWorkUtil {
      */
     public static void putCookie(String key, String val) {
         synchronized (NetWorkUtil.class) {
-            Cookies cookies = new Cookies(SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""));
+            Cookies cookies = new Cookies(getCachedCookies());
             cookies.set(key, val);
-            SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, cookies.toString());
+            String result = cookies.toString();
+            SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, result);
+            cachedCookies = result;
             refreshHeaders();
         }
     }
@@ -362,7 +390,9 @@ public class NetWorkUtil {
      */
     public static void setCookies(Cookies cookies) {
         synchronized (NetWorkUtil.class) {
-            SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, cookies.toString());
+            String result = cookies.toString();
+            SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, result);
+            cachedCookies = result;
             refreshHeaders();
         }
     }
@@ -374,14 +404,14 @@ public class NetWorkUtil {
      */
     public static Cookies getCookies() {
         synchronized (NetWorkUtil.class) {
-            return new Cookies(SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""));
+            return new Cookies(getCachedCookies());
         }
     }
 
     public static final String USER_AGENT_WEB = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.95 Safari/537.36";
     public static final ArrayList<String> webHeaders = new ArrayList<>() {{
         add("Cookie");
-        add(SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""));
+        add(getCachedCookies());
 
         add("Origin");
         add("https://www.bilibili.com");
@@ -403,7 +433,7 @@ public class NetWorkUtil {
     }};
 
     public static void refreshHeaders() {
-        webHeaders.set(1, SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""));
+        webHeaders.set(1, getCachedCookies());
     }
 
     public static class FormData {

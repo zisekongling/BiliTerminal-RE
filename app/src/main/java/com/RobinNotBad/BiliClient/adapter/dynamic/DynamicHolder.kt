@@ -242,7 +242,7 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
             content.visibility = View.VISIBLE
             content.text = dynamic.content
             StringUtil.setCopy(content)
-            content.setOnTouchListener(StringUtil.ClickableSpanTouchListener())
+            content.setOnTouchListener(StringUtil.ClickableSpanTouchListener.getInstance())
         } else
             content.visibility = View.GONE
 

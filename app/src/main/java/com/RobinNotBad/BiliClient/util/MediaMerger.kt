@@ -5,10 +5,7 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.nio.ByteBuffer
-import java.nio.channels.FileChannel
 
 /**
  * DASH视频+音频合并工具，使用Android MediaMuxer将分离的视频流和音频流合并为单个MP4文件
@@ -143,21 +140,19 @@ object MediaMerger {
                 return false
             }
 
-            // 用临时文件替换原视频文件（先复制再删除，避免renameTo跨文件系统失败）
-            if (!copyFile(tempFile, videoFile)) {
+            // 用临时文件替换原视频文件（同目录直接rename，避免整文件复制）
+            videoFile.delete()
+            if (!tempFile.renameTo(videoFile)) {
                 Logu.e(TAG, "合并失败：无法替换文件，保留临时文件")
                 // 不删除tempFile，保留作为备选
                 return false
             }
-            tempFile.delete()
 
             // 删除音频文件（合并成功后才删除）
             audioFile.delete()
 
             Logu.d(TAG, "合并成功：${videoFile.name} (${totalWritten / 1024 / 1024}MB)")
-            return true
-
-        } catch (e: Exception) {
+            return true        } catch (e: Exception) {
             Logu.e(TAG, "合并异常：${e.message}")
             try {
                 tempFile.delete()
@@ -167,23 +162,6 @@ object MediaMerger {
             try { muxer?.release() } catch (_: Exception) {}
             try { videoExtractor?.release() } catch (_: Exception) {}
             try { audioExtractor?.release() } catch (_: Exception) {}
-        }
-    }
-
-    /**
-     * 使用FileChannel复制文件，比renameTo更可靠（无跨文件系统限制）
-     */
-    private fun copyFile(src: File, dst: File): Boolean {
-        return try {
-            FileInputStream(src).use { input ->
-                FileOutputStream(dst).use { output ->
-                    input.channel.transferTo(0, input.channel.size(), output.channel)
-                }
-            }
-            true
-        } catch (e: Exception) {
-            Logu.e(TAG, "文件复制失败：${e.message}")
-            false
         }
     }
 }

@@ -54,7 +54,7 @@ class SpecialLoginActivity : BaseActivity() {
                     val cookies = jsonObject.getString("cookies")
                     SharedPreferencesUtil.putLong(SharedPreferencesUtil.mid, NetWorkUtil.getInfoFromCookie("DedeUserID", cookies).toLong())
                     SharedPreferencesUtil.putString(SharedPreferencesUtil.csrf, NetWorkUtil.getInfoFromCookie("bili_jct", cookies))
-                    SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, cookies)
+                    NetWorkUtil.setCookiesString(cookies)
                     SharedPreferencesUtil.putString(SharedPreferencesUtil.refresh_token, jsonObject.getString("refresh_token"))
                     if (jsonObject.has("access_key")) {
                         SharedPreferencesUtil.putString(SharedPreferencesUtil.access_key, jsonObject.getString("access_key"))
@@ -63,8 +63,6 @@ class SpecialLoginActivity : BaseActivity() {
                     SharedPreferencesUtil.putBoolean(SharedPreferencesUtil.setup, true)
 
                     AccountManager.saveCurrentAccount()
-
-                    NetWorkUtil.refreshHeaders()
 
                     val intent1 = Intent()
                     intent1.setClass(this@SpecialLoginActivity, SplashActivity::class.java)
@@ -94,7 +92,7 @@ class SpecialLoginActivity : BaseActivity() {
                     try {
                         val input = JSONObject(textInput.text.toString())
                         val cookies = input.getString("cookies")
-                        SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, cookies)
+                        NetWorkUtil.setCookiesString(cookies)
                         if (input.has("refresh_token")) {
                             SharedPreferencesUtil.putString(SharedPreferencesUtil.refresh_token, input.getString("refresh_token"))
                         }

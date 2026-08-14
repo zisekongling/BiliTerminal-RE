@@ -323,20 +323,29 @@ class InlinePlayerManager(
     }
 
     private fun loadDanmaku(url: String) {
-        try {
-            val loader = DanmakuLoaderFactory.create(DanmakuLoaderFactory.TAG_BILI)
-            loader.load(url)
-            val parser = BiliDanmukuParser()
-            val dataSource: IDataSource<*> = loader.dataSource
-            parser.load(dataSource)
-            val maxLinesPair = HashMap<Int, Int>()
-            maxLinesPair[BaseDanmaku.TYPE_SCROLL_RL] = 5
-            mContext?.setMaximumLines(maxLinesPair)
-            danmakuView.prepare(parser, mContext)
-            hasDanmaku = true
-        } catch (e: Exception) {
-            Logu.e("InlinePlayer", "Load danmaku error: ${e.message}")
-            hasDanmaku = false
+        com.RobinNotBad.BiliClient.util.CenterThreadPool.run {
+            try {
+                val loader = DanmakuLoaderFactory.create(DanmakuLoaderFactory.TAG_BILI)
+                loader.load(url)
+                val parser = BiliDanmukuParser()
+                val dataSource: IDataSource<*> = loader.dataSource
+                parser.load(dataSource)
+                mainHandler.post {
+                    try {
+                        val maxLinesPair = HashMap<Int, Int>()
+                        maxLinesPair[BaseDanmaku.TYPE_SCROLL_RL] = 5
+                        mContext?.setMaximumLines(maxLinesPair)
+                        danmakuView.prepare(parser, mContext)
+                        hasDanmaku = true
+                    } catch (e: Exception) {
+                        Logu.e("InlinePlayer", "Load danmaku error: ${e.message}")
+                        hasDanmaku = false
+                    }
+                }
+            } catch (e: Exception) {
+                Logu.e("InlinePlayer", "Load danmaku error: ${e.message}")
+                hasDanmaku = false
+            }
         }
     }
 
@@ -420,6 +429,7 @@ class InlinePlayerManager(
     }
 
     private fun startProgressTimer() {
+        stopProgressTimer()
         progressTimer = Timer().apply {
             schedule(object : TimerTask() {
                 override fun run() {

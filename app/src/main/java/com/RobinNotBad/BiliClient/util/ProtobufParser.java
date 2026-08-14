@@ -3,7 +3,6 @@ package com.RobinNotBad.BiliClient.util;
 import com.RobinNotBad.BiliClient.model.DanmakuElem;
 import com.RobinNotBad.BiliClient.model.DmSegMobileReply;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
@@ -21,17 +20,16 @@ public class ProtobufParser {
      */
     public static DmSegMobileReply parseDmSegMobileReply(byte[] data) throws IOException {
         DmSegMobileReply reply = new DmSegMobileReply();
-        ByteArrayInputStream input = new ByteArrayInputStream(data);
+        Cursor input = new Cursor(data);
 
-        while (input.available() > 0) {
+        while (input.hasRemaining()) {
             int tag = readVarint(input);
             int fieldNumber = tag >>> 3;
             int wireType = tag & 0x07;
 
             if (fieldNumber == 1 && wireType == 2) { // elems 字段
                 int length = readVarint(input);
-                byte[] elemData = new byte[length];
-                input.read(elemData);
+                byte[] elemData = input.readBytes(length);
                 DanmakuElem elem = parseDanmakuElem(elemData);
                 reply.elems.add(elem);
             } else {
@@ -50,9 +48,9 @@ public class ProtobufParser {
      */
     private static DanmakuElem parseDanmakuElem(byte[] data) throws IOException {
         DanmakuElem elem = new DanmakuElem();
-        ByteArrayInputStream input = new ByteArrayInputStream(data);
+        Cursor input = new Cursor(data);
 
-        while (input.available() > 0) {
+        while (input.hasRemaining()) {
             int tag = readVarint(input);
             int fieldNumber = tag >>> 3;
             int wireType = tag & 0x07;
@@ -126,7 +124,7 @@ public class ProtobufParser {
     /**
      * 读取变长整数（varint）
      */
-    private static int readVarint(ByteArrayInputStream input) throws IOException {
+    private static int readVarint(Cursor input) throws IOException {
         int result = 0;
         int shift = 0;
         int b;
@@ -135,10 +133,7 @@ public class ProtobufParser {
             if (shift >= 32) {
                 throw new IOException("Varint too long");
             }
-            b = input.read();
-            if (b == -1) {
-                throw new IOException("Unexpected end of stream");
-            }
+            b = input.readByte();
             result |= (b & 0x7F) << shift;
             shift += 7;
         } while ((b & 0x80) != 0);
@@ -149,7 +144,7 @@ public class ProtobufParser {
     /**
      * 读取 64 位变长整数
      */
-    private static long readVarint64(ByteArrayInputStream input) throws IOException {
+    private static long readVarint64(Cursor input) throws IOException {
         long result = 0;
         int shift = 0;
         int b;
@@ -158,10 +153,7 @@ public class ProtobufParser {
             if (shift >= 64) {
                 throw new IOException("Varint too long");
             }
-            b = input.read();
-            if (b == -1) {
-                throw new IOException("Unexpected end of stream");
-            }
+            b = input.readByte();
             result |= (long) (b & 0x7F) << shift;
             shift += 7;
         } while ((b & 0x80) != 0);
@@ -172,20 +164,16 @@ public class ProtobufParser {
     /**
      * 读取字符串
      */
-    private static String readString(ByteArrayInputStream input) throws IOException {
+    private static String readString(Cursor input) throws IOException {
         int length = readVarint(input);
-        byte[] bytes = new byte[length];
-        int bytesRead = input.read(bytes);
-        if (bytesRead != length) {
-            throw new IOException("Unexpected end of stream");
-        }
+        byte[] bytes = input.readBytes(length);
         return new String(bytes, StandardCharsets.UTF_8);
     }
 
     /**
      * 跳过字段
      */
-    private static void skipField(ByteArrayInputStream input, int wireType) throws IOException {
+    private static void skipField(Cursor input, int wireType) throws IOException {
         switch (wireType) {
             case 0: // Varint
                 readVarint64(input);
@@ -202,6 +190,46 @@ public class ProtobufParser {
                 break;
             default:
                 throw new IOException("Unknown wire type: " + wireType);
+        }
+    }
+
+    /**
+     * 基于索引的字节游标，避免 ByteArrayInputStream 每字节同步调用
+     */
+    private static final class Cursor {
+        private final byte[] data;
+        private int pos;
+
+        Cursor(byte[] data) {
+            this.data = data;
+        }
+
+        boolean hasRemaining() {
+            return pos < data.length;
+        }
+
+        int readByte() throws IOException {
+            if (pos >= data.length) {
+                throw new IOException("Unexpected end of stream");
+            }
+            return data[pos++] & 0xFF;
+        }
+
+        byte[] readBytes(int length) throws IOException {
+            if (length < 0 || pos + length > data.length) {
+                throw new IOException("Unexpected end of stream");
+            }
+            byte[] bytes = new byte[length];
+            System.arraycopy(data, pos, bytes, 0, length);
+            pos += length;
+            return bytes;
+        }
+
+        void skip(int length) throws IOException {
+            if (length < 0 || pos + length > data.length) {
+                throw new IOException("Unexpected end of stream");
+            }
+            pos += length;
         }
     }
 }

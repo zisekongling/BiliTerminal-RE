@@ -112,12 +112,12 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
             val coverUrl = GlideUtil.url(videoCard.cover)
             if (coverUrl != lastCoverUrl) {
                 lastCoverUrl = coverUrl
-                Glide.with(BiliTerminal.context).asDrawable().load(coverUrl)
+                requestManager.asDrawable().load(coverUrl)
                     .transition(GlideUtil.getTransitionOptions())
                     .placeholder(R.mipmap.placeholder)
                     .format(DecodeFormat.PREFER_RGB_565)
                     .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
-                    .apply(Companion.getRequestOptions())
+                    .apply(getRequestOptions())
                     .into(cover)
             }
         } catch (e: Exception) {
@@ -127,13 +127,13 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
         when (videoCard.type) {
             "live" -> {
                 val sstrLive = SpannableString("[直播]" + StringUtil.htmlToString(videoCard.title))
-                sstrLive.setSpan(ForegroundColorSpan(Color.rgb(207, 75, 95)), 0, 4,
+                sstrLive.setSpan(TITLE_COLOR_SPAN, 0, 4,
                     Spanned.SPAN_INCLUSIVE_EXCLUSIVE)
                 title.text = sstrLive
             }
             "series" -> {
                 val sstrSeries = SpannableString("[系列]" + StringUtil.htmlToString(videoCard.title))
-                sstrSeries.setSpan(ForegroundColorSpan(Color.rgb(207, 75, 95)), 0, 4,
+                sstrSeries.setSpan(TITLE_COLOR_SPAN, 0, 4,
                     Spanned.SPAN_INCLUSIVE_EXCLUSIVE)
                 title.text = sstrSeries
             }
@@ -142,9 +142,23 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
     }
 
     companion object {
+        private val requestManager = Glide.with(BiliTerminal.context)
+        private val TITLE_COLOR_SPAN = ForegroundColorSpan(Color.rgb(207, 75, 95))
+        private var mobileOptions: RequestOptions? = null
+        private var normalOptions: RequestOptions? = null
+
         @JvmStatic
         fun getRequestOptions(): RequestOptions {
             val isMobile = SharedPreferencesUtil.getBoolean("ui_mobile_mode", false)
+            var options = if (isMobile) mobileOptions else normalOptions
+            if (options == null) {
+                options = buildRequestOptions(isMobile)
+                if (isMobile) mobileOptions = options else normalOptions = options
+            }
+            return options
+        }
+
+        private fun buildRequestOptions(isMobile: Boolean): RequestOptions {
             val cornerRadius = if (isMobile) ToolsUtil.dp2px(10f) else ToolsUtil.dp2px(5f)
             return RequestOptions()
                 .transform(CenterCrop(), RoundedCorners(cornerRadius))

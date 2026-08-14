@@ -35,7 +35,7 @@ class IjkPlayerBridge(
     private val onError: (Int, String) -> Unit = { _, _ -> }
 ) {
     private var mediaPlayer: IjkMediaPlayer? = null
-    private var job: Job = Job()
+    private var job: Job = SupervisorJob()
     private val scope = CoroutineScope(Dispatchers.Main + job)
     private var progressJob: Job? = null
 
@@ -197,7 +197,10 @@ class IjkPlayerBridge(
             while (isActive) {
                 val player = mediaPlayer
                 if (player != null && player.isPlaying) {
-                    _state.update { it.copy(currentPosition = player.currentPosition) }
+                    val pos = player.currentPosition
+                    if (pos != _state.value.currentPosition) {
+                        _state.update { it.copy(currentPosition = pos) }
+                    }
                 }
                 delay(250)
             }
@@ -210,8 +213,8 @@ class IjkPlayerBridge(
     }
 
     fun release() {
-        scope.cancel()
         progressJob?.cancel()
+        progressJob = null
         try {
             mediaPlayer?.stop()
             mediaPlayer?.reset()
