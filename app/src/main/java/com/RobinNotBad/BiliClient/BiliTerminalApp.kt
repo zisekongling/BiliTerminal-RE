@@ -122,6 +122,9 @@ class BiliTerminalApp : Application() {
             setTheme(themeResId)
             context = getFitDisplayContext(this)
 
+            // 手机模式已停用，隐藏开关并强制默认关闭
+            SharedPreferencesUtil.putBoolean("ui_mobile_mode", false)
+
             // 初始化性能管理器 - 设备检测与自适应优化
             PerformanceManager.init(this)
 

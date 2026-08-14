@@ -78,9 +78,7 @@ class SettingLaboratoryActivity : RefreshListActivity() {
                 "选择应用的主题配色方案", "theme_bilibili_pink",
                 SettingsAdapter.ListChooseHolder.ListChooseExtra(themeDisplayNames, themeActualValues)))
             add(SettingSection("switch", "横屏模式", "ui_landscape", getString(R.string.setting_lab_ui_landscape),
-                "false", null, "ui_mobile_mode"))
-            add(SettingSection("switch", "手机模式", "ui_mobile_mode", getString(R.string.setting_lab_ui_mobile_mode),
-                "false", null, "ui_landscape"))
+                "false"))
             add(SettingSection("input_string", "开屏文字", "ui_splashtext",
                 getString(R.string.setting_lab_splashtext), "欢迎使用\nRE:哔哩终端"))
             add(SettingSection("switch", "文字跑马灯", "marquee_enable", getString(R.string.setting_lab_marquee),
