@@ -44,6 +44,7 @@ class MySpaceActivity : InstanceActivity() {
     private lateinit var loginRecord: MaterialCardView
     private lateinit var coinLog: MaterialCardView
     private lateinit var expLog: MaterialCardView
+    private lateinit var editProfile: MaterialCardView
     private lateinit var editSign: MaterialCardView
     private lateinit var logout: MaterialCardView
     private lateinit var credentialsCard: MaterialCardView
@@ -80,6 +81,7 @@ class MySpaceActivity : InstanceActivity() {
             loginRecord = findViewById(R.id.login_record)
             coinLog = findViewById(R.id.coin_log)
             expLog = findViewById(R.id.exp_log)
+            editProfile = findViewById(R.id.edit_profile)
             editSign = findViewById(R.id.edit_sign)
             logout = findViewById(R.id.logout)
             credentialsCard = findViewById(R.id.credentialsCard)
@@ -181,6 +183,12 @@ class MySpaceActivity : InstanceActivity() {
                         expLog.setOnClickListener {
                             val intent = Intent()
                             intent.setClass(this@MySpaceActivity, ExpLogActivity::class.java)
+                            startActivity(intent)
+                        }
+
+                        editProfile.setOnClickListener {
+                            val intent = Intent()
+                            intent.setClass(this@MySpaceActivity, EditProfileActivity::class.java)
                             startActivity(intent)
                         }
 

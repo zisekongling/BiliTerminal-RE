@@ -24,6 +24,7 @@ public class HistoryApi {
      * @throws IOException
      */
     public static void reportHistory(long aid, long cid, long progress) throws IOException {
+        if (SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.PRIVACY_MODE, false)) return;
         String url = "https://api.bilibili.com/x/v2/history/report";
         String per = "aid=" + aid + "&cid=" + cid
                 + "&progress=" + (progress >= 0 ? progress : "")

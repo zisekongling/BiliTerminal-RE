@@ -147,17 +147,76 @@ public class NetWorkUtil {
     }
 
     public static JSONObject getJson(String url) throws IOException, JSONException {
-        try (ResponseBody body = get(url).body()) {
-            if (body != null) return new JSONObject(body.string());
-            else throw new JSONException("在访问" + url + "时返回数据为空");
-        }
+        return executeJsonWithRiskRetry(url, webHeaders);
     }
 
     public static JSONObject getJson(String url, ArrayList<String> headers) throws IOException, JSONException {
-        try (ResponseBody body = get(url, headers).body()) {
-            if (body != null) return new JSONObject(body.string());
-            else throw new JSONException("在访问" + url + "时返回数据为空");
+        return executeJsonWithRiskRetry(url, headers);
+    }
+
+    /**
+     * 隐私模式下的JSON请求，使用游客Cookie（剔除登录态Cookie），避免详情请求暴露个人状态
+     */
+    public static JSONObject getJsonPrivacy(String url) throws IOException, JSONException {
+        ArrayList<String> headers = new ArrayList<>(webHeaders);
+        headers.set(1, buildGuestCookieString(getCachedCookies()));
+        return executeJsonWithRiskRetry(url, headers);
+    }
+
+    /**
+     * 从完整Cookie字符串构建游客Cookie：剔除登录相关项，保留 buvid3/buvid4/bili_ticket/_uuid 等游客身份Cookie
+     *
+     * @param cookieString 完整Cookie字符串（形如 "a=1; b=2"）
+     * @return 游客Cookie字符串
+     */
+    public static String buildGuestCookieString(String cookieString) {
+        if (cookieString == null || cookieString.isEmpty()) return "";
+        String[] excluded = {"SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid"};
+        StringBuilder sb = new StringBuilder();
+        String[] cookies = cookieString.split("; ");
+        for (String cookie : cookies) {
+            int eq = cookie.indexOf('=');
+            if (eq <= 0) continue;
+            String name = cookie.substring(0, eq);
+            boolean skip = false;
+            for (String ex : excluded) {
+                if (ex.equals(name)) {
+                    skip = true;
+                    break;
+                }
+            }
+            if (skip) continue;
+            if (sb.length() > 0) sb.append("; ");
+            sb.append(cookie);
         }
+        return sb.toString();
+    }
+
+    private static JSONObject executeJsonWithRiskRetry(String url, ArrayList<String> headers) throws IOException, JSONException {
+        int maxRetries = Math.max(1, SharedPreferencesUtil.getInt("api_retry_max_times", 5));
+        long retryIntervalMs = Math.max(0L, (long) (SharedPreferencesUtil.getFloat("api_retry_interval_seconds", 0.1f) * 1000));
+
+        JSONObject json = null;
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try (ResponseBody body = get(url, headers).body()) {
+                if (body != null) json = new JSONObject(body.string());
+                else throw new JSONException("在访问" + url + "时返回数据为空");
+            }
+            int code = json.optInt("code", 0);
+            if (code != -352 && code != -412) {
+                return json;
+            }
+            Logu.d("RiskRetry", "检测到风控错误码 " + code + "，第" + attempt + "次重试...");
+            if (attempt < maxRetries && retryIntervalMs > 0) {
+                try {
+                    Thread.sleep(retryIntervalMs);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        return json;
     }
 
     public static Response get(String url) throws IOException {

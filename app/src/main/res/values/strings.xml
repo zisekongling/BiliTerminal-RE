@@ -134,6 +134,7 @@
     <string name="desc_img_no_load_onscroll">打开此选项，翻动列表时将不会加载图片，松手后再加载，观感可能有影响，可能增加流畅度。</string>
     <string name="desc_img_request_jpg">部分杂牌手表和安卓版本极低的设备不支持webp格式，可能导致大量图片无法显示。打开此选项，将会请求jpg格式的图片以解决此问题，会略微延长加载时间。</string>
     <string name="desc_link_enable">打开此选项，会识别部分文本中的链接/BV号/AV号/CV号并标记为链接，点击可打开。</string>
+    <string name="desc_privacy_mode">开启后，浏览视频详情和播放视频时不会记录到B站历史记录中。\n仍可享受登录账号的高清画质，但视频详情页不会显示你的点赞/投币/收藏状态。</string>
     <string name="desc_async_inflate_enable">打开此选项，会对部分页面进行异步加载（显示一个加载中动画，加载完成后显示页面）\n* 请注意，异步加载的开启可能会触发一些崩溃问题，但关闭会导致一些页面在打开期间看上去像卡死了一样，体验不佳。请自行判断！</string>
     <string name="desc_load_transition">打开此选项，图片和部分页面加载完成时会有渐入/渐出动画。</string>
     <string name="desc_fromlast">播放视频时如果有超过5秒的播放历史，将会自动从历史位置播放</string>

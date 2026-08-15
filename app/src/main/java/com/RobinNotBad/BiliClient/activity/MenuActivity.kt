@@ -23,6 +23,7 @@ import com.RobinNotBad.BiliClient.activity.search.SearchActivity
 import com.RobinNotBad.BiliClient.activity.settings.SettingMainActivity
 import com.RobinNotBad.BiliClient.activity.settings.login.LoginActivity
 import com.RobinNotBad.BiliClient.activity.user.MySpaceActivity
+import com.RobinNotBad.BiliClient.activity.video.HotSearchActivity
 import com.RobinNotBad.BiliClient.activity.video.PopularActivity
 import com.RobinNotBad.BiliClient.activity.video.PreciousActivity
 import com.RobinNotBad.BiliClient.activity.video.RankingActivity
@@ -50,6 +51,7 @@ class MenuActivity : BaseActivity() {
             put("popular", Pair("热门", PopularActivity::class.java))
             put("precious", Pair("入站必刷", PreciousActivity::class.java))
             put("ranking", Pair("全站排行榜", RankingActivity::class.java))
+            put("hotsearch", Pair("热搜", HotSearchActivity::class.java))
             put("live", Pair("直播", RecommendLiveActivity::class.java))
             put("timeline", Pair("时间线", TimelineActivity::class.java))
             put("search", Pair("搜索", SearchActivity::class.java))
@@ -229,6 +231,7 @@ class MenuActivity : BaseActivity() {
             add("popular")
             add("precious")
             add("ranking")
+            add("hotsearch")
             add("live")
             add("timeline")
             add("search")

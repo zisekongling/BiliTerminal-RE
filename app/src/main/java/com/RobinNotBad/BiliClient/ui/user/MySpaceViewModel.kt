@@ -76,6 +76,7 @@ class MySpaceViewModel @Inject constructor() : ViewModel() {
         MenuAction("vip", "大会员", targetClassName = "com.RobinNotBad.BiliClient.activity.user.VipActivity"),
         MenuAction("creative", "创作中心", targetClassName = "com.RobinNotBad.BiliClient.activity.user.CreativeCenterActivity"),
         MenuAction("edit_sign", "编辑签名", targetClassName = "com.RobinNotBad.BiliClient.activity.user.EditSignActivity"),
+        MenuAction("edit_profile", "编辑资料", targetClassName = "com.RobinNotBad.BiliClient.activity.user.EditProfileActivity"),
         MenuAction("settings", "设置", targetClassName = "com.RobinNotBad.BiliClient.activity.settings.SettingMainActivity"),
         MenuAction("logout", "退出登录", targetClassName = "LOGOUT")
     )

@@ -48,6 +48,8 @@ fun buildDefaultMenuItems(): List<MenuItemData> {
             targetActivity = "video.PopularActivity"),
         MenuItemData("ranking", "排行榜", "icon_ranking", MenuItemType.VIDEO,
             targetActivity = "video.RankingActivity"),
+        MenuItemData("hotsearch", "热搜", "icon_ranking", MenuItemType.VIDEO,
+            targetActivity = "video.HotSearchActivity"),
         MenuItemData("dynamic", "动态", "icon_dynamic", MenuItemType.DYNAMIC,
             targetActivity = "dynamic.DynamicActivity"),
         MenuItemData("live", "直播", "icon_live", MenuItemType.LIVE,

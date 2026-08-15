@@ -20,6 +20,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- UETool 调试悬浮窗所需的系统悬浮窗权限（仅 Debug 构建需要用户手动授权开启） -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:name=".BiliTerminal"
@@ -449,6 +451,11 @@
             android:label="设置"
             android:screenOrientation="locked" />
         <activity
+            android:name=".activity.settings.SettingGroupActivity"
+            android:exported="false"
+            android:label="设置分组"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.settings.TutorialManagerActivity"
             android:exported="false"
             android:label="教程管理"
@@ -474,6 +481,16 @@
             android:label="修改描述"
             android:screenOrientation="locked" />
         <activity
+            android:name=".activity.user.EditProfileActivity"
+            android:exported="false"
+            android:label="编辑个人资料"
+            android:screenOrientation="locked" />
+        <activity
+            android:name=".activity.user.EditUserInfoActivity"
+            android:exported="false"
+            android:label="编辑资料"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.user.CreativeCenterActivity"
             android:exported="false"
             android:label="创作中心"
@@ -482,6 +499,11 @@
             android:name=".activity.search.SearchActivity"
             android:exported="true"
             android:label="搜索"
+            android:screenOrientation="locked" />
+        <activity
+            android:name=".activity.video.HotSearchActivity"
+            android:exported="false"
+            android:label="热搜"
             android:screenOrientation="locked" />
         <activity
             android:name=".activity.video.info.VideoInfoActivity"

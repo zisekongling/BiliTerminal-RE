@@ -13,9 +13,13 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.List;
 import java.util.Objects;
+import java.util.zip.GZIPInputStream;
 
 //用户信息API
 
@@ -240,5 +244,133 @@ public class UserInfoApi {
         }
         JSONObject all = new JSONObject(Objects.requireNonNull(NetWorkUtil.post(url, arg, NetWorkUtil.webHeaders).body()).string());
         return all;
+    }
+
+    /**
+     * 修改昵称/生日/性别（可只传要修改的项，其余传null）
+     *
+     * @param uname    新昵称，null表示不修改
+     * @param birthday 新生日，格式YYYY-MM-DD，null表示不修改
+     * @param sex      新性别，1=男 2=女，null表示不修改
+     * @param usersign 新签名，null表示不修改
+     */
+    public static JSONObject updateUserInfo(String uname, String birthday, String sex, String usersign) throws IOException, JSONException {
+        String cookiesStr = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "");
+        String csrf = NetWorkUtil.getInfoFromCookie("bili_jct", cookiesStr);
+        String sessdata = NetWorkUtil.getInfoFromCookie("SESSDATA", cookiesStr);
+        String dedeUserId = NetWorkUtil.getInfoFromCookie("DedeUserID", cookiesStr);
+        String buvid3 = NetWorkUtil.getInfoFromCookie("buvid3", cookiesStr);
+
+        StringBuilder arg = new StringBuilder();
+        arg.append("csrf=").append(csrf);
+        arg.append("&x-bili-redirect=1");
+        if (uname != null && !uname.isEmpty()) {
+            arg.append("&uname=").append(java.net.URLEncoder.encode(uname, "UTF-8"));
+        }
+        if (birthday != null && !birthday.isEmpty()) {
+            if (!birthday.matches("\\d{4}-\\d{2}-\\d{2}")) {
+                throw new IllegalArgumentException("生日格式必须为YYYY-MM-DD");
+            }
+            arg.append("&birthday=").append(java.net.URLEncoder.encode(birthday, "UTF-8"));
+        }
+        if (sex != null && !sex.isEmpty()) {
+            String sexStr = "1".equals(sex) ? "男" : ("2".equals(sex) ? "女" : sex);
+            arg.append("&sex=").append(java.net.URLEncoder.encode(sexStr, "UTF-8"));
+        }
+        if (usersign != null) {
+            arg.append("&usersign=").append(java.net.URLEncoder.encode(usersign, "UTF-8"));
+        }
+
+        String url = "https://api.bilibili.com/x/member/web/update";
+        StringBuilder cookieBuilder = new StringBuilder();
+        if (sessdata != null && !sessdata.isEmpty()) cookieBuilder.append("SESSDATA=").append(sessdata).append("; ");
+        if (csrf != null && !csrf.isEmpty()) cookieBuilder.append("bili_jct=").append(csrf).append("; ");
+        if (dedeUserId != null && !dedeUserId.isEmpty()) cookieBuilder.append("DedeUserID=").append(dedeUserId).append("; ");
+        if (buvid3 != null && !buvid3.isEmpty()) cookieBuilder.append("buvid3=").append(buvid3);
+
+        okhttp3.RequestBody body = okhttp3.RequestBody.create(
+                okhttp3.MediaType.parse("application/x-www-form-urlencoded; charset=utf-8"), arg.toString());
+        okhttp3.Request request = new okhttp3.Request.Builder()
+                .url(url)
+                .post(body)
+                .addHeader("Cookie", cookieBuilder.toString())
+                .addHeader("Referer", "https://www.bilibili.com/")
+                .addHeader("Origin", "https://account.bilibili.com")
+                .addHeader("User-Agent", NetWorkUtil.USER_AGENT_WEB)
+                .addHeader("Accept", "*/*")
+                .addHeader("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+                .build();
+        return new JSONObject(decompressResponse(NetWorkUtil.getOkHttpInstance().newCall(request).execute()));
+    }
+
+    /**
+     * 上传头像
+     *
+     * @param imageData 已压缩的JPEG图片数据
+     * @param fileName  文件名（含扩展名）
+     */
+    public static JSONObject uploadAvatar(byte[] imageData, String fileName) throws IOException, JSONException {
+        String cookiesStr = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "");
+        String csrf = NetWorkUtil.getInfoFromCookie("bili_jct", cookiesStr);
+        String sessdata = NetWorkUtil.getInfoFromCookie("SESSDATA", cookiesStr);
+        String dedeUserId = NetWorkUtil.getInfoFromCookie("DedeUserID", cookiesStr);
+        String buvid3 = NetWorkUtil.getInfoFromCookie("buvid3", cookiesStr);
+        String buvid4 = NetWorkUtil.getInfoFromCookie("buvid4", cookiesStr);
+        String biliTicket = NetWorkUtil.getInfoFromCookie("bili_ticket", cookiesStr);
+
+        String url = "https://api.bilibili.com/x/member/web/face/update";
+        StringBuilder cookieBuilder = new StringBuilder();
+        if (sessdata != null && !sessdata.isEmpty()) cookieBuilder.append("SESSDATA=").append(sessdata).append("; ");
+        if (csrf != null && !csrf.isEmpty()) cookieBuilder.append("bili_jct=").append(csrf).append("; ");
+        if (dedeUserId != null && !dedeUserId.isEmpty()) cookieBuilder.append("DedeUserID=").append(dedeUserId).append("; ");
+        if (buvid3 != null && !buvid3.isEmpty()) cookieBuilder.append("buvid3=").append(buvid3).append("; ");
+        if (buvid4 != null && !buvid4.isEmpty()) cookieBuilder.append("buvid4=").append(buvid4).append("; ");
+        if (biliTicket != null && !biliTicket.isEmpty()) cookieBuilder.append("bili_ticket=").append(biliTicket);
+
+        okhttp3.RequestBody fileBody = okhttp3.RequestBody.create(okhttp3.MediaType.parse("image/jpeg"), imageData);
+        okhttp3.MultipartBody multipartBody = new okhttp3.MultipartBody.Builder()
+                .setType(okhttp3.MultipartBody.FORM)
+                .addFormDataPart("csrf", csrf)
+                .addFormDataPart("face", fileName, fileBody)
+                .addFormDataPart("platform", "pc")
+                .addFormDataPart("csrf_token", csrf)
+                .build();
+        okhttp3.Request request = new okhttp3.Request.Builder()
+                .url(url)
+                .post(multipartBody)
+                .addHeader("Cookie", cookieBuilder.toString())
+                .addHeader("Referer", "https://account.bilibili.com/home")
+                .addHeader("Origin", "https://account.bilibili.com")
+                .addHeader("User-Agent", NetWorkUtil.USER_AGENT_WEB)
+                .addHeader("Accept", "*/*")
+                .addHeader("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+                .build();
+        return new JSONObject(decompressResponse(NetWorkUtil.getOkHttpInstance().newCall(request).execute()));
+    }
+
+    /**
+     * 读取响应体并处理br/gzip压缩，返回字符串
+     */
+    private static String decompressResponse(okhttp3.Response response) throws IOException {
+        okhttp3.ResponseBody respBody = response.body();
+        if (respBody == null) throw new IOException("响应体为空");
+        String contentEncoding = response.header("Content-Encoding");
+        byte[] bodyBytes = respBody.bytes();
+        if ("br".equalsIgnoreCase(contentEncoding)) {
+            try {
+                return new String(com.netease.hearttouch.brotlij.Brotli.decompress(bodyBytes), java.nio.charset.StandardCharsets.UTF_8);
+            } catch (Exception e) {
+                return new String(bodyBytes, java.nio.charset.StandardCharsets.UTF_8);
+            }
+        } else if ("gzip".equalsIgnoreCase(contentEncoding)) {
+            try (GZIPInputStream gzipStream = new GZIPInputStream(new ByteArrayInputStream(bodyBytes));
+                 BufferedReader reader = new BufferedReader(new InputStreamReader(gzipStream, java.nio.charset.StandardCharsets.UTF_8))) {
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) sb.append(line);
+                return sb.toString();
+            }
+        }
+        return new String(bodyBytes, java.nio.charset.StandardCharsets.UTF_8);
     }
 }
