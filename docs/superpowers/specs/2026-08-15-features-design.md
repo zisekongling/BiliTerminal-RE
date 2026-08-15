@@ -60,7 +60,7 @@ public static boolean getHotSearch(List<HotSearchCard> list) {
 
 ### HotSearchAdapter
 
-- 行内四控件：`rankText`（36dp，前三 `#fb7299` 其余 `#8A8A8A`）、`iconView`（21dp，icon 空则 `View.GONE`）、`keywordText`（weight=1，显示 `showName`）、`heatText`。
+- 行内四控件：`rankText`（36dp，前三 `#FB7299` 其余 `#999999`）、`iconView`（21dp，icon 空则 `View.GONE`）、`keywordText`（weight=1，显示 `showName`）、`heatText`。
 - 热度格式化：`heat < 10000` 原样；否则 `String.format("%.1f万", heat / 10000.0)`；`heat <= 0` 置空。
 - 点击：`Intent(context, SearchActivity::class.java).putExtra("keyword", keyword)`（SearchActivity 已在 272 行支持 `getStringExtra("keyword")` 预填搜索框）。
 
@@ -73,9 +73,9 @@ public static boolean getHotSearch(List<HotSearchCard> list) {
 - `activity/MenuActivity.kt`：`btnNames` 追加 `put("hotsearch", Pair("热搜", HotSearchActivity::class.java))`；`getDefaultSortList()` 追加 `"hotsearch"`（13 → 14 项；`MENU_SORT` 尺寸不匹配时自动重置为默认排序，安全）。
 - `ui/menu/MainMenuViewModel.kt`：`buildDefaultMenuItems` 追加 `MenuItemData("hotsearch", "热搜", "icon_ranking", MenuItemType.VIDEO, targetActivity = "video.HotSearchActivity")`（现代菜单经 `Class.forName("com.RobinNotBad.BiliClient.activity.${targetActivity}")` 反射加载遗留 Activity，已确认 193 行）。
 
-### 字符串
+### 页面标题
 
-- `strings.xml`：`pagename_hot_search = "热搜"`（若沿用硬编码"热搜"则可省略，实现时决定）。
+- 沿用本仓库"遗留页面硬编码中文文案"惯例（`activity_edit_sign.xml` 硬编码"修改个人描述"）：`HotSearchActivity` 直接 `setText("热搜")`（与反编译实现一致），无需改 `strings.xml`。
 
 ## 功能二：编辑个人资料
 
@@ -88,16 +88,21 @@ public static boolean getHotSearch(List<HotSearchCard> list) {
 | `res/layout/activity_edit_profile.xml` | 枢纽页布局 |
 | `res/layout/activity_edit_user_info.xml` | 表单布局 |
 
-### UserInfoApi 新增两个方法（参照 BiliTerminal 362-536 行）
+**修改文件**：`api/UserInfoApi.java`（新增 `updateUserInfo` / `uploadAvatar` 两个方法，参照 BiliTerminal 362-536 行）。
 
-- `updateUserInfo(String uname, String birthday, String sex, String usersign)`
+### updateUserInfo
+
+- 签名：`updateUserInfo(String uname, String birthday, String sex, String usersign)`
   - POST `https://api.bilibili.com/x/member/web/update`，`application/x-www-form-urlencoded`。
   - 参数：`csrf=bili_jct`、`x-bili-redirect=1`，可选 `uname`/`birthday`/`sex`/`usersign`（URLEncoder UTF-8）。
   - 性别编码：`1→男`、`2→女`。
   - Cookie 重建：`SESSDATA`、`bili_jct`、`DedeUserID`、`buvid3`（经 `NetWorkUtil.getInfoFromCookie` 从登录 Cookie 提取）。
   - Referer `https://www.bilibili.com/`，Origin `https://account.bilibili.com`，UA 用现成 `NetWorkUtil.USER_AGENT_WEB`。
   - 响应处理：`Content-Encoding` 为 `br` 走 Brotli、`gzip` 走 GZIP 解压，否则 UTF-8；解析失败返回 `{code:-1, message:"JSON解析失败..."}`。
-- `uploadAvatar(byte[] imageData, String fileName)`
+
+### uploadAvatar
+
+- 签名：`uploadAvatar(byte[] imageData, String fileName)`
   - POST `https://api.bilibili.com/x/member/web/face/update`，`MultipartBody.FORM`。
   - 字段：`csrf`、`face`（文件名 + image/jpeg）、`platform=pc`、`csrf_token`。
   - Cookie 重建：`SESSDATA`、`bili_jct`、`DedeUserID`、`buvid3`、`buvid4`、`bili_ticket`。
@@ -136,9 +141,9 @@ public static boolean getHotSearch(List<HotSearchCard> list) {
 - `activity/user/MySpaceActivity.kt` + `res/layout/activity_myspace.xml`：新增 `edit_profile` 卡片（位于 `edit_sign` 卡片旁），点击 → `EditProfileActivity`。
 - `ui/user/MySpaceViewModel.kt`：`getMenuItems` 在 `edit_sign` 后加 `MenuAction("edit_profile", "编辑资料", targetClassName = "com.RobinNotBad.BiliClient.activity.user.EditProfileActivity")`。
 
-### 字符串
+### 文案
 
-- `pagename_edit_profile`、`pagename_edit_user_info`、头像上传相关提示、错误码文案（实现时按 EditSign 现有文案风格并入 `strings.xml`）。
+- 页面标题、头像上传提示、错误码文案均硬编码中文（沿 EditSign 现有风格），不改 `strings.xml`。
 
 ## 功能三：隐私模式
 
@@ -208,6 +213,8 @@ String json = privacyMode ? NetWorkUtil.getJsonPrivacy(url).toString() : NetWork
 
 ## 文件清单汇总
 
-新增 10 文件：HotSearchApi.java / HotSearchCard.java / HotSearchAdapter.kt / HotSearchActivity.kt / item_hot_search.xml / activity_edit_profile.xml / activity_edit_user_info.xml / EditProfileActivity.kt / EditUserInfoActivity.kt。
+新增 9 文件：HotSearchApi.java / HotSearchCard.java / HotSearchAdapter.kt / HotSearchActivity.kt / item_hot_search.xml / activity_edit_profile.xml / activity_edit_user_info.xml / EditProfileActivity.kt / EditUserInfoActivity.kt。
 
-修改 10 文件：MenuActivity.kt / MainMenuViewModel.kt / MySpaceActivity.kt / activity_myspace.xml / MySpaceViewModel.kt / SharedPreferencesUtil.java / NetWorkUtil.java / HistoryApi.java / VideoInfoApi.java / SettingPrefActivity.kt / UserInfoApi.java / strings.xml（修改数按实际落地计数）。
+修改 12 文件：MenuActivity.kt / MainMenuViewModel.kt / MySpaceActivity.kt / activity_myspace.xml / MySpaceViewModel.kt / SharedPreferencesUtil.java / NetWorkUtil.java / HistoryApi.java / VideoInfoApi.java / SettingPrefActivity.kt / UserInfoApi.java / strings.xml。
+
+> 文案约定：新增页面标题与 Toast 遵循本仓库硬编码中文惯例（参考 `activity_edit_sign.xml` 的"修改个人描述"、`EditSignActivity` 的"还没有登录喵~"），不改 `strings.xml`；唯一例外是设置项描述 `desc_privacy_mode` —— 设置页为字符串驱动（`SettingSection` 用 `getString(R.string.desc_*)`），故按 `desc_*` 惯例加入 `strings.xml`。
