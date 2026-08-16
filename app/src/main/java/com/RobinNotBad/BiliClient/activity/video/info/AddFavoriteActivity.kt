@@ -14,6 +14,8 @@ class AddFavoriteActivity : RefreshListActivity() {
     private val folderList = ArrayList<String>()
     private val stateList = ArrayList<Boolean>()
     private val fidList = ArrayList<Long>()
+    private val countList = ArrayList<Int>()
+    private val maxCountList = ArrayList<Int>()
     private var aid: Long = 0
     private val RESULT_ADDED = 1
     private val RESULT_DELETED = -1
@@ -34,9 +36,9 @@ class AddFavoriteActivity : RefreshListActivity() {
 
         CenterThreadPool.run {
             try {
-                FavoriteApi.getFavoriteState(aid, folderList, fidList, stateList)
+                FavoriteApi.getFavoriteState(aid, folderList, fidList, stateList, countList, maxCountList)
 
-                adapter = FolderChooseAdapter(this, folderList, fidList, stateList, aid)
+                adapter = FolderChooseAdapter(this, folderList, fidList, stateList, countList, maxCountList, aid)
 
                 setAdapter(adapter!!)
 

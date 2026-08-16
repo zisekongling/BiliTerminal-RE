@@ -24,6 +24,8 @@ class FolderChooseAdapter(
     private val folderList: ArrayList<String>,
     private val fidList: ArrayList<Long>,
     private val chooseState: ArrayList<Boolean>,
+    private val countList: ArrayList<Int>,
+    private val maxCountList: ArrayList<Int>,
     private val aid: Long
 ) : RecyclerView.Adapter<FolderChooseAdapter.FolderHolder>() {
 
@@ -32,7 +34,7 @@ class FolderChooseAdapter(
     var changed: Boolean = false
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FolderHolder {
-        val view = LayoutInflater.from(this.context).inflate(R.layout.cell_choose, parent, false)
+        val view = LayoutInflater.from(this.context).inflate(R.layout.cell_folder_choose, parent, false)
         return FolderHolder(view)
     }
 
@@ -41,10 +43,13 @@ class FolderChooseAdapter(
             return
         if (position >= chooseState.size || position >= fidList.size)
             return
+        if (position >= countList.size || position >= maxCountList.size)
+            return
 
         val cardView = holder.itemView as MaterialCardView
 
         holder.folder_name.text = folderList[position]
+        holder.count.text = countList[position].toString() + "/" + maxCountList[position]
         setCardView(cardView, chooseState[position])
 
         holder.itemView.setOnClickListener {
@@ -110,6 +115,7 @@ class FolderChooseAdapter(
 
     class FolderHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         val folder_name: TextView = itemView.findViewById(R.id.text)
+        val count: TextView = itemView.findViewById(R.id.text_count)
     }
 
     private fun setCardView(cardView: MaterialCardView, bool: Boolean) {

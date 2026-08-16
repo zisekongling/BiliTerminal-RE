@@ -174,10 +174,6 @@ public class FavoriteApi {
         return hasMore;
     }
 
-    public static void getFavoriteState(long aid, ArrayList<String> folderList, ArrayList<Long> fidList, ArrayList<Boolean> stateList) throws IOException, JSONException {
-        getFavoriteState(aid, folderList, fidList, stateList, new ArrayList<Integer>(), new ArrayList<Integer>());
-    }
-
     public static void getFavoriteState(long aid, ArrayList<String> folderList, ArrayList<Long> fidList, ArrayList<Boolean> stateList, ArrayList<Integer> countList, ArrayList<Integer> maxCountList) throws IOException, JSONException {
         String url = "https://api.bilibili.com/x/v3/fav/folder/created/list-all?type=2&jsonp=jsonp&rid=" + aid + "&up_mid=" + SharedPreferencesUtil.getLong("mid", 0);
         JSONObject result = NetWorkUtil.getJson(url);
