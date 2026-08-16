@@ -1,13 +1,16 @@
 package com.RobinNotBad.BiliClient
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.DisplayMetrics
 import androidx.multidex.MultiDex
 import com.RobinNotBad.BiliClient.activity.base.InstanceActivity
@@ -21,6 +24,7 @@ import com.RobinNotBad.BiliClient.util.PerformanceManager
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import dagger.hilt.android.HiltAndroidApp
+import me.ele.uetool.UETool
 import org.json.JSONException
 import java.io.IOException
 import java.lang.ref.WeakReference
@@ -44,6 +48,50 @@ class BiliTerminalApp : Application() {
         var DPI_FORCE_CHANGE = false
 
         private var instance: WeakReference<InstanceActivity> = WeakReference(null)
+
+        /**
+         * UETool 悬浮窗请求码（入口 Activity onActivityResult 使用）
+         */
+        @JvmStatic
+        val REQUEST_OVERLAY_PERMISSION_FOR_UETOOL = 10086
+
+        /**
+         * 检查是否拥有系统悬浮窗绘制权限（兼容 Android M 以下）
+         * @param context 任意可用 Context（通常传 Activity 或 Application）
+         */
+        @JvmStatic
+        fun canDrawOverlaysCompat(context: Context): Boolean {
+            return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
+        }
+
+        /**
+         * 跳转到系统设置页申请悬浮窗权限
+         */
+        @JvmStatic
+        fun requestOverlayPermission(activity: Activity) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !canDrawOverlaysCompat(activity)) {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:${activity.packageName}")
+                )
+                activity.startActivityForResult(intent, REQUEST_OVERLAY_PERMISSION_FOR_UETOOL)
+            }
+        }
+
+        /**
+         * 显示 UETool 调试悬浮窗（仅 Debug 构建有真实实现；Release 为 no-op 空方法）
+         */
+        @JvmStatic
+        fun showUEToolMenu() {
+            if (isDebugBuild()) {
+                try {
+                    UETool.showUETMenu()
+                } catch (e: Exception) {
+                    // 兜底：防止 WindowManager / Context 异常导致应用崩溃
+                    e.printStackTrace()
+                }
+            }
+        }
 
         @JvmStatic
         fun setInstance(instanceActivity: InstanceActivity) {
@@ -122,9 +170,6 @@ class BiliTerminalApp : Application() {
             setTheme(themeResId)
             context = getFitDisplayContext(this)
 
-            // 手机模式已停用，隐藏开关并强制默认关闭
-            SharedPreferencesUtil.putBoolean("ui_mobile_mode", false)
-
             // 初始化性能管理器 - 设备检测与自适应优化
             PerformanceManager.init(this)
 
@@ -135,6 +180,9 @@ class BiliTerminalApp : Application() {
             Logu.LOGV_ENABLED = SharedPreferencesUtil.getBoolean("dev_logv", debugBuild)
             Logu.LOGD_ENABLED = SharedPreferencesUtil.getBoolean("dev_logd", debugBuild)
             Logu.LOGI_ENABLED = SharedPreferencesUtil.getBoolean("dev_logi", debugBuild)
+
+            // UETool 悬浮窗的显示由 SplashActivity 负责引导授权与显示，
+            // 此处不再直接调用（避免无悬浮窗权限时静默失败）
 
             scheduleDelayedInitialization()
         }

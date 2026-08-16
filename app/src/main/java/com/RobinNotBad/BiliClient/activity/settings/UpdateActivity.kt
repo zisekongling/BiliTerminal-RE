@@ -6,7 +6,6 @@ import android.view.View
 import android.widget.ProgressBar
 import android.widget.TextView
 import com.RobinNotBad.BiliClient.R
-import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.model.UpdateConfig
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -131,7 +130,7 @@ class UpdateActivity : BaseActivity() {
 
         if (updateConfig!!.isForceUpdate) {
             (cancelBtn as TextView).text = "退出应用"
-            cancelBtn.setOnClickListener { finishAffinity() }
+            cancelBtn.setOnClickListener { exitApp() }
         } else {
             (cancelBtn as TextView).text = "取消"
             cancelBtn.setOnClickListener { finish() }
@@ -188,17 +187,20 @@ class UpdateActivity : BaseActivity() {
 
     private fun installApk(apkFile: File) {
         UpdateManager.installApk(this, apkFile)
+        // 不在此处解除强制更新：待用户完成安装、下次启动检测版本号后再解除，
+        // 避免用户在系统安装器弹窗点「取消」后绕过强制更新
+        finish()
+    }
 
-        if (updateConfig!!.isForceUpdate) {
-            BiliTerminal.clearForceUpdate()
-        } else {
-            finish()
-        }
+    /** 强制更新下的「退出应用」：关闭 Activity 栈并结束进程，避免被重新拉起后继续拦截。 */
+    private fun exitApp() {
+        finishAffinity()
+        android.os.Process.killProcess(android.os.Process.myPid())
     }
 
     override fun onBackPressed() {
         if (updateConfig != null && updateConfig!!.isForceUpdate) {
-            finishAffinity()
+            exitApp()
         } else {
             if (isDownloading) {
                 UpdateManager.cancelDownload()

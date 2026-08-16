@@ -73,7 +73,7 @@ class QualityChooserActivity : BaseActivity() {
 
                         // 如果开启了强制高分辨率选项，添加API未返回的高分辨率选项
                         val forceHighQuality = SharedPreferencesUtil.getBoolean(
-                            "force_high_quality_options", false
+                            "force_high_quality_options", true
                         )
                         forcedPositions.clear()
                         if (forceHighQuality) {

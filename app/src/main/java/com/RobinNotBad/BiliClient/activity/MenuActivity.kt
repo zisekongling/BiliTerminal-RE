@@ -3,8 +3,6 @@ package com.RobinNotBad.BiliClient.activity
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.os.Bundle
-import android.os.Process
-import android.text.TextUtils
 import android.util.Log
 import android.util.Pair
 import android.view.KeyEvent
@@ -31,7 +29,6 @@ import com.RobinNotBad.BiliClient.activity.video.RecommendActivity
 import com.RobinNotBad.BiliClient.activity.video.ShortVideoPlayerActivity
 import com.RobinNotBad.BiliClient.activity.video.TimelineActivity
 import com.RobinNotBad.BiliClient.activity.video.local.LocalListActivity
-import com.RobinNotBad.BiliClient.ui.mobile.MobileShellActivity
 import com.RobinNotBad.BiliClient.util.PerformanceManager
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.bumptech.glide.Glide
@@ -69,11 +66,6 @@ class MenuActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (isMobileMode()) {
-            setupMobileMode()
-            return
-        }
-
         setContentView(R.layout.activity_menu)
 
         time = System.currentTimeMillis()
@@ -89,54 +81,21 @@ class MenuActivity : BaseActivity() {
 
         findViewById<android.view.View>(R.id.top).setOnClickListener { finish() }
 
-        var btnList: List<String>
+        var btnList: MutableList<String> = SharedPreferencesUtil.loadMenuEnabled().toMutableList()
 
-        val sortConf = SharedPreferencesUtil.getString(SharedPreferencesUtil.MENU_SORT, "")
-        Log.e("debug_sort", sortConf)
-
-        if (!TextUtils.isEmpty(sortConf)) {
-            val splitName = sortConf.split(";")
-            if (splitName.size != btnNames.size) {
-                btnList = getDefaultSortList()
-            } else {
-                btnList = ArrayList()
-                for (name in splitName) {
-                    if (!btnNames.containsKey(name)) {
-                        btnList = getDefaultSortList()
-                        break
-                    } else {
-                        (btnList as ArrayList).add(name)
-                    }
-                }
-            }
-        } else {
-            btnList = getDefaultSortList()
-        }
-
-        val mutableBtnList = btnList.toMutableList()
         if (SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) == 0L) {
-            mutableBtnList.add(0, "login")
-            mutableBtnList.remove("dynamic")
-            mutableBtnList.remove("message")
-            mutableBtnList.remove("myspace")
+            btnList.add(0, "login")
+            btnList.remove("dynamic")
+            btnList.remove("message")
+            btnList.remove("myspace")
         }
-
-        if (!SharedPreferencesUtil.getBoolean("menu_popular", true)) mutableBtnList.remove("popular")
-        if (!SharedPreferencesUtil.getBoolean("menu_short_video", true)) mutableBtnList.remove("short_video")
-        if (!SharedPreferencesUtil.getBoolean("menu_precious", false)) mutableBtnList.remove("precious")
-        if (!SharedPreferencesUtil.getBoolean("menu_ranking", false)) mutableBtnList.remove("ranking")
-        if (!SharedPreferencesUtil.getBoolean("menu_live", false)) mutableBtnList.remove("live")
-        if (!SharedPreferencesUtil.getBoolean("menu_timeline", false)) mutableBtnList.remove("timeline")
-
-        mutableBtnList.add("exit")
 
         val layout = findViewById<LinearLayout>(R.id.menu_layout)
         val params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
-        for (btn in mutableBtnList) {
+        for (btn in btnList) {
             val materialButton = MaterialButton(this)
             when (btn) {
-                "exit" -> materialButton.text = "退出"
                 "login" -> materialButton.text = "登录"
                 "dynamic" -> {
                     var btnText = btnNames[btn]!!.first
@@ -209,11 +168,6 @@ class MenuActivity : BaseActivity() {
             }
         } else {
             when (name) {
-                "exit" -> {
-                    val instance = BiliTerminal.getInstanceActivityOnTop()
-                    if (instance != null && !instance.isDestroyed) instance.finish()
-                    Process.killProcess(Process.myPid())
-                }
                 "login" -> {
                     val intent = Intent()
                     intent.setClass(this@MenuActivity, LoginActivity::class.java)
@@ -221,35 +175,6 @@ class MenuActivity : BaseActivity() {
                 }
             }
         }
-        finish()
-    }
-
-    private fun getDefaultSortList(): MutableList<String> {
-        return ArrayList<String>().apply {
-            add("recommend")
-            add("short_video")
-            add("popular")
-            add("precious")
-            add("ranking")
-            add("hotsearch")
-            add("live")
-            add("timeline")
-            add("search")
-            add("dynamic")
-            add("myspace")
-            add("message")
-            add("local")
-            add("settings")
-        }
-    }
-
-    /**
-     * 设置手机模式UI：启动MobileShellActivity
-     */
-    private fun setupMobileMode() {
-        val intent = Intent(this, MobileShellActivity::class.java)
-        intent.putExtra("from", intent.getStringExtra("from"))
-        startActivity(intent)
         finish()
     }
 

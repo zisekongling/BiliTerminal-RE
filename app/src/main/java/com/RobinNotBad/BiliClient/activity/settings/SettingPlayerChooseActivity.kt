@@ -54,6 +54,8 @@ class SettingPlayerChooseActivity : BaseActivity() {
             }
 
             setOnClick()
+
+            // 长按「内置播放器」卡片进入内置播放器设置
             terminalPlayer.setOnLongClickListener {
                 val intent = Intent()
                 intent.setClass(this, SettingTerminalPlayerActivity::class.java)

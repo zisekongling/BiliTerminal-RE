@@ -65,7 +65,7 @@ class ReplyInfoActivity : BaseActivity() {
 
         setPageName("评论详情")
 
-        if (SharedPreferencesUtil.getBoolean("ui_landscape", false) && !SharedPreferencesUtil.getBoolean("ui_mobile_mode", false)) {
+        if (SharedPreferencesUtil.getBoolean("ui_landscape", false)) {
             val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
             val display = windowManager.defaultDisplay
             val metrics = DisplayMetrics()

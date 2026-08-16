@@ -18,8 +18,6 @@ import com.RobinNotBad.BiliClient.listener.OnItemClickListener
 import com.RobinNotBad.BiliClient.listener.OnItemLongClickListener
 import com.RobinNotBad.BiliClient.model.DownloadSection
 import com.RobinNotBad.BiliClient.service.DownloadService
-import com.RobinNotBad.BiliClient.service.SpeedDownloadService
-import com.RobinNotBad.BiliClient.util.Aria2Util
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -48,10 +46,6 @@ class DownloadListActivity : RefreshListActivity() {
     private var textTotalPercent: TextView? = null
     private var textTotalSpeed: TextView? = null
     private var textTotalEta: TextView? = null
-
-    // 总进度追踪变量
-    private var sessionStartTime: Long = 0
-    private var initialTotalCount: Int = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -100,12 +94,8 @@ class DownloadListActivity : RefreshListActivity() {
                             }
                         }
                     } else {
-                        // 下载已结束，重置会话追踪
-                        if (sessionStartTime > 0) {
-                            sessionStartTime = 0
-                            initialTotalCount = 0
-                            runOnUiThread { bottomBar?.visibility = View.GONE }
-                        }
+                        // 下载已结束，隐藏底栏
+                        runOnUiThread { bottomBar?.visibility = View.GONE }
                     }
 
                     // 更新底栏
@@ -230,38 +220,25 @@ class DownloadListActivity : RefreshListActivity() {
         val currentSections = sections
         if (currentSections == null || currentSections.isEmpty() || !DownloadService.started) {
             bottomBar?.visibility = View.GONE
-            sessionStartTime = 0
-            initialTotalCount = 0
             return
         }
 
-        val currentCount = currentSections.size
+        // 总体进度 = (已完成 + 失败 + 各下载中项目进度之和) / (已完成 + 失败 + 下载中 + 等待中)
+        // 由 DownloadService 依据批次统计与进度映射计算，中途新增任务也会被正确计入
+        val overallProgress = DownloadService.computeOverallProgress(currentSections)
+        val activeRemainingBytes = DownloadService.getActiveRemainingBytes(currentSections)
 
-        // 初始化会话追踪
-        if (sessionStartTime == 0L && currentCount > 0) {
-            sessionStartTime = System.currentTimeMillis()
-            initialTotalCount = currentCount
-        }
-        if (initialTotalCount == 0) {
-            initialTotalCount = currentCount
-        }
-
-        // 从进度映射表计算总体进度（适用于单任务和并行模式）
-        var totalProgress = 0f
+        // 统计下载中/等待中项目数（失败项目计入已结束，不参与分母之外的进度）
         var downloadingCount = 0
+        var activeCount = 0
+        var waitingCount = 0
         for (s in currentSections) {
-            val info = DownloadService.getDownloadProgress(s.id)
-            if (info != null) {
-                totalProgress += info.first.coerceIn(0f, 1f)
+            if (DownloadService.getDownloadProgress(s.id) != null) {
                 downloadingCount++
+                activeCount++
+            } else if (s.state == "none") {
+                waitingCount++
             }
-        }
-
-        val completedCount = initialTotalCount - currentCount
-        val overallProgress = if (initialTotalCount > 0) {
-            ((completedCount + totalProgress) / initialTotalCount).coerceIn(0f, 1f)
-        } else {
-            0f
         }
 
         // 更新进度条
@@ -270,12 +247,14 @@ class DownloadListActivity : RefreshListActivity() {
             it.progress = (overallProgress * 1000).toInt()
         }
 
-        // 更新进度文本：N/N | X% | 并行数
+        // 更新进度文本：已完成/总任务 | X% | 并行数
+        val doneUnits = DownloadService.batchStats.completed + DownloadService.batchStats.failed
+        val totalUnits = doneUnits + activeCount + waitingCount
         val parallelInfo = if (downloadingCount > 1) " ${downloadingCount}并行" else ""
         textTotalPercent?.text = String.format(Locale.CHINA, "%d/%d%s (%.1f%%)",
-            completedCount, initialTotalCount, parallelInfo, overallProgress * 100)
+            doneUnits, totalUnits, parallelInfo, overallProgress * 100)
 
-        // 更新速度
+        // 更新速度（所有并行下载的聚合速度）
         val speedText = when {
             DownloadService.speedStr.isNotEmpty() -> {
                 val prefix = if (DownloadService.isSpeedMode) "高速 " else ""
@@ -286,19 +265,13 @@ class DownloadListActivity : RefreshListActivity() {
         }
         textTotalSpeed?.text = speedText
 
-        // 更新预估剩余时间
+        // 更新预估剩余时间：用下载中项目的剩余字节数除以聚合速度
         val speedBytes = parseSpeedToBytes(DownloadService.speedStr)
-        val etaStr = if (speedBytes > 0 && currentCount > 0) {
-            // remainingWork = 未完成项目数 - 已完成部分进度
-            val remainingWork = currentCount.toFloat() - totalProgress
-            val avgFileSize = 50L * 1024 * 1024
-            val remainingBytes = (remainingWork * avgFileSize).toLong().coerceAtLeast(0)
-            val etaMs = if (remainingBytes > 0) (remainingBytes * 1000 / speedBytes) else 0L
-            formatDuration(etaMs)
-        } else if (downloadingCount == 0) {
-            "即将完成"
-        } else {
-            "计算中..."
+        val etaStr = when {
+            overallProgress >= 1f -> "即将完成"
+            speedBytes > 0 && activeRemainingBytes > 0 ->
+                formatDuration(activeRemainingBytes * 1000 / speedBytes)
+            else -> "计算中..."
         }
         textTotalEta?.text = etaStr
 

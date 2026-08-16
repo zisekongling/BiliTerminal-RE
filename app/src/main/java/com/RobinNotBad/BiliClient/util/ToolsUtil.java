@@ -53,8 +53,9 @@ public class ToolsUtil {
     public static String getUpdateLog(Context context) {
         StringBuilder str = new StringBuilder();
         String[] logItems = context.getResources().getStringArray(R.array.update_log_items);
-        for (int i = 0; i < logItems.length; i++)
-            str.append("\n").append((i + 1)).append(".").append(logItems[i]);
+        // 条目自带分类标题与编号，直接按行拼接
+        for (String item : logItems)
+            str.append("\n").append(item);
         return str.toString();
     }
 

@@ -122,7 +122,7 @@ class NoticeHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
                                 TerminalContext.getInstance().enterVideoDetailPage(context, 0, childReply.ofBvid, null, seekReply)
                             }
                             ReplyApi.REPLY_TYPE_DYNAMIC_CHILD -> {
-                                MsgUtil.showMsg("动态的子评论暂时无法跳转，也许以后会做吧……")
+                                TerminalContext.getInstance().enterDynamicDetailPage(context, message.subjectId, 0, seekReply)
                             }
                             ReplyApi.REPLY_TYPE_DYNAMIC -> {
                                 TerminalContext.getInstance().enterDynamicDetailPage(context, message.subjectId, 0, seekReply)

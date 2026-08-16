@@ -15,7 +15,6 @@ import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.util.GlideUtil
-import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.ToolsUtil
@@ -144,22 +143,10 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
     companion object {
         private val requestManager = Glide.with(BiliTerminal.context)
         private val TITLE_COLOR_SPAN = ForegroundColorSpan(Color.rgb(207, 75, 95))
-        private var mobileOptions: RequestOptions? = null
-        private var normalOptions: RequestOptions? = null
 
         @JvmStatic
         fun getRequestOptions(): RequestOptions {
-            val isMobile = SharedPreferencesUtil.getBoolean("ui_mobile_mode", false)
-            var options = if (isMobile) mobileOptions else normalOptions
-            if (options == null) {
-                options = buildRequestOptions(isMobile)
-                if (isMobile) mobileOptions = options else normalOptions = options
-            }
-            return options
-        }
-
-        private fun buildRequestOptions(isMobile: Boolean): RequestOptions {
-            val cornerRadius = if (isMobile) ToolsUtil.dp2px(10f) else ToolsUtil.dp2px(5f)
+            val cornerRadius = ToolsUtil.dp2px(5f)
             return RequestOptions()
                 .transform(CenterCrop(), RoundedCorners(cornerRadius))
                 .sizeMultiplier(0.85f)

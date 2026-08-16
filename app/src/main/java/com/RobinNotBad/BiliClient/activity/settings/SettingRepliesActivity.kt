@@ -29,5 +29,7 @@ class SettingRepliesActivity : RefreshListActivity() {
         setAdapter(adapter)
 
         setRefreshing(false)
+
+        scrollToHighlight(sectionList, intent.getStringExtra("highlight"))
     }
 }

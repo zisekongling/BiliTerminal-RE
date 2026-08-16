@@ -2,9 +2,13 @@ package com.RobinNotBad.BiliClient.activity.reply
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Bundle
 import android.util.Pair
 import android.widget.EditText
+import android.widget.TextView
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import com.RobinNotBad.BiliClient.R
@@ -12,6 +16,7 @@ import com.RobinNotBad.BiliClient.activity.EmoteActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.api.EmoteApi
 import com.RobinNotBad.BiliClient.api.ReplyApi
+import com.RobinNotBad.BiliClient.api.VipApi
 import com.RobinNotBad.BiliClient.event.ReplyEvent
 import com.RobinNotBad.BiliClient.model.Reply
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -19,6 +24,11 @@ import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.google.android.material.card.MaterialCardView
 import org.greenrobot.eventbus.EventBus
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.io.InputStream
 
 class WriteReplyActivity : BaseActivity() {
 
@@ -36,11 +46,28 @@ class WriteReplyActivity : BaseActivity() {
     }
 
     private lateinit var editText: EditText
+    private lateinit var imageText: TextView
+
     private val emoteLauncher: ActivityResultLauncher<Intent> = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val code = result.resultCode
         val data = result.data
         if (code == RESULT_OK && data != null && data.hasExtra("text")) {
             editText.append(data.getStringExtra("text"))
+        }
+    }
+
+    private val imageList = ArrayList<String>()
+    private val uploadDataList = ArrayList<ReplyApi.UploadImageData>()
+
+    private val imageLauncher: ActivityResultLauncher<Intent> = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val code = result.resultCode
+        val data = result.data
+        if (code == RESULT_OK && data != null && data.data != null) {
+            if (imageList.size >= 9) {
+                MsgUtil.showMsg("最多只能添加9张图片喵~")
+                return@registerForActivityResult
+            }
+            addImage(data.data!!)
         }
     }
 
@@ -66,6 +93,7 @@ class WriteReplyActivity : BaseActivity() {
         val pos = intent.getIntExtra("pos", -1)
 
         editText = findViewById(R.id.editText)
+        imageText = findViewById(R.id.imageText)
         val send = findViewById<MaterialCardView>(R.id.send)
 
         if (parentSender != null && parentSender.isNotEmpty()) {
@@ -78,14 +106,15 @@ class WriteReplyActivity : BaseActivity() {
                 if (!sent) {
                     CenterThreadPool.run {
                         val text = editText.text.toString()
-                        if (text.isNotEmpty()) {
+                        if (text.isNotEmpty() || imageList.isNotEmpty()) {
                             if (checkKy(text) && dontKyPlease) {
                                 MsgUtil.showDialog("保护措施……", getString(R.string.reply_dont_ky), 15)
                                 dontKyPlease = false
                                 return@run
                             }
                             try {
-                                val result = ReplyApi.sendReply(oid, rpid, parent, text, replyType)
+                                val pictures = buildPictures()
+                                val result = ReplyApi.sendReply(oid, rpid, parent, text, replyType, pictures)
                                 val resultCode = result.first
                                 val resultReply = result.second
 
@@ -95,6 +124,11 @@ class WriteReplyActivity : BaseActivity() {
                                     runOnUiThread { MsgUtil.showMsg("发送成功>w<") }
                                     resultReply.forceDelete = true
                                     resultReply.pubTime = "刚刚"
+                                    synchronized(uploadDataList) {
+                                        for (uploadData in uploadDataList) {
+                                            resultReply.pictureList.add(uploadData.image_url)
+                                        }
+                                    }
                                     EventBus.getDefault().post(ReplyEvent(1, resultReply, pos, oid))
                                     finish()
                                 } else {
@@ -115,6 +149,89 @@ class WriteReplyActivity : BaseActivity() {
         findViewById<android.view.View>(R.id.emote).setOnClickListener {
             emoteLauncher.launch(Intent(this, EmoteActivity::class.java).putExtra("from", EmoteApi.BUSINESS_REPLY))
         }
+
+        findViewById<android.view.View>(R.id.image).setOnClickListener {
+            // 带图评论仅大会员可用，点击前先检测大会员状态
+            CenterThreadPool.run {
+                try {
+                    val vipInfo = VipApi.getVipInfo()
+                    runOnUiThread {
+                        if (vipInfo.isVip) {
+                            if (imageList.size >= 9) {
+                                MsgUtil.showMsg("最多只能添加9张图片喵~")
+                            } else {
+                                val pickIntent = Intent(Intent.ACTION_GET_CONTENT)
+                                pickIntent.type = "image/*"
+                                imageLauncher.launch(pickIntent)
+                            }
+                        } else {
+                            MsgUtil.showMsg("带图评论仅大会员可用喵~")
+                        }
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread { MsgUtil.err(e) }
+                }
+            }
+        }
+    }
+
+    private fun addImage(uri: Uri) {
+        imageList.add(uri.toString())
+        updateImageText()
+        CenterThreadPool.run {
+            try {
+                val compressed = compressImage(uri)
+                val data = ReplyApi.uploadReplyImage(compressed, System.currentTimeMillis().toString() + ".jpg").getOrNull()
+                if (data == null) {
+                    runOnUiThread {
+                        MsgUtil.showMsg("图片上传失败")
+                        imageList.remove(uri.toString())
+                        updateImageText()
+                    }
+                    return@run
+                }
+                synchronized(uploadDataList) {
+                    uploadDataList.add(data)
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    MsgUtil.showMsg("图片处理失败")
+                    imageList.remove(uri.toString())
+                    updateImageText()
+                }
+            }
+        }
+    }
+
+    private fun compressImage(uri: Uri): ByteArray {
+        val inputStream: InputStream = contentResolver.openInputStream(uri) ?: throw IOException("无法读取图片")
+        val bitmap: Bitmap = BitmapFactory.decodeStream(inputStream)
+        inputStream.close()
+        if (bitmap == null) throw IOException("解码图片失败")
+        val outputStream = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream)
+        bitmap.recycle()
+        return outputStream.toByteArray()
+    }
+
+    private fun buildPictures(): String {
+        val jsonArray = JSONArray()
+        synchronized(uploadDataList) {
+            for (data in uploadDataList) {
+                val jsonObject = JSONObject()
+                jsonObject.put("img_src", data.image_url)
+                jsonObject.put("img_width", data.image_width)
+                jsonObject.put("img_height", data.image_height)
+                jsonObject.put("img_size", data.img_size)
+                jsonArray.put(jsonObject)
+            }
+        }
+        return jsonArray.toString()
+    }
+
+    private fun updateImageText() {
+        val count = imageList.size
+        imageText.text = if (count == 0) getString(R.string.btn_image) else getString(R.string.btn_image) + "($count)"
     }
 
     private fun checkKy(str: String): Boolean {

@@ -60,34 +60,102 @@ class DownloadService : Service() {
         @JvmStatic var speedStr: String = ""
         @JvmStatic var isSpeedMode: Boolean = false
         private var firstDown: Long = -1
-        private var lastSpeedSampleBytes: Long = 0
-        private var lastSpeedSampleTime: Long = 0
-        private val speedLock = Any()
 
-        // 并行下载聚合统计
-        @JvmStatic var totalBytesToDownload: Long = 0
-            private set
-        @JvmStatic var totalBytesDownloaded: Long = 0
-            private set
+        // 本次下载批次的总体统计（总进度条、通知栏使用）
+        @JvmStatic val batchStats = DownloadBatchStats()
+
+        // 全局已下载字节数（所有并行下载累计），用于聚合速度采样
+        private val totalBytesDownloaded = java.util.concurrent.atomic.AtomicLong(0)
+
         @JvmStatic var activeDownloadsCount: Int = 0
             private set
 
-        // 并行下载进度追踪：key=section.id, value=进度信息
-        private val downloadProgressMap = java.util.concurrent.ConcurrentHashMap<Long, Pair<Float, String>>()
+        // 聚合速度采样（单线程调用）
+        private val speedSampler = SpeedSampler()
+        private val speedLock = Any()
+
+        // 下载进度追踪：key=section.id, value=进度信息（含阶段进度与已下载/总字节数）
+        data class DownloadProgressInfo(
+            val progress: Float,
+            val state: String,
+            val downloadedBytes: Long = 0,
+            val totalBytes: Long = 0
+        )
+
+        private val downloadProgressMap =
+            java.util.concurrent.ConcurrentHashMap<Long, DownloadProgressInfo>()
 
         @JvmStatic
-        fun getDownloadProgress(id: Long): Pair<Float, String>? {
+        fun getDownloadProgress(id: Long): DownloadProgressInfo? {
             return downloadProgressMap[id]
         }
 
         @JvmStatic
+        fun getDownloadProgressMap(): java.util.concurrent.ConcurrentHashMap<Long, DownloadProgressInfo> {
+            return downloadProgressMap
+        }
+
+        @JvmStatic
         fun setDownloadProgress(id: Long, progress: Float, state: String) {
-            downloadProgressMap[id] = Pair(progress, state)
+            downloadProgressMap[id] = DownloadProgressInfo(progress, state)
+        }
+
+        @JvmStatic
+        fun setDownloadProgress(id: Long, progress: Float, state: String,
+                                downloadedBytes: Long, totalBytes: Long) {
+            downloadProgressMap[id] =
+                DownloadProgressInfo(progress, state, downloadedBytes, totalBytes)
         }
 
         @JvmStatic
         fun removeDownloadProgress(id: Long) {
             downloadProgressMap.remove(id)
+        }
+
+        @JvmStatic
+        fun getDownloadedBytes(): Long = totalBytesDownloaded.get()
+
+        @JvmStatic
+        fun addDownloadedBytes(bytes: Long) {
+            totalBytesDownloaded.addAndGet(bytes)
+        }
+
+        @JvmStatic
+        fun resetDownloadedBytes() {
+            totalBytesDownloaded.set(0)
+        }
+
+        /**
+         * 根据当前数据库中的下载项与进度映射，计算本次批次的总体进度。
+         */
+        @JvmStatic
+        fun computeOverallProgress(sections: List<DownloadSection>): Float {
+            var activeProgressSum = 0f
+            var activeCount = 0
+            var waitingCount = 0
+            for (s in sections) {
+                val info = downloadProgressMap[s.id]
+                if (info != null) {
+                    activeProgressSum += info.progress.coerceIn(0f, 1f)
+                    activeCount++
+                } else if (s.state == "none") {
+                    waitingCount++
+                }
+            }
+            return batchStats.overallProgress(activeProgressSum, activeCount, waitingCount)
+        }
+
+        /** 当前仍在下载中的项目剩余字节数合计（用于预估剩余时间） */
+        @JvmStatic
+        fun getActiveRemainingBytes(sections: List<DownloadSection>): Long {
+            var remaining = 0L
+            for (s in sections) {
+                val info = downloadProgressMap[s.id]
+                if (info != null && info.totalBytes > 0) {
+                    remaining += (info.totalBytes - info.downloadedBytes).coerceAtLeast(0)
+                }
+            }
+            return remaining
         }
 
         private const val NORMAL = 0
@@ -423,23 +491,23 @@ class DownloadService : Service() {
             }
         }
 
+        /** 在批次开始时重置速度采样，避免把上一批次的字节计入 */
         @JvmStatic
-        private fun updateSpeed(bytesDownloaded: Long) {
+        fun resetSpeedSampling() {
             synchronized(speedLock) {
-                val now = System.currentTimeMillis()
-                val elapsed = (now - lastSpeedSampleTime) / 1000.0
-                if (elapsed > 0.5 && lastSpeedSampleBytes > 0) {
-                    val speed = (bytesDownloaded - lastSpeedSampleBytes) / elapsed
-                    speedStr = if (speed >= 1048576) {
-                        String.format(java.util.Locale.CHINA, "%.1f MB/s", speed / 1048576.0)
-                    } else if (speed >= 1024) {
-                        String.format(java.util.Locale.CHINA, "%.1f KB/s", speed / 1024.0)
-                    } else {
-                        String.format(java.util.Locale.CHINA, "%.0f B/s", speed)
-                    }
+                speedSampler.reset(System.currentTimeMillis())
+                speedStr = ""
+            }
+        }
+
+        /** 周期性采样全局已下载字节数，得到所有并行下载的聚合速度 */
+        @JvmStatic
+        fun sampleSpeed() {
+            synchronized(speedLock) {
+                val speed = speedSampler.sample(getDownloadedBytes(), System.currentTimeMillis())
+                if (speed != null) {
+                    speedStr = formatDownloadSpeed(speed)
                 }
-                lastSpeedSampleBytes = bytesDownloaded
-                lastSpeedSampleTime = now
             }
         }
     }
@@ -516,6 +584,14 @@ class DownloadService : Service() {
 
         CenterThreadPool.run {
             try {
+                // 恢复上次崩溃/中断遗留的"下载中"记录，避免卡死
+                recoverStuckSections()
+                // 开始新批次，重置统计
+                batchStats.reset()
+                resetDownloadedBytes()
+                resetSpeedSampling()
+                activeDownloadsCount = 0
+
                 val parallelCount = Aria2Util.getParallelDownloadVideos().coerceIn(1, 10)
                 if (parallelCount <= 1)
                     sequentialDownload()
@@ -526,7 +602,10 @@ class DownloadService : Service() {
                 refreshDownloadList()
 
                 exitCode = NORMAL
-                exitMessage = "全部下载完成"
+                exitMessage = if (batchStats.failed > 0)
+                    "${batchStats.failed} 个任务下载失败，请重试"
+                else
+                    "全部下载完成"
             } catch (e: Exception) {
                 MsgUtil.err(e)
                 exitCode = ERR_UNKNOWN
@@ -540,36 +619,23 @@ class DownloadService : Service() {
     }
 
     private fun sequentialDownload() {
-        var failed = false
-        while (!failed && started) {
+        while (started) {
             val section_tmp = getFirst()
             if (section_tmp == null)
                 break
 
             section = section_tmp
-            failed = !processDownloadSection(section!!)
+            // 串行模式：遇到失败即停止，剩余任务保持排队，可再次启动续传
+            if (!runDownloadSection(section!!))
+                break
         }
-
-        if (failed)
-            when (exitCode) {
-                ERR_NETWORK -> exitMessage = "下载失败，网络错误"
-                ERR_JSON -> exitMessage = "下载失败，视频链接获取错误"
-                ERR_FILE -> exitMessage = "下载失败，文件错误"
-                ERR_DATABASE -> exitMessage = "下载失败，数据库错误"
-                else -> exitMessage = "下载失败，未知错误"
-            }
     }
 
     private fun parallelDownload(parallelCount: Int) {
         val semaphore = java.util.concurrent.Semaphore(parallelCount)
-        val allFailed = java.util.concurrent.atomic.AtomicBoolean(false)
         val activeCount = java.util.concurrent.atomic.AtomicInteger(0)
 
-        // 重置聚合统计
-        totalBytesToDownload = 0
-        totalBytesDownloaded = 0
-
-        while (started && !allFailed.get()) {
+        while (started) {
             // 等待一个空闲槽位
             try {
                 semaphore.acquire()
@@ -577,7 +643,7 @@ class DownloadService : Service() {
                 break
             }
 
-            if (!started || allFailed.get()) {
+            if (!started) {
                 semaphore.release()
                 break
             }
@@ -610,10 +676,9 @@ class DownloadService : Service() {
             val taskSection = sectionToProcess
             CenterThreadPool.run {
                 try {
-                    val success = processDownloadSection(taskSection)
-                    if (!success) allFailed.set(true)
+                    // 单个任务失败不会中止整个批次，其余任务继续下载
+                    runDownloadSection(taskSection)
                 } catch (e: Exception) {
-                    allFailed.set(true)
                     MsgUtil.err(e)
                 } finally {
                     val remaining = activeCount.decrementAndGet()
@@ -631,9 +696,43 @@ class DownloadService : Service() {
             } catch (ignored: InterruptedException) {
             }
         }
+    }
 
-        if (allFailed.get())
-            exitMessage = "部分下载失败，请检查网络"
+    /**
+     * 处理单个视频下载并统计成功/失败。
+     * 失败项目会被置为终态(error)：不会被再次拾取，也不会卡在"下载中"。
+     */
+    private fun runDownloadSection(downloadSection: DownloadSection): Boolean {
+        val success = try {
+            processDownloadSection(downloadSection)
+        } catch (e: Exception) {
+            Logu.e("DownloadService", "下载异常: ${e.message}")
+            MsgUtil.err(e)
+            removeDownloadProgress(downloadSection.id)
+            false
+        }
+
+        if (success) {
+            batchStats.recordSuccess()
+        } else {
+            batchStats.recordFailure()
+            removeDownloadProgress(downloadSection.id)
+            setState(downloadSection.id, "error")
+        }
+        return success
+    }
+
+    /** 恢复上次会话遗留的"下载中"记录，并清理残留进度 */
+    private fun recoverStuckSections() {
+        getDownloadProgressMap().let { it.clear() }
+        val all = getAll()
+        if (all != null) {
+            for (s in all) {
+                if (s.state == "downloading") {
+                    setState(s.id, "none")
+                }
+            }
+        }
     }
 
     /**
@@ -895,14 +994,22 @@ class DownloadService : Service() {
         notifyTimer = Timer()
         notifyTimer!!.schedule(object : TimerTask() {
             override fun run() {
+                // 周期性采样所有并行下载的聚合速度
+                DownloadService.sampleSpeed()
+
                 if (section == null || notifyTimer == null)
                     return
 
-                statusBuilder.setContentText(state + "：" + section!!.name_short)
-                statusBuilder.setProgress(100, (percent * 100).toInt(), false)
+                val overall = DownloadService.computeOverallProgress(
+                    DownloadService.getAll() ?: emptyList()
+                )
+                statusBuilder.setContentText(
+                    "总进度 " + (overall * 100).toInt() + "% · " + (section?.name_short ?: "下载中")
+                )
+                statusBuilder.setProgress(100, (overall * 100).toInt(), false)
                 notifyManager.notify(FOREGROUND_ID, statusBuilder.build())
             }
-        }, 500, 500)
+        }, 500, 1000)
     }
 
     private fun notifyExit(content: String) {
@@ -961,10 +1068,7 @@ class DownloadService : Service() {
 
     @Throws(IOException::class)
     private fun downFile(url: String, file: File, sectionId: Long = -1, baseProgress: Float = 0f, endProgress: Float = 1.0f): Int {
-        lastSpeedSampleBytes = 0
-        lastSpeedSampleTime = System.currentTimeMillis()
-        speedStr = ""
-        if (Aria2Util.isEnabled() && Aria2Util.isBuiltin()) {
+        if (Aria2Util.isEnabled()) {
             isSpeedMode = true
             return downFileSpeed(url, file, sectionId, baseProgress, endProgress)
         }
@@ -1012,19 +1116,18 @@ class DownloadService : Service() {
             while ((inputStream.read(bytes).also { len = it }) != -1 && started) {
                 fileOutputStream.write(bytes, 0, len)
                 totalDown += len
-                totalBytesDownloaded += len
+                addDownloadedBytes(len.toLong())
                 if (totalDown - lastProgressUpdate >= progressUpdateInterval) {
                     lastProgressUpdate = totalDown
                     if (TotalFileSize > 0) {
                         percent = baseProgress + (1.0f * totalDown / TotalFileSize) * (endProgress - baseProgress)
                     }
-                    updateSpeed(totalDown)
 
                     // 更新进度到进度映射表
                     if (sectionId > 0 && TotalFileSize > 0) {
                         val fileProgress = 1.0f * totalDown / TotalFileSize
                         val actualProgress = baseProgress + fileProgress * (endProgress - baseProgress)
-                        setDownloadProgress(sectionId, actualProgress, state ?: "下载中")
+                        setDownloadProgress(sectionId, actualProgress, state ?: "下载中", totalDown, TotalFileSize)
                     }
                 }
             }
@@ -1109,17 +1212,16 @@ class DownloadService : Service() {
                     while ((inputStream.read(buffer).also { read = it }) != -1 && started) {
                         fos.write(buffer, 0, read)
                         downloaded += read
-                        totalBytesDownloaded += read.toLong()
+                        addDownloadedBytes(read.toLong())
                         if (downloaded - lastProgressUpdate >= progressUpdateInterval) {
                             lastProgressUpdate = downloaded
                             percent = baseProgress + (1.0f * downloaded / effectiveTotalSize) * (endProgress - baseProgress)
-                            updateSpeed(downloaded)
 
                             // 更新进度到进度映射表
                             if (sectionId > 0) {
                                 val fileProgress = 1.0f * downloaded / effectiveTotalSize
                                 val actualProgress = baseProgress + fileProgress * (endProgress - baseProgress)
-                                setDownloadProgress(sectionId, actualProgress, state ?: "下载中")
+                                setDownloadProgress(sectionId, actualProgress, state ?: "下载中", downloaded, effectiveTotalSize)
                             }
                         }
                     }
@@ -1138,12 +1240,12 @@ class DownloadService : Service() {
             raf.setLength(totalSize)
         }
 
-        var segments = Math.min(Aria2Util.getSplit(), (totalSize / (2 * 1024 * 1024)).toInt())
+        // 动态分片：约每 2MB 一片，上限受用户配置的分片数约束
+        var segments = Math.min(Aria2Util.getSplit(), Math.max(1, (totalSize / (2 * 1024 * 1024)).toInt()))
         if (segments < 1) segments = 1
         val segmentLen = totalSize / segments
 
         val totalDownloaded = java.util.concurrent.atomic.AtomicLong(0)
-        val completed = java.util.concurrent.atomic.AtomicInteger(0)
         val anyFailed = java.util.concurrent.atomic.AtomicBoolean(false)
 
         val threads = java.util.ArrayList<Thread>(segments)
@@ -1154,61 +1256,30 @@ class DownloadService : Service() {
             val idx = i
 
             val thread = Thread({
-                try {
-                    val reqBuilder = okhttp3.Request.Builder()
-                        .url(url)
-                        .header("Range", "bytes=$start-$end")
-                        .get()
-                    var j = 0
-                    while (j < headers.size) {
-                        reqBuilder.addHeader(headers[j], headers[j + 1])
-                        j += 2
-                    }
-
-                    client.newCall(reqBuilder.build()).execute().use { resp ->
-                        if (!resp.isSuccessful || resp.body == null) {
-                            anyFailed.set(true)
-                            return@Thread
-                        }
-                        val buffer = ByteArray(65536)
-                        var read: Int
-                        resp.body!!.byteStream().use { inputStream ->
-                            java.io.RandomAccessFile(file, "rw").use { rafInner ->
-                                rafInner.seek(start)
-                                while ((inputStream.read(buffer).also { read = it }) != -1 && started) {
-                                    rafInner.write(buffer, 0, read)
-                                    val added = totalDownloaded.addAndGet(read.toLong())
-                                    totalBytesDownloaded += read.toLong()
-                                }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    anyFailed.set(true)
-                } finally {
-                    completed.incrementAndGet()
-                }
+                downloadSegment(url, file, client, headers, start, end, idx, totalDownloaded, anyFailed)
             }, "DL-Segment-$idx")
             threads.add(thread)
             thread.start()
         }
 
-        while (completed.get() < segments && started && !anyFailed.get()) {
+        // 轮询进度，直到全部分片结束、失败或取消
+        while (completedSegments(threads) < segments && started && !anyFailed.get()) {
             percent = baseProgress + (1.0f * totalDownloaded.get() / totalSize) * (endProgress - baseProgress)
-            
+
             // 更新进度到进度映射表
             if (sectionId > 0) {
                 val fileProgress = 1.0f * totalDownloaded.get() / totalSize
                 val actualProgress = baseProgress + fileProgress * (endProgress - baseProgress)
-                setDownloadProgress(sectionId, actualProgress, state ?: "下载中")
+                setDownloadProgress(sectionId, actualProgress, state ?: "下载中", totalDownloaded.get(), totalSize)
             }
-            
+
             try {
                 Thread.sleep(200)
             } catch (ignored: InterruptedException) {
             }
         }
 
+        // 等待线程结束（带超时），避免遗留写盘
         for (t in threads) {
             try {
                 t.join(30000)
@@ -1216,11 +1287,73 @@ class DownloadService : Service() {
             }
         }
 
-        if (anyFailed.get()) {
+        // 完整性校验：任一失败或下载字节不足都视为失败，回退整文件单线程重下
+        if (anyFailed.get() || totalDownloaded.get() < totalSize) {
             return downFileSpeedSingle(url, file, client, headers, totalSize, sectionId, baseProgress, endProgress)
         }
 
         return if (started) NORMAL else ERR_UNKNOWN
+    }
+
+    /** 下载单个分片（最多重试 3 次），成功后累加已下载字节。 */
+    private fun downloadSegment(url: String, file: File, client: okhttp3.OkHttpClient,
+                                headers: ArrayList<String>, start: Long, end: Long, idx: Int,
+                                totalDownloaded: java.util.concurrent.atomic.AtomicLong,
+                                anyFailed: java.util.concurrent.atomic.AtomicBoolean) {
+        val expectLen = end - start + 1
+        var attempts = 0
+        while (attempts < 3 && started && !anyFailed.get()) {
+            var written = 0L
+            var ok = false
+            try {
+                val reqBuilder = okhttp3.Request.Builder()
+                    .url(url)
+                    .header("Range", "bytes=$start-$end")
+                    .get()
+                var j = 0
+                while (j < headers.size) {
+                    reqBuilder.addHeader(headers[j], headers[j + 1])
+                    j += 2
+                }
+                client.newCall(reqBuilder.build()).execute().use { resp ->
+                    if (!resp.isSuccessful || resp.body == null) throw IOException("HTTP ${resp.code}")
+                    val buffer = ByteArray(65536)
+                    var read: Int
+                    resp.body!!.byteStream().use { inputStream ->
+                        java.io.RandomAccessFile(file, "rw").use { rafInner ->
+                            rafInner.seek(start)
+                            while ((inputStream.read(buffer).also { read = it }) != -1 && started) {
+                                rafInner.write(buffer, 0, read)
+                                written += read
+                                addDownloadedBytes(read.toLong())
+                            }
+                        }
+                    }
+                }
+                ok = started && written == expectLen
+            } catch (e: Exception) {
+                ok = false
+            }
+            if (ok) {
+                totalDownloaded.addAndGet(written)
+                return
+            }
+            attempts++
+            if (attempts < 3) {
+                try {
+                    Thread.sleep(500L * attempts)
+                } catch (ignored: InterruptedException) {
+                }
+            }
+        }
+        anyFailed.set(true)
+    }
+
+    /** 已结束的分片线程数（用于进度轮询退出条件）。 */
+    private fun completedSegments(threads: java.util.ArrayList<Thread>): Int {
+        var n = 0
+        for (t in threads) if (!t.isAlive) n++
+        return n
     }
 
     @Throws(IOException::class)
@@ -1262,8 +1395,10 @@ class DownloadService : Service() {
         started = false
         percent = -1f
         state = null
-        totalBytesToDownload = 0
-        totalBytesDownloaded = 0
+        speedStr = ""
+        getDownloadProgressMap().let { it.clear() }
+        batchStats.reset()
+        resetDownloadedBytes()
         activeDownloadsCount = 0
 
         toastTimer?.cancel()

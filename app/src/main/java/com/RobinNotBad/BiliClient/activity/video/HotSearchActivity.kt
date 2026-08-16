@@ -18,6 +18,7 @@ class HotSearchActivity : RefreshMainActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setPageName("热搜")
+        setMenuClick()
         setOnRefreshListener { loadHotSearch() }
         loadHotSearch()
     }

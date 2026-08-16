@@ -110,6 +110,8 @@
 
 # R8 optimization passes
 -optimizationpasses 5
--repackageclasses
--allowaccessmodification
--mergeinterfacesaggressively
+# repackageclasses 与 mergeinterfacesaggressively 可能破坏运行时反射（EventBus/Hilt/Glide），
+# 首次开启 R8 暂禁用以降低风险，确认稳定后可恢复。
+#-repackageclasses
+#-allowaccessmodification
+#-mergeinterfacesaggressively

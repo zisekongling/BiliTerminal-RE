@@ -8,6 +8,7 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.listener.OnLoadMoreListener
+import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.PerformanceManager
 import com.RobinNotBad.BiliClient.util.view.ImageAutoLoadScrollListener
@@ -110,6 +111,15 @@ open class RefreshListActivity : BaseActivity() {
 
     fun setRefreshing(bool: Boolean) {
         runOnUiThread { swipeRefreshLayout.isRefreshing = bool }
+    }
+
+    /** 全局搜索跳转时，滚动定位到名称为 [highlight] 的设置项。 */
+    fun scrollToHighlight(list: List<SettingSection>, highlight: String?) {
+        if (highlight.isNullOrEmpty()) return
+        val index = list.indexOfFirst { it.name == highlight }
+        if (index >= 0) {
+            recyclerView.post { recyclerView.scrollToPosition(index) }
+        }
     }
 
     fun setOnLoadMoreListener(loadMore: OnLoadMoreListener) {

@@ -121,7 +121,7 @@ open class RefreshListFragment : BaseFragment() {
     }
 
     fun getLayoutManager(): RecyclerView.LayoutManager {
-        return if (SharedPreferencesUtil.getBoolean("ui_landscape", false) && !SharedPreferencesUtil.getBoolean("ui_mobile_mode", false) && !forceSingleColumn)
+        return if (SharedPreferencesUtil.getBoolean("ui_landscape", false) && !forceSingleColumn)
             CustomGridManager(requireContext(), 3)
         else
             CustomLinearManager(requireContext())

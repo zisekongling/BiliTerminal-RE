@@ -69,7 +69,7 @@ class HistoryVideoCardAdapter(
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     longPressRunnable = Runnable {
-                        val quickMode = SharedPreferencesUtil.getBoolean("cache_quick_mode", false)
+                        val quickMode = SharedPreferencesUtil.getBoolean("cache_quick_mode", true)
                         if (quickMode && videoCard.type != "live") {
                             handleQuickCache(videoCard)
                         } else {

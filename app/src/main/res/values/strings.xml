@@ -191,6 +191,7 @@
     <string name="btn_login_confirm">登录</string>
     <string name="btn_login_refuse">但是我拒绝</string>
     <string name="btn_emote">表情</string>
+    <string name="btn_image">图片</string>
     <string name="btn_send">发送</string>
     <string name="btn_setup_init">哔哩终端，启动！</string>
     <string name="btn_login_tip">你还木有登录哦！点击这里登录</string>
@@ -250,34 +251,12 @@
     <string name="tutorial_btn_clear_pager">重置所有页面滑动引导</string>
     <string name="tutorial_section_list">教程列表</string>
     <string name="pagename_update">版本更新</string>
-    <string name="pagename_download_setting">缓存设置</string>
 
-    <string name="aria2_basic_title">基本设置</string>
     <string name="aria2_enable">启用高速下载模式</string>
     <string name="aria2_enable_desc">启用后将使用多线程高速下载引擎，支持视频、音频和图片文件的快速下载。</string>
 
-    <string name="aria2_builtin_mode">使用内置下载引擎</string>
-    <string name="aria2_builtin_mode_desc">启用后使用应用内置的多线程下载引擎，无需额外安装Aria2服务。关闭后需自行配置外部Aria2</string>
-
-    <string name="aria2_rpc_title">连接设置</string>
-    <string name="aria2_rpc_url">RPC地址</string>
-    <string name="aria2_rpc_url_desc">Aria2的JSON-RPC接口地址，默认为 http://127.0.0.1:6800/jsonrpc</string>
-    <string name="aria2_secret">RPC密钥</string>
-    <string name="aria2_secret_desc">如果Aria2配置了rpc-secret令牌，请在此填写（留空则不使用）</string>
-
-    <string name="aria2_path_info">下载存储路径</string>
-
-    <string name="aria2_performance_title">性能设置</string>
-    <string name="aria2_max_concurrent">最大同时下载数</string>
-    <string name="aria2_max_concurrent_desc">同时进行的最大下载任务数量，默认5</string>
-    <string name="aria2_max_connection">单服务器最大连接数</string>
-    <string name="aria2_max_connection_desc">每个服务器允许的最大连接数，默认16</string>
     <string name="aria2_split">分片数</string>
     <string name="aria2_split_desc">单个文件下载时使用的分片数量，默认5。提高分片数可加速下载但会增加服务器负载</string>
-
-    <string name="aria2_storage_title">存储设置</string>
-    <string name="aria2_download_dir">下载目录</string>
-    <string name="aria2_download_dir_desc">Aria2下载文件的保存目录，视频、音频和图片会分别存放在子目录中</string>
 
     <!-- 缓存设置 -->
     <string name="cache_quick_mode">启用快捷缓存方式</string>
@@ -304,30 +283,54 @@
 
     #新增功能放到上面，修复问题放下面，方便用户看见
     <string-array name="update_log_items">
-        <item>更新版本号至2606200（26.06.20）</item>
-        <item>本版本为哔哩终端停更后的改版分支（RE:哔哩终端），非官方项目，与原开发组无关</item>
-        <item>本项目采用AI辅助编程（vibe coding）开发，代码未经严格验证，使用风险自负</item>
-        <item>新增主题系统，支持B站粉/知乎蓝/爱奇艺绿/紫色幻想/彩虹幻想/经典灰等多种主题</item>
-        <item>新增短视频功能，支持浏览B站短视频内容，并支持列表预加载提升流畅度</item>
-        <item>新增音频播放功能，支持歌词显示与歌单管理</item>
-        <item>新增Aria2多线程高速下载引擎，支持分片加速下载视频、音频与图片</item>
-        <item>新增DASH音视频合并下载，自动将分离的音视频流合并为MP4</item>
-        <item>新增本地视频文件夹管理，支持自定义分类、新建/重命名/删除文件夹与多选批量操作</item>
-        <item>新增虚拟合集功能：播放本地缓存视频或收藏夹视频时，自动将同一文件夹/收藏夹的视频组成合集，支持切换和自动联播</item>
-        <item>新增视频详情页内联播放功能（带弹幕）</item>
-        <item>新增专栏/图文文章富文本排版（标题、引用、代码块、分割线等）</item>
-        <item>新增缓存设置：快捷缓存、默认缓存画质（4K/2K/1080P/720P/480P/360P/仅音频）</item>
-        <item>新增搜索设置：搜索建议开关、默认搜索内容、搜索类别排序</item>
-        <item>新增教程管理：一键通过所有教程、清除教程进度、重置页面滑动引导</item>
-        <item>新增账号切换功能</item>
-        <item>新增登录方式增强：密码登录与短信验证码登录，密码RSA加密传输，集成极验验证码处理风控验证</item>
-        <item>新增视频摘要功能：视频详情页可一键查看AI生成的视频内容总结（需登录）</item>
-        <item>新增后台自动检查更新功能</item>
-        <item>新增高性能模式（实验性），自动检测设备性能并优化运行体验</item>
-        <item>新增播放器时间点标记与强制高分辨率选项</item>
-        <item>全项目代码由Java重构为Kotlin，引入Hilt依赖注入、Retrofit与协程架构</item>
-        <item>清除冗余的账号切换功能文本说明</item>
-        <item>构建发行版</item>
+        <item>【重要更新】</item>
+        <item></item>
+        <item>【本次更新】</item>
+        <item>1. 评论支持发送图片（大会员专属），带图评论即时回显。</item>
+        <item>2. 修复专栏/文章误跳动态详情，文章正文与点赞/投币/收藏、cv号、日期正常显示。</item>
+        <item>3. 多线程下载优化：分片完整性校验、单分片自动重试、动态分片。</item>
+        <item>4. 强制更新机制完善：可真正退出应用，安装完成后按版本号自动解除。</item>
+        <item>5. 设置界面重构：统一渲染体系、新增设置项搜索、设置key集中管理。</item>
+        <item>6. 我的页面优化：功能入口不再依赖接口加载、未登录引导。</item>
+        <item>7. 清理冗余代码与无效配置项。</item>
+        <item></item>
+        <item>[界面与主题]</item>
+        <item>1. 新增主题系统，支持B站粉/知乎蓝/爱奇艺绿/紫色幻想/彩虹幻想/经典灰等多种主题。</item>
+        <item>2. 菜单设置无感交互重构，提升操作流畅感。</item>
+        <item>3. 设置界面全面重构，新增设置项搜索功能，快速定位选项。</item>
+        <item></item>
+        <item>[播放体验]</item>
+        <item>1. 新增短视频功能，支持浏览B站短视频，列表预加载提升流畅度。</item>
+        <item>2. 新增音频播放功能，支持歌词显示与歌单管理。</item>
+        <item>3. 新增虚拟合集功能：播放本地缓存或收藏夹视频时，自动将同一文件夹/收藏夹的视频组成合集，支持切换和自动联播。</item>
+        <item>4. 视频详情页新增内联播放功能（带弹幕）。</item>
+        <item>5. 新增专栏/图文文章富文本排版（标题、引用、代码块、分割线等）。</item>
+        <item>6. 播放器新增时间点标记与强制高分辨率选项。</item>
+        <item>7. 新增视频摘要功能（需登录），一键查看AI生成的视频内容总结。</item>
+        <item></item>
+        <item>[下载与缓存]</item>
+        <item>1. 新增Aria2多线程高速下载引擎，支持分片加速下载视频、音频与图片。</item>
+        <item>2. 新增DASH音视频合并下载，自动将分离的音视频流合并为MP4。</item>
+        <item>3. 新增本地视频文件夹管理，支持自定义分类、新建/重命名/删除文件夹与多选批量操作。</item>
+        <item>4. 新增缓存设置，支持快捷缓存、默认缓存画质（4K/2K/1080P/720P/480P/360P/仅音频）。</item>
+        <item>5. 优化下载逻辑，实现更快速下载。</item>
+        <item></item>
+        <item>[搜索与发现]</item>
+        <item>1. 新增热搜榜，一键查看B站实时热搜。</item>
+        <item>2. 新增搜索设置，支持搜索建议开关、默认搜索内容、搜索类别排序。</item>
+        <item></item>
+        <item>[账号与隐私]</item>
+        <item>1. 新增账号切换功能。</item>
+        <item>2. 登录方式增强：支持密码登录与短信验证码登录，密码RSA加密传输，集成极验验证码处理风控。</item>
+        <item>3. 新增隐私模式，不记录视频观看状态。</item>
+        <item></item>
+        <item>[设置与优化]</item>
+        <item>1. 新增教程管理，支持一键通过所有教程、清除教程进度、重置页面滑动引导。</item>
+        <item>2. 新增后台自动检查更新功能。</item>
+        <item>3. 新增高性能模式（实验性），自动检测设备性能并优化运行体验。</item>
+        <item></item>
+        <item>[底层重构]</item>
+        <item>1. 全项目代码由Java重构为Kotlin，引入Hilt依赖注入、Retrofit与协程架构。</item>
     </string-array>
 
     <string name="about_trailer_feedback">此版本为哔哩终端改版，有bug不要找原开发者，请点击联合开发者的TRAE作者进行反馈。</string>
@@ -389,5 +392,21 @@
         <item>article</item>
         <item>short_video</item>
     </array>
+
+    <string name="desc_menu_enabled">已启用</string>
+    <string name="desc_menu_disabled">未启用</string>
+    <string name="desc_menu_fixed">固定</string>
+    <string name="desc_menu_fixed_hint">此项不可隐藏</string>
+    <string name="desc_menu_footer">长按并拖动可调整菜单顺序\n拖入未启用区域可将其移入未启用列表\n点击未启用项将其放回已启用列表末尾\n推荐、设置、缓存、搜索固定不可隐藏</string>
+
+    <string name="desc_setting_ui_padding">单位百分比，此选项可以用于圆屏适配。\n出于保护，数值超过30不会保存。</string>
+    <string name="desc_parallel_download">同时在后台并行下载的视频数量，推荐2-5个。网络环境良好时可以提高效率</string>
+    <string name="desc_force_high_quality">强制在缓存分辨率选择中显示4K、1080P高码率、1080P等选项，即使该视频可能不支持这些分辨率</string>
+    <string name="desc_high_performance">开启后将使用更多系统资源以提升运行速度。高性能手机自动启用；低性能手表建议关闭以获得更好的续航和稳定性。</string>
+    <string name="desc_recommend_dedup">过滤掉已经显示过的推荐视频，避免重复</string>
+    <string name="desc_virtual_collection">开启后，在播放本地缓存视频或收藏夹视频时，会将同一文件夹/收藏夹的视频自动组成合集，支持切换和自动联播</string>
+    <string name="desc_player_rotate_software">在极少数手表上（如小米手表），系统旋屏存在显示不全的问题。打开此开关，播放器将会使用软件旋屏方法。</string>
+    <string name="desc_player_viewpoints">显示视频的章节看点信息，可快速跳转到指定章节</string>
+    <string name="desc_player_interaction_debug">在互动视频播放时，在左侧倍速按钮上方显示调试按钮，可以查看和修改互动视频的变量</string>
 
 </resources>

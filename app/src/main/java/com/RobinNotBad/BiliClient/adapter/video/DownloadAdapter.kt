@@ -77,7 +77,7 @@ class DownloadAdapter(
 
         // 显示每项进度条
         if (isDownloading) {
-            holder.showProgress(progressInfo!!.second, progressInfo.first, true)
+            holder.showProgress(progressInfo!!.state, progressInfo.progress, true)
         } else {
             holder.showProgress(null, -1f, false)
         }
@@ -119,7 +119,7 @@ class DownloadAdapter(
 
             // 优先用进度映射表的状态，其次用 DB 状态
             val progressInfo = DownloadService.getDownloadProgress(section.id)
-            val displayState = progressInfo?.second ?: section.state
+            val displayState = progressInfo?.state ?: section.state
 
             when (displayState) {
                 "error" -> extra.text = "下载出错"

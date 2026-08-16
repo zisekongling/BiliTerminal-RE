@@ -10,6 +10,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.RadioButton
 import android.widget.TextView
 import androidx.activity.ComponentActivity
@@ -19,6 +20,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ListChooseActivity
 import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.switchmaterial.SwitchMaterial
 import java.io.Serializable
 
@@ -33,6 +35,19 @@ class SettingsAdapter(
     fun setListChooseLauncher(launcher: ActivityResultLauncher<Intent>) {
         this.listChooseLauncher = launcher
     }
+
+    // ---- 自定义单元格附加数据（通过 SettingSection.extra 传递）----
+    class NavExtra(
+        val iconRes: Int,
+        val onClick: (View) -> Unit,
+        val onLongClick: ((View) -> Boolean)? = null
+    )
+
+    class ButtonExtra(val onClick: (View) -> Unit)
+
+    class SwitchExtra(val onChange: (Boolean) -> Unit)
+
+    class InputExtra(val save: (String) -> Unit)
 
     override fun getItemViewType(position: Int): Int {
         if (list.isEmpty() || position < 0 || position >= list.size) {
@@ -54,6 +69,20 @@ class SettingsAdapter(
             5 -> return ListChooseHolder(
                 LayoutInflater.from(this.context).inflate(R.layout.cell_setting_list_choose, parent, false)
             )
+            6 -> return NavHolder(
+                LayoutInflater.from(this.context).inflate(R.layout.cell_setting_nav, parent, false)
+            )
+            7 -> {
+                val button = MaterialButton(this.context)
+                val lp = RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT,
+                    RecyclerView.LayoutParams.WRAP_CONTENT
+                )
+                val density = button.resources.displayMetrics.density
+                lp.setMargins((6 * density).toInt(), (3 * density).toInt(), (6 * density).toInt(), (3 * density).toInt())
+                button.layoutParams = lp
+                return ButtonHolder(button)
+            }
             -1 -> return DividerHolder(
                 LayoutInflater.from(this.context).inflate(R.layout.cell_divider, parent, false)
             )
@@ -90,6 +119,14 @@ class SettingsAdapter(
                 val listChooseHolder = holder as ListChooseHolder
                 listChooseHolder.bind(settingSection, position)
             }
+            6 -> {
+                val navHolder = holder as NavHolder
+                navHolder.bind(settingSection)
+            }
+            7 -> {
+                val buttonHolder = holder as ButtonHolder
+                buttonHolder.bind(settingSection)
+            }
             else -> {
                 val switchHolder = holder as SwitchHolder
                 switchHolder.adapter = this
@@ -111,8 +148,34 @@ class SettingsAdapter(
             "input_int" to 2,
             "input_float" to 3,
             "input_string" to 4,
-            "list_choose" to 5
+            "list_choose" to 5,
+            "nav" to 6,
+            "button" to 7
         )
+    }
+
+    class NavHolder(@androidx.annotation.NonNull itemView: View) : RecyclerView.ViewHolder(itemView) {
+        val icon: ImageView = itemView.findViewById(R.id.nav_icon)
+        val title: TextView = itemView.findViewById(R.id.nav_title)
+        val desc: TextView = itemView.findViewById(R.id.nav_desc)
+
+        fun bind(settingSection: SettingSection) {
+            val extra = settingSection.extra as? NavExtra ?: return
+            icon.setImageResource(extra.iconRes)
+            title.text = settingSection.name
+            desc.text = settingSection.desc
+            itemView.setOnClickListener { extra.onClick(it) }
+            itemView.setOnLongClickListener { extra.onLongClick?.invoke(it) ?: false }
+        }
+    }
+
+    class ButtonHolder(@androidx.annotation.NonNull itemView: View) : RecyclerView.ViewHolder(itemView) {
+        val button: MaterialButton = itemView as MaterialButton
+
+        fun bind(settingSection: SettingSection) {
+            button.text = settingSection.name
+            button.setOnClickListener { (settingSection.extra as? ButtonExtra)?.onClick?.invoke(it) }
+        }
     }
 
     class SwitchHolder(@androidx.annotation.NonNull itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -130,17 +193,19 @@ class SettingsAdapter(
                 desc.visibility = View.VISIBLE
             }
             switchMaterial.text = settingSection.name
+            switchMaterial.setOnCheckedChangeListener(null)
+            switchMaterial.isChecked = SharedPreferencesUtil.getBoolean(
+                settingSection.id,
+                settingSection.defaultValue.toBoolean()
+            )
             switchMaterial.setOnCheckedChangeListener { _, isChecked ->
                 SharedPreferencesUtil.putBoolean(settingSection.id, isChecked)
                 if (isChecked && settingSection.oppositeKey != null) {
                     SharedPreferencesUtil.putBoolean(settingSection.oppositeKey, false)
                 }
                 adapter?.onSettingChanged?.invoke(settingSection.id, isChecked)
+                (settingSection.extra as? SwitchExtra)?.onChange?.invoke(isChecked)
             }
-            switchMaterial.isChecked = SharedPreferencesUtil.getBoolean(
-                settingSection.id,
-                settingSection.defaultValue.toBoolean()
-            )
         }
     }
 
@@ -200,9 +265,14 @@ class SettingsAdapter(
                         override fun beforeTextChanged(charSequence: CharSequence, i: Int, i1: Int, i2: Int) {}
                         override fun onTextChanged(charSequence: CharSequence, i: Int, i1: Int, i2: Int) {}
                         override fun afterTextChanged(editable: Editable) {
-                            try {
-                                SharedPreferencesUtil.putInt(settingSection.id, editable.toString().toInt())
-                            } catch (ignored: Exception) {
+                            val custom = settingSection.extra as? InputExtra
+                            if (custom != null) {
+                                custom.save(editable.toString())
+                            } else {
+                                try {
+                                    SharedPreferencesUtil.putInt(settingSection.id, editable.toString().toInt())
+                                } catch (ignored: Exception) {
+                                }
                             }
                         }
                     })
@@ -218,12 +288,17 @@ class SettingsAdapter(
                         override fun beforeTextChanged(charSequence: CharSequence, i: Int, i1: Int, i2: Int) {}
                         override fun onTextChanged(charSequence: CharSequence, i: Int, i1: Int, i2: Int) {}
                         override fun afterTextChanged(editable: Editable) {
-                            try {
-                                SharedPreferencesUtil.putFloat(
-                                    settingSection.id,
-                                    editable.toString().toFloat()
-                                )
-                            } catch (ignored: Exception) {
+                            val custom = settingSection.extra as? InputExtra
+                            if (custom != null) {
+                                custom.save(editable.toString())
+                            } else {
+                                try {
+                                    SharedPreferencesUtil.putFloat(
+                                        settingSection.id,
+                                        editable.toString().toFloat()
+                                    )
+                                } catch (ignored: Exception) {
+                                }
                             }
                         }
                     })
@@ -236,7 +311,12 @@ class SettingsAdapter(
                         override fun beforeTextChanged(charSequence: CharSequence, i: Int, i1: Int, i2: Int) {}
                         override fun onTextChanged(charSequence: CharSequence, i: Int, i1: Int, i2: Int) {}
                         override fun afterTextChanged(editable: Editable) {
-                            SharedPreferencesUtil.putString(settingSection.id, editable.toString())
+                            val custom = settingSection.extra as? InputExtra
+                            if (custom != null) {
+                                custom.save(editable.toString())
+                            } else {
+                                SharedPreferencesUtil.putString(settingSection.id, editable.toString())
+                            }
                         }
                     })
                 }
@@ -261,7 +341,8 @@ class SettingsAdapter(
 
         class ListChooseExtra(
             var displayNames: List<String>,
-            var actualValues: List<String>
+            var actualValues: List<String>,
+            var onSelect: ((String, String) -> Unit)? = null
         ) : Serializable {
             companion object {
                 private const val serialVersionUID = 1L

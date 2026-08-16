@@ -169,10 +169,10 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="共114条回复"
-            android:textColor="@color/pink"
+            android:textColor="?attr/colorPrimary"
             android:textSize="13sp"
             app:drawableEndCompat="@drawable/arrow_forward_pink"
-            app:drawableTint="@color/pink" />
+            app:drawableTint="?attr/colorPrimary" />
     </LinearLayout>
 
     <TextView

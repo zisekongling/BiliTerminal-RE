@@ -32,6 +32,7 @@ public class LinkUrlUtil {
     public static final Pattern AV_PATTERN = Pattern.compile("av\\d{1,10}");
     public static final Pattern CV_PATTERN = Pattern.compile("cv\\d{1,10}");
     public static final Pattern UID_PATTERN = Pattern.compile("^(?i)uid\\d+$");
+    public static final Pattern OPUS_PATTERN = Pattern.compile("^/opus/(\\d+)/?$");
 
     public static void handleWebURL(Context context, String text) {
         try {
@@ -50,6 +51,11 @@ public class LinkUrlUtil {
             }
             if (domain.matches(".*\\.bilibili\\.com$")) {
                 if (!path.isEmpty()) {
+                    Matcher opusMatcher = OPUS_PATTERN.matcher(path);
+                    if (opusMatcher.matches()) {
+                        TerminalContext.getInstance().enterOpusDetailPage(context, Long.parseLong(opusMatcher.group(1)));
+                        return;
+                    }
                     String lastPathItem = path.replaceAll(".*/([^/]+)/?$", "$1");
                     if (domain.equals("space.bilibili.com")) {
                         lastPathItem = "UID" + lastPathItem;

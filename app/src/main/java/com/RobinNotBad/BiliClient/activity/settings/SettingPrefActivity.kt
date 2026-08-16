@@ -7,6 +7,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
 import com.RobinNotBad.BiliClient.adapter.SettingsAdapter
 import com.RobinNotBad.BiliClient.model.SettingSection
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 
 class SettingPrefActivity : RefreshListActivity() {
@@ -19,13 +20,13 @@ class SettingPrefActivity : RefreshListActivity() {
 
         val sectionList: List<SettingSection> = ArrayList<SettingSection>().apply {
             add(SettingSection("title", "功能", "", "", ""))
-            add(SettingSection("switch", "长按复制", "copy_enable", getString(R.string.desc_copy_enable), "true"))
-            add(SettingSection("switch", "创作中心", "creative_enable", getString(R.string.desc_creative_enable), "true"))
-            add(SettingSection("switch", "搜索建议", "search_suggestions_enable",
+            add(SettingSection("switch", "长按复制", SettingsKeys.COPY_ENABLE, getString(R.string.desc_copy_enable), "true"))
+            add(SettingSection("switch", "创作中心", SettingsKeys.CREATIVE_ENABLE, getString(R.string.desc_creative_enable), "true"))
+            add(SettingSection("switch", "搜索建议", SettingsKeys.SEARCH_SUGGESTIONS_ENABLE,
                 getString(R.string.desc_search_suggestions_enable), "true"))
             add(SettingSection("switch", "默认搜索内容", SharedPreferencesUtil.SEARCH_DEFAULT_CONTENT_ENABLE,
                 getString(R.string.desc_search_default_content_enable), "false"))
-            add(SettingSection("switch", "识别链接", "link_enable", getString(R.string.desc_link_enable), "true"))
+            add(SettingSection("switch", "识别链接", SharedPreferencesUtil.LINK_ENABLE, getString(R.string.desc_link_enable), "true"))
             add(SettingSection("switch", "隐私模式", SharedPreferencesUtil.PRIVACY_MODE,
                 getString(R.string.desc_privacy_mode), "false"))
 
@@ -44,11 +45,11 @@ class SettingPrefActivity : RefreshListActivity() {
                 getString(R.string.text_update_background_check_desc), "true"))
 
             add(SettingSection("title", "交互优化", "", "", ""))
-            add(SettingSection("switch", "禁用返回键", "back_disable", getString(R.string.desc_back_disable), "false"))
-            add(SettingSection("switch", "禁止视频在相册中显示", "save_ban_gallery", getString(R.string.desc_ban_gallery), "true"))
-            add(SettingSection("switch", "请求JPG格式图片", "image_request_jpg",
+            add(SettingSection("switch", "禁用返回键", SettingsKeys.BACK_DISABLE, getString(R.string.desc_back_disable), "false"))
+            add(SettingSection("switch", "禁止视频在相册中显示", SettingsKeys.SAVE_BAN_GALLERY, getString(R.string.desc_ban_gallery), "true"))
+            add(SettingSection("switch", "请求JPG格式图片", SettingsKeys.IMAGE_REQUEST_JPG,
                 getString(R.string.desc_img_request_jpg), "false"))
-            add(SettingSection("switch", "翻动时不加载图片", "image_no_load_onscroll",
+            add(SettingSection("switch", "翻动时不加载图片", SettingsKeys.IMAGE_NO_LOAD_ONSCROLL,
                 getString(R.string.desc_img_no_load_onscroll), "false"))
             add(SettingSection("switch", "异步加载布局", SharedPreferencesUtil.ASYNC_INFLATE_ENABLE,
                 getString(R.string.desc_async_inflate_enable), "true"))
@@ -60,10 +61,10 @@ class SettingPrefActivity : RefreshListActivity() {
                 getString(R.string.desc_follow_group_mode), "false"))
 
             add(SettingSection("title", "表冠适配", "", "", ""))
-            add(SettingSection("switch", "启用表冠适配", "ui_rotatory_enable",
+            add(SettingSection("switch", "启用表冠适配", SettingsKeys.UI_ROTATORY_ENABLE,
                 getString(R.string.setting_lab_ui_rotatory), "false"))
-            add(SettingSection("input_float", "表冠适配灵敏度（Recycler）", "ui_rotatory_recycler", "", "0"))
-            add(SettingSection("input_float", "表冠适配灵敏度（Scroll）", "ui_rotatory_scroll", "", "0"))
+            add(SettingSection("input_float", "表冠适配灵敏度（Recycler）", SettingsKeys.UI_ROTATORY_RECYCLER, "", "0"))
+            add(SettingSection("input_float", "表冠适配灵敏度（Scroll）", SettingsKeys.UI_ROTATORY_SCROLL, "", "0"))
         }
 
         recyclerView.setHasFixedSize(true)
@@ -72,5 +73,7 @@ class SettingPrefActivity : RefreshListActivity() {
         setAdapter(adapter)
 
         setRefreshing(false)
+
+        scrollToHighlight(sectionList, intent.getStringExtra("highlight"))
     }
 }

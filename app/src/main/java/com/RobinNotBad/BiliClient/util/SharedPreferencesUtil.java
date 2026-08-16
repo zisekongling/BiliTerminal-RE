@@ -10,6 +10,7 @@ public class SharedPreferencesUtil {
     public static final String LINK_ENABLE = "link_enable";
     public static final String RCMD_API_NEW_PARAM = "rcmd_api_new_param";
     public static final String MENU_SORT = "menu_sort";
+    public static final String MENU_ENABLED = "menu_enabled";
     public static final String SEARCH_CATEGORY_SORT = "search_category_sort";
     public static final String SEARCH_CATEGORY_ARTICLE_SHOW = "search_category_article_show";
     public static final String SEARCH_CATEGORY_USER_SHOW = "search_category_user_show";
@@ -106,6 +107,25 @@ public class SharedPreferencesUtil {
 
     public static void removeValue(String key) {
         sharedPreferences.edit().remove(key).apply();
+    }
+
+    /** 读取菜单启用列表（含旧数据迁移回退），供 MenuActivity / SplashActivity / SettingMenuActivity 使用。 */
+    public static java.util.List<String> loadMenuEnabled() {
+        return MenuConfig.INSTANCE.loadEnabled(
+                key -> getString(key, ""),
+                key -> {
+                    if (sharedPreferences != null && sharedPreferences.contains(key)) {
+                        return sharedPreferences.getBoolean(key, false);
+                    }
+                    return null;
+                },
+                (key, value) -> { SharedPreferencesUtil.putString(key, value); return kotlin.Unit.INSTANCE; }
+        );
+    }
+
+    /** 保存菜单启用列表。 */
+    public static void saveMenuEnabled(java.util.List<String> enabled) {
+        MenuConfig.INSTANCE.saveEnabled(enabled, (key, value) -> { SharedPreferencesUtil.putString(key, value); return kotlin.Unit.INSTANCE; });
     }
 
     /**

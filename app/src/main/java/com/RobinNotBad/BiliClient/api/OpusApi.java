@@ -1,13 +1,14 @@
 package com.RobinNotBad.BiliClient.api;
 
+import com.RobinNotBad.BiliClient.model.ArticleInfo;
 import com.RobinNotBad.BiliClient.model.Opus;
 import com.RobinNotBad.BiliClient.model.OpusParagraph;
 import com.RobinNotBad.BiliClient.model.Stats;
 import com.RobinNotBad.BiliClient.model.UserInfo;
 import com.RobinNotBad.BiliClient.util.JsonUtil;
-import com.RobinNotBad.BiliClient.util.Logu;
 import com.RobinNotBad.BiliClient.util.MsgUtil;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
+import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -32,18 +33,23 @@ public class OpusApi {
         else url = "https://www.bilibili.com/read/cv" + id;
         try {
             Response response = NetWorkUtil.get(url);
-            if (id <= 100000000)
-                response = NetWorkUtil.get(response.headers().get("location")); // 访问/read/cv[id]的话会重定向到/opus/，这里要手动“重定向”，因为OkHTTP不认。
+            // /read/cv{id} 有多层301重定向（加斜杠、跳转到/opus/），循环跟随直到拿到最终页面
+            for (int i = 0; i < 5; i++) {
+                String location = response.header("Location");
+                if (location == null || location.isEmpty()) break;
+                response.close();
+                response = NetWorkUtil.get(location);
+            }
             ResponseBody responseBody = response.body();
             if (responseBody == null) return opus;
 
             String html = responseBody.string();
 
-            JSONObject detail = new JSONObject(JsonUtil.search(html, "detail", ""));  //效率不高 能用就行 死去的jsonUtil居然还能发光发热
+            String detailStr = JsonUtil.search(html, "detail", "");
+            if (detailStr.isEmpty()) return opus;
+            JSONObject detail = new JSONObject(detailStr);  //效率不高 能用就行 死去的jsonUtil居然还能发光发热
 
-            JSONObject basic = detail.getJSONObject("basic");
-            opus.commentId = Integer.parseInt(basic.optString("comment_id_str", "0"));
-            opus.commentType = basic.optInt("comment_type");
+            analyzeCommentInfo(opus, detail, id);
 
             if (detail.isNull("modules")) return opus;    //isNull其实涵盖了!has的情况，之前都是咋想的判断两次，我简直是sb
             JSONArray modules = detail.getJSONArray("modules");
@@ -52,39 +58,53 @@ public class OpusApi {
                 JSONObject module = modules.getJSONObject(i);
                 switch (module.optString("module_type")) {
                     case "MODULE_TYPE_TITLE":
-                        opus.title = module.getJSONObject("module_title").getString("text");
+                        JSONObject moduleTitle = module.optJSONObject("module_title");
+                        if (moduleTitle != null) opus.title = moduleTitle.optString("text", "");
                         break;
                     case "MODULE_TYPE_TOP":
                         ArrayList<String> topImages = new ArrayList<>();
-                        JSONObject module_top = module.getJSONObject("module_top");
-                        JSONObject display = module_top.getJSONObject("display");
-                        int displayType = display.optInt("type");
-                        if (displayType == 1) {
-                            JSONObject album = display.getJSONObject("album");
-                            JSONArray pics = album.getJSONArray("pics");
-                            for (int j = 0; j < pics.length(); j++) {
-                                topImages.add(pics.getJSONObject(j).getString("url"));
+                        JSONObject module_top = module.optJSONObject("module_top");
+                        if (module_top != null) {
+                            JSONObject display = module_top.optJSONObject("display");
+                            if (display != null) {
+                                int displayType = display.optInt("type");
+                                if (displayType == 1) {
+                                    JSONObject album = display.optJSONObject("album");
+                                    if (album != null) {
+                                        JSONArray pics = album.optJSONArray("pics");
+                                        if (pics != null) {
+                                            for (int j = 0; j < pics.length(); j++) {
+                                                JSONObject pic = pics.optJSONObject(j);
+                                                if (pic != null) topImages.add(pic.optString("url", ""));
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                         opus.topImages = topImages;
-                        Logu.d("yes");
                         break;
                     case "MODULE_TYPE_AUTHOR":
-                        JSONObject module_author = module.getJSONObject("module_author");    //我感觉b站也是一个巨大的草台班子，用户信息格式都好几种，头像有avatar有face有head的，他们自己的程序员不累吗……
+                        JSONObject module_author = module.optJSONObject("module_author");    //我感觉b站也是一个巨大的草台班子，用户信息格式都好几种，头像有avatar有face有head的，他们自己的程序员不累吗……
+                        if (module_author == null) break;
                         UserInfo author = new UserInfo();
-                        author.mid = module_author.getLong("mid");
-                        author.name = module_author.getString("name");
+                        author.mid = module_author.optLong("mid", 0);
+                        author.name = module_author.optString("name", "");
                         author.followed = module_author.optBoolean("following", false);
-                        author.avatar = module_author.getString("face");
-                        if (!module_author.isNull("vip"))
-                            author.vip_nickname_color = module_author.getJSONObject("vip").optString("nickname_color", "");
+                        author.avatar = module_author.optString("face", module_author.optString("avatar", ""));
+                        JSONObject vip = module_author.optJSONObject("vip");
+                        if (vip != null)
+                            author.vip_nickname_color = vip.optString("nickname_color", "");
 
-                        opus.pubTime = module_author.getString("pub_time");
+                        opus.pubTime = module_author.optString("pub_time", "");
                         opus.upInfo = author;
                         break;
                     case "MODULE_TYPE_CONTENT":
-                        JSONArray paragraphs = module.getJSONObject("module_content").getJSONArray("paragraphs");
-                        opus.paragraphs = analyzeParagraphs(paragraphs);
+                        JSONObject moduleContent = module.optJSONObject("module_content");
+                        if (moduleContent != null) {
+                            JSONArray paragraphs = moduleContent.optJSONArray("paragraphs");
+                            if (paragraphs != null) opus.paragraphs = analyzeParagraphs(paragraphs);
+                        }
                         break;
                     case "MODULE_TYPE_STAT":
                         opus.stats = Stats.fromOpus(module.optJSONObject("module_stat"));
@@ -97,15 +117,20 @@ public class OpusApi {
         } catch (IllegalArgumentException e) { // 取不出来的时候，会重定向，但重定向的域名是//开头的，会报错
             //这里给opus设置一个参数，让OpusInfoActivity跳转到旧版的DynamicInfoActivity，从而无需重写解析
             //判断方式很简单粗暴，看报错信息里有没有URL这个关键字，有就是跳转错误
-            String errMsg = e.getMessage();
-            if (errMsg != null && errMsg.contains("URL")) opus.type = Opus.TYPE_DYNAMIC_OLD_STYLE;
-            else MsgUtil.err(e);
-            return opus;
+            if (id > 100000000) {
+                String errMsg = e.getMessage();
+                if (errMsg != null && errMsg.contains("URL")) opus.type = Opus.TYPE_DYNAMIC_OLD_STYLE;
+                else MsgUtil.err(e);
+                return opus;
+            }
+            // 文章（专栏，id 较小）：HTML 解析异常不致命，交由下方 ArticleApi 兜底加载正文
         } catch (IOException e) {
-            // HTML页面请求失败（如被风控拦截），降级使用旧版动态API
-            Logu.d("OpusApi", "HTML页面请求失败，降级到旧版动态API: " + e.getMessage());
-            opus.type = Opus.TYPE_DYNAMIC_OLD_STYLE;
-            return opus;
+            // HTML页面请求失败（如被风控拦截）：仅动态降级到旧版动态详情；
+            // 文章（专栏）交由下方 ArticleApi 兜底加载正文，避免误跳动态详情页
+            if (id > 100000000) {
+                opus.type = Opus.TYPE_DYNAMIC_OLD_STYLE;
+                return opus;
+            }
 
             /*
             url = "https://api.bilibili.com/x/polymer/web-dynamic/v1/detail?";
@@ -123,7 +148,99 @@ public class OpusApi {
         // B站是会做图文的
 
         opus.cover = "";
+        // 文章（专栏）：HTML 解析不到正文时，用官方专栏 API 兜底加载内容
+        if (id <= 100000000 && (opus.paragraphs == null || opus.paragraphs.length == 0)) {
+            fillArticleContent(opus, id);
+        }
+        // 兜底保证关键字段非空，避免详情页/适配器空指针
+        if (opus.upInfo == null) opus.upInfo = new UserInfo();
+        if (opus.stats == null) opus.stats = new Stats();
         return opus;
+    }
+
+    /**
+     * 文章（专栏）内容兜底：HTML 页面解析不到正文时，改用官方专栏 API 获取标题、正文、作者与统计信息。
+     */
+    private static void fillArticleContent(Opus opus, long id) {
+        try {
+            ArticleInfo article = ArticleApi.getArticle(id);
+            if (article == null) return;
+            opus.type = Opus.TYPE_ARTICLE;
+            opus.title = article.title;
+            opus.cover = article.banner;
+            opus.upInfo = article.upInfo;
+            opus.stats = article.stats;
+            opus.content = article.content;
+            opus.pubTime = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.CHINA)
+                    .format(new java.util.Date(article.ctime * 1000L));
+            opus.paragraphs = parseArticleContent(article.content);
+            if (opus.commentId == 0) opus.commentId = id;
+            if (opus.commentType == 0) opus.commentType = 12; // 文章评论类型
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** 将专栏正文 HTML 解析为段落列表（文本段 + 图片段）。 */
+    private static OpusParagraph[] parseArticleContent(String html) {
+        ArrayList<OpusParagraph> paragraphs = new ArrayList<>();
+        if (html == null || html.isEmpty()) return paragraphs.toArray(new OpusParagraph[0]);
+        java.util.regex.Matcher pMatcher = java.util.regex.Pattern
+                .compile("<p[^>]*>(.*?)</p>", java.util.regex.Pattern.DOTALL)
+                .matcher(html);
+        while (pMatcher.find()) {
+            String block = pMatcher.group(1);
+            java.util.regex.Matcher imgMatcher = java.util.regex.Pattern
+                    .compile("<img[^>]*src=[\"']([^\"']+)[\"']").matcher(block);
+            StringBuilder text = new StringBuilder();
+            ArrayList<String> pics = new ArrayList<>();
+            int last = 0;
+            while (imgMatcher.find()) {
+                text.append(stripHtml(block.substring(last, imgMatcher.start())));
+                pics.add(imgMatcher.group(1));
+                last = imgMatcher.end();
+            }
+            text.append(stripHtml(block.substring(last)));
+            String textStr = text.toString().trim();
+            if (!textStr.isEmpty()) {
+                OpusParagraph p = new OpusParagraph();
+                p.type = OpusParagraph.TYPE_TEXT;
+                p.content = textStr;
+                paragraphs.add(p);
+            }
+            for (String pic : pics) {
+                OpusParagraph p = new OpusParagraph();
+                p.type = OpusParagraph.TYPE_PIC;
+                p.content = new String[]{pic};
+                paragraphs.add(p);
+            }
+        }
+        return paragraphs.toArray(new OpusParagraph[0]);
+    }
+
+    private static String stripHtml(String s) {
+        return s.replaceAll("<[^>]+>", "")
+                .replace("&nbsp;", " ")
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'");
+    }
+
+    public static void analyzeCommentInfo(Opus opus, JSONObject detail, long id) {
+        JSONObject basic = detail.optJSONObject("basic");
+        if (basic != null) {
+            String commentIdStr = basic.optString("comment_id_str", "0");
+            try {
+                opus.commentId = Long.parseLong(commentIdStr);
+            } catch (NumberFormatException ignored) {
+                opus.commentId = 0;
+            }
+            opus.commentType = basic.optInt("comment_type", 0);
+        }
+
+        if (opus.commentId == 0) opus.commentId = id;
+        if (opus.commentType == 0) opus.commentType = 17;
     }
 
     public static OpusParagraph[] analyzeParagraphs(JSONArray jsonArray) throws JSONException {
@@ -134,6 +251,36 @@ public class OpusApi {
             paragraphs[i] = paragraph;
         }
         return paragraphs;
+    }
+
+    /**
+     * Opus/动态点赞
+     *
+     * @param dynId 动态id
+     * @param up    true=点赞，false=取消赞
+     * @return resultCode
+     */
+    public static int likeOpus(long dynId, boolean up) throws IOException {
+        String csrf = SharedPreferencesUtil.getString("csrf", "");
+        String url = "https://api.bilibili.com/x/dynamic/feed/dyn/thumb?csrf=" + csrf;
+        JSONObject payload = new JSONObject();
+        try {
+            payload.put("dyn_id_str", String.valueOf(dynId));
+            payload.put("up", up ? 1 : 2);
+            payload.put("csrf", csrf);
+        } catch (JSONException ignored) {
+            return -1;
+        }
+        Response resp = NetWorkUtil.postJson(url, payload.toString(), NetWorkUtil.webHeaders);
+        if (resp == null) return -1;
+        ResponseBody respBody = resp.body();
+        if (respBody == null) return -1;
+        try {
+            JSONObject respJson = new JSONObject(respBody.string());
+            return respJson.getInt("code");
+        } catch (JSONException ignored) {
+            return -1;
+        }
     }
 
     public static void analyzeOldStyleDynamic(Opus opus, JSONObject item) throws JSONException {

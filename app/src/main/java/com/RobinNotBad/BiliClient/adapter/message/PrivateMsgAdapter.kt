@@ -22,6 +22,8 @@ import com.RobinNotBad.BiliClient.api.PrivateMsgApi
 import com.RobinNotBad.BiliClient.model.PrivateMessage
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
+import com.RobinNotBad.BiliClient.util.LinkUrlUtil
+import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
@@ -173,24 +175,148 @@ class PrivateMsgAdapter(
                     holder.picMsg.visibility = View.GONE
                     holder.textContentCard.visibility = View.GONE
                     holder.tipTv.visibility = View.GONE
+                    holder.playTimesTv.text = ""
+
+                    val shareContent = msg.content
+                    val source = shareContent.optInt("source", 5)
+                    val headline = shareContent.optString("headline", "")
+                    val thumb = shareContent.optString("thumb", "")
+                    holder.upNameTv.text = shareContent.optString("author", "")
+                    holder.videoTitleTv.text =
+                        if (headline.isNotEmpty()) headline else shareContent.optString("title", "")
                     Glide.with(BiliTerminal.context)
                         .asDrawable()
-                        .load(GlideUtil.url(msg.content.getString("thumb")))
+                        .load(if (thumb.isEmpty()) null else GlideUtil.url(thumb))
                         .transition(GlideUtil.getTransitionOptions())
                         .format(DecodeFormat.PREFER_RGB_565)
                         .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                         .into(holder.videoCover)
-                    holder.upNameTv.text = msg.content.getString("author")
-                    holder.videoTitleTv.text = msg.content.getString("title")
                     holder.videoCard.setOnClickListener {
                         CenterThreadPool.run {
                             try {
-                                val aid = msg.content.getLong("id")
-                                TerminalContext.getInstance().enterVideoDetailPage(context, aid, "", "video")
+                                val terminal = TerminalContext.getInstance()
+                                when (source) {
+                                    5 -> {
+                                        val bvid = shareContent.optString("bvid", "")
+                                        val aid = shareContent.optLong("id", 0)
+                                        if (bvid.isNotEmpty()) terminal.enterVideoDetailPage(context, bvid)
+                                        else terminal.enterVideoDetailPage(context, aid)
+                                    }
+                                    6 -> terminal.enterOpusDetailPage(context, shareContent.getLong("id"))
+                                    11 -> terminal.enterDynamicDetailPage(context, shareContent.getLong("id"))
+                                    4 -> {
+                                        val roomId = Regex("live\\.bilibili\\.com/(\\d+)")
+                                            .find(shareContent.optString("url", ""))
+                                            ?.groupValues?.get(1)?.toLongOrNull()
+                                            ?: shareContent.optLong("id", 0)
+                                        if (roomId > 0) terminal.enterLiveDetailPage(context, roomId)
+                                        else MsgUtil.showMsg("无法解析直播间信息")
+                                    }
+                                    else -> {
+                                        val url = shareContent.optString("url", "")
+                                        if (url.isNotEmpty()) LinkUrlUtil.handleWebURL(context, url)
+                                        else MsgUtil.showMsg("暂不支持打开此类分享内容")
+                                    }
+                                }
                             } catch (err: JSONException) {
                                 Log.e("", err.toString())
                             }
                         }
+                    }
+                }
+                PrivateMessage.TYPE_NOMAL_CARD -> {
+                    holder.textContentCard.visibility = View.VISIBLE
+                    holder.textContentTv.text = msg.content.optString("text", "")
+                    holder.tipTv.text = msg.content.optString("title", "")
+                    if (holder.tipTv.text.isEmpty()) holder.tipTv.visibility = View.GONE
+                    else holder.tipTv.visibility = View.VISIBLE
+                    holder.picMsg.visibility = View.GONE
+                    holder.nameTv.visibility = View.VISIBLE
+                    holder.videoCard.visibility = View.GONE
+                    val jumpUri = msg.content.optString("jump_uri", "")
+                    holder.textContentCard.setOnClickListener(null)
+                    if (jumpUri.isNotEmpty()) {
+                        holder.textContentCard.setOnClickListener {
+                            LinkUrlUtil.handleWebURL(context, jumpUri)
+                        }
+                    }
+                }
+                PrivateMessage.TYPE_PIC_CARD -> {
+                    holder.picMsg.visibility = View.VISIBLE
+                    holder.tipTv.visibility = View.GONE
+                    holder.nameTv.visibility = View.VISIBLE
+                    holder.textContentCard.visibility = View.GONE
+                    holder.videoCard.visibility = View.GONE
+                    try {
+                        val picUrl = msg.content.getString("pic_url")
+                        Glide.with(BiliTerminal.context)
+                            .asDrawable()
+                            .load(GlideUtil.url(picUrl))
+                            .transition(GlideUtil.getTransitionOptions())
+                            .override(512)
+                            .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
+                            .into(holder.picMsg)
+                        val jumpUrl = msg.content.optString("jump_url", "")
+                        holder.picMsg.setOnClickListener {
+                            if (jumpUrl.isNotEmpty()) {
+                                LinkUrlUtil.handleWebURL(context, jumpUrl)
+                            } else {
+                                val imageList = ArrayList<String>()
+                                imageList.add(picUrl)
+                                val intent = Intent(context, ImageViewerActivity::class.java)
+                                intent.putStringArrayListExtra("imageList", imageList)
+                                context.startActivity(intent)
+                            }
+                        }
+                        val title = msg.content.optString("title", "")
+                        if (title.isNotEmpty()) {
+                            holder.textContentCard.visibility = View.VISIBLE
+                            holder.textContentTv.text = title
+                        }
+                    } catch (e: JSONException) {
+                        Log.e("PrivateMsgAdapter", e.toString())
+                    }
+                }
+                PrivateMessage.TYPE_TEXT_WITH_VIDEO -> {
+                    holder.videoCard.visibility = View.VISIBLE
+                    holder.nameTv.visibility = View.VISIBLE
+                    holder.picMsg.visibility = View.GONE
+                    holder.textContentCard.visibility = View.GONE
+                    holder.tipTv.visibility = View.GONE
+                    holder.playTimesTv.text = ""
+                    try {
+                        val mainTitle = msg.content.optString("main_title", "")
+                        if (mainTitle.isNotEmpty()) {
+                            holder.tipTv.visibility = View.VISIBLE
+                            holder.tipTv.text = mainTitle
+                        }
+                        val subCards = msg.content.optJSONArray("sub_cards")
+                        val firstCard =
+                            if (subCards != null && subCards.length() > 0) subCards.getJSONObject(0) else null
+                        if (firstCard == null) {
+                            holder.videoCard.visibility = View.GONE
+                            holder.textContentCard.visibility = View.VISIBLE
+                            holder.textContentTv.text = "暂时无法显示该消息"
+                        } else {
+                            val coverUrl = firstCard.optString("cover_url", "")
+                            Glide.with(BiliTerminal.context)
+                                .asDrawable()
+                                .load(if (coverUrl.isEmpty()) null else GlideUtil.url(coverUrl))
+                                .transition(GlideUtil.getTransitionOptions())
+                                .format(DecodeFormat.PREFER_RGB_565)
+                                .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
+                                .into(holder.videoCover)
+                            holder.upNameTv.text = firstCard.optString("field2", "")
+                            holder.videoTitleTv.text = firstCard.optString("field1", "")
+                            val aid = firstCard.optLong("card_id", 0)
+                            val jumpUrl = firstCard.optString("jump_url", "")
+                            holder.videoCard.setOnClickListener {
+                                if (aid > 0) TerminalContext.getInstance().enterVideoDetailPage(context, aid)
+                                else if (jumpUrl.isNotEmpty()) LinkUrlUtil.handleWebURL(context, jumpUrl)
+                            }
+                        }
+                    } catch (e: JSONException) {
+                        Log.e("PrivateMsgAdapter", e.toString())
                     }
                 }
                 PrivateMessage.TYPE_SYSTEM -> {

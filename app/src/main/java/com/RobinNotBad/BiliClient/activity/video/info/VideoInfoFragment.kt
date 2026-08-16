@@ -185,7 +185,7 @@ class VideoInfoFragment : BaseFragment() {
 
     @SuppressLint("SetTextI18n")
     private fun initView(rootview: View) {
-        if (SharedPreferencesUtil.getBoolean("ui_landscape", false) && !SharedPreferencesUtil.getBoolean("ui_mobile_mode", false)) {
+        if (SharedPreferencesUtil.getBoolean("ui_landscape", false)) {
             val windowManager = rootview.context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
             val display = windowManager.defaultDisplay
             val metrics = DisplayMetrics()
@@ -193,19 +193,6 @@ class VideoInfoFragment : BaseFragment() {
             else display.getMetrics(metrics)
             val paddings = metrics.widthPixels / 6
             rootview.setPadding(paddings, 0, paddings, 0)
-        }
-
-        if (SharedPreferencesUtil.getBoolean("ui_mobile_mode", false)) {
-            val safeSpace = resources.getDimensionPixelSize(R.dimen.safe_space_mobile)
-            rootview.setPadding(safeSpace, 0, safeSpace, 0)
-            val coverLayout = rootview.findViewById<View>(R.id.img_cover)
-            coverLayout?.visibility = View.GONE
-            val playBtn = rootview.findViewById<View>(R.id.play)
-            playBtn?.visibility = View.GONE
-            val timeText = rootview.findViewById<TextView>(R.id.timeText)
-            timeText?.visibility = View.GONE
-            val durationText = rootview.findViewById<TextView>(R.id.durationText)
-            durationText?.visibility = View.GONE
         }
 
         val cover = rootview.findViewById<ImageView>(R.id.img_cover)

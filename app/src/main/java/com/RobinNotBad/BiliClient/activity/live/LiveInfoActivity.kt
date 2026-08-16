@@ -138,27 +138,29 @@ class LiveInfoActivity : BaseActivity() {
                     play.setOnClickListener {
                         CenterThreadPool.run {
                             try {
-                                val codec: LivePlayInfo.Codec
-                                if (playInfo != null) {
-                                    codec = playInfo!!.playUrl.stream[0].format[0].codec[0]
-                                    val urlInfo = codec.url_info[selectedHost]
-                                    val play_url = urlInfo.host + codec.base_url + urlInfo.extra
+                                val codec = playInfo?.playUrl?.stream?.getOrNull(0)
+                                    ?.format?.getOrNull(0)?.codec?.getOrNull(0)
+                                if (codec == null || codec.url_info.isEmpty()) {
+                                    runOnUiThread { MsgUtil.showMsg("直播已结束") }
+                                    return@run
+                                }
+                                val urlInfo = codec.url_info[selectedHost.coerceIn(0, codec.url_info.size - 1)]
+                                val play_url = urlInfo.host + codec.base_url + urlInfo.extra
 
-                                    val playerData = PlayerData(PlayerData.TYPE_LIVE)
-                                    playerData.videoUrl = play_url
-                                    playerData.title = "直播·" + room!!.title
-                                    playerData.aid = room_id
-                                    playerData.mid = SharedPreferencesUtil.getLong("mid", 0)
+                                val playerData = PlayerData(PlayerData.TYPE_LIVE)
+                                playerData.videoUrl = play_url
+                                playerData.title = "直播·" + room!!.title
+                                playerData.aid = room_id
+                                playerData.mid = SharedPreferencesUtil.getLong("mid", 0)
 
-                                    runOnUiThread {
-                                        try {
-                                            val player = PlayerApi.jumpToPlayer(playerData)
-                                            startActivity(player)
-                                        } catch (e: ActivityNotFoundException) {
-                                            MsgUtil.showMsg("没有找到播放器，请检查是否安装")
-                                        } catch (e: Exception) {
-                                            MsgUtil.err(e)
-                                        }
+                                runOnUiThread {
+                                    try {
+                                        val player = PlayerApi.jumpToPlayer(playerData)
+                                        startActivity(player)
+                                    } catch (e: ActivityNotFoundException) {
+                                        MsgUtil.showMsg("没有找到播放器，请检查是否安装")
+                                    } catch (e: Exception) {
+                                        MsgUtil.err(e)
                                     }
                                 }
                             } catch (e: Exception) {
@@ -174,7 +176,9 @@ class LiveInfoActivity : BaseActivity() {
                         startActivity(intent)
                         true
                     }
-                    if (playInfo!!.playUrl == null) {
+                    val firstCodec = playInfo?.playUrl?.stream?.getOrNull(0)
+                        ?.format?.getOrNull(0)?.codec?.getOrNull(0)
+                    if (playInfo == null || playInfo!!.playUrl == null || firstCodec == null) {
                         MsgUtil.showMsg("直播已结束")
                         play.visibility = View.GONE
                     } else {
@@ -232,12 +236,16 @@ class LiveInfoActivity : BaseActivity() {
     }
 
     private fun refresh_host_list() {
+        val codec = playInfo?.playUrl?.stream?.getOrNull(0)
+            ?.format?.getOrNull(0)?.codec?.getOrNull(0)
         val hostList = ArrayList<Bangumi.Episode>()
-        for (i in 0 until playInfo!!.playUrl.stream[0].format[0].codec[0].url_info.size) {
-            val episode = Bangumi.Episode()
-            episode.id = i.toLong()
-            episode.title = "路线" + (i + 1)
-            hostList.add(episode)
+        if (codec != null) {
+            for (i in 0 until codec.url_info.size) {
+                val episode = Bangumi.Episode()
+                episode.id = i.toLong()
+                episode.title = "路线" + (i + 1)
+                hostList.add(episode)
+            }
         }
         hostAdapter!!.setData(hostList)
         selectedHost = 0

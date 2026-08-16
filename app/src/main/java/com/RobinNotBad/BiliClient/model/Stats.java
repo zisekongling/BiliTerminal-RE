@@ -101,29 +101,29 @@ public class Stats implements Parcelable, Serializable {
         JSONObject coin = module_stat.optJSONObject("coin");
         if (coin != null) {
             stats.coin = coin.optInt("count");
-            stats.coin_disabled = coin.optBoolean("forbidden", true) || coin.optBoolean("hidden", true);
+            stats.coin_disabled = coin.optBoolean("forbidden", false) || coin.optBoolean("hidden", false);
         }
         JSONObject comment = module_stat.optJSONObject("comment");
         if (comment != null) {
             stats.reply = comment.optInt("count");
-            stats.reply_disabled = comment.optBoolean("forbidden", true);
+            stats.reply_disabled = comment.optBoolean("forbidden", false) || comment.optBoolean("hidden", false);
         }
         JSONObject favorite = module_stat.optJSONObject("favorite");
         if (favorite != null) {
             stats.favorite = favorite.optInt("count");
-            stats.fav_disabled = favorite.optBoolean("forbidden", true);
-            stats.favoured = favorite.optBoolean("status", true);
+            stats.fav_disabled = favorite.optBoolean("forbidden", false) || favorite.optBoolean("hidden", false);
+            stats.favoured = favorite.optBoolean("status", favorite.optInt("status", 0) == 1);
         }
         JSONObject forward = module_stat.optJSONObject("forward");
         if (forward != null) {
             stats.share = forward.optInt("count");
-            stats.share_disabled = forward.optBoolean("forbidden", true);
+            stats.share_disabled = forward.optBoolean("forbidden", false) || forward.optBoolean("hidden", false);
         }
         JSONObject like = module_stat.optJSONObject("like");
         if (like != null) {
             stats.like = like.optInt("count");
-            stats.like_disabled = like.optBoolean("forbidden", true);
-            stats.liked = like.optBoolean("status", true);
+            stats.like_disabled = like.optBoolean("forbidden", false) || like.optBoolean("hidden", false);
+            stats.liked = like.optBoolean("status", like.optInt("status", 0) == 1);
         }
         return stats;
     }

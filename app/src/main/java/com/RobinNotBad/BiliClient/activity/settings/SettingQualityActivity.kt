@@ -25,21 +25,22 @@ class SettingQualityActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        setContentView(R.layout.activity_simple_list)
-        val recyclerView = findViewById<RecyclerView>(R.id.recyclerView)
-        findViewById<android.view.View>(R.id.top).setOnClickListener {
-            setResult(RESULT_CANCELED)
-            finish()
+        asyncInflate(R.layout.activity_simple_list) { _, _ ->
+            val recyclerView = findViewById<RecyclerView>(R.id.recyclerView)
+            findViewById<android.view.View>(R.id.top).setOnClickListener {
+                setResult(RESULT_CANCELED)
+                finish()
+            }
+
+            setPageName("请选择清晰度")
+
+            adapter = QualityChooseAdapter(this)
+            adapter.nameList = ArrayList(qnMap.keys)
+            adapter.onItemClickListener = OnItemClickListener { save(it) }
+
+            recyclerView.layoutManager = CustomLinearManager(this)
+            recyclerView.adapter = adapter
         }
-
-        setPageName("请选择清晰度")
-
-        adapter = QualityChooseAdapter(this)
-        adapter.nameList = ArrayList(qnMap.keys)
-        adapter.onItemClickListener = OnItemClickListener { save(it) }
-
-        recyclerView.layoutManager = CustomLinearManager(this)
-        recyclerView.adapter = adapter
     }
 
     private fun save(position: Int) {

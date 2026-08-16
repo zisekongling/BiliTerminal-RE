@@ -67,6 +67,7 @@ import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
+import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.ToolsUtil
@@ -192,7 +193,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var isLocalAudioFile = false
     private var audioTrackUrl: String? = null // DASH外部音频轨道
     private var audioPlayer: android.media.MediaPlayer? = null // 外部音频播放器
-    private var initialDanmakuEnabled: Boolean = true // 从移动模式传入的弹幕状态
 
     private var video_all: Int = 0
     private var video_now: Int = 0
@@ -272,16 +272,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
     override fun onBackPressed() {
         if (!SharedPreferencesUtil.getBoolean("back_disable", false)) {
-            val fromMobile = intent.hasExtra("from") && "mobile" == intent.getStringExtra("from")
-            if (fromMobile) {
-                val result = android.content.Intent().apply {
-                    putExtra("progress", video_now)
-                    putExtra("isPlaying", isPlaying)
-                    putExtra("isDanmakuEnabled", !isDanmakuVisible)
-                    putExtra("quality", currentQuality)
-                }
-                setResult(RESULT_OK, result)
-            }
             super.onBackPressed()
         }
     }
@@ -343,30 +333,26 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
         isShortVideoMode = intent.getBooleanExtra("isShortVideoMode", false)
 
-        val fromMobile = intent.hasExtra("from") && "mobile" == intent.getStringExtra("from")
-        if (fromMobile) {
-            isPlaying = intent.getBooleanExtra("isPlaying", true)
-            initialDanmakuEnabled = intent.getBooleanExtra("isDanmakuEnabled", true)
-            val mobileQuality = intent.getIntExtra("quality", 0)
-            if (mobileQuality > 0) {
-                currentQuality = mobileQuality
-            }
-        }
-
         return true
     }
 
     @SuppressLint("SimpleDateFormat")
     override fun onCreate(savedInstanceState: Bundle?) {
         Logu.v("加载", "加载")
+        val theme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_BILIBILI_PINK)
+        val themeResId = when (theme) {
+            ThemeManager.THEME_ZHIHU_BLUE -> R.style.Theme_ZhihuBlue
+            ThemeManager.THEME_IQIYI_GREEN -> R.style.Theme_IQIYIGreen
+            ThemeManager.THEME_PURPLE_FANTASY -> R.style.Theme_PurpleFantasy
+            ThemeManager.THEME_RAINBOW_FANTASY -> R.style.Theme_RainbowFantasy
+            ThemeManager.THEME_CLASSIC_GRAY -> R.style.Theme_ClassicGray
+            else -> R.style.Theme_BiliClient
+        }
+        setTheme(themeResId)
         super.onCreate(savedInstanceState)
 
-        val fromMobile = intent.hasExtra("from") && "mobile" == intent.getStringExtra("from")
-        screen_landscape = (SharedPreferencesUtil.getBoolean("player_autolandscape", false)
+        screen_landscape = SharedPreferencesUtil.getBoolean("player_autolandscape", false)
                 || SharedPreferencesUtil.getBoolean("ui_landscape", false)
-                || fromMobile)
-                && !SharedPreferencesUtil.getBoolean("ui_mobile_mode", false)
-                || fromMobile
         if (SharedPreferencesUtil.getBoolean("dev_player_rotate_software", false) && screen_landscape) {
             MsgUtil.showMsg("不支持默认横屏！")
             screen_landscape = false
@@ -465,7 +451,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     loadHighEnergyData()
                 }
 
-                if (!destroyed && isOnlineVideo && aid > 0 && cid > 0 && SharedPreferencesUtil.getBoolean("player_show_viewpoints", false)) {
+                if (!destroyed && isOnlineVideo && aid > 0 && cid > 0 && SharedPreferencesUtil.getBoolean("player_show_viewpoints", true)) {
                     loadViewPoints()
                 }
 
@@ -547,15 +533,22 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
                         gesture_click_disabled = true
 
-                        if (x > viewWidth / 2.0f) {
-                            var newPosition = currentPosition + seekOffset
-                            val duration = ijkPlayer!!.duration
-                            if (newPosition > duration) newPosition = duration
-                            seekToPosition(newPosition)
-                        } else {
-                            var newPosition = currentPosition - seekOffset
-                            if (newPosition < 0) newPosition = 0
-                            seekToPosition(newPosition)
+                        val third = viewWidth / 3.0f
+                        when {
+                            x > third * 2 -> {
+                                var newPosition = currentPosition + seekOffset
+                                val duration = ijkPlayer!!.duration
+                                if (newPosition > duration) newPosition = duration
+                                seekToPosition(newPosition)
+                            }
+                            x < third -> {
+                                var newPosition = currentPosition - seekOffset
+                                if (newPosition < 0) newPosition = 0
+                                seekToPosition(newPosition)
+                            }
+                            else -> {
+                                handleDoubleTapAction()
+                            }
                         }
                         return true
                     }
@@ -703,15 +696,25 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 layout_video.y = video_origY
                 layout_video.scaleX = 1.0f
                 layout_video.scaleY = 1.0f
-            } else if (!isLiveMode) {
-                if (isPlaying) playerPause()
-                else playerResume()
-                showcon()
+            } else {
+                handleDoubleTapAction()
             }
         } else {
             timestamp_click = nowTimestamp
             if (layout_top.visibility == View.GONE) showcon()
             else hidecon.run()
+        }
+    }
+
+    private fun handleDoubleTapAction() {
+        if (SharedPreferencesUtil.getBoolean("player_doubletap_restore_screen", false) && screen_landscape) {
+            screen_landscape = false
+            if (SharedPreferencesUtil.getBoolean("dev_player_rotate_software", false)) softwareRotate()
+            else requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        } else if (!isLiveMode) {
+            if (isPlaying) playerPause()
+            else playerResume()
+            showcon()
         }
     }
 
@@ -1496,7 +1499,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             mediaSession = null
         }
 
-        requestedOrientation = if (SharedPreferencesUtil.getBoolean("ui_landscape", false) && !SharedPreferencesUtil.getBoolean("ui_mobile_mode", false))
+        requestedOrientation = if (SharedPreferencesUtil.getBoolean("ui_landscape", false))
             ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
 
@@ -2216,7 +2219,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     loadHighEnergyData()
                 }
 
-                if (!destroyed && isOnlineVideo && aid > 0 && cid > 0 && SharedPreferencesUtil.getBoolean("player_show_viewpoints", false)) {
+                if (!destroyed && isOnlineVideo && aid > 0 && cid > 0 && SharedPreferencesUtil.getBoolean("player_show_viewpoints", true)) {
                     loadViewPoints()
                 }
 
@@ -2712,7 +2715,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                                 loadHighEnergyData()
                             }
 
-                            if (!destroyed && isOnlineVideo && aid > 0 && cid > 0 && SharedPreferencesUtil.getBoolean("player_show_viewpoints", false)) {
+                            if (!destroyed && isOnlineVideo && aid > 0 && cid > 0 && SharedPreferencesUtil.getBoolean("player_show_viewpoints", true)) {
                                 loadViewPoints()
                             }
                         }
@@ -2845,13 +2848,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             }
             btn_danmaku.performClick()
             
-            val fromMobile = intent.hasExtra("from") && "mobile" == intent.getStringExtra("from")
-            if (fromMobile && !initialDanmakuEnabled && mDanmakuView != null) {
-                mDanmakuView!!.hide()
-                isDanmakuVisible = true
-                btn_danmaku.setImageResource(R.mipmap.danmakuoff)
-            }
-            
             btn_danmaku.visibility = View.VISIBLE
         } else btn_danmaku.visibility = View.GONE
 
@@ -2917,10 +2913,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         loading_info.visibility = View.GONE
         anim_loading!!.stop()
 
-        val fromMobile = intent.hasExtra("from") && "mobile" == intent.getStringExtra("from")
-        if (!fromMobile) {
-            isPlaying = true
-        }
+        isPlaying = true
 
         btn_control.setImageResource(if (isPlaying) R.drawable.btn_player_pause else R.drawable.btn_player_play)
 

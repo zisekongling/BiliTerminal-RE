@@ -67,7 +67,7 @@
                     android:textAlignment="center"
                     android:textSize="14sp"
                     android:textStyle="bold"
-                    android:textColor="@color/colorPrimary" />
+                    android:textColor="?attr/colorPrimary" />
             </com.google.android.material.card.MaterialCardView>
 
             <com.google.android.material.card.MaterialCardView

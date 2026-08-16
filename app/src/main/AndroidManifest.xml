@@ -39,10 +39,6 @@
             android:foregroundServiceType="dataSync"
             android:enabled="true"/>
 
-        <service android:name=".service.SpeedDownloadService"
-            android:foregroundServiceType="dataSync"
-            android:enabled="true"/>
-
         <provider android:name="androidx.core.content.FileProvider"
             android:authorities="com.RobinNotBad.BiliClient.FileProvider"
             android:exported="false"
@@ -212,19 +208,9 @@
             android:label="动态"
             android:screenOrientation="locked" />
         <activity
-            android:name=".activity.settings.SettingLaboratoryActivity"
-            android:exported="false"
-            android:label="实验性功能"
-            android:screenOrientation="locked" />
-        <activity
             android:name=".activity.settings.SettingTerminalPlayerActivity"
             android:exported="false"
             android:label="内置播放器设置"
-            android:screenOrientation="locked" />
-        <activity
-            android:name=".activity.settings.SortSettingActivity"
-            android:exported="false"
-            android:label="菜单排序设置"
             android:screenOrientation="locked" />
         <activity
             android:name=".activity.settings.UIPreviewActivity"
@@ -431,11 +417,6 @@
             android:label="粉丝勋章"
             android:screenOrientation="locked" />
         <activity
-            android:name=".activity.settings.SettingUIActivity"
-            android:exported="true"
-            android:label="界面设置"
-            android:screenOrientation="locked" />
-        <activity
             android:name=".activity.user.VipActivity"
             android:exported="false"
             android:label="我的大会员"
@@ -464,11 +445,6 @@
             android:name=".activity.settings.TodoListActivity"
             android:exported="false"
             android:label="TO DO清单"
-            android:screenOrientation="locked" />
-        <activity
-            android:name=".activity.settings.SettingDownloadActivity"
-            android:exported="false"
-            android:label="下载设置"
             android:screenOrientation="locked" />
         <activity
             android:name=".activity.settings.UpdateActivity"
@@ -517,13 +493,6 @@
             android:label="菜单"
             android:launchMode="singleTask"
             android:screenOrientation="locked" />
-        <activity
-            android:name=".ui.mobile.MobileShellActivity"
-            android:exported="false"
-            android:label="移动端主页"
-            android:launchMode="singleTask"
-            android:screenOrientation="locked"
-            android:configChanges="orientation|screenSize" />
         <activity
             android:name=".activity.video.PreciousActivity"
             android:exported="true"

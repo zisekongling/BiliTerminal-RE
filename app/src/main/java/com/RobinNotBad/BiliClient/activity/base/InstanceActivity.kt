@@ -11,7 +11,6 @@ open class InstanceActivity : BaseActivity() {
 
     @JvmField
     var menuClick: Runnable = Runnable {
-        if (isMobileMode()) return@Runnable
         val intent = Intent()
         intent.setClass(this, MenuActivity::class.java)
         if (intent.hasExtra("from"))
@@ -26,12 +25,11 @@ open class InstanceActivity : BaseActivity() {
     }
 
     fun setMenuClick() {
-        if (isMobileMode()) return
         findViewById<android.view.View>(R.id.top).setOnClickListener { menuClick.run() }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_MENU && !isMobileMode()) menuClick.run()
+        if (keyCode == KeyEvent.KEYCODE_MENU) menuClick.run()
         return super.onKeyDown(keyCode, event)
     }
 }

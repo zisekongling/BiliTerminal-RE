@@ -49,6 +49,9 @@ open class BaseActivity : AppCompatActivity() {
     @JvmField val relayDynamicLauncher: ActivityResultLauncher<Intent> = DynamicActivity.getRelayDynamicLauncher(this)
     @JvmField var force_single_column: Boolean = false
 
+    // 记录本 Activity 创建时应用的主题，用于返回前台时检测变更并即时重建
+    private var appliedTheme: String? = null
+
     override fun attachBaseContext(newBase: Context) {
         old_context = newBase
         super.attachBaseContext(BiliTerminal.getFitDisplayContext(newBase))
@@ -67,13 +70,15 @@ open class BaseActivity : AppCompatActivity() {
         setTheme(themeResId)
 
         setRequestedOrientation(
-            if (SharedPreferencesUtil.getBoolean("ui_landscape", false) && !SharedPreferencesUtil.getBoolean("ui_mobile_mode", false))
+            if (SharedPreferencesUtil.getBoolean("ui_landscape", false))
                 ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             else
                 ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         )
 
         super.onCreate(savedInstanceState)
+
+        appliedTheme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_BILIBILI_PINK)
 
         ThemeManager.applyWindowTheme(this)
 
@@ -197,6 +202,12 @@ open class BaseActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // 主题在别处被修改后，返回本页时即时重建以应用新主题
+        val currentTheme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_BILIBILI_PINK)
+        if (appliedTheme != null && appliedTheme != currentTheme) {
+            recreate()
+            return
+        }
         if (eventBusEnabled() && !isFinishing && !isDestroyed) {
             try {
                 EventBus.getDefault().getStickyEvent(SnackEvent::class.java)?.let { onEvent(it) }
@@ -266,7 +277,7 @@ open class BaseActivity : AppCompatActivity() {
     }
 
     fun getLayoutManager(): RecyclerView.LayoutManager {
-        return if (SharedPreferencesUtil.getBoolean("ui_landscape", false) && !SharedPreferencesUtil.getBoolean("ui_mobile_mode", false) && !force_single_column)
+        return if (SharedPreferencesUtil.getBoolean("ui_landscape", false) && !force_single_column)
             CustomGridManager(this, 3)
         else
             CustomLinearManager(this)
@@ -274,24 +285,6 @@ open class BaseActivity : AppCompatActivity() {
 
     fun setForceSingleColumn() {
         force_single_column = true
-    }
-
-    /**
-     * 判断是否启用了手机模式
-     */
-    fun isMobileMode(): Boolean {
-        return SharedPreferencesUtil.getBoolean("ui_mobile_mode", false)
-    }
-
-    /**
-     * 获取当前模式下的卡片圆角半径（px）
-     * 手机模式使用pilipala的10dp，普通模式使用默认6dp
-     */
-    fun getCardCornerRadiusPx(): Float {
-        val dp = if (isMobileMode()) 10f else 6f
-        return android.util.TypedValue.applyDimension(
-            android.util.TypedValue.COMPLEX_UNIT_DIP, dp, resources.displayMetrics
-        )
     }
 
     override fun isDestroyed(): Boolean {

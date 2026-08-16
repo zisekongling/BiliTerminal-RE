@@ -301,7 +301,12 @@ public class StringUtil {
         float cached = cachedTextHeight;
         if (cached > 0) return cached;
         Paint paint = new Paint();
-        paint.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 12, context.getResources().getDisplayMetrics()));
+        if (context != null) {
+            paint.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 12, context.getResources().getDisplayMetrics()));
+        } else {
+            // context 可能为 null（单元测试或异常路径），回退到系统默认密度
+            paint.setTextSize(12 * android.content.res.Resources.getSystem().getDisplayMetrics().density);
+        }
         Paint.FontMetrics fontMetrics = paint.getFontMetrics();
         float height = fontMetrics.descent - fontMetrics.ascent;
         cachedTextHeight = height;

@@ -16,7 +16,6 @@ import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
-import com.RobinNotBad.BiliClient.util.ToolsUtil
 
 class VideoCardAdapter(
     val context: Context,
@@ -42,19 +41,6 @@ class VideoCardAdapter(
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VideoCardHolder {
         val view = LayoutInflater.from(this.context).inflate(R.layout.cell_video_list, parent, false)
-        if (SharedPreferencesUtil.getBoolean("ui_mobile_mode", false)) {
-            val cardView = view as com.google.android.material.card.MaterialCardView
-            cardView.radius = ToolsUtil.dp2px(10f).toFloat()
-            cardView.cardElevation = ToolsUtil.dp2px(2f).toFloat()
-            val params = cardView.layoutParams as ViewGroup.MarginLayoutParams
-            val marginH = ToolsUtil.dp2px(12f)
-            val marginV = ToolsUtil.dp2px(4f)
-            params.marginStart = marginH
-            params.marginEnd = marginH
-            params.topMargin = marginV
-            params.bottomMargin = marginV
-            cardView.layoutParams = params
-        }
         return VideoCardHolder(view)
     }
 
@@ -66,7 +52,7 @@ class VideoCardAdapter(
         holder.showVideoCard(videoCard, context)
         holder.bindClick(videoCard, context, position, object : View.OnLongClickListener {
             override fun onLongClick(v: View): Boolean {
-                val quickMode = SharedPreferencesUtil.getBoolean("cache_quick_mode", false)
+                val quickMode = SharedPreferencesUtil.getBoolean("cache_quick_mode", true)
                 if (quickMode && videoCard.type != "live") {
                     handleQuickCache(videoCard)
                     return true

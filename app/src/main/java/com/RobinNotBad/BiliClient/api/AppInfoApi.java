@@ -66,16 +66,6 @@ public class AppInfoApi {
                 }
 
                 MsgUtil.showDialog("提醒", context.getString(R.string.text_update_success), 5);
-
-                if (last_ver != 0) {
-                    if (last_ver < 20240606)
-                        MsgUtil.showDialog("部分风控问题已解决", "当前的新版本实现了对抗部分类型的风控，建议您重新登录账号以确保成功使用");
-
-                    if (last_ver < 20250329 && SharedPreferencesUtil.getBoolean("player_ui_round", false)) {
-                        SharedPreferencesUtil.putInt("paddingV_percent", 3);
-                        SharedPreferencesUtil.putInt("paddingH_percent", 7);
-                    }
-                }
                 MsgUtil.showText("更新公告", context.getResources().getString(R.string.update_tip) + "\n\n更新细节：\n" + ToolsUtil.getUpdateLog(context));
                 if (ToolsUtil.isDebugBuild())
                     MsgUtil.showDialog("警告", context.getString(R.string.warning_debug));

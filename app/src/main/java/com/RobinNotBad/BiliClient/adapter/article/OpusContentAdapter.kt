@@ -17,6 +17,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
 import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.api.ArticleApi
+import com.RobinNotBad.BiliClient.api.OpusApi
 import com.RobinNotBad.BiliClient.model.Opus
 import com.RobinNotBad.BiliClient.model.OpusParagraph
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -186,33 +187,11 @@ class OpusContentAdapter(
                 val timeIcon = holder.itemView.findViewById<ImageView>(R.id.timeIcon)
                 val cvidIcon = holder.itemView.findViewById<ImageView>(R.id.cvidIcon)
 
-                if (article.id > 0 && article.type != Opus.TYPE_DYNAMIC) {
-                    cvidText.text = "cv" + article.id
-                    StringUtil.setCopy(cvidText, "cv" + article.id)
-                    cvidText.visibility = View.VISIBLE
-                    cvidIcon.visibility = View.VISIBLE
-                } else {
-                    cvidText.visibility = View.GONE
-                    cvidIcon.visibility = View.GONE
-                }
-
-                if (article.stats != null) {
-                    viewCount.text = StringUtil.toWan(article.stats.view.toLong()) + "阅读"
-                    viewCount.visibility = View.VISIBLE
-                    viewIcon.visibility = View.VISIBLE
-                } else {
-                    viewCount.visibility = View.GONE
-                    viewIcon.visibility = View.GONE
-                }
-
-                if (article.pubTime != null && !article.pubTime!!.isEmpty()) {
-                    timeText.text = article.pubTime
-                    timeText.visibility = View.VISIBLE
-                    timeIcon.visibility = View.VISIBLE
-                } else {
-                    timeText.visibility = View.GONE
-                    timeIcon.visibility = View.GONE
-                }
+                // cv号、阅读数、日期：默认按文章展示（动态内容末尾再统一隐藏）
+                cvidText.text = "cv" + article.id
+                StringUtil.setCopy(cvidText, "cv" + article.id)
+                viewCount.text = StringUtil.toWan(article.stats.view.toLong()) + "阅读"
+                timeText.text = article.pubTime
 
                 val like = holder.itemView.findViewById<ImageButton>(R.id.btn_like)
                 val coin = holder.itemView.findViewById<ImageButton>(R.id.btn_coin)
@@ -224,13 +203,16 @@ class OpusContentAdapter(
                 likeLabel.text = StringUtil.toWan(article.stats.like.toLong())
                 coinLabel.text = StringUtil.toWan(article.stats.coin.toLong())
                 favLabel.text = StringUtil.toWan(article.stats.favorite.toLong())
+                like.setImageResource(if (article.stats.liked) R.drawable.icon_like_1 else R.drawable.icon_like_0)
+                coin.setImageResource(if (article.stats.coined > 0) R.drawable.icon_coin_1 else R.drawable.icon_coin_0)
+                fav.setImageResource(if (article.stats.favoured) R.drawable.icon_fav_1 else R.drawable.icon_fav_0)
 
-                if (article.stats.liked)
-                    like.setImageResource(R.drawable.icon_like_1)
-                if (article.stats.coined >= 1)
-                    coin.setImageResource(R.drawable.icon_coin_1)
-                if (article.stats.favoured)
-                    fav.setImageResource(R.drawable.icon_fav_1)
+                holder.itemView.findViewById<View>(R.id.layout_like).visibility =
+                    if (article.stats.like_disabled) View.GONE else View.VISIBLE
+                holder.itemView.findViewById<View>(R.id.layout_coin).visibility =
+                    if (article.stats.coin_disabled) View.GONE else View.VISIBLE
+                holder.itemView.findViewById<View>(R.id.layout_fav).visibility =
+                    if (article.stats.fav_disabled) View.GONE else View.VISIBLE
 
                 like.setOnClickListener {
                     CenterThreadPool.run {
@@ -239,7 +221,11 @@ class OpusContentAdapter(
                                 context.runOnUiThread { MsgUtil.showMsg("还没有登录喵~") }
                                 return@run
                             }
-                            val result = ArticleApi.like(article.id, !article.stats.liked)
+                            // 文章（评论类型 12）用专栏点赞接口，动态用 Opus 点赞接口
+                            val result = if (article.commentType == 12)
+                                ArticleApi.like(article.id, !article.stats.liked)
+                            else
+                                OpusApi.likeOpus(article.id, !article.stats.liked)
                             if (result == 0) {
                                 article.stats.liked = !article.stats.liked
                                 context.runOnUiThread {
@@ -319,6 +305,14 @@ class OpusContentAdapter(
                             context.runOnUiThread { MsgUtil.err(e) }
                         }
                     }
+                }
+
+                // 动态内容隐藏 cv号与阅读数
+                if (article.type == Opus.TYPE_DYNAMIC) {
+                    viewIcon.visibility = View.GONE
+                    viewCount.visibility = View.GONE
+                    cvidIcon.visibility = View.GONE
+                    cvidText.visibility = View.GONE
                 }
             }
 

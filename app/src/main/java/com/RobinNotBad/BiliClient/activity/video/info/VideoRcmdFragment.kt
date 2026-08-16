@@ -7,7 +7,6 @@ import com.RobinNotBad.BiliClient.activity.base.RefreshListFragment
 import com.RobinNotBad.BiliClient.adapter.video.VideoCardAdapter
 import com.RobinNotBad.BiliClient.api.RecommendApi
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
-import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 
 class VideoRcmdFragment : RefreshListFragment() {
 
@@ -35,10 +34,6 @@ class VideoRcmdFragment : RefreshListFragment() {
         super.onViewCreated(view, savedInstanceState)
 
         Log.e("debug-av号", aid.toString())
-
-        if (SharedPreferencesUtil.getBoolean("ui_mobile_mode", false)) {
-            recyclerView.isNestedScrollingEnabled = false
-        }
 
         CenterThreadPool.supplyAsyncWithLiveData { RecommendApi.getRelated(aid) }
             .observe(viewLifecycleOwner) { result ->

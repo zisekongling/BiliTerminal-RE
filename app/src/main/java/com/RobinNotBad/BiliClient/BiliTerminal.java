@@ -71,6 +71,13 @@ public class BiliTerminal extends Application {
                 forceUpdateVersionName = SharedPreferencesUtil.getString("force_update_version_name", null);
                 forceUpdateDescription = SharedPreferencesUtil.getString("force_update_description", null);
                 forceUpdateDownloadUrl = SharedPreferencesUtil.getString("force_update_download_url", null);
+                // 已更新到强制要求的版本（安装完成重启后），解除拦截
+                try {
+                    if (forceUpdateVersionCode > 0 && getVersion() >= forceUpdateVersionCode) {
+                        clearForceUpdate();
+                    }
+                } catch (PackageManager.NameNotFoundException ignored) {
+                }
             }
 
             registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
@@ -144,6 +151,10 @@ public class BiliTerminal extends Application {
 
     private void checkAppUpdate() {
         if (!SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.AUTO_UPDATE_CHECK_ENABLE, true)) {
+            return;
+        }
+        // 强制更新生效中：不重复检查更新，避免网络返回异常或配置变更时误解除拦截
+        if (forceUpdateBlocking) {
             return;
         }
         CenterThreadPool.run(() -> {
