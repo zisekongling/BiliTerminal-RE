@@ -175,18 +175,27 @@ public class FavoriteApi {
     }
 
     public static void getFavoriteState(long aid, ArrayList<String> folderList, ArrayList<Long> fidList, ArrayList<Boolean> stateList) throws IOException, JSONException {
+        getFavoriteState(aid, folderList, fidList, stateList, new ArrayList<Integer>(), new ArrayList<Integer>());
+    }
+
+    public static void getFavoriteState(long aid, ArrayList<String> folderList, ArrayList<Long> fidList, ArrayList<Boolean> stateList, ArrayList<Integer> countList, ArrayList<Integer> maxCountList) throws IOException, JSONException {
         String url = "https://api.bilibili.com/x/v3/fav/folder/created/list-all?type=2&jsonp=jsonp&rid=" + aid + "&up_mid=" + SharedPreferencesUtil.getLong("mid", 0);
         JSONObject result = NetWorkUtil.getJson(url);
         JSONObject data = result.getJSONObject("data");
+        parseFavoriteState(data, folderList, fidList, stateList, countList, maxCountList);
+    }
 
-        if (data.has("list") && !data.isNull("list")) {
-            JSONArray list = data.getJSONArray("list");
-            for (int i = 0; i < list.length(); i++) {
-                JSONObject folder = list.getJSONObject(i);
-                folderList.add(folder.getString("title"));
-                fidList.add(folder.getLong("fid"));
-                stateList.add(folder.getInt("fav_state") == 1);
-            }
+    public static void parseFavoriteState(JSONObject data, ArrayList<String> folderList, ArrayList<Long> fidList, ArrayList<Boolean> stateList, ArrayList<Integer> countList, ArrayList<Integer> maxCountList) throws JSONException {
+        if (data == null) return;
+        if (!data.has("list") || data.isNull("list")) return;
+        JSONArray list = data.getJSONArray("list");
+        for (int i = 0; i < list.length(); i++) {
+            JSONObject folder = list.getJSONObject(i);
+            folderList.add(folder.getString("title"));
+            fidList.add(folder.getLong("fid"));
+            stateList.add(folder.getInt("fav_state") == 1);
+            countList.add(folder.optInt("media_count", 0));
+            maxCountList.add(i == 0 ? 50000 : 1000);
         }
     }
 
