@@ -25,8 +25,8 @@ android {
         applicationId "com.RobinNotBad.BiliClient"
         minSdk 24
         targetSdk 34
-        versionCode 2608163
-        versionName "26.08.16"
+        versionCode 2608171
+        versionName "26.08.17"
 
         if (betaVer) {
             versionName += "-BETA" + betaVer
@@ -152,18 +152,24 @@ android {
         }
     }
 
-    // APK 按架构独立打包（仅 assembleRelease 时生效）
+    // APK 按架构独立打包（仅 assembleRelease 时生效），并额外生成包含所有架构的通用包
     splits {
         abi {
             enable true
             reset()
-            include 'armeabi-v7a', 'arm64-v8a'
-            universalApk false
+            include 'armeabi-v7a', 'arm64-v8a', 'x86'
+            universalApk true
         }
     }
 }
 
-def desktopPath = "${System.getProperty('user.home')}/Desktop"
+// 桌面路径：真实桌面可能不在 user.home（如用户目录被重定向到其他盘），按候选路径取第一个存在的
+def desktopCandidates = [
+        "${System.getenv('USERPROFILE')}\\Desktop",
+        "${System.getProperty('user.home')}\\Desktop",
+        "${System.getProperty('user.dir')}\\.."
+]
+def desktopPath = desktopCandidates.find { new File(it).exists() } ?: "${System.getProperty('user.home')}\\Desktop"
 def apkOutputPath = "${projectDir}/build/outputs/apk/release"
 
 task copyApkToDesktop {
@@ -212,9 +218,10 @@ task copyApkToDesktop {
     }
 }
 
-afterEvaluate {
-    assembleRelease.finalizedBy copyApkToDesktop
-}
+// 复制/安装 APK 是可选后处理：不阻塞 assembleRelease，需要时手动执行 gradlew copyApkToDesktop
+// afterEvaluate {
+//     assembleRelease.finalizedBy copyApkToDesktop
+// }
 
 dependencies {
     // Kotlin

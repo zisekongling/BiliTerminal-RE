@@ -71,6 +71,7 @@ class VideoInfoActivity : BaseActivity() {
         viewPager.offscreenPageLimit = fragmentList!!.size
         val vpfAdapter = ViewPagerFragmentAdapter(supportFragmentManager, fragmentList!!)
         viewPager.adapter = vpfAdapter
+        registerPageNameListener("番剧详情")
         if (seek_reply != -1L) viewPager.currentItem = 1
         if (SharedPreferencesUtil.getBoolean("first_videoinfo", true)) {
             MsgUtil.showMsgLong("提示：本页面可以左右滑动")
@@ -100,6 +101,7 @@ class VideoInfoActivity : BaseActivity() {
                 viewPager.offscreenPageLimit = fragmentList!!.size
                 val vpfAdapter = ViewPagerFragmentAdapter(supportFragmentManager, fragmentList!!)
                 viewPager.adapter = vpfAdapter
+                registerPageNameListener("视频详情")
                 if (seek_reply != -1L) viewPager.currentItem = 1
             }.onFailure { error ->
                 loading.setImageResource(R.mipmap.loading_2233_error)
@@ -109,6 +111,37 @@ class VideoInfoActivity : BaseActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * 标题随页面变化：视频详情-简介 / 视频详情-评论 / 视频详情-相关推荐
+     * 番剧详情同理。子标题按当前页的 Fragment 类型判断，兼容相关推荐页可选的情况
+     */
+    private fun registerPageNameListener(mainTitle: String) {
+        viewPager.addOnPageChangeListener(object : ViewPager.OnPageChangeListener {
+            override fun onPageScrolled(position: Int, positionOffset: Float, positionOffsetPixels: Int) {}
+
+            override fun onPageSelected(position: Int) {
+                updatePageName(mainTitle, position)
+            }
+
+            override fun onPageScrollStateChanged(state: Int) {}
+        })
+        updatePageName(mainTitle, viewPager.currentItem)
+    }
+
+    private fun updatePageName(mainTitle: String, position: Int) {
+        val list = fragmentList
+        if (list == null || position < 0 || position >= list.size) {
+            setPageName(mainTitle)
+            return
+        }
+        val sub = when (list[position]) {
+            is ReplyFragment -> "评论"
+            is VideoRcmdFragment -> "相关推荐"
+            else -> "简介"
+        }
+        setPageName("$mainTitle-$sub")
     }
 
     fun setCurrentAid(aid: Long) {

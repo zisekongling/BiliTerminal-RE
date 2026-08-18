@@ -85,6 +85,34 @@ class DownloadService : Service() {
         private val downloadProgressMap =
             java.util.concurrent.ConcurrentHashMap<Long, DownloadProgressInfo>()
 
+        // 被用户暂停的任务：key=section.id。暂停后该任务的下载循环会尽快退出，状态置为 paused，
+        // 调度器（只取 state="none"）不会重新拾取；恢复时清除标志并置回 none。
+        @JvmStatic
+        val pausedMap = java.util.concurrent.ConcurrentHashMap<Long, Boolean>()
+
+        @JvmStatic
+        fun isPaused(id: Long): Boolean = pausedMap.containsKey(id)
+
+        /**
+         * 暂停单个下载任务（不影响其他并行任务）。
+         * 正在下载的线程会在下一轮 IO 循环中检测到暂停标志并退出。
+         */
+        @JvmStatic
+        fun pauseDownload(id: Long) {
+            pausedMap[id] = true
+            setState(id, "paused")
+        }
+
+        /**
+         * 恢复被暂停的下载任务，并触发调度器重新拾取。
+         */
+        @JvmStatic
+        fun resumeDownload(id: Long) {
+            pausedMap.remove(id)
+            setState(id, "none")
+            start(id)
+        }
+
         @JvmStatic
         fun getDownloadProgress(id: Long): DownloadProgressInfo? {
             return downloadProgressMap[id]
@@ -164,6 +192,7 @@ class DownloadService : Service() {
         private const val ERR_FILE = -3
         private const val ERR_DATABASE = -4
         private const val ERR_UNKNOWN = -7
+        private const val ERR_PAUSED = -8 // 任务被用户暂停，不视为失败
 
         @JvmStatic
         fun decompress(data: ByteArray): ByteArray {
@@ -715,6 +744,11 @@ class DownloadService : Service() {
         if (success) {
             batchStats.recordSuccess()
         } else {
+            // 用户暂停的任务：不记为失败，状态保持"paused"，等待用户恢复
+            if (isPaused(downloadSection.id)) {
+                removeDownloadProgress(downloadSection.id)
+                return true // 让串行/并行批次继续，不中断其他任务
+            }
             batchStats.recordFailure()
             removeDownloadProgress(downloadSection.id)
             setState(downloadSection.id, "error")
@@ -765,7 +799,8 @@ class DownloadService : Service() {
                     PlayerApi.getVideoDash(data)
                     url_video = data.videoUrl
                     url_audio = data.audioUrl
-                    useDash = true
+                    // DASH下载需要音视频流都存在；无音轨视频（audio=null）只下视频流，不走合并
+                    useDash = url_video.isNotEmpty() && url_audio.isNotEmpty()
                 }
             }
             url_danmaku = data.danmakuUrl
@@ -812,72 +847,62 @@ class DownloadService : Service() {
                         return false
                     }
 
-                    state = "下载封面"
-                    setDownloadProgress(downloadSection.id, 0.05f, "下载封面")
-                    val coverFile = File(path_single, "cover.png")
-                    if (!coverFile.exists() && downloadSection.url_cover.isNotEmpty()) {
-                        result = downFile(downloadSection.url_cover, coverFile, downloadSection.id, 0.05f, 0.1f)
-                        if (result != NORMAL) {
-                            exitCode = result
-                            return false
-                        }
-                    }
-
-                    if (!downloadSection.isAudioOnly) {
-                        state = "下载字幕"
-                        setDownloadProgress(downloadSection.id, 0.1f, "下载字幕")
-                        downSubtitles(downloadSection.aid, downloadSection.cid, path_single)
-
-                        state = "下载弹幕"
-                        setDownloadProgress(downloadSection.id, 0.15f, "下载弹幕")
-                        result = downDanmaku(url_danmaku, File(path_single, "danmaku.xml"), downloadSection.id, 0.15f)
-                        if (result != NORMAL) {
-                            exitCode = result
-                            return false
-                        }
+                    if (!downloadAttachments(
+                            downloadSection, url_danmaku,
+                            File(path_single, "cover.png"), path_single,
+                            File(path_single, "danmaku.xml"), useDash
+                        )) {
+                        return false
                     }
 
                     if (downloadSection.isAudioOnly) {
+                        // 音频下载：先写临时文件，成功后替换，避免失败破坏旧文件
+                        val audioTmp = File(path_single, "audio_new.m4a")
                         state = "下载音频"
                         setDownloadProgress(downloadSection.id, 0.2f, "下载音频")
-                        result = downFile(url_audio, File(path_single, "audio.m4a"), downloadSection.id, 0.2f)
+                        result = downFile(url_audio, audioTmp, downloadSection.id, 0.2f)
                         if (result != NORMAL) {
                             exitCode = result
                             return false
                         }
+                        safeReplaceTemp(audioTmp, File(path_single, "audio.m4a"))
                     } else if (useDash) {
-                        // DASH格式：分别下载视频流和音频流，然后合并为单个文件
-                        val videoFile = File(path_single, "video.mp4")
-                        val audioFile = File(path_single, "audio.m4a")
+                        // DASH分段进度：视频(0-100%) → 音频(0-100%)；不合并，保留分离双文件直接播放
+                        // 先下载到临时文件，全部成功后再替换正式文件（重新下载/切换清晰度时不破坏旧视频）
+                        val videoTmp = File(path_single, "video_new.mp4")
+                        val audioTmp = File(path_single, "audio_new.m4a")
                         state = "下载视频"
-                        setDownloadProgress(downloadSection.id, 0.2f, "下载视频")
-                        result = downFile(url_video, videoFile, downloadSection.id, 0.2f, 0.6f)
+                        setDownloadProgress(downloadSection.id, 0f, "下载视频")
+                        result = downFile(url_video, videoTmp, downloadSection.id, 0f, 1.0f)
                         if (result != NORMAL) {
                             exitCode = result
                             return false
                         }
                         state = "下载音频"
-                        setDownloadProgress(downloadSection.id, 0.6f, "下载音频")
-                        result = downFile(url_audio, audioFile, downloadSection.id, 0.6f, 0.85f)
+                        setDownloadProgress(downloadSection.id, 0f, "下载音频")
+                        result = downFile(url_audio, audioTmp, downloadSection.id, 0f, 1.0f)
                         if (result != NORMAL) {
                             exitCode = result
                             return false
                         }
-                        // 合并视频和音频为单个文件，兼容旧格式播放
-                        state = "合并音视频"
-                        setDownloadProgress(downloadSection.id, 0.85f, "合并音视频")
-                        if (!MediaMerger.mergeAv(videoFile, audioFile)) {
-                            Logu.e("DownloadService", "音视频合并失败，保留分离文件")
-                        }
+                        safeReplaceTemp(videoTmp, File(path_single, "video.mp4"))
+                        safeReplaceTemp(audioTmp, File(path_single, "audio.m4a"))
+                        setDownloadProgress(downloadSection.id, 1.0f, "下载完成")
                     } else {
-                        // MP4格式：直接下载单个文件（音视频已合并）
+                        // MP4格式或无音轨DASH：直接下载单个文件（音视频已合并/无音轨）
+                        val videoTmp = File(path_single, "video_new.mp4")
                         state = "下载视频"
                         setDownloadProgress(downloadSection.id, 0.2f, "下载视频")
-                        result = downFile(url_video, File(path_single, "video.mp4"), downloadSection.id, 0.2f)
+                        result = downFile(url_video, videoTmp, downloadSection.id, 0.2f)
                         if (result != NORMAL) {
                             exitCode = result
                             return false
                         }
+                        safeReplaceTemp(videoTmp, File(path_single, "video.mp4"))
+                        // 清理旧 DASH 音频残留：从 DASH（video.mp4+audio.m4a）切换到普通 MP4 时，
+                        // 旧的 audio.m4a 不会随新下载被覆盖，残留会导致播放器误判双文件、旧音频继续播放
+                        val staleAudio = File(path_single, "audio.m4a")
+                        if (staleAudio.exists()) staleAudio.delete()
                     }
                 }
                 "video_multi" -> {
@@ -895,72 +920,62 @@ class DownloadService : Service() {
                         return false
                     }
 
-                    state = "下载封面"
-                    setDownloadProgress(downloadSection.id, 0.05f, "下载封面")
-                    val cover_multi = File(path_parent, "cover.png")
-                    if (!cover_multi.exists()) {
-                        result = downFile(downloadSection.url_cover, cover_multi, downloadSection.id, 0.05f, 0.1f)
-                        if (result != NORMAL) {
-                            exitCode = result
-                            return false
-                        }
-                    }
-
-                    if (!downloadSection.isAudioOnly) {
-                        state = "下载字幕"
-                        setDownloadProgress(downloadSection.id, 0.1f, "下载字幕")
-                        downSubtitles(downloadSection.aid, downloadSection.cid, path_page)
-
-                        state = "下载弹幕"
-                        setDownloadProgress(downloadSection.id, 0.15f, "下载弹幕")
-                        result = downDanmaku(url_danmaku, File(path_page, "danmaku.xml"), downloadSection.id, 0.15f)
-                        if (result != NORMAL) {
-                            exitCode = result
-                            return false
-                        }
+                    if (!downloadAttachments(
+                            downloadSection, url_danmaku,
+                            File(path_parent, "cover.png"), path_page,
+                            File(path_page, "danmaku.xml"), useDash
+                        )) {
+                        return false
                     }
 
                     if (downloadSection.isAudioOnly) {
+                        // 音频下载：先写临时文件，成功后替换，避免失败破坏旧文件
+                        val audioTmp = File(path_page, "audio_new.m4a")
                         state = "下载音频"
                         setDownloadProgress(downloadSection.id, 0.2f, "下载音频")
-                        result = downFile(url_audio, File(path_page, "audio.m4a"), downloadSection.id, 0.2f)
+                        result = downFile(url_audio, audioTmp, downloadSection.id, 0.2f)
                         if (result != NORMAL) {
                             exitCode = result
                             return false
                         }
+                        safeReplaceTemp(audioTmp, File(path_page, "audio.m4a"))
                     } else if (useDash) {
-                        // DASH格式：分别下载视频流和音频流，然后合并为单个文件
-                        val videoFile = File(path_page, "video.mp4")
-                        val audioFile = File(path_page, "audio.m4a")
+                        // DASH分段进度：视频(0-100%) → 音频(0-100%)；不合并，保留分离双文件直接播放
+                        // 先下载到临时文件，全部成功后再替换正式文件（重新下载/切换清晰度时不破坏旧视频）
+                        val videoTmp = File(path_page, "video_new.mp4")
+                        val audioTmp = File(path_page, "audio_new.m4a")
                         state = "下载视频"
-                        setDownloadProgress(downloadSection.id, 0.2f, "下载视频")
-                        result = downFile(url_video, videoFile, downloadSection.id, 0.2f, 0.6f)
+                        setDownloadProgress(downloadSection.id, 0f, "下载视频")
+                        result = downFile(url_video, videoTmp, downloadSection.id, 0f, 1.0f)
                         if (result != NORMAL) {
                             exitCode = result
                             return false
                         }
                         state = "下载音频"
-                        setDownloadProgress(downloadSection.id, 0.6f, "下载音频")
-                        result = downFile(url_audio, audioFile, downloadSection.id, 0.6f, 0.85f)
+                        setDownloadProgress(downloadSection.id, 0f, "下载音频")
+                        result = downFile(url_audio, audioTmp, downloadSection.id, 0f, 1.0f)
                         if (result != NORMAL) {
                             exitCode = result
                             return false
                         }
-                        // 合并视频和音频为单个文件，兼容旧格式播放
-                        state = "合并音视频"
-                        setDownloadProgress(downloadSection.id, 0.85f, "合并音视频")
-                        if (!MediaMerger.mergeAv(videoFile, audioFile)) {
-                            Logu.e("DownloadService", "音视频合并失败，保留分离文件")
-                        }
+                        safeReplaceTemp(videoTmp, File(path_page, "video.mp4"))
+                        safeReplaceTemp(audioTmp, File(path_page, "audio.m4a"))
+                        setDownloadProgress(downloadSection.id, 1.0f, "下载完成")
                     } else {
-                        // MP4格式：直接下载单个文件（音视频已合并）
+                        // MP4格式或无音轨DASH：直接下载单个文件（音视频已合并/无音轨）
+                        val videoTmp = File(path_page, "video_new.mp4")
                         state = "下载视频"
                         setDownloadProgress(downloadSection.id, 0.2f, "下载视频")
-                        result = downFile(url_video, File(path_page, "video.mp4"), downloadSection.id, 0.2f)
+                        result = downFile(url_video, videoTmp, downloadSection.id, 0.2f)
                         if (result != NORMAL) {
                             exitCode = result
                             return false
                         }
+                        safeReplaceTemp(videoTmp, File(path_page, "video.mp4"))
+                        // 清理旧 DASH 音频残留：从 DASH（video.mp4+audio.m4a）切换到普通 MP4 时，
+                        // 旧的 audio.m4a 不会随新下载被覆盖，残留会导致播放器误判双文件、旧音频继续播放
+                        val staleAudio = File(path_page, "audio.m4a")
+                        if (staleAudio.exists()) staleAudio.delete()
                     }
                 }
             }
@@ -982,6 +997,86 @@ class DownloadService : Service() {
             setState(downloadSection.id, "error")
             return false
         }
+    }
+
+    /**
+     * 临时文件替换正式文件（备份→替换→恢复）。
+     * 下载先写临时文件、全部成功后才替换，避免下载期间破坏旧视频；
+     * 替换失败时恢复旧文件，保证重新下载（切换清晰度）不丢旧数据。
+     */
+    private fun safeReplaceTemp(tmpFile: File, finalFile: File) {
+        if (!tmpFile.exists()) return
+        val bakFile = File(finalFile.parentFile, finalFile.name + ".bak")
+        try {
+            if (finalFile.exists()) {
+                if (!finalFile.renameTo(bakFile)) {
+                    // 无法备份（罕见）：直接尝试覆盖（Android 上 rename 可覆盖目标）
+                    if (tmpFile.renameTo(finalFile)) tmpFile.delete()
+                    return
+                }
+            }
+            if (tmpFile.renameTo(finalFile)) {
+                if (bakFile.exists()) bakFile.delete()
+            } else {
+                // 替换失败：恢复旧文件，保留临时文件供排查
+                if (bakFile.exists()) bakFile.renameTo(finalFile)
+                Logu.e("DownloadService", "替换文件失败：${finalFile.name}，已保留旧文件")
+            }
+        } catch (e: Exception) {
+            if (bakFile.exists() && !finalFile.exists()) {
+                try { bakFile.renameTo(finalFile) } catch (_: Exception) {}
+            }
+        }
+    }
+
+    /**
+     * 附件阶段（封面 + 字幕 + 弹幕）统一处理。
+     * DASH 流程：进度条从 0 走满 100%（封面 0-40%，字幕 40-60%，弹幕 60-100%），
+     * 后续视频/音频/合并阶段各自重置进度条再走满。
+     * 其他流程（MP4 单文件/纯音频）：保持旧的比例区间（封面 0.05-0.1，字幕 0.1，弹幕 0.15）。
+     * @return 是否成功；false 时调用方应直接结束下载
+     */
+    private fun downloadAttachments(
+        downloadSection: DownloadSection,
+        url_danmaku: String,
+        coverFile: File,
+        subtitleFolder: File,
+        danmakuFile: File,
+        useDash: Boolean
+    ): Boolean {
+        // 封面
+        state = "下载封面"
+        setDownloadProgress(downloadSection.id, if (useDash) 0f else 0.05f, "下载封面")
+        if (!coverFile.exists() && downloadSection.url_cover.isNotEmpty()) {
+            val result = if (useDash)
+                downFile(downloadSection.url_cover, coverFile, downloadSection.id, 0f, 0.4f)
+            else
+                downFile(downloadSection.url_cover, coverFile, downloadSection.id, 0.05f, 0.1f)
+            if (result != NORMAL) {
+                exitCode = result
+                return false
+            }
+        }
+
+        if (!downloadSection.isAudioOnly) {
+            // 字幕
+            state = "下载字幕"
+            setDownloadProgress(downloadSection.id, if (useDash) 0.4f else 0.1f, "下载字幕")
+            downSubtitles(downloadSection.aid, downloadSection.cid, subtitleFolder)
+
+            // 弹幕：DASH 传 0.95 使完成后进度为 1.0（附件阶段走满）
+            state = "下载弹幕"
+            setDownloadProgress(downloadSection.id, if (useDash) 0.6f else 0.15f, "下载弹幕")
+            val result = if (useDash)
+                downDanmaku(url_danmaku, danmakuFile, downloadSection.id, 0.95f)
+            else
+                downDanmaku(url_danmaku, danmakuFile, downloadSection.id, 0.15f)
+            if (result != NORMAL) {
+                exitCode = result
+                return false
+            }
+        }
+        return true
     }
 
     private fun toastState(newState: String) {
@@ -1096,8 +1191,16 @@ class DownloadService : Service() {
         } catch (e: IOException) {
             return ERR_NETWORK
         }
+        // 校验响应码：防盗链失败(403)或URL过期时会返回非2xx，错误页不能当文件写入
+        if (!response.isSuccessful) {
+            Logu.e("DownloadService", "下载失败，HTTP ${response.code}: ${file.name}")
+            response.close()
+            return ERR_NETWORK
+        }
         var inputStream: InputStream? = null
         var fileOutputStream: FileOutputStream? = null
+        var result = NORMAL
+        var fileIncomplete = false
         try {
             if (!resetFile(file))
                 return ERR_FILE
@@ -1112,8 +1215,10 @@ class DownloadService : Service() {
             val TotalFileSize = body.contentLength()
             var totalDown: Long = 0
             var lastProgressUpdate = 0L
-            val progressUpdateInterval = if (TotalFileSize > 0) Math.max(TotalFileSize / 1000, 65536) else 1L
-            while ((inputStream.read(bytes).also { len = it }) != -1 && started) {
+            // 未知总大小时按 512KB 节流推进伪进度（封顶 90%），避免进度条卡死不动
+            val progressUpdateInterval = if (TotalFileSize > 0) Math.max(TotalFileSize / 1000, 65536) else 512 * 1024
+            var pseudoProgress = 0f
+            while ((inputStream.read(bytes).also { len = it }) != -1 && started && !isPaused(sectionId)) {
                 fileOutputStream.write(bytes, 0, len)
                 totalDown += len
                 addDownloadedBytes(len.toLong())
@@ -1124,9 +1229,13 @@ class DownloadService : Service() {
                     }
 
                     // 更新进度到进度映射表
-                    if (sectionId > 0 && TotalFileSize > 0) {
-                        val fileProgress = 1.0f * totalDown / TotalFileSize
-                        val actualProgress = baseProgress + fileProgress * (endProgress - baseProgress)
+                    if (sectionId > 0) {
+                        val actualProgress = if (TotalFileSize > 0) {
+                            baseProgress + (1.0f * totalDown / TotalFileSize) * (endProgress - baseProgress)
+                        } else {
+                            pseudoProgress = Math.min(pseudoProgress + 0.02f, 0.9f)
+                            baseProgress + (endProgress - baseProgress) * pseudoProgress
+                        }
                         setDownloadProgress(sectionId, actualProgress, state ?: "下载中", totalDown, TotalFileSize)
                     }
                 }
@@ -1136,17 +1245,34 @@ class DownloadService : Service() {
             } else {
                 percent = baseProgress + (1.0f * totalDown / TotalFileSize) * (endProgress - baseProgress)
             }
-            if (!started)
-                return ERR_UNKNOWN
+            // 用户暂停：优先返回暂停信号（不视为错误，不清理半成品，恢复后重新下载覆盖）
+            if (isPaused(sectionId)) {
+                result = ERR_PAUSED
+            } else if (TotalFileSize > 0 && totalDown < TotalFileSize) {
+                fileIncomplete = true
+                Logu.e("DownloadService", "下载不完整：${file.name} ${totalDown}/${TotalFileSize}")
+                result = ERR_NETWORK
+            } else if (!started) {
+                result = ERR_UNKNOWN
+            }
         } catch (e: IOException) {
-            return ERR_FILE
+            fileIncomplete = true
+            result = ERR_FILE
         } finally {
-            inputStream?.close()
-            fileOutputStream?.close()
-            response.body?.close()
+            try { inputStream?.close() } catch (_: Exception) {}
+            try { fileOutputStream?.close() } catch (_: Exception) {}
+            try { response.body?.close() } catch (_: Exception) {}
             response.close()
         }
-        return NORMAL
+        // 失败时清理半成品文件，避免残留损坏文件导致合并/播放异常
+        if (result != NORMAL && fileIncomplete) {
+            try { if (file.exists()) file.delete() } catch (_: Exception) {}
+        }
+        // 下载成功后把进度推进到阶段终点，保证阶段进度条走满（分段进度依赖）
+        if (result == NORMAL && sectionId > 0) {
+            setDownloadProgress(sectionId, endProgress, state ?: "下载中")
+        }
+        return result
     }
 
     @Throws(IOException::class)
@@ -1208,19 +1334,25 @@ class DownloadService : Service() {
                     var downloaded: Long = 0
                     var read: Int
                     var lastProgressUpdate = 0L
-                    val progressUpdateInterval = if (effectiveTotalSize > 1) Math.max(effectiveTotalSize / 1000, 65536) else 1L
-                    while ((inputStream.read(buffer).also { read = it }) != -1 && started) {
+                    // 未知大小时按 512KB 节流推进伪进度（封顶 90%），避免进度条瞬间满或卡死
+                    val progressUpdateInterval = if (effectiveTotalSize > 1) Math.max(effectiveTotalSize / 1000, 65536) else 512 * 1024
+                    var pseudoProgress = 0f
+                    while ((inputStream.read(buffer).also { read = it }) != -1 && started && !isPaused(sectionId)) {
                         fos.write(buffer, 0, read)
                         downloaded += read
                         addDownloadedBytes(read.toLong())
                         if (downloaded - lastProgressUpdate >= progressUpdateInterval) {
                             lastProgressUpdate = downloaded
-                            percent = baseProgress + (1.0f * downloaded / effectiveTotalSize) * (endProgress - baseProgress)
+                            val actualProgress = if (effectiveTotalSize > 1) {
+                                baseProgress + (1.0f * downloaded / effectiveTotalSize) * (endProgress - baseProgress)
+                            } else {
+                                pseudoProgress = Math.min(pseudoProgress + 0.02f, 0.9f)
+                                baseProgress + (endProgress - baseProgress) * pseudoProgress
+                            }
+                            percent = actualProgress
 
                             // 更新进度到进度映射表
                             if (sectionId > 0) {
-                                val fileProgress = 1.0f * downloaded / effectiveTotalSize
-                                val actualProgress = baseProgress + fileProgress * (endProgress - baseProgress)
                                 setDownloadProgress(sectionId, actualProgress, state ?: "下载中", downloaded, effectiveTotalSize)
                             }
                         }
@@ -1229,7 +1361,14 @@ class DownloadService : Service() {
                 }
             }
         }
-        return if (started) NORMAL else ERR_UNKNOWN
+        val singleResult = if (isPaused(sectionId)) ERR_PAUSED
+            else if (started) NORMAL
+            else ERR_UNKNOWN
+        // 下载成功后把进度推进到阶段终点，保证阶段进度条走满（分段进度依赖）
+        if (singleResult == NORMAL && sectionId > 0) {
+            setDownloadProgress(sectionId, endProgress, state ?: "下载中")
+        }
+        return singleResult
     }
 
     @Throws(IOException::class)
@@ -1256,14 +1395,14 @@ class DownloadService : Service() {
             val idx = i
 
             val thread = Thread({
-                downloadSegment(url, file, client, headers, start, end, idx, totalDownloaded, anyFailed)
+                downloadSegment(url, file, client, headers, start, end, idx, sectionId, totalDownloaded, anyFailed)
             }, "DL-Segment-$idx")
             threads.add(thread)
             thread.start()
         }
 
-        // 轮询进度，直到全部分片结束、失败或取消
-        while (completedSegments(threads) < segments && started && !anyFailed.get()) {
+        // 轮询进度，直到全部分片结束、失败、暂停或取消
+        while (completedSegments(threads) < segments && started && !anyFailed.get() && !isPaused(sectionId)) {
             percent = baseProgress + (1.0f * totalDownloaded.get() / totalSize) * (endProgress - baseProgress)
 
             // 更新进度到进度映射表
@@ -1287,22 +1426,31 @@ class DownloadService : Service() {
             }
         }
 
+        // 用户暂停：直接返回暂停信号，不回退重下
+        if (isPaused(sectionId)) return ERR_PAUSED
+
         // 完整性校验：任一失败或下载字节不足都视为失败，回退整文件单线程重下
         if (anyFailed.get() || totalDownloaded.get() < totalSize) {
             return downFileSpeedSingle(url, file, client, headers, totalSize, sectionId, baseProgress, endProgress)
         }
 
-        return if (started) NORMAL else ERR_UNKNOWN
+        val segResult = if (started) NORMAL else ERR_UNKNOWN
+        // 下载成功后把进度推进到阶段终点，保证阶段进度条走满（分段进度依赖）
+        if (segResult == NORMAL && sectionId > 0) {
+            setDownloadProgress(sectionId, endProgress, state ?: "下载中")
+        }
+        return segResult
     }
 
     /** 下载单个分片（最多重试 3 次），成功后累加已下载字节。 */
     private fun downloadSegment(url: String, file: File, client: okhttp3.OkHttpClient,
                                 headers: ArrayList<String>, start: Long, end: Long, idx: Int,
+                                sectionId: Long,
                                 totalDownloaded: java.util.concurrent.atomic.AtomicLong,
                                 anyFailed: java.util.concurrent.atomic.AtomicBoolean) {
         val expectLen = end - start + 1
         var attempts = 0
-        while (attempts < 3 && started && !anyFailed.get()) {
+        while (attempts < 3 && started && !anyFailed.get() && !isPaused(sectionId)) {
             var written = 0L
             var ok = false
             try {
@@ -1322,7 +1470,7 @@ class DownloadService : Service() {
                     resp.body!!.byteStream().use { inputStream ->
                         java.io.RandomAccessFile(file, "rw").use { rafInner ->
                             rafInner.seek(start)
-                            while ((inputStream.read(buffer).also { read = it }) != -1 && started) {
+                            while ((inputStream.read(buffer).also { read = it }) != -1 && started && !isPaused(sectionId)) {
                                 rafInner.write(buffer, 0, read)
                                 written += read
                                 addDownloadedBytes(read.toLong())
@@ -1346,6 +1494,8 @@ class DownloadService : Service() {
                 }
             }
         }
+        // 暂停直接返回，不标记失败（避免整体回退重下）
+        if (isPaused(sectionId)) return
         anyFailed.set(true)
     }
 

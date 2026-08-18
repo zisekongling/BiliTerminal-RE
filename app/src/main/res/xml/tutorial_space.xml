@@ -28,7 +28,7 @@
         </item>
         <item>
             <type>0</type>
-            <text>共三页</text>
+            <text>共四页</text>
             <style>underline</style>
             <color>#4a8eca</color>
         </item>
@@ -64,6 +64,15 @@
             <text>
                 第二页、第三页分别为投稿视频、专栏列表（一片空白可能是由于该用户未投稿过，也可能是你未登录）
             </text>
+            <style>none</style>
+            <color>#ffffff</color>
+        </item>
+        <item>
+            <type>1</type>
+        </item>
+        <item>
+            <type>0</type>
+            <text>第四页为该用户的公开收藏夹（私密收藏夹不会显示，也无需登录即可查看）</text>
             <style>none</style>
             <color>#ffffff</color>
         </item>

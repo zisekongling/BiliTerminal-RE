@@ -999,6 +999,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             override fun run() {
                 if (isPrepared && isPlaying && !isSeeking) {
                     video_now = ijkPlayer!!.currentPosition.toInt()
+                    // 外部音频轨道（DASH分离文件fallback）同步校正：偏差过大时重新对齐，避免音画漂移
+                    if (audioPlayer != null) {
+                        try {
+                            val audioPos = audioPlayer!!.currentPosition
+                            if (audioPos >= 0 && Math.abs(audioPos - video_now) > 800) {
+                                audioPlayer!!.seekTo(video_now)
+                                Logu.d("AudioTrack", "音频轨道重新同步: $audioPos -> $video_now")
+                            }
+                        } catch (_: Exception) {}
+                    }
                     if (video_now_last != video_now) {
                         video_now_last = video_now
                         val currSec = video_now / 1000f

@@ -15,6 +15,7 @@ public class Opus {
     public String cover;
     public String content;
     public String pubTime;
+    public int wordCount; // 专栏字数（文章专用，动态为 0）
     public UserInfo upInfo;
     public Stats stats;
     public ArrayList<String> topImages;

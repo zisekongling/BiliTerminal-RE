@@ -27,10 +27,18 @@ public class OpusApi {
         opus.type = Opus.TYPE_DYNAMIC;
         opus.id = id;
 
-        String url;
-        if (id > 100000000)
-            url = "https://www.bilibili.com/opus/" + id; // 别问，问就是动态和专栏都被统一了，判断不了类型，只能判断id长度了。能用。
-        else url = "https://www.bilibili.com/read/cv" + id;
+        // 专栏（cv号，id <= 1亿）：直接用官方 API 获取正文与统计信息。
+        // 原先抓取 read/cv 网页：网页体积大、JsonUtil 全文搜索慢（解析过慢），
+        // 且专栏页 module_stat 结构与图文动态不同，导致点赞/投币/收藏状态、阅读数等解析失败。
+        if (id <= 100000000) {
+            fillArticleContent(opus, id);
+            opus.type = Opus.TYPE_ARTICLE; // 确保按文章渲染（即使正文获取失败）
+            if (opus.upInfo == null) opus.upInfo = new UserInfo();
+            if (opus.stats == null) opus.stats = new Stats();
+            return opus;
+        }
+
+        String url = "https://www.bilibili.com/opus/" + id; // 动态 id 走 opus 页面抓取
         try {
             Response response = NetWorkUtil.get(url);
             // /read/cv{id} 有多层301重定向（加斜杠、跳转到/opus/），循环跟随直到拿到最终页面
@@ -148,10 +156,6 @@ public class OpusApi {
         // B站是会做图文的
 
         opus.cover = "";
-        // 文章（专栏）：HTML 解析不到正文时，用官方专栏 API 兜底加载内容
-        if (id <= 100000000 && (opus.paragraphs == null || opus.paragraphs.length == 0)) {
-            fillArticleContent(opus, id);
-        }
         // 兜底保证关键字段非空，避免详情页/适配器空指针
         if (opus.upInfo == null) opus.upInfo = new UserInfo();
         if (opus.stats == null) opus.stats = new Stats();
@@ -169,13 +173,33 @@ public class OpusApi {
             opus.title = article.title;
             opus.cover = article.banner;
             opus.upInfo = article.upInfo;
-            opus.stats = article.stats;
             opus.content = article.content;
+            opus.wordCount = article.wordCount;
             opus.pubTime = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.CHINA)
                     .format(new java.util.Date(article.ctime * 1000L));
             opus.paragraphs = parseArticleContent(article.content);
             if (opus.commentId == 0) opus.commentId = id;
             if (opus.commentType == 0) opus.commentType = 12; // 文章评论类型
+
+            // getArticle 只返回 is_like 状态；收藏/投币状态与更实时的统计数值需 viewinfo 接口补齐
+            Stats stats = article.stats != null ? article.stats : new Stats();
+            stats.coin_limit = 2; // 专栏最多投 2 枚硬币
+            try {
+                ArticleInfo viewInfo = ArticleApi.getArticleViewInfo(id);
+                if (viewInfo != null && viewInfo.stats != null) {
+                    stats.liked = viewInfo.stats.liked;
+                    stats.favoured = viewInfo.stats.favoured;
+                    stats.coined = viewInfo.stats.coined;
+                    stats.view = viewInfo.stats.view;
+                    stats.like = viewInfo.stats.like;
+                    stats.coin = viewInfo.stats.coin;
+                    stats.favorite = viewInfo.stats.favorite;
+                    stats.reply = viewInfo.stats.reply;
+                    stats.share = viewInfo.stats.share;
+                }
+            } catch (Exception ignored) {
+            }
+            opus.stats = stats;
         } catch (Exception ignored) {
         }
     }

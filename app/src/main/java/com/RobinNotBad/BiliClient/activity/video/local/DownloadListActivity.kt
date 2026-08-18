@@ -158,47 +158,47 @@ class DownloadListActivity : RefreshListActivity() {
                                 return@run
 
                             val section = sections!![position]
-                            if (section.state == "downloading") {
-                                MsgUtil.showMsg("下载中，无法操作")
-                                return@run
+                            when (section.state) {
+                                // 点击下载中的任务：暂停该任务（不停止其他并行任务）
+                                "downloading" -> {
+                                    DownloadService.pauseDownload(section.id)
+                                    runOnUiThread { MsgUtil.showMsg("已暂停下载") }
+                                    refreshList(false)
+                                }
+                                // 点击已暂停的任务：恢复下载
+                                "paused" -> {
+                                    DownloadService.resumeDownload(section.id)
+                                    runOnUiThread { MsgUtil.showMsg("已恢复下载") }
+                                    refreshList(false)
+                                }
+                                "error" -> {
+                                    DownloadService.setState(section.id, "none")
+                                    DownloadService.start(section.id)
+                                }
+                                else -> DownloadService.start(section.id)
                             }
-                            if (section.state == "error") {
-                                DownloadService.setState(section.id, "none")
-                            }
-
-                            DownloadService.start(section.id)
                         }
                     }
                 })
 
                 adapter!!.setOnLongClickListener(object : OnItemLongClickListener {
+                    private var longClickPosition = -1
+                    private var longClickTimestamp = 0L
+
                     override fun onItemLongClick(position: Int) {
                         CenterThreadPool.run {
-                            try {
-                                if (sections == null || position < 0 || position >= sections!!.size)
-                                    return@run
+                            if (sections == null || position < 0 || position >= sections!!.size)
+                                return@run
 
-                                val delete = sections!![position] ?: return@run
-
-                                if (delete.state == "downloading" && DownloadService.started) {
-                                    stopService(Intent(this@DownloadListActivity, DownloadService::class.java))
-                                    try {
-                                        Thread.sleep(500)
-                                    } catch (ignored: InterruptedException) {
-                                    }
-                                }
-
-                                val folder = delete.getPath()
-                                if (folder != null && folder.exists()) {
-                                    FileUtil.deleteFolder(folder)
-                                }
-
-                                DownloadService.deleteSection(delete.id)
-
-                                refreshList(false)
-                                MsgUtil.showMsg("删除成功")
-                            } catch (e: Exception) {
-                                MsgUtil.err(e)
+                            val now = System.currentTimeMillis()
+                            if (longClickPosition == position && now - longClickTimestamp < 4000) {
+                                // 第二次长按：确认删除（支持删除正在下载的任务，不停止其他任务）
+                                longClickPosition = -1
+                                deleteSectionItem(sections!![position])
+                            } else {
+                                longClickPosition = position
+                                longClickTimestamp = now
+                                runOnUiThread { MsgUtil.showMsg("再次长按删除") }
                             }
                         }
                     }
@@ -211,6 +211,33 @@ class DownloadListActivity : RefreshListActivity() {
                 runOnUiThread { adapter!!.notifyDataSetChanged() }
                 Log.d("debug-adapter", adapter!!.itemCount.toString())
             }
+        }
+    }
+
+    /**
+     * 删除下载项（需在后台线程调用）。
+     * 正在下载的任务先打暂停标记，让下载线程在下一轮 IO 循环退出，再删除记录与文件；
+     * 不会停止整个下载服务，其他并行任务不受影响。
+     */
+    private fun deleteSectionItem(section: DownloadSection) {
+        try {
+            if (section.state == "downloading" || DownloadService.getDownloadProgress(section.id) != null) {
+                DownloadService.pauseDownload(section.id)
+            }
+
+            val folder = section.getPath()
+            if (folder != null && folder.exists()) {
+                FileUtil.deleteFolder(folder)
+            }
+
+            DownloadService.deleteSection(section.id)
+            DownloadService.pausedMap.remove(section.id)
+            DownloadService.removeDownloadProgress(section.id)
+
+            refreshList(false)
+            runOnUiThread { MsgUtil.showMsg("删除成功") }
+        } catch (e: Exception) {
+            MsgUtil.err(e)
         }
     }
 

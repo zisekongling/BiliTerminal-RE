@@ -18,7 +18,7 @@ Gradle 8.11.1（腾讯镜像）、AGP 8.5.2、Kotlin 2.0.0、KSP、Hilt 2.51.1�
 常用命令：
 
 ```bash
-./gradlew :app:assembleDebug        # 编译验证（无 CI，以此为准）
+./gradlew.bat :app:assembleRelease  # 编译验证（无 CI，以此为准）
 ./gradlew :app:testDebugUnitTest    # 单元测试（JUnit4，纯 JVM）
 ./gradlew :app:assembleRelease      # 正式包（R8+资源压缩，ABI 分包 arm64-v8a/armeabi-v7a）
 ```

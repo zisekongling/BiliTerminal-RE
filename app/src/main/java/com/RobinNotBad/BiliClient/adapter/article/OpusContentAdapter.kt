@@ -187,8 +187,8 @@ class OpusContentAdapter(
                 val timeIcon = holder.itemView.findViewById<ImageView>(R.id.timeIcon)
                 val cvidIcon = holder.itemView.findViewById<ImageView>(R.id.cvidIcon)
 
-                // cv号、阅读数、日期：默认按文章展示（动态内容末尾再统一隐藏）
-                cvidText.text = "cv" + article.id
+                // cv号、字数、阅读数、日期：默认按文章展示（动态内容末尾再统一隐藏）
+                cvidText.text = "cv" + article.id + (if (article.wordCount > 0) " | " + article.wordCount + "字" else "")
                 StringUtil.setCopy(cvidText, "cv" + article.id)
                 viewCount.text = StringUtil.toWan(article.stats.view.toLong()) + "阅读"
                 timeText.text = article.pubTime
@@ -285,21 +285,34 @@ class OpusContentAdapter(
                 fav.setOnClickListener {
                     CenterThreadPool.run {
                         try {
+                            if (SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) == 0L) {
+                                context.runOnUiThread { MsgUtil.showMsg("还没有登录喵~") }
+                                return@run
+                            }
                             if (article.stats.favoured) {
                                 if (ArticleApi.delFavorite(article.id) == 0) {
-                                    context.runOnUiThread { fav.setImageResource(R.drawable.icon_fav_0) }
+                                    article.stats.favoured = false
                                     article.stats.favorite--
+                                    context.runOnUiThread {
+                                        fav.setImageResource(R.drawable.icon_fav_0)
+                                        favLabel.text = StringUtil.toWan(article.stats.favorite.toLong())
+                                        MsgUtil.showMsg("已取消收藏~")
+                                    }
+                                } else {
+                                    context.runOnUiThread { MsgUtil.showMsg("取消收藏失败") }
                                 }
                             } else {
                                 if (ArticleApi.favorite(article.id) == 0) {
-                                    context.runOnUiThread { fav.setImageResource(R.drawable.icon_fav_1) }
+                                    article.stats.favoured = true
                                     article.stats.favorite++
+                                    context.runOnUiThread {
+                                        fav.setImageResource(R.drawable.icon_fav_1)
+                                        favLabel.text = StringUtil.toWan(article.stats.favorite.toLong())
+                                        MsgUtil.showMsg("收藏成功~")
+                                    }
+                                } else {
+                                    context.runOnUiThread { MsgUtil.showMsg("收藏失败") }
                                 }
-                            }
-                            article.stats.favoured = !article.stats.favoured
-                            context.runOnUiThread {
-                                favLabel.text = StringUtil.toWan(article.stats.favorite.toLong())
-                                MsgUtil.showMsg("操作成功~")
                             }
                         } catch (e: Exception) {
                             context.runOnUiThread { MsgUtil.err(e) }

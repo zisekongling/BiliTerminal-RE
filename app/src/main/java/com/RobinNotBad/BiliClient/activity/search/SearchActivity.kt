@@ -147,6 +147,8 @@ class SearchActivity : InstanceActivity() {
                 }
             }
             viewPager.adapter = vpfAdapter
+            // 标题随类别页变化：搜索-视频 / 搜索-专栏 / 搜索-用户 / 搜索-音频 / 搜索-直播
+            updatePageName(viewPager.currentItem)
 
             viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                 private var lastPosition = -1
@@ -166,6 +168,7 @@ class SearchActivity : InstanceActivity() {
 
                 override fun onPageSelected(position: Int) {
                     super.onPageSelected(position)
+                    updatePageName(position)
                     val fragmentCurr = supportFragmentManager.findFragmentByTag("f$position")
                     if (fragmentCurr != null) {
                         (fragmentCurr as SearchFragment).refresh()
@@ -284,6 +287,23 @@ class SearchActivity : InstanceActivity() {
     }
 
     /**
+     * 标题随搜索类别页变化（搜索-视频 / 搜索-专栏 / 搜索-用户 / 搜索-音频 / 搜索-直播）。
+     * 仅修改标题文字，不影响标题栏点击（菜单/返回详情）与长按搜索按钮等隐藏功能
+     */
+    private fun updatePageName(position: Int) {
+        if (!::categoryList.isInitialized || position < 0 || position >= categoryList.size) return
+        val sub = when (categoryList[position]) {
+            "video" -> "视频"
+            "article" -> "专栏"
+            "user" -> "用户"
+            "audio" -> "音频"
+            "live" -> "直播"
+            else -> categoryList[position]
+        }
+        setPageName("搜索-$sub")
+    }
+
+    /**
      * 根据用户偏好设置构建启用的搜索类别列表
      * 视频始终启用且在第一位，其他类别根据设置决定是否显示及排序
      */
@@ -356,6 +376,8 @@ class SearchActivity : InstanceActivity() {
                 viewPager.adapter?.notifyDataSetChanged()
                 viewPager.offscreenPageLimit = maxOf(1, categoryList.size - 1)
             }
+            // 类别顺序/数量可能变化，刷新标题子标题
+            updatePageName(viewPager.currentItem)
         }
     }
 

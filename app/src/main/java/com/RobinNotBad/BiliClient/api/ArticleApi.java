@@ -25,40 +25,43 @@ public class ArticleApi {
         String url = "https://api.bilibili.com/x/article/view?";
         url += "id=" + id + "&gaia_source=main_web&web_location=333.976";
         JSONObject result = NetWorkUtil.getJson(ConfInfoApi.signWBI(url));
-        if (!result.has("data")) return null;
+        if (!result.has("data") || result.isNull("data")) return null;
         JSONObject data = result.getJSONObject("data");
 
         ArticleInfo articleInfo = new ArticleInfo();
         articleInfo.id = id;
-        articleInfo.title = data.getString("title");
-        articleInfo.summary = data.getString("summary");
-        articleInfo.banner = data.getString("banner_url");
-        articleInfo.ctime = data.getLong("ctime");
+        articleInfo.title = data.optString("title", "");
+        articleInfo.summary = data.optString("summary", "");
+        articleInfo.banner = data.optString("banner_url", "");
+        articleInfo.ctime = data.optLong("ctime", 0);
 
-        JSONObject author = data.getJSONObject("author");
         UserInfo upInfo = new UserInfo();
-        upInfo.mid = author.getLong("mid");
-        upInfo.name = author.getString("name");
-        upInfo.avatar = author.getString("face");
-        upInfo.fans = author.getInt("fans");
-        upInfo.level = author.getInt("level");
+        JSONObject author = data.optJSONObject("author");
+        if (author != null) {
+            upInfo.mid = author.optLong("mid", 0);
+            upInfo.name = author.optString("name", "");
+            upInfo.avatar = author.optString("face", author.optString("avatar", ""));
+            upInfo.fans = author.optInt("fans", 0);
+            upInfo.level = author.optInt("level", 0);
+        }
         articleInfo.upInfo = upInfo;
 
-        JSONObject jsonStats = data.getJSONObject("stats");
         Stats stats = new Stats();
-        stats.view = jsonStats.getInt("view");
-        stats.favorite = jsonStats.getInt("favorite");
-        stats.like = jsonStats.getInt("like");
-        stats.reply = jsonStats.getInt("reply");
-        stats.share = jsonStats.getInt("share");
-        stats.coin = jsonStats.getInt("coin");
-        stats.liked = data.getBoolean("is_like");
-
+        JSONObject jsonStats = data.optJSONObject("stats");
+        if (jsonStats != null) {
+            stats.view = jsonStats.optInt("view", 0);
+            stats.favorite = jsonStats.optInt("favorite", 0);
+            stats.like = jsonStats.optInt("like", 0);
+            stats.reply = jsonStats.optInt("reply", 0);
+            stats.share = jsonStats.optInt("share", 0);
+            stats.coin = jsonStats.optInt("coin", 0);
+        }
+        stats.liked = data.optBoolean("is_like", false);
         articleInfo.stats = stats;
 
-        articleInfo.wordCount = data.getInt("words");
-        articleInfo.content = data.getString("content");
-        articleInfo.keywords = data.getString("keywords");
+        articleInfo.wordCount = data.optInt("words", 0);
+        articleInfo.content = data.optString("content", "");
+        articleInfo.keywords = data.optString("keywords", "");
         return articleInfo;
     }
 
@@ -71,30 +74,33 @@ public class ArticleApi {
         String url = "https://api.bilibili.com/x/article/viewinfo?";
         url += "id=" + id + "&gaia_source=main_web&web_location=333.976&mobi_app=pc&from=web";
         JSONObject result = NetWorkUtil.getJson(ConfInfoApi.signWBI(url));
-        if (!result.has("data")) return null;
+        if (!result.has("data") || result.isNull("data")) return null;
         JSONObject data = result.getJSONObject("data");
 
         ArticleInfo articleInfo = new ArticleInfo();
         articleInfo.id = id;
-        articleInfo.title = data.getString("title");
-        articleInfo.banner = data.getString("banner_url");
+        articleInfo.title = data.optString("title", "");
+        articleInfo.banner = data.optString("banner_url", "");
 
         UserInfo upInfo = new UserInfo();
-        upInfo.mid = data.getLong("mid");
-        upInfo.name = data.getString("author_name");
+        upInfo.mid = data.optLong("mid", 0);
+        upInfo.name = data.optString("author_name", "");
         articleInfo.upInfo = upInfo;
 
-        JSONObject jsonStats = data.getJSONObject("stats");
         Stats stats = new Stats();
-        stats.view = jsonStats.getInt("view");
-        stats.favorite = jsonStats.getInt("favorite");
-        stats.like = jsonStats.getInt("like");
-        stats.reply = jsonStats.getInt("reply");
-        stats.share = jsonStats.getInt("share");
-        stats.coin = jsonStats.getInt("coin");
-        stats.liked = data.getInt("like") == 1;
-        stats.favoured = data.getBoolean("favorite");
-        stats.coined = data.getInt("coin");
+        JSONObject jsonStats = data.optJSONObject("stats");
+        if (jsonStats != null) {
+            stats.view = jsonStats.optInt("view", 0);
+            stats.favorite = jsonStats.optInt("favorite", 0);
+            stats.like = jsonStats.optInt("like", 0);
+            stats.reply = jsonStats.optInt("reply", 0);
+            stats.share = jsonStats.optInt("share", 0);
+            stats.coin = jsonStats.optInt("coin", 0);
+        }
+        // 状态字段：like/coin 为 0/1 数字，favorite 为布尔值（见 bilibili-API/docs/article/info.md）
+        stats.liked = data.optInt("like", 0) == 1;
+        stats.favoured = data.optBoolean("favorite", false);
+        stats.coined = data.optInt("coin", 0);
         articleInfo.stats = stats;
         return articleInfo;
     }

@@ -40,16 +40,41 @@ class UserInfoActivity : BaseActivity() {
         fragmentList.add(uvFragment)
         val acFragment = UserArticleFragment.newInstance(mid)
         fragmentList.add(acFragment)
+        val ufFragment = UserFavoriteFragment.newInstance(mid)
+        fragmentList.add(ufFragment)
         viewPager.offscreenPageLimit = fragmentList.size
 
         val vpfAdapter = ViewPagerFragmentAdapter(supportFragmentManager, fragmentList)
 
         viewPager.adapter = vpfAdapter
 
+        // 标题随页面变化：用户信息-动态 / 用户信息-视频 / 用户信息-专栏 / 用户信息-收藏夹
+        viewPager.addOnPageChangeListener(object : ViewPager.OnPageChangeListener {
+            override fun onPageScrolled(position: Int, positionOffset: Float, positionOffsetPixels: Int) {}
+
+            override fun onPageSelected(position: Int) {
+                updatePageName(position)
+            }
+
+            override fun onPageScrollStateChanged(state: Int) {}
+        })
+        updatePageName(viewPager.currentItem)
+
         findViewById<View>(R.id.loading).visibility = View.GONE
 
-        TutorialHelper.showPagerTutorial(this, 3)
+        TutorialHelper.showPagerTutorial(this, 4)
 
+    }
+
+    private fun updatePageName(position: Int) {
+        val sub = when (position) {
+            0 -> "动态"
+            1 -> "视频"
+            2 -> "专栏"
+            3 -> "收藏夹"
+            else -> ""
+        }
+        setPageName(if (sub.isEmpty()) "用户信息" else "用户信息-$sub")
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, @Nullable data: Intent?) {

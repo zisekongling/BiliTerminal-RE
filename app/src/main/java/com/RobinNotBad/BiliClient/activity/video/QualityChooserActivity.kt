@@ -11,6 +11,7 @@ import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.adapter.QualityChooseAdapter
 import com.RobinNotBad.BiliClient.listener.OnItemClickListener
 import com.RobinNotBad.BiliClient.api.PlayerApi
+import com.RobinNotBad.BiliClient.api.VipApi
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -132,6 +133,17 @@ class QualityChooserActivity : BaseActivity() {
 
                         CenterThreadPool.run {
                             try {
+                                // 1080P高码率(112)与4K(120)仅大会员可下载，其余强制项无需校验
+                                if (targetQn >= 112) {
+                                    val vipInfo = VipApi.getVipInfo()
+                                    if (!vipInfo.isVip) {
+                                        runOnUiThread {
+                                            MsgUtil.showMsg("${qualityName}仅大会员可下载喵~")
+                                        }
+                                        return@run
+                                    }
+                                }
+
                                 val playerData = videoInfo.toPlayerData(page)
                                 playerData.qn = targetQn
 

@@ -88,6 +88,91 @@ public class FavoriteApi {
     }
 
     /**
+     * 获取指定用户创建的所有公开收藏夹（自动过滤私密收藏夹）
+     * 使用 x/v3/fav/folder/created/list 分页接口，可拿到封面（list-all 无封面字段）
+     *
+     * @param mid 目标用户mid
+     * @return 公开收藏夹列表（含mediaId与封面），私密收藏夹已被跳过
+     */
+    public static ArrayList<FavoriteFolder> getUserFavoriteFolders(long mid) throws IOException, JSONException {
+        ArrayList<FavoriteFolder> folderList = new ArrayList<>();
+        int pn = 1;
+        boolean hasMore = true;
+        while (hasMore) {
+            String url = "https://api.bilibili.com/x/v3/fav/folder/created/list" + new NetWorkUtil.FormData()
+                    .setUrlParam(true)
+                    .put("up_mid", mid)
+                    .put("pn", pn)
+                    .put("ps", 100);
+            JSONObject result = NetWorkUtil.getJson(url);
+            if (result.optInt("code", -1) != 0) break;
+            JSONObject data = result.optJSONObject("data");
+            if (data == null) break;
+            JSONArray list = data.optJSONArray("list");
+            if (list == null || list.length() == 0) break;
+            for (int i = 0; i < list.length(); i++) {
+                JSONObject folder = list.getJSONObject(i);
+                int attr = folder.optInt("attr", 0);
+                // attr 二进制第 0 位：1=私有收藏夹。他人视角直接跳过，等价于"自动处理私密收藏夹"
+                if ((attr & 1) != 0) continue;
+                FavoriteFolder favoriteFolder = new FavoriteFolder();
+                favoriteFolder.id = folder.optLong("fid", 0);        // 原始id
+                favoriteFolder.mediaId = folder.optLong("id", 0);    // 完整id（供 x/v3/fav/resource/list 使用）
+                favoriteFolder.name = folder.optString("title");
+                favoriteFolder.cover = folder.optString("cover", "");
+                favoriteFolder.videoCount = folder.optInt("media_count", 0);
+                favoriteFolder.maxCount = 0;                          // 他人收藏夹无上限概念
+                favoriteFolder.isDefault = (attr & 2) == 0;           // attr 位1：0=默认收藏夹
+                folderList.add(favoriteFolder);
+            }
+            hasMore = data.optBoolean("has_more", false);
+            pn++;
+        }
+        return folderList;
+    }
+
+    /**
+     * 使用新接口获取收藏夹内容（支持他人收藏夹的 media_id，替代已停用的 x/space/fav/arc）
+     *
+     * @param mediaId   收藏夹完整id（media_id）
+     * @param page      页码（从1开始）
+     * @param videoList 输出列表
+     * @return 0：成功 1：已到底 -1：失败
+     */
+    public static int getFolderVideosNew(long mediaId, int page, ArrayList<VideoCard> videoList) throws IOException, JSONException {
+        String url = "https://api.bilibili.com/x/v3/fav/resource/list" + new NetWorkUtil.FormData()
+                .setUrlParam(true)
+                .put("media_id", mediaId)
+                .put("platform", "web")
+                .put("pn", page)
+                .put("ps", 20);
+        JSONObject result = NetWorkUtil.getJson(url);
+        if (result.optInt("code", -1) != 0) return -1;
+        JSONObject data = result.optJSONObject("data");
+        if (data == null) return -1;
+        JSONArray medias = data.optJSONArray("medias");
+        if (medias == null || medias.length() == 0) return 1;
+        for (int i = 0; i < medias.length(); i++) {
+            JSONObject video = medias.getJSONObject(i);
+            String title = video.optString("title");
+            String cover = video.optString("cover");
+            long aid = video.optLong("id", 0);
+
+            String upName = "";
+            JSONObject upper = video.optJSONObject("upper");
+            if (upper != null) upName = upper.optString("name");
+
+            String view = "";
+            JSONObject cntInfo = video.optJSONObject("cnt_info");
+            if (cntInfo != null) {
+                view = StringUtil.toWan(cntInfo.optLong("play", 0)) + "观看";
+            }
+            videoList.add(new VideoCard(title, upName, view, cover, aid, video.optString("bvid", "")));
+        }
+        return data.optBoolean("has_more", false) ? 0 : 1;
+    }
+
+    /**
      * 获取收藏的合集
      *
      * @param mid            目标用户

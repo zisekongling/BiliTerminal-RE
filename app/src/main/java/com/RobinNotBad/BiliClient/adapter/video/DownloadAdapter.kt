@@ -124,8 +124,9 @@ class DownloadAdapter(
             when (displayState) {
                 "error" -> extra.text = "下载出错"
                 "none" -> extra.text = "等待下载"
+                "paused" -> extra.text = "已暂停（点击恢复）"
                 "downloading" -> if (DownloadService.started)
-                    extra.text = "下载中"
+                    extra.text = "下载中（点击暂停）"
                 else
                     extra.text = "下载中断"
                 else -> extra.text = if (progressInfo != null) displayState else "等待中"

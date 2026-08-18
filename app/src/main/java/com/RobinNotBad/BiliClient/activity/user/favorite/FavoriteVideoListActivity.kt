@@ -19,6 +19,7 @@ class FavoriteVideoListActivity : RefreshListActivity() {
 
     private var mid: Long = 0
     private var fid: Long = 0
+    private var mediaId: Long = 0
     private var videoList: ArrayList<VideoCard> = ArrayList()
     private var videoCardAdapter: VideoCardAdapter? = null
 
@@ -32,15 +33,22 @@ class FavoriteVideoListActivity : RefreshListActivity() {
         val intent = intent
         mid = intent.getLongExtra("mid", 0)
         fid = intent.getLongExtra("fid", 0)
+        mediaId = intent.getLongExtra("mediaId", 0)
         val name = intent.getStringExtra("name")
 
         setPageName(name!!)
 
         videoList = ArrayList()
 
+        // mediaId > 0：查看他人公开收藏夹（只读，走新接口 x/v3/fav/resource/list）
+        val readOnly = mediaId > 0
+
         CenterThreadPool.run {
             try {
-                val result = FavoriteApi.getFolderVideos(mid, fid, page, videoList)
+                val result = if (readOnly)
+                    FavoriteApi.getFolderVideosNew(mediaId, page, videoList)
+                else
+                    FavoriteApi.getFolderVideos(mid, fid, page, videoList)
                 if (result != -1) {
                     videoCardAdapter = VideoCardAdapter(this, videoList)
 
@@ -48,33 +56,37 @@ class FavoriteVideoListActivity : RefreshListActivity() {
                     if (SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.VIRTUAL_COLLECTION_ENABLE, true)) {
                         videoCardAdapter!!.onItemClickListener = { position, videoCard ->
                             val currentAid = videoCard.aid
-                            playFavoriteVirtualCollection(position, currentAid, fid, name ?: "")
+                            val folderId = if (readOnly) mediaId else fid
+                            playFavoriteVirtualCollection(position, currentAid, folderId, name ?: "")
                         }
                     }
 
-                    videoCardAdapter!!.setOnLongClickListener { position ->
-                        val timestamp = System.currentTimeMillis()
-                        if (longClickPosition == position && timestamp - longClickTimestamp < 4000) {
-                            CenterThreadPool.run {
-                                try {
-                                    val delResult = FavoriteApi.deleteFavorite(videoList[position].aid, fid)
-                                    longClickPosition = -1
-                                    if (delResult == 0) runOnUiThread {
-                                        MsgUtil.showMsg("删除成功")
-                                        videoList.removeAt(position)
-                                        videoCardAdapter!!.notifyItemRemoved(position)
-                                        videoCardAdapter!!.notifyItemRangeChanged(position, videoList.size - position)
+                    // 他人收藏夹只读，不提供长按删除
+                    if (!readOnly) {
+                        videoCardAdapter!!.setOnLongClickListener { position ->
+                            val timestamp = System.currentTimeMillis()
+                            if (longClickPosition == position && timestamp - longClickTimestamp < 4000) {
+                                CenterThreadPool.run {
+                                    try {
+                                        val delResult = FavoriteApi.deleteFavorite(videoList[position].aid, fid)
+                                        longClickPosition = -1
+                                        if (delResult == 0) runOnUiThread {
+                                            MsgUtil.showMsg("删除成功")
+                                            videoList.removeAt(position)
+                                            videoCardAdapter!!.notifyItemRemoved(position)
+                                            videoCardAdapter!!.notifyItemRangeChanged(position, videoList.size - position)
+                                        }
+                                        else
+                                            runOnUiThread { MsgUtil.showMsg("删除失败，错误码：$delResult") }
+                                    } catch (e: Exception) {
+                                        report(e)
                                     }
-                                    else
-                                        runOnUiThread { MsgUtil.showMsg("删除失败，错误码：$delResult") }
-                                } catch (e: Exception) {
-                                    report(e)
                                 }
+                            } else {
+                                longClickPosition = position
+                                longClickTimestamp = timestamp
+                                MsgUtil.showMsg("再次长按删除")
                             }
-                        } else {
-                            longClickPosition = position
-                            longClickTimestamp = timestamp
-                            MsgUtil.showMsg("再次长按删除")
                         }
                     }
 
@@ -99,7 +111,10 @@ class FavoriteVideoListActivity : RefreshListActivity() {
         CenterThreadPool.run {
             try {
                 val lastSize = videoList.size
-                val result = FavoriteApi.getFolderVideos(mid, fid, page, videoList)
+                val result = if (mediaId > 0)
+                    FavoriteApi.getFolderVideosNew(mediaId, page, videoList)
+                else
+                    FavoriteApi.getFolderVideos(mid, fid, page, videoList)
                 if (result != -1) {
                     Log.e("debug", "下一页")
                     runOnUiThread { videoCardAdapter!!.notifyItemRangeInserted(lastSize, videoList.size - lastSize) }
