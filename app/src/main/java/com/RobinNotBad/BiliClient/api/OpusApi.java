@@ -35,21 +35,29 @@ public class OpusApi {
             url = "https://www.bilibili.com/opus/" + id; // 动态 id 走 opus 页面抓取
         else url = "https://www.bilibili.com/read/cv" + id; // 专栏走 read/cv 页面抓取
         try {
-            Response response = NetWorkUtil.get(url);
-            // /read/cv{id} 有多层301重定向（加斜杠、跳转到/opus/），循环跟随直到拿到最终页面
-            for (int i = 0; i < 5; i++) {
-                String location = response.header("Location");
-                if (location == null || location.isEmpty()) break;
-                response.close();
-                response = NetWorkUtil.get(location);
+            // 抓取 HTML 页面并从中提取 detail。B 站对无完整 Cookie 的请求可能返回风控/异常页
+            // （不含 __INITIAL_STATE__.detail），此时内容不可用，重试整个抓取以提升成功率。
+            String html = null;
+            for (int retry = 0; retry < 3; retry++) {
+                Response response = NetWorkUtil.getHtml(url);
+                // /read/cv{id} 有多层301重定向（加斜杠、跳转到/opus/），循环跟随直到拿到最终页面
+                for (int i = 0; i < 5; i++) {
+                    String location = response.header("Location");
+                    if (location == null || location.isEmpty()) break;
+                    response.close();
+                    response = NetWorkUtil.getHtml(location);
+                }
+                ResponseBody responseBody = response.body();
+                if (responseBody != null) {
+                    html = responseBody.string();
+                    android.util.Log.e("debug-专栏", "第" + (retry + 1) + "次 html长度=" + html.length() + " 含detail=" + html.contains("\"detail\":") + " 含INITIAL_STATE=" + html.contains("__INITIAL_STATE__"));
+                    if (html.contains("\"detail\"") && html.contains("__INITIAL_STATE__")) break; // 拿到正常内容页
+                }
+                if (html == null) html = "";
             }
-            ResponseBody responseBody = response.body();
-            if (responseBody == null) return opus;
-
-            String html = responseBody.string();
 
             String detailStr = JsonUtil.search(html, "detail", "");
-            if (detailStr.isEmpty()) return opus;
+            if (detailStr.isEmpty()) { android.util.Log.e("debug-专栏", "detail为空"); return opus; }
             JSONObject detail = new JSONObject(detailStr);  //效率不高 能用就行 死去的jsonUtil居然还能发光发热
 
             analyzeCommentInfo(opus, detail, id);
@@ -111,6 +119,7 @@ public class OpusApi {
                         break;
                     case "MODULE_TYPE_STAT":
                         opus.stats = Stats.fromOpus(module.optJSONObject("module_stat"));
+                        android.util.Log.e("debug-专栏", "module_stat=" + opus.stats.toString() + " pubTime=" + opus.pubTime + " id=" + opus.id);
                         break;
                 }
             }
@@ -119,6 +128,7 @@ public class OpusApi {
             if (opus.stats == null) opus.stats = new Stats();
             // 专栏（cv号）：按文章渲染，保证 OpusContentAdapter 正常展示 cv 号、阅读数等信息
             if (id <= 100000000) opus.type = Opus.TYPE_ARTICLE;
+            android.util.Log.e("debug-专栏", "最终 stats view=" + opus.stats.view + " like=" + opus.stats.like + " coin=" + opus.stats.coin + " fav=" + opus.stats.favorite + " reply=" + opus.stats.reply + " pubTime=" + opus.pubTime + " upName=" + (opus.upInfo != null ? opus.upInfo.name : "null") + " id=" + opus.id + " commentType=" + opus.commentType);
         } catch (IllegalArgumentException e) { // 取不出来的时候，会重定向，但重定向的域名是//开头的，会报错
             //这里给opus设置一个参数，让OpusInfoActivity跳转到旧版的DynamicInfoActivity，从而无需重写解析
             //判断方式很简单粗暴，看报错信息里有没有URL这个关键字，有就是跳转错误
@@ -179,8 +189,17 @@ public class OpusApi {
         OpusParagraph[] paragraphs = new OpusParagraph[jsonArray.length()];
         for (int i = 0; i < jsonArray.length(); i++) {
             JSONObject paragraphJson = jsonArray.getJSONObject(i);
-            OpusParagraph paragraph = new OpusParagraph(paragraphJson);
-            paragraphs[i] = paragraph;
+            try {
+                OpusParagraph paragraph = new OpusParagraph(paragraphJson);
+                paragraphs[i] = paragraph;
+            } catch (Exception e) {
+                // 单个段落解析失败（如某字段结构异常）不应中断整篇正文解析，
+                // 用文本段落占位，保证其余内容正常渲染。
+                OpusParagraph fallback = new OpusParagraph();
+                fallback.type = OpusParagraph.TYPE_TEXT;
+                fallback.content = "";
+                paragraphs[i] = fallback;
+            }
         }
         return paragraphs;
     }

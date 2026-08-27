@@ -18,7 +18,6 @@ class SettingSearchActivity : BaseActivity() {
 
     private lateinit var searchArticle: SwitchMaterial
     private lateinit var searchUser: SwitchMaterial
-    private lateinit var searchAudio: SwitchMaterial
     private lateinit var searchLive: SwitchMaterial
 
     @SuppressLint("InflateParams")
@@ -34,10 +33,6 @@ class SettingSearchActivity : BaseActivity() {
             searchUser = findViewById(R.id.search_user)
             searchUser.isChecked = SharedPreferencesUtil.getBoolean(
                 SharedPreferencesUtil.SEARCH_CATEGORY_USER_SHOW, true)
-
-            searchAudio = findViewById(R.id.search_audio)
-            searchAudio.isChecked = SharedPreferencesUtil.getBoolean(
-                SharedPreferencesUtil.SEARCH_CATEGORY_AUDIO_SHOW, true)
 
             searchLive = findViewById(R.id.search_live)
             searchLive.isChecked = SharedPreferencesUtil.getBoolean(
@@ -65,7 +60,6 @@ class SettingSearchActivity : BaseActivity() {
         // 视频始终启用，无需重置
         searchArticle.isChecked = true
         searchUser.isChecked = true
-        searchAudio.isChecked = true
         searchLive.isChecked = true
 
         // 重置排序为默认顺序
@@ -82,8 +76,6 @@ class SettingSearchActivity : BaseActivity() {
             SharedPreferencesUtil.SEARCH_CATEGORY_ARTICLE_SHOW, searchArticle.isChecked)
         SharedPreferencesUtil.putBoolean(
             SharedPreferencesUtil.SEARCH_CATEGORY_USER_SHOW, searchUser.isChecked)
-        SharedPreferencesUtil.putBoolean(
-            SharedPreferencesUtil.SEARCH_CATEGORY_AUDIO_SHOW, searchAudio.isChecked)
         SharedPreferencesUtil.putBoolean(
             SharedPreferencesUtil.SEARCH_CATEGORY_LIVE_SHOW, searchLive.isChecked)
     }

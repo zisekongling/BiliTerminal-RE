@@ -75,6 +75,34 @@
         android:clipChildren="false"
         android:clipToPadding="false">
 
+        <LinearLayout
+            android:id="@+id/swipe_seek_overlay"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_above="@id/bottom_control"
+            android:layout_centerHorizontal="true"
+            android:layout_marginBottom="6dp"
+            android:background="@drawable/background_grey_cardview"
+            android:gravity="center"
+            android:orientation="horizontal"
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="8dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/swipe_seek_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:shadowColor="@color/bgblack"
+                android:shadowDx="1.0"
+                android:shadowDy="1.0"
+                android:shadowRadius="2.0"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                tools:text="01:23 / 05:00 (27%)" />
+        </LinearLayout>
+
         <TextView
             android:id="@+id/text_subtitle"
             android:layout_width="wrap_content"

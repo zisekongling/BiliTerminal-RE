@@ -32,7 +32,7 @@ public class LoginApi {
     private static final String TV_APP_KEY = "4409e2ce8ffd12b8";
     private static final String TV_APP_SEC = "59b43e04ad6965f34319062b478f83dd";
 
-    private static String tvSign(Map<String, String> params) {
+    static String tvSign(Map<String, String> params) {
         TreeMap<String, String> sorted = new TreeMap<>(params);
         sorted.put("appkey", TV_APP_KEY);
         sorted.put("ts", String.valueOf(System.currentTimeMillis() / 1000));

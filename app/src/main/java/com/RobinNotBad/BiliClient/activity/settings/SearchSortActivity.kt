@@ -25,12 +25,11 @@ class SearchSortActivity : BaseActivity() {
     private val displayKeyMap: MutableMap<String, String> = HashMap()
 
     companion object {
-        val defaultOrder = arrayOf("video", "article", "user", "audio", "live")
+        val defaultOrder = arrayOf("video", "article", "user", "live")
         val categoryNames = mapOf(
             "video" to "视频",
             "article" to "专栏",
             "user" to "用户",
-            "audio" to "音频",
             "live" to "直播"
         )
     }

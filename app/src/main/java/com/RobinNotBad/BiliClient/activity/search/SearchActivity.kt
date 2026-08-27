@@ -69,7 +69,7 @@ class SearchActivity : InstanceActivity() {
     private lateinit var categoryList: ArrayList<String>
 
     // 默认搜索类别顺序
-    private val defaultCategoryOrder = arrayOf("video", "article", "user", "audio", "live")
+    private val defaultCategoryOrder = arrayOf("video", "article", "user", "live")
 
     var specialList = arrayOf("心理疾病", "自杀", "自尽", "自残", "抑郁", "双相", "安眠药")
     var specialNamesList = arrayOf("严炜", "陈学峰", "徐波", "易德元", "舒微函", "张自东", "杨国明", "张俊胜")
@@ -147,7 +147,7 @@ class SearchActivity : InstanceActivity() {
                 }
             }
             viewPager.adapter = vpfAdapter
-            // 标题随类别页变化：搜索-视频 / 搜索-专栏 / 搜索-用户 / 搜索-音频 / 搜索-直播
+            // 标题随类别页变化：搜索-视频 / 搜索-专栏 / 搜索-用户 / 搜索-直播
             updatePageName(viewPager.currentItem)
 
             viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
@@ -287,7 +287,7 @@ class SearchActivity : InstanceActivity() {
     }
 
     /**
-     * 标题随搜索类别页变化（搜索-视频 / 搜索-专栏 / 搜索-用户 / 搜索-音频 / 搜索-直播）。
+     * 标题随搜索类别页变化（搜索-视频 / 搜索-专栏 / 搜索-用户 / 搜索-直播）。
      * 仅修改标题文字，不影响标题栏点击（菜单/返回详情）与长按搜索按钮等隐藏功能
      */
     private fun updatePageName(position: Int) {
@@ -296,7 +296,6 @@ class SearchActivity : InstanceActivity() {
             "video" -> "视频"
             "article" -> "专栏"
             "user" -> "用户"
-            "audio" -> "音频"
             "live" -> "直播"
             else -> categoryList[position]
         }
@@ -345,7 +344,6 @@ class SearchActivity : InstanceActivity() {
             "video" -> true  // 视频始终启用
             "article" -> SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.SEARCH_CATEGORY_ARTICLE_SHOW, true)
             "user" -> SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.SEARCH_CATEGORY_USER_SHOW, true)
-            "audio" -> SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.SEARCH_CATEGORY_AUDIO_SHOW, true)
             "live" -> SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.SEARCH_CATEGORY_LIVE_SHOW, true)
             else -> false
         }
@@ -359,7 +357,6 @@ class SearchActivity : InstanceActivity() {
             "video" -> SearchVideoFragment.newInstance()
             "article" -> SearchArticleFragment.newInstance()
             "user" -> SearchUserFragment.newInstance()
-            "audio" -> SearchAudioFragment.newInstance()
             "live" -> SearchLiveFragment.newInstance()
             else -> SearchVideoFragment.newInstance()
         }

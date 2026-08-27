@@ -68,6 +68,7 @@ import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.ToolsUtil
@@ -219,6 +220,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var video_origY: Float = 0f
     private var timestamp_click: Long = 0
     private var onLongClick: Boolean = false
+
+    // 左右滑动控制进度
+    private var swipeSeekEnabled: Boolean = false
+    private var swipeSeekActive: Boolean = false
+    private var swipeSeekStartX: Float = 0f
+    private var swipeSeekStartPos: Long = 0L
+    private var swipeSeekTarget: Long = 0L
+    private val swipeSeekThreshold = 24f
+    private lateinit var swipe_seek_overlay: View
+    private lateinit var swipe_seek_text: TextView
 
     private val speed_values = floatArrayOf(0.5F, 0.75F, 1.0F, 1.25F, 1.5F, 1.75F, 2.0F, 3.0F)
     private val speed_strs = arrayOf("x 0.5", "x 0.75", "x 1.0", "x 1.25", "x 1.5", "x 1.75", "x 2.0", "x 3.0")
@@ -495,6 +506,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         btn_quality = findViewById(R.id.button_quality)
         btn_viewpoint = findViewById(R.id.viewpoint_btn)
         seekbar_progress = findViewById(R.id.videoprogress)
+        swipe_seek_overlay = findViewById(R.id.swipe_seek_overlay)
+        swipe_seek_text = findViewById(R.id.swipe_seek_text)
         loading_text0 = findViewById(R.id.loading_text0)
         loading_text1 = findViewById(R.id.loading_text1)
         text_title = findViewById(R.id.text_title)
@@ -521,6 +534,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun setVideoGestures() {
         val doubleTapSeekEnabled = SharedPreferencesUtil.getBoolean("player_doubletap_seek", false)
         val doubleTapSeekSeconds = SharedPreferencesUtil.getInt("player_doubletap_seek_seconds", 10)
+        swipeSeekEnabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SWIPE_SEEK, false)
 
         if (doubleTapSeekEnabled) {
             doubleTapGestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
@@ -582,7 +596,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                         if (singleTouch) {
                             if (gesture_scaling) {
                                 videoMoveBy(0f, 0f)
-                            } else if (!(gesture_scaled && !doublemove_enabled)) {
+                            } else if (!handleSwipeSeekTouch(event) && !(gesture_scaled && !doublemove_enabled)) {
                                 val currentX = event.getX(0)
                                 val currentY = event.getY(0)
                                 val deltaX = currentX - previousX
@@ -610,6 +624,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                         if (singleTouch) {
                             previousX = event.getX(0)
                             previousY = event.getY(0)
+                            handleSwipeSeekTouch(event)
                         }
                     }
                     MotionEvent.ACTION_POINTER_DOWN -> {
@@ -626,6 +641,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                         }
                     }
                     MotionEvent.ACTION_UP -> {
+                        handleSwipeSeekTouch(event)
                         if (onLongClick) {
                             onLongClick = false
                             val normalSpeed = speed_values[seekbar_speed.progress]
@@ -650,6 +666,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 if (doubleTapSeekEnabled && doubleTapGestureDetector != null) {
                     doubleTapGestureDetector!!.onTouchEvent(motionEvent)
                 }
+                handleSwipeSeekTouch(motionEvent)
                 if (motionEvent.action == MotionEvent.ACTION_UP && onLongClick) {
                     onLongClick = false
                     val normalSpeed = speed_values[seekbar_speed.progress]
@@ -1882,6 +1899,68 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 try { audioPlayer!!.seekTo(position.toInt()) } catch (_: Exception) {}
             }
         }
+    }
+
+    /**
+     * 左右滑动控制进度（横向滑动快进/快退）。返回 true 表示事件已被滑动进度消费。
+     * 仅在开启设置、未缩放视频、非直播且已准备就绪时生效。
+     */
+    private fun handleSwipeSeekTouch(event: MotionEvent): Boolean {
+        if (!swipeSeekEnabled || !isPrepared || isLiveMode || ijkPlayer == null) return false
+        if (gesture_scaled) return false   // 已缩放视频时保留单指拖动
+        if (event.pointerCount != 1) return false
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                swipeSeekStartX = event.x
+                swipeSeekActive = false
+                swipeSeekStartPos = ijkPlayer!!.currentPosition
+                return false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val deltaX = event.x - swipeSeekStartX
+                if (!swipeSeekActive && abs(deltaX) > swipeSeekThreshold) {
+                    swipeSeekActive = true
+                    swipeSeekStartPos = ijkPlayer!!.currentPosition
+                    gesture_click_disabled = true
+                    hidecon.run()
+                    swipe_seek_overlay.visibility = View.VISIBLE
+                }
+                if (swipeSeekActive) {
+                    val width = layout_control.width.toFloat().coerceAtLeast(1f)
+                    val duration = ijkPlayer!!.duration
+                    var target = swipeSeekStartPos + (deltaX / width * duration).toLong()
+                    if (target < 0) target = 0
+                    if (duration > 0 && target > duration) target = duration
+                    swipeSeekTarget = target
+                    seekbar_progress.progress = target.toInt()
+                    updateSwipeSeekOverlay(target, duration)
+                    return true
+                }
+                return false
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (swipeSeekActive) {
+                    swipeSeekActive = false
+                    swipe_seek_overlay.visibility = View.GONE
+                    if (isPrepared && ijkPlayer != null) {
+                        seekToPosition(swipeSeekTarget)
+                    }
+                    autohideReset()
+                    return true
+                }
+                return false
+            }
+        }
+        return false
+    }
+
+    @SuppressLint("SetTextI18n")
+    private fun updateSwipeSeekOverlay(targetMs: Long, durationMs: Long) {
+        val currentStr = StringUtil.toTime((targetMs / 1000).toInt())
+        val totalStr = if (durationMs > 0) StringUtil.toTime((durationMs / 1000).toInt()) else "--:--"
+        val percent = if (durationMs > 0) (targetMs * 100 / durationMs).toInt() else 0
+        swipe_seek_text.text = "$currentStr / $totalStr ($percent%)"
     }
 
     /**

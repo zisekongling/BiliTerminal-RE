@@ -14,6 +14,8 @@ import com.RobinNotBad.BiliClient.adapter.viewpager.ViewPagerFragmentAdapter
 import com.RobinNotBad.BiliClient.event.ReplyEvent
 import com.RobinNotBad.BiliClient.helper.TutorialHelper
 import com.RobinNotBad.BiliClient.model.Opus
+import com.RobinNotBad.BiliClient.model.Stats
+import com.RobinNotBad.BiliClient.model.UserInfo
 import com.RobinNotBad.BiliClient.util.AnimationUtils
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
@@ -53,9 +55,14 @@ class OpusInfoActivity : BaseActivity() {
                         return@onSuccess
                     }
 
+                    // 防御：抓取/解析失败时 opus.stats / opus.upInfo 可能为 null，避免 NPE 崩溃
+                    if (opus.stats == null) opus.stats = Stats()
+                    if (opus.upInfo == null) opus.upInfo = UserInfo()
+
                     val fragmentList = ArrayList<androidx.fragment.app.Fragment>()
 
                     val oiFragment = OpusInfoFragment.newInstance(oid)
+                    oiFragment.opus = opus
                     fragmentList.add(oiFragment)
 
                     replyFragment = ReplyFragment.newInstance(opus.commentId, opus.commentType, opus.stats.reply, seek_reply, opus.upInfo.mid)

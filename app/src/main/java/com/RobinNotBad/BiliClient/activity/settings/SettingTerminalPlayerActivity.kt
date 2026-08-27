@@ -17,6 +17,7 @@ class SettingTerminalPlayerActivity : RefreshListActivity() {
         val sectionList: List<SettingSection> = ArrayList<SettingSection>().apply {
             add(SettingSection("switch", "长按倍速", SettingsKeys.PLAYER_LONGCLICK, "", "true"))
             add(SettingSection("switch", "双击快进快退", SettingsKeys.PLAYER_DOUBLETAP_SEEK, "", "false"))
+            add(SettingSection("switch", "左右滑动控制进度", SettingsKeys.PLAYER_SWIPE_SEEK, "在视频区域左右滑动快进/快退（未缩放视频时生效）", "false"))
             add(SettingSection("switch", "双击优先还原屏幕", SettingsKeys.PLAYER_DOUBLETAP_RESTORE_SCREEN, "双击时若处于横屏则优先退出全屏，而不是暂停", "false"))
             add(SettingSection("input_int", "快进快退秒数", SettingsKeys.PLAYER_DOUBLETAP_SEEK_SECONDS, "", "10"))
             add(SettingSection("switch", "洗脑循环", SettingsKeys.PLAYER_LOOP, "", "false"))

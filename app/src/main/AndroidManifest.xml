@@ -104,6 +104,11 @@
             android:label="捐赠列表"
             android:screenOrientation="locked" />
         <activity
+            android:name=".activity.settings.UpdateHistoryActivity"
+            android:exported="true"
+            android:label="历史更新日志"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.CatchActivity"
             android:exported="false"
             android:label="崩溃捕捉"
@@ -395,21 +400,6 @@
             android:name=".activity.user.MySpaceActivity"
             android:exported="false"
             android:label="我的"
-            android:screenOrientation="locked" />
-        <activity
-            android:name=".activity.audio.AudioPlayerActivity"
-            android:exported="false"
-            android:label="音频播放"
-            android:screenOrientation="locked" />
-        <activity
-            android:name=".activity.audio.PlaylistActivity"
-            android:exported="false"
-            android:label="我的歌单"
-            android:screenOrientation="locked" />
-        <activity
-            android:name=".activity.audio.PlaylistDetailActivity"
-            android:exported="false"
-            android:label="歌单详情"
             android:screenOrientation="locked" />
         <activity
             android:name=".activity.user.MedalWallActivity"

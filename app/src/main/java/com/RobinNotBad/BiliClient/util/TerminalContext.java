@@ -315,7 +315,7 @@ public class TerminalContext {
     }
 
     public LiveData<Result<Opus>> getOpusById(long id) {
-        String key = ContentType.Dynamic.getTypeCode() + "_" + id;
+        String key = ContentType.Opus.getTypeCode() + "_" + id;
         Object obj = contentLruCache.get(key);
         if (!(obj instanceof Opus)) {
             return CenterThreadPool.supplyAsyncWithLiveData(() -> fetchOpus(id, true).getOrThrow());

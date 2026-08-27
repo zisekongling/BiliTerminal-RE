@@ -16,6 +16,7 @@ import com.RobinNotBad.BiliClient.activity.settings.setup.SetupUIActivity
 import com.RobinNotBad.BiliClient.activity.video.RecommendActivity
 import com.RobinNotBad.BiliClient.activity.video.local.LocalListActivity
 import com.RobinNotBad.BiliClient.api.AppInfoApi
+import com.RobinNotBad.BiliClient.api.AppTokenRefreshApi
 import com.RobinNotBad.BiliClient.api.CookieRefreshApi
 import com.RobinNotBad.BiliClient.api.CookiesApi
 import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
@@ -182,10 +183,20 @@ class SplashActivity : Activity() {
 
                     if (SharedPreferencesUtil.getLong("mid", 0) != 0L) {
                         CenterThreadPool.run {
-                            try {
-                                checkCookieRefresh()
-                            } catch (e: Exception) {
-                                Log.e("Splash", "Cookie刷新失败: ${e.message}")
+                            // 按凭证类型分流：TV/APP 登录（有 access_key）走统一的 APP token 刷新，
+                            // 该接口会同时刷新 access_token 与 cookies；Web 登录走 web cookie 刷新。
+                            if (SharedPreferencesUtil.getString(SharedPreferencesUtil.access_key, "").isNotEmpty()) {
+                                try {
+                                    AppTokenRefreshApi.refreshAppToken()
+                                } catch (e: Exception) {
+                                    Log.e("Splash", "APP token刷新失败: ${e.message}")
+                                }
+                            } else {
+                                try {
+                                    checkCookieRefresh()
+                                } catch (e: Exception) {
+                                    Log.e("Splash", "Cookie刷新失败: ${e.message}")
+                                }
                             }
                             try {
                                 CookiesApi.checkCookies()

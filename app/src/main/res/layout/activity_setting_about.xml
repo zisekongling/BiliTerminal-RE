@@ -761,12 +761,13 @@
                         android:layout_gravity="center" />
 
                     <TextView
+                        android:id="@+id/current_update_title"
                         android:layout_height="wrap_content"
-                        android:layout_width="match_parent"
-                        android:gravity="center"
-                        android:textSize="11sp"
-                        android:layout_marginTop="2dp"
-                        android:text="@string/update_tip"
+                        android:layout_width="wrap_content"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:text="本次更新"
+                        android:layout_marginTop="6dp"
                         android:layout_gravity="center" />
 
                     <TextView
@@ -778,6 +779,23 @@
                         android:layout_marginBottom="2dp"
                         android:layout_gravity="center" />
                 </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/history_log_entry"
+                android:layout_marginTop="4dp"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="35sp"
+                    android:layout_marginHorizontal="8dp"
+                    android:gravity="center_vertical"
+                    android:text="历史更新日志"
+                    android:textAlignment="textStart"
+                    android:textSize="13sp"
+                    app:drawableEndCompat="@drawable/arrow_forward" />
             </com.google.android.material.card.MaterialCardView>
 
             <com.google.android.material.card.MaterialCardView

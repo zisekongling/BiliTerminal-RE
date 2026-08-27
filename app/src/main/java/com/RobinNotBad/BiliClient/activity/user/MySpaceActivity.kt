@@ -11,7 +11,6 @@ import android.widget.TextView
 
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.InstanceActivity
-import com.RobinNotBad.BiliClient.activity.audio.PlaylistActivity
 import com.RobinNotBad.BiliClient.activity.settings.login.LoginActivity
 import com.RobinNotBad.BiliClient.activity.user.favorite.FavoriteFolderListActivity
 import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
@@ -97,7 +96,6 @@ class MySpaceActivity : InstanceActivity() {
         items += MySpaceItem(R.drawable.icon_play_12, "稍后再看") { startActivity(Intent(this, WatchLaterActivity::class.java)) }
         items += MySpaceItem(R.drawable.icon_star, "收藏") { startActivity(Intent(this, FavoriteFolderListActivity::class.java)) }
         items += MySpaceItem(R.drawable.icon_bangumi, "追番列表") { startActivity(Intent(this, FollowingBangumisActivity::class.java)) }
-        items += MySpaceItem(R.drawable.icon_player, "我的歌单") { startActivity(Intent(this, PlaylistActivity::class.java)) }
         items += MySpaceItem(R.drawable.icon_history, "历史记录") { startActivity(Intent(this, HistoryActivity::class.java)) }
         if (SharedPreferencesUtil.getBoolean("creative_enable", true)) {
             items += MySpaceItem(R.drawable.icon_creative_center, "创作中心") { startActivity(Intent(this, CreativeCenterActivity::class.java)) }

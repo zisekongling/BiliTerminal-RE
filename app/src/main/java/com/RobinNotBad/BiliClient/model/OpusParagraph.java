@@ -227,7 +227,9 @@ public class OpusParagraph {
 
     public String[] analyzeDivider(JSONObject allJson) throws JSONException {
         if (allJson == null) return new String[0];
-        String url = allJson.getJSONObject("pic").optString("url");
+        JSONObject pic = allJson.optJSONObject("pic");   // line.pic 可能为 null（分隔线无图），此时返回空数组，避免中断整篇解析
+        if (pic == null) return new String[0];
+        String url = pic.optString("url");
         return new String[]{url.startsWith("http") ? url : "http:" + url};
     }
 

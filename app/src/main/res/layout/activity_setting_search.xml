@@ -91,19 +91,6 @@
                     android:text="显示“用户”搜索" />
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 音频搜索 -->
-            <com.google.android.material.card.MaterialCardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <com.google.android.material.switchmaterial.SwitchMaterial
-                    android:id="@+id/search_audio"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="#00000000"
-                    android:text="显示“音频”搜索" />
-            </com.google.android.material.card.MaterialCardView>
-
             <!-- 直播搜索 -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"

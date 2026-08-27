@@ -68,6 +68,7 @@ object SettingsKeys {
 
     const val PLAYER_LONGCLICK = "player_longclick"
     const val PLAYER_DOUBLETAP_SEEK = "player_doubletap_seek"
+    const val PLAYER_SWIPE_SEEK = "player_swipe_seek"
     const val PLAYER_DOUBLETAP_RESTORE_SCREEN = "player_doubletap_restore_screen"
     const val PLAYER_DOUBLETAP_SEEK_SECONDS = "player_doubletap_seek_seconds"
     const val PLAYER_LOOP = "player_loop"

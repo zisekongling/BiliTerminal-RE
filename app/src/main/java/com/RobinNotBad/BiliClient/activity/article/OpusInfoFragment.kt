@@ -64,21 +64,34 @@ class OpusInfoFragment : Fragment() {
             recyclerView.setPadding(paddings, 0, paddings, 0)
         }
 
+        // 优先使用 Activity 已加载并传入的 opus，避免二次网络请求导致的数据不一致/竞态
+        if (opus != null) {
+            bindOpus(opus!!)
+            return
+        }
+
         TerminalContext.getInstance().getOpusById(oid)
             .observe(viewLifecycleOwner) { result ->
                 result.onSuccess { opus ->
                     if (!isAdded) return@onSuccess
-                    val adapter = OpusContentAdapter(requireActivity(), opus)
-                    requireActivity().runOnUiThread {
-                        recyclerView.layoutManager = CustomLinearManager(requireContext())
-                        recyclerView.adapter = adapter
-
-                        recyclerView.isFocusable = true
-                        recyclerView.isFocusableInTouchMode = true
-                        recyclerView.requestFocus()
-                    }
-                }.onFailure { MsgUtil.err(it) }
+                    android.util.Log.e("debug-正文", "onSuccess: oid=$oid paragraphs=${opus.paragraphs?.size ?: -1} title=${opus.title} type=${opus.type}")
+                    bindOpus(opus)
+                }.onFailure { android.util.Log.e("debug-正文", "onFailure: ${it.message}"); MsgUtil.err(it) }
             }
 
+    }
+
+    private fun bindOpus(opus: Opus) {
+        if (!isAdded) return
+        android.util.Log.e("debug-正文", "bindOpus: paragraphs=${opus.paragraphs?.size ?: -1} title=${opus.title} type=${opus.type}")
+        val adapter = OpusContentAdapter(requireActivity(), opus)
+        requireActivity().runOnUiThread {
+            recyclerView.layoutManager = CustomLinearManager(requireContext())
+            recyclerView.adapter = adapter
+
+            recyclerView.isFocusable = true
+            recyclerView.isFocusableInTouchMode = true
+            recyclerView.requestFocus()
+        }
     }
 }

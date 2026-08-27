@@ -223,6 +223,23 @@ public class NetWorkUtil {
         return get(url, webHeaders);
     }
 
+    /**
+     * 抓取 HTML 页面（如 Opus/专栏详情页）。
+     * HTML 响应本就以 {@code <!doctype html>} 开头，不能走 {@link #executeWithDoctypeRetry}
+     * （它会把合法的 DOCTYPE 页面误判为风控拦截并丢弃，导致整篇文章加载失败），
+     * 因此这里直接执行请求，不做 doctype 重试。
+     */
+    public static Response getHtml(String url) throws IOException {
+        Logu.d("get-url", url);
+        OkHttpClient client = getOkHttpInstance();
+        Request.Builder requestBuilder = new Request.Builder().url(url).get();
+        for (int i = 0; i < webHeaders.size(); i += 2)
+            requestBuilder.addHeader(webHeaders.get(i), webHeaders.get(i + 1));
+        Response response = client.newCall(requestBuilder.build()).execute();
+        saveCookiesFromResponse(response);
+        return response;
+    }
+
     public static Response get(String url, ArrayList<String> headers) throws IOException {
         return get(url, headers, null);
     }
@@ -236,21 +253,6 @@ public class NetWorkUtil {
         if (redirectHandler != null) requestBuilder.tag(RedirectHandler.class, redirectHandler);
         Request request = requestBuilder.build();
         return executeWithDoctypeRetry(client, request);
-    }
-
-    /**
-     * 获取 CDN 资源（如 app 端音频流链接）。
-     *
-     * B 站音频 CDN（upos-*.bilivideo.com）防盗链规则与链接里的 platform 参数绑定：
-     * platform=android 的链接必须【不带】Referer，否则返回 403；只带非空 User-Agent 即可。
-     * 而 webHeaders 默认带 Referer（供 api.bilibili.com 接口使用），因此下载音频流时
-     * 不能直接复用 get(url)，必须走本方法。
-     */
-    public static Response getNoReferer(String url) throws IOException {
-        ArrayList<String> headers = new ArrayList<>();
-        headers.add("User-Agent");
-        headers.add(USER_AGENT_WEB);
-        return get(url, headers);
     }
 
     private static Response executeWithDoctypeRetry(OkHttpClient client, Request request) throws IOException {

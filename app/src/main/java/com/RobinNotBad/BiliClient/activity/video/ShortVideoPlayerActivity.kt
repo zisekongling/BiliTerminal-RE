@@ -43,12 +43,16 @@ import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.VideoPreloadManager
 import com.RobinNotBad.BiliClient.helper.TutorialHelper
 import com.RobinNotBad.BiliClient.player.DanmakuManager
+import com.RobinNotBad.BiliClient.player.IjkOption
+import com.RobinNotBad.BiliClient.player.IjkPlayerBridge
 import com.bumptech.glide.Glide
 import master.flame.danmaku.ui.widget.DanmakuView
-import tv.danmaku.ijk.media.player.IMediaPlayer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import tv.danmaku.ijk.media.player.IjkMediaPlayer
-import java.util.Timer
-import java.util.TimerTask
 
 class ShortVideoPlayerActivity : InstanceActivity() {
 
@@ -292,7 +296,14 @@ class ShortVideoPagerAdapter(
         private val buttonDanmaku: ImageButton = itemView.findViewById(R.id.button_danmaku)
         private val showSound: TextView = itemView.findViewById(R.id.showsound)
 
-        private var ijkPlayer: IjkMediaPlayer? = null
+        private val playerBridge = IjkPlayerBridge(onError = { what, _ ->
+            Logu.e("ShortVideo", "Player error: $what")
+            mainHandler.post { bufferingIndicator.visibility = View.GONE }
+            MsgUtil.showMsg("播放错误")
+        })
+        private val playerScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+        private var stateJob: Job? = null
+        private var playerReady = false
         private var textureView: TextureView? = null
         private var danmakuView: DanmakuView? = null
         private var danmakuManager: DanmakuManager? = null
@@ -325,7 +336,6 @@ class ShortVideoPagerAdapter(
 
         private val mainHandler = Handler(Looper.getMainLooper())
         private var hideBottomRunnable: Runnable? = null
-        private var progressTimer: Timer? = null
         private var hideVolumeRunnable: Runnable? = null
 
         private var gestureDetector: GestureDetector? = null
@@ -449,7 +459,7 @@ class ShortVideoPagerAdapter(
                     isSeeking = false
                     if (isPrepared) {
                         val seekPos = seekBar.progress.toLong()
-                        ijkPlayer?.seekTo(seekPos)
+                        playerBridge.seekTo(seekPos)
                         danmakuManager?.seekTo(seekPos)
                     }
                 }
@@ -461,7 +471,7 @@ class ShortVideoPagerAdapter(
             currentSpeed = speedOptions[currentSpeedIndex]
             buttonSpeed.text = "${currentSpeed}x"
             
-            ijkPlayer?.setSpeed(currentSpeed)
+            playerBridge.setSpeed(currentSpeed)
         }
 
         /**
@@ -479,7 +489,7 @@ class ShortVideoPagerAdapter(
         }
 
         private fun togglePlayPause() {
-            if (ijkPlayer?.isPlaying == true) {
+            if (playerBridge.isPlaying) {
                 pause()
             } else {
                 resume()
@@ -491,7 +501,7 @@ class ShortVideoPagerAdapter(
                 pause()
             } else {
                 if (videoNow >= videoAll - 250) {
-                    ijkPlayer?.seekTo(0)
+                    playerBridge.seekTo(0)
                 }
                 resume()
             }
@@ -588,47 +598,12 @@ class ShortVideoPagerAdapter(
         }
 
         private fun initPlayer(item: ShortVideoItem, screenW: Int, screenH: Int) {
-            if (ijkPlayer != null) return
+            if (playerReady) return
 
             bufferingIndicator.visibility = View.VISIBLE
 
             try {
-                IjkMediaPlayer.loadLibrariesOnce(null)
-                ijkPlayer = IjkMediaPlayer()
-
-                // 优化播放器选项：加速加载、减少缓冲延迟
-                ijkPlayer?.apply {
-                    // 硬件解码
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 1)
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-all-videos", 1)
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 1)
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1)
-                    // 禁用OpenSL ES（避免音频兼容问题）
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "opensles", 0)
-                    // 跳帧策略：适度跳帧保证流畅
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 5)
-                    // 关键：移除 start-on-prepared，改为手动控制播放，防止弱网下自动播放
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 0)
-                    // 快速打开：减少分析时间
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "analyzeduration", 1)
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "probesize", 1024)
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "fflags", "fastseek")
-                    // 网络优化
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "reconnect", 1)
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "timeout", 10 * 1000 * 1000)
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "addrinfo_timeout", 5 * 1000 * 1000)
-                    // 缓冲策略：小缓冲快速启动，大缓冲防卡顿
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "packet-buffering", 0)
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-buffer-size", 8 * 1024 * 1024)
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "min-frames", 5)
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max_cached_duration", 3000)
-                    // 无限缓冲
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "infbuf", 1)
-                    // UA
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "user_agent", NetWorkUtil.USER_AGENT_WEB)
-                    // 跳过环路滤波加速解码
-                    setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", 48)
-                }
+                playerBridge.createPlayer(activity, shortVideoOptions)
 
                 textureView = TextureView(activity).apply {
                     layoutParams = FrameLayout.LayoutParams(
@@ -641,12 +616,12 @@ class ShortVideoPagerAdapter(
                         override fun onSurfaceTextureAvailable(
                             st: SurfaceTexture, w: Int, h: Int
                         ) {
-                            ijkPlayer?.setSurface(Surface(st))
+                            playerBridge.setSurface(Surface(st))
                         }
 
                         override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
                         override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
-                            ijkPlayer?.setSurface(null)
+                            playerBridge.setSurface(null)
                             return true
                         }
 
@@ -659,15 +634,16 @@ class ShortVideoPagerAdapter(
                 // 初始化弹幕视图
                 danmakuView = itemView.findViewById(R.id.danmakuView)
                 danmakuManager = DanmakuManager(danmakuView!!) {
-                    ijkPlayer?.currentPosition ?: 0L
+                    playerBridge.currentPosition
                 }
                 danmakuManager?.init()
 
-                ijkPlayer?.setOnPreparedListener {
+                playerBridge.setOnPrepared {
                     isPrepared = true
-                    videoWidth = it.videoWidth
-                    videoHeight = it.videoHeight
-                    videoAll = it.duration.toInt()
+                    val st = playerBridge.state.value
+                    videoWidth = st.videoWidth
+                    videoHeight = st.videoHeight
+                    videoAll = st.duration.toInt()
                     progressStr = StringUtil.toTime(videoAll / 1000)
                     videoProgress.max = videoAll
 
@@ -676,11 +652,11 @@ class ShortVideoPagerAdapter(
                     playIcon.visibility = View.GONE
 
                     adjustVideoSize(screenW, screenH)
-                    ijkPlayer?.setSpeed(currentSpeed)
+                    playerBridge.setSpeed(currentSpeed)
 
                     // 只有当前页面活跃时才自动播放，防止弱网延迟准备导致两个视频同时播放
                     if (isActive) {
-                        ijkPlayer?.start()
+                        playerBridge.start()
                         isPlaying = true
                         buttonVideo.setImageResource(R.drawable.btn_player_pause)
                         danmakuManager?.resume()
@@ -691,44 +667,30 @@ class ShortVideoPagerAdapter(
                         playIcon.visibility = View.VISIBLE
                     }
 
-                    startProgressTimer()
+                    startStateCollection()
                     // 异步加载弹幕
                     loadDanmaku(item)
                 }
 
-                ijkPlayer?.setOnErrorListener { _, what, _ ->
-                    Logu.e("ShortVideo", "Player error: $what")
-                    bufferingIndicator.visibility = View.GONE
-                    MsgUtil.showMsg("播放错误")
-                    false
-                }
-
-                ijkPlayer?.setOnInfoListener { _, what, _ ->
-                    if (what == IMediaPlayer.MEDIA_INFO_BUFFERING_START) {
-                        mainHandler.post { bufferingIndicator.visibility = View.VISIBLE }
-                    } else if (what == IMediaPlayer.MEDIA_INFO_BUFFERING_END) {
-                        mainHandler.post { bufferingIndicator.visibility = View.GONE }
-                    }
-                    false
-                }
-
-                ijkPlayer?.setOnCompletionListener {
+                playerBridge.setOnCompletion {
                     // 循环播放
-                    it.seekTo(0)
+                    playerBridge.seekTo(0)
                     danmakuManager?.seekTo(0)
                     if (isActive) {
-                        it.start()
+                        playerBridge.start()
                         danmakuManager?.resume()
                     }
                 }
 
-                ijkPlayer?.setScreenOnWhilePlaying(true)
+                playerBridge.setScreenOnWhilePlaying(true)
 
                 val headers = HashMap<String, String>()
                 headers["Referer"] = "https://www.bilibili.com/"
                 headers["Cookie"] = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "")
-                ijkPlayer?.setDataSource(item.videoUrl, headers)
-                ijkPlayer?.prepareAsync()
+                playerBridge.setDataSource(item.videoUrl, headers)
+                playerBridge.prepareAsync()
+
+                playerReady = true
 
             } catch (e: Exception) {
                 Logu.e("ShortVideo", "Player init error: ${e.message}")
@@ -767,23 +729,27 @@ class ShortVideoPagerAdapter(
             }
         }
 
-        private fun startProgressTimer() {
-            progressTimer?.cancel()
-            progressTimer = Timer()
-            progressTimer?.schedule(object : TimerTask() {
-                override fun run() {
-                    if (isPrepared && isPlaying && !isSeeking && ijkPlayer != null) {
-                        videoNow = ijkPlayer!!.currentPosition.toInt()
-                        if (videoNowLast != videoNow) {
-                            videoNowLast = videoNow
-                            mainHandler.post {
-                                videoProgress.progress = videoNow
-                                textProgress.text = StringUtil.toTime(videoNow / 1000) + "/" + progressStr
-                            }
+        private fun startStateCollection() {
+            stateJob?.cancel()
+            stateJob = playerScope.launch {
+                playerBridge.state.collect { st ->
+                    // 播放准备就绪后，用桥接层的缓冲/播放状态驱动缓冲指示器
+                    if (st.isPrepared) {
+                        bufferingIndicator.visibility =
+                            if (st.isBuffering && !st.isPlaying) View.VISIBLE else View.GONE
+                    }
+                    // 进度更新（替代原来的 Timer 轮询）
+                    if (isPrepared && isPlaying && !isSeeking) {
+                        val pos = st.currentPosition.toInt()
+                        if (pos != videoNowLast) {
+                            videoNowLast = pos
+                            videoNow = pos
+                            videoProgress.progress = pos
+                            textProgress.text = StringUtil.toTime(pos / 1000) + "/" + progressStr
                         }
                     }
                 }
-            }, 0, 250)
+            }
         }
 
         private fun adjustVideoSize(screenW: Int, screenH: Int) {
@@ -807,7 +773,7 @@ class ShortVideoPagerAdapter(
         }
 
         fun play() {
-            ijkPlayer?.start()
+            playerBridge.start()
             isPlaying = true
             buttonVideo.setImageResource(R.drawable.btn_player_pause)
             playIcon.visibility = View.GONE
@@ -816,7 +782,7 @@ class ShortVideoPagerAdapter(
 
         fun pause() {
             try {
-                ijkPlayer?.pause()
+                playerBridge.pause()
             } catch (e: Exception) {
                 Logu.e("ShortVideo", "暂停播放器异常: ${e.message}")
             }
@@ -836,7 +802,7 @@ class ShortVideoPagerAdapter(
 
         fun resume() {
             if (isPrepared) {
-                ijkPlayer?.start()
+                playerBridge.start()
                 isPlaying = true
                 buttonVideo.setImageResource(R.drawable.btn_player_pause)
                 playIcon.visibility = View.GONE
@@ -851,7 +817,7 @@ class ShortVideoPagerAdapter(
             isActive = active
             if (active) {
                 if (isPrepared && !isPlaying) {
-                    ijkPlayer?.start()
+                    playerBridge.start()
                     isPlaying = true
                     buttonVideo.setImageResource(R.drawable.btn_player_pause)
                     playIcon.visibility = View.GONE
@@ -859,7 +825,7 @@ class ShortVideoPagerAdapter(
                 }
             } else {
                 if (isPlaying) {
-                    ijkPlayer?.pause()
+                    playerBridge.pause()
                     isPlaying = false
                     buttonVideo.setImageResource(R.drawable.btn_player_play)
                     playIcon.visibility = View.VISIBLE
@@ -873,9 +839,9 @@ class ShortVideoPagerAdapter(
         }
 
         fun releasePlayer() {
-            progressTimer?.cancel()
-            progressTimer = null
-            
+            stateJob?.cancel()
+            stateJob = null
+
             try {
                 danmakuManager?.release()
             } catch (e: Exception) {
@@ -885,15 +851,11 @@ class ShortVideoPagerAdapter(
             danmakuView = null
 
             try {
-                ijkPlayer?.apply {
-                    if (isPlaying) pause()
-                    stop()
-                    release()
-                }
+                playerBridge.release()
             } catch (e: Exception) {
                 Logu.e("ShortVideo", "释放播放器异常: ${e.message}")
             }
-            ijkPlayer = null
+            playerReady = false
             textureView = null
             isPrepared = false
             isPlaying = false
@@ -917,5 +879,29 @@ class ShortVideoPagerAdapter(
 
     companion object {
         private const val TAG = "ShortVideoAdapter"
+
+        // 短视频专属播放器选项：加速加载、减少缓冲延迟（与迁移前 setOption 块保持一致）
+        private val shortVideoOptions = listOf(
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 1),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-all-videos", 1),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 1),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "opensles", 0),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 5),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 0),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "analyzeduration", 1),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "probesize", 1024),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "fflags", "fastseek"),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "reconnect", 1),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "timeout", 10L * 1000 * 1000),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "addrinfo_timeout", 5L * 1000 * 1000),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "packet-buffering", 0),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-buffer-size", 8 * 1024 * 1024),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "min-frames", 5),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max_cached_duration", 3000),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "infbuf", 1),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "user_agent", NetWorkUtil.USER_AGENT_WEB),
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", 48)
+        )
     }
 }

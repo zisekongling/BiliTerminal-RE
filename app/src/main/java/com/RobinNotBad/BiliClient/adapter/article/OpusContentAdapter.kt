@@ -65,21 +65,26 @@ class OpusContentAdapter(
 
     @SuppressLint("SetTextI18n")
     override fun onBindViewHolder(holder: ArticleLineHolder, position: Int) {
-        if (paragraphs == null || position < 0)
+        if (position < 0)
+            return
+        val viewType = getItemViewType(position)
+        val paras = paragraphs
+        val parasSize = paras?.size ?: 0
+        // 仅正文段落（非 head/end）需要做越界检查；head(-1)/end(-2) 必须放行，
+        // 否则 end 的 position=paragraphs.size+1 会被误判越界而跳过，导致底部信息无法渲染
+        if (viewType != -1 && viewType != -2 && (position - 1 < 0 || position - 1 >= parasSize))
             return
         val realPosition = position - 1
-        if (realPosition >= 0 && realPosition >= paragraphs.size)
-            return
 
-        when (getItemViewType(position)) {
+        when (viewType) {
             OpusParagraph.TYPE_PIC, OpusParagraph.TYPE_DIVIDER -> {
-                if (realPosition < 0 || realPosition >= paragraphs.size)
+                if (paras == null || realPosition < 0 || realPosition >= parasSize)
                     return
                 val imageView = holder.itemView.findViewById<ImageFilterView>(R.id.imageView)
                 val imageCount = holder.itemView.findViewById<TextView>(R.id.imageCount)
 
-                if (paragraphs[realPosition].content is Array<*>) {
-                    val urls = paragraphs[realPosition].content as Array<*>
+                if (paras!![realPosition].content is Array<*>) {
+                    val urls = paras[realPosition].content as Array<*>
                     val length = urls.size
                     if (length > 0 && urls[0] != null) {
                         val imageUrl = GlideUtil.url(urls[0] as String)
@@ -159,8 +164,10 @@ class OpusContentAdapter(
                 } else
                     holder.itemView.findViewById<View>(R.id.topImageLayout).visibility = View.GONE
 
-                upName.text = article.upInfo.name
-                val avatarUrl = GlideUtil.url(article.upInfo.avatar)
+                // 防御：upInfo / avatar / name 可能为 null（抓取残缺），避免 NPE 阻止整个列表渲染
+                val upInfo = article.upInfo
+                upName.text = upInfo?.name ?: ""
+                val avatarUrl = upInfo?.avatar?.let { GlideUtil.url(it) } ?: ""
                 if (avatarUrl != holder.lastAvatarUrl) {
                     holder.lastAvatarUrl = avatarUrl
                     Glide.with(BiliTerminal.context).asDrawable().load(avatarUrl)
@@ -173,7 +180,7 @@ class OpusContentAdapter(
                 upCard.setOnClickListener {
                     val intent = Intent()
                     intent.setClass(context, UserInfoActivity::class.java)
-                    intent.putExtra("mid", article.upInfo.mid)
+                    intent.putExtra("mid", upInfo?.mid ?: 0L)
                     context.startActivity(intent)
                 }
 
@@ -215,6 +222,7 @@ class OpusContentAdapter(
                     if (article.stats.fav_disabled) View.GONE else View.VISIBLE
 
                 like.setOnClickListener {
+                    android.util.Log.e("debug-底部", "点击点赞: commentType=${article.commentType} id=${article.id} liked=${article.stats.liked} mid=${SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0)}")
                     CenterThreadPool.run {
                         try {
                             if (SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) == 0L) {
@@ -226,6 +234,7 @@ class OpusContentAdapter(
                                 ArticleApi.like(article.id, !article.stats.liked)
                             else
                                 OpusApi.likeOpus(article.id, !article.stats.liked)
+                            android.util.Log.e("debug-底部", "点赞接口返回: $result")
                             if (result == 0) {
                                 article.stats.liked = !article.stats.liked
                                 context.runOnUiThread {
@@ -249,6 +258,7 @@ class OpusContentAdapter(
                 }
 
                 coin.setOnClickListener {
+                    android.util.Log.e("debug-底部", "点击投币: id=${article.id} upMid=${article.upInfo?.mid} coined=${article.stats.coined} limit=${article.stats.coin_limit}")
                     CenterThreadPool.run {
                         if (article.stats.coined < article.stats.coin_limit) {
                             try {
@@ -257,6 +267,7 @@ class OpusContentAdapter(
                                     return@run
                                 }
                                 val result = ArticleApi.addCoin(article.id, article.upInfo.mid, 1)
+                                android.util.Log.e("debug-底部", "投币接口返回: $result")
                                 if (result == 0) {
                                     if (++coinAdd <= 2)
                                         article.stats.coined++
@@ -283,6 +294,7 @@ class OpusContentAdapter(
                 }
 
                 fav.setOnClickListener {
+                    android.util.Log.e("debug-底部", "点击收藏: id=${article.id} favoured=${article.stats.favoured} mid=${SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0)}")
                     CenterThreadPool.run {
                         try {
                             if (SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) == 0L) {
@@ -336,10 +348,10 @@ class OpusContentAdapter(
             }
 
             else -> {
-                if (realPosition >= 0 && realPosition < paragraphs.size && paragraphs[realPosition].content != null) {
+                if (paras != null && realPosition >= 0 && realPosition < parasSize && paras[realPosition].content != null) {
                     val textView = holder.itemView.findViewById<TextView>(R.id.textView)
-                    if (paragraphs[realPosition].content is CharSequence) {
-                        textView.text = paragraphs[realPosition].content as CharSequence
+                    if (paras[realPosition].content is CharSequence) {
+                        textView.text = paras[realPosition].content as CharSequence
                         StringUtil.setCopy(textView)
                         StringUtil.setLink(textView)
                     }

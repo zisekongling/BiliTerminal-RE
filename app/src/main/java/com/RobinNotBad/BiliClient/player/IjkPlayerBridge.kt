@@ -13,6 +13,13 @@ import kotlinx.coroutines.flow.update
 import tv.danmaku.ijk.media.player.IMediaPlayer
 import tv.danmaku.ijk.media.player.IjkMediaPlayer
 
+/** IjkMediaPlayer 单条选项，用于自定义播放器参数（category 见 IjkMediaPlayer.OPT_CATEGORY_*）。 */
+data class IjkOption(
+    val category: Int,
+    val name: String,
+    val value: Any // Long / Int / String
+)
+
 data class PlayerState(
     val isPrepared: Boolean = false,
     val isPlaying: Boolean = false,
@@ -47,24 +54,41 @@ class IjkPlayerBridge(
     private var onCompletionCallback: (() -> Unit)? = null
     private var onBufferingUpdateCallback: ((Int) -> Unit)? = null
 
-    fun createPlayer(context: Context) {
+    /**
+     * 创建播放器并设置选项。
+     *
+     * @param options 为 null 时使用默认选项集；传入非空列表时使用调用方提供的完整选项集
+     *                （用于短视频等需要专门缓冲优化参数的场景，保证行为与调用方一致）。
+     */
+    fun createPlayer(context: Context, options: List<IjkOption>? = null) {
         release()
+        IjkMediaPlayer.loadLibrariesOnce(null)
 
         val player = IjkMediaPlayer().apply {
-            setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 1L)
-            setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "opensles", 0L)
-            setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "overlay-format", IjkMediaPlayer.SDL_FCC_RV32.toLong())
-            setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 1L)
-            setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 0L)
-            setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "http-detect-range-support", 0L)
-            setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "fflags", "fastseek")
-            setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", 48L)
-            setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "enable-accurate-seek", 1L)
-            setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "play-audio", 1L)
-            setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "play-video", 1L)
-            // B 站 CDN 会拦截 FFmpeg 默认 UA（Lavf/x.x.x，被识别为下载工具特征，返回 403），
-            // 必须伪装成浏览器 UA。注意 app 端音频流链接不能带 Referer，这里不设置 headers。
-            setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "user_agent", NetWorkUtil.USER_AGENT_WEB)
+            if (options == null) {
+                setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 1L)
+                setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "opensles", 0L)
+                setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "overlay-format", IjkMediaPlayer.SDL_FCC_RV32.toLong())
+                setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 1L)
+                setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 0L)
+                setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "http-detect-range-support", 0L)
+                setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "fflags", "fastseek")
+                setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", 48L)
+                setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "enable-accurate-seek", 1L)
+                setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "play-audio", 1L)
+                setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "play-video", 1L)
+                // B 站 CDN 会拦截 FFmpeg 默认 UA（Lavf/x.x.x，被识别为下载工具特征，返回 403），
+                // 必须伪装成浏览器 UA。注意 app 端音频流链接不能带 Referer，这里不设置 headers。
+                setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "user_agent", NetWorkUtil.USER_AGENT_WEB)
+            } else {
+                for (opt in options) {
+                    when (val v = opt.value) {
+                        is Long -> setOption(opt.category, opt.name, v)
+                        is Int -> setOption(opt.category, opt.name, v.toLong())
+                        is String -> setOption(opt.category, opt.name, v)
+                    }
+                }
+            }
 
             setOnPreparedListener { mp ->
                 val duration = mp.duration
@@ -139,6 +163,10 @@ class IjkPlayerBridge(
 
     fun setDataSource(path: String) {
         mediaPlayer?.dataSource = path
+    }
+
+    fun setDataSource(path: String, headers: Map<String, String>) {
+        mediaPlayer?.setDataSource(path, headers)
     }
 
     fun setDataSource(context: Context, uri: Uri) {

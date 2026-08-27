@@ -46,9 +46,15 @@ class AboutActivity : BaseActivity() {
                 codeStr.setSpan(StyleSpan(Typeface.BOLD), 0, 3, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
                 (findViewById<TextView>(R.id.app_version_code)).text = codeStr
 
-                val updateLog = ToolsUtil.getUpdateLog(this)
-                (findViewById<TextView>(R.id.updatelog_view)).text = "\n更新细节：$updateLog"
-                StringUtil.setCopy(findViewById(R.id.updatelog_view), updateLog)
+                val currentLogItems = resources.getStringArray(R.array.update_log_current)
+                val currentLog = StringBuilder()
+                for (item in currentLogItems) currentLog.append("\n").append(item)
+                val updateLogView = findViewById<TextView>(R.id.updatelog_view)
+                updateLogView.text = currentLog.toString()
+                StringUtil.setCopy(updateLogView, currentLog.toString())
+
+                val versionName = packageManager.getPackageInfo(packageName, 0).versionName
+                findViewById<TextView>(R.id.current_update_title).text = "本次更新 ($versionName)"
             } catch (e: PackageManager.NameNotFoundException) {
                 e.printStackTrace()
             }
@@ -144,6 +150,11 @@ class AboutActivity : BaseActivity() {
 
             findViewById<View>(R.id.sponsor_list).setOnClickListener {
                 val intent = Intent(this, SponsorActivity::class.java)
+                startActivity(intent)
+            }
+
+            findViewById<View>(R.id.history_log_entry).setOnClickListener {
+                val intent = Intent(this, UpdateHistoryActivity::class.java)
                 startActivity(intent)
             }
 
