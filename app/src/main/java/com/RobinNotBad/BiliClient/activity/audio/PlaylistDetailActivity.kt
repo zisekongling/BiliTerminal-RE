@@ -46,6 +46,9 @@ class PlaylistDetailActivity : InstanceActivity() {
                 intent.putExtra("title", audio.title)
                 intent.putExtra("author", audio.author)
                 intent.putExtra("cover", audio.cover)
+                // 传整份歌单 sid 列表 + 当前下标，用于上一首/下一首
+                intent.putExtra("sid_list", audioList.map { it.sid }.toLongArray())
+                intent.putExtra("index", audioList.indexOfFirst { it.sid == audio.sid })
                 startActivity(intent)
             }
             recyclerView.adapter = adapter

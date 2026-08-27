@@ -1,6 +1,5 @@
 package com.RobinNotBad.BiliClient.api;
 
-import com.RobinNotBad.BiliClient.model.ArticleInfo;
 import com.RobinNotBad.BiliClient.model.Opus;
 import com.RobinNotBad.BiliClient.model.OpusParagraph;
 import com.RobinNotBad.BiliClient.model.Stats;
@@ -27,18 +26,14 @@ public class OpusApi {
         opus.type = Opus.TYPE_DYNAMIC;
         opus.id = id;
 
-        // 专栏（cv号，id <= 1亿）：直接用官方 API 获取正文与统计信息。
-        // 原先抓取 read/cv 网页：网页体积大、JsonUtil 全文搜索慢（解析过慢），
-        // 且专栏页 module_stat 结构与图文动态不同，导致点赞/投币/收藏状态、阅读数等解析失败。
-        if (id <= 100000000) {
-            fillArticleContent(opus, id);
-            opus.type = Opus.TYPE_ARTICLE; // 确保按文章渲染（即使正文获取失败）
-            if (opus.upInfo == null) opus.upInfo = new UserInfo();
-            if (opus.stats == null) opus.stats = new Stats();
-            return opus;
-        }
-
-        String url = "https://www.bilibili.com/opus/" + id; // 动态 id 走 opus 页面抓取
+        // 专栏（cv号）与图文动态统一走 HTML 网页抓取，仅页面 URL 不同：
+        //   专栏 id <= 1亿  -> https://www.bilibili.com/read/cv{id}
+        //   动态 id >  1亿  -> https://www.bilibili.com/opus/{id}
+        // 该方式不依赖 WBI 签名与登录态，在官方接口受风控/未登录场景下也能稳定加载正文。
+        String url;
+        if (id > 100000000)
+            url = "https://www.bilibili.com/opus/" + id; // 动态 id 走 opus 页面抓取
+        else url = "https://www.bilibili.com/read/cv" + id; // 专栏走 read/cv 页面抓取
         try {
             Response response = NetWorkUtil.get(url);
             // /read/cv{id} 有多层301重定向（加斜杠、跳转到/opus/），循环跟随直到拿到最终页面
@@ -122,6 +117,8 @@ public class OpusApi {
 
             if (opus.upInfo == null) opus.upInfo = new UserInfo();
             if (opus.stats == null) opus.stats = new Stats();
+            // 专栏（cv号）：按文章渲染，保证 OpusContentAdapter 正常展示 cv 号、阅读数等信息
+            if (id <= 100000000) opus.type = Opus.TYPE_ARTICLE;
         } catch (IllegalArgumentException e) { // 取不出来的时候，会重定向，但重定向的域名是//开头的，会报错
             //这里给opus设置一个参数，让OpusInfoActivity跳转到旧版的DynamicInfoActivity，从而无需重写解析
             //判断方式很简单粗暴，看报错信息里有没有URL这个关键字，有就是跳转错误
@@ -131,10 +128,10 @@ public class OpusApi {
                 else MsgUtil.err(e);
                 return opus;
             }
-            // 文章（专栏，id 较小）：HTML 解析异常不致命，交由下方 ArticleApi 兜底加载正文
+            // 专栏（cv号，id 较小）：HTML 抓取异常不致命，保留空 opus 由页面提示错误，避免误跳动态详情页
         } catch (IOException e) {
             // HTML页面请求失败（如被风控拦截）：仅动态降级到旧版动态详情；
-            // 文章（专栏）交由下方 ArticleApi 兜底加载正文，避免误跳动态详情页
+            // 专栏保留空 opus，避免误跳动态详情页
             if (id > 100000000) {
                 opus.type = Opus.TYPE_DYNAMIC_OLD_STYLE;
                 return opus;
@@ -160,95 +157,6 @@ public class OpusApi {
         if (opus.upInfo == null) opus.upInfo = new UserInfo();
         if (opus.stats == null) opus.stats = new Stats();
         return opus;
-    }
-
-    /**
-     * 文章（专栏）内容兜底：HTML 页面解析不到正文时，改用官方专栏 API 获取标题、正文、作者与统计信息。
-     */
-    private static void fillArticleContent(Opus opus, long id) {
-        try {
-            ArticleInfo article = ArticleApi.getArticle(id);
-            if (article == null) return;
-            opus.type = Opus.TYPE_ARTICLE;
-            opus.title = article.title;
-            opus.cover = article.banner;
-            opus.upInfo = article.upInfo;
-            opus.content = article.content;
-            opus.wordCount = article.wordCount;
-            opus.pubTime = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.CHINA)
-                    .format(new java.util.Date(article.ctime * 1000L));
-            opus.paragraphs = parseArticleContent(article.content);
-            if (opus.commentId == 0) opus.commentId = id;
-            if (opus.commentType == 0) opus.commentType = 12; // 文章评论类型
-
-            // getArticle 只返回 is_like 状态；收藏/投币状态与更实时的统计数值需 viewinfo 接口补齐
-            Stats stats = article.stats != null ? article.stats : new Stats();
-            stats.coin_limit = 2; // 专栏最多投 2 枚硬币
-            try {
-                ArticleInfo viewInfo = ArticleApi.getArticleViewInfo(id);
-                if (viewInfo != null && viewInfo.stats != null) {
-                    stats.liked = viewInfo.stats.liked;
-                    stats.favoured = viewInfo.stats.favoured;
-                    stats.coined = viewInfo.stats.coined;
-                    stats.view = viewInfo.stats.view;
-                    stats.like = viewInfo.stats.like;
-                    stats.coin = viewInfo.stats.coin;
-                    stats.favorite = viewInfo.stats.favorite;
-                    stats.reply = viewInfo.stats.reply;
-                    stats.share = viewInfo.stats.share;
-                }
-            } catch (Exception ignored) {
-            }
-            opus.stats = stats;
-        } catch (Exception ignored) {
-        }
-    }
-
-    /** 将专栏正文 HTML 解析为段落列表（文本段 + 图片段）。 */
-    private static OpusParagraph[] parseArticleContent(String html) {
-        ArrayList<OpusParagraph> paragraphs = new ArrayList<>();
-        if (html == null || html.isEmpty()) return paragraphs.toArray(new OpusParagraph[0]);
-        java.util.regex.Matcher pMatcher = java.util.regex.Pattern
-                .compile("<p[^>]*>(.*?)</p>", java.util.regex.Pattern.DOTALL)
-                .matcher(html);
-        while (pMatcher.find()) {
-            String block = pMatcher.group(1);
-            java.util.regex.Matcher imgMatcher = java.util.regex.Pattern
-                    .compile("<img[^>]*src=[\"']([^\"']+)[\"']").matcher(block);
-            StringBuilder text = new StringBuilder();
-            ArrayList<String> pics = new ArrayList<>();
-            int last = 0;
-            while (imgMatcher.find()) {
-                text.append(stripHtml(block.substring(last, imgMatcher.start())));
-                pics.add(imgMatcher.group(1));
-                last = imgMatcher.end();
-            }
-            text.append(stripHtml(block.substring(last)));
-            String textStr = text.toString().trim();
-            if (!textStr.isEmpty()) {
-                OpusParagraph p = new OpusParagraph();
-                p.type = OpusParagraph.TYPE_TEXT;
-                p.content = textStr;
-                paragraphs.add(p);
-            }
-            for (String pic : pics) {
-                OpusParagraph p = new OpusParagraph();
-                p.type = OpusParagraph.TYPE_PIC;
-                p.content = new String[]{pic};
-                paragraphs.add(p);
-            }
-        }
-        return paragraphs.toArray(new OpusParagraph[0]);
-    }
-
-    private static String stripHtml(String s) {
-        return s.replaceAll("<[^>]+>", "")
-                .replace("&nbsp;", " ")
-                .replace("&amp;", "&")
-                .replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replace("&quot;", "\"")
-                .replace("&#39;", "'");
     }
 
     public static void analyzeCommentInfo(Opus opus, JSONObject detail, long id) {

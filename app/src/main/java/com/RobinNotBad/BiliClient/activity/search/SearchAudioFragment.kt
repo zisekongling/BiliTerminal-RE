@@ -137,6 +137,9 @@ class SearchAudioFragment : SearchFragment() {
                 intent.putExtra("title", audio.title)
                 intent.putExtra("author", audio.author)
                 intent.putExtra("cover", audio.cover)
+                // 传当前搜索结果列表 + 下标，支持上一首/下一首
+                intent.putExtra("sid_list", audioList.map { it.sid }.toLongArray())
+                intent.putExtra("index", audioList.indexOfFirst { it.sid == audio.sid })
                 holder.itemView.context.startActivity(intent)
             }
         }

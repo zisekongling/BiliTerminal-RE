@@ -238,6 +238,21 @@ public class NetWorkUtil {
         return executeWithDoctypeRetry(client, request);
     }
 
+    /**
+     * 获取 CDN 资源（如 app 端音频流链接）。
+     *
+     * B 站音频 CDN（upos-*.bilivideo.com）防盗链规则与链接里的 platform 参数绑定：
+     * platform=android 的链接必须【不带】Referer，否则返回 403；只带非空 User-Agent 即可。
+     * 而 webHeaders 默认带 Referer（供 api.bilibili.com 接口使用），因此下载音频流时
+     * 不能直接复用 get(url)，必须走本方法。
+     */
+    public static Response getNoReferer(String url) throws IOException {
+        ArrayList<String> headers = new ArrayList<>();
+        headers.add("User-Agent");
+        headers.add(USER_AGENT_WEB);
+        return get(url, headers);
+    }
+
     private static Response executeWithDoctypeRetry(OkHttpClient client, Request request) throws IOException {
         int maxRetries = Math.max(1, SharedPreferencesUtil.getInt("api_retry_max_times", 5));
         long retryIntervalMs = Math.max(0L, (long) (SharedPreferencesUtil.getFloat("api_retry_interval_seconds", 0.1f) * 1000));

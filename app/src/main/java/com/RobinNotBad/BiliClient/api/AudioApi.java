@@ -5,6 +5,7 @@ import com.RobinNotBad.BiliClient.model.AudioStream;
 import com.RobinNotBad.BiliClient.model.Lyric;
 import com.RobinNotBad.BiliClient.model.Playlist;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
+import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -157,6 +158,52 @@ public class AudioApi {
             list.add(parseHotPlaylist(arr.getJSONObject(i)));
         }
         return list;
+    }
+
+    // ===== 音频收藏 =====
+
+    /**
+     * 查询音频收藏状态
+     *
+     * @return true=已收藏，false=未收藏；未登录或失败时返回 null
+     */
+    public static Boolean getFavState(long sid) throws IOException, JSONException {
+        String url = "https://www.bilibili.com/audio/music-service-c/web/collections/songs-coll?sid=" + sid;
+        JSONObject response = NetWorkUtil.getJson(url);
+        int code = response.optInt("code", -1);
+        if (code == 72010002 || code == 4511003) return null;   // 未登录
+        if (code != 0) return false;
+        return response.optBoolean("data", false);
+    }
+
+    /**
+     * 收藏音频（加入默认收藏夹）。
+     * 接口：POST https://api.bilibili.com/audio/music-service-c/collections/add
+     *
+     * @return code：0=成功；72010002/4511003=未登录；其他为失败
+     */
+    public static int addFav(long sid) throws IOException, JSONException {
+        String csrf = NetWorkUtil.getInfoFromCookie("bili_jct",
+                SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""));
+        String url = "https://api.bilibili.com/audio/music-service-c/collections/add";
+        JSONObject response = new JSONObject(NetWorkUtil.post(url,
+                "sid=" + sid + "&csrf=" + csrf, NetWorkUtil.webHeaders).body().string());
+        return response.optInt("code", -1);
+    }
+
+    /**
+     * 取消收藏音频。
+     * 接口：POST https://api.bilibili.com/audio/music-service-c/collections/remove
+     *
+     * @return code：0=成功；72010002/4511003=未登录；其他为失败
+     */
+    public static int removeFav(long sid) throws IOException, JSONException {
+        String csrf = NetWorkUtil.getInfoFromCookie("bili_jct",
+                SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""));
+        String url = "https://api.bilibili.com/audio/music-service-c/collections/remove";
+        JSONObject response = new JSONObject(NetWorkUtil.post(url,
+                "sid=" + sid + "&csrf=" + csrf, NetWorkUtil.webHeaders).body().string());
+        return response.optInt("code", -1);
     }
 
     private static Playlist parsePlaylist(JSONObject json) throws JSONException {

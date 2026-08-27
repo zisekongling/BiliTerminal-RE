@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.view.Surface
 import android.view.SurfaceHolder
+import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -61,6 +62,9 @@ class IjkPlayerBridge(
             setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "enable-accurate-seek", 1L)
             setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "play-audio", 1L)
             setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "play-video", 1L)
+            // B 站 CDN 会拦截 FFmpeg 默认 UA（Lavf/x.x.x，被识别为下载工具特征，返回 403），
+            // 必须伪装成浏览器 UA。注意 app 端音频流链接不能带 Referer，这里不设置 headers。
+            setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "user_agent", NetWorkUtil.USER_AGENT_WEB)
 
             setOnPreparedListener { mp ->
                 val duration = mp.duration

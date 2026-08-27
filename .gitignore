@@ -27,3 +27,6 @@ local.properties
 hs_err_pid*.log
 replay_pid*.log
 
+# 临时克隆参考仓库
+/BiliTerminal_clone/
+
