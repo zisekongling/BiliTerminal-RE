@@ -710,7 +710,7 @@
                                 android:layout_marginBottom="1dp"
                                 android:ellipsize="end"
                                 android:singleLine="true"
-                                android:text="TRAE"
+                                android:text="紫色空灵"
                                 app:layout_constraintBottom_toTopOf="@+id/traeDesc"
                                 app:layout_constraintStart_toEndOf="@id/traeAvatar"
                                 app:layout_constraintTop_toTopOf="@id/traeAvatar" />

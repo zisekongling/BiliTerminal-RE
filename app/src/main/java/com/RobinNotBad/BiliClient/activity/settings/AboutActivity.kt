@@ -77,7 +77,7 @@ class AboutActivity : BaseActivity() {
                 add(R.mipmap.avatar_silent)
                 add(R.mipmap.avatar_huanli)
                 add(R.mipmap.avatar_jank)
-                add(-1)
+                add(R.mipmap.avatar_zise)
             }
             val developerCardList: List<MaterialCardView> = ArrayList<MaterialCardView>().apply {
                 add(findViewById(R.id.robin_card))
