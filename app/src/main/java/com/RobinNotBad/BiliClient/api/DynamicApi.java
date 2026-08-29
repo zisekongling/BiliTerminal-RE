@@ -80,9 +80,10 @@ public class DynamicApi {
      * @param option   选项
      * @param topic    话题
      * @param scene    动态类型
+     * @param attachCard 附加卡片（如投票），会放入 dyn_req.attach_card
      * @return 发送成功返回的动态id，失败返回-1
      */
-    public static long publishComplex(@NonNull JSONArray contents, JSONArray pics, JSONObject option, JSONObject topic, int scene, Map<String, Object> otherArgs) throws IOException, JSONException {
+    public static long publishComplex(@NonNull JSONArray contents, JSONArray pics, JSONObject option, JSONObject topic, int scene, JSONObject attachCard, Map<String, Object> otherArgs) throws IOException, JSONException {
         String url = "https://api.bilibili.com/x/dynamic/feed/create/dyn?csrf=" + SharedPreferencesUtil.getString("csrf", "");
         JSONObject reqBody = new JSONObject()
                 .put("content", new JSONObject().put("contents", contents))
@@ -93,6 +94,7 @@ public class DynamicApi {
         if (pics != null) reqBody.put("pics", pics);
         if (option != null) reqBody.put("option", option);
         if (topic != null) reqBody.put("topic", topic);
+        if (attachCard != null) reqBody.put("attach_card", attachCard);
         reqBody = new JSONObject().put("dyn_req", reqBody);
         if (otherArgs != null) {
             for (Map.Entry<String, Object> entry : otherArgs.entrySet()) {
@@ -101,7 +103,8 @@ public class DynamicApi {
                 reqBody.put(key, val);
             }
         }
-        Logu.v("publishComplex reqBody=" + reqBody);
+
+    Logu.v("publishComplex reqBody=" + reqBody);
         Response resp = Objects.requireNonNull(NetWorkUtil.postJson(url, reqBody.toString()));
         try {
             ResponseBody body = resp.body();
@@ -114,6 +117,20 @@ public class DynamicApi {
             return -1;
         }
         return -1;
+    }
+
+    /**
+     * 发送复杂动态（无 attach_card 兼容重载）
+     *
+     * @param contents 动态内容
+     * @param pics     携带图片
+     * @param option   选项
+     * @param topic    话题
+     * @param scene    动态类型
+     * @return 发送成功返回的动态id，失败返回-1
+     */
+    public static long publishComplex(@NonNull JSONArray contents, JSONArray pics, JSONObject option, JSONObject topic, int scene, Map<String, Object> otherArgs) throws IOException, JSONException {
+        return publishComplex(contents, pics, option, topic, scene, null, otherArgs);
     }
 
     /**
@@ -552,10 +569,15 @@ public class DynamicApi {
             if (modules.has("module_additional") && !modules.isNull("module_additional")) {
                 try {
                     JSONObject module_additional = modules.getJSONObject("module_additional");
-                    if (module_additional.getString("type").equals("ADDITIONAL_TYPE_UGC")) {
+                    String addiType = module_additional.getString("type");
+                    dynamic.additional_type = addiType;
+                    if (addiType.equals("ADDITIONAL_TYPE_UGC")) {
                         dynamic.major_type = "MAJOR_TYPE_ARCHIVE";
                         dynamic.major_object = analyzeVideoCard(module_additional.getJSONObject("ugc"));
-                    } else Logu.v("addi", module_additional.getString("type"));
+                    } else if (addiType.equals("ADDITIONAL_TYPE_VOTE")) {
+                        JSONObject voteJson = module_additional.getJSONObject("vote");
+                        dynamic.vote = VoteApi.parseVoteInfo(voteJson);
+                    } else Logu.v("addi", addiType);
                 } catch (JSONException e) {
                     Logu.d("DynamicRetry", "附加模块解析异常: " + e.getMessage());
                 }

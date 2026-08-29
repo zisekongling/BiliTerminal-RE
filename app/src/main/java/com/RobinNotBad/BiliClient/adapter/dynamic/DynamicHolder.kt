@@ -7,6 +7,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.os.Build
 import android.text.TextUtils
+import android.view.LayoutInflater
 import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -26,15 +27,21 @@ import com.RobinNotBad.BiliClient.api.DynamicApi
 import com.RobinNotBad.BiliClient.model.ArticleCard
 import com.RobinNotBad.BiliClient.model.Dynamic
 import com.RobinNotBad.BiliClient.model.LiveRoom
+import com.RobinNotBad.BiliClient.model.VoteInfo
+import com.RobinNotBad.BiliClient.model.VoteOption
 import com.RobinNotBad.BiliClient.model.VideoCard
+import com.RobinNotBad.BiliClient.api.VoteApi
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
+import com.RobinNotBad.BiliClient.util.Logu
+import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.DecodeFormat
 import com.bumptech.glide.load.engine.DiskCacheStrategy
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions
 import com.bumptech.glide.request.RequestOptions
 import java.io.IOException
 
@@ -193,6 +200,14 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
     private var lastAvatarUrl: String? = null
     private var lastImageUrl: String? = null
 
+    // 投票相关视图
+    var cell_dynamic_vote: View? = null
+    var voteTitle: TextView? = null
+    var voteOptionsContainer: LinearLayout? = null
+    var voteJoinNum: TextView? = null
+    var voteStatus: TextView? = null
+    private var currentVoteInfo: VoteInfo? = null
+
     init {
         if (isChild) {
             username = itemView.findViewById(R.id.child_username)
@@ -204,6 +219,15 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
             this.cell_dynamic_article = extraCard.findViewById(R.id.dynamic_article_child)
             this.cell_dynamic_image = extraCard.findViewById(R.id.dynamic_image_child)
             this.cell_dynamic_child = itemView
+            // 投票视图（子布局）
+            val voteView = extraCard.findViewById<View>(R.id.dynamic_vote_child)
+            this.cell_dynamic_vote = voteView
+            if (voteView != null) {
+                this.voteTitle = voteView.findViewById(R.id.vote_title)
+                this.voteOptionsContainer = voteView.findViewById(R.id.vote_options_container)
+                this.voteJoinNum = voteView.findViewById(R.id.vote_join_num)
+                this.voteStatus = voteView.findViewById(R.id.vote_status)
+            }
         } else {
             username = itemView.findViewById(R.id.username)
             pubdate = itemView.findViewById(R.id.pubdate)
@@ -219,7 +243,218 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
             this.cell_dynamic_video = extraCard.findViewById(R.id.dynamic_video_extra)
             this.cell_dynamic_article = extraCard.findViewById(R.id.dynamic_article_extra)
             this.cell_dynamic_image = extraCard.findViewById(R.id.dynamic_image_extra)
+            // 投票视图（父布局）
+            val voteView = extraCard.findViewById<View>(R.id.dynamic_vote_extra)
+            this.cell_dynamic_vote = voteView
+            if (voteView != null) {
+                this.voteTitle = voteView.findViewById(R.id.vote_title)
+                this.voteOptionsContainer = voteView.findViewById(R.id.vote_options_container)
+                this.voteJoinNum = voteView.findViewById(R.id.vote_join_num)
+                this.voteStatus = voteView.findViewById(R.id.vote_status)
+            }
         }
+    }
+
+    /**
+     * 渲染投票卡片
+     */
+    @SuppressLint("SetTextI18n")
+    private fun showVoteCard(context: Context, voteInfo: VoteInfo) {
+        currentVoteInfo = voteInfo
+        val voteView = cell_dynamic_vote ?: return
+        val titleView = voteTitle ?: return
+        val container = voteOptionsContainer ?: return
+        val joinNumView = voteJoinNum ?: return
+        val statusView = voteStatus ?: return
+
+        // 设置标题
+        titleView.text = if (voteInfo.title.isNotEmpty()) voteInfo.title else "投票"
+
+        // 设置参与人数
+        joinNumView.text = "${voteInfo.join_num}人参与"
+
+        // 清空并重新填充选项
+        container.removeAllViews()
+
+        val isExpired = voteInfo.isExpired()
+        val hasVoted = voteInfo.hasVoted()
+        val isSingleChoice = voteInfo.choice_cnt <= 1
+
+        // 设置状态文字
+        statusView.text = when {
+            isExpired -> "已结束"
+            hasVoted -> "已投票"
+            else -> "投票"
+        }
+
+        // 动态 feed 里的投票信息通常不带 options，需异步拉取完整投票信息
+        if (voteInfo.options.isEmpty()) {
+            fetchFullVoteInfo(context, voteInfo)
+            voteView.visibility = View.VISIBLE
+            return
+        }
+
+        for (option in voteInfo.options) {
+            val optionView = createVoteOptionView(context, option, voteInfo, isExpired, hasVoted)
+            container.addView(optionView)
+        }
+
+        voteView.visibility = View.VISIBLE
+    }
+
+    /**
+     * 异步拉取完整投票信息（动态 feed 的 vote 只有 vote_id，无 options）
+     */
+    private fun fetchFullVoteInfo(context: Context, voteInfo: VoteInfo) {
+        CenterThreadPool.run {
+            try {
+                val full = VoteApi.getVoteInfo(voteInfo.vote_id)
+                if (full != null) {
+                    // 合并完整信息
+                    voteInfo.title = full.title
+                    voteInfo.desc = full.desc
+                    voteInfo.join_num = full.join_num
+                    voteInfo.type = full.type
+                    voteInfo.choice_cnt = full.choice_cnt
+                    voteInfo.end_time = full.end_time
+                    voteInfo.status = full.status
+                    voteInfo.my_votes.clear()
+                    voteInfo.my_votes.addAll(full.my_votes)
+                    voteInfo.options.clear()
+                    voteInfo.options.addAll(full.options)
+                    // 用 mActivity 稳定回主线程，避免 context 非 Activity 时强转失败导致不刷新
+                    mActivity.runOnUiThread {
+                        showVoteCard(context, voteInfo)
+                    }
+                }
+            } catch (e: Exception) {
+                Logu.d("DynamicVote", "获取投票详情失败: " + e.message)
+            }
+        }
+    }
+
+    /**
+     * 创建单个投票选项视图
+     */
+    @SuppressLint("SetTextI18n")
+    private fun createVoteOptionView(
+        context: Context,
+        option: VoteOption,
+        voteInfo: VoteInfo,
+        isExpired: Boolean,
+        hasVoted: Boolean
+    ): View {
+        val optionView = LayoutInflater.from(context).inflate(R.layout.item_vote_option, null)
+        val optionText = optionView.findViewById<TextView>(R.id.option_text)
+        val optionIndicator = optionView.findViewById<TextView>(R.id.option_indicator)
+
+        // 图片投票 - 裁剪缩略图与文字并排
+        if (!option.img_url.isNullOrEmpty()) {
+            val thumb = optionView.findViewById<ImageView>(R.id.option_thumb)
+            thumb.visibility = View.VISIBLE
+            Glide.with(context)
+                .load(option.img_url)
+                .apply(RequestOptions().format(DecodeFormat.PREFER_RGB_565).centerCrop())
+                .transition(DrawableTransitionOptions.withCrossFade())
+                .into(thumb)
+        }
+
+        optionText.text = option.opt_desc
+
+        // 已投票或投票结束后显示各选项得票数和比例
+        if (isExpired || hasVoted) {
+            val totalCnt = voteInfo.options.sumOf { it.cnt }
+            if (totalCnt > 0) {
+                val percent = (option.cnt * 100f / totalCnt).toInt()
+                optionText.text = "${option.opt_desc}  ${option.cnt}票 ($percent%)"
+            }
+        }
+
+        // 判断是否已选此选项
+        val isSelected = voteInfo.my_votes.contains(option.opt_idx)
+
+        if (isSelected) {
+            optionView.setBackgroundResource(R.drawable.bg_vote_option_selected)
+            optionIndicator.text = "✓"
+            optionIndicator.setTextColor(Color.parseColor("#FE679A"))
+        } else {
+            optionView.setBackgroundResource(R.drawable.bg_vote_option)
+            optionIndicator.text = if (isSingleChoice(voteInfo)) "○" else "□"
+            optionIndicator.setTextColor(Color.parseColor("#88FFFFFF"))
+        }
+
+        // 投票结束或已投票时禁止点击
+        if (isExpired || hasVoted) {
+            optionView.isEnabled = false
+            optionView.alpha = 0.7f
+            return optionView
+        }
+
+        // 点击选项进行投票
+        optionView.setOnClickListener { v ->
+            // 未登录时提示
+            if (SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) == 0L) {
+                MsgUtil.showMsg("请先登录")
+                return@setOnClickListener
+            }
+            v.isEnabled = false
+            CenterThreadPool.run {
+                try {
+                    val result = VoteApi.doVote(voteInfo.vote_id, listOf(option.opt_idx))
+                    if (result == 0) {
+                        // 投票成功，刷新投票信息
+                        try {
+                            val updatedVote = VoteApi.getVoteInfo(voteInfo.vote_id)
+                            if (updatedVote != null) {
+                                voteInfo.join_num = updatedVote.join_num
+                                // 本地先标记已投（加入本次选中的选项），确保无论接口是否返回 my_votes 都锁定不可重复投
+                                voteInfo.my_votes.clear()
+                                if (!voteInfo.my_votes.contains(option.opt_idx)) {
+                                    voteInfo.my_votes.add(option.opt_idx)
+                                }
+                                if (!updatedVote.my_votes.isEmpty()) {
+                                    for (v in updatedVote.my_votes) {
+                                        if (!voteInfo.my_votes.contains(v)) voteInfo.my_votes.add(v)
+                                    }
+                                }
+                                // 同步更新各选项得票数
+                                voteInfo.options.clear()
+                                voteInfo.options.addAll(updatedVote.options)
+                                (context as? Activity)?.runOnUiThread {
+                                    showVoteCard(context, voteInfo)
+                                    MsgUtil.showMsg("投票成功~")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            (context as? Activity)?.runOnUiThread {
+                                MsgUtil.err(e)
+                                v.isEnabled = true
+                            }
+                        }
+                    } else {
+                        val msg = when (result) {
+                            -111 -> "需要重新登录"
+                            else -> "投票失败：$result"
+                        }
+                        (context as? Activity)?.runOnUiThread {
+                            MsgUtil.showMsg(msg)
+                            v.isEnabled = true
+                        }
+                    }
+                } catch (e: Exception) {
+                    (context as? Activity)?.runOnUiThread {
+                        MsgUtil.err(e)
+                        v.isEnabled = true
+                    }
+                }
+            }
+        }
+
+        return optionView
+    }
+
+    private fun isSingleChoice(voteInfo: VoteInfo): Boolean {
+        return voteInfo.choice_cnt <= 1
     }
 
     @SuppressLint("SetTextI18n", "ClickableViewAccessibility")
@@ -270,6 +505,7 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
         cell_dynamic_video.visibility = View.GONE
         cell_dynamic_image.visibility = View.GONE
         cell_dynamic_article.visibility = View.GONE
+        cell_dynamic_vote?.visibility = View.GONE
         if (dynamic.major_type != null)
             when (dynamic.major_type) {
                 "MAJOR_TYPE_PGC" -> isPgc = true
@@ -353,7 +589,14 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
                 }
             }
 
-        if (dynamic.major_object == null && dynamic.dynamic_forward == null)
+        // 渲染投票卡片
+        if (dynamic.additional_type == "ADDITIONAL_TYPE_VOTE" && dynamic.vote != null) {
+            showVoteCard(context, dynamic.vote!!)
+        } else {
+            cell_dynamic_vote?.visibility = View.GONE
+        }
+
+        if (dynamic.major_object == null && dynamic.dynamic_forward == null && dynamic.vote == null)
             extraCard.visibility = View.GONE
         else
             extraCard.visibility = View.VISIBLE

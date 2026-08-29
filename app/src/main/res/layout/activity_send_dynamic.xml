@@ -82,6 +82,80 @@
             </com.google.android.material.card.MaterialCardView>
 
             <com.google.android.material.card.MaterialCardView
+                android:id="@+id/add_vote"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="35sp"
+                    app:drawableEndCompat="@drawable/arrow_forward"
+                    android:layout_marginHorizontal="8dp"
+                    android:gravity="center_vertical"
+                    android:text="添加投票"
+                    android:textAlignment="textEnd"
+                    android:textSize="13sp"
+                    android:visibility="visible"
+                    tools:ignore="RtlCompat" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 投票编辑区 -->
+            <LinearLayout
+                android:id="@+id/vote_edit_area"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="8dp"
+                android:background="@drawable/background_edittext"
+                android:visibility="gone">
+
+                <EditText
+                    android:id="@+id/vote_title_edit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="投票标题"
+                    android:inputType="text"
+                    android:background="@null"
+                    android:padding="4dp"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/vote_options_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="4dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/add_option_btn"
+                        style="@style/Widget.MaterialComponents.Button.TextButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="+ 添加选项"
+                        android:textSize="12sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/remove_vote_btn"
+                        style="@style/Widget.MaterialComponents.Button.TextButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="移除投票"
+                        android:textSize="12sp"
+                        android:textColor="#FE679A" />
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <com.google.android.material.card.MaterialCardView
                 android:id="@+id/send"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">

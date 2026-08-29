@@ -13,8 +13,10 @@ import com.RobinNotBad.BiliClient.activity.base.RefreshMainActivity
 import com.RobinNotBad.BiliClient.adapter.dynamic.DynamicAdapter
 import com.RobinNotBad.BiliClient.adapter.dynamic.DynamicHolder
 import com.RobinNotBad.BiliClient.api.DynamicApi
+import com.RobinNotBad.BiliClient.api.VoteApi
 import com.RobinNotBad.BiliClient.helper.TutorialHelper
 import com.RobinNotBad.BiliClient.model.Dynamic
+import com.RobinNotBad.BiliClient.model.VoteDraft
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
@@ -95,8 +97,15 @@ class DynamicActivity : RefreshMainActivity() {
         val data = result.data
         if (code == RESULT_OK && data != null) {
             val text = data.getStringExtra("text")
+            val voteDraft = data.getSerializableExtra("voteDraft") as? VoteDraft
             CenterThreadPool.run {
                 try {
+                    // 如果有投票草稿，先创建投票
+                    var voteId: Long = -1
+                    if (voteDraft != null && voteDraft.isValid()) {
+                        voteId = VoteApi.createVote(voteDraft)
+                    }
+
                     val atUids = HashMap<String, Long>()
                     val pattern = Pattern.compile("@(\\S+)\\s")
                     val matcher = pattern.matcher(text)
@@ -107,10 +116,25 @@ class DynamicActivity : RefreshMainActivity() {
                             atUids[matchedString] = uid
                         }
                     }
-                    val dynId = if (atUids.isEmpty()) {
-                        DynamicApi.publishTextContent(text)
+
+                    val dynId: Long
+                    if (voteId > 0) {
+                        // 有投票，使用复杂动态发布并挂载投票
+                        val attachCard = org.json.JSONObject().put("vote", org.json.JSONObject().put("vote_id", voteId))
+                        val contents = if (atUids.isEmpty()) {
+                            DynamicApi.parseAtContent(text, HashMap())
+                        } else {
+                            DynamicApi.parseAtContent(text, atUids)
+                        }
+                        dynId = DynamicApi.publishComplex(
+                            contents, null, null, null, 1, attachCard, null
+                        )
                     } else {
-                        DynamicApi.publishTextContent(text, atUids)
+                        dynId = if (atUids.isEmpty()) {
+                            DynamicApi.publishTextContent(text)
+                        } else {
+                            DynamicApi.publishTextContent(text, atUids)
+                        }
                     }
                     if (dynId != -1L) {
                         runOnUiThread { MsgUtil.showMsg("发送成功~") }

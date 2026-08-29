@@ -108,6 +108,13 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:visibility="gone" />
+
+        <include
+            android:id="@+id/dynamic_vote_extra"
+            layout="@layout/cell_dynamic_vote"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
     </LinearLayout>
 
     <androidx.constraintlayout.widget.ConstraintLayout

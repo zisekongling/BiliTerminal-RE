@@ -17,7 +17,9 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
 import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.api.ArticleApi
+import com.RobinNotBad.BiliClient.activity.vote.VoteInfoActivity
 import com.RobinNotBad.BiliClient.api.OpusApi
+import com.RobinNotBad.BiliClient.api.VoteApi
 import com.RobinNotBad.BiliClient.model.Opus
 import com.RobinNotBad.BiliClient.model.OpusParagraph
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -57,6 +59,8 @@ class OpusContentAdapter(
                 LayoutInflater.from(this.context).inflate(R.layout.cell_dynamic_video, parent, false)
             OpusParagraph.TYPE_DYNAMIC -> view =
                 LayoutInflater.from(this.context).inflate(R.layout.cell_dynamic_child, parent, false)
+            OpusParagraph.TYPE_LINK_CARD -> view =
+                LayoutInflater.from(this.context).inflate(R.layout.cell_dynamic_vote, parent, false)
             else ->
                 view = LayoutInflater.from(this.context).inflate(R.layout.cell_article_textview, parent, false)
         }
@@ -345,6 +349,43 @@ class OpusContentAdapter(
             }
 
             OpusParagraph.TYPE_ARTICLE -> {
+            }
+
+            OpusParagraph.TYPE_LINK_CARD -> {
+                if (paras != null && realPosition >= 0 && realPosition < parasSize) {
+                    val voteId = paras[realPosition].voteId
+                    if (voteId != 0L) {
+                        val titleView = holder.itemView.findViewById<TextView>(R.id.vote_title)
+                        val joinView = holder.itemView.findViewById<TextView>(R.id.vote_join_num)
+                        val statusView = holder.itemView.findViewById<TextView>(R.id.vote_status)
+                        titleView?.text = "投票"
+                        joinView?.text = ""
+                        statusView?.text = "点击参与"
+                        // 异步拉取投票标题
+                        CenterThreadPool.run {
+                            try {
+                                val info = VoteApi.getVoteInfo(voteId)
+                                if (info != null) {
+                                    context.runOnUiThread {
+                                        titleView?.text = if (info.title.isNotEmpty()) info.title else "投票"
+                                        joinView?.text = "${info.join_num}人参与"
+                                        statusView?.text = if (info.isExpired()) "已结束" else "投票"
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                // 忽略，保留占位
+                            }
+                        }
+                        holder.itemView.findViewById<View>(R.id.voteCardView)?.setOnClickListener {
+                            val intent = Intent()
+                            intent.setClass(context, VoteInfoActivity::class.java)
+                            intent.putExtra(VoteInfoActivity.EXTRA_VOTE_ID, voteId)
+                            context.startActivity(intent)
+                        }
+                    } else {
+                        holder.itemView.visibility = View.GONE
+                    }
+                }
             }
 
             else -> {

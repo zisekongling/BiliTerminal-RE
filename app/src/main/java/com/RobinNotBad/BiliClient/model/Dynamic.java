@@ -22,6 +22,10 @@ public class Dynamic implements Serializable {
     public boolean canDelete;
     public boolean isTop;  // 是否置顶
 
+    // 投票相关
+    public String additional_type;   // 附加卡片类型，如 "ADDITIONAL_TYPE_VOTE"
+    public VoteInfo vote;            // 投票卡片信息
+
     public Dynamic() {
     }
 

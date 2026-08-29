@@ -515,7 +515,9 @@ public class NetWorkUtil {
     public static class FormData {
         private final Map<String, String> data;
         private boolean isUrlParam;
-        private boolean autoAddAccessKey = true;
+        // 默认不自动加 access_key（B 站 web 接口用 Cookie 鉴权，带 access_key 会触发风控返回 HTML）
+        // 参考 BiliTerminal-Revival：FormData 不自动加 access_key
+        private boolean autoAddAccessKey = false;
 
         public FormData() {
             data = new HashMap<>();

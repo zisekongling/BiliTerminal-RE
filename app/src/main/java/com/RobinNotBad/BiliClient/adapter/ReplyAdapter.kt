@@ -18,6 +18,13 @@ import android.widget.TextView
 import androidx.annotation.NonNull
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.Glide
+import com.bumptech.glide.load.DecodeFormat
+import com.bumptech.glide.load.engine.DiskCacheStrategy
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions
+import com.bumptech.glide.request.RequestOptions
+import com.google.android.material.button.MaterialButton
+import com.RobinNotBad.BiliClient.activity.vote.VoteInfoActivity
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
@@ -25,24 +32,20 @@ import com.RobinNotBad.BiliClient.activity.reply.ReplyInfoActivity
 import com.RobinNotBad.BiliClient.activity.reply.WriteReplyActivity
 import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.api.ReplyApi
-import com.RobinNotBad.BiliClient.listener.OnItemClickListener
+import com.RobinNotBad.BiliClient.api.VoteApi
 import com.RobinNotBad.BiliClient.model.Reply
 import com.RobinNotBad.BiliClient.model.UserInfo
-import com.RobinNotBad.BiliClient.ui.widget.RadiusBackgroundSpan
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
-import com.bumptech.glide.Glide
-import com.bumptech.glide.load.DecodeFormat
-import com.bumptech.glide.load.engine.DiskCacheStrategy
-import com.bumptech.glide.request.RequestOptions
-import com.google.android.material.button.MaterialButton
-import org.json.JSONException
+import com.RobinNotBad.BiliClient.ui.widget.RadiusBackgroundSpan
+import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.listener.OnItemClickListener
 import java.io.IOException
 import java.util.ArrayList
+import org.json.JSONException
 
 @SuppressLint("ClickableViewAccessibility")
 class ReplyAdapter(
@@ -284,7 +287,14 @@ class ReplyAdapter(
             replyHolder.childReplyCard.setOnClickListener { startReplyInfoActivity(reply) }
             if (!isDetail) {
                 replyHolder.itemView.setOnClickListener { startReplyInfoActivity(reply) }
-                replyHolder.message.setOnClickListener { startReplyInfoActivity(reply) }
+                replyHolder.message.setOnClickListener {
+                    if (reply.voteId > 0) {
+                        // 点击投票标签，展示投票信息
+                        showVoteDialog(reply.voteId, replyHolder.message)
+                    } else {
+                        startReplyInfoActivity(reply)
+                    }
+                }
             }
 
             replyHolder.replyAvatar.setOnClickListener {
@@ -431,6 +441,15 @@ class ReplyAdapter(
         intent.putExtra("type", replyType)
         intent.putExtra("up_mid", up_mid)
         intent.putExtra("is_manager", isManager)
+        context.startActivity(intent)
+    }
+
+    /**
+     * 跳转到投票详情页
+     */
+    private fun showVoteDialog(voteId: Long, anchor: View) {
+        val intent = Intent(context, VoteInfoActivity::class.java)
+        intent.putExtra(VoteInfoActivity.EXTRA_VOTE_ID, voteId)
         context.startActivity(intent)
     }
 

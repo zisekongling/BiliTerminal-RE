@@ -26,6 +26,7 @@ public class OpusParagraph {
     public static final int TYPE_DIVIDER = 3;
     public static final int TYPE_TEXT_BLOCKQUOTE = 4;
     public static final int TYPE_LIST = 5;
+    public static final int TYPE_LINK_CARD = 6;   // 链接卡片（可能为投票）
     public static final int TYPE_HEADING = 8;
 
     //这几个是自定义的
@@ -42,6 +43,7 @@ public class OpusParagraph {
     public int align;
     public int type;
     public Object content;
+    public long voteId;   // 投票链接卡片时存 vote_id
 
     public OpusParagraph() {
     }
@@ -70,6 +72,10 @@ public class OpusParagraph {
                 break;
             case TYPE_TEXT_OPUS:
                 this.content = analyzeOpus(para.optJSONArray("data"));
+                break;
+            case TYPE_LINK_CARD:
+                this.voteId = analyzeLinkCard(para.optJSONObject("link_card"));
+                this.content = (voteId != 0) ? "[投票]" : "";
                 break;
             default:
                 this.content = "[无法识别段落：" + type + "]";
@@ -265,4 +271,25 @@ public class OpusParagraph {
         return stringBuilder;
     }
 
+
+    /**
+     * 解析链接卡片段落（para_type=6）
+     * 若卡片为投票（LINK_CARD_TYPE_VOTE），返回 vote_id；否则返回 0
+     */
+    public long analyzeLinkCard(JSONObject linkCard) throws JSONException {
+        if (linkCard == null) return 0;
+        JSONObject card = linkCard.optJSONObject("card");
+        if (card == null) return 0;
+        String type = card.optString("type");
+        // 投票链接卡片：EVA3_VOTE（eva3_vote.info.vote_id）或旧版 VOTE（vote.vote_id）
+        JSONObject vote = null;
+        if ("LINK_CARD_TYPE_EVA3_VOTE".equals(type)) {
+            JSONObject eva3 = card.optJSONObject("eva3_vote");
+            if (eva3 != null) vote = eva3.optJSONObject("info");
+        } else if ("LINK_CARD_TYPE_VOTE".equals(type)) {
+            vote = card.optJSONObject("vote");
+        }
+        if (vote == null) return 0;
+        return vote.optLong("vote_id", 0);
+    }
 }

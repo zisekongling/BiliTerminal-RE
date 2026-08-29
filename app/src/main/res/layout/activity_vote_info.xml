@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <RelativeLayout
+        android:id="@+id/top"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true">
+
+        <TextView
+            android:id="@+id/pageName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_alignParentStart="true"
+            android:layout_alignParentLeft="true"
+            android:layout_marginVertical="3dp"
+            android:layout_marginStart="8dp"
+            android:layout_toStartOf="@id/timeText"
+            android:layout_toLeftOf="@id/timeText"
+            android:lines="1"
+            android:text="投票详情"
+            android:textStyle="bold"
+            app:drawableStartCompat="@drawable/arrow_back" />
+
+        <com.RobinNotBad.BiliClient.ui.widget.TextClock
+            android:id="@+id/timeText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:layout_marginVertical="3dp"
+            android:layout_alignParentRight="true"
+            android:layout_alignParentEnd="true" />
+
+    </RelativeLayout>
+
+    <com.RobinNotBad.BiliClient.ui.widget.RotaryScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_below="@id/top">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="@dimen/activity_padding_horizontal"
+            android:orientation="vertical">
+
+            <!-- 投票卡片 -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/vote_card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                app:cardBackgroundColor="#1AFFFFFF"
+                app:cardElevation="0dp"
+                app:strokeColor="#33FFFFFF"
+                app:strokeWidth="0.5dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="12dp">
+
+                    <!-- 投票标题 -->
+                    <TextView
+                        android:id="@+id/vote_title"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_primary_dark" />
+
+                    <!-- 投票描述 -->
+                    <TextView
+                        android:id="@+id/vote_desc"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:textSize="12sp"
+                        android:textColor="@color/text_secondary_dark" />
+
+                    <!-- 投票信息行 -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/vote_join_num"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:textSize="12sp"
+                            android:textColor="@color/text_tertiary_dark" />
+
+                        <TextView
+                            android:id="@+id/vote_status"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textSize="12sp"
+                            android:textColor="@color/pink_brand" />
+
+                    </LinearLayout>
+
+                    <!-- 分割线 -->
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="0.5dp"
+                        android:layout_marginVertical="12dp"
+                        android:background="@color/divider_dark" />
+
+                    <!-- 投票选项容器 -->
+                    <LinearLayout
+                        android:id="@+id/vote_options_container"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical" />
+
+                    <!-- 多选提示（多选时显示） -->
+                    <TextView
+                        android:id="@+id/vote_hint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:textSize="12sp"
+                        android:textColor="@color/text_tertiary_dark"
+                        android:visibility="gone" />
+
+                    <!-- 投票按钮 -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/vote_submit_btn"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="投票"
+                        android:visibility="gone"
+                        app:cornerRadius="18dp" />
+
+                    <!-- 删除投票按钮（仅发布者可看到） -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/vote_delete_btn"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="删除投票"
+                        android:visibility="gone"
+                        app:cornerRadius="18dp" />
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+
+    </com.RobinNotBad.BiliClient.ui.widget.RotaryScrollView>
+
+</RelativeLayout>

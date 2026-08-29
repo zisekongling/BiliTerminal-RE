@@ -3,7 +3,9 @@ package com.RobinNotBad.BiliClient.model;
 import static com.RobinNotBad.BiliClient.api.ReplyApi.TOP_TIP;
 
 import android.text.SpannableStringBuilder;
-
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.UnderlineSpan;
 import com.RobinNotBad.BiliClient.BiliTerminal;
 import com.RobinNotBad.BiliClient.util.EmoteUtil;
 import com.RobinNotBad.BiliClient.util.JsonUtil;
@@ -18,6 +20,8 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class Reply implements Serializable {
     public long rpid;
@@ -38,6 +42,7 @@ public class Reply implements Serializable {
     public boolean isDynamic;
     public ArrayList<Reply> childMsgList = new ArrayList<>();
     public boolean isTop;
+    public long voteId;  // 评论中的投票 id，-1 表示无投票
 
     public Reply() {
     }
@@ -70,6 +75,7 @@ public class Reply implements Serializable {
             time += " | IP:" + replyCtrl.getString("location").substring(5);  //这字符串还是切割一下吧不然太长了，只留个地址，前缀去了
         }
         this.pubTime = time;
+        this.voteId = -1;
 
         if (replyCtrl.has("is_up_top")) {
             if (replyCtrl.getBoolean("is_up_top")) {
@@ -100,6 +106,19 @@ public class Reply implements Serializable {
             }
 
             EmoteUtil.textReplaceEmote(messageSpannable.toString(), emoteList, 1.0f, BiliTerminal.context, messageSpannable);
+        }
+
+        // 检测并替换投票占位符 {vote:vote_id}
+        Pattern votePattern = Pattern.compile("\\{vote:(\\d+)\\}");
+        Matcher voteMatcher = votePattern.matcher(messageSpannable);
+        if (voteMatcher.find()) {
+            this.voteId = Long.parseLong(voteMatcher.group(1));
+            String voteLabel = " 投票 ";
+            int start = voteMatcher.start();
+            int end = voteMatcher.end();
+            messageSpannable.replace(start, end, voteLabel);
+            messageSpannable.setSpan(new ForegroundColorSpan(0xFFFE679A), start, start + voteLabel.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            messageSpannable.setSpan(new UnderlineSpan(), start, start + voteLabel.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
 
         StringUtil.setLink(messageSpannable);

@@ -49,6 +49,11 @@
         </provider>
 
         <activity
+            android:name=".activity.vote.VoteInfoActivity"
+            android:exported="false"
+            android:label="投票详情"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.settings.TestActivity"
             android:exported="true"
             android:label="测试页面"
