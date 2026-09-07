@@ -34,3 +34,6 @@ replay_pid*.log
 # 临时审查清单与备份  
 review_filelist.txt  
 gradle.properties.bak 
+
+# local update config (deployed separately, not tracked)
+config.json

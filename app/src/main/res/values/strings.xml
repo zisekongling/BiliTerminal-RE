@@ -335,17 +335,25 @@
 
     #本次版本更新日志（展示在关于页，与历史日志区分）
     <string-array name="update_log_current">
-        <item>【26.08.27 本次更新】</item>
+        <item>【26.09.07 本次更新】</item>
+        <item>1. 安全更新：修复评论/私信/弹幕发送、WebView 配置、登录日志等多处高危（Critical/High）问题，提升账号与隐私安全。</item>
+        <item>2. 登录安全：清除日志中对 access_token、Cookie、refresh_token 等登录凭证的明文输出，避免敏感信息外泄。</item>
+        <item>3. 发送安全：评论区、私信与弹幕发送内容统一 URL 编码并改用安全拼接，修复特殊字符导致的注入问题。</item>
+        <item>4. WebView 安全：验证码登录等页面关闭本地文件访问、混合内容等高危开关，降低被攻击风险。</item>
+        <item>5. 稳定性修复：修复外部链接/网络重定向空指针、未登录收藏夹与虚拟合集越界、空会话加载、三连在后台线程刷新界面等崩溃问题。</item>
+        <item>6. 下载与刷新优化：修复列表刷新后"加载更多"偶尔卡死、更新/下载分片损坏重试及网络连接泄漏问题。</item>
+    </string-array>
+
+    #历史更新日志（按日期分组，## 开头为日期标题，之后为当日日志条目）
+    <string-array name="update_history_log">
+        <item>## 2026-08-27</item>
         <item>1. 删除无法使用的音乐功能</item>
         <item>2. 新增滑动控制进度功能：在播放器设置中增加开关，开启后支持左右滑动调节播放进度，并显示实时进度悬浮提示。</item>
         <item>3. 修复专栏的大部分功能</item>
         <item>4. 更新日志优化：关于页新增"历史更新日志"入口，本次/历史日志分离展示。</item>
         <item>5. 登录态优化：为 TV/APP 端 access_token 增加自动刷新机制，降低登录态过期掉线概率。</item>
         <item>6. 短视频播放器重构：复用统一播放器封装，提升可维护性。</item>
-    </string-array>
-
-    #历史更新日志（按日期分组，## 开头为日期标题，之后为当日日志条目）
-    <string-array name="update_history_log">
+        <item></item>
         <item>## 2026-08-13</item>
         <item>【重要更新】</item>
         <item></item>
