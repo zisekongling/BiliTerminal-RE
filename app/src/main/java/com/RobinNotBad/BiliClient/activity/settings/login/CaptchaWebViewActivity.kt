@@ -93,11 +93,13 @@ class CaptchaWebViewActivity : BaseActivity() {
         val settings = webView!!.settings
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
-        settings.allowFileAccess = true
-        settings.allowContentAccess = true
-        settings.allowUniversalAccessFromFileURLs = true
-        settings.allowFileAccessFromFileURLs = true
-        settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+        // 验证码页面无需本地文件访问，关闭危险开关以降低攻击面
+        settings.allowFileAccess = false
+        settings.allowContentAccess = false
+        settings.allowUniversalAccessFromFileURLs = false
+        settings.allowFileAccessFromFileURLs = false
+        // 极验脚本为 https，禁止混合内容
+        settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         settings.cacheMode = WebSettings.LOAD_NO_CACHE
         settings.userAgentString = "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36"
 

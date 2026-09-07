@@ -30,3 +30,7 @@ replay_pid*.log
 # ä¸´æ—¶å…‹éš†å‚è€ƒä»“åº“
 /BiliTerminal_clone/
 
+  
+# ÁÙÊ±Éó²éÇåµ¥Óë±¸·İ  
+review_filelist.txt  
+gradle.properties.bak 

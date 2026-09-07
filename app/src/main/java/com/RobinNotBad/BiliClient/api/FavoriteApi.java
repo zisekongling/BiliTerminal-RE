@@ -280,9 +280,17 @@ public class FavoriteApi {
         }
     }
 
+    /**
+     * 构造收藏夹操作的 media_id：规则为 fid + 创建者 mid 的后两位（不足两位补零）。
+     * 旧实现 strMid.substring(strMid.length()-2) 在未登录（mid=0）或 mid 为个位数时直接越界崩溃。
+     */
+    static String buildMediaId(long fid, long mid) {
+        return fid + String.format("%02d", mid % 100);
+    }
+
     public static int addFavorite(long aid, long fid) throws IOException, JSONException {
-        String strMid = String.valueOf(SharedPreferencesUtil.getLong("mid", 0));
-        String addFid = fid + strMid.substring(strMid.length() - 2);
+        long mid = SharedPreferencesUtil.getLong("mid", 0);
+        String addFid = buildMediaId(fid, mid);
         String url = "https://api.bilibili.com/medialist/gateway/coll/resource/deal";
         String per = "rid=" + aid + "&type=2&add_media_ids=" + addFid + "&del_media_ids=&csrf=" + SharedPreferencesUtil.getString("csrf", "");
 
@@ -293,8 +301,8 @@ public class FavoriteApi {
 
 
     public static int deleteFavorite(long aid, long fid) throws IOException, JSONException {
-        String strMid = String.valueOf(SharedPreferencesUtil.getLong("mid", 0));
-        String delFid = fid + strMid.substring(strMid.length() - 2);    //腕上哔哩那边是错的，fid后面要加上mid的后两位而不是定值，虽然这不影响什么
+        long mid = SharedPreferencesUtil.getLong("mid", 0);
+        String delFid = buildMediaId(fid, mid);    //fid后面要加上mid的后两位而不是定值
         String url = "https://api.bilibili.com/medialist/gateway/coll/resource/batch/del";
         String per = "resources=" + aid + ":2&media_id=" + delFid + "&csrf=" + SharedPreferencesUtil.getString("csrf", "");
 

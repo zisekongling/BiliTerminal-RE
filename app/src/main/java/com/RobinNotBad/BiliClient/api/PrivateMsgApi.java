@@ -8,6 +8,7 @@ import com.RobinNotBad.BiliClient.model.PrivateMessage;
 import com.RobinNotBad.BiliClient.model.PrivateMsgSession;
 import com.RobinNotBad.BiliClient.model.UserInfo;
 import com.RobinNotBad.BiliClient.util.EmoteUtil;
+import com.RobinNotBad.BiliClient.util.Logu;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
 
@@ -16,6 +17,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Objects;
@@ -214,7 +216,7 @@ public class PrivateMsgApi {
         String per =
                 "msg[dev_id]=" + getDevId()
                         + "&msg[msg_type]=" + msgType
-                        + "&msg[content]=" + content
+                        + "&msg[content]=" + URLEncoder.encode(content, "UTF-8")
                         + "&msg[receiver_type]=1&csrf=" + SharedPreferencesUtil.getString("csrf", "")
                         + "&msg[sender_uid]=" + senderUid
                         + "&msg[receiver_id]=" + receiverUid
@@ -222,8 +224,8 @@ public class PrivateMsgApi {
 
         JSONObject result = new JSONObject(Objects.requireNonNull(NetWorkUtil.post(url, per, NetWorkUtil.webHeaders).body()).string());
 
-        Log.e("debug-发送私信", result.toString());
-        Log.e("debug-发送私信", NetWorkUtil.webHeaders.toString());
+        // 不再以 Log.e 输出私信内容与完整请求头（含 Cookie），避免凭证/隐私进 logcat
+        Logu.i("发送私信结果: " + result.optInt("code"));
         return result;
     }
 

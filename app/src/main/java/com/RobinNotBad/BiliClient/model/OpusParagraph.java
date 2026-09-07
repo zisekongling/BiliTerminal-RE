@@ -95,9 +95,12 @@ public class OpusParagraph {
             stringBuilder.append(analyzeText(child.optJSONObject("text")));
         }
 
-        stringBuilder.setSpan(new BackgroundColorSpan(0x33ffffff),
-                0, stringBuilder.length() - 1,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        // 空 blockquote（children 均为空文本）时 length()==0，旧代码 length()-1 = -1 会让 setSpan 抛越界
+        if (stringBuilder.length() > 0) {
+            stringBuilder.setSpan(new BackgroundColorSpan(0x33ffffff),
+                    0, stringBuilder.length(),
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
 
         return stringBuilder;
     }

@@ -44,8 +44,8 @@ public class LikeCoinFavApi {
     }
 
     public static int favorite(long aid, long fid) throws IOException, JSONException {
-        String strMid = String.valueOf(SharedPreferencesUtil.getLong("mid", 0));
-        String addFid = fid + strMid.substring(strMid.length() - 2);
+        long mid = SharedPreferencesUtil.getLong("mid", 0);
+        String addFid = FavoriteApi.buildMediaId(fid, mid);
         String url = "https://api.bilibili.com/medialist/gateway/coll/resource/deal";
         String per = "rid=" + aid + "&type=2&add_media_ids=" + addFid + "&del_media_ids=&csrf=" + SharedPreferencesUtil.getString("csrf", "");
 

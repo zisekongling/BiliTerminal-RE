@@ -10,6 +10,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -27,7 +28,7 @@ public class DanmakuApi {
     public static int sendVideoDanmakuByBvid(long cid, String msg, String bvid, long progress, int color, int mode)
             throws IOException, JSONException {
         String url = "https://api.bilibili.com/x/v2/dm/post";
-        String arg = "type=1&oid=" + cid + "&msg=" + msg + "&bvid=" + bvid + "&progress=" + progress + "&color=" + color
+        String arg = "type=1&oid=" + cid + "&msg=" + URLEncoder.encode(msg, "UTF-8") + "&bvid=" + bvid + "&progress=" + progress + "&color=" + color
                 + "&mode=" + mode + "&rnd=" + (System.currentTimeMillis() * 1000000) + "&csrf="
                 + SharedPreferencesUtil.getString("csrf", "");
         JSONObject result = new JSONObject(
@@ -39,7 +40,7 @@ public class DanmakuApi {
     public static int sendVideoDanmakuByAid(long cid, String msg, long aid, long progress, int color, int mode)
             throws IOException, JSONException {
         String url = "https://api.bilibili.com/x/v2/dm/post";
-        String arg = "type=1&oid=" + cid + "&msg=" + msg + "&aid=" + aid + "&progress=" + progress + "&color=" + color
+        String arg = "type=1&oid=" + cid + "&msg=" + URLEncoder.encode(msg, "UTF-8") + "&aid=" + aid + "&progress=" + progress + "&color=" + color
                 + "&mode=" + mode + "&rnd=" + (System.currentTimeMillis() * 1000000) + "&csrf="
                 + SharedPreferencesUtil.getString("csrf", "");
         JSONObject result = new JSONObject(

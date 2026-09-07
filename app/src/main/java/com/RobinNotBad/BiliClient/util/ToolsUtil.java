@@ -63,13 +63,13 @@ public class ToolsUtil {
         return BuildConfig.BETA;
     }
 
+    /**
+     * 取颜色的 RGB888 值（0xRRGGBB 十进制）。
+     * 旧实现把三个通道的十进制数字符串拼接再 parseInt（白色得到 255255255 而非 16777215），
+     * 导致每一条发送弹幕的颜色都是错的。
+     */
     public static int getRgb888(int color) {
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append((color >> 16) & 0xff);
-        stringBuilder.append((color >> 8) & 0xff);
-        stringBuilder.append((color) & 0xff);
-        Log.e("颜色", stringBuilder.toString());
-        return Integer.parseInt(stringBuilder.toString());
+        return color & 0xFFFFFF;
     }
 
 }

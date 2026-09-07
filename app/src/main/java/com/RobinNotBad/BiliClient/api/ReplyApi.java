@@ -150,7 +150,7 @@ public class ReplyApi {
     public static Pair<Integer, Reply> sendReply(long oid, long root, long parent, String text, int type) throws IOException, JSONException {
         String url = "https://api.bilibili.com/x/v2/reply/add";
         String arg = "oid=" + oid + "&type=" + type + (root == 0 ? "" : ("&root=" + root + "&parent=" + parent))
-                + "&message=" + text + "&jsonp=jsonp&csrf=" + SharedPreferencesUtil.getString("csrf", "");
+                + "&message=" + URLEncoder.encode(text, "UTF-8") + "&jsonp=jsonp&csrf=" + SharedPreferencesUtil.getString("csrf", "");
         JSONObject result = new JSONObject(Objects.requireNonNull(NetWorkUtil.post(url, arg, NetWorkUtil.webHeaders).body()).string());
         Log.e("debug-发送评论", result.toString());
         JSONObject reply = null;

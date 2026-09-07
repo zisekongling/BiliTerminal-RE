@@ -71,8 +71,11 @@ public class Reply implements Serializable {
             time = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.SIMPLIFIED_CHINESE).format(ctime);
         }
 
-        if (replyCtrl.has("location")) {
-            time += " | IP:" + replyCtrl.getString("location").substring(5);  //这字符串还是切割一下吧不然太长了，只留个地址，前缀去了
+        if (replyCtrl.has("location") && !replyCtrl.isNull("location")) {
+            // location 形如 "IP属地：xx"，去掉前缀只留地址；空串或异常格式时直接用原值，避免越界
+            String location = replyCtrl.getString("location");
+            if (location.length() > 5) location = location.substring(5);
+            time += " | IP:" + location;
         }
         this.pubTime = time;
         this.voteId = -1;

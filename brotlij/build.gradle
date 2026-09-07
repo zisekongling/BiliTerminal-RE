@@ -5,7 +5,7 @@ group = 'com.netease.hearttouch'
 
 android {
     namespace 'com.wolfcstech.brotlij'
-    compileSdk 35
+    compileSdk 34
     
     defaultConfig {
         versionCode 3

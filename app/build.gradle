@@ -11,9 +11,7 @@ int betaVer = 0
 android {
 
     namespace 'com.RobinNotBad.BiliClient'
-    compileSdk 35
-
-    buildToolsVersion '36.0.0'
+    compileSdk 34
 
     sourceSets {
         main{
@@ -88,7 +86,6 @@ android {
     }
 
     compileOptions {
-        incremental true
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }

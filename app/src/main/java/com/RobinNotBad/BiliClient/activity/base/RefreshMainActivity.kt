@@ -72,12 +72,16 @@ open class RefreshMainActivity : InstanceActivity() {
     }
 
     private fun goOnLoad() {
+        val loadMore = listener ?: return
         synchronized(this) {
             val timeCurrent = System.currentTimeMillis()
             if (timeCurrent - lastLoadTimestamp > 100) {
+                // 必须同时置成员 isRefreshing：onScrolled 用它做防重入，
+                // 旧代码只置 UI 状态，滚动持续触发并发 onLoad 导致 offset/freshType 竞态
+                isRefreshing = true
                 swipeRefreshLayout.isRefreshing = true
                 page++
-                listener!!.onLoad(page)
+                loadMore.onLoad(page)
                 lastLoadTimestamp = timeCurrent
             }
         }

@@ -52,7 +52,13 @@ class SpecialLoginActivity : BaseActivity() {
                 try {
                     val jsonObject = JSONObject(loginInfo)
                     val cookies = jsonObject.getString("cookies")
-                    SharedPreferencesUtil.putLong(SharedPreferencesUtil.mid, NetWorkUtil.getInfoFromCookie("DedeUserID", cookies).toLong())
+                    // Cookie 缺少 DedeUserID 时 getInfoFromCookie 返回空串，toLongOrNull 防止 NumberFormatException 崩溃
+                    val mid = NetWorkUtil.getInfoFromCookie("DedeUserID", cookies).toLongOrNull()
+                    if (mid == null) {
+                        runOnUiThread { MsgUtil.showMsg("Cookie 中缺少用户 ID（DedeUserID），请检查复制的内容是否完整") }
+                        return@setOnClickListener
+                    }
+                    SharedPreferencesUtil.putLong(SharedPreferencesUtil.mid, mid)
                     SharedPreferencesUtil.putString(SharedPreferencesUtil.csrf, NetWorkUtil.getInfoFromCookie("bili_jct", cookies))
                     NetWorkUtil.setCookiesString(cookies)
                     SharedPreferencesUtil.putString(SharedPreferencesUtil.refresh_token, jsonObject.getString("refresh_token"))

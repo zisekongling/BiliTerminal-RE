@@ -509,8 +509,9 @@ class LocalListActivity : InstanceActivity() {
                 danmakuUrlList.add("")
             }
 
-            // 记录起始播放位置
-            if (v == folderVideos[startVideoIdx]) {
+            // 记录起始播放位置：startVideoIdx 是 videoList 的全局索引，
+            // 不能直接用来访问过滤后的 folderVideos，否则索引空间不一致会越界
+            if (startVideoIdx >= 0 && startVideoIdx < videoList.size && v == videoList[startVideoIdx]) {
                 startPageIndex = i
             }
         }

@@ -145,6 +145,8 @@ object UpdateManager {
                 var response = okHttpClient.newCall(requestBuilder.build()).execute()
 
                 if (!response.isSuccessful && response.code != 206) {
+                    // 请求失败：丢弃残片从头重试
+                    response.close()
                     downloadedBytes = 0L
                     existingFile.delete()
                     val retryRequest = Request.Builder().url(url).get().build()
@@ -153,6 +155,10 @@ object UpdateManager {
                         CenterThreadPool.runOnUiThread { onError("下载失败: ${response.code}") }
                         return@run
                     }
+                } else if (downloadedBytes > 0 && response.code != 206) {
+                    // 服务器忽略 Range 头返回 200 全量：必须丢弃旧残片从头写，
+                    // 否则全量内容会被追加到残片之后，产出永久损坏的 APK
+                    existingFile.delete()
                 }
 
                 val result = writeResponseToFile(response, existingFile, onProgress)

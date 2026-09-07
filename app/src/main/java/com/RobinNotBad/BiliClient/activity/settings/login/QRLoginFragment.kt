@@ -306,8 +306,7 @@ class QRLoginFragment : Fragment() {
 
                     AccountManager.saveCurrentAccount()
 
-                    Log.d("debug-tv-login-access-token", accessToken)
-                    Log.e("debug-tv-mid", mid.toString())
+                    // 敏感凭证不写入日志
 
                     val instance: InstanceActivity? = BiliTerminal.getInstanceActivityOnTop()
                     if (instance != null && !instance.isDestroyed) instance.finish()
@@ -380,8 +379,7 @@ class QRLoginFragment : Fragment() {
 
                 AccountManager.saveCurrentAccount()
 
-                Log.d("debug-login-cookies", cookies)
-                Log.e("debug-refresh-token", SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, ""))
+                // 敏感凭证不写入日志
 
                 val instance: InstanceActivity? = BiliTerminal.getInstanceActivityOnTop()
                 if (instance != null && !instance.isDestroyed) instance.finish()

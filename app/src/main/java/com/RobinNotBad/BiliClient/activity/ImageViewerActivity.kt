@@ -28,7 +28,13 @@ class ImageViewerActivity : BaseActivity() {
         setTheme(R.style.Theme_BiliClient)
         setContentView(R.layout.activity_image_viewer)
         val intent = intent
-        val imageList = intent.getStringArrayListExtra("imageList")!!
+        // 本页面 exported=true，外部可传空 Intent，缺少必要参数时直接退出而非崩溃
+        val imageList = intent.getStringArrayListExtra("imageList")
+        if (imageList.isNullOrEmpty()) {
+            MsgUtil.showMsgLong("未收到图片数据")
+            finish()
+            return
+        }
 
         val viewPager = findViewById<PhotoViewpager>(R.id.viewPager)
         val textView = findViewById<TextView>(R.id.text_page)

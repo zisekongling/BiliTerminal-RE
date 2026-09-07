@@ -1494,7 +1494,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     override fun onDestroy() {
-        if (!isFinishing) {
+        // 无条件清理：系统因内存压力/"不保留活动"销毁本页时 isFinishing == false，
+        // 旧代码在此提前 return 会跳过 ijkPlayer/Timer/WebSocket/EventBus 的全部释放，
+        // 泄漏的回调还会继续操作已销毁的 Activity。用 destroyed 标志防止重复释放。
+        if (destroyed) {
             super.onDestroy()
             return
         }
@@ -2915,7 +2918,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
     override fun onPrepared(mediaPlayer: IMediaPlayer) {
         if (destroyed) {
-            ijkPlayer!!.release()
+            // onDestroy 可能已把 ijkPlayer 置 null，此处必须用安全调用，且该回调在 IJK 内部线程
+            ijkPlayer?.release()
             return
         }
 

@@ -519,9 +519,11 @@ class VideoInfoFragment : BaseFragment() {
                         try {
                             val code = LikeCoinFavApi.triple(aid)
                             if (code == 0) {
-                                coin.setImageResource(R.drawable.icon_coin_1)
-                                like.setImageResource(R.drawable.icon_like_1)
-                                fav.setImageResource(R.drawable.icon_fav_1)
+                                runOnUiThread {
+                                    coin.setImageResource(R.drawable.icon_coin_1)
+                                    like.setImageResource(R.drawable.icon_like_1)
+                                    fav.setImageResource(R.drawable.icon_fav_1)
+                                }
                                 MsgUtil.showMsg("三连成功")
                             } else MsgUtil.showMsg("三连失败，错误码：" + code)
                         } catch (e: Exception) {

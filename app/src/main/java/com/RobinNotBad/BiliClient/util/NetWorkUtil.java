@@ -93,7 +93,15 @@ public class NetWorkUtil {
                         String location = response.header("Location");
                         boolean isSslRedirect = false;
                         try {
-                            isSslRedirect = location != null && !request.isHttps() && new URI(location).getScheme().equalsIgnoreCase("https") && request.url().host().equalsIgnoreCase(new URI(location).getHost());
+                            if (location != null && !request.isHttps()) {
+                                URI locationUri = new URI(location);
+                                String scheme = locationUri.getScheme();
+                                String host = locationUri.getHost();
+                                // 相对路径 Location 时 scheme/host 为 null，必须先判空避免 NPE
+                                if (scheme != null && host != null) {
+                                    isSslRedirect = scheme.equalsIgnoreCase("https") && request.url().host().equalsIgnoreCase(host);
+                                }
+                            }
                         } catch (URISyntaxException ignored) {
                         }
 
@@ -101,6 +109,8 @@ public class NetWorkUtil {
                             if (request.url().host().equals("b23.tv") && !isSslRedirect && (handler = request.tag(RedirectHandler.class)) != null) {
                                 handler.handleRedirect(location);
                             } else {
+                                // 手动跟进重定向前必须先关闭原响应，否则连接泄漏
+                                response.close();
                                 Request newRequest = request.newBuilder()
                                         .url(location)
                                         .build();

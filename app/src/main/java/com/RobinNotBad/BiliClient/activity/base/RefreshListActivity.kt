@@ -110,6 +110,10 @@ open class RefreshListActivity : BaseActivity() {
     }
 
     fun setRefreshing(bool: Boolean) {
+        // 复位刷新状态时同步结束"加载更多"占用（isLoading）。
+        // 子类加载完成的唯一统一信号就是 setRefreshing(false)，此前只有显式调
+        // onLoadComplete() 的 3 个页面能恢复翻页，其余页面第一次加载更多后即永久卡死。
+        if (!bool) isLoading = false
         runOnUiThread { swipeRefreshLayout.isRefreshing = bool }
     }
 
@@ -127,12 +131,13 @@ open class RefreshListActivity : BaseActivity() {
     }
 
     private fun goOnLoad() {
+        val loadMore = listener ?: return
         val timeCurrent = System.currentTimeMillis()
         if (timeCurrent - lastLoadTimestamp > 500) {
             isLoading = true
             swipeRefreshLayout.isRefreshing = true
             page++
-            listener!!.onLoad(page)
+            loadMore.onLoad(page)
             lastLoadTimestamp = timeCurrent
         }
     }

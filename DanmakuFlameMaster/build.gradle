@@ -20,7 +20,7 @@ def SourcePath = 'src/main/'
 
 android {
     namespace 'master.flame.danmaku'
-    compileSdkVersion 35
+    compileSdkVersion 34
 
     buildTypes {
         release {

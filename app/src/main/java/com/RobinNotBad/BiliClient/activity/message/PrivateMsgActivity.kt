@@ -136,7 +136,10 @@ class PrivateMsgActivity : BaseActivity() {
                     if (contentEt.text.toString() != "") {
                         val content = contentEt.text.toString()
                         runOnUiThread { contentEt.setText("") }
-                        val result = PrivateMsgApi.sendMsg(SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 114514), uid, PrivateMessage.TYPE_TEXT, System.currentTimeMillis() / 1000, "{\"content\":\"$content\"}")
+                        // 避免 JSON 注入：用户输入含引号/反斜杠时不能直接拼 JSON 字符串
+                        val contentJson = JSONObject()
+                        contentJson.put("content", content)
+                        val result = PrivateMsgApi.sendMsg(SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 114514), uid, PrivateMessage.TYPE_TEXT, System.currentTimeMillis() / 1000, contentJson.toString())
                         runOnUiThread {
                             try {
                                 if (result.getInt("code") == 0) {
@@ -197,22 +200,27 @@ class PrivateMsgActivity : BaseActivity() {
         CenterThreadPool.run {
             try {
                 val oldListSize = list.size
-                val msgResult = PrivateMsgApi.getPrivateMsg(uid, 50, list[list.size - 1].msgSeqno, 0)
-                val newList = PrivateMsgApi.getPrivateMsgList(msgResult)
-                if (newList.size > 0) {
-                    for (i in 0 until PrivateMsgApi.getEmoteJsonArray(msgResult).length()) {
-                        val emote = PrivateMsgApi.getEmoteJsonArray(msgResult).getJSONObject(i)
-                        emoteArray.put(emote)
-                    }
-                    Collections.reverse(newList)
-                    runOnUiThread {
-                        for (msg in newList) {
-                            list.add(msg)
-                            adapter!!.notifyItemInserted(list.size - 1)
+                // 空会话时 list 为空，直接访问 list[list.size - 1] 会越界崩溃
+                if (list.isNotEmpty()) {
+                    val msgResult = PrivateMsgApi.getPrivateMsg(uid, 50, list[list.size - 1].msgSeqno, 0)
+                    val newList = PrivateMsgApi.getPrivateMsgList(msgResult)
+                    if (newList.size > 0) {
+                        for (i in 0 until PrivateMsgApi.getEmoteJsonArray(msgResult).length()) {
+                            val emote = PrivateMsgApi.getEmoteJsonArray(msgResult).getJSONObject(i)
+                            emoteArray.put(emote)
                         }
-                        adapter!!.notifyItemRangeChanged(oldListSize - 1, list.size)
-                        msgView.smoothScrollToPosition(list.size - 1)
+                        Collections.reverse(newList)
+                        runOnUiThread {
+                            for (msg in newList) {
+                                list.add(msg)
+                                adapter!!.notifyItemInserted(list.size - 1)
+                            }
+                            adapter!!.notifyItemRangeChanged(oldListSize - 1, list.size)
+                            msgView.smoothScrollToPosition(list.size - 1)
+                        }
                     }
+                } else {
+                    isLoadingMore = false
                 }
             } catch (e: Exception) {
                 runOnUiThread { MsgUtil.err(e) }
