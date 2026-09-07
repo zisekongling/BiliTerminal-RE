@@ -1,0 +1,135 @@
+name: 构建发行版并创建 Release
+
+# 触发方式：
+# 1) 手工触发（workflow_dispatch）：填 tag 就会建 Release 并上传 APK；不填则只构建并上传 artifact。
+# 2) 推送 tag 自动触发：用该 tag 创建 Release 并上传 APK。
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '发行 tag（留空则仅构建，不建 Release）'
+        required: false
+      release_name:
+        description: 'Release 名称（留空用 tag）'
+        required: false
+      release_body:
+        description: 'Release 发布说明（留空用默认文案）'
+        required: false
+  push:
+    tags:
+      - '*'
+
+# 需要创建 Git tag / Release，授予 contents 写权限
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 配置 Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 赋予 gradlew 可执行权限
+        run: chmod +x gradlew
+
+      # gradle.properties 硬编码了本机 Windows JDK 路径和本地代理（Clash），
+      # Linux CI 必须移除，否则会拿不存在的 JDK 路径启动 daemon、并通过本地代理拉依赖失败。
+      # 同时把 Gradle/Kotlin daemon 堆内存调低，避免在 GitHub 较小内存的 runner 上 OOM。
+      - name: 适配 Linux 构建环境
+        run: |
+          sed -i '/^org.gradle.java.home=/d' gradle.properties
+          sed -i -E '/^systemProp\.(http|https)\.(proxyHost|proxyPort)=/d' gradle.properties
+          sed -i 's/org.gradle.jvmargs=-Xmx4096m/org.gradle.jvmargs=-Xmx2048m/' gradle.properties || true
+          sed -i 's/kotlin.daemon.jvmargs=-Xmx8192m/kotlin.daemon.jvmargs=-Xmx2048m/' gradle.properties || true
+          if grep -nE 'java.home|proxyHost|proxyPort' gradle.properties; then
+            echo "::error::gradle.properties 仍残留本机配置，请检查"
+            exit 1
+          fi
+          echo "gradle.properties 已清理"
+
+      # 用仓库 Secrets 生成签名配置：
+      #   KEYSTORE_BASE64 —— key.jks 的 base64 编码
+      #   KEY_PASSWORD / ALIAS_NAME / ALIAS_PASSWORD —— 签名口令与别名
+      # app/build.gradle 的 release 签名从根目录 local.properties 读取（已 gitignore），这里按同格式写入。
+      - name: 校验签名 Secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          ALIAS_NAME: ${{ secrets.ALIAS_NAME }}
+          ALIAS_PASSWORD: ${{ secrets.ALIAS_PASSWORD }}
+        run: |
+          for v in KEYSTORE_BASE64 KEY_PASSWORD ALIAS_NAME ALIAS_PASSWORD; do
+            if [ -z "${!v}" ]; then
+              echo "::error::缺少仓库 Secrets.$v，请在仓库 Settings -> Secrets and variables -> Actions 配置"
+              exit 1
+            fi
+          done
+          echo "签名 Secrets 校验通过"
+
+      - name: 写入签名配置
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          ALIAS_NAME: ${{ secrets.ALIAS_NAME }}
+          ALIAS_PASSWORD: ${{ secrets.ALIAS_PASSWORD }}
+        run: |
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > key.jks
+          {
+            echo "KEY_PATH=$GITHUB_WORKSPACE/key.jks"
+            echo "KEY_PASSWORD=$KEY_PASSWORD"
+            echo "ALIAS_NAME=$ALIAS_NAME"
+            echo "ALIAS_PASSWORD=$ALIAS_PASSWORD"
+          } > local.properties
+          ls -l key.jks
+          echo "--- local.properties ---"
+          sed -E 's/(KEY_PASSWORD|ALIAS_PASSWORD)=.*/\1=***/' local.properties
+
+      - name: 构建签名发行 APK
+        run: ./gradlew :app:assembleRelease
+
+      - name: 上传 APK 到 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apks
+          path: app/build/outputs/apk/release/
+          if-no-files-found: error
+
+      # 计算目标 tag：tag 推送用 pushed ref；手工触发用输入的 tag；为空则跳过 Release
+      - name: 计算发行 tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "DEBUG event=${{ github.event_name }} tag=$(cat "$GITHUB_OUTPUT" | grep '^tag=' | cut -d= -f2-)"
+
+      - name: 创建 GitHub Release
+        if: steps.tag.outputs.tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ inputs.release_name || steps.tag.outputs.tag }}
+          body: ${{ inputs.release_body || 'RE:哔哩终端发行版。' }}
+          files: app/build/outputs/apk/release/*.apk
+          target_commitish: main
+          draft: false
+          prerelease: false
