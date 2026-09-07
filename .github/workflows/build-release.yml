@@ -13,7 +13,7 @@ on:
         description: 'Release 名称（留空用 tag）'
         required: false
       release_body:
-        description: 'Release 发布说明（留空用默认文案）'
+        description: 'Release 发布说明，支持 Markdown（留空则自动生成 commits 摘要，也是 Markdown）'
         required: false
   push:
     tags:
@@ -128,7 +128,10 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: ${{ inputs.release_name || steps.tag.outputs.tag }}
-          body: ${{ inputs.release_body || 'RE:哔哩终端发行版。' }}
+          # 版本说明支持 Markdown：提供了 release_body 则按内容渲染（GitHub 默认 Markdown）；
+          # 未提供时用 generate_release_notes 自动生成 commits 摘要（同样是 Markdown）。
+          body: ${{ inputs.release_body }}
+          generate_release_notes: ${{ inputs.release_body == '' }}
           files: app/build/outputs/apk/release/*.apk
           target_commitish: main
           draft: false
