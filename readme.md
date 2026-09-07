@@ -19,6 +19,20 @@
 
 ---
 
+## 界面预览
+
+<div align="center">
+  <img src="png/推荐.png" width="32%" alt="推荐页" />
+  <img src="png/短视频.png" width="32%" alt="短视频" />
+  <img src="png/视频详情页.png" width="32%" alt="视频详情页" />
+  <br/>
+  <img src="png/账密登录.png" width="32%" alt="账密登录" />
+  <img src="png/设置页面.png" width="32%" alt="设置页面" />
+  <img src="png/投票页.png" width="32%" alt="投票页" />
+</div>
+
+---
+
 ## 功能特性
 
 ### 界面与主题
