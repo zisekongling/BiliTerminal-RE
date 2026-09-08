@@ -16,7 +16,16 @@ object ThemeManager {
     const val THEME_PURPLE_FANTASY = "theme_purple_fantasy"
     const val THEME_RAINBOW_FANTASY = "theme_rainbow_fantasy"
     const val THEME_CLASSIC_GRAY = "theme_classic_gray"
+    const val THEME_CLASSIC_TERMINAL = "theme_classic_terminal"
     const val PREF_KEY_THEME = "theme_selector"
+
+    // 当前默认主题：经典终端（对应老版 BiliClient 的默认黑色外观）
+    const val THEME_DEFAULT = THEME_CLASSIC_TERMINAL
+
+    // 外观风格（独立于配色主题）：modern = 现有大圆角半透明卡片；classic = 原版 #cc262626 + 6dp
+    const val APPEARANCE_MODERN = "modern"
+    const val APPEARANCE_CLASSIC = "classic"
+    private const val CLASSIC_CARD_BG = 0xCC262626.toInt()
 
     sealed class ThemeColors(
         val PRIMARY: Int,
@@ -53,7 +62,8 @@ object ThemeManager {
         val GOLD: Int,
         val VIP_COLOR: Int,
         val STATUS_BAR_COLOR: Int,
-        val NAV_BAR_COLOR: Int
+        val NAV_BAR_COLOR: Int,
+        val CORNER_RADIUS: Float
     )
 
     object BilibiliPink : ThemeColors(
@@ -91,7 +101,8 @@ object ThemeManager {
         GOLD = 0xFFFFB800.toInt(),
         VIP_COLOR = 0xFFFF6699.toInt(),
         STATUS_BAR_COLOR = 0xFFFF6699.toInt(),
-        NAV_BAR_COLOR = 0xFF1B1B24.toInt()
+        NAV_BAR_COLOR = 0xFF1B1B24.toInt(),
+        CORNER_RADIUS = 12f
     )
 
     object ZhihuBlue : ThemeColors(
@@ -129,7 +140,8 @@ object ThemeManager {
         GOLD = 0xFFFFB800.toInt(),
         VIP_COLOR = 0xFF056DE8.toInt(),
         STATUS_BAR_COLOR = 0xFF056DE8.toInt(),
-        NAV_BAR_COLOR = 0xFF1B1B24.toInt()
+        NAV_BAR_COLOR = 0xFF1B1B24.toInt(),
+        CORNER_RADIUS = 12f
     )
 
     object IQIYIGreen : ThemeColors(
@@ -167,7 +179,8 @@ object ThemeManager {
         GOLD = 0xFFFFB800.toInt(),
         VIP_COLOR = 0xFF00DC5A.toInt(),
         STATUS_BAR_COLOR = 0xFF00DC5A.toInt(),
-        NAV_BAR_COLOR = 0xFF1B1B24.toInt()
+        NAV_BAR_COLOR = 0xFF1B1B24.toInt(),
+        CORNER_RADIUS = 12f
     )
 
     object PurpleFantasy : ThemeColors(
@@ -205,7 +218,8 @@ object ThemeManager {
         GOLD = 0xFFFFB800.toInt(),
         VIP_COLOR = 0xFF7B2CBF.toInt(),
         STATUS_BAR_COLOR = 0xFF7B2CBF.toInt(),
-        NAV_BAR_COLOR = 0xFF1B1B24.toInt()
+        NAV_BAR_COLOR = 0xFF1B1B24.toInt(),
+        CORNER_RADIUS = 12f
     )
 
     object RainbowFantasy : ThemeColors(
@@ -243,7 +257,8 @@ object ThemeManager {
         GOLD = 0xFFFFE66D.toInt(),
         VIP_COLOR = 0xFFFF6B6B.toInt(),
         STATUS_BAR_COLOR = 0xFFFF6B6B.toInt(),
-        NAV_BAR_COLOR = 0xFF1B1B24.toInt()
+        NAV_BAR_COLOR = 0xFF1B1B24.toInt(),
+        CORNER_RADIUS = 12f
     )
 
     object ClassicGray : ThemeColors(
@@ -281,17 +296,61 @@ object ThemeManager {
         GOLD = 0xFFFFB800.toInt(),
         VIP_COLOR = 0xFF8787FB.toInt(),
         STATUS_BAR_COLOR = 0xFF8787FB.toInt(),
-        NAV_BAR_COLOR = 0xFF1B1B24.toInt()
+        NAV_BAR_COLOR = 0xFF1B1B24.toInt(),
+        CORNER_RADIUS = 12f
+    )
+
+    // 经典终端主题：基底复刻老版 BiliClient（黑底/暗卡 #cc262626/暖白字 #ebe0e2/
+    // 分隔线 #50FEFEFE/链接 #66ccff 等原样保留），粉色系主点缀改用 B站粉 family
+    // 鲜艳主色 #FF6699 / #FF8CB0 / #E84B85 / #FFB3CA，使终端默认观感更鲜艳。
+    object ClassicTerminal : ThemeColors(
+        PRIMARY = 0xFFFF6699.toInt(),            // B站粉主色（原老版 #FB8787）
+        PRIMARY_DARK = 0xFFE84B85.toInt(),       // B站粉 deep
+        PRIMARY_LIGHT = 0xFFFF8CB0.toInt(),      // B站粉 accent
+        SECONDARY = 0xFFFFB3CA.toInt(),          // B站粉 light
+        SURFACE = 0xFF262626.toInt(),            // 卡片等效不透明
+        CARD = 0xFF262626.toInt(),
+        CARD_WITH_ALPHA = 0xCC262626.toInt(),    // 老版卡片 #cc262626
+        BACKGROUND = 0xFF000000.toInt(),         // bgblack
+        TEXT_PRIMARY = 0xFFEBE0E2.toInt(),       // textwhite
+        TEXT_SECONDARY = 0xFFEBE0E2.toInt(),     // 老版仅一种文字色，统一 textwhite
+        TEXT_TERTIARY = 0xFFEBE0E2.toInt(),
+        ON_PRIMARY = 0xFFEBE0E2.toInt(),
+        ON_SURFACE = 0xFFEBE0E2.toInt(),
+        ON_CARD = 0xFFEBE0E2.toInt(),
+        ON_BACKGROUND = 0xFFEBE0E2.toInt(),
+        ON_BUTTON = 0xFFEBE0E2.toInt(),
+        LIKE_COLOR = 0xFFFF6A6A.toInt(),         // B站粉 点赞红
+        COIN_COLOR = 0xFFFFB800.toInt(),
+        FAV_COLOR = 0xFFFF6699.toInt(),          // B站粉主色
+        SHARE_COLOR = 0xFF66CCFF.toInt(),        // link
+        SUCCESS = 0xFFBBFFBB.toInt(),            // light_green #bfb
+        WARNING = 0xFFFAAD14.toInt(),
+        ERROR = 0xFFFF6699.toInt(),
+        INFO = 0xFF66CCFF.toInt(),               // link
+        PLAYER_BG = 0xFF000000.toInt(),
+        PLAYER_CONTROL_BG = 0x33000000.toInt(),
+        PLAYER_PROGRESS_BG = 0x55FFFFFF.toInt(),
+        PLAYER_PROGRESS_FILL = 0xFFFF6699.toInt(),
+        BORDER = 0x50FEFEFE.toInt(),             // 老版分隔线即 text_transparent
+        DIVIDER = 0x50FEFEFE.toInt(),
+        RIPPLE = 0x78FEFEFE.toInt(),             // color_ripple (精确)
+        GOLD = 0xFFFFB800.toInt(),
+        VIP_COLOR = 0xFFFF6699.toInt(),
+        STATUS_BAR_COLOR = 0xFFFF6699.toInt(),   // 鲜艳粉顶栏
+        NAV_BAR_COLOR = 0xFF000000.toInt(),
+        CORNER_RADIUS = 6f                       // 老版 card_round 6dp
     )
 
     private fun getCurrentTheme(): ThemeColors {
-        val theme = SharedPreferencesUtil.getString(PREF_KEY_THEME, THEME_BILIBILI_PINK)
+        val theme = SharedPreferencesUtil.getString(PREF_KEY_THEME, THEME_DEFAULT)
         return when (theme) {
             THEME_ZHIHU_BLUE -> ZhihuBlue
             THEME_IQIYI_GREEN -> IQIYIGreen
             THEME_PURPLE_FANTASY -> PurpleFantasy
             THEME_RAINBOW_FANTASY -> RainbowFantasy
             THEME_CLASSIC_GRAY -> ClassicGray
+            THEME_CLASSIC_TERMINAL -> ClassicTerminal
             else -> BilibiliPink
         }
     }
@@ -331,6 +390,7 @@ object ThemeManager {
     val VIP_COLOR get() = getCurrentTheme().VIP_COLOR
     val STATUS_BAR_COLOR get() = getCurrentTheme().STATUS_BAR_COLOR
     val NAV_BAR_COLOR get() = getCurrentTheme().NAV_BAR_COLOR
+    val CORNER_RADIUS get() = getCurrentTheme().CORNER_RADIUS
 
     fun applyWindowTheme(activity: Activity) {
         val window: Window = activity.window
@@ -394,8 +454,11 @@ object ThemeManager {
     fun getGold(context: Context): Int = GOLD
     fun getVipPink(context: Context): Int = VIP_COLOR
 
-    fun getCardBackgroundColor(context: Context): Int = CARD_WITH_ALPHA
-    fun getButtonBackgroundColor(context: Context): Int = CARD_WITH_ALPHA
+    fun getCardBackgroundColor(context: Context): Int =
+        if (getAppearanceStyle() == APPEARANCE_CLASSIC) CLASSIC_CARD_BG else CARD_WITH_ALPHA
+
+    fun getButtonBackgroundColor(context: Context): Int =
+        if (getAppearanceStyle() == APPEARANCE_CLASSIC) CLASSIC_CARD_BG else CARD_WITH_ALPHA
     fun getStatusBarColor(context: Context): Int = STATUS_BAR_COLOR
     fun getAccentColor(context: Context): Int = PRIMARY
 
@@ -412,8 +475,16 @@ object ThemeManager {
         SharedPreferencesUtil.putString(PREF_KEY_THEME, theme)
     }
 
+    fun getAppearanceStyle(): String {
+        return SharedPreferencesUtil.getString(SharedPreferencesUtil.APPEARANCE_STYLE, APPEARANCE_MODERN)
+    }
+
+    fun setAppearanceStyle(style: String) {
+        SharedPreferencesUtil.putString(SharedPreferencesUtil.APPEARANCE_STYLE, style)
+    }
+
     fun getCurrentThemeName(): String {
-        return SharedPreferencesUtil.getString(PREF_KEY_THEME, THEME_BILIBILI_PINK)
+        return SharedPreferencesUtil.getString(PREF_KEY_THEME, THEME_DEFAULT)
     }
 
     fun getThemeDisplayName(): String {
@@ -423,6 +494,7 @@ object ThemeManager {
             THEME_PURPLE_FANTASY -> "紫色空灵"
             THEME_RAINBOW_FANTASY -> "五彩斑斓"
             THEME_CLASSIC_GRAY -> "经典灰"
+            THEME_CLASSIC_TERMINAL -> "经典终端"
             else -> "B站粉"
         }
     }

@@ -350,13 +350,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     @SuppressLint("SimpleDateFormat")
     override fun onCreate(savedInstanceState: Bundle?) {
         Logu.v("加载", "加载")
-        val theme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_BILIBILI_PINK)
+        val theme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_DEFAULT)
         val themeResId = when (theme) {
             ThemeManager.THEME_ZHIHU_BLUE -> R.style.Theme_ZhihuBlue
             ThemeManager.THEME_IQIYI_GREEN -> R.style.Theme_IQIYIGreen
             ThemeManager.THEME_PURPLE_FANTASY -> R.style.Theme_PurpleFantasy
             ThemeManager.THEME_RAINBOW_FANTASY -> R.style.Theme_RainbowFantasy
             ThemeManager.THEME_CLASSIC_GRAY -> R.style.Theme_ClassicGray
+            ThemeManager.THEME_CLASSIC_TERMINAL -> R.style.Theme_ClassicTerminal
             else -> R.style.Theme_BiliClient
         }
         setTheme(themeResId)

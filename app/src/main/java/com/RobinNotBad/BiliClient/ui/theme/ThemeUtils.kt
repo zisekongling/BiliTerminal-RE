@@ -89,11 +89,11 @@ class ThemeUtils {
 
             val pressedDrawable = GradientDrawable()
             pressedDrawable.setColor(pressedColor)
-            pressedDrawable.cornerRadius = 12f
+            pressedDrawable.cornerRadius = ThemeManager.CORNER_RADIUS
 
             val normalDrawable = GradientDrawable()
             normalDrawable.setColor(normalColor)
-            normalDrawable.cornerRadius = 12f
+            normalDrawable.cornerRadius = ThemeManager.CORNER_RADIUS
 
             stateListDrawable.addState(intArrayOf(android.R.attr.state_pressed), pressedDrawable)
             stateListDrawable.addState(intArrayOf(android.R.attr.state_focused), pressedDrawable)

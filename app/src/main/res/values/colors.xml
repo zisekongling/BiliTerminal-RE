@@ -461,4 +461,43 @@
     <color name="classic_gray_code_text">#A3A3FD</color>
     <color name="classic_gray_text_link_light">#8787FB</color>
 
+    <!-- =========================================================== -->
+    <!-- 经典终端主题 (Classic Terminal Theme)                         -->
+    <!-- 直接复刻老版 BiliClient colors.xml 的 9 个原色 + 卡片色       -->
+    <!-- 老版: textwhite/bgblack/pink/low_pink/link/ripple/           -->
+    <!--       text_transparent/gray/light_green + card #cc262626      -->
+    <!-- 粉色系主点缀已按 B站粉主色 #FF6699 调亮，其余原色保持不变      -->
+    <!-- =========================================================== -->
+
+    <!-- 老版 colors.xml 原色 (含 alpha 一并还原) -->
+    <color name="terminal_textwhite">#ebe0e2</color>
+    <color name="terminal_bgblack">#000000</color>
+    <!-- 粉色系：改用 B站粉鲜艳主色 #FF6699（原老版 #FBFB8787） -->
+    <color name="terminal_pink">#FFFF6699</color>
+    <color name="terminal_low_pink">#FFB3CA</color>
+    <color name="terminal_link">#66ccff</color>
+    <color name="terminal_color_ripple">#78FEFEFE</color>
+    <color name="terminal_text_transparent">#50FEFEFE</color>
+    <color name="terminal_gray">#70707070</color>
+    <color name="terminal_light_green">#bfb</color>
+
+    <!-- 老版 CardStyle/ButtonStyle 卡片底色 (styles.xml) -->
+    <color name="terminal_card_bg">#cc262626</color>
+
+    <!-- 由老版"卡片半透明叠黑底"推导的表面/卡片等效色 -->
+    <color name="terminal_surface">#262626</color>
+
+    <!-- 文字与点缀 (观感一致目标) -->
+    <color name="terminal_text_primary">#ebe0e2</color>
+    <color name="terminal_text_secondary">#ebe0e2</color>
+    <color name="terminal_text_tertiary">#ebe0e2</color>
+    <color name="terminal_accent">#FF6699</color>
+    <color name="terminal_statusbar">#FF6699</color>
+    <color name="terminal_divider">#50FEFEFE</color>
+
+    <!-- 功能态/状态色 (老版无对应，用与暖白/粉协调的近义值) -->
+    <color name="terminal_warning">#FAAD14</color>
+    <color name="terminal_gold">#FFB800</color>
+    <color name="terminal_vip">#FF6699</color>
+
 </resources>

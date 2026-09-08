@@ -58,13 +58,14 @@ open class BaseActivity : AppCompatActivity() {
     }
 
     override fun onCreate(@Nullable savedInstanceState: Bundle?) {
-        val theme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_BILIBILI_PINK)
+        val theme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_DEFAULT)
         val themeResId = when (theme) {
             ThemeManager.THEME_ZHIHU_BLUE -> R.style.Theme_ZhihuBlue
             ThemeManager.THEME_IQIYI_GREEN -> R.style.Theme_IQIYIGreen
             ThemeManager.THEME_PURPLE_FANTASY -> R.style.Theme_PurpleFantasy
             ThemeManager.THEME_RAINBOW_FANTASY -> R.style.Theme_RainbowFantasy
             ThemeManager.THEME_CLASSIC_GRAY -> R.style.Theme_ClassicGray
+            ThemeManager.THEME_CLASSIC_TERMINAL -> R.style.Theme_ClassicTerminal
             else -> R.style.Theme_BiliClient
         }
         setTheme(themeResId)
@@ -78,7 +79,7 @@ open class BaseActivity : AppCompatActivity() {
 
         super.onCreate(savedInstanceState)
 
-        appliedTheme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_BILIBILI_PINK)
+        appliedTheme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_DEFAULT)
 
         ThemeManager.applyWindowTheme(this)
 
@@ -203,7 +204,7 @@ open class BaseActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         // 主题在别处被修改后，返回本页时即时重建以应用新主题
-        val currentTheme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_BILIBILI_PINK)
+        val currentTheme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_DEFAULT)
         if (appliedTheme != null && appliedTheme != currentTheme) {
             recreate()
             return

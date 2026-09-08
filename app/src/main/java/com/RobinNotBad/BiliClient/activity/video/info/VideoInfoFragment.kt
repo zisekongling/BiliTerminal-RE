@@ -55,6 +55,7 @@ import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
 import com.RobinNotBad.BiliClient.ui.theme.ThemeUtils
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
@@ -220,6 +221,15 @@ class VideoInfoFragment : BaseFragment() {
         val coinLabel = rootview.findViewById<TextView>(R.id.coin_label)
         val favLabel = rootview.findViewById<TextView>(R.id.fav_label)
         val collectionCard = rootview.findViewById<MaterialCardView>(R.id.collection)
+
+        // 经典终端主题复刻：点赞/投币/收藏卡片原布局用 ?attr/colorPrimary(亮粉) 打底，
+        // 与老版 #cc262626 暗卡片观感冲突，导致白色图标/文字看不清，这里在终端下改回暗底。
+        val likeCoinFavCard = rootview.findViewById<MaterialCardView>(R.id.like_coin_fav)
+        if (ThemeManager.getCurrentThemeName() == ThemeManager.THEME_CLASSIC_TERMINAL) {
+            likeCoinFavCard.setCardBackgroundColor(
+                rootview.context.getColor(R.color.terminal_card_bg)
+            )
+        }
 
         rootview.visibility = View.GONE
 

@@ -161,11 +161,11 @@ class BiliTerminalApp : Application() {
         if (context == null) {
             SharedPreferencesUtil.sharedPreferences = getSharedPreferences("default", MODE_PRIVATE)
             
-            val theme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_BILIBILI_PINK)
-            val themeResId = if (theme == ThemeManager.THEME_ZHIHU_BLUE) {
-                R.style.Theme_ZhihuBlue
-            } else {
-                R.style.Theme_BiliClient
+            val theme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_DEFAULT)
+            val themeResId = when (theme) {
+                ThemeManager.THEME_CLASSIC_TERMINAL -> R.style.Theme_ClassicTerminal
+                ThemeManager.THEME_ZHIHU_BLUE -> R.style.Theme_ZhihuBlue
+                else -> R.style.Theme_BiliClient
             }
             setTheme(themeResId)
             context = getFitDisplayContext(this)

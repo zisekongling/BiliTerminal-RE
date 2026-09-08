@@ -10,10 +10,11 @@ object BiliColors {
     private const val THEME_PURPLE_FANTASY = "theme_purple_fantasy"
     private const val THEME_RAINBOW_FANTASY = "theme_rainbow_fantasy"
     private const val THEME_CLASSIC_GRAY = "theme_classic_gray"
+    private const val THEME_CLASSIC_TERMINAL = "theme_classic_terminal"
     private const val PREF_KEY_THEME = "theme_selector"
 
     private fun getCurrentTheme(): String {
-        return SharedPreferencesUtil.getString(PREF_KEY_THEME, THEME_BILIBILI_PINK)
+        return SharedPreferencesUtil.getString(PREF_KEY_THEME, THEME_CLASSIC_TERMINAL)
     }
 
     val Primary get() = when (getCurrentTheme()) {
@@ -22,6 +23,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#7B2CBF")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#FF6B6B")
         THEME_CLASSIC_GRAY -> Color.parseColor("#8787FB")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#FF6699")
         else -> Color.parseColor("#FF6699")
     }
     val PrimaryDark get() = when (getCurrentTheme()) {
@@ -30,6 +32,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#5A1F8F")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#CC5555")
         THEME_CLASSIC_GRAY -> Color.parseColor("#6B6BDC")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#FF6699")
         else -> Color.parseColor("#E84B85")
     }
     val PrimaryLight get() = when (getCurrentTheme()) {
@@ -38,6 +41,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#9B59D0")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#FF8E8E")
         THEME_CLASSIC_GRAY -> Color.parseColor("#A3A3FD")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#FF8CB0")
         else -> Color.parseColor("#FF8CB0")
     }
     val Secondary get() = when (getCurrentTheme()) {
@@ -46,6 +50,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#BA7FE8")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#FFE66D")
         THEME_CLASSIC_GRAY -> Color.parseColor("#C8C8FF")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#FFB3CA")
         else -> Color.parseColor("#FFB3CA")
     }
     val SecondaryDark get() = when (getCurrentTheme()) {
@@ -54,6 +59,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#9B59D0")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#FF9F43")
         THEME_CLASSIC_GRAY -> Color.parseColor("#A3A3FD")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#FFB3CA")
         else -> Color.parseColor("#FF8CB0")
     }
 
@@ -65,6 +71,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#E8D5F5")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#FFE8E8")
         THEME_CLASSIC_GRAY -> Color.parseColor("#E8E8FF")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#EBE0E2")
         else -> Color.parseColor("#FFECF1")
     }
 
@@ -77,6 +84,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#F5EBFC")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#FFF5F5")
         THEME_CLASSIC_GRAY -> Color.parseColor("#EBE0E2")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#EBE0E2")
         else -> Color.parseColor("#F0E8EC")
     }
     val TextSecondaryDark get() = when (getCurrentTheme()) {
@@ -85,6 +93,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#C4A8E0")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#FFAFAF")
         THEME_CLASSIC_GRAY -> Color.parseColor("#A09098")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#EBE0E2")
         else -> Color.parseColor("#B0A0AA")
     }
     val TextTertiaryDark get() = when (getCurrentTheme()) {
@@ -93,6 +102,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#8B6BA8")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#CC8888")
         THEME_CLASSIC_GRAY -> Color.parseColor("#706870")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#EBE0E2")
         else -> Color.parseColor("#7A6A74")
     }
 
@@ -109,6 +119,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#7B2CBF")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#FF6B6B")
         THEME_CLASSIC_GRAY -> Color.parseColor("#66CCFF")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#66CCFF")
         else -> Color.parseColor("#1890FF")
     }
 
@@ -121,6 +132,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#7B2CBF")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#FF6B6B")
         THEME_CLASSIC_GRAY -> Color.parseColor("#8787FB")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#FF6699")
         else -> Color.parseColor("#FF6699")
     }
 
@@ -131,6 +143,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#7B2CBF")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#FF6B6B")
         THEME_CLASSIC_GRAY -> Color.parseColor("#8787FB")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#FF6699")
         else -> Color.parseColor("#FF6699")
     }
 
@@ -142,6 +155,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#7B2CBF")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#FF6B6B")
         THEME_CLASSIC_GRAY -> Color.parseColor("#8787FB")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#FFB3CA")
         else -> Color.parseColor("#FF6699")
     }
     val ShareColor get() = when (getCurrentTheme()) {
@@ -150,6 +164,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#9B59D0")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#FF9F43")
         THEME_CLASSIC_GRAY -> Color.parseColor("#66CCFF")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#66CCFF")
         else -> Color.parseColor("#FF8CB0")
     }
 
@@ -159,6 +174,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#3D1A66")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#663333")
         THEME_CLASSIC_GRAY -> Color.parseColor("#454555")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#50FEFEFE")
         else -> Color.parseColor("#FFD9E4")
     }
     val BtnHover get() = when (getCurrentTheme()) {
@@ -167,6 +183,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#BA7FE8")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#FFE66D")
         THEME_CLASSIC_GRAY -> Color.parseColor("#A3A3FD")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#FF6699")
         else -> Color.parseColor("#FFB3CA")
     }
     val BtnPressed get() = when (getCurrentTheme()) {
@@ -175,6 +192,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#5A1F8F")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#CC5555")
         THEME_CLASSIC_GRAY -> Color.parseColor("#6B6BDC")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#FF6699")
         else -> Color.parseColor("#E84B85")
     }
     val BtnDisabledBg get() = when (getCurrentTheme()) {
@@ -183,6 +201,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#E8D5F5")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#FFE8E8")
         THEME_CLASSIC_GRAY -> Color.parseColor("#E8E8FF")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#262626")
         else -> Color.parseColor("#FFECF1")
     }
 
@@ -192,6 +211,7 @@ object BiliColors {
         THEME_PURPLE_FANTASY -> Color.parseColor("#997B2CBF")
         THEME_RAINBOW_FANTASY -> Color.parseColor("#99FF6B6B")
         THEME_CLASSIC_GRAY -> Color.parseColor("#998787FB")
+        THEME_CLASSIC_TERMINAL -> Color.parseColor("#99FF6699")
         else -> Color.parseColor("#99FF6699")
     }
     val Gray = Color.parseColor("#70707070")

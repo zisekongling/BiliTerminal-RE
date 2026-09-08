@@ -661,4 +661,103 @@
         <item name="android:descendantFocusability">afterDescendants</item>
     </style>
 
+    <!-- =========================================================== -->
+    <!-- 经典终端主题 (Classic Terminal Theme)                         -->
+    <!-- 直接复刻老版 BiliClient 唯一默认皮肤: 黑底 + #FB8787 粉 +     -->
+    <!-- #ebe0e2 暖白字 + #cc262626 半透明 6dp 卡片                     -->
+    <!-- =========================================================== -->
+
+    <style name="Theme.ClassicTerminal" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/terminal_bgblack</item>
+        <item name="statusBarBackground">@color/terminal_pink</item>
+        <item name="android:colorForeground">@color/terminal_textwhite</item>
+        <item name="colorOnPrimary">@color/terminal_textwhite</item>
+        <item name="colorPrimary">@color/terminal_accent</item>
+        <item name="colorPrimaryDark">@color/terminal_pink</item>
+        <item name="colorAccent">@color/terminal_accent</item>
+        <item name="colorControlActivated">@color/terminal_pink</item>
+        <item name="colorControlNormal">@color/terminal_color_ripple</item>
+        <item name="colorControlHighlight">@color/terminal_color_ripple</item>
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">true</item>
+
+        <item name="android:textViewStyle">@style/TextViewStyleTerminal</item>
+        <item name="editTextStyle">@style/EditTextStyleTerminal</item>
+        <item name="materialCardViewStyle">@style/CardStyleTerminal</item>
+        <item name="materialButtonStyle">@style/ButtonStyleTerminal</item>
+        <item name="switchStyle">@style/SwitchCompatStyleTerminal</item>
+        <item name="radioButtonStyle">@style/RadioButtonStyleTerminal</item>
+        <item name="recyclerViewStyle">@style/ListStyleTerminal</item>
+
+        <item name="android:textColor">@color/terminal_textwhite</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="Theme.ClassicTerminal.Splash" parent="Theme.ClassicTerminal">
+        <item name="android:windowBackground">@drawable/splash_text</item>
+    </style>
+
+    <style name="Theme.ClassicTerminal.NoSwipe" parent="android:Theme.Black">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">false</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/terminal_bgblack</item>
+        <item name="statusBarBackground">@color/terminal_pink</item>
+        <item name="colorOnPrimary">@color/terminal_textwhite</item>
+    </style>
+
+    <style name="Theme.ClassicTerminal.NoSwipe.AppCompat" parent="Theme.ClassicTerminal">
+        <item name="android:windowSwipeToDismiss" tools:ignore="NewApi">false</item>
+    </style>
+
+    <!-- 经典终端主题组件样式 -->
+    <style name="TextViewStyleTerminal" parent="Widget.AppCompat.TextView">
+        <item name="android:textColor">@color/terminal_textwhite</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="EditTextStyleTerminal" parent="Widget.AppCompat.EditText">
+        <item name="android:textColorHint">@color/terminal_text_transparent</item>
+        <item name="android:textCursorDrawable">@drawable/cursor_drawable</item>
+        <item name="android:textColor">@color/terminal_textwhite</item>
+    </style>
+
+    <style name="CardStyleTerminal" parent="Widget.MaterialComponents.CardView">
+        <item name="rippleColor" tools:ignore="PrivateResource">@color/terminal_color_ripple</item>
+        <item name="android:foreground">?android:attr/selectableItemBackground</item>
+        <item name="cardBackgroundColor">@color/terminal_card_bg</item>
+        <item name="cardCornerRadius">@dimen/card_round</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
+    <style name="ButtonStyleTerminal" parent="Widget.MaterialComponents.Button">
+        <item name="backgroundTint">@color/terminal_card_bg</item>
+        <item name="cornerRadius">@dimen/card_round</item>
+        <item name="android:textColor">@color/terminal_textwhite</item>
+        <item name="android:insetTop">2dp</item>
+        <item name="android:insetBottom">2dp</item>
+        <item name="android:paddingLeft">2dp</item>
+        <item name="android:paddingRight">2dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
+    <style name="SwitchCompatStyleTerminal" parent="Widget.AppCompat.CompoundButton.Switch">
+        <item name="android:paddingLeft">6dp</item>
+        <item name="android:paddingRight">2dp</item>
+        <item name="android:background">@drawable/background_edittext_setting</item>
+        <item name="android:textColor">@color/terminal_textwhite</item>
+    </style>
+
+    <style name="RadioButtonStyleTerminal" parent="Widget.MaterialComponents.CompoundButton.RadioButton">
+        <item name="android:minHeight">10dp</item>
+    </style>
+
+    <style name="ListStyleTerminal">
+        <item name="android:descendantFocusability">afterDescendants</item>
+    </style>
+
 </resources>

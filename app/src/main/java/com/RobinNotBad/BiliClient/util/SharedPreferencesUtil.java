@@ -42,6 +42,7 @@ public class SharedPreferencesUtil {
     public static final String RECOMMEND_SOURCE_BOTH = "recommend_source_both";
     public static final String VIRTUAL_COLLECTION_ENABLE = "virtual_collection_enable";
     public static final String PRIVACY_MODE = "privacy_mode";
+    public static final String APPEARANCE_STYLE = "appearance_style";
 
     public static String cookies = "cookies";
     public static String mid = "mid";
