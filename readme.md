@@ -4,7 +4,7 @@
 
 轻量的第三方 B 站 Android 客户端，基于哔哩终端 BiliClient 2.7.0 的改版分支
 
-[![Version](https://img.shields.io/badge/version-26.08.16-blue)](https://github.com/zisekongling/BiliTerminal-RE)
+[![Version](https://img.shields.io/badge/version-26.09.07-blue)](https://github.com/zisekongling/BiliTerminal-RE)
 [![Android](https://img.shields.io/badge/android-7.0%2B-green)]()
 [![Language](https://img.shields.io/badge/language-Kotlin%20%2F%20Java-orange)]()
 [![License](https://img.shields.io/badge/license-GPL%20v3-red)]()

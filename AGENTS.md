@@ -8,12 +8,12 @@
 
 - RE:哔哩终端（ReBiliClient）—— 第三方 B 站安卓客户端，BiliClient 2.7.0 的改版分支（`main` 分支）。
 - 典型 "vibe coding" 产物（见 `readme.md`）：代码大量由 AI 生成，可能存在逻辑漏洞、幻觉功能、屎山写法。改动前不要盲目信任现有实现。
-- 版本号按日期：`versionCode 2608140` / `versionName "26.08.14"`（YY.MM.DD，`app/build.gradle`）。新增版本按此格式递增。
+- 版本号按日期：`versionCode 2609070` / `versionName "26.09.07"`（YY.MM.DD，`app/build.gradle`）。新增版本按此格式递增。
 
 ## 构建
 
 多模块：`:app`（主应用）、`:ijkplayer-java`、`:DanmakuFlameMaster`、`:brotlij`（第三方面向播放器/弹幕/brotli 封装，别乱动）。
-Gradle 8.11.1（腾讯镜像）、AGP 8.5.2、Kotlin 2.0.0、KSP、Hilt 2.51.1，需 JDK 17。minSdk 24 / targetSdk 34 / compileSdk 35，`resConfigs 'zh'`（只有中文资源）。
+Gradle 8.11.1（腾讯镜像）、AGP 8.5.2、Kotlin 2.0.0、KSP、Hilt 2.51.1，需 JDK 17。minSdk 24 / targetSdk 34 / compileSdk 34，`resConfigs 'zh'`（只有中文资源）。
 
 常用命令：
 
