@@ -89,6 +89,9 @@ public class MsgUtil {
             if (currentTime >= endTime) {
                 EventBus.getDefault().removeStickyEvent(snackEvent);
             } else {
+                // 显示后立即移除 sticky 事件：否则同一次 onStart 注册收到的这条事件，
+                // 还会被 BaseActivity.onResume 再取一次，导致同一个页面弹两次。
+                EventBus.getDefault().removeStickyEvent(snackEvent);
                 createSnack(view, snackEvent.getMessage(), (int) (endTime - currentTime))
                         .show();
             }

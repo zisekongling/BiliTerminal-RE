@@ -38,9 +38,20 @@ public class ConfInfoApi {
             61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11,
             36, 20, 34, 44, 52};
 
-    private static volatile String lastWbiQuery = null;
-    private static volatile long lastWbiWts = 0;
-    private static volatile String lastWbiSignedUrl = null;
+    /** WBI 签名结果缓存。整体替换，避免多个字段分开赋值时读到"query 已换、签名未换"的组合。 */
+    private static final class WbiCache {
+        final String query;
+        final long wts;
+        final String signedUrl;
+
+        WbiCache(String query, long wts, String signedUrl) {
+            this.query = query;
+            this.wts = wts;
+            this.signedUrl = signedUrl;
+        }
+    }
+
+    private static volatile WbiCache lastWbiCache = null;
 
     public static String getWBIRawKey() throws IOException, JSONException {
         JSONObject getJson = NetWorkUtil.getJson("https://api.bilibili.com/x/web-interface/nav");
@@ -72,8 +83,9 @@ public class ConfInfoApi {
         } else mixin_key = SharedPreferencesUtil.getString("wbi_mixin_key", "");
 
         long wts = System.currentTimeMillis() / 1000;
-        if (url_query.equals(lastWbiQuery) && wts == lastWbiWts) {
-            return lastWbiSignedUrl;
+        WbiCache cached = lastWbiCache;
+        if (cached != null && url_query.equals(cached.query) && wts == cached.wts) {
+            return cached.signedUrl;
         }
 
         String wtsStr = String.valueOf(wts);
@@ -82,10 +94,10 @@ public class ConfInfoApi {
 
         String w_rid = ToolsUtil.md5(calc_str);
 
-        lastWbiQuery = url_query;
-        lastWbiWts = wts;
-        lastWbiSignedUrl = Objects.requireNonNull(HttpUrl.parse(url_query)).newBuilder().addQueryParameter("w_rid", w_rid).addQueryParameter("wts", wtsStr).build().toString();
-        return lastWbiSignedUrl;
+        String signedUrl = Objects.requireNonNull(HttpUrl.parse(url_query)).newBuilder()
+                .addQueryParameter("w_rid", w_rid).addQueryParameter("wts", wtsStr).build().toString();
+        lastWbiCache = new WbiCache(url_query, wts, signedUrl);
+        return signedUrl;
     }
 
     public static String sortUrlParams(String url) {

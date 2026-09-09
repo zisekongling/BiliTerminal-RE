@@ -137,29 +137,39 @@ public class PrivateMsgApi {
             throws IOException, JSONException {
         String url =
                 "https://api.vc.bilibili.com/session_svr/v1/session_svr/get_sessions?session_type=1&size=" + size;
-        JSONObject root = NetWorkUtil.getJson(url);
+        return parseSessionsList(NetWorkUtil.getJson(url));
+    }
+
+    /**
+     * 解析会话列表响应（纯解析，便于 JVM 单测）。
+     *
+     * <p>account_info 仅在系统会话中出现（见 bilibili-API/docs/message/private_msg.md），
+     * 系统会话不是普通私信，需要过滤掉。用 isNull 判断同时覆盖"字段缺失"和"值为 null"两种情况；
+     * 旧写法 {@code !has && isNull} 恒等于 {@code !has}，会把 account_info 显式为 null 的普通会话一起丢弃。
+     */
+    public static ArrayList<PrivateMsgSession> parseSessionsList(JSONObject root) throws JSONException {
         ArrayList<PrivateMsgSession> sessionList = new ArrayList<>();
-        if (root.has("data") && !root.isNull("data")) {
-            JSONArray sessions = root.getJSONObject("data").getJSONArray("session_list");
-            for (int i = 0; i < sessions.length(); ++i) {
-                PrivateMsgSession session = new PrivateMsgSession();
-                JSONObject sessionJson = sessions.getJSONObject(i);
-                session.talkerUid = sessionJson.getLong("talker_id");
+        if (root == null || root.isNull("data")) {
+            return sessionList;
+        }
+        JSONArray sessions = root.getJSONObject("data").getJSONArray("session_list");
+        for (int i = 0; i < sessions.length(); ++i) {
+            PrivateMsgSession session = new PrivateMsgSession();
+            JSONObject sessionJson = sessions.getJSONObject(i);
+            session.talkerUid = sessionJson.getLong("talker_id");
 
-                if (!sessionJson.isNull("last_msg")) {
-                    session.contentType = sessionJson.getJSONObject("last_msg").getInt("msg_type");
-                    String content = sessionJson.getJSONObject("last_msg").getString("content");
+            if (!sessionJson.isNull("last_msg")) {
+                session.contentType = sessionJson.getJSONObject("last_msg").getInt("msg_type");
+                String content = sessionJson.getJSONObject("last_msg").getString("content");
 
-                    if (content.endsWith("}") && content.startsWith("{"))
-                        session.content = new JSONObject(content);
-                }
-
-                session.unread = sessionJson.getInt("unread_count");
-
-                if (!sessionJson.has("account_info") && sessionJson.isNull("account_info"))
-                    sessionList.add(session);
-
+                if (content.endsWith("}") && content.startsWith("{"))
+                    session.content = new JSONObject(content);
             }
+
+            session.unread = sessionJson.getInt("unread_count");
+
+            if (sessionJson.isNull("account_info"))
+                sessionList.add(session);
         }
         return sessionList;
     }

@@ -30,7 +30,8 @@ class ToolsUtilTest {
     @Test
     fun getRgb888_stripsAlpha() {
         // 透明度通道被剥离，只保留 RGB
-        assertEquals(0x000000, ToolsUtil.getRgb888(0x00123456))
+        // 0x00123456 的 alpha 为 0x00、RGB 为 0x123456，剥离 alpha 后应得到 0x123456
+        assertEquals(0x123456, ToolsUtil.getRgb888(0x00123456))
         assertEquals(0x804020, ToolsUtil.getRgb888(0xFF804020.toInt()))
     }
 }

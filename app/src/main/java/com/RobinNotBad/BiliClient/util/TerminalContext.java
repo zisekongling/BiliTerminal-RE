@@ -52,7 +52,8 @@ public class TerminalContext {
     private final LruCache<String, Object> contentLruCache;
 
     private TerminalContext() {
-        contentLruCache = new LruCache<>(10);
+        // 视频会按 aid/bvid 双写，容量取 20 以保持约 10 个视频的等效缓存
+        contentLruCache = new LruCache<>(20);
     }
 
     // ------------------------转发功能数据源上下文 start-------------------------------
@@ -105,7 +106,7 @@ public class TerminalContext {
             videoInfo = VideoInfoApi.getVideoInfo(aid);
             if (videoInfo != null) {
                 if (saveToCache) {
-                    contentLruCache.put(ContentType.Video.getTypeCode() + "_" + aid, videoInfo);
+                    cacheVideo(videoInfo);
                 }
                 return Result.success(videoInfo);
             }
@@ -122,7 +123,7 @@ public class TerminalContext {
             videoInfo = VideoInfoApi.getVideoInfo(bvid);
             if (videoInfo != null) {
                 if (saveToCache) {
-                    contentLruCache.put(ContentType.Video.getTypeCode() + "_" + videoInfo.aid, videoInfo);
+                    cacheVideo(videoInfo);
                 }
                 return Result.success(videoInfo);
             }
@@ -137,6 +138,19 @@ public class TerminalContext {
             return fetchVideoInfoByAid(aid, saveToCache);
         } else {
             return fetchVideoInfoByBvId(bvid, saveToCache);
+        }
+    }
+
+    /**
+     * 写入视频缓存。同时按 aid 与 bvid 两个键写入：读取端是按入口参数选键的
+     * （aid 入口查 aid 键、bvid 入口查 bvid 键），只写其中一个会让另一条路径永远 miss，
+     * 每次进详情页都要重新请求。
+     */
+    private void cacheVideo(VideoInfo videoInfo) {
+        String prefix = ContentType.Video.getTypeCode() + "_";
+        contentLruCache.put(prefix + videoInfo.aid, videoInfo);
+        if (!TextUtils.isEmpty(videoInfo.bvid)) {
+            contentLruCache.put(prefix + videoInfo.bvid, videoInfo);
         }
     }
 

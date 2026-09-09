@@ -405,6 +405,14 @@ public class NetWorkUtil {
 
         //如果没有新cookies，直接返回
         if (newCookies.isEmpty()) return;
+        // 本方法由 CookieSaveInterceptor 在任意线程调用，必须与 putCookie/setCookies/getCookies
+        // 共用同一把锁，否则 read-modify-write 互相覆盖会导致偶发登录态丢失。
+        synchronized (NetWorkUtil.class) {
+            saveCookiesLocked(newCookies);
+        }
+    }
+
+    private static void saveCookiesLocked(List<String> newCookies) {
         String cookiesStr = getCachedCookies();
         ArrayList<String> oldCookies = (cookiesStr.equals("") ? new ArrayList<>() : new ArrayList<>(Arrays.asList(cookiesStr.split("; "))));  //转list
 
