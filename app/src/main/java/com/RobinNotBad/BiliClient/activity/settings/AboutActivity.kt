@@ -11,6 +11,7 @@ import android.text.style.StyleSpan
 import android.util.Log
 import android.view.View
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
@@ -29,6 +30,33 @@ class AboutActivity : BaseActivity() {
     private var eggClickAuthorWords: Int = 0
     private var eggClickToUncle: Int = 0
     private var eggClickDev: Int = 0
+
+    /** 一位开发者：名字、简介（或简介资源）、头像资源（-1 表示没有头像）、B 站 UID。 */
+    private data class Developer(
+        val name: String,
+        val desc: String,
+        val avatarRes: Int,
+        val uid: Long,
+        val descRes: Int = 0,
+    )
+
+    companion object {
+        /** 主要开发者。 */
+        private val DEVELOPERS_MAIN = listOf(
+            Developer("RobinNotBad", "和他的纳西妲酱（项目发起者|屎山奠基人）", R.mipmap.avatar_robin, 646521226L),
+            Developer("爅峫（moye）", "你就说能不能用吧（代码贡献量大|屎山铺路人|想换个头像的说）", R.mipmap.avatar_moye, 394675616L),
+        )
+
+        /** 联合开发者。 */
+        private val DEVELOPERS_JOINT = listOf(
+            Developer("silent碎月", "我是镜流小姐的狗", R.mipmap.avatar_silent, 40140732L),
+            Developer("dudu", "一个摆烂的开发者", R.mipmap.avatar_dudu, 517053179L),
+            Developer("达达", "（这位开发者很懒，什么也没有留下）", -1, 432128342L),
+            Developer("huanli233", "与你的日常，就是奇迹", R.mipmap.avatar_huanli, 673815151L),
+            Developer("Jank000.h", "CQCQCQ，这里是BI1TIA，是否有友台能够抄收？", R.mipmap.avatar_jank, 661403494L),
+            Developer("紫色空灵", "", R.mipmap.avatar_zise, 591904067L, R.string.about_dev_trae),
+        )
+    }
 
     @SuppressLint("MissingInflatedId", "SetTextI18n", "InflateParams")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,69 +87,10 @@ class AboutActivity : BaseActivity() {
                 e.printStackTrace()
             }
 
-            val developerAvaterViews: List<ImageView> = ArrayList<ImageView>().apply {
-                add(findViewById(R.id.robinAvatar))
-                add(findViewById(R.id.duduAvatar))
-                add(findViewById(R.id.dadaAvatar))
-                add(findViewById(R.id.moyeAvatar))
-                add(findViewById(R.id.silentAvatar))
-                add(findViewById(R.id.huanliAvatar))
-                add(findViewById(R.id.jankAvatar))
-                add(findViewById(R.id.traeAvatar))
-            }
-            val developerAvaters: List<Int> = ArrayList<Int>().apply {
-                add(R.mipmap.avatar_robin)
-                add(R.mipmap.avatar_dudu)
-                add(-1)
-                add(R.mipmap.avatar_moye)
-                add(R.mipmap.avatar_silent)
-                add(R.mipmap.avatar_huanli)
-                add(R.mipmap.avatar_jank)
-                add(R.mipmap.avatar_zise)
-            }
-            val developerCardList: List<MaterialCardView> = ArrayList<MaterialCardView>().apply {
-                add(findViewById(R.id.robin_card))
-                add(findViewById(R.id.dudu_card))
-                add(findViewById(R.id.dada_card))
-                add(findViewById(R.id.moye_card))
-                add(findViewById(R.id.silent_card))
-                add(findViewById(R.id.huanli_card))
-                add(findViewById(R.id.jank_card))
-                add(findViewById(R.id.trae_card))
-            }
-            val developerUidList: List<Long> = ArrayList<Long>().apply {
-                add(646521226L)
-                add(517053179L)
-                add(432128342L)
-                add(394675616L)
-                add(40140732L)
-                add(673815151L)
-                add(661403494L)
-                add(591904067L)
-            }
-
-            for (i in developerAvaterViews.indices) {
-                val finalI = i
-                if (developerAvaters[i] != -1) try {
-                    Glide.with(this).load(developerAvaters[i])
-                        .transition(GlideUtil.getTransitionOptions())
-                        .placeholder(R.mipmap.akari)
-                        .apply(RequestOptions.circleCropTransform())
-                        .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
-                        .into(developerAvaterViews[i])
-                } catch (ignored: Exception) {
-                }
-
-
-                developerCardList[i].setOnClickListener {
-                    val uid = developerUidList[finalI]
-                    if (uid == -1L) return@setOnClickListener
-                    val intent = Intent()
-                        .setClass(this, UserInfoActivity::class.java)
-                        .putExtra("mid", uid)
-                    startActivity(intent)
-                }
-            }
+            // 开发者卡片：数据驱动动态创建（模板见 res/layout/cell_developer.xml），
+            // 新增开发者只需往下面两个列表里加一项，不用再改布局。
+            bindDevelopers(findViewById(R.id.developer_main_container), DEVELOPERS_MAIN)
+            bindDevelopers(findViewById(R.id.developer_joint_container), DEVELOPERS_JOINT)
 
             findViewById<View>(R.id.author_words).setOnClickListener {
                 eggClickAuthorWords++
@@ -139,13 +108,9 @@ class AboutActivity : BaseActivity() {
                 }
             }
 
-            findViewById<View>(R.id.icon_license_list).setOnClickListener {
-                val str = StringBuilder(getString(R.string.desc_icon_license))
-
-                val logItems = resources.getStringArray(R.array.icon_license)
-                for (i in logItems.indices)
-                    str.append('\n').append((i + 1)).append('.').append(logItems[i])
-                MsgUtil.showText("开源图标的信息", str.toString())
+            // 开源协议 / 借鉴项目 / 图标许可已拆到独立页，这里只留入口
+            findViewById<View>(R.id.opensource_entry).setOnClickListener {
+                startActivity(Intent(this, OpenSourceActivity::class.java))
             }
 
             findViewById<View>(R.id.sponsor_list).setOnClickListener {
@@ -177,6 +142,39 @@ class AboutActivity : BaseActivity() {
             scrollView.isFocusable = true
             scrollView.isFocusableInTouchMode = true
             scrollView.requestFocus()
+        }
+    }
+
+    /** 把开发者列表渲染成卡片塞进容器。 */
+    private fun bindDevelopers(container: LinearLayout, developers: List<Developer>) {
+        for (dev in developers) {
+            val card = layoutInflater.inflate(R.layout.cell_developer, container, false)
+
+            card.findViewById<TextView>(R.id.dev_name).text = dev.name
+            card.findViewById<TextView>(R.id.dev_desc).text =
+                if (dev.descRes != 0) getString(dev.descRes) else dev.desc
+
+            if (dev.avatarRes != -1) {
+                try {
+                    Glide.with(this).load(dev.avatarRes)
+                        .transition(GlideUtil.getTransitionOptions())
+                        .placeholder(R.mipmap.akari)
+                        .apply(RequestOptions.circleCropTransform())
+                        .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
+                        .into(card.findViewById(R.id.dev_avatar))
+                } catch (ignored: Exception) {
+                }
+            }
+
+            if (dev.uid != -1L) {
+                card.setOnClickListener {
+                    startActivity(
+                        Intent(this, UserInfoActivity::class.java).putExtra("mid", dev.uid)
+                    )
+                }
+            }
+
+            container.addView(card)
         }
     }
 }
