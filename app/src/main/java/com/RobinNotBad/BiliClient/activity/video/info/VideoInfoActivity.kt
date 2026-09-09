@@ -80,7 +80,7 @@ class VideoInfoActivity : BaseActivity() {
     }
 
     protected fun initVideoInfoView() {
-        TutorialHelper.showTutorialList(this, R.array.tutorial_video, 1)
+        // 视频详情页的教程改由 BaseActivity 按 Tutorials 注册表集中触发，这里不再手动调用
         TutorialHelper.showPagerTutorial(this, 3)
 
         setPageName("视频详情")

@@ -29,7 +29,7 @@ class UserInfoActivity : BaseActivity() {
 
         setPageName("用户信息")
 
-        TutorialHelper.showTutorialList(this, R.array.tutorial_space, 2)
+        // 教程改由 BaseActivity 按 Tutorials 注册表集中触发
 
         val viewPager = findViewById<ViewPager>(R.id.viewPager)
 

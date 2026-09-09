@@ -21,6 +21,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.TutorialActivity
 import com.RobinNotBad.BiliClient.model.CustomText
 import com.RobinNotBad.BiliClient.model.Tutorial
+import com.RobinNotBad.BiliClient.tutorial.TutorialPagerActivity
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import org.xmlpull.v1.XmlPullParser
@@ -151,6 +152,17 @@ class TutorialHelper {
         @JvmStatic
         fun showPagerTutorial(activity: Activity, pagecount: Int) {
             activity.runOnUiThread {
+                // 教程页正在前台时，本提示会被整个盖住。
+                // 此时既不能显示、更不能写「已展示」标记，否则用户永远看不到这条提示——延后重试。
+                if (TutorialPagerActivity.isShowing) {
+                    activity.window?.decorView?.postDelayed({
+                        if (!activity.isFinishing && !activity.isDestroyed) {
+                            showPagerTutorial(activity, pagecount)
+                        }
+                    }, 500L)
+                    return@runOnUiThread
+                }
+
                 val pagename = activity.javaClass.simpleName
                 val textView = activity.findViewById<TextView>(R.id.text_tutorial_pager)
                 if (SharedPreferencesUtil.getBoolean("tutorial_pager_$pagename", true)) {

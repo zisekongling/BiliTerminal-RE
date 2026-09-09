@@ -37,7 +37,7 @@ class DynamicInfoActivity : BaseActivity() {
         val pageName = findViewById<TextView>(R.id.pageName)
         pageName.text = "动态详情"
 
-        TutorialHelper.showTutorialList(this, R.array.tutorial_dynamic_info, 6)
+        // 教程改由 BaseActivity 按 Tutorials 注册表集中触发
         TerminalContext.getInstance().getDynamicById(id)
             .observe(this) { dynamicResult ->
                 dynamicResult.onSuccess { dynamic ->

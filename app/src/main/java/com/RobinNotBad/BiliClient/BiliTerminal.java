@@ -20,6 +20,7 @@ import com.RobinNotBad.BiliClient.activity.settings.UpdateActivity;
 import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity;
 import com.RobinNotBad.BiliClient.api.DynamicApi;
 import com.RobinNotBad.BiliClient.api.MessageApi;
+import com.RobinNotBad.BiliClient.tutorial.TutorialStore;
 import com.RobinNotBad.BiliClient.util.CenterThreadPool;
 import com.RobinNotBad.BiliClient.util.Logu;
 import com.RobinNotBad.BiliClient.util.MsgUtil;
@@ -61,6 +62,9 @@ public class BiliTerminal extends Application {
         if (context == null) {
             SharedPreferencesUtil.sharedPreferences = getSharedPreferences("default", MODE_PRIVATE);
             context = getFitDisplayContext(this);
+
+            // 教程系统重构：一次性把旧键迁移到新 id（旧系统拿数组下标当 tag 且错位，详见 docs/tutorial-system-redesign.md）
+            TutorialStore.migrateLegacyKeys();
 
             // 初始化性能管理器 - 设备检测与自适应优化
             PerformanceManager.INSTANCE.init(this);

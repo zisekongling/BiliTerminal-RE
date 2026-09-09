@@ -139,7 +139,7 @@ class ShortVideoPlayerActivity : InstanceActivity() {
             }
         })
 
-        TutorialHelper.show(R.xml.tutorial_short_video, this, "short_video", 1)
+        // 教程改由 BaseActivity 按 Tutorials 注册表集中触发
 
         loadFeed()
     }

@@ -26,8 +26,12 @@ import androidx.recyclerview.widget.RecyclerView
 
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
+import com.RobinNotBad.BiliClient.activity.MenuActivity
 import com.RobinNotBad.BiliClient.activity.dynamic.DynamicActivity
 import com.RobinNotBad.BiliClient.event.SnackEvent
+import com.RobinNotBad.BiliClient.tutorial.TutorialPagerActivity
+import com.RobinNotBad.BiliClient.tutorial.TutorialStore
+import com.RobinNotBad.BiliClient.tutorial.Tutorials
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomGridManager
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
@@ -190,6 +194,7 @@ open class BaseActivity : AppCompatActivity() {
     }
 
     private var eventBusInit: Boolean = false
+    private var tutorialAutoTriggered: Boolean = false
 
     override fun onStart() {
         super.onStart()
@@ -199,7 +204,48 @@ open class BaseActivity : AppCompatActivity() {
             EventBus.getDefault().register(this)
             eventBusInit = true
         }
+        autoTriggerTutorial()
+        setupTopbarLongPressToHome()
     }
+
+    /**
+     * 长按顶栏（右侧时间区域）快速回到主菜单。
+     *
+     * readme 与 `docs/FEATURES.md` 一直承诺了这个手势，但代码里此前只有视频详情页实现了类似行为
+     * （见 `VideoInfoActivity.setupLongPressToRoot`），这里补齐通用实现。
+     * 子类若已自定义顶栏长按（如视频详情页），此处不覆盖。
+     */
+    private fun setupTopbarLongPressToHome() {
+        val topBar = findViewById<View>(R.id.top) ?: return
+        if (topBar.hasOnLongClickListeners()) return
+        if (this is MenuActivity) return
+        topBar.setOnLongClickListener {
+            val intent = Intent(this, MenuActivity::class.java)
+            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            startActivity(intent)
+            true
+        }
+    }
+
+    /**
+     * 集中式教程触发：按当前页面类名去 [Tutorials] 注册表里找未读教程。
+     *
+     * 新增教程只需改注册表，页面本身不用动。旧实现靠每个页面手写
+     * `TutorialHelper.showTutorialList(...)`，漏写就永不展示（`tutorial_article` 就是这么漏掉的）。
+     * 每个 Activity 实例只检查一次；教程页自身覆写 [tutorialAutoTriggerEnabled] 返回 false，避免递归。
+     */
+    private fun autoTriggerTutorial() {
+        if (tutorialAutoTriggered) return
+        tutorialAutoTriggered = true
+        if (!tutorialAutoTriggerEnabled()) return
+
+        val pending = Tutorials.forPage(javaClass).filter { !TutorialStore.isRead(it) }
+        if (pending.isEmpty()) return
+        TutorialPagerActivity.start(this, pending)
+    }
+
+    /** 是否参与教程自动触发。 */
+    protected open fun tutorialAutoTriggerEnabled(): Boolean = true
 
     override fun onResume() {
         super.onResume()

@@ -35,9 +35,7 @@ class RecommendActivity : RefreshMainActivity() {
 
         recyclerView.setHasFixedSize(true)
 
-        TutorialHelper.showTutorialList(this, R.array.tutorial_recommend, 0)
-        // 默认主题已改回经典终端的说明提示（独立 tag，未看过才弹一次，沿用强制3秒的教程页）
-        TutorialHelper.show(R.xml.tutorial_theme_notice, this, "theme_notice", 1)
+        // 教程（推荐页引导 + 主题说明）改由 BaseActivity 按 Tutorials 注册表集中触发
 
         refreshRecommend()
     }

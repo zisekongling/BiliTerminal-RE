@@ -129,7 +129,7 @@ class MessageActivity : InstanceActivity() {
                 }
             }
 
-            TutorialHelper.showTutorialList(this, R.array.tutorial_message, 5)
+            // 教程改由 BaseActivity 按 Tutorials 注册表集中触发
         }
     }
 }

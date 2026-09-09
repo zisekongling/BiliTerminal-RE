@@ -84,7 +84,7 @@ class SearchActivity : InstanceActivity() {
         asyncInflate(R.layout.activity_search) { _, _ ->
             Log.e("debug", "进入搜索页")
 
-            TutorialHelper.showTutorialList(this, R.array.tutorial_search, 4)
+            // 教程改由 BaseActivity 按 Tutorials 注册表集中触发
 
             handler = Handler()
 
