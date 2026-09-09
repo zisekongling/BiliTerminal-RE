@@ -17,25 +17,32 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
+            <!-- 默认大号二维码：两条 Guideline 贴住左右边缘（见 QRLoginFragment.QrScale.LARGE） -->
             <androidx.constraintlayout.widget.Guideline
                 android:id="@+id/guideline33"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                app:layout_constraintGuide_percent="0.15" />
+                app:layout_constraintGuide_percent="0.01" />
 
             <androidx.constraintlayout.widget.Guideline
                 android:id="@+id/guideline34"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                app:layout_constraintGuide_percent="0.85" />
+                app:layout_constraintGuide_percent="0.99" />
 
+            <!--
+                宽度由左右两条 Guideline 决定（0dp = match constraint），高度靠 1:1 比例跟随宽度。
+                注意不要用 wrap_content + adjustViewBounds：那样卡片会被二维码位图的固有尺寸
+                撑成固定大小，Guideline 怎么改都不生效（登录页二维码缩放曾经的 bug）。
+            -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/qrImageBg"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="0dp"
                 app:cardBackgroundColor="#fff"
+                app:layout_constraintDimensionRatio="1:1"
                 app:layout_constraintEnd_toStartOf="@+id/guideline34"
                 app:layout_constraintStart_toStartOf="@+id/guideline33"
                 app:layout_constraintTop_toTopOf="parent">
@@ -43,10 +50,10 @@
                 <ImageView
                     android:id="@+id/qrImage"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="match_parent"
                     android:layout_margin="4dp"
-                    android:adjustViewBounds="true"
-                    android:scaleType="fitXY"
+                    android:contentDescription="登录二维码"
+                    android:scaleType="fitCenter"
                     android:src="@mipmap/loading_qr" />
             </com.google.android.material.card.MaterialCardView>
 

@@ -40,8 +40,19 @@ class QRLoginFragment : Fragment() {
     var timer: Timer? = null
     var need_refresh: Boolean = false
     var from_setup: Boolean = false
-    var qrScale: Int = 0
     var isTVMode: Boolean = false
+
+    /**
+     * 二维码缩放档位。默认大号。
+     * 每档对应左右两条 Guideline 的位置百分比。
+     */
+    private enum class QrScale(val left: Float, val right: Float, val tip: String) {
+        LARGE(0.01f, 0.99f, "切换为小二维码"),
+        MEDIUM(0.15f, 0.85f, "切换为更小的二维码"),
+        SMALL(0.30f, 0.70f, "切换为大二维码")
+    }
+
+    private var qrScale = QrScale.LARGE
 
     companion object {
         fun newInstance(from_setup: Boolean): QRLoginFragment {
@@ -116,32 +127,36 @@ class QRLoginFragment : Fragment() {
                 qrImageView.isEnabled = false
                 refreshQrCode()
             } else {
-                val guideline_left = view.findViewById<Guideline>(R.id.guideline33)
-                val guideline_right = view.findViewById<Guideline>(R.id.guideline34)
-                when (qrScale) {
-                    0 -> {
-                        guideline_left.setGuidelinePercent(0.00f)
-                        guideline_right.setGuidelinePercent(1.00f)
-                        MsgUtil.showMsg("切换为大二维码")
-                        qrScale = 1
-                    }
-                    1 -> {
-                        guideline_left.setGuidelinePercent(0.30f)
-                        guideline_right.setGuidelinePercent(0.70f)
-                        MsgUtil.showMsg("切换为小二维码")
-                        qrScale = 2
-                    }
-                    2 -> {
-                        guideline_left.setGuidelinePercent(0.15f)
-                        guideline_right.setGuidelinePercent(0.85f)
-                        MsgUtil.showMsg("切换为默认大小")
-                        qrScale = 0
-                    }
+                qrScale = when (qrScale) {
+                    QrScale.LARGE -> QrScale.MEDIUM
+                    QrScale.MEDIUM -> QrScale.SMALL
+                    QrScale.SMALL -> QrScale.LARGE
                 }
+                applyQrScale()
+                MsgUtil.showMsg(qrScale.tip)
             }
         }
 
+        // 默认大号二维码
+        applyQrScale()
+
         if (isAdded) refreshQrCode()
+    }
+
+    /**
+     * 把当前档位写入两条 Guideline。
+     *
+     * 注意：Guideline 自身 onMeasure 恒为 0×0，改动 guidePercent 不会让父级
+     * ConstraintLayout 重新测量（它又是 wrap_content 嵌在 ScrollView 里的），
+     * 所以必须自己调 requestLayout()，否则界面不会有任何变化。
+     */
+    private fun applyQrScale() {
+        val root = view ?: return
+        val guidelineLeft = root.findViewById<Guideline>(R.id.guideline33) ?: return
+        val guidelineRight = root.findViewById<Guideline>(R.id.guideline34) ?: return
+        guidelineLeft.setGuidelinePercent(qrScale.left)
+        guidelineRight.setGuidelinePercent(qrScale.right)
+        root.requestLayout()
     }
 
     private fun updateModeUI() {
@@ -181,6 +196,9 @@ class QRLoginFragment : Fragment() {
                 CenterThreadPool.runOnUiThread {
                     Log.e("debug-image", QRImage!!.width.toString() + "," + QRImage!!.height)
                     qrImageView.setImageBitmap(QRImage)
+                    // 二维码拿到后必须重新启用，否则 ImageView 收不到点击事件，
+                    // 缩放（setOnClickListener）就永远不会触发。
+                    qrImageView.isEnabled = true
                     startLoginDetect()
                 }
             } catch (e: IOException) {
