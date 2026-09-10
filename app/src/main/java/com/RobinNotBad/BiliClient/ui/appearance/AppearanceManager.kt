@@ -1,6 +1,5 @@
 package com.RobinNotBad.BiliClient.ui.appearance
 
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 
@@ -20,15 +19,13 @@ import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
  * [snapshot] **刻意不缓存**。它是「每次 Activity 创建读一次」的冷路径，缓存收益为零；
  * 而缓存失效点会随模块增加而变多（配色已有 `setTheme`，圆角/字体还会有各自的写入点），
  * 是一类只会引入 bug 的复杂度。热路径的重复读取问题已由
- * [ThemeManager.getCurrentTheme] 的色表缓存单独解决，不需要在这里再来一层。
+ * [ColorScheme.getCurrentTheme] 的色表缓存单独解决，不需要在这里再来一层。
  *
  * ## 写入为什么要「同步」落盘
  * 每个写入点后面紧接着就是 `recreate()` 重新读外观，用异步写入存在读到旧值的窗口——
- * 与 `ThemeManager.setTheme` 的既有做法保持一致。代价是每个用户动作一次同步写盘，可忽略。
- *
- * ## 迁移状态（26.09.11）
- * 配色仍由 [ThemeManager] 拥有，本门面只代理其写入入口。等配色模块迁入本包、
- * [ThemeManager] 成为纯转发壳后，[snapshot] 里对 `ThemeManager` 的引用会一并消失。
+ * 与原先 `ThemeManager.setTheme`（已并入本包 `ColorScheme`）的做法保持一致。代价是每个用户动作一次同步写盘，可忽略。
+ * （注：旧注释称「apply() 存在读到旧值的窗口」并不成立——`apply()` 会同步更新内存映射，
+ *  只把落盘放到异步；这里保留同步写入仅为不改动既有行为。）
  */
 object AppearanceManager {
 
@@ -71,9 +68,8 @@ object AppearanceManager {
 
     /** 汇总当前外观。每次调用都会真实读取，见类注释「为什么不缓存」。 */
     fun snapshot(): Appearance = Appearance(
-        // 用 ThemeManager 的读取入口而不是自己拼默认值，避免默认主题出现第二份定义。
-        // （配色模块迁入本包后，这里改成读 ColorScheme 的默认值即可。）
-        themeKey = ThemeManager.getCurrentThemeName(),
+        // 用配色模块的读取入口而不是自己拼默认值，避免默认主题出现第二份定义。
+        themeKey = ColorScheme.getCurrentThemeName(),
         cornerRadius = CornerStyle.current(),
         fontScale = FontStyle.currentScale(),
         fontFamily = FontStyle.currentFamily(),
@@ -82,9 +78,10 @@ object AppearanceManager {
 
     // ==================== 写入（唯一入口，统一递增版本号） ====================
 
-    /** 写入主题配色。[ThemeManager.setTheme] 转发到这里。 */
+    /** 写入主题配色。写完立即失效 [ColorScheme] 的色表缓存。 */
     fun setTheme(themeKey: String) {
         SharedPreferencesUtil.putStringSync(SettingsKeys.THEME, themeKey)
+        ColorScheme.invalidateCache()
         bumpVersion()
     }
 

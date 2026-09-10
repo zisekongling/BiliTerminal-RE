@@ -1,6 +1,6 @@
 package com.RobinNotBad.BiliClient.ui.appearance
 
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.FakeSharedPreferences
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import org.junit.After
@@ -23,7 +23,7 @@ class AppearanceManagerTest {
     fun setUp() {
         SharedPreferencesUtil.sharedPreferences = fakePrefs
         // 色表是单例缓存，借 setTheme 清一次；随后清空假 prefs 回到「无任何存档」状态。
-        ThemeManager.setTheme(ThemeManager.THEME_DEFAULT)
+        AppearanceManager.setTheme(ColorScheme.THEME_DEFAULT)
         fakePrefs.edit().clear().apply()
     }
 
@@ -41,10 +41,10 @@ class AppearanceManagerTest {
 
     @Test
     fun setTheme_persistsAndBumpsVersion() {
-        AppearanceManager.setTheme(ThemeManager.THEME_ZHIHU_BLUE)
+        AppearanceManager.setTheme(ColorScheme.THEME_ZHIHU_BLUE)
         assertEquals(
             "主题写入必须落盘，否则 recreate() 后读到旧主题",
-            ThemeManager.THEME_ZHIHU_BLUE, ThemeManager.getCurrentThemeName()
+            ColorScheme.THEME_ZHIHU_BLUE, ColorScheme.getCurrentThemeName()
         )
         assertEquals(
             "主题写入必须递增外观版本号，否则其它页面在 onResume 时不会重建",
@@ -54,9 +54,9 @@ class AppearanceManagerTest {
 
     @Test
     fun themeManagerSetTheme_alsoBumpsVersion() {
-        // 既有入口（设置页走的就是 ThemeManager.setTheme）也必须计入版本号，
+        // 既有入口（设置页走的就是 ColorScheme.setTheme）也必须计入版本号，
         // 否则「版本号」对主题变更视而不见。
-        ThemeManager.setTheme(ThemeManager.THEME_CLASSIC_GRAY)
+        AppearanceManager.setTheme(ColorScheme.THEME_CLASSIC_GRAY)
         assertEquals(AppearanceManager.INITIAL_VERSION + 1, AppearanceManager.version())
     }
 
@@ -83,7 +83,7 @@ class AppearanceManagerTest {
 
     @Test
     fun everyWriteBumpsVersion_independently() {
-        AppearanceManager.setTheme(ThemeManager.THEME_IQIYI_GREEN)
+        AppearanceManager.setTheme(ColorScheme.THEME_IQIYI_GREEN)
         AppearanceManager.setCornerRadius(CornerStyle.ROUNDED)
         AppearanceManager.setFontScale(FontStyle.SCALE_XLARGE)
         AppearanceManager.setFontFamily(FontStyle.FAMILY_MONOSPACE)
@@ -116,7 +116,7 @@ class AppearanceManagerTest {
     @Test
     fun snapshot_withEmptyPrefs_reportsAllDefaults() {
         val snapshot = AppearanceManager.snapshot()
-        assertEquals(ThemeManager.THEME_DEFAULT, snapshot.themeKey)
+        assertEquals(ColorScheme.THEME_DEFAULT, snapshot.themeKey)
         assertEquals(CornerStyle.DEFAULT, snapshot.cornerRadius)
         assertEquals(FontStyle.SCALE_DEFAULT, snapshot.fontScale)
         assertEquals(FontStyle.FAMILY_DEFAULT, snapshot.fontFamily)
@@ -125,13 +125,13 @@ class AppearanceManagerTest {
 
     @Test
     fun snapshot_reflectsEverySavedValue() {
-        AppearanceManager.setTheme(ThemeManager.THEME_PURPLE_FANTASY)
+        AppearanceManager.setTheme(ColorScheme.THEME_PURPLE_FANTASY)
         AppearanceManager.setCornerRadius(CornerStyle.ROUNDED)
         AppearanceManager.setFontScale(FontStyle.SCALE_SMALL)
         AppearanceManager.setFontFamily(FontStyle.FAMILY_MONOSPACE)
 
         val snapshot = AppearanceManager.snapshot()
-        assertEquals(ThemeManager.THEME_PURPLE_FANTASY, snapshot.themeKey)
+        assertEquals(ColorScheme.THEME_PURPLE_FANTASY, snapshot.themeKey)
         assertEquals(CornerStyle.ROUNDED, snapshot.cornerRadius)
         assertEquals(FontStyle.SCALE_SMALL, snapshot.fontScale)
         assertEquals(FontStyle.FAMILY_MONOSPACE, snapshot.fontFamily)

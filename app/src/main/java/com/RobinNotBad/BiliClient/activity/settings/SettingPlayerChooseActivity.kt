@@ -13,7 +13,7 @@ import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.google.android.material.card.MaterialCardView
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 
 class SettingPlayerChooseActivity : BaseActivity() {
 
@@ -109,10 +109,10 @@ class SettingPlayerChooseActivity : BaseActivity() {
         checkPosition = position
         for (i in cardViewList.indices) {
             if (position == i) {
-                cardViewList[i].strokeColor = ThemeManager.getPrimary(this)
+                cardViewList[i].strokeColor = ColorScheme.getPrimary(this)
                 cardViewList[i].strokeWidth = ToolsUtil.dp2px(1f)
             } else {
-                cardViewList[i].strokeColor = ThemeManager.getBorder(this)
+                cardViewList[i].strokeColor = ColorScheme.getBorder(this)
                 cardViewList[i].strokeWidth = ToolsUtil.dp2px(0.1f)
             }
         }

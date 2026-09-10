@@ -6,7 +6,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.util.AttributeSet
 import androidx.appcompat.widget.AppCompatSeekBar
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import kotlin.math.min
 import kotlin.math.pow
 
@@ -25,7 +25,7 @@ class HighEnergyProgressBar @JvmOverloads constructor(
     init {
         // 高能进度条此前写死旧版 B站粉（#FB7299），切主题不跟着变；
         // 这里取当前主题主色，并保持原来的不透明度（线条 A8=66%、填充 33=20%）
-        val accent = ThemeManager.PRIMARY
+        val accent = ColorScheme.PRIMARY
         val accentRgb = accent and 0x00FFFFFF
 
         linePaint = Paint()

@@ -19,7 +19,7 @@ import com.RobinNotBad.BiliClient.api.AppInfoApi
 import com.RobinNotBad.BiliClient.api.AppTokenRefreshApi
 import com.RobinNotBad.BiliClient.api.CookieRefreshApi
 import com.RobinNotBad.BiliClient.api.CookiesApi
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.AccountManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -113,7 +113,7 @@ class SplashActivity : Activity() {
     }
 
     private fun applyTheme() {
-        ThemeManager.applyWindowTheme(this)
+        ColorScheme.applyWindowTheme(this)
     }
 
     /**

@@ -36,7 +36,7 @@ import com.RobinNotBad.BiliClient.tutorial.TutorialStore
 import com.RobinNotBad.BiliClient.tutorial.Tutorials
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomGridManager
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.AsyncLayoutInflaterX
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -64,8 +64,8 @@ open class BaseActivity : AppCompatActivity() {
     }
 
     override fun onCreate(@Nullable savedInstanceState: Bundle?) {
-        val theme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_DEFAULT)
-        setTheme(ThemeManager.themeResId(theme))
+        val theme = SharedPreferencesUtil.getString(ColorScheme.PREF_KEY_THEME, ColorScheme.THEME_DEFAULT)
+        setTheme(ColorScheme.themeResId(theme))
 
         setRequestedOrientation(
             if (SharedPreferencesUtil.getBoolean("ui_landscape", false))
@@ -76,9 +76,9 @@ open class BaseActivity : AppCompatActivity() {
 
         super.onCreate(savedInstanceState)
 
-        appliedTheme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_DEFAULT)
+        appliedTheme = SharedPreferencesUtil.getString(ColorScheme.PREF_KEY_THEME, ColorScheme.THEME_DEFAULT)
 
-        ThemeManager.applyWindowTheme(this)
+        ColorScheme.applyWindowTheme(this)
 
         val paddingH_percent = SharedPreferencesUtil.getInt("paddingH_percent", 0)
         val paddingV_percent = SharedPreferencesUtil.getInt("paddingV_percent", 0)
@@ -118,7 +118,7 @@ open class BaseActivity : AppCompatActivity() {
     /**
      * 系统栏避让。
      *
-     * [ThemeManager.applyWindowTheme] 里调用了 `setDecorFitsSystemWindows(false)`，内容会绘制到
+     * [ColorScheme.applyWindowTheme] 里调用了 `setDecorFitsSystemWindows(false)`，内容会绘制到
      * 系统栏（状态栏/导航栏/刘海）下方。此前全工程没有任何 insets 处理，结果是贴底控件与列表
      * 最后一项被导航栏压住。这里把系统栏 inset 叠加到根布局已有的 padding 上，用户自定义的
      * 「界面边距」设置（paddingH/V_percent）仍然保留。
@@ -275,7 +275,7 @@ open class BaseActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         // 主题在别处被修改后，返回本页时即时重建以应用新主题
-        val currentTheme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_DEFAULT)
+        val currentTheme = SharedPreferencesUtil.getString(ColorScheme.PREF_KEY_THEME, ColorScheme.THEME_DEFAULT)
         if (appliedTheme != null && appliedTheme != currentTheme) {
             recreate()
             return

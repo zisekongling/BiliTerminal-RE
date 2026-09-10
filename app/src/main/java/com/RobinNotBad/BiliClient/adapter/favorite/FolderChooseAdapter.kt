@@ -9,7 +9,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.api.FavoriteApi
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
@@ -54,7 +54,7 @@ class FolderChooseAdapter(
         holder.itemView.setOnClickListener {
             if (!adding && position < chooseState.size && position < fidList.size) {
                 adding = true
-                cardView.strokeColor = ThemeManager.withPrimaryAlpha(0x99)
+                cardView.strokeColor = ColorScheme.withPrimaryAlpha(0x99)
                 cardView.strokeWidth = ToolsUtil.dp2px(1f)
 
                 if (chooseState[position]) {
@@ -78,7 +78,7 @@ class FolderChooseAdapter(
                         }
                     }
                 } else {
-                    cardView.strokeColor = ThemeManager.DIVIDER
+                    cardView.strokeColor = ColorScheme.DIVIDER
                     cardView.strokeWidth = ToolsUtil.dp2px(0.1f)
                     CenterThreadPool.run {
                         try {
@@ -119,11 +119,11 @@ class FolderChooseAdapter(
 
     private fun setCardView(cardView: MaterialCardView, bool: Boolean) {
         if (bool) {
-            cardView.strokeColor = ThemeManager.PRIMARY
+            cardView.strokeColor = ColorScheme.PRIMARY
             cardView.strokeWidth = ToolsUtil.dp2px(1f)
         } else {
             cardView.strokeColor =
-                ThemeManager.BORDER
+                ColorScheme.BORDER
             cardView.strokeWidth = ToolsUtil.dp2px(0.1f)
         }
     }

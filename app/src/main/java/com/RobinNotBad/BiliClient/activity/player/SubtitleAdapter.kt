@@ -62,11 +62,11 @@ class SubtitleAdapter : RecyclerView.Adapter<SubtitleAdapter.Holder>() {
                 return
             button.text = list!![currentIndex].lang
             if (isSelected) {
-                button.setTextColor(com.RobinNotBad.BiliClient.ui.theme.ThemeManager.getOnPrimary(context!!))
-                button.setBackgroundColor(com.RobinNotBad.BiliClient.ui.theme.ThemeManager.getPrimary(context!!))
+                button.setTextColor(com.RobinNotBad.BiliClient.ui.appearance.ColorScheme.getOnPrimary(context!!))
+                button.setBackgroundColor(com.RobinNotBad.BiliClient.ui.appearance.ColorScheme.getPrimary(context!!))
             } else {
-                button.setTextColor(com.RobinNotBad.BiliClient.ui.theme.ThemeManager.getTextPrimary(context!!))
-                button.setBackgroundColor(com.RobinNotBad.BiliClient.ui.theme.ThemeManager.getCard(context!!))
+                button.setTextColor(com.RobinNotBad.BiliClient.ui.appearance.ColorScheme.getTextPrimary(context!!))
+                button.setBackgroundColor(com.RobinNotBad.BiliClient.ui.appearance.ColorScheme.getCard(context!!))
             }
             button.setOnClickListener {
                 selectedItemIndex = currentIndex

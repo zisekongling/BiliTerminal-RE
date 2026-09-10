@@ -50,7 +50,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager;
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme;
 
 @SuppressLint("ClickableViewAccessibility")
 public class StringUtil {
@@ -280,7 +280,7 @@ public class StringUtil {
     }
 
     public static void setTopSpan(SpannableStringBuilder spannableString) {
-        spannableString.setSpan(new ForegroundColorSpan(ThemeManager.INSTANCE.getPRIMARY()), 0, ReplyApi.TOP_TIP.length(), Spanned.SPAN_INCLUSIVE_EXCLUSIVE);
+        spannableString.setSpan(new ForegroundColorSpan(ColorScheme.INSTANCE.getPRIMARY()), 0, ReplyApi.TOP_TIP.length(), Spanned.SPAN_INCLUSIVE_EXCLUSIVE);
     }
 
     public static ImageSpan getLevelBadge(Context context, UserInfo userInfo) {

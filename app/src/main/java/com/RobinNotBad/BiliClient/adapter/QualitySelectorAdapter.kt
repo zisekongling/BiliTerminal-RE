@@ -9,7 +9,7 @@ import androidx.annotation.NonNull
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.listener.OnItemClickListener
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.google.android.material.button.MaterialButton
 
 class QualitySelectorAdapter : RecyclerView.Adapter<QualitySelectorAdapter.QualityHolder>() {
@@ -53,7 +53,7 @@ class QualitySelectorAdapter : RecyclerView.Adapter<QualitySelectorAdapter.Quali
     override fun onCreateViewHolder(@NonNull parent: ViewGroup, viewType: Int): QualityHolder {
         this.context = parent.context
         // 不再用 ContextThemeWrapper 强制 B站粉主题：cell_episode 已去掉布局级 android:theme，
-        // 让按钮跟随当前主题（选中色由下面 bind() 用 ThemeManager 设）
+        // 让按钮跟随当前主题（选中色由下面 bind() 用 ColorScheme 设）
         val view = LayoutInflater.from(this.context)
                 .inflate(R.layout.cell_episode, parent, false)
         return QualityHolder(view)
@@ -81,11 +81,11 @@ class QualitySelectorAdapter : RecyclerView.Adapter<QualitySelectorAdapter.Quali
                 return
             button.text = qualityNames!![currentIndex]
             if (isSelected) {
-                button.setTextColor(ThemeManager.ON_PRIMARY)
-                button.setBackgroundColor(ThemeManager.PRIMARY)
+                button.setTextColor(ColorScheme.ON_PRIMARY)
+                button.setBackgroundColor(ColorScheme.PRIMARY)
             } else {
-                button.setTextColor(ThemeManager.TEXT_PRIMARY)
-                button.setBackgroundColor(ThemeManager.CARD)
+                button.setTextColor(ColorScheme.TEXT_PRIMARY)
+                button.setBackgroundColor(ColorScheme.CARD)
             }
             button.setOnClickListener {
                 selectedItemIndex = currentIndex

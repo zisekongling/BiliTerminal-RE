@@ -40,7 +40,7 @@ class EmoteActivity : BaseActivity() {
         val loading = findViewById<ImageView>(R.id.loading)
         val tabLayout = findViewById<TabLayout>(R.id.tl_tab)
         val viewPager = findViewById<ViewPager>(R.id.viewPager)
-        tabLayout.setBackgroundColor(com.RobinNotBad.BiliClient.ui.theme.ThemeManager.getPlayerBg(this))
+        tabLayout.setBackgroundColor(com.RobinNotBad.BiliClient.ui.appearance.ColorScheme.getPlayerBg(this))
         val onScrollListener = object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 super.onScrolled(recyclerView, dx, dy)

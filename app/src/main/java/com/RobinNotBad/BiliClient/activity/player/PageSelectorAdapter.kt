@@ -8,7 +8,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.listener.OnItemClickListener
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 
 class PageSelectorAdapter : RecyclerView.Adapter<PageSelectorAdapter.Holder>() {
     private var pagenames: ArrayList<String>? = null
@@ -58,10 +58,10 @@ class PageSelectorAdapter : RecyclerView.Adapter<PageSelectorAdapter.Holder>() {
             pageName.text = "P" + (currentIndex + 1) + " " + pagenames!![currentIndex]
 
             if (isSelected) {
-                pageName.setTextColor(ThemeManager.PRIMARY)
+                pageName.setTextColor(ColorScheme.PRIMARY)
                 itemView.setBackgroundResource(R.drawable.background_card)
             } else {
-                pageName.setTextColor(ThemeManager.TEXT_PRIMARY)
+                pageName.setTextColor(ColorScheme.TEXT_PRIMARY)
                 itemView.setBackgroundResource(R.drawable.background_card_borderless)
             }
 

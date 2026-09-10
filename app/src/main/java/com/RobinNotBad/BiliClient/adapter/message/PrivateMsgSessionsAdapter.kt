@@ -26,7 +26,7 @@ import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.request.RequestOptions
 import org.json.JSONException
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 
 class PrivateMsgSessionsAdapter(
     val context: Context,
@@ -38,7 +38,7 @@ class PrivateMsgSessionsAdapter(
 
     companion object {
         private const val BADGE_TEXT_COLOR = Color.WHITE
-        private val BADGE_BG_COLOR = ThemeManager.PRIMARY
+        private val BADGE_BG_COLOR = ColorScheme.PRIMARY
         private const val BADGE_TEXT = "  未读 "
     }
 

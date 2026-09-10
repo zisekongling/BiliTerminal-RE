@@ -66,7 +66,7 @@ import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
@@ -342,9 +342,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         Logu.v("加载", "加载")
-        val theme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_DEFAULT)
-        // 主题映射统一在 ThemeManager.themeResId（此前这里复制了一份与 BaseActivity 相同的 when）
-        setTheme(ThemeManager.themeResId(theme))
+        val theme = SharedPreferencesUtil.getString(ColorScheme.PREF_KEY_THEME, ColorScheme.THEME_DEFAULT)
+        // 主题映射统一在 ColorScheme.themeResId（此前这里复制了一份与 BaseActivity 相同的 when）
+        setTheme(ColorScheme.themeResId(theme))
         super.onCreate(savedInstanceState)
 
         screen_landscape = SharedPreferencesUtil.getBoolean("player_autolandscape", false)

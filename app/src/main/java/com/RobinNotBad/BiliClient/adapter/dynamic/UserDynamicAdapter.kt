@@ -46,7 +46,7 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.request.RequestOptions
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 
 class UserDynamicAdapter(
     private val context: Context,
@@ -178,7 +178,7 @@ class UserDynamicAdapter(
                 lvStr.setSpan(
                     RadiusBackgroundSpan(
                         1, context.resources.getDimension(R.dimen.card_round).toInt(),
-                        Color.WHITE, ThemeManager.PRIMARY
+                        Color.WHITE, ColorScheme.PRIMARY
                     ),
                     ("Lv" + userInfo.level).length + 1, lvStr.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE
                 )

@@ -26,7 +26,7 @@ import com.RobinNotBad.BiliClient.util.LinkUrlUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.DecodeFormat
 import com.bumptech.glide.load.engine.DiskCacheStrategy
@@ -89,11 +89,11 @@ class PrivateMsgAdapter(
             }
             if (msg.uid == selfUid) {
                 holder.root.gravity = Gravity.END
-                holder.textContentCard.setCardBackgroundColor(ThemeManager.PRIMARY.toInt())
+                holder.textContentCard.setCardBackgroundColor(ColorScheme.PRIMARY.toInt())
                 holder.textContentCard.strokeWidth = 0
             } else {
                 holder.root.gravity = Gravity.START
-                holder.textContentCard.setCardBackgroundColor(ThemeManager.SURFACE.toInt())
+                holder.textContentCard.setCardBackgroundColor(ColorScheme.SURFACE.toInt())
                 holder.textContentCard.strokeWidth = 1
             }
 

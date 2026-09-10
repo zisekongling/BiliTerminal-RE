@@ -55,7 +55,7 @@ import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
@@ -574,7 +574,7 @@ class VideoInfoFragment : BaseFragment() {
         if (string == null) return SpannableString(videoInfo!!.title)
 
         val titleStr = SpannableString(" " + string + " " + videoInfo!!.title)
-        val badgeBG = RadiusBackgroundSpan(0, resources.getDimension(R.dimen.card_round).toInt(), Color.WHITE, ThemeManager.PRIMARY)
+        val badgeBG = RadiusBackgroundSpan(0, resources.getDimension(R.dimen.card_round).toInt(), Color.WHITE, ColorScheme.PRIMARY)
         titleStr.setSpan(badgeBG, 0, string.length + 2, Spanned.SPAN_INCLUSIVE_EXCLUSIVE)
         return titleStr
     }
@@ -594,7 +594,7 @@ class VideoInfoFragment : BaseFragment() {
                 override fun updateDrawState(ds: TextPaint) {
                     super.updateDrawState(ds)
                     ds.isUnderlineText = false
-                    ds.color = ThemeManager.INFO
+                    ds.color = ColorScheme.INFO
                 }
             }, oldLen, tagStr.length - 1, Spanned.SPAN_INCLUSIVE_EXCLUSIVE)
         }

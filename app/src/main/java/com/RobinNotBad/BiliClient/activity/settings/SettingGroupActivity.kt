@@ -12,7 +12,8 @@ import com.RobinNotBad.BiliClient.activity.settings.login.LoginActivity
 import com.RobinNotBad.BiliClient.activity.settings.login.SpecialLoginActivity
 import com.RobinNotBad.BiliClient.adapter.SettingsAdapter
 import com.RobinNotBad.BiliClient.model.SettingSection
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.AppearanceManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.Aria2Util
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -234,21 +235,21 @@ class SettingGroupActivity : RefreshListActivity() {
             "主题配色",
             "选择应用的主题配色方案",
             SettingsKeys.THEME,
-            ThemeManager.THEME_DEFAULT,
+            ColorScheme.THEME_DEFAULT,
             listOf("B站粉", "知乎蓝", "爱奇艺绿", "紫色空灵", "五彩斑斓", "经典灰", "经典终端"),
             listOf(
-                ThemeManager.THEME_BILIBILI_PINK,
-                ThemeManager.THEME_ZHIHU_BLUE,
-                ThemeManager.THEME_IQIYI_GREEN,
-                ThemeManager.THEME_PURPLE_FANTASY,
-                ThemeManager.THEME_RAINBOW_FANTASY,
-                ThemeManager.THEME_CLASSIC_GRAY,
-                ThemeManager.THEME_CLASSIC_TERMINAL
+                ColorScheme.THEME_BILIBILI_PINK,
+                ColorScheme.THEME_ZHIHU_BLUE,
+                ColorScheme.THEME_IQIYI_GREEN,
+                ColorScheme.THEME_PURPLE_FANTASY,
+                ColorScheme.THEME_RAINBOW_FANTASY,
+                ColorScheme.THEME_CLASSIC_GRAY,
+                ColorScheme.THEME_CLASSIC_TERMINAL
             )
         ) { oldValue, newValue ->
             if (oldValue != newValue) {
-                // 统一走 ThemeManager 的写入点（此前直接操作 SharedPreferences，绕过了单一入口）
-                ThemeManager.setTheme(newValue)
+                // 统一走外观门面的写入点（此前直接操作 SharedPreferences，绕过了单一入口）
+                AppearanceManager.setTheme(newValue)
                 recreate()
             }
         }

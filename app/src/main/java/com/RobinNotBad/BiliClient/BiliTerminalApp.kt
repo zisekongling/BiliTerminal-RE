@@ -17,7 +17,7 @@ import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.api.DynamicApi
 import com.RobinNotBad.BiliClient.api.MessageApi
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.PerformanceManager
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
@@ -155,10 +155,10 @@ class BiliTerminalApp : Application() {
         if (context == null) {
             SharedPreferencesUtil.sharedPreferences = getSharedPreferences("default", MODE_PRIVATE)
             
-            val theme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_DEFAULT)
+            val theme = SharedPreferencesUtil.getString(ColorScheme.PREF_KEY_THEME, ColorScheme.THEME_DEFAULT)
             val themeResId = when (theme) {
-                ThemeManager.THEME_CLASSIC_TERMINAL -> R.style.Theme_ClassicTerminal
-                ThemeManager.THEME_ZHIHU_BLUE -> R.style.Theme_ZhihuBlue
+                ColorScheme.THEME_CLASSIC_TERMINAL -> R.style.Theme_ClassicTerminal
+                ColorScheme.THEME_ZHIHU_BLUE -> R.style.Theme_ZhihuBlue
                 else -> R.style.Theme_BiliClient
             }
             setTheme(themeResId)

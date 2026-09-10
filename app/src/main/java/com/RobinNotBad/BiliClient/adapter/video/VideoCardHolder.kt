@@ -24,7 +24,7 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.load.resource.bitmap.CenterCrop
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
 import com.bumptech.glide.request.RequestOptions
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 
 class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerView.ViewHolder(itemView) {
     lateinit var title: TextView
@@ -146,7 +146,7 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
 
     companion object {
         private val requestManager = Glide.with(BiliTerminal.context!!)
-        private val TITLE_COLOR_SPAN = ForegroundColorSpan(ThemeManager.PRIMARY)
+        private val TITLE_COLOR_SPAN = ForegroundColorSpan(ColorScheme.PRIMARY)
 
         @JvmStatic
         fun getRequestOptions(): RequestOptions {

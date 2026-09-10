@@ -25,7 +25,7 @@ class FakeSharedPreferences : SharedPreferences {
      * [getString] 被调用的次数。
      *
      * 供「缓存类改动是否真的减少了 SharedPreferences 读取」这类性能回归测试断言使用
-     * （见 ThemeManagerTest 的 colorGetters_doNotTouchSharedPreferencesAfterFirstRead）。
+     * （见 ColorSchemeTest 的 colorGetters_doNotTouchSharedPreferencesAfterFirstRead）。
      */
     var stringReadCount: Int = 0
         private set

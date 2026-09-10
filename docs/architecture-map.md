@@ -15,7 +15,7 @@
 | `network/api/`（Retrofit + kotlinx-serialization） | 目录**空**，0 个文件 |
 | `di/`（Hilt） | 目录**空**，0 个文件 |
 | `data/repository/` | 目录**空**，0 个文件 |
-| `ui/*`（ViewModel/MVVM） | 只有 `ui/theme/`（1 个文件：`ThemeManager.kt`）+ `ui/appearance/`（26.09.11 新增，3 个文件：`AppearanceManager.kt` / `CornerStyle.kt` / `FontStyle.kt`）+ `ui/widget/`（12 个文件）。其余 `ui/base`、`ui/player`、`ui/video/viewmodel` 等子目录**已全部删除**（26.09.11 死代码清理，旧文档写「13 个子目录全空」已过时） |
+| `ui/*`（ViewModel/MVVM） | 只有 `ui/appearance/`（26.09.11 新增，4 个文件：`AppearanceManager.kt` / `ColorScheme.kt` / `CornerStyle.kt` / `FontStyle.kt`）+ `ui/widget/`（12 个文件）。`ui/theme/` **已并入 `ui/appearance/`**（原 `ThemeManager.kt` → `ColorScheme.kt`）；其余 `ui/base`、`ui/player`、`ui/video/viewmodel` 等子目录**已全部删除** |
 | `BiliTerminalApp.kt`（@HiltAndroidApp）为入口 | **死代码**。Manifest 指向 `.BiliTerminal`（26.09.10 起是 Kotlin，原先为 `.java`），该类从未被实例化 |
 
 **核实方式**：全工程 `grep '@AndroidEntryPoint|@HiltViewModel|@Inject|@Module|@InstallIn'` → **0 命中**；空目录统计 → **24 个**（26.09.11 已全部删除）。
@@ -264,8 +264,8 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 
 - **巨型类**：`activity/player/PlayerActivity.kt` 127 KB、`service/DownloadService.kt` 65 KB、`activity/video/ShortVideoPlayerActivity.kt` 35 KB。改播放/下载相关功能前先想清楚在哪个位置插入。
 - **两套 Application 静态状态并存**：`BiliTerminal.context/instance`（活的）与 `BiliTerminalApp.context/appInstance`（死的）。**新代码一律用 `BiliTerminal`**，别碰 `BiliTerminalApp`（除 `SplashActivity` 里 UETool 那几行历史遗留）。
-- **测试覆盖极低**：`app/src/test/` 仅 13 个文件（12 个测试类 + 1 个共享假实现 `FakeSharedPreferences`），对 363 个源文件。已有：`HotSearchApiTest`、`FavoriteApiTest`、`OpusApiTest`、`PrivateMsgApiTest`、`NetWorkUtilTest`、`MenuConfigTest`、`MySpaceConfigTest`、`ToolsUtilTest`、`StringUtilTest`、`HotSearchAdapterTest`、`TutorialDslTest`、`ThemeManagerTest`。改动解析/配置/主题逻辑时补纯 JVM 单测——注入 `SharedPreferencesUtil.sharedPreferences`，用 `util/FakeSharedPreferences.kt`（26.09.11 从 `NetWorkUtilTest` 的私有内部类提取为共享助手，别再抄一份）。
-- **主题色表带缓存，失效点只有一处**：`ThemeManager.getCurrentTheme()`（26.09.11 起）缓存当前色表，**只在 `setTheme()` 里置 null**。这是刻意的——36 个属性 getter 全走它，而列表滚动时一个 item 要调多次，此前每次都重读 SharedPreferences（热路径重复 IO）。**若将来给主题 key 增加第二个写入路径（比如直接 `SharedPreferencesUtil.putString(SettingsKeys.THEME, …)`），必须同步失效缓存，否则改主题后色表不跟着变且在 `onResume` 重建后依然错**。守卫测试：`ThemeManagerTest.themeCache_isInvalidatedOnEverySetTheme`、`colorGetters_doNotTouchSharedPreferencesAfterFirstRead`。
+- **测试覆盖极低**：`app/src/test/` 仅 13 个文件（12 个测试类 + 1 个共享假实现 `FakeSharedPreferences`），对 363 个源文件。已有：`HotSearchApiTest`、`FavoriteApiTest`、`OpusApiTest`、`PrivateMsgApiTest`、`NetWorkUtilTest`、`MenuConfigTest`、`MySpaceConfigTest`、`ToolsUtilTest`、`StringUtilTest`、`HotSearchAdapterTest`、`TutorialDslTest`、`ColorSchemeTest`。改动解析/配置/主题逻辑时补纯 JVM 单测——注入 `SharedPreferencesUtil.sharedPreferences`，用 `util/FakeSharedPreferences.kt`（26.09.11 从 `NetWorkUtilTest` 的私有内部类提取为共享助手，别再抄一份）。
+- **主题色表带缓存，失效点只有一处**：`ColorScheme.getCurrentTheme()`（26.09.11 起）缓存当前色表，**只由 `AppearanceManager.setTheme()` 经 `ColorScheme.invalidateCache()` 置空**。这是刻意的——36 个属性 getter 全走它，而列表滚动时一个 item 要调多次，此前每次都重读 SharedPreferences（热路径重复 IO）。**若将来给主题 key 增加第二个写入路径（比如直接 `SharedPreferencesUtil.putString(SettingsKeys.THEME, …)`），必须同步调用 `ColorScheme.invalidateCache()`，否则改主题后色表不跟着变且在 `onResume` 重建后依然错**。守卫测试：`ColorSchemeTest.themeCache_isInvalidatedOnEverySetTheme`、`colorGetters_doNotTouchSharedPreferencesAfterFirstRead`。
 - **主题体系有 3 个"裸 Activity"不参与**：`SplashActivity`、`GetIntentActivity` 不继承 `BaseActivity`（开屏/外链恒定 B站粉），`PlayerActivity` 自己 `setTheme` 但**不调 `applyWindowTheme`、也不参与 `onResume` 主题检测**。改主题相关行为时别以为全局都生效了。
 - **文案硬编码**：遗留页面标题/Toast 直接写中文字符串（Manifest 里 `android:label` 也是中文），只有设置页用 `desc_*` 资源。改文案按现有风格来，别顺手抽 `strings.xml`。
 
@@ -320,7 +320,7 @@ AppCompatActivity
 Fragment → BaseFragment → RefreshListFragment   ← Fragment 版列表页
 ```
 
-`BaseActivity` 提供：主题应用（7 套主题，色表经 `ThemeManager.getCurrentTheme()` 缓存，仅在 `setTheme` 失效）、横竖屏、DPI/边距、**系统栏 insets 避让（`applySystemBarInsets`，含刘海）**、`getLayoutManager()`（横屏按「每列 ≥220dp」返回 `CustomGridManager`，下限 2 列）、`asyncInflate`（先显 loading 布局再替换）、`onBackPressed` 受 `back_disable` 开关、EventBus 自动注册/注销 + sticky `SnackEvent` 重放、主题变更 `onResume` 自动 `recreate()`、重写 `isDestroyed()`。
+`BaseActivity` 提供：主题应用（7 套主题，色表经 `ColorScheme.getCurrentTheme()` 缓存，仅由 `AppearanceManager.setTheme` 失效）、横竖屏、DPI/边距、**系统栏 insets 避让（`applySystemBarInsets`，含刘海）**、`getLayoutManager()`（横屏按「每列 ≥220dp」返回 `CustomGridManager`，下限 2 列）、`asyncInflate`（先显 loading 布局再替换）、`onBackPressed` 受 `back_disable` 开关、EventBus 自动注册/注销 + sticky `SnackEvent` 重放、主题变更 `onResume` 自动 `recreate()`、重写 `isDestroyed()`。
 
 `InstanceActivity` 额外：`onCreate` 里 `BiliTerminal.setInstance(this)`；**顶栏点击不自动绑定**，须手动 `setMenuClick()`。
 
@@ -425,7 +425,7 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 | 文件 | 角色 | key | 档位 |
 |---|---|---|---|
 | `AppearanceManager.kt` | 门面：快照 + 版本号 + **唯一写入入口** | `appearance_version` | — |
-| `ThemeManager.kt`（在 `ui/theme/`，**待迁入**） | 配色：7 套主题 | `theme_selector` | 7 套 |
+| `ColorScheme.kt` | 配色：7 套主题（**只读模块**，原 `ui/theme/ThemeManager.kt`） | `theme_selector` | 7 套 |
 | `CornerStyle.kt` | 卡片圆角 | `ui_corner_radius` | `square`（默认）/ `rounded` |
 | `FontStyle.kt` | 字体：字号 + 字族两个维度 | `ui_font_scale` / `ui_font_family` | 4 档 / 2 选 |
 
@@ -540,7 +540,7 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 
 **不可单测**（内部发网络 / 依赖 Context / 弹 UI）：`DynamicApi.analyzeDynamic`、`MessageApi` 全部解析（SpannableString）、`PrivateMsgApi.getPrivateMsgList`、`LikeCoinFavApi.getVideoStats`。
 
-**测试覆盖现状**：`app/src/test/` 12 个测试类，api 层只有 3 个类的 3 个解析函数被覆盖（`HotSearchApiTest`、`FavoriteApiTest`、`OpusApiTest`）；`ui/theme/ThemeManagerTest`（26.09.11 新增，14 个用例）覆盖 7 套主题的 `key → style` / `key → 色表` / 中文显示名映射、无 key 时的默认值、以及色表缓存的失效与读取次数。
+**测试覆盖现状**：`app/src/test/` 12 个测试类，api 层只有 3 个类的 3 个解析函数被覆盖（`HotSearchApiTest`、`FavoriteApiTest`、`OpusApiTest`）；`ui/appearance/` 下有 4 个测试类共 44 个用例——`ColorSchemeTest`（14）覆盖 7 套主题的 `key → style` / `key → 色表` / 中文显示名映射、无 key 时的默认值、以及色表缓存的失效与读取次数；`CornerStyleTest`（7）、`FontStyleTest`（11）、`AppearanceManagerTest`（12）覆盖圆角/字体档位与外观版本号。
 
 ### API 层的坑
 

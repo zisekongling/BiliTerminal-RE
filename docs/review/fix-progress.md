@@ -470,7 +470,22 @@ override fun updateTimer(timer: DanmakuTimer) { timer.update(onCurrentPositionMs
 **新增测试 30 个用例**（`CornerStyleTest` 7 / `FontStyleTest` 11 / `AppearanceManagerTest` 12）。重点钉住：档位与显示名逐项对应（错位会让用户选「方角」得到「圆角」）、未知存档值回落默认（否则设置页显示空白）、**每个写入点都必须递增版本号**（漏了就是「改了设置但页面不刷新」，且手工测试时容易被设置页自身的 `recreate()` 掩盖）。
 
 > 尚未接入：`BaseActivity` 仍在比 `appliedTheme` 字符串，**未使用版本号**；接入随圆角模块落地一起做（届时一次改动即可）。
-> 配色迁入本包（`ThemeManager` 转纯转发壳）留待步骤 3。
+
+### 第二十四轮（外观三模块重构 · 步骤 3：配色模块迁入 `ui/appearance/`）· 26.09.11
+
+把配色从 `ui/theme/ThemeManager.kt` 迁到 `ui/appearance/ColorScheme.kt`（用 `git mv`，历史保留），并确立**「模块只读、门面写入」**的分工。**不改任何视觉**。
+
+| 项 | 处理方式 |
+|---|---|
+| 文件迁移 | `ui/theme/ThemeManager.kt` → `ui/appearance/ColorScheme.kt`，`object ThemeManager` → `object ColorScheme`；`ui/theme/` 目录删除 |
+| 写入收口 | `ColorScheme.setTheme()` **删除**，写入统一走 `AppearanceManager.setTheme()`（落盘 + `ColorScheme.invalidateCache()` + 递增版本号）——避免「模块自己写、门面不知道」导致版本号漏记 |
+| 缓存失效 | 新增 `ColorScheme.invalidateCache()`，唯一调用者是 `AppearanceManager.setTheme()`；不变量已写进 `architecture-map.md` §7.3 |
+| 依赖方向 | `AppearanceManager.snapshot()` 改读 `ColorScheme.getCurrentThemeName()`，此前对 `ThemeManager` 的反向引用消失 |
+| 调用点迁移 | 27 个文件的 import 与引用由 `ui.theme.ThemeManager` 改为 `ui.appearance.ColorScheme`；`StringUtil.java` 的 `ThemeManager.INSTANCE.` 一并处理；`SettingGroupActivity` 的主题写入改调 `AppearanceManager.setTheme()` |
+| 测试 | `ThemeManagerTest.kt` → `ui/appearance/ColorSchemeTest.kt`（类名与包名同步） |
+
+> 「配色模块」的**功能**部分（把 7 套重复的 `themes.xml` 组件样式合并为一份 `?attr/` 版本）尚未开始，留待后续，需真机逐套验证。
+> 注意：本轮**没有**采用「保留 `ThemeManager` 作转发壳」的方案——转发需要手写 ~70 个成员且易错，直接迁移调用点由编译器兜底，且不留过渡代码。
 
 ---
 
@@ -513,6 +528,7 @@ override fun updateTimer(timer: DanmakuTimer) { timer.update(onCurrentPositionMs
 | 2026-09-11 | `:app:testDebugUnitTest`（第二十二轮步骤 0：主题单测网） | ✅ 12 个测试类 / 72 用例 / 0 失败；`ThemeManagerTest` 13 用例新通过 |
 | 2026-09-11 | `:app:testDebugUnitTest` + `:app:assembleDebug`（第二十二轮步骤 1：色表缓存） | ✅ BUILD SUCCESSFUL；12 个测试类 / 73 用例 / 0 失败（`ThemeManagerTest` 增至 14 用例，含「501 次 getter 只读 1 次 SharedPreferences」的性能断言）；行为与视觉无变化 |
 | 2026-09-11 | `:app:testDebugUnitTest` + `:app:assembleDebug`（第二十三轮：外观三模块门面骨架） | ✅ BUILD SUCCESSFUL in 11s / 6s；15 个测试类 / 103 用例 / 0 失败（新增 `CornerStyleTest` 7、`FontStyleTest` 11、`AppearanceManagerTest` 12）；无 `res/` 改动，圆角与字体尚无消费方 → UI 零变化 |
+| 2026-09-11 | `:app:testDebugUnitTest` + `:app:assembleDebug`（第二十四轮：配色模块迁入 `ui/appearance/`） | ✅ BUILD SUCCESSFUL in 1m 16s（编译）/ 13s（测试+打包）；15 个测试类 / 103 用例 / 0 失败；27 个调用点迁移，`ui/theme/` 目录删除 |
 
 > 第二轮修复的 4 个文件（QRLoginFragment/CaptchaWebViewActivity/LocalListActivity/VideoInfoFragment）已重新编译验证通过。APK 时间戳更新至 16:01:21，universal 包 31.04 MB。
 > 第三轮修复的 2 个文件（PrivateMsgActivity/NetWorkUtil）已重新编译验证通过。构建仅有 1 个 Hilt 处理选项无关警告，不影响产物。
@@ -560,7 +576,7 @@ override fun updateTimer(timer: DanmakuTimer) { timer.update(onCurrentPositionMs
 
 - [ ] 拆分 PlayerActivity（3090 行）
 - [ ] 拆分 DownloadService（65KB）
-- [ ] 补单元测试（当前 15 个测试类 / 103 用例覆盖 363 个源文件；26.09.11 新增 `ThemeManagerTest` 14、`CornerStyleTest` 7、`FontStyleTest` 11、`AppearanceManagerTest` 12）
+- [ ] 补单元测试（当前 15 个测试类 / 103 用例覆盖 363 个源文件；26.09.11 新增 `ColorSchemeTest` 14、`CornerStyleTest` 7、`FontStyleTest` 11、`AppearanceManagerTest` 12）
 
 ---
 

@@ -8,7 +8,7 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.listener.OnLoadMoreListener
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.view.ImageAutoLoadScrollListener
 
@@ -32,7 +32,7 @@ open class RefreshMainActivity : InstanceActivity() {
         loadMoreTip = findViewById(R.id.loadMoreTip)
         swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout)
         // 下拉刷新转圈此前用 SwipeRefreshLayout 默认色（与主题无关），统一到当前主题主色
-        swipeRefreshLayout.setColorSchemeColors(ThemeManager.PRIMARY)
+        swipeRefreshLayout.setColorSchemeColors(ColorScheme.PRIMARY)
         swipeRefreshLayout.isEnabled = false
         swipeRefreshLayout.isRefreshing = true
         recyclerView = findViewById(R.id.recyclerView)

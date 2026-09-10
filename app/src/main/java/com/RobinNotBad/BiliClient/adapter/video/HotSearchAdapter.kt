@@ -13,7 +13,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.search.SearchActivity
 import com.RobinNotBad.BiliClient.model.HotSearchCard
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.GlideUtil
 
 class HotSearchAdapter(
@@ -41,7 +41,7 @@ class HotSearchAdapter(
         val rank = position + 1
         holder.rankText.text = rank.toString()
         // 前三名用当前主题主色，其余用主题三级文字色（此前写死 B站官方粉 #FB7299 / 灰 #999999）
-        holder.rankText.setTextColor(if (rank <= 3) ThemeManager.PRIMARY else ThemeManager.TEXT_TERTIARY)
+        holder.rankText.setTextColor(if (rank <= 3) ColorScheme.PRIMARY else ColorScheme.TEXT_TERTIARY)
         holder.keywordText.text = card.showName
         if (card.heatScore > 0) {
             holder.heatText.text = formatHeat(card.heatScore)

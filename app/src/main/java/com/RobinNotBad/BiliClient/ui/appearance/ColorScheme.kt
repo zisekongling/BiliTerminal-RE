@@ -1,4 +1,4 @@
-package com.RobinNotBad.BiliClient.ui.theme
+package com.RobinNotBad.BiliClient.ui.appearance
 
 import android.app.Activity
 import android.content.Context
@@ -9,11 +9,31 @@ import androidx.core.graphics.ColorUtils
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.RobinNotBad.BiliClient.R
-import com.RobinNotBad.BiliClient.ui.appearance.AppearanceManager
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 
-object ThemeManager {
+/**
+ * 外观模块一：**配色**。
+ *
+ * 7 套主题各一张 [ThemeColors] 色表（36 个字段），由 [getCurrentTheme] 按 `theme_selector`
+ * 选中，再经 36 个属性 getter 暴露给代码侧（view 层另有 `?attr/` 的 XML 路径）。
+ *
+ * ## 与门面的分工（见 `docs/architecture-map.md` §8.7）
+ * 本对象是**只读模块**：色表、档位名、显示名、`key → style` 映射、以及 `?attr/` 覆盖不到的窗口着色。
+ * **写入不在这里**——主题写入统一走 [AppearanceManager.setTheme]（它负责落盘 + 递增外观版本号），
+ * 写完调用 [invalidateCache] 让下面的色表缓存失效。
+ *
+ * ## 色表缓存
+ * 36 个 getter 全部走 [getCurrentTheme]，而列表滚动时一个 item 就要调很多次
+ * （代码里 `setTextColor` 共 40 处，其中 26 处参数取自本对象）。缓存让这些调用
+ * 只读一次 SharedPreferences。失效点只有 [invalidateCache] 一处，
+ * 由唯一的写入路径 [AppearanceManager.setTheme] 触发。
+ *
+ * ## 已知技术债：三套并行的颜色值表
+ * 本对象的 Kotlin 色表、`res/values/themes.xml`、`res/values/colors.xml`（含大量历史别名）
+ * 是**三套独立值表**，靠人工对齐。收敛计划见 `docs/visual-experience-report.md`。
+ */
+object ColorScheme {
 
     const val THEME_BILIBILI_PINK = "theme_bilibili_pink"
     const val THEME_ZHIHU_BLUE = "theme_zhihu_blue"
@@ -353,12 +373,12 @@ object ThemeManager {
      * 当前主题色表的缓存。
      *
      * [PRIMARY] 等 36 个属性 getter 全部走 [getCurrentTheme]，而列表滚动时一个 item 就要读很多次
-     * （代码里 `setTextColor` 共 40 处，其中 26 处参数取自 ThemeManager）。此前每次 getter 都会
+     * （代码里 `setTextColor` 共 40 处，其中 26 处参数取自本对象）。此前每次 getter 都会
      * 重新读一遍 SharedPreferences 再跑一遍 when——是热路径上的重复 IO。
      *
-     * 主题 key 的**唯一写入点是 [setTheme]**（全仓库 grep 确认：其余引用全是读），
-     * 所以失效点只需要那一处；进程被杀后缓存为 null 会自动重算。
-     * `@Volatile` 保证这份单例引用在 [setTheme] 线程与读线程之间正确发布。
+     * 主题 key 的**唯一写入路径是 [AppearanceManager.setTheme]**（全仓库 grep 确认：其余引用全是读），
+     * 它写完会调用 [invalidateCache]；进程被杀后缓存为 null 会自动重算。
+     * `@Volatile` 保证这份单例引用在写入线程与读线程之间正确发布。
      */
     @Volatile
     private var cachedColors: ThemeColors? = null
@@ -510,12 +530,13 @@ object ThemeManager {
     /** 当前主题主色 + 指定不透明度（0～255），用于"进行中/待定"这类淡色描边。 */
     fun withPrimaryAlpha(alpha: Int): Int = (PRIMARY and 0x00FFFFFF) or ((alpha and 0xFF) shl 24)
 
-    fun setTheme(theme: String) {
-        // 落盘与「外观版本号」统一由外观门面负责，这里只做转发。
-        // （注：原注释称「用 apply() 存在读到旧值的窗口」不成立——apply() 会同步更新内存映射，
-        //  只把落盘放到异步。保留同步写入仅为不改动既有行为，代价是每个用户动作一次同步写盘。）
-        AppearanceManager.setTheme(theme)
-        // 色表缓存必须在此失效——这是主题 key 的唯一写入点
+    /**
+     * 清空色表缓存。
+     *
+     * **唯一调用者是 [AppearanceManager.setTheme]**。任何绕过它直接写 `theme_selector` 的代码
+     * 都必须自己调用本方法，否则会出现「改了主题但色表还是旧的」——且在 `onResume` 重建后依然错。
+     */
+    fun invalidateCache() {
         cachedColors = null
     }
 

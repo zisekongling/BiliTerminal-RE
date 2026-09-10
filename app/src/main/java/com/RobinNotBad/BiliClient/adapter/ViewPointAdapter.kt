@@ -9,7 +9,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.listener.OnItemClickListener
 import com.RobinNotBad.BiliClient.model.ViewPoint
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.google.android.material.button.MaterialButton
 
@@ -99,11 +99,11 @@ class ViewPointAdapter : RecyclerView.Adapter<ViewPointAdapter.ViewPointHolder>(
             val isCurrent = currentPosition >= viewPoint.from && currentPosition < viewPoint.to
 
             if (isCurrent) {
-                button.setTextColor(ThemeManager.getOnPrimary(context!!))
-                button.setBackgroundColor(ThemeManager.getPrimary(context!!))
+                button.setTextColor(ColorScheme.getOnPrimary(context!!))
+                button.setBackgroundColor(ColorScheme.getPrimary(context!!))
             } else {
-                button.setTextColor(ThemeManager.getTextPrimary(context!!))
-                button.setBackgroundColor(ThemeManager.getCard(context!!))
+                button.setTextColor(ColorScheme.getTextPrimary(context!!))
+                button.setBackgroundColor(ColorScheme.getCard(context!!))
             }
 
             button.setOnClickListener {

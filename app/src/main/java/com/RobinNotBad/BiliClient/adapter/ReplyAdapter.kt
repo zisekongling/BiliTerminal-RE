@@ -40,7 +40,7 @@ import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.ui.widget.RadiusBackgroundSpan
-import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.listener.OnItemClickListener
 import java.io.IOException
 import java.util.ArrayList
@@ -148,7 +148,7 @@ class ReplyAdapter(
                 name_str.append(reply.sender!!.name)
                 name_str.setSpan(
                         RadiusBackgroundSpan(2, roundSmallPx,
-                                Color.WHITE, ThemeManager.PRIMARY),
+                                Color.WHITE, ColorScheme.PRIMARY),
                         0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 name_str.setSpan(RelativeSizeSpan(0.8f), 0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             } else
@@ -189,7 +189,7 @@ class ReplyAdapter(
             replyHolder.likeCount.text = StringUtil.toWan(reply.likeCount.toLong())
 
             if (reply.liked) {
-                replyHolder.likeCount.setTextColor(ThemeManager.LIKE_COLOR)
+                replyHolder.likeCount.setTextColor(ColorScheme.LIKE_COLOR)
                 replyHolder.likeCount.setCompoundDrawablesWithIntrinsicBounds(
                         likeDrawable1, null, null, null)
             } else {
@@ -200,7 +200,7 @@ class ReplyAdapter(
 
             if (reply.childCount != 0 && !(realPosition == 0 && isDetail)) {
                 replyHolder.childReplyCard.visibility = View.VISIBLE
-                replyHolder.childCount.setTextColor(ThemeManager.PRIMARY)
+                replyHolder.childCount.setTextColor(ColorScheme.PRIMARY)
 
                 if (reply.upReplied)
                     replyHolder.childCount.text = "UP主在内 共" + reply.childCount + "条回复"
@@ -222,7 +222,7 @@ class ReplyAdapter(
                             childMsg.append(child.sender!!.name)
                             childMsg.setSpan(RadiusBackgroundSpan(2,
                                     roundSmallPx, Color.WHITE,
-                                    ThemeManager.PRIMARY), 0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                                    ColorScheme.PRIMARY), 0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                             childMsg.setSpan(RelativeSizeSpan(0.8f), 0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                         } else
                             childMsg.append(child.sender!!.name)
@@ -315,7 +315,7 @@ class ReplyAdapter(
                                 (context as Activity).runOnUiThread {
                                     MsgUtil.showMsg("点赞成功")
                                     replyHolder.likeCount.text = StringUtil.toWan((++reply.likeCount).toLong())
-                                    replyHolder.likeCount.setTextColor(ThemeManager.LIKE_COLOR)
+                                    replyHolder.likeCount.setTextColor(ColorScheme.LIKE_COLOR)
                                     replyHolder.likeCount.setCompoundDrawablesWithIntrinsicBounds(
                                             likeDrawable1, null, null,
                                             null)
