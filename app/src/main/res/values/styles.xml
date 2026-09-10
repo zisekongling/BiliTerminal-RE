@@ -53,48 +53,6 @@
         <item name="rippleColor">@color/bili_primary_light</item>
     </style>
 
-    <style name="ButtonSecondaryStyle" parent="Widget.MaterialComponents.Button">
-        <item name="backgroundTint">@color/btn_default</item>
-        <item name="cornerRadius">12dp</item>
-        <item name="android:textColor">@color/text_primary_dark</item>
-        <item name="android:insetTop">2dp</item>
-        <item name="android:insetBottom">2dp</item>
-        <item name="android:paddingLeft">16dp</item>
-        <item name="android:paddingRight">16dp</item>
-        <item name="android:clickable">true</item>
-        <item name="android:focusable">true</item>
-        <item name="elevation">1dp</item>
-        <item name="rippleColor">@color/btn_hover</item>
-    </style>
-
-    <style name="ButtonSecondaryStyleLight" parent="Widget.MaterialComponents.Button">
-        <item name="backgroundTint">@color/btn_default</item>
-        <item name="cornerRadius">12dp</item>
-        <item name="android:textColor">@android:color/white</item>
-        <item name="android:insetTop">2dp</item>
-        <item name="android:insetBottom">2dp</item>
-        <item name="android:paddingLeft">16dp</item>
-        <item name="android:paddingRight">16dp</item>
-        <item name="android:clickable">true</item>
-        <item name="android:focusable">true</item>
-        <item name="elevation">1dp</item>
-        <item name="rippleColor">@color/btn_hover</item>
-    </style>
-
-    <style name="ButtonDangerStyle" parent="Widget.MaterialComponents.Button">
-        <item name="backgroundTint">@color/bili_primary_dark</item>
-        <item name="cornerRadius">12dp</item>
-        <item name="android:textColor">@color/text_primary_dark</item>
-        <item name="android:insetTop">2dp</item>
-        <item name="android:insetBottom">2dp</item>
-        <item name="android:paddingLeft">16dp</item>
-        <item name="android:paddingRight">16dp</item>
-        <item name="android:clickable">true</item>
-        <item name="android:focusable">true</item>
-        <item name="elevation">2dp</item>
-        <item name="rippleColor">@color/btn_hover</item>
-    </style>
-
     <style name="EditTextStyle" parent="Widget.AppCompat.EditText">
         <item name="android:textColorHint">@color/text_tertiary_dark</item>
         <item name="android:textCursorDrawable">@drawable/cursor_drawable</item>
@@ -135,7 +93,4 @@
     <style name="TextViewStyleLight" parent="Widget.AppCompat.TextView">
         <item name="android:textSize">14sp</item>
     </style>
-
-    <!-- 兼容旧名称 -->
-    <style name="TextViewSytle" parent="TextViewStyle" />
 </resources>

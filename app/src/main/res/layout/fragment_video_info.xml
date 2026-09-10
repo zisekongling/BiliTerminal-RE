@@ -38,7 +38,7 @@
                 android:lines="1"
                 android:paddingEnd="4dp"
                 android:paddingBottom="2dp"
-                android:shadowColor="@color/bgblack"
+                android:shadowColor="#000000"
                 android:shadowDx="3"
                 android:shadowDy="3"
                 android:shadowRadius="5"
@@ -54,7 +54,8 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
             android:text="正在加载中..."
-            android:textSize="13sp" />
+            android:textSize="@dimen/text_title"
+            android:textStyle="bold" />
 
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/exclusiveTip"
@@ -71,7 +72,7 @@
             <TextView
                 android:id="@+id/exclusiveTipLabel"
                 android:layout_width="match_parent"
-                android:layout_height="35sp"
+                android:layout_height="35dp"
                 android:layout_marginHorizontal="8dp"
                 android:gravity="center_vertical"
                 android:text="本软件疑似为AI创作，请注意甄别"
@@ -103,7 +104,7 @@
             <TextView
                 android:id="@+id/collectionText"
                 android:layout_width="match_parent"
-                android:layout_height="35sp"
+                android:layout_height="35dp"
                 android:layout_marginHorizontal="8dp"
                 android:drawableEnd="@drawable/arrow_forward"
                 android:ellipsize="end"
@@ -124,11 +125,11 @@
                 android:id="@+id/viewCount"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:alpha="0.5"
+                android:alpha="0.7"
                 android:drawableStart="@drawable/icon_play_16"
                 android:drawablePadding="1dp"
                 android:text="114514"
-                android:textColor="#fff"
+                android:textColor="?android:attr/textColorPrimary"
                 android:textSize="12sp" />
 
             <TextView
@@ -136,7 +137,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="4dp"
-                android:alpha="0.5"
+                android:alpha="0.7"
                 android:drawableStart="@drawable/icon_danmaku"
                 android:drawablePadding="1dp"
                 android:text="1919"
@@ -149,7 +150,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:alpha="0.5"
+            android:alpha="0.7"
             android:drawableStart="@drawable/icon_time"
             android:drawablePadding="1dp"
             android:text="9999-13-32 25:61"
@@ -160,7 +161,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:alpha="0.5"
+            android:alpha="0.7"
             android:drawableStart="@drawable/icon_bv"
             android:drawablePadding="1dp"
             android:text="BV114514"
@@ -171,7 +172,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:alpha="0.5"
+            android:alpha="0.7"
             android:ellipsize="end"
             android:maxLines="1"
             android:text="标签：???"
@@ -202,7 +203,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
-            app:cardBackgroundColor="?attr/colorPrimary">
+            app:cardBackgroundColor="?attr/colorSurface"
+            app:strokeColor="?attr/colorPrimary"
+            app:strokeWidth="1dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -296,7 +299,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="2dp"
                 android:layout_weight="0.5"
-                android:minHeight="48dp"
+                android:minHeight="@dimen/touch_min"
                 android:text="稍后再看" />
 
             <com.google.android.material.button.MaterialButton
@@ -321,7 +324,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="2dp"
                 android:layout_weight="0.5"
-                android:minHeight="48dp"
+                android:minHeight="@dimen/touch_min"
                 android:text="转发" />
 
             <com.google.android.material.button.MaterialButton
@@ -330,7 +333,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="2dp"
                 android:layout_weight="0.5"
-                android:minHeight="48dp"
+                android:minHeight="@dimen/touch_min"
                 android:text="视频摘要" />
         </LinearLayout>
 

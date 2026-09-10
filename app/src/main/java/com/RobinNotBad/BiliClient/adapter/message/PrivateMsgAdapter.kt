@@ -139,7 +139,7 @@ class PrivateMsgAdapter(
                     holder.videoCard.visibility = View.GONE
                     try {
                         val picUrl = msg.content.getString("url")
-                        Glide.with(BiliTerminal.context)
+                        Glide.with(BiliTerminal.context!!)
                             .asDrawable()
                             .load(GlideUtil.url(picUrl))
                             .transition(GlideUtil.getTransitionOptions())
@@ -184,7 +184,7 @@ class PrivateMsgAdapter(
                     holder.upNameTv.text = shareContent.optString("author", "")
                     holder.videoTitleTv.text =
                         if (headline.isNotEmpty()) headline else shareContent.optString("title", "")
-                    Glide.with(BiliTerminal.context)
+                    Glide.with(BiliTerminal.context!!)
                         .asDrawable()
                         .load(if (thumb.isEmpty()) null else GlideUtil.url(thumb))
                         .transition(GlideUtil.getTransitionOptions())
@@ -249,7 +249,7 @@ class PrivateMsgAdapter(
                     holder.videoCard.visibility = View.GONE
                     try {
                         val picUrl = msg.content.getString("pic_url")
-                        Glide.with(BiliTerminal.context)
+                        Glide.with(BiliTerminal.context!!)
                             .asDrawable()
                             .load(GlideUtil.url(picUrl))
                             .transition(GlideUtil.getTransitionOptions())
@@ -299,7 +299,7 @@ class PrivateMsgAdapter(
                             holder.textContentTv.text = "暂时无法显示该消息"
                         } else {
                             val coverUrl = firstCard.optString("cover_url", "")
-                            Glide.with(BiliTerminal.context)
+                            Glide.with(BiliTerminal.context!!)
                                 .asDrawable()
                                 .load(if (coverUrl.isEmpty()) null else GlideUtil.url(coverUrl))
                                 .transition(GlideUtil.getTransitionOptions())

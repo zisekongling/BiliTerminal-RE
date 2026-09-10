@@ -5,7 +5,12 @@ import android.content.Context
 import android.os.Build
 import android.view.Window
 import android.view.WindowManager
+import androidx.core.graphics.ColorUtils
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import com.RobinNotBad.BiliClient.R
+import com.RobinNotBad.BiliClient.ui.appearance.AppearanceManager
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 
 object ThemeManager {
@@ -17,15 +22,12 @@ object ThemeManager {
     const val THEME_RAINBOW_FANTASY = "theme_rainbow_fantasy"
     const val THEME_CLASSIC_GRAY = "theme_classic_gray"
     const val THEME_CLASSIC_TERMINAL = "theme_classic_terminal"
-    const val PREF_KEY_THEME = "theme_selector"
+
+    /** 主题的 SharedPreferences key：单一真源指向 [SettingsKeys.THEME]（此前两处各写一份字符串）。 */
+    const val PREF_KEY_THEME = SettingsKeys.THEME
 
     // 当前默认主题：经典终端（对应老版 BiliClient 的默认黑色外观）
     const val THEME_DEFAULT = THEME_CLASSIC_TERMINAL
-
-    // 外观风格（独立于配色主题）：modern = 现有大圆角半透明卡片；classic = 原版 #cc262626 + 6dp
-    const val APPEARANCE_MODERN = "modern"
-    const val APPEARANCE_CLASSIC = "classic"
-    private const val CLASSIC_CARD_BG = 0xCC262626.toInt()
 
     sealed class ThemeColors(
         val PRIMARY: Int,
@@ -225,8 +227,10 @@ object ThemeManager {
     object RainbowFantasy : ThemeColors(
         PRIMARY = 0xFFFF6B6B.toInt(),
         PRIMARY_DARK = 0xFFCC5555.toInt(),
-        PRIMARY_LIGHT = 0xFFFF8E8E.toInt(),
-        SECONDARY = 0xFFFFE66D.toInt(),
+        // 约定：PRIMARY_LIGHT == xml 的 colorPrimaryVariant（rainbow_accent）、SECONDARY == colorSecondary（rainbow_light）。
+        // 此前这两个值与 xml 恰好互换，导致代码路径与 xml 控件的强调色相反。
+        PRIMARY_LIGHT = 0xFFFFE66D.toInt(),
+        SECONDARY = 0xFFFF8E8E.toInt(),
         SURFACE = 0xFF24242E.toInt(),
         CARD = 0xFF2A2A35.toInt(),
         CARD_WITH_ALPHA = 0xCC2A2A35.toInt(),
@@ -309,12 +313,15 @@ object ThemeManager {
         PRIMARY_LIGHT = 0xFFFF8CB0.toInt(),      // B站粉 accent
         SECONDARY = 0xFFFFB3CA.toInt(),          // B站粉 light
         SURFACE = 0xFF262626.toInt(),            // 卡片等效不透明
-        CARD = 0xFF262626.toInt(),
+        CARD = 0xCC262626.toInt(),               // 与 xml 的 terminal_card_bg(#CC262626) 对齐（此前丢了 alpha，两条渲染路径不一致）
         CARD_WITH_ALPHA = 0xCC262626.toInt(),    // 老版卡片 #cc262626
         BACKGROUND = 0xFF000000.toInt(),         // bgblack
         TEXT_PRIMARY = 0xFFEBE0E2.toInt(),       // textwhite
-        TEXT_SECONDARY = 0xFFEBE0E2.toInt(),     // 老版仅一种文字色，统一 textwhite
-        TEXT_TERTIARY = 0xFFEBE0E2.toInt(),
+        // 老版只有一种文字色，但那样「标题/播放量/UP 主」在默认主题下完全同色，
+        // 层级只能靠 alpha 硬凑（实测 11sp + alpha0.5 对卡片底的对比度约 4.24:1，不到 AA）。
+        // 这里拆出可区分的次要/三级文字色，保持暖白调性：
+        TEXT_SECONDARY = 0xFFB8AEB2.toInt(),     // 对纯黑约 9:1
+        TEXT_TERTIARY = 0xFF8C868A.toInt(),      // 对纯黑约 6:1
         ON_PRIMARY = 0xFFEBE0E2.toInt(),
         ON_SURFACE = 0xFFEBE0E2.toInt(),
         ON_CARD = 0xFFEBE0E2.toInt(),
@@ -342,9 +349,24 @@ object ThemeManager {
         CORNER_RADIUS = 6f                       // 老版 card_round 6dp
     )
 
+    /**
+     * 当前主题色表的缓存。
+     *
+     * [PRIMARY] 等 36 个属性 getter 全部走 [getCurrentTheme]，而列表滚动时一个 item 就要读很多次
+     * （代码里 `setTextColor` 共 40 处，其中 26 处参数取自 ThemeManager）。此前每次 getter 都会
+     * 重新读一遍 SharedPreferences 再跑一遍 when——是热路径上的重复 IO。
+     *
+     * 主题 key 的**唯一写入点是 [setTheme]**（全仓库 grep 确认：其余引用全是读），
+     * 所以失效点只需要那一处；进程被杀后缓存为 null 会自动重算。
+     * `@Volatile` 保证这份单例引用在 [setTheme] 线程与读线程之间正确发布。
+     */
+    @Volatile
+    private var cachedColors: ThemeColors? = null
+
     private fun getCurrentTheme(): ThemeColors {
+        cachedColors?.let { return it }
         val theme = SharedPreferencesUtil.getString(PREF_KEY_THEME, THEME_DEFAULT)
-        return when (theme) {
+        val colors = when (theme) {
             THEME_ZHIHU_BLUE -> ZhihuBlue
             THEME_IQIYI_GREEN -> IQIYIGreen
             THEME_PURPLE_FANTASY -> PurpleFantasy
@@ -353,6 +375,8 @@ object ThemeManager {
             THEME_CLASSIC_TERMINAL -> ClassicTerminal
             else -> BilibiliPink
         }
+        cachedColors = colors
+        return colors
     }
 
     val PRIMARY get() = getCurrentTheme().PRIMARY
@@ -402,9 +426,16 @@ object ThemeManager {
             window.navigationBarDividerColor = SURFACE
         }
 
-        val flags = window.decorView.systemUiVisibility
-        window.decorView.systemUiVisibility = flags or
-                android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+        // 按系统栏底色的亮度决定图标深浅（亮底配深色图标，暗底配浅色图标）。
+        //
+        // 旧实现是 `flags or SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()`：对一个取反的常量做「或」
+        // 等于把 0xFFFFDFFF 的所有位都置 1 —— 既清掉了 LIGHT_STATUS_BAR（状态栏图标恒浅色，
+        // 压在浅色品牌底上对比度不足），又把 LIGHT_NAVIGATION_BAR 打开（导航栏图标恒深色，
+        // 压在纯黑导航栏上等于看不见），还顺手打开了 HIDE_NAVIGATION / IMMERSIVE /
+        // IMMERSIVE_STICKY 等沉浸式标志。这里改用官方 API 显式设置。
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        controller.isAppearanceLightStatusBars = isLightColor(STATUS_BAR_COLOR)
+        controller.isAppearanceLightNavigationBars = isLightColor(NAV_BAR_COLOR)
 
         window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
@@ -454,33 +485,38 @@ object ThemeManager {
     fun getGold(context: Context): Int = GOLD
     fun getVipPink(context: Context): Int = VIP_COLOR
 
-    fun getCardBackgroundColor(context: Context): Int =
-        if (getAppearanceStyle() == APPEARANCE_CLASSIC) CLASSIC_CARD_BG else CARD_WITH_ALPHA
-
-    fun getButtonBackgroundColor(context: Context): Int =
-        if (getAppearanceStyle() == APPEARANCE_CLASSIC) CLASSIC_CARD_BG else CARD_WITH_ALPHA
     fun getStatusBarColor(context: Context): Int = STATUS_BAR_COLOR
     fun getAccentColor(context: Context): Int = PRIMARY
 
-    fun getColorScheme(context: Context): BiliColorScheme {
-        val theme = getCurrentTheme()
-        return BiliColorScheme(
-            theme.PRIMARY, theme.PRIMARY_DARK, theme.PRIMARY_LIGHT, theme.SECONDARY,
-            theme.SURFACE, theme.CARD, theme.BACKGROUND,
-            theme.TEXT_PRIMARY, theme.TEXT_SECONDARY, theme.TEXT_TERTIARY
-        )
+    /** 判断颜色是否为「亮色」，用于决定系统栏图标该用深色还是浅色。 */
+    private fun isLightColor(color: Int): Boolean = ColorUtils.calculateLuminance(color) > 0.5
+
+    /**
+     * 主题 key → 主题资源 id。
+     *
+     * `BaseActivity` / `PlayerActivity` / `BiliTerminalApp` 此前各自复制了一份相同的 `when`，
+     * 改主题时容易漏改；这里收敛成唯一映射。
+     */
+    fun themeResId(theme: String = getCurrentThemeName()): Int = when (theme) {
+        THEME_ZHIHU_BLUE -> R.style.Theme_ZhihuBlue
+        THEME_IQIYI_GREEN -> R.style.Theme_IQIYIGreen
+        THEME_PURPLE_FANTASY -> R.style.Theme_PurpleFantasy
+        THEME_RAINBOW_FANTASY -> R.style.Theme_RainbowFantasy
+        THEME_CLASSIC_GRAY -> R.style.Theme_ClassicGray
+        THEME_CLASSIC_TERMINAL -> R.style.Theme_ClassicTerminal
+        else -> R.style.Theme_BiliClient
     }
+
+    /** 当前主题主色 + 指定不透明度（0～255），用于"进行中/待定"这类淡色描边。 */
+    fun withPrimaryAlpha(alpha: Int): Int = (PRIMARY and 0x00FFFFFF) or ((alpha and 0xFF) shl 24)
 
     fun setTheme(theme: String) {
-        SharedPreferencesUtil.putString(PREF_KEY_THEME, theme)
-    }
-
-    fun getAppearanceStyle(): String {
-        return SharedPreferencesUtil.getString(SharedPreferencesUtil.APPEARANCE_STYLE, APPEARANCE_MODERN)
-    }
-
-    fun setAppearanceStyle(style: String) {
-        SharedPreferencesUtil.putString(SharedPreferencesUtil.APPEARANCE_STYLE, style)
+        // 落盘与「外观版本号」统一由外观门面负责，这里只做转发。
+        // （注：原注释称「用 apply() 存在读到旧值的窗口」不成立——apply() 会同步更新内存映射，
+        //  只把落盘放到异步。保留同步写入仅为不改动既有行为，代价是每个用户动作一次同步写盘。）
+        AppearanceManager.setTheme(theme)
+        // 色表缓存必须在此失效——这是主题 key 的唯一写入点
+        cachedColors = null
     }
 
     fun getCurrentThemeName(): String {
@@ -499,16 +535,3 @@ object ThemeManager {
         }
     }
 }
-
-data class BiliColorScheme(
-    val primary: Int,
-    val primaryDark: Int,
-    val primaryLight: Int,
-    val secondary: Int,
-    val surface: Int,
-    val card: Int,
-    val background: Int,
-    val textPrimary: Int,
-    val textSecondary: Int,
-    val textTertiary: Int
-)

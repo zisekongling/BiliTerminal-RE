@@ -133,7 +133,12 @@ object PerformanceManager {
             }
 
             applyPerformanceSettings()
-            Logu.i("PerformanceManager", "初始化完成: perfLevel=$currentPerfLevel, highPerfMode=$highPerformanceMode, score=${getHardwareScore()}")
+            // 惰性日志：Logu.i 的开关在函数体内部判断，参数会先求值。
+            // 这里若不加判断，每次冷启动都会在主线程重跑 getHardwareScore()（读 sysfs / cpuinfo），
+            // 即使 release 版日志已关闭——而该结果只用于日志，不参与任何逻辑。
+            if (Logu.LOGI_ENABLED) {
+                Logu.i("PerformanceManager", "初始化完成: perfLevel=$currentPerfLevel, highPerfMode=$highPerformanceMode, score=${getHardwareScore()}")
+            }
         }
     }
 

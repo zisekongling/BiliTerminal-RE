@@ -8,7 +8,6 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Matrix
-import android.graphics.SurfaceTexture
 import android.graphics.drawable.AnimationDrawable
 import android.media.AudioManager
 import android.media.MediaMetadata
@@ -25,8 +24,6 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.MotionEvent
-import android.view.Surface
-import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.TextureView
 import android.view.View
@@ -53,13 +50,15 @@ import com.RobinNotBad.BiliClient.api.InteractionVideoApi
 import com.RobinNotBad.BiliClient.api.PlayerApi
 import com.RobinNotBad.BiliClient.api.VideoInfoApi
 import com.RobinNotBad.BiliClient.event.SnackEvent
-import com.RobinNotBad.BiliClient.model.DmSegMobileReply
 import com.RobinNotBad.BiliClient.model.HighEnergyData
 import com.RobinNotBad.BiliClient.model.InteractionVideoData
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.Subtitle
 import com.RobinNotBad.BiliClient.model.SubtitleLink
 import com.RobinNotBad.BiliClient.model.ViewPoint
+import com.RobinNotBad.BiliClient.player.DanmakuManager
+import com.RobinNotBad.BiliClient.player.PlayerSurfaceBinder
+import com.RobinNotBad.BiliClient.player.SurfaceTarget
 import com.RobinNotBad.BiliClient.ui.widget.BatteryView
 import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
@@ -73,19 +72,7 @@ import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.google.android.material.snackbar.Snackbar
-import master.flame.danmaku.controller.DrawHandler
 import master.flame.danmaku.controller.IDanmakuView
-import master.flame.danmaku.danmaku.loader.ILoader
-import master.flame.danmaku.danmaku.loader.android.DanmakuLoaderFactory
-import master.flame.danmaku.danmaku.model.BaseDanmaku
-import master.flame.danmaku.danmaku.model.DanmakuTimer
-import master.flame.danmaku.danmaku.model.IDisplayer
-import master.flame.danmaku.danmaku.model.android.DanmakuContext
-import master.flame.danmaku.danmaku.model.android.Danmakus
-import master.flame.danmaku.danmaku.parser.BaseDanmakuParser
-import master.flame.danmaku.danmaku.parser.IDataSource
-import master.flame.danmaku.danmaku.parser.android.BiliDanmukuParser
-import master.flame.danmaku.danmaku.parser.android.BiliProtobufDanmakuParser
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -99,14 +86,12 @@ import org.greenrobot.eventbus.ThreadMode
 import org.json.JSONObject
 import tv.danmaku.ijk.media.player.IMediaPlayer
 import tv.danmaku.ijk.media.player.IjkMediaPlayer
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.util.Locale
 import java.util.Timer
 import java.util.TimerTask
 import java.util.regex.Pattern
-import java.util.zip.Inflater
 import kotlin.math.abs
 
 class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
@@ -114,15 +99,20 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
     private var ijkPlayer: IjkMediaPlayer? = null
     private var mDanmakuView: IDanmakuView? = null
-    private var mContext: DanmakuContext? = null
+    // 弹幕配置/解析/回调统一交给 DanmakuManager（方案 B），Activity 只保留视图引用做显隐与布局
+    private var danmakuManager: DanmakuManager? = null
 
     private var surfaceView: SurfaceView? = null
     private var textureView: TextureView? = null
-    private var mSurfaceTexture: SurfaceTexture? = null
+    // Surface 就绪改为事件回调：取代原来「每 200ms 轮询 surface」的 surfaceTimer。
+    // 原实现每次 setDisplay()（首播/切清晰度/切分页/切听视频模式）都要新建一个 Timer 线程，
+    // 且 surface 未就绪时最长要等满一个轮询周期（200ms）才开始 prepareAsync，直接拖慢首帧。
+    private var surfaceBinder: PlayerSurfaceBinder? = null
 
     private var subtitleLinks: Array<SubtitleLink>? = null
     private var subtitles: Array<Subtitle>? = null
     private var subtitle_curr_index: Int = 0
+    private var subtitle_shown_index: Int = -2 // 当前已展示的字幕下标，-2 表示尚未展示过任何字幕，-1 表示当前不显示
     private var subtitle_count: Int = 0
     private var subtitle_delta: Float = 0f
 
@@ -171,18 +161,20 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private lateinit var text_audio_title: TextView
     private lateinit var text_audio_subtitle: TextView
 
-    private var progressTimer: Timer? = null
+    private var progressRunnable: Runnable? = null
     private var speedTimer: Timer? = null
-    private var loadingTimer: Timer? = null
+    private var loadingRunnable: Runnable? = null
     private var onlineTimer: Timer? = null
-    private var surfaceTimer: Timer? = null
     private var mainHandler: Handler? = null
-    private var danmakuSyncRunnable: Runnable? = null
+    private var resizePostRunnable: Runnable? = null // 改变视频尺寸后的位置延时修正，避免快速旋转时叠加
     private var video_url: String? = null
     private var danmaku_url: String = ""
     private var mediaSession: MediaSession? = null
 
     private var isPlaying: Boolean = false
+    // 主线程写、弹幕渲染线程读（见 bindDanmakuView 里的位置回调），必须 volatile，
+    // 否则弹幕线程可能长时间读到过期的 true，继续把重建窗口期的脏位置灌进 DanmakuTimer
+    @Volatile
     private var isPrepared: Boolean = false
     private var hasDanmaku: Boolean = false
     private var isOnlineVideo: Boolean = false
@@ -198,6 +190,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var video_all: Int = 0
     private var video_now: Int = 0
     private var video_now_last: Int = 0
+    private var lastMediaSessionSecond: Int = -1 // 上次上报 MediaSession 的整秒数，用于抑制重复 Binder IPC
     private var progress_history: Long = 0
     private var progress_str: String = ""
 
@@ -347,20 +340,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         return true
     }
 
-    @SuppressLint("SimpleDateFormat")
     override fun onCreate(savedInstanceState: Bundle?) {
         Logu.v("加载", "加载")
         val theme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_DEFAULT)
-        val themeResId = when (theme) {
-            ThemeManager.THEME_ZHIHU_BLUE -> R.style.Theme_ZhihuBlue
-            ThemeManager.THEME_IQIYI_GREEN -> R.style.Theme_IQIYIGreen
-            ThemeManager.THEME_PURPLE_FANTASY -> R.style.Theme_PurpleFantasy
-            ThemeManager.THEME_RAINBOW_FANTASY -> R.style.Theme_RainbowFantasy
-            ThemeManager.THEME_CLASSIC_GRAY -> R.style.Theme_ClassicGray
-            ThemeManager.THEME_CLASSIC_TERMINAL -> R.style.Theme_ClassicTerminal
-            else -> R.style.Theme_BiliClient
-        }
-        setTheme(themeResId)
+        // 主题映射统一在 ThemeManager.themeResId（此前这里复制了一份与 BaseActivity 相同的 when）
+        setTheme(ThemeManager.themeResId(theme))
         super.onCreate(savedInstanceState)
 
         screen_landscape = SharedPreferencesUtil.getBoolean("player_autolandscape", false)
@@ -422,7 +406,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             btn_control.visibility = View.GONE
             seekbar_progress.visibility = View.GONE
             seekbar_progress.isEnabled = false
-            streamDanmaku(null)
+            prepareDanmaku { it.prepareEmpty() }
         }
 
         layout_control.postDelayed({
@@ -451,7 +435,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     runOnUiThread { btn_danmaku_send.visibility = View.GONE }
                     danmakuFile = File(danmaku_url)
                     if (danmakuFile!!.exists())
-                        streamDanmaku(danmakuFile!!.toString())
+                        prepareDanmaku { it.loadFromXmlFile(danmakuFile!!.toString()) }
                     else
                         hasDanmaku = false
                 }
@@ -514,7 +498,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         text_title = findViewById(R.id.text_title)
         text_volume = findViewById(R.id.showsound)
         layout_video = findViewById(R.id.videoArea)
-        mDanmakuView = findViewById(R.id.sv_danmaku)
+        bindDanmakuView()
         batteryView = findViewById(R.id.battery)
 
         text_speed = findViewById(R.id.text_speed)
@@ -815,57 +799,30 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         }
 
         Logu.v("准备设置显示")
-        if (SharedPreferencesUtil.getBoolean("player_display", Build.VERSION.SDK_INT < 26)) {
-            Logu.v("使用texture模式")
-            surfaceTimer = Timer()
-            surfaceTimer!!.schedule(object : TimerTask() {
-                override fun run() {
-                    Logu.v("循环检测")
-                    if (mSurfaceTexture != null) {
-                        this.cancel()
-                        val surface = Surface(mSurfaceTexture)
-                        ijkPlayer!!.setSurface(surface)
-                        MPPrepare(video_url!!)
-                        Logu.v("设置surfaceTexture成功！")
-                    }
-                }
-            }, 0, 200)
-        } else {
-            Logu.v("使用surface模式")
-            val surfaceHolder = surfaceView!!.holder
-            Logu.v("获取surfaceHolder成功！")
-            surfaceTimer = Timer()
-            surfaceTimer!!.schedule(object : TimerTask() {
-                override fun run() {
-                    Logu.v("循环检测")
-                    if (!surfaceHolder.isCreating) {
-                        this.cancel()
-                        Logu.v("定时器结束！")
-                        ijkPlayer!!.setDisplay(surfaceHolder)
-                        Logu.v("设置surfaceHolder成功！")
-                        surfaceHolder.addCallback(object : SurfaceHolder.Callback {
-                            override fun surfaceCreated(holder: SurfaceHolder) {
-                                if (!destroyed) {
-                                    Logu.v("surface", "重新设置Holder")
-                                    ijkPlayer!!.setDisplay(holder)
-                                    if (isPrepared) {
-                                        ijkPlayer!!.seekTo(seekbar_progress.progress.toLong())
-                                    }
-                                }
-                            }
+        // 事件驱动：surface 已就绪则同步立即挂载并 prepare，未就绪则等 surface 回调。
+        // 不再轮询、不再新建 Timer 线程，也不再有最长 200ms 的首帧等待。
+        surfaceBinder?.await()
+    }
 
-                            override fun surfaceChanged(holder: SurfaceHolder, i: Int, i1: Int, i2: Int) {}
-                            override fun surfaceDestroyed(holder: SurfaceHolder) {
-                                Logu.v("surface", "Holder没了")
-                                if (isPrepared && !destroyed) ijkPlayer!!.setDisplay(null)
-                            }
-                        })
-                        Logu.v("添加callback成功！")
-                        MPPrepare(video_url!!)
-                    }
-                }
-            }, 0, 200)
+    /** 把 IjkMediaPlayer 挂到当前 surface 上（SurfaceView 与 TextureView 两种模式）。 */
+    private fun attachSurface(target: SurfaceTarget) {
+        val player = ijkPlayer ?: return
+        when (target) {
+            is SurfaceTarget.Holder -> {
+                Logu.v("surface", "挂载 SurfaceHolder")
+                player.setDisplay(target.holder)
+            }
+            is SurfaceTarget.Texture -> {
+                Logu.v("surfacetexture", "挂载 Surface")
+                player.setSurface(target.surface)
+            }
         }
+    }
+
+    /** surface 消失时解绑，避免 IJK 继续往已销毁的 surface 上画。 */
+    private fun detachSurface() {
+        val player = ijkPlayer ?: return
+        if (textureView != null) player.setSurface(null) else player.setDisplay(null)
     }
 
     private fun MPPrepare(nowurl: String) {
@@ -940,7 +897,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     }
                 } else if (what == IMediaPlayer.MEDIA_INFO_BUFFERING_END) {
                     runOnUiThread {
-                        loadingTimer?.cancel()
+                        loadingRunnable?.let { mainHandler?.removeCallbacks(it) }
                         loading_info.visibility = View.GONE
                         anim_loading!!.stop()
                         if (hasDanmaku && mDanmakuView != null && isPlaying) mDanmakuView!!.resume()
@@ -955,13 +912,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     private fun showLoadingSpeed() {
-        loadingTimer = Timer()
-        loadingTimer!!.schedule(object : TimerTask() {
+        // 主线程自循环，重复调用时先移除上一个，避免多个轮询叠加
+        loadingRunnable?.let { mainHandler?.removeCallbacks(it) }
+        loadingRunnable = object : Runnable {
             override fun run() {
-                val text = String.format(Locale.CHINA, "%.1f", ijkPlayer!!.tcpSpeed / 1024f) + "KB/s"
-                runOnUiThread { loading_text1.text = text }
+                val player = ijkPlayer ?: return
+                val text = String.format(Locale.CHINA, "%.1f", player.tcpSpeed / 1024f) + "KB/s"
+                loading_text1.text = text
+                if (!destroyed) mainHandler?.postDelayed(this, 500)
             }
-        }, 0, 500)
+        }
+        mainHandler?.post(loadingRunnable!!)
     }
 
     private fun changeVideoSize() {
@@ -1000,29 +961,31 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             video_origX = (screen_width - video_width) / 2f
             video_origY = (screen_height - video_height) / 2f
 
-            layout_video.postDelayed({
+            resizePostRunnable?.let { layout_video.removeCallbacks(it) }
+            resizePostRunnable = Runnable {
                 layout_video.x = video_origX
                 layout_video.y = video_origY
                 Logu.v("改变视频位置", ((screen_width - video_width) / 2).toString() + "," + ((screen_height - video_height) / 2))
-            }, 60)
+            }
+            layout_video.postDelayed(resizePostRunnable!!, 60)
         }
     }
 
     private fun progressChange() {
-        progressTimer?.cancel()
-        progressTimer = null
-        progressTimer = Timer()
-        val task = object : TimerTask() {
+        // 主线程自循环，替代原 Timer + runOnUiThread 的两层跨线程投递
+        progressRunnable?.let { mainHandler?.removeCallbacks(it) }
+        progressRunnable = object : Runnable {
             @SuppressLint("SetTextI18n")
             override fun run() {
-                if (isPrepared && isPlaying && !isSeeking) {
-                    video_now = ijkPlayer!!.currentPosition.toInt()
+                if (isPrepared && isPlaying && !isSeeking && !destroyed) {
+                    // 取不到播放器时保持上次位置，避免进度条突然跳回 0
+                    video_now = ijkPlayer?.currentPosition?.toInt() ?: video_now
                     // 外部音频轨道（DASH分离文件fallback）同步校正：偏差过大时重新对齐，避免音画漂移
-                    if (audioPlayer != null) {
+                    audioPlayer?.let { ap ->
                         try {
-                            val audioPos = audioPlayer!!.currentPosition
+                            val audioPos = ap.currentPosition
                             if (audioPos >= 0 && Math.abs(audioPos - video_now) > 800) {
-                                audioPlayer!!.seekTo(video_now)
+                                ap.seekTo(video_now)
                                 Logu.d("AudioTrack", "音频轨道重新同步: $audioPos -> $video_now")
                             }
                         } catch (_: Exception) {}
@@ -1030,29 +993,32 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     if (video_now_last != video_now) {
                         video_now_last = video_now
                         val currSec = video_now / 1000f
-                        runOnUiThread {
-                            if (isLiveMode) {
-                                text_progress.text = StringUtil.toTime(currSec.toInt())
-                                text_online.text = online_number
-                            } else {
-                                seekbar_progress.progress = video_now
-                            }
-                            if (subtitles == null) text_subtitle.visibility = View.GONE
+                        if (isLiveMode) {
+                            text_progress.text = StringUtil.toTime(currSec.toInt())
+                            text_online.text = online_number
+                        } else {
+                            seekbar_progress.progress = video_now
+                        }
+                        if (subtitles == null) text_subtitle.visibility = View.GONE
 
-                            if (viewPointAdapter != null && viewPoints != null && viewPoints!!.isNotEmpty()) {
-                                viewPointAdapter!!.updateCurrentPosition(currSec.toInt())
-                            }
+                        if (viewPointAdapter != null && viewPoints != null && viewPoints!!.isNotEmpty()) {
+                            viewPointAdapter!!.updateCurrentPosition(currSec.toInt())
                         }
                         if (subtitles != null) showSubtitle(currSec + subtitle_delta)
 
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && mediaSession != null) {
-                            updateMediaSessionPlaybackState()
+                        // 只在整秒变化时上报，避免每 250ms 一次 MediaSession Binder IPC
+                        if (video_now / 1000 != lastMediaSessionSecond) {
+                            lastMediaSessionSecond = video_now / 1000
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && mediaSession != null) {
+                                updateMediaSessionPlaybackState()
+                            }
                         }
                     }
                 }
+                if (!destroyed) mainHandler?.postDelayed(this, 250)
             }
         }
-        progressTimer!!.schedule(task, 0, 250)
+        mainHandler?.post(progressRunnable!!)
     }
 
     private fun onlineChange() {
@@ -1095,6 +1061,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
             subtitle_count = subtitles!!.size
             subtitle_curr_index = 0
+            // 换了字幕轨必须复位展示去重标记：否则新轨道的第 0 条与旧轨道当时展示的下标相同
+            // 时会被 showSubtitle 的 `subtitle_shown_index != subtitle_curr_index` 判定为"无需刷新"
+            subtitle_shown_index = -2
             runOnUiThread { btn_subtitle.setImageResource(R.mipmap.subtitle_on) }
         } catch (e: Exception) {
             MsgUtil.err(e)
@@ -1102,40 +1071,50 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     private fun showSubtitle(currSec: Float) {
-        if (subtitles == null || subtitle_count == 0) {
-            runOnUiThread { text_subtitle.visibility = View.GONE }
+        val subs = subtitles
+        if (subs == null || subtitle_count == 0) {
+            if (subtitle_shown_index != -1) {
+                subtitle_shown_index = -1
+                text_subtitle.visibility = View.GONE
+            }
             return
         }
 
-        var subtitleCurr = subtitles!![subtitle_curr_index]
+        var subtitleCurr = subs[subtitle_curr_index]
 
         var needAdjust = true
         var needShow = true
 
         while (needAdjust) {
             if (currSec < subtitleCurr.from) {
-                if (subtitle_curr_index != 0 && currSec < subtitles!![subtitle_curr_index - 1].to) {
+                if (subtitle_curr_index != 0 && currSec < subs[subtitle_curr_index - 1].to) {
                     subtitle_curr_index--
                 } else {
                     needAdjust = false
                     needShow = false
                 }
             } else if (currSec > subtitleCurr.to) {
-                if (subtitle_curr_index + 1 < subtitle_count && currSec > subtitles!![subtitle_curr_index + 1].from) {
+                if (subtitle_curr_index + 1 < subtitle_count && currSec > subs[subtitle_curr_index + 1].from) {
                     subtitle_curr_index++
                 } else {
                     needAdjust = false
                     needShow = false
                 }
             } else needAdjust = false
+            subtitleCurr = subs[subtitle_curr_index]
         }
 
-        if (needShow)
-            runOnUiThread {
-                text_subtitle.text = subtitles!![subtitle_curr_index].content
+        if (needShow) {
+            // 内容没变就不刷 UI，避免每 250ms 重复 setText/setVisibility
+            if (subtitle_shown_index != subtitle_curr_index) {
+                subtitle_shown_index = subtitle_curr_index
+                text_subtitle.text = subs[subtitle_curr_index].content
                 text_subtitle.visibility = View.VISIBLE
             }
-        else runOnUiThread { text_subtitle.visibility = View.GONE }
+        } else if (subtitle_shown_index != -1) {
+            subtitle_shown_index = -1
+            text_subtitle.visibility = View.GONE
+        }
     }
 
     private fun downSubtitle(fromBtn: Boolean) {
@@ -1170,6 +1149,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
                         if (subtitleLinks!![index].id == -1L) {
                             subtitles = null
+                            subtitle_shown_index = -1
                             btn_subtitle.setImageResource(R.mipmap.subtitle_off)
                         } else
                             CenterThreadPool.run { getSubtitle(subtitleLinks!![index].url) }
@@ -1203,7 +1183,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             try {
                 if (!danmakuFile!!.exists()) danmakuFile!!.createNewFile()
                 val sink = danmakuFile!!.sink()
-                val decompressBytes = decompress(response.body!!.bytes())
+                val decompressBytes = NetWorkUtil.decompress(response.body!!.bytes())
                 bufferedSink = sink.buffer()
                 bufferedSink!!.write(decompressBytes)
                 bufferedSink!!.close()
@@ -1212,7 +1192,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             } finally {
                 bufferedSink?.close()
             }
-            streamDanmaku(danmakuFile!!.toString(), null)
+            prepareDanmaku { it.loadFromXmlFile(danmakuFile!!.toString()) }
         } catch (e: Exception) {
             runOnUiThread { MsgUtil.err(e) }
         }
@@ -1239,7 +1219,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
             Logu.d("新版弹幕", "成功获取 " + segments.size + " 个弹幕分段")
 
-            streamDanmaku(null, segments)
+            prepareDanmaku { it.loadFromProtobufSegments(segments) }
         } catch (e: Exception) {
             e.printStackTrace()
             Logu.e("新版弹幕", "获取失败: " + e.message + "，回退到旧版接口")
@@ -1248,86 +1228,48 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         }
     }
 
-    private fun createParser(stream: String?): BaseDanmakuParser = createParser(stream, null)
-
-    private fun createParser(stream: String?, protobufSegments: List<DmSegMobileReply>?): BaseDanmakuParser {
-        if (protobufSegments != null && protobufSegments.isNotEmpty()) {
-            val parser = BiliProtobufDanmakuParser()
-            parser.sharedPreferences = SharedPreferencesUtil.getSharedPreferences()
-            parser.setDanmakuSegments(protobufSegments)
-            return parser
-        }
-
-        if (stream == null) {
-            return object : BaseDanmakuParser() {
-                override fun parse(): Danmakus = Danmakus()
-            }
-        }
-
-        val loader = DanmakuLoaderFactory.create(DanmakuLoaderFactory.TAG_BILI)!!
-        loader.load(stream)
-        val parser = BiliDanmukuParser()
-        parser.sharedPreferences = SharedPreferencesUtil.getSharedPreferences()
-        val dataSource: IDataSource<*> = loader.dataSource
-        parser.load(dataSource)
-        return parser
-    }
-
-    private fun streamDanmaku(danmakuFile: String?) = streamDanmaku(danmakuFile, null)
-
-    private fun streamDanmaku(danmakuFile: String?, protobufSegments: List<DmSegMobileReply>?) {
-        Logu.v("danmaku", "stream")
-
-        mContext = DanmakuContext.create()
-        val maxLinesPair = HashMap<Int, Int>()
-        maxLinesPair[BaseDanmaku.TYPE_SCROLL_RL] = SharedPreferencesUtil.getInt("player_danmaku_maxline", 15)
-        val overlap = HashMap<Int, Boolean>()
-        overlap[BaseDanmaku.TYPE_SCROLL_LR] = SharedPreferencesUtil.getBoolean("player_danmaku_allowoverlap", true)
-        overlap[BaseDanmaku.TYPE_FIX_BOTTOM] = SharedPreferencesUtil.getBoolean("player_danmaku_allowoverlap", true)
-        mContext!!.setDanmakuStyle(IDisplayer.DANMAKU_STYLE_STROKEN, 1f)
-            .setDuplicateMergingEnabled(SharedPreferencesUtil.getBoolean("player_danmaku_mergeduplicate", false))
-            .setScrollSpeedFactor(SharedPreferencesUtil.getFloat("player_danmaku_speed", 1.0f))
-            .setScaleTextSize(SharedPreferencesUtil.getFloat("player_danmaku_size", 0.7f))
-            .setMaximumLines(maxLinesPair)
-            .setDanmakuTransparency(SharedPreferencesUtil.getFloat("player_danmaku_transparency", 0.5f))
-            .preventOverlapping(overlap)
-
-        val mParser = createParser(danmakuFile, protobufSegments)
-
-        mDanmakuView!!.setCallback(object : DrawHandler.Callback {
-            override fun prepared() {
-                Logu.v("danmaku", "prepared")
-                val msg = if (protobufSegments != null) "弹幕君准备完毕～(是新来的哦～)" else "弹幕君准备完毕～(*≧ω≦)"
-                addDanmaku(msg, Color.WHITE)
-            }
-
-            override fun updateTimer(timer: DanmakuTimer) {
-                if (ijkPlayer != null && isPrepared) {
-                    val currentPos = ijkPlayer!!.currentPosition
-                    timer.update(currentPos)
-                }
-            }
-
-            override fun danmakuShown(danmaku: BaseDanmaku) {}
-            override fun drawingFinished() {}
-        })
-        mDanmakuView!!.enableDanmakuDrawingCache(true)
-        mDanmakuView!!.prepare(mParser, mContext)
-    }
-
+    /**
+     * 弹幕链路已统一到 [DanmakuManager]（方案 B：两个播放器共用一套弹幕栈）。
+     * 保留同名公开方法只是为了不改动 `PlayerDanmuClientListener` 等既有调用方。
+     */
     fun addDanmaku(text: String?, color: Int) = addDanmaku(text, color, 25, 1, 0)
 
     fun addDanmaku(text: String?, color: Int, textSize: Int, type: Int, backgroundColor: Int) {
-        val danmaku = mContext!!.mDanmakuFactory.createDanmaku(type) ?: return
-        if (text == null || ijkPlayer == null) return
-        danmaku.text = text
-        danmaku.padding = 5
-        danmaku.priority = 1
-        danmaku.textColor = color
-        danmaku.backgroundColor = backgroundColor
-        danmaku.textSize = textSize * (mContext!!.displayer.density - 0.6f)
-        danmaku.time = mDanmakuView!!.currentTime + 100
-        mDanmakuView!!.addDanmaku(danmaku)
+        if (text == null) return
+        danmakuManager?.addDanmaku(text, color, textSize, type, backgroundColor)
+    }
+
+    /** 重新绑定弹幕视图与弹幕管理器（弹幕视图在切分页/切互动分支后会重新取一次引用）。 */
+    private fun bindDanmakuView() {
+        mDanmakuView = findViewById(R.id.sv_danmaku)
+        danmakuManager = DanmakuManager(mDanmakuView!!) {
+            // 播放器未就绪时返回 -1，让 DanmakuManager 跳过本次 timer 更新。
+            // 这里不能简单写成 `ijkPlayer?.currentPosition ?: 0L`：切清晰度/切分页时主线程正在
+            // 销毁重建播放器，而本回调在弹幕渲染线程上，读到脏位置会让弹幕整批不显示。
+            if (isPrepared) ijkPlayer?.currentPosition ?: -1L else -1L
+        }
+    }
+
+    /** 释放弹幕视图与管理器。 */
+    private fun releaseDanmaku() {
+        danmakuManager?.release()
+        danmakuManager = null
+        mDanmakuView = null
+    }
+
+    /**
+     * 加载弹幕前的统一入口：先重新读一遍弹幕设置，再执行具体的加载。
+     * 与原实现"每次 streamDanmaku 都重建 DanmakuContext"的语义一致（设置改动即时生效）。
+     */
+    private fun prepareDanmaku(block: (DanmakuManager) -> Unit) {
+        val manager = danmakuManager
+        if (manager == null) {
+            // 静默失败会让"弹幕不显示"完全无从排查，这里必须留下痕迹
+            Logu.e("弹幕", "danmakuManager 为空，弹幕未加载")
+            return
+        }
+        manager.init()
+        block(manager)
     }
 
     fun controlVideo() {
@@ -1512,8 +1454,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
         cancelAllTimers()
 
-        mDanmakuView?.release()
-        mDanmakuView = null
+        // 先解绑 surface 回调，避免解绑前 surface 回调又反过来操作已 release 的播放器
+        surfaceBinder?.release()
+        surfaceBinder = null
+
+        releaseDanmaku()
         ijkPlayer?.release()
         ijkPlayer = null
         audioPlayer?.release()
@@ -1538,14 +1483,18 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     private fun cancelAllTimers() {
-        surfaceTimer?.cancel()
-        surfaceTimer = null
-        progressTimer?.cancel()
-        progressTimer = null
+        speedTimer?.cancel()
+        speedTimer = null
         onlineTimer?.cancel()
         onlineTimer = null
-        loadingTimer?.cancel()
-        loadingTimer = null
+        progressRunnable?.let { mainHandler?.removeCallbacks(it) }
+        progressRunnable = null
+        loadingRunnable?.let { mainHandler?.removeCallbacks(it) }
+        loadingRunnable = null
+        // 用同一个 View 移除：runnable 是 layout_video.postDelayed 投递的，
+        // 若当时未 attach 会进 per-view RunQueue，用别的 View 移除会失效
+        resizePostRunnable?.let { layout_video.removeCallbacks(it) }
+        resizePostRunnable = null
         mainHandler?.removeCallbacksAndMessages(null)
         layout_control.removeCallbacks(hidecon)
         text_volume.removeCallbacks(hideVolume)
@@ -1738,31 +1687,30 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         layout_top.setOnClickListener { finish() }
 
         val params = RelativeLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        val binder = PlayerSurfaceBinder(
+            onReadyForPrepare = { target ->
+                // surface 就绪且正在等开播：挂载后立即 prepare
+                attachSurface(target)
+                video_url?.let { MPPrepare(it) }
+            },
+            onSurfaceReattached = { target ->
+                // surface 重建（例如退到后台再回来）：播放器已经 prepare 过，只重新挂上，
+                // 绝不能重复 prepare。SurfaceView 还需要 seek 回当前位置强制出画面（与原实现一致）。
+                attachSurface(target)
+                if (isPrepared && target is SurfaceTarget.Holder) {
+                    ijkPlayer?.seekTo(seekbar_progress.progress.toLong())
+                }
+            },
+            onSurfaceLost = { detachSurface() }
+        )
+        surfaceBinder = binder
         if (SharedPreferencesUtil.getBoolean("player_display", Build.VERSION.SDK_INT < 26)) {
             textureView = TextureView(this)
-            textureView!!.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, i: Int, i1: Int) {
-                    Logu.v("surfacetexture", "available")
-                    mSurfaceTexture = surfaceTexture
-                    if (isPrepared && ijkPlayer != null) ijkPlayer!!.setSurface(Surface(surfaceTexture))
-                }
-
-                override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, i: Int, i1: Int) {
-                    Logu.v("surfacetexture", "sizechanged")
-                }
-
-                override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
-                    Logu.v("surfacetexture", "destroyed")
-                    mSurfaceTexture = null
-                    ijkPlayer?.setSurface(null)
-                    return true
-                }
-
-                override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) {}
-            }
+            binder.bindTextureView(textureView!!)
             layout_video.addView(textureView, params)
         } else {
             surfaceView = SurfaceView(this)
+            binder.bindSurfaceView(surfaceView!!)
             layout_video.addView(surfaceView, params)
         }
 
@@ -1836,9 +1784,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         seekbar_progress.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             @SuppressLint("SetTextI18n")
             override fun onProgressChanged(seekBar: SeekBar, position: Int, fromUser: Boolean) {
-                runOnUiThread {
-                    if (!isLiveMode) text_progress.text = StringUtil.toTime(position / 1000) + "/" + progress_str
-                }
+                // SeekBar 回调本身就在主线程，无需再 runOnUiThread
+                if (!isLiveMode) text_progress.text = StringUtil.toTime(position / 1000) + "/" + progress_str
             }
 
             override fun onStartTrackingTouch(seekBar: SeekBar) {
@@ -2255,8 +2202,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
         ijkPlayer?.stop()
         ijkPlayer?.release()
-        mDanmakuView?.release()
-        mDanmakuView = null
+        releaseDanmaku()
 
         video_url = newVideoUrl
         danmaku_url = newDanmakuUrl
@@ -2285,7 +2231,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         interactionChoiceLayout?.removeAllViews()
 
         ijkPlayer = IjkMediaPlayer()
-        mDanmakuView = findViewById(R.id.sv_danmaku)
+        bindDanmakuView()
 
         setDisplay()
 
@@ -2744,8 +2690,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
                     ijkPlayer?.stop()
                     ijkPlayer?.release()
-                    mDanmakuView?.release()
-                    mDanmakuView = null
+                    releaseDanmaku()
 
                     cid = targetCid
                     video_url = playerData.videoUrl
@@ -2781,7 +2726,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     interactionChoiceLayout?.removeAllViews()
 
                     ijkPlayer = IjkMediaPlayer()
-                    mDanmakuView = findViewById(R.id.sv_danmaku)
+                    bindDanmakuView()
 
                     setDisplay()
 
@@ -3063,33 +3008,4 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         super.finish()
     }
 
-    companion object {
-        @JvmStatic
-        fun decompress(data: ByteArray): ByteArray {
-            var output: ByteArray
-            val decompresser = Inflater(true)
-            decompresser.reset()
-            decompresser.setInput(data)
-            val o = ByteArrayOutputStream(data.size)
-            try {
-                val buf = ByteArray(2048)
-                while (!decompresser.finished()) {
-                    val i = decompresser.inflate(buf)
-                    o.write(buf, 0, i)
-                }
-                output = o.toByteArray()
-            } catch (e: Exception) {
-                output = data
-                e.printStackTrace()
-            } finally {
-                try {
-                    o.close()
-                } catch (e: IOException) {
-                    e.printStackTrace()
-                }
-            }
-            decompresser.end()
-            return output
-        }
-    }
 }

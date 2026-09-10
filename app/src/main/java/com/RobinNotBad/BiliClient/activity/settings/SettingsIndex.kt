@@ -50,6 +50,9 @@ object SettingsIndex {
         list += Entry("菜单设置", "调整菜单顺序、将菜单项移入未启用") { a ->
             a.startActivity(Intent(a, SettingMenuActivity::class.java))
         }
+        list += Entry("我的页面设置", "调整「我的」页面入口顺序与更多列表") { a ->
+            a.startActivity(Intent(a, SettingMySpaceActivity::class.java))
+        }
         list += Entry("搜索设置", "搜索类别显示与排序") { a ->
             a.startActivity(Intent(a, SettingSearchActivity::class.java))
         }

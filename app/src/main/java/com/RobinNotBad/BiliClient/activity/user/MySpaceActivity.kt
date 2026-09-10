@@ -9,16 +9,17 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 
+import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.InstanceActivity
 import com.RobinNotBad.BiliClient.activity.settings.login.LoginActivity
-import com.RobinNotBad.BiliClient.activity.user.favorite.FavoriteFolderListActivity
-import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.api.UserInfoApi
 import com.RobinNotBad.BiliClient.model.UserInfo
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.MySpaceConfig
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.bumptech.glide.Glide
@@ -37,14 +38,6 @@ class MySpaceActivity : InstanceActivity() {
 
     private var confirmLogout = false
     private var currentUserInfo: UserInfo? = null
-
-    /** 功能入口数据模型：图标 + 文字 + 点击行为，与用户信息 API 解耦。 */
-    private class MySpaceItem(
-        val iconRes: Int,
-        val label: String,
-        val isLogout: Boolean = false,
-        val onClick: () -> Unit
-    )
 
     @SuppressLint("SetTextI18n", "InflateParams")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -71,47 +64,49 @@ class MySpaceActivity : InstanceActivity() {
         }
     }
 
-    // ==================== 功能入口（数据驱动，点击即时生效） ====================
+    // ==================== 功能入口（顺序与分区由「我的页面设置」决定） ====================
 
     private fun addMenuItems() {
-        for (item in buildMenuItems()) {
-            val cell = layoutInflater.inflate(R.layout.cell_myspace_item, menuContainer, false)
-            cell.findViewById<ImageView>(R.id.item_icon).setImageResource(item.iconRes)
-            val label = cell.findViewById<TextView>(R.id.item_label)
-            label.text = item.label
-            if (item.isLogout) label.setTextColor(0xFFF44336.toInt())
-            cell.setOnClickListener { item.onClick() }
-            menuContainer.addView(cell)
-        }
+        val layout = SharedPreferencesUtil.loadMySpaceLayout()
+        val keys = ArrayList<String>()
+        keys += layout.main
+        // 「更多」只在实际有功能被移入时出现；「退出登录」永远在最后一位
+        if (layout.more.isNotEmpty()) keys += MySpaceConfig.KEY_MORE_BUTTON
+        keys += MySpaceConfig.KEY_LOGOUT
+
+        for (key in keys) addMenuCell(key)
     }
 
-    private fun buildMenuItems(): List<MySpaceItem> {
-        val items = ArrayList<MySpaceItem>()
-        items += MySpaceItem(R.drawable.icon_info, "个人信息") { openMyInfo() }
-        items += MySpaceItem(R.drawable.icon_followings, "关注") {
-            startActivity(Intent(this, FollowUsersActivity::class.java)
-                .putExtra("mid", currentMid())
-                .putExtra("mode", 0))
+    private fun addMenuCell(key: String) {
+        // 创作中心受通用偏好开关控制，关闭时整行不渲染（设置页里仍可排序）
+        if (key == "creative" && !SharedPreferencesUtil.getBoolean(SettingsKeys.CREATIVE_ENABLE, true)) return
+
+        val cell = layoutInflater.inflate(R.layout.cell_myspace_item, menuContainer, false)
+        val icon = cell.findViewById<ImageView>(R.id.item_icon)
+        val label = cell.findViewById<TextView>(R.id.item_label)
+
+        when (key) {
+            MySpaceConfig.KEY_MORE_BUTTON -> {
+                icon.setImageResource(R.drawable.icon_menu)
+                label.text = "更多"
+                cell.setOnClickListener { startActivity(Intent(this, MySpaceMoreActivity::class.java)) }
+            }
+
+            MySpaceConfig.KEY_LOGOUT -> {
+                icon.setImageResource(R.drawable.icon_logout)
+                label.text = "退出登录"
+                label.setTextColor(0xFFF44336.toInt())
+                cell.setOnClickListener { handleLogout() }
+            }
+
+            else -> {
+                val item = MySpaceMenu.itemOf(key) ?: return
+                icon.setImageResource(item.iconRes)
+                label.text = item.label
+                cell.setOnClickListener { MySpaceMenu.open(this, key, currentMid()) }
+            }
         }
-        items += MySpaceItem(R.drawable.icon_play_12, "稍后再看") { startActivity(Intent(this, WatchLaterActivity::class.java)) }
-        items += MySpaceItem(R.drawable.icon_star, "收藏") { startActivity(Intent(this, FavoriteFolderListActivity::class.java)) }
-        items += MySpaceItem(R.drawable.icon_bangumi, "追番列表") { startActivity(Intent(this, FollowingBangumisActivity::class.java)) }
-        items += MySpaceItem(R.drawable.icon_history, "历史记录") { startActivity(Intent(this, HistoryActivity::class.java)) }
-        if (SharedPreferencesUtil.getBoolean("creative_enable", true)) {
-            items += MySpaceItem(R.drawable.icon_creative_center, "创作中心") { startActivity(Intent(this, CreativeCenterActivity::class.java)) }
-        }
-        items += MySpaceItem(R.drawable.icon_info, "大会员") { startActivity(Intent(this, VipActivity::class.java)) }
-        items += MySpaceItem(R.drawable.icon_time, "登录记录") { startActivity(Intent(this, LoginRecordActivity::class.java)) }
-        items += MySpaceItem(R.drawable.icon_info, "硬币变化记录") { startActivity(Intent(this, CoinLogActivity::class.java)) }
-        items += MySpaceItem(R.drawable.icon_info, "经验变化记录") { startActivity(Intent(this, ExpLogActivity::class.java)) }
-        items += MySpaceItem(R.drawable.icon_info, "编辑个人资料") { startActivity(Intent(this, EditProfileActivity::class.java)) }
-        items += MySpaceItem(R.drawable.icon_info, "修改个人描述") {
-            val intent = Intent(this, EditSignActivity::class.java)
-            intent.putExtra("currentSign", currentUserInfo?.sign ?: "")
-            startActivity(intent)
-        }
-        items += MySpaceItem(R.drawable.icon_logout, "退出登录", isLogout = true) { handleLogout() }
-        return items
+        menuContainer.addView(cell)
     }
 
     private fun currentMid(): Long = currentUserInfo?.mid ?: SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0)
@@ -119,7 +114,7 @@ class MySpaceActivity : InstanceActivity() {
     private fun openMyInfo() {
         val mid = currentMid()
         if (mid > 0) {
-            startActivity(Intent(this, UserInfoActivity::class.java).putExtra("mid", mid))
+            BiliTerminal.jumpToUser(this, mid)
         } else {
             jumpToLogin()
         }
@@ -168,6 +163,7 @@ class MySpaceActivity : InstanceActivity() {
                     Glide.with(this@MySpaceActivity).load(GlideUtil.url(userInfo.avatar))
                         .transition(GlideUtil.getTransitionOptions())
                         .placeholder(R.mipmap.akari).apply(RequestOptions.circleCropTransform())
+                        .error(R.mipmap.akari).apply(RequestOptions.circleCropTransform())
                         .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                         .into(userAvatar)
                     userName.text = userInfo.name

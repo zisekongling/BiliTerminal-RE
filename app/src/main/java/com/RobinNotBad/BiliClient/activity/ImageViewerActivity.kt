@@ -25,7 +25,7 @@ class ImageViewerActivity : BaseActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setTheme(R.style.Theme_BiliClient)
+        // 主题由 BaseActivity 按用户选择设置，这里不再强制回 B站粉
         setContentView(R.layout.activity_image_viewer)
         val intent = intent
         // 本页面 exported=true，外部可传空 Intent，缺少必要参数时直接退出而非崩溃

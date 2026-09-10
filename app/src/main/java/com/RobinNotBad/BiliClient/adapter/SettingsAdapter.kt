@@ -60,19 +60,19 @@ class SettingsAdapter(
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         when (viewType) {
-            1 -> return ChooseHolder(
+            TYPE_CHOOSE -> return ChooseHolder(
                 LayoutInflater.from(this.context).inflate(R.layout.cell_setting_choose, parent, false)
             )
-            2, 3, 4 -> return InputHolder(
+            TYPE_INPUT_INT, TYPE_INPUT_FLOAT, TYPE_INPUT_STRING -> return InputHolder(
                 LayoutInflater.from(this.context).inflate(R.layout.cell_setting_input, parent, false)
             )
-            5 -> return ListChooseHolder(
+            TYPE_LIST_CHOOSE -> return ListChooseHolder(
                 LayoutInflater.from(this.context).inflate(R.layout.cell_setting_list_choose, parent, false)
             )
-            6 -> return NavHolder(
+            TYPE_NAV -> return NavHolder(
                 LayoutInflater.from(this.context).inflate(R.layout.cell_setting_nav, parent, false)
             )
-            7 -> {
+            TYPE_BUTTON -> {
                 val button = MaterialButton(this.context)
                 val lp = RecyclerView.LayoutParams(
                     RecyclerView.LayoutParams.MATCH_PARENT,
@@ -83,10 +83,10 @@ class SettingsAdapter(
                 button.layoutParams = lp
                 return ButtonHolder(button)
             }
-            -1 -> return DividerHolder(
+            TYPE_DIVIDER -> return DividerHolder(
                 LayoutInflater.from(this.context).inflate(R.layout.cell_divider, parent, false)
             )
-            -2 -> return TitleHolder(
+            TYPE_TITLE -> return TitleHolder(
                 LayoutInflater.from(this.context).inflate(R.layout.cell_setting_title, parent, false)
             )
             else -> return SwitchHolder(
@@ -101,37 +101,24 @@ class SettingsAdapter(
             return
         val settingSection = list[position]
 
-        when (holder.itemViewType) {
-            -1 -> {}
-            -2 -> {
-                val titleHolder = holder as TitleHolder
-                titleHolder.bind(settingSection)
+        // 按 Holder 实际类型分派，不做盲转。
+        // 之前是 `when (holder.itemViewType) { ... else -> holder as SwitchHolder }`：
+        // 一旦 viewType 与 Holder 不同步（例如列表被 ConcatAdapter 包装后 viewType 被重映射，
+        // 而 SettingsAdapter 的 viewType 是负数 -1/-2），就会抛
+        // ClassCastException: NavHolder cannot be cast to SwitchHolder 并让设置页报错。
+        when (holder) {
+            is TitleHolder -> holder.bind(settingSection)
+            is DividerHolder -> {}
+            is ChooseHolder -> holder.bind(settingSection)
+            is InputHolder -> holder.bind(settingSection)
+            is ListChooseHolder -> holder.bind(settingSection, position)
+            is NavHolder -> holder.bind(settingSection)
+            is ButtonHolder -> holder.bind(settingSection)
+            is SwitchHolder -> {
+                holder.adapter = this
+                holder.bind(settingSection)
             }
-            1 -> {
-                val chooseHolder = holder as ChooseHolder
-                chooseHolder.bind(settingSection)
-            }
-            2, 3, 4 -> {
-                val inputHolder = holder as InputHolder
-                inputHolder.bind(settingSection)
-            }
-            5 -> {
-                val listChooseHolder = holder as ListChooseHolder
-                listChooseHolder.bind(settingSection, position)
-            }
-            6 -> {
-                val navHolder = holder as NavHolder
-                navHolder.bind(settingSection)
-            }
-            7 -> {
-                val buttonHolder = holder as ButtonHolder
-                buttonHolder.bind(settingSection)
-            }
-            else -> {
-                val switchHolder = holder as SwitchHolder
-                switchHolder.adapter = this
-                switchHolder.bind(settingSection)
-            }
+            else -> {}
         }
     }
 
@@ -140,17 +127,30 @@ class SettingsAdapter(
     }
 
     companion object {
+        // viewType 全部取非负值：负数 viewType（原为 -1 分割线 / -2 标题）一旦被
+        // ConcatAdapter 之类的包装 adapter 重映射就会错配 Holder，见 onBindViewHolder 注释
+        const val TYPE_SWITCH = 0
+        const val TYPE_CHOOSE = 1
+        const val TYPE_INPUT_INT = 2
+        const val TYPE_INPUT_FLOAT = 3
+        const val TYPE_INPUT_STRING = 4
+        const val TYPE_LIST_CHOOSE = 5
+        const val TYPE_NAV = 6
+        const val TYPE_BUTTON = 7
+        const val TYPE_DIVIDER = 8
+        const val TYPE_TITLE = 9
+
         val typeMap: Map<String, Int> = mapOf(
-            "divider" to -1,
-            "title" to -2,
-            "switch" to 0,
-            "choose" to 1,
-            "input_int" to 2,
-            "input_float" to 3,
-            "input_string" to 4,
-            "list_choose" to 5,
-            "nav" to 6,
-            "button" to 7
+            "switch" to TYPE_SWITCH,
+            "choose" to TYPE_CHOOSE,
+            "input_int" to TYPE_INPUT_INT,
+            "input_float" to TYPE_INPUT_FLOAT,
+            "input_string" to TYPE_INPUT_STRING,
+            "list_choose" to TYPE_LIST_CHOOSE,
+            "nav" to TYPE_NAV,
+            "button" to TYPE_BUTTON,
+            "divider" to TYPE_DIVIDER,
+            "title" to TYPE_TITLE
         )
     }
 

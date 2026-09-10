@@ -13,9 +13,9 @@ import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
-import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
@@ -159,6 +159,7 @@ class AboutActivity : BaseActivity() {
                     Glide.with(this).load(dev.avatarRes)
                         .transition(GlideUtil.getTransitionOptions())
                         .placeholder(R.mipmap.akari)
+                        .error(R.mipmap.akari)
                         .apply(RequestOptions.circleCropTransform())
                         .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                         .into(card.findViewById(R.id.dev_avatar))
@@ -168,9 +169,7 @@ class AboutActivity : BaseActivity() {
 
             if (dev.uid != -1L) {
                 card.setOnClickListener {
-                    startActivity(
-                        Intent(this, UserInfoActivity::class.java).putExtra("mid", dev.uid)
-                    )
+                    BiliTerminal.jumpToUser(this, dev.uid)
                 }
             }
 

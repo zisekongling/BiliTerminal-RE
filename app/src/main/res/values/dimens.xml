@@ -1,5 +1,59 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- =========================================================== -->
+    <!-- 视觉设计 token（基准 = 手表/紧凑）                            -->
+    <!--                                                             -->
+    <!-- 本项目主要跑在手表上（有表冠滚轮输入与圆屏适配），所以基础值   -->
+    <!-- 一律按紧凑屏幕给；手机等宽屏在 values-w300dp/dimens.xml 里覆盖。 -->
+    <!-- =========================================================== -->
+
+    <!-- 间距：4dp 基准栅格 -->
+    <dimen name="space_xs">4dp</dimen>
+    <dimen name="space_sm">8dp</dimen>
+    <dimen name="space_md">12dp</dimen>
+    <dimen name="space_lg">16dp</dimen>
+    <dimen name="space_xl">24dp</dimen>
+
+    <!-- 圆角 -->
+    <dimen name="radius_card">8dp</dimen>
+    <dimen name="radius_small">6dp</dimen>
+    <dimen name="radius_chip">16dp</dimen>
+
+    <!-- 字号：手表上比手机档位整体小一档 -->
+    <dimen name="text_topbar">14sp</dimen>
+    <dimen name="text_title">15sp</dimen>
+    <dimen name="text_subtitle">13sp</dimen>
+    <dimen name="text_body">12sp</dimen>
+    <dimen name="text_caption">11sp</dimen>
+
+    <!-- 触控：Material 最小可点尺寸（图标可点区域靠 minWidth/minHeight 撑开，
+         视觉尺寸不变，不影响紧凑观感） -->
+    <dimen name="touch_min">48dp</dimen>
+
+    <!-- 卡片 -->
+    <dimen name="card_padding">8dp</dimen>
+    <dimen name="card_padding_horizontal">12dp</dimen>
+
+    <!-- 顶栏：比手机窄屏顶栏矮一截 -->
+    <dimen name="topbar_height">30dp</dimen>
+
+    <!-- 表单行高（改前 36 处用 sp 当高度，会随系统字体缩放被压扁） -->
+    <dimen name="row_height">35dp</dimen>
+    <dimen name="row_height_tall">40dp</dimen>
+    <dimen name="row_height_short">30dp</dimen>
+
+    <!-- 图标 -->
+    <dimen name="icon_sm">16dp</dimen>
+    <dimen name="icon_md">20dp</dimen>
+    <dimen name="icon_lg">24dp</dimen>
+    <dimen name="icon_xl">32dp</dimen>
+
+    <!-- 分割线 -->
+    <dimen name="divider_thin">1dp</dimen>
+
+    <!-- =========================================================== -->
+    <!-- 以下为改造前既有 token：保持原值（手表观感就是基于它们调的）     -->
+    <!-- =========================================================== -->
     <dimen name="activity_padding_horizontal">6dp</dimen>
     <dimen name="list_margin_vertical">2dp</dimen>
     <dimen name="linearlayout_divider">4dp</dimen>

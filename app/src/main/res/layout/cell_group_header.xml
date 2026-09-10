@@ -47,7 +47,7 @@
             android:layout_marginBottom="10dp"
             android:singleLine="true"
             android:text="分组描述"
-            android:textSize="11sp"
+            android:textSize="12sp"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toStartOf="@+id/group_arrow"
             app:layout_constraintStart_toEndOf="@+id/group_icon"

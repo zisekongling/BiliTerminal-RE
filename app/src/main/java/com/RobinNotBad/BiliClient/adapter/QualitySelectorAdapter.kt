@@ -2,7 +2,6 @@ package com.RobinNotBad.BiliClient.adapter
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.view.ContextThemeWrapper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -53,8 +52,9 @@ class QualitySelectorAdapter : RecyclerView.Adapter<QualitySelectorAdapter.Quali
     @NonNull
     override fun onCreateViewHolder(@NonNull parent: ViewGroup, viewType: Int): QualityHolder {
         this.context = parent.context
-        val contextWrapper = ContextThemeWrapper(this.context, R.style.Theme_BiliClient)
-        val view = LayoutInflater.from(contextWrapper)
+        // 不再用 ContextThemeWrapper 强制 B站粉主题：cell_episode 已去掉布局级 android:theme，
+        // 让按钮跟随当前主题（选中色由下面 bind() 用 ThemeManager 设）
+        val view = LayoutInflater.from(this.context)
                 .inflate(R.layout.cell_episode, parent, false)
         return QualityHolder(view)
     }

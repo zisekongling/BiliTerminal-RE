@@ -15,32 +15,45 @@
 | `network/api/`（Retrofit + kotlinx-serialization） | 目录**空**，0 个文件 |
 | `di/`（Hilt） | 目录**空**，0 个文件 |
 | `data/repository/` | 目录**空**，0 个文件 |
-| `ui/*`（ViewModel/MVVM） | 只有 `ui/theme/`（3 个文件）+ `ui/widget/`（16 个文件），其余 `ui/base`、`ui/player`、`ui/video/viewmodel` 等 **13 个子目录全空** |
-| `BiliTerminalApp.kt`（@HiltAndroidApp）为入口 | **死代码**。Manifest 指向 `.BiliTerminal`（Java），该类从未被实例化 |
+| `ui/*`（ViewModel/MVVM） | 只有 `ui/theme/`（1 个文件：`ThemeManager.kt`）+ `ui/appearance/`（26.09.11 新增，3 个文件：`AppearanceManager.kt` / `CornerStyle.kt` / `FontStyle.kt`）+ `ui/widget/`（12 个文件）。其余 `ui/base`、`ui/player`、`ui/video/viewmodel` 等子目录**已全部删除**（26.09.11 死代码清理，旧文档写「13 个子目录全空」已过时） |
+| `BiliTerminalApp.kt`（@HiltAndroidApp）为入口 | **死代码**。Manifest 指向 `.BiliTerminal`（26.09.10 起是 Kotlin，原先为 `.java`），该类从未被实例化 |
 
-**核实方式**：全工程 `grep '@AndroidEntryPoint|@HiltViewModel|@Inject|@Module|@InstallIn'` → **0 命中**；空目录统计 → **23 个**。
+**核实方式**：全工程 `grep '@AndroidEntryPoint|@HiltViewModel|@Inject|@Module|@InstallIn'` → **0 命中**；空目录统计 → **24 个**（26.09.11 已全部删除）。
 
 **结论**：全项目实际是**单层遗留架构**——Java 静态方法 + `org.json` 逐层拆 JSON + `startActivity` 直跳。没有 DI、没有 Repository、没有 ViewModel、没有 Retrofit 调用。
 
-### 死依赖清单（在 `app/build.gradle` 里但全工程无人使用）
+### 死依赖清单 —— **26.09.11 已全部删除**
+
+原先 `app/build.gradle` 里有以下全工程无人使用的依赖，现已移除（连带 `ksp` 与 `kotlin.plugin.serialization` 两个插件、`BiliTerminalApp.kt` 上的 `@HiltAndroidApp`）：
 
 ```gradle
-implementation 'com.google.dagger:hilt-android:2.51.1'      // 无任何注入点
+// 已删除：
+implementation 'com.google.dagger:hilt-android:2.51.1'                      // 无任何注入点
 ksp 'com.google.dagger:hilt-compiler:2.51.1'
-implementation 'com.squareup.retrofit2:retrofit:2.11.0'      // 无任何 Interface 声明
+implementation 'com.squareup.retrofit2:retrofit:2.11.0'                      // 无任何 Interface 声明
 implementation 'com.squareup.retrofit2:converter-kotlinx-serialization:2.11.0'
-implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.0'  // 无 @Serializable
-ksp { arg("room.schemaLocation", ...) }                      // 项目用 SQLiteOpenHelper，无 Room
+implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.0'      // 无 @Serializable
+implementation 'androidx.navigation:navigation-fragment-ktx:2.7.7'           // 0 引用
+implementation 'androidx.navigation:navigation-ui-ktx:2.7.7'
+implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.2'            // 0 引用
+implementation 'androidx.asynclayoutinflater:asynclayoutinflater:1.0.0'      // 项目有自实现 AsyncLayoutInflaterX
+implementation 'com.google.protobuf:protobuf-javalite:3.21.12'               // ProtobufParser 是手写解析器
+implementation 'com.geetest.sensebot:sensebot:4.3.5'                         // 验证码只走 WebView JS
+implementation 'androidx.cardview:cardview:1.0.0'                            // 只用 MaterialCardView
+debugImplementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'
+ksp { arg("room.schemaLocation", ...) }                                     // 项目用 SQLiteOpenHelper，无 Room
 ```
 
-**改功能时的影响**：新代码直接加到 `api/` + `activity/`，沿用静态方法 + `org.json` 风格；`network/api/`、`di/` 只是空壳，往里加 Retrofit 接口或 Hilt 模块等于新建一座孤岛。
+**改功能时的影响**：新代码直接加到 `api/` + `activity/`，沿用静态方法 + `org.json` 风格；`network/api/`、`di/`、`ui/*` 这些空壳目录已删除，别再往里加东西。
+
+> **26.09.10 已清理**：`androidx.multidex:multidex:2.0.1` 依赖、`BiliTerminal.java` / `BiliTerminalApp.kt` 里的 `MultiDex.install(this)` 与对应的 `attachBaseContext` 覆写已删除——`minSdk 24` 下 ART 原生支持 multidex，`MultiDex.install()` 在 API 21+ 首行即返回，是纯死代码。（`multiDexEnabled true` 保留未动，minSdk ≥ 21 下本就无副作用。）
 
 ---
 
 ## 2. 入口与启动链路
 
 ```
-AndroidManifest.xml:27  android:name=".BiliTerminal"   ← 真实 Application（Java）
+AndroidManifest.xml:27  android:name=".BiliTerminal"   ← 真实 Application（Kotlin）
         ↓
 BiliTerminal.onCreate()
    ├─ SharedPreferencesUtil.sharedPreferences = getSharedPreferences("default")
@@ -94,6 +107,17 @@ SplashActivity（LAUNCHER，typewriter 动画）
 
 > `MenuConfig` 是纯 Kotlin 对象、无 Android 依赖，已有 `app/src/test/.../MenuConfigTest.kt`——改菜单逻辑时**优先在这里加测试**。
 
+### 3.1b「我的」页面入口配置（26.09.10 新增）
+
+`activity/user/MySpaceActivity.kt` 的功能入口不再硬编码，由 `util/MySpaceConfig.kt` 驱动：
+
+- 两份有序 key 串 `myspace_main` / `myspace_more`（`;` 连接），互斥且并集 = `ALL_ITEMS`；任一非法（未知 key、重复、漏项、跨列表重复）整体回退默认并写回。
+- 固定项不参与配置：用户卡片永远第一（设置页里不出现），`more`（更多按钮）与 `logout`（退出登录）永远最后两位；**更多列表为空时页面上不显示「更多」按钮**。
+- 入口的图标 / 文案 / 跳转统一定义在 `activity/user/MySpaceMenu.kt`，主列表与更多页（`MySpaceMoreActivity`）共用，改跳转只改这一处。
+- `creative`（创作中心）仍受通用偏好开关 `creative_enable` 控制：设置页里始终可见可排序，页面上按开关决定是否渲染。
+- 设置入口 `activity/settings/SettingMySpaceActivity.kt`，适配器 `adapter/MySpaceSettingAdapter.kt` 单页双分区拖拽（两区都能排序、可互相拖入）。
+- 加新入口时同步 `MySpaceConfig.ALL_ITEMS` 与 `MySpaceMenu.ITEMS` 并注册 Manifest；`MySpaceConfigTest.allItems_andMenuKeys_match` 会守卫两者一致。
+
 ### 3.2 三个基类层级
 
 ```
@@ -127,8 +151,8 @@ AppCompatActivity
 
 | 依赖 | 获取方式 | 位置 |
 |---|---|---|
-| Application 级 Context / 工具 | `BiliTerminal.context`（**静态字段**，直接引用） | `BiliTerminal.java:39` |
-| 当前栈顶 Activity | `BiliTerminal.getInstanceActivityOnTop()`（`WeakReference`） | `BiliTerminal.java:226` |
+| Application 级 Context / 工具 | `BiliTerminal.context`（**静态字段**，`@JvmField`，直接引用） | `BiliTerminal.kt:41` |
+| 当前栈顶 Activity | `BiliTerminal.getInstanceActivityOnTop()`（`WeakReference`） | `BiliTerminal.kt:83` |
 | 内容缓存 / 数据源 | `TerminalContext.getInstance()`（`InstanceHolder` 懒汉单例） | `TerminalContext.java:371` |
 | 网络客户端 | `NetWorkUtil.getOkHttpInstance()`（`AtomicReference` 双检） | `NetWorkUtil.java:85` |
 | 设置读写 | `SharedPreferencesUtil` 静态方法（`sharedPreferences` 静态字段） | `util/SharedPreferencesUtil.java` |
@@ -192,6 +216,10 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **风控重试**：`executeJsonWithRiskRetry` 对 `code == -352 / -412` 重试；`executeWithDoctypeRetry` 对返回 `<!doctype`（被风控拦成 HTML）的响应重试。重试次数/间隔读 SharedPreferences（`api_retry_max_times`、`api_retry_interval_seconds`）。
 - **隐私模式**：`getJsonPrivacy()` 用 `buildGuestCookieString()` 剔除 `SESSDATA/bili_jct/DedeUserID/sid` 等登录 Cookie。
 - **参数构造**：`FormData` 类，内部 `URLEncoder.encode`，默认**不**自动加 `access_key`（注释：web 接口带 access_key 会触发风控）。
+- **裸 deflate 解压**：`decompress(byte[])`（26.09.11 起为本工程唯一实现，原先
+  `DownloadService`/`DownloadActivity`/`PlayerActivity` 各有一份逐字相同的副本）。
+  解压失败回退原数据；`Inflater` 持 native 资源，统一在 `finally` 里 `end()`。
+  注意与 `api/UserInfoApi.decompressResponse`（br + gzip）**不是同一件事**，不要互相替换。
 
 ### 6.2 WBI 签名（`api/ConfInfoApi.java`）
 
@@ -236,8 +264,45 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 
 - **巨型类**：`activity/player/PlayerActivity.kt` 127 KB、`service/DownloadService.kt` 65 KB、`activity/video/ShortVideoPlayerActivity.kt` 35 KB。改播放/下载相关功能前先想清楚在哪个位置插入。
 - **两套 Application 静态状态并存**：`BiliTerminal.context/instance`（活的）与 `BiliTerminalApp.context/appInstance`（死的）。**新代码一律用 `BiliTerminal`**，别碰 `BiliTerminalApp`（除 `SplashActivity` 里 UETool 那几行历史遗留）。
-- **测试覆盖极低**：`app/src/test/` 仅 9 个文件（`HotSearchApiTest`、`FavoriteApiTest`、`OpusApiTest`、`PrivateMsgApiTest`、`NetWorkUtilTest`、`MenuConfigTest`、`ToolsUtilTest`、`StringUtilTest`、`HotSearchAdapterTest`）对 363 个源文件。改动解析逻辑时补纯 JVM 单测（参考 `NetWorkUtilTest` 的 FakeSharedPreferences 手法）。
+- **测试覆盖极低**：`app/src/test/` 仅 13 个文件（12 个测试类 + 1 个共享假实现 `FakeSharedPreferences`），对 363 个源文件。已有：`HotSearchApiTest`、`FavoriteApiTest`、`OpusApiTest`、`PrivateMsgApiTest`、`NetWorkUtilTest`、`MenuConfigTest`、`MySpaceConfigTest`、`ToolsUtilTest`、`StringUtilTest`、`HotSearchAdapterTest`、`TutorialDslTest`、`ThemeManagerTest`。改动解析/配置/主题逻辑时补纯 JVM 单测——注入 `SharedPreferencesUtil.sharedPreferences`，用 `util/FakeSharedPreferences.kt`（26.09.11 从 `NetWorkUtilTest` 的私有内部类提取为共享助手，别再抄一份）。
+- **主题色表带缓存，失效点只有一处**：`ThemeManager.getCurrentTheme()`（26.09.11 起）缓存当前色表，**只在 `setTheme()` 里置 null**。这是刻意的——36 个属性 getter 全走它，而列表滚动时一个 item 要调多次，此前每次都重读 SharedPreferences（热路径重复 IO）。**若将来给主题 key 增加第二个写入路径（比如直接 `SharedPreferencesUtil.putString(SettingsKeys.THEME, …)`），必须同步失效缓存，否则改主题后色表不跟着变且在 `onResume` 重建后依然错**。守卫测试：`ThemeManagerTest.themeCache_isInvalidatedOnEverySetTheme`、`colorGetters_doNotTouchSharedPreferencesAfterFirstRead`。
+- **主题体系有 3 个"裸 Activity"不参与**：`SplashActivity`、`GetIntentActivity` 不继承 `BaseActivity`（开屏/外链恒定 B站粉），`PlayerActivity` 自己 `setTheme` 但**不调 `applyWindowTheme`、也不参与 `onResume` 主题检测**。改主题相关行为时别以为全局都生效了。
 - **文案硬编码**：遗留页面标题/Toast 直接写中文字符串（Manifest 里 `android:label` 也是中文），只有设置页用 `desc_*` 资源。改文案按现有风格来，别顺手抽 `strings.xml`。
+
+### 7.4 两个视频播放器是两套独立实现（改播放前必读）
+
+工程里**没有统一的播放层**，两个播放器各写各的，共用代码只有 `player/IjkPlayerBridge.kt` 这一小块：
+
+| | 普通视频播放器 | 短视频播放器 |
+|---|---|---|
+| 入口 | `activity/player/PlayerActivity.kt`（**3087 行**） | `activity/video/ShortVideoPlayerActivity.kt`（907 行） |
+| 基类 | **直接 `extends Activity`**，不走 `BaseActivity` 体系（自己实现主题、EventBus、横竖屏） | `InstanceActivity` + `ViewPager2` 竖滑翻页 |
+| 播放内核 | **裸 `IjkMediaPlayer`**，`setOption`/`setDataSource`/监听器全部内联在 Activity 里 | `player/IjkPlayerBridge`（Flow 驱动状态）+ `player/DanmakuManager` |
+| 弹幕 | `IDanmakuView` 内联处理（`streamDanmaku`/`createParser` 都在 Activity 里） | `DanmakuManager` |
+| 轮询 | 3 个 `java.util.Timer` 线程（在线人数 5s / 倍速收起 / surface 就绪）+ 2 个主线程 `Handler` 自循环（播放进度 250ms、缓冲速度 500ms） | `IjkPlayerBridge` 内协程，250ms 更新 StateFlow |
+| 预加载 | 无 | `util/VideoPreloadManager`（**只预取播放地址 URL，不预热播放器**） |
+
+`player/` 包里**有一半是死代码**（全工程 0 引用，已核实）：
+
+- `IjkPlayerBridge.kt` — 在用，被短视频的 `PageHolder` 直接使用。
+- `DanmakuManager.kt` — 在用，**两个播放器都已接入**（26.09.10 起 `PlayerActivity` 的内联弹幕栈已删除，统一走它）。
+- `PlayerSurfaceBinder.kt`（26.09.10 新增）— 在用，Surface 就绪事件回调，取代 200ms 轮询 Timer。
+- `VideoPlayerCore.kt`（26.09.10 新增）— **已可用但尚无消费方**，是合并两个播放器的目标内核（多实例安全、不持 Activity、`reload()` 复用播放器）。
+- `PlayerIntegrator.kt` — ~~死代码~~ **26.09.11 已删除**（全工程无一处实例化）。
+- `PlayerControlDelegate.kt`（含 `GestureHandler`）— **仍未删除，待决策**：`PlayerIntegrator`（它唯一的引用方）已删，此后它全库零外部引用；但播放器合并方案 S6 明确把它列为"**决定去留**"（`docs/superpowers/specs/2026-09-10-player-core-merge.md:63`），且它带着 26.09.10 的手势 bug 修复（`isLongPressing` 复位），**删之前先定方案**。
+- `PlayerScaleMode` 枚举（原在 `IjkPlayerBridge.kt`）— **26.09.11 已删除**（无人使用）。
+- `DanmakuManager.loadFromProtobuf` / `toggleVisibility` / `setSpeedFactor` / `setTextSizeScale` / `setTransparency` — **26.09.11 已删除**（全库零调用；`loadFromProtobuf` 实现还是坏的：解压后从未把数据交给 parser）。连带 `PlayerSurfaceBinder.cancelAwait`、`DanmakuManager` 的 `Inflater`/`ByteArrayInputStream` import 一并删除。
+
+**改播放相关代码时的判断顺序**：先确认要改的是"普通播放器那套"还是"短视频那套"。合并工作正在进行（见 `docs/superpowers/specs/2026-09-10-player-core-merge.md`：S1/S2/S3 已完成，S4/S5/S6 待做），所以两边文件的归属会逐步收敛；**当前 `player/` 包仍不是公共层** —— `PlayerActivity` 只用了 `DanmakuManager` 与 `PlayerSurfaceBinder`，播放器本身还是裸 `IjkMediaPlayer`。
+
+**弹幕序列化的两个硬约束（踩过坑，别重犯）**：
+
+1. **`DanmakuManager.createParser()` 只能在主线程、且不可并发**。`DanmakuLoaderFactory.create(TAG_BILI)` 返回的是**进程级单例** `BiliDanmakuLoader.instance()`（`BiliDanmakuLoader.java:27-38`），而 `dataSource` 是它的**实例字段**（`:29`），`load()` 写字段 + `loader.dataSource` 读字段是一段 check-then-act。并发时两个 holder 会拿到同一个数据源，表现为弹幕串台或解析为空。
+2. **`createParser()` 不做任何 XML 解析**，把它挪到后台线程**没有任何收益**。`AndroidFileSource(InputStream)`（`AndroidFileSource.java:44-46`）、`BiliDanmakuLoader.load()`（`:44-46`）、`BaseDanmakuParser.load()`（`BaseDanmakuParser.java:67-70`）全都只是存引用；真解析在 `getDanmakus()` → `parse()`（`:81-89`）**懒执行**，全工程唯一调用点是 `DrawTask.java:283`，跑在 `DanmakuView` 自己的渲染线程上。所以"短视频滑动卡顿 = 弹幕解析阻塞主线程"是**错误归因**（26.09.10 已核实并回退过一次这样的改动）。
+
+普通播放器与短视频的弹幕栈是两套（前者内联，后者走 `DanmakuManager`），统一它们是合并两个播放器时**风险最低、收益最高的第一步**，但要先解决上面第 1 条的并发约束。
+
+3. **`DanmakuManager` 的位置回调在"播放器未就绪/正在重建"时必须返回负数**。`updateTimer` 跑在 `DanmakuView` 的渲染线程上，与主线程重建 `IjkMediaPlayer` 的动作并发；`IjkMediaPlayer` 的 native 层不是线程安全的，窗口期读到的脏位置一旦灌进 `DanmakuTimer`，**整批弹幕会被判定为"已过期"而一条都不显示**，且因为是竞态所以**间歇性**出现（26.09.10 真实踩过：合并弹幕栈时删掉了原 `if (ijkPlayer != null && isPrepared)` 守卫，导致"普通视频弹幕间歇性消失"）。对应的两个 `isPrepared` 字段也因此加了 `@Volatile`。
 
 ---
 
@@ -255,9 +320,11 @@ AppCompatActivity
 Fragment → BaseFragment → RefreshListFragment   ← Fragment 版列表页
 ```
 
-`BaseActivity` 提供：主题应用（6 套主题）、横竖屏、DPI/边距、`getLayoutManager()`（横屏返回 3 列 `CustomGridManager`）、`asyncInflate`（先显 loading 布局再替换）、`onBackPressed` 受 `back_disable` 开关、EventBus 自动注册/注销 + sticky `SnackEvent` 重放、主题变更 `onResume` 自动 `recreate()`、重写 `isDestroyed()`。
+`BaseActivity` 提供：主题应用（7 套主题，色表经 `ThemeManager.getCurrentTheme()` 缓存，仅在 `setTheme` 失效）、横竖屏、DPI/边距、**系统栏 insets 避让（`applySystemBarInsets`，含刘海）**、`getLayoutManager()`（横屏按「每列 ≥220dp」返回 `CustomGridManager`，下限 2 列）、`asyncInflate`（先显 loading 布局再替换）、`onBackPressed` 受 `back_disable` 开关、EventBus 自动注册/注销 + sticky `SnackEvent` 重放、主题变更 `onResume` 自动 `recreate()`、重写 `isDestroyed()`。
 
 `InstanceActivity` 额外：`onCreate` 里 `BiliTerminal.setInstance(this)`；**顶栏点击不自动绑定**，须手动 `setMenuClick()`。
+
+**顶栏曾是公共组件，但那次收敛被回滚了**：`res/layout/cell_topbar.xml` 目前**全库 0 处引用**（26.09.11 实测：149 个布局里只有 7 个含 `<include>`，且都不含 `cell_topbar`），实际是各页手抄顶栏。历史经过见 `docs/review/fix-progress.md:216`——「44 个布局换成 `<include>`」那一轮在真机实测顶栏吃满整屏后**已整体还原**。所以本段旧描述（"44 个布局共用"）**与现状相反**，要重做收敛请先读 `docs/visual-experience-report.md` 的方案再动手。
 
 ### 8.2 新列表页模板（必须做这 4 步）
 
@@ -285,9 +352,9 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 
 ### 8.3 Adapter 写法
 
-**注意**：`ui/widget/recycler/` 下的 `AbstractAdapter` / `BaseAdapter` / `BaseHolder` 三件套**全工程没有任何子类**（grep 只命中定义处）。现役适配器一律 `extends RecyclerView.Adapter<XxxHolder>()` + Holder 直接继承 `RecyclerView.ViewHolder`。
+**注意**：`ui/widget/recycler/` 下的 `AbstractAdapter` / `BaseAdapter` / `BaseHolder` 三件套**全工程没有任何子类**，已于 **26.09.11 删除**（连同 `WrapContentLinearLayoutManager`）。现役适配器一律 `extends RecyclerView.Adapter<XxxHolder>()` + Holder 直接继承 `RecyclerView.ViewHolder`。该目录现在只剩 `CustomLinearManager` / `CustomGridManager` 两个 LayoutManager。
 
-**照抄对象**：`adapter/video/VideoCardAdapter.kt` + `adapter/video/VideoCardHolder.kt` 这一对。需要 header/footer 时才用 `BaseAdapter`（它管 dataList 和 header 偏移，但 `removeItem` 与 `updateItem` 的 position 语义不一致——前者含 header、后者不含）。
+**照抄对象**：`adapter/video/VideoCardAdapter.kt` + `adapter/video/VideoCardHolder.kt` 这一对（header/footer 需要时自己写，别找现成基类）。
 
 ### 8.4 现成交互工具
 
@@ -305,6 +372,24 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 | `ListDialogActivity` | title、`items`(StringArrayList) | `selected_position` |
 | `InputDialogActivity` | title、initial_text、hint | `input_text`（已 trim，不校验空） |
 
+### 8.4b 重复项合并后的公共落点（26.09.11 新增，别再手抄）
+
+做「重复代码合并」时把 6 类重复收敛成了下列单一落点。**要写这几件事时直接用它们，不要重新手抄一份**；
+合并的来龙去脉与逐项证据见 `docs/review/cleanup-progress.md`。
+
+| 落点 | 取代了 | 说明 |
+|---|---|---|
+| `adapter/video/VideoQuickCache.handle(context, videoCard)` | 3 份逐字节相同的 `handleQuickCache` | 视频卡列表长按的「快速缓存」，按 `cache_default_quality` 分支 |
+| `adapter/LogListAdapter<T>` + `res/layout/cell_log.xml` | 2 份流水 adapter + 2 份 MD5 相同的布局 | 经验 / 硬币变化记录；delta 文案由调用方以 `Row` 映射传入（两者文案不同，刻意未统一） |
+| `util/NetWorkUtil.decompress(byte[])` | 3 份 `Inflater(true)` | CDN 裸 deflate 响应；`api/UserInfoApi.decompressResponse` 是 br+gzip，**算法不同不可合并** |
+| `util/TimeUtil` | 11 处 `new SimpleDateFormat` | 时间格式化统一入口，ThreadLocal 缓存；`PATTERN_DATE_TIME_12H` 是历史遗留的 12 小时制，勿顺手改 `HH` |
+| `BiliTerminal.jumpToUser(context, mid)` | 16 处手抄 Intent | 所有「跳用户主页」；等价于 `Intent().setClass(UserInfoActivity).putExtra("mid", mid)` |
+| `ui/widget/RotaryEncoderSupport` | 3 份表冠滚动 + 1 处开关读取 | 三个 `Rotary*` 控件的公共逻辑；控件各自保留事件接入方式（监听器 vs `dispatchGenericMotionEvent`） |
+
+> `Rotary*` 三件套的差异是**刻意保留**的：`RecyclerView`/`ScrollView` 走
+> `setOnGenericMotionListener` 且滚动后抢焦点，`NestedScrollView` 走 `dispatchGenericMotionEvent`
+> 覆写且**不**抢焦点。helper 用 `requestFocus` 参数区分，改它等于改手表手感。
+
 ### 8.5 这一层额外的坑
 
 1. `InstanceActivity` 不自动绑顶栏 → 子类忘调 `setMenuClick()` 则顶栏点击无反应。
@@ -315,6 +400,8 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 6. `RefreshListFragment` 的 `setRefreshing` 只切 UI，不复位状态；也没有 `hideEmptyView`。
 7. `setAdapter/setRefreshing/showEmptyView` 内部已切主线程，但直接 `recyclerView.adapter =` / `notifyItemRangeInserted` 必须自己回主线程。
 8. **改 `Guideline.setGuidelinePercent` 不会自动重新布局**：`Guideline.onMeasure` 恒 `setMeasuredDimension(0,0)`，自身尺寸不随 percent 变化，父级若是 `wrap_content` 的 ConstraintLayout 就不会重算，必须手动 `requestLayout()`。登录页二维码缩放（`QRLoginFragment.kt`）踩过这个坑；另外宽度变化要带动高度得靠 `app:layout_constraintDimensionRatio`。
+9. **`wrap_content` 的 RelativeLayout 里不能放 `layout_alignParentBottom` 的子元素**：只要有一个"贴底"子元素，RelativeLayout 的 `wrap_content` 就会被撑成父容器高度。公共顶栏 `cell_topbar.xml` 第一版就是这么写的（1dp 分割线贴底），结果**顶栏直接吃满整屏、列表被顶到屏幕外**（真机实测 `top` bounds = `[0,114][1080,2394]`）。现在顶栏根节点是竖向 LinearLayout，内层 RelativeLayout 只放标题/时钟（`BaseActivity.setRound()` 需要 RelativeLayout.LayoutParams）。
+10. **`<include>` 建议显式写 `android:layout_width/layout_height`**：不写时行为依赖被包含布局根节点的参数，排查困难。另外注意：`cell_topbar.xml` 目前**已无任何 include 引用**（那次 44 处替换被整体回滚，见 8.1 节），未来若重做收敛再照本条办。
 
 ---
 
@@ -327,6 +414,46 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 3. `activity/settings/SettingsIndex.kt` 的 `build()` 加一条 `Entry(name, desc) { ... }`——否则全局设置搜索找不到这一项。
 
 读写统一走 `SharedPreferencesUtil.getXxx(key, default)` / `putXxx(key, value)`。
+
+---
+
+### 8.7 外观三模块：配色 / 卡片圆角 / 字体（26.09.11 起）
+
+**位置**：`ui/appearance/`。三个模块**完全独立**（各自一个 key、互不干涉），
+由一个门面统一收口读写与「外观已变更」通知。
+
+| 文件 | 角色 | key | 档位 |
+|---|---|---|---|
+| `AppearanceManager.kt` | 门面：快照 + 版本号 + **唯一写入入口** | `appearance_version` | — |
+| `ThemeManager.kt`（在 `ui/theme/`，**待迁入**） | 配色：7 套主题 | `theme_selector` | 7 套 |
+| `CornerStyle.kt` | 卡片圆角 | `ui_corner_radius` | `square`（默认）/ `rounded` |
+| `FontStyle.kt` | 字体：字号 + 字族两个维度 | `ui_font_scale` / `ui_font_family` | 4 档 / 2 选 |
+
+**分层约定（别打破）**
+- **模块**（`CornerStyle`/`FontStyle`）只放：候选值常量、显示名、纯函数（规整、档位→数值）、读取。
+  **不放写入**——写入一律走门面，这样「递增版本号」不会漏。
+- **门面**只做「汇总快照 + 唯一写入 + 版本号」，**绝不做几何计算**（手表性能优先）。
+
+**版本号机制**：`AppearanceManager.version()` 是一个存在 SharedPreferences 的 Int，
+任何外观写入都 +1。Activity 只需记住自己创建时的版本号、`onResume` 比一次，
+就知道要不要重建——**不会随模块增加而增加比较项**（新增第 4 个模块不需要改 `BaseActivity`）。
+> 现状：`BaseActivity` 仍在比它自己的 `appliedTheme` 字符串，**尚未接入版本号**；
+> 接入随「圆角模块落地」一起做。
+
+**两条不可破坏的性能约定**
+1. `FontStyle.scaleFactor(FontStyle.SCALE_DEFAULT)` **必须恰好返回 1.0f**——下游靠这个短路，
+   保证默认档位零运行时开销（不遍历视图树）。守卫测试：`FontStyleTest.scaleFactor_standardIsExactlyOne`。
+2. 圆角与字族**只决定「用哪一套预烤资源 / 哪个 style 属性」**，不做运行时几何计算，
+   也不在 `RecyclerView` 绑定路径上做任何额外工作。
+
+**「方角」的语义（已对上游实测核实）**：上游 BiliClient（gitee `develop`，HEAD `f2b1aca`）
+全项目唯一圆角是 `@dimen/card_round` = **6dp**，经主题 `materialCardViewStyle` 全局下发；
+**上游没有 0dp 直角外观，也没有任何圆角设置项**。所以 `square` 档的值是 `card_round`
+（手表 6dp / 宽屏 `values-w300dp` 10dp），语义是「还原原项目」，不是「做成直角」。
+本项目偏离上游之处是给 6 套主题硬编码了 12dp，那是 `rounded` 档。
+
+**默认档位的选择**：圆角默认 `square`。当前默认主题「经典终端」本来就走 `@dimen/card_round`，
+因此默认档位 = **现有用户观感零变化**。
 
 ---
 
@@ -394,7 +521,7 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 | `AppTokenRefreshApi` | access_token 续期 | `refreshAppToken` |
 | `ConfInfoApi` | **WBI 签名**（全 api 层依赖） | `signWBI`、`getWBIMixinKey`、`sortUrlParams` |
 | `AppInfoApi` | 公告/崩溃上报/赞助/检查更新 | `check`、`getAnnouncementList`、`uploadStack`、`getSponsors` |
-| `BilibiliIDConverter` | av/bv 互转（纯函数） | `bvtoaid`、`aidtobv`（**全工程 0 调用，死代码**） |
+| `BilibiliIDConverter` | av/bv 互转（纯函数） | ~~`bvtoaid`、`aidtobv`~~ **26.09.11 已删除**（全工程 0 调用） |
 
 ### 网络出口的 3 个例外
 
@@ -409,11 +536,11 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 ### 纯函数可测点
 
 已抽成 static/object、只依赖 `org.json`、可直接 JVM 单测：
-`HotSearchApi.parseHotSearch`、`FavoriteApi.parseFavoriteState`/`buildMediaId`、`OpusApi.analyzeCommentInfo`/`analyzeParagraphs`、`VoteApi.parseVoteInfo`、`EmoteApi.analyzeEmotePackages`、`LiveApi.analyzeLiveRooms`、`BangumiApi.analyzeSection`/`analyzeEpisode`、`VideoInfoApi.analyzeTags`/`analyzeUgcSeason`/`getInfoByJson`、`ReplyApi.analyzeReplyArray`、`SeriesApi.getSeriesByJson`、`DynamicApi.parseAtContent`、`ConfInfoApi.getWBIMixinKey`/`sortUrlParams`、`BilibiliIDConverter.bvtoaid`/`aidtobv`、`CookiesApi.hmacSha256`。
+`HotSearchApi.parseHotSearch`、`FavoriteApi.parseFavoriteState`/`buildMediaId`、`OpusApi.analyzeCommentInfo`/`analyzeParagraphs`、`VoteApi.parseVoteInfo`、`EmoteApi.analyzeEmotePackages`、`LiveApi.analyzeLiveRooms`、`BangumiApi.analyzeSection`/`analyzeEpisode`、`VideoInfoApi.analyzeTags`/`analyzeUgcSeason`/`getInfoByJson`、`ReplyApi.analyzeReplyArray`、`SeriesApi.getSeriesByJson`、`DynamicApi.parseAtContent`、`ConfInfoApi.getWBIMixinKey`/`sortUrlParams`、`CookiesApi.hmacSha256`。（原列表里的 `BilibiliIDConverter.bvtoaid`/`aidtobv` 已于 26.09.11 随死代码删除。）
 
 **不可单测**（内部发网络 / 依赖 Context / 弹 UI）：`DynamicApi.analyzeDynamic`、`MessageApi` 全部解析（SpannableString）、`PrivateMsgApi.getPrivateMsgList`、`LikeCoinFavApi.getVideoStats`。
 
-**测试覆盖现状**：`app/src/test/` 8 个文件，api 层只有 3 个类的 3 个解析函数被覆盖（`HotSearchApiTest`、`FavoriteApiTest`、`OpusApiTest`）。
+**测试覆盖现状**：`app/src/test/` 12 个测试类，api 层只有 3 个类的 3 个解析函数被覆盖（`HotSearchApiTest`、`FavoriteApiTest`、`OpusApiTest`）；`ui/theme/ThemeManagerTest`（26.09.11 新增，14 个用例）覆盖 7 套主题的 `key → style` / `key → 色表` / 中文显示名映射、无 key 时的默认值、以及色表缓存的失效与读取次数。
 
 ### API 层的坑
 

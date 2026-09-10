@@ -3,6 +3,8 @@ package com.RobinNotBad.BiliClient.player
 import android.content.Context
 import android.graphics.Color
 import android.view.View
+import com.RobinNotBad.BiliClient.model.DmSegMobileReply
+import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,14 +18,13 @@ import master.flame.danmaku.danmaku.model.BaseDanmaku
 import master.flame.danmaku.danmaku.model.DanmakuTimer
 import master.flame.danmaku.danmaku.model.IDisplayer
 import master.flame.danmaku.danmaku.model.android.DanmakuContext
+import master.flame.danmaku.danmaku.model.android.Danmakus
 import master.flame.danmaku.danmaku.parser.BaseDanmakuParser
 import master.flame.danmaku.danmaku.parser.android.BiliDanmukuParser
+import master.flame.danmaku.danmaku.parser.android.BiliProtobufDanmakuParser
 import org.json.JSONObject
-import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.InputStream
-import java.util.zip.Inflater
-import java.util.zip.InflaterInputStream
 
 data class DanmakuState(
     val isVisible: Boolean = true,
@@ -38,6 +39,10 @@ data class DanmakuState(
 
 class DanmakuManager(
     private val danmakuView: IDanmakuView,
+    /**
+     * 返回当前播放位置（毫秒）。**播放器未就绪或正在重建时必须返回负数**，
+     * 表示"没有可信位置"，[configureAndPrepare] 里会据此跳过 timer 更新，见其注释。
+     */
     private val onCurrentPositionMs: () -> Long
 ) {
     private var danmakuContext: DanmakuContext? = null
@@ -81,30 +86,46 @@ class DanmakuManager(
         }
     }
 
-    fun loadFromProtobuf(deflatedData: ByteArray) {
+    /**
+     * 用新版分段弹幕（protobuf）准备弹幕视图。
+     *
+     * 这是普通播放器原来内联在 `PlayerActivity.downdanmuNew()` 里的能力，合并弹幕栈后归到这里，
+     * 两个播放器共用同一套配置与回调。
+     */
+    fun loadFromProtobufSegments(segments: List<DmSegMobileReply>) {
         try {
-            val inflater = Inflater(true)
-            inflater.setInput(deflatedData)
-            val output = ByteArray(deflatedData.size * 20)
-            val resultLength = inflater.inflate(output)
-            inflater.end()
-
-            val inflatedData = output.copyOf(resultLength)
-            val inputStream = ByteArrayInputStream(inflatedData)
-
-            val prefs = SharedPreferencesUtil.getSharedPreferences()
-            val parser = com.RobinNotBad.BiliClient.util.safeCallOrDefault("danmaku_parse",
-                BiliDanmukuParser().apply { sharedPreferences = prefs }
-            ) {
-                BiliDanmukuParser().apply { sharedPreferences = prefs }
-            }
-
+            val parser = BiliProtobufDanmakuParser()
+            parser.sharedPreferences = SharedPreferencesUtil.getSharedPreferences()
+            parser.setDanmakuSegments(segments)
             configureAndPrepare(parser)
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
+    /**
+     * 直播模式：没有历史弹幕数据，先准备一个空 parser，后续用 [addDanmaku] 实时喂入。
+     * （原 `PlayerActivity.streamDanmaku(null)` 就是这个语义。）
+     */
+    fun prepareEmpty() {
+        configureAndPrepare(object : BaseDanmakuParser() {
+            override fun parse(): Danmakus = Danmakus()
+        })
+    }
+
+    /**
+     * 构造弹幕 parser。**注意：本方法只能在主线程调用，不可并发。**
+     *
+     * `DanmakuLoaderFactory.create(TAG_BILI)` 返回的是进程级单例 `BiliDanmakuLoader`，
+     * 而 `dataSource` 是它的**实例字段**（BiliDanmakuLoader.java:29,44-51），
+     * 这里 `load()` 写字段、`loader.dataSource` 读字段是一段 check-then-act。
+     * 两个 holder 同时加载弹幕时会交错，导致两个 parser 拿到同一个数据源 → 弹幕串台/解析为空。
+     *
+     * 另注：本方法**不做 XML 解析**——`AndroidFileSource(InputStream)` 与
+     * `BaseDanmakuParser.load()` 都只是存引用，真解析在 `getDanmakus()` → `parse()` 里懒执行，
+     * 跑在 `DanmakuView` 自己的渲染线程（调用点只有 `DrawTask.java:283`）。
+     * 所以把它挪到后台线程并不会减少主线程耗时，只会引入上面那个竞态。
+     */
     private fun createParser(inputStream: InputStream): BaseDanmakuParser {
         val loader = DanmakuLoaderFactory.create(DanmakuLoaderFactory.TAG_BILI)
         loader.load(inputStream)
@@ -137,12 +158,26 @@ class DanmakuManager(
 
         danmakuView.setCallback(object : DrawHandler.Callback {
             override fun prepared() {
-                _state.update { it.copy(isPrepared = true) }
-                addDanmaku("弹幕准备完毕", Color.WHITE)
+                // 必须兜异常：本回调运行在 DanmakuFlameMaster 的渲染线程上，
+                // 一旦异常逸出会打断该线程，表现就是"弹幕一条都不显示"且没有任何上层报错。
+                try {
+                    _state.update { it.copy(isPrepared = true) }
+                    addDanmaku("弹幕准备完毕", Color.WHITE)
+                } catch (e: Exception) {
+                    Logu.e("弹幕", "prepared 回调异常: ${e.message}")
+                    e.printStackTrace()
+                }
             }
 
             override fun updateTimer(timer: DanmakuTimer) {
-                timer.update(onCurrentPositionMs())
+                // 回调返回负数表示"当前拿不到可信的播放位置"，此时必须**跳过**本次更新。
+                // 这个守卫是必需的：IjkMediaPlayer 的 native 层在 setDataSource / prepareAsync /
+                // release 期间并非线程安全，而本回调运行在 DanmakuView 的渲染线程上，与主线程
+                // 重建播放器的动作并发。一旦把窗口期的脏位置灌进 timer，整批弹幕会被判定为
+                // "已过期"而一条都不显示 —— 表现为间歇性的"弹幕没了"。
+                // （原 PlayerActivity 内联实现用的是 `if (ijkPlayer != null && isPrepared)`，同一个道理。）
+                val pos = onCurrentPositionMs()
+                if (pos >= 0) timer.update(pos)
             }
 
             override fun danmakuShown(danmaku: BaseDanmaku?) {}
@@ -154,34 +189,34 @@ class DanmakuManager(
         danmakuView.prepare(parser, danmakuContext)
     }
 
-    fun addDanmaku(text: String, color: Int = Color.WHITE) {
-        val mContext = danmakuContext ?: return
-        val danmaku = mContext.mDanmakuFactory.createDanmaku(BaseDanmaku.TYPE_SCROLL_RL, danmakuContext)
-        if (danmaku != null) {
-            danmaku.text = text
-            danmaku.padding = 5
-            danmaku.priority = 0
-            danmaku.isLive = false
-            danmaku.time = onCurrentPositionMs() + 1200
-            danmaku.textSize = 25f * (_state.value.textSizeScale)
-            danmaku.textColor = color
-            danmaku.textShadowColor = Color.BLACK
-            danmakuView.addDanmaku(danmaku)
-        }
+    /**
+     * 往当前弹幕视图里即时插入一条弹幕。
+     *
+     * 参数与原 `PlayerActivity.addDanmaku(text, color, textSize, type, backgroundColor)` **完全一致**，
+     * 这样直播弹幕链路（`PlayerDanmuClientListener` 直接调用 `playerActivity.addDanmaku(...)`）
+     * 与"发送弹幕"链路可以原样迁移过来，行为不变。
+     */
+    fun addDanmaku(
+        text: String,
+        color: Int = Color.WHITE,
+        textSize: Int = 25,
+        type: Int = BaseDanmaku.TYPE_SCROLL_RL,
+        backgroundColor: Int = 0
+    ) {
+        val ctx = danmakuContext ?: return
+        val danmaku = ctx.mDanmakuFactory.createDanmaku(type, ctx) ?: return
+        danmaku.text = text
+        danmaku.padding = 5
+        danmaku.priority = 1
+        danmaku.isLive = false
+        danmaku.time = danmakuView.currentTime + 100
+        danmaku.textSize = textSize * (ctx.displayer.density - 0.6f)
+        danmaku.textColor = color
+        danmaku.backgroundColor = backgroundColor
+        danmaku.textShadowColor = Color.BLACK
+        danmakuView.addDanmaku(danmaku)
     }
 
-    fun toggleVisibility() {
-        val newVisible = !_state.value.isVisible
-        _state.update { it.copy(isVisible = newVisible) }
-        if (!_state.value.isPrepared) return
-        try {
-            if (newVisible) {
-                danmakuView.show()
-            } else {
-                danmakuView.hide()
-            }
-        } catch (_: Exception) {}
-    }
 
     fun show() {
         _state.update { it.copy(isVisible = true) }
@@ -206,18 +241,6 @@ class DanmakuManager(
     fun seekTo(ms: Long) {
         if (!_state.value.isPrepared) return
         try { danmakuView.seekTo(ms) } catch (_: Exception) {}
-    }
-
-    fun setSpeedFactor(factor: Float) {
-        _state.update { it.copy(speedFactor = factor) }
-    }
-
-    fun setTextSizeScale(scale: Float) {
-        _state.update { it.copy(textSizeScale = scale) }
-    }
-
-    fun setTransparency(alpha: Float) {
-        _state.update { it.copy(transparency = alpha) }
     }
 
     fun release() {

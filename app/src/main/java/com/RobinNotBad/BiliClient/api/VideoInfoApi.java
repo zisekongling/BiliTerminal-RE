@@ -13,13 +13,13 @@ import com.RobinNotBad.BiliClient.util.Logu;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
 import com.RobinNotBad.BiliClient.util.StringUtil;
+import com.RobinNotBad.BiliClient.util.TimeUtil;
 
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -149,8 +149,7 @@ public class VideoInfoApi {
         videoInfo.bvid = data.optString("bvid");
         videoInfo.aid = data.getLong("aid");
 
-        @SuppressLint("SimpleDateFormat") SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        videoInfo.timeDesc = sdf.format(data.getLong("pubdate") * 1000);
+        videoInfo.timeDesc = TimeUtil.formatDateTimeSec(data.getLong("pubdate") * 1000);
         Logu.v("发布时间", String.valueOf(videoInfo.timeDesc));
 
         videoInfo.duration = StringUtil.toTime(data.getInt("duration"));

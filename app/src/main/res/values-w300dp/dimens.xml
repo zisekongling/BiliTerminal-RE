@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 宽屏（手机/平板，可用宽度 ≥ 300dp）覆盖：手表基准值在这里放大一档。
+         手表可用宽度约 200~250dp，不会命中这组覆盖。 -->
+    <dimen name="radius_card">12dp</dimen>
+    <dimen name="radius_small">8dp</dimen>
+    <dimen name="radius_chip">20dp</dimen>
+
+    <dimen name="text_topbar">15sp</dimen>
+    <dimen name="text_title">16sp</dimen>
+    <dimen name="text_subtitle">14sp</dimen>
+    <dimen name="text_body">13sp</dimen>
+    <dimen name="text_caption">12sp</dimen>
+
+    <dimen name="card_padding">12dp</dimen>
+    <dimen name="card_padding_horizontal">16dp</dimen>
+
+    <dimen name="topbar_height">36dp</dimen>
+
+    <dimen name="activity_padding_horizontal">8dp</dimen>
+    <dimen name="list_margin_vertical">3dp</dimen>
+    <dimen name="card_round">10dp</dimen>
+</resources>

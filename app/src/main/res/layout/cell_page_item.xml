@@ -15,8 +15,8 @@
         android:maxLines="2"
         android:maxWidth="160dp"
         android:text="P1 标题"
-        android:textColor="@color/textwhite"
-        android:textSize="11sp" />
+        android:textColor="?android:attr/textColorPrimary"
+        android:textSize="12sp" />
 
 </LinearLayout>
 

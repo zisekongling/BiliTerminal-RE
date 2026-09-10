@@ -90,7 +90,7 @@ class FavoriteFolderAdapter(
             if (position == folderList.size + 1) {
                 favoriteHolder.name.text = "图文收藏夹"
                 favoriteHolder.count.text = ""
-                Glide.with(BiliTerminal.context).asDrawable()
+                Glide.with(BiliTerminal.context!!).asDrawable()
                     .load(StringUtil.getDrawable(context, R.drawable.article_fav_cover))
                     .transition(GlideUtil.getTransitionOptions())
                     .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(5f))))
@@ -106,7 +106,7 @@ class FavoriteFolderAdapter(
 
                 favoriteHolder.name.text = StringUtil.htmlToString(folder.name)
                 favoriteHolder.count.text = folder.videoCount.toString() + "/" + folder.maxCount
-                Glide.with(BiliTerminal.context).asDrawable().load(GlideUtil.url(folder.cover))
+                Glide.with(BiliTerminal.context!!).asDrawable().load(GlideUtil.url_hq(folder.cover))
                     .transition(GlideUtil.getTransitionOptions())
                     .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(5f))))
                     .format(DecodeFormat.PREFER_RGB_565)

@@ -2,7 +2,6 @@ package com.RobinNotBad.BiliClient.adapter.message
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.content.Intent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
@@ -12,7 +11,6 @@ import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
-import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.adapter.video.VideoCardHolder
 import com.RobinNotBad.BiliClient.api.ReplyApi
 import com.RobinNotBad.BiliClient.model.MessageCard
@@ -23,10 +21,10 @@ import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.ToolsUtil
+import com.RobinNotBad.BiliClient.util.TimeUtil
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.request.RequestOptions
-import java.text.SimpleDateFormat
 
 class NoticeHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
     lateinit var avaterList: LinearLayout
@@ -75,15 +73,13 @@ class NoticeHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
                 .load(GlideUtil.url(message.user[i].avatar))
                 .transition(GlideUtil.getTransitionOptions())
                 .placeholder(R.mipmap.akari)
+                .error(R.mipmap.akari)
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                 .apply(CIRCLE_OPTIONS)
                 .into(imageView)
             val finalI = i
             imageView.setOnClickListener {
-                val intent = Intent()
-                intent.setClass(context, UserInfoActivity::class.java)
-                intent.putExtra("mid", message.user[finalI].mid)
-                context.startActivity(intent)
+                BiliTerminal.jumpToUser(context, message.user[finalI].mid)
             }
             avaterList.addView(imageView)
 
@@ -91,7 +87,7 @@ class NoticeHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         }
 
         if (message.timeStamp != 0L) {
-            pubdate.text = TIME_FORMAT.format(message.timeStamp * 1000)
+            pubdate.text = TimeUtil.formatDateTime(message.timeStamp * 1000)
         } else pubdate.text = message.timeDesc
 
         action.text = message.content
@@ -162,9 +158,8 @@ class NoticeHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
     }
 
     companion object {
-        private val TIME_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm")
         private val CIRCLE_OPTIONS = RequestOptions.circleCropTransform()
-        private val requestManager = Glide.with(BiliTerminal.context)
+        private val requestManager = Glide.with(BiliTerminal.context!!)
         private val avatarSize: Int = ToolsUtil.dp2px(32f)
         private val avatarSpacing: Int = ToolsUtil.dp2px(3f)
     }

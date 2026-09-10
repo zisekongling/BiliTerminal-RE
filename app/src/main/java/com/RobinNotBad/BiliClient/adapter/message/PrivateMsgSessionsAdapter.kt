@@ -16,7 +16,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.message.PrivateMsgActivity
-import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.model.PrivateMessage
 import com.RobinNotBad.BiliClient.model.PrivateMsgSession
 import com.RobinNotBad.BiliClient.model.UserInfo
@@ -27,6 +26,7 @@ import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.request.RequestOptions
 import org.json.JSONException
+import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
 
 class PrivateMsgSessionsAdapter(
     val context: Context,
@@ -38,7 +38,7 @@ class PrivateMsgSessionsAdapter(
 
     companion object {
         private const val BADGE_TEXT_COLOR = Color.WHITE
-        private val BADGE_BG_COLOR = Color.rgb(207, 75, 95)
+        private val BADGE_BG_COLOR = ThemeManager.PRIMARY
         private const val BADGE_TEXT = "  未读 "
     }
 
@@ -93,9 +93,10 @@ class PrivateMsgSessionsAdapter(
                 } else {
                     holder.nameText.text = user.name
                 }
-                Glide.with(BiliTerminal.context).asDrawable().load(GlideUtil.url(user.avatar))
+                Glide.with(BiliTerminal.context!!).asDrawable().load(GlideUtil.url(user.avatar))
                     .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                     .placeholder(R.mipmap.akari)
+                    .error(R.mipmap.akari)
                     .apply(RequestOptions.circleCropTransform())
                     .into(holder.avatarView)
             }
@@ -106,9 +107,7 @@ class PrivateMsgSessionsAdapter(
                 context.startActivity(intent)
             }
             holder.itemView.setOnLongClickListener {
-                val intent = Intent(context, UserInfoActivity::class.java)
-                intent.putExtra("mid", msgContent.talkerUid)
-                context.startActivity(intent)
+                BiliTerminal.jumpToUser(context, msgContent.talkerUid)
                 true
             }
         } catch (err: JSONException) {

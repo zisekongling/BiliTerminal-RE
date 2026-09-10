@@ -19,14 +19,12 @@ import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import okhttp3.Response
 import okio.buffer
 import okio.sink
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.util.Timer
 import java.util.TimerTask
-import java.util.zip.Inflater
 
 class DownloadActivity : BaseActivity() {
 
@@ -207,7 +205,7 @@ class DownloadActivity : BaseActivity() {
             try {
                 if (!danmakuFile.exists()) danmakuFile.createNewFile()
                 val sink = danmakuFile.sink()
-                val decompressBytes = decompress(response.body!!.bytes())
+                val decompressBytes = NetWorkUtil.decompress(response.body!!.bytes())
                 bufferedSink = sink.buffer()
                 bufferedSink.write(decompressBytes)
                 bufferedSink.close()
@@ -223,36 +221,6 @@ class DownloadActivity : BaseActivity() {
             runOnUiThread { MsgUtil.showMsg("弹幕下载失败！") }
             finish()
             e.printStackTrace()
-        }
-    }
-
-    companion object {
-        @JvmStatic
-        fun decompress(data: ByteArray): ByteArray {
-            var output: ByteArray
-            val decompresser = Inflater(true)
-            decompresser.reset()
-            decompresser.setInput(data)
-            val o = ByteArrayOutputStream(data.size)
-            try {
-                val buf = ByteArray(2048)
-                while (!decompresser.finished()) {
-                    val i = decompresser.inflate(buf)
-                    o.write(buf, 0, i)
-                }
-                output = o.toByteArray()
-            } catch (e: Exception) {
-                output = data
-                e.printStackTrace()
-            } finally {
-                try {
-                    o.close()
-                } catch (e: IOException) {
-                    e.printStackTrace()
-                }
-            }
-            decompresser.end()
-            return output
         }
     }
 

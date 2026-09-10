@@ -55,7 +55,7 @@
             android:layout_height="wrap_content"
             android:drawableStart="@drawable/arrow_back"
             android:text="短视频"
-            android:textColor="@color/textwhite"
+            android:textColor="?android:attr/textColorPrimary"
             android:textSize="12sp" />
     </RelativeLayout>
 
@@ -77,8 +77,8 @@
             android:layout_marginTop="2dp"
             android:paddingStart="14dp"
             android:paddingEnd="14dp"
-            android:progressTint="#aa44aaff"
-            android:secondaryProgressTint="#eeFEFEFE"
+            android:progressTint="?attr/colorPrimary"
+            android:secondaryProgressTint="@color/player_progress_bg"
             android:thumb="@drawable/player_selector_progress"
             android:thumbOffset="8dp" />
 
@@ -158,7 +158,7 @@
                     android:paddingStart="8dp"
                     android:paddingEnd="8dp"
                     android:text="1.0x"
-                    android:textColor="#fff"
+                    android:textColor="?android:attr/textColorPrimary"
                     android:textSize="14sp" />
 
                 <ImageButton
@@ -192,12 +192,12 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:shadowColor="@color/bgblack"
+        android:shadowColor="#000000"
         android:shadowDx="2.0"
         android:shadowDy="0.0"
         android:shadowRadius="3.0"
         android:text="音量：100%"
-        android:textColor="#fff"
+        android:textColor="?android:attr/textColorPrimary"
         android:textSize="13sp"
         android:visibility="gone" />
 

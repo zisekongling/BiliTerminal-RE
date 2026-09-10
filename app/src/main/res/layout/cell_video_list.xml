@@ -9,73 +9,72 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingHorizontal="10dp"
         android:orientation="vertical"
+        android:paddingHorizontal="@dimen/card_padding"
         android:paddingVertical="8dp">
 
-        <LinearLayout
-            android:layout_marginTop="4dp"
-            android:layout_marginBottom="4dp"
+        <!-- 封面行改成 ConstraintLayout：原实现把 app:layout_constraintDimensionRatio 写在 LinearLayout 里，
+             完全失效，行高因此由每张图自己的比例决定 —— 列表滚动时高度持续抖动（CLS）。
+             现在封面固定 48% 宽 + 16:9，标题区吃剩余宽度。 -->
+        <androidx.constraintlayout.widget.ConstraintLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="4dp">
 
             <ImageView
                 android:id="@+id/img_cover"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_vertical"
-                android:layout_marginEnd="4dp"
-                android:layout_weight="0.48"
-                android:adjustViewBounds="true"
-                android:scaleType="fitCenter"
+                android:layout_height="0dp"
+                android:scaleType="centerCrop"
                 android:src="@mipmap/placeholder"
-                app:layout_constraintDimensionRatio="16:9" />
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintDimensionRatio="16:9"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintWidth_percent="0.48" />
 
             <TextView
                 android:id="@+id/text_title"
-                android:layout_marginStart="4dp"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center_vertical"
-                android:layout_weight="0.52"
+                android:layout_marginStart="8dp"
                 android:ellipsize="end"
-                android:maxLines="3"
-                android:text="标题标题标题标题标题标题标题标题标题标题标题标题标题标题标题标题"
-                android:textSize="12sp" />
+                android:maxLines="2"
+                android:text="标题"
+                android:textSize="@dimen/text_body"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toEndOf="@id/img_cover"
+                app:layout_constraintTop_toTopOf="parent" />
 
-        </LinearLayout>
+        </androidx.constraintlayout.widget.ConstraintLayout>
 
         <LinearLayout
             android:id="@+id/extra_text"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:alpha="0.7"
             android:orientation="horizontal">
 
             <TextView
                 android:id="@+id/text_viewcount"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:alpha="0.5"
                 android:drawableStart="@drawable/icon_play_12"
                 android:singleLine="true"
                 android:text="11.4万"
-                android:textSize="11sp"
-                app:layout_constraintBottom_toBottomOf="parent"
-                app:layout_constraintStart_toEndOf="@+id/imageView3"
-                app:layout_constraintTop_toBottomOf="@+id/img_cover" />
-
+                android:textSize="@dimen/text_caption" />
 
             <com.RobinNotBad.BiliClient.ui.widget.MarqueeTextView
                 android:id="@+id/text_upname"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="4dp"
-                android:alpha="0.5"
                 android:drawableStart="@drawable/icon_person"
                 android:singleLine="true"
-                android:text="蔡徐坤"
-                android:textSize="11sp" />
+                android:text="UP主"
+                android:textSize="@dimen/text_caption" />
 
         </LinearLayout>
 

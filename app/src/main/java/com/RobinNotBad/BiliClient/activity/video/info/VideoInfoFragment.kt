@@ -56,7 +56,6 @@ import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
-import com.RobinNotBad.BiliClient.ui.theme.ThemeUtils
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
@@ -222,14 +221,9 @@ class VideoInfoFragment : BaseFragment() {
         val favLabel = rootview.findViewById<TextView>(R.id.fav_label)
         val collectionCard = rootview.findViewById<MaterialCardView>(R.id.collection)
 
-        // 经典终端主题复刻：点赞/投币/收藏卡片原布局用 ?attr/colorPrimary(亮粉) 打底，
-        // 与老版 #cc262626 暗卡片观感冲突，导致白色图标/文字看不清，这里在终端下改回暗底。
-        val likeCoinFavCard = rootview.findViewById<MaterialCardView>(R.id.like_coin_fav)
-        if (ThemeManager.getCurrentThemeName() == ThemeManager.THEME_CLASSIC_TERMINAL) {
-            likeCoinFavCard.setCardBackgroundColor(
-                rootview.context.getColor(R.color.terminal_card_bg)
-            )
-        }
+        // 点赞/投币/收藏卡片改为「surface 底 + 主色 1dp 描边」：
+        // 原布局用 ?attr/colorPrimary 亮粉打底，标签文字走主题近白色，对比度约 2.1:1（低于 AA 4.5:1）；
+        // 此前只在经典终端主题下用代码改回暗底打补丁，其余 6 套主题仍然看不清，这里统一到布局里。
 
         rootview.visibility = View.GONE
 
@@ -244,7 +238,7 @@ class VideoInfoFragment : BaseFragment() {
             return
         }
 
-        Glide.with(getAppContext()).asDrawable().load(GlideUtil.url(videoInfo!!.cover)).placeholder(R.mipmap.placeholder)
+        Glide.with(getAppContext()).asDrawable().load(GlideUtil.url_hq(videoInfo!!.cover)).placeholder(R.mipmap.placeholder)
             .transition(GlideUtil.getTransitionOptions())
             .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(4f))).sizeMultiplier(0.85f).skipMemoryCache(true).dontAnimate())
             .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
@@ -580,7 +574,7 @@ class VideoInfoFragment : BaseFragment() {
         if (string == null) return SpannableString(videoInfo!!.title)
 
         val titleStr = SpannableString(" " + string + " " + videoInfo!!.title)
-        val badgeBG = RadiusBackgroundSpan(0, resources.getDimension(R.dimen.card_round).toInt(), Color.WHITE, Color.rgb(207, 75, 95))
+        val badgeBG = RadiusBackgroundSpan(0, resources.getDimension(R.dimen.card_round).toInt(), Color.WHITE, ThemeManager.PRIMARY)
         titleStr.setSpan(badgeBG, 0, string.length + 2, Spanned.SPAN_INCLUSIVE_EXCLUSIVE)
         return titleStr
     }
@@ -600,7 +594,7 @@ class VideoInfoFragment : BaseFragment() {
                 override fun updateDrawState(ds: TextPaint) {
                     super.updateDrawState(ds)
                     ds.isUnderlineText = false
-                    ds.color = ThemeUtils.getInfoColor()
+                    ds.color = ThemeManager.INFO
                 }
             }, oldLen, tagStr.length - 1, Spanned.SPAN_INCLUSIVE_EXCLUSIVE)
         }

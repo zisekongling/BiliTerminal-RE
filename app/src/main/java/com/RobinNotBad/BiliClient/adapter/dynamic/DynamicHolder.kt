@@ -20,7 +20,6 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.activity.dynamic.send.SendDynamicActivity
-import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.adapter.article.ArticleCardHolder
 import com.RobinNotBad.BiliClient.adapter.video.VideoCardHolder
 import com.RobinNotBad.BiliClient.api.DynamicApi
@@ -38,6 +37,7 @@ import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
+import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.DecodeFormat
 import com.bumptech.glide.load.engine.DiskCacheStrategy
@@ -376,11 +376,11 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
         if (isSelected) {
             optionView.setBackgroundResource(R.drawable.bg_vote_option_selected)
             optionIndicator.text = "✓"
-            optionIndicator.setTextColor(Color.parseColor("#FE679A"))
+            optionIndicator.setTextColor(ThemeManager.PRIMARY)
         } else {
             optionView.setBackgroundResource(R.drawable.bg_vote_option)
             optionIndicator.text = if (isSingleChoice(voteInfo)) "○" else "□"
-            optionIndicator.setTextColor(Color.parseColor("#88FFFFFF"))
+            optionIndicator.setTextColor(ThemeManager.TEXT_SECONDARY)
         }
 
         // 投票结束或已投票时禁止点击
@@ -483,9 +483,10 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
 
         if (dynamic.userInfo.avatar != lastAvatarUrl) {
             lastAvatarUrl = dynamic.userInfo.avatar
-            Glide.with(BiliTerminal.context).asDrawable().load(GlideUtil.url(dynamic.userInfo.avatar))
+            Glide.with(BiliTerminal.context!!).asDrawable().load(GlideUtil.url(dynamic.userInfo.avatar))
                 .transition(GlideUtil.getTransitionOptions())
                 .placeholder(R.mipmap.akari)
+                .error(R.mipmap.akari)
                 .apply(RequestOptions.circleCropTransform())
                 .format(DecodeFormat.PREFER_RGB_565)
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
@@ -494,10 +495,7 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
         }
 
         avatar.setOnClickListener {
-            val intent = Intent()
-            intent.setClass(context, UserInfoActivity::class.java)
-            intent.putExtra("mid", dynamic.userInfo.mid)
-            context.startActivity(intent)
+            BiliTerminal.jumpToUser(context, dynamic.userInfo.mid)
         }
 
         var isPgc = false
@@ -566,14 +564,15 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
                         val firstImageUrl = pictureList[0]
                         if (firstImageUrl != lastImageUrl) {
                             lastImageUrl = firstImageUrl
-                            Glide.with(BiliTerminal.context).asDrawable().load(GlideUtil.url(firstImageUrl))
+                            // 动态配图：列表封面级尺寸，用 url_hq 且不写死 override，
+                            // 否则 400×400 的绝对像素在大屏上被放大发虚
+                            Glide.with(BiliTerminal.context!!).asDrawable().load(GlideUtil.url_hq(firstImageUrl))
                                 .transition(GlideUtil.getTransitionOptions())
                                 .placeholder(R.mipmap.placeholder)
+                                .error(R.mipmap.placeholder)
                                 .centerCrop()
-                                .format(DecodeFormat.PREFER_RGB_565)
-                                .sizeMultiplier(0.85f)
+                                .format(DecodeFormat.PREFER_ARGB_8888)
                                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
-                                .override(400, 400)
                                 .into(imageView)
                         }
                         val textView = cell_dynamic_image.findViewById<TextView>(R.id.imageCount)
@@ -655,12 +654,12 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
         if (likeCount != null) {
             if (dynamic.stats != null) {
                 if (dynamic.stats.liked) {
-                    likeCount!!.setTextColor(Color.rgb(0xfe, 0x67, 0x9a))
+                    likeCount!!.setTextColor(ThemeManager.LIKE_COLOR)
                     likeCount!!.setCompoundDrawablesWithIntrinsicBounds(
                         ContextCompat.getDrawable(context, R.drawable.icon_reply_like1), null, null, null
                     )
                 } else {
-                    likeCount!!.setTextColor(Color.rgb(0xff, 0xff, 0xff))
+                    likeCount!!.setTextColor(ThemeManager.TEXT_PRIMARY)
                     likeCount!!.setCompoundDrawablesWithIntrinsicBounds(
                         ContextCompat.getDrawable(context, R.drawable.icon_reply_like0), null, null, null
                     )
@@ -678,7 +677,7 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
                                 (context as Activity).runOnUiThread {
                                     MsgUtil.showMsg("点赞成功")
                                     likeCount!!.text = StringUtil.toWan((++dynamic.stats.like).toLong())
-                                    likeCount!!.setTextColor(Color.rgb(0xfe, 0x67, 0x9a))
+                                    likeCount!!.setTextColor(ThemeManager.LIKE_COLOR)
                                     likeCount!!.setCompoundDrawablesWithIntrinsicBounds(
                                         ContextCompat.getDrawable(context, R.drawable.icon_reply_like1), null, null,
                                         null
@@ -696,7 +695,7 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
                                 (context as Activity).runOnUiThread {
                                     MsgUtil.showMsg("取消成功")
                                     likeCount!!.text = StringUtil.toWan((--dynamic.stats.like).toLong())
-                                    likeCount!!.setTextColor(Color.rgb(0xff, 0xff, 0xff))
+                                    likeCount!!.setTextColor(ThemeManager.TEXT_PRIMARY)
                                     likeCount!!.setCompoundDrawablesWithIntrinsicBounds(
                                         ContextCompat.getDrawable(context, R.drawable.icon_reply_like0), null, null,
                                         null

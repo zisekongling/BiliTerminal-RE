@@ -44,7 +44,7 @@
             android:layout_height="wrap_content"
             android:text="ID:1 | 2024-01-01"
             android:alpha="0.7"
-            android:textSize="11sp"
+            android:textSize="12sp"
             android:id="@+id/info" />
 
     </LinearLayout>

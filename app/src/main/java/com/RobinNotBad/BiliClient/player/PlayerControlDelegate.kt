@@ -218,6 +218,9 @@ class PlayerControlDelegate(
             gestureStartVol = delegate.controlState.value.currentVolume
             gestureStartBri = delegate.controlState.value.currentBrightness
             gestureStartPos = delegate.playerBridge.currentPosition
+            // 每次新手势开始必须复位：否则长按一次后 isLongPressing 永远为 true，
+            // onScroll 首行直接 return，音量/亮度/进度手势全部失效且无法恢复
+            isLongPressing = false
             isVolumeGesture = false
             isBrightnessGesture = false
             isSeekGesture = false
@@ -232,14 +235,17 @@ class PlayerControlDelegate(
             val deltaX = distanceX / playerView.width
 
             if (!isVolumeGesture && !isBrightnessGesture && !isSeekGesture) {
+                // abs 对 Float 已返回 Float，原来多写的 .toFloat() 是冗余调用
+                val horizontal = abs(distanceX)
+                val vertical = abs(distanceY)
                 when {
-                    abs(distanceY).toFloat() > abs(distanceX).toFloat() && gestureStartX < screenW / 2 -> {
+                    vertical > horizontal && gestureStartX < screenW / 2 -> {
                         isVolumeGesture = true
                     }
-                    abs(distanceY).toFloat() > abs(distanceX).toFloat() && gestureStartX >= screenW / 2 -> {
+                    vertical > horizontal && gestureStartX >= screenW / 2 -> {
                         isBrightnessGesture = true
                     }
-                    abs(distanceX).toFloat() > abs(distanceY).toFloat() -> {
+                    horizontal > vertical -> {
                         isSeekGesture = true
                     }
                 }

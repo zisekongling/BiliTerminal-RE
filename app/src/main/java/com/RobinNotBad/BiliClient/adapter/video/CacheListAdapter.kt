@@ -529,7 +529,7 @@ class CacheListAdapter(
                 " [" + video.qualityList!![0] + "]" else ""
             extra.text = size + qualityTag
             try {
-                Glide.with(BiliTerminal.context).asDrawable().load(video.cover)
+                Glide.with(BiliTerminal.context!!).asDrawable().load(video.cover)
                     .transition(GlideUtil.getTransitionOptions())
                     .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(5f))))
                     .diskCacheStrategy(DiskCacheStrategy.NONE)

@@ -10,6 +10,6 @@ open class BaseFragment : Fragment() {
     }
 
     fun getAppContext(): Context {
-        return BiliTerminal.context
+        return BiliTerminal.context!!
     }
 }

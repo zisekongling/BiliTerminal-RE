@@ -9,7 +9,7 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
-import com.RobinNotBad.BiliClient.adapter.CoinLogAdapter
+import com.RobinNotBad.BiliClient.adapter.LogListAdapter
 import com.RobinNotBad.BiliClient.api.CoinLogApi
 import com.RobinNotBad.BiliClient.model.CoinLog
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -20,7 +20,7 @@ class CoinLogActivity : BaseActivity() {
     private lateinit var recyclerView: RecyclerView
     private lateinit var swipeRefreshLayout: SwipeRefreshLayout
     private var logList: ArrayList<CoinLog> = arrayListOf()
-    private var adapter: CoinLogAdapter? = null
+    private var adapter: LogListAdapter<CoinLog>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,7 +47,14 @@ class CoinLogActivity : BaseActivity() {
                         MsgUtil.showMsg("暂无硬币变化记录")
                         findViewById<View>(R.id.emptyTip).visibility = View.VISIBLE
                     } else {
-                        adapter = CoinLogAdapter(this, logList)
+                        // 硬币流水：收支为负时直接显示负号，不再前置 "+"
+                        adapter = LogListAdapter(this, logList) { log ->
+                            LogListAdapter.Row(
+                                if (log.delta > 0) "+" + log.delta else log.delta.toString(),
+                                log.reason,
+                                log.time
+                            )
+                        }
                         recyclerView.adapter = adapter
                     }
                     swipeRefreshLayout.isRefreshing = false

@@ -6,7 +6,7 @@
         <item name="android:windowBackground">@color/background_dark</item>
         <item name="statusBarBackground">@color/pink_brand</item>
         <item name="android:colorForeground">@color/text_primary_dark</item>
-        <item name="colorOnPrimary">@color/text_primary_dark</item>
+        <item name="colorOnPrimary">@color/text_on_primary</item>
         <item name="colorPrimary">@color/pink_brand</item>
         <item name="colorPrimaryDark">@color/pink_deep</item>
         <item name="colorPrimaryVariant">@color/pink_accent</item>
@@ -46,7 +46,7 @@
         <item name="android:windowBackground">@color/background_light</item>
         <item name="statusBarBackground">@color/pink_brand</item>
         <item name="android:colorForeground">@color/text_primary_light</item>
-        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorOnPrimary">@color/text_on_primary</item>
         <item name="colorPrimary">@color/pink_brand</item>
         <item name="colorPrimaryDark">@color/pink_deep</item>
         <item name="colorPrimaryVariant">@color/pink_accent</item>
@@ -79,7 +79,7 @@
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowBackground">@color/bgblack</item>
         <item name="statusBarBackground">@color/pink_brand</item>
-        <item name="colorOnPrimary">@color/text_primary_dark</item>
+        <item name="colorOnPrimary">@color/text_on_primary</item>
     </style>
 
     <style name="Theme.NoSwipe.AppCompat" parent="Theme.BiliClient">
@@ -95,7 +95,7 @@
         <item name="android:windowBackground">@color/zhihu_background_dark</item>
         <item name="statusBarBackground">@color/zhihu_brand</item>
         <item name="android:colorForeground">@color/zhihu_text_primary_dark</item>
-        <item name="colorOnPrimary">@color/zhihu_text_primary_dark</item>
+        <item name="colorOnPrimary">@color/text_on_primary</item>
         <item name="colorPrimary">@color/zhihu_brand</item>
         <item name="colorPrimaryDark">@color/zhihu_deep</item>
         <item name="colorPrimaryVariant">@color/zhihu_accent</item>
@@ -116,8 +116,8 @@
 
         <item name="colorSwitchThumbNormal">@color/zhihu_text_primary_dark</item>
         <item name="colorControlActivated">@color/zhihu_brand</item>
-        <item name="colorControlNormal">@color/color_ripple</item>
-        <item name="colorControlHighlight">@color/color_ripple</item>
+        <item name="colorControlNormal">@color/zhihu_color_ripple</item>
+        <item name="colorControlHighlight">@color/zhihu_color_ripple</item>
         <item name="android:textColor">@color/zhihu_text_primary_dark</item>
         <item name="android:textSize">14sp</item>
     </style>
@@ -137,7 +137,7 @@
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowBackground">@color/bgblack</item>
         <item name="statusBarBackground">@color/zhihu_brand</item>
-        <item name="colorOnPrimary">@color/zhihu_text_primary_dark</item>
+        <item name="colorOnPrimary">@color/text_on_primary</item>
     </style>
 
     <style name="Theme.ZhihuBlue.NoSwipe.AppCompat" parent="Theme.ZhihuBlue">
@@ -210,7 +210,7 @@
         <item name="android:windowBackground">@color/iqiyi_background_dark</item>
         <item name="statusBarBackground">@color/iqiyi_brand</item>
         <item name="android:colorForeground">@color/iqiyi_text_primary_dark</item>
-        <item name="colorOnPrimary">@color/iqiyi_text_primary_dark</item>
+        <item name="colorOnPrimary">@color/text_on_primary</item>
         <item name="colorPrimary">@color/iqiyi_brand</item>
         <item name="colorPrimaryDark">@color/iqiyi_deep</item>
         <item name="colorPrimaryVariant">@color/iqiyi_accent</item>
@@ -252,7 +252,7 @@
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowBackground">@color/bgblack</item>
         <item name="statusBarBackground">@color/iqiyi_brand</item>
-        <item name="colorOnPrimary">@color/iqiyi_text_primary_dark</item>
+        <item name="colorOnPrimary">@color/text_on_primary</item>
     </style>
 
     <style name="Theme.IQIYIGreen.NoSwipe.AppCompat" parent="Theme.IQIYIGreen">
@@ -325,7 +325,7 @@
         <item name="android:windowBackground">@color/purple_fantasy_background_dark</item>
         <item name="statusBarBackground">@color/purple_fantasy_brand</item>
         <item name="android:colorForeground">@color/purple_fantasy_text_primary_dark</item>
-        <item name="colorOnPrimary">@color/purple_fantasy_text_primary_dark</item>
+        <item name="colorOnPrimary">@color/text_on_primary</item>
         <item name="colorPrimary">@color/purple_fantasy_brand</item>
         <item name="colorPrimaryDark">@color/purple_fantasy_deep</item>
         <item name="colorPrimaryVariant">@color/purple_fantasy_accent</item>
@@ -367,7 +367,7 @@
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowBackground">@color/bgblack</item>
         <item name="statusBarBackground">@color/purple_fantasy_brand</item>
-        <item name="colorOnPrimary">@color/purple_fantasy_text_primary_dark</item>
+        <item name="colorOnPrimary">@color/text_on_primary</item>
     </style>
 
     <style name="Theme.PurpleFantasy.NoSwipe.AppCompat" parent="Theme.PurpleFantasy">
@@ -440,7 +440,7 @@
         <item name="android:windowBackground">@color/rainbow_background_dark</item>
         <item name="statusBarBackground">@color/rainbow_brand</item>
         <item name="android:colorForeground">@color/rainbow_text_primary_dark</item>
-        <item name="colorOnPrimary">@color/rainbow_text_primary_dark</item>
+        <item name="colorOnPrimary">@color/text_on_primary</item>
         <item name="colorPrimary">@color/rainbow_brand</item>
         <item name="colorPrimaryDark">@color/rainbow_deep</item>
         <item name="colorPrimaryVariant">@color/rainbow_accent</item>
@@ -482,7 +482,7 @@
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowBackground">@color/bgblack</item>
         <item name="statusBarBackground">@color/rainbow_brand</item>
-        <item name="colorOnPrimary">@color/rainbow_text_primary_dark</item>
+        <item name="colorOnPrimary">@color/text_on_primary</item>
     </style>
 
     <style name="Theme.RainbowFantasy.NoSwipe.AppCompat" parent="Theme.RainbowFantasy">
@@ -555,7 +555,7 @@
         <item name="android:windowBackground">@color/classic_gray_background_dark</item>
         <item name="statusBarBackground">@color/classic_gray_brand</item>
         <item name="android:colorForeground">@color/classic_gray_text_primary_dark</item>
-        <item name="colorOnPrimary">@color/classic_gray_text_primary_dark</item>
+        <item name="colorOnPrimary">@color/text_on_primary</item>
         <item name="colorPrimary">@color/classic_gray_brand</item>
         <item name="colorPrimaryDark">@color/classic_gray_deep</item>
         <item name="colorPrimaryVariant">@color/classic_gray_accent</item>
@@ -597,7 +597,7 @@
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowBackground">@color/bgblack</item>
         <item name="statusBarBackground">@color/classic_gray_brand</item>
-        <item name="colorOnPrimary">@color/classic_gray_text_primary_dark</item>
+        <item name="colorOnPrimary">@color/text_on_primary</item>
     </style>
 
     <style name="Theme.ClassicGray.NoSwipe.AppCompat" parent="Theme.ClassicGray">
@@ -672,10 +672,16 @@
         <item name="android:windowBackground">@color/terminal_bgblack</item>
         <item name="statusBarBackground">@color/terminal_pink</item>
         <item name="android:colorForeground">@color/terminal_textwhite</item>
-        <item name="colorOnPrimary">@color/terminal_textwhite</item>
+        <item name="colorOnPrimary">@color/text_on_primary</item>
         <item name="colorPrimary">@color/terminal_accent</item>
-        <item name="colorPrimaryDark">@color/terminal_pink</item>
+        <item name="colorPrimaryDark">@color/terminal_deep</item>
+        <item name="colorPrimaryVariant">@color/terminal_accent</item>
         <item name="colorAccent">@color/terminal_accent</item>
+        <item name="colorSecondary">@color/terminal_low_pink</item>
+        <!-- 其余 6 套主题都有 colorSurface / android:colorBackground，默认主题此前缺这 4 项，
+             Material 控件（卡片、弹窗、选中态）会回退到 MaterialComponents 默认值，与本主题不符 -->
+        <item name="colorSurface">@color/terminal_surface</item>
+        <item name="android:colorBackground">@color/terminal_bgblack</item>
         <item name="colorControlActivated">@color/terminal_pink</item>
         <item name="colorControlNormal">@color/terminal_color_ripple</item>
         <item name="colorControlHighlight">@color/terminal_color_ripple</item>
@@ -705,7 +711,7 @@
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowBackground">@color/terminal_bgblack</item>
         <item name="statusBarBackground">@color/terminal_pink</item>
-        <item name="colorOnPrimary">@color/terminal_textwhite</item>
+        <item name="colorOnPrimary">@color/text_on_primary</item>
     </style>
 
     <style name="Theme.ClassicTerminal.NoSwipe.AppCompat" parent="Theme.ClassicTerminal">

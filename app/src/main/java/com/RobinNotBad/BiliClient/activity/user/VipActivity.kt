@@ -13,14 +13,12 @@ import com.RobinNotBad.BiliClient.model.VipInfo
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
+import com.RobinNotBad.BiliClient.util.TimeUtil
 
 import org.json.JSONException
 import org.json.JSONObject
 
 import java.io.IOException
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 class VipActivity : BaseActivity() {
     @SuppressLint("SetTextI18n")
@@ -50,8 +48,7 @@ class VipActivity : BaseActivity() {
                                     vipTypeText.text = "大会员"
                                 }
                                 if (vipInfo.vipDueDate > 0) {
-                                    val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-                                    vipDueDateText.text = sdf.format(Date(vipInfo.vipDueDate * 1000))
+                                    vipDueDateText.text = TimeUtil.formatDateTimeSec(vipInfo.vipDueDate * 1000)
                                 } else {
                                     vipDueDateText.text = "未知"
                                 }

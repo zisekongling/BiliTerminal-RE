@@ -500,4 +500,11 @@
     <color name="terminal_gold">#FFB800</color>
     <color name="terminal_vip">#FF6699</color>
 
+    <!-- 以下 5 个为工作区（未提交）新增色，误删后按删除前的编译产物值恢复 -->
+    <color name="list_divider">#66FFFFFF</color>
+    <color name="qr_plate">#FFFFFF</color>
+    <color name="scrim">#60000000</color>
+    <color name="terminal_deep">#E84B85</color>
+    <color name="text_on_primary">#FFFFFF</color>
+
 </resources>

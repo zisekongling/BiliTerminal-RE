@@ -2,7 +2,6 @@ package com.RobinNotBad.BiliClient.adapter.video
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.view.ContextThemeWrapper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -45,8 +44,8 @@ class MediaEpisodeAdapter() : RecyclerView.Adapter<MediaEpisodeAdapter.EpisodeHo
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): EpisodeHolder {
         this.context = parent.context
-        val contextWrapper = ContextThemeWrapper(this.context, R.style.Theme_BiliClient)
-        val view = LayoutInflater.from(contextWrapper)
+        // 不再用 ContextThemeWrapper 强制 B站粉主题（见 QualitySelectorAdapter 同类改动）
+        val view = LayoutInflater.from(this.context)
             .inflate(if (useVerticalLayout) R.layout.cell_item_vertical else R.layout.cell_episode, parent, false)
         return EpisodeHolder(view)
     }

@@ -44,7 +44,7 @@ class VideoInfoActivity : BaseActivity() {
 
         setContentView(R.layout.activity_simple_viewpager)
 
-        Glide.get(BiliTerminal.context).clearMemory()
+        Glide.get(BiliTerminal.context!!).clearMemory()
         val intent = intent
         var type = intent.getStringExtra("type")
         if (type == null) type = "video"

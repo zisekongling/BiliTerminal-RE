@@ -33,6 +33,37 @@ import java.io.Writer;
 public class MsgUtil {
     private static Toast toast;
 
+    /**
+     * 当前对话框关闭后要执行的动作（只保留一个）。
+     *
+     * 用途：把「免责声明 → 夜深了」这类连续启动通知串起来。两者各自是一个独立的
+     * {@code DialogActivity}，若同时 startActivity 会叠在一起——后弹的压住先弹的，
+     * 用户得连关两次，且先弹的那个根本看不见。
+     */
+    private static Runnable dialogClosedAction = null;
+
+    /**
+     * 登记一个「当前对话框关掉之后再执行」的动作；后登记的覆盖先登记的。
+     * 由 {@link #onDialogActivityClosed()} 触发。
+     */
+    public static synchronized void runAfterDialogClosed(Runnable action) {
+        dialogClosedAction = action;
+    }
+
+    /**
+     * 由 {@code DialogActivity} 在关闭时回调，执行 {@link #runAfterDialogClosed} 登记的后续弹窗。
+     * 幂等：重复调用只会触发一次。
+     */
+    public static void onDialogActivityClosed() {
+        Runnable action;
+        synchronized (MsgUtil.class) {
+            action = dialogClosedAction;
+            dialogClosedAction = null;
+        }
+        // 在锁外执行，避免后续 startActivity 再回调进来造成死锁
+        if (action != null) action.run();
+    }
+
     public static void showMsg(String str) {
         Logu.i(str);
         if (SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.SNACKBAR_ENABLE, true)) {

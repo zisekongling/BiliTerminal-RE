@@ -1,15 +1,14 @@
 package com.RobinNotBad.BiliClient.adapter.user
 
 import android.content.Context
-import android.content.Intent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
-import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.model.ElectricUser
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.bumptech.glide.Glide
@@ -36,6 +35,7 @@ class ElectricUserAdapter(
             .load(GlideUtil.url(user.avatar))
             .transition(GlideUtil.getTransitionOptions())
             .placeholder(R.mipmap.akari)
+            .error(R.mipmap.akari)
             .apply(RequestOptions.circleCropTransform())
             .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
             .into(holder.userAvatar)
@@ -48,9 +48,7 @@ class ElectricUserAdapter(
         }
 
         holder.itemView.setOnClickListener {
-            val intent = Intent(context, UserInfoActivity::class.java)
-            intent.putExtra("mid", user.pay_mid)
-            context.startActivity(intent)
+            BiliTerminal.jumpToUser(context, user.pay_mid)
         }
     }
 

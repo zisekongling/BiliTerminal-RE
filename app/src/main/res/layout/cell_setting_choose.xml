@@ -28,7 +28,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="巧克力"
-                android:textColor="#fff"
+                android:textColor="?android:attr/textColorPrimary"
                 android:textSize="12sp" />
 
             <com.google.android.material.radiobutton.MaterialRadioButton
@@ -36,7 +36,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="香草"
-                android:textColor="#fff"
+                android:textColor="?android:attr/textColorPrimary"
                 android:textSize="12sp" />
         </RadioGroup>
 
@@ -47,7 +47,7 @@
             android:layout_marginTop="2dp"
             android:alpha="0.9"
             android:text="虽然但是，Robin只喜欢纳西妲嘿嘿嘿"
-            android:textSize="11sp" />
+            android:textSize="12sp" />
 
     </LinearLayout>
 

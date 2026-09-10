@@ -1,7 +1,6 @@
 package com.RobinNotBad.BiliClient.adapter.user
 
 import android.content.Context
-import android.content.Intent
 import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
@@ -11,7 +10,6 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
-import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.model.MedalInfo
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.bumptech.glide.Glide
@@ -49,9 +47,10 @@ class MedalListAdapter(
         holder.intimacy.text = intimacyText
 
         if (medal.target_icon != null && medal.target_icon.isNotEmpty()) {
-            Glide.with(BiliTerminal.context).asDrawable().load(GlideUtil.url(medal.target_icon))
+            Glide.with(BiliTerminal.context!!).asDrawable().load(GlideUtil.url(medal.target_icon))
                 .transition(GlideUtil.getTransitionOptions())
                 .placeholder(R.mipmap.akari)
+                .error(R.mipmap.akari)
                 .apply(RequestOptions.circleCropTransform())
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                 .into(holder.avatar)
@@ -62,10 +61,7 @@ class MedalListAdapter(
 
         if (medal.target_id > 0) {
             holder.itemView.setOnClickListener {
-                val intent = Intent()
-                    .setClass(context, UserInfoActivity::class.java)
-                    .putExtra("mid", medal.target_id)
-                context.startActivity(intent)
+                BiliTerminal.jumpToUser(context, medal.target_id)
             }
         }
     }

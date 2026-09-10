@@ -53,7 +53,7 @@ class UserFavoriteFolderAdapter(
             // list-all 接口不返回封面，用占位图
             favoriteHolder.cover.setImageResource(R.mipmap.placeholder)
         } else {
-            Glide.with(BiliTerminal.context).asDrawable().load(GlideUtil.url(folder.cover))
+            Glide.with(BiliTerminal.context!!).asDrawable().load(GlideUtil.url_hq(folder.cover))
                 .transition(GlideUtil.getTransitionOptions())
                 .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(5f))))
                 .format(DecodeFormat.PREFER_RGB_565)

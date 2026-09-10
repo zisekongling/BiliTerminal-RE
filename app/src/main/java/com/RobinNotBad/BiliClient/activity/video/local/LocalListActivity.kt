@@ -21,7 +21,6 @@ import com.RobinNotBad.BiliClient.model.LocalVideo
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.VideoMeta
 import com.RobinNotBad.BiliClient.model.VideoFolder
-import com.RobinNotBad.BiliClient.service.DownloadService
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.FolderManager
@@ -423,7 +422,7 @@ class LocalListActivity : InstanceActivity() {
             val response = NetWorkUtil.get(url)
             val body = response.body
             if (body != null) {
-                val data = DownloadService.decompress(body.bytes())
+                val data = NetWorkUtil.decompress(body.bytes())
                 file.writeBytes(data)
             }
             response.close()

@@ -35,10 +35,6 @@ data class PlayerState(
     val videoHeight: Int = 0
 )
 
-enum class PlayerScaleMode {
-    FIT_PARENT, FILL_PARENT, STRETCH_PARENT, FIT_16_9, FIT_4_3, ORIGINAL
-}
-
 class IjkPlayerBridge(
     private val onError: (Int, String) -> Unit = { _, _ -> }
 ) {
@@ -248,7 +244,8 @@ class IjkPlayerBridge(
         progressJob?.cancel()
         progressJob = null
         try {
-            mediaPlayer?.stop()
+            // reset() 已能把播放器退回未初始化状态；stop() 是多余的等待型调用，
+            // 而本方法在 onViewRecycled 的主线程路径上被调用，去掉它可以减少每页滑动的阻塞
             mediaPlayer?.reset()
             mediaPlayer?.release()
         } catch (_: Exception) {}

@@ -12,7 +12,6 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.util.DisplayMetrics
-import androidx.multidex.MultiDex
 import com.RobinNotBad.BiliClient.activity.base.InstanceActivity
 import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.api.DynamicApi
@@ -23,7 +22,6 @@ import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.PerformanceManager
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
-import dagger.hilt.android.HiltAndroidApp
 import me.ele.uetool.UETool
 import org.json.JSONException
 import java.io.IOException
@@ -31,7 +29,8 @@ import java.lang.ref.WeakReference
 
 private const val DELAYED_INIT_DELAY = 1000L
 
-@HiltAndroidApp
+// 注：本类从未被实例化（Manifest 的 Application 是 BiliTerminal），原先的 @HiltAndroidApp
+// 只让 Hilt 生成了用不到的组件；真实入口迁移后 Hilt 全链路已移除。
 class BiliTerminalApp : Application() {
 
     companion object {
@@ -147,11 +146,6 @@ class BiliTerminalApp : Application() {
             }
             context.startActivity(intent)
         }
-    }
-
-    override fun attachBaseContext(base: Context) {
-        super.attachBaseContext(base)
-        MultiDex.install(this)
     }
 
     override fun onCreate() {

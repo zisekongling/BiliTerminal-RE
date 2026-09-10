@@ -2,7 +2,6 @@
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
-    android:theme="@style/Theme.BiliClient"
     android:keepScreenOn="true"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -47,7 +46,7 @@
                 android:gravity="center"
                 android:maxWidth="220dp"
                 android:text="听视频模式"
-                android:textColor="@color/textwhite"
+                android:textColor="?android:attr/textColorPrimary"
                 android:textSize="15sp"
                 android:textStyle="bold" />
 
@@ -93,11 +92,11 @@
                 android:id="@+id/swipe_seek_text"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:shadowColor="@color/bgblack"
+                android:shadowColor="#000000"
                 android:shadowDx="1.0"
                 android:shadowDy="1.0"
                 android:shadowRadius="2.0"
-                android:textColor="#FFFFFF"
+                android:textColor="?android:attr/textColorPrimary"
                 android:textSize="14sp"
                 android:textStyle="bold"
                 tools:text="01:23 / 05:00 (27%)" />
@@ -157,7 +156,7 @@
                 android:layout_toStartOf="@+id/clock_layout"
                 android:drawableStart="@drawable/arrow_back"
                 android:text="@string/pagename_player"
-                android:textColor="@color/textwhite"
+                android:textColor="?android:attr/textColorPrimary"
                 android:textSize="12sp" />
 
             <LinearLayout
@@ -203,8 +202,8 @@
                 android:layout_marginTop="2dp"
                 android:paddingStart="14dp"
                 android:paddingEnd="14dp"
-                android:progressTint="#aa44aaff"
-                android:secondaryProgressTint="#eeFEFEFE"
+                android:progressTint="?attr/colorPrimary"
+                android:secondaryProgressTint="@color/player_progress_bg"
                 android:thumb="@drawable/player_selector_progress"
                 android:thumbOffset="8dp"
                 tools:targetApi="lollipop" />
@@ -369,7 +368,7 @@
                         android:gravity="center"
                         android:paddingHorizontal="8dp"
                         android:text="视频详情"
-                        android:textColor="@android:color/white"
+                        android:textColor="?android:attr/textColorPrimary"
                         android:textSize="12sp"
                         android:background="@android:color/transparent"
                         android:visibility="gone" />
@@ -435,12 +434,12 @@
             android:layout_centerVertical="true"
             android:layout_marginStart="4dp"
             android:paddingVertical="5dp"
-            android:shadowColor="@color/bgblack"
+            android:shadowColor="#000000"
             android:shadowDx="2.0"
             android:shadowDy="0.0"
             android:shadowRadius="3.0"
             android:text="x 1.0"
-            android:textColor="#fff"
+            android:textColor="?android:attr/textColorPrimary"
             android:textSize="14sp"
             android:visibility="gone"
             app:layout_constraintBottom_toBottomOf="parent"
@@ -470,7 +469,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
-                android:shadowColor="@color/bgblack"
+                android:shadowColor="#000000"
                 android:shadowDx="2.0"
                 android:shadowDy="0.0"
                 android:shadowRadius="3.0"
@@ -484,7 +483,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
-                android:shadowColor="@color/bgblack"
+                android:shadowColor="#000000"
                 android:shadowDx="2.0"
                 android:shadowDy="0.0"
                 android:shadowRadius="3.0"
@@ -511,7 +510,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:shadowColor="@color/bgblack"
+                android:shadowColor="#000000"
                 android:shadowDx="2.0"
                 android:shadowDy="0.0"
                 android:shadowRadius="3.0"
@@ -539,7 +538,7 @@
                 android:id="@+id/text_newspeed"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:shadowColor="@color/bgblack"
+                android:shadowColor="#000000"
                 android:shadowDx="2.0"
                 android:shadowDy="0.0"
                 android:shadowRadius="3.0"
@@ -560,12 +559,12 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_centerInParent="true"
-        android:shadowColor="@color/bgblack"
+        android:shadowColor="#000000"
         android:shadowDx="2.0"
         android:shadowDy="0.0"
         android:shadowRadius="3.0"
         android:text="音量：100%"
-        android:textColor="#fff"
+        android:textColor="?android:attr/textColorPrimary"
         android:textSize="13sp"
         android:visibility="gone" />
 
@@ -637,7 +636,7 @@
                 android:maxLength="100"
                 android:maxLines="1"
                 android:singleLine="true"
-                android:textColor="@color/textwhite"
+                android:textColor="?android:attr/textColorPrimary"
                 android:textColorHint="#88ffffff" />
 
             <Button

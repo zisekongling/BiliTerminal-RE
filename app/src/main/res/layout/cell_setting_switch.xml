@@ -15,7 +15,7 @@
             android:id="@+id/setting_switch"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="#00000000"
+            android:background="@android:color/transparent"
             android:text="开关类设置项" />
 
         <TextView
@@ -27,6 +27,6 @@
             android:layout_marginBottom="4dp"
             android:alpha="0.9"
             android:text="你打开的不是开关，而是通往异世界的大门"
-            android:textSize="11sp" />
+            android:textSize="12sp" />
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

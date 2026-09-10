@@ -37,9 +37,9 @@ import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.core.content.res.ResourcesCompat;
 
+import com.RobinNotBad.BiliClient.BiliTerminal;
 import com.RobinNotBad.BiliClient.R;
 import com.RobinNotBad.BiliClient.activity.CopyTextActivity;
-import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity;
 import com.RobinNotBad.BiliClient.api.ReplyApi;
 import com.RobinNotBad.BiliClient.model.At;
 import com.RobinNotBad.BiliClient.model.UserInfo;
@@ -50,6 +50,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import com.RobinNotBad.BiliClient.ui.theme.ThemeManager;
 
 @SuppressLint("ClickableViewAccessibility")
 public class StringUtil {
@@ -279,7 +280,7 @@ public class StringUtil {
     }
 
     public static void setTopSpan(SpannableStringBuilder spannableString) {
-        spannableString.setSpan(new ForegroundColorSpan(Color.rgb(207, 75, 95)), 0, ReplyApi.TOP_TIP.length(), Spanned.SPAN_INCLUSIVE_EXCLUSIVE);
+        spannableString.setSpan(new ForegroundColorSpan(ThemeManager.INSTANCE.getPRIMARY()), 0, ReplyApi.TOP_TIP.length(), Spanned.SPAN_INCLUSIVE_EXCLUSIVE);
     }
 
     public static ImageSpan getLevelBadge(Context context, UserInfo userInfo) {
@@ -341,7 +342,7 @@ public class StringUtil {
         public void onClick(@NonNull View widget) {
             switch (type) {
                 case TYPE_USER:
-                    widget.getContext().startActivity(new Intent(widget.getContext(), UserInfoActivity.class).putExtra("mid", Long.parseLong(val)));
+                    BiliTerminal.jumpToUser(widget.getContext(), Long.parseLong(val));
                     break;
                 case TYPE_WEB_URL:
                     LinkUrlUtil.handleWebURL(widget.getContext(), text);

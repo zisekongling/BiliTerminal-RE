@@ -24,6 +24,7 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.load.resource.bitmap.CenterCrop
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
 import com.bumptech.glide.request.RequestOptions
+import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
 
 class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerView.ViewHolder(itemView) {
     lateinit var title: TextView
@@ -108,13 +109,16 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
         }
 
         try {
-            val coverUrl = GlideUtil.url(videoCard.cover)
+            // 封面占半屏以上：用 url_hq（80q/1024w）而不是列表默认的 512w，
+            // 否则在 1080p 屏幕上被放大后明显发虚
+            val coverUrl = GlideUtil.url_hq(videoCard.cover)
             if (coverUrl != lastCoverUrl) {
                 lastCoverUrl = coverUrl
                 requestManager.asDrawable().load(coverUrl)
                     .transition(GlideUtil.getTransitionOptions())
                     .placeholder(R.mipmap.placeholder)
-                    .format(DecodeFormat.PREFER_RGB_565)
+                    .error(R.mipmap.placeholder)
+                    .format(DecodeFormat.PREFER_ARGB_8888)
                     .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                     .apply(getRequestOptions())
                     .into(cover)
@@ -141,16 +145,17 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
     }
 
     companion object {
-        private val requestManager = Glide.with(BiliTerminal.context)
-        private val TITLE_COLOR_SPAN = ForegroundColorSpan(Color.rgb(207, 75, 95))
+        private val requestManager = Glide.with(BiliTerminal.context!!)
+        private val TITLE_COLOR_SPAN = ForegroundColorSpan(ThemeManager.PRIMARY)
 
         @JvmStatic
         fun getRequestOptions(): RequestOptions {
             val cornerRadius = ToolsUtil.dp2px(5f)
+            // 不再写死 override(400, 225) + sizeMultiplier(0.85)：
+            // 那会把解码尺寸锁在约 340×191 的绝对像素，而列表封面显示区在 1080p 屏上约 519px 宽，
+            // 必然被放大糊掉；交给 Glide 按 ImageView 实测尺寸解码即可。
             return RequestOptions()
                 .transform(CenterCrop(), RoundedCorners(cornerRadius))
-                .sizeMultiplier(0.85f)
-                .override(400, 225)
         }
     }
 }

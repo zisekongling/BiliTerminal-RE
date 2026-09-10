@@ -29,9 +29,9 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.MenuActivity
 import com.RobinNotBad.BiliClient.activity.base.InstanceActivity
 import com.RobinNotBad.BiliClient.activity.video.info.VideoInfoActivity
+import com.RobinNotBad.BiliClient.api.DanmakuApi
 import com.RobinNotBad.BiliClient.api.ShortVideoFeedApi
 import com.RobinNotBad.BiliClient.model.ShortVideoItem
-import com.RobinNotBad.BiliClient.service.DownloadService
 import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.Logu
@@ -41,7 +41,6 @@ import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.VideoPreloadManager
-import com.RobinNotBad.BiliClient.helper.TutorialHelper
 import com.RobinNotBad.BiliClient.player.DanmakuManager
 import com.RobinNotBad.BiliClient.player.IjkOption
 import com.RobinNotBad.BiliClient.player.IjkPlayerBridge
@@ -100,7 +99,9 @@ class ShortVideoPlayerActivity : InstanceActivity() {
                     val newAdapter = ShortVideoPagerAdapter(this, preloadManager, audioManager)
                     viewPager.adapter = newAdapter
                 } else {
-                    adapter.notifyDataSetChanged()
+                    // 用范围插入代替 notifyDataSetChanged：避免 ViewPager2 重建全部页面并跳回第一页
+                    val start = preloadManager.getItemCount() - items.size
+                    if (start >= 0) adapter.notifyItemRangeInserted(start, items.size)
                 }
             }
         }
@@ -169,6 +170,8 @@ class ShortVideoPlayerActivity : InstanceActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // 兜底：onStop 里只在 isFinishing 时释放，系统回收页面时也要释放，否则播放器泄漏
+        (viewPager.adapter as? ShortVideoPagerAdapter)?.releaseAll()
         preloadManager.release()
     }
 
@@ -221,17 +224,30 @@ class ShortVideoPagerAdapter(
 
     override fun onBindViewHolder(holder: PageHolder, position: Int) {
         val item = preloadManager.getItem(position) ?: return
+        holder.boundPosition = position
         holder.bind(item, position)
         holders[position] = holder
     }
 
     override fun onViewRecycled(holder: PageHolder) {
         super.onViewRecycled(holder)
+        // 回收时必须摘掉 map 里的条目，否则 holder 被复用到新 position 后，
+        // 旧 position 的 key 仍指向它，pausePlayer(旧pos) 会暂停错对象
+        val pos = holder.boundPosition
+        if (pos != androidx.recyclerview.widget.RecyclerView.NO_POSITION && holders[pos] === holder) {
+            holders.remove(pos)
+        }
+        holder.boundPosition = androidx.recyclerview.widget.RecyclerView.NO_POSITION
+        // 被回收的若正好是当前活跃页，同步清掉，避免 activeHolder 悬空指向已释放的播放器
+        if (activeHolder === holder) activeHolder = null
         holder.releasePlayer()
     }
 
     fun setupPlayerAtPosition(position: Int) {
         val holder = holders[position] ?: return
+        // 先停掉旧的活跃页，避免拖动过程中新旧两页同时 isActive 而各自自动播放
+        activeHolder?.let { if (it !== holder) it.setActive(false) }
+        activeHolder = holder
         holder.setActive(true)
         holder.setupPlayer(activity.screenWidth, activity.screenHeight)
     }
@@ -267,12 +283,18 @@ class ShortVideoPagerAdapter(
     fun releaseAll() {
         holders.values.forEach { it.releasePlayer() }
         holders.clear()
+        // 释放后不能继续指向已释放的 holder，否则 releaseAll 之后
+        // pauseCurrent/resumeCurrent/isCurrentPlaying 会操作到已释放的播放器
+        activeHolder = null
+        lastVisiblePosition = -1
     }
 
     fun notifyScreenSizeChanged(width: Int, height: Int) {
         holders.values.forEach { it.updateVideoSize(width, height) }
     }
 
+    // itemView.setOnTouchListener 改为在 init 里只设置一次，抑制注解随之上移到类上
+    @Suppress("ClickableViewAccessibility")
     inner class PageHolder(
         itemView: View,
         private val audioManager: AudioManager,
@@ -281,6 +303,11 @@ class ShortVideoPagerAdapter(
 
         private val videoContainer: FrameLayout = itemView.findViewById(R.id.videoContainer)
         private val bufferingIndicator: ProgressBar = itemView.findViewById(R.id.bufferingIndicator)
+
+        // 上一次应用到 bufferingIndicator 的可见性；状态收集每 250ms 触发一次，
+        // 记下来才能只在目标值变化时才动 View，省掉多余的 setVisibility 与布局失效
+        private var lastBufferingVisible = false
+
         private val coverImage: ImageView = itemView.findViewById(R.id.coverImage)
         private val playIcon: ImageView = itemView.findViewById(R.id.playIcon)
         private val top: View = itemView.findViewById(R.id.top)
@@ -288,7 +315,6 @@ class ShortVideoPagerAdapter(
         private val bottomControl: View = itemView.findViewById(R.id.bottom_control)
         private val videoProgress: HighEnergyProgressBar = itemView.findViewById(R.id.videoprogress)
         private val textProgress: TextView = itemView.findViewById(R.id.text_progress)
-        private val bottomButtons: View = itemView.findViewById(R.id.bottom_buttons)
         private val buttonVideo: ImageButton = itemView.findViewById(R.id.button_video)
         private val buttonSoundCut: ImageButton = itemView.findViewById(R.id.button_sound_cut)
         private val buttonSoundAdd: ImageButton = itemView.findViewById(R.id.button_sound_add)
@@ -298,7 +324,10 @@ class ShortVideoPagerAdapter(
 
         private val playerBridge = IjkPlayerBridge(onError = { what, _ ->
             Logu.e("ShortVideo", "Player error: $what")
-            mainHandler.post { bufferingIndicator.visibility = View.GONE }
+            mainHandler.post {
+                lastBufferingVisible = false
+                bufferingIndicator.visibility = View.GONE
+            }
             MsgUtil.showMsg("播放错误")
         })
         private val playerScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -313,7 +342,12 @@ class ShortVideoPagerAdapter(
         private var videoAll = 0
         private var videoNow = 0
         private var videoNowLast = 0
+        // 已渲染到文本的整秒值，用于避免每 250ms 重复拼字符串与 setText
+        private var videoNowLastSec = -1
         private var progressStr = "00:00"
+        // 主线程写、弹幕渲染线程读（见 danmakuManager 的位置回调），必须 volatile，
+        // 否则弹幕线程可能读到过期的 true，继续把重建窗口期的脏位置灌进 DanmakuTimer
+        @Volatile
         private var isPrepared = false
         private var isPlaying = false
         private var isSeeking = false
@@ -334,6 +368,9 @@ class ShortVideoPagerAdapter(
         var isInitialized = false
             private set
 
+        /** 当前绑定的 position，NO_POSITION 表示未绑定或被回收 */
+        var boundPosition = androidx.recyclerview.widget.RecyclerView.NO_POSITION
+
         private val mainHandler = Handler(Looper.getMainLooper())
         private var hideBottomRunnable: Runnable? = null
         private var hideVolumeRunnable: Runnable? = null
@@ -341,32 +378,37 @@ class ShortVideoPagerAdapter(
         private var gestureDetector: GestureDetector? = null
         private var scaleGestureDetector: ScaleGestureDetector? = null
 
-        @Suppress("ClickableViewAccessibility")
         fun bind(item: ShortVideoItem, position: Int) {
+            // bind 只保留与条目数据相关的内容：监听器、手势检测器已在 init 里随 holder 只建一次
             currentItem = item
 
             if (item.cover.isNotEmpty()) {
                 coverImage.visibility = View.VISIBLE
                 Glide.with(activity)
                     .asDrawable()
-                    .load(GlideUtil.url(item.cover))
+                    .load(GlideUtil.url_hq(item.cover))
                     .into(coverImage)
-            }
-
-            isInitialized = true
-
-            top.setOnClickListener {
-                // 返回时暂停视频和弹幕，增加异常捕获防止闪退
-                try {
-                    pause()
-                } catch (e: Exception) {
-                    Logu.e("ShortVideo", "顶栏返回暂停异常: ${e.message}")
-                }
-                activity.finish()
             }
 
             textTitle.text = item.title
 
+            isInitialized = true
+
+            if (activity.isBottomControlVisible) {
+                bottomControl.visibility = View.VISIBLE
+            } else {
+                bottomControl.visibility = View.GONE
+            }
+        }
+
+        /**
+         * 一次性初始化：手势检测器、触摸监听与底部按钮监听都只随 holder 创建一次。
+         *
+         * 该 init 块写在 [itemView]、[top]、各按钮等所有被引用字段的声明之后，
+         * 按 Kotlin 的声明顺序初始化，执行到这里时它们都已赋值；构造时 itemView 已传入，
+         * 故 findViewById 也可用。回调体内引用的 currentItem 等字段同样是延迟读取，不受影响。
+         */
+        init {
             gestureDetector = GestureDetector(activity, object : GestureDetector.SimpleOnGestureListener() {
                 override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
                     toggleBottomControl()
@@ -386,7 +428,8 @@ class ShortVideoPagerAdapter(
             scaleGestureDetector = ScaleGestureDetector(activity, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                 override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
                     isScaling = true
-                    itemView.parent.requestDisallowInterceptTouchEvent(true)
+                    // parent 在 init 阶段可能还没挂到 ViewPager2 上，这里保持回调内按需取，并容错 null
+                    itemView.parent?.requestDisallowInterceptTouchEvent(true)
                     return true
                 }
 
@@ -400,7 +443,7 @@ class ShortVideoPagerAdapter(
 
                 override fun onScaleEnd(detector: ScaleGestureDetector) {
                     isScaling = false
-                    itemView.parent.requestDisallowInterceptTouchEvent(false)
+                    itemView.parent?.requestDisallowInterceptTouchEvent(false)
                 }
             })
 
@@ -414,13 +457,17 @@ class ShortVideoPagerAdapter(
                 true
             }
 
-            initBottomButtons()
-
-            if (activity.isBottomControlVisible) {
-                bottomControl.visibility = View.VISIBLE
-            } else {
-                bottomControl.visibility = View.GONE
+            top.setOnClickListener {
+                // 返回时暂停视频和弹幕，增加异常捕获防止闪退
+                try {
+                    pause()
+                } catch (e: Exception) {
+                    Logu.e("ShortVideo", "顶栏返回暂停异常: ${e.message}")
+                }
+                activity.finish()
             }
+
+            initBottomButtons()
         }
 
         private fun initBottomButtons() {
@@ -587,6 +634,7 @@ class ShortVideoPagerAdapter(
                         if (success && item.videoUrl.isNotEmpty()) {
                             initPlayer(item, screenW, screenH)
                         } else {
+                            lastBufferingVisible = false
                             bufferingIndicator.visibility = View.GONE
                             MsgUtil.showMsg("加载视频失败")
                         }
@@ -600,6 +648,8 @@ class ShortVideoPagerAdapter(
         private fun initPlayer(item: ShortVideoItem, screenW: Int, screenH: Int) {
             if (playerReady) return
 
+            // 与 lastBufferingVisible 同步，避免状态收集因“值相同”而不再纠正可见性
+            lastBufferingVisible = true
             bufferingIndicator.visibility = View.VISIBLE
 
             try {
@@ -634,7 +684,10 @@ class ShortVideoPagerAdapter(
                 // 初始化弹幕视图
                 danmakuView = itemView.findViewById(R.id.danmakuView)
                 danmakuManager = DanmakuManager(danmakuView!!) {
-                    playerBridge.currentPosition
+                    // 播放器未就绪时返回 -1，让 DanmakuManager 跳过本次 timer 更新。
+                    // 本回调在 DanmakuView 的渲染线程上，与主线程重建播放器并发，
+                    // 窗口期读到脏位置会让弹幕整批不显示（间歇性"弹幕没了"）。
+                    if (isPrepared) playerBridge.currentPosition else -1L
                 }
                 danmakuManager?.init()
 
@@ -645,8 +698,12 @@ class ShortVideoPagerAdapter(
                     videoHeight = st.videoHeight
                     videoAll = st.duration.toInt()
                     progressStr = StringUtil.toTime(videoAll / 1000)
+                    // 换了视频要复位进度去重标记，否则新视频的文本要等整秒变化才刷新
+                    videoNowLast = -1
+                    videoNowLastSec = -1
                     videoProgress.max = videoAll
 
+                    lastBufferingVisible = false
                     bufferingIndicator.visibility = View.GONE
                     coverImage.visibility = View.GONE
                     playIcon.visibility = View.GONE
@@ -694,39 +751,67 @@ class ShortVideoPagerAdapter(
 
             } catch (e: Exception) {
                 Logu.e("ShortVideo", "Player init error: ${e.message}")
+                lastBufferingVisible = false
                 bufferingIndicator.visibility = View.GONE
                 MsgUtil.showMsg("播放器初始化失败")
             }
         }
 
         /**
-         * 异步加载弹幕数据
+         * 异步加载弹幕数据。
+         *
+         * **优先走新版 protobuf 分段接口**：`PlayerApi` 给短视频设的弹幕地址是
+         * `https://comment.bilibili.com/{cid}.xml`（旧版 XML 接口），B站已基本停用该接口，
+         * 这正是短视频"一直没有弹幕"的根因——普通播放器早已切到 `downdanmuNew()` 的分段接口，
+         * 短视频没跟上。分段接口确实拿不到数据时才回退旧版 XML。
          */
         private fun loadDanmaku(item: ShortVideoItem) {
             if (isLoadingDanmaku) return
-            val danmakuUrl = item.danmakuUrl
-            if (danmakuUrl.isEmpty()) return
+            if (item.aid <= 0 || item.cid <= 0) return
 
             isLoadingDanmaku = true
             CenterThreadPool.run {
                 try {
-                    val response = NetWorkUtil.get(danmakuUrl, NetWorkUtil.webHeaders)
-                    val body = response.body
-                    if (body != null) {
-                        // 解压弹幕数据
-                        val decompressed = DownloadService.decompress(body.bytes())
-                        val inputStream = java.io.ByteArrayInputStream(decompressed)
-                        mainHandler.post {
-                            danmakuManager?.loadFromXmlInput(inputStream)
-                        }
+                    // 短视频时长通常几十秒到几分钟；取不到时长时按 10 分钟算，只会多请求 1 个分段
+                    val durationSec = (playerBridge.state.value.duration / 1000).toInt()
+                    val segments = DanmakuApi.getAllVideoDanmaku(
+                        item.aid, item.cid, if (durationSec > 0) durationSec else 600
+                    )
+                    if (segments.isNotEmpty()) {
+                        mainHandler.post { danmakuManager?.loadFromProtobufSegments(segments) }
+                        return@run
                     }
-                    response.close()
+                    loadDanmakuFromXml(item.danmakuUrl)
                 } catch (e: Exception) {
-                    Logu.e("ShortVideo", "Danmaku load error: ${e.message}")
+                    Logu.e("ShortVideo", "弹幕分段加载失败，回退旧版: ${e.message}")
+                    try {
+                        loadDanmakuFromXml(item.danmakuUrl)
+                    } catch (e2: Exception) {
+                        Logu.e("ShortVideo", "弹幕加载失败: ${e2.message}")
+                    }
                 } finally {
                     isLoadingDanmaku = false
                 }
             }
+        }
+
+        /** 旧版 XML 弹幕回退路径。 */
+        private fun loadDanmakuFromXml(danmakuUrl: String) {
+            if (danmakuUrl.isEmpty()) return
+            val response = NetWorkUtil.get(danmakuUrl, NetWorkUtil.webHeaders)
+            val body = response.body
+            if (body != null) {
+                // 解压弹幕数据
+                val decompressed = NetWorkUtil.decompress(body.bytes())
+                val inputStream = java.io.ByteArrayInputStream(decompressed)
+                // 必须回主线程：DanmakuManager.createParser 内部用的是进程级单例
+                // BiliDanmakuLoader（dataSource 是它的实例字段），并发调用会互相覆盖；
+                // 真正的 XML 解析是懒执行的，在 DanmakuView 自己的渲染线程上做，不在这里
+                mainHandler.post {
+                    danmakuManager?.loadFromXmlInput(inputStream)
+                }
+            }
+            response.close()
         }
 
         private fun startStateCollection() {
@@ -735,8 +820,13 @@ class ShortVideoPagerAdapter(
                 playerBridge.state.collect { st ->
                     // 播放准备就绪后，用桥接层的缓冲/播放状态驱动缓冲指示器
                     if (st.isPrepared) {
-                        bufferingIndicator.visibility =
-                            if (st.isBuffering && !st.isPlaying) View.VISIBLE else View.GONE
+                        val bufferingVisible = st.isBuffering && !st.isPlaying
+                        // 只有目标可见性变化时才动 View，避免每 250ms 一次多余的调用与布局失效
+                        if (bufferingVisible != lastBufferingVisible) {
+                            lastBufferingVisible = bufferingVisible
+                            bufferingIndicator.visibility =
+                                if (bufferingVisible) View.VISIBLE else View.GONE
+                        }
                     }
                     // 进度更新（替代原来的 Timer 轮询）
                     if (isPrepared && isPlaying && !isSeeking) {
@@ -744,8 +834,14 @@ class ShortVideoPagerAdapter(
                         if (pos != videoNowLast) {
                             videoNowLast = pos
                             videoNow = pos
+                            // 进度条每 250ms 刷（要平滑），但文本一秒才变一次，
+                            // 所以只在整秒变化时才做字符串拼接与 setText
                             videoProgress.progress = pos
-                            textProgress.text = StringUtil.toTime(pos / 1000) + "/" + progressStr
+                            val sec = pos / 1000
+                            if (sec != videoNowLastSec) {
+                                videoNowLastSec = sec
+                                textProgress.text = StringUtil.toTime(sec) + "/" + progressStr
+                            }
                         }
                     }
                 }
@@ -861,6 +957,11 @@ class ShortVideoPagerAdapter(
             isPlaying = false
             isActive = false
             currentScale = 1.0f
+            // 若在"转圈可见"状态下被回收，必须同步复位，否则指示器会一直转到下次 initPlayer
+            lastBufferingVisible = false
+            bufferingIndicator.visibility = View.GONE
+            videoNowLast = -1
+            videoNowLastSec = -1
             
             hideBottomRunnable?.let { mainHandler.removeCallbacks(it) }
             hideBottomRunnable = null

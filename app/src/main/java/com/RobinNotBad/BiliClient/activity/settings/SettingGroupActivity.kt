@@ -247,7 +247,8 @@ class SettingGroupActivity : RefreshListActivity() {
             )
         ) { oldValue, newValue ->
             if (oldValue != newValue) {
-                SharedPreferencesUtil.getSharedPreferences().edit().putString(SettingsKeys.THEME, newValue).commit()
+                // 统一走 ThemeManager 的写入点（此前直接操作 SharedPreferences，绕过了单一入口）
+                ThemeManager.setTheme(newValue)
                 recreate()
             }
         }
@@ -260,6 +261,9 @@ class SettingGroupActivity : RefreshListActivity() {
     private fun buildContentGroup() {
         nav(R.drawable.icon_menu, "菜单设置", "调整菜单顺序、将菜单项移入未启用") {
             startActivity(Intent(this, SettingMenuActivity::class.java))
+        }
+        nav(R.drawable.icon_info, "我的页面设置", "调整「我的」页面入口顺序、将入口移入更多") {
+            startActivity(Intent(this, SettingMySpaceActivity::class.java))
         }
         nav(R.drawable.icon_search, "搜索设置", "搜索类别显示与排序") {
             startActivity(Intent(this, SettingSearchActivity::class.java))

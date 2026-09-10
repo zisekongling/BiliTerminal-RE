@@ -16,6 +16,7 @@ import com.RobinNotBad.BiliClient.model.UserInfo;
 import com.RobinNotBad.BiliClient.util.MsgUtil;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
+import com.RobinNotBad.BiliClient.util.TimeUtil;
 import com.RobinNotBad.BiliClient.util.ToolsUtil;
 
 import org.json.JSONArray;
@@ -24,28 +25,48 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.IOException;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Objects;
 
 public class AppInfoApi {
-    public static void check(Context context) {
+
+    /**
+     * 启动通知：免责声明（仅首次）与「夜深了」提醒。
+     *
+     * **必须由 UI 线程在首屏 Activity 启动之后调用。** 这两个通知各自是一个
+     * {@code DialogActivity}，而它们原来是在 {@link #check(Context)} 里由后台线程弹的——
+     * 那条线程与「启动首屏」的 `runOnUiThread` 互相竞争，谁后到谁在上面；
+     * 结果是弹窗常常先弹、随后被首屏盖住（现象：弹窗被主界面压在后面）。
+     *
+     * 两者也不同时弹：先弹免责声明，用户关掉之后再弹夜深了。
+     * 否则两层对话框叠在一起，要连关两次。
+     */
+    public static void showStartupNotices(Context context) {
+        boolean nightNow = SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.NIGHT_REMINDER_ENABLE, true)
+                && isNightNow();
+
         // 讲真这免责声明没啥卵用，写这个也就是半开玩笑的，难道免责声明能挡住律师函吗
-        // 而且"fuck_uncle"过分了嗷，咱做第三方软件的真不能这么干……
         if (!SharedPreferencesUtil.getBoolean("disclaimer_shown", false)) {
-            MsgUtil.showDialog("免责声明", "使用前请先阅读：\n" + context.getString(R.string.about_to_uncle), 3);
+            // 正文很长，给 5 秒再允许关闭
+            MsgUtil.showDialog("免责声明", "使用前请先阅读：\n" + context.getString(R.string.about_to_uncle), 5);
             SharedPreferencesUtil.putBoolean("disclaimer_shown", true);
-        }
-
-        if (SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.NIGHT_REMINDER_ENABLE, true)) {
-            Calendar calendar = Calendar.getInstance();
-            int hour = calendar.get(Calendar.HOUR_OF_DAY);
-            if (hour >= 23 || hour <= 3) {
-                MsgUtil.showDialog("温馨提醒", "夜深了，要注意休息呐~", 3);
+            if (nightNow) {
+                MsgUtil.runAfterDialogClosed(() ->
+                        MsgUtil.showDialog("温馨提醒", "夜深了，要注意休息呐~", 3));
             }
+        } else if (nightNow) {
+            MsgUtil.showDialog("温馨提醒", "夜深了，要注意休息呐~", 3);
         }
+    }
 
+    /** 23:00 ～ 次日 03:59 视为「夜深」。 */
+    private static boolean isNightNow() {
+        int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        return hour >= 23 || hour <= 3;
+    }
+
+    public static void check(Context context) {
         try {
             int version = BiliTerminal.getVersion();
             int curr = ConfInfoApi.getDateCurr();
@@ -159,14 +180,12 @@ public class AppInfoApi {
         if (result.getInt("code") != 0) throw new Exception("错误：" + result.getString("msg"));
         JSONArray data = result.getJSONArray("data");
 
-        @SuppressLint("SimpleDateFormat") SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
-
         ArrayList<Announcement> list = new ArrayList<>();
         for (int i = 0; i < data.length(); i++) {
             JSONObject section = data.getJSONObject(i);
             Announcement announcement = new Announcement();
             announcement.id = section.getInt("id");
-            announcement.ctime = sdf.format(section.getLong("ctime") * 1000);
+            announcement.ctime = TimeUtil.formatDate(section.getLong("ctime") * 1000);
             announcement.title = section.getString("title");
             announcement.content = section.getString("content");
             list.add(announcement);
@@ -208,8 +227,6 @@ public class AppInfoApi {
 
         if (data.length() == 0) return 1;
 
-        @SuppressLint("SimpleDateFormat") SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd hh:mm");
-
         for (int i = 0; i < data.length(); i++) {
             JSONObject sponsor = data.getJSONObject(i);
 
@@ -217,7 +234,7 @@ public class AppInfoApi {
 
             user.name = sponsor.getString("name");
             user.avatar = sponsor.getString("avatar");
-            user.sign = "总金额：" + sponsor.getInt("sum_amount") + "r | 捐赠时间：" + sdf.format(sponsor.getLong("last_time") * 1000);
+            user.sign = "总金额：" + sponsor.getInt("sum_amount") + "r | 捐赠时间：" + TimeUtil.format(sponsor.getLong("last_time") * 1000, TimeUtil.PATTERN_DATE_TIME_12H);
             user.mid = -1;
             user.fans = 0;
             user.followed = true;

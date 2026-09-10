@@ -7,7 +7,6 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.RefreshMainActivity
 import com.RobinNotBad.BiliClient.adapter.video.VideoCardAdapter
 import com.RobinNotBad.BiliClient.api.RecommendApi
-import com.RobinNotBad.BiliClient.helper.TutorialHelper
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 
@@ -30,6 +29,8 @@ class RecommendActivity : RefreshMainActivity() {
 
         setOnRefreshListener { refreshRecommend() }
         setOnLoadMoreListener { addRecommend() }
+        // 空数据时可点击重试，而不是只能退出重进
+        setOnEmptyRetry { refreshRecommend() }
 
         setPageName("推荐")
 
@@ -70,8 +71,11 @@ class RecommendActivity : RefreshMainActivity() {
                     val newItems = list.filter { loadedBvids.add(it.bvid) }
                     if (newItems.isEmpty()) {
                         setRefreshing(false)
+                        // 首屏就拉不到内容时给出空态，否则用户只看到"转圈消失 + 一片空白"
+                        if (videoCardList!!.isEmpty()) showEmptyView()
                         return@runOnUiThread
                     }
+                    hideEmptyView()
                     videoCardList!!.addAll(newItems)
                     if (firstRefresh) {
                         firstRefresh = false

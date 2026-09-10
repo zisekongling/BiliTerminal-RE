@@ -105,9 +105,10 @@ class CollectionInfoActivity : RefreshListActivity() {
                 holder.name.text = collection.title
                 holder.desc.text = if (TextUtils.isEmpty(collection.intro)) "这里没有简介哦" else collection.intro
                 holder.playTimes.text = "共" + collection.view
-                Glide.with(context).asDrawable().load(GlideUtil.url(collection.cover))
+                Glide.with(context).asDrawable().load(GlideUtil.url_hq(collection.cover))
                     .transition(GlideUtil.getTransitionOptions())
                     .placeholder(R.mipmap.placeholder)
+                    .error(R.mipmap.placeholder)
                     .format(DecodeFormat.PREFER_RGB_565)
                     .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(5f))).sizeMultiplier(0.85f).dontAnimate())
                     .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
@@ -209,9 +210,10 @@ class CollectionInfoActivity : RefreshListActivity() {
                 holder.name.text = collection.title
                 holder.desc.text = if (TextUtils.isEmpty(collection.intro)) "这里没有简介哦" else collection.intro
                 holder.playTimes.text = "共" + collection.view
-                Glide.with(context).asDrawable().load(GlideUtil.url(collection.cover))
+                Glide.with(context).asDrawable().load(GlideUtil.url_hq(collection.cover))
                     .transition(GlideUtil.getTransitionOptions())
                     .placeholder(R.mipmap.placeholder)
+                    .error(R.mipmap.placeholder)
                     .format(DecodeFormat.PREFER_RGB_565)
                     .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(5f))).sizeMultiplier(0.85f).dontAnimate())
                     .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)

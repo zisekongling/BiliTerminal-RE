@@ -1,16 +1,19 @@
 package com.RobinNotBad.BiliClient.ui.widget
 
 import android.content.Context
-import android.os.Build
 import android.util.AttributeSet
-import android.view.InputDevice
 import android.view.MotionEvent
-import android.view.ViewConfiguration
-import androidx.core.view.ViewConfigurationCompat
 import androidx.core.widget.NestedScrollView
-import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
-import kotlin.math.roundToInt
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 
+/**
+ * 支持表冠滚动的 `NestedScrollView`。
+ *
+ * 表冠判定与滚动逻辑见 [RotaryEncoderSupport]（三份重复实现已合并到那里）。
+ * 与另外两个控件的两点差异原样保留：
+ * 1. 走 `dispatchGenericMotionEvent` 覆写而不是 `setOnGenericMotionListener`；
+ * 2. 滚动后**不**抢焦点。
+ */
 class RotaryNestedScrollView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -18,32 +21,17 @@ class RotaryNestedScrollView @JvmOverloads constructor(
 ) : NestedScrollView(context, attrs, defStyleAttr) {
 
     private var scrollMultiple = 0f
-    private var rotaryEnabled = false
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        initRotaryScroll()
-    }
-
-    private fun initRotaryScroll() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            rotaryEnabled = SharedPreferencesUtil.getBoolean("ui_rotatory_enable", false)
-            scrollMultiple = SharedPreferencesUtil.getFloat("ui_rotatory_scroll", 0f)
-        }
+        scrollMultiple = RotaryEncoderSupport.multipleOf(SettingsKeys.UI_ROTATORY_SCROLL)
     }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
-        if (rotaryEnabled && scrollMultiple > 0 &&
-            event.action == MotionEvent.ACTION_SCROLL &&
-            event.source == InputDevice.SOURCE_ROTARY_ENCODER
-        ) {
-            val delta = -event.getAxisValue(MotionEvent.AXIS_SCROLL) *
-                    ViewConfigurationCompat.getScaledVerticalScrollFactor(
-                        ViewConfiguration.get(context), context
-                    ) * 2
-            smoothScrollBy(0, (delta * scrollMultiple).roundToInt())
-            return true
-        }
+        val handled = RotaryEncoderSupport.handle(
+            this, event, scrollMultiple, requestFocus = false
+        ) { smoothScrollBy(0, it) }
+        if (handled) return true
         return super.dispatchGenericMotionEvent(event)
     }
 }

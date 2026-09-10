@@ -98,10 +98,11 @@ class BangumiInfoFragment : Fragment() {
         rootView!!.visibility = View.GONE
 
         Glide.with(requireContext())
-            .load(GlideUtil.url(bangumi!!.info.cover_horizontal))
+            .load(GlideUtil.url_hq(bangumi!!.info.cover_horizontal))
             .transition(GlideUtil.getTransitionOptions())
             .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
             .placeholder(R.mipmap.placeholder)
+            .error(R.mipmap.placeholder)
             .into(imageMediaCover)
         imageMediaCover.setOnClickListener {
             startActivity(Intent(it.context, ImageViewerActivity::class.java).putExtra("imageList", ArrayList(listOf(bangumi!!.info.cover_horizontal))))

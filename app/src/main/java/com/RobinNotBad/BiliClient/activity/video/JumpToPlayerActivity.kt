@@ -29,20 +29,28 @@ class JumpToPlayerActivity : BaseActivity() {
     private var download: Int = 0
 
     private val launcher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { o ->
-        val code = o.resultCode
-        val result = o.data
-        Logu.d("进度回调", "onActivityResult")
-        if (code == RESULT_OK && result != null) {
-            val progress = result.getIntExtra("progress", 0)
-            Logu.d("进度回调", progress.toString())
+        // 播放器一返回就立刻关掉等待页，不再让"上报进度"这个网络请求把关闭动作挡住。
+        // 旧实现是「先上报、再 finish」且整体包在 if (RESULT_OK) 里，结果是：
+        //  · 上报慢时页面要挂着等网络；
+        //  · 外部播放器（MTV/Alang）不 setResult、或设置里没选播放器时跳的「播放器选择页」
+        //    返回 RESULT_CANCELED —— 这两种情况连 finish() 都不会执行，页面永远出不去。
+        val progress = if (o.resultCode == RESULT_OK) o.data?.getIntExtra("progress", 0) ?: 0 else 0
+        val data = playerData
+        finish()
+        reportProgressAsync(data, progress)
+    }
 
-            CenterThreadPool.run {
-                if (playerData!!.mid != 0L && playerData!!.aid != 0L) try {
-                    HistoryApi.reportHistory(playerData!!.aid, playerData!!.cid, (progress / 1000).toLong())
-                } catch (e: Exception) {
-                    MsgUtil.err("进度上报：", e)
-                }
-                finish()
+    /**
+     * 后台异步上报观看进度，不阻塞页面关闭。
+     * 本页此时已经 finish，这里只碰 [PlayerData] 与全局 Context，不再引用任何已销毁的 View。
+     */
+    private fun reportProgressAsync(data: PlayerData?, progressMs: Int) {
+        if (data == null || progressMs <= 0 || data.mid == 0L || data.aid == 0L) return
+        CenterThreadPool.run {
+            try {
+                HistoryApi.reportHistory(data.aid, data.cid, (progressMs / 1000).toLong())
+            } catch (e: Exception) {
+                MsgUtil.err("进度上报：", e)
             }
         }
     }
@@ -58,11 +66,19 @@ class JumpToPlayerActivity : BaseActivity() {
 
         playerData = intent.getParcelableExtra("data")
 
-        title = playerData!!.title
+        // 本页在 Manifest 里是 exported="true"，脏 Intent 完全可能不带 data，
+        // 旧实现直接 playerData!!.title 会 NPE 崩溃。缺数据时只提示并允许点击退出，不再往下走。
+        val data = playerData
+        if (data == null) {
+            setClickExit("视频信息缺失，无法播放\n（点击返回）")
+            return
+        }
+
+        title = data.title
 
         download = intent.getIntExtra("download", 0)
 
-        playerData!!.qn = if (playerData!!.qn != -1) playerData!!.qn else SharedPreferencesUtil.getInt("play_qn", 16)
+        data.qn = if (data.qn != -1) data.qn else SharedPreferencesUtil.getInt("play_qn", 16)
 
         requestVideo()
     }

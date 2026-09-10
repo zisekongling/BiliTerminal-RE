@@ -12,22 +12,19 @@ import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.model.Timeline
 import com.RobinNotBad.BiliClient.util.GlideUtil
+import com.RobinNotBad.BiliClient.util.TimeUtil
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.DecodeFormat
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
 import com.bumptech.glide.request.RequestOptions
-import java.text.SimpleDateFormat
-import java.util.Locale
 
 class TimelineAdapter(
     private val context: Context,
     private val dayInfoList: List<Timeline.DayInfo>
 ) : RecyclerView.Adapter<TimelineAdapter.DayViewHolder>() {
 
-    private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-    private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-    private val requestManager = Glide.with(BiliTerminal.context)
+    private val requestManager = Glide.with(BiliTerminal.context!!)
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DayViewHolder {
         val view = LayoutInflater.from(context).inflate(R.layout.cell_timeline_day, parent, false)
@@ -59,14 +56,15 @@ class TimelineAdapter(
                 episodeText.text = episode.pub_index
 
                 if (episode.pub_ts > 0) {
-                    timeText.text = timeFormat.format(episode.pub_ts * 1000L)
+                    timeText.text = TimeUtil.formatTime(episode.pub_ts * 1000L)
                 } else {
                     timeText.text = episode.pub_time
                 }
 
-                val coverUrl = GlideUtil.url(episode.cover)
+                val coverUrl = GlideUtil.url_hq(episode.cover)
                 requestManager.asDrawable().load(coverUrl)
                     .placeholder(R.mipmap.placeholder)
+                    .error(R.mipmap.placeholder)
                     .format(DecodeFormat.PREFER_RGB_565)
                     .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                     .apply(EPISODE_OPTIONS)

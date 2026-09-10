@@ -481,6 +481,10 @@
     <string name="desc_menu_fixed_hint">此项不可隐藏</string>
     <string name="desc_menu_footer">长按并拖动可调整菜单顺序\n拖入未启用区域可将其移入未启用列表\n点击未启用项将其放回已启用列表末尾\n推荐、设置、缓存、搜索固定不可隐藏</string>
 
+    <string name="desc_myspace_main">主列表</string>
+    <string name="desc_myspace_more">更多列表</string>
+    <string name="desc_myspace_footer">长按并拖动可调整顺序\n拖入另一区域可将其移入该列表\n点击更多列表项将其放回主列表末尾\n用户卡片固定在最顶部，「更多」与「退出登录」固定排最后两位\n更多列表为空时，页面上不显示「更多」按钮</string>
+
     <string name="desc_setting_ui_padding">单位百分比，此选项可以用于圆屏适配。\n出于保护，数值超过30不会保存。</string>
     <string name="desc_parallel_download">同时在后台并行下载的视频数量，推荐2-5个。网络环境良好时可以提高效率</string>
     <string name="desc_force_high_quality">强制在缓存分辨率选择中显示4K、1080P高码率、1080P等选项，即使该视频可能不支持这些分辨率</string>

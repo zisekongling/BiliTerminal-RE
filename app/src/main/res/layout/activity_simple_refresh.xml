@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
@@ -36,26 +37,54 @@
 
     </RelativeLayout>
 
-    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-        android:id="@+id/swipeRefreshLayout"
+    <!-- 列表区 + 底部"正在加载…／没有更多了"状态条。
+         刻意不用 ConcatAdapter 把状态条做成列表项：那会重映射业务 adapter 的 viewType
+         （SettingsAdapter 等使用负数 viewType 的 adapter 会错配 Holder 而崩），也会改变
+         adapterPosition 语义。放在列表外最安全。 -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_below="@id/top">
+        android:layout_below="@id/top"
+        android:orientation="vertical">
 
-        <com.RobinNotBad.BiliClient.ui.widget.RotaryRecyclerView
-            android:id="@+id/recyclerView"
+        <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+            android:id="@+id/swipeRefreshLayout"
             android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+            android:layout_height="0dp"
+            android:layout_weight="1">
 
-    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+            <com.RobinNotBad.BiliClient.ui.widget.RotaryRecyclerView
+                android:id="@+id/recyclerView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+        </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+        <TextView
+            android:id="@+id/loadMoreTip"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:paddingVertical="4dp"
+            android:textSize="11sp"
+            android:textColor="?android:attr/textColorSecondary"
+            android:visibility="gone"
+            tools:text="正在加载…" />
+
+    </LinearLayout>
 
     <TextView
         android:id="@+id/emptyTip"
+        android:drawableTop="@mipmap/loading_2233_error"
+        android:drawablePadding="@dimen/space_md"
+        android:padding="@dimen/space_xl"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:gravity="center"
         android:text="啥都木有~"
         android:textAlignment="center"
+        android:textSize="14sp"
+        android:textColor="?android:attr/textColorSecondary"
         android:visibility="gone" />
 
 </RelativeLayout>

@@ -6,8 +6,8 @@ import android.content.Intent;
 import android.net.Uri;
 import android.util.Pair;
 
+import com.RobinNotBad.BiliClient.BiliTerminal;
 import com.RobinNotBad.BiliClient.activity.search.SearchActivity;
-import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -81,7 +81,7 @@ public class LinkUrlUtil {
                                 TerminalContext.getInstance().enterArticleDetailPage(context, Long.parseLong(val.replace("cv", "")));
                                 return;
                             case TYPE_UID:
-                                context.startActivity(new Intent(context, UserInfoActivity.class).putExtra("mid", Long.parseLong(val.replaceFirst("(?i)^uid", ""))));
+                                BiliTerminal.jumpToUser(context, Long.parseLong(val.replaceFirst("(?i)^uid", "")));
                                 return;
                         }
                     }
@@ -115,7 +115,7 @@ public class LinkUrlUtil {
                     TerminalContext.getInstance().enterArticleDetailPage(context, Long.parseLong(val.replace("cv", "")));
                     break;
                 case TYPE_UID:
-                    context.startActivity(new Intent(context, UserInfoActivity.class).putExtra("mid", Long.parseLong(val.replaceFirst("(?i)^uid", ""))));
+                    BiliTerminal.jumpToUser(context, Long.parseLong(val.replaceFirst("(?i)^uid", "")));
                     break;
                 case TYPE_WEB_URL:
                     handleWebURL(context, val);

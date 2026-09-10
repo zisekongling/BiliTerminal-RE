@@ -83,7 +83,7 @@ class LiveInfoActivity : BaseActivity() {
                     val userInfo = liveInfo.userInfo
                     playInfo = liveInfo.livePlayInfo
 
-                    Glide.with(this).asDrawable().load(GlideUtil.url(room!!.user_cover)).placeholder(R.mipmap.placeholder)
+                    Glide.with(this).asDrawable().load(GlideUtil.url_hq(room!!.user_cover)).placeholder(R.mipmap.placeholder)
                         .transition(GlideUtil.getTransitionOptions())
                         .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(4f))).sizeMultiplier(0.85f).skipMemoryCache(true).dontAnimate())
                         .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)

@@ -164,7 +164,7 @@ class MenuActivity : BaseActivity() {
             startActivity(intent)
             // 在低性能设备上更积极地清理Glide内存
             if (PerformanceManager.isLowPerfDevice()) {
-                Glide.get(BiliTerminal.context).clearMemory()
+                Glide.get(BiliTerminal.context!!).clearMemory()
             }
         } else {
             when (name) {

@@ -138,9 +138,10 @@ class SeriesInfoActivity : RefreshListActivity() {
                 holder.name.text = activity.seriesName
                 holder.desc.text = activity.seriesIntro.ifEmpty { "这里没有简介哦" }
                 holder.playTimes.text = "共${activity.seriesTotal}"
-                Glide.with(context).asDrawable().load(GlideUtil.url(activity.seriesCover))
+                Glide.with(context).asDrawable().load(GlideUtil.url_hq(activity.seriesCover))
                     .transition(GlideUtil.getTransitionOptions())
                     .placeholder(R.mipmap.placeholder)
+                    .error(R.mipmap.placeholder)
                     .format(DecodeFormat.PREFER_RGB_565)
                     .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(5f))).sizeMultiplier(0.85f).dontAnimate())
                     .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)

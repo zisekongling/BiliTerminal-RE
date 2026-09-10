@@ -59,7 +59,7 @@
                     android:id="@+id/search_video"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="#00000000"
+                    android:background="@android:color/transparent"
                     android:clickable="false"
                     android:enabled="false"
                     android:text="视频搜索（始终启用）" />
@@ -74,7 +74,7 @@
                     android:id="@+id/search_article"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="#00000000"
+                    android:background="@android:color/transparent"
                     android:text="显示“专栏”搜索" />
             </com.google.android.material.card.MaterialCardView>
 
@@ -87,7 +87,7 @@
                     android:id="@+id/search_user"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="#00000000"
+                    android:background="@android:color/transparent"
                     android:text="显示“用户”搜索" />
             </com.google.android.material.card.MaterialCardView>
 
@@ -100,7 +100,7 @@
                     android:id="@+id/search_live"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="#00000000"
+                    android:background="@android:color/transparent"
                     android:text="显示“直播”搜索" />
             </com.google.android.material.card.MaterialCardView>
 

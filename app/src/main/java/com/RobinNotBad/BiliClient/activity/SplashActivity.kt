@@ -179,6 +179,9 @@ class SplashActivity : Activity() {
                         splashTextView.text = splashText
                         startActivity(intent)
                         finish()
+                        // 启动通知（免责声明 / 夜深了）必须排在首屏 startActivity 之后，且在同一个
+                        // UI 线程上弹出；否则 check() 的后台线程会抢跑，把 DialogActivity 压在首屏下面
+                        AppInfoApi.showStartupNotices(this@SplashActivity)
                     }
 
                     if (SharedPreferencesUtil.getLong("mid", 0) != 0L) {

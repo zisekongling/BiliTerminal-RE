@@ -4,45 +4,62 @@ import android.os.Handler
 import android.os.Looper
 import com.RobinNotBad.BiliClient.api.ShortVideoFeedApi
 import com.RobinNotBad.BiliClient.model.ShortVideoItem
-import java.util.concurrent.ConcurrentLinkedQueue
 
 class VideoPreloadManager(private val preloadCount: Int = 2) {
 
-    private val preloadedItems = ConcurrentLinkedQueue<ShortVideoItem>()
-    private val allItems = mutableListOf<ShortVideoItem>()
+    // 后台线程写入、主线程读取，用写时复制列表避免并发读写的数据竞争
+    private val allItems = java.util.concurrent.CopyOnWriteArrayList<ShortVideoItem>()
     private val inFlightPreloads = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var currentIndex = 0
+
+    // 后台线程写、主线程读，必须 volatile，否则 loadMore() 可能重复拉取
+    @Volatile
     private var isLoading = false
+
+    // 释放后置位，用于拦住"在飞请求回来后继续写列表 / 回调 UI"的情况
+    @Volatile
+    private var released = false
 
     var onItemsLoaded: ((List<ShortVideoItem>) -> Unit)? = null
     var onLoadError: ((String) -> Unit)? = null
 
     fun loadInitial() {
+        // 检查并置位放在调用方线程（主线程）完成，避免 check-then-act 竞态
+        if (isLoading) return
+        isLoading = true
         CenterThreadPool.run {
-            isLoading = true
-            val items = ShortVideoFeedApi.fetchFeedPage()
-            if (items.isNotEmpty()) {
-                allItems.addAll(items)
-                mainHandler.post { onItemsLoaded?.invoke(items) }
-                preloadNext()
-            } else {
-                mainHandler.post { onLoadError?.invoke("获取视频列表失败") }
+            try {
+                val items = ShortVideoFeedApi.fetchFeedPage()
+                if (released) return@run
+                if (items.isNotEmpty()) {
+                    allItems.addAll(items)
+                    mainHandler.post { onItemsLoaded?.invoke(items) }
+                    preloadNext()
+                } else {
+                    mainHandler.post { onLoadError?.invoke("获取视频列表失败") }
+                }
+            } finally {
+                // 必须 finally：否则 fetch 抛异常会让 isLoading 永远为 true，之后再也拉不到数据
+                isLoading = false
             }
-            isLoading = false
         }
     }
 
     fun loadMore() {
         if (isLoading) return
+        isLoading = true
         CenterThreadPool.run {
-            isLoading = true
-            val items = ShortVideoFeedApi.fetchFeedPage()
-            if (items.isNotEmpty()) {
-                allItems.addAll(items)
-                mainHandler.post { onItemsLoaded?.invoke(items) }
+            try {
+                val items = ShortVideoFeedApi.fetchFeedPage()
+                if (released) return@run
+                if (items.isNotEmpty()) {
+                    allItems.addAll(items)
+                    mainHandler.post { onItemsLoaded?.invoke(items) }
+                }
+            } finally {
+                isLoading = false
             }
-            isLoading = false
         }
     }
 
@@ -93,8 +110,8 @@ class VideoPreloadManager(private val preloadCount: Int = 2) {
     }
 
     fun release() {
+        released = true
         allItems.clear()
-        preloadedItems.clear()
         inFlightPreloads.clear()
     }
 }

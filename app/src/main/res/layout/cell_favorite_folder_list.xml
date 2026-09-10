@@ -12,7 +12,7 @@
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_height="wrap_content">
 
         <ImageView
             android:id="@+id/img_cover"
@@ -22,24 +22,25 @@
             android:layout_marginTop="10dp"
             android:layout_marginEnd="6dp"
             android:layout_marginBottom="10dp"
-            android:adjustViewBounds="true"
             android:scaleType="centerCrop"
             android:src="@mipmap/placeholder"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintDimensionRatio="16:9"
-            app:layout_constraintEnd_toStartOf="@+id/guide_horizontal_0.5"
+            app:layout_constraintEnd_toStartOf="@+id/guide_cover_end"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
 
+        <!-- 命名修正：原 id 叫 guide_horizontal_0.5 却是竖线、叫 guide_vertical_0.4 却是横线，
+             这里按实际方向改成 guide_cover_end / guide_title_bottom（代码无引用，改名安全） -->
         <androidx.constraintlayout.widget.Guideline
-            android:id="@+id/guide_horizontal_0.5"
+            android:id="@+id/guide_cover_end"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             app:layout_constraintGuide_percent="0.4" />
 
         <androidx.constraintlayout.widget.Guideline
-            android:id="@+id/guide_vertical_0.4"
+            android:id="@+id/guide_title_bottom"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
@@ -52,12 +53,13 @@
             android:layout_marginStart="4dp"
             android:layout_marginEnd="4dp"
             android:layout_marginBottom="2dp"
-            android:singleLine="true"
+            android:ellipsize="end"
+            android:maxLines="2"
             android:text="收藏夹名称"
-            android:textSize="11sp"
-            app:layout_constraintBottom_toTopOf="@+id/guide_vertical_0.4"
+            android:textSize="@dimen/text_body"
+            app:layout_constraintBottom_toTopOf="@+id/guide_title_bottom"
             app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="@+id/guide_horizontal_0.5" />
+            app:layout_constraintStart_toStartOf="@+id/guide_cover_end" />
 
         <TextView
             android:id="@+id/text_itemcount"
@@ -67,20 +69,19 @@
             android:layout_marginTop="2dp"
             android:alpha="0.7"
             android:text="1000/1000"
-            android:textSize="11sp"
+            android:textSize="@dimen/text_caption"
             app:layout_constraintStart_toEndOf="@+id/icon_count"
-            app:layout_constraintTop_toTopOf="@+id/guide_vertical_0.4" />
+            app:layout_constraintTop_toTopOf="@+id/guide_title_bottom" />
 
         <ImageView
             android:id="@+id/icon_count"
-            android:layout_width="wrap_content"
-            android:layout_height="0dp"
-            android:adjustViewBounds="true"
+            android:layout_width="@dimen/icon_sm"
+            android:layout_height="@dimen/icon_sm"
             android:alpha="0.7"
+            android:src="@drawable/icon_folder"
             app:layout_constraintBottom_toBottomOf="@+id/text_itemcount"
             app:layout_constraintStart_toStartOf="@+id/text_title"
-            app:layout_constraintTop_toTopOf="@+id/text_itemcount"
-            android:src="@drawable/icon_folder" />
+            app:layout_constraintTop_toTopOf="@+id/text_itemcount" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 </com.google.android.material.card.MaterialCardView>

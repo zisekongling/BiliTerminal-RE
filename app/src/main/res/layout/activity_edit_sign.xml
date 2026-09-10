@@ -59,7 +59,7 @@
                 android:layout_marginBottom="4dp"
                 android:text="修改签名不会立即生效，会等待审核队列稍后生效"
                 android:textSize="12sp"
-                android:textColor="#999999" />
+                android:textColor="?android:attr/textColorSecondary" />
 
             <EditText
                 android:id="@+id/editText"
@@ -81,7 +81,7 @@
                 android:layout_marginTop="4dp"
                 android:text="0/70"
                 android:textSize="11sp"
-                android:textColor="#999999"
+                android:textColor="?android:attr/textColorSecondary"
                 android:gravity="end" />
 
             <com.google.android.material.card.MaterialCardView
@@ -92,7 +92,7 @@
 
                 <TextView
                     android:layout_width="match_parent"
-                    android:layout_height="35sp"
+                    android:layout_height="35dp"
                     app:drawableEndCompat="@drawable/arrow_forward"
                     android:layout_marginHorizontal="8dp"
                     android:gravity="center_vertical"

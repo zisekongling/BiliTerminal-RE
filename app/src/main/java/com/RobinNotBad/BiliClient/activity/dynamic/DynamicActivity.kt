@@ -14,7 +14,6 @@ import com.RobinNotBad.BiliClient.adapter.dynamic.DynamicAdapter
 import com.RobinNotBad.BiliClient.adapter.dynamic.DynamicHolder
 import com.RobinNotBad.BiliClient.api.DynamicApi
 import com.RobinNotBad.BiliClient.api.VoteApi
-import com.RobinNotBad.BiliClient.helper.TutorialHelper
 import com.RobinNotBad.BiliClient.model.Dynamic
 import com.RobinNotBad.BiliClient.model.VoteDraft
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -171,6 +170,8 @@ class DynamicActivity : RefreshMainActivity() {
 
         setOnRefreshListener { refreshDynamic() }
         setOnLoadMoreListener { page -> addDynamic(type) }
+        // 空数据时可点击重试
+        setOnEmptyRetry { refreshDynamic() }
 
         setPageName("动态")
 
@@ -212,6 +213,8 @@ class DynamicActivity : RefreshMainActivity() {
 
                 runOnUiThread {
                     dynamicList!!.addAll(list)
+                    // 无内容时给出空态（一级页此前完全没有空态）
+                    if (dynamicList!!.isEmpty()) showEmptyView() else hideEmptyView()
                     if (firstRefresh) {
                         firstRefresh = false
                         dynamicAdapter = DynamicAdapter(this, dynamicList!!, recyclerView, recentUpList)

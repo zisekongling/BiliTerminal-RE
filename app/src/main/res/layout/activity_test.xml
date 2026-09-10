@@ -59,7 +59,7 @@
 
                 <TextView
                     android:layout_width="match_parent"
-                    android:layout_height="35sp"
+                    android:layout_height="35dp"
                     android:layout_marginHorizontal="8dp"
                     android:gravity="center_vertical"
                     android:text="deepseek猫娘请求测试"
@@ -78,7 +78,7 @@
 
                 <TextView
                     android:layout_width="match_parent"
-                    android:layout_height="35sp"
+                    android:layout_height="35dp"
                     android:layout_marginHorizontal="8dp"
                     android:gravity="center_vertical"
                     android:text="opus请求测试"
@@ -123,14 +123,14 @@
                 android:id="@+id/switch_wbi"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="#00000000"
+                android:background="@android:color/transparent"
                 android:text="启用WBI签名" />
 
             <com.google.android.material.switchmaterial.SwitchMaterial
                 android:id="@+id/switch_post"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="#00000000"
+                android:background="@android:color/transparent"
                 android:text="使用POST方式" />
 
             <com.google.android.material.card.MaterialCardView
@@ -141,7 +141,7 @@
 
                 <TextView
                     android:layout_width="match_parent"
-                    android:layout_height="35sp"
+                    android:layout_height="35dp"
                     android:layout_marginHorizontal="8dp"
                     android:gravity="center_vertical"
                     android:text="Go Request!"
@@ -159,7 +159,7 @@
 
                 <TextView
                     android:layout_width="match_parent"
-                    android:layout_height="35sp"
+                    android:layout_height="35dp"
                     android:layout_marginHorizontal="8dp"
                     android:gravity="center_vertical"
                     android:text="查看Cookies"

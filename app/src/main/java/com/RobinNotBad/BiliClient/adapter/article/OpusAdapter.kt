@@ -37,12 +37,13 @@ class OpusAdapter(
         holder.favTimeText.text = opus.pubTime
         holder.titleText.text = opus.title
 
-        val coverUrl = GlideUtil.url(opus.cover)
+        val coverUrl = GlideUtil.url_hq(opus.cover)
         if (coverUrl != holder.lastCoverUrl) {
             holder.lastCoverUrl = coverUrl
-            Glide.with(BiliTerminal.context).load(coverUrl)
+            Glide.with(BiliTerminal.context!!).load(coverUrl)
                 .transition(GlideUtil.getTransitionOptions())
                 .placeholder(R.mipmap.placeholder)
+                .error(R.mipmap.placeholder)
                 .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(5f))))
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                 .into(holder.coverView)

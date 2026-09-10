@@ -30,7 +30,6 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
 import com.RobinNotBad.BiliClient.activity.reply.ReplyInfoActivity
 import com.RobinNotBad.BiliClient.activity.reply.WriteReplyActivity
-import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.api.ReplyApi
 import com.RobinNotBad.BiliClient.api.VoteApi
 import com.RobinNotBad.BiliClient.model.Reply
@@ -128,9 +127,10 @@ class ReplyAdapter(
 
             if (GlideUtil.url(reply.sender!!.avatar) != replyHolder.lastAvatarUrl) {
                 replyHolder.lastAvatarUrl = GlideUtil.url(reply.sender!!.avatar)
-                Glide.with(BiliTerminal.context).asDrawable().load(GlideUtil.url(reply.sender!!.avatar))
+                Glide.with(BiliTerminal.context!!).asDrawable().load(GlideUtil.url(reply.sender!!.avatar))
                         .transition(GlideUtil.getTransitionOptions())
                         .placeholder(R.mipmap.akari)
+                        .error(R.mipmap.akari)
                         .apply(RequestOptions.circleCropTransform())
                         .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                         .into(replyHolder.replyAvatar)
@@ -148,7 +148,7 @@ class ReplyAdapter(
                 name_str.append(reply.sender!!.name)
                 name_str.setSpan(
                         RadiusBackgroundSpan(2, roundSmallPx,
-                                Color.WHITE, Color.rgb(207, 75, 95)),
+                                Color.WHITE, ThemeManager.PRIMARY),
                         0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 name_str.setSpan(RelativeSizeSpan(0.8f), 0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             } else
@@ -222,7 +222,7 @@ class ReplyAdapter(
                             childMsg.append(child.sender!!.name)
                             childMsg.setSpan(RadiusBackgroundSpan(2,
                                     roundSmallPx, Color.WHITE,
-                                    Color.rgb(207, 75, 95)), 0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                                    ThemeManager.PRIMARY), 0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                             childMsg.setSpan(RelativeSizeSpan(0.8f), 0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                         } else
                             childMsg.append(child.sender!!.name)
@@ -264,9 +264,10 @@ class ReplyAdapter(
                 val firstImageUrl = GlideUtil.url(reply.pictureList!![0])
                 if (firstImageUrl != replyHolder.lastImageUrl) {
                     replyHolder.lastImageUrl = firstImageUrl
-                    Glide.with(BiliTerminal.context).asDrawable().load(firstImageUrl)
+                    Glide.with(BiliTerminal.context!!).asDrawable().load(firstImageUrl)
                             .transition(GlideUtil.getTransitionOptions())
                             .placeholder(R.mipmap.placeholder)
+                            .error(R.mipmap.placeholder)
                             .format(DecodeFormat.PREFER_RGB_565)
                             .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                             .into(replyHolder.imageCard)
@@ -298,10 +299,7 @@ class ReplyAdapter(
             }
 
             replyHolder.replyAvatar.setOnClickListener {
-                val intent = Intent()
-                intent.setClass(context, UserInfoActivity::class.java)
-                intent.putExtra("mid", reply.sender!!.mid)
-                context.startActivity(intent)
+                BiliTerminal.jumpToUser(context, reply.sender!!.mid)
             }
 
             replyHolder.likeCount.setOnClickListener {

@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@color/background_dark" />
+    <!-- 冷启动窗口底色：manifest 主题在 onCreate 之前就生效，无法按用户主题动态取色。
+         原先用 @color/background_dark(#1B1B24)，而默认主题（经典终端）背景是纯黑 #000000，
+         会看到"深蓝灰 → 纯黑"的跳变；改纯黑对 6 套深色主题都最不突兀，默认主题完全一致。 -->
+    <item android:drawable="@color/terminal_bgblack" />
     <item
         android:width="128dp"
         android:height="128dp"

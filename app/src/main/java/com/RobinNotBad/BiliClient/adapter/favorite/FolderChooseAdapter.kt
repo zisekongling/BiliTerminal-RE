@@ -9,7 +9,6 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.api.FavoriteApi
-import com.RobinNotBad.BiliClient.ui.theme.BiliColors
 import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -55,7 +54,7 @@ class FolderChooseAdapter(
         holder.itemView.setOnClickListener {
             if (!adding && position < chooseState.size && position < fidList.size) {
                 adding = true
-                cardView.strokeColor = BiliColors.PrimaryTransparent
+                cardView.strokeColor = ThemeManager.withPrimaryAlpha(0x99)
                 cardView.strokeWidth = ToolsUtil.dp2px(1f)
 
                 if (chooseState[position]) {
@@ -79,7 +78,7 @@ class FolderChooseAdapter(
                         }
                     }
                 } else {
-                    cardView.strokeColor = BiliColors.Gray
+                    cardView.strokeColor = ThemeManager.DIVIDER
                     cardView.strokeWidth = ToolsUtil.dp2px(0.1f)
                     CenterThreadPool.run {
                         try {

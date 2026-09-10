@@ -42,7 +42,7 @@
         android:maxWidth="64dp"
         android:maxLines="1"
         android:ellipsize="end"
-        android:textSize="11sp"
+        android:textSize="12sp"
         android:textAlignment="center" />
 
 </LinearLayout>

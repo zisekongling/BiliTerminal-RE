@@ -15,7 +15,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
-import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.api.ArticleApi
 import com.RobinNotBad.BiliClient.activity.vote.VoteInfoActivity
 import com.RobinNotBad.BiliClient.api.OpusApi
@@ -91,11 +90,12 @@ class OpusContentAdapter(
                     val urls = paras[realPosition].content as Array<*>
                     val length = urls.size
                     if (length > 0 && urls[0] != null) {
-                        val imageUrl = GlideUtil.url(urls[0] as String)
+                        val imageUrl = GlideUtil.url_hq(urls[0] as String)
                         if (imageUrl != holder.lastImageUrl) {
                             holder.lastImageUrl = imageUrl
-                            Glide.with(BiliTerminal.context).asDrawable().load(imageUrl)
+                            Glide.with(BiliTerminal.context!!).asDrawable().load(imageUrl)
                                 .placeholder(R.mipmap.placeholder)
+                                .error(R.mipmap.placeholder)
                                 .transition(GlideUtil.getTransitionOptions())
                                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                                 .into(imageView)
@@ -130,11 +130,12 @@ class OpusContentAdapter(
                     title.visibility = View.GONE
 
                 if (!TextUtils.isEmpty(article.cover)) {
-                    val coverUrl = GlideUtil.url(article.cover)
+                    val coverUrl = GlideUtil.url_hq(article.cover)
                     if (coverUrl != holder.lastTopImageUrl) {
                         holder.lastTopImageUrl = coverUrl
-                        Glide.with(BiliTerminal.context).asDrawable().load(coverUrl)
+                        Glide.with(BiliTerminal.context!!).asDrawable().load(coverUrl)
                             .placeholder(R.mipmap.placeholder)
+                            .error(R.mipmap.placeholder)
                             .transition(GlideUtil.getTransitionOptions())
                             .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(4f))))
                             .format(DecodeFormat.PREFER_RGB_565)
@@ -143,11 +144,12 @@ class OpusContentAdapter(
                     }
                     topCount.visibility = View.GONE
                 } else if (article.topImages != null && article.topImages!!.size > 0) {
-                    val firstImageUrl = GlideUtil.url(article.topImages!![0])
+                    val firstImageUrl = GlideUtil.url_hq(article.topImages!![0])
                     if (firstImageUrl != holder.lastTopImageUrl) {
                         holder.lastTopImageUrl = firstImageUrl
-                        Glide.with(BiliTerminal.context).asDrawable().load(firstImageUrl)
+                        Glide.with(BiliTerminal.context!!).asDrawable().load(firstImageUrl)
                             .placeholder(R.mipmap.placeholder)
+                            .error(R.mipmap.placeholder)
                             .transition(GlideUtil.getTransitionOptions())
                             .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(4f))))
                             .format(DecodeFormat.PREFER_RGB_565)
@@ -174,18 +176,16 @@ class OpusContentAdapter(
                 val avatarUrl = upInfo?.avatar?.let { GlideUtil.url(it) } ?: ""
                 if (avatarUrl != holder.lastAvatarUrl) {
                     holder.lastAvatarUrl = avatarUrl
-                    Glide.with(BiliTerminal.context).asDrawable().load(avatarUrl)
+                    Glide.with(BiliTerminal.context!!).asDrawable().load(avatarUrl)
                         .placeholder(R.mipmap.akari)
+                        .error(R.mipmap.akari)
                         .transition(GlideUtil.getTransitionOptions())
                         .apply(RequestOptions.circleCropTransform())
                         .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                         .into(upIcon)
                 }
                 upCard.setOnClickListener {
-                    val intent = Intent()
-                    intent.setClass(context, UserInfoActivity::class.java)
-                    intent.putExtra("mid", upInfo?.mid ?: 0L)
-                    context.startActivity(intent)
+                    BiliTerminal.jumpToUser(context, upInfo?.mid ?: 0L)
                 }
 
             }

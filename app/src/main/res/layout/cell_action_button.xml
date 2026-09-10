@@ -9,7 +9,7 @@
     android:gravity="center"
     android:text="操作"
     android:textSize="13sp"
-    android:textColor="@color/pink_light"
+    android:textColor="?attr/colorPrimary"
     android:alpha="0.85"
     android:clickable="true"
     android:focusable="true"

@@ -6,13 +6,13 @@ import android.text.TextUtils;
 import com.RobinNotBad.BiliClient.model.LivePlayInfo;
 import com.RobinNotBad.BiliClient.model.LiveRoom;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
+import com.RobinNotBad.BiliClient.util.TimeUtil;
 
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -349,8 +349,7 @@ public class LiveApi {
                 liveRoom.studio_info = studioInfoObj;
             }
             long live_time = jsonObject.optLong("live_time", -1);
-            @SuppressLint("SimpleDateFormat") SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-            if (live_time != -1) liveRoom.liveTime = sdf.format(live_time * 1000);
+            if (live_time != -1) liveRoom.liveTime = TimeUtil.formatDateTimeSec(live_time * 1000);
             else liveRoom.liveTime = jsonObject.optString("live_time");
             liveRooms.add(liveRoom);
         }

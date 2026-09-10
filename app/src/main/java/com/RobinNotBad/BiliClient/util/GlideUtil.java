@@ -4,6 +4,7 @@ package com.RobinNotBad.BiliClient.util;
 import android.graphics.drawable.Drawable;
 import android.widget.ImageView;
 
+import com.RobinNotBad.BiliClient.R;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.TransitionOptions;
 import com.bumptech.glide.load.DecodeFormat;
@@ -15,14 +16,19 @@ import com.bumptech.glide.request.transition.DrawableCrossFadeFactory;
 
 public class GlideUtil {
     public static final int QUALITY_HIGH = 80;
-    public static final int QUALITY_LOW = 25;
+
+    /**
+     * 列表/卡片图的压缩质量。
+     *
+     * 原值为 25，配合 512w 的宽度上限，在 1080p 屏幕上封面被放大后明显发虚、渐变出现色带。
+     * 这里提到 60，体积仍然可控（webp + 512w），观感回归正常。
+     */
+    public static final int QUALITY_LOW = 60;
     public static final int MAX_W_HIGH = 1024;
     public static final int MAX_W_LOW = 512;
 
     private static final DrawableCrossFadeFactory CROSS_FADE_FACTORY =
             new DrawableCrossFadeFactory.Builder(300).setCrossFadeEnabled(true).build();
-
-    private static volatile Boolean transitionEnabled;
 
     public static String url(String url) {
         if (!url.startsWith("http") || url.endsWith("gif") || url.contains("@") || url.contains("afdian"))
@@ -65,7 +71,8 @@ public class GlideUtil {
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                 .format(DecodeFormat.PREFER_RGB_565)
                 .transition(GlideUtil.getTransitionOptions())
-                .placeholder(placeholder)
+                .placeholder(safePlaceholder(placeholder))
+                .error(safePlaceholder(placeholder))
                 .into(view);
     }
 
@@ -74,7 +81,8 @@ public class GlideUtil {
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                 .format(DecodeFormat.PREFER_RGB_565)
                 .transition(GlideUtil.getTransitionOptions())
-                .placeholder(placeholder)
+                .placeholder(safePlaceholder(placeholder))
+                .error(safePlaceholder(placeholder))
                 .apply(RequestOptions.circleCropTransform())
                 .into(view);
     }
@@ -84,18 +92,25 @@ public class GlideUtil {
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                 .format(DecodeFormat.PREFER_RGB_565)
                 .transition(GlideUtil.getTransitionOptions())
-                .placeholder(placeholder)
+                .placeholder(safePlaceholder(placeholder))
+                .error(safePlaceholder(placeholder))
                 .apply(RequestOptions.bitmapTransform(new RoundedCorners(ToolsUtil.dp2px(roundCorners))))
                 .into(view);
     }
 
+    /**
+     * 加载失败兜底图。
+     *
+     * Glide 的 {@code error(int)} 传 0 等于没设，而调用点里确实存在传 0 的情况
+     * （如 {@code HotSearchAdapter}）；不兜底时 RecyclerView 复用会显示上一项的封面。
+     */
+    public static int safePlaceholder(int placeholder) {
+        return placeholder != 0 ? placeholder : R.mipmap.placeholder;
+    }
+
     public static TransitionOptions<?, ? super Drawable> getTransitionOptions() {
-        Boolean enabled = transitionEnabled;
-        if (enabled == null) {
-            enabled = SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.LOAD_TRANSITION, true);
-            transitionEnabled = enabled;
-        }
-        if (enabled) {
+        // 不缓存开关值：原实现用 static 字段缓存，用户在设置里改「加载渐入渐出动画」后必须重启才生效
+        if (SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.LOAD_TRANSITION, true)) {
             return DrawableTransitionOptions.with(CROSS_FADE_FACTORY);
         } else {
             return new DrawableTransitionOptions();

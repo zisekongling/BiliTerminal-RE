@@ -46,6 +46,7 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.request.RequestOptions
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
+import com.RobinNotBad.BiliClient.ui.theme.ThemeManager
 
 class UserDynamicAdapter(
     private val context: Context,
@@ -177,7 +178,7 @@ class UserDynamicAdapter(
                 lvStr.setSpan(
                     RadiusBackgroundSpan(
                         1, context.resources.getDimension(R.dimen.card_round).toInt(),
-                        Color.WHITE, Color.rgb(207, 75, 95)
+                        Color.WHITE, ThemeManager.PRIMARY
                     ),
                     ("Lv" + userInfo.level).length + 1, lvStr.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE
                 )
@@ -231,9 +232,10 @@ class UserDynamicAdapter(
                 this.userOfficial.visibility = View.GONE
             }
 
-            Glide.with(BiliTerminal.context).asDrawable().load(GlideUtil.url(userInfo.avatar))
+            Glide.with(BiliTerminal.context!!).asDrawable().load(GlideUtil.url(userInfo.avatar))
                 .transition(GlideUtil.getTransitionOptions())
                 .placeholder(R.mipmap.akari)
+                .error(R.mipmap.akari)
                 .apply(RequestOptions.circleCropTransform())
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                 .into(this.userAvatar)

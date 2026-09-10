@@ -133,9 +133,10 @@ class DownloadAdapter(
             }
 
             if (section.url_cover.isNotEmpty())
-                Glide.with(BiliTerminal.context).asDrawable().load(section.url_cover)
+                Glide.with(BiliTerminal.context!!).asDrawable().load(section.url_cover)
                     .transition(GlideUtil.getTransitionOptions())
                     .placeholder(R.mipmap.placeholder)
+                    .error(R.mipmap.placeholder)
                     .format(DecodeFormat.PREFER_RGB_565)
                     .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                     .apply(

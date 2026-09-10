@@ -20,6 +20,8 @@ class HotSearchActivity : RefreshMainActivity() {
         setPageName("热搜")
         setMenuClick()
         setOnRefreshListener { loadHotSearch() }
+        // 空数据时可点击重试
+        setOnEmptyRetry { loadHotSearch() }
         loadHotSearch()
     }
 
@@ -49,6 +51,8 @@ class HotSearchActivity : RefreshMainActivity() {
 
     @SuppressLint("NotifyDataSetChanged")
     private fun applyResult() {
+        // 无内容时给出空态（一级页此前完全没有空态）
+        if (hotList.isEmpty()) showEmptyView() else hideEmptyView()
         if (adapter == null) {
             adapter = HotSearchAdapter(this, hotList)
             recyclerView.adapter = adapter

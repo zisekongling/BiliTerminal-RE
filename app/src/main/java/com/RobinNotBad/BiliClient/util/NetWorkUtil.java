@@ -361,36 +361,6 @@ public class NetWorkUtil {
     }
 
 
-    public static byte[] readStream(InputStream inStream) throws IOException {
-        ByteArrayOutputStream outStream = new ByteArrayOutputStream();
-        byte[] buffer = new byte[1024];
-        int len;
-        while ((len = inStream.read(buffer)) != -1) {
-            outStream.write(buffer, 0, len);
-        }
-        outStream.close();
-        inStream.close();
-        return outStream.toByteArray();
-    }
-
-    public static byte[] uncompress(byte[] inputByte) throws IOException {
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(inputByte.length);
-        try {
-            Inflater inflater = new Inflater(true);
-            inflater.setInput(inputByte);
-            byte[] buffer = new byte[4 * 1024];
-            while (!inflater.finished()) {
-                int count = inflater.inflate(buffer);
-                outputStream.write(buffer, 0, count);
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        byte[] output = outputStream.toByteArray();
-        outputStream.close();
-        return output;
-    }
-
     public static String getInfoFromCookie(String name, String cookie) {
         String[] cookies = cookie.split("; ");
         for (String i : cookies) {
@@ -470,20 +440,6 @@ public class NetWorkUtil {
         synchronized (NetWorkUtil.class) {
             Cookies cookies = new Cookies(getCachedCookies());
             cookies.set(key, val);
-            String result = cookies.toString();
-            SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, result);
-            cachedCookies = result;
-            refreshHeaders();
-        }
-    }
-
-    /**
-     * 存储Cookies（覆盖写入）
-     *
-     * @param cookies cookies
-     */
-    public static void setCookies(Cookies cookies) {
-        synchronized (NetWorkUtil.class) {
             String result = cookies.toString();
             SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, result);
             cachedCookies = result;
@@ -594,6 +550,40 @@ public class NetWorkUtil {
 
             return sb.toString();
         }
+    }
+
+    /**
+     * 解压 CDN 返回的裸 deflate 数据（raw deflate，无 zlib 头）。
+     *
+     * 合并自原先三份逐字相同的副本（DownloadService / DownloadActivity / PlayerActivity），
+     * 权威实现放在这里，调用方不要再各写一份。
+     * 解压失败时回退返回原始数据；Inflater 持有 native 资源，必须在 finally 里 end()，
+     * 否则一次异常就会泄漏一份 native 内存。
+     */
+    public static byte[] decompress(byte[] data) {
+        byte[] output;
+        Inflater decompresser = new Inflater(true);
+        decompresser.setInput(data);
+        ByteArrayOutputStream out = new ByteArrayOutputStream(data.length);
+        try {
+            byte[] buf = new byte[2048];
+            while (!decompresser.finished()) {
+                int i = decompresser.inflate(buf);
+                out.write(buf, 0, i);
+            }
+            output = out.toByteArray();
+        } catch (Exception e) {
+            output = data;
+            e.printStackTrace();
+        } finally {
+            try {
+                out.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            decompresser.end();
+        }
+        return output;
     }
 
     public interface RedirectHandler {

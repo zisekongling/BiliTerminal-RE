@@ -226,7 +226,7 @@
 
                 <TextView
                     android:layout_width="match_parent"
-                    android:layout_height="35sp"
+                    android:layout_height="35dp"
                     android:text="清晰度"
                     android:layout_marginHorizontal="8dp"
                     android:gravity="center_vertical"
@@ -236,7 +236,7 @@
                 <TextView
                     android:id="@+id/qn_tv"
                     android:layout_width="match_parent"
-                    android:layout_height="35sp"
+                    android:layout_height="35dp"
                     android:layout_marginHorizontal="8dp"
                     android:gravity="end|center_vertical"
                     android:text="360P"

@@ -73,7 +73,7 @@ class ArticleCardAdapter(
     private fun handleArticleCache(articleCard: ArticleCard) {
         CenterThreadPool.run {
             try {
-                val cacheDir = File(BiliTerminal.context.filesDir, "article_cache")
+                val cacheDir = File(BiliTerminal.context!!.filesDir, "article_cache")
                 if (!cacheDir.exists()) cacheDir.mkdirs()
 
                 val cacheFile = File(cacheDir, "${articleCard.id}.json")

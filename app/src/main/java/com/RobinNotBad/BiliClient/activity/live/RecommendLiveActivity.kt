@@ -25,9 +25,21 @@ class RecommendLiveActivity : RefreshMainActivity() {
 
         setMenuClick()
 
+        setOnRefreshListener { loadLiveRooms(refresh = true) }
+        // 空数据时可点击重试
+        setOnEmptyRetry { loadLiveRooms(refresh = true) }
+
+        loadLiveRooms(refresh = false)
+    }
+
+    /** [refresh] = true 表示用户主动刷新/重试（要连监听器一起重建），false 为首次进入。 */
+    private fun loadLiveRooms(refresh: Boolean) {
         CenterThreadPool.run {
             try {
-                roomList = LiveApi.getRecommend(page)
+                roomList = LiveApi.getRecommend(if (refresh) 1 else page)
+                // 无内容时给出空态（一级页此前完全没有空态）
+                if (roomList!!.isEmpty()) showEmptyView() else hideEmptyView()
+                if (refresh) page = 1
                 adapter = LiveCardAdapter(this, roomList!!)
                 setOnLoadMoreListener { continueLoading(it) }
                 setRefreshing(false)
@@ -47,6 +59,7 @@ class RecommendLiveActivity : RefreshMainActivity() {
                 runOnUiThread {
                     if (list != null) {
                         roomList!!.addAll(list)
+                        hideEmptyView()
                         adapter!!.notifyItemRangeInserted(roomList!!.size - list.size, list.size)
                     }
                 }

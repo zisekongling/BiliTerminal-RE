@@ -1,7 +1,6 @@
 package com.RobinNotBad.BiliClient.tutorial
 
 import android.annotation.SuppressLint
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -16,7 +15,8 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
-import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import com.RobinNotBad.BiliClient.ui.widget.RotaryEncoderSupport
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.google.android.material.button.MaterialButton
 import java.util.Locale
 import kotlin.math.abs
@@ -219,9 +219,7 @@ class TutorialPagerActivity : BaseActivity() {
      * 因此这里直接挂在 pager 上；若真机上手感不对，需要改成自定义容器拦截。
      */
     private fun setupRotaryPaging() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        if (!SharedPreferencesUtil.getBoolean("ui_rotatory_enable", false)) return
-        val multiple = SharedPreferencesUtil.getFloat("ui_rotatory_scroll", 0f)
+        val multiple = RotaryEncoderSupport.multipleOf(SettingsKeys.UI_ROTATORY_SCROLL)
         if (multiple <= 0f) return
 
         var accumulated = 0f

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
-    <solid android:color="#00a1d6" />
+    <!-- 原为写死的 B站旧蓝 #00a1d6，与 7 套主题都不一致；改随主题主色 -->
+    <solid android:color="?attr/colorPrimary" />
 </shape>

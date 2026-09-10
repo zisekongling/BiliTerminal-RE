@@ -23,6 +23,15 @@ object SettingsKeys {
     const val SPLASH_TEXT = "ui_splashtext"
     const val MARQUEE_ENABLE = "marquee_enable"
 
+    // ---- 外观三模块（配色 / 圆角 / 字体）-------------------------------
+    // 配色沿用上面的 THEME，不另开 key（保持既有存档向前兼容）。
+    /** 卡片圆角档位，见 `ui/appearance/CornerStyle`。 */
+    const val UI_CORNER_RADIUS = "ui_corner_radius"
+    /** 字号档位，见 `ui/appearance/FontStyle`。 */
+    const val UI_FONT_SCALE = "ui_font_scale"
+    /** 字族，见 `ui/appearance/FontStyle`。 */
+    const val UI_FONT_FAMILY = "ui_font_family"
+
     // ==================== 详情页设置 ====================
     const val FAV_SINGLE = "fav_single"
     const val FAV_NOTICE = "fav_notice"

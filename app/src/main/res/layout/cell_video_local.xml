@@ -19,43 +19,46 @@
             android:layout_marginStart="4dp"
             android:visibility="gone" />
 
-        <LinearLayout
+        <!-- 封面行改成 ConstraintLayout：原来把 app:layout_constraintDimensionRatio 写在 LinearLayout 里，
+             声明完全失效，行高由每张图自身比例决定（同 cell_video_list.xml 的问题） -->
+        <androidx.constraintlayout.widget.ConstraintLayout
             android:id="@+id/linearLayout"
             android:paddingVertical="14dp"
             android:paddingHorizontal="12dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_toEndOf="@id/checkbox_select"
-            android:orientation="horizontal">
+            android:layout_toEndOf="@id/checkbox_select">
 
             <ImageView
                 android:id="@+id/img_cover"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_vertical"
-                android:layout_marginEnd="4dp"
-                android:layout_weight="0.48"
-                android:adjustViewBounds="true"
-                android:scaleType="fitCenter"
+                android:layout_height="0dp"
+                android:scaleType="centerCrop"
                 android:src="@mipmap/placeholder"
-                app:layout_constraintDimensionRatio="16:9" />
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintDimensionRatio="16:9"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintWidth_percent="0.48" />
 
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center_vertical"
-                android:layout_marginStart="4dp"
-                android:layout_weight="0.52"
-                android:orientation="vertical">
+                android:layout_marginStart="8dp"
+                android:orientation="vertical"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toEndOf="@id/img_cover"
+                app:layout_constraintTop_toTopOf="parent">
 
                 <TextView
                     android:id="@+id/text_title"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:ellipsize="end"
-                    android:maxLines="3"
-                    android:text="标题标题标题标题标题标题标题标题标题标题标题标题标题标题标题标题"
-                    android:textSize="11sp" />
+                    android:maxLines="2"
+                    android:text="标题"
+                    android:textSize="@dimen/text_body" />
 
                 <TextView
                     android:id="@+id/text_extra"
@@ -63,21 +66,21 @@
                     android:layout_height="wrap_content"
                     android:alpha="0.75"
                     android:text="11.4M"
-                    android:textSize="11sp" />
+                    android:textSize="@dimen/text_caption" />
 
                 <TextView
                     android:id="@+id/text_speed"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:alpha="0.9"
-                    android:textColor="#FF8B5CF6"
-                    android:textSize="10sp"
+                    android:textColor="?attr/colorPrimary"
+                    android:textSize="@dimen/text_caption"
                     android:visibility="gone"
                     android:drawableStart="@drawable/icon_download"
                     android:drawablePadding="4dp" />
             </LinearLayout>
 
-        </LinearLayout>
+        </androidx.constraintlayout.widget.ConstraintLayout>
 
         <View
             android:id="@+id/progress"
@@ -86,7 +89,7 @@
             android:layout_alignTop="@+id/linearLayout"
             android:layout_alignBottom="@id/linearLayout"
             android:alpha="0.3"
-            android:background="#74a864"
+            android:background="@color/status_success"
             android:visibility="gone" />
 
         <!-- 视频设置面板 (从右滑入) -->
@@ -97,7 +100,7 @@
             android:layout_alignTop="@id/linearLayout"
             android:layout_alignBottom="@id/linearLayout"
             android:orientation="vertical"
-            android:background="@color/card_dark_secondary"
+            android:background="?attr/colorSurface"
             android:visibility="gone">
 
             <include layout="@layout/panel_video_settings" />

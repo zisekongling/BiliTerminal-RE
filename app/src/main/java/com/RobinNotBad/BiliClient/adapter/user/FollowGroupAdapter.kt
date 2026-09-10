@@ -2,7 +2,6 @@ package com.RobinNotBad.BiliClient.adapter.user
 
 import android.animation.ObjectAnimator
 import android.content.Context
-import android.content.Intent
 import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
@@ -13,7 +12,6 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
-import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.model.FollowTag
 import com.RobinNotBad.BiliClient.model.UserInfo
 import com.RobinNotBad.BiliClient.util.GlideUtil
@@ -232,9 +230,10 @@ class FollowGroupAdapter(
                     holder.avatar.visibility = View.GONE
                     holder.desc.isSingleLine = false
                 } else {
-                    Glide.with(BiliTerminal.context).asDrawable().load(GlideUtil.url(user.avatar))
+                    Glide.with(BiliTerminal.context!!).asDrawable().load(GlideUtil.url(user.avatar))
                         .transition(GlideUtil.getTransitionOptions())
                         .placeholder(R.mipmap.akari)
+                        .error(R.mipmap.akari)
                         .apply(RequestOptions.circleCropTransform())
                         .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                         .into(holder.avatar)
@@ -244,10 +243,7 @@ class FollowGroupAdapter(
 
                 if (user.mid != -1L) {
                     holder.itemView.setOnClickListener {
-                        val intent = Intent()
-                            .setClass(context, UserInfoActivity::class.java)
-                            .putExtra("mid", user.mid)
-                        context.startActivity(intent)
+                        BiliTerminal.jumpToUser(context, user.mid)
                     }
                 }
             }

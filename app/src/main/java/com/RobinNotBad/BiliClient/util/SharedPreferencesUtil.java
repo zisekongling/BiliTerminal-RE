@@ -42,7 +42,6 @@ public class SharedPreferencesUtil {
     public static final String RECOMMEND_SOURCE_BOTH = "recommend_source_both";
     public static final String VIRTUAL_COLLECTION_ENABLE = "virtual_collection_enable";
     public static final String PRIVACY_MODE = "privacy_mode";
-    public static final String APPEARANCE_STYLE = "appearance_style";
 
     public static String cookies = "cookies";
     public static String mid = "mid";
@@ -126,6 +125,19 @@ public class SharedPreferencesUtil {
     /** 保存菜单启用列表。 */
     public static void saveMenuEnabled(java.util.List<String> enabled) {
         MenuConfig.INSTANCE.saveEnabled(enabled, (key, value) -> { SharedPreferencesUtil.putString(key, value); return kotlin.Unit.INSTANCE; });
+    }
+
+    /** 读取「我的」页面功能布局（非法或缺失时回退默认并写回），供 MySpaceActivity / MySpaceMoreActivity / SettingMySpaceActivity 使用。 */
+    public static MySpaceConfig.Layout loadMySpaceLayout() {
+        return MySpaceConfig.INSTANCE.load(
+                key -> getString(key, ""),
+                (key, value) -> { SharedPreferencesUtil.putString(key, value); return kotlin.Unit.INSTANCE; }
+        );
+    }
+
+    /** 保存「我的」页面功能布局。 */
+    public static void saveMySpaceLayout(MySpaceConfig.Layout layout) {
+        MySpaceConfig.INSTANCE.save(layout, (key, value) -> { SharedPreferencesUtil.putString(key, value); return kotlin.Unit.INSTANCE; });
     }
 
     /**

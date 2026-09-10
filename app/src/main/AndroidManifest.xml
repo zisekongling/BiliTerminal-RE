@@ -189,6 +189,11 @@
             android:label="菜单设置"
             android:screenOrientation="locked" />
         <activity
+            android:name=".activity.settings.SettingMySpaceActivity"
+            android:exported="false"
+            android:label="我的页面设置"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.settings.SettingSearchActivity"
             android:exported="false"
             android:label="搜索设置"
@@ -411,6 +416,11 @@
             android:name=".activity.user.MySpaceActivity"
             android:exported="false"
             android:label="我的"
+            android:screenOrientation="locked" />
+        <activity
+            android:name=".activity.user.MySpaceMoreActivity"
+            android:exported="false"
+            android:label="更多"
             android:screenOrientation="locked" />
         <activity
             android:name=".activity.user.MedalWallActivity"

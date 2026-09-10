@@ -6,6 +6,8 @@
     android:layout_marginHorizontal="@dimen/activity_padding_horizontal"
     android:layout_marginVertical="@dimen/list_margin_vertical"
     android:background="@drawable/bg_card_rounded"
+    android:foreground="?attr/selectableItemBackground"
+    android:clipToOutline="true"
     android:elevation="2dp"
     android:outlineProvider="background">
 
@@ -39,7 +41,7 @@
                 android:ellipsize="end"
                 android:textStyle="bold"
                 android:textSize="14sp"
-                android:textColor="@android:color/white"
+                android:textColor="?android:attr/textColorPrimary"
                 android:text="NappuHidda" />
 
             <TextView
@@ -48,7 +50,7 @@
                 android:layout_height="wrap_content"
                 android:singleLine="true"
                 android:ellipsize="end"
-                android:textSize="11sp"
+                android:textSize="12sp"
                 android:alpha="0.7"
                 android:text="年少时的怦然心动，送给了永远无法企及的人。" />
 

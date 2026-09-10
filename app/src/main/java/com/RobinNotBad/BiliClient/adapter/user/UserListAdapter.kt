@@ -1,7 +1,6 @@
 package com.RobinNotBad.BiliClient.adapter.user
 
 import android.content.Context
-import android.content.Intent
 import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
@@ -9,8 +8,8 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
-import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.model.UserInfo
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.bumptech.glide.Glide
@@ -30,6 +29,7 @@ open class UserListAdapter(
             .format(DecodeFormat.PREFER_RGB_565)
             .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
             .placeholder(R.mipmap.akari)
+            .error(R.mipmap.akari)
             .override(128) // 头像只需要小尺寸，限制解码大小减少内存占用
     }
 
@@ -101,9 +101,7 @@ open class UserListAdapter(
                 if (position == RecyclerView.NO_POSITION) return@setOnClickListener
                 val user = userList.getOrNull(position) ?: return@setOnClickListener
                 if (user.mid != -1L) {
-                    val intent = Intent(context, UserInfoActivity::class.java)
-                        .putExtra("mid", user.mid)
-                    context.startActivity(intent)
+                    BiliTerminal.jumpToUser(context, user.mid)
                 }
             }
         }

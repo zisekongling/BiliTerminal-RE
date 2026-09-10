@@ -9,7 +9,7 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
-import com.RobinNotBad.BiliClient.adapter.ExpLogAdapter
+import com.RobinNotBad.BiliClient.adapter.LogListAdapter
 import com.RobinNotBad.BiliClient.api.ExpLogApi
 import com.RobinNotBad.BiliClient.model.ExpLog
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -20,7 +20,7 @@ class ExpLogActivity : BaseActivity() {
     private lateinit var recyclerView: RecyclerView
     private lateinit var swipeRefreshLayout: SwipeRefreshLayout
     private var logList: ArrayList<ExpLog> = arrayListOf()
-    private var adapter: ExpLogAdapter? = null
+    private var adapter: LogListAdapter<ExpLog>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,7 +47,10 @@ class ExpLogActivity : BaseActivity() {
                         MsgUtil.showMsg("暂无经验变化记录")
                         findViewById<View>(R.id.emptyTip).visibility = View.VISIBLE
                     } else {
-                        adapter = ExpLogAdapter(this, logList)
+                        // 经验流水：保持原有行为，恒前置 "+"
+                        adapter = LogListAdapter(this, logList) { log ->
+                            LogListAdapter.Row("+" + log.delta, log.reason, log.time)
+                        }
                         recyclerView.adapter = adapter
                     }
                     swipeRefreshLayout.isRefreshing = false

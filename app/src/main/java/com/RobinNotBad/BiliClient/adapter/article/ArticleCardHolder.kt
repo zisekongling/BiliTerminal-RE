@@ -48,9 +48,10 @@ class ArticleCardHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             readTimes.visibility = View.GONE
         } else readTimes.text = articleCard.view
 
-        Glide.with(BiliTerminal.context).asDrawable()
-            .load(if (!TextUtils.isEmpty(articleCard.cover)) GlideUtil.url(articleCard.cover) else R.mipmap.article_placeholder)
+        Glide.with(BiliTerminal.context!!).asDrawable()
+            .load(if (!TextUtils.isEmpty(articleCard.cover)) GlideUtil.url_hq(articleCard.cover) else R.mipmap.article_placeholder)
             .placeholder(R.mipmap.placeholder)
+            .error(R.mipmap.placeholder)
             .transition(GlideUtil.getTransitionOptions())
             .format(DecodeFormat.PREFER_RGB_565)
             .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(5f))))

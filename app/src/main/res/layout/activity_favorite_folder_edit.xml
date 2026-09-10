@@ -67,7 +67,7 @@
                 android:background="@drawable/background_edittext"
                 android:hint="请输入收藏夹名称"
                 android:inputType="text"
-                android:minHeight="48dp"
+                android:minHeight="@dimen/touch_min"
                 android:padding="8dp"
                 android:textSize="13sp"
                 android:maxLines="1" />
@@ -101,7 +101,7 @@
 
                 <TextView
                     android:layout_width="match_parent"
-                    android:layout_height="35sp"
+                    android:layout_height="35dp"
                     app:drawableEndCompat="@drawable/arrow_forward"
                     android:layout_marginHorizontal="8dp"
                     android:gravity="center_vertical"
@@ -120,11 +120,11 @@
 
                 <TextView
                     android:layout_width="match_parent"
-                    android:layout_height="35sp"
+                    android:layout_height="35dp"
                     android:layout_marginHorizontal="8dp"
                     android:gravity="center"
                     android:text="删除收藏夹"
-                    android:textColor="#FF5722"
+                    android:textColor="@color/status_warning"
                     android:textSize="13sp"
                     android:visibility="visible" />
             </com.google.android.material.card.MaterialCardView>

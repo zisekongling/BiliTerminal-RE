@@ -12,7 +12,7 @@
     <TextView
         android:textSize="16sp"
         android:textStyle="bold"
-        android:textColor="#fb7299"
+        android:textColor="?attr/colorPrimary"
         android:gravity="center"
         android:id="@+id/rankText"
         android:layout_width="36dp"
@@ -22,7 +22,8 @@
         android:visibility="gone"
         android:layout_width="21dp"
         android:layout_height="21dp"
-        android:scaleType="fitCenter"/>
+        android:scaleType="fitCenter"
+        android:layout_marginEnd="8dp"/>
     <TextView
         android:textSize="16sp"
         android:textColor="?android:attr/textColorPrimary"

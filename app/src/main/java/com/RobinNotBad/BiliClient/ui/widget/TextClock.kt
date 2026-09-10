@@ -7,7 +7,7 @@ import android.os.Build
 import android.util.AttributeSet
 import android.widget.TextView
 import androidx.annotation.RequiresApi
-import java.text.SimpleDateFormat
+import com.RobinNotBad.BiliClient.util.TimeUtil
 
 @SuppressLint("AppCompatCustomView")
 class TextClock @JvmOverloads constructor(
@@ -19,11 +19,6 @@ class TextClock @JvmOverloads constructor(
 
     init {
         init()
-    }
-
-    @SuppressLint("SimpleDateFormat")
-    companion object {
-        private val dateFormat = SimpleDateFormat("HH:mm")
     }
 
     private var stopped = false
@@ -38,7 +33,7 @@ class TextClock @JvmOverloads constructor(
             if (stopped) return
 
             val now = System.currentTimeMillis()
-            text = dateFormat.format(now)
+            text = TimeUtil.formatTime(now)
 
             val next = 60000 - now % 60000
             postDelayed(this, next)

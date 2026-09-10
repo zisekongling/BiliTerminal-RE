@@ -17,35 +17,37 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
-            <!-- 默认大号二维码：两条 Guideline 贴住左右边缘（见 QRLoginFragment.QrScale.LARGE） -->
+            <!-- 默认中号二维码：0.15/0.85（见 QRLoginFragment.QrScale.MEDIUM） -->
             <androidx.constraintlayout.widget.Guideline
                 android:id="@+id/guideline33"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                app:layout_constraintGuide_percent="0.01" />
+                app:layout_constraintGuide_percent="0.15" />
 
             <androidx.constraintlayout.widget.Guideline
                 android:id="@+id/guideline34"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                app:layout_constraintGuide_percent="0.99" />
+                app:layout_constraintGuide_percent="0.85" />
 
             <!--
                 宽度由左右两条 Guideline 决定（0dp = match constraint），高度靠 1:1 比例跟随宽度。
                 注意不要用 wrap_content + adjustViewBounds：那样卡片会被二维码位图的固有尺寸
                 撑成固定大小，Guideline 怎么改都不生效（登录页二维码缩放曾经的 bug）。
+                加 width_max 兜住平板/横屏：正方形不会宽到把状态文字挤出屏幕。
             -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/qrImageBg"
                 android:layout_width="0dp"
                 android:layout_height="0dp"
-                app:cardBackgroundColor="#fff"
+                app:cardBackgroundColor="@color/qr_plate"
                 app:layout_constraintDimensionRatio="1:1"
                 app:layout_constraintEnd_toStartOf="@+id/guideline34"
                 app:layout_constraintStart_toStartOf="@+id/guideline33"
-                app:layout_constraintTop_toTopOf="parent">
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintWidth_max="280dp">
 
                 <ImageView
                     android:id="@+id/qrImage"
@@ -67,7 +69,7 @@
                 android:layout_marginBottom="8dp"
                 android:gravity="center"
                 android:text="正在获取二维码"
-                android:textColor="#fff"
+                android:textColor="?android:attr/textColorPrimary"
                 android:textSize="14sp"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
@@ -85,7 +87,7 @@
 
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="35sp"
+                    android:layout_height="35dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingHorizontal="@dimen/activity_padding_horizontal">
@@ -103,6 +105,8 @@
                         android:id="@+id/helpIcon"
                         android:layout_width="28dp"
                         android:layout_height="28dp"
+                        android:minWidth="@dimen/touch_min"
+                        android:minHeight="@dimen/touch_min"
                         android:layout_marginStart="8dp"
                         android:padding="4dp"
                         android:src="@drawable/icon_help"
@@ -125,7 +129,7 @@
 
                 <TextView
                     android:layout_width="match_parent"
-                    android:layout_height="35sp"
+                    android:layout_height="35dp"
                     android:layout_marginHorizontal="@dimen/activity_padding_horizontal"
                     android:gravity="center_vertical"
                     android:text="切换账号"
@@ -147,7 +151,7 @@
 
                 <TextView
                     android:layout_width="match_parent"
-                    android:layout_height="35sp"
+                    android:layout_height="35dp"
                     android:layout_marginHorizontal="@dimen/activity_padding_horizontal"
                     android:gravity="center_vertical"
                     android:text="但是我拒绝"
@@ -169,7 +173,7 @@
 
                 <TextView
                     android:layout_width="match_parent"
-                    android:layout_height="35sp"
+                    android:layout_height="35dp"
                     android:layout_marginHorizontal="@dimen/activity_padding_horizontal"
                     android:gravity="center_vertical"
                     android:text="其他设备导入"

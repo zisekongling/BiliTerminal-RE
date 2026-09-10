@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background_dark">
+    android:background="?android:attr/colorBackground">
 
     <RelativeLayout
         android:id="@+id/top"
@@ -56,7 +56,7 @@
                 android:layout_marginTop="12dp"
                 android:gravity="center"
                 android:text="@string/text_new_version_released"
-                android:textColor="@color/text_primary_dark"
+                android:textColor="?android:attr/textColorPrimary"
                 android:textSize="18sp"
                 android:textStyle="bold" />
 
@@ -66,7 +66,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:gravity="center"
-                android:textColor="@color/bili_primary_light"
+                android:textColor="?attr/colorPrimary"
                 android:textSize="14sp" />
 
             <com.google.android.material.card.MaterialCardView
@@ -79,7 +79,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:padding="12dp"
-                    android:textColor="@color/text_secondary_dark"
+                    android:textColor="?android:attr/textColorSecondary"
                     android:textSize="13sp"
                     android:lineSpacingExtra="4dp" />
             </com.google.android.material.card.MaterialCardView>
@@ -105,8 +105,8 @@
             android:layout_weight="1"
             android:layout_marginEnd="4dp"
             android:text="取消"
-            android:backgroundTint="@color/card_dark"
-            android:textColor="@color/text_secondary_dark" />
+            android:backgroundTint="?attr/colorSurface"
+            android:textColor="?android:attr/textColorSecondary" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/download_btn"
@@ -142,7 +142,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:gravity="center"
-            android:textColor="@color/text_secondary_dark"
+            android:textColor="?android:attr/textColorSecondary"
             android:textSize="13sp" />
 
         <com.google.android.material.button.MaterialButton
@@ -151,9 +151,9 @@
             android:layout_width="match_parent"
             android:layout_height="44dp"
             android:layout_marginTop="8dp"
-            android:backgroundTint="@color/card_dark"
+            android:backgroundTint="?attr/colorSurface"
             android:text="取消下载"
-            android:textColor="@color/text_secondary_dark" />
+            android:textColor="?android:attr/textColorSecondary" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/retry_btn"
@@ -170,7 +170,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_below="@id/top"
-        android:background="@color/background_dark"
+        android:background="?android:attr/colorBackground"
         android:visibility="gone">
 
         <LinearLayout
@@ -184,7 +184,7 @@
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:indeterminate="true"
-                android:indeterminateTint="@color/purple_primary" />
+                android:indeterminateTint="?attr/colorPrimary" />
 
             <TextView
                 android:id="@+id/loading_text"
@@ -192,7 +192,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
                 android:text="正在检查更新..."
-                android:textColor="@color/text_secondary_dark"
+                android:textColor="?android:attr/textColorSecondary"
                 android:textSize="14sp" />
         </LinearLayout>
     </FrameLayout>

@@ -4,11 +4,11 @@
     android:layout_height="wrap_content"
     android:orientation="vertical">
 
+    <!-- 横向列表由代码里的 LayoutManager 决定；原来写在这里的 android:orientation 对 RecyclerView 无效 -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recentUpRecyclerView"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal" />
+        android:layout_height="wrap_content" />
 
 </LinearLayout>
 

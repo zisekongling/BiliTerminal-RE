@@ -124,6 +124,38 @@ app/src/test/ 新增 MenuConfigTest 纯 JVM 单测。
 
 ---
 
+## 5.「我的」页面入口配置化（2026-09-10）
+
+### 功能范围
+「我的」页面的功能入口支持排序与分区：用户卡片固定第一，「更多」与「退出登录」固定最后两位，
+其余入口都能自由排序，也可以移入「更多」列表；「更多」列表自身也能排序。
+更多列表为空时，页面上不显示「更多」按钮。
+
+### 核心决策
+- 配置拆成两份有序 key 串 `myspace_main` / `myspace_more`（`;` 连接）：互斥且并集 = 全部可配置项；
+  任一非法（未知 key、重复、漏项、跨列表重复）整体回退默认并写回，避免半截配置弄丢入口。
+- 固定项不入配置：用户卡片固定顶部且设置页里不出现，`more` / `logout` 永远最后两位。
+- 入口定义（图标 / 文案 / 跳转）抽到 `MySpaceMenu`，主列表与更多页共用，避免跳转逻辑写两遍。
+- 创作中心仍受 `creative_enable` 开关控制：设置页里始终可排序，页面按开关决定是否渲染。
+- 交互与菜单设置一致（单页双分区 + 长按拖拽），差别是更多区自身也可拖拽排序（菜单设置的未启用区不可拖）。
+
+### 实现落点
+| 文件 | 改动 |
+|---|---|
+| util/MySpaceConfig.kt | 新建：ALL_ITEMS、Layout、parseList / resolve / load / save（纯 Kotlin，无 Android 依赖） |
+| util/SharedPreferencesUtil.java | 新增 loadMySpaceLayout() / saveMySpaceLayout() |
+| activity/user/MySpaceMenu.kt | 新建：key → 图标 / 文案 / 跳转 |
+| activity/user/MySpaceActivity.kt | 按配置渲染；移除「个人信息」「修改个人描述」两组与卡片重复的入口 |
+| activity/user/MySpaceMoreActivity.kt | 新建：更多列表页（复用 activity_myspace.xml，隐藏用户卡片） |
+| adapter/MySpaceSettingAdapter.kt | 新建：双分区拖拽，两区可互相拖入 |
+| activity/settings/SettingMySpaceActivity.kt | 新建：设置入口（复用 activity_setting_menu.xml） |
+| settings/SettingGroupActivity.kt、settings/SettingsIndex.kt、AndroidManifest.xml | 注册入口与索引 |
+
+### 测试
+`app/src/test/.../MySpaceConfigTest.kt`：解析 / 回退 / 往返，以及 `ALL_ITEMS` 与 `MySpaceMenu.ITEMS` 的 key 一致性守卫。
+
+---
+
 ## 实现核对结论（2026-09-08）
 
 四份设计文档描述的功能全部已实现，代码与文档高度一致。仅存在以下过时/偏差（已在原文档中修正）：

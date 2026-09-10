@@ -67,10 +67,10 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
-        android:alpha="0.5"
+        android:alpha="0.7"
         android:singleLine="true"
         android:text=""
-        android:textSize="11sp"
+        android:textSize="12sp"
         app:layout_constraintStart_toEndOf="@id/playView"
         app:layout_constraintTop_toBottomOf="@+id/img_cover" />
 
@@ -80,7 +80,7 @@
         android:layout_height="1dp"
         android:layout_marginHorizontal="10dp"
         android:layout_marginVertical="4dp"
-        android:background="#318C8C8C"
+        android:background="@color/list_divider"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/playTimes" />

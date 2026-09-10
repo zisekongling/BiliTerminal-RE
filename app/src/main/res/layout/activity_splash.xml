@@ -5,12 +5,16 @@
     android:layout_height="match_parent"
     tools:context=".activity.SplashActivity">
 
+    <!-- 冷启动窗口背景 splash_text.xml 已经把 128dp 应用图标居中铺好，
+         这里原来也是整屏居中文字 → 文字正好压在图标上。改为贴底居中，形成
+         "图标居中 + 文字在下" 的常规启动页结构。 -->
     <TextView
         android:id="@+id/splashText"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_centerInParent="true"
-        android:gravity="center"
-        android:text="@string/pagename_splash" />
+        android:gravity="center_horizontal|bottom"
+        android:paddingBottom="96dp"
+        android:text="@string/pagename_splash"
+        android:textSize="@dimen/text_subtitle" />
 
 </RelativeLayout>

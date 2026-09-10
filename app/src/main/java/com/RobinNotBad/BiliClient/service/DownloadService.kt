@@ -30,7 +30,6 @@ import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.Logu
-import com.RobinNotBad.BiliClient.util.MediaMerger
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import com.RobinNotBad.BiliClient.util.ToolsUtil
@@ -40,14 +39,13 @@ import okio.Sink
 import okio.buffer
 import okio.sink
 import org.json.JSONException
-import java.io.ByteArrayOutputStream
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.util.Timer
 import java.util.TimerTask
-import java.util.zip.Inflater
 
 class DownloadService : Service() {
 
@@ -195,34 +193,6 @@ class DownloadService : Service() {
         private const val ERR_PAUSED = -8 // 任务被用户暂停，不视为失败
 
         @JvmStatic
-        fun decompress(data: ByteArray): ByteArray {
-            var output: ByteArray
-            val decompresser = Inflater(true)
-            decompresser.reset()
-            decompresser.setInput(data)
-            val o = ByteArrayOutputStream(data.size)
-            try {
-                val buf = ByteArray(2048)
-                while (!decompresser.finished()) {
-                    val i = decompresser.inflate(buf)
-                    o.write(buf, 0, i)
-                }
-                output = o.toByteArray()
-            } catch (e: Exception) {
-                output = data
-                e.printStackTrace()
-            } finally {
-                try {
-                    o.close()
-                    decompresser.end()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-            return output
-        }
-
-        @JvmStatic
         fun getFirst(): DownloadSection? {
             var cursor: Cursor? = null
             var database: SQLiteDatabase? = null
@@ -354,47 +324,6 @@ class DownloadService : Service() {
             }
         }
 
-        /**
-         * 重新下载视频（切换分辨率），删除旧下载记录后启动新下载
-         */
-        @JvmStatic
-        fun startReDownload(title: String, aid: Long, cid: Long, cover: String, newQn: Int) {
-            CenterThreadPool.run {
-                var database: SQLiteDatabase? = null
-                try {
-                    val helper = DownloadSqlHelper(BiliTerminal.context)
-                    database = helper.writableDatabase
-
-                    // 删除旧的下载记录（避免重复检查拦截）
-                    database.execSQL("delete from download where aid=? and cid=?",
-                        arrayOf<Any>(aid.toString(), cid.toString()))
-
-                    database.close()
-                    database = null
-
-                    // 删除旧视频文件，准备重新下载
-                    val videoDir = FileUtil.getVideoDownloadPath(title, null)
-                    val oldVideoFile = File(videoDir, "video.mp4")
-                    if (oldVideoFile.exists()) oldVideoFile.delete()
-                    val oldAudioFile = File(videoDir, "audio.m4a")
-                    if (oldAudioFile.exists()) oldAudioFile.delete()
-                    // 删除旧的.DOWNLOADING标记（如果存在）
-                    val downloadingMark = File(videoDir, ".DOWNLOADING")
-                    if (downloadingMark.exists()) downloadingMark.delete()
-
-                    // 更新画质元数据
-                    VideoMetaManager.updateQuality(title, newQn)
-
-                    // 启动新的下载（封面已存在，传空字符串跳过封面下载）
-                    startDownload(title, aid, cid, "", newQn, "video", "")
-                } catch (e: Exception) {
-                    MsgUtil.err(e)
-                } finally {
-                    database?.close()
-                }
-            }
-        }
-
         @JvmStatic
         fun startDownload(title: String, aid: Long, cid: Long, cover: String, qn: Int, downloadType: String,
                           audioUrl: String) {
@@ -505,7 +434,7 @@ class DownloadService : Service() {
             Logu.d("start")
             firstDown = first
 
-            val context = BiliTerminal.context
+            val context = BiliTerminal.context!!
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                     context.startForegroundService(Intent(context, DownloadService::class.java))
@@ -1079,12 +1008,6 @@ class DownloadService : Service() {
         return true
     }
 
-    private fun toastState(newState: String) {
-        state = newState
-        percent = 0f
-        toastTimer?.cancel()
-    }
-
     private fun startNotifyProgress() {
         notifyTimer = Timer()
         notifyTimer!!.schedule(object : TimerTask() {
@@ -1520,7 +1443,7 @@ class DownloadService : Service() {
                 return ERR_FILE
 
             val sink: Sink = danmakuFile.sink()
-            val decompressBytes = decompress(response.body!!.bytes())
+            val decompressBytes = NetWorkUtil.decompress(response.body!!.bytes())
             bufferedSink = sink.buffer()
             bufferedSink.write(decompressBytes)
             bufferedSink.close()

@@ -21,6 +21,8 @@ import android.widget.TextView
 import androidx.activity.result.ActivityResultLauncher
 import androidx.annotation.Nullable
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.recyclerview.widget.RecyclerView
 
@@ -63,16 +65,7 @@ open class BaseActivity : AppCompatActivity() {
 
     override fun onCreate(@Nullable savedInstanceState: Bundle?) {
         val theme = SharedPreferencesUtil.getString(ThemeManager.PREF_KEY_THEME, ThemeManager.THEME_DEFAULT)
-        val themeResId = when (theme) {
-            ThemeManager.THEME_ZHIHU_BLUE -> R.style.Theme_ZhihuBlue
-            ThemeManager.THEME_IQIYI_GREEN -> R.style.Theme_IQIYIGreen
-            ThemeManager.THEME_PURPLE_FANTASY -> R.style.Theme_PurpleFantasy
-            ThemeManager.THEME_RAINBOW_FANTASY -> R.style.Theme_RainbowFantasy
-            ThemeManager.THEME_CLASSIC_GRAY -> R.style.Theme_ClassicGray
-            ThemeManager.THEME_CLASSIC_TERMINAL -> R.style.Theme_ClassicTerminal
-            else -> R.style.Theme_BiliClient
-        }
-        setTheme(themeResId)
+        setTheme(ThemeManager.themeResId(theme))
 
         setRequestedOrientation(
             if (SharedPreferencesUtil.getBoolean("ui_landscape", false))
@@ -114,10 +107,42 @@ open class BaseActivity : AppCompatActivity() {
             window_height = scrH
         }
 
+        applySystemBarInsets()
+
         val density = SharedPreferencesUtil.getInt("density", -1)
         if (density >= 72) {
             setDensity(density)
         }
+    }
+
+    /**
+     * 系统栏避让。
+     *
+     * [ThemeManager.applyWindowTheme] 里调用了 `setDecorFitsSystemWindows(false)`，内容会绘制到
+     * 系统栏（状态栏/导航栏/刘海）下方。此前全工程没有任何 insets 处理，结果是贴底控件与列表
+     * 最后一项被导航栏压住。这里把系统栏 inset 叠加到根布局已有的 padding 上，用户自定义的
+     * 「界面边距」设置（paddingH/V_percent）仍然保留。
+     */
+    private fun applySystemBarInsets() {
+        val root = window.decorView.rootView
+        val baseLeft = root.paddingLeft
+        val baseTop = root.paddingTop
+        val baseRight = root.paddingRight
+        val baseBottom = root.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            // 同时消费 displayCutout：横屏/挖孔机型上系统可能把内容排进刘海区域
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            view.setPadding(
+                baseLeft + bars.left,
+                baseTop + bars.top,
+                baseRight + bars.right,
+                baseBottom + bars.bottom
+            )
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
     }
 
     override fun onBackPressed() {
@@ -325,9 +350,22 @@ open class BaseActivity : AppCompatActivity() {
 
     fun getLayoutManager(): RecyclerView.LayoutManager {
         return if (SharedPreferencesUtil.getBoolean("ui_landscape", false) && !force_single_column)
-            CustomGridManager(this, 3)
+            CustomGridManager(this, landscapeSpanCount())
         else
             CustomLinearManager(this)
+    }
+
+    /**
+     * 横屏列数。
+     *
+     * 原来固定 3 列：窄屏（横屏 640dp 左右）上每列不到 210dp，视频卡封面被压得很扁；
+     * 平板/大屏又太空。改成按「每列至少 220dp」换算，下限 2 列。
+     */
+    private fun landscapeSpanCount(): Int {
+        val widthDp = resources.configuration.screenWidthDp
+            .takeIf { it > 0 }
+            ?: (window_width / resources.displayMetrics.density).toInt()
+        return maxOf(2, widthDp / 220)
     }
 
     fun setForceSingleColumn() {

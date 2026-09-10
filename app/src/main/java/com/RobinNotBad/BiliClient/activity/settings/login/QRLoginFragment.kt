@@ -43,16 +43,19 @@ class QRLoginFragment : Fragment() {
     var isTVMode: Boolean = false
 
     /**
-     * 二维码缩放档位。默认大号。
-     * 每档对应左右两条 Guideline 的位置百分比。
+     * 二维码缩放档位。默认中号。
+     *
+     * 原默认 LARGE 是 0.01/0.99 —— 卡片几乎占满屏宽，而二维码卡片是 1:1 正方形，
+     * 横屏/平板上高度会超出视口，状态提示文字被挤出屏幕。现在默认 0.15/0.85（70% 宽），
+     * 点击二维码仍在 大→中→小 之间循环。
      */
     private enum class QrScale(val left: Float, val right: Float, val tip: String) {
-        LARGE(0.01f, 0.99f, "切换为小二维码"),
-        MEDIUM(0.15f, 0.85f, "切换为更小的二维码"),
-        SMALL(0.30f, 0.70f, "切换为大二维码")
+        SMALL(0.25f, 0.75f, "切换为中等二维码"),
+        MEDIUM(0.15f, 0.85f, "切换为大二维码"),
+        LARGE(0.05f, 0.95f, "切换为小二维码")
     }
 
-    private var qrScale = QrScale.LARGE
+    private var qrScale = QrScale.MEDIUM
 
     companion object {
         fun newInstance(from_setup: Boolean): QRLoginFragment {
