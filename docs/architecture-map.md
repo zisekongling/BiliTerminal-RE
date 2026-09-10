@@ -446,14 +446,51 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 2. 圆角与字族**只决定「用哪一套预烤资源 / 哪个 style 属性」**，不做运行时几何计算，
    也不在 `RecyclerView` 绑定路径上做任何额外工作。
 
+### 8.7.1 圆角的生效机制（26.09.11 落地，改圆角前必读）
+
+**为什么不能直接用 dimen**：`dimen` 是编译期固定的，用户设置在运行时改不了它；
+`shape drawable` 也读不到主题属性。**只有主题属性（`?attr/`）能被 `theme.applyStyle()` 覆盖**，
+所以圆角走的是主题属性这条唯一可行的路：
+
+1. `res/values/styles.xml` 声明 `<attr name="appCornerRadius" format="dimension"/>`，
+   并定义两个覆盖样式 `Appearance_CornerSquare` / `Appearance_CornerRounded`。
+2. 所有 `CardStyle*`/`ButtonStyle*`（`styles.xml` + `themes.xml` 共 7 套）的
+   `cardCornerRadius`/`cornerRadius` 一律引用 `?attr/appCornerRadius`——
+   原先 10 处硬编码 `12dp` 已全部消除。
+3. 每套主题都自带一条 `<item name="appCornerRadius">@dimen/card_round</item>` 作为**兜底**，
+   这样不走 `BaseActivity` 的裸 Activity（`SplashActivity`/`GetIntentActivity`）与
+   `Theme.NoSwipe.AppCompat` 类界面拿到的是「方角」而不是解析失败的 0dp。
+4. `BaseActivity.onCreate` 在 `setTheme(...)` 之后、任何视图 inflate **之前**，
+   执行 `this.theme.applyStyle(CornerStyle.overlayStyleResId(), true)`。
+   **这是圆角模块唯一的运行时成本，且是 O(1)，无任何视图遍历。**
+
+> `force = true` 是必需的：`appCornerRadius` 已在主题里定义过，不加 force 覆盖不生效。
+
+**档位取值**：`card_round`（方角：手表 6dp / 宽屏 10dp）、`card_round_large`
+（圆角：手表 12dp / 宽屏 16dp）。真源是 `dimens.xml` + `values-w300dp/dimens.xml`。
+
+**已知未覆盖（圆角模块的遗留项）**
+- **10 个 shape drawable 仍直接用 `@dimen/card_round`**，因此不跟随档位
+  （`background_card`、`background_card_borderless`、`background_edittext`×3、
+  `background_grey_cardview`、`background_privatemsg_send`、`background_searchbar`、
+  `background_searchhistory`）。`shape` 的 `<corners android:radius>` 读不到主题属性。
+  修法有两条，**都必须先真机确认**：① 把这几处改成 `ShapeableImageView`/`MaterialCardView`
+  等能吃主题属性的控件；② 在 `setContentView` 之后做**一次**遍历改写 `GradientDrawable` 半径，
+  且**仅在档位 ≠ 主题兜底值时才执行**。当前选择：先不做，避免在热路径引入特判。
+- **layout 级内联圆角**保持原值，不跟随档位：`cell_up_avatar`(28dp，圆形头像)、
+  `activity_vote_info` 的两个按钮(18dp)、`cell_follow_group`/`cell_log`/`cell_login_record`(8dp)、
+  `item_account`(12dp)。属「尺寸派生圆角」，按设计豁免。
+
 **「方角」的语义（已对上游实测核实）**：上游 BiliClient（gitee `develop`，HEAD `f2b1aca`）
 全项目唯一圆角是 `@dimen/card_round` = **6dp**，经主题 `materialCardViewStyle` 全局下发；
 **上游没有 0dp 直角外观，也没有任何圆角设置项**。所以 `square` 档的值是 `card_round`
 （手表 6dp / 宽屏 `values-w300dp` 10dp），语义是「还原原项目」，不是「做成直角」。
 本项目偏离上游之处是给 6 套主题硬编码了 12dp，那是 `rounded` 档。
 
-**默认档位的选择**：圆角默认 `square`。当前默认主题「经典终端」本来就走 `@dimen/card_round`，
-因此默认档位 = **现有用户观感零变化**。
+**默认档位的观感影响（修正早先「零变化」的说法）**
+默认 `square`，对**默认主题「经典终端」是零变化**（它本来就走 `@dimen/card_round`）；
+但**另外 6 套主题的卡片圆角会从 12dp 变为 6dp**——那 12dp 是主题化改造时复制 `CardStyle`
+引入的漂移（5 套主题各抄了一份 12dp），不是刻意的设计取值，本次借模块化收敛回原项目取值。
 
 ---
 

@@ -1,9 +1,12 @@
 package com.RobinNotBad.BiliClient.ui.appearance
 
+import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.util.FakeSharedPreferences
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -84,6 +87,48 @@ class CornerStyleTest {
     fun key_isTheSettingsKeysConstant() {
         assertEquals(
             com.RobinNotBad.BiliClient.util.SettingsKeys.UI_CORNER_RADIUS, CornerStyle.KEY
+        )
+    }
+
+    // ==================== 档位 → 覆盖样式（真正让档位生效的那一步） ====================
+
+    @Test
+    fun overlayStyleResId_mapsEachValueToItsOwnStyle() {
+        assertEquals(
+            R.style.Appearance_CornerSquare,
+            CornerStyle.overlayStyleResId(CornerStyle.SQUARE)
+        )
+        assertEquals(
+            R.style.Appearance_CornerRounded,
+            CornerStyle.overlayStyleResId(CornerStyle.ROUNDED)
+        )
+        assertTrue(
+            "两档必须映射到不同的覆盖样式，否则切换档位不产生任何视觉变化",
+            CornerStyle.overlayStyleResId(CornerStyle.SQUARE) !=
+                CornerStyle.overlayStyleResId(CornerStyle.ROUNDED)
+        )
+    }
+
+    @Test
+    fun overlayStyleResId_unknownValueFallsBackToDefaultStyle() {
+        // 存档坏了不能让圆角解析失败：必须回落到默认档的样式（而不是 0 / 未定义）
+        assertEquals(
+            R.style.Appearance_CornerSquare,
+            CornerStyle.overlayStyleResId("garbage")
+        )
+    }
+
+    @Test
+    fun overlayStyleResId_defaultsToCurrentPreference() {
+        assertEquals(
+            "无参调用应跟随当前设置",
+            CornerStyle.overlayStyleResId(CornerStyle.current()),
+            CornerStyle.overlayStyleResId()
+        )
+        SharedPreferencesUtil.putString(CornerStyle.KEY, CornerStyle.ROUNDED)
+        assertEquals(
+            R.style.Appearance_CornerRounded,
+            CornerStyle.overlayStyleResId()
         )
     }
 }

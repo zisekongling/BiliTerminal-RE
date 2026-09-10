@@ -14,10 +14,9 @@
     <dimen name="space_lg">16dp</dimen>
     <dimen name="space_xl">24dp</dimen>
 
-    <!-- 圆角 -->
-    <dimen name="radius_card">8dp</dimen>
-    <dimen name="radius_small">6dp</dimen>
-    <dimen name="radius_chip">16dp</dimen>
+    <!-- 圆角：**真源**在这里。dimen 本身无法运行时切换，实际生效的是
+         styles.xml 里的 ?attr/appCornerRadius（由 ui/appearance/CornerStyle 驱动）。
+         曾经的 radius_card / radius_small / radius_chip 三个 token 全工程 0 引用，已删除。 -->
 
     <!-- 字号：手表上比手机档位整体小一档 -->
     <dimen name="text_topbar">14sp</dimen>
@@ -59,6 +58,8 @@
     <dimen name="linearlayout_divider">4dp</dimen>
     <dimen name="grid_spacing">6dp</dimen>
     <dimen name="card_round">6dp</dimen>
+    <!-- 第二档「圆角」：比「方角」大 6dp，宽屏（values-w300dp）同步为 16dp -->
+    <dimen name="card_round_large">12dp</dimen>
     <dimen name="card_stroke">0dp</dimen>
     <dimen name="round_small">4dp</dimen>
 </resources>

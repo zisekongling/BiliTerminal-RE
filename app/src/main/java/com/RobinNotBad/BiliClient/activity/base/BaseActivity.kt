@@ -36,7 +36,9 @@ import com.RobinNotBad.BiliClient.tutorial.TutorialStore
 import com.RobinNotBad.BiliClient.tutorial.Tutorials
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomGridManager
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
+import com.RobinNotBad.BiliClient.ui.appearance.AppearanceManager
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
+import com.RobinNotBad.BiliClient.ui.appearance.CornerStyle
 import com.RobinNotBad.BiliClient.util.AsyncLayoutInflaterX
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -55,8 +57,9 @@ open class BaseActivity : AppCompatActivity() {
     @JvmField val relayDynamicLauncher: ActivityResultLauncher<Intent> = DynamicActivity.getRelayDynamicLauncher(this)
     @JvmField var force_single_column: Boolean = false
 
-    // 记录本 Activity 创建时应用的主题，用于返回前台时检测变更并即时重建
-    private var appliedTheme: String? = null
+    // 记录本 Activity 创建时的「外观版本号」，用于返回前台时检测配色/圆角/字体任一项变更并即时重建。
+    // 用单个 Int 而不是逐个比对各设置项：将来再加第 4 个外观模块时不需要改这里。
+    private var appliedAppearanceVersion: Int = -1
 
     override fun attachBaseContext(newBase: Context) {
         old_context = newBase
@@ -66,6 +69,10 @@ open class BaseActivity : AppCompatActivity() {
     override fun onCreate(@Nullable savedInstanceState: Bundle?) {
         val theme = SharedPreferencesUtil.getString(ColorScheme.PREF_KEY_THEME, ColorScheme.THEME_DEFAULT)
         setTheme(ColorScheme.themeResId(theme))
+        // 外观档位（圆角）必须在任何视图 inflate **之前**叠加到主题上：
+        // 只有主题属性能在运行时被覆盖，dimen 做不到（见 res/values/styles.xml）。
+        // 这一句是圆角模块唯一的运行时成本，且是 O(1)，无任何视图遍历。
+        this.theme.applyStyle(CornerStyle.overlayStyleResId(), true)
 
         setRequestedOrientation(
             if (SharedPreferencesUtil.getBoolean("ui_landscape", false))
@@ -76,7 +83,7 @@ open class BaseActivity : AppCompatActivity() {
 
         super.onCreate(savedInstanceState)
 
-        appliedTheme = SharedPreferencesUtil.getString(ColorScheme.PREF_KEY_THEME, ColorScheme.THEME_DEFAULT)
+        appliedAppearanceVersion = AppearanceManager.version()
 
         ColorScheme.applyWindowTheme(this)
 
@@ -274,9 +281,9 @@ open class BaseActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // 主题在别处被修改后，返回本页时即时重建以应用新主题
-        val currentTheme = SharedPreferencesUtil.getString(ColorScheme.PREF_KEY_THEME, ColorScheme.THEME_DEFAULT)
-        if (appliedTheme != null && appliedTheme != currentTheme) {
+        // 外观（配色/圆角/字体任一项）在别处被修改后，返回本页时即时重建以应用新外观。
+        // 只比一个 Int：三个模块共用一个版本号，详见 AppearanceManager。
+        if (appliedAppearanceVersion >= 0 && appliedAppearanceVersion != AppearanceManager.version()) {
             recreate()
             return
         }

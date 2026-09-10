@@ -1,5 +1,6 @@
 package com.RobinNotBad.BiliClient.ui.appearance
 
+import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 
@@ -57,4 +58,19 @@ object CornerStyle {
 
     /** 读取当前档位（已规整）。 */
     fun current(): String = normalize(SharedPreferencesUtil.getString(KEY, DEFAULT))
+
+    /**
+     * 档位 → 需要 `theme.applyStyle()` 的**覆盖样式**（定义在 `res/values/styles.xml`）。
+     *
+     * 为什么是这套机制：`dimen` 编译期固定、`shape drawable` 读不到主题，
+     * 只有**主题属性**（`?attr/appCornerRadius`）能在运行时被 `applyStyle` 覆盖。
+     * 因此所有 `CardStyle*`/`ButtonStyle*` 都引用该属性，由 `BaseActivity`
+     * 在 `setTheme` 之后、任何视图 inflate 之前叠加本样式。
+     *
+     * 好处：**零运行时遍历**，不碰 `RecyclerView` 绑定路径（手表性能优先）。
+     */
+    fun overlayStyleResId(value: String = current()): Int = when (normalize(value)) {
+        ROUNDED -> R.style.Appearance_CornerRounded
+        else -> R.style.Appearance_CornerSquare
+    }
 }

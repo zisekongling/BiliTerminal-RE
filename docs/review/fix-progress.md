@@ -487,6 +487,35 @@ override fun updateTimer(timer: DanmakuTimer) { timer.update(onCurrentPositionMs
 > 「配色模块」的**功能**部分（把 7 套重复的 `themes.xml` 组件样式合并为一份 `?attr/` 版本）尚未开始，留待后续，需真机逐套验证。
 > 注意：本轮**没有**采用「保留 `ThemeManager` 作转发壳」的方案——转发需要手写 ~70 个成员且易错，直接迁移调用点由编译器兜底，且不留过渡代码。
 
+### 第二十五轮（外观三模块重构 · 步骤 4：圆角模块落地）· 26.09.11
+
+**第一个用户可见的外观模块**。「方角 / 圆角」两档可在设置页切换并即时生效。
+
+**机制（为什么走主题属性）**：`dimen` 编译期固定、`shape drawable` 读不到主题，
+**只有主题属性 `?attr/` 能被 `theme.applyStyle()` 覆盖**。所以：
+
+| 文件 | 改动 |
+|---|---|
+| `res/values/styles.xml` | 声明 `<attr name="appCornerRadius" format="dimension"/>`；定义两个覆盖样式 `Appearance_CornerSquare`/`Appearance_CornerRounded`；`CardStyle`/`CardStyleLight`/`ButtonStyle`/`ButtonStyleLight` 的圆角改引用 `?attr/appCornerRadius`（放在已有文件里，**不新增 res 文件**，避免 build cache 回放坑） |
+| `res/values/themes.xml` | 5 套主题的 10 处硬编码 `12dp` + `CardStyleTerminal` 的 2 处 `@dimen/card_round` 全部改为 `?attr/appCornerRadius`；**每套主题补一条 `appCornerRadius=@dimen/card_round` 作兜底**（8 处），使不走 `BaseActivity` 的裸 Activity 拿到「方角」而非解析失败的 0dp |
+| `res/values/dimens.xml`、`values-w300dp/dimens.xml` | 新增 `card_round_large`（手表 12dp / 宽屏 16dp）；**删除三个 0 引用的死 token** `radius_card`/`radius_small`/`radius_chip`（含宽屏覆盖） |
+| `ui/appearance/CornerStyle.kt` | 新增 `overlayStyleResId()`：档位 → 覆盖样式 |
+| `activity/base/BaseActivity.kt` | `setTheme()` 之后、inflate 之前 `theme.applyStyle(CornerStyle.overlayStyleResId(), true)`（`force=true` 必需，属性已在主题里定义过）；**`appliedTheme` 字符串换成 `appliedAppearanceVersion` Int**，`onResume` 只比一个 Int |
+| `SettingGroupActivity` + `SettingsIndex` | 新增「卡片圆角」设置行（两处；独立「外观设置」页面留待步骤 6） |
+| `CornerStyleTest` | 新增 3 个用例覆盖 `overlayStyleResId` 的映射/回落/跟随设置 |
+
+**性能**：圆角模块的运行时成本是 `applyStyle` **一次 O(1) 调用**，无任何视图遍历，
+不碰 `RecyclerView` 绑定路径（手表性能优先）。
+
+**默认档位的观感影响（订正早先「零变化」的说法）**：默认 `square` 对**默认主题「经典终端」零变化**；
+但**另外 6 套主题的卡片圆角会从 12dp 变为 6dp**——那 12dp 是主题化改造时各抄一份 `CardStyle`
+引入的漂移，不是刻意取值，本次借模块化收敛回原项目取值。
+
+**遗留（明确登记，见 `architecture-map.md` §8.7.1）**：
+- **10 个 shape drawable 仍直接用 `@dimen/card_round`，不跟随档位**（搜索框、输入框、灰卡、私信发送框等）。
+  `shape` 的 `<corners>` 读不到主题属性；修法需先真机验证（改控件 or 一次条件性遍历），本轮不做。
+- layout 级内联圆角（头像 28dp、投票按钮 18dp、三个 8dp cell、`item_account` 12dp）按设计豁免，不跟随档位。
+
 ---
 
 ## 三、审查前已修复（本次核查确认，无需改动）
@@ -529,6 +558,7 @@ override fun updateTimer(timer: DanmakuTimer) { timer.update(onCurrentPositionMs
 | 2026-09-11 | `:app:testDebugUnitTest` + `:app:assembleDebug`（第二十二轮步骤 1：色表缓存） | ✅ BUILD SUCCESSFUL；12 个测试类 / 73 用例 / 0 失败（`ThemeManagerTest` 增至 14 用例，含「501 次 getter 只读 1 次 SharedPreferences」的性能断言）；行为与视觉无变化 |
 | 2026-09-11 | `:app:testDebugUnitTest` + `:app:assembleDebug`（第二十三轮：外观三模块门面骨架） | ✅ BUILD SUCCESSFUL in 11s / 6s；15 个测试类 / 103 用例 / 0 失败（新增 `CornerStyleTest` 7、`FontStyleTest` 11、`AppearanceManagerTest` 12）；无 `res/` 改动，圆角与字体尚无消费方 → UI 零变化 |
 | 2026-09-11 | `:app:testDebugUnitTest` + `:app:assembleDebug`（第二十四轮：配色模块迁入 `ui/appearance/`） | ✅ BUILD SUCCESSFUL in 1m 16s（编译）/ 13s（测试+打包）；15 个测试类 / 103 用例 / 0 失败；27 个调用点迁移，`ui/theme/` 目录删除 |
+| 2026-09-11 | `:app:assembleDebug` + `:app:testDebugUnitTest`（第二十五轮：圆角模块落地） | ✅ BUILD SUCCESSFUL in 1m 56s；15 个测试类 / 106 用例 / 0 失败（`CornerStyleTest` 7→10）；`R.txt` 已生成 `attr appCornerRadius` 与两个覆盖样式；16 处圆角定义全部改为 `?attr/` 引用，0 残留硬编码；**待真机验证两档切换** |
 
 > 第二轮修复的 4 个文件（QRLoginFragment/CaptchaWebViewActivity/LocalListActivity/VideoInfoFragment）已重新编译验证通过。APK 时间戳更新至 16:01:21，universal 包 31.04 MB。
 > 第三轮修复的 2 个文件（PrivateMsgActivity/NetWorkUtil）已重新编译验证通过。构建仅有 1 个 Hilt 处理选项无关警告，不影响产物。
@@ -576,7 +606,7 @@ override fun updateTimer(timer: DanmakuTimer) { timer.update(onCurrentPositionMs
 
 - [ ] 拆分 PlayerActivity（3090 行）
 - [ ] 拆分 DownloadService（65KB）
-- [ ] 补单元测试（当前 15 个测试类 / 103 用例覆盖 363 个源文件；26.09.11 新增 `ColorSchemeTest` 14、`CornerStyleTest` 7、`FontStyleTest` 11、`AppearanceManagerTest` 12）
+- [ ] 补单元测试（当前 15 个测试类 / 106 用例覆盖 363 个源文件；26.09.11 新增 `ColorSchemeTest` 14、`CornerStyleTest` 10、`FontStyleTest` 11、`AppearanceManagerTest` 12）
 
 ---
 

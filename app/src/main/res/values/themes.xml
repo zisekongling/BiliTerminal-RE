@@ -20,6 +20,7 @@
         <item name="android:textViewStyle">@style/TextViewStyle</item>
         <item name="editTextStyle">@style/EditTextStyle</item>
         <item name="materialCardViewStyle">@style/CardStyle</item>
+        <item name="appCornerRadius">@dimen/card_round</item>
         <item name="materialButtonStyle">@style/ButtonStyle</item>
         <item name="switchStyle">@style/SwitchCompatStyle</item>
         <item name="radioButtonStyle">@style/RadioButtonStyle</item>
@@ -60,6 +61,7 @@
         <item name="android:textViewStyle">@style/TextViewStyleLight</item>
         <item name="editTextStyle">@style/EditTextStyleLight</item>
         <item name="materialCardViewStyle">@style/CardStyleLight</item>
+        <item name="appCornerRadius">@dimen/card_round</item>
         <item name="materialButtonStyle">@style/ButtonStyleLight</item>
         <item name="switchStyle">@style/SwitchCompatStyleLight</item>
         <item name="recyclerViewStyle">@style/ListStyle</item>
@@ -109,6 +111,7 @@
         <item name="android:textViewStyle">@style/TextViewStyleZhihu</item>
         <item name="editTextStyle">@style/EditTextStyleZhihu</item>
         <item name="materialCardViewStyle">@style/CardStyleZhihu</item>
+        <item name="appCornerRadius">@dimen/card_round</item>
         <item name="materialButtonStyle">@style/ButtonStyleZhihu</item>
         <item name="switchStyle">@style/SwitchCompatStyleZhihu</item>
         <item name="radioButtonStyle">@style/RadioButtonStyleZhihu</item>
@@ -163,7 +166,7 @@
         <item name="rippleColor" tools:ignore="PrivateResource">@color/zhihu_color_ripple</item>
         <item name="android:foreground">?android:attr/selectableItemBackground</item>
         <item name="cardBackgroundColor">@color/zhihu_card_dark</item>
-        <item name="cardCornerRadius">12dp</item>
+        <item name="cardCornerRadius">?attr/appCornerRadius</item>
         <item name="cardElevation">4dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
@@ -173,7 +176,7 @@
 
     <style name="ButtonStyleZhihu" parent="Widget.MaterialComponents.Button">
         <item name="background">@drawable/gradient_button_bg_zhihu</item>
-        <item name="cornerRadius">12dp</item>
+        <item name="cornerRadius">?attr/appCornerRadius</item>
         <item name="android:textColor">@color/zhihu_text_primary_dark</item>
         <item name="android:insetTop">2dp</item>
         <item name="android:insetBottom">2dp</item>
@@ -224,6 +227,7 @@
         <item name="android:textViewStyle">@style/TextViewStyleIQIYI</item>
         <item name="editTextStyle">@style/EditTextStyleIQIYI</item>
         <item name="materialCardViewStyle">@style/CardStyleIQIYI</item>
+        <item name="appCornerRadius">@dimen/card_round</item>
         <item name="materialButtonStyle">@style/ButtonStyleIQIYI</item>
         <item name="switchStyle">@style/SwitchCompatStyleIQIYI</item>
         <item name="radioButtonStyle">@style/RadioButtonStyleIQIYI</item>
@@ -278,7 +282,7 @@
         <item name="rippleColor" tools:ignore="PrivateResource">@color/iqiyi_color_ripple</item>
         <item name="android:foreground">?android:attr/selectableItemBackground</item>
         <item name="cardBackgroundColor">@color/iqiyi_card_dark</item>
-        <item name="cardCornerRadius">12dp</item>
+        <item name="cardCornerRadius">?attr/appCornerRadius</item>
         <item name="cardElevation">4dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
@@ -288,7 +292,7 @@
 
     <style name="ButtonStyleIQIYI" parent="Widget.MaterialComponents.Button">
         <item name="background">@drawable/gradient_button_bg_iqiyi</item>
-        <item name="cornerRadius">12dp</item>
+        <item name="cornerRadius">?attr/appCornerRadius</item>
         <item name="android:textColor">@color/iqiyi_text_primary_dark</item>
         <item name="android:insetTop">2dp</item>
         <item name="android:insetBottom">2dp</item>
@@ -339,6 +343,7 @@
         <item name="android:textViewStyle">@style/TextViewStylePurpleFantasy</item>
         <item name="editTextStyle">@style/EditTextStylePurpleFantasy</item>
         <item name="materialCardViewStyle">@style/CardStylePurpleFantasy</item>
+        <item name="appCornerRadius">@dimen/card_round</item>
         <item name="materialButtonStyle">@style/ButtonStylePurpleFantasy</item>
         <item name="switchStyle">@style/SwitchCompatStylePurpleFantasy</item>
         <item name="radioButtonStyle">@style/RadioButtonStylePurpleFantasy</item>
@@ -393,7 +398,7 @@
         <item name="rippleColor" tools:ignore="PrivateResource">@color/purple_fantasy_color_ripple</item>
         <item name="android:foreground">?android:attr/selectableItemBackground</item>
         <item name="cardBackgroundColor">@color/purple_fantasy_card_dark</item>
-        <item name="cardCornerRadius">12dp</item>
+        <item name="cardCornerRadius">?attr/appCornerRadius</item>
         <item name="cardElevation">4dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
@@ -403,7 +408,7 @@
 
     <style name="ButtonStylePurpleFantasy" parent="Widget.MaterialComponents.Button">
         <item name="background">@drawable/gradient_button_bg_purple_fantasy</item>
-        <item name="cornerRadius">12dp</item>
+        <item name="cornerRadius">?attr/appCornerRadius</item>
         <item name="android:textColor">@color/purple_fantasy_text_primary_dark</item>
         <item name="android:insetTop">2dp</item>
         <item name="android:insetBottom">2dp</item>
@@ -454,6 +459,7 @@
         <item name="android:textViewStyle">@style/TextViewStyleRainbow</item>
         <item name="editTextStyle">@style/EditTextStyleRainbow</item>
         <item name="materialCardViewStyle">@style/CardStyleRainbow</item>
+        <item name="appCornerRadius">@dimen/card_round</item>
         <item name="materialButtonStyle">@style/ButtonStyleRainbow</item>
         <item name="switchStyle">@style/SwitchCompatStyleRainbow</item>
         <item name="radioButtonStyle">@style/RadioButtonStyleRainbow</item>
@@ -508,7 +514,7 @@
         <item name="rippleColor" tools:ignore="PrivateResource">@color/rainbow_color_ripple</item>
         <item name="android:foreground">?android:attr/selectableItemBackground</item>
         <item name="cardBackgroundColor">@color/rainbow_card_dark</item>
-        <item name="cardCornerRadius">12dp</item>
+        <item name="cardCornerRadius">?attr/appCornerRadius</item>
         <item name="cardElevation">4dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
@@ -518,7 +524,7 @@
 
     <style name="ButtonStyleRainbow" parent="Widget.MaterialComponents.Button">
         <item name="background">@drawable/gradient_button_bg_rainbow</item>
-        <item name="cornerRadius">12dp</item>
+        <item name="cornerRadius">?attr/appCornerRadius</item>
         <item name="android:textColor">@color/rainbow_text_primary_dark</item>
         <item name="android:insetTop">2dp</item>
         <item name="android:insetBottom">2dp</item>
@@ -569,6 +575,7 @@
         <item name="android:textViewStyle">@style/TextViewStyleClassicGray</item>
         <item name="editTextStyle">@style/EditTextStyleClassicGray</item>
         <item name="materialCardViewStyle">@style/CardStyleClassicGray</item>
+        <item name="appCornerRadius">@dimen/card_round</item>
         <item name="materialButtonStyle">@style/ButtonStyleClassicGray</item>
         <item name="switchStyle">@style/SwitchCompatStyleClassicGray</item>
         <item name="radioButtonStyle">@style/RadioButtonStyleClassicGray</item>
@@ -623,7 +630,7 @@
         <item name="rippleColor" tools:ignore="PrivateResource">@color/classic_gray_color_ripple</item>
         <item name="android:foreground">?android:attr/selectableItemBackground</item>
         <item name="cardBackgroundColor">@color/classic_gray_card_dark</item>
-        <item name="cardCornerRadius">12dp</item>
+        <item name="cardCornerRadius">?attr/appCornerRadius</item>
         <item name="cardElevation">4dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
@@ -633,7 +640,7 @@
 
     <style name="ButtonStyleClassicGray" parent="Widget.MaterialComponents.Button">
         <item name="background">@drawable/gradient_button_bg_classic_gray</item>
-        <item name="cornerRadius">12dp</item>
+        <item name="cornerRadius">?attr/appCornerRadius</item>
         <item name="android:textColor">@color/classic_gray_text_primary_dark</item>
         <item name="android:insetTop">2dp</item>
         <item name="android:insetBottom">2dp</item>
@@ -691,6 +698,7 @@
         <item name="android:textViewStyle">@style/TextViewStyleTerminal</item>
         <item name="editTextStyle">@style/EditTextStyleTerminal</item>
         <item name="materialCardViewStyle">@style/CardStyleTerminal</item>
+        <item name="appCornerRadius">@dimen/card_round</item>
         <item name="materialButtonStyle">@style/ButtonStyleTerminal</item>
         <item name="switchStyle">@style/SwitchCompatStyleTerminal</item>
         <item name="radioButtonStyle">@style/RadioButtonStyleTerminal</item>
@@ -734,14 +742,14 @@
         <item name="rippleColor" tools:ignore="PrivateResource">@color/terminal_color_ripple</item>
         <item name="android:foreground">?android:attr/selectableItemBackground</item>
         <item name="cardBackgroundColor">@color/terminal_card_bg</item>
-        <item name="cardCornerRadius">@dimen/card_round</item>
+        <item name="cardCornerRadius">?attr/appCornerRadius</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
     </style>
 
     <style name="ButtonStyleTerminal" parent="Widget.MaterialComponents.Button">
         <item name="backgroundTint">@color/terminal_card_bg</item>
-        <item name="cornerRadius">@dimen/card_round</item>
+        <item name="cornerRadius">?attr/appCornerRadius</item>
         <item name="android:textColor">@color/terminal_textwhite</item>
         <item name="android:insetTop">2dp</item>
         <item name="android:insetBottom">2dp</item>

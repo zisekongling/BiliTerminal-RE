@@ -14,6 +14,7 @@ import com.RobinNotBad.BiliClient.adapter.SettingsAdapter
 import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.ui.appearance.AppearanceManager
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
+import com.RobinNotBad.BiliClient.ui.appearance.CornerStyle
 import com.RobinNotBad.BiliClient.util.Aria2Util
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -250,6 +251,20 @@ class SettingGroupActivity : RefreshListActivity() {
             if (oldValue != newValue) {
                 // 统一走外观门面的写入点（此前直接操作 SharedPreferences，绕过了单一入口）
                 AppearanceManager.setTheme(newValue)
+                recreate()
+            }
+        }
+        listChoose(
+            "卡片圆角",
+            "「方角」还原原项目 BiliClient 的圆角；「圆角」为本项目主题化时的取值",
+            CornerStyle.KEY,
+            CornerStyle.DEFAULT,
+            CornerStyle.DISPLAY_NAMES,
+            CornerStyle.VALUES
+        ) { oldValue, newValue ->
+            if (oldValue != newValue) {
+                // 走门面写入：落盘 + 递增外观版本号，其它页面在 onResume 时自动重建
+                AppearanceManager.setCornerRadius(newValue)
                 recreate()
             }
         }
