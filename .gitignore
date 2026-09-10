@@ -37,3 +37,10 @@ gradle.properties.bak
 
 # local update config (deployed separately, not tracked)
 config.json
+
+# 代理/编辑器脚手架目录（.dsh/）
+# 内容是真机排障产物：uiautomator 层级转储、设备截图、勘察输出 CSV、
+# 上游项目 tarball、一次性脚本、日志。**不是项目代码**，不入库。
+# 注：.dsh/skills/rebili-version-release/SKILL.md 是已跟踪文件，
+# gitignore 不影响已跟踪文件，它继续留在版本控制里。
+.dsh/
