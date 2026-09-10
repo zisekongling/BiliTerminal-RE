@@ -340,9 +340,9 @@ class SettingGroupActivity : RefreshListActivity() {
             FontStyle.currentFileName()?.let { "当前：$it" }
                 ?: "当前：系统默认（支持 TTF / OTF / TTC）"
         ) { pickFontFile() }
-        if (FontStyle.hasCustomFont()) {
-            button("恢复系统字体") { restoreSystemFont() }
-        }
+        // **常驻**，不藏在「已安装」条件后面：自定义字体出问题时（最典型的是字体缺中文字形，
+        // 界面全变方框、文字读不了）这一条是唯一能自救的入口，必须一直在、位置稳定。
+        button("恢复系统字体") { restoreSystemFont() }
     }
 
     /** 打开文件管理器挑选字体文件。 */
@@ -358,8 +358,12 @@ class SettingGroupActivity : RefreshListActivity() {
         }
     }
 
-    /** 删除已安装字体并回到系统字体。 */
+    /** 删除已安装字体并回到系统字体。未装字体时只提示，不做多余的重建。 */
     private fun restoreSystemFont() {
+        if (!FontStyle.hasCustomFont()) {
+            MsgUtil.showMsg("当前已是系统字体")
+            return
+        }
         FontStyle.clear(this)
         MsgUtil.showMsg("已恢复系统字体")
         rebuild(GROUP_APPEARANCE)
