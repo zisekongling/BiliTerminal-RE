@@ -516,6 +516,27 @@ override fun updateTimer(timer: DanmakuTimer) { timer.update(onCurrentPositionMs
   `shape` 的 `<corners>` 读不到主题属性；修法需先真机验证（改控件 or 一次条件性遍历），本轮不做。
 - layout 级内联圆角（头像 28dp、投票按钮 18dp、三个 8dp cell、`item_account` 12dp）按设计豁免，不跟随档位。
 
+### 第二十六轮（外观三模块重构 · 步骤 6：独立「外观设置」页面）· 26.09.11
+
+把外观设置从「界面与外观」分组里拆出来，成为独立一屏。
+
+**形态选择**：本仓库的「独立设置子页面」有两种形态——
+① 独立 Activity（「菜单设置」`SettingMenuActivity`，改三处含 manifest 注册）；
+② **`SettingGroupActivity` 的另一个 `group_type` 分组**。
+外观设置只有若干列表项、无自定义交互，故走 ②：**不需要新 Activity、manifest、布局**，
+对用户同样是独立一屏。这是本轮唯一需要判断的地方。
+
+| 文件 | 改动 |
+|---|---|
+| `activity/settings/SettingGroupActivity.kt` | 新增文件级常量 `GROUP_APPEARANCE = "appearance"`；`buildContent` 加分支；新增 `buildAppearanceGroup()`（`title("配色")` + 主题配色、`title("圆角")` + 卡片圆角）；`buildUIGroup()` 里原来那两处 `listChoose` **删除**，改为一个 `nav(R.drawable.icon_ui, "外观设置", …)` 跳转本页的 appearance 分组 |
+| `activity/settings/SettingsIndex.kt` | 新增「外观设置」条目；「主题配色」「卡片圆角」两项由 `openGroup("ui", …)` 改指 `openGroup(GROUP_APPEARANCE, …)`，全局搜索仍能直接定位到项 |
+| `AGENTS.md` | 「新增设置子页面」约定补充为**两种形态**，并写明选择依据 |
+| `docs/architecture-map.md` §8.6 | 补充「放哪个分组」与「外观类设置的写入必须走门面」 |
+
+> **字体模块的设置项刻意没放**：`FontStyle`（字号 4 档 + 字族 2 选）尚未接入渲染路径，
+> 放出来就是一个点了没反应的开关。接入后在本页追加 `title("字体")` 一段即可。
+> 第一版按设计**不做实时预览**——预览必须复用与真实页面同一套应用逻辑，否则会骗人。
+
 ---
 
 ## 三、审查前已修复（本次核查确认，无需改动）
@@ -559,6 +580,7 @@ override fun updateTimer(timer: DanmakuTimer) { timer.update(onCurrentPositionMs
 | 2026-09-11 | `:app:testDebugUnitTest` + `:app:assembleDebug`（第二十三轮：外观三模块门面骨架） | ✅ BUILD SUCCESSFUL in 11s / 6s；15 个测试类 / 103 用例 / 0 失败（新增 `CornerStyleTest` 7、`FontStyleTest` 11、`AppearanceManagerTest` 12）；无 `res/` 改动，圆角与字体尚无消费方 → UI 零变化 |
 | 2026-09-11 | `:app:testDebugUnitTest` + `:app:assembleDebug`（第二十四轮：配色模块迁入 `ui/appearance/`） | ✅ BUILD SUCCESSFUL in 1m 16s（编译）/ 13s（测试+打包）；15 个测试类 / 103 用例 / 0 失败；27 个调用点迁移，`ui/theme/` 目录删除 |
 | 2026-09-11 | `:app:assembleDebug` + `:app:testDebugUnitTest`（第二十五轮：圆角模块落地） | ✅ BUILD SUCCESSFUL in 1m 56s；15 个测试类 / 106 用例 / 0 失败（`CornerStyleTest` 7→10）；`R.txt` 已生成 `attr appCornerRadius` 与两个覆盖样式；16 处圆角定义全部改为 `?attr/` 引用，0 残留硬编码；**待真机验证两档切换** |
+| 2026-09-11 | `:app:assembleDebug` + `:app:testDebugUnitTest`（第二十六轮：独立「外观设置」页面） | ✅ BUILD SUCCESSFUL in 12s；15 个测试类 / 106 用例 / 0 失败；纯设置页重组，无 `res/` 改动、无新 Activity/manifest 变更 |
 
 > 第二轮修复的 4 个文件（QRLoginFragment/CaptchaWebViewActivity/LocalListActivity/VideoInfoFragment）已重新编译验证通过。APK 时间戳更新至 16:01:21，universal 包 31.04 MB。
 > 第三轮修复的 2 个文件（PrivateMsgActivity/NetWorkUtil）已重新编译验证通过。构建仅有 1 个 Hilt 处理选项无关警告，不影响产物。

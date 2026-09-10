@@ -413,7 +413,13 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 2. 对应设置页加条目：`activity/settings/SettingGroupActivity.kt`（字符串驱动，按 `desc_*` 惯例加资源；这是**唯一**该动 `strings.xml` 的地方）。
 3. `activity/settings/SettingsIndex.kt` 的 `build()` 加一条 `Entry(name, desc) { ... }`——否则全局设置搜索找不到这一项。
 
+**放哪个分组**：界面尺寸类进 `buildUIGroup()`（`group_type = "ui"`）；外观类（配色/圆角/字体）进
+`buildAppearanceGroup()`（`GROUP_APPEARANCE = "appearance"`，26.09.11 新增的独立一屏，
+由 `SettingGroupActivity` 的 `group_type` 分发，非独立 Activity）。若新设置需要自己的页面，
+看 `AGENTS.md`「新增设置子页面有两种形态」——只是列表项就别新建 Activity。
+
 读写统一走 `SharedPreferencesUtil.getXxx(key, default)` / `putXxx(key, value)`。
+**外观类设置例外**：写入必须走 `AppearanceManager.setXxx()`，它负责递增外观版本号（见 §8.7）。
 
 ---
 

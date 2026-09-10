@@ -22,6 +22,9 @@ import com.RobinNotBad.BiliClient.util.PerformanceManager
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 
+/** 「外观设置」分组的 group_type 取值。`SettingsIndex` 里跳转该分组时也用这个常量。 */
+const val GROUP_APPEARANCE = "appearance"
+
 /**
  * 分组设置页：统一使用声明式 SettingSection 列表 + SettingsAdapter 渲染。
  * 各分组的设置项全部以数据驱动，与详情页/评论区/偏好等设置页共用同一套渲染体系。
@@ -64,6 +67,7 @@ class SettingGroupActivity : RefreshListActivity() {
         when (groupType) {
             "account" -> buildAccountGroup()
             "ui" -> buildUIGroup()
+            GROUP_APPEARANCE -> buildAppearanceGroup()
             "content" -> buildContentGroup()
             "download" -> buildDownloadGroup()
             "lab" -> buildLabGroup()
@@ -232,6 +236,32 @@ class SettingGroupActivity : RefreshListActivity() {
             }
         }
 
+        // 配色与圆角已迁到独立的「外观设置」页（本页的另一个 group_type 分组）
+        nav(R.drawable.icon_ui, "外观设置", "主题配色、卡片圆角（字体待接入）") {
+            startActivity(Intent(this, SettingGroupActivity::class.java).apply {
+                putExtra("group_type", GROUP_APPEARANCE)
+                putExtra("group_title", "外观设置")
+            })
+        }
+        switch("横屏模式", getString(R.string.setting_lab_ui_landscape), SettingsKeys.UI_LANDSCAPE, false)
+        input("开屏文字", getString(R.string.setting_lab_splashtext), SettingsKeys.SPLASH_TEXT, "input_string", "欢迎使用\nRE:哔哩终端")
+        switch("文字跑马灯", getString(R.string.setting_lab_marquee), SettingsKeys.MARQUEE_ENABLE, true)
+        switch("加载渐入渐出动画", getString(R.string.desc_load_transition), SharedPreferencesUtil.LOAD_TRANSITION, true)
+    }
+
+    /**
+     * 「外观设置」分组：外观三模块的设置项集中在此。
+     *
+     * **为什么不做成独立 Activity**：本仓库的「独立设置子页面」有两种形态——
+     * ① 独立 Activity（如「菜单设置」`SettingMenuActivity`），按约定要改三处（含 manifest 注册）；
+     * ② 本页的另一个 `group_type` 分组，由 [buildContent] 分发，不需要新 Activity/manifest/布局。
+     * 外观设置只有若干列表项、无自定义交互，故走 ②；两种形态对用户都是独立一屏。
+     *
+     * 字体模块（`FontStyle` 的字号 4 档 + 字族 2 选）**尚未接入渲染路径**，故此处不放设置项——
+     * 不给出点了没反应的开关。接入后在此追加 `title("字体")` 一段即可。
+     */
+    private fun buildAppearanceGroup() {
+        title("配色")
         listChoose(
             "主题配色",
             "选择应用的主题配色方案",
@@ -254,6 +284,8 @@ class SettingGroupActivity : RefreshListActivity() {
                 recreate()
             }
         }
+
+        title("圆角")
         listChoose(
             "卡片圆角",
             "「方角」还原原项目 BiliClient 的圆角；「圆角」为本项目主题化时的取值",
@@ -268,10 +300,6 @@ class SettingGroupActivity : RefreshListActivity() {
                 recreate()
             }
         }
-        switch("横屏模式", getString(R.string.setting_lab_ui_landscape), SettingsKeys.UI_LANDSCAPE, false)
-        input("开屏文字", getString(R.string.setting_lab_splashtext), SettingsKeys.SPLASH_TEXT, "input_string", "欢迎使用\nRE:哔哩终端")
-        switch("文字跑马灯", getString(R.string.setting_lab_marquee), SettingsKeys.MARQUEE_ENABLE, true)
-        switch("加载渐入渐出动画", getString(R.string.desc_load_transition), SharedPreferencesUtil.LOAD_TRANSITION, true)
     }
 
     private fun buildContentGroup() {
