@@ -9,7 +9,7 @@ import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
  * ## 职责边界（手表性能优先）
  * 只做三件事，**绝不做几何计算**：
  * 1. 汇总当前外观为一份 [Appearance]（[snapshot]），供调用方一次读取；
- * 2. 提供唯一的写入入口（[setTheme] / [setCornerRadius] / [setFontScale] / [setFontFamily]），
+ * 2. 提供唯一的写入入口（[setTheme] / [setCornerRadius] / [setFontPath] / [clearFontPath]），
  *    每次写入都递增「外观版本号」；
  * 3. 版本号（[version]）让 Activity **只比一个 Int** 就能判断外观是否变过，
  *    而不必随模块增加而增加比较项——现有 `BaseActivity` 只记一个 `appliedTheme` 字符串，
@@ -49,8 +49,7 @@ object AppearanceManager {
     data class Appearance(
         val themeKey: String,
         val cornerRadius: String,
-        val fontScale: String,
-        val fontFamily: String,
+        val fontPath: String,
         val version: Int
     )
 
@@ -71,8 +70,7 @@ object AppearanceManager {
         // 用配色模块的读取入口而不是自己拼默认值，避免默认主题出现第二份定义。
         themeKey = ColorScheme.getCurrentThemeName(),
         cornerRadius = CornerStyle.current(),
-        fontScale = FontStyle.currentScale(),
-        fontFamily = FontStyle.currentFamily(),
+        fontPath = FontStyle.currentPath(),
         version = version()
     )
 
@@ -91,15 +89,17 @@ object AppearanceManager {
         bumpVersion()
     }
 
-    /** 写入字号档位（已规整到合法值）。 */
-    fun setFontScale(value: String) {
-        SharedPreferencesUtil.putStringSync(FontStyle.KEY_SCALE, FontStyle.normalizeScale(value))
+    /** 写入自定义字体路径（已落盘的私有文件路径）。写完作废字体缓存。 */
+    fun setFontPath(path: String) {
+        SharedPreferencesUtil.putStringSync(FontStyle.KEY_PATH, path)
+        FontStyle.invalidateCache()
         bumpVersion()
     }
 
-    /** 写入字族（已规整到合法值）。 */
-    fun setFontFamily(value: String) {
-        SharedPreferencesUtil.putStringSync(FontStyle.KEY_FAMILY, FontStyle.normalizeFamily(value))
+    /** 清除自定义字体，回到系统字体。 */
+    fun clearFontPath() {
+        SharedPreferencesUtil.putStringSync(FontStyle.KEY_PATH, "")
+        FontStyle.invalidateCache()
         bumpVersion()
     }
 }

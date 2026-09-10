@@ -1,6 +1,5 @@
 package com.RobinNotBad.BiliClient.ui.appearance
 
-import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.FakeSharedPreferences
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import org.junit.After
@@ -18,6 +17,9 @@ import org.junit.Test
 class AppearanceManagerTest {
 
     private val fakePrefs = FakeSharedPreferences()
+
+    /** 模拟一个已安装到私有目录的字体文件路径。 */
+    private val fontPath = "/data/user/0/com.RobinNotBad.BiliClient/files/custom_font/custom_font.ttf"
 
     @Before
     fun setUp() {
@@ -53,14 +55,6 @@ class AppearanceManagerTest {
     }
 
     @Test
-    fun themeManagerSetTheme_alsoBumpsVersion() {
-        // 既有入口（设置页走的就是 ColorScheme.setTheme）也必须计入版本号，
-        // 否则「版本号」对主题变更视而不见。
-        AppearanceManager.setTheme(ColorScheme.THEME_CLASSIC_GRAY)
-        assertEquals(AppearanceManager.INITIAL_VERSION + 1, AppearanceManager.version())
-    }
-
-    @Test
     fun setCornerRadius_persistsAndBumpsVersion() {
         AppearanceManager.setCornerRadius(CornerStyle.ROUNDED)
         assertEquals(CornerStyle.ROUNDED, CornerStyle.current())
@@ -68,25 +62,26 @@ class AppearanceManagerTest {
     }
 
     @Test
-    fun setFontScale_persistsAndBumpsVersion() {
-        AppearanceManager.setFontScale(FontStyle.SCALE_LARGE)
-        assertEquals(FontStyle.SCALE_LARGE, FontStyle.currentScale())
+    fun setFontPath_persistsAndBumpsVersion() {
+        AppearanceManager.setFontPath(fontPath)
+        assertEquals(fontPath, FontStyle.currentPath())
         assertEquals(AppearanceManager.INITIAL_VERSION + 1, AppearanceManager.version())
     }
 
     @Test
-    fun setFontFamily_persistsAndBumpsVersion() {
-        AppearanceManager.setFontFamily(FontStyle.FAMILY_MONOSPACE)
-        assertEquals(FontStyle.FAMILY_MONOSPACE, FontStyle.currentFamily())
-        assertEquals(AppearanceManager.INITIAL_VERSION + 1, AppearanceManager.version())
+    fun clearFontPath_resetsToSystemFontAndBumpsVersion() {
+        AppearanceManager.setFontPath(fontPath)
+        AppearanceManager.clearFontPath()
+        assertEquals("清除后应回到系统字体", "", FontStyle.currentPath())
+        assertEquals(AppearanceManager.INITIAL_VERSION + 2, AppearanceManager.version())
     }
 
     @Test
     fun everyWriteBumpsVersion_independently() {
         AppearanceManager.setTheme(ColorScheme.THEME_IQIYI_GREEN)
         AppearanceManager.setCornerRadius(CornerStyle.ROUNDED)
-        AppearanceManager.setFontScale(FontStyle.SCALE_XLARGE)
-        AppearanceManager.setFontFamily(FontStyle.FAMILY_MONOSPACE)
+        AppearanceManager.setFontPath(fontPath)
+        AppearanceManager.clearFontPath()
         assertEquals(AppearanceManager.INITIAL_VERSION + 4, AppearanceManager.version())
     }
 
@@ -103,12 +98,8 @@ class AppearanceManagerTest {
     @Test
     fun writes_normalizeInvalidValuesBeforeSaving() {
         AppearanceManager.setCornerRadius("garbage")
-        AppearanceManager.setFontScale("garbage")
-        AppearanceManager.setFontFamily("garbage")
         // 落盘的就是合法值，设置页不会显示空白
         assertEquals(CornerStyle.DEFAULT, CornerStyle.current())
-        assertEquals(FontStyle.SCALE_DEFAULT, FontStyle.currentScale())
-        assertEquals(FontStyle.FAMILY_DEFAULT, FontStyle.currentFamily())
     }
 
     // ==================== 快照 ====================
@@ -118,8 +109,7 @@ class AppearanceManagerTest {
         val snapshot = AppearanceManager.snapshot()
         assertEquals(ColorScheme.THEME_DEFAULT, snapshot.themeKey)
         assertEquals(CornerStyle.DEFAULT, snapshot.cornerRadius)
-        assertEquals(FontStyle.SCALE_DEFAULT, snapshot.fontScale)
-        assertEquals(FontStyle.FAMILY_DEFAULT, snapshot.fontFamily)
+        assertEquals("", snapshot.fontPath)
         assertEquals(AppearanceManager.INITIAL_VERSION, snapshot.version)
     }
 
@@ -127,14 +117,12 @@ class AppearanceManagerTest {
     fun snapshot_reflectsEverySavedValue() {
         AppearanceManager.setTheme(ColorScheme.THEME_PURPLE_FANTASY)
         AppearanceManager.setCornerRadius(CornerStyle.ROUNDED)
-        AppearanceManager.setFontScale(FontStyle.SCALE_SMALL)
-        AppearanceManager.setFontFamily(FontStyle.FAMILY_MONOSPACE)
+        AppearanceManager.setFontPath(fontPath)
 
         val snapshot = AppearanceManager.snapshot()
         assertEquals(ColorScheme.THEME_PURPLE_FANTASY, snapshot.themeKey)
         assertEquals(CornerStyle.ROUNDED, snapshot.cornerRadius)
-        assertEquals(FontStyle.SCALE_SMALL, snapshot.fontScale)
-        assertEquals(FontStyle.FAMILY_MONOSPACE, snapshot.fontFamily)
+        assertEquals(fontPath, snapshot.fontPath)
         assertEquals(AppearanceManager.version(), snapshot.version)
     }
 

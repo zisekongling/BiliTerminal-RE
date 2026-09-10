@@ -433,7 +433,8 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 | `AppearanceManager.kt` | 门面：快照 + 版本号 + **唯一写入入口** | `appearance_version` | — |
 | `ColorScheme.kt` | 配色：7 套主题（**只读模块**，原 `ui/theme/ThemeManager.kt`） | `theme_selector` | 7 套 |
 | `CornerStyle.kt` | 卡片圆角 | `ui_corner_radius` | `square`（默认）/ `rounded` |
-| `FontStyle.kt` | 字体：字号 + 字族两个维度 | `ui_font_scale` / `ui_font_family` | 4 档 / 2 选 |
+| `FontStyle.kt` | 自定义字体（用户从文件管理器选字体文件） | `ui_font_path` | 有 / 无（默认无） |
+| `CustomFont.kt` | 把自定义字体套到视图上 | — | — |
 
 **分层约定（别打破）**
 - **模块**（`CornerStyle`/`FontStyle`）只放：候选值常量、显示名、纯函数（规整、档位→数值）、读取。
@@ -447,10 +448,10 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 > 接入随「圆角模块落地」一起做。
 
 **两条不可破坏的性能约定**
-1. `FontStyle.scaleFactor(FontStyle.SCALE_DEFAULT)` **必须恰好返回 1.0f**——下游靠这个短路，
-   保证默认档位零运行时开销（不遍历视图树）。守卫测试：`FontStyleTest.scaleFactor_standardIsExactlyOne`。
-2. 圆角与字族**只决定「用哪一套预烤资源 / 哪个 style 属性」**，不做运行时几何计算，
-   也不在 `RecyclerView` 绑定路径上做任何额外工作。
+1. **未启用自定义字体 = 渲染路径零开销**：`FontStyle.typeface()` 返回 null 时
+   `CustomFont.applyToContentView` 立即 return，一次视图树遍历都不做。这是绝大多数用户的状态。
+   守卫测试：`FontStyleTest.shouldLoad_isFalseWhenNoFontConfigured`。
+2. 圆角**只决定「用哪个主题属性取值」**，不做运行时几何计算，也不在 `RecyclerView` 绑定路径上做额外工作。
 
 ### 8.7.1 圆角的生效机制（26.09.11 落地，改圆角前必读）
 
@@ -497,6 +498,42 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 默认 `square`，对**默认主题「经典终端」是零变化**（它本来就走 `@dimen/card_round`）；
 但**另外 6 套主题的卡片圆角会从 12dp 变为 6dp**——那 12dp 是主题化改造时复制 `CardStyle`
 引入的漂移（5 套主题各抄了一份 12dp），不是刻意的设计取值，本次借模块化收敛回原项目取值。
+
+### 8.7.2 自定义字体的生效机制（26.09.11 落地）
+
+用户在设置 →「界面与外观」→「外观设置」→「自定义字体」里，用文件管理器挑一个
+TTF/OTF/TTC，应用把它**拷进私有目录**（`filesDir/custom_font/custom_font.ttf`）并全局应用。
+
+**为什么是「拷贝」而不是记住 URI**
+1. `minSdk 24`，`Typeface.Builder(FileDescriptor)` 要 API 26 用不了；安全可用的只有
+   `Typeface.createFromFile(File)`，它需要一个**真实路径**。
+2. 用户随时可能删除/移动源文件；记 URI 还得处理 `takePersistableUriPermission`。拷一份最稳。
+
+**为什么不用 `LayoutInflater.Factory2`（更漂亮的做法）**
+`LayoutInflater.setFactory2()` 只在**从未设过** factory 时可用，否则抛 `IllegalStateException`。
+而 `BaseActivity : AppCompatActivity`，AppCompat 已在 `super.onCreate()` 里装好 factory
+（还带着 Material 的控件替换，`MaterialButton`/`MaterialTextView` 靠它，**圆角模块也依赖它**）。
+用自己的 factory 顶掉它会让 `<Button>` 退回普通 Button、圆角失效——比字体问题严重得多。
+公开 API 没有干净办法把两个 factory 串起来，所以走遍历。
+
+**实际机制**
+- `BaseActivity.onContentChanged()`（`setContentView` 之后必被触发，同时覆盖普通布局与
+  `asyncInflate` 的替换布局）→ `CustomFont.applyToContentView(this)`。
+- 遍历静态视图树，只对 `TextView` 调 `setTypeface`，用 `!==` 跳过已套好的。
+- 列表项由 `RecyclerView` 复用、绑定发生在遍历之后，故对遍历中遇到的每个 `RecyclerView`
+  挂 `OnChildAttachStateChangeListener`，只处理**新挂上来的** item 视图。
+- **保留粗体/斜体**：自定义字体按 NORMAL 解析，直接 `setTypeface` 会抹掉 `android:textStyle="bold"`，
+  所以按原样式派生（`Typeface.create(base, style)`，按样式缓存）。
+
+**性能代价（手表优先，必须说清楚）**：未启用时零开销；启用后每次 `onContentChanged` 跑一次遍历。
+这套代价是**用户主动开启**换来的，不是所有人付。
+
+**已知边界**
+- **不走 `BaseActivity` 的界面不生效**：`SplashActivity`、`GetIntentActivity`、`PlayerActivity`
+  （三者都不继承 `BaseActivity`）。开屏无正文、外链页极简，播放器以视频为主。
+- **未被遍历到的、遍历之后才动态创建的 TextView 不生效**（非 `RecyclerView` 的晚建视图）。
+- 只改字体外观，**不改字号**。原计划的「字号 4 档 + 字族 2 选」（token 收敛 + `scaleFactor`）
+  已按需求变更取消：`ui_font_scale` / `ui_font_family` 两个 key 随之删除。
 
 ---
 
@@ -583,7 +620,7 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 
 **不可单测**（内部发网络 / 依赖 Context / 弹 UI）：`DynamicApi.analyzeDynamic`、`MessageApi` 全部解析（SpannableString）、`PrivateMsgApi.getPrivateMsgList`、`LikeCoinFavApi.getVideoStats`。
 
-**测试覆盖现状**：`app/src/test/` 12 个测试类，api 层只有 3 个类的 3 个解析函数被覆盖（`HotSearchApiTest`、`FavoriteApiTest`、`OpusApiTest`）；`ui/appearance/` 下有 4 个测试类共 44 个用例——`ColorSchemeTest`（14）覆盖 7 套主题的 `key → style` / `key → 色表` / 中文显示名映射、无 key 时的默认值、以及色表缓存的失效与读取次数；`CornerStyleTest`（7）、`FontStyleTest`（11）、`AppearanceManagerTest`（12）覆盖圆角/字体档位与外观版本号。
+**测试覆盖现状**：`app/src/test/` 15 个测试类 / 107 用例，api 层只有 3 个类的 3 个解析函数被覆盖（`HotSearchApiTest`、`FavoriteApiTest`、`OpusApiTest`）；`ui/appearance/` 下有 4 个测试类共 48 个用例——`ColorSchemeTest`（14）覆盖 7 套主题的 `key → style` / `key → 色表` / 中文显示名映射、无 key 时的默认值、以及色表缓存的失效与读取次数；`CornerStyleTest`（10）覆盖圆角两档与「档位 → 覆盖样式」映射；`FontStyleTest`（13）覆盖字体文件头校验（含 WOFF 专门拒绝）与「未配置不加载」的性能约定；`AppearanceManagerTest`（11）覆盖外观版本号与唯一写入入口。
 
 ### API 层的坑
 

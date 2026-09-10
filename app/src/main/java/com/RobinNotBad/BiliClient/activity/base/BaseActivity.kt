@@ -39,6 +39,7 @@ import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.ui.appearance.AppearanceManager
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.ui.appearance.CornerStyle
+import com.RobinNotBad.BiliClient.ui.appearance.CustomFont
 import com.RobinNotBad.BiliClient.util.AsyncLayoutInflaterX
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -306,6 +307,17 @@ open class BaseActivity : AppCompatActivity() {
             }
             eventBusInit = false
         }
+    }
+
+    /**
+     * `setContentView` 之后必被触发的钩子，用来套用自定义字体。
+     *
+     * 选这里是因为它能**同时覆盖**普通布局与 `asyncInflate` 的替换布局，
+     * 且只在内容变化时跑一次。未启用自定义字体时 [CustomFont] 会立即返回，零开销。
+     */
+    override fun onContentChanged() {
+        super.onContentChanged()
+        CustomFont.applyToContentView(this)
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN, sticky = true)

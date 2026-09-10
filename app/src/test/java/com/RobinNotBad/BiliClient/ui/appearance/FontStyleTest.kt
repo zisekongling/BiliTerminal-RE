@@ -5,17 +5,21 @@ import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
 /**
- * [FontStyle] 的纯 JVM 单测。
+ * [FontStyle]（外观模块三：自定义字体）的纯 JVM 单测。
  *
- * 最要紧的一条是 [scaleFactor_standardIsExactlyOne]：默认档位**必须**是 1.0f，
- * 因为下游靠「系数 == 1.0f 就短路、不遍历视图树」来兑现「手表性能优先」。
- * 这个不变量一旦被破坏，默认档位会凭空产生一次全树遍历，而且不会有任何报错。
+ * 重点是**文件头校验**：它是唯一挡住"用户选错文件"的关卡，而选错文件的后果不是报错，
+ * 而是字体静默不生效或应用在渲染路径上出问题。校验是纯函数，正好可测。
+ *
+ * 安装/清除/加载 Typeface 需要真实 `Context` 与文件系统，不在纯 JVM 单测范围内
+ * （见类注释里对 `install` / `typeface` 的说明）。
  */
 class FontStyleTest {
 
@@ -24,117 +28,113 @@ class FontStyleTest {
     @Before
     fun setUp() {
         SharedPreferencesUtil.sharedPreferences = fakePrefs
+        FontStyle.invalidateCache()
     }
 
     @After
     fun tearDown() {
         SharedPreferencesUtil.sharedPreferences = null
+        FontStyle.invalidateCache()
     }
 
-    // ==================== 字号：性能不变量 ====================
+    private fun bytes(vararg v: Int) = ByteArray(v.size) { v[it].toByte() }
+
+    // ==================== 文件头校验 ====================
 
     @Test
-    fun scaleFactor_standardIsExactlyOne() {
-        assertEquals(
-            "默认档位必须恰好是 1.0f——下游的「零运行时开销」短路依赖于此",
-            1.0f, FontStyle.scaleFactor(FontStyle.SCALE_DEFAULT), 0.0f
-        )
-        assertEquals(
-            "未知档位也必须回落到 1.0f，不能变成别的倍数",
-            1.0f, FontStyle.scaleFactor("garbage"), 0.0f
-        )
+    fun rejectReason_trueTypeMagic_isAccepted() {
+        assertNull(FontStyle.rejectReason(bytes(0x00, 0x01, 0x00, 0x00)))
     }
 
     @Test
-    fun scaleFactor_increasesMonotonically() {
-        val small = FontStyle.scaleFactor(FontStyle.SCALE_SMALL)
-        val standard = FontStyle.scaleFactor(FontStyle.SCALE_STANDARD)
-        val large = FontStyle.scaleFactor(FontStyle.SCALE_LARGE)
-        val xlarge = FontStyle.scaleFactor(FontStyle.SCALE_XLARGE)
-
-        assertTrue("小档必须真的更小（小于 1.0）", small < 1.0f)
-        assertTrue("大档必须真的更大（大于 1.0）", large > 1.0f)
-        assertTrue("四档必须严格单调递增", small < standard && standard < large && large < xlarge)
-        assertTrue("特大档不应夸张到撑破手表布局", xlarge <= 1.5f)
+    fun rejectReason_openTypeCffMagic_isAccepted() {
+        // "OTTO"
+        assertNull(FontStyle.rejectReason(bytes(0x4F, 0x54, 0x54, 0x4F)))
     }
 
     @Test
-    fun scaleFactor_normalizesBeforeMapping() {
-        // 合法值只认常量本身
-        for (value in FontStyle.SCALE_VALUES) {
-            assertEquals(
-                FontStyle.scaleFactor(FontStyle.normalizeScale(value)),
-                FontStyle.scaleFactor(value),
-                0.0f
-            )
-        }
-    }
-
-    // ==================== 字族 ====================
-
-    @Test
-    fun fontFamilyValue_systemIsNull_monospaceIsMonospace() {
-        assertNull(
-            "系统默认档必须返回 null（= 不覆盖），这样该档不会改变任何既有渲染",
-            FontStyle.fontFamilyValue(FontStyle.FAMILY_SYSTEM)
-        )
-        assertNull(
-            "未知字族同样回落为「不覆盖」",
-            FontStyle.fontFamilyValue("garbage")
-        )
-        assertEquals("monospace", FontStyle.fontFamilyValue(FontStyle.FAMILY_MONOSPACE))
-    }
-
-    // ==================== 读取与规整 ====================
-
-    @Test
-    fun currentScale_defaultsToStandard() {
-        assertEquals(FontStyle.SCALE_STANDARD, FontStyle.SCALE_DEFAULT)
-        assertEquals(FontStyle.SCALE_STANDARD, FontStyle.currentScale())
+    fun rejectReason_appleTrueTypeMagic_isAccepted() {
+        // "true"
+        assertNull(FontStyle.rejectReason(bytes(0x74, 0x72, 0x75, 0x65)))
     }
 
     @Test
-    fun currentFamily_defaultsToSystem() {
-        assertEquals(FontStyle.FAMILY_SYSTEM, FontStyle.FAMILY_DEFAULT)
-        assertEquals(FontStyle.FAMILY_SYSTEM, FontStyle.currentFamily())
+    fun rejectReason_fontCollectionMagic_isAccepted() {
+        // "ttcf"
+        assertNull(FontStyle.rejectReason(bytes(0x74, 0x74, 0x63, 0x66)))
     }
 
     @Test
-    fun current_reflectsSavedValues() {
-        SharedPreferencesUtil.putString(FontStyle.KEY_SCALE, FontStyle.SCALE_LARGE)
-        SharedPreferencesUtil.putString(FontStyle.KEY_FAMILY, FontStyle.FAMILY_MONOSPACE)
-        assertEquals(FontStyle.SCALE_LARGE, FontStyle.currentScale())
-        assertEquals(FontStyle.FAMILY_MONOSPACE, FontStyle.currentFamily())
+    fun rejectReason_woff_isRejectedWithSpecificHint() {
+        // WOFF 是网页字体，Android 的 Typeface 解析不了。这是用户最容易挑错的一类文件，
+        // 必须给出**专门**提示，而不是笼统的「不是字体」。
+        val woff = FontStyle.rejectReason(bytes(0x77, 0x4F, 0x46, 0x46))
+        assertNotNull(woff)
+        assertTrue("提示里应点名 WOFF：$woff", woff!!.contains("WOFF"))
+
+        val woff2 = FontStyle.rejectReason(bytes(0x77, 0x4F, 0x46, 0x32))
+        assertNotNull(woff2)
+        assertTrue("提示里应点名 WOFF：$woff2", woff2!!.contains("WOFF"))
     }
 
     @Test
-    fun current_unknownSavedValuesFallBackToDefaults() {
-        SharedPreferencesUtil.putString(FontStyle.KEY_SCALE, "huge")
-        SharedPreferencesUtil.putString(FontStyle.KEY_FAMILY, "comic_sans")
-        assertEquals(FontStyle.SCALE_DEFAULT, FontStyle.currentScale())
-        assertEquals(FontStyle.FAMILY_DEFAULT, FontStyle.currentFamily())
-    }
-
-    // ==================== 选项列表一致性 ====================
-
-    @Test
-    fun scaleOptions_areParallelAndDistinct() {
-        assertEquals(FontStyle.SCALE_VALUES.size, FontStyle.SCALE_DISPLAY_NAMES.size)
-        assertEquals(4, FontStyle.SCALE_VALUES.size)
-        assertEquals(FontStyle.SCALE_VALUES.size, FontStyle.SCALE_VALUES.distinct().size)
-        assertEquals(FontStyle.SCALE_DISPLAY_NAMES.size, FontStyle.SCALE_DISPLAY_NAMES.distinct().size)
+    fun rejectReason_nullOrTooShort_isRejected() {
+        assertNotNull(FontStyle.rejectReason(null))
+        assertNotNull(FontStyle.rejectReason(ByteArray(0)))
+        assertNotNull(FontStyle.rejectReason(bytes(0x00, 0x01, 0x00)))
     }
 
     @Test
-    fun familyOptions_areParallelAndDistinct() {
-        assertEquals(FontStyle.FAMILY_VALUES.size, FontStyle.FAMILY_DISPLAY_NAMES.size)
-        assertEquals(listOf(FontStyle.FAMILY_SYSTEM, FontStyle.FAMILY_MONOSPACE), FontStyle.FAMILY_VALUES)
+    fun rejectReason_arbitraryContent_isRejected() {
+        // 例如用户误选了图片或文本文件
+        assertNotNull(FontStyle.rejectReason(bytes(0x89, 0x50, 0x4E, 0x47))) // PNG
+        assertNotNull(FontStyle.rejectReason(bytes(0x50, 0x4B, 0x03, 0x04))) // ZIP
+        assertNotNull(FontStyle.rejectReason(bytes(0x68, 0x65, 0x6C, 0x6C))) // "hell"
+    }
+
+    // ==================== 存档与展示 ====================
+
+    @Test
+    fun default_isSystemFont() {
+        assertEquals("", FontStyle.currentPath())
+        assertFalse(FontStyle.hasCustomFont())
+        assertNull(FontStyle.currentFileName())
     }
 
     @Test
-    fun keys_areTheSettingsKeysConstants() {
-        assertEquals(SettingsKeys.UI_FONT_SCALE, FontStyle.KEY_SCALE)
-        assertEquals(SettingsKeys.UI_FONT_FAMILY, FontStyle.KEY_FAMILY)
-        assertTrue("字号与字族必须是两个独立 key", FontStyle.KEY_SCALE != FontStyle.KEY_FAMILY)
+    fun currentFileName_isDerivedFromStoredPath() {
+        SharedPreferencesUtil.putString(FontStyle.KEY_PATH, "/data/user/0/app/files/custom_font/custom_font.ttf")
+        assertTrue(FontStyle.hasCustomFont())
+        assertEquals("custom_font.ttf", FontStyle.currentFileName())
+    }
+
+    @Test
+    fun currentFileName_handlesNameWithoutSlash() {
+        // 存档里直接是文件名（异常但不应崩）
+        SharedPreferencesUtil.putString(FontStyle.KEY_PATH, "myfont.ttf")
+        assertEquals("myfont.ttf", FontStyle.currentFileName())
+    }
+
+    @Test
+    fun key_isTheSettingsKeysConstant() {
+        assertEquals(SettingsKeys.UI_FONT_PATH, FontStyle.KEY_PATH)
+    }
+
+    @Test
+    fun sizeLimit_isSaneForWatchStorage() {
+        assertTrue("上限应大于 1MB，否则正常字体都装不下", FontStyle.MAX_BYTES > 1024L * 1024L)
+        assertTrue("上限不应超过 64MB，手表存储紧张", FontStyle.MAX_BYTES <= 64L * 1024 * 1024)
+    }
+
+    // ==================== 未启用时的零开销约定 ====================
+
+    @Test
+    fun shouldLoad_isFalseWhenNoFontConfigured() {
+        // 未配置自定义字体时必须不加载——CustomFont 靠 typeface() 返回 null 立即短路，
+        // 「默认不装字体 = 渲染路径零开销」这条性能约定就落在这个判断上。
+        assertFalse(FontStyle.shouldLoad(""))
+        assertTrue(FontStyle.shouldLoad("/any/path/font.ttf"))
+        // 与存档联动：未配置时自然不该加载
+        assertFalse(FontStyle.shouldLoad(FontStyle.currentPath()))
     }
 }

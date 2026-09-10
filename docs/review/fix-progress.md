@@ -537,6 +537,39 @@ override fun updateTimer(timer: DanmakuTimer) { timer.update(onCurrentPositionMs
 > 放出来就是一个点了没反应的开关。接入后在本页追加 `title("字体")` 一段即可。
 > 第一版按设计**不做实时预览**——预览必须复用与真实页面同一套应用逻辑，否则会骗人。
 
+### 第二十七轮（外观三模块重构 · 步骤 5：自定义字体）· 26.09.11
+
+**需求变更**：原计划的「字号 4 档 + 字族 2 选 + 416 处 textSize 收敛」**整体取消**，
+改为只做一个功能——**用户从文件管理器选一个字体文件并全局应用**。
+
+| 文件 | 改动 |
+|---|---|
+| `ui/appearance/FontStyle.kt` | **重写**为自定义字体模块：私有目录存储（`filesDir/custom_font/`）、文件头校验、`Typeface` 进程级缓存、`shouldLoad` 纯函数 |
+| `ui/appearance/CustomFont.kt` | **新增**：把字体套到视图树 + `RecyclerView` 新挂 item 上，保留粗体/斜体 |
+| `activity/base/BaseActivity.kt` | 新增 `onContentChanged()` 覆写 → `CustomFont.applyToContentView(this)` |
+| `activity/settings/SettingGroupActivity.kt` | 「外观设置」页新增「自定义字体」段：`nav` 选文件（`ACTION_GET_CONTENT`，选完立刻拷贝，无需持久化 URI 权限）+ 已装时显示「恢复系统字体」按钮；拷贝与校验走 `CenterThreadPool` |
+| `ui/appearance/AppearanceManager.kt` | `setFontScale`/`setFontFamily` → `setFontPath`/`clearFontPath`；`Appearance` 的快照字段同步 |
+| `util/SettingsKeys.kt` | 删 `UI_FONT_SCALE`/`UI_FONT_FAMILY`，加 `UI_FONT_PATH` |
+| `FontStyleTest` / `AppearanceManagerTest` | 按新语义重写（13 + 11 用例） |
+
+**为什么是「拷贝到私有目录」**：`minSdk 24` 用不了 `Typeface.Builder(FileDescriptor)`（API 26），
+只能 `Typeface.createFromFile(File)`，需要真实路径；且用户可能删源文件，记 URI 还得处理持久化权限。
+
+**为什么不用 `LayoutInflater.Factory2`（更漂亮的做法）**：`setFactory2()` 只在从未设过 factory 时可用，
+而 `BaseActivity : AppCompatActivity` 已让 AppCompat 装好了自己的 factory——**它同时承担 Material
+控件替换，`<Button>` 的圆角依赖它**。顶掉它会让圆角模块一起失效，代价远大于收益。
+公开 API 没有干净办法串联两个 factory，故走遍历。
+
+**性能代价（手表优先）**：未启用自定义字体时 `typeface()` 返回 null，`applyToContentView` 立即 return，
+**零遍历零开销**（守卫测试 `shouldLoad_isFalseWhenNoFontConfigured`）；启用后每次
+`onContentChanged` 跑一次遍历，列表项靠 `RecyclerView` 的 attach 钩子覆盖。这套代价由用户主动开启换来。
+
+**已知边界**（已写进 `architecture-map.md` §8.7.2）：不走 `BaseActivity` 的三个界面
+（开屏/外链/播放器）不生效；遍历之后动态创建的、非 `RecyclerView` 的 TextView 不生效；只改字体不改字号。
+
+**待真机验证**：在手表上挑一个 TTF 应用，检查列表/设置页/详情页是否都换了字体、粗体标题是否仍为粗体、
+点「恢复系统字体」是否回到系统字体、以及选一个非字体文件时是否给出可读的拒绝提示。
+
 ---
 
 ## 三、审查前已修复（本次核查确认，无需改动）
@@ -581,6 +614,7 @@ override fun updateTimer(timer: DanmakuTimer) { timer.update(onCurrentPositionMs
 | 2026-09-11 | `:app:testDebugUnitTest` + `:app:assembleDebug`（第二十四轮：配色模块迁入 `ui/appearance/`） | ✅ BUILD SUCCESSFUL in 1m 16s（编译）/ 13s（测试+打包）；15 个测试类 / 103 用例 / 0 失败；27 个调用点迁移，`ui/theme/` 目录删除 |
 | 2026-09-11 | `:app:assembleDebug` + `:app:testDebugUnitTest`（第二十五轮：圆角模块落地） | ✅ BUILD SUCCESSFUL in 1m 56s；15 个测试类 / 106 用例 / 0 失败（`CornerStyleTest` 7→10）；`R.txt` 已生成 `attr appCornerRadius` 与两个覆盖样式；16 处圆角定义全部改为 `?attr/` 引用，0 残留硬编码；**待真机验证两档切换** |
 | 2026-09-11 | `:app:assembleDebug` + `:app:testDebugUnitTest`（第二十六轮：独立「外观设置」页面） | ✅ BUILD SUCCESSFUL in 12s；15 个测试类 / 106 用例 / 0 失败；纯设置页重组，无 `res/` 改动、无新 Activity/manifest 变更 |
+| 2026-09-11 | `:app:assembleDebug` + `:app:testDebugUnitTest`（第二十七轮：自定义字体） | ✅ BUILD SUCCESSFUL in 51s；15 个测试类 / 107 用例 / 0 失败（`FontStyleTest` 13、`AppearanceManagerTest` 11，均按新语义重写）；字号/字族旧代码 0 残留；**待真机验证应用/恢复/拒绝非法文件** |
 
 > 第二轮修复的 4 个文件（QRLoginFragment/CaptchaWebViewActivity/LocalListActivity/VideoInfoFragment）已重新编译验证通过。APK 时间戳更新至 16:01:21，universal 包 31.04 MB。
 > 第三轮修复的 2 个文件（PrivateMsgActivity/NetWorkUtil）已重新编译验证通过。构建仅有 1 个 Hilt 处理选项无关警告，不影响产物。
@@ -628,7 +662,7 @@ override fun updateTimer(timer: DanmakuTimer) { timer.update(onCurrentPositionMs
 
 - [ ] 拆分 PlayerActivity（3090 行）
 - [ ] 拆分 DownloadService（65KB）
-- [ ] 补单元测试（当前 15 个测试类 / 106 用例覆盖 363 个源文件；26.09.11 新增 `ColorSchemeTest` 14、`CornerStyleTest` 10、`FontStyleTest` 11、`AppearanceManagerTest` 12）
+- [ ] 补单元测试（当前 15 个测试类 / 107 用例覆盖 363 个源文件；26.09.11 新增 `ColorSchemeTest` 14、`CornerStyleTest` 10、`FontStyleTest` 13、`AppearanceManagerTest` 11）
 
 ---
 

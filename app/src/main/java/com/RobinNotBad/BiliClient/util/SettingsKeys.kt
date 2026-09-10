@@ -27,10 +27,8 @@ object SettingsKeys {
     // 配色沿用上面的 THEME，不另开 key（保持既有存档向前兼容）。
     /** 卡片圆角档位，见 `ui/appearance/CornerStyle`。 */
     const val UI_CORNER_RADIUS = "ui_corner_radius"
-    /** 字号档位，见 `ui/appearance/FontStyle`。 */
-    const val UI_FONT_SCALE = "ui_font_scale"
-    /** 字族，见 `ui/appearance/FontStyle`。 */
-    const val UI_FONT_FAMILY = "ui_font_family"
+    /** 自定义字体（用户从文件管理器选的字体文件路径），见 `ui/appearance/FontStyle`。 */
+    const val UI_FONT_PATH = "ui_font_path"
 
     // ==================== 详情页设置 ====================
     const val FAV_SINGLE = "fav_single"

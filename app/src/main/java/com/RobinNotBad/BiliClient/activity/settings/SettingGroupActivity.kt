@@ -1,6 +1,8 @@
 package com.RobinNotBad.BiliClient.activity.settings
 
+import android.app.Activity
 import android.content.Intent
+import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Build
 import android.os.Bundle
 import android.view.View
@@ -15,7 +17,9 @@ import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.ui.appearance.AppearanceManager
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.ui.appearance.CornerStyle
+import com.RobinNotBad.BiliClient.ui.appearance.FontStyle
 import com.RobinNotBad.BiliClient.util.Aria2Util
+import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.PerformanceManager
@@ -34,6 +38,34 @@ class SettingGroupActivity : RefreshListActivity() {
     private var eggClick: Int = 0
     private var adapter: SettingsAdapter? = null
     private val sections = ArrayList<SettingSection>()
+
+    /**
+     * 自定义字体：从文件管理器挑一个字体文件。
+     *
+     * 用 `ACTION_GET_CONTENT` 而不是 `ACTION_OPEN_DOCUMENT`：手表上各家文件管理器对 SAF
+     * 文档提供方的支持差异较大，`GET_CONTENT` 兼容性更好；而且我们选完立刻把文件拷进私有目录，
+     * **不需要**持久化 URI 权限。MIME 用通配（不限定 `font` 前缀）——很多文件管理器不认字体 MIME，
+     * 限定后会让用户看不到任何文件；真正的合法性由 [FontStyle.rejectReason] 按文件头判定。
+     */
+    private val fontPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uri = result.data?.data
+        if (result.resultCode != Activity.RESULT_OK || uri == null) return@registerForActivityResult
+        // 拷贝 + 校验放后台：字体文件可能几 MB，手表上不能占主线程
+        CenterThreadPool.run {
+            val error = FontStyle.install(this, uri)
+            runOnUiThread {
+                if (error != null) {
+                    MsgUtil.showMsg("字体未应用：$error")
+                } else {
+                    MsgUtil.showMsg("自定义字体已应用")
+                    rebuild(GROUP_APPEARANCE)
+                    recreate()
+                }
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -300,6 +332,38 @@ class SettingGroupActivity : RefreshListActivity() {
                 recreate()
             }
         }
+
+        title("自定义字体")
+        nav(
+            R.drawable.icon_folder,
+            "选择字体文件",
+            FontStyle.currentFileName()?.let { "当前：$it" }
+                ?: "当前：系统默认（支持 TTF / OTF / TTC）"
+        ) { pickFontFile() }
+        if (FontStyle.hasCustomFont()) {
+            button("恢复系统字体") { restoreSystemFont() }
+        }
+    }
+
+    /** 打开文件管理器挑选字体文件。 */
+    private fun pickFontFile() {
+        try {
+            val intent = Intent(Intent.ACTION_GET_CONTENT)
+            intent.type = "*/*"
+            intent.addCategory(Intent.CATEGORY_OPENABLE)
+            fontPickerLauncher.launch(intent)
+        } catch (e: Throwable) {
+            // 手表上不一定装了文件管理器，也可能没有 activity 能处理该 intent
+            MsgUtil.showMsg("没有可用的文件管理器")
+        }
+    }
+
+    /** 删除已安装字体并回到系统字体。 */
+    private fun restoreSystemFont() {
+        FontStyle.clear(this)
+        MsgUtil.showMsg("已恢复系统字体")
+        rebuild(GROUP_APPEARANCE)
+        recreate()
     }
 
     private fun buildContentGroup() {
