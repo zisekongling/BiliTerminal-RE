@@ -58,7 +58,8 @@
     <dimen name="linearlayout_divider">4dp</dimen>
     <dimen name="grid_spacing">6dp</dimen>
     <dimen name="card_round">6dp</dimen>
-    <!-- 第二档「圆角」：比「方角」大 6dp，宽屏（values-w300dp）同步为 16dp -->
+    <!-- 第二档「圆角」：比「方角」大一倍。与 card_round 一样**全平台统一**，
+         不在 values-w300dp 放大——理由见那个文件里的注释。 -->
     <dimen name="card_round_large">12dp</dimen>
     <dimen name="card_stroke">0dp</dimen>
     <dimen name="round_small">4dp</dimen>

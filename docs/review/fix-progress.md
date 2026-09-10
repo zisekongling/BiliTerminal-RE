@@ -530,8 +530,19 @@ override fun updateTimer(timer: DanmakuTimer) { timer.update(onCurrentPositionMs
 **新机制**：XML 写具体 `@dimen/card_round`（方角档即默认，零遍历）；只有选「圆角」档时
 `CornerStyle.needsRuntimeOverride()` 为 true，才在遍历里把 `card_round_large` 套上去。
 
-**真机验证状态（未完成，需人工确认）**：
-- ✅ 方角档：测得卡片顶行填充色从最左边缘开始、半径≈27px ≈ 宽屏 `card_round`(10dp) → **XML dimen 路径正常**。
+**后续修正：方角改为全平台统一 6dp**。上面测出「切换生效但方角仍是 10dp」后，确认根因是
+`values-w300dp/dimens.xml` 把 `card_round` 从手表的 6dp 放大到了 10dp——用户在手机上看到的
+「方角」其实是 10dp 圆角，与设置项语义冲突。按「去掉宽屏放大」处理：
+
+- `values-w300dp/dimens.xml` 删除 `card_round`(10dp) 与 `card_round_large`(16dp) 两个覆盖；
+- `values/dimens.xml` 保留 `card_round` 6dp / `card_round_large` 12dp，**全平台统一**。
+- 依据：原项目 BiliClient **只有一个 `values/` 目录、`card_round` 全局 6dp**（上游实测），
+  宽屏放大是本项目后加的，本就不属于「还原原项目」。
+
+复测：方角档角落缺失像素 701 → **427**，反推半径 27px → **16px ≈ 6dp**，改动生效。
+
+**返工前的真机验证记录（保留，作为「切换确实生效」的证据）**：
+- ✅ 方角档（当时=10dp）：测得卡片顶行填充色从最左边缘开始、半径≈27px ≈ 宽屏 `card_round`(10dp) → **XML dimen 路径正常**。
 - ✅ 圆角档：同一张 DialogActivity 卡片在 `rounded` 档下顶行 160px 内**完全没有填充色**（方角档则从 x=0 就有）→ 形状确实随档位改变。
 - ⚠️ **未能得到精确半径数值**：卡片的绘制形状相对视图边界有阴影内缩，按行采样不可靠。
 - ⚠️ **未能逐页确认**：设备前台页面不稳定（多次落在 `DialogActivity`），且注入的 `ui_corner_radius` 曾被回写为 `square`（`appearance_version` 6→7），一度导致测量结论无效。

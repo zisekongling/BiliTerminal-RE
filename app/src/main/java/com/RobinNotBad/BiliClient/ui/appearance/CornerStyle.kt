@@ -25,8 +25,10 @@ import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
  * 所以默认档位 = **现有用户观感零变化**，不会因为引入本模块而突然改掉所有人的卡片外观。
  *
  * ## 真源是 dimen，不是这里的数字
- * 本对象只保存「档位存档位名」。实际 dp 值来自 `@dimen/card_round` 与 `card_round_large`，
- * 这样手表（`values/`）与宽屏手机（`values-w300dp/`）可以各自给值，符合「手表优先、手机顺便适配」。
+ * 本对象只保存「档位存档位名」。实际 dp 值来自 `@dimen/card_round`（方角 6dp）与
+ * `card_round_large`（圆角 12dp），两者**全平台统一、不在 `values-w300dp` 放大**：
+ * 原项目 BiliClient 只有一个 `values/`、`card_round` 全局 6dp，宽屏放大是本项目后加的，
+ * 会把「方角」在手机上变成 10dp 而看起来仍是圆的（实测过），与设置项语义冲突。
  * **本对象不做任何几何计算**，也不缓存——它不是热路径（只在读写设置时调用）。
  */
 object CornerStyle {
@@ -63,7 +65,7 @@ object CornerStyle {
     /**
      * 档位 → dimen 资源 id。
      *
-     * 这是圆角数值的**唯一真源**（宽屏由 `values-w300dp` 覆盖），XML 里的
+     * 这是圆角数值的**唯一真源**（全平台统一，无宽屏变体），XML 里的
      * `CardStyle*`/`ButtonStyle*` 直接引用 `@dimen/card_round`（即 [SQUARE] 档的值）。
      */
     fun radiusDimenResId(value: String = current()): Int = when (normalize(value)) {

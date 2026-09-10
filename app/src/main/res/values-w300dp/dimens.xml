@@ -15,7 +15,8 @@
 
     <dimen name="activity_padding_horizontal">8dp</dimen>
     <dimen name="list_margin_vertical">3dp</dimen>
-    <dimen name="card_round">10dp</dimen>
-    <!-- 圆角档位「圆角」：比「方角」大 6dp，两档随「方角」等量放大 -->
-    <dimen name="card_round_large">16dp</dimen>
+
+    <!-- 圆角**不在宽屏放大**：原项目 BiliClient 只有一个 values/ 目录、card_round 全局 6dp，
+         宽屏放大是本项目后加的，会让手机上的「方角」看起来仍然是圆的（实测 10dp≈27px），
+         与设置项语义冲突。故 card_round / card_round_large 全平台统一，只在 values/ 定义。 -->
 </resources>
