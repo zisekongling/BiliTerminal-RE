@@ -1,5 +1,6 @@
 package com.RobinNotBad.BiliClient.ui.appearance
 
+import android.content.Context
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
@@ -60,17 +61,26 @@ object CornerStyle {
     fun current(): String = normalize(SharedPreferencesUtil.getString(KEY, DEFAULT))
 
     /**
-     * 档位 → 需要 `theme.applyStyle()` 的**覆盖样式**（定义在 `res/values/styles.xml`）。
+     * 档位 → dimen 资源 id。
      *
-     * 为什么是这套机制：`dimen` 编译期固定、`shape drawable` 读不到主题，
-     * 只有**主题属性**（`?attr/appCornerRadius`）能在运行时被 `applyStyle` 覆盖。
-     * 因此所有 `CardStyle*`/`ButtonStyle*` 都引用该属性，由 `BaseActivity`
-     * 在 `setTheme` 之后、任何视图 inflate 之前叠加本样式。
-     *
-     * 好处：**零运行时遍历**，不碰 `RecyclerView` 绑定路径（手表性能优先）。
+     * 这是圆角数值的**唯一真源**（宽屏由 `values-w300dp` 覆盖），XML 里的
+     * `CardStyle*`/`ButtonStyle*` 直接引用 `@dimen/card_round`（即 [SQUARE] 档的值）。
      */
-    fun overlayStyleResId(value: String = current()): Int = when (normalize(value)) {
-        ROUNDED -> R.style.Appearance_CornerRounded
-        else -> R.style.Appearance_CornerSquare
+    fun radiusDimenResId(value: String = current()): Int = when (normalize(value)) {
+        ROUNDED -> R.dimen.card_round_large
+        else -> R.dimen.card_round
     }
+
+    /** 档位 → 圆角像素值。 */
+    fun radiusPx(context: Context, value: String = current()): Float =
+        context.resources.getDimension(radiusDimenResId(value))
+
+    /**
+     * 当前档位是否需要**在运行时覆盖** XML 里已有的圆角。
+     *
+     * `false` 表示 XML 里 `CardStyle*`/`ButtonStyle*` 的 `@dimen/card_round` 已经是目标值，
+     * 什么都不用做——这就是默认档「零运行时开销」的落点，也是 [AppearanceApplier] 的短路条件。
+     */
+    fun needsRuntimeOverride(value: String = current()): Boolean =
+        normalize(value) != SQUARE
 }

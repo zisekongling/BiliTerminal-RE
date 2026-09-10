@@ -36,10 +36,9 @@ import com.RobinNotBad.BiliClient.tutorial.TutorialStore
 import com.RobinNotBad.BiliClient.tutorial.Tutorials
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomGridManager
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
+import com.RobinNotBad.BiliClient.ui.appearance.AppearanceApplier
 import com.RobinNotBad.BiliClient.ui.appearance.AppearanceManager
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
-import com.RobinNotBad.BiliClient.ui.appearance.CornerStyle
-import com.RobinNotBad.BiliClient.ui.appearance.CustomFont
 import com.RobinNotBad.BiliClient.util.AsyncLayoutInflaterX
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -70,10 +69,6 @@ open class BaseActivity : AppCompatActivity() {
     override fun onCreate(@Nullable savedInstanceState: Bundle?) {
         val theme = SharedPreferencesUtil.getString(ColorScheme.PREF_KEY_THEME, ColorScheme.THEME_DEFAULT)
         setTheme(ColorScheme.themeResId(theme))
-        // 外观档位（圆角）必须在任何视图 inflate **之前**叠加到主题上：
-        // 只有主题属性能在运行时被覆盖，dimen 做不到（见 res/values/styles.xml）。
-        // 这一句是圆角模块唯一的运行时成本，且是 O(1)，无任何视图遍历。
-        this.theme.applyStyle(CornerStyle.overlayStyleResId(), true)
 
         setRequestedOrientation(
             if (SharedPreferencesUtil.getBoolean("ui_landscape", false))
@@ -310,14 +305,14 @@ open class BaseActivity : AppCompatActivity() {
     }
 
     /**
-     * `setContentView` 之后必被触发的钩子，用来套用自定义字体。
+     * `setContentView` 之后必被触发的钩子，用来套用自定义字体与圆角档位。
      *
      * 选这里是因为它能**同时覆盖**普通布局与 `asyncInflate` 的替换布局，
-     * 且只在内容变化时跑一次。未启用自定义字体时 [CustomFont] 会立即返回，零开销。
+     * 且只在内容变化时跑一次。两项都未启用/默认时 [AppearanceApplier] 立即返回，零开销。
      */
     override fun onContentChanged() {
         super.onContentChanged()
-        CustomFont.applyToContentView(this)
+        AppearanceApplier.applyToContentView(this)
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN, sticky = true)

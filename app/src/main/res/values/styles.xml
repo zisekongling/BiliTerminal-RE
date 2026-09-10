@@ -1,37 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- =========================================================== -->
-    <!-- 外观模块：卡片圆角（见 ui/appearance/CornerStyle.kt）           -->
-    <!--                                                             -->
-    <!-- 为什么圆角要做成「主题属性」而不是直接用 dimen：                -->
-    <!-- dimen 是编译期固定的，用户设置无法在运行时改变它；而主题属性      -->
-    <!-- 可以被 `theme.applyStyle()` 覆盖。所以档位切换的做法是——        -->
-    <!-- 所有 CardStyle*/ButtonStyle* 引用 ?attr/appCornerRadius，      -->
-    <!-- 由 BaseActivity 在 setTheme 之后 applyStyle 一个覆盖样式。      -->
-    <!-- 好处：**零运行时遍历**，不碰 RecyclerView 绑定路径（手表性能优先）。-->
-    <!--                                                             -->
-    <!-- 每个主题都自带一条 appCornerRadius=@dimen/card_round 作为兜底，  -->
-    <!-- 这样不走 BaseActivity 的裸 Activity（开屏/外链）拿到的是「方角」   -->
-    <!-- 而不是解析失败的 0dp。                                        -->
-    <!-- =========================================================== -->
-    <attr name="appCornerRadius" format="dimension" />
+    <!-- 卡片/按钮圆角统一取 @dimen/card_round（真源在 dimens.xml，宽屏由 values-w300dp 覆盖）。
 
-    <!-- 覆盖样式：档位 → appCornerRadius 取值。命名用下划线，
-         避免与主题名（Theme.Xxx）混淆。与 CornerStyle.SQUARE/ROUNDED 一一对应。 -->
-    <style name="Appearance_CornerSquare">
-        <item name="appCornerRadius">@dimen/card_round</item>
-    </style>
-
-    <style name="Appearance_CornerRounded">
-        <item name="appCornerRadius">@dimen/card_round_large</item>
-    </style>
+         为什么圆角**不用**主题属性做运行时切换：曾试过
+         `<item name="cardCornerRadius">?attr/appCornerRadius</item>` + `theme.applyStyle(覆盖样式)`，
+         真机实测半径变成 **0**（卡片角完全未裁，连原来的 6/10dp 都丢了）——
+         维度属性的 `?attr/` 间接层在这里没有解析成功。改用运行时套用，
+         见 `ui/appearance/CornerRadius.kt`：默认「方角」直接用这里的 dimen 值、零开销；
+         选「圆角」时才在 `BaseActivity.onContentChanged()` 里套一次 `card_round_large`。 -->
 
     <style name="CardStyle" parent="Widget.MaterialComponents.CardView">
         <item name="rippleColor" tools:ignore="PrivateResource">@color/bili_secondary</item>
         <item name="android:foreground">?android:attr/selectableItemBackground</item>
         <item name="cardBackgroundColor">@color/card_dark</item>
-        <item name="cardCornerRadius">?attr/appCornerRadius</item>
+        <item name="cardCornerRadius">@dimen/card_round</item>
         <item name="cardElevation">4dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
@@ -43,7 +26,7 @@
         <item name="rippleColor" tools:ignore="PrivateResource">@color/bili_secondary</item>
         <item name="android:foreground">?android:attr/selectableItemBackground</item>
         <item name="cardBackgroundColor">@color/card_light</item>
-        <item name="cardCornerRadius">?attr/appCornerRadius</item>
+        <item name="cardCornerRadius">@dimen/card_round</item>
         <item name="cardElevation">2dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
@@ -53,7 +36,7 @@
 
     <style name="ButtonStyle" parent="Widget.MaterialComponents.Button">
         <item name="backgroundTint">@color/pink</item>
-        <item name="cornerRadius">?attr/appCornerRadius</item>
+        <item name="cornerRadius">@dimen/card_round</item>
         <item name="android:textColor">@color/text_primary_dark</item>
         <item name="android:insetTop">2dp</item>
         <item name="android:insetBottom">2dp</item>
@@ -67,7 +50,7 @@
 
     <style name="ButtonStyleLight" parent="Widget.MaterialComponents.Button">
         <item name="backgroundTint">@color/pink</item>
-        <item name="cornerRadius">?attr/appCornerRadius</item>
+        <item name="cornerRadius">@dimen/card_round</item>
         <item name="android:textColor">@android:color/white</item>
         <item name="android:insetTop">2dp</item>
         <item name="android:insetBottom">2dp</item>

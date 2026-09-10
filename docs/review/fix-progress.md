@@ -516,6 +516,29 @@ override fun updateTimer(timer: DanmakuTimer) { timer.update(onCurrentPositionMs
   `shape` 的 `<corners>` 读不到主题属性；修法需先真机验证（改控件 or 一次条件性遍历），本轮不做。
 - layout 级内联圆角（头像 28dp、投票按钮 18dp、三个 8dp cell、`item_account` 12dp）按设计豁免，不跟随档位。
 
+### 第二十五轮补充（圆角模块真机排障与返工）· 26.09.11
+
+**真机实测发现第二十五轮的圆角机制整体失效**，已返工。
+
+| 发现 | 证据 | 处理 |
+|---|---|---|
+| 主题属性的**维度**间接层解析为 0 | 真机像素测量：`?attr/appCornerRadius` 方案下卡片左上角 (24,581) 就是卡片填充色 R31，顶行无任何裁切——半径 0；连原 `@dimen/card_round`(宽屏 10dp≈27px) 都丢了 | 回退整个方案：删 `appCornerRadius` 属性、两个 `Appearance_Corner*` 覆盖样式、8 处主题兜底；`cardCornerRadius`/`cornerRadius` 全部改回具体 dimen `@dimen/card_round` |
+| 本工程**并非只有 `MaterialCardView`** | `adb shell dumpsys activity top` 里 `androidx.cardview.widget.CardView` 与 `MaterialCardView` **同时存在**（设置索引页的卡片是普通 CardView）。此前"138 个 MaterialCardView、0 个 CardView"的勘察只看了 layout 文件，结论不完整 | `AppearanceApplier.applyRadius` 增加 `is CardView` 分支——普通 CardView 不读 `materialCardViewStyle`，XML 的 `cardCornerRadius` 对它无效，只有 `setRadius()` 能改 |
+| 只在 `onContentChanged` 走一遍会漏掉**程序化添加**的视图 | 设置索引页 `SettingMainActivity` 的卡片是在 `asyncInflate` 回调里 `addView` 加进容器的，发生在遍历之后 → 整页不生效 | 改为给每个 `ViewGroup` 挂 `OnHierarchyChangeListener`（同时覆盖 `RecyclerView` 的 item 挂载，去掉了原来的 `OnChildAttachStateChangeListener` 专用钩子）。`setOnHierarchyChangeListener` 无公开 getter 无法链式保留，已 grep 确认全工程无其它使用点 |
+| 字体与圆角各做一次遍历 | — | 合并为 `AppearanceApplier`（删除 `CustomFont.kt`），两项共用同一次遍历 |
+
+**新机制**：XML 写具体 `@dimen/card_round`（方角档即默认，零遍历）；只有选「圆角」档时
+`CornerStyle.needsRuntimeOverride()` 为 true，才在遍历里把 `card_round_large` 套上去。
+
+**真机验证状态（未完成，需人工确认）**：
+- ✅ 方角档：测得卡片顶行填充色从最左边缘开始、半径≈27px ≈ 宽屏 `card_round`(10dp) → **XML dimen 路径正常**。
+- ✅ 圆角档：同一张 DialogActivity 卡片在 `rounded` 档下顶行 160px 内**完全没有填充色**（方角档则从 x=0 就有）→ 形状确实随档位改变。
+- ⚠️ **未能得到精确半径数值**：卡片的绘制形状相对视图边界有阴影内缩，按行采样不可靠。
+- ⚠️ **未能逐页确认**：设备前台页面不稳定（多次落在 `DialogActivity`），且注入的 `ui_corner_radius` 曾被回写为 `square`（`appearance_version` 6→7），一度导致测量结论无效。
+- ⚠️ **我无法看到屏幕**（当前模型不支持图像输入），最终观感判定需人工。
+
+---
+
 ### 第二十六轮（外观三模块重构 · 步骤 6：独立「外观设置」页面）· 26.09.11
 
 把外观设置从「界面与外观」分组里拆出来，成为独立一屏。

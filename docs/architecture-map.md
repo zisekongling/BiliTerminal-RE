@@ -455,38 +455,37 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 
 ### 8.7.1 圆角的生效机制（26.09.11 落地，改圆角前必读）
 
-**为什么不能直接用 dimen**：`dimen` 是编译期固定的，用户设置在运行时改不了它；
-`shape drawable` 也读不到主题属性。**只有主题属性（`?attr/`）能被 `theme.applyStyle()` 覆盖**，
-所以圆角走的是主题属性这条唯一可行的路：
+**结论：圆角靠 XML 里的具体 dimen + 运行时套用，不走主题属性。**
 
-1. `res/values/styles.xml` 声明 `<attr name="appCornerRadius" format="dimension"/>`，
-   并定义两个覆盖样式 `Appearance_CornerSquare` / `Appearance_CornerRounded`。
-2. 所有 `CardStyle*`/`ButtonStyle*`（`styles.xml` + `themes.xml` 共 7 套）的
-   `cardCornerRadius`/`cornerRadius` 一律引用 `?attr/appCornerRadius`——
-   原先 10 处硬编码 `12dp` 已全部消除。
-3. 每套主题都自带一条 `<item name="appCornerRadius">@dimen/card_round</item>` 作为**兜底**，
-   这样不走 `BaseActivity` 的裸 Activity（`SplashActivity`/`GetIntentActivity`）与
-   `Theme.NoSwipe.AppCompat` 类界面拿到的是「方角」而不是解析失败的 0dp。
-4. `BaseActivity.onCreate` 在 `setTheme(...)` 之后、任何视图 inflate **之前**，
-   执行 `this.theme.applyStyle(CornerStyle.overlayStyleResId(), true)`。
-   **这是圆角模块唯一的运行时成本，且是 O(1)，无任何视图遍历。**
+> **走过的弯路（别再走一遍）**：最初用主题属性做运行时切换——`<item name="cardCornerRadius">?attr/appCornerRadius</item>`
+> 配合 `theme.applyStyle(覆盖样式, force=true)`。**真机实测半径变成 0**：卡片角完全没被裁，
+> 连原来 `@dimen/card_round` 的 6/10dp 都丢了。维度属性的 `?attr/` 间接层在这里没有解析成功。
+> 该方案已整体回退（`appCornerRadius` 属性、两个覆盖样式、8 处主题兜底全部删除）。
 
-> `force = true` 是必需的：`appCornerRadius` 已在主题里定义过，不加 force 覆盖不生效。
+**实际机制**
+1. `CardStyle*`/`ButtonStyle*`（`styles.xml` + `themes.xml` 共 7 套）的 `cardCornerRadius`/`cornerRadius`
+   一律写**具体 dimen** `@dimen/card_round`——即默认「方角」档的值。真源是 `dimens.xml`
+   + `values-w300dp/dimens.xml`（手表 6dp / 宽屏 10dp）。
+2. 只有选「圆角」档时才需要运行时覆盖：`CornerStyle.needsRuntimeOverride()` 为 true 时，
+   `AppearanceApplier` 在视图树里把 `card_round_large`（手表 12dp / 宽屏 16dp）套上去。
+   **默认档不触发任何遍历**，这就是「零开销」的落点（守卫测试 `needsRuntimeOverride_isFalseForDefaultOnly`）。
+3. 覆盖对象**必须包含普通 `androidx.cardview.widget.CardView`**，不能只认 `MaterialCardView`：
+   实测 `dumpsys activity top` 里两者同时存在（设置索引页的卡片就是普通 `CardView`），
+   而普通 CardView 不读 `materialCardViewStyle`，XML 的 `cardCornerRadius` 对它无效，
+   只有 `setRadius()` 能改。漏掉它就会出现「有的卡片跟着档位变、有的不变」。
+4. 覆盖必须挂在 `ViewGroup.OnHierarchyChangeListener` 上，不能只在 `onContentChanged` 走一遍：
+   `SettingMainActivity` 的卡片是在 `asyncInflate` 回调里**程序化 `addView`** 加进容器的，
+   发生在遍历之后。该监听器同时覆盖 `RecyclerView` 的 item 挂载（也走 `addView`）。
 
-**档位取值**：`card_round`（方角：手表 6dp / 宽屏 10dp）、`card_round_large`
-（圆角：手表 12dp / 宽屏 16dp）。真源是 `dimens.xml` + `values-w300dp/dimens.xml`。
-
-**已知未覆盖（圆角模块的遗留项）**
-- **10 个 shape drawable 仍直接用 `@dimen/card_round`**，因此不跟随档位
+**已知未覆盖**
+- **10 个 shape drawable 仍直接用 `@dimen/card_round`**，不跟随档位
   （`background_card`、`background_card_borderless`、`background_edittext`×3、
   `background_grey_cardview`、`background_privatemsg_send`、`background_searchbar`、
-  `background_searchhistory`）。`shape` 的 `<corners android:radius>` 读不到主题属性。
-  修法有两条，**都必须先真机确认**：① 把这几处改成 `ShapeableImageView`/`MaterialCardView`
-  等能吃主题属性的控件；② 在 `setContentView` 之后做**一次**遍历改写 `GradientDrawable` 半径，
-  且**仅在档位 ≠ 主题兜底值时才执行**。当前选择：先不做，避免在热路径引入特判。
-- **layout 级内联圆角**保持原值，不跟随档位：`cell_up_avatar`(28dp，圆形头像)、
-  `activity_vote_info` 的两个按钮(18dp)、`cell_follow_group`/`cell_log`/`cell_login_record`(8dp)、
-  `item_account`(12dp)。属「尺寸派生圆角」，按设计豁免。
+  `background_searchhistory`）。`shape` 的 `<corners android:radius>` 读不到主题属性，
+  也拿不到 Typeface 那样的运行时覆盖入口；要修得改控件（`ShapeableImageView` 等）或另做一次 drawable 遍历。
+- **不走 `BaseActivity` 的三个界面**（开屏/外链/播放器）不生效。
+- layout 级内联圆角（头像 28dp、投票按钮 18dp、三个 8dp cell、`item_account` 12dp）
+  属「尺寸派生圆角」，按设计豁免。
 
 **「方角」的语义（已对上游实测核实）**：上游 BiliClient（gitee `develop`，HEAD `f2b1aca`）
 全项目唯一圆角是 `@dimen/card_round` = **6dp**，经主题 `materialCardViewStyle` 全局下发；

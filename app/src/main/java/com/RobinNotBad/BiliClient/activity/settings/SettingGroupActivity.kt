@@ -269,7 +269,7 @@ class SettingGroupActivity : RefreshListActivity() {
         }
 
         // 配色与圆角已迁到独立的「外观设置」页（本页的另一个 group_type 分组）
-        nav(R.drawable.icon_ui, "外观设置", "主题配色、卡片圆角（字体待接入）") {
+        nav(R.drawable.icon_ui, "外观设置", "主题配色、卡片圆角、自定义字体") {
             startActivity(Intent(this, SettingGroupActivity::class.java).apply {
                 putExtra("group_type", GROUP_APPEARANCE)
                 putExtra("group_title", "外观设置")
