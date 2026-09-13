@@ -604,6 +604,40 @@ override fun updateTimer(timer: DanmakuTimer) { timer.update(onCurrentPositionMs
 **待真机验证**：在手表上挑一个 TTF 应用，检查列表/设置页/详情页是否都换了字体、粗体标题是否仍为粗体、
 点「恢复系统字体」是否回到系统字体、以及选一个非字体文件时是否给出可读的拒绝提示。
 
+### 第二十八轮（圆屏适配开启后顶栏崩溃）· 26.09.11
+
+**现象**（用户真机报告 + 完整堆栈）：开启「圆屏适配」后重进页面立刻崩溃。
+
+```
+java.lang.ClassCastException: android.widget.RelativeLayout$LayoutParams
+        cannot be cast to android.widget.LinearLayout$LayoutParams
+    at android.widget.LinearLayout.measureHorizontal(LinearLayout.java:1199)
+```
+
+**根因**：`BaseActivity.setRound()` 里硬编码 `RelativeLayout.LayoutParams` 赋给顶栏控件，
+没管控件的**真实父容器**是什么类型。`@id/timeText` 在个别布局里挂在 `@id/menuArea`
+（**LinearLayout**）里，于是 LinearLayout 下一帧 `measureHorizontal` 强转崩溃。
+
+三处细节：
+
+1. 崩在 **measure 阶段**，调用处那个 `try { } catch (e: Throwable)` 兜不住——`setRound()`
+   正常返回，异常是下一帧遍历抛的，进程直接挂。
+2. 只在**开启圆屏适配**时触发（方法开头有 `player_ui_round` 守卫），所以一直没被发现。
+3. 时钟容器不统一：`activity_simple_main_refresh.xml` 是 `top(RelativeLayout) > menuArea(LinearLayout) > timeText`，
+   其余布局多为 `top(RelativeLayout) > timeText`。
+
+| 文件 | 改动 |
+|---|---|
+| `activity/base/BaseActivity.kt` | `setRound()` 不再直接 new `RelativeLayout.LayoutParams`；新增私有 `newTopbarParams(view)`，按 `view.parent` 的真实类型产出 `RelativeLayout.LayoutParams` / `LinearLayout.LayoutParams`（其余退化为 `MarginLayoutParams`），再仅当类型是 RelativeLayout 时 `addRule(CENTER_HORIZONTAL)` |
+
+> 没能用更优雅的 `parent.generateLayoutParams(child.layoutParams)`：该方法是
+> `ViewGroup` 的 **protected** 成员，Activity 里访问不到（编译器直接报
+> "Cannot access ... it is protected"），所以改成显式 when 分支。
+
+**验证**：`:app:assembleDebug` 通过；`:app:testDebugUnitTest` 通过。
+**待真机验证**：开启圆屏适配后重进首页（带菜单区，时钟在 LinearLayout 里）不再崩，
+且顶栏标题/时钟仍居中；普通页面（时钟直挂 RelativeLayout）视觉不回退。
+
 ---
 
 ## 三、审查前已修复（本次核查确认，无需改动）
@@ -649,6 +683,7 @@ override fun updateTimer(timer: DanmakuTimer) { timer.update(onCurrentPositionMs
 | 2026-09-11 | `:app:assembleDebug` + `:app:testDebugUnitTest`（第二十五轮：圆角模块落地） | ✅ BUILD SUCCESSFUL in 1m 56s；15 个测试类 / 106 用例 / 0 失败（`CornerStyleTest` 7→10）；`R.txt` 已生成 `attr appCornerRadius` 与两个覆盖样式；16 处圆角定义全部改为 `?attr/` 引用，0 残留硬编码；**待真机验证两档切换** |
 | 2026-09-11 | `:app:assembleDebug` + `:app:testDebugUnitTest`（第二十六轮：独立「外观设置」页面） | ✅ BUILD SUCCESSFUL in 12s；15 个测试类 / 106 用例 / 0 失败；纯设置页重组，无 `res/` 改动、无新 Activity/manifest 变更 |
 | 2026-09-11 | `:app:assembleDebug` + `:app:testDebugUnitTest`（第二十七轮：自定义字体） | ✅ BUILD SUCCESSFUL in 51s；15 个测试类 / 107 用例 / 0 失败（`FontStyleTest` 13、`AppearanceManagerTest` 11，均按新语义重写）；字号/字族旧代码 0 残留；**待真机验证应用/恢复/拒绝非法文件** |
+| 2026-09-11 | `:app:assembleDebug` + `:app:testDebugUnitTest`（第二十八轮：圆屏适配顶栏崩溃） | ✅ BUILD SUCCESSFUL；单测通过；`setRound()` 改为按真实父容器产出 LayoutParams；**待真机验证重进首页不崩** |
 
 > 第二轮修复的 4 个文件（QRLoginFragment/CaptchaWebViewActivity/LocalListActivity/VideoInfoFragment）已重新编译验证通过。APK 时间戳更新至 16:01:21，universal 包 31.04 MB。
 > 第三轮修复的 2 个文件（PrivateMsgActivity/NetWorkUtil）已重新编译验证通过。构建仅有 1 个 Hilt 处理选项无关警告，不影响产物。
@@ -676,6 +711,7 @@ override fun updateTimer(timer: DanmakuTimer) { timer.update(onCurrentPositionMs
 - [x] 播放器长按后手势全失效：`PlayerControlDelegate.kt:215`（26.09.10 已修，第十六轮）
 - [x] 设置页二级列表崩溃：`SettingsAdapter` 负值 viewType + `ConcatAdapter` 重映射（26.09.10 已修，第十九轮）
 - [x] Menu 键同时打开菜单并关闭当前页（26.09.08 已修，第四轮）
+- [x] 圆屏适配开启后顶栏 ClassCastException 崩溃：`BaseActivity.setRound()` 硬编码 RelativeLayout.LayoutParams（26.09.11 已修，第二十八轮）
 - [ ] WebView 输入校验缺失：`SetupUIActivity.kt:79,86,92`
 
 ### P1 架构清理

@@ -176,35 +176,64 @@ open class BaseActivity : AppCompatActivity() {
             pagename.ellipsize = TextUtils.TruncateAt.END
             if (SharedPreferencesUtil.getBoolean("player_ui_round", false)) {
                 try {
-                    val params = pagename.layoutParams
                     val paddingH = (window_width * 0.18).toInt()
                     val paddingV = (window_width * 0.03).toInt()
                     pagename.setPadding(paddingH, paddingV, paddingH, 0)
-                    if (params is RelativeLayout.LayoutParams) {
-                        val clockParams = RelativeLayout.LayoutParams(
-                            ViewGroup.LayoutParams.WRAP_CONTENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT
-                        )
-                        clockParams.addRule(RelativeLayout.CENTER_HORIZONTAL)
-                        clock.layoutParams = clockParams
-                        clock.alpha = 0.85f
-                        clock.textSize = 12f
 
-                        val pnParams = RelativeLayout.LayoutParams(
-                            ViewGroup.LayoutParams.WRAP_CONTENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT
-                        )
-                        pnParams.addRule(RelativeLayout.CENTER_HORIZONTAL)
-                        pnParams.topMargin = (window_height * 0.01).toInt() + ToolsUtil.sp2px(12f)
-                        pnParams.bottomMargin = (window_height * 0.01).toInt()
-                        pagename.layoutParams = pnParams
-                        pagename.setPadding(0, 0, ToolsUtil.dp2px(5f), 0)
-                        Logu.d("round", "ok")
+                    // 时钟的宿主容器有两种：绝大多数布局里 top 是 RelativeLayout，时钟直接挂在它下面；
+                    // 首页那种带菜单区的布局里，时钟在 top 内的 menuArea(LinearLayout) 里。
+                    // 必须按【真实父容器】决定 LayoutParams 类型 —— 给 LinearLayout 的子 View 塞
+                    // RelativeLayout.LayoutParams，LinearLayout.measureHorizontal 强转时必崩
+                    // （ClassCastException，且抛在 measure 阶段，外面的 try 根本兜不住）。
+                    clock?.let { clockView ->
+                        val clockParams = newTopbarParams(clockView)
+                        if (clockParams is RelativeLayout.LayoutParams)
+                            clockParams.addRule(RelativeLayout.CENTER_HORIZONTAL)
+                        clockView.layoutParams = clockParams
+                        clockView.alpha = 0.85f
+                        clockView.textSize = 12f
                     }
+
+                    val pnParams = newTopbarParams(pagename)
+                    if (pnParams is RelativeLayout.LayoutParams)
+                        pnParams.addRule(RelativeLayout.CENTER_HORIZONTAL)
+                    pnParams.width = ViewGroup.LayoutParams.WRAP_CONTENT
+                    pnParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+                    pnParams.topMargin = (window_height * 0.01).toInt() + ToolsUtil.sp2px(12f)
+                    pnParams.bottomMargin = (window_height * 0.01).toInt()
+                    pagename.layoutParams = pnParams
+                    pagename.setPadding(0, 0, ToolsUtil.dp2px(5f), 0)
+                    Logu.d("round", "ok")
                 } catch (e: Throwable) {
                     MsgUtil.err("圆屏适配执行错误：", e)
                 }
             }
+        }
+    }
+
+    /**
+     * 按顶栏 View 的【真实父容器】类型造一份 LayoutParams。
+     *
+     * 圆屏适配要把 pageName / timeText 改成 WRAP_CONTENT + 居中，但这两个控件的宿主容器
+     * 不统一：大多数布局里父容器是 `@id/top`(RelativeLayout)，个别布局（如顶栏带菜单区的
+     * `activity_simple_main_refresh`）时钟在 `@id/menuArea`(LinearLayout) 里。直接把
+     * RelativeLayout.LayoutParams 塞给 LinearLayout 的子 View，会在下一帧
+     * `LinearLayout.measureHorizontal` 强转时抛 ClassCastException —— 那是 measure 阶段，
+     * 调用处的 try/catch 兜不住，直接崩。
+     *
+     * 这里只覆盖工程里实际存在的两种容器，其余（FrameLayout 等）退化为 MarginLayoutParams，
+     * 至少不会崩。
+     */
+    private fun newTopbarParams(view: View): ViewGroup.MarginLayoutParams {
+        val width = ViewGroup.LayoutParams.WRAP_CONTENT
+        val height = ViewGroup.LayoutParams.WRAP_CONTENT
+        val current = view.layoutParams
+        return when (view.parent) {
+            is RelativeLayout -> RelativeLayout.LayoutParams(current ?: RelativeLayout.LayoutParams(width, height))
+            is android.widget.LinearLayout -> android.widget.LinearLayout.LayoutParams(
+                current ?: android.widget.LinearLayout.LayoutParams(width, height)
+            )
+            else -> ViewGroup.MarginLayoutParams(current ?: ViewGroup.MarginLayoutParams(width, height))
         }
     }
 
