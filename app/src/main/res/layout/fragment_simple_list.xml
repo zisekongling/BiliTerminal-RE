@@ -15,10 +15,10 @@
         android:src="@mipmap/loading_2233"
         android:visibility="gone" />
 
+    <!-- 空态：列表为空是正常状态，不放 loading_2233_error 报错插画，
+         否则会被误认成"加载失败"。确属加载失败时由 MsgUtil.err 弹提示。 -->
     <TextView
         android:id="@+id/emptyTip"
-        android:drawableTop="@mipmap/loading_2233_error"
-        android:drawablePadding="@dimen/space_md"
         android:padding="@dimen/space_xl"
         android:layout_width="match_parent"
         android:layout_height="match_parent"

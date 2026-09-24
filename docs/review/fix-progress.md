@@ -694,6 +694,32 @@ java.lang.NoSuchMethodError: No virtual method hasOnLongClickListeners()Z
 - release 合并清单（`:app:processReleaseMainManifest`）：安全属性同上，**`TestActivity` 出现 0 次**。
 - **待真机验证**：图片/头像/直播封面仍能加载（明文白名单是否够用）、公告与赞助列表仍能取到（https 接口）、更新检测正常。
 
+### 第三十一轮（空态不再摆报错插画）· 26.09.13
+
+**现象**：下载列表等页面为空时，屏幕上会显示 `loading_2233_error` 报错插画 + "啥都木有~"，
+看起来像加载失败；但这些页面为空是**正常状态**（没有下载任务、没有收藏/历史/关注等）。
+
+**根因**：`emptyTip` 在 XML 里写死了 `android:drawableTop="@mipmap/loading_2233_error"`
+（第十轮视觉优化时加的，见本文档第十轮）。而 `showEmptyView()` 全工程只在
+"加载成功但列表为空"时调用——真正的加载失败走 `loadFail()` / `report()` 弹提示，
+从不走空态。也就是说空态**从来就不是**错误态，却一直挂着报错插画。
+
+**改动**：4 个空态布局去掉 `drawableTop` / `drawablePadding`，空态只保留中性文案；
+并在布局里加注释说明原因，避免以后又被当成"缺图标"加回来。
+
+| 布局 | 使用页面 |
+|---|---|
+| `activity_simple_refresh.xml` | `RefreshListActivity` 全部子类（含下载列表）、`MessageSettingsActivity`、`ReplyInfoActivity`、流水页、`TimelineActivity` |
+| `activity_simple_main_refresh.xml` | `RefreshMainActivity` 全部子类（推荐/热门/排行/必刷/动态/直播/热搜）、`LocalListActivity` |
+| `fragment_simple_refresh.xml` | `RefreshListFragment`、`SearchFragment` |
+| `fragment_simple_list.xml` | `OpusInfoFragment`、`EmoteActivity` |
+
+> `loading_2233_error` 本身的用途不变：详情页（`OpusInfoActivity` / `DynamicInfoActivity` /
+> `VideoInfoActivity`）**真实加载失败**时仍然用它，那才是它该出现的地方。
+
+**验证**：`:app:assembleDebug` ✅ BUILD SUCCESSFUL；单测无相关改动（UP-TO-DATE）。
+**待真机验证**：空列表页面只显示"啥都木有~"文案，不再出现报错插画。
+
 ---
 
 ## 三、审查前已修复（本次核查确认，无需改动）
@@ -742,6 +768,7 @@ java.lang.NoSuchMethodError: No virtual method hasOnLongClickListeners()Z
 | 2026-09-11 | `:app:assembleDebug` + `:app:testDebugUnitTest`（第二十八轮：圆屏适配顶栏崩溃） | ✅ BUILD SUCCESSFUL；单测通过；`setRound()` 改为按真实父容器产出 LayoutParams；**待真机验证重进首页不崩** |
 | 2026-09-13 | `:app:testDebugUnitTest` + `:app:assembleDebug`（第二十九轮：顶栏监听器探测降级） | ✅ 16 个测试类 / 112 用例 / 0 失败（新增 `ViewCapabilityProbeTest` 4 例）；`hasOn*ClickListeners()` 改为反射探测 + 降级；**待真机验证应用能起来** |
 | 2026-09-13 | `:app:clean` → `:app:assembleDebug` + `:app:testDebugUnitTest`（第三十轮：安全加固） | ✅ BUILD SUCCESSFUL；16 个测试类 / 112 用例 / 0 失败；debug 与 release 合并清单均实测 `allowBackup=false` + `networkSecurityConfig`，release 清单 `TestActivity` 0 次、仅 2 个组件导出；**待真机验证图片加载与 https 接口** |
+| 2026-09-13 | `:app:assembleDebug`（第三十一轮：空态去报错插画） | ✅ BUILD SUCCESSFUL；4 个空态布局去掉 `loading_2233_error`，空列表不再被误认成加载失败；**待真机验证下载列表等空页面** |
 
 > 第二轮修复的 4 个文件（QRLoginFragment/CaptchaWebViewActivity/LocalListActivity/VideoInfoFragment）已重新编译验证通过。APK 时间戳更新至 16:01:21，universal 包 31.04 MB。
 > 第三轮修复的 2 个文件（PrivateMsgActivity/NetWorkUtil）已重新编译验证通过。构建仅有 1 个 Hilt 处理选项无关警告，不影响产物。
