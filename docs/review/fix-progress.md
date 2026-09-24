@@ -638,6 +638,44 @@ java.lang.ClassCastException: android.widget.RelativeLayout$LayoutParams
 **待真机验证**：开启圆屏适配后重进首页（带菜单区，时钟在 LinearLayout 里）不再崩，
 且顶栏标题/时钟仍居中；普通页面（时钟直挂 RelativeLayout）视觉不回退。
 
+### 第二十九轮（顶栏监听器探测降级）· 26.09.13
+
+**现象**（用户真机崩溃截图 + 完整堆栈）：应用一起来就崩，**所有页面都打不开**。
+
+```
+java.lang.NoSuchMethodError: No virtual method hasOnLongClickListeners()Z
+        in class Landroid/view/View; or its super classes
+    at com.RobinNotBad.BiliClient.activity.base.BaseActivity.setupTopbarLongPressToHome
+    at com.RobinNotBad.BiliClient.activity.base.BaseActivity.onStart
+```
+
+**根因**：`View.hasOnLongClickListeners()` 是 API 15 就有的公开 API，`android-34` 的 class
+文件里确实存在（`javap` 实测），但该手表的 `/system/framework/framework.jar` 把它裁掉了。
+编译期、Lint、单测全查不出来 —— 只有真机运行到 `onStart` 才炸。`setTopbarExit()` 里的
+`hasOnClickListeners()` 属同一类隐患。
+
+| 文件 | 改动 |
+|---|---|
+| `util/ViewCapabilityProbe.kt` | **新增**：反射探测框架方法是否存在，探测结论进程级缓存；`probeBoolean()` 返回 `null` 表示「本机没这个能力，请走降级」 |
+| `activity/base/BaseActivity.kt` | `setTopbarExit()` / `setupTopbarLongPressToHome()` 改为「探测成功按框架判断、探测失败按自己的标志位判断」，两条路都保证同一 Activity 实例只装一次监听器 |
+| `ViewCapabilityProbeTest.kt` | **新增** 4 用例：方法存在、方法不存在（只上报一次）、目标抛普通异常、目标抛 Error |
+| `docs/architecture-map.md` §8.5 | 新增第 11 条「别裸调理论上一定存在的框架方法」 |
+
+**降级边界**（同时写进代码注释与架构地图）：
+
+- 方法不存在（`LinkageError`：`NoSuchMethodError` / `AbstractMethodError` / `NoClassDefFoundError`）→ 缓存为不可用，返回 `null` 降级；
+- 框架方法自己炸成普通异常（`Exception`）→ 也返回 `null` 降级；
+- 其他 `Error`（`StackOverflowError`、`OOM` 等）→ **原样抛出**，不静默吞掉真 bug。
+
+> 单测在这里抓到了我第一版实现里的一个真 bug：缓存命中那条路原本直接
+> `return invokeBoolean(...)`，没包 try/catch，导致同一个方法「第一次调用降级、第二次调用
+> 把异常漏出去」。现在两条路径合并到 `handleProbeFailure()`，行为一致。
+> 另外第一版只 `catch (e: Error)`，而反射拆包后抛出的通常是普通 `Exception`，会直接穿透 ——
+> 改成按 `Throwable` 分派。
+
+**验证**：`:app:testDebugUnitTest` 全绿（16 个测试类 / 112 用例 / 0 失败，新增 4 例）；
+`:app:assembleDebug` 通过。**待真机验证**：应用能正常起来、顶栏点击返回与长按回主页都还在。
+
 ---
 
 ## 三、审查前已修复（本次核查确认，无需改动）
@@ -684,6 +722,7 @@ java.lang.ClassCastException: android.widget.RelativeLayout$LayoutParams
 | 2026-09-11 | `:app:assembleDebug` + `:app:testDebugUnitTest`（第二十六轮：独立「外观设置」页面） | ✅ BUILD SUCCESSFUL in 12s；15 个测试类 / 106 用例 / 0 失败；纯设置页重组，无 `res/` 改动、无新 Activity/manifest 变更 |
 | 2026-09-11 | `:app:assembleDebug` + `:app:testDebugUnitTest`（第二十七轮：自定义字体） | ✅ BUILD SUCCESSFUL in 51s；15 个测试类 / 107 用例 / 0 失败（`FontStyleTest` 13、`AppearanceManagerTest` 11，均按新语义重写）；字号/字族旧代码 0 残留；**待真机验证应用/恢复/拒绝非法文件** |
 | 2026-09-11 | `:app:assembleDebug` + `:app:testDebugUnitTest`（第二十八轮：圆屏适配顶栏崩溃） | ✅ BUILD SUCCESSFUL；单测通过；`setRound()` 改为按真实父容器产出 LayoutParams；**待真机验证重进首页不崩** |
+| 2026-09-13 | `:app:testDebugUnitTest` + `:app:assembleDebug`（第二十九轮：顶栏监听器探测降级） | ✅ 16 个测试类 / 112 用例 / 0 失败（新增 `ViewCapabilityProbeTest` 4 例）；`hasOn*ClickListeners()` 改为反射探测 + 降级；**待真机验证应用能起来** |
 
 > 第二轮修复的 4 个文件（QRLoginFragment/CaptchaWebViewActivity/LocalListActivity/VideoInfoFragment）已重新编译验证通过。APK 时间戳更新至 16:01:21，universal 包 31.04 MB。
 > 第三轮修复的 2 个文件（PrivateMsgActivity/NetWorkUtil）已重新编译验证通过。构建仅有 1 个 Hilt 处理选项无关警告，不影响产物。
@@ -712,6 +751,7 @@ java.lang.ClassCastException: android.widget.RelativeLayout$LayoutParams
 - [x] 设置页二级列表崩溃：`SettingsAdapter` 负值 viewType + `ConcatAdapter` 重映射（26.09.10 已修，第十九轮）
 - [x] Menu 键同时打开菜单并关闭当前页（26.09.08 已修，第四轮）
 - [x] 圆屏适配开启后顶栏 ClassCastException 崩溃：`BaseActivity.setRound()` 硬编码 RelativeLayout.LayoutParams（26.09.11 已修，第二十八轮）
+- [x] `NoSuchMethodError: View.hasOnLongClickListeners()`：部分手表框架裁掉了该 API，`onStart` 必崩（26.09.13 已修，第二十九轮，改反射探测 + 降级）
 - [ ] WebView 输入校验缺失：`SetupUIActivity.kt:79,86,92`
 
 ### P1 架构清理

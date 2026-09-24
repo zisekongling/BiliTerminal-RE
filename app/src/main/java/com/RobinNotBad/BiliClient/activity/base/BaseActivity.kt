@@ -44,6 +44,7 @@ import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.ToolsUtil
+import com.RobinNotBad.BiliClient.util.ViewCapabilityProbe
 
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
@@ -159,7 +160,13 @@ open class BaseActivity : AppCompatActivity() {
 
     fun setTopbarExit() {
         val view = findViewById<View>(R.id.top) ?: return
-        if (Build.VERSION.SDK_INT > 17 && view.hasOnClickListeners()) return
+        // 首选框架能力：部分手表框架裁掉了 hasOnClickListeners()，探测失败就退回自己的标志位。
+        // 两条路都保证「同一个 Activity 实例只装一次监听器」。
+        val installed = ViewCapabilityProbe.probeBoolean(view, "hasOnClickListeners") { name, e ->
+            Logu.d("view-probe", "$name 在本机不可用，已降级：${e.javaClass.simpleName}")
+        } ?: topbarExitInstalled
+        if (installed) return
+        topbarExitInstalled = true
         view.setOnClickListener {
             if (Build.VERSION.SDK_INT < 17 || !isDestroyed) {
                 finish()
@@ -253,6 +260,13 @@ open class BaseActivity : AppCompatActivity() {
     private var eventBusInit: Boolean = false
     private var tutorialAutoTriggered: Boolean = false
 
+    // 顶栏两个监听器的「降级标志位」。
+    // View.hasOnClickListeners() / hasOnLongClickListeners() 虽然是 API 15+ 的公开 API，
+    // 但部分杂牌手表的框架把方法裁掉了，裸调直接 NoSuchMethodError 闪退。现在统一走
+    // ViewCapabilityProbe：能调就走框架判断，调不了就退回这两个标志位，功能不受影响。
+    private var topbarExitInstalled: Boolean = false
+    private var topbarLongPressInstalled: Boolean = false
+
     override fun onStart() {
         super.onStart()
         if (this !is InstanceActivity) setTopbarExit()
@@ -274,8 +288,13 @@ open class BaseActivity : AppCompatActivity() {
      */
     private fun setupTopbarLongPressToHome() {
         val topBar = findViewById<View>(R.id.top) ?: return
-        if (topBar.hasOnLongClickListeners()) return
+        // 同上：这个 hasOnLongClickListeners() 就是在手表上抛 NoSuchMethodError 的那个方法
+        val installed = ViewCapabilityProbe.probeBoolean(topBar, "hasOnLongClickListeners") { name, e ->
+            Logu.d("view-probe", "$name 在本机不可用，已降级：${e.javaClass.simpleName}")
+        } ?: topbarLongPressInstalled
+        if (installed) return
         if (this is MenuActivity) return
+        topbarLongPressInstalled = true
         topBar.setOnLongClickListener {
             val intent = Intent(this, MenuActivity::class.java)
             intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
