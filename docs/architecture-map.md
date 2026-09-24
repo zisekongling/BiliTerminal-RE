@@ -231,6 +231,27 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 
 `api/` 目录下约 40 个类，每个对应一个 B 站功能域，**全部**通过 `NetWorkUtil` 发请求、用 `org.json` 手工拆包。没有 Retrofit、没有数据类映射（除 `model/` 下少量 POJO）。
 
+### 6.4 明文流量与凭据保护（26.09.13 加固，改网络/清单前必读）
+
+三条要求，改动时别破坏：
+
+1. **不新增明文接口**。`AppInfoApi` 原先 4 处 `http://api.biliterminal.cn` 已全部改为 `https://`（实测该域 https 正常返回 200）。新的自建接口一律用 https。
+2. **`AndroidManifest.xml` 不再全局开 `usesCleartextTraffic`**，改走
+   `res/xml/network_security_config.xml`：`base-config` 禁止明文，只对 `bilibili.com` /
+   `hdslb.com` / `bilivideo.com` / `afdiancdn.com` 放行。之所以不能一刀切禁明文，是因为解析层
+   仍有若干 `"http:" + url` 的拼接（`LiveCardAdapter` 直播封面、`SearchApi` 封面/头像、
+   `OpusParagraph` 图片）。**若要把这些也改成 https，必须先在真机验证对应 CDN 节点支持 https，
+   再考虑把域名从白名单移除。** 新增需要明文的域名要显式加进白名单并说明原因。
+3. **登录凭据不得随备份外流**。所有 Cookie / 账号态存在 SharedPreferences，
+   故 `android:allowBackup="false"`，并用 `res/xml/backup_rules.xml`（API ≤30）与
+   `res/xml/data_extraction_rules.xml`（API 31+）排除 `sharedpref` 与 `database` 两个 domain。
+   `:brotlij` 模块的清单自带 `allowBackup="true"`，因此主清单上必须带
+   `tools:replace="android:allowBackup"`，否则清单合并直接失败。
+
+> 组件导出面已收敛：除 `SplashActivity`（LAUNCHER）与 `GetIntentActivity`（外链/分享，
+> 二者有 `<intent-filter>`）外，其余 Activity 一律 `android:exported="false"`。
+> **新增 Activity 默认写 false**，只有确实要被外部应用拉起时才开，并说明理由。
+
 ---
 
 ## 7. 改功能前必须知道的坑（按"会不会踩到"排序）
@@ -264,7 +285,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 
 - **巨型类**：`activity/player/PlayerActivity.kt` 127 KB、`service/DownloadService.kt` 65 KB、`activity/video/ShortVideoPlayerActivity.kt` 35 KB。改播放/下载相关功能前先想清楚在哪个位置插入。
 - **两套 Application 静态状态并存**：`BiliTerminal.context/instance`（活的）与 `BiliTerminalApp.context/appInstance`（死的）。**新代码一律用 `BiliTerminal`**，别碰 `BiliTerminalApp`（除 `SplashActivity` 里 UETool 那几行历史遗留）。
-- **测试覆盖极低**：`app/src/test/` 仅 13 个文件（12 个测试类 + 1 个共享假实现 `FakeSharedPreferences`），对 363 个源文件。已有：`HotSearchApiTest`、`FavoriteApiTest`、`OpusApiTest`、`PrivateMsgApiTest`、`NetWorkUtilTest`、`MenuConfigTest`、`MySpaceConfigTest`、`ToolsUtilTest`、`StringUtilTest`、`HotSearchAdapterTest`、`TutorialDslTest`、`ColorSchemeTest`。改动解析/配置/主题逻辑时补纯 JVM 单测——注入 `SharedPreferencesUtil.sharedPreferences`，用 `util/FakeSharedPreferences.kt`（26.09.11 从 `NetWorkUtilTest` 的私有内部类提取为共享助手，别再抄一份）。
+- **测试覆盖极低**：`app/src/test/` 17 个文件（16 个测试类 + 1 个共享假实现 `FakeSharedPreferences.kt`），共 **112 个用例**，对 363 个源文件。已有：`HotSearchApiTest`、`FavoriteApiTest`、`OpusApiTest`、`PrivateMsgApiTest`、`NetWorkUtilTest`、`MenuConfigTest`、`MySpaceConfigTest`、`ToolsUtilTest`、`StringUtilTest`（Java）、`HotSearchAdapterTest`、`TutorialDslTest`、`ColorSchemeTest`、`CornerStyleTest`、`FontStyleTest`、`AppearanceManagerTest`、`ViewCapabilityProbeTest`。改动解析/配置/主题/能力探测逻辑时补纯 JVM 单测——注入 `SharedPreferencesUtil.sharedPreferences`，用 `util/FakeSharedPreferences.kt`（26.09.11 从 `NetWorkUtilTest` 的私有内部类提取为共享助手，别再抄一份）。
 - **主题色表带缓存，失效点只有一处**：`ColorScheme.getCurrentTheme()`（26.09.11 起）缓存当前色表，**只由 `AppearanceManager.setTheme()` 经 `ColorScheme.invalidateCache()` 置空**。这是刻意的——36 个属性 getter 全走它，而列表滚动时一个 item 要调多次，此前每次都重读 SharedPreferences（热路径重复 IO）。**若将来给主题 key 增加第二个写入路径（比如直接 `SharedPreferencesUtil.putString(SettingsKeys.THEME, …)`），必须同步调用 `ColorScheme.invalidateCache()`，否则改主题后色表不跟着变且在 `onResume` 重建后依然错**。守卫测试：`ColorSchemeTest.themeCache_isInvalidatedOnEverySetTheme`、`colorGetters_doNotTouchSharedPreferencesAfterFirstRead`。
 - **主题体系有 3 个"裸 Activity"不参与**：`SplashActivity`、`GetIntentActivity` 不继承 `BaseActivity`（开屏/外链恒定 B站粉），`PlayerActivity` 自己 `setTheme` 但**不调 `applyWindowTheme`、也不参与 `onResume` 主题检测**。改主题相关行为时别以为全局都生效了。
 - **文案硬编码**：遗留页面标题/Toast 直接写中文字符串（Manifest 里 `android:label` 也是中文），只有设置页用 `desc_*` 资源。改文案按现有风格来，别顺手抽 `strings.xml`。
@@ -636,7 +657,7 @@ TTF/OTF/TTC，应用把它**拷进私有目录**（`filesDir/custom_font/custom_
 1. **解析里发网络**：`DynamicApi.java:482` 在 `analyzeDynamic` 内调 `BangumiApi.getMdidFromEpid`；`PrivateMsgApi.java:54,70` 在解析里调 `UserInfoApi` → 无法纯测 + N+1 请求。
 2. **解析依赖 UI/Context**：`DynamicApi.java:685`（`BiliTerminal.context`）、`MessageApi.java:128/145/232/320`（SpannableString）、`LikeCoinFavApi.java:71`（弹窗）、`AppInfoApi.java:33-85`（网络 + SharedPreferences + 弹窗混在一起）。
 3. **api 类做 UI 跳转/下载**：`PlayerApi.java:44-51`（startActivity）、`53-99`（DownloadService）、`339-415`（拼 Intent）。
-4. **重复实现**：视频卡片解析 **7 份**（`RankingApi:30-39`、`RecommendApi:69-76/92-100/114-122`、`WatchLaterApi:33-42`、`SearchApi:83-101`、`SeriesApi:113-120`、`FavoriteApi:155-171`、`UserInfoApi:157-168`）；`ReplyApi.sendReply` 两份；`DanmakuApi` 发送两份；`VideoInfoApi.getVideoInfo` 两份；解压逻辑 `NetWorkUtil` 已有一份、`UserInfoApi.java:354` 又写一份。**改一处记得 grep 其余几处。**
+4. **重复实现**：视频卡片解析 **19 处**（`RankingApi`、`RecommendApi`×4、`WatchLaterApi`、`SearchApi`×2、`SeriesApi`、`FavoriteApi`×2、`UserInfoApi`、`HistoryApi`、`BangumiApi`、`MessageApi`×3、`DynamicApi`、`VideoInfo.java`；逐处证据见 `docs/review/cleanup-scan.md`。**本节此前写的「7 份」是过时数据**）；`ReplyApi.sendReply` 两份；`DanmakuApi` 发送两份；`VideoInfoApi.getVideoInfo` 两份；解压逻辑 `NetWorkUtil` 已有一份、`UserInfoApi.java:354` 又写一份。**改一处记得 grep 其余几处。**
 5. **参数写错**：`PlayerApi.java:301` `.put("fnvar",0)`（应为 `fnver`）；`ReplyApi.java:245` `likeReply` 硬编码 `type=1`（动态/专栏评论点赞会失败）；`DanmakuApi.java:133,144` `segment_index` 从 1 开始（注释却说从 0）。
 6. **硬编码**：`AppInfoApi.java:120,139,163,186` 明文 `http://api.biliterminal.cn`；弹幕 XML 地址重复 3 处（`PlayerApi:107,243,319`）；URL 散落在方法体内，无常量表。
 7. **全局可变状态**：`SearchApi.java:24-25` 的 `static seid/search_keyword`（多入口搜索会串）、`ConfInfoApi.java:41-43` 的 WBI 缓存、`LoginApi.java:29-30`。

@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.View
 import com.RobinNotBad.BiliClient.BiliTerminal
+import com.RobinNotBad.BiliClient.BuildConfig
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
 import com.RobinNotBad.BiliClient.activity.settings.login.AccountSwitchActivity
@@ -496,8 +497,12 @@ class SettingGroupActivity : RefreshListActivity() {
      * 开发者工具分组 —— 仅在 Debug 构建下显示
      */
     private fun buildDevGroup() {
-        nav(R.drawable.icon_laboratory, "功能测试", "测试各项功能是否正常") {
-            startActivity(Intent(this, TestActivity::class.java))
+        // TestActivity 只应存在于 Debug 包：这里用编译期常量而非运行期判断，
+        // release 下 R8 会把整个分支折叠掉，类随之被 strip（清单声明在 src/debug）。
+        if (BuildConfig.DEBUG) {
+            nav(R.drawable.icon_laboratory, "功能测试", "测试各项功能是否正常") {
+                startActivity(Intent(this, TestActivity::class.java))
+            }
         }
         nav(R.drawable.icon_time, "TO DO清单", "开发者的愿望清单") {
             startActivity(Intent(this, TodoListActivity::class.java))

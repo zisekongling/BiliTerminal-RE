@@ -2,7 +2,7 @@ package com.RobinNotBad.BiliClient.activity.settings
 
 import android.app.Activity
 import android.content.Intent
-import com.RobinNotBad.BiliClient.BiliTerminal
+import com.RobinNotBad.BiliClient.BuildConfig
 import com.RobinNotBad.BiliClient.activity.settings.login.AccountSwitchActivity
 
 /**
@@ -142,7 +142,9 @@ object SettingsIndex {
         ))
 
         // ---- 开发者工具（仅 Debug）----
-        if (BiliTerminal.isDebugBuild()) {
+        // 用 BuildConfig.DEBUG（编译期常量）而不是 BiliTerminal.isDebugBuild()（运行期判断）：
+        // release 下 R8 会把这一整个分支折叠掉，TestActivity 随之成为无用类被 strip。
+        if (BuildConfig.DEBUG) {
             list += Entry("开发者工具", "功能测试、待办清单与调试日志") { a -> openGroup(a, "dev", "开发者工具") }
             list += Entry("功能测试", "测试各项功能是否正常") { a ->
                 a.startActivity(Intent(a, TestActivity::class.java))

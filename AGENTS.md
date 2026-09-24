@@ -39,6 +39,13 @@
 - 不轻易引入新第三方库。
 - **一切功能优先考虑手表端**，手机等设备只是顺便适配
 
+## 安全与清单硬约定（26.09.13 起）
+
+- **新增 Activity 一律 `android:exported="false"`**；只有确实要被外部应用/系统拉起（LAUNCHER、外链分享）才开 `true`，并说明理由。收官后全应用仅 `SplashActivity` 与 `GetIntentActivity` 导出。
+- **只走 https**。新的自建接口不得用 `http://`；明文域名白名单在 `res/xml/network_security_config.xml`，默认禁止明文，只放行 `bilibili.com`/`hdslb.com`/`bilivideo.com`/`afdiancdn.com`。往白名单加域名要写原因。
+- **`android:allowBackup` 保持 `false`**，登录 Cookie 存于 SharedPreferences，绝不允许随备份/迁移外流。`:brotlij` 自带 `allowBackup="true"`，故主清单必须保留 `tools:replace="android:allowBackup"`（删了会清单合并失败）。
+- **调试页只进 Debug 包**。`TestActivity` 是范例：类留在 `src/main`，清单声明在 `app/src/debug/AndroidManifest.xml`，入口用**编译期常量** `BuildConfig.DEBUG` 包住（不是 `BiliTerminal.isDebugBuild()` 这种运行期判断），这样 R8 才能在 release 折叠分支并 strip 掉整个类。
+
 ## 每次改完必须同步文档
 
 - **修 bug** → 在 `docs/review/fix-progress.md` 加记录并勾掉待办。
@@ -81,8 +88,9 @@
 完整清单见 `docs/architecture-map.md` 第 7 节。仍存在的：
 
 - 视频卡片解析**重复 19 处**（`RankingApi`/`RecommendApi`×4/`WatchLaterApi`/`SearchApi`×2/`SeriesApi`/`FavoriteApi`×2/`UserInfoApi`/`HistoryApi`/`BangumiApi`/`MessageApi`×3/`DynamicApi`/`VideoInfo.java`），改一处要 grep 其余。旧文档写"7 份"，实测 19 处（见 `docs/review/cleanup-scan.md`）。
-- `AppInfoApi` 有 4 处明文 `http://api.biliterminal.cn`。
-- `PlayerApi.java:301` 的 `fnvar` 应为 `fnver`；`ReplyApi.java:245` 的 `likeReply` 硬编码 `type=1`。
+- `PlayerApi.java:301` 的 `fnvar` 应为 `fnver`；`ReplyApi.java:245` 的 `likeReply` 硬编码 `type=1`；`DanmakuApi.java:93` 的 `segment_index` 起始值与注释不符。
+- `SettingsKeys.PLAYER` / `PLAY_QN` 是**死常量**：实际代码用字面量 `"player"` / `"play_qn"`（14 处），`SharedPreferencesUtil` 里还有第三处定义，收敛未完成。
+- `AsyncLayoutInflaterX.cancel()` 从未被调用，`BaseActivity.asyncInflate` 无生命周期保护（20 个页面在用）。
 - `DownloadService.start()` 无同步，可并发写同一文件。
 - `docs/review/00-summary.md` 基于 26.08.27 快照（已过时），动手前先 grep 现状。
 

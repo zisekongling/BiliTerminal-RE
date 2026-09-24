@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+（API 31）的备份/迁移规则，语义同 backup_rules.xml。
+
+  云备份与设备间迁移都排除 SharedPreferences 与数据库：前者存着登录 Cookie，
+  后者含浏览/登录等本机数据。allowBackup="false" 时本文件不生效，保留用于防呆。
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="database" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="database" path="." />
+    </device-transfer>
+</data-extraction-rules>

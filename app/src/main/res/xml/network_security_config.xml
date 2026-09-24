@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  明文流量收窄（取代原先全局 android:usesCleartextTraffic="true"）。
+
+  背景：登录凭据（SESSDATA 等 Cookie）与账号态都在 SharedPreferences 里；
+  全局打开明文会让任意域名的请求都能被中间人读取/篡改（含更新引导、公告）。
+
+  但本工程解析层仍有少量 URL 以 "http:" 前缀拼接（LiveCardAdapter 的直播间封面、
+  SearchApi 的封面/头像、OpusParagraph 的图片），这些资源在 B 站 CDN 上通常 https 也通，
+  不过部分 CDN 节点只回明文。所以这里不搞一刀切，而是「默认禁止明文 + 按域名白名单放行」：
+  只有 B 站系与赞助图 CDN 允许明文，其余域名强制 TLS。
+
+  注意：AppInfoApi 的 4 处接口已从 http 改为 https，因此 api.biliterminal.cn 不在白名单里。
+  若将来又出现明文自建接口，应改接口而不是往这里加域名。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">bilibili.com</domain>
+        <domain includeSubdomains="true">hdslb.com</domain>
+        <domain includeSubdomains="true">bilivideo.com</domain>
+        <domain includeSubdomains="true">afdiancdn.com</domain>
+    </domain-config>
+</network-security-config>

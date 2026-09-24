@@ -676,6 +676,24 @@ java.lang.NoSuchMethodError: No virtual method hasOnLongClickListeners()Z
 **验证**：`:app:testDebugUnitTest` 全绿（16 个测试类 / 112 用例 / 0 失败，新增 4 例）；
 `:app:assembleDebug` 通过。**待真机验证**：应用能正常起来、顶栏点击返回与长按回主页都还在。
 
+### 第三十轮（安全加固：备份 / 明文 / 导出面 / 调试页）· 26.09.13
+
+**背景**：本轮不是修崩溃，而是独立安全排查发现的四条问题。均已在合并后的清单里实测确认。
+
+| # | 问题 | 改动 |
+|---|---|---|
+| S1 | `android:allowBackup="true"`，而 `SESSDATA` / `bili_jct` / `DedeUserID` 等**登录 Cookie 就存在 SharedPreferences**，可被 `adb backup` 或云备份导出 → 账号被接管 | 主清单改 `allowBackup="false"`；新增 `res/xml/backup_rules.xml`（API ≤30）与 `res/xml/data_extraction_rules.xml`（API 31+），云备份与设备迁移都排除 `sharedpref` / `database`（防将来有人重新打开 allowBackup）。`:brotlij` 自带 `allowBackup="true"`，故加 `tools:replace="android:allowBackup"`，否则清单合并直接失败 |
+| S2 | 全局 `android:usesCleartextTraffic="true"` + `AppInfoApi` 4 处 `http://api.biliterminal.cn` | 4 处改 `https://`（实测该域 https 返回 200）；删掉全局明文开关，改走 `res/xml/network_security_config.xml`：`base-config` 禁止明文，仅对 `bilibili.com`/`hdslb.com`/`bilivideo.com`/`afdiancdn.com` 放行。**不搞一刀切**是因为解析层仍有 `"http:" + url` 拼接（`LiveCardAdapter` 直播封面、`SearchApi` 封面/头像、`OpusParagraph` 图片），一刀切会挂图 |
+| S3 | 24 个 Activity 里 **22 个无 `<intent-filter>` 却 `exported="true"`**，全清单 `android:permission` 计数为 0 | 22 个一律改为 `exported="false"`；只保留真正需要外部拉起的 `SplashActivity`（LAUNCHER）与 `GetIntentActivity`（外链/分享）。内部 `startActivity` 不受影响 |
+| S4 | 开发者测试页 `TestActivity`（含「崩溃」按钮、能读 Cookie）随 release 发布且对外导出 | 清单声明移到 `app/src/debug/AndroidManifest.xml`；两处入口（`SettingGroupActivity.buildDevGroup`、`SettingsIndex`）改用**编译期常量** `BuildConfig.DEBUG` 而非 `BiliTerminal.isDebugBuild()`，release 下 R8 折叠分支并 strip 该类 |
+
+**验证**（clean 后重建，避开 build cache 回放陈旧资源）：
+
+- `:app:assembleDebug` + `:app:testDebugUnitTest` ✅ BUILD SUCCESSFUL；16 个测试类 / 112 用例 / 0 失败。
+- debug 合并清单：`allowBackup="false"`、`dataExtractionRules` / `fullBackupContent` / `networkSecurityConfig` 均在，`usesCleartextTraffic` 已消失；`TestActivity` 有注册；仅 2 个组件 `exported="true"`。
+- release 合并清单（`:app:processReleaseMainManifest`）：安全属性同上，**`TestActivity` 出现 0 次**。
+- **待真机验证**：图片/头像/直播封面仍能加载（明文白名单是否够用）、公告与赞助列表仍能取到（https 接口）、更新检测正常。
+
 ---
 
 ## 三、审查前已修复（本次核查确认，无需改动）
@@ -723,6 +741,7 @@ java.lang.NoSuchMethodError: No virtual method hasOnLongClickListeners()Z
 | 2026-09-11 | `:app:assembleDebug` + `:app:testDebugUnitTest`（第二十七轮：自定义字体） | ✅ BUILD SUCCESSFUL in 51s；15 个测试类 / 107 用例 / 0 失败（`FontStyleTest` 13、`AppearanceManagerTest` 11，均按新语义重写）；字号/字族旧代码 0 残留；**待真机验证应用/恢复/拒绝非法文件** |
 | 2026-09-11 | `:app:assembleDebug` + `:app:testDebugUnitTest`（第二十八轮：圆屏适配顶栏崩溃） | ✅ BUILD SUCCESSFUL；单测通过；`setRound()` 改为按真实父容器产出 LayoutParams；**待真机验证重进首页不崩** |
 | 2026-09-13 | `:app:testDebugUnitTest` + `:app:assembleDebug`（第二十九轮：顶栏监听器探测降级） | ✅ 16 个测试类 / 112 用例 / 0 失败（新增 `ViewCapabilityProbeTest` 4 例）；`hasOn*ClickListeners()` 改为反射探测 + 降级；**待真机验证应用能起来** |
+| 2026-09-13 | `:app:clean` → `:app:assembleDebug` + `:app:testDebugUnitTest`（第三十轮：安全加固） | ✅ BUILD SUCCESSFUL；16 个测试类 / 112 用例 / 0 失败；debug 与 release 合并清单均实测 `allowBackup=false` + `networkSecurityConfig`，release 清单 `TestActivity` 0 次、仅 2 个组件导出；**待真机验证图片加载与 https 接口** |
 
 > 第二轮修复的 4 个文件（QRLoginFragment/CaptchaWebViewActivity/LocalListActivity/VideoInfoFragment）已重新编译验证通过。APK 时间戳更新至 16:01:21，universal 包 31.04 MB。
 > 第三轮修复的 2 个文件（PrivateMsgActivity/NetWorkUtil）已重新编译验证通过。构建仅有 1 个 Hilt 处理选项无关警告，不影响产物。
@@ -756,23 +775,30 @@ java.lang.NoSuchMethodError: No virtual method hasOnLongClickListeners()Z
 
 ### P1 架构清理
 
-- [ ] 删除 `BiliTerminalApp.kt` 与 Hilt 死依赖（或真正启用）
-- [ ] 清空 23 个空目录（di/data/network/ui 等）
-- [ ] 删除幻觉方法（`SharedPreferencesUtil.beginBatchEdit` 等）
+- [x] 移除 Hilt 等死依赖与 ksp/serialization 插件（26.09.11 已完成）
+- [ ] 处置 `BiliTerminalApp.kt`：Hilt 注解已摘，但该类仍被 `SplashActivity` 的 UETool 逻辑引用（5 处静态方法），既非完全死代码也非 Application 入口
+- [x] 清空 23 个空目录（di/data/network/ui 等）（26.09.11 已完成，实测空目录 = 0）
+- [ ] 删除幻觉方法（`SharedPreferencesUtil.beginBatchEdit` 等；实测仅剩定义无调用）
 - [x] 统一 Cookie 写入锁（26.09.08 已修，第四轮）
 
 ### P1 安全
 
-- [ ] AppInfoApi 升级 https（4 处明文 HTTP）
+- [x] AppInfoApi 升级 https（4 处明文 HTTP）（26.09.13 第三十轮，实测该域 https 返回 200）
+- [x] 关闭 `allowBackup`，并为备份/迁移加凭据排除规则（26.09.13 第三十轮）
+- [x] 明文流量收窄为域名白名单（`network_security_config`，26.09.13 第三十轮）
+- [x] 组件导出面收敛：22 个多余 `exported="true"` 改 false（26.09.13 第三十轮）
+- [x] `TestActivity` 改为仅 Debug 包（清单下移 `src/debug` + `BuildConfig.DEBUG` 门控，26.09.13 第三十轮）
 - [ ] 敏感日志清理（PrivateMsgApi/NetWorkUtil.post）
 - [ ] 更新 APK 签名/哈希校验
-- [ ] Manifest 权限收敛
+- [ ] 危险权限收敛（`READ_PHONE_STATE` / `REQUEST_INSTALL_PACKAGES` / `SYSTEM_ALERT_WINDOW` / `MANAGE_EXTERNAL_STORAGE` 未动）
 
 ### P2 工程化
 
 - [ ] 拆分 PlayerActivity（3090 行）
 - [ ] 拆分 DownloadService（65KB）
-- [ ] 补单元测试（当前 15 个测试类 / 107 用例覆盖 363 个源文件；26.09.11 新增 `ColorSchemeTest` 14、`CornerStyleTest` 10、`FontStyleTest` 13、`AppearanceManagerTest` 11）
+- [ ] 补单元测试（当前 **16 个测试类 / 112 用例**，覆盖 363 个源文件；26.09.11 新增 `ColorSchemeTest` 14、`CornerStyleTest` 10、`FontStyleTest` 13、`AppearanceManagerTest` 11；26.09.13 新增 `ViewCapabilityProbeTest` 4）
+- [ ] `AsyncLayoutInflaterX` 生命周期：`cancel()` 已实现但无人调用，`BaseActivity.asyncInflate` 回调可能落到已销毁 Activity
+- [ ] `SettingsKeys` 收敛收尾：`PLAYER` / `PLAY_QN` 与 14 处字面量、`SharedPreferencesUtil` 第三处定义并存
 
 ---
 

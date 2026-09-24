@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  仅在 Debug 构建下注册的组件。
+
+  TestActivity 是开发者功能测试页（含「崩溃」按钮、能读取 Cookie），不应该出现在
+  发布包里。它的入口在 Release 下已被 BuildConfig.DEBUG 常量折叠掉（见 SettingsIndex /
+  SettingGroupActivity），这里再把清单声明限定到 debug 源集，R8 就能把整个类 strip 掉，
+  release APK 里既不注册也不含该类代码。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <activity
+            android:name=".activity.settings.TestActivity"
+            android:exported="false"
+            android:label="测试页面"
+            android:screenOrientation="locked" />
+    </application>
+
+</manifest>

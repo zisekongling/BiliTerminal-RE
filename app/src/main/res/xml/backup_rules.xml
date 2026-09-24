@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  API 30 及以下的备份内容规则（Android 12+ 走 data_extraction_rules.xml）。
+
+  本应用已设 android:allowBackup="false"，本文件在正常情况下不生效。
+  保留它是「防呆」：万一将来有人把 allowBackup 重新打开，登录凭据也不会被
+  带走 —— SharedPreferences 里存着 SESSDATA / bili_jct / DedeUserID 等，
+  一旦随 adb backup 或云备份导出，等于账号被接管。
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="database" path="." />
+</full-backup-content>
