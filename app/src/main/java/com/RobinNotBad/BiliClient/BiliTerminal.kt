@@ -26,6 +26,7 @@ import com.RobinNotBad.BiliClient.tutorial.TutorialStore
 import com.RobinNotBad.BiliClient.util.BangumiUpdateChecker
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.CrashTrail
+import com.RobinNotBad.BiliClient.util.DeviceProfile
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgNotifier
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -394,6 +395,9 @@ class BiliTerminal : Application() {
 
             // 初始化性能管理器 - 设备检测与自适应优化
             PerformanceManager.init(this)
+
+            // 设备分档（兼容/均衡/高配）：播放器清晰度、缓冲、弹幕阈值都按它取值
+            DeviceProfile.init(this)
 
             forceUpdateBlocking = SharedPreferencesUtil.getBoolean("force_update_required", false)
             if (forceUpdateBlocking) {

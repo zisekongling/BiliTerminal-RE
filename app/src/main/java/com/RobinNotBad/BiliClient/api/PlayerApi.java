@@ -21,9 +21,11 @@ import com.RobinNotBad.BiliClient.model.PlayerData;
 import com.RobinNotBad.BiliClient.model.Subtitle;
 import com.RobinNotBad.BiliClient.model.SubtitleLink;
 import com.RobinNotBad.BiliClient.model.VideoInfo;
+import com.RobinNotBad.BiliClient.player.PlaybackStrategyPolicy;
 import com.RobinNotBad.BiliClient.player.PlayerStreamPolicy;
 import com.RobinNotBad.BiliClient.player.StreamUrlPolicy;
 import com.RobinNotBad.BiliClient.service.DownloadService;
+import com.RobinNotBad.BiliClient.util.DeviceProfile;
 import com.RobinNotBad.BiliClient.util.FileUtil;
 import com.RobinNotBad.BiliClient.util.Logu;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
@@ -226,26 +228,36 @@ public class PlayerApi {
     }
 
     /**
-     * 播放取流：优先 DASH，失败/不完整再退回音视频合一的 MP4。
+     * 播放取流：先拿 DASH（完整档位清单 + 真实档位 + 音轨），普通档位再改走音视频合一的 MP4。
      *
-     * <p>为什么播放链路一律先试 DASH（低档位也一样），而不是只给 1080P 以上走 DASH：
+     * <p>两步走的原因：
      * <ul>
-     *   <li>清晰度面板要显示"比当前档更高"的档位（如 1080P60、4K）才能标锁提示用户开会员，
-     *       而 {@link #getVideo}（fnval=1，合一 MP4）按请求档位裁剪清单，720P 请求只会回
-     *       {@code accept_quality:[64,16]}，高档位直接消失；</li>
-     *   <li>DASH 清单是完整档位，且低档位同样有对应流。</li>
+     *   <li>DASH 清单是完整档位（{@code accept_quality} 含 1080P60/4K），清晰度面板要靠它显示
+     *       比当前档更高的档位；而合一 MP4 接口（fnval=0/1）按请求档位裁剪，实测 720P 请求只回
+     *       {@code accept_quality:[64,16]}，高档位直接消失。所以**先请求一次 DASH 把清单与真实档位拿到**。</li>
+     *   <li>普通档（6/16/32/64）再用合一 MP4 覆盖播放地址：单流单时钟，长视频/拖动/倍速不会音画漂移。
+     *       DASH 双流正是「音画不同步」的来源。</li>
      * </ul>
-     * 只有 DASH 完全拿不到（接口异常、缺音轨）时才回退 {@link #getVideo} —— 那时清单必然缩水，
-     * 面板上能选的档位也会跟着变少，这是兜底路径可以接受的代价。
      *
-     * <p>DASH 成功时 {@code playerData.audioUrl} 会被填上音轨地址，必须随 Intent 传进播放器
-     * （见 {@link #jumpToPlayer}），由播放器起第二路音频 —— 否则只有画面没有声音。
+     * <p>合一 MP4 被服务端降档、而本机还有统一内核（ExoPlayer）可用时**保留 DASH**：
+     * 实测 durl 接口最高只回 720P，切过去会把 1080P 静默降成 720P——清晰度损失不可接受。
+     * 反过来，没有统一内核的设备只能拿到纯 DASH 视频流（无音轨），那种情况宁可降清晰度也要合一流。
+     * 具体判据见 {@link PlaybackStrategyPolicy#chooseSource}。
+     *
+     * <p>DASH 完全拿不到（接口异常、缺音轨）时才整体回退 {@link #getVideo} —— 那时清单必然缩水，
+     * 面板上能选的档位也会跟着变少，这是兜底路径可以接受的代价。
      *
      * @param playerData 传入 aid、cid、qn 等必要数据；返回时带 videoUrl/audioUrl/清晰度列表
      */
     public static void getPlaybackVideo(PlayerData playerData) throws JSONException, IOException {
-        if (fetchDashForPlayback(playerData, false)) return;
-        getVideo(playerData, false);
+        int requestedQn = playerData.qn;
+        if (!fetchDashForPlayback(playerData, false)) {
+            // DASH 不可用：按原请求档位取合一 MP4（getVideoDash 失败路径可能已经改过 qn）
+            playerData.qn = requestedQn;
+            getVideo(playerData, false);
+            return;
+        }
+        switchToProgressiveIfBetter(playerData, false);
     }
 
     /**
@@ -255,8 +267,158 @@ public class PlayerApi {
      * {@link #getBangumi} 那套单独查询（pgc 的 result 不返回 last_play_*）。
      */
     public static void getPlaybackBangumi(PlayerData playerData) throws JSONException, IOException {
-        if (fetchDashForPlayback(playerData, true)) return;
-        getBangumi(playerData);
+        int requestedQn = playerData.qn;
+        if (!fetchDashForPlayback(playerData, true)) {
+            playerData.qn = requestedQn;
+            getBangumi(playerData);
+            return;
+        }
+        switchToProgressiveIfBetter(playerData, true);
+    }
+
+    /**
+     * DASH 已就绪时，普通档位再补取一次合一 MP4，并按 {@link PlaybackStrategyPolicy#chooseSource} 决定用哪份。
+     *
+     * <p>始终先保留 DASH 快照：合一流请求失败、或合一流被服务端降档时都要原样切回 DASH，
+     * 不能让一次"优化"把可播的 1080P 变成不可播。
+     *
+     * @param playerData 已由 getVideoDash/getBangumiDash 填好 DASH 数据
+     * @param bangumi    true 走 pgc 合一接口（getBangumi），false 走投稿合一接口（getVideo）
+     */
+    private static void switchToProgressiveIfBetter(PlayerData playerData, boolean bangumi) {
+        int dashQn = playerData.qn;
+        // 只有普通档才值得改走合一流；1080P 及以上合一接口根本拿不到，别白请求
+        if (!PlaybackStrategyPolicy.usesProgressivePlayback(dashQn)) return;
+
+        DashSnapshot dash = new DashSnapshot(playerData);
+        playerData.timeStamp = 0; // 绕开 getVideo 的十分钟播放地址缓存，强制真请求一次合一流
+        playerData.qn = dashQn;
+        try {
+            if (bangumi) getBangumi(playerData);
+            else getVideo(playerData, false);
+        } catch (IOException | JSONException e) {
+            Logu.w("playback", "普通档合一 MP4 取流失败，保留 DASH：" + e.getMessage());
+            dash.restore(playerData);
+            return;
+        }
+
+        int progressiveQn = playerData.qn;
+        PlaybackStrategyPolicy.Source source = PlaybackStrategyPolicy.chooseSource(
+                dashQn, progressiveQn, useUnifiedDashPlayer());
+        if (source == PlaybackStrategyPolicy.Source.MUXED) {
+            // 合一 MP4 是单流单时钟：清掉 DASH 残余，避免播放器又按双流起播
+            playerData.dashData = null;
+            playerData.audioUrl = "";
+            playerData.audioBackupUrls.clear();
+            // 合一接口会按请求档位裁剪清晰度清单（720P 请求只回 [64,16]），若直接用它，
+            // 清晰度面板会丢掉 1080P 等更高档位、用户再也选不上去。清单必须保留 DASH 那份完整档位。
+            dash.restoreQualityLists(playerData);
+            Logu.d("playback", "普通档走合一 MP4：dash=" + dashQn + " muxed=" + progressiveQn);
+        } else {
+            // 合一流被降档（或无有效档位）：保留 DASH，清晰度优先
+            dash.restore(playerData);
+            Logu.d("playback", "合一 MP4 档位 " + progressiveQn + " 低于 DASH " + dashQn + "，保留 DASH");
+        }
+    }
+
+    /** 取流侧唯一需要知道的设备档位结论：统一内核（ExoPlayer）是否可用。 */
+    private static boolean useUnifiedDashPlayer() {
+        return DeviceProfile.useUnifiedDashPlayer();
+    }
+
+    /**
+     * 统一播放器起播失败时的合一 MP4 降级取流。
+     *
+     * <p>播放器在 DASH 起播失败 / 长时间无数据时会调它：按
+     * {@link PlaybackStrategyPolicy#fallbackQualities} 从原档位往下逐档请求合一 MP4，
+     * 第一个拿到可用地址的就返回。返回的是**新的** PlayerData，不污染调用方手里的那份。
+     *
+     * @param source 原始 PlayerData（提供 aid/cid/稿件类型等）
+     * @param qn     原始请求档位；<=0 表示自动
+     * @return 可播的合一 MP4 PlayerData；全部失败返回 null
+     */
+    public static PlayerData getProgressiveFallback(PlayerData source, int qn) {
+        if (source == null) return null;
+        for (int candidate : PlaybackStrategyPolicy.fallbackQualities(qn)) {
+            PlayerData fallback = copyForProgressiveFallback(source, candidate);
+            try {
+                if (source.isBangumi()) getBangumi(fallback);
+                else getVideo(fallback, false);
+                if (fallback.videoUrl != null && !fallback.videoUrl.isEmpty()) {
+                    return fallback;
+                }
+            } catch (Exception e) {
+                Logu.w("playback", "合一 MP4 降级取流失败（qn=" + candidate + "）：" + e.getMessage());
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 为降级取流复制一份 PlayerData：只带取流必需的身份字段，播放地址/时间戳全部重置，
+     * 避免 getVideo 命中旧缓存或把两个视频的地址串在一起。
+     */
+    private static PlayerData copyForProgressiveFallback(PlayerData source, int qn) {
+        PlayerData fallback = new PlayerData(source.type);
+        fallback.title = source.title;
+        fallback.danmakuUrl = source.danmakuUrl;
+        fallback.aid = source.aid;
+        fallback.cid = source.cid;
+        fallback.mid = source.mid;
+        fallback.progress = source.progress;
+        fallback.epid = source.epid;
+        fallback.seasonId = source.seasonId;
+        fallback.seasonType = source.seasonType;
+        fallback.qn = qn;
+        fallback.timeStamp = 0;
+        fallback.dashData = null;
+        return fallback;
+    }
+
+    /**
+     * DASH 取流结果的快照：合一流被降档/失败时原样恢复。
+     */
+    private static final class DashSnapshot {
+        private final int qn;
+        private final String videoUrl;
+        private final ArrayList<String> videoBackupUrls;
+        private final String audioUrl;
+        private final ArrayList<String> audioBackupUrls;
+        private final DashData dashData;
+        private final String[] qnStrList;
+        private final int[] qnValueList;
+        private final long timeStamp;
+
+        DashSnapshot(PlayerData playerData) {
+            qn = playerData.qn;
+            videoUrl = playerData.videoUrl;
+            videoBackupUrls = new ArrayList<>(playerData.videoBackupUrls);
+            audioUrl = playerData.audioUrl;
+            audioBackupUrls = new ArrayList<>(playerData.audioBackupUrls);
+            dashData = playerData.dashData;
+            qnStrList = playerData.qnStrList;
+            qnValueList = playerData.qnValueList;
+            timeStamp = playerData.timeStamp;
+        }
+
+        void restore(PlayerData playerData) {
+            restoreQualityLists(playerData);
+            playerData.qn = qn;
+            playerData.videoUrl = videoUrl;
+            playerData.videoBackupUrls.clear();
+            playerData.videoBackupUrls.addAll(videoBackupUrls);
+            playerData.audioUrl = audioUrl;
+            playerData.audioBackupUrls.clear();
+            playerData.audioBackupUrls.addAll(audioBackupUrls);
+            playerData.dashData = dashData;
+            playerData.timeStamp = timeStamp;
+        }
+
+        /** 只还原清晰度清单：切到合一 MP4 时保留 DASH 的完整档位，面板才不会变少。 */
+        void restoreQualityLists(PlayerData playerData) {
+            playerData.qnStrList = qnStrList;
+            playerData.qnValueList = qnValueList;
+        }
     }
 
     /**
@@ -364,6 +526,9 @@ public class PlayerApi {
         playerData.dashData = DashData.fromJson(dashJson);
         DashVideoStream videoStream = playerData.dashData.getVideoStream(playerData.qn);
         if (videoStream != null) {
+            // 回填服务端真正下发的档位：请求档位可能被降（如请求 4K 只给 1080P），
+            // 后面的「普通档走合一 MP4」判据必须按真实档位判断，不能按请求档位。
+            if (videoStream.id > 0) playerData.qn = videoStream.id;
             playerData.videoUrl = StreamUrlPolicy.selectUrl(videoStream.baseUrl, videoStream.backupUrl);
             playerData.videoBackupUrls = new ArrayList<>(
                     StreamUrlPolicy.orderedUrls(videoStream.baseUrl, videoStream.backupUrl));

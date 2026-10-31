@@ -3,6 +3,7 @@ package com.RobinNotBad.BiliClient.activity.player
 import com.RobinNotBad.BiliClient.ui.appearance.GlassStyle
 import com.RobinNotBad.BiliClient.BuildConfig
 import com.RobinNotBad.BiliClient.util.UiText
+import com.RobinNotBad.BiliClient.util.DeviceProfile
 
 import android.annotation.SuppressLint
 import android.app.Activity
@@ -278,12 +279,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var audioDriftSampled = false
 
     /**
-     * 在线 DASH 音轨加载失败后只回退一次：回退本身就是 `applyQuality(720P)`，
-     * 再次失败若还往回退就会无限重进 720P（播放器反复重建）。
-     */
-    private var dashAudioFallbackInFlight = false
-
-    /**
      * 统一时钟内核失败后是否已经自动回退过 720P 合一 MP4。
      *
      * 回退本身就会重建播放器，不设这个标志会无限「失败 → 回退 → 失败」。
@@ -298,17 +293,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     // 取流接口给的 CDN 备份地址（首位就是当前主地址），播放器出错时按顺序换源重试。
     // 只在在线点播、且是 PlayerApi.jumpToPlayer 下发的 Intent 时才有；本地/直播为空表。
     private var videoBackupUrls: ArrayList<String> = ArrayList()
-    private var audioBackupUrls: ArrayList<String> = ArrayList()
     private var videoBackupIndex = 0
-
-    /**
-     * 在线 DASH 音轨失败后的重试次数（每次切清晰度清零）。
-     *
-     * 实测（模拟器 Android 14）切清晰度时旧的合一 MP4 音轨刚被释放，MediaPlayer 立刻起播
-     * 会拿到 `INVALID_OPERATION`(-38)；隔一会儿再起一次就能成功。所以先重试，别急着回退
-     * 720P——否则用户刚点 1080P 就被自动踢回低清，观感就是"根本切不了"。
-     */
-    private var dashAudioRetryCount = 0
 
     /**
      * 外部音频轨道的「seek 冷却截止时刻」（`SystemClock.elapsedRealtime()`）。
@@ -347,22 +332,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
          */
         private const val AUDIO_RESYNC_COOLDOWN_MS = 1_200L
 
-        /** 在线 DASH 音轨失败后的重试上限（每次切清晰度/重新载入都归零）。 */
         /** 统一时钟健康检查：起播多久后开始取样（毫秒）。 */
-    private val UNIFIED_HEALTH_DELAY_MS = 2_500L
+        private const val UNIFIED_HEALTH_DELAY_MS = 2_500L
 
-    /** 统一时钟健康检查：取样窗口内至少应前进的播放位置（毫秒）。 */
-    private val UNIFIED_HEALTH_MIN_ADVANCE_MS = 800L
-
-    private const val MAX_DASH_AUDIO_RETRY = 1
-
-        /**
-         * 在线 DASH 音轨重试的等待时长。
-         *
-         * 切清晰度时旧音轨的 `AudioTrack` 还在异步拆掉，立刻重建会撞上 `INVALID_OPERATION`；
-         * 600ms 足够让底层音频通路释放干净，又短到用户感知不到卡顿。
-         */
-        private const val DASH_AUDIO_RETRY_DELAY_MS = 600L
+        /** 统一时钟健康检查：取样窗口内至少应前进的播放位置（毫秒）。 */
+        private const val UNIFIED_HEALTH_MIN_ADVANCE_MS = 800L
 
         /**
          * 弹幕时钟偏差超过这个值就认为"媒体时钟没接上"（体检日志的判据）。
@@ -744,7 +718,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // CDN 备份地址表（PlayerApi.jumpToPlayer 传入，已按主机优先级排过序；首位=主地址）。
         // 播放器报错重建时换下一个候选，能绕开被墙/被限速的单个 CDN。
         videoBackupUrls = intent.getStringArrayListExtra("video_backup_urls") ?: ArrayList()
-        audioBackupUrls = intent.getStringArrayListExtra("audio_backup_urls") ?: ArrayList()
         videoBackupIndex = videoBackupUrls.indexOf(video_url).takeIf { it >= 0 } ?: 0
         if (videoBackupUrls.size > 1) {
             Logu.d("CDN候选", "${videoBackupUrls.size} 条，当前 $videoBackupIndex")
@@ -1513,7 +1486,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 注意：onCreate 里本方法早于 audioTrackUrl 字段赋值被调用，所以这里同时看一眼 Intent
         val audioUrl = audioTrackUrl ?: intent.getStringExtra("audio_track_url")
         val remoteAudio = audioUrl?.takeIf { PlayerStreamPolicy.isRemoteAudioTrack(it) }
-        if (isOnlineVideo && !isLiveMode && remoteAudio != null && !isUnifiedPlayerBlockedOnThisBuild()) {
+        if (isOnlineVideo && !isLiveMode && remoteAudio != null &&
+            DeviceProfile.useUnifiedDashPlayer() && !isUnifiedPlayerBlockedOnThisBuild()
+        ) {
             try {
                 val unified = ExoDashMediaPlayer(this, remoteAudio)
                 unified.setAudioOnly(isAudioOnlyMode)
@@ -1708,8 +1683,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun MPPrepare(nowurl: String) {
         // 重载期间不能让上一轮的外部音频继续出声；onPrepared 会按新媒体轨道重新选择。
         releaseAudioTrack()
-        // 新一轮载入重置 DASH 音轨重试额度，否则上一轮用掉的重试会让这一轮直接回退 720P
-        dashAudioRetryCount = 0
         playerCore!!.setOnPreparedListener(this)
         // 任何一次新的载入（切P / 切清晰度 / 出错重试）都要清掉上一次的错误态，
         // 否则重试后 controlVideo() 仍会认为处于错误态而再次走重新载入分支。
@@ -2708,10 +2681,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         videoBackupIndex = nextIndex
         Logu.w("CDN候选", "换源重试：$video_url -> $nextUrl")
         video_url = nextUrl
-        // 音轨候选与视频候选是两套列表，长度不一定一致，越界就不动音轨（重建时用主地址）
-        if (nextIndex < audioBackupUrls.size && audioBackupUrls[nextIndex].isNotEmpty()) {
-            audioTrackUrl = audioBackupUrls[nextIndex]
-        }
         return true
     }
 
@@ -3883,10 +3852,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         }
         releaseAudioTrack()
         val url = audioTrackUrl?.takeIf { it.isNotBlank() } ?: return
-        // 在线 DASH 是音视频分离的：音轨是网络流，必须带 Referer/Cookie 异步加载，走下面那条远程分支。
-        // 本地缓存/下载的双文件仍然是文件路径，继续走原来的"确认主文件没有内嵌音轨"逻辑。
+        // 在线 DASH 的音轨交给播放内核自己消费（统一时钟内核在 prepare 时一并喂入视频轨与音频轨），
+        // 这里只处理本地缓存/下载的「双文件」：音轨是本地路径，需要单独起一路 MediaPlayer。
         if (PlayerStreamPolicy.isRemoteAudioTrack(url)) {
-            initRemoteAudioTrack(url)
+            Logu.v("AudioTrack", "在线音轨由播放内核内部消费，不再启动外挂 MediaPlayer")
             return
         }
         val audioFile = File(url)
@@ -3950,94 +3919,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     /**
-     * 在线 DASH 音轨（1080P 及以上才有的那条纯音频流）。
-     *
-     * 与本地双文件不同，这里不能同步 `prepare()`（网络流会阻塞到首包到达），也不该去读主文件的
-     * trackInfo —— DASH 的视频流本来就没有内嵌音轨。起播位置由 `isPrepared` 决定，
-     * 音量与倍速跟主播放器保持同步，两路的时间偏差由 `progressChange` 的 800ms 校正兜底。
-     */
-    private fun initRemoteAudioTrack(url: String) {
-        if (!isOnlineVideo || isLiveMode) {
-            // 直播没有"第二条音轨"这回事；本地视频也不可能拿到在线音轨 URL
-            Logu.w("AudioTrack", "非在线点播场景忽略远程音轨：$url")
-            return
-        }
-        try {
-            val player = android.media.MediaPlayer()
-            audioPlayer = player
-            player.setOnPreparedListener { mp ->
-                if (audioPlayer !== mp) return@setOnPreparedListener
-                try {
-                    // 先标记已就绪：progressChange 的偏差校正只对 prepared 的音轨生效
-                    // （对 preparing 中的 MediaPlayer seekTo 会触发 -38 直接把音轨判死）
-                    audioTrackPrepared = true
-                    // 起播位置刚 seek 过，偏差基线要重新采样
-                    audioDriftSampled = false
-                    mp.isLooping = false
-                    if (isPrepared) mp.seekTo(video_now)
-                    applyAudioSpeed(speed_values[seekbar_speed.progress.coerceIn(0, speed_values.size - 1)])
-                    if (isPlaying) mp.start() else mp.pause()
-                    applyVolumeGain()
-                    // 刚起播时两路的时间基准不同，先压住偏差校正，避免一上来就互相 seek
-                    audioResyncSuppressMs = android.os.SystemClock.elapsedRealtime() + AUDIO_RESYNC_COOLDOWN_MS
-                    Logu.d("AudioTrack", "在线 DASH 音轨已就绪")
-                } catch (e: Exception) {
-                    Logu.e("AudioTrack", "在线音轨起播失败：${e.message}")
-                    releaseAudioTrack()
-                }
-            }
-            player.setOnErrorListener { failedPlayer, what, extra ->
-                if (audioPlayer === failedPlayer) {
-                    Logu.e("AudioTrack", "在线 DASH 音轨播放失败：$what/$extra")
-                    releaseAudioTrack()
-                    // 先重试一次再回退：切清晰度瞬间旧音轨还在拆，直接重建多半失败
-                    if (retryRemoteAudioTrack(url)) return@setOnErrorListener true
-                    onHighQualityAudioFailed()
-                }
-                true
-            }
-            val headers = mapOf(
-                "Referer" to "https://www.bilibili.com/",
-                "User-Agent" to NetWorkUtil.USER_AGENT_WEB,
-                "Cookie" to SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "")
-            )
-            // MediaPlayer 只有 setDataSource(Context, Uri, Map) 这个带请求头的重载：
-            // B 站 CDN 不带 Referer/Cookie 会回 403，所以三样都得给。
-            player.setDataSource(this, android.net.Uri.parse(url), headers)
-            player.prepareAsync()
-        } catch (e: Exception) {
-            Logu.e("AudioTrack", "在线音轨初始化失败：${e.message}")
-            releaseAudioTrack()
-            if (!retryRemoteAudioTrack(url)) onHighQualityAudioFailed()
-        }
-    }
-
-    /**
-     * 在线 DASH 音轨失败后按 [url] 再试一次（同一次切清晰度最多 [MAX_DASH_AUDIO_RETRY] 次）。
-     *
-     * @return true 表示已经排好重试，调用方不要再走回退
-     */
-    private fun retryRemoteAudioTrack(url: String): Boolean {
-        if (dashAudioRetryCount >= MAX_DASH_AUDIO_RETRY) return false
-        dashAudioRetryCount++
-        Logu.w("AudioTrack", "在线 DASH 音轨失败，${DASH_AUDIO_RETRY_DELAY_MS}ms 后重试")
-        layout_control.postDelayed({
-            if (destroyed || isFinishing) return@postDelayed
-            // 期间已经换过音轨（新的成功实例或别的清晰度）就别再插手
-            if (audioPlayer != null || audioTrackUrl != url) return@postDelayed
-            if (currentQuality <= PlayerStreamPolicy.QN_720P) return@postDelayed
-            initRemoteAudioTrack(url)
-        }, DASH_AUDIO_RETRY_DELAY_MS)
-        return true
-    }
-
-    /**
-     * 在线 DASH 音轨加载失败时的兜底：切回 720P 的合一 MP4。
-     *
-     * 不这么做的后果是「有画面没声音」且用户在播放器里无路可走；720P 是唯一能保证音画同源的档位。
-     * 只在当前确实是 DASH 档时回退，并用 [dashAudioFallbackInFlight] 防重入（否则会反复重建播放器）。
-     */
-    /**
      * 统一时钟内核失败后的降级：回退到 720P 合一 MP4（单 ijk 播放器）。
      *
      * DASH 在不同设备/账号权限下差异很大，回退到合一 MP4 至少保证「能看」。
@@ -4050,32 +3931,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         applyQuality(PlayerStreamPolicy.QN_720P, false)
     }
 
-    private fun onHighQualityAudioFailed() {
-        if (destroyed || isFinishing) return
-        if (dashAudioFallbackInFlight) return
-        if (currentQuality <= PlayerStreamPolicy.QN_720P) return
-        dashAudioFallbackInFlight = true
-        runOnUiThread {
-            if (destroyed || isFinishing) {
-                dashAudioFallbackInFlight = false
-                return@runOnUiThread
-            }
-            MsgUtil.showMsg(UiText.of("高清音轨加载失败，已切回 720P"))
-            applyQuality(PlayerStreamPolicy.QN_720P, false)
-        }
-    }
-
     /**
-     * 让外部音轨跟主播放器同速。
+     * 让本地双文件的外部音轨跟主播放器同速。
      *
-     * 不做的后果：倍速播 1080P 时视频按 1.5x 走、音频还是 1x，`progressChange` 的 800ms 校正
-     * 会不停 seek 音轨，听感是"每个 800ms 顿一下"。`PlaybackParams` 是 API 23 才有的接口，
-     * 更低版本只能靠上面的偏差校正，不做额外处理。
-     *
-     * 主播放器那一路是 DASH 的纯视频流，它能跟着变速是因为随包的 ijkplayer 打了
-     * `ijkpatch/0001-ffplay-video-playback-rate.patch`（无音轨时让 ffplay 按
-     * `pf_playback_rate` 缩放帧间隔）。两路各自按倍速跑之后，残余的时钟漂移由
-     * [progressChange] 的 800ms 基线校正兜底（正常只会在开头对齐时纠一两次）。
+     * 只对本地缓存/下载的「视频 + 外部音频文件」这种组合生效：在线 DASH 的音频轨由播放内核
+     * 自己按倍速播放，不经过这里。`PlaybackParams` 是 API 23 才有的接口，更低版本只能靠
+     * [progressChange] 的偏差校正兜底。
      */
     private fun applyAudioSpeed(speed: Float) {
         val player = audioPlayer ?: return
@@ -4603,7 +4464,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         audioTrackUrl = newAudioTrackUrl // 新分页不能继续复用上一页的外部音轨。
         // 换页就是换一整套取流结果，上一页的 CDN 候选表必须作废，否则报错重试会拿旧地址。
         videoBackupUrls = ArrayList()
-        audioBackupUrls = ArrayList()
         videoBackupIndex = 0
         playerCore?.stop()
         playerCore?.release()
@@ -4785,20 +4645,19 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
     private fun switchQuality(newQuality: Int) {
         if (!isOnlineVideo || newQuality == currentQuality) return
-        // 一切档位都优先走 DASH：并不是因为低档位只能 DASH 拿，而是清晰度面板要靠 DASH 的
-        // 完整档位清单（fnval=1 会按请求档位裁剪，720P 请求只回 720P/360P，1080P60/4K 直接消失）。
-        // 只有 DASH 取流失败时才在 getPlaybackVideo 内回退合一 MP4。
-        // 倍速下也一样：随包的 ijkplayer 已打补丁，纯视频流能跟着变速，不用再换成合一 MP4。
+        // 清晰度面板要靠 DASH 的完整档位清单（fnval=0/1 会按请求档位裁剪，720P 请求只回 720P/360P，
+        // 1080P60/4K 直接消失），所以这里带上 allowDash：普通档由 PlayerApi 决定用合一 MP4 还是 DASH，
+        // 高档位（1080P/1080P60/1080P+/4K）必须走 DASH。
         applyQuality(newQuality, true)
     }
 
     /**
-     * 真正执行清晰度切换：重新取流 → 重建 ijk → 重新 setDisplay。
+     * 真正执行清晰度切换：重新取流 → 重建播放器 → 重新 setDisplay。
      *
-     * <p>把「取流 + 落地」从 [switchQuality] 里拆出来，是因为在线 DASH 音轨加载失败时也要
-     * 走同一条路回退 720P（见 [onHighQualityAudioFailed]），那时唯一的差别就是 `allowDash=false`。
+     * <p>把「取流 + 落地」从 [switchQuality] 里拆出来，是因为统一时钟内核失败时也要走同一条路
+     * 回退合一 MP4（见 [onUnifiedPlayerFailed]），那时唯一的差别就是 `allowDash=false`。
      *
-     * @param allowDash 是否允许用 DASH 双流（无声视频 + 独立音轨）；false 时强制走合一 MP4
+     * @param allowDash 是否允许取 DASH 流（音视频分离）；false 时强制走合一 MP4
      */
     private fun applyQuality(newQuality: Int, allowDash: Boolean) {
         MsgUtil.showMsg(UiText.of("正在切换清晰度..."))
@@ -4806,8 +4665,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         CenterThreadPool.run {
             try {
                 // 超权档位（例如没大会员却请求 4K）先夹到权限内：服务端对超权请求会降级发流，
-                // 有时降得比权限内最高档还低，夹紧后界面显示的档位与实际流才一致
-                val requestedQuality = AccountStateStore.clampQuality(newQuality)
+                // 有时降得比权限内最高档还低，夹紧后界面显示的档位与实际流才一致。
+                // 再按本机档位上限夹一次（DeviceProfile.maxQuality）：低端机不主动要 4K。
+                val requestedQuality = minOf(
+                    AccountStateStore.clampQuality(newQuality),
+                    DeviceProfile.maxQuality()
+                )
                 val playerData = PlayerData()
                 playerData.aid = aid
                 playerData.cid = cid
@@ -4849,10 +4712,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     val currentPosition = video_now.toLong()
 
                     releaseAudioTrack()
-                    // 只有 DASH 双流才挂外部音轨：合一 MP4 自带音轨，再挂一路会重复出声
+                    // 只有 DASH 双流才有独立音频轨：合一 MP4 自带音轨，不挂外部音轨
                     audioTrackUrl = if (dashUsable) playerData.audioUrl else null
-                    // 新一轮切清晰度：重置音轨重试额度（上一次用掉的重试不该影响这一次）
-                    dashAudioRetryCount = 0
                     playerCore?.stop()
                     playerCore?.release()
 
@@ -4863,9 +4724,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     val freshVideoBackups = playerData.videoBackupUrls
                     videoBackupUrls = if (!freshVideoBackups.isNullOrEmpty()) ArrayList(freshVideoBackups)
                     else arrayListOf(newVideoUrl)
-                    val freshAudioBackups = playerData.audioBackupUrls
-                    audioBackupUrls = if (dashUsable && !freshAudioBackups.isNullOrEmpty())
-                        ArrayList(freshAudioBackups) else ArrayList()
                     videoBackupIndex = videoBackupUrls.indexOf(newVideoUrl).takeIf { it >= 0 } ?: 0
 
                     val newValues = playerData.qnValueList
@@ -4891,7 +4749,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
                     setDisplay()
 
-                    dashAudioFallbackInFlight = false
                     unifiedFallbackAttempted = false
                     unifiedFallbackInFlight = false
                     if (allowDash && !dashUsable) {
@@ -4900,7 +4757,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    dashAudioFallbackInFlight = false
                     unifiedFallbackInFlight = false
                     MsgUtil.err(e)
                     MsgUtil.showMsg(UiText.of("清晰度切换失败"))
@@ -5285,7 +5141,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     audioTrackUrl = interactionAudioUrl
                     // 互动分页是另一条流，旧候选表作废（它的取流结果不走 backups 那套 extra）
                     videoBackupUrls = ArrayList()
-                    audioBackupUrls = ArrayList()
                     videoBackupIndex = 0
                     playerCore?.stop()
                     playerCore?.release()
