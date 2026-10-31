@@ -800,6 +800,7 @@
     <string name="text_update_progress">%1$d%%  %2$dMB / %3$dMB</string>
     <string name="text_update_downloaded_mb">已下载 %1$dMB</string>
     <string name="btn_cancel">取消</string>
+    <string name="btn_exit">退出</string>
     <string name="btn_exit_app">退出应用</string>
     <string name="btn_download_update">下载更新</string>
     <string name="btn_cancel_download">取消下载</string>

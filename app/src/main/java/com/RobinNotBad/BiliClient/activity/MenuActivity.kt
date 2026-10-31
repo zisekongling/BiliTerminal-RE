@@ -151,11 +151,11 @@ class MenuActivity : BaseActivity() {
             layout.addView(materialButton, params)
         }
 
-        // 「退出应用」固定按钮：不放进 btnNames——菜单项受「菜单设置」管控且点了要跳页，
+        // 「退出」固定按钮：不放进 btnNames——菜单项受「菜单设置」管控且点了要跳页，
         // 退出是常驻入口、点了直接收摊，固定排在菜单最下方（desc_back_disable 的文案
         // 也一直写着"菜单最下方的退出按钮"）。手表上没有其他彻底收摊的入口，这里补上。
         val exitButton = MaterialButton(this)
-        exitButton.text = getString(R.string.btn_exit_app)
+        exitButton.text = getString(R.string.btn_exit)
         exitButton.setOnClickListener { exitAppCompletely() }
         layout.addView(exitButton, params)
 
