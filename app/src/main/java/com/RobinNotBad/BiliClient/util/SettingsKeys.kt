@@ -22,6 +22,8 @@ object SettingsKeys {
     const val UI_LANDSCAPE = "ui_landscape"
     const val SPLASH_TEXT = "ui_splashtext"
     const val MARQUEE_ENABLE = "marquee_enable"
+    /** 圆屏列表效果（实验性）：圆屏模式下给滚动列表加曲率缩放与边缘淡出，见 `ui/appearance/RoundListEffect`。 */
+    const val UI_ROUND_LIST_EFFECT = "ui_round_list_effect"
 
     // ---- 外观三模块（配色 / 圆角 / 字体）-------------------------------
     // 配色沿用上面的 THEME，不另开 key（保持既有存档向前兼容）。

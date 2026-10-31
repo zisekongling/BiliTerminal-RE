@@ -41,6 +41,7 @@ import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomGridManager
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.ui.appearance.AppearanceApplier
 import com.RobinNotBad.BiliClient.ui.appearance.AppearanceManager
+import com.RobinNotBad.BiliClient.ui.appearance.RoundListEffect
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.ui.appearance.GlassStyle
 import com.RobinNotBad.BiliClient.util.AsyncLayoutInflaterX
@@ -169,6 +170,10 @@ open class BaseActivity : AppCompatActivity() {
         }
 
         installRotaryFallback()
+
+        // 圆屏列表效果（实验性）：开关关闭时内部直接 return，零开销。
+        // 设置在 onCreate 读取，改开关后重新进入页面生效。
+        RoundListEffect.install(this)
     }
 
     /**

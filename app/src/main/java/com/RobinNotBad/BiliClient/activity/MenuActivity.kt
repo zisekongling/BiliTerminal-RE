@@ -151,6 +151,14 @@ class MenuActivity : BaseActivity() {
             layout.addView(materialButton, params)
         }
 
+        // 「退出」固定按钮：不放进 btnNames——菜单项受「菜单设置」管控且点了要跳页，
+        // 退出是常驻入口、点了直接收摊，固定排在菜单最下方（desc_back_disable 的文案
+        // 也一直写着"菜单最下方的退出按钮"）。手表上没有其他彻底收摊的入口，这里补上。
+        val exitButton = MaterialButton(this)
+        exitButton.text = getString(R.string.btn_exit)
+        exitButton.setOnClickListener { exitAppCompletely() }
+        layout.addView(exitButton, params)
+
         Log.e("debug", "MenuActivity onCreate in: ${System.currentTimeMillis() - time}")
     }
 
@@ -211,6 +219,18 @@ class MenuActivity : BaseActivity() {
             }
         }
         finish()
+    }
+
+    /**
+     * 完全关闭应用：先收掉本任务栈里的所有 Activity，再结束进程兜底。
+     *
+     * 只 [finishAffinity] 会留下一个空转的后台进程——线程池、Glide、播放器引擎都没有
+     * 统一的停机口，手表上表现为"退出了还在耗电"。与 [com.RobinNotBad.BiliClient.activity.settings.UpdateActivity]
+     * 强制更新页的退出写法一致。
+     */
+    private fun exitAppCompletely() {
+        finishAffinity()
+        android.os.Process.killProcess(android.os.Process.myPid())
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {

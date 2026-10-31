@@ -16,7 +16,7 @@
 | `network/api/`（Retrofit + kotlinx-serialization） | 目录**空**，0 个文件 |
 | `di/`（Hilt） | 目录**空**，0 个文件 |
 | `data/repository/` | 目录**空**，0 个文件 |
-| `ui/*`（ViewModel/MVVM） | 只有 `ui/appearance/`（26.09.11 新增，现 9 个文件：`AppearanceManager.kt` / `ColorScheme.kt` / `CornerStyle.kt` / `FontStyle.kt` / `AppearanceApplier.kt`，26.10.26~27 又加 `AmbientGlow.kt` / `ColorMode.kt` / `GlassStyle.kt` / `ThemeTint.kt`）+ `ui/widget/`（13 个文件，26.10.21 新增 `SwipePageLayout.kt`）。`ui/theme/` **已并入 `ui/appearance/`**（原 `ThemeManager.kt` → `ColorScheme.kt`）；其余 `ui/base`、`ui/player`、`ui/video/viewmodel` 等子目录**已全部删除** |
+| `ui/*`（ViewModel/MVVM） | 只有 `ui/appearance/`（26.09.11 新增，现 10 个文件：`AppearanceManager.kt` / `ColorScheme.kt` / `CornerStyle.kt` / `FontStyle.kt` / `AppearanceApplier.kt`，26.10.26~27 又加 `AmbientGlow.kt` / `ColorMode.kt` / `GlassStyle.kt` / `ThemeTint.kt`，26.10.31 加 `RoundListEffect.kt`）+ `ui/widget/`（13 个文件，26.10.21 新增 `SwipePageLayout.kt`）。`ui/theme/` **已并入 `ui/appearance/`**（原 `ThemeManager.kt` → `ColorScheme.kt`）；其余 `ui/base`、`ui/player`、`ui/video/viewmodel` 等子目录**已全部删除** |
 | `BiliTerminalApp.kt`（@HiltAndroidApp）为入口 | **该类已于 26.10.02 整体删除**。Manifest 指向 `.BiliTerminal`（26.09.10 起是 Kotlin，原先为 `.java`）；它从未被实例化，只因 `SplashActivity` 的 UETool 逻辑引用其静态方法与常量而残留，那些已移入 `BiliTerminal.kt` 伴生对象 |
 
 **核实方式**：全工程 `grep '@AndroidEntryPoint|@HiltViewModel|@Inject|@Module|@InstallIn'` → **0 命中**；空目录统计 → **24 个**（26.09.11 已全部删除）。
@@ -1547,6 +1547,7 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 | `AmbientGlow.kt` | 弥散光晕：7 套主题各一份 `Spec`（顶部底色 + 1～2 团径向光晕），`ColorScheme.applyWindowTheme` 开启时把它设为**窗口背景**、content 背景置空；关闭时走原纯色路径，零开销。无 blur / 噪点层，draw 内零分配。`Spec` 只按顶部写，`placeGlow` / `baseGradient` 按光源位置变换（中间位置底色改径向） | `ui_ambient_glow`、`ui_ambient_glow_source` | 开 / 关（默认关）；`top` / `bottom` / `left` / `right` / `center`（默认 `top`） |
 | `GlassStyle.kt` | 玻璃质感：7 份 `GlassOverlay.<X>`（`values/themes_glass.xml` + `colors_glass.xml`）只替换 `materialCardViewStyle` / `materialButtonStyle` 两个**具体样式引用**，`BaseActivity.onCreate` 在 `super.onCreate` 后 `theme.applyStyle(force=true)`；关闭零开销。卡片 / 按钮 elevation 必须为 0（半透明底下阴影会透出）。布局里内联写死底色的选择卡片 / 次要按钮改读 `?attr/choiceCardColor` / `?attr/secondaryButtonTint`（`values/attrs_glass.xml`，主主题默认值 = colorSurface）；视频 / 文章详情的点赞投币收藏卡片读 `?attr/actionCardColor` / `?attr/actionCardStroke`（主主题 = surface + brand 描边，玻璃 = `glass_btn_bg_fill_<x>` / `glass_btn_stroke_<x>`）——**新增会 inflate 布局的主题必须定义这四个属性，否则 inflate 崩**。覆盖层够不着的写死 shape / 代码设色背景（播放器分P / 字幕 / 互动选项、楼中楼预览框、「UP主觉得很赞」）走 `GlassStyle.choiceBackground` / `panelBackground`，色值同源 `colors_glass.xml` | `ui_glass_components` | 开 / 关（默认关） |
 | `ThemeTint.kt` | 给 XML 里只能写死颜色的 drawable（API 19 不能用 `?attr/`）在设置图片时按 `ColorScheme` 着色：点赞/投币/收藏激活态、私信发送按钮、投票选中框等 | — | — |
+| `RoundListEffect.kt` | 圆屏列表效果（实验性，26.10.31）：「圆屏模式 + 圆屏列表」都开时，给页面里全部竖向滚动容器（`RecyclerView` / `ListView` / `ScrollView` 家族，含 ViewPager2 页内竖向列表）的可见条目按纵向位置做等比缩放（圆弦长比，下限 0.50）与边缘淡出（t³ 曲线，系数 0.85）。`BaseActivity.onCreate` 末尾 `install`；全树容器扫描挂在 `OnGlobalLayoutListener`、变换挂在 `OnScrollChangedListener`，滚动回调零分配，横向容器 / 接近整屏高的内容（≥窗口高）不参与。**不走 AppearanceManager 版本机制**（开关在 `onCreate` 读取，改后重进页面生效；关闭时一个监听都不挂） | `ui_round_list_effect`（并要求圆屏模式 `player_ui_round`） | 开 / 关（默认关） |
 | `AppearanceApplier.kt` | 把外观（自定义字体等）落到视图树上：`applyToContentView`，由 `BaseActivity.kt:388` 调用 | — | — |
 
 **分层约定（别打破）**

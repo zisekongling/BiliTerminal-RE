@@ -158,6 +158,7 @@ object SettingsIndex {
         list += Entry("显示视频分段", "显示章节看点信息") { a -> openGroup(a, "lab", "高级与实验", "显示视频分段") }
         list += Entry("系统媒体控件", "系统媒体会话控件") { a -> openGroup(a, "lab", "高级与实验", "系统媒体控件") }
         list += Entry("互动视频调试", "互动视频变量调试") { a -> openGroup(a, "lab", "高级与实验", "互动视频调试") }
+        list += Entry("圆屏列表", "圆屏模式的滚动列表曲率效果") { a -> openGroup(a, "lab", "高级与实验", "圆屏列表") }
 
         // ---- 叶子设置项（独立设置页）----
         addLeafItems(list, "详情页设置", SettingInfoActivity::class.java, listOf(

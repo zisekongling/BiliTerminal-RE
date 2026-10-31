@@ -258,13 +258,23 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
         private const val PREFIX_UNSELECTED = "　 "
 
         @JvmStatic
-        fun getRequestOptions(): RequestOptions {
-            val cornerRadius = ToolsUtil.dp2px(5f)
-            // 不再写死 override(400, 225) + sizeMultiplier(0.85)：
-            // 那会把解码尺寸锁在约 340×191 的绝对像素，而列表封面显示区在 1080p 屏上约 519px 宽，
-            // 必然被放大糊掉；交给 Glide 按 ImageView 实测尺寸解码即可。
-            return RequestOptions()
-                .transform(CenterCrop(), RoundedCorners(cornerRadius))
+        fun getRequestOptions(): RequestOptions = REQUEST_OPTIONS
+
+        /**
+         * 列表封面的圆角裁剪参数，进程内缓存一份。
+         *
+         * <p>此前每次绑定都 new 一个 [RequestOptions]：快速滑动时每个条目都分配一次，
+         * Glide 内部还会再拷贝一份，纯粹白烧。圆角换算用的 dp2px 读的是应用级 density
+         * （BiliTerminal.context），进程存活期内不会变，缓存是安全的——「设置Density」
+         * 只改每个 Activity 自己的 Resources，影响不到这里。
+         *
+         * <p>不再写死 override(400, 225) + sizeMultiplier(0.85)：
+         * 那会把解码尺寸锁在约 340×191 的绝对像素，而列表封面显示区在 1080p 屏上约 519px 宽，
+         * 必然被放大糊掉；交给 Glide 按 ImageView 实测尺寸解码即可。
+         */
+        private val REQUEST_OPTIONS: RequestOptions by lazy {
+            RequestOptions()
+                .transform(CenterCrop(), RoundedCorners(ToolsUtil.dp2px(5f)))
         }
     }
 }

@@ -62,6 +62,7 @@
     <string name="setting_lab_recyclererr_detailed">由于开发者技术稀烂（？），软件中的各种列表可能会偶尔出现报错且难以避免。\n虽然是偶尔出现，但很烦人很恶心。\n所以被逼疯的开发者把这个报错catch掉了，只留下一个“此错误无需上报”的提示框和这个用于调试的开关。</string>
     <string name="setting_lab_logv">打开此开关，将会允许输出verbose等级的log，仅对Logu生效。\n下面那两个开关同理，管的分别是debug和info等级\n*非开发者不需要看懂这段话，一般人不需要动这个开关。大量的日志输出可能会降低性能。\n——不过其实终端的代码里从一开始就是Log.e到处飞，很多地方根本没做限制（从小天才和小电视播放器学来的坏习惯），现在在逐步替换……</string>
     <string name="setting_lab_media_session">启用后可在通知栏和锁屏界面控制播放。\n仅部分设备可正常使用。</string>
+    <string name="desc_ui_round_list_effect">圆屏模式下给所有滚动列表加曲率缩放与边缘淡出：条目越靠近屏幕上下边缘越小、越透明，避免顶到圆形屏面的弧形边界。\n实验性效果，开启后重新进入页面生效。</string>
     <string name="desc_dev_agent_mode">给 AI agent / 自动化脚本用的一键开关。\n打开后：日志全量输出、HTTP 请求与响应写入日志、启动时不再弹 UETool 悬浮窗。\n仅 Debug 构建有效，且只在开发者工具分组里出现。</string>
     <string name="desc_dev_log_file">把日志与 HTTP 追踪写入文件，便于脱离 adb 连接后事后取证。\n位置：应用专属外部目录的 logs/ 下。\n仅在 Agent 测试模式打开时生效。</string>
 
@@ -799,6 +800,7 @@
     <string name="text_update_progress">%1$d%%  %2$dMB / %3$dMB</string>
     <string name="text_update_downloaded_mb">已下载 %1$dMB</string>
     <string name="btn_cancel">取消</string>
+    <string name="btn_exit">退出</string>
     <string name="btn_exit_app">退出应用</string>
     <string name="btn_download_update">下载更新</string>
     <string name="btn_cancel_download">取消下载</string>
@@ -850,6 +852,8 @@
     <string name="text_download_total_progress">总进度 %1$d%% · %2$s</string>
     <string name="text_download_service_exit">下载服务已退出</string>
     <string name="channel_download">哔哩终端下载服务</string>
+    <string name="channel_media_control">音乐播放</string>
+    <string name="channel_media_control_desc">播放时的系统媒体控件通知</string>
     <!-- ===== 下载完成提示与通用「加载失败」（12.4 文案迁移：四批） ===== -->
     <string name="text_downloading_file">下载文件中</string>
     <string name="text_download_failed">下载失败</string>

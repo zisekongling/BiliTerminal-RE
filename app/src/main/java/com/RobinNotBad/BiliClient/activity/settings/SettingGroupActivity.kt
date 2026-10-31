@@ -637,6 +637,7 @@ class SettingGroupActivity : RefreshListActivity() {
         switch("新版弹幕获取方式", getString(R.string.desc_new_danmaku_api), SharedPreferencesUtil.NEW_DANMAKU_API, true)
         switch("私信未读标记", getString(R.string.desc_private_msg_unread_badge_enable), SharedPreferencesUtil.PRIVATE_MSG_UNREAD_BADGE_ENABLE, false)
         switch("虚拟合集", getString(R.string.desc_virtual_collection), SharedPreferencesUtil.VIRTUAL_COLLECTION_ENABLE, true)
+        switch("圆屏列表", getString(R.string.desc_ui_round_list_effect), SettingsKeys.UI_ROUND_LIST_EFFECT, false)
 
         title("播放器兼容")
         switch("播放器旋屏兼容方案", getString(R.string.desc_player_rotate_software), SettingsKeys.DEV_PLAYER_ROTATE_SOFTWARE, false)

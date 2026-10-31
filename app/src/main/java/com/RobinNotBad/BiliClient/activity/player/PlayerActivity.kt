@@ -5,6 +5,10 @@ import com.RobinNotBad.BiliClient.util.UiText
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
@@ -307,6 +311,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
          */
         private const val SUBTITLE_MARGIN_BOTTOM_CONTROLBAR_DP = 76f
         private const val SUBTITLE_MARGIN_BOTTOM_COLLAPSED_DP = 17f
+
+        /**
+         * 媒体控件通知 ID。1027 下载 / 1028 后台播放 / 1029 新消息 / 1030 追番更新已占用，勿改。
+         */
+        private const val NOTIFY_ID_MEDIA_CONTROL = 1031
+
+        /** 媒体控件通知的渠道 ID；渠道名取 strings.xml 的 channel_media_control（「音乐播放」）。 */
+        private const val CHANNEL_MEDIA_CONTROL = "channel_media_control"
     }
 
     @Volatile // 被 PlaybackService 定时线程读（serviceDurationMs）
@@ -2827,6 +2839,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         liveWebSocket = null
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && mediaSession != null) {
+            // 先撤媒体控件通知再释放会话：通知是按会话令牌配对的，会话没了通知必须跟着走，
+            // 否则会留下一张点不动的「僵尸」媒体卡片，还可能被系统按渠道再次误归类
+            (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)
+                ?.cancel(NOTIFY_ID_MEDIA_CONTROL)
             mediaSession!!.release()
             mediaSession = null
         }
@@ -2923,6 +2939,21 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     @SuppressLint("WrongConstant")
     private fun initMediaSession() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return
+        // 媒体控件通知的渠道在这里建好（幂等）；通知本身等 onPrepared 元数据齐了再挂，
+        // 见 postMediaControlNotification。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notifyManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channel = NotificationChannel(
+                CHANNEL_MEDIA_CONTROL,
+                getString(R.string.channel_media_control),
+                NotificationManager.IMPORTANCE_LOW
+            )
+            channel.description = getString(R.string.channel_media_control_desc)
+            channel.setShowBadge(false)
+            channel.setSound(null, null)
+            channel.enableVibration(false)
+            notifyManager.createNotificationChannel(channel)
+        }
         mediaSession = MediaSession(this, "BiliClientPlayer")
         mediaSession!!.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS)
         mediaSession!!.setCallback(object : MediaSession.Callback() {
@@ -2981,6 +3012,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (videoTitle != null) metadataBuilder.putString(MediaMetadata.METADATA_KEY_TITLE, videoTitle)
         if (video_all > 0) metadataBuilder.putLong(MediaMetadata.METADATA_KEY_DURATION, video_all.toLong())
         mediaSession!!.setMetadata(metadataBuilder.build())
+        // 元数据齐了才挂媒体控件通知：它按会话令牌配对，是手表系统给媒体控件归类的依据
+        postMediaControlNotification()
     }
 
     private fun updateMediaSessionPlaybackState() {
@@ -3004,6 +3037,55 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             .setState(state, position, 1.0f)
             .setActions(actions)
         mediaSession!!.setPlaybackState(stateBuilder.build())
+    }
+
+    /**
+     * 挂上带 [Notification.MediaStyle] 的媒体控件通知。
+     *
+     * <h3>为什么要补这条通知</h3>
+     * 本页的 [MediaSession] 此前从未绑定过任何通知。手表系统给媒体控件归类时，
+     * 找不到会话专属的媒体通知，就按应用当时挂着的那条通知取渠道——正在下载的机器上
+     * 挂着的是「下载」渠道，控件于是被识别成「下载」而不是播放。补一条 MediaStyle +
+     * 会话令牌的常驻通知后，系统有了明确的配对对象（Android 11+ 的媒体卡片也要求
+     * 这条通知才会显示会话）。渠道名取「音乐播放」、分类取 CATEGORY_TRANSPORT，
+     * 双保险对齐系统的媒体归类。
+     *
+     * <p>只在元数据变化时重发（onPrepared、切 P、换清晰度、出错重建）；
+     * 播放中每秒一次的 [updateMediaSessionPlaybackState] 不碰通知，避免 Binder 风暴。
+     * 进度由 PlaybackState 提供，通知上不放进度条。
+     */
+    private fun postMediaControlNotification() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP || mediaSession == null) return
+        val notifyManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            Notification.Builder(this, CHANNEL_MEDIA_CONTROL)
+        else
+            Notification.Builder(this)
+        // 与 PlaybackService 的通知同款：REORDER_TO_FRONT 复用已有播放页实例
+        val contentIntent = PendingIntent.getActivity(
+            this, 0,
+            (packageManager.getLaunchIntentForPackage(packageName)
+                ?: Intent(this, PlayerActivity::class.java))
+                .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        builder.setContentTitle(videoTitle?.takeIf { it.isNotBlank() } ?: getString(R.string.uitext_playbackservice_004))
+            .setSmallIcon(R.mipmap.icon)
+            .setContentIntent(contentIntent)
+            .setOnlyAlertOnce(true)
+            .setOngoing(true)
+            .setShowWhen(false)
+            .setCategory(Notification.CATEGORY_TRANSPORT)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O)
+            builder.setPriority(Notification.PRIORITY_LOW)
+        builder.setStyle(Notification.MediaStyle().setMediaSession(mediaSession!!.sessionToken))
+        try {
+            notifyManager.notify(NOTIFY_ID_MEDIA_CONTROL, builder.build())
+        } catch (e: Exception) {
+            // 通知只是媒体控件的载体，挂不上不该影响播放
+            Logu.e("媒体通知", e.message ?: "挂媒体控件通知失败")
+        }
     }
 
     private fun initUI() {
