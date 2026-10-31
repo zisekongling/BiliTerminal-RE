@@ -2475,27 +2475,6 @@
     <!-- 请求成功但服务端没给译文（已是目标语言/不支持翻译）时的提示 -->
     <string name="msg_reply_translate_none">该评论暂无译文（可能已是目标语言或不支持翻译）</string>
 
-    <!-- ==================== 举报评论（长按操作面板入口） ==================== -->
-    <!-- 操作面板里的入口文案 -->
-    <string name="text_reply_report">举报评论</string>
-    <!-- 选理由弹窗的标题 -->
-    <string name="title_report_reason">选择举报理由</string>
-    <!-- 理由选「需正文」那一档时再收一次正文；长度口径与官方 H5 一致（2~200 字符） -->
-    <string name="title_report_content">补充举报理由</string>
-    <string name="hint_report_content">2-200 字符，说清哪里违规</string>
-    <string name="btn_report_submit">提交</string>
-    <!-- 未登录时不给提交（服务端会回 -101/-352），先提示而不是让请求白跑一趟 -->
-    <string name="msg_report_login_first">请先登录后再举报</string>
-    <!-- 与官方 H5 文案「自定义举报内容长度为2-200字符」一致 -->
-    <string name="msg_report_content_too_short">举报理由需在 2-200 字符之间</string>
-    <string name="msg_report_submitted">举报已提交，感谢你的反馈~</string>
-
-    <!-- ==================== 消息：收到的赞 ==================== -->
-    <!-- 弹幕被点赞；%1$d 为点赞总人数 -->
-    <string name="text_like_danmaku">等总共 %1$d 人点赞了你的弹幕</string>
-    <!-- 弹幕点赞消息里没带视频地址，无法跳转 -->
-    <string name="msg_like_danmaku_no_video">没找到这条弹幕所在的视频</string>
-
     <!-- ==================== 私信：长按菜单 / 撤回 ==================== -->
     <string name="btn_private_msg_copy">复制文字</string>
     <!-- 只对自己 2 分钟内发出的消息显示 -->

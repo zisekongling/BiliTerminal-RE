@@ -39,7 +39,6 @@
 - §3 第 6 条：快照 `docs/misc/errcode.md` 有更长列表，本文**只逐字核对了 §3 提到的这几条**。
 - §3 第 11 条：SponsorBlock 官方 README 全文抓取成功，确认其未提及 B 站。
 - §2 速查表三列（登录 / wbi / csrf）：按快照文档逐端点核对。
-- §8 举报：四个接口的匿名可达性是**本仓库直接打请求实测**的（`-352` / `-101` / `-400` / `-3` 四个返回码都是实测值）；理由码 0~8 与官方客户端字符串的对应关系来自 9.16.1 静态分析 + 快照文档双向核对。
 
 **二手 / 待核实（用到时须再验）**
 
@@ -52,7 +51,7 @@
 - **官方 App 底部 Tab 的具体数量与顺序**：官方页面全是 JS 空壳，商店页仅能确认存在"我的"Tab；归档文档 §7.4 的模块划分是按官方子站与接口域反推的**模块划分**，不是 Tab 顺序断言。
 - **动态发布的完整参数取值表**（定时 / 可见范围的字段枚举）：只读到接口与部分字段名，未逐字段核对 `bilibili-API/docs/dynamic/publish.md` 全文。
 - **`-352` / `-412` / `-111` 之外的错误码语义**：见上，未逐条核对。
-- **标「9.16.1 静态分析」的接口事实**（§3 第 15 条、§6 末尾两条、§8 的理由码表）：来自官方 APK 反编译出的 Retrofit 注解与 Moss 服务桩，**能证明客户端在发什么请求，不能证明服务端对这些请求的响应**。其中 §6 的 `x-bili-gaia-vtoken` 是「官方客户端会带这个头」的事实，本项目发 `batch-deal` 时偶发失败是否真由它引起，**尚未实测复现**——按「用到时须再验」对待。
+- **标「9.16.1 静态分析」的接口事实**（§3 第 15 条、§6 末尾两条）：来自官方 APK 反编译出的 Retrofit 注解与 Moss 服务桩，**能证明客户端在发什么请求，不能证明服务端对这些请求的响应**。其中 §6 的 `x-bili-gaia-vtoken` 是「官方客户端会带这个头」的事实，本项目发 `batch-deal` 时偶发失败是否真由它引起，**尚未实测复现**——按「用到时须再验」对待。
 
 ## 2. 接口速查表（登录 / wbi / csrf 三列）
 
@@ -204,41 +203,10 @@
 - **当前 UI 状态**：入口暂时隐藏（`ReplyTranslateApi.UI_ENABLED = false`，26.10.26），接口实现与单测保留；恢复显示只需把开关改回 `true`。
 - **已知限制**：`grpc.biliapi.net` 只支持 HTTP/2；minSdk 19/20 的旧设备没有 ALPN，OkHttp 协商不出 h2 会直接抛 `IOException`（不会自动降级），UI 侧按普通网络失败提示。
 
-## 8. 举报：接口可达性与取舍（26.10.27 实测 + 反编译核证）
+## 8. 举报
 
-**结论**：只有**评论举报**落到了本项目（`api/ReportApi.java` + `adapter/ReplyAdapter.kt` 长按操作面板），视频举报与弹幕举报都**没做**，原因如下。
+**这一节的内容不在公开仓库。**
 
-| 用途 | 接口 | 匿名实测 | 结论 |
-| --- | --- | --- | --- |
-| 评论举报（提交） | `POST api.bilibili.com/x/v2/reply/report` | `-352`（风控，只差登录） | ✅ 已实现 |
-| 评论举报（理由表） | `GET api.bilibili.com/x/v2/reply/report/metadata` | `-101`（需登录） | ✅ 已实现（带静态兜底） |
-| 视频举报（提交） | `POST app.bilibili.com/x/v2/view/report/add` | `-101`（账号未登录） | ❌ 缺理由表 |
-| 视频举报（理由列表） | `GET app.bilibili.com/x/v2/view/report` | `-400` / `-3`（签名错误） | ❌ 不可达 |
-| 弹幕举报（提交） | `POST api.bilibili.com/x/dm/report/add` | `-101` | ❌ 未做 |
+评论举报是**可选私有功能**（机制见 `docs/optional-features.md`）：接口可达性、理由表、错误码映射等全部结论都跟着实现一起放在私有仓库，公开侧只有 `util/OptionalFeatures` 里的门面与评论区面板上的一个条件挂点。公开文档里不写它的实现细节，理由见 `docs/optional-features.md` 的「红线」一节。
 
-- **参数**（评论举报）：`access_key`（或 Cookie 鉴权）/ `oid` / `type` / `rpid` / `reason` / `content`，写操作另需 `csrf`。本项目沿用全仓惯例——**Cookie 鉴权 + `csrf=NetWorkUtil.currentCsrf()`**，不显式传 `access_key`。
-- **`type` 用的是评论区类型码，不是稿件类型**：视频=1、动态=17、专栏=12 等，与 `/x/v2/reply/action` 同一套。传错会被服务端拒（动态/专栏的评论传 1 会被拒），所以 UI 里必须传 `replyType` 而不是视频的 `type`。
-- **理由码：官方现行是 18 个非连续码，不是 0~17**（26.10.27 完成反编译 + H5 核证后定论）：
-  - 官方客户端**没有原生评论举报界面**：它把举报交给 H5 页面（`ConfigManager.get("comment.report_url", "https://www.bilibili.com/h5/comment/report")`，见 `RouterReducer$handleToUserReport$1`、`comment2/comments/viewmodel/d`）。所以 **33 个 dex 里既没有理由码表、也没有任何 `comment_global_string_*` 的资源 id 引用**（全量扫过：资源名字面量只出现在一张 488 条的历史名单数组里，id 字节引用为 0）——第一版据此得出的「无法核实」是**反编译不完整造成的误判**。
-  - H5 页面（`comment-h5` bundle，chunk `919`）先 `GET /x/v2/reply/report/metadata` 取**服务端理由表**，失败才用静态兜底表。静态兜底表的原文（分组顺序即页面顺序）：
-
-    | 分组 | 码与文案 |
-    | --- | --- |
-    | 违反法律法规 | 9 违法违规、2 色情、10 低俗、12 赌博诈骗、23 违法信息外链 |
-    | 谣言类不实信息 | 19 涉政谣言、22 虚假不实信息、20 涉社会事件谣言 |
-    | 侵犯个人权益 | 7 人身攻击、15 侵犯隐私 |
-    | 有害社区环境 | 1 垃圾广告、4 引战、5 剧透、3 刷屏、8 视频不相关、18 违规抽奖、17 青少年不良信息、0 其他 |
-
-  - **旧快照那张 0~17 表是错的**：官方**没有** 6（政治）、11、13、14、16、21；8 的文案是「视频不相关」而不是「内容不相关」；「传播不实信息」实际是 22「虚假不实信息」。第一版按快照发过 `reason=6`，属于会撞空的码。
-  - 本项目实现：`ReportApi.cachedOrDefaultReasons()`（服务端缓存优先、否则用上面这份静态兜底表），`fetchReasons(oid, type)` 后台预热缓存；`content_required` 逐项来自服务端，不再假设「只有其他要正文」。
-- **正文长度是 2~200 字符**，不是 3：H5 校验为 `if (otherContent && otherContent.length < 2)`，文案 `reportOtherLengthTip`「自定义举报内容长度为2-200字符」。APK 里那条「举报理由不能少于3个字」（`comment_global_string_171`）属于**更老的客户端**，与现行 H5 不符。
-- **服务端下发格式**（`/x/v2/reply/report/metadata`，需登录，匿名实测 `-101 账号未登录`）两种都出现过：
-  - 新：`data.reason_list[{ tag_id, tag_name, content_required }]`
-  - 旧：`data.report_groups[{ name, report_options[{ value, label }] }]`
-  - 另有 `data.can_delete` 决定是否显示「删除评论/拉黑」选项（本项目不做这两项）。
-- **H5 实际提交的字段**（照抄备查）：`oid / type / rpid / reason / platform / build / scene / add_blacklist / ordering / buvid / scm_action_id / spmid / from_spmid / gaia_source=main_h5`，`reason` 为需正文项时附 `content`。本项目只发 `type/oid/rpid/reason/(content)/csrf`——实测服务端对这套最小字段能正常进业务（回 `-352` 说明不是参数错误）。
-- **错误码**（快照 json 回复段 + 客户端文案）：`-101` 未登录 / `-102` 账号封停 / `-111` csrf 失效 / `-400` 请求错误 / `-403` 权限不足 / `-404` 无此项 / `-500` 服务器错误 / `-509` 请求过于频繁 / `12002` 评论区已关闭 / `12006` 没有该评论 / `12008` **已经举报过了** / `12009` 评论主体 type 不合法 / `12019` 举报过于频繁 / `12077` **其他理由过长或过短**；`12026` 来自客户端原文「CD时间未到不能举报」。全部已映射成具体中文提示（`ReportApi.errorMsg`），**但除 `-352` 外没有一条在真机上撞过**，属「文档 + 客户端文案」推导。
-- **`content` 只在「需正文」的那一档才带**：静态兜底表里只有 `reason=0`（其他）；服务端标了 `content_required` 的项同样要带。长度 2~200 字符（见上面「正文长度」），不合格只提示不提交。
-- **`12026` 对应客户端原文「CD时间未到不能举报」**，是同一评论/同一用户的冷却拒绝，提示为「刚举报过，冷却中，请稍后再试」（与 12019「举报太频繁了」分开措辞，方便看日志区分）。
-- **视频举报为什么不做**：**提交**接口其实可用（匿名只回 -101），但**拉理由列表**的 `GET app.bilibili.com/x/v2/view/report` 走 `DefaultRequestInterceptor`，要求 `appkey` + `ts` + `sign`，而 `appsec` 在官方包的 native 里，第三方算不出来（实测：不带 appkey → `-400 请求错误`；带假签名 → `-3 签名错误`）。理由的 `type` / `reason` 都是**服务端下发的字符串**（`BiliVideoAppeal` 只有 `type` / `reason` / `desc` / `allow_add` 四个字段），APK 里没有内置表（`dd.json` 里那份是**直播**的 `live.report_reasons`），本地硬编码必然与线上分类错位，所以宁可不做。
-- **弹幕举报**入口在播放器内，改动面比评论大，本轮不做；接口本身可用（匿名 `-101`），参数为 `access_key` / `cid` / `dmid` / `reason` / `block` / `spmid` / `from_spmid` / `action_id`。
+需要改这块时：先把私有仓库检出到仓库根目录的 `private/`（`python build_tui.py --sync-private`），再读那边的 README。
