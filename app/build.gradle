@@ -309,12 +309,6 @@ dependencies {
     implementation 'org.greenrobot:eventbus:3.3.1'
 
     // Player & Danmaku
-    // 统一时钟 DASH 播放内核：ExoPlayer 用**同一个播放时钟**同时消费 DASH 的视频轨与音频轨，
-    // 从根上避免旧方案（IjkMediaPlayer 只播视频 + android.media.MediaPlayer 只播音频，两套时钟
-    // 靠轮询校正）导致的音画不同步、音频轨不加载。用途见 player/ExoDashMediaPlayer.java。
-    // 版本与兄弟仓库 BiliTerminal-Revival 保持一致（2.18.7，声明 minSdk 16，本仓库 minSdk 19 可直接引用）；
-    // 升 2.19.x 对模拟器卡缓冲没有改善（实测同样卡在第 1 秒），所以不为它增加体积与行为差异。
-    implementation 'com.google.android.exoplayer:exoplayer-core:2.18.7'
     implementation project(path: ':ijkplayer-java')
     implementation project(path: ':DanmakuFlameMaster')
     implementation project(path: ':brotlij')

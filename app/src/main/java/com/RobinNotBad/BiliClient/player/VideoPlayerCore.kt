@@ -139,7 +139,7 @@ class VideoPlayerCore(
             setOption(player, IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 1L)
             setOption(player, IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 0L)
             // 注意：`http-detect-range-support` 这个选项名在本工程预编译的 .so 里不存在，属于空转
-            // （依据见 docs/archive/superpowers/specs/2026-10-11-player-network-resilience.md §2.4）。
+            // （依据见 docs/superpowers/specs/2026-10-11-player-network-resilience.md §2.4）。
             // 保留原样是因为本类尚未投产，改动它的选项集没有可验证的收益；别照抄到投产代码里。
             setOption(player, IjkMediaPlayer.OPT_CATEGORY_FORMAT, "http-detect-range-support", 0L)
             setOption(player, IjkMediaPlayer.OPT_CATEGORY_FORMAT, "fflags", "fastseek")

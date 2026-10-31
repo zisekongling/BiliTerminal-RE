@@ -211,9 +211,6 @@ class DanmakuManager(
                     // 那一次调用会被直接丢弃 → 弹幕时钟永远按 1.0x 走。
                     // 3x 播放时 MediaClockSync 的步进补偿就失效了（见 §7.51）。
                     pendingSpeed?.let { danmakuView.setSpeed(it) }
-                    // 补设隐藏：hide() 在 prepare 完成前调用只会记下 isVisible=false 就返回
-                    // （有 isPrepared 守卫），这里不补，「默认关弹幕」开播后弹幕照样出来（反馈 #55）。
-                    if (!_state.value.isVisible) danmakuView.hide()
                     addDanmaku(UiText.of("弹幕准备完毕"), Color.WHITE)
                     // 数据就绪：只有「此刻真的在播」或「没绑媒体时钟（直播）」才启动渲染循环。
                     // 暂停中启动会让用户手动暂停的弹幕被重新拉起（见 configureAndPrepare 的注释）。

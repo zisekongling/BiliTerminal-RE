@@ -5,7 +5,6 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * DASH格式数据
@@ -141,47 +140,6 @@ public class DashData {
         if (dolbyAudio != null) return dolbyAudio;
         if (flacAudio != null) return flacAudio;
         return null;
-    }
-
-    /**
-     * 获取「在线播放器一定能放」的音频流（DASH 在线播放专用）。
-     *
-     * <p>与 {@link #getBestAudioStream()} 的区别：这里**只考虑普通音轨**里的 AAC/MP4 流
-     * （codecs 含 mp4a，或 mimeType 是 audio/mp4），并且**绝不返回杜比/无损**。
-     * 原因是在线播放走 ExoPlayer 单时钟，音轨选到播放器不支持的编码就是「音频轨不加载」，
-     * 表现为整片没声音、或者音画各走各的时钟；而下载合并那条路要的是「尽量有音轨」，
-     * 所以 {@link #getBestAudioStream()} 保留原样不动（MediaMuxer 的兜底逻辑还依赖它）。
-     *
-     * <p>没有严格兼容的流时，退回普通音轨里码率最高的一条（至少还在 mp4 容器里，
-     * 比杜比/无损更容易被播放器接住）；连普通音轨都没有则返回 null，
-     * 由调用方把 audioUrl 置空、走音视频合一的 MP4 兜底。
-     *
-     * @return 普通音轨中最合适的一条；没有普通音轨时返回 null
-     */
-    public DashAudioStream getBestCompatibleAudioStream() {
-        DashAudioStream bestCompatible = null; // 严格兼容（AAC/MP4）的最高码率流
-        DashAudioStream bestAny = null;        // 任意普通音轨的最高码率流（兜底）
-        for (DashAudioStream stream : audioStreams) {
-            if (bestAny == null || stream.bandwidth > bestAny.bandwidth) {
-                bestAny = stream;
-            }
-            if (!isCompatibleAudio(stream)) continue;
-            if (bestCompatible == null || stream.bandwidth > bestCompatible.bandwidth) {
-                bestCompatible = stream;
-            }
-        }
-        return bestCompatible != null ? bestCompatible : bestAny;
-    }
-
-    /**
-     * 是否播放器兼容的普通音轨。
-     *
-     * <p>codecs 为空**不算**兼容：宁可走兜底回落，也不要把一条来路不明的流当 AAC 播。
-     */
-    private static boolean isCompatibleAudio(DashAudioStream stream) {
-        String codecs = stream.codecs == null ? "" : stream.codecs.toLowerCase(Locale.ROOT);
-        String mimeType = stream.mimeType == null ? "" : stream.mimeType.toLowerCase(Locale.ROOT);
-        return codecs.contains("mp4a") || mimeType.contains("audio/mp4");
     }
 
     /**

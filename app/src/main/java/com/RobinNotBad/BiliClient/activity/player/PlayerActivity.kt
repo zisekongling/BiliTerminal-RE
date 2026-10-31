@@ -1,9 +1,7 @@
 package com.RobinNotBad.BiliClient.activity.player
 
 import com.RobinNotBad.BiliClient.ui.appearance.GlassStyle
-import com.RobinNotBad.BiliClient.BuildConfig
 import com.RobinNotBad.BiliClient.util.UiText
-import com.RobinNotBad.BiliClient.util.DeviceProfile
 
 import android.annotation.SuppressLint
 import android.app.Activity
@@ -66,14 +64,10 @@ import com.RobinNotBad.BiliClient.model.SubtitleLink
 import com.RobinNotBad.BiliClient.model.VideoInfo
 import com.RobinNotBad.BiliClient.model.ViewPoint
 import com.RobinNotBad.BiliClient.player.DanmakuManager
-import com.RobinNotBad.BiliClient.player.ExoDashMediaPlayer
 import com.RobinNotBad.BiliClient.player.IjkNativeLibs
 import com.RobinNotBad.BiliClient.player.PlayerDefaults
 import com.RobinNotBad.BiliClient.player.LocalAudioTrackPolicy
 import com.RobinNotBad.BiliClient.player.PlayerSurfaceBinder
-import com.RobinNotBad.BiliClient.player.UnifiedDashPlayer
-import com.RobinNotBad.BiliClient.player.PlayerStreamPolicy
-import com.RobinNotBad.BiliClient.player.QualityAccessPolicy
 import com.RobinNotBad.BiliClient.player.PlayerVolumePolicy
 import com.RobinNotBad.BiliClient.player.SkipCancelPolicy
 import com.RobinNotBad.BiliClient.player.SkipOpEdPrefs
@@ -88,7 +82,6 @@ import com.RobinNotBad.BiliClient.util.CookieDomainPolicy
 import com.RobinNotBad.BiliClient.util.DisguiseGesture
 import com.RobinNotBad.BiliClient.util.DisguisePrefs
 import com.RobinNotBad.BiliClient.util.LocalVideoProgress
-import com.RobinNotBad.BiliClient.util.AccountStateStore
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
@@ -129,7 +122,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     @Volatile
     private var destroyed = false
 
-    private var playerCore: IMediaPlayer? = null
+    private var ijkPlayer: IjkMediaPlayer? = null
     private var mDanmakuView: IDanmakuView? = null
     // 弹幕配置/解析/回调统一交给 DanmakuManager（方案 B），Activity 只保留视图引用做显隐与布局
     private var danmakuManager: DanmakuManager? = null
@@ -242,58 +235,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var pendingFinish = false
     private var isAudioOnlyMode = false
     private var isLocalAudioFile = false
-    private var audioTrackUrl: String? = null // DASH外部音频轨道（本地双文件路径或在线 DASH 音轨 URL）
+    private var audioTrackUrl: String? = null // DASH外部音频轨道
     private var audioPlayer: android.media.MediaPlayer? = null // 外部音频播放器
-
-    /**
-     * 账号状态（登录 / 大会员），决定清晰度列表里哪些档位要上锁。
-     *
-     * `null` 表示还没查到，此时用本地缓存兜底（见 [com.RobinNotBad.BiliClient.util.AccountStateStore.cached]）。
-     * 只用于界面展示与点击拦截：真正的发流权限在服务端。
-     */
-    private var accountState: AccountStateStore.State? = null
-
-    /** 账号状态是否正在后台补查（避免每次弹面板都重复请求）。 */
-    private var accountStateRefreshing = false
-
-    /** 当前清晰度列表的 adapter，账号状态后到时要就地把锁态刷上去。 */
-    private var qualityAdapter: QualitySelectorAdapter? = null
-
-    /**
-     * 外部音轨是否已经 `onPrepared`。
-     *
-     * 远程音轨走 `prepareAsync`，在它就绪前 `currentPosition` 固定是 0；此时
-     * `progressChange` 的偏差校正会拿它跟视频位置比，误判成"漂移"并 `seekTo`。
-     * 对还没 prepared 的 MediaPlayer 调 seekTo 会直接以 `INVALID_OPERATION`(-38)
-     * 触发 `onError`，把刚切好的 1080P 音轨判死（实测就是这样被踢回 720P 的）。
-     */
-    private var audioTrackPrepared = false
-
-    /**
-     * 外部音轨的「稳定偏差基线」与是否已采样。
-     *
-     * 见 [progressChange] 里的说明：两路时钟基准天然差一截（模拟器上稳定 ~850ms），
-     * 只纠正偏离基线的部分，避免固定偏差把音轨每几秒 seek 一次。
-     */
-    private var audioDriftBaseline = 0
-    private var audioDriftSampled = false
-
-    /**
-     * 统一时钟内核失败后是否已经自动回退过 720P 合一 MP4。
-     *
-     * 回退本身就会重建播放器，不设这个标志会无限「失败 → 回退 → 失败」。
-     */
-    private var unifiedFallbackAttempted = false
-
-    /** 统一时钟内核的回退流程是否正在进行中（防重入）。 */
-    private var unifiedFallbackInFlight = false
-    private var unifiedProbeBasePos = -1L
-    private val unifiedHealthCheck = Runnable { checkUnifiedPlayerHealth() }
-
-    // 取流接口给的 CDN 备份地址（首位就是当前主地址），播放器出错时按顺序换源重试。
-    // 只在在线点播、且是 PlayerApi.jumpToPlayer 下发的 Intent 时才有；本地/直播为空表。
-    private var videoBackupUrls: ArrayList<String> = ArrayList()
-    private var videoBackupIndex = 0
 
     /**
      * 外部音频轨道的「seek 冷却截止时刻」（`SystemClock.elapsedRealtime()`）。
@@ -303,19 +246,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      */
     private var audioResyncSuppressMs: Long = 0L
 
-    /**
-     * 是否正处在「长按三倍速」期间。
-     *
-     * 长按加速不改滑条档位，但它是**真的在变速**：倍速值统一由 [effectiveSpeedValue] 提供，
-     * 各路（滑条、长按、重建后的 [onPrepared]）都走 [applySpeedFromSeekbar] 下发，
-     * 避免"滑条显示 1x、实际还在 3x"这种隐性不一致。松手回到滑条档位。
-     */
-    private var longPressBoostActive = false
-
     companion object {
-        /** 长按加速的倍速值（与滑条档位无关，松手即恢复） */
-        private const val LONG_PRESS_BOOST_SPEED = 3.0F
-
         /** `onSaveInstanceState` 保存的播放位置（毫秒），用于系统重建本页后回到原位 */
         private const val STATE_POSITION = "player_state_position"
 
@@ -331,12 +262,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
          * 冷却太短仍会在 seek 落地前触发二次校正（重复 seek 造成可闻停顿）。
          */
         private const val AUDIO_RESYNC_COOLDOWN_MS = 1_200L
-
-        /** 统一时钟健康检查：起播多久后开始取样（毫秒）。 */
-        private const val UNIFIED_HEALTH_DELAY_MS = 2_500L
-
-        /** 统一时钟健康检查：取样窗口内至少应前进的播放位置（毫秒）。 */
-        private const val UNIFIED_HEALTH_MIN_ADVANCE_MS = 800L
 
         /**
          * 弹幕时钟偏差超过这个值就认为"媒体时钟没接上"（体检日志的判据）。
@@ -387,7 +312,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     @Volatile // 被 PlaybackService 定时线程读（serviceDurationMs）
     private var video_all: Int = 0
     // 主线程的 progressChange 定时器写、弹幕渲染线程读（见 bindDanmakuView 的位置回调），
-    // 必须 volatile：弹幕线程不再直接调 playerCore.currentPosition（那是取原生锁的 JNI 调用），
+    // 必须 volatile：弹幕线程不再直接调 ijkPlayer.currentPosition（那是取原生锁的 JNI 调用），
     // 只读这个内存值，没有 volatile 可能长期读到 0 / 过期位置，导致弹幕时间轴错乱。
     // 另：PlaybackService 的定时线程也会读它（servicePositionMs），同样需要可见性保证
     @Volatile
@@ -461,7 +386,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var loop_enabled: Boolean = false
     private var auto_next_enabled = false
 
-    // ---- 位置停滞看门狗（弱网，见 docs/archive/superpowers/specs/2026-10-11-player-network-resilience.md 的 P0-3）----
+    // ---- 位置停滞看门狗（弱网，见 docs/superpowers/specs/2026-10-11-player-network-resilience.md 的 P0-3）----
     // IJK 没有任何"位置 N 秒不前进"的看门狗：弱网下连接可能还在、但一个字节都不来，
     // 于是既不回调 onError、也不走 onCompletion，界面永远停在转圈上（用户看到的就是"卡死"）。
     // 这里复用已有的 250ms 主线程定时器做判定：位置长时间不动 → 自动重连。
@@ -715,13 +640,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             Logu.d("直播候选", "${liveUrlCandidates.size} 条，当前 $liveCandidateIndex")
         }
         isOnlineVideo = video_url!!.contains("http")
-        // CDN 备份地址表（PlayerApi.jumpToPlayer 传入，已按主机优先级排过序；首位=主地址）。
-        // 播放器报错重建时换下一个候选，能绕开被墙/被限速的单个 CDN。
-        videoBackupUrls = intent.getStringArrayListExtra("video_backup_urls") ?: ArrayList()
-        videoBackupIndex = videoBackupUrls.indexOf(video_url).takeIf { it >= 0 } ?: 0
-        if (videoBackupUrls.size > 1) {
-            Logu.d("CDN候选", "${videoBackupUrls.size} 条，当前 $videoBackupIndex")
-        }
         hasDanmaku = danmaku_url.isNotEmpty()
 
         // 本地/缓存视频没有服务端历史可读，续播位置就存在视频目录的 `.video_meta.json` 里
@@ -767,13 +685,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             qnStrList = intent.getStringArrayExtra("qnStrList")
             qnValueList = intent.getIntArrayExtra("qnValueList")
             currentQuality = intent.getIntExtra("currentQuality", SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN, 16))
-        }
-
-        // 起播清晰度按账号权限夹紧：设置里可能选了 4K/1080P60，但没登录或不是大会员时
-        // 请求会被服务端降级，不夹紧的话清晰度面板会把「播不了的那档」显示成当前档。
-        // 这里只用缓存判断（不查网络），大会员第一次开播最多先按 1080P 起，随后 refresh 会纠正。
-        if (isOnlineVideo) {
-            currentQuality = AccountStateStore.clampQuality(currentQuality)
         }
 
         isShortVideoMode = intent.getBooleanExtra("isShortVideoMode", false)
@@ -844,8 +755,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 原生库加载失败在个别设备上是常态（#48：dlopen 报 Bad file descriptor），
         // 必须走能兜住 Error 的路径——失败时提示用户并结束页面，绝不让 UnsatisfiedLinkError
         // 冒到主线程。往后的初始化（battery / 动画 / mainHandler / setDisplay 的定时任务）
-        // 全都依赖 playerCore 非空，所以这里直接 return，避免半初始化状态继续跑。
-        playerCore = createPlayerOrBail() ?: return
+        // 全都依赖 ijkPlayer 非空，所以这里直接 return，避免半初始化状态继续跑。
+        ijkPlayer = createIjkPlayerOrBail() ?: return
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             batteryManager = getSystemService(BATTERY_SERVICE) as BatteryManager
@@ -952,9 +863,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     loadInteractionVideo()
                 }
 
-                // 提前查账号状态，用户第一次打开清晰度面板时锁态就是准的（失败会退回缓存）
-                refreshAccountStateIfNeeded()
-
                 if (!destroyed) setDisplay()
             }
         }, 60)
@@ -1034,10 +942,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (doubleTapSeekEnabled) {
             doubleTapGestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
                 override fun onDoubleTap(e: MotionEvent): Boolean {
-                    if (playerCore != null && isPrepared && !isLiveMode) {
+                    if (ijkPlayer != null && isPrepared && !isLiveMode) {
                         val x = e.x
                         val viewWidth = layout_control.width.toFloat()
-                        // 双击快进的起点取主线程进度定时器维护的 video_now，不读 playerCore.currentPosition：
+                        // 双击快进的起点取主线程进度定时器维护的 video_now，不读 ijkPlayer.currentPosition：
                         // 后者是取 native 锁的 JNI 调用，缓冲/seek 期间可能阻塞主线程
                         val currentPosition = video_now.toLong()
                         val seekOffset = doubleTapSeekSeconds * 1000L
@@ -1048,7 +956,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                         when {
                             x > third * 2 -> {
                                 var newPosition = currentPosition + seekOffset
-                                val duration = playerCore!!.duration
+                                val duration = ijkPlayer!!.duration
                                 if (newPosition > duration) newPosition = duration
                                 seekToPosition(newPosition)
                             }
@@ -1142,9 +1050,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                             previousY = event.getY(if (index == 0) 1 else 0)
                         }
                     }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    MotionEvent.ACTION_UP -> {
                         handleSwipeSeekTouch(event)
-                        endLongPressBoost()
+                        if (onLongClick) {
+                            onLongClick = false
+                            val normalSpeed = speed_values[seekbar_speed.progress]
+                            ijkPlayer?.setSpeed(normalSpeed)
+                            danmakuManager?.setSpeed(normalSpeed)
+                            text_speed.text = speed_strs[seekbar_speed.progress]
+                        }
                         if (gesture_moved) gesture_moved = false
                         if (gesture_scaled) gesture_scaled = false
                     }
@@ -1163,10 +1077,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     doubleTapGestureDetector!!.onTouchEvent(motionEvent)
                 }
                 handleSwipeSeekTouch(motionEvent)
-                if (motionEvent.action == MotionEvent.ACTION_UP ||
-                    motionEvent.action == MotionEvent.ACTION_CANCEL
-                ) {
-                    endLongPressBoost()
+                if (motionEvent.action == MotionEvent.ACTION_UP && onLongClick) {
+                    onLongClick = false
+                    val normalSpeed = speed_values[seekbar_speed.progress]
+                    ijkPlayer?.setSpeed(normalSpeed)
+                    danmakuManager?.setSpeed(normalSpeed)
+                    text_speed.text = speed_strs[seekbar_speed.progress]
                 }
                 false
             }
@@ -1177,13 +1093,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             else clickUI()
         }
         layout_control.setOnLongClickListener {
-            if (SharedPreferencesUtil.getBoolean("player_longclick", true) && playerCore != null && isPlaying && !isLiveMode) {
+            if (SharedPreferencesUtil.getBoolean("player_longclick", true) && ijkPlayer != null && isPlaying && !isLiveMode) {
                 if (!onLongClick && !gesture_click_disabled) {
                     hidecon.run()
-                    longPressBoostActive = true
+                    ijkPlayer?.setSpeed(3.0F)
+                    danmakuManager?.setSpeed(3.0f)
+                    text_speed.text = "x 3.0"
                     onLongClick = true
-                    // 不直接 setSpeed(3f)：统一走倍速下发，长按/滑条/重建后的 onPrepared 都用同一套口径
-                    applySpeedFromSeekbar()
                     Logu.v("gesture", "longclick_down")
                     return@setOnLongClickListener true
                 }
@@ -1427,82 +1343,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     /**
-     * 本安装版本是否已被判定为「统一时钟播放器不兼容」。
-     *
-     * 判定结果按 [BuildConfig.VERSION_NAME] 记录：同一版本内不再尝试统一时钟，避免每次播放都
-     * 先卡住再回退；升级后版本号变化，会自动重新尝试一次。
-     */
-    private fun isUnifiedPlayerBlockedOnThisBuild(): Boolean =
-        SharedPreferencesUtil.getString("player_unified_blocked_version", "") == BuildConfig.VERSION_NAME
-
-    private fun markUnifiedPlayerBlocked(reason: String) {
-        SharedPreferencesUtil.putString("player_unified_blocked_version", BuildConfig.VERSION_NAME)
-        Logu.w("PlayerCore", "统一时钟播放器在本机不可用（$reason），本次安装改用 IJK 双播放器方案")
-    }
-
-    /**
-     * 起播后做一次健康检查：统一时钟内核在部分设备上会出现「画面冻结在起播 1 秒、位置不再前进」的
-     * 卡缓冲，且 ExoPlayer 自身不报错。与其让用户面对永久转圈，不如把这类设备自动切回 IJK。
-     */
-    private fun scheduleUnifiedHealthCheck() {
-        mainHandler?.removeCallbacks(unifiedHealthCheck)
-        unifiedProbeBasePos = -1L
-        mainHandler?.postDelayed(unifiedHealthCheck, UNIFIED_HEALTH_DELAY_MS)
-    }
-
-    private fun checkUnifiedPlayerHealth() {
-        val player = playerCore
-        if (destroyed || isFinishing || player !is UnifiedDashPlayer) return
-        if (!isPrepared || !isPlaying) return
-        val pos = try {
-            player.currentPosition
-        } catch (t: Throwable) {
-            return
-        }
-        if (unifiedProbeBasePos < 0L) {
-            unifiedProbeBasePos = pos
-            mainHandler?.postDelayed(unifiedHealthCheck, 2_000L)
-            return
-        }
-        val advanced = pos - unifiedProbeBasePos
-        if (advanced >= UNIFIED_HEALTH_MIN_ADVANCE_MS) return
-        if (unifiedFallbackAttempted) return
-        unifiedFallbackAttempted = true
-        markUnifiedPlayerBlocked("起播后播放位置仅前进 ${advanced}ms")
-        MsgUtil.showMsg(UiText.of("当前设备播放器不兼容，已自动切换兼容播放器"))
-        retryAfterPlayerError(pos.coerceAtLeast(0L))
-    }
-
-    /**
-     * 创建播放器实例。
-     *
-     * 在线点播且已经拿到 DASH 音频轨时，优先使用统一时钟内核 [ExoDashMediaPlayer]：视频轨、音频轨
-     * 由同一个 ExoPlayer 消费，天然只有一条时钟，不会再出现「ijk 播视频 + MediaPlayer 播音频 +
-     * 轮询校正」那种必然漂移的组合（音频轨加载失败、听视频模式 -10000 也都源于它）。
-     *
-     * 本地视频、直播（HLS）、只有合一 MP4 的场景仍走 IjkMediaPlayer。
-     */
-    private fun createPlayerOrBail(): IMediaPlayer? {
-        // 注意：onCreate 里本方法早于 audioTrackUrl 字段赋值被调用，所以这里同时看一眼 Intent
-        val audioUrl = audioTrackUrl ?: intent.getStringExtra("audio_track_url")
-        val remoteAudio = audioUrl?.takeIf { PlayerStreamPolicy.isRemoteAudioTrack(it) }
-        if (isOnlineVideo && !isLiveMode && remoteAudio != null &&
-            DeviceProfile.useUnifiedDashPlayer() && !isUnifiedPlayerBlockedOnThisBuild()
-        ) {
-            try {
-                val unified = ExoDashMediaPlayer(this, remoteAudio)
-                unified.setAudioOnly(isAudioOnlyMode)
-                Logu.v("PlayerCore", "使用统一时钟 DASH 播放器：视频轨与音频轨共用一条时钟")
-                return unified
-            } catch (t: Throwable) {
-                // ExoPlayer 初始化失败（极端机型/ABI）时不让播放中断：回退老方案
-                Logu.e("PlayerCore", "统一时钟播放器创建失败，回退 IJK：${t.message}")
-            }
-        }
-        return createIjkPlayerOrBail()
-    }
-
-    /**
      * 创建播放器实例；原生库不可用时提示用户并结束页面，返回 null。
      *
      * 为什么集中在这里而不是各调用点各写一遍 try/catch：
@@ -1546,103 +1386,61 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         finish()
     }
 
-    /**
-     * 当前播放器是否走「统一时钟」内核（ExoPlayer 用同一个时钟同时消费 DASH 的视频轨与音频轨）。
-     */
-    private fun isUnifiedPlayer(): Boolean = playerCore is UnifiedDashPlayer
-
-    /**
-     * 统一时钟内核的配置：听视频模式只加载音频轨、把当前有效倍速同步进去。
-     *
-     * 听视频模式此前对 DASH 的纯视频流用 `vn=1` 让 ijk 只解音频，而纯视频流里根本没有音频轨，
-     * 播放器于是直接报 -10000；统一时钟内核这边只喂音频轨，从根上没有了这个问题。
-     */
-    private fun applyUnifiedPlayerConfig() {
-        val unified = playerCore as? UnifiedDashPlayer ?: return
-        unified.setAudioOnly(isAudioOnlyMode)
-        unified.setPlaybackSpeed(effectiveSpeedValue())
-    }
-
-    /**
-     * 给当前播放器设倍速：统一时钟内核与 IJK 内核的入口不同，不能直接调 `setSpeed`。
-     */
-    private fun applyPlayerSpeed(speed: Float) {
-        when (val player = playerCore) {
-            is UnifiedDashPlayer -> player.setPlaybackSpeed(speed)
-            is IjkMediaPlayer -> player.setSpeed(speed)
-        }
-    }
-
-    /**
-     * 只有 IJK 内核吃 IJK 的 option 表；统一时钟内核走 ExoPlayer，不需要这些参数。
-     */
-    private fun setIjkOption(player: IMediaPlayer?, category: Int, name: String, value: Any) {
-        val ijk = player as? IjkMediaPlayer ?: return
-        when (value) {
-            is Int -> ijk.setOption(category, name, value.toLong())
-            is Long -> ijk.setOption(category, name, value)
-            is Float -> ijk.setOption(category, name, value.toLong())
-            is String -> ijk.setOption(category, name, value)
-        }
-    }
-
     private fun setDisplay() {
         Logu.v("创建播放器")
         Logu.v("url", video_url)
-        // 统一时钟内核：听视频模式只喂音频轨，并同步当前倍速
-        applyUnifiedPlayerConfig()
 
         runOnUiThread { loading_text0.text = UiText.of("初始化播放") }
 
         if (isAudioOnlyMode) {
-            setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_PLAYER, "vn", 1)
-            setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_frame", 48)
-            setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", 48)
+            ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "vn", 1)
+            ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_frame", 48)
+            ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", 48)
         } else {
-            setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec",
+            ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec",
                 if (SharedPreferencesUtil.getBoolean("player_codec", true)) 1 else 0)
-            setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", 48)
+            ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", 48)
         }
 
-        setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_PLAYER, "opensles",
+        ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "opensles",
             if (SharedPreferencesUtil.getBoolean("player_audio", false)) 1 else 0)
-        setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 1)
-        setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1)
-        setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 4)
-        setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 1)
-        setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_FORMAT, "analyzeduration", 100)
-        setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_PLAYER, "soundtouch", 1)
-        setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_FORMAT, "dns_cache_clear", 1)
-        setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_FORMAT, "fflags", "flush_packets")
-        setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_FORMAT, "reconnect", 1)
+        ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 1)
+        ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1)
+        ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 4)
+        ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 1)
+        ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "analyzeduration", 100)
+        ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "soundtouch", 1)
+        ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "dns_cache_clear", 1)
+        ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "fflags", "flush_packets")
+        ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "reconnect", 1)
 
         if (!isLiveMode) {
             // 不精确 seek（默认 0）会落到目标前最近的关键帧：切后台回来重挂 surface、
             // 用户拖进度条都会"往回跳一个 GOP"，表现为位置出错。VideoPlayerCore 也开了它
             // （player/VideoPlayerCore.kt:133）。直播不做 seek，故只在非直播下开。
-            setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_PLAYER, "enable-accurate-seek", 1)
+            ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "enable-accurate-seek", 1)
         }
 
         if (isOnlineVideo) {
-            setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_PLAYER, "packet-buffering", 1)
-            setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-buffer-size", 15 * 1024 * 1024)
-            setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_FORMAT, "user_agent", NetWorkUtil.USER_AGENT_WEB)
-            // 弱网韧性（详见 docs/archive/superpowers/specs/2026-10-11-player-network-resilience.md 的 P0-1）：
+            ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "packet-buffering", 1)
+            ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-buffer-size", 15 * 1024 * 1024)
+            ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "user_agent", NetWorkUtil.USER_AGENT_WEB)
+            // 弱网韧性（详见 docs/superpowers/specs/2026-10-11-player-network-resilience.md 的 P0-1）：
             // 1) rw_timeout：默认 0 = "读可以永久阻塞"，而且卡住时 IJK 不会回调 onError，
             //    界面上只会一直转圈 —— 这是弱网下直播/长视频"卡死不动"的直接原因；
             // 2) reconnect 只在"某次 read 返回负值"时才生效，而 chunked 直播（is_streamed=1）
             //    在 ffmpeg http.c 里还有一道 `!reconnect_streamed` 就 break 的判定，两者都要开；
             // 3) reconnect_delay_max 单位是秒（默认 120）。
-            setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_FORMAT, "rw_timeout", 10_000_000L)
-            setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_FORMAT, "addrinfo_timeout", 5_000_000L)
-            setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_FORMAT, "reconnect_streamed", 1L)
-            setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_FORMAT, "reconnect_delay_max", 5L)
+            ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "rw_timeout", 10_000_000L)
+            ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "addrinfo_timeout", 5_000_000L)
+            ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "reconnect_streamed", 1L)
+            ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "reconnect_delay_max", 5L)
             // 4) reconnect_at_eof：直播流被服务端"正常收尾"（chunked 响应干净 EOF）时，
             //    ffmpeg 会当成播完了，reconnect/reconnect_streamed 都不会触发。只有直播加这一项
-            //    （spec 的 P0-1 明确要求，见 docs/archive/superpowers/specs/2026-10-11-player-network-resilience.md
+            //    （spec 的 P0-1 明确要求，见 docs/superpowers/specs/2026-10-11-player-network-resilience.md
             //    §1 第 3 条、§4 P0-1）；点播的 EOF 就是真的播完，加了会无限重连，故只放在直播分支。
             if (isLiveMode) {
-                setIjkOption(playerCore, IjkMediaPlayer.OPT_CATEGORY_FORMAT, "reconnect_at_eof", 1L)
+                ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "reconnect_at_eof", 1L)
             }
             Logu.v("设置ua")
         }
@@ -1650,18 +1448,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         Logu.v("准备设置显示")
         // 事件驱动：surface 已就绪则同步立即挂载并 prepare，未就绪则等 surface 回调。
         // 不再轮询、不再新建 Timer 线程，也不再有最长 200ms 的首帧等待。
-        // 听视频模式只消费音频轨，不依赖 surface（此时 layout_video 可能已不可见），
-        // 直接起播；普通模式仍等 surface 就绪后再 prepare，首帧更快。
-        if (isUnifiedPlayer() && isAudioOnlyMode) {
-            runOnUiThread { video_url?.let { if (!destroyed) MPPrepare(it) } }
-        } else {
-            surfaceBinder?.await()
-        }
+        surfaceBinder?.await()
     }
 
     /** 把 IjkMediaPlayer 挂到当前 surface 上（SurfaceView 与 TextureView 两种模式）。 */
     private fun attachSurface(target: SurfaceTarget) {
-        val player = playerCore ?: return
+        val player = ijkPlayer ?: return
         when (target) {
             is SurfaceTarget.Holder -> {
                 Logu.v("surface", "挂载 SurfaceHolder")
@@ -1676,14 +1468,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
     /** surface 消失时解绑，避免 IJK 继续往已销毁的 surface 上画。 */
     private fun detachSurface() {
-        val player = playerCore ?: return
+        val player = ijkPlayer ?: return
         if (textureView != null) player.setSurface(null) else player.setDisplay(null)
     }
 
     private fun MPPrepare(nowurl: String) {
         // 重载期间不能让上一轮的外部音频继续出声；onPrepared 会按新媒体轨道重新选择。
         releaseAudioTrack()
-        playerCore!!.setOnPreparedListener(this)
+        ijkPlayer!!.setOnPreparedListener(this)
         // 任何一次新的载入（切P / 切清晰度 / 出错重试）都要清掉上一次的错误态，
         // 否则重试后 controlVideo() 仍会认为处于错误态而再次走重新载入分支。
         playerError = false
@@ -1694,28 +1486,19 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         } else
             runOnUiThread { loading_text0.text = UiText.of("载入视频中") }
         try {
-            val headers = HashMap<String, String>()
-            headers["Referer"] = "https://www.bilibili.com/"
-            headers["Cookie"] = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "")
-            val unified = playerCore as? UnifiedDashPlayer
-            if (unified != null) {
-                // 统一时钟内核：视频轨与音频轨交给同一个 ExoPlayer；音频流单独补地址与请求头。
-                // 听视频模式下视频轨根本不会被加载（setAudioOnly 已在 setDisplay 里设过）。
-                unified.setAudioOnly(isAudioOnlyMode)
-                playerCore!!.setDataSource(this, android.net.Uri.parse(nowurl), headers)
-                audioTrackUrl?.takeIf { PlayerStreamPolicy.isRemoteAudioTrack(it) }
-                    ?.let { unified.setAudioSource(it, headers) }
-                unified.setPlaybackSpeed(effectiveSpeedValue())
-            } else if (isOnlineVideo) {
-                (playerCore as IjkMediaPlayer).setDataSource(nowurl, headers)
+            if (isOnlineVideo) {
+                val headers = HashMap<String, String>()
+                headers["Referer"] = "https://www.bilibili.com/"
+                headers["Cookie"] = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "")
+                ijkPlayer!!.setDataSource(nowurl, headers)
             } else
-                playerCore!!.setDataSource(nowurl)
+                ijkPlayer!!.setDataSource(nowurl)
         } catch (e: IOException) {
             e.printStackTrace()
         }
 
-        playerCore!!.setOnCompletionListener { completedPlayer ->
-            if (destroyed || completedPlayer !== playerCore) return@setOnCompletionListener
+        ijkPlayer!!.setOnCompletionListener { completedPlayer ->
+            if (destroyed || completedPlayer !== ijkPlayer) return@setOnCompletionListener
             finishWatching = true
             // 看完立刻上报 -1（"已看完"）：退出路径补报的是当前位置，服务端只会记成
             // "看到最后几秒"，续播就停在本集末尾而不是接着看下一集。番剧（epid）才有这个语义
@@ -1740,9 +1523,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 // 单曲循环＝又从头播起来了，不再是"看完了"：不清这个标志的话，
                 // 本地视频的周期落盘会一直按"看完"写 0，第二轮看了半天也续不上
                 finishWatching = false
-                playerCore!!.seekTo(0)
+                ijkPlayer!!.seekTo(0)
                 if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.seekTo(0L)
-                playerCore!!.start()
+                ijkPlayer!!.start()
             } else if (auto_next_enabled && hasMultiplePages() && currentPageIndex < pagenames!!.size - 1) {
                 switchToPage(currentPageIndex + 1)
             } else if (auto_next_enabled && returnPlaylist != null) {
@@ -1760,8 +1543,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             }
         }
 
-        playerCore!!.setOnErrorListener { failedPlayer, what, extra ->
-            if (destroyed || failedPlayer !== playerCore) return@setOnErrorListener true
+        ijkPlayer!!.setOnErrorListener { failedPlayer, what, extra ->
+            if (destroyed || failedPlayer !== ijkPlayer) return@setOnErrorListener true
             val EReport = UiText.of("播放器可能遇到错误！\n错误码：") + what + UiText.of("\n附加：") + extra
             Logu.e("ijk-err", EReport)
             // 返回 false 会被 IjkMediaPlayer 改判成 onCompletion（IjkMediaPlayer.java:1013-1017），
@@ -1769,11 +1552,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             // 必须返回 true 阻断该改判，并记录错误态：点播放键时 controlVideo() 会走重新载入重试。
             val firstError = !playerError
             playerError = true
-            // 统一时钟内核失败：自动回退到 720P 合一 MP4（单 ijk 播放器），不让用户干等
-            if (failedPlayer is UnifiedDashPlayer && !unifiedFallbackAttempted) {
-                unifiedFallbackAttempted = true
-                runOnUiThread { onUnifiedPlayerFailed() }
-            }
             if (!destroyed) {
                 // 只在第一次出错时提示，避免 IJK 连续回调 onError 时 toast 刷屏
                 if (firstError) MsgUtil.showMsgLong(EReport)
@@ -1790,12 +1568,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             true
         }
 
-        playerCore!!.setOnBufferingUpdateListener { _, percent ->
+        ijkPlayer!!.setOnBufferingUpdateListener { _, percent ->
             seekbar_progress.secondaryProgress = percent * video_all / 100
         }
 
         if (isOnlineVideo || isLiveMode)
-            playerCore!!.setOnInfoListener { _, what, _ ->
+            ijkPlayer!!.setOnInfoListener { _, what, _ ->
                 if (what == IMediaPlayer.MEDIA_INFO_BUFFERING_START) {
                     runOnUiThread {
                         loading_info.visibility = View.VISIBLE
@@ -1815,8 +1593,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 false
             }
 
-        playerCore!!.setScreenOnWhilePlaying(true)
-        playerCore!!.prepareAsync()
+        ijkPlayer!!.setScreenOnWhilePlaying(true)
+        ijkPlayer!!.prepareAsync()
         Logu.v("开始准备")
     }
 
@@ -1825,13 +1603,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         loadingRunnable?.let { mainHandler?.removeCallbacks(it) }
         loadingRunnable = object : Runnable {
             override fun run() {
-                val player = playerCore ?: return
-                // 统一时钟内核没有 ijk 的 tcpSpeed，显示固定文案即可
-                if (player !is IjkMediaPlayer) {
-                    loading_text1.text = UiText.of("加载中")
-                    if (!destroyed) mainHandler?.postDelayed(this, 1000)
-                    return
-                }
+                val player = ijkPlayer ?: return
                 val text = String.format(Locale.CHINA, "%.1f", player.tcpSpeed / 1024f) + "KB/s"
                 loading_text1.text = text
                 if (!destroyed) mainHandler?.postDelayed(this, 500)
@@ -1900,34 +1672,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      */
     private fun applySpeedFromSeekbar() {
         val index = seekbar_speed.progress.coerceIn(0, speed_values.size - 1)
-        val speed = effectiveSpeedValue()
-        // 长按加速期间控件已隐藏，文案直接显示 3x；松手后再回到滑条档位
-        text_speed.text = if (longPressBoostActive) boostLabel() else speed_strs[index]
+        text_speed.text = speed_strs[index]
         text_newspeed.text = speed_strs[index]
-        applyPlayerSpeed(speed)
-        danmakuManager?.setSpeed(speed)
-        applyAudioSpeed(speed)
+        ijkPlayer?.setSpeed(speed_values[index])
+        danmakuManager?.setSpeed(speed_values[index])
     }
 
-    /** 倍速滑条当前档位对应的倍速值（越界时夹到合法档，避免崩溃）。 */
-    private fun currentSpeedValue(): Float =
-        speed_values[seekbar_speed.progress.coerceIn(0, speed_values.size - 1)]
-
-    /**
-     * 当前**实际生效**的倍速值：长按加速期间是 3x，否则就是滑条档位。
-     *
-     * 下发倍速必须用它——只看滑条的话，长按加速在 DASH 高清片源上会"看起来生效、其实画面照旧 1x"。
-     */
-    private fun effectiveSpeedValue(): Float =
-        if (longPressBoostActive) LONG_PRESS_BOOST_SPEED else currentSpeedValue()
-
-    /** 长按加速时显示在倍速文案上的字符串（`x 3.0`）。 */
-    private fun boostLabel(): String = "x ${LONG_PRESS_BOOST_SPEED}"
-
     private fun changeVideoSize() {
-        if (!isPrepared || playerCore == null) return
-        val width = playerCore!!.videoWidth
-        val height = playerCore!!.videoHeight
+        if (!isPrepared || ijkPlayer == null) return
+        val width = ijkPlayer!!.videoWidth
+        val height = ijkPlayer!!.videoHeight
         Logu.v("screen", screen_width.toString() + "x" + screen_height)
         Logu.v("video", width.toString() + "x" + height)
 
@@ -1980,32 +1734,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             override fun run() {
                 if (isPrepared && isPlaying && !isSeeking && !destroyed) {
                     // 取不到播放器时保持上次位置，避免进度条突然跳回 0
-                    video_now = playerCore?.currentPosition?.toInt() ?: video_now
+                    video_now = ijkPlayer?.currentPosition?.toInt() ?: video_now
                     // 外部音频轨道（DASH分离文件fallback）同步校正：偏差过大时重新对齐，避免音画漂移。
                     // seek 的冷却期内不校正：MediaPlayer.seekTo 异步，seek 未完成时 currentPosition
                     // 还停在旧位置，这时再校正等于同一位置 seek 两遍（用户听到的就是停顿两次）。
                     val nowElapsed = android.os.SystemClock.elapsedRealtime()
                     audioPlayer?.let { ap ->
-                        if (audioTrackPrepared && nowElapsed >= audioResyncSuppressMs) {
+                        if (nowElapsed >= audioResyncSuppressMs) {
                             try {
                                 val audioPos = ap.currentPosition
-                                // 只纠「还在变大」的漂移，不纠固定偏差：
-                                // 两路各自的时钟基准本就差一截（模拟器上稳定差 ~850ms，视频渲染慢），
-                                // 拿绝对偏差当判据会每 2~5 秒 seek 一次音轨（听感是持续一顿一顿）。
-                                // 首次采样把当前偏差记成基线，之后只有偏离基线超过阈值才对齐。
-                                val drift = audioPos - video_now
-                                if (!audioDriftSampled) {
-                                    audioDriftSampled = true
-                                    audioDriftBaseline = drift
-                                } else if (audioPos >= 0 && Math.abs(drift - audioDriftBaseline) > 800) {
+                                if (audioPos >= 0 && Math.abs(audioPos - video_now) > 800) {
                                     ap.seekTo(video_now)
-                                    // 重新采样：seek 落地后偏差要重新算基线
-                                    audioDriftSampled = false
-                                    // 并进冷却期：MediaPlayer.seekTo 是异步的，seek 未完成时
-                                    // currentPosition 还报旧值，下一拍再判就会把「seek 没生效」
-                                    // 当成新的漂移，连着 seek 三下（模拟器实测 1x 下就冒出 3 连 seek，
-                                    // 听感是音频连跳三下）。冷却期沿用拖动 seek 的同一套常量。
-                                    audioResyncSuppressMs = nowElapsed + AUDIO_RESYNC_COOLDOWN_MS
                                     Logu.d("AudioTrack", "音频轨道重新同步: $audioPos -> $video_now")
                                 }
                             } catch (_: Exception) {}
@@ -2240,7 +1979,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun reportProgressNow(force: Boolean, reason: String): Boolean {
         if (destroyed || !isOnlineVideo || isLiveMode) return false
         if (!canReportProgress()) return false
-        // 取内存里的 video_now，而不是 playerCore.currentPosition：后者是取原生锁的 JNI 调用，
+        // 取内存里的 video_now，而不是 ijkPlayer.currentPosition：后者是取原生锁的 JNI 调用，
         // seek/缓冲期间可能长时间不返回，放在退出路径上就是 ANR。
         // video_now 由 progressChange 每 250ms 刷新，差半秒对进度上报无影响。
         val currentSec = video_now / 1000L
@@ -2321,7 +2060,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         val task = object : TimerTask() {
             @SuppressLint("SetTextI18n")
             override fun run() {
-                if (playerCore != null) {
+                if (ijkPlayer != null) {
                     try {
                         online_number = VideoInfoApi.getWatching(aid, cid)
                         runOnUiThread {
@@ -2548,8 +2287,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         try {
             var estimatedDuration = 3600
 
-            if (playerCore != null) {
-                val duration = playerCore!!.duration
+            if (ijkPlayer != null) {
+                val duration = ijkPlayer!!.duration
                 if (duration > 0) estimatedDuration = (duration / 1000).toInt()
             }
 
@@ -2592,7 +2331,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             // 弹幕时间轴跟随播放器位置（而不是墙钟）。**直播没有有意义的播放位置**，不绑。
             //
             // 两个 provider 都在 DFM 渲染线程上被每帧调用，只能读主线程采样好的内存值：
-            // video_now 就是 progressChange 每 250ms 从 playerCore 读一次的那个 @Volatile 字段。
+            // video_now 就是 progressChange 每 250ms 从 ijkPlayer 读一次的那个 @Volatile 字段。
             if (!isLiveMode) {
                 manager.bindMediaClock(
                     { if (isPrepared && !destroyed) video_now.toLong() else -1L },
@@ -2640,13 +2379,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     interactionData!!.edges!!.questions != null && !questionShown) {
                     if (!questionShown) {
                         markSeekTarget(0L)
-                        playerCore!!.seekTo(0)
+                        ijkPlayer!!.seekTo(0)
                         if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.seekTo(0L)
                         Logu.v("播完重播")
                     }
                 } else {
                     markSeekTarget(0L)
-                    playerCore!!.seekTo(0)
+                    ijkPlayer!!.seekTo(0)
                     if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.seekTo(0L)
                     Logu.v("播完重播")
                 }
@@ -2664,31 +2403,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      * @param resumePositionMs 重建后从哪继续；默认取主线程维护的 [video_now]（点播续播）。
      *   直播换线路时传 0——直播要的是"最新的流位置"，不是换线路前的那个位置。
      */
-    /**
-     * 换下一个 CDN 候选（主地址失败时按优先级换源）。
-     *
-     * 只对在线点播生效：直播有自己的 switchLiveCandidate，本地的备份表永远是空的。
-     * 换源只改视频地址，不动取流结果——重建播放器时会重新走 MPPrepare。
-     *
-     * @return true 表示已经换到新地址，false 表示没有下一个候选（按原地址重试）
-     */
-    private fun rotateVideoBackupUrl(): Boolean {
-        if (!isOnlineVideo || isLiveMode) return false
-        val nextIndex = videoBackupIndex + 1
-        if (nextIndex >= videoBackupUrls.size) return false
-        val nextUrl = videoBackupUrls[nextIndex]
-        if (nextUrl.isEmpty()) return false
-        videoBackupIndex = nextIndex
-        Logu.w("CDN候选", "换源重试：$video_url -> $nextUrl")
-        video_url = nextUrl
-        return true
-    }
-
     private fun retryAfterPlayerError(resumePositionMs: Long = video_now.toLong()) {
         playerError = false
         CenterThreadPool.run {
             // 与 toggleAudioOnlyMode 一致：重建用的续播位置由调用方给定（点播默认取主线程维护的 video_now），
-            // 不在这里调 playerCore.currentPosition（后台线程碰 jni 且此刻播放器正要被释放）。
+            // 不在这里调 ijkPlayer.currentPosition（后台线程碰 jni 且此刻播放器正要被释放）。
             val resumePosition = resumePositionMs
             runOnUiThread {
                 if (destroyed || isFinishing()) return@runOnUiThread
@@ -2696,13 +2415,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 isPrepared = false
                 isPlaying = false
                 releaseAudioTrack()
-                // 先换 CDN 再重建：同一个地址连续失败（被限速/被墙/单个边缘节点坏掉）时
-                // 原样重试通常还是失败，换成备份地址往往一次就好。
-                rotateVideoBackupUrl()
-                if (playerCore != null) {
-                    playerCore!!.stop()
-                    playerCore!!.release()
-                    playerCore = null
+                if (ijkPlayer != null) {
+                    ijkPlayer!!.stop()
+                    ijkPlayer!!.release()
+                    ijkPlayer = null
                 }
                 loading_info.visibility = View.VISIBLE
                 anim_loading!!.start()
@@ -2711,18 +2427,18 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             try {
                 Thread.sleep(100)
                 runOnUiThread {
-                    // 这 100ms 里用户可能已经退出页面：onDestroy 会 release 并置空 playerCore，
+                    // 这 100ms 里用户可能已经退出页面：onDestroy 会 release 并置空 ijkPlayer，
                     // 此处若无守卫就会重建出一个永不释放的 native 播放器。
                     if (destroyed || isFinishing()) return@runOnUiThread
                     // 重试同样可能撞上原生库不可用（例如加载过一次成功、之后库文件被系统回收），
                     // 因此和 onCreate 一样走 helper：失败时它已提示并 finish，这里只收掉加载动画。
-                    val player = createPlayerOrBail()
+                    val player = createIjkPlayerOrBail()
                     if (player == null) {
                         loading_info.visibility = View.GONE
                         anim_loading!!.stop()
                         return@runOnUiThread
                     }
-                    playerCore = player
+                    ijkPlayer = player
                     progress_history = resumePosition
                     setDisplay()
                 }
@@ -2842,7 +2558,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun applyVolumeGain() {
         val gain = PlayerVolumePolicy.percentToGain(volumeGainPercent)
         try {
-            playerCore?.setVolume(gain, gain)
+            ijkPlayer?.setVolume(gain, gain)
         } catch (e: Exception) {
             Logu.e("无极调音", "设置播放器增益失败：${e.message}")
         }
@@ -2952,8 +2668,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
     private fun playerPause() {
         isPlaying = false
-        if (playerCore != null && isPrepared) {
-            playerCore!!.pause()
+        if (ijkPlayer != null && isPrepared) {
+            ijkPlayer!!.pause()
             if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.pause()
         }
         audioPlayer?.pause()
@@ -2965,8 +2681,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
     private fun playerResume() {
         isPlaying = true
-        if (playerCore != null && isPrepared) {
-            playerCore!!.start()
+        if (ijkPlayer != null && isPrepared) {
+            ijkPlayer!!.start()
             if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.resume()
         }
         audioPlayer?.start()
@@ -2998,7 +2714,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     //======= 后台播放服务（PlaybackService）状态桥 =======
     // 播放器实例与全部播放状态仍只归本页持有，服务只是"保活 + 通知栏遥控"的壳。
     // 下面这些方法会被服务每秒的定时线程调用，所以只允许读内存字段，
-    // 绝不能在服务线程里做 playerCore.currentPosition 这类 JNI 调用（会取原生锁）。
+    // 绝不能在服务线程里做 ijkPlayer.currentPosition 这类 JNI 调用（会取原生锁）。
     // 需要动手作的一律 runOnUiThread 回主线程。
 
     fun serviceGone(): Boolean = destroyed
@@ -3069,7 +2785,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
     override fun onDestroy() {
         // 无条件清理：系统因内存压力/"不保留活动"销毁本页时 isFinishing == false，
-        // 旧代码在此提前 return 会跳过 playerCore/Timer/WebSocket/EventBus 的全部释放，
+        // 旧代码在此提前 return 会跳过 ijkPlayer/Timer/WebSocket/EventBus 的全部释放，
         // 泄漏的回调还会继续操作已销毁的 Activity。用 destroyed 标志防止重复释放。
         if (destroyed) {
             super.onDestroy()
@@ -3082,7 +2798,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             eventBusInit = false
         }
         // 销毁前的兜底上报：必须在 destroyed = true 与 release 播放器之前做，
-        // 且只依赖内存里的 video_now（不碰 playerCore 的 JNI 调用）。正常退出时会被去重拦掉。
+        // 且只依赖内存里的 video_now（不碰 ijkPlayer 的 JNI 调用）。正常退出时会被去重拦掉。
         reportProgressNow(true, UiText.of("销毁兜底"))
         saveLocalProgressNow("销毁兜底")
         destroyed = true
@@ -3096,13 +2812,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         cancelAllTimers()
 
         // 先解绑 surface 回调，避免解绑前 surface 回调又反过来操作已 release 的播放器
-        mainHandler?.removeCallbacks(unifiedHealthCheck)
         surfaceBinder?.release()
         surfaceBinder = null
 
         releaseDanmaku()
-        playerCore?.release()
-        playerCore = null
+        ijkPlayer?.release()
+        ijkPlayer = null
         releaseAudioTrack()
 
         if (isOnlineVideo && danmakuFile != null && danmakuFile!!.exists())
@@ -3116,18 +2831,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             mediaSession = null
         }
 
-        // 退出播放器时把方向锁回设置里的默认值。**必须包 try/catch**：
-        // 「Only fullscreen activities can request orientation」是 Android 8.0 的已知行为——
-        // 页面不在全屏（分屏 / 悬浮窗 / 某些 ROM 的窗口化）时 setRequestedOrientation 抛 ISE，
-        // 而这里是 onDestroy，异常会升级成 "Unable to destroy activity" 直接崩在退出路径上。
-        // 线上实测 4 例，全部是 sdk 26 的 HONOR HWDUK。
-        try {
-            requestedOrientation = if (SharedPreferencesUtil.getBoolean("ui_landscape", false))
-                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        } catch (ignored: IllegalStateException) {
-            Logu.w("退出时恢复屏幕方向失败（非全屏窗口），忽略")
-        }
+        requestedOrientation = if (SharedPreferencesUtil.getBoolean("ui_landscape", false))
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
 
         super.onDestroy()
     }
@@ -3281,7 +2987,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP || mediaSession == null) return
         val state = if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
         // 位置取 video_now（progressChange 每 250ms 刷新）。本方法在播放中每秒都会被调用一次，
-        // 用 playerCore.currentPosition 等于每秒在主线程上摸一次 native 锁
+        // 用 ijkPlayer.currentPosition 等于每秒在主线程上摸一次 native 锁
         val position = if (isPrepared) video_now.toLong() else 0L
         var actions = (PlaybackState.ACTION_PLAY.toLong()
                 or PlaybackState.ACTION_PAUSE.toLong()
@@ -3372,7 +3078,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 if (isPrepared && !isLiveMode && target is SurfaceTarget.Holder) {
                     // seek 目标用主线程维护的 video_now（播放状态真值），不用 seekbar_progress.progress：
                     // 直播下进度条恒为 0（progressChange 只在非直播写它），拖拽/缓冲期间它也可能与真实位置不一致。
-                    playerCore?.seekTo(video_now.toLong())
+                    ijkPlayer?.seekTo(video_now.toLong())
                 }
             },
             onSurfaceLost = { detachSurface() }
@@ -3494,9 +3200,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 if (fromUser) {
                     text_newspeed.text = speed_strs[position]
                     text_speed.text = speed_strs[position]
-                    applyPlayerSpeed(speed_values[position])
+                    ijkPlayer?.setSpeed(speed_values[position])
                     danmakuManager?.setSpeed(speed_values[position])
-                    applyAudioSpeed(speed_values[position])
                     // 「播放默认值 → 倍速 = 沿用上次」的记录位：只有用户自己调过才算"上次用过的"。
                     SharedPreferencesUtil.putFloat(SettingsKeys.PLAYER_LAST_SPEED, speed_values[position])
                 }
@@ -3541,7 +3246,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (isPrepared)
             when (keyCode) {
                 KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> controlVideo()
-                // 相对位移的起点用 video_now，避免在主线程上取 native 锁（顺带去掉 playerCore 的非空断言）
+                // 相对位移的起点用 video_now，避免在主线程上取 native 锁（顺带去掉 ijkPlayer 的非空断言）
                 KeyEvent.KEYCODE_DPAD_LEFT -> seekToPosition(video_now - 10000L)
                 KeyEvent.KEYCODE_DPAD_RIGHT -> seekToPosition(video_now + 10000L)
                 KeyEvent.KEYCODE_DPAD_UP -> changeVolume(true)
@@ -3558,7 +3263,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      *   真正该跳的片段就被吃掉了（26.10.22「乱跳」的成因之一，见 [SkipCancelPolicy]）。
      */
     private fun seekToPosition(position: Long, userInitiated: Boolean = true) {
-        if (playerCore != null && isPrepared) {
+        if (ijkPlayer != null && isPrepared) {
             seekToVideo(position, userInitiated)
         }
     }
@@ -3566,7 +3271,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     /**
      * 用户主动跳转（拖进度条 / 快进快退）的**唯一入口**。
      *
-     * 为什么不能各处各写一遍「playerCore.seekTo + mDanmakuView.seekTo」：
+     * 为什么不能各处各写一遍「ijkPlayer.seekTo + mDanmakuView.seekTo」：
      * ① 跳转后必须立刻把 `video_now` 改成新位置——它就是弹幕时钟的时间源
      * （见 [bindDanmakuView] 里绑的媒体时钟），不改的话弹幕会继续按旧位置推进。
      * 同时清 `video_now_last`，让进度条/字幕下一帧立即按新位置刷新。
@@ -3586,7 +3291,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         markSeekTarget(position)
         pendingSeekIsAutoSkip = false
 
-        playerCore?.seekTo(position)
+        ijkPlayer?.seekTo(position)
         if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.seekTo(position)
         // 同步外部音频轨道：DASH 双文件时只 seek 视频会让音轨留在旧位置
         if (audioPlayer != null) {
@@ -3596,8 +3301,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             // seek 的冷却期内 progressChange 不再校正音频：MediaPlayer.seekTo 异步，
             // seek 未完成时 currentPosition 还停在旧位置，这时再校正等于同一位置 seek 两遍。
             audioResyncSuppressMs = android.os.SystemClock.elapsedRealtime() + AUDIO_RESYNC_COOLDOWN_MS
-            // 拖动后偏差基线作废，冷却结束后重新采样（否则旧基线会把正常位置当漂移再 seek 一次）
-            audioDriftSampled = false
         }
     }
 
@@ -3731,15 +3434,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
     /**
      * 左右滑动控制进度（横向滑动快进/快退）。返回 true 表示事件已被滑动进度消费。
-     * 仅在开启设置、未缩放视频、非直播、已准备就绪且**没有按住长按三倍速**时生效。
+     * 仅在开启设置、未缩放视频、非直播且已准备就绪时生效。
      */
     private fun handleSwipeSeekTouch(event: MotionEvent): Boolean {
         // 缩放状态取画面的实际比例，不读 gesture_scaled（那个标志在 ACTION_UP 就复位，
         // 捏合放大松手后会把调进度重新放行——26.10.20 修的正是这个）。
-        // 长按三倍速期间同理：按住时不消费横滑，松手（含 ACTION_CANCEL）后自动恢复。
         val seekAllowed = PlayerSwipeSeekPolicy.isSeekAllowed(
-            swipeSeekEnabled, isPrepared, isLiveMode, playerCore != null,
-            layout_video.scaleX, layout_video.scaleY, onLongClick
+            swipeSeekEnabled, isPrepared, isLiveMode, ijkPlayer != null,
+            layout_video.scaleX, layout_video.scaleY
         )
         if (!seekAllowed) {
             // 门闸关闭时顺手收掉可能残留的浮层：横滑激活浮层后再捏合缩放，最终 ACTION_UP 会走到
@@ -3768,7 +3470,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 }
                 if (swipeSeekActive) {
                     val width = layout_control.width.toFloat().coerceAtLeast(1f)
-                    val duration = playerCore!!.duration
+                    val duration = ijkPlayer!!.duration
                     var target = swipeSeekStartPos + (deltaX / width * duration).toLong()
                     if (target < 0) target = 0
                     if (duration > 0 && target > duration) target = duration
@@ -3783,7 +3485,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 if (swipeSeekActive) {
                     swipeSeekActive = false
                     swipe_seek_overlay.visibility = View.GONE
-                    if (isPrepared && playerCore != null) {
+                    if (isPrepared && ijkPlayer != null) {
                         seekToPosition(swipeSeekTarget)
                     }
                     autohideReset()
@@ -3793,23 +3495,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             }
         }
         return false
-    }
-
-    /**
-     * 结束长按三倍速，恢复用户选中的倍速与文案。
-     *
-     * **ACTION_UP 与 ACTION_CANCEL 都要调用**：长按加速期间横滑不再消费（见 [PlayerSwipeSeekPolicy]
-     * 的 longPressBoost 门闸），若触摸被父容器/失焦 CANCEL 后 `onLongClick` 卡在 true，
-     * 滑动调进度会被永久拦掉、播放速度也停在 3 倍。
-     *
-     * 走 [applySpeedFromSeekbar] 而不是直接下发：长按/滑条/重建后的 onPrepared 都用同一套
-     * 「有效倍速」口径（见 [effectiveSpeedValue]），松手就回到滑条档位。
-     */
-    private fun endLongPressBoost() {
-        if (!onLongClick) return
-        onLongClick = false
-        longPressBoostActive = false
-        applySpeedFromSeekbar()
     }
 
     /** 收掉可能残留的滑动进度浮层；浮层与标志都不存在时不动 UI。 */
@@ -3831,8 +3516,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun releaseAudioTrack() {
         val previous = audioPlayer
         audioPlayer = null
-        audioTrackPrepared = false
-        audioDriftSampled = false
         try {
             previous?.release()
         } catch (e: Exception) {
@@ -3845,19 +3528,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      * 直接使用 IJK 的轨道元数据，不再额外打开文件扫描，也不删除任何缓存文件。
      */
     private fun initAudioTrack(mediaPlayer: IMediaPlayer) {
-        // 统一时钟内核里音视频已经是同一个播放器，绝不能再起外挂 MediaPlayer（否则又是两套时钟）
-        if (mediaPlayer is UnifiedDashPlayer) {
-            releaseAudioTrack()
-            return
-        }
         releaseAudioTrack()
         val url = audioTrackUrl?.takeIf { it.isNotBlank() } ?: return
-        // 在线 DASH 的音轨交给播放内核自己消费（统一时钟内核在 prepare 时一并喂入视频轨与音频轨），
-        // 这里只处理本地缓存/下载的「双文件」：音轨是本地路径，需要单独起一路 MediaPlayer。
-        if (PlayerStreamPolicy.isRemoteAudioTrack(url)) {
-            Logu.v("AudioTrack", "在线音轨由播放内核内部消费，不再启动外挂 MediaPlayer")
-            return
-        }
         val audioFile = File(url)
         val fileUsable = audioFile.isFile && audioFile.canRead() && audioFile.length() > 0L
         val tracks = if (!isOnlineVideo && !isLiveMode && fileUsable) {
@@ -3906,45 +3578,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             }
             player.setDataSource(url)
             player.prepare()
-            audioTrackPrepared = true
             if (isPrepared) player.seekTo(video_now)
             player.isLooping = false
-            applyAudioSpeed(speed_values[seekbar_speed.progress.coerceIn(0, speed_values.size - 1)])
             if (isPlaying) player.start()
             Logu.d("AudioTrack", "已启用唯一的外部音频轨道")
         } catch (e: Exception) {
             Logu.e("AudioTrack", "音频轨道初始化失败: ${e.message}")
             releaseAudioTrack()
-        }
-    }
-
-    /**
-     * 统一时钟内核失败后的降级：回退到 720P 合一 MP4（单 ijk 播放器）。
-     *
-     * DASH 在不同设备/账号权限下差异很大，回退到合一 MP4 至少保证「能看」。
-     */
-    private fun onUnifiedPlayerFailed() {
-        if (unifiedFallbackInFlight) return
-        unifiedFallbackInFlight = true
-        Logu.w("PlayerCore", "统一时钟播放器失败，回退 720P 合一 MP4")
-        MsgUtil.showMsg(UiText.of("高清音轨播放失败，已切回 720P"))
-        applyQuality(PlayerStreamPolicy.QN_720P, false)
-    }
-
-    /**
-     * 让本地双文件的外部音轨跟主播放器同速。
-     *
-     * 只对本地缓存/下载的「视频 + 外部音频文件」这种组合生效：在线 DASH 的音频轨由播放内核
-     * 自己按倍速播放，不经过这里。`PlaybackParams` 是 API 23 才有的接口，更低版本只能靠
-     * [progressChange] 的偏差校正兜底。
-     */
-    private fun applyAudioSpeed(speed: Float) {
-        val player = audioPlayer ?: return
-        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M) return
-        try {
-            player.playbackParams = android.media.PlaybackParams().setSpeed(speed)
-        } catch (e: Exception) {
-            Logu.e("AudioTrack", "设置音轨倍速失败：${e.message}")
         }
     }
 
@@ -3954,9 +3594,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 「播放默认值 → 听视频模式 = 沿用上次」的记录位；切换失败会在下面 catch 里回滚
         SharedPreferencesUtil.putBoolean(SettingsKeys.PLAYER_LAST_AUDIO_ONLY, isAudioOnlyMode)
 
-        if (isPrepared && playerCore != null) {
+        if (isPrepared && ijkPlayer != null) {
             // 重建前的续播位置由 video_now 提供（与 retryAfterPlayerError 同一口径），
-            // 不读 playerCore.currentPosition：那是取 native 锁的 JNI 调用，主线程调它有卡死风险
+            // 不读 ijkPlayer.currentPosition：那是取 native 锁的 JNI 调用，主线程调它有卡死风险
             val currentPosition = video_now.toLong()
             val wasPlaying = isPlaying
 
@@ -3973,10 +3613,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                         isPrepared = false
                         isPlaying = false
                         releaseAudioTrack()
-                        if (playerCore != null) {
-                            playerCore!!.stop()
-                            playerCore!!.release()
-                            playerCore = null
+                        if (ijkPlayer != null) {
+                            ijkPlayer!!.stop()
+                            ijkPlayer!!.release()
+                            ijkPlayer = null
                         }
 
                         loading_info.visibility = View.VISIBLE
@@ -3991,11 +3631,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
                     runOnUiThread {
                         // 本方法前半段在 CenterThreadPool 线程上 sleep(100ms)，期间用户可能已经退出页面：
-                        // onDestroy 已置 destroyed=true 并 release/置空 playerCore，此处若无守卫就会重建出一个
+                        // onDestroy 已置 destroyed=true 并 release/置空 ijkPlayer，此处若无守卫就会重建出一个
                         // 永不释放的 native 播放器（泄漏，且 surface 已销毁时可能直接崩）。
                         if (destroyed || isFinishing()) return@runOnUiThread
                         // 原生库不可用时 helper 自己提示并 finish，这里只需停下重建
-                        playerCore = createPlayerOrBail() ?: return@runOnUiThread
+                        ijkPlayer = createIjkPlayerOrBail() ?: return@runOnUiThread
                         progress_history = currentPosition
                         setDisplay()
                     }
@@ -4243,16 +3883,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
                 playerData.title = newTitle
                 playerData.mid = mid
-                playerData.qn = AccountStateStore.clampQuality(
-                    SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN, 16)
-                )
+                playerData.qn = SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN, 16)
                 playerData.pagenames = pagenames
                 playerData.cids = cids
                 playerData.currentPageIndex = currentPageIndex
 
-                // 切P同样要按清晰度选接口：走 fnval=1 的话 1080P 会被服务端降级成 720P
-                if (epid != 0L) PlayerApi.getPlaybackBangumi(playerData)
-                else PlayerApi.getPlaybackVideo(playerData)
+                PlayerApi.getVideo(playerData, false)
 
                 runOnUiThread {
                     if (destroyed) return@runOnUiThread
@@ -4266,11 +3902,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     if (playerData.aid > 0) aid = playerData.aid
                     // 在 UI 线程落地"这条能不能进得去"，供选集卡片画那一行（见 enterableCollection）
                     updateEnterable(videoInfoForEnter)
-                    // 第 5 个参数是外部音轨：DASH 1080P+ 的视频流没声音，必须把新P的音轨一起带过去
-                    doSwitchPage(
-                        newTitle, playerData.videoUrl, playerData.danmakuUrl, pageIndex,
-                        playerData.audioUrl?.takeIf { it.isNotBlank() }
-                    )
+                    doSwitchPage(newTitle, playerData.videoUrl, playerData.danmakuUrl, pageIndex)
                 }
             } catch (e: Exception) {
                 runOnUiThread {
@@ -4437,36 +4069,22 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
         val videoUrl = videoFileList[pageIndex]
         val danmakuUrl = danmakuFileList?.getOrElse(pageIndex) { "" } ?: ""
-        // 文件夹虚拟合集会带上与 videoFileList 对齐的外部音轨（未合并的 DASH 缓存，反馈 #51）
-        val audioUrl = intent.getStringArrayListExtra("audioFileList")
-            ?.getOrElse(pageIndex) { "" }?.takeIf { it.isNotEmpty() }
 
         runOnUiThread {
-            doSwitchPage(newTitle, videoUrl, danmakuUrl, pageIndex, audioUrl)
+            doSwitchPage(newTitle, videoUrl, danmakuUrl, pageIndex)
         }
     }
 
     /**
      * 执行分页切换的通用UI操作
-     *
-     * @param newAudioTrackUrl 新分页的外部音轨；在线切P与无音轨的本地文件传 null
      */
-    private fun doSwitchPage(
-        newTitle: String,
-        newVideoUrl: String,
-        newDanmakuUrl: String,
-        pageIndex: Int,
-        newAudioTrackUrl: String? = null
-    ) {
+    private fun doSwitchPage(newTitle: String, newVideoUrl: String, newDanmakuUrl: String, pageIndex: Int) {
         if (destroyed) return
 
         releaseAudioTrack()
-        audioTrackUrl = newAudioTrackUrl // 新分页不能继续复用上一页的外部音轨。
-        // 换页就是换一整套取流结果，上一页的 CDN 候选表必须作废，否则报错重试会拿旧地址。
-        videoBackupUrls = ArrayList()
-        videoBackupIndex = 0
-        playerCore?.stop()
-        playerCore?.release()
+        audioTrackUrl = null // 新分页不能继续复用上一页的外部音轨。
+        ijkPlayer?.stop()
+        ijkPlayer?.release()
         releaseDanmaku()
 
         video_url = newVideoUrl
@@ -4504,7 +4122,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         interactionChoiceLayout?.removeAllViews()
 
         // 原生库不可用时 helper 自己提示并 finish，这里只需停下重建
-        playerCore = createPlayerOrBail() ?: return
+        ijkPlayer = createIjkPlayerOrBail() ?: return
         bindDanmakuView()
 
         setDisplay()
@@ -4555,154 +4173,48 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         btn_auto_next.setImageResource(if (auto_next_enabled) R.drawable.icon_auto_next_on else R.drawable.icon_auto_next_off)
     }
 
-    /**
-     * 弹清晰度选择卡片。
-     *
-     * 列表里的档位来自服务端 `accept_quality`，它列的是「视频有哪些清晰度」，**不是当前账号
-     * 有没有权限播**：未登录时 1080P 及以上、非大会员时 1080P60 及以上都只是「看得见点不动」，
-     * 服务端不会报错，只会静默给低一档的流。所以这里按账号状态把它们标成锁定态（复用播放器
-     * 的锁图标，见 [QualitySelectorAdapter.lockedMaxQuality]），点了给提示而不是假装切换。
-     */
     private fun showQualitySelectorCard() {
         if (qnStrList == null || qnValueList == null || qnStrList!!.isEmpty()) {
             MsgUtil.showMsg(UiText.of("清晰度列表未加载"))
             return
         }
 
-        // 先用已知/缓存状态渲染，账号状态还没查到时后台补查（见 refreshAccountStateIfNeeded）
-        val state = accountState ?: AccountStateStore.cached()
-        refreshAccountStateIfNeeded()
-
         runOnUiThread {
             val qualitySelectorRecycler = findViewById<RecyclerView>(R.id.quality_selector_list)
             val adapter = QualitySelectorAdapter()
-            adapter.lockedMaxQuality = QualityAccessPolicy.maxUnlockedQn(state.loggedIn, state.vip)
-            adapter.onLockedItemClickListener = { lockedQuality ->
-                MsgUtil.showMsg(qualityLockedHint(state, lockedQuality))
-                Logu.d(
-                    "QualitySelector",
-                    "锁定档位被点击：qn=$lockedQuality 登录=${state.loggedIn} 大会员=${state.vip}"
-                )
-            }
-            // 服务端对没权限的账号不下发 4K 档（accept_quality 里连 120 都没有），
-            // 这里补一个锁定项，用户才知道开大会员能解锁这一档
-            val displayNames = ArrayList(qnStrList!!.toList())
-            val displayValues = ArrayList<Int>(qnValueList!!.toList())
-            if (QualityAccessPolicy.needsLocked4kHint(displayValues.toIntArray(), state.loggedIn, state.vip)) {
-                displayNames.add(UiText.of("4K 超清"))
-                displayValues.add(QualityAccessPolicy.QN_4K)
-            }
-            adapter.setData(displayNames.toTypedArray(), displayValues.toIntArray(), currentQuality)
+            adapter.setData(qnStrList!!, qnValueList!!, currentQuality)
             adapter.setOnItemClickListener { index ->
                 layout_card_bg.visibility = View.GONE
                 card_quality_selector.visibility = View.GONE
-                if (index >= 0 && index < displayValues.size && displayValues[index] != currentQuality) {
-                    switchQuality(displayValues[index])
+                if (index >= 0 && index < qnValueList!!.size && qnValueList!![index] != currentQuality) {
+                    switchQuality(qnValueList!![index])
                 }
             }
             qualitySelectorRecycler.layoutManager = CustomLinearManager(this, LinearLayoutManager.HORIZONTAL, false)
             qualitySelectorRecycler.adapter = adapter
-            qualityAdapter = adapter
             layout_card_bg.visibility = View.VISIBLE
             card_quality_selector.visibility = View.VISIBLE
         }
     }
 
-    /**
-     * 被锁住的清晰度点了以后该说什么。
-     *
-     * 4K 是大会员专属，不管登没登录都是「开通大会员」这一句；其余按未登录/非大会员分两套口径。
-     */
-    private fun qualityLockedHint(state: AccountStateStore.State, lockedQuality: Int = 0): String = when {
-        lockedQuality >= QualityAccessPolicy.QN_4K -> UiText.of("4K 超清需要开通大会员")
-        !state.loggedIn -> UiText.of("登录后可选择 1080P 及以上的清晰度")
-        else -> UiText.of("开通大会员后可选择 1080P60 帧及以上的清晰度")
-    }
-
-    /**
-     * 后台补查一次账号状态；拿到结果后就地刷新清晰度列表的锁态（不重建列表，保留滚动位置）。
-     *
-     * 失败时 [AccountStateStore.refresh] 会退回缓存，所以这里不用处理异常。
-     */
-    private fun refreshAccountStateIfNeeded() {
-        if (accountState != null || accountStateRefreshing) return
-        accountStateRefreshing = true
-        CenterThreadPool.run {
-            val fresh = AccountStateStore.refresh()
-            accountState = fresh
-            accountStateRefreshing = false
-            runOnUiThread {
-                qualityAdapter?.let { adapter ->
-                    adapter.lockedMaxQuality = QualityAccessPolicy.maxUnlockedQn(fresh.loggedIn, fresh.vip)
-                    adapter.notifyDataSetChanged()
-                }
-                // 面板正开着时按新状态重建一次：4K 提示项是"没权限才补"的，账号状态从缓存翻成
-                // 大会员后必须把它去掉，否则会出现一个点不动的假 4K
-                if (card_quality_selector.visibility == View.VISIBLE) showQualitySelectorCard()
-            }
-        }
-    }
-
     private fun switchQuality(newQuality: Int) {
         if (!isOnlineVideo || newQuality == currentQuality) return
-        // 清晰度面板要靠 DASH 的完整档位清单（fnval=0/1 会按请求档位裁剪，720P 请求只回 720P/360P，
-        // 1080P60/4K 直接消失），所以这里带上 allowDash：普通档由 PlayerApi 决定用合一 MP4 还是 DASH，
-        // 高档位（1080P/1080P60/1080P+/4K）必须走 DASH。
-        applyQuality(newQuality, true)
-    }
 
-    /**
-     * 真正执行清晰度切换：重新取流 → 重建播放器 → 重新 setDisplay。
-     *
-     * <p>把「取流 + 落地」从 [switchQuality] 里拆出来，是因为统一时钟内核失败时也要走同一条路
-     * 回退合一 MP4（见 [onUnifiedPlayerFailed]），那时唯一的差别就是 `allowDash=false`。
-     *
-     * @param allowDash 是否允许取 DASH 流（音视频分离）；false 时强制走合一 MP4
-     */
-    private fun applyQuality(newQuality: Int, allowDash: Boolean) {
         MsgUtil.showMsg(UiText.of("正在切换清晰度..."))
 
         CenterThreadPool.run {
             try {
-                // 超权档位（例如没大会员却请求 4K）先夹到权限内：服务端对超权请求会降级发流，
-                // 有时降得比权限内最高档还低，夹紧后界面显示的档位与实际流才一致。
-                // 再按本机档位上限夹一次（DeviceProfile.maxQuality）：低端机不主动要 4K。
-                val requestedQuality = minOf(
-                    AccountStateStore.clampQuality(newQuality),
-                    DeviceProfile.maxQuality()
-                )
                 val playerData = PlayerData()
                 playerData.aid = aid
                 playerData.cid = cid
                 playerData.title = text_title!!.text.toString()
                 playerData.mid = mid
-                playerData.qn = requestedQuality
+                playerData.qn = newQuality
                 playerData.pagenames = pagenames
                 playerData.cids = cids
                 playerData.currentPageIndex = currentPageIndex
-                // 番剧维度要带上：缺了它 DASH 会走投稿接口，1080P 照样拿不到
-                playerData.epid = epid
-                playerData.seasonId = seasonId
-                playerData.seasonType = seasonType
 
-                if (allowDash) {
-                    if (epid != 0L) PlayerApi.getPlaybackBangumi(playerData)
-                    else PlayerApi.getPlaybackVideo(playerData)
-                } else {
-                    if (epid != 0L) PlayerApi.getBangumi(playerData)
-                    else PlayerApi.getVideo(playerData, false)
-                }
-
-                val newVideoUrl = playerData.videoUrl
-                if (newVideoUrl.isNullOrBlank()) throw IllegalStateException("取流结果为空")
-                // 合一 MP4（fnval=1）会按账号权限降级发流，真实档位由响应 quality 回填进
-                // playerData.qn（见 PlayerApi#applyActualQuality）；DASH 成功时就是请求档位。
-                val dashUsable = allowDash && !playerData.audioUrl.isNullOrBlank()
-                val appliedQuality = when {
-                    allowDash && !dashUsable -> PlayerStreamPolicy.QN_720P
-                    !allowDash && playerData.qn > 0 -> playerData.qn
-                    else -> requestedQuality
-                }
+                PlayerApi.getVideo(playerData, false)
 
                 runOnUiThread {
                     if (destroyed) return@runOnUiThread
@@ -4710,32 +4222,19 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     // 重建前的续播位置同样用 video_now（见 toggleAudioOnlyMode / retryAfterPlayerError），
                     // 这里虽然已经在 runOnUiThread 里，仍然不该在主线程上摸 native 锁
                     val currentPosition = video_now.toLong()
+                    val wasPlaying = isPlaying
 
                     releaseAudioTrack()
-                    // 只有 DASH 双流才有独立音频轨：合一 MP4 自带音轨，不挂外部音轨
-                    audioTrackUrl = if (dashUsable) playerData.audioUrl else null
-                    playerCore?.stop()
-                    playerCore?.release()
+                    audioTrackUrl = null // 在线取流已改变媒体来源，不复用本地旧音轨。
+                    ijkPlayer?.stop()
+                    ijkPlayer?.release()
 
-                    video_url = newVideoUrl
-                    currentQuality = appliedQuality
+                    video_url = playerData.videoUrl
+                    currentQuality = newQuality
 
-                    // 新一轮取流的 CDN 候选：优先用接口返回的排序结果，接口没给就至少带上主地址。
-                    val freshVideoBackups = playerData.videoBackupUrls
-                    videoBackupUrls = if (!freshVideoBackups.isNullOrEmpty()) ArrayList(freshVideoBackups)
-                    else arrayListOf(newVideoUrl)
-                    videoBackupIndex = videoBackupUrls.indexOf(newVideoUrl).takeIf { it >= 0 } ?: 0
-
-                    val newValues = playerData.qnValueList
-                    if (playerData.qnStrList != null && newValues != null) {
-                        // 回退成合一 MP4 时服务端只回 720P/360P；若直接覆盖，清晰度列表会被降级，
-                        // 用户再也点不到 1080P（连"再试一次"的入口都没了）。只有新列表不比旧列表
-                        // 短档（最高档不降）时才采用它。
-                        val oldMax = qnValueList?.maxOrNull() ?: -1
-                        if ((newValues.maxOrNull() ?: -1) >= oldMax) {
-                            qnStrList = playerData.qnStrList
-                            qnValueList = newValues
-                        }
+                    if (playerData.qnStrList != null && playerData.qnValueList != null) {
+                        qnStrList = playerData.qnStrList
+                        qnValueList = playerData.qnValueList
                     }
 
                     loading_info.visibility = View.VISIBLE
@@ -4744,20 +4243,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     isPrepared = false
                     isPlaying = false
 
-                    playerCore = createPlayerOrBail() ?: return@runOnUiThread
+                    ijkPlayer = createIjkPlayerOrBail() ?: return@runOnUiThread
                     progress_history = currentPosition
 
                     setDisplay()
-
-                    unifiedFallbackAttempted = false
-                    unifiedFallbackInFlight = false
-                    if (allowDash && !dashUsable) {
-                        MsgUtil.showMsg(UiText.of("这条视频暂时只能提供 720P"))
-                    }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    unifiedFallbackInFlight = false
                     MsgUtil.err(e)
                     MsgUtil.showMsg(UiText.of("清晰度切换失败"))
                 }
@@ -4939,7 +4431,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             currentQuestion = question
 
             if (question.pauseVideo == 1 && isPlaying) {
-                playerCore!!.pause()
+                ijkPlayer!!.pause()
                 isPlaying = false
                 btn_control.setImageResource(R.drawable.btn_player_play)
             }
@@ -5112,7 +4604,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 playerData.cid = targetCid
                 playerData.title = newData.title
                 playerData.mid = mid
-                playerData.qn = AccountStateStore.clampQuality(getTargetQuality())
+                playerData.qn = getTargetQuality()
 
                 if (pagenames != null && cids != null) {
                     playerData.pagenames = pagenames
@@ -5124,26 +4616,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     }
                 }
 
-                // 互动跳转的清晰度同样按清晰度选接口（DASH 才能拿 1080P）
-                if (epid != 0L) PlayerApi.getPlaybackBangumi(playerData)
-                else PlayerApi.getPlaybackVideo(playerData)
-                val interactionAudioUrl = playerData.audioUrl?.takeIf { it.isNotBlank() }
-                // DASH 取流回退成合一 MP4 时服务端只给到 720P，不能继续显示请求的 1080P
-                val interactionQuality =
-                    if (playerData.qn > PlayerStreamPolicy.QN_720P && interactionAudioUrl == null) {
-                        PlayerStreamPolicy.QN_720P
-                    } else playerData.qn
+                PlayerApi.getVideo(playerData, false)
 
                 runOnUiThread {
                     if (destroyed) return@runOnUiThread
 
                     releaseAudioTrack()
-                    audioTrackUrl = interactionAudioUrl
-                    // 互动分页是另一条流，旧候选表作废（它的取流结果不走 backups 那套 extra）
-                    videoBackupUrls = ArrayList()
-                    videoBackupIndex = 0
-                    playerCore?.stop()
-                    playerCore?.release()
+                    audioTrackUrl = null
+                    ijkPlayer?.stop()
+                    ijkPlayer?.release()
                     releaseDanmaku()
 
                     cid = targetCid
@@ -5156,7 +4637,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     if (playerData.qnStrList != null && playerData.qnValueList != null) {
                         qnStrList = playerData.qnStrList
                         qnValueList = playerData.qnValueList
-                        currentQuality = interactionQuality
+                        currentQuality = playerData.qn
                     }
 
                     loading_info.visibility = View.VISIBLE
@@ -5179,7 +4660,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     interactionChoiceLayout?.visibility = View.GONE
                     interactionChoiceLayout?.removeAllViews()
 
-                    playerCore = createPlayerOrBail() ?: return@runOnUiThread
+                    ijkPlayer = createIjkPlayerOrBail() ?: return@runOnUiThread
                     bindDanmakuView()
 
                     setDisplay()
@@ -5223,7 +4704,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun resumePlaybackIfPaused() {
         runOnUiThread {
             if (currentQuestion != null && currentQuestion!!.pauseVideo == 1 && !isPlaying) {
-                playerCore!!.start()
+                ijkPlayer!!.start()
                 isPlaying = true
                 btn_control.setImageResource(R.drawable.btn_player_pause)
             }
@@ -5318,10 +4799,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
     override fun onPrepared(mediaPlayer: IMediaPlayer) {
         // 丢弃旧实例的迟到回调，不能让它重建外部音轨或启动新的当前播放器。
-        if (destroyed || mediaPlayer !== playerCore) return
+        if (destroyed || mediaPlayer !== ijkPlayer) return
 
         isPrepared = true
-        video_all = playerCore!!.duration.toInt()
+        video_all = ijkPlayer!!.duration.toInt()
 
         changeVideoSize()
 
@@ -5434,7 +4915,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             // 不更新的话弹幕会先按旧位置推进一段再被吸附回来，肉眼就是起播闪一下。
             markSeekTarget(resumeTarget)
             if (resumeTarget > 5) {
-                playerCore!!.seekTo(resumeTarget)
+                ijkPlayer!!.seekTo(resumeTarget)
                 Logu.d("进度跳转", resumeTarget.toString())
                 // 只有"按历史进度续播"才提示；恢复现场（系统重建）不该再提示一次
                 if (!restoredFromSaveState) runOnUiThread { MsgUtil.showMsg(UiText.of("已从上次的位置播放")) }
@@ -5467,11 +4948,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         applyVolumeGain()
 
         if (isPlaying) {
-            playerCore!!.start()
-        }
-
-        if (isPlaying && playerCore is UnifiedDashPlayer) {
-            scheduleUnifiedHealthCheck()
+            ijkPlayer!!.start()
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && mediaSession != null) {
@@ -5506,9 +4983,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         val progressReported = reportProgressNow(true, UiText.of("退出前"))
         // 本地视频没有服务端历史：在这里落一次盘，等价于在线视频的"退出前上报"
         saveLocalProgressNow("退出前")
-        if (playerCore != null) {
+        if (ijkPlayer != null) {
             val result = Intent()
-            result.putExtra("progress", playerCore!!.currentPosition.toInt())
+            result.putExtra("progress", ijkPlayer!!.currentPosition.toInt())
             // 回传最终观看的 cid：播放器内可以切分P，上一页若沿用"进入时"的旧 cid，
             // 就会拿新P的进度去覆盖旧P的历史记录，把正确的续播位置冲掉
             result.putExtra("cid", cid)
@@ -5516,7 +4993,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             result.putExtra("isPlaying", isPlaying)
             result.putExtra("isDanmakuEnabled", !isDanmakuVisible)
             result.putExtra("quality", currentQuality)
-            Logu.d("进度回传", playerCore!!.currentPosition.toString())
+            Logu.d("进度回传", ijkPlayer!!.currentPosition.toString())
             setResult(RESULT_OK, result)
         } else setResult(RESULT_CANCELED)
         super.finish()

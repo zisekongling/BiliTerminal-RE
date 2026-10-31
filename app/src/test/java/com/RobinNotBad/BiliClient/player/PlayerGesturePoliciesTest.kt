@@ -7,11 +7,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 26.10.20「缩放后左右滑动仍在调进度」与 26.10.30「长按三倍速期间仍能横滑调进度」
- * 的纯判据回归。
+ * 26.10.20「缩放后左右滑动仍在调进度」的纯判据回归。
  *
- * 注意：这里只锁判据本身，不覆盖真实触摸链路——手势分发、ACTION_UP/CANCEL 的顺序
- * 仍需真机验证（见 docs/review/fix-progress.md §3.32、§3.81）。
+ * 注意：这里只锁判据本身，不覆盖真实触摸链路——手势分发、ACTION_UP 的顺序
+ * 仍需真机验证（见 docs/review/fix-progress.md §3.32）。
  */
 class PlayerGesturePoliciesTest {
 
@@ -21,11 +20,8 @@ class PlayerGesturePoliciesTest {
         live: Boolean = false,
         playerReady: Boolean = true,
         scaleX: Float = 1f,
-        scaleY: Float = scaleX,
-        longPressBoost: Boolean = false
-    ) = PlayerSwipeSeekPolicy.isSeekAllowed(
-        enabled, prepared, live, playerReady, scaleX, scaleY, longPressBoost
-    )
+        scaleY: Float = scaleX
+    ) = PlayerSwipeSeekPolicy.isSeekAllowed(enabled, prepared, live, playerReady, scaleX, scaleY)
 
     @Test
     fun normalScale_isNotZoomed() {
@@ -73,22 +69,6 @@ class PlayerGesturePoliciesTest {
     @Test
     fun tinyScaleRounding_stillAllowsSwipeSeek() {
         assertTrue(seekAllowed(scaleX = 1.0005f, scaleY = 0.9995f))
-    }
-
-    @Test
-    fun longPressBoost_blocksSwipeSeek() {
-        // 按住画面触发 3 倍速时，手指稍微横向移动不应改进度。
-        assertFalse(seekAllowed(longPressBoost = true))
-        // 长按加速是唯一否决项：其它条件都满足时放行。
-        assertTrue(seekAllowed(longPressBoost = false))
-    }
-
-    @Test
-    fun longPressRelease_restoresSwipeSeek() {
-        // 松手（ACTION_UP / ACTION_CANCEL）后 endLongPressBoost() 复位 onLongClick，
-        // 下一次横滑必须重新能调进度——否则长按一次就把滑动进度永久锁死。
-        assertFalse(seekAllowed(longPressBoost = true))
-        assertTrue(seekAllowed(longPressBoost = false))
     }
 
     @Test

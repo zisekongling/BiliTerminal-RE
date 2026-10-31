@@ -884,6 +884,15 @@
 - **遗留 / 验证边界**：① **真机最终验收由用户执行**（用户明确「真机验证我来」），模拟器侧只做到「装包可启动、进详情页无崩溃」；② MuMu 模拟器（127.0.0.1:7555，Android 12 x86_64）上 ExoPlayer 统一内核**必现**「READY 播约 1.1–1.4 秒后掉回 BUFFERING 永久卡死」，已排除 seek / 音频轨合并 / App 主动 pause / `changeVideoSize` / 同步异步 codec 适配器 / Exo 版本（2.18.7 与 2.19.1 表现相同），同机官方 B 站客户端正常、而我们**只听音频**时完全正常——所以这是该模拟器视频解码/Surface 链路与 Exo 的组合问题，`scheduleUnifiedHealthCheck()` 的自动回退即为它兜底；③ 回退后的 IJK 路径在该模拟器上也已退化（位置停在 seek 落点、日志出现 `FFP_MSG_COMPLETED`），无法在模拟器上完成端到端播放验收。
 - 文档同步：`docs/architecture-map.md` §7.4 整节按新架构重写（总原则、分档、取流决策、高档内核、听视频、接入点、自动回退、取流配套、`.so` 回退），`docs/FEATURES.md` §3.6 清晰度与音画同步两条改口径。
 
+### 3.90 播放器相关代码整体退回 26.10.27 发版状态（26.10.31 末，用户要求）
+
+- **用户决定**：「把播放器全部的相关代码退回到 10.27 tag 发版时候的状态，其他的不变」，改完推送到 `main`。
+- **退回范围**（现在这些文件/目录等同于 `git show 26.10.27:...`）：`activity/player/**`、`player/**`（保留项见下）、`api/PlayerApi.java`、`model/PlayerData.java`、`model/DashData.java`、`app/libs` 三 ABI 的 `libijk*.so`；新增于 10.27 之后的播放器实现整批删除（`player/ExoDashMediaPlayer.java`、`UnifiedDashPlayer.java`、`PlaybackStrategyPolicy.kt`、`StreamUrlPolicy.kt`、`util/DeviceProfile*.kt`、`util/PlayerCompatibilityUtil.kt` 及其单测），`ijkpatch/` 整目录删除，`app/build.gradle` 去掉 `exoplayer-core`，`BiliTerminal.kt` 去掉 `DeviceProfile.init(this)`。
+- **保留项（不属于播放路径，别的功能依赖）**：`player/PlayerStreamPolicy.kt`、`player/QualityAccessPolicy.kt` 及两个单测——`util/AccountStateStore.kt`、`activity/settings/SettingQualityActivity.kt`、`adapter/QualitySelectorAdapter.kt` 仍用它做**清晰度面板的账号权限锁定**。`activity/video/JumpToPlayerActivity.kt` 的取流调用改回 10.27 的 `PlayerApi.getBangumi(playerData)` / `getVideo(playerData, download != 0)`，但保留 `AccountStateStore.clampQuality()` 的档位夹紧。
+- **结果**：在线 1080P 及以上的播放器内切档、DASH 分离流、统一时钟内核、设备分档、CDN 备份地址、兼容音轨优选**全部不再存在**；播放形态回到「合一 MP4 单播放器 + 本地双文件外挂音轨」。
+- **验证**：`:app:assembleDebug`（standard + coexist 两个 flavor）**BUILD SUCCESSFUL**；`:app:testStandardDebugUnitTest` **104 suites / 1110 tests / 0 失败 / 0 错误**。真机播放行为按 26.10.27 发版口径复验（用户自测）。
+- 文档同步：`docs/architecture-map.md` §7.4 该节改写为「播放器已整体退回 10.27」的现状口径，`docs/FEATURES.md` §3.6 恢复 10.27 的清晰度/音画描述并删掉 1080P 播放与统一时钟两条。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。

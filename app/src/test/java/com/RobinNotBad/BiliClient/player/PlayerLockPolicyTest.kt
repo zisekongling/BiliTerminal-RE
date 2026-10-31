@@ -11,7 +11,7 @@ import org.junit.Test
  * 播放页触摸锁定状态机的纯逻辑回归（26.10.20 新增）。
  *
  * 注意：这里只锁状态转移与判据，不覆盖真实触摸链路——遮罩层级、返回键/右滑拦截、
- * 计时器行为仍需真机验证（见 docs/archive/superpowers/specs/2026-10-20-player-touch-lock.md）。
+ * 计时器行为仍需真机验证（见 docs/superpowers/specs/2026-10-20-player-touch-lock.md）。
  */
 class PlayerLockPolicyTest {
 
