@@ -3,12 +3,10 @@ package com.RobinNotBad.BiliClient.ui.appearance
 import android.app.Activity
 import android.view.View
 import android.view.ViewGroup
-import android.view.ViewParent
 import android.widget.ListView
 import android.widget.ScrollView
 import androidx.core.widget.NestedScrollView
 import androidx.recyclerview.widget.RecyclerView
-import androidx.viewpager2.widget.ViewPager2
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import kotlin.math.sqrt
@@ -18,8 +16,11 @@ import kotlin.math.sqrt
  *
  * 「圆屏模式 + 圆屏列表」同时开启时，页面里所有竖向滚动列表的可见条目会按其在屏幕上的
  * 纵向位置做等比缩放与边缘淡出：越靠近屏幕上下边缘越小、越透明，模拟圆屏弧面对内容的
- * 避让（曲率避让），列表条目不再顶着圆形屏面的边界滚动。横向容器（ViewPager2、横向
- * RecyclerView）与整页内容（文章、图片查看器这类超过屏幕半径的大块内容）不参与效果。
+ * 避让（曲率避让），列表条目不再顶着圆形屏面的边界滚动。横向容器（横向 RecyclerView，
+ * 含 ViewPager2 内部的翻页 RV）不参与效果；ViewPager2 页内的竖向列表（搜索结果、教程
+ * 翻页这类）照常参与。只有接近整屏高的内容（文章整页块、图片查看器这类）不参与效果——
+ * 手表上比屏幕半径高的普通卡片（视频卡、合集卡）仍参与，否则效果会在最常见的界面上
+ * 整段消失。
  *
  * <h3>实现约束（性能红线，改这里之前先读）</h3>
  * - 效果只写 View 的变换属性（scaleX/scaleY/alpha），不 requestLayout、不加层，
@@ -101,26 +102,14 @@ object RoundListEffect {
         when (view) {
             is RecyclerView -> {
                 val lm = view.layoutManager ?: return -1 // 尚未布局，等下一轮 onGlobalLayout
-                if (!lm.canScrollVertically()) return -1 // 横向列表（含 ViewPager2 内部 RV）不参与
-                if (isInsideViewPager2(view)) return -1 // 双保险：横向翻页器的内部 RV
-                return KIND_RECYCLER
+                if (!lm.canScrollVertically()) return -1 // 横向列表（含 ViewPager2 的内部翻页 RV）不参与
+                return KIND_RECYCLER // ViewPager2 页内的竖向列表照常参与（搜索结果、教程翻页等）
             }
             is ListView -> return KIND_LIST
             is ScrollView -> return KIND_SCROLL // android.widget.ScrollView 只能竖向
             is NestedScrollView -> return KIND_SCROLL
         }
         return -1
-    }
-
-    private fun isInsideViewPager2(view: View): Boolean {
-        var parent: ViewParent? = view.parent
-        var depth = 0
-        while (parent is View && depth < 12) {
-            if (parent is ViewPager2) return true
-            parent = parent.parent
-            depth++
-        }
-        return false
     }
 
     // ---------------- 变换 ----------------
@@ -149,7 +138,7 @@ object RoundListEffect {
                 KIND_RECYCLER, KIND_LIST -> {
                     for (j in 0 until group.childCount) {
                         val row = group.getChildAt(j)
-                        transform(row, containerTop + row.top, centerY, radius)
+                        transform(row, containerTop + row.top, centerY, radius, winH)
                     }
                 }
                 else -> { // KIND_SCROLL：内容是唯一子 View，条目是它的孩子
@@ -159,7 +148,7 @@ object RoundListEffect {
                     val contentTop = containerTop + content.top - group.scrollY
                     for (j in 0 until content.childCount) {
                         val row = content.getChildAt(j)
-                        transform(row, contentTop + row.top, centerY, radius)
+                        transform(row, contentTop + row.top, centerY, radius, winH)
                     }
                 }
             }
@@ -167,20 +156,23 @@ object RoundListEffect {
     }
 
     /**
-     * 单条目的变换。缩放曲线取圆的弦长比（中心 1.0 → 边缘 0），下限收到 0.62 免得
-     * 边缘条目小到看不清；淡出只在最外四分之一段明显（t 的三次方曲线）。
+     * 单条目的变换。缩放曲线取圆的弦长比（中心 1.0 → 屏缘 0），下限收到 0.50——边缘条目
+     * 缩到一半，曲率一眼可见；淡出取 t 的三次方曲线（中心四分之一段几乎不动），
+     * 系数 0.85 让边缘条目降到 0.15 透明度。只跳过接近整屏高的内容：比屏幕半径高的
+     * 普通卡片照常参与，否则手表上最常见的视频卡（高 250~320px，半径才 233px）会被
+     * 整段跳过，效果等于没开。
      */
-    private fun transform(row: View, topInWindow: Int, centerY: Float, radius: Float) {
+    private fun transform(row: View, topInWindow: Int, centerY: Float, radius: Float, winH: Int) {
         if (row.visibility != View.VISIBLE || row.height <= 0) return
-        if (row.height > radius) return // 整页内容（文章 / 大图）不是列表条目，不做缩放
+        if (row.height >= winH) return // 接近整屏的内容（文章整页块 / 图片查看器）不是列表条目，不做缩放
         val rowCenterY = topInWindow + row.height * 0.5f
         val f = (rowCenterY - centerY) / radius
         var t = if (f < 0f) -f else f
         if (t > 1f) t = 1f
         val chord = sqrt(1f - t * t)
-        val scale = 0.62f + 0.38f * chord
+        val scale = 0.50f + 0.50f * chord
         row.scaleX = scale
         row.scaleY = scale
-        row.alpha = 1f - 0.65f * t * t * t
+        row.alpha = 1f - 0.85f * t * t * t
     }
 }
