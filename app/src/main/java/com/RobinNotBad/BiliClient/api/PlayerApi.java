@@ -22,6 +22,7 @@ import com.RobinNotBad.BiliClient.model.Subtitle;
 import com.RobinNotBad.BiliClient.model.SubtitleLink;
 import com.RobinNotBad.BiliClient.model.VideoInfo;
 import com.RobinNotBad.BiliClient.player.PlayerStreamPolicy;
+import com.RobinNotBad.BiliClient.player.StreamUrlPolicy;
 import com.RobinNotBad.BiliClient.service.DownloadService;
 import com.RobinNotBad.BiliClient.util.FileUtil;
 import com.RobinNotBad.BiliClient.util.Logu;
@@ -121,13 +122,13 @@ public class PlayerApi {
     public static void getVideoDash(PlayerData playerData) throws JSONException, IOException {
         playerData.danmakuUrl = "https://comment.bilibili.com/" + playerData.cid + ".xml";
 
-        String url = "https://api.bilibili.com/x/player/wbi/playurl?"
-                + "avid=" + playerData.aid
+        // 主地址走 WBI 签名接口，legacy 回退地址用完全相同的查询参数（只是不需要签名）。
+        // 以最高档请求：qn 只决定服务端返回的清晰度清单宽度（accept_quality 与 dash 流列表），
+        // 真正播哪一档由下面的 getVideoStream(playerData.qn) 决定。按用户档位请求时，比它更高
+        // 的档（4K/1080P60）不会出现在清单里，清晰度面板就永远看不到它们。
+        // 下载侧一直用 qn=127 也是这个原因（见 QualityChooserActivity）。
+        String query = "avid=" + playerData.aid
                 + "&cid=" + playerData.cid
-                // 以最高档请求：qn 只决定服务端返回的清晰度清单宽度（accept_quality 与 dash 流列表），
-                // 真正播哪一档由下面的 getVideoStream(playerData.qn) 决定。按用户档位请求时，比它更高
-                // 的档（4K/1080P60）不会出现在清单里，清晰度面板就永远看不到它们。
-                // 下载侧一直用 qn=127 也是这个原因（见 QualityChooserActivity）。
                 + "&qn=" + QN_REQUEST_MAX
                 + "&fnval=4048&fnver=0" // 4048: DASH|HDR|4K|杜比全景声|杜比视界|8K|AV1
                 + "&platform=pc"
@@ -136,18 +137,18 @@ public class PlayerApi {
                 + "&gaia_source=pre-load"
                 + "&isGaiaAvoided=true";
 
-        url = ConfInfoApi.signWBI(url);
-
-        JSONObject body = NetWorkUtil.getJson(url, NetWorkUtil.webHeaders);
-        JSONObject data = body.getJSONObject("data");
+        JSONObject data = requestDashData(
+                ConfInfoApi.signWBI("https://api.bilibili.com/x/player/wbi/playurl?" + query),
+                "https://api.bilibili.com/x/player/playurl?" + query);
 
         // 解析DASH数据
-        if (data.has("dash")) {
-            applyDashStreams(playerData, data.getJSONObject("dash"));
-        } else {
+        if (data == null || !data.has("dash")) {
+            // 两条接口都没拿到 DASH：沿用原来的合一 MP4 兜底（下载、仅音频入口依赖这个行为）
+            Logu.w("playback", "DASH 取流失败（WBI 与 legacy 均无 DASH），回退合一 MP4");
             getVideo(playerData, true);
             return;
         }
+        applyDashStreams(playerData, data.getJSONObject("dash"));
 
         //last_play_cid/last_play_time 是 aid 级"上次播放"数据：进度只属于 last_play_cid 那一P。
         //请求的 cid 与上次播放的 cid 不一致时（多P视频换P续播）不能把别的P的进度套在本P上，应从 0 开始
@@ -161,6 +162,67 @@ public class PlayerApi {
         Logu.d("history", playerData.progress + "," + playerData.cidHistory);
 
         fillQualityLists(playerData, data);
+    }
+
+    /**
+     * 请求 DASH 数据：先走 WBI 签名接口，失败（HTTP 异常 / code != 0 / 没有解析出 dash）再回退 legacy。
+     *
+     * <p>为什么必须留 legacy 回退：WBI 签名依赖 ConfInfoApi 缓存的密钥，密钥过期、被风控 -352、
+     * 未登录时整条 WBI 接口都会失败，而 {@code x/player/playurl}（legacy）不需要签名，
+     * 至少还有机会拿到流——「取流接口失败 → 音频轨不加载」正是这次要修的症状之一。
+     *
+     * @param wbiUrl    已签名的 WBI 取流地址
+     * @param legacyUrl legacy 取流地址（查询参数与 wbiUrl 相同，不做签名）
+     * @return 带 dash 的 data；两条接口都拿不到 DASH 时返回 null（由调用方决定怎么兜底）
+     */
+    private static JSONObject requestDashData(String wbiUrl, String legacyUrl) throws IOException, JSONException {
+        Exception wbiError;
+        try {
+            JSONObject data = parsePlayData(NetWorkUtil.getJson(wbiUrl, NetWorkUtil.webHeaders));
+            if (data.has("dash")) return data;
+            wbiError = new JSONException("WBI 接口没有返回 DASH 数据");
+        } catch (IOException | JSONException e) {
+            wbiError = e;
+        }
+        Logu.w("playback", "WBI 取流失败，回退 legacy playurl：" + wbiError.getMessage());
+        try {
+            JSONObject data = parsePlayData(NetWorkUtil.getJson(legacyUrl, NetWorkUtil.webHeaders));
+            if (data.has("dash")) return data;
+            Logu.w("playback", "legacy playurl 也没有返回 DASH 数据");
+            return null;
+        } catch (IOException | JSONException e) {
+            // 两条接口都失败：把 WBI 那次的原因一并挂上，方便排查是哪一边的问题
+            e.addSuppressed(wbiError);
+            throw e;
+        }
+    }
+
+    /**
+     * 校验 x/player 系列接口的响应外壳并取出 data。
+     *
+     * <p>单独抽出来是为了让「code != 0」也被当作取流失败（而不是拿着空 data 继续解析）。
+     */
+    private static JSONObject parsePlayData(JSONObject body) throws JSONException {
+        checkApiCode(body);
+        return body.getJSONObject("data");
+    }
+
+    /**
+     * 校验 pgc 接口的响应外壳并取出 result（番剧把数据包在 result 里，而不是 data）。
+     */
+    private static JSONObject parsePlayResult(JSONObject body) throws JSONException {
+        checkApiCode(body);
+        JSONObject result = body.optJSONObject("result");
+        if (result == null) throw new JSONException("番剧取流接口没有返回 result 字段");
+        return result;
+    }
+
+    /** 取流接口 code != 0 视为失败（风控 / 未登录 / 版权限制）。 */
+    private static void checkApiCode(JSONObject body) throws JSONException {
+        int code = body.optInt("code", 0);
+        if (code != 0) {
+            throw new JSONException("取流接口返回 code=" + code + "，" + body.optString("message", ""));
+        }
     }
 
     /**
@@ -245,29 +307,108 @@ public class PlayerApi {
 
         String url = "https://api.bilibili.com/pgc/player/web/playurl" + reqData.toString();
 
-        JSONObject body = NetWorkUtil.getJson(url);
-        JSONObject data = body.getJSONObject("result");
-
         playerData.danmakuUrl = "https://comment.bilibili.com/" + playerData.cid + ".xml";
-        if (!data.has("dash")) {
-            Logu.w("playback", "番剧取流没有 DASH 数据，回退合一 MP4");
+
+        JSONObject data;
+        Exception pgcError = null;
+        try {
+            data = parsePlayResult(NetWorkUtil.getJson(url));
+        } catch (IOException | JSONException e) {
+            // pgc 接口失败（风控 / 未登录 / 密钥异常）时先别急着放弃：下面还有 legacy 回退
+            data = null;
+            pgcError = e;
+            Logu.w("playback", "番剧 pgc 取流失败，尝试 legacy playurl：" + e.getMessage());
+        }
+
+        if (data == null || !data.has("dash")) {
+            // 回退到 x/player/playurl：查询参数与 pgc 那条相同（aid/cid/qn/fnval），只是不需要风控签名。
+            // 番剧的 avid 就在 playerData.aid 里，对免费剧集/投稿视频这条接口依然能拿到 DASH。
+            String query = "avid=" + playerData.aid
+                    + "&cid=" + playerData.cid
+                    + "&qn=" + QN_REQUEST_MAX
+                    + "&fnval=4048&fnver=0"
+                    + "&platform=pc"
+                    + "&fourk=1";
+            try {
+                JSONObject legacyData = parsePlayData(
+                        NetWorkUtil.getJson("https://api.bilibili.com/x/player/playurl?" + query,
+                                NetWorkUtil.webHeaders));
+                if (legacyData.has("dash")) {
+                    applyDashStreams(playerData, legacyData.getJSONObject("dash"));
+                    fillQualityLists(playerData, legacyData);
+                    return;
+                }
+            } catch (IOException | JSONException e) {
+                if (pgcError != null) e.addSuppressed(pgcError);
+                throw e;
+            }
+            Logu.w("playback", "番剧取流没有 DASH 数据（pgc 与 legacy 均无），回退合一 MP4");
             return;
         }
         applyDashStreams(playerData, data.getJSONObject("dash"));
         fillQualityLists(playerData, data);
     }
 
-    /** 把 dash 里的视频/音频流写进 PlayerData：视频按 qn 选档，音频取最高质量的一条。 */
+    /**
+     * 把 dash 里的视频/音频流写进 PlayerData：视频按 qn 选档，音频取**播放器兼容**的最高质量一条。
+     *
+     * <p>音轨用 {@link DashData#getBestCompatibleAudioStream()} 而不是 {@link DashData#getBestAudioStream()}：
+     * 后者为了「下载合并尽量有音轨」会兜底到杜比/无损，而在线播放拿到的音轨若播放器不支持，
+     * 就是这次要修的「音频轨不加载、音画不同步」。兼容音轨为 null 时把 audioUrl 置空，
+     * 让上层（{@link #getPlaybackVideo}）走音视频合一的 MP4 回退。
+     *
+     * <p>同时把「主地址 + 备用地址」完整列表按 CDN 优先级排好写进 PlayerData，
+     * 播放器主地址失败时可以按顺序换源，不必再请求一次取流接口。
+     */
     private static void applyDashStreams(PlayerData playerData, JSONObject dashJson) throws JSONException {
         playerData.dashData = DashData.fromJson(dashJson);
         DashVideoStream videoStream = playerData.dashData.getVideoStream(playerData.qn);
         if (videoStream != null) {
-            playerData.videoUrl = videoStream.baseUrl;
+            playerData.videoUrl = StreamUrlPolicy.selectUrl(videoStream.baseUrl, videoStream.backupUrl);
+            playerData.videoBackupUrls = new ArrayList<>(
+                    StreamUrlPolicy.orderedUrls(videoStream.baseUrl, videoStream.backupUrl));
+        } else {
+            playerData.videoBackupUrls = new ArrayList<>();
         }
-        DashAudioStream audioStream = playerData.dashData.getBestAudioStream();
+        DashAudioStream audioStream = playerData.dashData.getBestCompatibleAudioStream();
         if (audioStream != null) {
-            playerData.audioUrl = audioStream.baseUrl;
+            playerData.audioUrl = StreamUrlPolicy.selectUrl(audioStream.baseUrl, audioStream.backupUrl);
+            playerData.audioBackupUrls = new ArrayList<>(
+                    StreamUrlPolicy.orderedUrls(audioStream.baseUrl, audioStream.backupUrl));
+        } else {
+            // 没有播放器兼容的普通音轨：置空，让上层回退合一 MP4（否则就是有画面没声音）
+            playerData.audioUrl = "";
+            playerData.audioBackupUrls = new ArrayList<>();
         }
+    }
+
+    /**
+     * 解析 durl（音视频合一的 MP4）里的第一段地址，并把主备地址列表写进 playerData。
+     *
+     * <p>durl 同样是「一段地址 + backup_url 备用地址」：服务端按请求落到不同 CDN，
+     * 主地址连不上时播放器要按 videoBackupUrls 换一个重试。
+     */
+    private static void applyDurlUrls(PlayerData playerData, JSONObject data) throws JSONException {
+        JSONArray durl = data.getJSONArray("durl");
+        JSONObject first = durl.getJSONObject(0);
+        String primary = first.optString("url", "");
+
+        ArrayList<String> backups = new ArrayList<>();
+        JSONArray backupArray = first.optJSONArray("backup_url");
+        if (backupArray == null) backupArray = first.optJSONArray("backupUrl");
+        if (backupArray != null) {
+            for (int i = 0; i < backupArray.length(); i++) {
+                String backup = backupArray.optString(i, "");
+                if (!backup.isEmpty()) backups.add(backup);
+            }
+        }
+
+        String selected = StreamUrlPolicy.selectUrl(primary, backups);
+        if (selected == null || selected.isEmpty()) {
+            throw new JSONException("播放接口返回了空地址");
+        }
+        playerData.videoUrl = selected;
+        playerData.videoBackupUrls = new ArrayList<>(StreamUrlPolicy.orderedUrls(primary, backups));
     }
 
     /**
@@ -404,9 +545,8 @@ public class PlayerApi {
 
         JSONObject body = NetWorkUtil.getJson(url, NetWorkUtil.webHeaders);
         JSONObject data = body.getJSONObject("data");
-        JSONArray durl = data.getJSONArray("durl");
-        JSONObject video_url = durl.getJSONObject(0);
-        playerData.videoUrl = video_url.getString("url");
+        // durl 也有 backup_url：主地址选最优 CDN，完整列表留给播放器换源重试
+        applyDurlUrls(playerData, data);
         applyActualQuality(playerData, data);
         //last_play_cid/last_play_time 是 aid 级"上次播放"数据：进度只属于 last_play_cid 那一P。
         //请求的 cid 与上次播放的 cid 不一致时（多P视频换P续播）不能把别的P的进度套在本P上，应从 0 开始
@@ -448,9 +588,8 @@ public class PlayerApi {
         Logu.v(body.toString());
 
         JSONObject data = body.getJSONObject("result");
-        JSONArray durl = data.getJSONArray("durl");
-        JSONObject video_url = durl.getJSONObject(0);
-        playerData.videoUrl = video_url.getString("url");
+        // 同 getVideo：durl 自带 backup_url，主地址按 CDN 优先级选，完整列表随 PlayerData 进播放器
+        applyDurlUrls(playerData, data);
         applyActualQuality(playerData, data);
 
         playerData.danmakuUrl = "https://comment.bilibili.com/" + playerData.cid + ".xml";
@@ -590,6 +729,15 @@ public class PlayerApi {
                 // 本地缓存的双文件视频也走这个 extra，所以这里不判在线/本地，由播放器按 URL 形态区分。
                 if (playerData.audioUrl != null && !playerData.audioUrl.isEmpty()) {
                     intent.putExtra("audio_track_url", playerData.audioUrl);
+                }
+                // 主地址之外的备用 CDN 地址表：主地址连不上、或连接还在但长时间没有数据时，
+                // 播放器按这个顺序换源重试（顺序已在取流侧按 CDN 质量排好）。仅在非空时放，避免
+                // 播放器拿到一个空列表还以为是「有备用地址」。
+                if (playerData.videoBackupUrls != null && !playerData.videoBackupUrls.isEmpty()) {
+                    intent.putStringArrayListExtra("video_backup_urls", playerData.videoBackupUrls);
+                }
+                if (playerData.audioBackupUrls != null && !playerData.audioBackupUrls.isEmpty()) {
+                    intent.putStringArrayListExtra("audio_backup_urls", playerData.audioBackupUrls);
                 }
                 // 直播的候选地址表随 Intent 一起进播放器：弱网/线路故障时播放器要能在不改请求的前提下换线路。
                 if (playerData.liveUrlCandidates != null && !playerData.liveUrlCandidates.isEmpty()) {

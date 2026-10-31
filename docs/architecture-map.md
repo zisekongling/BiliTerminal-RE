@@ -699,7 +699,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 | --- | --- | --- |
 | 入口 | `activity/player/PlayerActivity.kt`（**3628 行**） | `activity/video/ShortVideoPlayerActivity.kt`（1017 行） |
 | 基类 | **直接 `extends Activity`**，不走 `BaseActivity` 体系（自己实现主题、EventBus、横竖屏） | `InstanceActivity` + `ViewPager2` 竖滑翻页 |
-| 播放内核 | **裸 `IjkMediaPlayer`**，`setOption`/`setDataSource`/监听器全部内联在 Activity 里 | `player/IjkPlayerBridge`（Flow 驱动状态）+ `player/DanmakuManager` |
+| 播放内核 | **裸 `IjkMediaPlayer`**，`setOption`/`setDataSource`/监听器全部内联在 Activity 里；在线 DASH 双流改走 `player/ExoDashMediaPlayer`（26.10.31 末新增，见本节最后一条） | `player/IjkPlayerBridge`（Flow 驱动状态）+ `player/DanmakuManager` |
 | 弹幕 | `IDanmakuView` 内联处理（`streamDanmaku`/`createParser` 都在 Activity 里） | `DanmakuManager` |
 | 轮询 | 3 个 `java.util.Timer` 线程（在线人数 5s / 倍速收起 / surface 就绪）+ 2 个主线程 `Handler` 自循环（播放进度 250ms、缓冲速度 500ms） | `IjkPlayerBridge` 内协程，250ms 更新 StateFlow |
 | 预加载 | 无 | `util/VideoPreloadManager`（**只预取播放地址 URL，不预热播放器**） |
@@ -731,6 +731,16 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 **26.10.20 左右滑动调进度的缩放判据**：`PlayerActivity.handleSwipeSeekTouch()` 的「未缩放视频才生效」不能读 `gesture_scaled`——那个标志只表示「本轮触摸里捏合过」，ACTION_UP 一到就复位，捏合放大后松手会把调进度重新放行（26.10.20 修的正是这个 bug）。判据抽在 `activity/player/PlayerGesturePolicies.kt`：`PlayerZoomPolicy.isZoomed(scaleX, scaleY)`（ε=0.001f）是「画面是否仍缩放」的唯一判据；`PlayerSwipeSeekPolicy.isSeekAllowed(...)` 汇总「设置开 + 已准备 + 非直播 + 播放器就绪 + 未缩放 + 未长按加速」；`PlayerDoubleTapPolicy` 也复用 `PlayerZoomPolicy`。`PlayerActivity.isVideoZoomed()` 读 `layout_video.scaleX/scaleY` 的实际比例，单指拖动闸门同样按实际缩放与 `SettingsKeys.PLAYER_DOUBLEMOVE` 判定。`gesture_scaled` 只剩「吞掉手势结束那次点击」一个用途，别给它加语义。
 
 **26.10.30 长按三倍速期间不消费横滑**：`handleSwipeSeekTouch()` 把 `PlayerActivity.onLongClick` 作为 `PlayerSwipeSeekPolicy.isSeekAllowed(...)` 的 `longPressBoost` 参数传入，按住加速时横滑被门闸拒绝并 `cancelSwipeSeekIfActive()`。**`onLongClick` 的复位必须覆盖 ACTION_UP 与 ACTION_CANCEL**（`PlayerActivity.endLongPressBoost()`，两套 `layout_control` 触摸分支都接到）：只按 UP 复位时，触摸被父容器/失焦 CANCEL 后标志卡 true，会把滑动调进度永久锁死、倍速也停在 3 倍。
+
+**26.10.31 起的 DASH 双流统一时钟内核（本轮新增，改播放前必读）**：
+
+- **为什么必须换内核**：1080P 及以上只有 DASH 拿得到，而 DASH 是「纯视频流 + 纯音频流」。旧方案用 `IjkMediaPlayer` 播视频、另起一个 `android.media.MediaPlayer` 播音频，两条时钟只能靠 `progressChange()` 每 250ms 采样 + 偏差超阈值 `seekTo` 硬拉，必然漂移（§六十二 实测 69.4s 内回拉 47 次）；听视频模式更是拿 `vn=1` 去解「里面根本没有音轨」的纯视频流，直接 IJK `-10000`。
+- **内核**：`player/UnifiedDashPlayer.java`（接口：`setPlaybackSpeed` / `setAudioSource` / `setAudioOnly`）与 `player/ExoDashMediaPlayer.java`（`extends AbstractMediaPlayer implements UnifiedDashPlayer`）。后者用 **ExoPlayer 2.19.1**（`com.google.android.exoplayer:exoplayer-core`，minSdk 19 ≥ 其 16）把两条流合成一个 `MergingMediaSource(true, true, videoSource, audioSource)`：`adjustPeriodTimeOffsets=true` 抹掉两条流的起播时间戳差、`clipToShorterDuration=true` 裁到较短的轨，**一个 ExoPlayer 只有一个时钟位**，音画天然同步，倍速、seek、暂停都只有一套状态。
+- **听视频模式**：`setAudioOnly(true)` 时**只建音频源**（不建视频源、不 merge），`PlayerActivity.setDisplay()` 也跳过 `surfaceBinder.await()` 直接 `MPPrepare`（听视频不依赖 Surface）。这同时修掉 `-10000`。
+- **接入点全在 `PlayerActivity`**：`createPlayerOrBail()` 在「在线点播 && 非直播 && 拿到远程音轨」时返回 `ExoDashMediaPlayer`，否则 `createIjkPlayerOrBail()`；本地视频、直播、只有合一 MP4 的场景仍走 IJK。`IMediaPlayer` 没有 `setSpeed` / `setDataSource(String, Map)`，所以 `applyPlayerSpeed()`、`MPPrepare()` 按实例类型分支；`setIjkOption()` 只对 `IjkMediaPlayer` 生效（IJK 的 option 对 Exo 无意义）。
+- **不兼容设备自动回退**：统一内核在部分设备的视频解码/Surface 链路上会出现「起播约 1 秒后掉回 BUFFERING 且永不恢复」（ExoPlayer 不报错、`isLoading=false`、buffer 有 30s+、播放线程空闲在 Looper）。`scheduleUnifiedHealthCheck()` 在起播 2.5s 后取样、2s 后再看一次，位置前进 < 800ms 就判定不兼容：`markUnifiedPlayerBlocked()` 把判定写进 SharedPreferences（键 `player_unified_blocked_version`，**值为 `BuildConfig.VERSION_NAME`**，同版本内不再试、升级后自动重试）+ `retryAfterPlayerError()` 重建为 IJK 双播放器。**别把这个开关做成纯内存标志**，否则每次进播放器都要先卡 5 秒。
+- **取流侧配套**（`api/PlayerApi.java` + `model/DashData.java` + `player/StreamUrlPolicy.kt`）：DASH 视频/音频地址走 `StreamUrlPolicy` 按主机优先级选主地址（upos 镜像 0 → `*.bilivideo.com` 1 → 其它 2 → `akamaized`/`mountaintoys` 3）并给出排序后的备份列表；音轨用 `getBestCompatibleAudioStream()`（只取 `codecs` 含 `mp4a` 或 `mimeType` 含 `audio/mp4` 的最高码率，**绝不选 flac/dolby**，否则 Exo/MediaPlayer 解不了）；`getVideoDash`/`getBangumiDash` 增加 WBI → legacy `x/player/playurl` 回退。备份地址经 Intent `video_backup_urls` / `audio_backup_urls` 进 `PlayerActivity`，播放器报错时 `rotateVideoBackupUrl()` 换下一个 CDN 重建。
+- **仍走 IJK 的旧路径不要照抄统一内核的假设**：`initAudioTrack()` 一进来就 `if (mediaPlayer is UnifiedDashPlayer) { releaseAudioTrack(); return }`——统一内核内部已含音频，再起外挂 `MediaPlayer` 就是两路音频重叠（§六十二 的老毛病）。
 
 **26.10.11 起的网络韧性与状态恢复（§四十四，明细见 `docs/review/fix-progress.md` §3.4）**：
 

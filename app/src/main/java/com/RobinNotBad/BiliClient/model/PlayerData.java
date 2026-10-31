@@ -59,6 +59,11 @@ public class PlayerData implements Parcelable {
     // 直播流"连接还在、但长时间没有数据"时，播放器按这个顺序换 CDN / 换 HLS 重连，
     // 不必回头再请求一次取流接口（也就不会因为请求失败而彻底没得救）。
     public ArrayList<String> liveUrlCandidates = new ArrayList<>();
+    // 视频/音频流的「主地址 + 备用地址」完整列表（已按 StreamUrlPolicy 排好序，第一项就是主地址）。
+    // 在线 DASH 播放中主地址连不上、或者连接还在但长时间没有数据时，播放器按这个顺序换 CDN 重试，
+    // 不必回头再请求一次取流接口。与 liveUrlCandidates 互不干扰：直播走那一份，点播走这两份。
+    public ArrayList<String> videoBackupUrls = new ArrayList<>();
+    public ArrayList<String> audioBackupUrls = new ArrayList<>();
 
     public PlayerData() {
     }
@@ -92,6 +97,11 @@ public class PlayerData implements Parcelable {
         if (liveUrlCandidates == null) liveUrlCandidates = new ArrayList<>();
         virtualCollection = in.readInt() != 0;
         enterableInfo = in.readParcelable(VideoInfo.class.getClassLoader());
+        // 新增字段一律追加在末尾：Parcel 是严格按顺序读写的，插在中间会让所有字段错位
+        videoBackupUrls = in.createStringArrayList();
+        if (videoBackupUrls == null) videoBackupUrls = new ArrayList<>();
+        audioBackupUrls = in.createStringArrayList();
+        if (audioBackupUrls == null) audioBackupUrls = new ArrayList<>();
         // dashData不序列化，下载时会重新获取
     }
 
@@ -136,6 +146,9 @@ public class PlayerData implements Parcelable {
         dest.writeStringList(liveUrlCandidates);
         dest.writeInt(virtualCollection ? 1 : 0);
         dest.writeParcelable(enterableInfo, flags);
+        // 新增字段一律追加在末尾，顺序必须与 readToParcel 完全一致
+        dest.writeStringList(videoBackupUrls);
+        dest.writeStringList(audioBackupUrls);
         // dashData不序列化，下载时会重新获取
     }
 
