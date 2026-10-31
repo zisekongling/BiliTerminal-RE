@@ -3,6 +3,7 @@ package com.RobinNotBad.BiliClient.util
 import android.content.Context
 import android.view.View
 import android.view.ViewGroup
+import com.RobinNotBad.BiliClient.model.MessageCard
 
 /**
  * 可选私有功能的反射门面。
@@ -75,6 +76,75 @@ object OptionalFeatures {
             // 私有功能异常绝不能影响详情页正常显示
             Logu.w("OptionalFeatures", "attachDetailActionRow failed: " + e.message)
         }
+    }
+
+    /**
+     * 评论长按面板里「举报」那一项的文案。
+     *
+     * 私有构建返回它自己的字符串，公开构建返回 null —— 调用方据此决定**要不要加这一项**，
+     * 于是公开构建里别人的评论只剩「复制文字」，与引入私有功能之前的行为一致。
+     */
+    fun replyReportLabel(context: Context): String? = try {
+        holder?.getMethod("replyReportLabel", Context::class.java)?.invoke(null, context) as? String
+    } catch (e: Throwable) {
+        null
+    }
+
+    /**
+     * 打开举报面板（选理由 → 需要正文时再补正文 → 提交）。
+     *
+     * 登录判定、理由表、请求体全在私有侧，公共侧只转交这三个参数：
+     * [oid] 评论区 oid、[replyType] 评论区类型（不是稿件类型）、[rpid] 目标评论。
+     *
+     * 入口对所有人可见（[replyReportLabel] 不看登录态），未登录时由私有侧自己提示。
+     */
+    fun replyReport(context: Context, oid: Long, replyType: Int, rpid: Long) {
+        try {
+            holder?.getMethod(
+                "replyReport",
+                Context::class.java,
+                java.lang.Long.TYPE,
+                Integer.TYPE,
+                java.lang.Long.TYPE
+            )?.invoke(null, context, oid, replyType, rpid)
+        } catch (e: Throwable) {
+            Logu.w("OptionalFeatures", "replyReport failed: " + e.message)
+        }
+    }
+
+    /**
+     * 用私有实现填充一条弹幕类消息卡片（[itemJson] 是消息条目的原始 JSON）。
+     *
+     * 返回 false 表示私有侧不认识这条消息（或不在场），调用方按「无法识别这个类别」处理。
+     * [fromLike] 区分「收到的赞」与「回复我的」两条流——两者弹幕原文放的位置不同。
+     */
+    fun fillOptionalMessage(card: MessageCard, itemJson: String, fromLike: Boolean): Boolean = try {
+        holder?.getMethod(
+            "fillOptionalMessage",
+            MessageCard::class.java,
+            String::class.java,
+            java.lang.Boolean.TYPE
+        )?.invoke(null, card, itemJson, fromLike) as? Boolean ?: false
+    } catch (e: Throwable) {
+        Logu.w("OptionalFeatures", "fillOptionalMessage failed: " + e.message)
+        false
+    }
+
+    /**
+     * 点击一条弹幕类消息。返回 true 表示私有侧已经处理（跳到了弹幕所在视频）。
+     *
+     * [itemType] 与 [bvid] 都由公共侧从消息里取好再传，私有侧不用再碰卡片结构。
+     */
+    fun openOptionalMessage(context: Context, itemType: String?, bvid: String?): Boolean = try {
+        holder?.getMethod(
+            "openOptionalMessage",
+            Context::class.java,
+            String::class.java,
+            String::class.java
+        )?.invoke(null, context, itemType, bvid) as? Boolean ?: false
+    } catch (e: Throwable) {
+        Logu.w("OptionalFeatures", "openOptionalMessage failed: " + e.message)
+        false
     }
 
     private fun invokeString(name: String): String? = try {

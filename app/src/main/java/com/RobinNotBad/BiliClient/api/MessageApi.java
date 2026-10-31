@@ -3,13 +3,12 @@ package com.RobinNotBad.BiliClient.api;
 import android.text.SpannableString;
 import android.util.Pair;
 
-import com.RobinNotBad.BiliClient.BiliTerminal;
-import com.RobinNotBad.BiliClient.R;
 import com.RobinNotBad.BiliClient.model.MessageCard;
 import com.RobinNotBad.BiliClient.model.Reply;
 import com.RobinNotBad.BiliClient.model.UserInfo;
 import com.RobinNotBad.BiliClient.model.VideoCard;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
+import com.RobinNotBad.BiliClient.util.OptionalFeatures;
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
 
 import org.json.JSONException;
@@ -47,32 +46,13 @@ public class MessageApi {
     }
 
     /**
-     * 读消息条目的 {@code business_id}。**不是每条都有**：官方 Web 消息中心的动作参数写的是
-     * {@code type: "danmu" === item.type ? 0 : item.business_id}，即弹幕类条目不带这个字段。
-     * 原来三个消息流都用 {@code getInt}，遇到这种条目直接抛 JSONException，
-     * 把整页消息带崩（不是少一条，是整页空白）。统一走这里，缺省 {@code -1}。
+     * 读消息条目的 {@code business_id}。**不是每条都有**：有一类消息条目（由可选私有功能解析，
+     * 见 {@link #getReplyMsg} 的 default 分支）根本不带这个字段。原来三个消息流都用 {@code getInt}，
+     * 遇到这种条目直接抛 JSONException，把整页消息带崩（不是少一条，是整页空白）。
+     * 统一走这里，缺省 {@code -1}。
      */
     public static int parseBusinessId(JSONObject item) {
         return item == null ? -1 : item.optInt("business_id", -1);
-    }
-
-    /**
-     * 弹幕类条目（{@code item.type == "danmu"}）里的「弹幕原文」。
-     *
-     * <p>两个消息流放的位置不一样：「收到的赞」在 {@code title}；「回复我的」把被回复的原文
-     * 放在 {@code source_content}、{@code title} 换成了视频标题。所以先取 {@code source_content}
-     * 再退回 {@code title}，两个流共用一份口径。
-     */
-    public static String parseDanmuText(JSONObject item) {
-        if (item == null) return "";
-        String text = item.optString("source_content", "");
-        if (text.isEmpty()) text = item.optString("title", "");
-        return text;
-    }
-
-    /** 弹幕类条目所在视频的 BV 号；服务端只给 uri，抠不到返回空串。 */
-    public static String parseDanmuBvid(JSONObject item) {
-        return item == null ? "" : parseBvid(item.optString("uri", ""));
     }
 
     public static JSONObject getUnread() throws IOException, JSONException {
@@ -208,24 +188,11 @@ public class MessageApi {
                         replyChildInfo.childCount = 0;
                         likeInfo.replyInfo = replyChildInfo;
                         break;
-                    case "danmu":
-                        // 弹幕被点赞（反馈 #44）：原先落进 default，只显示「无法识别这个类别：danmu」。
-                        // 弹幕原文与所在视频的取值口径见 parseDanmuText / parseDanmuBvid；
-                        // 点卡片跳视频（见 NoticeHolder）。
-                        likeInfo.content = BiliTerminal.context.getString(
-                                R.string.text_like_danmaku, object.getLong("counts"));
-                        Reply replyInfo_danmu = new Reply();
-                        replyInfo_danmu.rpid = item.getLong("item_id");
-                        replyInfo_danmu.sender = null;
-                        replyInfo_danmu.message = new SpannableString(parseDanmuText(item));
-                        replyInfo_danmu.pictureList = new ArrayList<>();
-                        replyInfo_danmu.childCount = 0;
-                        replyInfo_danmu.childMsgList = new ArrayList<>();
-                        replyInfo_danmu.ofBvid = parseDanmuBvid(item);
-                        likeInfo.replyInfo = replyInfo_danmu;
-                        break;
                     default:
-                        likeInfo.content = "无法识别这个类别：" + likeInfo.itemType;
+                        // 可选私有功能可能认得这一类（填充 content / replyInfo）；
+                        // 不在场或不认识就照旧显示「无法识别这个类别」。
+                        if (!OptionalFeatures.INSTANCE.fillOptionalMessage(likeInfo, item.toString(), true))
+                            likeInfo.content = "无法识别这个类别：" + likeInfo.itemType;
                 }
 
                 likeInfo.getType = MessageCard.GET_TYPE_LIKE;
@@ -327,23 +294,10 @@ public class MessageApi {
                         replyChildInfo_article.childCount = 0;
                         replyInfo.replyInfo = replyChildInfo_article;
                         break;
-                    case "danmu":
-                        // 「有人回复了我的弹幕」（反馈 #44 的另一半）：官方 Web 消息中心对
-                        // `type === "danmu"` 渲染成「回复了我的弹幕」，我们的回复流原先没有这个分支，
-                        // 落进 default 后只显示「无法识别这个类别：danmu」。
-                        // 弹幕类条目可能不带 business_id，所以 NoticeHolder 那边按 itemType 先判一次。
-                        Reply replyChildInfo_danmu = new Reply();
-                        replyChildInfo_danmu.rpid = item.getLong("target_id");
-                        replyChildInfo_danmu.sender = null;
-                        replyChildInfo_danmu.message = new SpannableString(parseDanmuText(item));
-                        replyChildInfo_danmu.pictureList = new ArrayList<>();
-                        replyChildInfo_danmu.childCount = 0;
-                        replyChildInfo_danmu.childMsgList = new ArrayList<>();
-                        replyChildInfo_danmu.ofBvid = parseDanmuBvid(item);
-                        replyInfo.replyInfo = replyChildInfo_danmu;
-                        break;
                     default:
-                        replyInfo.content = "无法识别这个类别：" + replyInfo.itemType;
+                        // 可选私有功能可能认得这一类（填充 replyInfo）；不在场或不认识就照旧提示。
+                        if (!OptionalFeatures.INSTANCE.fillOptionalMessage(replyInfo, item.toString(), false))
+                            replyInfo.content = "无法识别这个类别：" + replyInfo.itemType;
                 }
 
                 totalArray.add(replyInfo);

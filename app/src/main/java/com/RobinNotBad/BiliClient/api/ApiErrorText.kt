@@ -47,13 +47,4 @@ object ApiErrorText {
      */
     @JvmStatic
     fun searchRejected(): String = "搜索被风控，请稍后再试"
-
-    /**
-     * 「操作被风控拦下了，过一会儿再试」——-352（风控校验失败）/ -412（请求被拦截）。
-     *
-     * <p>与 [searchRejected] 分开是有必要的：那句带「搜索」二字，放到举报 / 评论写操作的
-     * 提示里会让人以为是搜索出了问题。两者除了措辞不同，判据、处理方式一致（都是等一会儿）。
-     */
-    @JvmStatic
-    fun riskRejected(): String = "操作被风控拦下了，过一会儿再试"
 }

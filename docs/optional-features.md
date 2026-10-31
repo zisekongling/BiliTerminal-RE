@@ -40,7 +40,8 @@ private/
 
 私有侧的 `FeatureHolder` 有两个硬约束（改它之前先读注释）：
 
-1. 只用 `@JvmStatic` 静态方法暴露，参数/返回值只用框架类型（`Context` / `View` / `String` / `long`…）；
+1. 只用 `@JvmStatic` 静态方法暴露，参数/返回值只用框架类型或**公共侧已有的模型类**
+   （`Context` / `View` / `String` / `long` / `MessageCard`…），不能出现私有侧独有的类型；
 2. 对自己其他类一律 `Class.forName` 反射调用 —— 这样私有仓库里的文件可以分步写、缺一个也能编译。
 
 ## 现有挂点（新增可选功能时照这个模式加）
@@ -51,6 +52,8 @@ private/
 | 菜单设置页 | 复用 `MenuActivity.btnNames`（`SettingMenuActivity` 从这里取显示名） | 无需改动 |
 | 启动页跳转 | `SplashActivity` 从 `btnNames` 取 Class | 无需改动 |
 | 视频详情页动作区 | `fragment_video_info.xml` 的 `@id/video_actions` + `VideoInfoFragment` 里的 `OptionalFeatures.attachDetailActionRow(...)` | 空操作，不多出按钮 |
+| 评论长按面板 | `adapter/ReplyAdapter.kt` 的 `showManageMenu`：`replyReportLabel(context)` 给文案、`replyReport(...)` 执行 | 文案为 null → **不加这一项**；别人的评论只剩「复制文字」，走「只剩一项就直接复制」的老捷径 |
+| 消息卡片 | `api/MessageApi.java` 两个消息流的 `default` 分支（`fillOptionalMessage`）＋ `adapter/message/NoticeHolder.kt` 的点击（`openOptionalMessage`） | `false` → 照旧显示「无法识别这个类别」/ 不处理点击 |
 
 老用户的 `menu_enabled` 里没有可选 key 时，`MenuConfig.loadEnabled` 会走一次迁移把它补进来
 （`resolveEnabledList` 对可选项的处理与固定项一致：缺失即补到末尾）。

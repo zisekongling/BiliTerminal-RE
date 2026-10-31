@@ -38,7 +38,6 @@ import com.RobinNotBad.BiliClient.activity.reply.ReplyInfoActivity
 import com.RobinNotBad.BiliClient.activity.reply.WriteReplyActivity
 import com.RobinNotBad.BiliClient.api.ReplyApi
 import com.RobinNotBad.BiliClient.api.ReplyTranslateApi
-import com.RobinNotBad.BiliClient.api.ReportApi
 import com.RobinNotBad.BiliClient.api.VoteApi
 import com.RobinNotBad.BiliClient.model.Reply
 import com.RobinNotBad.BiliClient.model.UserInfo
@@ -47,6 +46,7 @@ import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.LongPressPrefs
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
@@ -543,25 +543,14 @@ class ReplyAdapter(
     }
 
     /**
-     * 当前用户是否已登录。
-     *
-     * 只作为**提交前**的闸门（见 [showReportDialog]）：没登录就只提示、不发请求，
-     * 免得白跑一趟再抛个 -352 风控。
-     *
-     * **不要拿它当「要不要显示举报入口」的判据**（26.10.27 改过一版，反例见
-     * `docs/review/fix-progress.md` §3.73）：入口藏起来之后，别人的评论就只剩「复制文字」
-     * 一项，而「只剩复制」会走下面的直连捷径——用户重装后丢了登录态，长按直接进复制页，
-     * 看到的现象是「举报功能没了」，根本想不到是没登录。
-     */
-    private fun isLoggedIn(): Boolean =
-        SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) != 0L
-
-    /**
      * 操作面板里的一项。
      *
      * [kind] 是本项的身份、[danger] 是「要不要用危险色」——两者都不能从 [label] 反推：
      * 展示文案会跟着翻译/措辞改动，拿它当判据（原先的 `first == "复制文字"` / `startsWith("删除")`）
      * 会在文案一改时静默失配，表现是「只有一项时不直接复制」「删除项不再是红色」。
+     *
+     * [EXTRA] 给可选私有功能（能在公开构建里缺席的项）用：它既不是「复制」，也不该被当成
+     * 破坏性操作染色，所以单独一个身份，别去复用 [COPY] —— 那会让「只剩一项就直连」的捷径误判。
      */
     private class ManageAction(
         val kind: Kind,
@@ -569,7 +558,7 @@ class ReplyAdapter(
         val danger: Boolean,
         val run: () -> Unit
     ) {
-        enum class Kind { COPY, TOP, UNTOP, DELETE, REPORT }
+        enum class Kind { COPY, TOP, UNTOP, DELETE, EXTRA }
     }
 
     /**
@@ -583,8 +572,9 @@ class ReplyAdapter(
      * 置顶位（12029），最终以服务端判定为准；这里不展示必然失败的入口只是为了少打扰，
      * 评论区管理员（非 UP）的场景留给以后，判定逻辑与权限完全分开。
      *
-     * <p>「举报评论」26.10.27 加入，只在「别人的评论 + 已登录」时出现，理由与提交见
-     * [showReportDialog]。接口来历见 [ReportApi] 的类注释。
+     * <p>「举报评论」是**可选私有功能**：实现与理由表都在私有构建里，公共侧只有一条
+     * [OptionalFeatures.replyReportLabel] 门面。私有注入不在场时本项根本不出现，
+     * 于是公开构建里别人的评论只剩「复制文字」一项——这是加入私有功能之前的既有行为。
      */
     private fun showManageMenu(reply: Reply) {
         val actions = ArrayList<ManageAction>()
@@ -613,10 +603,12 @@ class ReplyAdapter(
         // 管理员的处置手段是删除而不是举报。
         // **不按登录态隐藏**：藏起来会让别人的评论只剩「复制文字」一项，从而命中下面那条
         // 「只剩复制就直接复制」的捷径——重装后丢了登录态的用户会以为举报功能不存在。
-        // 未登录时照常列出，点了由 showReportDialog 提示「请先登录后再举报」。
-        if (!canManage(reply))
-            actions.add(ManageAction(ManageAction.Kind.REPORT, context.getString(R.string.text_reply_report), false) {
-                showReportDialog(reply)
+        // 未登录时照常列出，点了由私有侧提示「请先登录后再举报」。
+        // 文案由私有侧给：null = 私有注入不在场（公开构建），本项不出现。
+        val reportLabel = if (canManage(reply)) null else OptionalFeatures.replyReportLabel(context)
+        if (reportLabel != null)
+            actions.add(ManageAction(ManageAction.Kind.EXTRA, reportLabel, false) {
+                OptionalFeatures.replyReport(context, oid, replyType, reply.rpid)
             })
 
         if (actions.isEmpty()) {
@@ -625,9 +617,8 @@ class ReplyAdapter(
         }
 
         // 只剩「复制文字」一项时，不必弹一个只有单选项的菜单——直接进复制界面。
-        // **评论这边已经命中不到了**（别人的评论总会多一项「举报评论」），保留它是防
-        // 「复制之外再无操作项」的组合再次出现时又变成「弹一个没得选的面板」；
-        // 动态那条 `DynamicHolder.showManageMenu` 仍在用同一套判据，那边是活的。
+        // 公开构建里别人的评论正是这个组合（没有举报项），行为与引入私有功能之前一致；
+        // 动态那条 `DynamicHolder.showManageMenu` 也在用同一套判据。
         if (actions.size == 1 && actions[0].kind == ManageAction.Kind.COPY) {
             actions[0].run()
             return
@@ -640,97 +631,6 @@ class ReplyAdapter(
             items = actions.map { it.label },
             danger = if (dangerIndex >= 0) setOf(dangerIndex) else emptySet()
         ) { which -> actions[which].run() }.show()
-    }
-
-    /**
-     * 举报面板：先选理由，服务端标了「需正文」的理由再补一段正文。
-     *
-     * <p>理由表**以服务端为准**（`/x/v2/reply/report/metadata`，与官方 H5 同一套），拿不到就用
-     * [ReportApi.defaultReasons] 里那份官方静态兜底表。为了不让弹窗等网络，这里同步取
-     * [ReportApi.cachedOrDefaultReasons]，同时在后台预热一次缓存——第一次打开用兜底表，
-     * 之后就是服务端的最新表。
-     *
-     * <p>缓存与请求都要带 [replyType]：不同评论区类型的理由表不同（视频 1 / 动态 17 / 专栏 12…），
-     * 拿错类型的表会让「显示的理由」与「提交时带 type 的解读」对不上。
-     *
-     * <p>哪些理由要正文也看服务端下发的 `content_required`，不再自己假设「只有其他要」。
-     *
-     * <p>`TerminalDialog.singleChoice` **不会自己 show、回调里也不自动 dismiss**，两者都得自己来。
-     */
-    private fun showReportDialog(reply: Reply) {
-        // 入口对所有人可见（见 showManageMenu 的说明），所以这里是**唯一**的登录闸门：
-        // 没登录就直接提示，不发那个注定被 -352 打回来的请求。
-        if (!isLoggedIn()) {
-            MsgUtil.showMsg(context.getString(R.string.msg_report_login_first))
-            return
-        }
-        warmReportReasons()
-        val reasons = ReportApi.cachedOrDefaultReasons(replyType)
-        TerminalDialog.singleChoice(
-            context = context,
-            title = context.getString(R.string.title_report_reason),
-            items = reasons.map { it.label }
-        ) { sheet, which ->
-            sheet.dialog.dismiss()
-            val reason = reasons[which]
-            if (ReportApi.needsContent(reason)) askReportContent(reply, reason)
-            else submitReport(reply, reason, "")
-        }.show()
-    }
-
-    /**
-     * 后台预热理由表缓存（只在这个评论区类型还没缓存过时拉一次；失败就继续用兜底表，不打扰用户）。
-     *
-     * <p>metadata 接口需要登录，所以未登录时不发这个请求。
-     */
-    private fun warmReportReasons() {
-        if (ReportApi.cachedReasons(replyType) != null) return
-        CenterThreadPool.run { ReportApi.fetchReasons(oid, replyType) }
-    }
-
-    /**
-     * 需要正文的理由的输入框。
-     *
-     * <p>长度校验走 [ReportApi.isContentAcceptable]（2~200 字符，与官方 H5
-     * 「自定义举报内容长度为2-200字符」一致），不合格时**只提示、不提交**——
-     * 服务端对长度不合规只回 12077，用户看不出是字数卡住的。
-     *
-     * <p>[initialText] 只为「太短被退回」这条路径服务：`TerminalDialog.input` 的确认按钮是
-     * 「先关窗再回调」，校验失败时输入框已经不在了，不把原文带回来用户就得从「选理由」重来一遍。
-     */
-    private fun askReportContent(reply: Reply, reason: ReportApi.Reason, initialText: String = "") {
-        TerminalDialog.input(
-            context = context,
-            title = context.getString(R.string.title_report_content),
-            hint = context.getString(R.string.hint_report_content),
-            initialText = initialText,
-            maxLength = ReportApi.CONTENT_MAX_LENGTH,
-            confirmText = context.getString(R.string.btn_report_submit),
-            onConfirm = { text ->
-                if (ReportApi.isContentAcceptable(reason, text)) {
-                    submitReport(reply, reason, text)
-                } else {
-                    MsgUtil.showMsg(context.getString(R.string.msg_report_content_too_short))
-                    askReportContent(reply, reason, text)
-                }
-            }
-        ).show()
-    }
-
-    private fun submitReport(reply: Reply, reason: ReportApi.Reason, content: String) {
-        CenterThreadPool.run {
-            try {
-                // 评论区类型要用 replyType 而不是 type：动态/专栏的评论传 1 会被服务端拒绝，
-                // 这与点赞接口的约束是同一条（见上面 likeReply 的注释）。
-                val code = ReportApi.reportReply(oid, replyType, reply.rpid, reason, content)
-                (context as Activity).runOnUiThread {
-                    if (code == 0) MsgUtil.showMsg(context.getString(R.string.msg_report_submitted))
-                    else MsgUtil.showMsg(ReportApi.errorMsg(code).ifEmpty { ApiErrorText.opFailedBrief(code) })
-                }
-            } catch (e: Exception) {
-                (context as Activity).runOnUiThread { MsgUtil.err(e) }
-            }
-        }
     }
 
     /**
