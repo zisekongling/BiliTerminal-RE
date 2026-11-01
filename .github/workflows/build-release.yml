@@ -320,6 +320,57 @@ jobs:
       - name: 构建签名发行 APK
         run: ./gradlew :app:assembleRelease
 
+      # 崩溃堆栈解混淆（R8 retrace）需要「这一版、这个 flavor、这个构建变体」的 mapping。
+      # 注意：mapping 里含私有功能的类名/方法名，**绝不能**作为公开仓库的 artifact 上传，
+      # 只 scp 到 HK 的固定目录（600）。没配 Secret 就跳过并打印 notice，不影响发版。
+      #   Secrets.HK_SSH_KEY      —— 必填，能登录 HK 的私钥（建议单独一把、只允许写该目录）
+      #   Secrets.HK_HOST         —— 可选，默认 154.222.27.216
+      #   Secrets.HK_USER         —— 可选，默认 root
+      #   Secrets.HK_MAPPING_DIR  —— 可选，默认 /opt/rebiliterminal-api/mappings
+      - name: 上传 R8 mapping 到 HK（未配置则跳过）
+        shell: bash
+        env:
+          HK_SSH_KEY: ${{ secrets.HK_SSH_KEY }}
+          HK_HOST: ${{ secrets.HK_HOST }}
+          HK_USER: ${{ secrets.HK_USER }}
+          HK_MAPPING_DIR: ${{ secrets.HK_MAPPING_DIR }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HK_SSH_KEY:-}" ]; then
+            echo "::notice::未配置 Secrets.HK_SSH_KEY，跳过 mapping 上传（控制台将无法解混淆这一版的崩溃）"
+            exit 0
+          fi
+          host="${HK_HOST:-154.222.27.216}"
+          user="${HK_USER:-root}"
+          remote_dir="${HK_MAPPING_DIR:-/opt/rebiliterminal-api/mappings}"
+          version_code=$(grep -m1 -E '^[[:space:]]*versionCode[[:space:]]' app/build.gradle | awk '{print $2}')
+          if [ -z "$version_code" ]; then
+            echo "::error::读不到 app/build.gradle 的 versionCode"
+            exit 1
+          fi
+          variant=public
+          if [ -d private/src/main/java ]; then variant=private; fi
+          keyfile=$(mktemp)
+          chmod 600 "$keyfile"
+          trap 'rm -f "$keyfile"' EXIT
+          printf '%s\n' "$HK_SSH_KEY" > "$keyfile"
+          opts=(-i "$keyfile" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20)
+          for flavor in standard coexist; do
+            src="app/build/outputs/mapping/${flavor}Release/mapping.txt"
+            # mapping 是构建产物；missing 说明 R8 配置被改了（minify 没开），必须红掉
+            if [ ! -f "$src" ]; then
+              echo "::error::缺少 $src（release 构建没有生成 mapping，检查 minifyEnabled）"
+              exit 1
+            fi
+            dest="${user}@${host}:${remote_dir}/${version_code}_${flavor}_${variant}_mapping.txt"
+            scp "${opts[@]}" "$src" "$dest"
+            echo "已上传 $flavor（variant=$variant）"
+          done
+          # scp 默认按 umask 建文件，这里显式收紧到 600（mapping 含私有实现细节）
+          ssh "${opts[@]}" "${user}@${host}" \
+            "chmod 600 '${remote_dir}/${version_code}_'*'_mapping.txt' 2>/dev/null || true"
+          echo "mapping 上传完成：version_code=$version_code variant=$variant"
+
       # flavor 上线后 AGP 把产物放在 outputs/apk/<flavor>/release/ 下，且普通版被自动
       # 命名成 app-standard-<abi>-release.apk。这里统一搬进 outputs/apk/release/ 并
       # 把普通版改回**历史文件名 app-<abi>-release.apk** —— 老客户端的更新检查是按

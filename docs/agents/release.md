@@ -11,6 +11,13 @@
 ## 发版流程与中转
 
 - **发版与更新检查**：推 tag 或手工触发 `.github/workflows/build-release.yml` —— 构建签名 APK → 创建 GitHub Release 并上传全部附件 → **通知中转服务**（地址与共享密钥都在仓库 Secrets：`RELAY_URL` / `RELAY_SECRET`；请求体经 HMAC-SHA256 签名），由中转服务自己去 GitHub 拉附件并同步到 Gitee `zisekongling/bili-terminal-re`。
+- **R8 mapping 归档（26.11.01 新增）**：`assembleRelease` 之后有一步把
+  `app/build/outputs/mapping/{standardRelease,coexistRelease}/mapping.txt` scp 到 HK 的
+  `/opt/rebiliterminal-api/mappings/`，命名 `<version_code>_<flavor>_<variant>_mapping.txt`
+  （variant 看有没有注入私有源码），供控制台解混淆崩溃堆栈。需要 `Secrets.HK_SSH_KEY`
+  （可选 `HK_HOST` / `HK_USER` / `HK_MAPPING_DIR`），没配就跳过并打印 notice。
+  **mapping 含私有类名/方法名，绝不能作为公开仓库的 artifact 上传** —— 只走 scp。
+  漏传的版本，控制台会显示「该版本没有 mapping」并回退原始堆栈。
 - **Action 侧不要直接访问 Gitee**（网络不通），参见该文件末尾的 Notify relay 步骤；**中转地址与密钥都不要写进代码库或日志**。
 - 版本号与是否强制更新由工作流从 `app/build.gradle` 读出、写进 Release 说明的机器可读元数据。
 - 客户端更新检查按「Gitee → GitHub」读两边的 `releases/latest`（见 `util/UpdateRelease.kt`），**客户端已不再读 config.json**。
