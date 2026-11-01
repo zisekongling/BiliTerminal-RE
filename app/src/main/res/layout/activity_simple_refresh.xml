@@ -251,12 +251,20 @@
     </LinearLayout>
 
     <!-- 空态：列表为空是正常状态（下载列表/收藏/历史/关注等），不放 loading_2233_error
-         报错插画，否则会被误认成"加载失败"。确属加载失败时由 MsgUtil.err 弹提示。 -->
+         报错插画，否则会被误认成"加载失败"。确属加载失败时由 MsgUtil.err 弹提示。
+
+         必须 layout_below="@id/top"，不能从屏幕顶端铺满：它在布局里排在 top 之后，
+         RelativeLayout 会把它画在顶栏上面，而点击命中也是从后往前派发的。以前它盖住整页，
+         `setOnEmptyRetry` 一给它装监听器就变成「顶栏那一块也归它」，于是点顶栏不退出、
+         而是在原地重拉列表 —— 「我的反馈」空态点顶栏变刷新就是这个（26.11.02 用户反馈）。
+         其余页面的空态虽然没装点击监听器、点顶栏能穿透到 top，但顶栏同样被文字压住，
+         一并收进 top 下方。 -->
     <TextView
         android:id="@+id/emptyTip"
         android:padding="@dimen/space_xl"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:layout_below="@id/top"
         android:gravity="center"
         android:text="@string/text_list_empty"
         android:textAlignment="center"

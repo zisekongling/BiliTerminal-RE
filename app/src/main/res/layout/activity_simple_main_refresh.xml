@@ -75,12 +75,18 @@
     </LinearLayout>
 
     <!-- 空态：列表为空是正常状态，不放 loading_2233_error 报错插画，
-         否则会被误认成"加载失败"。确属加载失败时由 MsgUtil.err 弹提示。 -->
+         否则会被误认成"加载失败"。确属加载失败时由 MsgUtil.err 弹提示。
+
+         layout_below="@id/top" 是硬要求（26.11.02）：它排在 top 之后，RelativeLayout 会把它
+         画在顶栏上面，点击也从后往前先给它。以前铺满整页，`setOnEmptyRetry`（推荐 / 动态 /
+         热搜 / 直播等页都调）一装监听器，顶栏那一条就变成「点一下重拉列表」——首页菜单栏
+         打不开、普通页面退不出去。具体成因见 activity_simple_refresh.xml 同一处注释。 -->
     <TextView
         android:id="@+id/emptyTip"
         android:padding="@dimen/space_xl"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:layout_below="@id/top"
         android:gravity="center"
         android:text="@string/text_list_empty"
         android:textAlignment="center"
