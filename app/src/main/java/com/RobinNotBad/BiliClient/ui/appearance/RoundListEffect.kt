@@ -9,7 +9,6 @@ import androidx.core.widget.NestedScrollView
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
-import kotlin.math.sqrt
 
 /**
  * 圆屏列表效果（实验性，26.10.31）。
@@ -156,23 +155,19 @@ object RoundListEffect {
     }
 
     /**
-     * 单条目的变换。缩放曲线取圆的弦长比（中心 1.0 → 屏缘 0），下限收到 0.50——边缘条目
-     * 缩到一半，曲率一眼可见；淡出取 t 的三次方曲线（中心四分之一段几乎不动），
-     * 系数 0.85 让边缘条目降到 0.15 透明度。只跳过接近整屏高的内容：比屏幕半径高的
-     * 普通卡片照常参与，否则手表上最常见的视频卡（高 250~320px，半径才 233px）会被
-     * 整段跳过，效果等于没开。
+     * 单条目的变换。
+     *
+     * 判定与曲线都在 [RoundListEffectMath]（纯函数，有单测）：按「条目离屏幕中心最近的一点」
+     * 算 t，缩放取弦长比、下限 0.50，淡出取 t 的三次方。**不要改回按条目中心计算**——
+     * 评论区带长图的条目、长正文这类高条目，中心点已经贴到屏缘，按中心算会把整条内容缩到
+     * 0.5、淡到 0.15，而它明明有一部分就在屏幕中间（反馈 #79）。
      */
     private fun transform(row: View, topInWindow: Int, centerY: Float, radius: Float, winH: Int) {
-        if (row.visibility != View.VISIBLE || row.height <= 0) return
-        if (row.height >= winH) return // 接近整屏的内容（文章整页块 / 图片查看器）不是列表条目，不做缩放
-        val rowCenterY = topInWindow + row.height * 0.5f
-        val f = (rowCenterY - centerY) / radius
-        var t = if (f < 0f) -f else f
-        if (t > 1f) t = 1f
-        val chord = sqrt(1f - t * t)
-        val scale = 0.50f + 0.50f * chord
+        if (row.visibility != View.VISIBLE) return
+        val t = RoundListEffectMath.tFor(topInWindow.toFloat(), row.height, centerY, radius, winH) ?: return
+        val scale = RoundListEffectMath.scaleFor(t)
         row.scaleX = scale
         row.scaleY = scale
-        row.alpha = 1f - 0.85f * t * t * t
+        row.alpha = RoundListEffectMath.alphaFor(t)
     }
 }
