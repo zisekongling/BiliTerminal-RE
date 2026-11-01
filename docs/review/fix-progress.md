@@ -973,6 +973,16 @@
   - **未验**：真实 OPPO 手表上的现场（模拟器用 `bogus_key` 模拟「不认识的 key」）；「私有包 → 公开包」覆盖安装的真实升级路径没有走（要私有包产物）。
 - **控制台清账（本轮）**：把已处理/已解答/已拍板的反馈标已处理 —— **#78、#56、#55、#52、#51、#42、#38、#46、#49、#81**（其中 #55/#52/#51/#38 是 §3.79 修过、§3.96 补回回退的，#46 已由「左右滑动控制进度」设置项解答，#49 用户拍板不做）。保留 pending 7 条：**#60**（老掉登录，待上周期性 Cookie 刷新）、**#48**（无法下载更新，疑似已随证书信任修复，已加管理员备注请用户升级后再试）、**#41**（静音拖进度出声，只在外挂音轨出现，等录屏）、**#34**（分段导致跳片头片尾，未定位）、**#31**（载入中切后台回来比例错，需真机复现）、**#30**（缓存文件夹「加入」按钮，功能请求）、**#20**（表冠转动慢，需原版倍率对照）。崩溃侧本轮未动，仍是 12 条保留。
 
+### 3.100 收藏夹列表「Invalid view holder adapter position」崩溃（控制台 #160，26.11.01）
+
+- **缘起**：清账后控制台新到一条 26.11.01 崩溃 **#160**（hesc `uws6152_1h10_go`）：`java.lang.IndexOutOfBoundsException: Inconsistency detected. Invalid view holder adapter position … adapter:f1.d … context:FavoriteFolderListActivity`。堆栈是 release 混淆帧，用 `app/build/outputs/mapping/coexistRelease/mapping.txt` 还原：`f1.d` = `adapter.favorite.FavoriteFolderAdapter`，`p0.Y.l` / `p0.o.*` = `androidx.recyclerview.widget.RecyclerView$Recycler` 与 `GapWorker`（预取线程）。日志时序（10:32 列表页 → 编辑页 → 回列表页 → 再进编辑页）说明是**从编辑页返回后立刻重载**这条路径。
+- **根因**：`FavoriteFolderListActivity.loadFolders()` 在 `CenterThreadPool` 线程里直接 `folderList.clear()` + `addAll(...)`，而这份 `ArrayList` **就是当前已挂在 RecyclerView 上的 adapter 的备份数据**；新 adapter 还在后面才创建。后台线程清空的瞬间 `getItemCount()` 从「N+2」掉到 2，紧接着又长回 N+2，全程没有任何 notify —— 布局/预取线程拿着旧位置去取 holder，就抛这个 Inconsistency。`onActivityResult`（改名/新建返回）会立刻重载，所以「快速进出编辑页」最容易撞上。
+- **改法**：请求结果先在后台装进一份**全新的** `ArrayList`，不再碰旧列表；然后在 UI 线程一次性换掉 —— 新建 adapter、挂监听、`setAdapter`（基类内部再 `runOnUiThread` 赋值），并 `isFinishing || isDestroyed` 双重早退。旧 adapter 随替换被摘下，它引用的旧列表不再被任何人改写，itemCount 不会在无 notify 的情况下跳变。
+- **验证**：
+  - `:app:assembleDebug`（standard + coexist）通过；两 flavor 单测各 **110 suites / 1157 tests / 0 失败**。
+  - 设备侧（AVD `wear5`，Android 14，已登录 mid=591904067）：装新包后进「我的 → 收藏」，日志正常拉到默认收藏夹（1888/50000）、重要收藏夹（23/1000）等，页面正常渲染、无 FATAL / Inconsistency ✔。
+  - **未验**：原崩溃的精确触发（要在真机上「进编辑页改名保存 → 返回」并让预取线程刚好在重载窗口取 holder），本次以「不再共享可变列表」的线程模型改造 + 页面正常加载为准；该崩溃 1 次、单机型，先观察后续上报。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。
