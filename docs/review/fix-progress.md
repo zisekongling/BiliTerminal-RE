@@ -1066,6 +1066,21 @@
 - **验证**：`:app:assembleDebug`（standard + coexist）通过；`:app:testStandardDebugUnitTest` / `:app:testCoexistDebugUnitTest` 各 **123 suites / 1297 tests / 0 失败 0 错误**（本轮新增 12 个测试类 / 125 例）。
 - **未验 / 遗留**：#41（需真机：系统媒体音量 0 时暂停外挂音轨）、#31（需真机复现「载入中切后台再回来」）、#34（需真机多P 连切）、#54（根因未确证，HWARC 真机需复验）；#17 将「3 秒二次点击」改为单击直接下载（用户可见交互变化）；#83 命中续播记录时「点播放」不再进选集页而是直接起播上次分P（另一P 走播放器内选集）；#58 在 Android 11+ 公共目录、无本应用写权限的旧文件仍删不掉，现在会如实报错。
 
+### 3.106 长按加速期间横滑又会调进度（§3.90 回退砍掉 §3.81 门闸，26.11.02 补回）
+
+- **缘起**：用户报「在长按倍速的情况下滑动会触发滑动调节进度」。这条 26.10.30 已修（§3.81，commit `1bff1f0`），26.10.31 末播放器整目录回退（§3.90，commit `7c94531`）时被一起砍掉；§3.96（commit `e39f5c5`）只补回了 4 条中的 3 条，这条一直缺——但 §3.81 与 `docs/architecture-map.md` 仍写着已修，属于**文档与代码不一致**。
+- **机制**：长按加速走 `layout_control.setOnLongClickListener`（View 自带 500ms 判定，手指在界内横移不会取消长按回调）。长按回调置 `onLongClick = true` 并设倍速后，`ACTION_MOVE` 里只要横移超过 `swipeSeekThreshold`（24f）就仍会激活 `swipe_seek_overlay`、改 `seekbar_progress`，UP 时还会真的 seek 过去。反向顺序（先横滑后长按）本来就不会误加速：横滑会置 `gesture_click_disabled`，长按回调里有 `!gesture_click_disabled` 守卫。
+- **改法**：
+  - `activity/player/PlayerGesturePolicies.kt`：`PlayerSwipeSeekPolicy.isSeekAllowed(...)` 增加第 7 个参数 `longPressBoost: Boolean`（**不设默认值**，逼每个调用点显式表态），判据追加 `&& !longPressBoost`；KDoc 写明「26.11.02 原样补回，别当没做过」。
+  - `activity/player/PlayerActivity.kt`：`handleSwipeSeekTouch()` 把 `onLongClick` 传进去，门闸拒绝时复用 `cancelSwipeSeekIfActive()` 收残留浮层；新增 `private fun endLongPressBoost()`（恢复 `speed_values[seekbar_speed.progress]` 到 IJK / 弹幕 / 倍速文案）。**两套 `layout_control` 触摸分支的 ACTION_UP 与 ACTION_CANCEL 都要接**：只接 UP 时，触摸被父容器/失焦 CANCEL 后 `onLongClick` 会卡 true → 横滑调进度被永久拦掉、倍速也停在高档。
+  - `player/PlayerGesturePoliciesTest.kt`：新增 `longPressBoost_blocksSwipeSeek`、`longPressRelease_restoresSwipeSeek` 两例（该类共 11 例）。
+  - 文案/文档侧不用改：`strings.xml:1230` 的设置说明从 §3.81 起就是「未缩放视频、未长按加速时生效」，`docs/FEATURES.md` 同口径——当年没被回退，只有代码被砍了。
+- **验证**：`:app:assembleDebug`（standard + coexist）通过；`testStandardDebugUnitTest` **123 suites / 1299 tests / 0 失败 0 错误 0 跳过**（比 §3.105 多 2 例，正是本次新增）。AVD `wear5`（Android 14 / 466×466 / x86_64，装 `app-standard-universal-debug`）实测（DebugBridge 把 `player_swipe_seek` / `player_scale` / `player_longclick` 置真，本地 `combined.mp4` 起播）：
+  - **bug 用例**：`input motionevent DOWN` 按住 1.2s（logcat `gesture>longclick_down speed=3.0`、`Playback rate: 3.000000`）后横移 147px——中途截图**没有** `swipe_seek_overlay`，进度只按 3 倍自然前进（12:08→12:25）；UP 后 `Playback rate: 1.000000`。
+  - **对照组**（同一注入手法，证明 MOVE 确实被消费，不是没打到）：普通横滑同位移 → 浮层出现 `12:08 / 34:15 (35%)`，UP 后进度真的从 01:08 跳到该点（下一次 dump 已 12:25，含继续播放）。
+  - **CANCEL 用例**：长按后发 `input motionevent CANCEL` → 倍速回落 1.0；紧接着普通横滑仍能出浮层（`23:32 / 34:15 (68%)`）→ `onLongClick` 没卡 true。
+- **遗留**：未在真手表上验；注入的 DOWN/MOVE 之间没有真人手指的微抖，但三条判据（浮层有无、倍速回落、seek 结果）都来自应用自身行为，对照组成立即可信。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。
