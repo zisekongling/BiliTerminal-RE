@@ -263,9 +263,12 @@ open class BaseActivity : AppCompatActivity() {
                     val paddingV = (window_width * 0.03).toInt()
                     pagename.setPadding(paddingH, paddingV, paddingH, 0)
 
-                    // 时钟的宿主容器有两种：绝大多数布局里 top 是 RelativeLayout，时钟直接挂在它下面；
-                    // 首页那种带菜单区的布局里，时钟在 top 内的 menuArea(LinearLayout) 里。
-                    // 必须按【真实父容器】决定 LayoutParams 类型 —— 给 LinearLayout 的子 View 塞
+                    // 时钟的宿主容器：现在所有布局里 top 都是 RelativeLayout、时钟直接挂在它下面。
+                    // 但这里仍按【真实父容器】决定 LayoutParams 类型 —— 26.11.01 之前首页
+                    // (`activity_simple_main_refresh`) 把时钟套在 menuArea(LinearLayout) 里，
+                    // 拿到的是 LinearLayout.LayoutParams，加不了 RelativeLayout 规则，圆屏模式下
+                    // 时钟就一直钉在最右、被圆盘切掉；那层多余的 LinearLayout 已删掉。
+                    // 保留按父容器判型是为了防将来再出现同样的嵌套：给 LinearLayout 的子 View 塞
                     // RelativeLayout.LayoutParams，LinearLayout.measureHorizontal 强转时必崩
                     // （ClassCastException，且抛在 measure 阶段，外面的 try 根本兜不住）。
                     clock?.let { clockView ->
@@ -297,12 +300,15 @@ open class BaseActivity : AppCompatActivity() {
     /**
      * 按顶栏 View 的【真实父容器】类型造一份 LayoutParams。
      *
-     * 圆屏适配要把 pageName / timeText 改成 WRAP_CONTENT + 居中，但这两个控件的宿主容器
-     * 不统一：大多数布局里父容器是 `@id/top`(RelativeLayout)，个别布局（如顶栏带菜单区的
-     * `activity_simple_main_refresh`）时钟在 `@id/menuArea`(LinearLayout) 里。直接把
-     * RelativeLayout.LayoutParams 塞给 LinearLayout 的子 View，会在下一帧
-     * `LinearLayout.measureHorizontal` 强转时抛 ClassCastException —— 那是 measure 阶段，
-     * 调用处的 try/catch 兜不住，直接崩。
+     * 圆屏适配要把 pageName / timeText 改成 WRAP_CONTENT + 居中，前提是能拿到
+     * `RelativeLayout.LayoutParams` 才加得上 `CENTER_HORIZONTAL`。26.11.01 之前
+     * `activity_simple_main_refresh` 把时钟套在 `@id/menuArea`(LinearLayout) 里，拿到的是
+     * LinearLayout.LayoutParams，规则加不上去，圆屏模式下时钟就留在最右被圆盘切掉 ——
+     * 那层多余的 LinearLayout 已经删掉，现在所有顶栏的时钟都是 `@id/top` 的直系子 View。
+     *
+     * 仍然按【真实父容器】造 params：直接把 RelativeLayout.LayoutParams 塞给 LinearLayout
+     * 的子 View，会在下一帧 `LinearLayout.measureHorizontal` 强转时抛 ClassCastException ——
+     * 那是 measure 阶段，调用处的 try/catch 兜不住，直接崩（线上崩溃 #68）。
      *
      * 这里只覆盖工程里实际存在的两种容器，其余（FrameLayout 等）退化为 MarginLayoutParams，
      * 至少不会崩。

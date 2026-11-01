@@ -1523,6 +1523,7 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 11. **别裸调「理论上一定存在」的框架方法——部分手表框架会把它裁掉**（26.09.13 真机崩溃）。`android.view.View.hasOnLongClickListeners()` 是 API 15 就有的公开 API，`android-34` 的 class 文件里也确实有（`javap` 验证），但某手表的 `/system/framework/framework.jar` 里没有，`BaseActivity.setupTopbarLongPressToHome()` 一调就抛
     `NoSuchMethodError: No virtual method hasOnLongClickListeners()Z in class Landroid/view/View;` —— **`onStart` 里崩，页面全打不开**，且编译期、Lint、单测全都查不出来。
     统一走 `util/ViewCapabilityProbe.probeBoolean(view, "方法名") { 名, 异常 -> 日志 }`：能反射调通就走框架，调不通返回 `null` 让调用方走降级分支（自己是标志位即可），探测结论进程级缓存、只失败一次。返回 `null` 是**降级信号**不是错误，调用方必须处理。
+12. **顶栏的 `@id/pageName` / `@id/timeText` 必须是 `@id/top`(RelativeLayout) 的直系子 View**（26.11.01）：`BaseActivity.setRound()` 的圆屏适配靠 `RelativeLayout.LayoutParams.addRule(CENTER_HORIZONTAL)` 把时钟挪到正中，而 `newTopbarParams()` 是按**真实父容器**造船型的——时钟若套在 `LinearLayout` 里，拿到的是 `LinearLayout.LayoutParams`，`if (clockParams is RelativeLayout.LayoutParams)` 判假 → **居中规则被跳过、不崩也不报错**，圆屏模式下时钟仍被 `alignParentRight` 钉在最右、被圆盘切掉。`activity_simple_main_refresh.xml` 就曾多包一层 `menuArea`(LinearLayout)，害得首页 / 推荐 / 排行榜 / 热门 / 入站必刷 / 本地列表 5 页时钟全部不居中。已删掉 `menuArea`，结构对齐 `activity_simple_refresh.xml`。
 
 ---
 
