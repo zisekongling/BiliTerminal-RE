@@ -28,18 +28,24 @@ class SafeViewPager @JvmOverloads constructor(
 ) : ViewPager(context, attrs) {
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean =
-        guardPointerCrash { super.onInterceptTouchEvent(ev) }
+        guardPointerIndexCrash("ViewPager") { super.onInterceptTouchEvent(ev) }
 
     override fun onTouchEvent(ev: MotionEvent): Boolean =
-        guardPointerCrash { super.onTouchEvent(ev) }
-
-    private inline fun guardPointerCrash(block: () -> Boolean): Boolean =
-        try {
-            block()
-        } catch (e: IllegalArgumentException) {
-            // 只有 message 里带 pointerIndex 的才是这个库缺陷；其它参数异常必须继续抛
-            if (e.message?.contains("pointerIndex", ignoreCase = true) != true) throw e
-            Logu.v("ViewPager", "吃掉多指指针下标异常：${e.message}")
-            false
-        }
+        guardPointerIndexCrash("ViewPager") { super.onTouchEvent(ev) }
 }
+
+/**
+ * 多指指针下标越界的统一兜底（[SafeViewPager] 与 [PhotoViewpager] 共用）。
+ *
+ * 只吞 message 里带 `pointerIndex` 的 [IllegalArgumentException]，其它参数异常继续抛——
+ * 否则真正的参数错误会被静默吞掉，问题更难查。返回 false 等于「这次事件没消费」，
+ * 与 ViewPager 在越界帧上的既有行为一致。
+ */
+internal inline fun guardPointerIndexCrash(tag: String, block: () -> Boolean): Boolean =
+    try {
+        block()
+    } catch (e: IllegalArgumentException) {
+        if (e.message?.contains("pointerIndex", ignoreCase = true) != true) throw e
+        Logu.v(tag, "吃掉多指指针下标异常：${e.message}")
+        false
+    }

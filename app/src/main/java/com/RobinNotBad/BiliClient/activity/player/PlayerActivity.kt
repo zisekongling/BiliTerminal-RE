@@ -2847,9 +2847,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             mediaSession = null
         }
 
-        requestedOrientation = if (SharedPreferencesUtil.getBoolean("ui_landscape", false))
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        // onDestroy 阶段改方向是「非全屏 activity 请求方向」/窗口已销毁的经典崩点
+        // （崩溃类 6：IllegalStateException / "Unable to destroy activity"）。
+        // 这里只要求还原屏幕方向、失败无所谓，绝不能让它把 onDestroy 剩下的清理全跳过。
+        try {
+            requestedOrientation = if (SharedPreferencesUtil.getBoolean("ui_landscape", false))
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        } catch (e: Exception) {
+            Logu.e("PlayerActivity", "还原屏幕方向失败：${e.message}")
+        }
 
         super.onDestroy()
     }
@@ -3984,7 +3991,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     if (playerData.aid > 0) aid = playerData.aid
                     // 在 UI 线程落地"这条能不能进得去"，供选集卡片画那一行（见 enterableCollection）
                     updateEnterable(videoInfoForEnter)
-                    doSwitchPage(newTitle, playerData.videoUrl, playerData.danmakuUrl, pageIndex)
+                    // 在线切 P 没有外挂音轨（26.10.27 架构下在线取流是合一 MP4），传空即可
+                    doSwitchPage(newTitle, playerData.videoUrl, playerData.danmakuUrl, "", pageIndex)
                 }
             } catch (e: Exception) {
                 runOnUiThread {
@@ -4146,25 +4154,36 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 从 intent 中获取视频文件和弹幕文件列表
         val videoFileList = intent.getStringArrayListExtra("videoFileList") ?: return
         val danmakuFileList = intent.getStringArrayListExtra("danmakuFileList")
+        // 双文件（合并失败/未合并的 DASH）缓存还会带一份与外挂音轨对齐的列表：
+        // 切 P 时必须跟着换，否则新一 P 只剩视频轨、直接没声音（反馈 #51 的另一半）
+        val audioFileList = intent.getStringArrayListExtra("audioFileList")
 
         if (pageIndex < 0 || pageIndex >= videoFileList.size) return
 
         val videoUrl = videoFileList[pageIndex]
         val danmakuUrl = danmakuFileList?.getOrElse(pageIndex) { "" } ?: ""
+        val audioUrl = audioFileList?.getOrElse(pageIndex) { "" } ?: ""
 
         runOnUiThread {
-            doSwitchPage(newTitle, videoUrl, danmakuUrl, pageIndex)
+            doSwitchPage(newTitle, videoUrl, danmakuUrl, audioUrl, pageIndex)
         }
     }
 
     /**
      * 执行分页切换的通用UI操作
      */
-    private fun doSwitchPage(newTitle: String, newVideoUrl: String, newDanmakuUrl: String, pageIndex: Int) {
+    private fun doSwitchPage(
+        newTitle: String,
+        newVideoUrl: String,
+        newDanmakuUrl: String,
+        newAudioTrackUrl: String,
+        pageIndex: Int
+    ) {
         if (destroyed) return
 
         releaseAudioTrack()
-        audioTrackUrl = null // 新分页不能继续复用上一页的外部音轨。
+        // 新分页不能继续复用上一页的外部音轨，但要用**本页**的音轨（没有则置空）
+        audioTrackUrl = newAudioTrackUrl.takeIf { it.isNotEmpty() }
         ijkPlayer?.stop()
         ijkPlayer?.release()
         releaseDanmaku()

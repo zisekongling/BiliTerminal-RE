@@ -63,12 +63,14 @@
     </style>
 
     <style name="EditTextStyle" parent="Widget.AppCompat.EditText">
+        <item name="android:textColorHighlight">@color/text_selection_highlight</item>
         <item name="android:textColorHint">@color/text_tertiary_dark</item>
         <item name="android:textCursorDrawable">@drawable/cursor_drawable</item>
         <item name="android:textColor">@color/text_primary_dark</item>
     </style>
 
     <style name="EditTextStyleLight" parent="Widget.AppCompat.EditText">
+        <item name="android:textColorHighlight">@color/text_selection_highlight</item>
         <item name="android:textColorHint">@color/text_tertiary_light</item>
         <item name="android:textCursorDrawable">@drawable/cursor_drawable</item>
         <item name="android:textColor">@color/text_primary_light</item>

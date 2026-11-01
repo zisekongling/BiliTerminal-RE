@@ -7,6 +7,10 @@
 
     <!-- 品牌主色系 (Brand Primary Colors) -->
     <color name="pink_brand">#FF6699</color>
+    <!-- 文本选中区间的底色（复制页等 EditText）。带 ~33% alpha 的品牌粉：
+         暗色主题下压在深背景上、亮色主题下压在浅文字上都能一眼看出选区，
+         见 EditTextStyle* 的 android:textColorHighlight（反馈 #56）。 -->
+    <color name="text_selection_highlight">#55FF6699</color>
     <color name="pink_accent">#FF8CB0</color>
     <color name="pink_deep">#E84B85</color>
     <color name="pink_light">#FFB3CA</color>

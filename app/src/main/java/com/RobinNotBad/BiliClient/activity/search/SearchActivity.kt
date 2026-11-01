@@ -175,7 +175,10 @@ class SearchActivity : InstanceActivity() {
 
                 override fun onPageScrolled(position: Int, positionOffset: Float, positionOffsetPixels: Int) {
                     if (position != 0 && position != lastPosition) {
-                        onScrolled(256)
+                        // 这里**不要**再调 onScrolled(...) 去模拟一次滚动：那个方向是「收起搜索框」，
+                        // 而空关键词时分类页没有任何内容可滚，收起后再也没有事件把搜索框拉回来
+                        // （反馈 #42：输入框隐藏，只能切到别的页面再切回搜索）。搜索框的显隐只由
+                        // 列表真实滚动驱动，见 onScrolled()。
                         if (tutorial_show) {
                             tutorial_show = false
                             findViewById<View>(R.id.text_tutorial_pager).visibility = View.GONE
