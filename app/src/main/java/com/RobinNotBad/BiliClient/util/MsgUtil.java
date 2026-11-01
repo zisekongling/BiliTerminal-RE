@@ -242,18 +242,27 @@ public class MsgUtil {
                     output.append(e_str.replace("org.json.JSONException:", ""));
                 }
             } else if (e instanceof IndexOutOfBoundsException) {
-                if (SharedPreferencesUtil.getBoolean("dev_recyclererr_detailed", false)) {
+                // 不是所有 IndexOutOfBoundsException 都是 RecyclerView/Adapter 的锅。
+                // #84：私信接口在空 uidList 上抛的是 StringIndexOutOfBoundsException（substring(0,-1)），
+                // 旧实现一律显示「遇到Adapter错误…无需上报」，既误导用户，也把真实问题藏了。
+                // 现在只有异常信息里真带 RecyclerView / Adapter 特征时才按列表报错提示，
+                // 其余按普通错误显示原文（用户反馈时能直接抄给开发者，也允许上报）。
+                boolean adapterError = AdapterErrorClassifier.looksLikeAdapterError(e_str);
+                if (adapterError && SharedPreferencesUtil.getBoolean("dev_recyclererr_detailed", false)) {
                     Writer writer = new StringWriter();
                     PrintWriter printWriter = new PrintWriter(writer);
                     e.printStackTrace(printWriter);
-                    showText(desc + "Adapter错误", writer.toString());
+                    showText(desc + context.getString(R.string.err_adapter_title), writer.toString());
                     return;
+                } else if (adapterError) {
+                    output.append(context.getString(R.string.err_adapter));
                 } else {
-                    output.append("遇到Adapter错误：\n无需上报，除非你在某个界面经常遇到");
+                    output.append(context.getString(R.string.err_generic));
+                    output.append(e_str);
                 }
             } else if (e instanceof SQLException) output.append(context.getString(R.string.err_sql));
             else {
-                output.append("错误：");
+                output.append(context.getString(R.string.err_generic));
                 output.append(e_str);
             }
         } else {
