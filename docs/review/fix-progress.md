@@ -1048,6 +1048,24 @@
   - **本机 AVD 的通用问题（与本次改动无关）**：改 `font_scale` 会触发整进程重启，重启后可能弹「夜深了」/debug 包警告等启动弹窗；用 DebugBridge 先把 `night_reminder_enable=false`、`disclaimer_shown=true`、`app_version_last` 写成当前版本号再测，能省掉反复点弹窗。
 - **文档**：`docs/agents/dev-conventions.md` 新增「按钮文字与行内对齐」一节（含例外写法与自测口径）。
 
+### 3.105 控制台 11 条「代码无修复 / 未做」反馈批量修复（26.11.02，用户点名，代码审计后）
+
+- **缘起**：用户要求用控制台 MCP 核对 47 条反馈的「完成情况」，对照 HEAD 提交发现 13 条「代码里根本没有对应修复 / 压根没做」；用户勾选其中 11 条要求修复（未选 #20 表冠慢、#82 短视频长按倍速）。
+- **本轮修复（每条：改法 + 关键文件）**：
+  - **#84** 消息页空列表必现 IOOBE：`PrivateMsgApi.getUsersInfo` 空 uidList 发请求前返回空 map；`MsgUtil` 只在异常信息带 RecyclerView/Adapter 特征时才提示「Adapter错误」，其余按普通错误显示原文（`util/AdapterErrorClassifier` + 单测）。
+  - **#60** 老是掉登录：新增 `util/CookieRefreshPolicy`（30 分钟正常间隔、失败 5min 起指数退避封顶 4h、-101 边界）与 `util/CookieRefreshScheduler`（`BiliTerminal.onCreate` 进程级启动、5 分钟扫描；`NetWorkUtil` 统一响应入口识别「带 SESSDATA 仍 -101」只打标记）。不用 WorkManager/AlarmManager、不新增依赖。
+  - **#61** 长按倍速可配置：`activity/player/PlayerLongPressPolicy`（1.5/2/3/5，默认 3.0）+ 设置页「长按倍速档位」；长按处每次重读（改完即生效）。
+  - **#83** 多P续播：`PlayerData` 补 `cidHistory` 进 Parcel 并新增 `lastPlayTimeMs`；`activity/video/MultiPageResumePolicy`；详情页点播放命中记录直接起播上次分P；`MultiPageActivity` 修正「点上次那P却播P1」并滚到该P。
+  - **#41** 静音拖进度出声：`activity/player/AudioSeekVolumePolicy` + `syncExternalAudioPlayback()`；外挂音轨只在「能听见且视频在播」时运行，静音即暂停、解静音先对齐再起播；`initAudioTrack` 先设增益再 prepare/start。
+  - **#31** 载入中切后台回来比例怪：`activity/player/PlayerScreenMetricsPolicy`；缓存上次有效源尺寸，`onResume` / Surface 重建时重读屏幕尺寸并重排画面（不动播放状态）。
+  - **#34** 分段导致误跳片头片尾：`activity/player/SkipDecider` 状态机；换P 立即清空片段、在途 `view_points` 响应按 aid/cid/代次丢弃、重复拉取不清已处理。
+  - **#14** 图片双击缩放：双击识别挪到 `PhotoViewpager.dispatchTouchEvent` 旁路 GestureDetector（不吞事件），`ImageViewerActivity` 用 `ImageViewerZoomPolicy` 显式 1x→2x→6.25x→1x，动画后校验被 reset 就补钉。
+  - **#17** 评论区图片下载：`DownloadActivity` 新增 `PictureDownloadPolicy`（URL 补 https、失败换协议重试、文件名剥 `@`/查询串/非法字符）；看图页下载改单击直接开始（连点闸门）；图片成功/失败提示 SnackBar→Toast（页面 finish 后仍可见）。
+  - **#54** 界面边距>0 触控偏移：`BaseActivity` 把用户边距从 DecorView 下沉到 `android.R.id.content`；padding 算术本身不改触摸命中（推导见 KDoc），真机仍待验。
+  - **#58** 缓存删不掉：`util/CachePathResolver` 按「条目实际所在根 + 模型真实路径」解析候选目录；`FileUtil.deleteFolderRecursively` 空目录也删、按「目标是否真的不存在」返回结果；`LocalListActivity` / `LocalPageChooseActivity` 失败不再谎报成功、不摘条目。
+- **验证**：`:app:assembleDebug`（standard + coexist）通过；`:app:testStandardDebugUnitTest` / `:app:testCoexistDebugUnitTest` 各 **123 suites / 1297 tests / 0 失败 0 错误**（本轮新增 12 个测试类 / 125 例）。
+- **未验 / 遗留**：#41（需真机：系统媒体音量 0 时暂停外挂音轨）、#31（需真机复现「载入中切后台再回来」）、#34（需真机多P 连切）、#54（根因未确证，HWARC 真机需复验）；#17 将「3 秒二次点击」改为单击直接下载（用户可见交互变化）；#83 命中续播记录时「点播放」不再进选集页而是直接起播上次分P（另一P 走播放器内选集）；#58 在 Android 11+ 公共目录、无本应用写权限的旧文件仍删不掉，现在会如实报错。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。
