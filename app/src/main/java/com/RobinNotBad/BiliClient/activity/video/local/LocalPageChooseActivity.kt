@@ -28,6 +28,14 @@ class LocalPageChooseActivity : BaseActivity() {
 
     private var longClickPosition = -1
     private var longClickTimestamp: Long = 0
+
+    /**
+     * 是否真的删掉过分 P：见 [onDestroy]，用来通知缓存页重扫。
+     *
+     * 现在由后台删除线程写、[onDestroy] 主线程读，所以加 `@Volatile`（原实现是在主线程先置真再删，
+     * 不删掉也照样置真——正是"提示删了、文件还在"的一部分）。
+     */
+    @Volatile
     private var deleted = false
 
     @SuppressLint("MissingInflatedId")
@@ -46,8 +54,9 @@ class LocalPageChooseActivity : BaseActivity() {
         val videoFileList = intent.getStringArrayListExtra("videoFileList")!!
         val danmakuFileList = intent.getStringArrayListExtra("danmakuFileList")!!
 
-        // 构建每个分页的播放文件映射，处理DASH双文件情况
-        val pageMediaFiles = buildPageMediaFiles(pageList, videoFileList, title)
+        // 构建每个分页的播放文件映射，处理DASH双文件情况。
+        // 必须可变：删掉一个分 P 后列表会变短，映射要跟着重建，否则点剩下的分 P 会播到已删除的文件。
+        var pageMediaFiles = buildPageMediaFiles(pageList, videoFileList, title)
 
         val adapter = PageChooseAdapter(this, pageList)
         adapter.onItemClickListener = OnItemClickListener { position ->
@@ -77,26 +86,63 @@ class LocalPageChooseActivity : BaseActivity() {
         adapter.onItemLongClickListener = OnItemLongClickListener { position ->
             val timestamp = System.currentTimeMillis()
             if (longClickPosition == position && timestamp - longClickTimestamp < 4000) {
-                CenterThreadPool.run {
-                    val workPath = FileUtil.getVideoDownloadPath()
-                    val videoPath = File(workPath, title)
-                    val pagePath = File(videoPath, pageList[position])
-
-                    FileUtil.deleteFolder(pagePath)
-                    pageList.removeAt(position)
-                    videoFileList.removeAt(position)
-                    danmakuFileList.removeAt(position)
-                    if (pageList.isEmpty())
-                        FileUtil.deleteFolder(videoPath)
-                }
-
-                adapter.notifyItemRemoved(position)
-                adapter.notifyItemRangeChanged(0, pageList.size - position)
-
-                MsgUtil.showMsg(UiText.of("删除成功"))
                 longClickPosition = -1
+                // 要删的目录名用点击这一刻的快照：删除跑在后台线程，期间列表可能已被刷新
+                val pageName = pageList.getOrNull(position)
+                if (pageName != null) {
+                    CenterThreadPool.run {
+                        val videoPath = File(FileUtil.getVideoDownloadPath(), title)
+                        val pagePath = File(videoPath, pageName)
 
-                deleted = true
+                        // 分 P 目录和（删掉最后一个分 P 后的）合集目录都要按返回值判断成败。
+                        // 旧实现不看结果就把它从列表里摘掉并提示「删除成功」——删不掉的目录下次
+                        // 进来又"复活"，与缓存页 #58「提示删了、文件还在」是同一类问题。
+                        val pageDeleted = FileUtil.deleteFolderRecursively(pagePath)
+                        val lastPage = pageList.size <= 1
+                        // 合集根目录里还有封面、元数据、空目录等残留，删完最后一个分 P 一起清；
+                        // 它删不掉同样算失败（否则合集目录原地留着，用户看到的还是"没删干净"）
+                        val parentDeleted = if (pageDeleted && lastPage) {
+                            FileUtil.deleteFolderRecursively(videoPath)
+                        } else {
+                            true
+                        }
+                        val failure: File? = when {
+                            !pageDeleted -> pagePath
+                            !parentDeleted -> videoPath
+                            else -> null
+                        }
+
+                        // 只有在磁盘上真的删掉了才从模型里摘：失败时保持列表原样，用户能看到它确实还在
+                        if (failure == null) {
+                            if (position in pageList.indices) pageList.removeAt(position)
+                            if (position in videoFileList.indices) videoFileList.removeAt(position)
+                            if (position in danmakuFileList.indices) danmakuFileList.removeAt(position)
+                            deleted = true
+                        }
+
+                        runOnUiThread {
+                            if (failure == null) {
+                                adapter.notifyItemRemoved(position)
+                                adapter.notifyItemRangeChanged(0, (pageList.size - position).coerceAtLeast(0))
+                                // 列表短了一项，分页→播放文件的映射要一起重建
+                                pageMediaFiles = buildPageMediaFiles(pageList, videoFileList, title)
+                                MsgUtil.showMsg(UiText.of("删除成功"))
+                                // 缓存页还停在旧列表上（它是本页下面那层），直接让它重扫——别只靠
+                                // onDestroy 的通知：用户删完立刻退出时后台删除可能还没跑完，
+                                // 通知就漏了，缓存页会一直显示已经删掉的条目（与 #58 同一类现象）。
+                                val listPage = BiliTerminal.getInstanceActivityOnTop()
+                                if (listPage is LocalListActivity && !listPage.isDestroyed) {
+                                    listPage.refresh()
+                                    // 已经直接通知过上层了，onDestroy 里不必再刷一次
+                                    deleted = false
+                                }
+                            } else {
+                                // 手表屏幕窄，只报目录名不报完整路径；与缓存页删除失败共用同一条文案
+                                MsgUtil.showMsgLong(getString(R.string.msg_cache_delete_failed, failure.name))
+                            }
+                        }
+                    }
+                }
             } else {
                 longClickPosition = position
                 longClickTimestamp = timestamp

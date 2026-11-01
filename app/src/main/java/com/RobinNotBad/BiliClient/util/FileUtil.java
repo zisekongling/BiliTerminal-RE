@@ -53,26 +53,87 @@ public class FileUtil {
         Log.e("debug", "清除了缓存");
     }
 
+    /** 递归删除的深度上限：缓存目录最多「根/标题/分P/字幕」四层，32 层只是防符号链接套娃死循环。 */
+    private static final int DELETE_MAX_DEPTH = 32;
+
+    /**
+     * 递归删除目录/文件，兼容旧调用点、**忽略删除结果**。
+     *
+     * 新代码（尤其"用户点了删除要立刻知道成不成"的地方）请用 [deleteFolderRecursively]：
+     * 本方法存在只是为了让旧调用点（视频详情页清缓存 / 下载列表 / 分 P 选择页等）不改签名，
+     * 语义已换成同一套可靠实现。
+     */
     public static void deleteFolder(File folder) {
-        if (!folder.exists()) return;
+        deleteFolderRecursively(folder);
+    }
 
-        if (folder.isFile()) {
-            folder.delete();
-            return;
-        }
+    /**
+     * 递归删除目录/文件，并**返回是否真的删干净**（反馈 #58 的核心之一）。
+     *
+     * 旧实现有三个坑，合并起来就是「点了删除、提示成功、文件还在」：
+     *
+     * 1. **空子目录永远删不掉**：子目录只在 `listFiles().length != 0` 时才递归，空目录被跳过，
+     *    于是父目录 `delete()` 必然失败（目录非空），整个任务目录原地留下。缓存视频目录里
+     *    出现空子目录很常见（`subtitles/` 建了没下到字幕、删到一半中断）；
+     * 2. **失败被吞掉**：所有 `delete()` 的 false 返回值都没人看，`listFiles()` 返回 null 时
+     *    还会 NPE（`assert` 在 ART 上默认关闭，等于没有），异常被线程池兜住只留日志；
+     * 3. **调用方只能猜结果**：签名是 void，所以界面永远提示「删除成功」——用户看到的正是
+     *    「视频没消失、文件也没删」。
+     *
+     * 现在：逐层删、空目录也删、单层失败不影响继续清理其它子项，最后按「目标是否已不存在」
+     * 给结论；删不掉的项（Android 11+ 公共目录文件不属于本应用、SD 卡只读、文件系统错误）
+     * 会原样留着，由调用方明确提示用户。
+     *
+     * @param folder 文件或目录；null / 不存在都视为「已经删掉」
+     * @return true 表示调用后该路径确实不存在了
+     */
+    public static boolean deleteFolderRecursively(File folder) {
+        return deletePath(folder, 0);
+    }
 
-        File[] templist = folder.listFiles();
-        assert templist != null;
-        for (File file : templist) {
-            if (file.isFile()) {   //如果该项是文件，直接删除
-                file.delete();
-            } else {    //如果该项是目录
-                if (Objects.requireNonNull(file.listFiles()).length != 0)
-                    deleteFolder(file);    //如果子文件夹不是空的，继续扫描下去，实现套娃效果
+    private static boolean deletePath(File file, int depth) {
+        if (file == null) return false;
+        try {
+            if (!file.exists()) return true;   // 并发删掉了 / 本来就没有
+            if (depth > DELETE_MAX_DEPTH) {
+                logDeleteFailure(file, "目录层级超过 " + DELETE_MAX_DEPTH + " 层，疑似符号链接成环");
+                return false;
             }
-            Log.e("debug", file.toString());
+
+            boolean childrenOk = true;
+            if (file.isDirectory()) {
+                File[] children = file.listFiles();
+                if (children != null) {
+                    for (File child : children) {
+                        // 关键：不管这一项是不是空目录都要进去删，否则父目录永远删不掉
+                        if (!deletePath(child, depth + 1)) childrenOk = false;
+                    }
+                } else if (file.exists()) {
+                    // listFiles() 为 null 说明目录不可读（权限/IO 错误），里面的内容删不掉
+                    childrenOk = false;
+                }
+            }
+
+            boolean deleted = file.delete();
+            if (!deleted) {
+                // delete() 返回 false 但目标已经不在了（被别的线程删掉）也算成功
+                deleted = !file.exists();
+            }
+            if (!deleted) logDeleteFailure(file, childrenOk ? "delete() 返回 false" : "目录不可读或子项删不掉");
+            return deleted;
+        } catch (Throwable t) {
+            // SecurityException / 只读文件系统 / 路径被并发改掉都按「删不掉」处理，不向上抛
+            logDeleteFailure(file, t.toString());
+            return false;
         }
-        folder.delete();
+    }
+
+    /** 删除失败时记一条日志。**日志本身失败不能影响删除结果**（单测跑在 JVM 上，android.util.Log 是桩）。 */
+    private static void logDeleteFailure(File file, String reason) {
+        try {
+            Log.w("file-delete", "删除失败：" + file + "（" + reason + "）");
+        } catch (Throwable ignored) {
+        }
     }
 
     /**

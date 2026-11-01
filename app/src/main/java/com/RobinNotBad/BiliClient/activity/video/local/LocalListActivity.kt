@@ -23,6 +23,7 @@ import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.VideoMeta
 import com.RobinNotBad.BiliClient.model.VideoFolder
 import com.RobinNotBad.BiliClient.service.download.DownloadPathSpec
+import com.RobinNotBad.BiliClient.util.CachePathResolver
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.FolderManager
@@ -69,6 +70,25 @@ class LocalListActivity : InstanceActivity() {
     /** 进页面时用的目录是否处于降级状态；onResume 据此判断「用户刚授完权回来，要换回正式目录」。 */
     private var fallbackAtLoad: Boolean = false
 
+    /**
+     * 最近一次重扫时用的缓存根目录。
+     *
+     * 光看 [fallbackAtLoad] 不够：用户在设置里把「缓存路径」改到另一个可写目录时，降级标记不会变，
+     * 但根目录已经换了。这时列表里显示的仍是旧根目录扫出来的条目，而删除会按新根目录拼路径，
+     * 就去删一个不存在的路径——删除静默失败、列表再把整批旧缓存"刷没"（反馈 #58 的现场之一）。
+     * 所以根目录路径本身也要参与「要不要重扫」的判定。
+     */
+    private var rootAtLoad: String? = null
+
+    /**
+     * 最近一次扫描用的根目录对象。
+     *
+     * 删除必须按「这个条目是哪个根扫出来的」下手，而不是「当前 getVideoDownloadPath() 是哪个」：
+     * 用户刚改过缓存路径 / 降级标记刚翻转、列表还没重扫时，两者会不一致，按当前根删就又回到
+     * 「删一个不存在的路径」的老坑（反馈 #58）。
+     */
+    private var scannedRoot: File? = null
+
     @SuppressLint("MissingInflatedId")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -109,11 +129,14 @@ class LocalListActivity : InstanceActivity() {
     override fun onResume() {
         super.onResume()
         if (!started) return
-        // 用户可能刚从系统设置里授权回来：重新判一次可写性，降级状态变了就重扫（根目录换了）。
+        // 用户可能刚从系统设置里授权回来、或刚把「缓存路径」改到别处：重新判一次可写性，
+        // 降级状态或根目录变了就重扫——否则列表里的条目和当前根目录对不上，删除会删错路径。
         FileUtil.resolveVideoDownloadDir(this)
         val fallback = FileUtil.isVideoFallbackActive()
-        if (fallback != fallbackAtLoad) {
+        val rootNow = FileUtil.getVideoDownloadPath().path
+        if (fallback != fallbackAtLoad || rootNow != rootAtLoad) {
             fallbackAtLoad = fallback
+            rootAtLoad = rootNow
             refresh()
         }
     }
@@ -123,14 +146,18 @@ class LocalListActivity : InstanceActivity() {
         folderList.clear()
         folderList.addAll(FolderManager.getAllFolders())
 
-        // 扫描视频
+        // 扫描视频（根目录只取一次：getVideoDownloadPath 会顺带维护 .nomedia，扫描和后续解析必须同一个根）
+        val root = FileUtil.getVideoDownloadPath()
+        // 记下这次真正扫描的是哪个根，onResume 才能判断「根目录换了要重扫」
+        rootAtLoad = root.path
+        scannedRoot = root
         videoList.clear()
-        scanVideos(FileUtil.getVideoDownloadPath())
+        scanVideos(root)
 
-        // 加载每个视频的元数据
+        // 加载每个视频的元数据（目录要按实际落盘位置解析，不能假设「根/标题」）
         for (video in videoList) {
             try {
-                val videoDir = File(FileUtil.getVideoDownloadPath(), video.title)
+                val videoDir = resolveVideoDir(root, video)
                 val meta = VideoMetaManager.readMeta(videoDir)
                 video.folderName = meta.folderName
                 video.aid = meta.aid
@@ -427,7 +454,7 @@ class LocalListActivity : InstanceActivity() {
                 val danmakuUrl = playerData.danmakuUrl
                 if (danmakuUrl.isNotEmpty()) {
                     // 下载弹幕到本地
-                    val videoDir = File(FileUtil.getVideoDownloadPath(), video.title)
+                    val videoDir = resolveVideoDir(currentScanRoot(), video)
                     val danmakuFile = File(videoDir, DownloadPathSpec.FILE_DANMAKU)
                     downloadDanmakuFile(danmakuUrl, danmakuFile)
 
@@ -603,16 +630,49 @@ class LocalListActivity : InstanceActivity() {
         }.show()
     }
 
+    /**
+     * 真正把缓存从磁盘上删掉，并把结果**如实**反馈给用户（反馈 #58）。
+     *
+     * 旧实现的两处硬伤：
+     * 1. 路径靠 `File(根目录, 标题)` 硬拼——只要目录名和标题不一致（下载侧清洗过标题、多 P 合集
+     *    的子目录、根目录被用户改过），删的就是一个不存在的路径，`deleteFolder` 第一行
+     *    `if (!folder.exists()) return;` 直接返回，什么也没发生；
+     * 2. `deleteFolder` 是 void、所有 `delete()` 的返回值都被丢弃，于是无论删没删掉都提示
+     *    「删除成功」，列表刷新后视频原样还在——这就是用户看到的「视频没消失，文件也没删」。
+     *
+     * 现在：候选目录来自 [CachePathResolver]（优先用模型里 `videoFileList` 的真实文件路径反推），
+     * 逐个删；只要还有候选目录残留就明确提示失败（含目录名），成功才提示成功；两种情况都强制重扫。
+     */
     private fun performDelete(video: LocalVideo) {
         CenterThreadPool.run {
-            val videoDir = File(FileUtil.getVideoDownloadPath(), video.title)
-            FileUtil.deleteFolder(videoDir)
+            // 用「这个条目被扫出来时用的根」，不是「此刻的 getVideoDownloadPath()」：
+            // 用户刚改过缓存路径、列表还没重扫时两者不同，按当前根删就又会删到不存在的路径
+            val root = scannedRoot ?: FileUtil.getVideoDownloadPath()
+            // 只删真实存在的**目录**：候选里可能有「理论上该在、其实从没建过」的路径；
+            // 用 isDirectory 而不是 exists 还有一层安全作用——万一某个候选恰好是根目录下的一个普通文件，
+            // 也绝不能顺手把它当缓存目录删掉。
+            val existingDirs = videoDirCandidates(root, video).filter { it.isDirectory }
+            var remaining: File? = null
+            for (dir in existingDirs) {
+                // 一个删不掉也继续删其它候选（同一部视频可能同时存在清洗前/后的两份目录）
+                if (!FileUtil.deleteFolderRecursively(dir) && remaining == null) remaining = dir
+            }
 
-            // 从文件夹中移除
-            FolderManager.removeVideoFromFolder(video.title)
+            // 只有真的删掉了才摘文件夹记录：失败时视频还在磁盘上，顺手把它移出文件夹等于又加一次意外。
+            // 用 removeVideoFromAllFolders 而不是 removeVideoFromFolder——文件夹里存的标题可能是
+            // 早期版本写入的原始标题，与磁盘目录名（清洗过）只差几个全角符号，按原文匹配会漏。
+            if (remaining == null) FolderManager.removeVideoFromAllFolders(video.title)
 
+            val failed = remaining
             runOnUiThread {
-                MsgUtil.showMsg(UiText.of("删除成功"))
+                if (failed == null) {
+                    MsgUtil.showMsg(UiText.of("删除成功"))
+                } else {
+                    // 手表屏幕窄，只报目录名不报完整路径；原因给最常见的两种（Android 11+ 公共目录
+                    // 文件不属于本应用 / SD 卡只读 / 文件被占用），让用户自己去文件管理器动手
+                    MsgUtil.showMsgLong(getString(R.string.msg_cache_delete_failed, failed.name))
+                }
+                // 不管成败都重扫：成功要让条目立刻消失，失败要让用户看到它确实还在（而不是骗他删掉了）
                 refresh()
             }
         }
@@ -658,9 +718,33 @@ class LocalListActivity : InstanceActivity() {
 
     // ===================== 辅助方法 =====================
 
+    /**
+     * 这个缓存条目所有可能的落盘目录（按可信度排序，见 [CachePathResolver]）。
+     *
+     * 优先用 `videoFileList[0]` 这个**真实绝对路径**反推：多 P 合集的文件在
+     * `<根>/<标题>/<分P>/video.mp4`，反推出来是合集根 `<根>/<标题>`，正好是列表里那一条。
+     */
+    private fun videoDirCandidates(root: File, video: LocalVideo): List<File> =
+        CachePathResolver
+            .videoDirCandidates(root.path, video.title, video.videoFileList?.firstOrNull())
+            .map { File(it) }
+
+    /** 列表里这些条目是哪个根扫出来的：元数据读写/删除都该按它走，而不是「此刻的根」。 */
+    private fun currentScanRoot(): File = scannedRoot ?: FileUtil.getVideoDownloadPath()
+
+    /**
+     * 解析这个缓存条目的真实目录：优先返回真实存在的那个候选目录。
+     *
+     * 都不存在时（目录刚被删掉、或旧数据里根本没有这个目录）退回下载侧的拼法 `根/清洗(标题)`，
+     * 让 `VideoMetaManager.readMeta` / `updateFolderName` 在不存在时走它们自己的空实现。
+     */
+    private fun resolveVideoDir(root: File, video: LocalVideo): File {
+        return videoDirCandidates(root, video).firstOrNull { it.isDirectory }
+            ?: File(root, FileUtil.stringToFile(video.title))
+    }
+
     private fun readVideoMeta(video: LocalVideo): VideoMeta {
-        val videoDir = File(FileUtil.getVideoDownloadPath(), video.title)
-        return VideoMetaManager.readMeta(videoDir)
+        return VideoMetaManager.readMeta(resolveVideoDir(currentScanRoot(), video))
     }
 
     fun refresh() {
