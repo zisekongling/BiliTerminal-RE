@@ -189,7 +189,7 @@
         <item name="strokeWidth">1dp</item>
     </style>
 
-    <style name="ButtonStyleZhihu" parent="Widget.MaterialComponents.Button">
+    <style name="ButtonStyleZhihu" parent="ButtonStyleBase">
         <item name="background">@drawable/gradient_button_bg_zhihu</item>
         <item name="cornerRadius">@dimen/card_round</item>
         <item name="android:textColor">@color/zhihu_btn_text</item>
@@ -311,7 +311,7 @@
         <item name="strokeWidth">1dp</item>
     </style>
 
-    <style name="ButtonStyleIQIYI" parent="Widget.MaterialComponents.Button">
+    <style name="ButtonStyleIQIYI" parent="ButtonStyleBase">
         <item name="background">@drawable/gradient_button_bg_iqiyi</item>
         <item name="cornerRadius">@dimen/card_round</item>
         <item name="android:textColor">@color/iqiyi_btn_text</item>
@@ -433,7 +433,7 @@
         <item name="strokeWidth">1dp</item>
     </style>
 
-    <style name="ButtonStylePurpleFantasy" parent="Widget.MaterialComponents.Button">
+    <style name="ButtonStylePurpleFantasy" parent="ButtonStyleBase">
         <item name="background">@drawable/gradient_button_bg_purple_fantasy</item>
         <item name="cornerRadius">@dimen/card_round</item>
         <item name="android:textColor">@color/purple_fantasy_btn_text</item>
@@ -555,7 +555,7 @@
         <item name="strokeWidth">1dp</item>
     </style>
 
-    <style name="ButtonStyleRainbow" parent="Widget.MaterialComponents.Button">
+    <style name="ButtonStyleRainbow" parent="ButtonStyleBase">
         <item name="background">@drawable/gradient_button_bg_rainbow</item>
         <item name="cornerRadius">@dimen/card_round</item>
         <item name="android:textColor">@color/rainbow_btn_text</item>
@@ -677,7 +677,7 @@
         <item name="strokeWidth">1dp</item>
     </style>
 
-    <style name="ButtonStyleClassicGray" parent="Widget.MaterialComponents.Button">
+    <style name="ButtonStyleClassicGray" parent="ButtonStyleBase">
         <item name="background">@drawable/gradient_button_bg_classic_gray</item>
         <item name="cornerRadius">@dimen/card_round</item>
         <item name="android:textColor">@color/classic_gray_btn_text</item>
@@ -792,7 +792,7 @@
         <item name="android:focusable">true</item>
     </style>
 
-    <style name="ButtonStyleTerminal" parent="Widget.MaterialComponents.Button">
+    <style name="ButtonStyleTerminal" parent="ButtonStyleBase">
         <item name="backgroundTint">@color/terminal_card_bg</item>
         <!-- 不描边：按钮底 = 卡片色（半透明），亮暗两版都靠底色差与页底区分。
              26.10.26 曾给亮色补过 1dp @color/terminal_divider 描边，实测在旧纸底上是一圈显眼的深灰框，

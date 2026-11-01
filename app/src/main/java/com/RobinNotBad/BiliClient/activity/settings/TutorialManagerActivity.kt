@@ -3,6 +3,7 @@ package com.RobinNotBad.BiliClient.activity.settings
 import android.annotation.SuppressLint
 import android.content.res.ColorStateList
 import android.os.Bundle
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -304,6 +305,14 @@ class TutorialManagerActivity : BaseActivity() {
                 }
                 text = label
                 textSize = 11f
+                // 主题按钮样式默认开了「单行 + 自动字号（7～14sp）」；这里字号是特意写死的 11sp，
+                // 把自动字号的上限钉回 11sp，既保留 11sp 的观感，又不会在大字体下折行。
+                setAutoSizeTextTypeUniformWithConfiguration(
+                    7,
+                    11,
+                    1,
+                    TypedValue.COMPLEX_UNIT_SP
+                )
                 isAllCaps = false
                 setOnClickListener { action() }
             })

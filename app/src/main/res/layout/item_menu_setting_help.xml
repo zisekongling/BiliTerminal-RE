@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 菜单设置页顶部的使用说明：默认一行标题，点按展开/收起，长按两次隐藏 -->
+<!--
+  菜单设置页顶部的使用说明：默认一行标题，点按展开/收起，长按两次隐藏。
+
+  文字会在「标题（10 字）」和「展开后的多行说明」之间切换，所以必须覆盖主题按钮样式里的
+  「单行 + 自动字号」；否则展开后只剩第一行（踩过的坑：样式改成单行后说明被裁掉）。
+-->
 <com.google.android.material.button.MaterialButton xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/help_button"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -8,8 +14,10 @@
     android:layout_marginVertical="2dp"
     android:gravity="start|center_vertical"
     android:lineSpacingExtra="3dp"
+    android:maxLines="10"
     android:paddingHorizontal="16dp"
     android:paddingVertical="14dp"
     android:text="@string/desc_menu_help_title"
     android:textAllCaps="false"
-    android:textSize="13sp" />
+    android:textSize="13sp"
+    app:autoSizeTextType="none" />

@@ -1028,6 +1028,26 @@
   - **未验**：真手表上的实际手感；非空列表态（`emptyTip` 此时 `GONE`，改动不参与，顶栏点击路径与改前完全一致）没有另行实点。
 - **文档**：`docs/agents/pitfalls.md`「基类与列表」补一条「空态浮层必须 `layout_below="@id/top"`」。
 
+### 3.104 按钮文字换行 + 基线对齐导致「同一行按钮对不齐」（26.11.02，用户点名，共性问题）
+
+- **现场**：用户先贴了一张手表实拍（某工具页），再补一句「视频详情页里也有这个 bug，所以这是按钮的共性问题」——同一排的两颗按钮，一颗文字折成两行、另一颗一行，两颗按钮上下边缘错开，整块看起来像布局崩了。
+- **根因（三层叠加）**：
+  1. 主题里 8 个按钮样式此前都直接继承 `Widget.MaterialComponents.Button`，**没有限制文字行数**。手表内容区只有 200dp 出头，两个按钮各占一半时每颗内容宽 ~70～100dp；5～6 个汉字的标签（「从剪贴板粘贴」「稍后再看」等）在系统字体放大后会折成两行。
+  2. 横向 `LinearLayout` 默认 `baselineAligned="true"`：两颗按钮按**文字基线**对齐，一旦行数/字号不同，较矮那颗会被整体上下平移，于是上下边缘都错开。
+  3. 系统「字体大小」越大越明显；同一份布局在经典终端主题（按钮左右 padding 2dp）能撑住，在 16dp padding 的主题下更早折行，所以问题「看主题、看设备」偶发。
+- **改法**：
+  - 新增 `res/values/styles.xml` 的 `ButtonStyleBase`：`android:maxLines=1` + `android:ellipsize=end` + AppCompat 自动字号（`autoSizeTextType=uniform`，7～14sp、1sp 步进）。8 个主题按钮样式（`ButtonStyle` / `ButtonStyleLight` / `ButtonStyleZhihu` / `ButtonStyleIQIYI` / `ButtonStylePurpleFantasy` / `ButtonStyleRainbow` / `ButtonStyleClassicGray` / `ButtonStyleTerminal`，玻璃变体随父样式）统一改为继承它 → 所有 MaterialButton 永远单行，放不下就缩字号，不折行。
+  - **保留多行/写死字号的例外**（避免修 A 坏 B）：`cell_episode.xml`、`cell_item_vertical.xml`（番剧标题、看点的「内容\n时间段」）与 `item_menu_setting_help.xml`（展开后的多行说明）在布局里覆盖 `maxLines=10` + `autoSizeTextType=none`；`activity_captcha_webview.xml` 三个缩放键、`activity_feedback.xml` 提交键、`activity_image_picker.xml` 与 `activity_send_dynamic.xml` 各两键、`cell_subtitle.xml` 用 `autoSizeMaxTextSize` 把上限钉回原字号；`TutorialManagerActivity` 程序化创建的 11sp 按钮用 `setAutoSizeTextTypeUniformWithConfiguration(7, 11, 1, SP)`。
+  - 多按钮横排的 `LinearLayout` 补 `android:baselineAligned="false"`：`fragment_video_info.xml`（两行）、`fragment_media_info.xml`、`activity_image_picker.xml`、`activity_update.xml`、`activity_send_dynamic.xml`、`activity_captcha_webview.xml`；另有一个可选私有功能页的同类布局在私有仓库单独提交。
+- **验证**：
+  - 纯净 worktree（`git worktree` at HEAD `9580444` + 本改动，公开配置）：`:app:assembleDebug`（standard + coexist）通过；`testStandardDebugUnitTest` 与 `testCoexistDebugUnitTest` 各 **108 suites / 1125 tests / 0 失败 0 错误 0 跳过**（本改动不新增用例）。
+  - AVD `wear5`（Android 14 / 466×466 / 320dpi，`coexistDebug` + 私有源码注入）实测：
+    - `font_scale` 1.0 / 1.3 / 1.5 / 2.0 逐档看按钮：视频详情页（aid=170001）的「稍后再看 | 缓存」「转发 | 视频摘要」两排、工具页的「粘贴 | 打开」在 1.5 与 2.0 下都是**单行、同高、上下边缘齐平**；2.0 档长标签自动缩到 7sp 仍不折行；
+    - 回归：菜单页（全宽按钮）、菜单设置（「使用说明」点开后仍是多行说明，无截断）、搜索设置（8 字按钮「调整搜索类别排序」单行）、内置选图页（「全部图片 | 系统选择器」同高）、教程管理（程序化 11sp 按钮）；
+    - 未验：真手表；播放页「看点」列表与竖版选集（`cell_episode` / `cell_item_vertical` 只解除了单行限制，本机没造出可实点的播放场景）；验证码页 WebView 在该 AVD 上不可用（页面直接提示 WebView 不可用），只确认布局能 inflate。
+  - **本机 AVD 的通用问题（与本次改动无关）**：改 `font_scale` 会触发整进程重启，重启后可能弹「夜深了」/debug 包警告等启动弹窗；用 DebugBridge 先把 `night_reminder_enable=false`、`disclaimer_shown=true`、`app_version_last` 写成当前版本号再测，能省掉反复点弹窗。
+- **文档**：`docs/agents/dev-conventions.md` 新增「按钮文字与行内对齐」一节（含例外写法与自测口径）。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。

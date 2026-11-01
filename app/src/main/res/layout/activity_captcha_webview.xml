@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  网页验证码页的缩放工具条（调试/兜底入口）。
+  三个小按钮是固定 28dp 方块，字号是特意写死的 16sp / 9sp / 16sp；
+  主题按钮样式里的「自动字号」在这里必须关掉（max 与写死值一致，正常状态不改变观感），
+  并且关掉基线对齐——三颗按钮字号不同，按基线对齐会把它们上下错开。
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -10,6 +17,7 @@
         android:layout_height="32dp"
         android:orientation="horizontal"
         android:gravity="center"
+        android:baselineAligned="false"
         android:background="#ffffff">
 
         <Button
@@ -23,7 +31,8 @@
             android:layout_marginEnd="14dp"
             android:minWidth="0dp"
             android:minHeight="0dp"
-            android:padding="0dp" />
+            android:padding="0dp"
+            app:autoSizeMaxTextSize="16sp" />
 
         <Button
             android:id="@+id/btnZoomReset"
@@ -36,7 +45,8 @@
             android:layout_marginEnd="14dp"
             android:minWidth="0dp"
             android:minHeight="0dp"
-            android:padding="0dp" />
+            android:padding="0dp"
+            app:autoSizeMaxTextSize="9sp" />
 
         <Button
             android:id="@+id/btnZoomIn"
@@ -48,7 +58,8 @@
             android:background="@drawable/zoom_btn_bg"
             android:minWidth="0dp"
             android:minHeight="0dp"
-            android:padding="0dp" />
+            android:padding="0dp"
+            app:autoSizeMaxTextSize="16sp" />
 
     </LinearLayout>
 

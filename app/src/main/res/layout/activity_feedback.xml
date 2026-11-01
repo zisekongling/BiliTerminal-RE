@@ -204,7 +204,8 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:text="@string/feedback_submit"
-                android:textSize="13sp" />
+                android:textSize="13sp"
+                app:autoSizeMaxTextSize="13sp" />
 
             <TextView
                 android:id="@+id/submit_status"
