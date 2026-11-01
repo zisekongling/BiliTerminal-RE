@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
+import com.RobinNotBad.BiliClient.activity.player.PlayerLongPressPolicy
 import com.RobinNotBad.BiliClient.adapter.SettingsAdapter
 import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.player.SkipOpEdPrefs
@@ -60,6 +61,16 @@ class SettingTerminalPlayerActivity : RefreshListActivity() {
 
         sections = ArrayList<SettingSection>().apply {
             add(SettingSection("switch", "长按倍速", SettingsKeys.PLAYER_LONGCLICK, "", "true"))
+            // #61：长按加速的**倍率**。上面那个开关管「允不允许长按加速」，这一项管「加速到几倍」。
+            // 存档键/档位/默认值全部来自 PlayerLongPressPolicy（播放页每次长按重读，改完即生效）。
+            add(listChoose(
+                getString(R.string.setting_player_longpress_speed_name),
+                PlayerLongPressPolicy.KEY,
+                getString(R.string.setting_player_longpress_speed_desc),
+                PlayerLongPressPolicy.DEFAULT_STORED,
+                PlayerLongPressPolicy.displayNames,
+                PlayerLongPressPolicy.storedValues
+            ))
             add(SettingSection("switch", "双击快进快退", SettingsKeys.PLAYER_DOUBLETAP_SEEK, "", "false"))
             add(SettingSection("switch", "左右滑动控制进度", SettingsKeys.PLAYER_SWIPE_SEEK, "在视频区域左右滑动快进/快退（未缩放视频时生效）", "false"))
             add(SettingSection("switch", "有缩放时，双击优先恢复缩放", SettingsKeys.PLAYER_DOUBLETAP_RESTORE_SCREEN,

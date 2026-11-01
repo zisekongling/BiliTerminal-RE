@@ -24,6 +24,15 @@ public class PlayerData implements Parcelable {
     public long mid;
     public int progress = 0;
     public long cidHistory = 0;
+    /**
+     * 服务端 `last_play_time` 的原值（毫秒，未做单位换算/合理性过滤前的数字）。
+     *
+     * <p>**为什么需要它**（反馈 #83）：`progress` 只在 `last_play_cid == cid` 时才会采纳
+     * `last_play_time`（见 `PlayerApi.adoptLastPlayTime`），所以 `progress == 0` 分不清
+     * 「从来没看过」和「上次看的是别的分P」。"要不要续到上次那个分P"必须看这个原值 &gt; 0，
+     * 判据收敛在 `MultiPageResumePolicy.resumePageIndex`。
+     */
+    public long lastPlayTimeMs = 0;
     // 番剧（PGC）专用字段。投稿视频的观看进度走 x/v2/history/report，只有 aid/cid 两个维度；
     // 番剧必须走心跳接口并带上 epid/sid/sub_type，否则观看记录与续播进度都不会被服务端更新——
     // 表现就是"在终端里看的番剧，历史里不出现，下次还得从头播"。
@@ -78,6 +87,10 @@ public class PlayerData implements Parcelable {
         cid = in.readLong();
         mid = in.readLong();
         progress = in.readInt();
+        // cidHistory / lastPlayTimeMs 必须一起序列化：多P 视频「续到上次那个P」要跟着 Intent
+        // 传到 MultiPageActivity（视频详情页 → 选集页），漏掉的话那边拿到的永远是 0。
+        cidHistory = in.readLong();
+        lastPlayTimeMs = in.readLong();
         type = in.readInt();
         timeStamp = in.readLong();
         pagenames = in.createStringArrayList();
@@ -124,6 +137,8 @@ public class PlayerData implements Parcelable {
         dest.writeLong(cid);
         dest.writeLong(mid);
         dest.writeInt(progress);
+        dest.writeLong(cidHistory);
+        dest.writeLong(lastPlayTimeMs);
         dest.writeInt(type);
         dest.writeLong(timeStamp);
         dest.writeStringList(pagenames);

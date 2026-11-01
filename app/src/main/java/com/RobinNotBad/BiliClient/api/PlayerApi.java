@@ -154,6 +154,9 @@ public class PlayerApi {
         //请求的 cid 与上次播放的 cid 不一致时（多P视频换P续播）不能把别的P的进度套在本P上，应从 0 开始
         playerData.cidHistory = data.optLong("last_play_cid", 0);
         playerData.progress = adoptLastPlayTime(playerData.cidHistory, playerData.cid, data.optLong("last_play_time", 0));
+        // 「有没有上次观看记录」不能看 progress：上面那行在 last_play_cid != cid 时会把它丢成 0。
+        // 多P 视频"续到上次那个P"要的就是这个原值（反馈 #83），判据见 MultiPageResumePolicy。
+        playerData.lastPlayTimeMs = Math.max(0L, data.optLong("last_play_time", 0));
 
         if (playerData.cidHistory == 0) {
             playerData.cidHistory = playerData.cid;
@@ -289,6 +292,9 @@ public class PlayerApi {
         //请求的 cid 与上次播放的 cid 不一致时（多P视频换P续播）不能把别的P的进度套在本P上，应从 0 开始
         playerData.cidHistory = data.optLong("last_play_cid", 0);
         playerData.progress = adoptLastPlayTime(playerData.cidHistory, playerData.cid, data.optLong("last_play_time", 0));
+        // 「有没有上次观看记录」不能看 progress：上面那行在 last_play_cid != cid 时会把它丢成 0。
+        // 多P 视频"续到上次那个P"要的就是这个原值（反馈 #83），判据见 MultiPageResumePolicy。
+        playerData.lastPlayTimeMs = Math.max(0L, data.optLong("last_play_time", 0));
 
         if (playerData.cidHistory == 0) {
             playerData.cidHistory = playerData.cid;
@@ -356,6 +362,9 @@ public class PlayerApi {
         //番剧取流接口(pgc/player/web/playurl)的 result 不返回 last_play_*，续播进度必须单独查询，
         //否则 playerData.progress 一直是 0 —— 这正是"番剧每次进去都从头播"的原因
         playerData.cidHistory = playerData.cid;
+        // 番剧不走「续到上次那个分P」的判据（那是分P 维度，番剧是季/集维度，由 PGC 心跳负责），
+        // 这里显式置 0，避免调用方复用一个带脏值的 PlayerData。
+        playerData.lastPlayTimeMs = 0;
         long lastProgress = getLastPlayProgress(playerData.aid, playerData.cid);
         if (lastProgress <= 0) {
             //WBI 接口(密钥/风控/未登录)取不到时兜底走观看记录列表，否则续播会永远从 0 开始。
