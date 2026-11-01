@@ -930,6 +930,16 @@
   - **未验**：#78（短视频需要登录态与真实 feed）、#51（需按 `docs/review/agent-test-guide.md` §4.9 伪造双文件缓存）、4 处崩溃兜底（要复现崩溃条件）。三处以代码走查 + 构建/单测为准。
   - **顺带发现（待查）**：该 AVD 上历史记录浮层 `history_recyclerview` 覆盖 ViewPager 区域，从屏幕中间横滑会被它吃掉，只有贴右边缘起滑才翻页；真机是否同样需要再确认。
 
+### 3.97 两条 26.11.01 新反馈：取流失败文案 / 圆屏列表长条目过度缩放（26.11.01）
+
+- **缘起**：§3.96 清账后新到的两条反馈（#80、#79），都是 26.11.01 版上报，一条是取流失败的报错文案、一条是实验效果的边界。
+- **#80「进视频详情页提示 no valve for durl」**：原文是 org.json 的 `JSONException: No value for durl`。详情页 `VideoInfoFragment` 进页会预取播放地址（`PlayerApi.getVideo`），而退回 10.27 的取流实现是裸 `data.getJSONArray("durl")`；付费/充电专属、地区限制、需登录、互动视频等稿件本来就不返回 durl，异常被 `MsgUtil.err` 原样弹成报错框。修法：`getVideo` / `getBangumi` 改用 `optJSONObject` / `optJSONArray` 判空，取不到时抛新的 `PlayerApi.NoPlayUrlException`（继承 `JSONException`，调用点既有的 catch 分支不用改），文案由纯函数 `PlayerApi.describePlayUrlFailure` 生成（优先服务端 message，其次接口码，最后通用原因）；详情页预取把这个异常降级成「只记日志」，点播放时再用同一句原因提示（新增 `playUrlError` 字段），不再空弹「视频信息还在加载中」。
+- **#79「圆屏列表遇评论区长图会把整条评论缩小、透明度很高」**：`RoundListEffect.transform` 原来按**条目中心**算离屏幕中心的距离。带长图的评论条目很高（但没到「接近整屏高就跳过」的阈值），中心点已经贴到屏缘 → t≈1 → 整条缩到 0.5、淡到 0.15，而它明明有一部分就在屏幕中间。修法：判定抽到纯逻辑 `ui/appearance/RoundListEffectMath`，改成按「条目纵向跨度离屏幕中心最近的一点」算距离（跨度覆盖屏幕中心 → t=0，不缩放；完全在中心一侧才按最近边算）；缩放/淡出曲线与「接近整屏高的内容整体跳过」都不变。
+- **验证**：
+  - `assembleDebug` 双 flavor 通过；两 flavor 单测各 **109 suites / 1142 tests / 0 失败**（新增 `RoundListEffectMathTest` 9 例、`PlayerApiPlayUrlTest` 7 例，后者钉住「服务端 message 优先 / 只有接口码 / code=0 但无 durl / 响应为空」四种文案，并断言不再出现 `No value for`）。
+  - 设备侧（AVD `wear5`、Android 14、466×466）：进 `aid=2` 详情页，logcat 可见 `playurl -> 200`、`history>819000,62131`、`qn_val>[80,64,16]`、评论首屏拉取成功，**没有走失败分支**（成功路径无回归）✔；把 `ui_round_list_effect` / `player_ui_round` 打开后冷启动重进菜单页，截图与关闭态不同——首/末项明显收窄变淡、中间项满宽，重构后曲率效果仍生效 ✔（测完已把两个开关恢复成关闭）。
+  - **未验**：#80 的失败形态（要真的打开一个付费/充电专属稿件或该用户的那条稿件）与 #79 的长图评论（要真实评论区长图）都没能在模拟器上构造，靠两个纯逻辑单测钉住；AVD 渲染本身放大溢出，像素级版式结论不可信（同 §3.80）。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。
