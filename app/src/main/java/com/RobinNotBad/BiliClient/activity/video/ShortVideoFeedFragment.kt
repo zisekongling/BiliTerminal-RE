@@ -59,6 +59,16 @@ class ShortVideoFeedFragment : Fragment() {
     /** 当前活跃那页是否真的在播放；宿主据此决定要不要保持亮屏。 */
     fun isCurrentPlaying(): Boolean = feedAdapter?.isCurrentPlaying() == true
 
+    /**
+     * 宿主的可用区域尺寸变了（旋转 / 界面边距 / 圆屏留白）：让各页按新尺寸重摆画面。
+     *
+     * 之前 `ShortVideoPagerAdapter.notifyScreenSizeChanged()` 全仓没有任何调用方，
+     * 转屏后画面会停在旧尺寸；现在由 `ShortVideoPlayerActivity.onConfigurationChanged` 转过来。
+     */
+    fun onHostScreenSizeChanged() {
+        feedAdapter?.notifyScreenSizeChanged()
+    }
+
     /** 本次暂停是否由「外壳横滑」触发，避免把用户自己按的暂停又恢复回来。 */
     private var pausedByShellSwipe = false
 
@@ -81,6 +91,9 @@ class ShortVideoFeedFragment : Fragment() {
         if (!pausedByShellSwipe) return
         pausedByShellSwipe = false
         feedAdapter?.resumeCurrent()
+        // resumeCurrent 在「本来就没暂停」时是空操作，这里补一次重算，
+        // 避免出现「画面在播、窗口却没有 KEEP_SCREEN_ON」的中间态。
+        host.syncKeepScreenOn()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -201,6 +214,10 @@ class ShortVideoFeedFragment : Fragment() {
         if (wasPlayingWhenPaused) {
             feedAdapter?.resumeCurrent()
         }
+        // 回到前台无条件重算一次亮屏：`wasPlayingWhenPaused` 依赖 onPause 那一刻 activeHolder
+        // 还在（被回收/换页时会取到 false），只靠它决定续播会出现「播放器其实在走、
+        // 窗口却没有 KEEP_SCREEN_ON」的中间态，真机表现就是看着看着熄屏。
+        host.syncKeepScreenOn()
     }
 
     override fun onPause() {

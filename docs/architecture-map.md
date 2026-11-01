@@ -1354,6 +1354,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **现状**：长视频页靠 `res/layout/activity_player.xml` 根布局的 `android:keepScreenOn="true"`；短视频页 (`activity_short_video_player.xml` / `fragment_short_video_page.xml`) 原先**一处都没有**，看到一半就熄屏。**新增任何播放页都要记得这件**，它是布局属性、不会被编译器或单测提醒。
 - **要用窗口标志**：`window.addFlags/clearFlags(FLAG_KEEP_SCREEN_ON)`。实测 View 级 `itemView.keepScreenOn` 在 RecyclerView 的 item 上清不干净（暂停后窗口 `fl` 仍带 `KEEP_SCREEN_ON`）。
 - **判据要「重算」不要「增量」**：按「当前活跃播放器是否真的在播」整体重算（`ShortVideoPlayerActivity.syncKeepScreenOn()`），并在 `onStop` 兜底清、`onStart` 回前台重算。增量 add/clear 会漏掉「本来就没在播」的路径（`releasePlayer()`），漏一次就是永久亮屏。
+- **26.11.01 补的三道闸**（用户报「保持亮屏功能丢失」）：① `syncKeepScreenOn()` 必须叠加**前台判据**（`isForeground`，`onStart` 置真 / `onStop` 置假）——判据链要穿 `shellAdapter → activeFeedFragment → PageHolder` 四层，页面不可见时 prepare 完成也会把 `isPlaying` 置真，无条件 `addFlags` 会给已 stop 的窗口挂永久亮屏；② `onStart` 里那次重算必然早于 Fragment 的 `onResume`（此时还在暂停态、算出来是 false），所以 `onResume` 与 `ShortVideoFeedFragment.onResume/onResumeAfterShellSwipe` 各补一次；③ `isPlaying` 跟 `playerBridge.isPlaying` 真值对齐（state 采样里兜底），且 `PageHolder.play()` 不许在 `!isPrepared` 时把它置真（以前取流失败 / prepare 没完成也会置真 → 永久亮屏）。
 - **别拿 `mWakefulness` 当验证判据**：MuMu 模拟器本身不自动熄屏（桌面对照 22 秒后仍 `Awake`），要看 `dumpsys window windows` 里窗口的 `fl` 是否含 `KEEP_SCREEN_ON`。
 
 ### 7.53 顶栏双击：必须自己接管触摸，用 `performClick()` 回放原动作（26.10.22，issue #22）
@@ -1392,6 +1393,15 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **UI 约定**：按钮是操作行的 `item_reply_translate`（文A 图标，contentDescription=`text_reply_translate`），译文写在正文下方的 `replyTranslation`；译文只替换正文，不发新的评论请求。列表的 `realPosition` 与 adapter 下标差 1（`isDetail` 时差 2），点按钮时必须用 `ReplyAdapter` 里同一套映射反推，不要把 position 直接当 `replyList` 下标。
 - **限制**：`grpc.biliapi.net` 只有 HTTP/2，API 19/20 没有 ALPN 会直接 `IOException`（OkHttp 不自动降级），按普通网络失败提示。楼中楼内嵌预览（`cell_reply_child` 的纯 TextView）不参与翻译，只有列表行 / 详情页行有按钮。
 - **测试**：`app/src/test/java/com/RobinNotBad/BiliClient/api/ReplyTranslateApiTest.kt`（22 例：帧头、hex 黄金样本、packed rpids、int64 负数补位、locale base64（含「目标语言必须是 zh」的护栏）、空/坏数据容错）与 `model/ReplyTranslationTest.kt`（7 例：三种译文状态与 toggle）。
+
+### 7.58 短视频画面尺寸必须由播放器状态驱动，不能只在 `onPrepared` 算一次（26.11.01）
+
+- **症状**：短视频画面「被强行拉伸成全屏」。根因链：`PageHolder` 的 `setOnPrepared` 里只从 `PlayerState` 快照读一次 `videoWidth/videoHeight`，`adjustVideoSize()` 在 `videoWidth == 0` 时**静默早退**，而 `TextureView` 的初始 layoutParams 是 `MATCH_PARENT` → 尺寸未知时画面就一直铺满整页（连顶栏/底栏背后一起铺满）。
+- **为什么尺寸会未知**：`IjkPlayerBridge.setOnVideoSizeChangedListener` 一直在更新 `PlayerState`，但**全仓没有消费者**（断头路，自 initial commit 起）。vendored ijk 的尺寸消息取容器 `codecpar`（`outputs/ijk-src/.../ff_ffplay.c` 里先发 `FFP_MSG_VIDEO_SIZE_CHANGED` 再发 `FFP_MSG_PREPARED`）：moov 带分辨率就正常、不带就是 0；而 mediacodec 路径下解码器的补发被注释掉（`ffpipenode_android_mediacodec_vdec.c` 的 `// ffp_notify_msg3(ffp, FFP_MSG_VIDEO_SIZE_CHANGED, ...)`），所以 0 一旦出现就是**永久 0**。短视频为了起播快而设的 `probesize=1024` / `analyzeduration=1` 会放大这个概率。
+- **改法**：把 `PlayerState` 当唯一数据源 —— `PageHolder.applyVideoSizeFromState()` 在 `startStateCollection()` 每轮采样里检查尺寸（去重，真变了才重摆），`onPrepared` 与 `onConfigurationChanged`（经 `ShortVideoFeedFragment.onHostScreenSizeChanged()`）走同一入口；`releasePlayer()` 复位尺寸与去重字段。尺寸为 0 时用 `fallbackRatio`（上一条有效比例，默认 16:9）退化，**绝不留 `MATCH_PARENT`**。
+- **旋转 90/270 要交换宽高**：容器 `codecpar` 给的是未旋转尺寸，解码器出的是旋转后的帧（`mediacodec-auto-rotate=1` + 上面那个 `frame_rotate_degrees` 分支）。`IjkPlayerBridge` 现在把 `MEDIA_INFO_VIDEO_ROTATION_CHANGED` 的 extra 写进 `PlayerState.rotationDegrees`，消费方按它交换；不交换时竖屏视频会按横屏比例摆框，观感同样是「拉伸」。
+- **纯计算抽出来**：`activity/video/ShortVideoLayoutMath.kt`（`fit` / `fitRound` / `swapsWidthHeight` / `sanitizeRatio`）+ `ShortVideoLayoutMathTest` 10 例钉住「9:16 与 16:9 的 letterbox、非法比例退化、非法区域返回 null、圆屏内接圆与夹取、旋转交换判据」。
+- **验证口径**：`logcat | grep ANativeWindow_setBuffersGeometry` 看 surface 的 w/h 是否与视频同比例、`dumpsys window windows | grep "fl="` 看亮屏标志、`logcat | grep "画面尺寸"`（v 级日志）确认真的走了一次重摆。
 
 ## 8. UI 基建速查（新增页面临摹用）
 

@@ -130,6 +130,8 @@
 
 - [ ] **短视频页圆屏适配（§3.65）真机未验证**：只在 MuMu 模拟器（`wm size 320x320` + `wm density 160`）上验过。真机用例：圆屏手表开启「圆屏适配」→ 进短视频页，顶栏标题/返回箭头不贴边、底栏进度条与按钮不被裁角、竖屏视频按内接圆缩小居中且不变形；关闭开关后恢复原样；圆屏开时上下切视频、左右滑详情页、弹幕显示均正常。
 
+- [ ] **短视频画面尺寸 state 驱动（§3.98）的边界形态待真机**：`videoWidth==0` 的真实流（容器无分辨率 / probe 窗过短）与旋转 90/270 的真实视频（`MEDIA_INFO_VIDEO_ROTATION_CHANGED`）模拟器上都构造不出来（B 站 9:16 合一 MP4 尺寸非 0、rotation 全 0），这两条靠 `ShortVideoLayoutMathTest` + 代码走查兜底。真机用例：①刷到「容器元数据不带分辨率」的短视频时画面应留黑边而不是铺满拉伸；②刷到带旋转元数据的竖屏视频时比例正确、不横向压扁；③播放中 Home → 回前台，`dumpsys window windows` 里该窗口的 `fl` 应重新含 `KEEP_SCREEN_ON`；④暂停/切后台时不得残留 `KEEP_SCREEN_ON`。
+
 ### 2.2 功能与工程待办
 
 - [x] ~~**「自动跳过片头片尾」处于撤回状态**~~ ——26.10.22 **已恢复**（默认关闭），恢复清单 ①–④ 已完成，⑤⑥（发版公告与版本号）随下次发版做。§3.3
@@ -939,6 +941,25 @@
   - `assembleDebug` 双 flavor 通过；两 flavor 单测各 **109 suites / 1142 tests / 0 失败**（新增 `RoundListEffectMathTest` 9 例、`PlayerApiPlayUrlTest` 7 例，后者钉住「服务端 message 优先 / 只有接口码 / code=0 但无 durl / 响应为空」四种文案，并断言不再出现 `No value for`）。
   - 设备侧（AVD `wear5`、Android 14、466×466）：进 `aid=2` 详情页，logcat 可见 `playurl -> 200`、`history>819000,62131`、`qn_val>[80,64,16]`、评论首屏拉取成功，**没有走失败分支**（成功路径无回归）✔；把 `ui_round_list_effect` / `player_ui_round` 打开后冷启动重进菜单页，截图与关闭态不同——首/末项明显收窄变淡、中间项满宽，重构后曲率效果仍生效 ✔（测完已把两个开关恢复成关闭）。
   - **未验**：#80 的失败形态（要真的打开一个付费/充电专属稿件或该用户的那条稿件）与 #79 的长图评论（要真实评论区长图）都没能在模拟器上构造，靠两个纯逻辑单测钉住；AVD 渲染本身放大溢出，像素级版式结论不可信（同 §3.80）。
+
+### 3.98 短视频「画面被拉伸铺满整屏」与「保持亮屏丢失」（26.11.01，用户点名）
+
+- **缘起**：用户报「①短视频比例被强行拉伸成全屏 ②短视频保持亮屏功能丢失」，要求看代码定位并修。
+- **先记复现结论（防止误判成回退）**：在 AVD `wear5`（Android 14、466×466、已登录）上用 26.11.01 发行版跑完整个矩阵（默认设置 / 圆屏适配开 / 界面边距 5%·3% / 播放→暂停→恢复→上滑切条→Home→熄屏→横滑详情页→退出重进，两个 flavor 都测）：**两个症状都没复现**——12+ 条 `ANativeWindow_setBuffersGeometry` 全与视频尺寸同比例（`360x640 → 262x466`、圆屏 `228x406`），真在播时窗口 `fl` 一直含 `KEEP_SCREEN_ON`。`git log -S` 与逐行 diff 也确认 §3.90 回退范围不含短视频两文件、`6216c1c`（保亮屏）/ `fbe057f`（圆屏画面尺寸）都还在 HEAD —— **不是回退，是长期设计缺陷**；模拟器上「B 站合一 MP4 的 moov 带分辨率」「AVD/MuMu 不自带熄屏」正好把两条缺陷遮住（后者 §7.52 已记）。
+- **缺陷 1：画面尺寸只在 `onPrepared` 读一次**（→「拉伸成全屏」）
+  - `PageHolder` 从 `PlayerState` 只取一次 `videoWidth/videoHeight`，`adjustVideoSize()` 在 `videoWidth==0` 时**静默早退**，而 `TextureView` 初始是 `MATCH_PARENT` → 尺寸未知时画面一直铺满整页（连顶栏/底栏背后一起铺满）。
+  - 尺寸为什么会未知：尺寸消息来自容器 `codecpar`（`outputs/ijk-src/.../ff_ffplay.c` 先发 `FFP_MSG_VIDEO_SIZE_CHANGED` 再发 `FFP_MSG_PREPARED`），moov 没带分辨率（或被 `probesize=1024` / `analyzeduration=1` 的激进探测窗压掉）时就是 0；mediacodec 路径下解码器的补发被注释掉（`ffpipenode_android_mediacodec_vdec.c`），**0 一旦出现即永久 0**。而 `IjkPlayerBridge.setOnVideoSizeChangedListener` 一直在更新 `PlayerState`，**全仓无消费者**（断头路，自 initial commit 起）。
+  - 更常见的一条成因：`mediacodec-auto-rotate=1` 下容器给未旋转尺寸、解码器出旋转后的帧（同文件 `frame_rotate_degrees` 分支），而 `MEDIA_INFO_VIDEO_ROTATION_CHANGED` 以前没人消费 → 90/270 的竖屏视频按横屏比例摆框，观感同样是「拉伸」。
+  - 改法：`PageHolder.applyVideoSizeFromState()` 在 `startStateCollection()` 每轮采样里检查尺寸（去重，真变了才重摆），`onPrepared` 与 `updateVideoSize()`（接回 `onConfigurationChanged → onHostScreenSizeChanged()`，原先 `notifyScreenSizeChanged()` 零调用方）走同一入口，`releasePlayer()` 复位尺寸与去重字段；未知尺寸用 `fallbackRatio`（上一条有效比例，默认 16:9）退化，**绝不留 `MATCH_PARENT`**；`IjkPlayerBridge` 新增 `PlayerState.rotationDegrees` 并在 `setOnInfoListener` 接 `MEDIA_INFO_VIDEO_ROTATION_CHANGED`；尺寸计算抽成纯逻辑 `activity/video/ShortVideoLayoutMath.kt`。
+- **缺陷 2：保亮屏只挂在一个 setter 上**（→「保持亮屏丢失」）
+  - 判据链 `syncKeepScreenOn()` 要穿 `shellAdapter → activeFeedFragment → PageHolder` 四层；`onStart` 里那次重算必然早于 Fragment 的 `onResume`（此刻还在暂停态、算出来是 false），真正的恢复全靠 `onResume → resumeCurrent()` 再写一次 `isPlaying = true`；而 `wasPlayingWhenPaused` 依赖 `onPause` 那一刻 `activeHolder` 还在（被回收/换页时取到 false）→ 会出现「播放器其实在走、窗口没有 `KEEP_SCREEN_ON`」的窗口，真机就熄屏。
+  - 另两条方向相反的脱钩：`PageHolder.play()` 在 `!isPrepared` 时也把 `isPlaying` 置真（取流失败 / prepare 没完成 → 永久亮屏）；页面不可见时 prepare 完成仍会 `start()` 并置真，把标志加回已 stop 的窗口。
+  - 改法：`syncKeepScreenOn()` 叠**前台判据**（`isForeground`，`onStart`/`onStop` 维护，`onStop` 仍在兜底清）；新增 `onResume()` 与 `ShortVideoFeedFragment.onResume` / `onResumeAfterShellSwipe` 兜底重算；`isPlaying` 在 state 采样里跟 `playerBridge.isPlaying` 真值对齐；`play()` 加 `isPrepared` 守卫；取流失败 / `createPlayer` 失败 / `initPlayer` 异常三条路径补 `isPlaying = false`。
+- **验证**：
+  - `:app:assembleDebug`（standard + coexist）通过；两 flavor 单测各 **110 suites / 1152 tests / 0 失败**（新增 `ShortVideoLayoutMathTest` 10 例：9:16 / 16:9 letterbox、方形、非法比例退化、非法区域返回 null、旋转交换判据、圆屏内接圆与夹取）。
+  - 设备侧（AVD `wear5`，装 `coexist-universal-debug`；`adb install -r` 覆盖已装的 26.11.01，签名同为 debug key，登录态不丢）：默认设置进短视频页 —— logcat 出现新增的 `画面尺寸: 360x640（旋转 0°，区域 466x466）`，`ANativeWindow_setBuffersGeometry: w=262, h=466 => w=360, h=640`（9:16 居中留黑边，未拉伸）✔；窗口 `fl`：播放中 `KEEP_SCREEN_ON` ✔ → 暂停后消失 ✔ → 恢复后回来 ✔ → Home 后消失（新增前台判据生效）✔ → 回 App 自动续播且标志恢复 ✔；上滑切下一条：新页重新应用尺寸（日志只打一次，去重生效）+ 几何 `262x466` + 标志仍在 ✔。圆屏适配开（`player_ui_round=true`）：几何 `w=228, h=406 => 360x640`（内接圆矩形，228/406=0.5616 ≈ 360/640），播放中 `fl` 含 `KEEP_SCREEN_ON` ✔。测完已把 `player_ui_round` 恢复 `false`、原 26.11.01 安装包装回。
+  - **未验**：`videoWidth==0` 的真实流、旋转 90/270 的真实视频、`ui_landscape` / 非默认 `density`；信息流连刷 10+ 条全是 9:16 / rotation=0。前三项靠 `ShortVideoLayoutMathTest` 与代码走查兜底，真机用例登记在 §2.1。
+- **文档**：`docs/architecture-map.md` §7.52 补三道闸 + 新增 §7.58；`docs/agents/pitfalls.md` 保亮屏条目补三道闸、新增画面尺寸条目。
 
 ## 4. 历史章节索引
 

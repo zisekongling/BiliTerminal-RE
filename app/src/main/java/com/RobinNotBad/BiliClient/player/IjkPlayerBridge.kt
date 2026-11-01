@@ -34,7 +34,16 @@ data class PlayerState(
     val errorCode: Int = 0,
     val errorMessage: String? = null,
     val videoWidth: Int = 0,
-    val videoHeight: Int = 0
+    val videoHeight: Int = 0,
+    /**
+     * 视频旋转角（0 / 90 / 180 / 270，来自 `MEDIA_INFO_VIDEO_ROTATION_CHANGED`）。
+     *
+     * 容器元数据里的 `videoWidth/videoHeight` 是**未旋转**的尺寸，而开了
+     * `mediacodec-auto-rotate` 之后解码器输出的是旋转后的帧（见
+     * `ffpipenode_android_mediacodec_vdec.c` 里 `frame_rotate_degrees` 分支）。
+     * 消费方必须按本字段交换宽高，否则 90/270 的竖屏视频会按横屏比例摆框。
+     */
+    val rotationDegrees: Int = 0
 )
 
 class IjkPlayerBridge(
@@ -140,6 +149,11 @@ class IjkPlayerBridge(
                     }
                     IMediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START -> {
                         _state.update { it.copy(isBuffering = false) }
+                    }
+                    IMediaPlayer.MEDIA_INFO_VIDEO_ROTATION_CHANGED -> {
+                        // 旋转角是「容器没带、解码器才知道」的信息，只能从这里拿：
+                        // 消费方按它交换 videoWidth/videoHeight（见 PlayerState.rotationDegrees）。
+                        _state.update { it.copy(rotationDegrees = extra) }
                     }
                 }
                 true
