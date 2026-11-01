@@ -23,7 +23,9 @@ import com.RobinNotBad.BiliClient.model.SubtitleLink;
 import com.RobinNotBad.BiliClient.model.VideoInfo;
 import com.RobinNotBad.BiliClient.service.DownloadService;
 import com.RobinNotBad.BiliClient.util.FileUtil;
+import com.RobinNotBad.BiliClient.util.LocalFileProvider;
 import com.RobinNotBad.BiliClient.util.Logu;
+import com.RobinNotBad.BiliClient.util.MsgUtil;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
 import com.RobinNotBad.BiliClient.util.SettingsKeys;
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
@@ -471,50 +473,7 @@ public class PlayerApi {
         Intent intent = new Intent();
         switch (SharedPreferencesUtil.getString(SettingsKeys.PLAYER, "null")) {
             case "terminalPlayer":
-                intent.setClass(context, PlayerActivity.class);
-                intent.putExtra("url", playerData.videoUrl);
-                intent.putExtra("danmaku", playerData.danmakuUrl);
-                intent.putExtra("title", playerData.title);
-                intent.putExtra("aid", playerData.aid);
-                intent.putExtra("cid", playerData.cid);
-                intent.putExtra("mid", playerData.mid);
-                intent.putExtra("progress", playerData.progress);
-                intent.putExtra("live_mode", playerData.isLive());
-                // 直播的候选地址表随 Intent 一起进播放器：弱网/线路故障时播放器要能在不改请求的前提下换线路。
-                if (playerData.liveUrlCandidates != null && !playerData.liveUrlCandidates.isEmpty()) {
-                    intent.putStringArrayListExtra("live_url_candidates", playerData.liveUrlCandidates);
-                }
-                //番剧维度必须随 Intent 一起进播放器：缺了这三个值，播放器只能按投稿视频上报，
-                //服务端的观看记录与续播进度都不会更新。放在这里而不是各调用点，是为了让
-                //所有入口（详情页、历史列表、缓存列表等）都自动带上。
-                if (playerData.epid != 0) {
-                    intent.putExtra("epid", playerData.epid);
-                    intent.putExtra("seasonId", playerData.seasonId);
-                    intent.putExtra("seasonType", playerData.seasonType);
-                }
-                if (playerData.qnStrList != null && playerData.qnValueList != null) {
-                    intent.putExtra("qnStrList", playerData.qnStrList);
-                    intent.putExtra("qnValueList", playerData.qnValueList);
-                    intent.putExtra("currentQuality", playerData.qn);
-                }
-                if (playerData.pagenames != null && playerData.pagenames.size() > 1) {
-                    intent.putStringArrayListExtra("pagenames", playerData.pagenames);
-                    if (playerData.cids != null) {
-                        long[] cidArray = new long[playerData.cids.size()];
-                        for (int i = 0; i < playerData.cids.size(); i++) {
-                            cidArray[i] = playerData.cids.get(i);
-                        }
-                        intent.putExtra("cids", cidArray);
-                    }
-                    intent.putExtra("currentPageIndex", playerData.currentPageIndex);
-                    // cids 里装的是 cid 还是 aid 必须显式告诉播放器：两种模式的切P 逻辑完全不同，
-                    // 靠 aid != cids[i] 猜在真实多P 下恒真（av 号永不等于 cid），会把 cid 当 aid 查
-                    intent.putExtra("virtual_collection", playerData.virtualCollection);
-                    // 起播那一条的 videoInfo：播放器靠它决定选集卡片上要不要显示「进入分P/进入合集」
-                    // 必须显式转 Parcelable——VideoInfo 同时实现了 Parcelable 和 Serializable，
-                    // 不转的话 putExtra 两个重载都匹配，编译报"引用不明确"
-                    intent.putExtra("enterable_info", (android.os.Parcelable) playerData.enterableInfo);
-                }
+                intent = buildTerminalPlayerIntent(playerData);
                 break;
 
             case "mtvPlayer":
@@ -538,8 +497,18 @@ public class PlayerApi {
 
                 if (playerData.isLocal()) {
                     //本地文件不能直接 Uri.parse(裸路径)：scoped storage 下外部播放器读不到文件，
-                    //必须走 FileProvider 的 content:// 并显式授予一次性只读权限，否则对方打开就报错
-                    intent.setData(getVideoUri(context, playerData.videoUrl));
+                    //必须走 content:// 并显式授予一次性只读权限，否则对方打开就报错。
+                    //先试 FileProvider；外置卷（SD 卡）上的缓存路径不在它的配置根里会抛
+                    //IllegalArgumentException，此时 getVideoUri 会改走本应用自己的只读 provider。
+                    Uri localUri = getVideoUri(context, playerData.videoUrl);
+                    if (localUri == null) {
+                        //连自建 provider 都给不出可读 URI（路径不在任何存储卷内等极端情况）：
+                        //退回内置播放器并提示，绝不让「分享文件失败」把缓存页崩掉。
+                        Logu.e("PlayerApi", "无法把本地文件交给凉腕播放器，改用内置播放器：" + playerData.videoUrl);
+                        MsgUtil.showMsg(context.getString(R.string.msg_player_local_share_fallback));
+                        return buildTerminalPlayerIntent(playerData);
+                    }
+                    intent.setData(localUri);
                     intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 } else {
                     intent.setData(Uri.parse(playerData.videoUrl));
@@ -558,6 +527,63 @@ public class PlayerApi {
             default:
                 intent.setClass(context, SettingPlayerChooseActivity.class);
                 break;
+        }
+        return intent;
+    }
+
+    /**
+     * 内置播放器（terminalPlayer）的跳转 Intent。
+     *
+     * 单独抽成方法是因为它现在有两个入口：用户本来就选的内置播放器，以及「外部播放器拿不到
+     * 可读 URI 时」的兜底（见 {@link #getVideoUri} 与 aliangPlayer 分支）。两处必须完全一致，
+     * 否则兜底播放会丢弹幕、番剧维度、多P/合集信息。
+     */
+    private static Intent buildTerminalPlayerIntent(PlayerData playerData) {
+        Context context = BiliTerminal.context;
+        Intent intent = new Intent();
+        intent.setClass(context, PlayerActivity.class);
+        intent.putExtra("url", playerData.videoUrl);
+        intent.putExtra("danmaku", playerData.danmakuUrl);
+        intent.putExtra("title", playerData.title);
+        intent.putExtra("aid", playerData.aid);
+        intent.putExtra("cid", playerData.cid);
+        intent.putExtra("mid", playerData.mid);
+        intent.putExtra("progress", playerData.progress);
+        intent.putExtra("live_mode", playerData.isLive());
+        // 直播的候选地址表随 Intent 一起进播放器：弱网/线路故障时播放器要能在不改请求的前提下换线路。
+        if (playerData.liveUrlCandidates != null && !playerData.liveUrlCandidates.isEmpty()) {
+            intent.putStringArrayListExtra("live_url_candidates", playerData.liveUrlCandidates);
+        }
+        //番剧维度必须随 Intent 一起进播放器：缺了这三个值，播放器只能按投稿视频上报，
+        //服务端的观看记录与续播进度都不会更新。放在这里而不是各调用点，是为了让
+        //所有入口（详情页、历史列表、缓存列表等）都自动带上。
+        if (playerData.epid != 0) {
+            intent.putExtra("epid", playerData.epid);
+            intent.putExtra("seasonId", playerData.seasonId);
+            intent.putExtra("seasonType", playerData.seasonType);
+        }
+        if (playerData.qnStrList != null && playerData.qnValueList != null) {
+            intent.putExtra("qnStrList", playerData.qnStrList);
+            intent.putExtra("qnValueList", playerData.qnValueList);
+            intent.putExtra("currentQuality", playerData.qn);
+        }
+        if (playerData.pagenames != null && playerData.pagenames.size() > 1) {
+            intent.putStringArrayListExtra("pagenames", playerData.pagenames);
+            if (playerData.cids != null) {
+                long[] cidArray = new long[playerData.cids.size()];
+                for (int i = 0; i < playerData.cids.size(); i++) {
+                    cidArray[i] = playerData.cids.get(i);
+                }
+                intent.putExtra("cids", cidArray);
+            }
+            intent.putExtra("currentPageIndex", playerData.currentPageIndex);
+            // cids 里装的是 cid 还是 aid 必须显式告诉播放器：两种模式的切P 逻辑完全不同，
+            // 靠 aid != cids[i] 猜在真实多P 下恒真（av 号永不等于 cid），会把 cid 当 aid 查
+            intent.putExtra("virtual_collection", playerData.virtualCollection);
+            // 起播那一条的 videoInfo：播放器靠它决定选集卡片上要不要显示「进入分P/进入合集」
+            // 必须显式转 Parcelable——VideoInfo 同时实现了 Parcelable 和 Serializable，
+            // 不转的话 putExtra 两个重载都匹配，编译报"引用不明确"
+            intent.putExtra("enterable_info", (android.os.Parcelable) playerData.enterableInfo);
         }
         return intent;
     }
@@ -593,11 +619,41 @@ public class PlayerApi {
         return sb.toString();
     }
 
+    /**
+     * 为本地文件生成可交给外部播放器读取的 content:// URI。
+     *
+     * 分两级：
+     * ① 先走 androidx 的 FileProvider —— 主卷外部存储、应用外部缓存目录这些都在它的配置根里，
+     *    也是最常见的情形；
+     * ② FileProvider 抛 {@code IllegalArgumentException} 时改走 {@link LocalFileProvider}。
+     *
+     * 为什么必须有第二级：FileProvider 的根来自编译期资源 {@code res/xml/file_paths.xml}，
+     * 而它支持的所有 tag 都只认**主卷**（{@code <external-path>} 取
+     * {@code Environment.getExternalStorageDirectory()}，{@code <external-media-path>} 只取
+     * {@code getExternalMediaDirs()[0]}）。用户把设置里的「缓存路径」改到外置 SD 卡后，缓存文件在
+     * {@code /storage/5C00-1D0E/Android/media/<包名>/<标题>/video.mp4}，一个根都匹配不到，
+     * FileProvider 直接抛 "Failed to find configured root"，点缓存视频用凉腕播放器播放就崩在
+     * 这里（26.11.01 用户现场，Android 6.0）。XML 是静态资源，没法按当前挂载的卷动态长根，
+     * 所以外置卷这条路改由 {@link LocalFileProvider} 运行时按所有卷算。
+     *
+     * @return 可读的 content:// URI；两级都失败时返回 null —— 调用方**必须**降级（改用内置
+     * 播放器），不能把 null 塞进 Intent。
+     */
     public static Uri getVideoUri(Context context, String path) {
         File file = new File(path);
         //authority 必须与 AndroidManifest.xml 里声明的完全一致（大写 F 的 .FileProvider），
         //老代码写死的 ".fileprovider" 与之不符，调用即抛 IllegalArgumentException 找不到 provider
-        return FileProvider.getUriForFile(context, context.getPackageName() + ".FileProvider", file);
+        try {
+            return FileProvider.getUriForFile(context, context.getPackageName() + ".FileProvider", file);
+        } catch (IllegalArgumentException outsideFileProviderRoots) {
+            // 只吞 IllegalArgumentException。FileProvider 在这两种情况下抛的就是它：
+            // ① 路径不在任何配置根内（Failed to find configured root，本 bug 的现场）；
+            // ② authority 对不上/没声明（Couldn't find meta-data for provider…）。
+            // 两种都正好应该走自建 provider，所以一起接住；其它异常类型仍向上抛，别悄悄掩盖。
+            Logu.w("PlayerApi", "文件不在 FileProvider 配置根内（多为外置卷），改走 LocalFileProvider："
+                    + path + " -> " + outsideFileProviderRoots.getMessage());
+            return LocalFileProvider.getUriForFile(context, file);
+        }
 
         // 因为在文件夹里放了.nomedia标识，现在不能用这个了
         /*

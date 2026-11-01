@@ -1938,6 +1938,22 @@ TTF/OTF/TTC，应用把它**拷进私有目录**（`filesDir/custom_font/custom_
 
 ---
 
+### 7.59 本地文件交给外部播放器：FileProvider 只认主卷，外置卷必须走自建 provider（26.11.01）
+
+- **现场**：用户（Android 6.0 手表）把设置里「缓存路径」改到外置 SD 卡后，点缓存视频用凉腕播放器（`com.aliangmaker.media`）播放就崩：`java.lang.IllegalArgumentException: Failed to find configured root that contains /storage/5C00-1D0E/Android/media/com.RobinNotBad.BiliClient.coexist/<标题>/video.mp4`，栈顶是 `FileProvider.getUriForFile`（经 `PlayerApi.getVideoUri` 的 R8 内联帧）。
+- **根因**：`androidx.core` 的 FileProvider（1.13.1 源码实测）解析 `file_paths.xml` 时，`<external-path>` 取 `Environment.getExternalStorageDirectory()`、`<external-media-path>` 取 `getExternalMediaDirs()[0]`、`<external-files-path>` / `<external-cache-path>` 取对应数组的 `[0]` —— **全部是主卷**。外置卷（`/storage/XXXX-XXXX/...`）上的路径一个根都匹配不到。XML 是编译期资源，没法按当前挂载的卷动态长根；历史上能覆盖它的 `<root-path path="" />` 已被审计 M12-e 删掉（那条等于把 `/data`、`/system` 一起登记进可授权范围）。
+- **改法**（两级 + 兜底，任何一级失败都不许崩）：
+  1. `PlayerApi.getVideoUri()` 先照旧走 FileProvider（主卷 / 应用外部缓存目录这些最常见情形行为不变）；
+  2. 只捕获 `IllegalArgumentException`（正是「路径不在配置根内」的异常类型），改走新增的 `util/LocalFileProvider`：只读 `ContentProvider`，authority `${applicationId}.LocalFileProvider`，URI 形如 `content://<authority>/f/<Uri.encode(规范绝对路径)>`；
+  3. 两级都拿不到 URI（路径不在任何存储卷内等极端情况）时**返回 null**，`jumpToPlayer` 回落 `buildTerminalPlayerIntent()` 用内置播放器打开并提示 `msg_player_local_share_fallback` —— 分享文件失败绝不能把缓存页带崩。
+- **根目录怎么来**：`util/SharedFileRoots.collect(context)` 运行时收集 —— 主卷根（`Environment.getExternalStorageDirectory()`）+ 每块卷上的应用专属 `files` / `cache` / `media` 目录（`getExternal*Dirs()` 的**全部**元素，不是只取 `[0]`）+ **由这些目录里的 `/Android/` 段反推出的卷根**（覆盖用户把缓存设到 SD 卡上非 `Android/media` 目录）+ 内部 `filesDir/video`（外部存储都取不到时的降级缓存目录，只登记这一个子目录，不是整个 `filesDir` / `cacheDir`）。反推是因为 minSdk 19 上没有「列出所有卷根」的公开 API（`StorageManager.storageVolumes` 要 API 24）。
+- **归属判断是纯函数**：`util/SharedFilePolicy`（`isUnder` 分段前缀、`volumeRoot` 反推、`findContainingRoot` 取最长根、`volumeRoots` 去重），`SharedFilePolicyTest` 14 例钉死「`/a/bc` 不在 `/a/b` 下」「根只剩 `/` 不算共享根」「`/data/user/0/...` 反推不出卷根」「多余斜杠不会被误判成包含」这些边界。
+- **安全边界**（与审计 M12-e 的收窄口径一致，别为了省事再加回 root-path）：`android:exported="false"`（只有本应用能构造 URI）+ `grantUriPermissions="true"`（外部应用只能靠 `ACTION_VIEW` 的一次性读授权拿到那一个 URI）；`openFile` 只接受 `"r"`，`insert` 抛异常、`update` / `delete` 返回 0；解析 URI 时先 `canonicalPath`（消解 `..` 与符号链接）再要求落在共享根内；`query` 只回答 `DISPLAY_NAME` / `SIZE`，不提供任何枚举能力。
+- **一个容易写错的地方**：URI 里把整条绝对路径当成**一个** pathSegment —— 先 `Uri.encode(路径)`（`/` 会被编成 `%2F`）再 `appendEncodedPath()`，解析端 `uri.pathSegments` 才恰好是 `["f", 原路径]`（`resolveFile` 的 `segments.size != 2` 校验依赖它）。`appendPath(canonical)` 是等价写法（它内部同样会 `Uri.encode`，`/` 同样变 `%2F`）；**别用 `path()` / `encodedPath()`**，那两个设置的是整条 path、不是追加段。中文 / 空格 / 《》/ `%` 的编码往返在 API 19~34 上一致（`%` 不在 `Uri.encode` 的保留集合里，会编成 `%25`，不会被当成已有转义）。
+- **验证口径**：设备侧 logcat 应出现 `文件不在 FileProvider 配置根内（多为外置卷），改走 LocalFileProvider：<路径>`，外部播放器进程能 `openInputStream` 读到字节；回归项是主卷默认目录仍然走 `content://<包名>.FileProvider/...`（外部播放器照旧能播）。
+
+---
+
 ## 10. 动手前的检查清单
 
 1. 确认要改的类属于哪一层：`activity/`（UI）→ `api/`（网络+解析）→ `util/`（基建）→ `model/`（数据）。

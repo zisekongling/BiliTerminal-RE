@@ -67,6 +67,17 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- 缓存/下载的本地视频交给外部播放器（凉腕等）时的只读共享通道。
+             FileProvider 的根是编译期资源、只能覆盖「主卷」（androidx 只取
+             getExternalMediaDirs()[0] 等数组第一项）；用户把缓存路径改到外置 SD 卡后
+             路径形如 /storage/XXXX-XXXX/Android/media/<包名>/...，FileProvider 会抛
+             IllegalArgumentException: Failed to find configured root 把页面带崩。
+             这个 provider 在运行时按「所有存储卷」算根，细节见 util/LocalFileProvider.kt。 -->
+        <provider android:name=".util.LocalFileProvider"
+            android:authorities="${applicationId}.LocalFileProvider"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
         <activity
             android:name=".activity.vote.VoteInfoActivity"
             android:exported="false"

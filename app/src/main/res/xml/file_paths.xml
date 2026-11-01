@@ -7,6 +7,12 @@
         · external-media-path path=""   → /storage/emulated/0/Android/media/<包名>/（默认下载目录）
         · external-path path=""         → /storage/emulated/0/（用户自定义的主存储路径、Pictures）
       两者覆盖所有「用户能选到」的保存位置，同时不再包含应用私有数据目录与系统分区。
+
+      注意：这里的根全部是「主卷」语义（androidx 解析 external-media-path 时只取
+      getExternalMediaDirs()[0]，external-path 只取 Environment.getExternalStorageDirectory()）。
+      外置卷（SD 卡，/storage/XXXX-XXXX/...）上的缓存路径不在这里——用户把「缓存路径」改到 SD 卡后，
+      缓存视频交给外部播放器（凉腕）时会走 util/LocalFileProvider（运行时按所有存储卷算根），
+      不要再往这里加 root-path 来兜它（那正是审计 M12-e 删掉的东西）。
     -->
     <external-media-path
         name="ext_media_root"

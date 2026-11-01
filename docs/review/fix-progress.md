@@ -983,6 +983,21 @@
   - 设备侧（AVD `wear5`，Android 14，已登录 mid=591904067）：装新包后进「我的 → 收藏」，日志正常拉到默认收藏夹（1888/50000）、重要收藏夹（23/1000）等，页面正常渲染、无 FATAL / Inconsistency ✔。
   - **未验**：原崩溃的精确触发（要在真机上「进编辑页改名保存 → 返回」并让预取线程刚好在重载窗口取 holder），本次以「不再共享可变列表」的线程模型改造 + 页面正常加载为准；该崩溃 1 次、单机型，先观察后续上报。
 
+### 3.101 外置 SD 卡上的缓存视频用凉腕播放器播放崩溃：`Failed to find configured root`（26.11.01，用户现场）
+
+- **现场**：用户（Android 6.0 手表，凉腕播放器 5.1.0，硬解 / TextureView / AudioTrack）把设置里「缓存路径」改到外置 SD 卡后，点缓存视频用凉腕播放器播放即崩：`java.lang.IllegalArgumentException: Failed to find configured root that contains /storage/5C00-1D0E/Android/media/com.RobinNotBad.BiliClient.coexist/<标题>/video.mp4`，栈顶 `androidx.core.content.FileProvider.d(SourceFile:180)`。崩溃发生在**拉起播放器之前**（`PlayerApi.getVideoUri` 里），与硬解 / Surface / 音频输出设置无关。
+- **根因**：androidx 的 FileProvider 只认**主卷** —— `file_paths.xml` 的 `<external-path>` 取 `Environment.getExternalStorageDirectory()`，`<external-media-path>` 取 `getExternalMediaDirs()[0]`（1.13.1 源码实测）。用户在配置里把缓存目录指到外置卷后，路径形如 `/storage/5C00-1D0E/Android/media/<包名>/…`，没有任何配置根包含它，`getUriForFile` 直接抛异常。XML 是编译期资源，没法按当前挂载的卷动态长根；历史能覆盖它的 `<root-path path="" />` 已被审计 M12-e 删掉。完整分析见 `docs/architecture-map.md` §7.59。
+- **改法**：新增 `util/LocalFileProvider.kt`（只读 `ContentProvider`，authority `${applicationId}.LocalFileProvider`，URI `content://…/f/<Uri.encode(规范绝对路径)>`）+ `util/SharedFileRoots.kt`（运行时收集所有存储卷的根：主卷根、每块卷的 `files` / `cache` / `media` 应用专属目录、由 `/Android/` 段反推的卷根、内部 `filesDir/video`）+ `util/SharedFilePolicy.kt`（纯函数归属判断，`SharedFilePolicyTest` 14 例）。`PlayerApi.getVideoUri` 先照旧走 FileProvider，捕获 `IllegalArgumentException` 后改走自建 provider；两者都拿不到 URI 时返回 null，`jumpToPlayer` 回落 `buildTerminalPlayerIntent()`（从原 `terminalPlayer` 分支原样抽出，逐字段等价）用内置播放器打开并提示 `msg_player_local_share_fallback` —— 分享文件失败不再带崩缓存页。安全边界与 `file_paths.xml` 注释、`docs/agents/pitfalls.md` 已同步（`exported=false` + `grantUriPermissions`，只读，先 `canonicalPath` 再判根，不提供枚举）。
+- **验证**：
+  - `:app:assembleDebug`（standard + coexist）与 `:app:assembleRelease`（standard + coexist，R8）均通过；两 flavor `*DebugUnitTest` 各 **111 suites / 1171 tests / 0 失败**（比本轮前 110 / 1157 新增 `SharedFilePolicyTest` 14 例、合计 +1 suite +14 tests）。
+  - 发布包静态复核：`app/build/outputs/mapping/*Release/mapping.txt` 里 `com.RobinNotBad.BiliClient.util.LocalFileProvider -> com.RobinNotBad.BiliClient.util.LocalFileProvider`（类名没被 R8 改掉）；`app-coexist-universal-release.apk` 的清单里 provider 的 `exported=false` / `grantUriPermissions=true` / `authorities=com.RobinNotBad.BiliClient.coexist.LocalFileProvider` 都在。
+  - **模拟器端到端（主证据：API 23 / Android 6.0，AVD `rebili_api23_sd`，512M SD 卡，外置卷 `/storage/0000-0000`，coexistDebug）**：
+    - 旧包（未修复的 HEAD `47c8a41` 用 `git archive` 独立构建）点外置卷缓存即崩，异常类型 / 消息 / 栈帧（`FileProvider$SimplePathStrategy.getUriForFile` → `PlayerApi.getVideoUri` → `jumpToPlayer` → `CacheListAdapter.playVideo`）与用户现场同型，系统弹「已停止」，全程 0 条外部播放器日志（崩在 `startActivity` 之前）；
+    - 修复包（16:30:57 构建）：不崩、`logcat -b crash` 为空；日志出现「文件不在 FileProvider 配置根内（多为外置卷），改走 LocalFileProvider」；stub 播放器（`com.aliangmaker.media` / `PlayVideoActivity`，另一进程另一 UID：应用 10061 / stub 10062）收到 `content://<包名>.LocalFileProvider/f/%2F…`，`readGrant=true`，`ContentResolver.openInputStream` 读到 **55,881 B = 夹具文件大小**，`getType` = `video/mp4`；
+    - 主卷回归：缓存路径改回 `/storage/emulated/0/Android/media/<包名>` → URI 回到 `content://<包名>.FileProvider/ext_media_root/…`，stub 同样读到 55,881 B、应用不崩。
+    - 补充证据（API 37 / Android 17，`rebili_api37_sd`）：旧包在同一 AVD 上以用户现场那种 `…/Android/media/<包名>` 路径复现同型崩溃。
+  - **仍未覆盖 / 边界**：真机 Android 6.0 手表 + 真实凉腕播放器 5.1.0（模拟器用 stub 播放器验证的是「跨进程拿到 content:// 并读到字节」这条机制，不是凉腕 UI）；API 23 模拟器上 app 进程没有 `media_rw` / `sdcard_rw` 补充组、写不进 SD 的 `Android/media`，所以那一轮的复现路径是同卷 `Android/data/<包名>/files/video`（同根因、同异常、同栈），「真机 SD 的 `Android/media` 可写 + `getExternalMediaDirs()` 枚举到外置卷」这条具体路径目前只有单测覆盖；内置播放器兜底分支与非 mp4 扩展名（`m4s` / `m4a`）未端到端构造。真机回归项见 `docs/review/real-device-regression-checklist.md` 第 250 条。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。
