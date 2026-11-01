@@ -433,10 +433,18 @@ object TerminalDialog {
                 SharedPreferencesUtil.getInt(SettingsKeys.PADDING_H, 0),
                 SharedPreferencesUtil.getInt(SettingsKeys.PADDING_V, 0)
             )
-            val winW = DialogSizing.width(frame)
+            // 圆屏适配打开时再收一次：0.9 × 0.94 的框在圆形表盘上四角落在圆外，
+            // 条目越多、弹窗越高，被表盘切掉的越多（见 DialogSizing.roundBox）。
+            val box = if (SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROUND, false))
+                DialogSizing.roundBox(frame, minOf(screen[0], screen[1]))
+            else
+                DialogSizing.Box(DialogSizing.width(frame), DialogSizing.heightBudget(frame))
             // 高度只给预算（可用高度 × 94%），上下各留一点能「点外面取消」的空白。
-            val budget = DialogSizing.Frame(frame.width, DialogSizing.heightBudget(frame))
-            applyPlan(winW, DialogSizing.plan(budget, naturalScrollHeight(winW), measureParts(winW)))
+            val budget = DialogSizing.Frame(box.width, box.heightBudget)
+            applyPlan(
+                box.width,
+                DialogSizing.plan(budget, naturalScrollHeight(box.width), measureParts(box.width), box.width)
+            )
         }
 
         private fun applyPlan(winW: Int, plan: DialogSizing.Plan) {

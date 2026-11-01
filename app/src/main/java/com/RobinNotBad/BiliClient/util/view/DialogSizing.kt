@@ -38,10 +38,27 @@ object DialogSizing {
      * 弹窗高度占可用高度的比例。
      *
      * 不占满是有实际用途的：上下各留一点空白，用户才有地方「点外面取消」
-     * （`FLAG_WATCH_OUTSIDE_TOUCH` 只送窗口外的触摸，窗口贴满上下边就只剩左右两条缝），
-     * 圆屏表盘上也不会把弹窗的上下圆角切掉。
+     * （`FLAG_WATCH_OUTSIDE_TOUCH` 只送窗口外的触摸，窗口贴满上下边就只剩左右两条缝）。
      */
     const val HEIGHT_RATIO = 0.94f
+
+    /**
+     * 圆屏（`player_ui_round`）安全区的收缩余量：按 `屏幕短边 × 余量` 当有效直径去算内接框。
+     *
+     * <h3>为什么圆屏不能直接用 [WIDTH_RATIO] / [HEIGHT_RATIO]</h3>
+     * 那两个比例是给矩形屏幕留的：弹窗居中、`0.9 × 0.94` 的框在矩屏上四角都在屏内，
+     * 换成圆形表盘就落到圆**外面**了。圆上「宽度给足了高度就得收」是硬约束：
+     * 居中的 `w × h` 矩形要整个落在直径 `D` 的圆内，必须满足 `w² + h² ≤ D²`。
+     * 380×380 上按 `0.9 × 0.94` 算是 `342 × 336`，而圆在 `y` 方向离中心 168px 处只剩
+     * `±88px` 宽——弹窗上下两端的左右边缘**整段在圆外**，条目文字被表盘切掉。
+     * 条目越多、弹窗越高，切掉的越多；两三条的短弹窗却看不出问题。这正是用户反馈的
+     * 「部分长按二级菜单没有圆屏适配、显示不全」：长按缓存视频那条菜单是
+     * 标题 + 5 条 + 提示行，属最高的那一个（见 [roundBox]）。
+     */
+    const val ROUND_FIT_MARGIN = 0.97f
+
+    /** `√2`：圆的内接正方形边长 = `直径 / √2`。 */
+    private const val SQRT_2 = 1.4142135f
 
     /** 「界面边距」百分比的合法性上限，与设置页输入框的限制一致（0~30）。 */
     const val MAX_PADDING_PERCENT = 30
@@ -86,8 +103,8 @@ object DialogSizing {
      * 可用区域 = 物理屏幕扣掉用户设置的「界面边距」。
      *
      * 百分比算法与 `BaseActivity.onCreate` 里那段一致（整数运算，`scrW * percent / 100`），
-     * 这样弹窗和在它后面那层页面用的是同一个安全区：圆屏适配（横 5% / 纵 3%）打开时，
-     * 弹窗的角不会被圆形表盘切掉。
+     * 这样弹窗和在它后面那层页面用的是同一个安全区。不过只缩边距**不等于**四角避开圆形
+     * 表盘——那是 [roundBox] 的事（圆屏适配打开时才会走）。
      */
     fun available(widthPx: Int, heightPx: Int, padHPercent: Int, padVPercent: Int): Frame {
         val padH = widthPx * padHPercent.coerceIn(0, MAX_PADDING_PERCENT) / 100
@@ -110,6 +127,46 @@ object DialogSizing {
     fun heightBudget(frame: Frame): Int =
         (frame.height * HEIGHT_RATIO).toInt().coerceIn(1, frame.height.coerceAtLeast(1))
 
+    /** 窗口框：宽 + 高度预算（px）。 */
+    data class Box(val width: Int, val heightBudget: Int)
+
+    /**
+     * 圆屏窗口框：把 [width] / [heightBudget] 再按「内接矩形」收一次。
+     *
+     * `frame` 是扣完「界面边距」的可用区域，`screenMinPx` 是物理屏幕短边（≈ 表盘直径）。
+     * 先按 `直径 × [ROUND_FIT_MARGIN]` 当有效圆，宽度不超过它的**内接正方形**（`D / √2`），
+     * 再把高度收到这个宽度下的圆内上限 `√(D² - w²)`：
+     *
+     * - 宽高都在圆内 → 上下两端的条目左右边缘不会再被表盘切掉；放不下的部分交给滚动区
+     *   （[plan] 的第 3~6 档），总比"看着少半行"强。
+     * - 宽度留 0.9 而不是直接取内接正方形，是为了在矩形屏/大表盘上不无谓地变窄。
+     *
+     * 380×380 + 横 5% / 纵 3% 的实测值：可用 342×357 → 常规 `307 × 336`（上下两端的左右
+     * 各 110px 在圆外）→ 圆屏 `260 × 261`（四角都在圆内，余量 3%）。
+     */
+    fun roundBox(frame: Frame, screenMinPx: Int): Box {
+        val d = (screenMinPx.coerceAtLeast(1) * ROUND_FIT_MARGIN).toInt().coerceAtLeast(1)
+        val inscribed = (d / SQRT_2).toInt().coerceAtLeast(1)
+        val boxWidth = width(frame).coerceAtMost(inscribed)
+        val limit = kotlin.math.sqrt(
+            (d.toDouble() * d - boxWidth.toDouble() * boxWidth).coerceAtLeast(0.0)
+        ).toInt().coerceAtLeast(1)
+        return Box(boxWidth, heightBudget(frame).coerceAtMost(limit))
+    }
+
+    /**
+     * 居中的 `width × height` 矩形是否整个落在直径 `diameter` 的圆内。
+     *
+     * 真机上看不到圆外的东西，所以圆屏的硬判据就是 `w² + h² ≤ D²`。
+     * 抽成函数是为了让 [DialogSizingTest] 能对着一串屏幕尺寸批量钉死「确实在圆内」。
+     */
+    fun fitsInRoundScreen(width: Int, height: Int, diameter: Int): Boolean {
+        val w = width.toLong()
+        val h = height.toLong()
+        val d = diameter.toLong()
+        return w * w + h * h <= d * d
+    }
+
     /**
      * 选一个放得下的方案。
      *
@@ -121,12 +178,14 @@ object DialogSizing {
      * 只有在舍了提示行仍然放不下时，才按「提示行 → 标题行」的顺序继续让位；标题行是弹窗的身份
      * （如「隐私说明」），比提示行更该留。
      *
-     * @param frame   可用区域（见 [available]）
-     * @param natural 滚动区内容的自然高度（px）
-     * @param parts   除滚动区外的固定部分（px）
+     * @param frame       可用区域（见 [available]）；圆屏该传 [roundBox] 收回来的框
+     * @param natural     滚动区内容的自然高度（px）
+     * @param parts       除滚动区外的固定部分（px）
+     * @param windowWidth 窗口宽度（px），缺省 = [width]`(frame)`。圆屏要显式传 [roundBox] 的宽度，
+     *                    否则这里会按 `frame.width` 重新算一遍把收窄丢掉
      */
-    fun plan(frame: Frame, natural: Int, parts: Parts): Plan {
-        val width = width(frame)
+    fun plan(frame: Frame, natural: Int, parts: Parts, windowWidth: Int = width(frame)): Plan {
+        val width = windowWidth.coerceIn(1, frame.width.coerceAtLeast(1))
         val height = frame.height
         val withHint = parts.padding + parts.title + parts.divider + parts.buttonBar + parts.hint
         val withoutHint = withHint - parts.hint

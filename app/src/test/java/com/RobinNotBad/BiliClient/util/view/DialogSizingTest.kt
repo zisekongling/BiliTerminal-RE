@@ -177,4 +177,63 @@ class DialogSizingTest {
         assertTrue(plan.hideTitle)
         assertEquals(357 - 158, plan.scrollHeight)
     }
+
+    // ---------- 圆屏：弹窗四角必须落在表盘圆内 ----------
+
+    @Test
+    fun 圆屏硬判据就是勾股定理() {
+        // 内接正方形（260×260 在 380 圆上）在圈里；常规的 0.9 × 0.94 在圈外
+        assertTrue(DialogSizing.fitsInRoundScreen(260, 260, 380))
+        assertFalse(DialogSizing.fitsInRoundScreen(307, 336, 380))
+    }
+
+    @Test
+    fun 圆屏窗口框按内接矩形收窄() {
+        // 380 表盘 + 圆屏适配（横 5% / 纵 3%）：可用 342×358 → 常规 307×336 在圆外
+        val frame = DialogSizing.available(380, 380, 5, 3)
+        val box = DialogSizing.roundBox(frame, 380)
+        // 有效直径 380 × 0.97 = 368 → 内接正方形边长 368 / √2 = 260
+        assertEquals(260, box.width)
+        assertEquals(260, box.heightBudget)
+        assertTrue(DialogSizing.fitsInRoundScreen(box.width, box.heightBudget, 380))
+        // 没有边距时同样收在内接正方形里
+        val plain = DialogSizing.roundBox(frame380, 380)
+        assertEquals(260, plain.width)
+        assertEquals(260, plain.heightBudget)
+        assertTrue(DialogSizing.fitsInRoundScreen(plain.width, plain.heightBudget, 380))
+    }
+
+    @Test
+    fun 圆屏窗口框在常见表盘尺寸与边距下都在圆内() {
+        // 圆形手表实测尺寸 320/360/380/400/450/466 + 边距 0/5/15/30 全组合
+        for (d in intArrayOf(320, 360, 380, 400, 450, 466)) {
+            for (pad in intArrayOf(0, 5, 15, 30)) {
+                val frame = DialogSizing.available(d, d, pad, pad)
+                val box = DialogSizing.roundBox(frame, d)
+                assertTrue(
+                    "直径 $d、边距 $pad%：${box.width}×${box.heightBudget} 落在圆外",
+                    DialogSizing.fitsInRoundScreen(box.width, box.heightBudget, d)
+                )
+                // 再窄也不能把窗口收成 0：布局会直接看不见
+                assertTrue(box.width >= 1 && box.heightBudget >= 1)
+                // 不会因为"圆屏"反而比常规宽度还宽
+                assertTrue(box.width <= DialogSizing.width(frame))
+            }
+        }
+    }
+
+    @Test
+    fun 圆屏方案用收回来的宽度而不是重新算一遍() {
+        // 长按缓存视频那条菜单：标题 80 + 5 行 + 提示行，是全屏最高的二级菜单
+        val frame = DialogSizing.available(380, 380, 5, 3)
+        val box = DialogSizing.roundBox(frame, 380)
+        val budget = DialogSizing.Frame(box.width, box.heightBudget)
+        val plan = DialogSizing.plan(budget, natural = 440, parts = parts380, windowWidth = box.width)
+        // 不显式传宽度的话这里会退回 0.9 × 260 = 234，把收窄又算了一遍
+        assertEquals(260, plan.width)
+        // 260 的高度塞不下「标题 + 5 行 + 提示行」→ 让位提示行后正文滚动，整体仍收在圆内
+        assertTrue(plan.hideHint)
+        assertTrue(plan.scrollHeight!! > 0)
+        assertEquals(box.heightBudget, 170 + plan.scrollHeight!!)
+    }
 }
