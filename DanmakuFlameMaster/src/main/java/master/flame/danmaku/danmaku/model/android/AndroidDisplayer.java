@@ -278,7 +278,10 @@ public class AndroidDisplayer extends AbsDisplayer<Canvas, Typeface> {
             // drawing cache
             boolean cacheDrawn = false;
             int result = IRenderer.CACHE_RENDERING;
-            if (danmaku.hasDrawingCache()) {
+            // 线上崩溃 #141：`hasDrawingCache()` 为真时 `danmaku.cache` 仍可能已被置空
+            // （缓存线程释放与渲染线程取用并发），直接 `((DrawingCache) null).get()` 抛 NPE
+            // 会打死渲染线程。这里只做类型判空，取不到就退回直接画文字（下一段分支）。
+            if (danmaku.hasDrawingCache() && danmaku.cache instanceof DrawingCache) {
                 DrawingCacheHolder holder = ((DrawingCache) danmaku.cache).get();
                 if (holder != null) {
                     cacheDrawn = holder.draw(canvas, left, top, alphaPaint);

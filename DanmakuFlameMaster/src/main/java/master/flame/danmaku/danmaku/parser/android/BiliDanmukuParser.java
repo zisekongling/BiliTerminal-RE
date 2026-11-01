@@ -18,6 +18,7 @@ package master.flame.danmaku.danmaku.parser.android;
 
 import android.graphics.Color;
 import android.text.TextUtils;
+import android.util.Log;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -41,6 +42,8 @@ import master.flame.danmaku.danmaku.parser.BaseDanmakuParser;
 import master.flame.danmaku.danmaku.util.DanmakuUtils;
 
 public class BiliDanmukuParser extends BaseDanmakuParser {
+
+    private static final String LOG_TAG = "BiliDanmukuParser";
     
     static {
         System.setProperty("org.xml.sax.driver", "org.xmlpull.v1.sax2.Driver");
@@ -112,23 +115,35 @@ public class BiliDanmukuParser extends BaseDanmakuParser {
                 // 6:用户hash
                 // 7:弹幕id
                 String pValue = attributes.getValue("p");
+                if (pValue == null) {
+                    return;
+                }
                 // parse p value to danmaku
                 String[] values = pValue.split(",");
                 if (values.length > 0) {
-                    long time = (long) (Float.parseFloat(values[0]) * 1000); // 出现时间
-                    int type = Integer.parseInt(values[1]); // 弹幕类型
-                    
-                    if(sharedPreferences != null && type != 7 && type != 8 && sharedPreferences.getBoolean("player_danmaku_forceR2L",false)) type = 1;
-                    
-                    float textSize = Float.parseFloat(values[2]); // 字体大小
-                    int color = Integer.parseInt(values[3]) | 0xFF000000; // 颜色
-                    // int poolType = Integer.parseInt(values[5]); // 弹幕池类型（忽略
-                    item = mContext.mDanmakuFactory.createDanmaku(type, mContext);
-                    if (item != null) {
-                        item.time = time;
-                        item.textSize = textSize * (mDispDensity - 0.6f);
-                        item.textColor = color;
-                        item.textShadowColor = color <= Color.BLACK ? Color.WHITE : Color.BLACK;
+                    try {
+                        long time = (long) (Float.parseFloat(values[0]) * 1000); // 出现时间
+                        int type = Integer.parseInt(values[1]); // 弹幕类型
+
+                        if (sharedPreferences != null && type != 7 && type != 8 && sharedPreferences.getBoolean("player_danmaku_forceR2L", false))
+                            type = 1;
+
+                        float textSize = Float.parseFloat(values[2]); // 字体大小
+                        int color = Integer.parseInt(values[3]) | 0xFF000000; // 颜色
+                        // int poolType = Integer.parseInt(values[5]); // 弹幕池类型（忽略
+                        item = mContext.mDanmakuFactory.createDanmaku(type, mContext);
+                        if (item != null) {
+                            item.time = time;
+                            item.textSize = textSize * (mDispDensity - 0.6f);
+                            item.textColor = color;
+                            item.textShadowColor = color <= Color.BLACK ? Color.WHITE : Color.BLACK;
+                        }
+                    } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
+                        // 单条脏数据不能把整页弹幕解析带崩：本方法跑在 DanmakuFlameMaster 的
+                        // 渲染线程上，异常逸出会直接打死那条线程（表现为「进视频就闪退」或
+                        // 「弹幕一条都不显示」）。只丢这一条，继续解析下一条。
+                        Log.e(LOG_TAG, "弹幕 p 字段解析失败，丢弃该条：" + pValue, e);
+                        item = null;
                     }
                 }
             }
@@ -150,6 +165,19 @@ public class BiliDanmukuParser extends BaseDanmakuParser {
 
         @Override
         public void characters(char[] ch, int start, int length)  {
+            // 高级弹幕（type 7）的字段由上游下发，可能出现小数形式的整数位（线上实测
+            // "2188.43537415" 被喂给 Integer.parseInt → NumberFormatException）。
+            // 本方法跑在渲染线程上，异常逸出会打死整条线程，所以统一在这里兜住：
+            // 坏一条就丢一条，其它弹幕照常显示。
+            try {
+                charactersUnsafe(ch, start, length);
+            } catch (NumberFormatException e) {
+                Log.e(LOG_TAG, "弹幕字段数值解析失败，丢弃该条：" + e.getMessage());
+                item = null;
+            }
+        }
+
+        private void charactersUnsafe(char[] ch, int start, int length)  {
             if (item != null) {
                 DanmakuUtils.fillText(item, decodeXmlString(new String(ch, start, length)));
                 item.index = index++;
@@ -197,7 +225,8 @@ public class BiliDanmukuParser extends BaseDanmakuParser {
                         endX = Float.parseFloat(textArr[7]);
                         endY = Float.parseFloat(textArr[8]);
                         if(!"".equals(textArr[9])){
-                            translationDuration = Integer.parseInt(textArr[9]);
+                            // 上游可能把整数位写成小数（线上崩溃 #128/#129 的 "2188.43537415"）
+                            translationDuration = (long) Float.parseFloat(textArr[9]);
                         }
                         if(!"".equals(textArr[10])){
                             translationStartDelay = (long) (Float.parseFloat(textArr[10]));
