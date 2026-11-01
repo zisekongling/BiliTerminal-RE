@@ -24,7 +24,12 @@ object PlayerZoomPolicy {
  *
  * [scaleX]/[scaleY] 传画面的**实际**缩放比例，不是手势过程的临时标志：已缩放时不消费，
  * 把单指拖动留给查看画面。这与设置项「左右滑动控制进度」的描述
- * 「在视频区域左右滑动快进/快退（未缩放视频时生效）」一致。
+ * 「在视频区域左右滑动快进/快退（未缩放视频、未长按加速时生效）」一致。
+ *
+ * [longPressBoost] 传「长按加速是否正被按住」：按住期间横滑不消费，松手恢复。
+ * 26.10.30 修的正是「长按加速时横滑仍会改进度」——长按是个按住不放的瞬时动作，
+ * 手指稍微横移一点就触发进度跳变，松手时还会把进度 seek 到那里。
+ * **26.11.02 这条判据被 §3.90 的整体回退砍掉过，本次原样补回**，别再当成没做过。
  */
 object PlayerSwipeSeekPolicy {
     fun isSeekAllowed(
@@ -33,8 +38,9 @@ object PlayerSwipeSeekPolicy {
         isLive: Boolean,
         playerReady: Boolean,
         scaleX: Float,
-        scaleY: Float
+        scaleY: Float,
+        longPressBoost: Boolean
     ): Boolean =
-        swipeSeekEnabled && prepared && !isLive && playerReady &&
+        swipeSeekEnabled && prepared && !isLive && playerReady && !longPressBoost &&
             !PlayerZoomPolicy.isZoomed(scaleX, scaleY)
 }

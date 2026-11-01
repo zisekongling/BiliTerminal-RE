@@ -1089,15 +1089,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                             previousY = event.getY(if (index == 0) 1 else 0)
                         }
                     }
-                    MotionEvent.ACTION_UP -> {
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                         handleSwipeSeekTouch(event)
-                        if (onLongClick) {
-                            onLongClick = false
-                            val normalSpeed = speed_values[seekbar_speed.progress]
-                            ijkPlayer?.setSpeed(normalSpeed)
-                            danmakuManager?.setSpeed(normalSpeed)
-                            text_speed.text = speed_strs[seekbar_speed.progress]
-                        }
+                        endLongPressBoost()
                         if (gesture_moved) gesture_moved = false
                         if (gesture_scaled) gesture_scaled = false
                     }
@@ -1116,12 +1110,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     doubleTapGestureDetector!!.onTouchEvent(motionEvent)
                 }
                 handleSwipeSeekTouch(motionEvent)
-                if (motionEvent.action == MotionEvent.ACTION_UP && onLongClick) {
-                    onLongClick = false
-                    val normalSpeed = speed_values[seekbar_speed.progress]
-                    ijkPlayer?.setSpeed(normalSpeed)
-                    danmakuManager?.setSpeed(normalSpeed)
-                    text_speed.text = speed_strs[seekbar_speed.progress]
+                if (motionEvent.action == MotionEvent.ACTION_UP ||
+                    motionEvent.action == MotionEvent.ACTION_CANCEL
+                ) {
+                    endLongPressBoost()
                 }
                 false
             }
@@ -3720,14 +3712,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
     /**
      * 左右滑动控制进度（横向滑动快进/快退）。返回 true 表示事件已被滑动进度消费。
-     * 仅在开启设置、未缩放视频、非直播且已准备就绪时生效。
+     * 仅在开启设置、未缩放视频、非直播、已准备就绪且**没有按住长按加速**时生效。
      */
     private fun handleSwipeSeekTouch(event: MotionEvent): Boolean {
         // 缩放状态取画面的实际比例，不读 gesture_scaled（那个标志在 ACTION_UP 就复位，
         // 捏合放大松手后会把调进度重新放行——26.10.20 修的正是这个）。
+        // 长按加速期间同理：按住时不消费横滑，松手（含 ACTION_CANCEL）后自动恢复。
         val seekAllowed = PlayerSwipeSeekPolicy.isSeekAllowed(
             swipeSeekEnabled, isPrepared, isLiveMode, ijkPlayer != null,
-            layout_video.scaleX, layout_video.scaleY
+            layout_video.scaleX, layout_video.scaleY, onLongClick
         )
         if (!seekAllowed) {
             // 门闸关闭时顺手收掉可能残留的浮层：横滑激活浮层后再捏合缩放，最终 ACTION_UP 会走到
@@ -3781,6 +3774,22 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             }
         }
         return false
+    }
+
+    /**
+     * 结束长按加速，恢复用户选中的倍速与文案。
+     *
+     * **ACTION_UP 与 ACTION_CANCEL 都要调用**：长按加速期间横滑不再消费（见 [PlayerSwipeSeekPolicy]
+     * 的 longPressBoost 门闸），若触摸被父容器/失焦 CANCEL 后 `onLongClick` 卡在 true，
+     * 滑动调进度会被永久拦掉、播放速度也停在长按倍速上。
+     */
+    private fun endLongPressBoost() {
+        if (!onLongClick) return
+        onLongClick = false
+        val normalSpeed = speed_values[seekbar_speed.progress]
+        ijkPlayer?.setSpeed(normalSpeed)
+        danmakuManager?.setSpeed(normalSpeed)
+        text_speed.text = speed_strs[seekbar_speed.progress]
     }
 
     /** 收掉可能残留的滑动进度浮层；浮层与标志都不存在时不动 UI。 */
