@@ -266,10 +266,23 @@ public class PlayerApi {
         url = ConfInfoApi.signWBI(url);
 
         JSONObject body = NetWorkUtil.getJson(url, NetWorkUtil.webHeaders);
-        JSONObject data = body.getJSONObject("data");
-        JSONArray durl = data.getJSONArray("durl");
-        JSONObject video_url = durl.getJSONObject(0);
-        playerData.videoUrl = video_url.getString("url");
+        JSONObject data = body.optJSONObject("data");
+        JSONArray durl = data == null ? null : data.optJSONArray("durl");
+        if (durl == null || durl.length() == 0) {
+            // 反馈 #80：部分稿件（付费/充电专属、地区限制、需要登录、互动视频走错接口……）
+            // 的 playurl 不带 durl，或者干脆把错误码放在 data 里。原来直接
+            // data.getJSONArray("durl") 会抛 JSONException("No value for durl")，
+            // 而详情页的取流预取（VideoInfoFragment）会把它原样弹给用户。
+            String detail = describePlayUrlFailure(body);
+            Logu.e("PlayerApi", "取播放地址失败：" + detail
+                    + "；aid=" + playerData.aid + " cid=" + playerData.cid
+                    + " dataKeys=" + (data == null ? "null" : data.names().toString()));
+            throw new NoPlayUrlException(detail);
+        }
+        playerData.videoUrl = durl.getJSONObject(0).optString("url");
+        if (playerData.videoUrl == null || playerData.videoUrl.isEmpty()) {
+            throw new NoPlayUrlException("无法获取播放地址（该视频可能为付费/充电专属、地区限制或需要登录）");
+        }
         //last_play_cid/last_play_time 是 aid 级"上次播放"数据：进度只属于 last_play_cid 那一P。
         //请求的 cid 与上次播放的 cid 不一致时（多P视频换P续播）不能把别的P的进度套在本P上，应从 0 开始
         playerData.cidHistory = data.optLong("last_play_cid", 0);
@@ -320,10 +333,21 @@ public class PlayerApi {
         JSONObject body = NetWorkUtil.getJson(url);
         Logu.v(body.toString());
 
-        JSONObject data = body.getJSONObject("result");
-        JSONArray durl = data.getJSONArray("durl");
-        JSONObject video_url = durl.getJSONObject(0);
-        playerData.videoUrl = video_url.getString("url");
+        JSONObject data = body.optJSONObject("result");
+        JSONArray durl = data == null ? null : data.optJSONArray("durl");
+        if (durl == null || durl.length() == 0) {
+            // 同 getVideo：番剧/影视的 pgc/player/web/playurl 也可能只回错误码而没有 durl
+            // （未登录、地区限制、大会员专享）。给一句能看懂的话，别把 org.json 的异常弹给用户。
+            String detail = describePlayUrlFailure(body);
+            Logu.e("PlayerApi", "番剧取播放地址失败：" + detail
+                    + "；aid=" + playerData.aid + " cid=" + playerData.cid
+                    + " resultKeys=" + (data == null ? "null" : data.names().toString()));
+            throw new NoPlayUrlException(detail);
+        }
+        playerData.videoUrl = durl.getJSONObject(0).optString("url");
+        if (playerData.videoUrl == null || playerData.videoUrl.isEmpty()) {
+            throw new NoPlayUrlException("无法获取播放地址（该番剧可能为大会员专享、地区限制或需要登录）");
+        }
 
         playerData.danmakuUrl = "https://comment.bilibili.com/" + playerData.cid + ".xml";
 
@@ -885,5 +909,36 @@ public class PlayerApi {
         if (bvid != null && !bvid.isEmpty()) return "https://www.bilibili.com/video/" + bvid;
         if (aid > 0) return "https://www.bilibili.com/video/av" + aid;
         return "https://www.bilibili.com/";
+    }
+
+    /**
+     * playurl 没给出可播地址时，把响应翻成一句用户能看懂的话（反馈 #80）。
+     *
+     * 判定顺序：服务端 message 优先（B 站 message 本来就是中文，比如「大会员专享」），
+     * 其次只说接口码，最后给通用原因。**不要**把 org.json 的
+     * `No value for durl` 这类库内部文案直接弹给用户。
+     *
+     * @param body playurl 的完整响应体，可为 null
+     */
+    public static String describePlayUrlFailure(JSONObject body) {
+        if (body == null) return "无法获取播放地址（响应为空，请稍后重试）";
+        int code = body.optInt("code", 0);
+        String message = body.optString("message", "");
+        if (code != 0 && !message.isEmpty()) return "无法获取播放地址（" + message + "）";
+        if (code != 0) return "无法获取播放地址（接口返回 " + code + "）";
+        return "无法获取播放地址（该视频可能为付费/充电专属、地区限制或需要登录）";
+    }
+
+    /**
+     * playurl 没返回可播放地址（付费/充电专属、地区限制、需登录、番剧走错接口等）。
+     *
+     * 继承 {@link JSONException}：`getVideo` / `getBangumi` 的签名本来就声明抛它，
+     * 所有调用点已有的 `catch (JSONException)` 分支不用改，只是文案从
+     * `No value for durl` 变成本类的可读提示。
+     */
+    public static class NoPlayUrlException extends JSONException {
+        public NoPlayUrlException(String message) {
+            super(message);
+        }
     }
 }

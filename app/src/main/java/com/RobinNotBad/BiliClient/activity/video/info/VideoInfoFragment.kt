@@ -159,6 +159,14 @@ class VideoInfoFragment : BaseFragment() {
      */
     @Volatile
     private var playerData: PlayerData? = null
+
+    /**
+     * 取流预取失败的具体原因（反馈 #80）。
+     *
+     * 详情页的预取只是「顺带填好 playerData」，失败不该用报错弹窗打断阅读；
+     * 真正点播放时再把这句原因提示出来。
+     */
+    private var playUrlError: String? = null
     private var aid: Long = 0
     private var bvid: String? = null
     private lateinit var description: TextView
@@ -364,7 +372,14 @@ class VideoInfoFragment : BaseFragment() {
                 // 判据见 shouldReportHistoryOnEnter。
                 if (shouldReportHistoryOnEnter(data.cidHistory, data.cid))
                     HistoryApi.reportHistory(videoInfo!!.aid, data.cid, (data.progress / 1000).toLong())
+                playUrlError = null
                 playerData = data
+            } catch (e: PlayerApi.NoPlayUrlException) {
+                // 反馈 #80：付费/充电专属、地区限制、需登录这类稿件本来就取不到播放地址。
+                // 预取失败只记日志，不弹 "No value for durl" 那种库内部报错；
+                // 用户点播放时 playClick 会把同一句原因再提示一次。
+                playUrlError = e.message
+                Logu.e("VideoInfo", "预取播放地址失败：" + e.message)
             } catch (e: Exception) {
                 MsgUtil.err(e)
             }
@@ -759,7 +774,8 @@ class VideoInfoFragment : BaseFragment() {
         // 再用 aid 校验一次，确保交给播放器的不是"上一个视频"残留的数据。
         val data = playerData
         if (data == null || data.aid != videoInfo!!.aid) {
-            MsgUtil.showMsg(UiText.of("视频信息还在加载中"))
+            // 预取失败过的情形要说出具体原因，而不是笼统的「还在加载中」（反馈 #80）
+            MsgUtil.showMsg(UiText.of(playUrlError ?: "视频信息还在加载中"))
             return
         }
 
