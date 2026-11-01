@@ -912,6 +912,24 @@
 - **验证**：`assembleDebug` 通过；`testStandardDebugUnitTest` / `testCoexistDebugUnitTest` 各 **107 suites / 1126 tests / 0 失败 0 错误 0 跳过**（含 `private/` 注入配置；新增 `VirtualCollectionPrefsTest` 10 例）。
 - **遗留 / 真机待验**：① 音频、视频合集卡片（`favType != 2`）点击仍按视频处理，是改动前既有行为，本次未扩大范围；② 真机交互待验：默认（功能一开/功能二关）点卡片应进详情页、长按应多出「以虚拟合集连播」、打开功能二后点卡片应整夹连播；缓存文件夹点视频应直接播且功能一关时只播单条。
 
+### 3.96 控制台清账后的回归修复：弹幕可见性 / 缓存切 P 音轨 / 搜索框 / 选区高亮 + 4 类崩溃兜底（26.11.01）
+
+- **缘起**：用户要求「看看还有什么反馈没做的」。按控制台未处理反馈 16 条 + 未处理崩溃 82 条逐条核对源码与历史记录，发现 **26.10.31 的「播放器整体退回 26.10.27」（§3.90）把 26.10.28 之后落在 `player/**` 与 `activity/player/**` 的修复一并回退了**，老反馈因此复发：26.11.01 新报的 #78 就是 26.10.28 修过的 #55。
+- **#78/#55 短视频关掉弹幕仍会出弹幕**（26.10.28 只修好了一半）：`ShortVideoPlayerActivity` 那半（Activity 级开关、`PLAYER_DEFAULT_DANMAKU` 开播）还在，但 `player/DanmakuManager.kt` 的 `prepared()` 补 `hide()` 那半被 §3.90 回退掉了。`show()`/`hide()` 都有 `isPrepared` 守卫、只把意图写进 `state`，而短视频每条视频都新建 `DanmakuManager`、长视频切 P 也重建，prepare 之前那次 `hide()` 于是被丢弃，新 manager 按默认可见起播。修法：`prepared()` 里 `isPrepared = true` 之后按 `state.isVisible` 补一次 `danmakuView.hide()`。
+- **#51 缓存双文件切 P 丢外挂音轨**：`LocalListActivity.playVirtualCollection` 的起播音轨（26.10.28 修的）还在，但 `PlayerActivity.switchToLocalPage` / `doSwitchPage` 又被回退成「只读 videoFileList、切 P 时 audioTrackUrl 置 null」。修法：`switchToLocalPage` 读 `audioFileList`，`doSwitchPage` 增加第 4 个参数 `newAudioTrackUrl`，`audioTrackUrl` 用本页音轨（在线切 P 传空串）。
+- **#42 空关键词切分类后搜索框消失**：`SearchActivity` 的 `ViewPager2.onPageScrolled` 里有一句 `onScrolled(256)`——那是 26.10.26「按用户要求逐字回退」时留下的模拟滚动，方向正好是「收起搜索框」；空关键词时分类页没有内容可滚，收起后没有任何事件把它拉回，只能切走再切回搜索。删掉这一句，搜索框显隐只由真实列表滚动驱动。
+- **#56 复制页选中区间看不见**：8 个 `EditTextStyle*` 都没定义 `android:textColorHighlight`，选中区间只有默认浅色底、压在自定义 `background_edittext` 上几乎看不出。新增 `@color/text_selection_highlight`（`#55FF6699`，33% 品牌粉）并加到全部 8 个 `EditTextStyle*`。
+- **崩溃类 6（PlayerActivity「Only fullscreen…」/「Unable to destroy」）**：`e95d4ea` 给 `onDestroy` 里 `requestedOrientation=` 加的 try/catch 随 §3.90 一起被删，HEAD 上又是裸赋值。按原样加回：只要求还原方向，失败只记日志、不阻断后续清理。
+- **崩溃 159（pointerIndex，图片页）**：图片查看器的 `PhotoViewpager` 是裸 `ViewPager` 子类，没套 `SafeViewPager` 的指针兜底。把 `guardPointerIndexCrash` 提成文件级 `internal inline` 函数，`SafeViewPager` 与 `PhotoViewpager` 的 `onInterceptTouchEvent` / `onTouchEvent` 共用。
+- **崩溃 128/129（`BiliDanmukuParser` NumberFormatException）**：`p` 字段与高级弹幕的整数字段可能被上游写成小数（线上实测 `2188.43537415` 喂给 `Integer.parseInt`）。解析跑在 DFM 渲染线程上，异常逸出会打死整条线程。修法：`startElement` 的 `p` 解析包 try/catch（只丢这一条），`characters()` 拆成包装 + `charactersUnsafe()` 统一吞 `NumberFormatException`；`textArr[9]` 的时长改为 `Float.parseFloat` 后截断。
+- **崩溃 141（`AndroidDisplayer.draw` 的 DrawingCache NPE）**：`hasDrawingCache()` 为真时 `danmaku.cache` 仍可能已被置空，`.get()` 直接 NPE。改成 `danmaku.cache instanceof DrawingCache` 判空，取不到就退回直接画文字。
+- **控制台清账**：崩溃 82 → 12（70 条按「已修 / 老版本」标已处理，保留 12 条：`158`/`159`/`156`/`141`/`132`/`129`/`128`/`123`/`118`/`95`/`88`/`74`）；反馈 #52/#38/#46 已属「已修 / 已解答」，但控制台接口（MCP 侧）只暴露崩溃的 handled 开关、没有反馈的，需要在 WebUI 手动点。**标记已处理 ≠ 风险清除**：类 6 的 6 条已标，代码修复是这一轮才补回的。
+- **验证**：
+  - `:app:assembleDebug`（standard + coexist）通过；`:app:testStandardDebugUnitTest` / `:app:testCoexistDebugUnitTest` 各 107 suites / 1126 tests / 0 失败。
+  - 设备侧（AVD `wear5`，`sdk_gwear_x86_64` / Android 14 / 466×466，装 `coexist-arm64-v8a-debug`）：#42 用空关键词连续横滑三次（视频 → 番剧 → 用户）后 `searchbar` 仍在 `y=58`、`keywordInput` 存在 ✔；#56 用 `aapt2 dump resources` 确认 8 个 `EditTextStyle*` 的 `android:textColorHighlight`（attr `0x01010099`）都指向 `color/text_selection_highlight` ✔（该 AVD 渲染本身放大溢出，**像素级对照不可信**，与 §3.80 结论一致）。
+  - **未验**：#78（短视频需要登录态与真实 feed）、#51（需按 `docs/review/agent-test-guide.md` §4.9 伪造双文件缓存）、4 处崩溃兜底（要复现崩溃条件）。三处以代码走查 + 构建/单测为准。
+  - **顺带发现（待查）**：该 AVD 上历史记录浮层 `history_recyclerview` 覆盖 ViewPager 区域，从屏幕中间横滑会被它吃掉，只有贴右边缘起滑才翻页；真机是否同样需要再确认。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。
