@@ -210,6 +210,9 @@
     <string name="err_sql">数据库读写错误\n请清理空间或清除软件数据</string>
     <string name="err_login_first">\n建议登陆后再尝试</string>
     <string name="err_rejected">：被B站风控系统拦截了\n（无法解决）</string>
+    <string name="err_generic">错误：</string>
+    <string name="err_adapter">遇到Adapter错误：\n无需上报，除非你在某个界面经常遇到</string>
+    <string name="err_adapter_title">Adapter错误</string>
 
     <string name="desc_icon_license">以下是已知的开源图标的开源许可证信息</string>
     <string-array name="icon_license">
@@ -874,6 +877,10 @@
     <string name="msg_storage_fallback">原缓存目录不可写，已自动改存到应用专属目录：%1$s</string>
     <string name="msg_picture_fallback">原图片目录不可写，已自动改存到应用专属目录：%1$s</string>
     <string name="msg_storage_unavailable">存储空间当前不可写（可能已满或被设为只读），请清理后重试</string>
+    <!-- 图片下载失败（反馈 #17）：图片链路用 Toast 提示——页面此时已经结束，页面内 Snackbar 会跟着窗口一起消失 -->
+    <string name="msg_picture_download_failed">图片下载失败，请检查网络或存储空间后重试</string>
+    <!-- 缓存视频删除失败（反馈 #58）：删除结果必须如实反馈，不能再一律提示「删除成功」 -->
+    <string name="msg_cache_delete_failed">删除失败：%1$s\n文件可能被占用，或当前没有该目录的写入权限，请用文件管理器删除</string>
     <string name="text_danmaku_download_failed">弹幕下载失败！</string>
     <string name="text_load_failed">加载失败</string>
     <!-- ===== 敏感操作前的 Cookie 检查提示（12.4 文案迁移：五批） ===== -->
@@ -2508,4 +2515,11 @@
     <string name="text_image_picker_load_failed">读取相册失败，可以点上方「系统选择器」选图</string>
     <!-- 缩略图的读屏文字 -->
     <string name="text_image_picker_item">图片</string>
+
+    <!-- ==================== 播放器：#61 长按倍速档位 / #83 分P 续播 ==================== -->
+    <!-- 设置项名：与既有的「长按倍速」开关区分开，那一项管开关、这一项管倍率 -->
+    <string name="setting_player_longpress_speed_name">长按倍速档位</string>
+    <string name="setting_player_longpress_speed_desc">长按画面加速时使用的倍率（弹幕一起加速），默认 3.0x</string>
+    <!-- %1$d 是分P 序号（从 1 开始） -->
+    <string name="msg_player_resume_page">继续播放第 %1$d P</string>
 </resources>
