@@ -21,8 +21,8 @@ import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.VideoFolder
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
-import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.ToolsUtil
+import com.RobinNotBad.BiliClient.util.VirtualCollectionPrefs
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
 import com.bumptech.glide.request.RequestOptions
@@ -236,8 +236,14 @@ class CacheListAdapter(
     }
 
     private fun playVideo(video: LocalVideo) {
-        // 虚拟合集模式：在文件夹内播放时，将文件夹内所有视频组成为合集
-        if (currentFolderName.isNotEmpty() && SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.VIRTUAL_COLLECTION_ENABLE, true)) {
+        // 缓存页「点了就播」：功能一（虚拟合集）只决定播单条还是整夹连播。
+        // 功能二（收藏夹视频点击即播）只管收藏夹——本地文件没有「视频详情页」这个主流程，
+        // 点缓存视频却弹出详情页/什么都不做都很怪，所以这里不看功能二。
+        val clickAction = VirtualCollectionPrefs.cacheClickAction(
+            inFolder = currentFolderName.isNotEmpty(),
+            collectionEnabled = VirtualCollectionPrefs.collectionEnabled()
+        )
+        if (clickAction == VirtualCollectionPrefs.ClickAction.PLAY_COLLECTION) {
             onVideoPlayInVirtualCollection?.invoke(currentFolderName, videoList.indexOf(video))
             return
         }

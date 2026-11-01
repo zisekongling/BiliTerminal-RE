@@ -12,14 +12,15 @@ import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
 import com.RobinNotBad.BiliClient.adapter.video.VideoCardAdapter
 import com.RobinNotBad.BiliClient.api.FavoriteApi
 import com.RobinNotBad.BiliClient.api.PlayerApi
+import com.RobinNotBad.BiliClient.api.VideoInfoApi
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.MsgUtil
-import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TerminalDialog
+import com.RobinNotBad.BiliClient.util.VirtualCollectionPrefs
 
 class FavoriteVideoListActivity : RefreshListActivity() {
 
@@ -267,22 +268,37 @@ class FavoriteVideoListActivity : RefreshListActivity() {
 
     private fun bindAdapter(adapter: VideoCardAdapter) {
         adapter.selectedAids = selectedAids
-        // 虚拟合集模式：点击收藏夹内视频，将当前收藏夹所有视频组成合集播放
-        val virtualCollection = SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.VIRTUAL_COLLECTION_ENABLE, true)
+        // 点击行为由两个独立开关决定（设置 → 高级与实验 → 功能开关）：
+        // 「虚拟合集」只负责组合集，「收藏夹视频点击即播」负责点卡片是不是直接播；
+        // 两个都关时回到默认行为——进视频详情页。
+        // 开关在**点击时**读，不在绑定适配器时缓存一次：否则本页开着去设置里改完回来不生效。
         adapter.onItemClickListener = { position, videoCard ->
-            if (selectionMode) {
+            when (VirtualCollectionPrefs.favoriteClickAction(
+                selectionMode = selectionMode,
+                collectionEnabled = VirtualCollectionPrefs.collectionEnabled(),
+                clickPlayEnabled = VirtualCollectionPrefs.clickPlayEnabled()
+            )) {
                 // 多选模式下点击 = 勾选/取消勾选
-                toggleSelected(position)
-            } else if (virtualCollection) {
-                playFavoriteVirtualCollection(position, videoCard.aid, mediaId, folderName)
-            } else {
-                // 关掉虚拟合集时回到默认行为：进视频详情页
-                TerminalContext.getInstance().enterVideoDetailPage(this, videoCard.aid, videoCard.bvid, "video")
+                VirtualCollectionPrefs.ClickAction.SELECT -> toggleSelected(position)
+                VirtualCollectionPrefs.ClickAction.PLAY_COLLECTION ->
+                    playFavoriteVirtualCollection(position, videoCard.aid, mediaId, folderName)
+                VirtualCollectionPrefs.ClickAction.PLAY_SINGLE -> playSingleFavoriteVideo(videoCard)
+                // 功能二关闭（默认）：进视频详情页，想整夹连播走长按菜单
+                VirtualCollectionPrefs.ClickAction.OPEN_DETAIL ->
+                    TerminalContext.getInstance().enterVideoDetailPage(this, videoCard.aid, videoCard.bvid, "video")
             }
         }
 
         adapter.setOnLongClickListener { position -> onItemLongClick(position) }
     }
+
+    /**
+     * 功能一开着、但点卡片不会连播时，长按菜单补一个「以虚拟合集连播」入口。
+     *
+     * 功能二开着时点击本身就是整夹连播，菜单里再给一项只是重复；功能一关着时连播本身就不该提供。
+     */
+    private fun shouldOfferCollectionPlay(): Boolean =
+        VirtualCollectionPrefs.collectionEnabled() && !VirtualCollectionPrefs.clickPlayEnabled()
 
     private fun onItemLongClick(position: Int): Boolean {
         // 多选模式下长按也是勾选，不再弹管理菜单
@@ -308,16 +324,23 @@ class FavoriteVideoListActivity : RefreshListActivity() {
         return true
     }
 
-    /** 别人收藏夹（只读）的长按菜单：只有「视频详情」这一项。 */
+    /** 别人收藏夹（只读）的长按菜单：视频详情 +（功能一开着时）以虚拟合集连播。 */
     private fun showReadOnlyMenu(position: Int) {
         val card = videoList.getOrNull(position) ?: return
+        val actions = ArrayList<FavoriteAction>()
+        actions.add(FavoriteAction(UiText.of("视频详情"), false) {
+            TerminalContext.getInstance().enterVideoDetailPage(this, card.aid, card.bvid, "video")
+        })
+        if (shouldOfferCollectionPlay()) {
+            actions.add(FavoriteAction(UiText.of("以虚拟合集连播"), false) {
+                playFavoriteVirtualCollection(position, card.aid, mediaId, folderName)
+            })
+        }
         TerminalDialog.menu(
             context = this,
             title = card.title,
-            items = listOf(UiText.of("视频详情"))
-        ) {
-            TerminalContext.getInstance().enterVideoDetailPage(this, card.aid, card.bvid, "video")
-        }.show()
+            items = actions.map { it.text }
+        ) { which -> actions[which].action() }.show()
     }
 
     private fun showManageMenu(position: Int) {
@@ -329,6 +352,13 @@ class FavoriteVideoListActivity : RefreshListActivity() {
         actions.add(FavoriteAction(UiText.of("视频详情"), false) {
             TerminalContext.getInstance().enterVideoDetailPage(this, card.aid, card.bvid, "video")
         })
+        // 功能二关闭（默认）时点击不连播，这里补第二个播放入口：整夹连播。
+        // 功能二开着时点击本身就是连播，不必重复给。
+        if (shouldOfferCollectionPlay()) {
+            actions.add(FavoriteAction(UiText.of("以虚拟合集连播"), false) {
+                playFavoriteVirtualCollection(position, card.aid, mediaId, folderName)
+            })
+        }
         actions.add(FavoriteAction(UiText.of("复制到…"), false) { showTargetFolderPicker(card, false) })
         actions.add(FavoriteAction(UiText.of("移动到…"), false) { showTargetFolderPicker(card, true) })
         // 多选的入口。原来靠列表顶上一整行常亮的「多选」按钮，用户反馈那一行平时白占地方，
@@ -444,6 +474,38 @@ class FavoriteVideoListActivity : RefreshListActivity() {
     }
 
     /**
+     * 只播这一条视频（功能二「点卡片直接播放」开着、功能一「虚拟合集」关着）。
+     *
+     * <p>播放列表用 `VideoInfo` 自己的分P：多P 视频会带上它的各分P，和详情页点播放的效果一致；
+     * 不组成收藏夹合集，所以不带 `virtualCollection` 标记。
+     *
+     * <p>`enterableInfo` 仍要带过去：这条要是多P 或属于某个真实合集，播放器的选集卡片上
+     * 才会有「进入分P / 进入合集」那一行（否则播放器拿不到它的 videoInfo）。
+     */
+    private fun playSingleFavoriteVideo(card: VideoCard) {
+        CenterThreadPool.run {
+            try {
+                val videoInfo = VideoInfoApi.getVideoInfo(card.aid)
+                if (videoInfo == null || videoInfo.cids.isEmpty()) {
+                    runOnUiThread { MsgUtil.showMsg(UiText.of("获取视频信息失败")) }
+                    return@run
+                }
+                val playerData = videoInfo.toPlayerData(0)
+                playerData.enterableInfo = videoInfo
+                runOnUiThread {
+                    try {
+                        PlayerApi.startGettingUrl(playerData)
+                    } catch (e: Exception) {
+                        MsgUtil.err(e)
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread { MsgUtil.err(e) }
+            }
+        }
+    }
+
+    /**
      * 播放收藏夹虚拟合集：将收藏夹内的所有视频组成合集，传入播放器实现连续播放
      * @param startPosition 点击的视频在列表中的位置
      * @param startAid 点击的视频aid（作为起始播放位置）
@@ -475,7 +537,7 @@ class FavoriteVideoListActivity : RefreshListActivity() {
 
                 // 获取起始视频的cid
                 val firstAid = if (startPosition < videoList.size) videoList[startPosition].aid else startAid
-                val videoInfo = com.RobinNotBad.BiliClient.api.VideoInfoApi.getVideoInfo(firstAid)
+                val videoInfo = VideoInfoApi.getVideoInfo(firstAid)
                 if (videoInfo != null && videoInfo.cids.isNotEmpty()) {
                     firstCid = videoInfo.cids[0]
                 }

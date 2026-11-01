@@ -335,6 +335,7 @@ object UiText {
         "移动到…" to R.string.uitext_favoritevideolistactivity_008,
         "多选" to R.string.uitext_favoritevideolistactivity_009,
         "取消收藏" to R.string.uitext_favoritevideolistactivity_010,
+        "以虚拟合集连播" to R.string.uitext_favoritevideolistactivity_024,
         "上传头像失败" to R.string.uitext_editprofileactivity_006,
         "修改个人描述失败" to R.string.uitext_editsignactivity_003,
         "修改失败" to R.string.uitext_edituserinfoactivity_004,

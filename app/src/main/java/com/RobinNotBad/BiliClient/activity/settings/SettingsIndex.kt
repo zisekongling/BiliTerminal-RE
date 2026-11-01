@@ -154,6 +154,7 @@ object SettingsIndex {
         list += Entry("新版弹幕获取方式", "切换弹幕获取API") { a -> openGroup(a, "lab", "高级与实验", "新版弹幕获取方式") }
         list += Entry("私信未读标记", "私信未读标记") { a -> openGroup(a, "lab", "高级与实验", "私信未读标记") }
         list += Entry("虚拟合集", "本地缓存/收藏夹自动组成合集") { a -> openGroup(a, "lab", "高级与实验", "虚拟合集") }
+        list += Entry("收藏夹视频点击即播", "在收藏夹里点视频卡片直接播放") { a -> openGroup(a, "lab", "高级与实验", "收藏夹视频点击即播") }
         list += Entry("播放器旋屏兼容方案", "软件旋屏兼容") { a -> openGroup(a, "lab", "高级与实验", "播放器旋屏兼容方案") }
         list += Entry("显示视频分段", "显示章节看点信息") { a -> openGroup(a, "lab", "高级与实验", "显示视频分段") }
         list += Entry("系统媒体控件", "系统媒体会话控件") { a -> openGroup(a, "lab", "高级与实验", "系统媒体控件") }

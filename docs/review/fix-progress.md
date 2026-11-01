@@ -900,6 +900,18 @@
 - **改法**：`VideoCardHolder.getRequestOptions()` 此前每次绑定都 `new RequestOptions().transform(CenterCrop(), RoundedCorners(dp2px(5f)))`——快速滑动时每个条目分配一次，Glide 内部还会再拷贝一份。改为 companion 里 `by lazy` 缓存一份进程级单例：圆角换算用的 `ToolsUtil.dp2px` 读应用级 density（「设置Density」只改各 Activity 自己的 Resources），进程存活期内不变，缓存安全。行为完全不变（同样 CenterCrop + 5dp 圆角）。
 - **验证**：`assembleDebug` + 双 flavor 单测通过（含此前所有单测 0 失败）。耗电的最终定量对比需要真表长时间观察，本次以消除已知浪费点为目标。
 
+### 3.95 「虚拟合集」拆成两个独立功能：组合集 / 收藏夹点击即播（26.11.01，用户要求）
+
+- **缘起（用户报告）**：点收藏夹里的视频卡片会直接进入播放界面，被当成 bug。排查确认不是回归：收藏夹页 `bindAdapter` 用 `adapter.onItemClickListener` 接管了卡片点击，而默认行为本来是 `VideoCardHolder.bindClick` → 视频详情页；且「组合集」与「点卡片直接播」被绑在同一个开关上（默认开），所以只要开着虚拟合集，点卡片的默认行为就永远被覆盖，想进详情页只剩长按菜单。
+- **改法**：拆成两个功能，各自一个开关（设置 → 高级与实验 → 功能开关）：
+  - 「虚拟合集」（`virtual_collection_enable`，默认**开**）：只负责把同一文件夹/收藏夹的视频组成合集（选集切换、自动联播），行为不变。
+  - 「收藏夹视频点击即播」（新增 `virtual_collection_click_play`，默认**关**）：开启后收藏夹里点卡片直接起播；关闭时点卡片进视频详情页（回到老行为）。
+  - 判定收进 `util/VirtualCollectionPrefs.kt`（默认值 + `favoriteClickAction` / `cacheClickAction` 两个纯函数），**开关在点击时读**——顺带修掉旧实现「绑定适配器时读一次、本页开着改开关不生效」。
+  - 功能一开、功能二关时，长按菜单（自己的和别人的收藏夹都）补一项「以虚拟合集连播」；功能二开时点击本身就是连播，不重复给。
+  - 本地缓存文件夹**不受功能二控制**（本地视频没有「视频详情页」这个主流程）：点了就播，功能一只决定单条还是整夹。
+- **验证**：`assembleDebug` 通过；`testStandardDebugUnitTest` / `testCoexistDebugUnitTest` 各 **107 suites / 1126 tests / 0 失败 0 错误 0 跳过**（含 `private/` 注入配置；新增 `VirtualCollectionPrefsTest` 10 例）。
+- **遗留 / 真机待验**：① 音频、视频合集卡片（`favType != 2`）点击仍按视频处理，是改动前既有行为，本次未扩大范围；② 真机交互待验：默认（功能一开/功能二关）点卡片应进详情页、长按应多出「以虚拟合集连播」、打开功能二后点卡片应整夹连播；缓存文件夹点视频应直接播且功能一关时只播单条。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。

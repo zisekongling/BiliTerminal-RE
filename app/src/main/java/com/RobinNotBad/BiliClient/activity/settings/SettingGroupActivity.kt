@@ -39,6 +39,7 @@ import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.TerminalReportPrefs
+import com.RobinNotBad.BiliClient.util.VirtualCollectionPrefs
 
 /** 「外观设置」分组的 group_type 取值。`SettingsIndex` 里跳转该分组时也用这个常量。 */
 const val GROUP_APPEARANCE = "appearance"
@@ -636,7 +637,21 @@ class SettingGroupActivity : RefreshListActivity() {
         title("功能开关")
         switch("新版弹幕获取方式", getString(R.string.desc_new_danmaku_api), SharedPreferencesUtil.NEW_DANMAKU_API, true)
         switch("私信未读标记", getString(R.string.desc_private_msg_unread_badge_enable), SharedPreferencesUtil.PRIVATE_MSG_UNREAD_BADGE_ENABLE, false)
-        switch("虚拟合集", getString(R.string.desc_virtual_collection), SharedPreferencesUtil.VIRTUAL_COLLECTION_ENABLE, true)
+        // 虚拟合集拆成两个独立功能（26.11.01，用户要求）：
+        // 「虚拟合集」= 只负责把同一文件夹/收藏夹的视频组成合集（选集切换 + 自动联播）；
+        // 「收藏夹视频点击即播」= 点卡片直接起播（关着时点卡片进视频详情页）。
+        switch(
+            "虚拟合集",
+            getString(R.string.desc_virtual_collection),
+            VirtualCollectionPrefs.ENABLE,
+            VirtualCollectionPrefs.DEFAULT_ENABLE
+        )
+        switch(
+            "收藏夹视频点击即播",
+            getString(R.string.desc_virtual_collection_click_play),
+            VirtualCollectionPrefs.CLICK_PLAY,
+            VirtualCollectionPrefs.DEFAULT_CLICK_PLAY
+        )
         switch("圆屏列表", getString(R.string.desc_ui_round_list_effect), SettingsKeys.UI_ROUND_LIST_EFFECT, false)
 
         title("播放器兼容")

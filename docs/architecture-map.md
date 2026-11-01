@@ -1270,6 +1270,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - 根目录层的卡片标题用 `rootTitle`，**不要用 `videoTitle`**：后者会被 `doSwitchPage` 改成当前条目名，从嵌套层返回后会显示成「某条目名（1/20）」，看着像文件夹名其实是列表里的某一条。
 - 展平逻辑是纯函数 `model/Collection.toPlaylist`（有单测）：跨节按节顺序、节内按集顺序；`sections` 为空时退回 `cards`。
 - 台账与真机记录见 `docs/review/fix-progress.md` §3.18 / §3.24；接口侧结论见 `docs/bilibili-api-notes.md` §5。
+- **26.11.01 起拆成两个独立开关**（用户要求）：`util/VirtualCollectionPrefs.kt` 统一默认值与判定——`virtual_collection_enable` 只负责"组不组合集"（默认开）；新增 `virtual_collection_click_play` 负责"收藏夹里点卡片是不是直接播"（**默认关**，点卡片回到视频详情页）。收藏夹点击判定是纯函数 `favoriteClickAction`（多选 > 点击即播 > 合集连播 / 单条 > 详情页），且**开关在点击时读**——旧实现是在绑定适配器时读一次缓存住，本页开着去设置里改完回来不生效。功能一开、功能二关时，长按菜单补「以虚拟合集连播」（`shouldOfferCollectionPlay`）。缓存页（本地文件）**不受功能二控制**：`cacheClickAction` 固定"点了就播"，功能一只决定单条还是整夹。两个判定都有 JVM 单测 `VirtualCollectionPrefsTest`。
 
 ### 7.44 线程边界上必须兜住的两类东西：销毁后的 UI 回调 + `Error` 型失败（26.10.19 定稿，崩溃版本 26.10.16，#43–#49）
 

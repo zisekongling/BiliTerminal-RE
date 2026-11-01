@@ -51,7 +51,17 @@ public class SharedPreferencesUtil {
     public static final String RECOMMEND_SOURCE_WEB = "recommend_source_web";
     public static final String RECOMMEND_SOURCE_APP = "recommend_source_app";
     public static final String RECOMMEND_SOURCE_BOTH = "recommend_source_both";
+    /**
+     * 虚拟合集「组合集」（功能一）：把同一文件夹/收藏夹的视频组成一个合集播放列表。
+     * 26.11.01 起与 [VIRTUAL_COLLECTION_CLICK_PLAY] 拆成两个独立功能；
+     * 默认值与读取统一走 `util/VirtualCollectionPrefs.kt`，别在调用点写死。
+     */
     public static final String VIRTUAL_COLLECTION_ENABLE = "virtual_collection_enable";
+    /**
+     * 虚拟合集「点卡片直接播放」（功能二）：收藏夹里点视频卡片时直接起播，而不是进视频详情页。
+     * 默认关闭；默认值与读取统一走 `util/VirtualCollectionPrefs.kt`。
+     */
+    public static final String VIRTUAL_COLLECTION_CLICK_PLAY = "virtual_collection_click_play";
     public static final String PRIVACY_MODE = "privacy_mode";
 
     public static String cookies = "cookies";
