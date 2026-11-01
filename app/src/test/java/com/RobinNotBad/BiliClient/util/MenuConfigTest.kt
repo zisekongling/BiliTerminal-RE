@@ -96,6 +96,66 @@ class MenuConfigTest {
         assertNull(MenuConfig.parse("recommend;recommend"))
     }
 
+    // ---- 容错解析：本版本不认识的菜单 key（旧/新构建、私有构建特有项）不能连累整份配置 ----
+
+    @Test
+    fun parseLenient_dropsUnknownKeysAndDuplicates() {
+        assertEquals(
+            listOf("settings", "recommend", "local"),
+            MenuConfig.parseLenient("settings;bogus;recommend;settings;local")
+        )
+    }
+
+    @Test
+    fun parseLenient_keepsOptionalPrivateKey() {
+        val raw = (listOf("recommend", "search") + MenuConfig.OPTIONAL_ITEMS).joinToString(";")
+        assertEquals(listOf("recommend", "search") + MenuConfig.OPTIONAL_ITEMS, MenuConfig.parseLenient(raw))
+    }
+
+    @Test
+    fun parseLenient_blankOrAllUnknown_returnsNull() {
+        assertNull(MenuConfig.parseLenient(null))
+        assertNull(MenuConfig.parseLenient("  "))
+        assertNull(MenuConfig.parseLenient("bogus;another_bogus"))
+    }
+
+    @Test
+    fun loadEnabled_unknownKey_keepsUserOrderInsteadOfResettingToDefaults() {
+        // 用户的真实顺序 + 一个本版本不认识的 key（模拟从带私有功能的构建切到公开构建）
+        val stored = "settings;recommend;bogus_key;local;search"
+        var written: String? = null
+        val result = MenuConfig.loadEnabled(
+            readString = { key -> if (key == SharedPreferencesUtil.MENU_ENABLED) stored else null },
+            readBoolean = { null },
+            writeString = { _, value -> written = value }
+        )
+        // 认识的 key 按用户原顺序保留；缺失的可选私有项补在末尾；未知 key 被清掉
+        assertEquals(
+            listOf("settings", "recommend", "local", "search") + MenuConfig.OPTIONAL_ITEMS,
+            result
+        )
+        assertEquals(MenuConfig.serialize(result), written)
+        // 关键：没有被重置成默认顺序（默认顺序以 recommend 开头）
+        assertTrue("用户顺序被保留", result.first() == "settings")
+    }
+
+    @Test
+    fun loadEnabled_unknownKeyWithoutFixedItems_stillMigratesToDefaults() {
+        var written: String? = null
+        val result = MenuConfig.loadEnabled(
+            readString = { key ->
+                when (key) {
+                    SharedPreferencesUtil.MENU_ENABLED -> "bogus_key;recommend"
+                    else -> null
+                }
+            },
+            readBoolean = { null },
+            writeString = { _, value -> written = value }
+        )
+        assertEquals(MenuConfig.DEFAULT_ENABLED, result)
+        assertEquals(MenuConfig.serialize(MenuConfig.DEFAULT_ENABLED), written)
+    }
+
     @Test
     fun disabledFrom_returnsCanonicalComplement() {
         assertEquals(

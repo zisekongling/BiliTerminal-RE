@@ -74,6 +74,28 @@ object MenuConfig {
     }
 
     /**
+     * 容错解析配置串：只保留本版本认识的 key（按原顺序、去重），不认识的一律丢弃。
+     *
+     * 用在新版本读取 `menu_enabled` 时：更早/更晚的构建、或带私有功能的构建可能写下
+     * 本版本没有的菜单 key（例如私有项 `scan_qr`）。严格 [parse] 遇到这种值会整份判死，
+     * 调用方于是回退到「默认顺序 + 默认显隐」并写回——用户的菜单排序与显隐被静默清空，
+     * 表现就是「改了保存不住、会恢复默认」（反馈 #81）。这里先清掉不认识的 key，
+     * 让剩下的有效配置继续生效。
+     *
+     * @return 一个非空列表；若清理后什么都不剩（或输入为空）返回 null。
+     */
+    fun parseLenient(raw: String?): List<String>? {
+        if (raw.isNullOrBlank()) return null
+        val seen = HashSet<String>()
+        val result = ArrayList<String>()
+        for (key in raw.split(";")) {
+            if (key.isBlank() || key !in ALL_ITEMS) continue
+            if (seen.add(key)) result.add(key)
+        }
+        return result.ifEmpty { null }
+    }
+
+    /**
      * 从旧数据解析出已启用列表：
      * 以旧排序为基准（非法则用默认顺序），按旧开关过滤，最后补全缺失的固定项。
      */
@@ -104,9 +126,20 @@ object MenuConfig {
         readBoolean: (String) -> Boolean?,
         writeString: (String, String) -> Unit
     ): List<String> {
-        val parsed = parse(readString(SharedPreferencesUtil.MENU_ENABLED))
+        val raw = readString(SharedPreferencesUtil.MENU_ENABLED)
+        val parsed = parse(raw)
         if (parsed != null && FIXED_ITEMS.all { it in parsed } && OPTIONAL_ITEMS.all { it in parsed }) {
             return parsed
+        }
+        // 配置里混进了本版本不认识的 key（更早/更晚的构建、或私有构建特有的菜单项）：
+        // 严格 parse 会整份判死，以前这里就静默回退成默认值并写回，用户的排序与显隐被清空
+        // （反馈 #81「菜单设置改了保存不住、会恢复默认」）。先容错清掉不认识的 key，
+        // 只要固定项还齐全就沿用用户配置，并顺手把清理结果写回。
+        val lenient = parseLenient(raw)
+        if (lenient != null && FIXED_ITEMS.all { it in lenient }) {
+            val completed = lenient + OPTIONAL_ITEMS.filter { it !in lenient }
+            writeString(SharedPreferencesUtil.MENU_ENABLED, serialize(completed))
+            return completed
         }
         val oldSwitches = SWITCHABLE_KEYS.associateWith {
             readBoolean("menu_$it") ?: SWITCH_DEFAULTS.getValue(it)
