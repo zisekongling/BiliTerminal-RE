@@ -149,6 +149,7 @@
 - [ ] **服务端没有告警渠道**：只有 systemd `Restart` + `health.log` 留痕（`*/10` 探活 cron 失败只追加一行，要真告警还得接通知渠道）。§42.9
 - [ ] **管理控制台只有口令登录**，没有 TOTP / IP 白名单；口令泄露 = 全部后台能力。§42.9
 - [ ] **控制台 WebUI 没有真机 / 真浏览器回归记录**（环境无浏览器），只验证了 HTML 结构与接口联通。§42.9
+- [ ] **控制台仍 pending 的 7 条反馈**（26.11.01 批量标已处理后剩余，逐条结论见 §3.99）：**#60** 老掉登录（要上周期性 Cookie 刷新）、**#48** 无法下载更新（疑似已被证书信任修复解决，已回管理员备注请用户升级后复测）、**#41** 静音拖进度出声（只在外挂音轨出现，等用户录屏）、**#34** 视频分段导致跳片头片尾（未定位）、**#31** 载入中切后台回来比例错（需真机复现）、**#30** 缓存文件夹「加入」按钮（功能请求）、**#20** 表冠转动慢（需原版终端倍率对照）。
 - [ ] **话题广场仍是单页**（`bottom = true`，不翻页）；`page_info.has_more` 已在数据里，将来要翻页可直接接。§三十四
 - [ ] **`WriteReplyActivity.kt` 的 `pendingUploads++/--`（`:224`/`:253`）未加同步保护**：已发现主线程入口与后台 `finally` 各改一次、无同步，「与本次用户报的 bug 无关，改动会引入无法验证的风险」→ **发现但不动**。§29.5
 - [ ] **§32 遗留的视觉面未动**：
@@ -925,7 +926,7 @@
 - **崩溃 159（pointerIndex，图片页）**：图片查看器的 `PhotoViewpager` 是裸 `ViewPager` 子类，没套 `SafeViewPager` 的指针兜底。把 `guardPointerIndexCrash` 提成文件级 `internal inline` 函数，`SafeViewPager` 与 `PhotoViewpager` 的 `onInterceptTouchEvent` / `onTouchEvent` 共用。
 - **崩溃 128/129（`BiliDanmukuParser` NumberFormatException）**：`p` 字段与高级弹幕的整数字段可能被上游写成小数（线上实测 `2188.43537415` 喂给 `Integer.parseInt`）。解析跑在 DFM 渲染线程上，异常逸出会打死整条线程。修法：`startElement` 的 `p` 解析包 try/catch（只丢这一条），`characters()` 拆成包装 + `charactersUnsafe()` 统一吞 `NumberFormatException`；`textArr[9]` 的时长改为 `Float.parseFloat` 后截断。
 - **崩溃 141（`AndroidDisplayer.draw` 的 DrawingCache NPE）**：`hasDrawingCache()` 为真时 `danmaku.cache` 仍可能已被置空，`.get()` 直接 NPE。改成 `danmaku.cache instanceof DrawingCache` 判空，取不到就退回直接画文字。
-- **控制台清账**：崩溃 82 → 12（70 条按「已修 / 老版本」标已处理，保留 12 条：`158`/`159`/`156`/`141`/`132`/`129`/`128`/`123`/`118`/`95`/`88`/`74`）；反馈 #52/#38/#46 已属「已修 / 已解答」，但控制台接口（MCP 侧）只暴露崩溃的 handled 开关、没有反馈的，需要在 WebUI 手动点。**标记已处理 ≠ 风险清除**：类 6 的 6 条已标，代码修复是这一轮才补回的。
+- **控制台清账**：崩溃 82 → 12（70 条按「已修 / 老版本」标已处理，保留 12 条：`158`/`159`/`156`/`141`/`132`/`129`/`128`/`123`/`118`/`95`/`88`/`74`）；反馈 #52/#38/#46 已属「已修 / 已解答」，但当时控制台接口（MCP 侧）只暴露崩溃的 handled 开关、没有反馈的，只能在 WebUI 手动点；**26.11.01 晚服务端补了 `feedback_set_handled` / `feedback_bulk_handled`，这批已在 §3.99 标掉**。**标记已处理 ≠ 风险清除**：类 6 的 6 条已标，代码修复是这一轮才补回的。
 - **验证**：
   - `:app:assembleDebug`（standard + coexist）通过；`:app:testStandardDebugUnitTest` / `:app:testCoexistDebugUnitTest` 各 107 suites / 1126 tests / 0 失败。
   - 设备侧（AVD `wear5`，`sdk_gwear_x86_64` / Android 14 / 466×466，装 `coexist-arm64-v8a-debug`）：#42 用空关键词连续横滑三次（视频 → 番剧 → 用户）后 `searchbar` 仍在 `y=58`、`keywordInput` 存在 ✔；#56 用 `aapt2 dump resources` 确认 8 个 `EditTextStyle*` 的 `android:textColorHighlight`（attr `0x01010099`）都指向 `color/text_selection_highlight` ✔（该 AVD 渲染本身放大溢出，**像素级对照不可信**，与 §3.80 结论一致）。
@@ -960,6 +961,17 @@
   - 设备侧（AVD `wear5`，装 `coexist-universal-debug`；`adb install -r` 覆盖已装的 26.11.01，签名同为 debug key，登录态不丢）：默认设置进短视频页 —— logcat 出现新增的 `画面尺寸: 360x640（旋转 0°，区域 466x466）`，`ANativeWindow_setBuffersGeometry: w=262, h=466 => w=360, h=640`（9:16 居中留黑边，未拉伸）✔；窗口 `fl`：播放中 `KEEP_SCREEN_ON` ✔ → 暂停后消失 ✔ → 恢复后回来 ✔ → Home 后消失（新增前台判据生效）✔ → 回 App 自动续播且标志恢复 ✔；上滑切下一条：新页重新应用尺寸（日志只打一次，去重生效）+ 几何 `262x466` + 标志仍在 ✔。圆屏适配开（`player_ui_round=true`）：几何 `w=228, h=406 => 360x640`（内接圆矩形，228/406=0.5616 ≈ 360/640），播放中 `fl` 含 `KEEP_SCREEN_ON` ✔。测完已把 `player_ui_round` 恢复 `false`、原 26.11.01 安装包装回。
   - **未验**：`videoWidth==0` 的真实流、旋转 90/270 的真实视频、`ui_landscape` / 非默认 `density`；信息流连刷 10+ 条全是 9:16 / rotation=0。前三项靠 `ShortVideoLayoutMathTest` 与代码走查兜底，真机用例登记在 §2.1。
 - **文档**：`docs/architecture-map.md` §7.52 补三道闸 + 新增 §7.58；`docs/agents/pitfalls.md` 保亮屏条目补三道闸、新增画面尺寸条目。
+
+### 3.99 菜单设置「改了保存不住、恢复默认」+ 控制台反馈批量标记已处理（26.11.01）
+
+- **缘起**：用户要求「再看看有没有新的反馈，然后把所有处理过的反馈标记已处理」。控制台新到一条 26.11.01 反馈 **#81**（OPPO OWW212）：菜单设置更改后无法保存、会恢复默认；同时控制台 MCP 服务端这次补上了反馈的写入能力（`feedback_set_handled` / `feedback_bulk_handled` / `feedback_note_add` / `crash_bulk_handled`），以前只能去 WebUI 手点。
+- **#81 根因**：`util/MenuConfig.kt` 只有一个严格解析入口 `parse(raw)` —— 任一 key 不在 `ALL_ITEMS`（公共 14 项 + `OPTIONAL_ITEMS` 私有项）或出现重复就直接返回 null。`loadEnabled()` 把「parse 失败」一律当成**旧数据**处理，走迁移分支用默认顺序/默认显隐重建并**写回** `menu_enabled`，于是用户的排序与显隐被静默清空。触发条件很现实：`menu_enabled` 里含公开包不认识的 key —— ①装过私有/BETA 包（菜单项如 `scan_qr` 来自私有 `FeatureHolder.menuKey()`），换回公开包后公开包不认它；②历史版本删改过菜单项留下的残 key。
+- **改法**：新增 `parseLenient(raw)` —— 丢弃不认识的 key、按原顺序保留、去重；`loadEnabled()` 严格解析失败后先走容错分支：清理结果非空且固定项（`FIXED_ITEMS`）都在 → 保留用户顺序、补齐缺失的 `OPTIONAL_ITEMS`、写回清理后的串并返回；只有连固定项都缺（真正的脏数据）才回退到原来的迁移/默认值。严格 `parse()` 的语义（含两条拒绝用例）保持不变。
+- **验证**：
+  - 新增 5 例单测（`MenuConfigTest` 现 29 例）：丢弃未知 key 与重复、保留私有 key、全脏时返回 null、**未知 key 时保留用户顺序而不是重置默认**（存 `settings;recommend;bogus_key;local;search` → 结果以 `settings` 开头）、固定项缺失时仍走迁移。`:app:assembleDebug`（standard + coexist）通过；两 flavor 单测各 **110 suites / 1157 tests / 0 失败**（较 §3.98 的 1152 例 +5）。
+  - 设备侧（AVD `wear5`，Android 14，466×466，`coexist-arm64-v8a-debug`）：先用调试桥把 `menu_enabled` 写成 `settings;recommend;short_video;popular;hotsearch;search;dynamic;myspace;message;local;scan_qr;bogus_key`（首项刻意不是默认的 `recommend`），打开 `SettingMenuActivity` 后重读 —— 变成 `settings;recommend;…;scan_qr`：**首项仍是 settings（顺序保住）、`bogus_key` 被丢弃**，修复前同样操作会被整份重置成默认顺序 ✔。测完把 `menu_enabled` 恢复成默认顺序。
+  - **未验**：真实 OPPO 手表上的现场（模拟器用 `bogus_key` 模拟「不认识的 key」）；「私有包 → 公开包」覆盖安装的真实升级路径没有走（要私有包产物）。
+- **控制台清账（本轮）**：把已处理/已解答/已拍板的反馈标已处理 —— **#78、#56、#55、#52、#51、#42、#38、#46、#49、#81**（其中 #55/#52/#51/#38 是 §3.79 修过、§3.96 补回回退的，#46 已由「左右滑动控制进度」设置项解答，#49 用户拍板不做）。保留 pending 7 条：**#60**（老掉登录，待上周期性 Cookie 刷新）、**#48**（无法下载更新，疑似已随证书信任修复，已加管理员备注请用户升级后再试）、**#41**（静音拖进度出声，只在外挂音轨出现，等录屏）、**#34**（分段导致跳片头片尾，未定位）、**#31**（载入中切后台回来比例错，需真机复现）、**#30**（缓存文件夹「加入」按钮，功能请求）、**#20**（表冠转动慢，需原版倍率对照）。崩溃侧本轮未动，仍是 12 条保留。
 
 ## 4. 历史章节索引
 
