@@ -320,6 +320,14 @@ public class NetWorkUtil {
                 else throw new JSONException("在访问" + url + "时返回数据为空");
             }
             int code = json.optInt("code", 0);
+            // #60：统一响应入口识别「账号未登录 / 登录态过期」（-101）。这里**只打标记**，
+            // 真正的刷新由 CookieRefreshScheduler 按节流策略派到后台线程池执行——当前线程是
+            // 调用方的请求线程，在这里嵌套发起刷新会拖慢本次调用，也可能让一次性 refresh_token
+            // 被并发轮换。只认「带着 SESSDATA 的请求仍被回 -101」：未登录 / 隐私模式本来就用
+            // 游客 Cookie，那种 -101 是预期内的，不该触发登录态刷新。
+            if (code == -101 && carriesSessionCookie(headers)) {
+                CookieRefreshScheduler.onLoginExpired();
+            }
             if (code != -352 && code != -412) {
                 return json;
             }
@@ -334,6 +342,27 @@ public class NetWorkUtil {
             }
         }
         return json;
+    }
+
+    /**
+     * 这次请求的 Cookie 里是否带着登录态（SESSDATA）。
+     *
+     * <p>用途：判断一个 `code=-101` 到底是不是「登录态过期了」。#60 的轻量钩子只在
+     * 「我们明明带着 SESSDATA 去请求，服务端还说未登录」时才标记需要刷新；未登录用户与
+     * 隐私模式（{@link #buildGuestCookieString(String)} 会剔除登录 Cookie）的 -101 都是预期内的。
+     *
+     * @param headers 与 {@link #getJson(String, ArrayList)} 同格式的键值对列表（name, value, name, value…）
+     */
+    private static boolean carriesSessionCookie(ArrayList<String> headers) {
+        if (headers == null) return false;
+        for (int i = 0; i + 1 < headers.size(); i += 2) {
+            String name = headers.get(i);
+            if (name == null || !"Cookie".equalsIgnoreCase(name)) continue;
+            String cookie = headers.get(i + 1);
+            return cookie != null && !cookie.isEmpty()
+                    && !getInfoFromCookie("SESSDATA", cookie).isEmpty();
+        }
+        return false;
     }
 
     /**
