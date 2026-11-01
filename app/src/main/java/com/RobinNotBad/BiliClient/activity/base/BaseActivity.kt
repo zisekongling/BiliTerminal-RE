@@ -55,6 +55,7 @@ import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.RobinNotBad.BiliClient.util.TopbarLongPressPrefs
 import com.RobinNotBad.BiliClient.util.ViewCapabilityProbe
 import com.RobinNotBad.BiliClient.util.view.EditorEnterKeyGuard
+import com.RobinNotBad.BiliClient.util.view.RoundInsets
 
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
@@ -135,9 +136,6 @@ open class BaseActivity : AppCompatActivity() {
         // 玻璃质感：给主题叠卡片 / 按钮的覆盖层，必须早于子类的 setContentView（关闭时直接 return）
         GlassStyle.applyTo(this)
 
-        val paddingH_percent = SharedPreferencesUtil.getInt("paddingH_percent", 0)
-        val paddingV_percent = SharedPreferencesUtil.getInt("paddingV_percent", 0)
-
         val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val display: Display = windowManager.defaultDisplay
         val metrics = DisplayMetrics()
@@ -146,17 +144,20 @@ open class BaseActivity : AppCompatActivity() {
 
         val scrW = metrics.widthPixels
         val scrH = metrics.heightPixels
-        if (paddingH_percent != 0 || paddingV_percent != 0) {
+        // 「界面边距」+ 圆屏适配的统一算法（伪装页用的是同一份，别再各抄一遍）
+        val insets = RoundInsets.compute(
+            scrW,
+            scrH,
+            SharedPreferencesUtil.getInt(SettingsKeys.PADDING_H, 0),
+            SharedPreferencesUtil.getInt(SettingsKeys.PADDING_V, 0),
+            SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROUND, false)
+        )
+        if (insets.left != 0 || insets.top != 0) {
             Logu.d("debug", "调整边距")
-            val paddingH = scrW * paddingH_percent / 100
-            val paddingT = scrH * paddingV_percent / 100
-            var paddingB = paddingT
-            if (SharedPreferencesUtil.getBoolean("player_ui_round", false))
-                paddingB += (scrH * 0.03).toInt()
-            window_width = scrW - paddingH * 2
-            window_height = scrH - paddingT - paddingB
+            window_width = scrW - insets.left - insets.right
+            window_height = scrH - insets.top - insets.bottom
             val rootView = this.window.decorView.rootView
-            rootView.setPadding(paddingH, paddingT, paddingH, paddingB)
+            rootView.setPadding(insets.left, insets.top, insets.right, insets.bottom)
         } else {
             window_width = scrW
             window_height = scrH
