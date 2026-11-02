@@ -12,12 +12,14 @@ import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
 import com.RobinNotBad.BiliClient.adapter.video.VideoCardAdapter
 import com.RobinNotBad.BiliClient.api.FavoriteApi
 import com.RobinNotBad.BiliClient.api.PlayerApi
+import com.RobinNotBad.BiliClient.api.SubscriptionApi
 import com.RobinNotBad.BiliClient.api.VideoInfoApi
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.VirtualCollectionPrefs
@@ -89,8 +91,110 @@ class FavoriteVideoListActivity : RefreshListActivity() {
 
         setupSortBar()
         setupManageBar()
+        setupSubscribeBar()
         setOnLoadMoreListener { page -> continueLoading(page) }
         loadFirstPage()
+    }
+
+    // ==================== 订阅（只读收藏夹） ====================
+
+    /** 订阅条按钮；只在「别人的收藏夹 + 已登录 + 拿得到 media_id」时创建 */
+    private var subToggle: TextView? = null
+    private var isSubscribed = false
+
+    /**
+     * 别人的收藏夹可以「订阅」。
+     *
+     * <p>当前是否已订阅查 `x/v3/fav/folder/info` 的 `fav_state`（1=已订阅）。
+     * 查询失败（未登录/接口异常）时**整条隐藏**——宁可没有入口，也不要显示一个
+     * 与实际状态不符的按钮让用户点出服务端错误。
+     */
+    private fun setupSubscribeBar() {
+        if (!readOnly || mediaId <= 0) return
+        if (SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) == 0L) return
+
+        findViewById<View>(R.id.subBar).visibility = View.VISIBLE
+        subToggle = findViewById<TextView>(R.id.subToggle).also { toggle ->
+            toggle.text = getString(R.string.text_sub_toggle_loading)
+            toggle.setOnClickListener { onToggleSubscribe() }
+        }
+
+        CenterThreadPool.run {
+            try {
+                val res = SubscriptionApi.getFolderFavState(mediaId)
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (res.first == 0) {
+                        isSubscribed = res.second == 1
+                        updateSubToggle()
+                    } else {
+                        findViewById<View>(R.id.subBar).visibility = View.GONE
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    findViewById<View>(R.id.subBar).visibility = View.GONE
+                }
+            }
+        }
+    }
+
+    private fun updateSubToggle() {
+        subToggle?.text = getString(
+            if (isSubscribed) R.string.text_sub_toggle_subscribed else R.string.text_sub_toggle_subscribe
+        )
+    }
+
+    private fun onToggleSubscribe() {
+        if (isSubscribed) {
+            TerminalDialog.confirm(
+                context = this,
+                title = getString(R.string.pagename_dialog),
+                message = getString(R.string.msg_sub_confirm_unsub_folder),
+                onConfirm = { doSubscribeAction(false) }
+            ).show()
+        } else {
+            doSubscribeAction(true)
+        }
+    }
+
+    private fun doSubscribeAction(subscribe: Boolean) {
+        val toggle = subToggle ?: return
+        toggle.isEnabled = false
+        CenterThreadPool.run {
+            try {
+                val code = if (subscribe) {
+                    SubscriptionApi.subscribeFolder(mediaId)
+                } else {
+                    SubscriptionApi.cancelFolderSubscription(mediaId)
+                }
+                runOnUiThread {
+                    toggle.isEnabled = true
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (code == 0) {
+                        isSubscribed = subscribe
+                        updateSubToggle()
+                        MsgUtil.showMsg(
+                            getString(if (subscribe) R.string.msg_sub_subscribed else R.string.msg_sub_unsubscribed)
+                        )
+                    } else {
+                        MsgUtil.showMsg(subscriptionErrorText(code))
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread { toggle.isEnabled = true }
+                report(e)
+            }
+        }
+    }
+
+    private fun subscriptionErrorText(code: Int): String = when (code) {
+        -101 -> getString(R.string.msg_subscription_need_login)
+        -111 -> getString(R.string.msg_subscription_csrf_invalid)
+        -400 -> getString(R.string.msg_subscription_bad_request)
+        11010 -> getString(R.string.msg_subscription_content_gone)
+        else -> getString(R.string.msg_subscription_failed_with_code, code)
     }
 
     private fun setupSortBar() {

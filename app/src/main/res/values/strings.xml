@@ -866,6 +866,13 @@
     <string name="msg_subscription_invalid">该收藏夹已失效</string>
     <string name="msg_subscription_cancel_confirm">确定取消订阅「%1$s」吗？</string>
     <string name="msg_subscription_cancelled">已取消订阅</string>
+    <string name="text_sub_toggle_loading">订阅状态加载中…</string>
+    <string name="text_sub_toggle_subscribe">订阅</string>
+    <string name="text_sub_toggle_subscribed">已订阅</string>
+    <string name="msg_sub_subscribed">已订阅</string>
+    <string name="msg_sub_unsubscribed">已取消订阅</string>
+    <string name="msg_sub_confirm_unsub_folder">确定取消订阅该收藏夹吗？</string>
+    <string name="msg_sub_confirm_unsub_season">确定取消订阅该合集吗？</string>
     <!-- ===== 下载过程（12.4 文案迁移：三批） ===== -->
     <string name="text_download_preparing">准备中</string>
     <string name="text_download_start">开始下载</string>

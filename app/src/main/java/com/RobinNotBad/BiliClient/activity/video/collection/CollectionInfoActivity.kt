@@ -17,13 +17,17 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
 import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
 import com.RobinNotBad.BiliClient.adapter.video.VideoCardHolder
+import com.RobinNotBad.BiliClient.api.SubscriptionApi
 import com.RobinNotBad.BiliClient.model.Collection
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.model.VideoInfo
+import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
+import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.DecodeFormat
@@ -76,6 +80,7 @@ class CollectionInfoActivity : RefreshListActivity() {
                 hideEmptyView()
                 setAdapter(adapter)
                 setRefreshing(false)
+                setupSubscribeBar(collection)
             }.onFailure { error ->
                 // 此前只写了 onSuccess：请求失败时既没有提示，setRefreshing(false) 也永不执行，
                 // 页面会一直转圈。注意原代码还多读了 season_id / mid 两个 extra，
@@ -85,6 +90,110 @@ class CollectionInfoActivity : RefreshListActivity() {
                 MsgUtil.err(error)
             }
         }
+    }
+
+    // ==================== 合集订阅 ====================
+
+    private var subToggle: TextView? = null
+    private var isSubscribed = false
+    private var seasonId = 0L
+
+    /**
+     * 合集详情页的「订阅 / 已订阅」条。
+     *
+     * <p>订阅的是**视频合集**（`season_id` = `ugc_season.id`），接口
+     * `x/v3/fav/season/fav`；状态查 `x/space/fav/season/list` 的 `info.fav_state`。
+     * 自己的合集、未登录、拿不到 season_id 时不显示。
+     */
+    private fun setupSubscribeBar(collection: Collection) {
+        seasonId = collection.id.toLong()
+        if (seasonId <= 0) return
+        val myMid = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0)
+        if (myMid == 0L) return
+        if (collection.mid == myMid) return
+
+        findViewById<View>(R.id.subBar).visibility = View.VISIBLE
+        subToggle = findViewById<TextView>(R.id.subToggle).also { toggle ->
+            toggle.text = getString(R.string.text_sub_toggle_loading)
+            toggle.setOnClickListener { onToggleSubscribe() }
+        }
+
+        CenterThreadPool.run {
+            try {
+                val res = SubscriptionApi.getSeasonFavState(seasonId)
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (res.first == 0) {
+                        isSubscribed = res.second == 1
+                        updateSubToggle()
+                    } else {
+                        findViewById<View>(R.id.subBar).visibility = View.GONE
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    findViewById<View>(R.id.subBar).visibility = View.GONE
+                }
+            }
+        }
+    }
+
+    private fun updateSubToggle() {
+        subToggle?.text = getString(
+            if (isSubscribed) R.string.text_sub_toggle_subscribed else R.string.text_sub_toggle_subscribe
+        )
+    }
+
+    private fun onToggleSubscribe() {
+        if (isSubscribed) {
+            TerminalDialog.confirm(
+                context = this,
+                title = getString(R.string.pagename_dialog),
+                message = getString(R.string.msg_sub_confirm_unsub_season),
+                onConfirm = { doSubscribeAction(false) }
+            ).show()
+        } else {
+            doSubscribeAction(true)
+        }
+    }
+
+    private fun doSubscribeAction(subscribe: Boolean) {
+        val toggle = subToggle ?: return
+        toggle.isEnabled = false
+        CenterThreadPool.run {
+            try {
+                val code = if (subscribe) {
+                    SubscriptionApi.subscribeSeason(seasonId)
+                } else {
+                    SubscriptionApi.cancelSeasonSubscription(seasonId)
+                }
+                runOnUiThread {
+                    toggle.isEnabled = true
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (code == 0) {
+                        isSubscribed = subscribe
+                        updateSubToggle()
+                        MsgUtil.showMsg(
+                            getString(if (subscribe) R.string.msg_sub_subscribed else R.string.msg_sub_unsubscribed)
+                        )
+                    } else {
+                        MsgUtil.showMsg(subscriptionErrorText(code))
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread { toggle.isEnabled = true }
+                report(e)
+            }
+        }
+    }
+
+    private fun subscriptionErrorText(code: Int): String = when (code) {
+        -101 -> getString(R.string.msg_subscription_need_login)
+        -111 -> getString(R.string.msg_subscription_csrf_invalid)
+        -400 -> getString(R.string.msg_subscription_bad_request)
+        11010 -> getString(R.string.msg_subscription_content_gone)
+        else -> getString(R.string.msg_subscription_failed_with_code, code)
     }
 
     class CardAdapter(

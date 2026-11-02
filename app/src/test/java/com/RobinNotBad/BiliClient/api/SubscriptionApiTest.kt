@@ -134,4 +134,33 @@ class SubscriptionApiTest {
         assertEquals("id<=0 的条目跳过", 1, list.size)
         assertEquals("正常条目", 778899L, list[0].aid)
     }
+
+    // ==================== 当前是否已订阅 ====================
+
+    /**
+     * `x/v3/fav/folder/info` 的 `data.fav_state`：1=已订阅该收藏夹、0=未订阅
+     * （bilibili-API/docs/fav/info.md:49）。字段缺失按未订阅处理。
+     */
+    @Test
+    fun parseFolderFavState_readsFavStateWithFallback() {
+        assertEquals("fav_state=1 已订阅", 1,
+            SubscriptionApi.parseFolderFavState(JSONObject("""{"id":1,"fav_state":1}""")))
+        assertEquals("fav_state=0 未订阅", 0,
+            SubscriptionApi.parseFolderFavState(JSONObject("""{"id":1,"fav_state":0}""")))
+        assertEquals("缺字段按未订阅", 0,
+            SubscriptionApi.parseFolderFavState(JSONObject("""{"id":1}""")))
+        assertEquals("data=null 不崩溃", 0, SubscriptionApi.parseFolderFavState(null))
+    }
+
+    /** `x/space/fav/season/list` 的 `data.info.fav_state`；info 缺失也不能崩。 */
+    @Test
+    fun parseSeasonFavState_readsInfoFavState() {
+        assertEquals("info.fav_state=1 已订阅", 1,
+            SubscriptionApi.parseSeasonFavState(JSONObject("""{"info":{"fav_state":1},"medias":[]}""")))
+        assertEquals("info.fav_state=0 未订阅", 0,
+            SubscriptionApi.parseSeasonFavState(JSONObject("""{"info":{"fav_state":0}}""")))
+        assertEquals("没有 info 按未订阅", 0,
+            SubscriptionApi.parseSeasonFavState(JSONObject("""{"medias":[]}""")))
+        assertEquals("data=null 不崩溃", 0, SubscriptionApi.parseSeasonFavState(null))
+    }
 }

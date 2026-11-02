@@ -224,6 +224,32 @@
 
         </LinearLayout>
 
+        <!-- 订阅条：默认隐藏。别人的收藏夹内容页 / 视频合集详情页才会点亮，
+             一个按钮在「订阅 / 已订阅（点击取消）」之间切换。自己的内容不显示。 -->
+        <LinearLayout
+            android:id="@+id/subBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="@dimen/activity_padding_horizontal"
+            android:paddingVertical="2dp"
+            android:orientation="horizontal"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <TextView
+                android:id="@+id/subToggle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:minHeight="@dimen/touch_min"
+                android:paddingVertical="4dp"
+                android:background="?attr/selectableItemBackground"
+                android:text="@string/text_sub_toggle_subscribe"
+                android:textSize="13sp"
+                android:textColor="?android:attr/textColorSecondary" />
+
+        </LinearLayout>
+
         <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
             android:id="@+id/swipeRefreshLayout"
             android:layout_width="match_parent"
