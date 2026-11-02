@@ -13,6 +13,7 @@
 - **上一轮改动（26.10.31）**：清晰度按账号权限锁定 + 4K 接入（§4 六十）、播放页内切 1080P（§4 五十九）、私信 2 分钟内撤回、内置选图页、图片加载提速、弥散光晕可选光源位置（§3.76）、系统时间错误防呆（§3.72）、账密 / 短信登录补存 App access_token（§3.87），以及四类修复（工具页跳转杀下层、短视频弹幕不跟设置、空关键词搜索藏历史、倍速两路重叠音频）。另有**一轮私有化整理**：评论举报与弹幕类消息整体迁入可选私有功能，公开仓库只留门面与挂点（§3.83）。明细见 `strings.xml` 的 `update_log_current`（10 条编号条目，另 1 条为版本锚点）。
 - **26.10.31 发版时工作区已清空**：26.10.27 之后累积的未发版改动（§3.72~§3.85）与发版前补的登录令牌改动（§3.87）都随本版一起出去了。
 - **26.11.01 发版时工作区已清空**：§3.91~§3.94（PR #18）与 §3.83 的私有化整理（PR #19）都随本版一起发布；26.11.01 之后新的待发版改动从这里往下记。
+- **待发版改动（26.11.02 那一轮，用户点名的四条）**：①长按二级菜单弹窗与两个伪装页补圆屏适配（§3.101）；②「虚拟合集」起播索引修复（§3.102）；③菜单「退出」改为可排序、可关闭（§3.103）。版本号未动（仍是 `26.11.01` / `2611010`），发版时按上一条递增。
 - **下次递增**：先看 `app/build.gradle:23-24`；release immutability 下被 Release 用过的 tag **永久不可复用**，同版本名补丁版只能用 `26.10.24.1` 这种后缀形式，`versionCode` 递增、`versionName` 可不变。改了版本号还要同步 `strings.xml` 里 `update_log_current` 的「【YY.MM.DD 本次更新】」锚点，否则 `:app:verifyVersionConsistency` 会失败。
 - **构建命令**（单测任务名**带 flavor 前缀**，`testDebugUnitTest` 自 26.10.11 引入 flavor 后已不存在）：
 
@@ -982,6 +983,34 @@
   - `:app:assembleDebug`（standard + coexist）通过；两 flavor 单测各 **110 suites / 1157 tests / 0 失败**。
   - 设备侧（AVD `wear5`，Android 14，已登录 mid=591904067）：装新包后进「我的 → 收藏」，日志正常拉到默认收藏夹（1888/50000）、重要收藏夹（23/1000）等，页面正常渲染、无 FATAL / Inconsistency ✔。
   - **未验**：原崩溃的精确触发（要在真机上「进编辑页改名保存 → 返回」并让预取线程刚好在重载窗口取 holder），本次以「不再共享可变列表」的线程模型改造 + 页面正常加载为准；该崩溃 1 次、单机型，先观察后续上报。
+
+### 3.101 圆屏适配补两块：长按二级菜单弹窗、两个伪装页（26.11.02，用户点名）
+
+- **缘起**：用户报「部分长按产生的二级菜单（例如长按缓存的视频）没有圆屏适配而显示不全；伪装界面未做圆屏适配」。
+- **定位①（长按二级菜单）**：长按缓存里的视频 / 文件夹弹的是 `TerminalDialog.menu`（`activity/video/local/LocalListActivity.kt:291` 与 `:311`），它落在**独立的 Dialog 窗口**里；§3.93 的实验效果「圆屏列表」只对本 Activity 的 `decorView` 生效，管不到 Dialog 窗口，所以圆屏上这些菜单的左右两端会被表盘切掉。全工程没有一处 `PopupWindow`（已全仓 grep），二级菜单不是 Dialog 就是 Activity，这一条覆盖 Dialog 那一类。
+- **改法①**：`util/view/DialogSizing.kt` 增加「按表盘内接矩形收窄」——`ROUND_FIT_MARGIN = 0.97`，可用直径 `d = min(屏宽, 屏高) × 0.97`；弹窗宽仍取可用宽的 90%，但**再夹到内接正方形**（`d / √2`），高度预算按 `√(d² − w²)` 给（宽高平方和 ≤ `d²` 才在圆内），高度不够时内容区滚动，长列表不再把弹窗撑出屏幕。生效判据只看 `SettingsKeys.UI_ROUND`（「圆屏适配」），与「圆屏列表」实验开关解耦。
+- **定位②（伪装页）**：`BluetoothDisguiseActivity` / `CalculatorDisguiseActivity` 是 `AppCompatActivity`，不在 `BaseActivity` 体系里，页边距那套（`paddingH_percent` / `paddingV_percent` + 圆屏额外下边距）自然没落到它们身上。
+- **改法②**：把页边距算法抽成纯函数 `util/view/RoundInsets.compute(屏宽, 屏高, padH%, padV%, round)` + `util/view/ScreenMetrics`（取真实屏幕像素），`BaseActivity` 与两个伪装页共用同一份结论；伪装页把 inset 加到自己的根布局 padding 上。**顺带修掉一处老错**：旧 `DisguiseRoundPadding` 把百分比直接当 dp 用，466px 的圆屏上算出的是 5dp 而不是 5%。
+- **验证**：`:app:assembleDebug` 双 flavor 通过；两 flavor 单测各 **109 suites / 1133 tests / 0 失败**（新增 `DialogSizingTest` 19 例、`RoundInsetsTest` 5 例，钉住真实几何：380×380 屏 + 5%/3% 时老算法给出的 `307×336` 试算 `207145 > 144400` 必须被拒，收窄到内接正方形后通过）。
+- **未验**：模拟器不可达（MuMu `127.0.0.1:7555` 与 `16384/5555/21503/62001` 全部拒连、`adb devices` 为空），圆屏上的实际观感（弹窗不再被表盘切、伪装页边距与正常页一致）没能在设备上复核，结论基于纯函数单测 + 代码路径核对。
+
+### 3.102 「虚拟合集」点哪一条都从第一条开始播（26.11.02，用户点名）
+
+- **缘起**：用户报「播放虚拟合集的视频时，无论选的哪一个实际上播放的都是第一个」。
+- **根因（两处，都在起播下标的推算上）**：
+  - **本地缓存页**：`LocalListActivity.playVirtualCollection` 原循环对文件夹内**每一个**视频都往 `pagenames` 塞一项，但只有 `videoFileList != null` 时才往 `videoUrlList` 塞——两个列表从第一个不可播条目起就错位；起播下标又是用 `v == videoList[startVideoIdx]` 的**对象同一性**在过滤后的列表里找，错位后自然指回第 0 项。
+  - **收藏夹**：`FavoriteVideoListActivity.playFavoriteVirtualCollection` 只用 `v.aid == startAid` 反查下标，长按/点击传进来的 `startPosition` 被完全丢掉；`aid` 为 0 或重复时下标恒为 0。
+- **改法**：新增纯函数 `util/VirtualCollectionStart`（`resolveOnline(startPosition, startAid, aids)`：点击位置优先，位置与 aid 不矛盾就用位置，只有位置不合法才退回按 aid 查；`resolveLocal(clickedInFullList, collectionFullIndices)`：按下标映射表换算）。两个页面都改成**一趟循环**同时建齐 4 个列表 + 一份「全集下标 ↔ 合集下标」映射表，不可播条目整条跳过（不再产生空 pagename 与错位）；换算不出起播项时明确提示（新增 `uitext_locallistactivity_025` / `uitext_favoritevideolistactivity_025`）并返回，**不再默默播第一条**。
+- **验证**：`:app:testStandardDebugUnitTest --tests "com.RobinNotBad.BiliClient.util.*"` `BUILD SUCCESSFUL`（`VirtualCollectionStartTest` 8 例：位置优先、位置与 aid 矛盾、aid 为 0、aid 重复、位置越界、本地映射缺项）；`:app:assembleDebug` 双 flavor、`:app:assembleRelease` 全通过。
+- **未验**：用户的实际触发路径没能复现，改为逐条核对三条入口的代码路径（缓存文件夹连播 / 收藏夹点击即播 / 播放页选集切换），模拟器不可达。播放页内部换页链路（`switchToOnlinePage` 用 `cids[pageIndex]` 取流、`doSwitchPage` 落地 URL 与标题）本轮复核后确认本来就是对的，未改。
+
+### 3.103 菜单「退出」改成可排序、可关闭（26.11.02，用户要求）
+
+- **缘起**：用户要求「菜单退出按钮可调顺序与启用」。26.10.31 加的退出按钮是硬编码在菜单最下方的一枚 `MaterialButton`（§3.91），不受「菜单设置」管控。
+- **改法**：`util/MenuConfig.kt` 新增动作项 key `EXIT = "exit"`，进 `ALL_ITEMS`（于是能排序、能关掉、默认启用且压在列表最后），但**不进 `FIXED_ITEMS`**、**不作启动页候选**（选了它开机就收摊：`resolveStart` 既不沿用也不兜底到它、`loadStart` 读到旧值改回默认、菜单设置里点它只弹提示 `msg_menu_exit_not_start`）。`MenuActivity` 删掉硬编码按钮，改在菜单列表循环里渲染：文案取 `R.string.btn_exit`，点击直接 `exitAppCompletely()`（不走 `killAndJump`，它要往页面栈里跳）。
+- **老数据迁移（关键）**：`menu_enabled` 里没有 `exit` 有两种含义——「升级前的老数据」与「用户自己把它关掉了」。用新键 `menu_exit_state`（`SharedPreferencesUtil.MENU_EXIT_STATE`，保存菜单配置时写 `"1"`/`"0"`）区分：缺项且没写过 → 补在末尾（默认启用）；缺项且写过 → 保持隐藏，不再偷偷加回来。`architecture-map.md` §3.1 记过「新增菜单 key 老用户不会自动出现」，这是第一个带迁移的新 key。
+- **验证**：`MenuConfigTest` 34 例（新增「老数据缺 exit 会补上并写回」「用户关掉后不再加回」「保存时写标记」「exit 不能当启动页、旧启动页值会被改回」）；两 flavor 单测各 **109 suites / 1133 tests / 0 失败**；`:app:assembleDebug` 与 `:app:assembleRelease`（standard / coexist 各 4 个 ABI 包，6.2~12.3MB）均 `BUILD SUCCESSFUL`。
+- **未验**：模拟器不可达，菜单页面上的拖动排序 / 关掉退出项、以及升级路径（旧 `menu_enabled` 不含 exit）没能在设备上走一遍，靠单测 + 代码路径核对。
 
 ## 4. 历史章节索引
 
