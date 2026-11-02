@@ -1130,6 +1130,19 @@
 - **验证**：`:app:assembleDebug` 两 flavor BUILD SUCCESSFUL；两 flavor 单测 **125 suites / 1313 tests / 0 失败**；AVD `wear5` 重装后实测首页/「我的」/「订阅」页均正常（共享布局加条未破坏其它页面），「订阅」页空态与请求链路同 §3.108；四个写接口用本机 HTTP 实测均为 -101（存在、需登录）而非 404。
 - **遗留**：仍是登录态不足——**订阅/取消订阅的真实成功响应、以及列表有数据时的渲染与点击，仍需用户自己登录后走一遍**（复现时看 logcat `debug-订阅收藏夹` / `debug-订阅合集` / `debug-取消订阅*` 的 code/message）。
 
+### 3.110 控制台反馈 #88 / #85：用户主页长按关注加入分组 + 评论「假发送成功」（26.11.02 傍晚，用户点名）
+
+- **#88（建议）· 已实现**：用户主页头部的「已关注」按钮**长按** → `TerminalDialog.menu` 列出关注分组（自建分组 `tagid > 0`，已在的分组带「（已加入）」后缀），点未加入的分组即调用 `POST x/relation/tags/addUsers` 追加（**不是**移动，不会取关/移出原分组）；末项「新建分组」→ `TerminalDialog.input` 取名 → 创建后回查 tagid 再加入。未关注 / 未登录时长按不拦截，交回系统默认行为。
+  - `api/FollowApi.java`：新增 `getUserFollowTags(fid)`（`GET x/relation/tag/user?fid=`，解析「分组 id → 分组名」对象）、`addFollowTagUsers(tagids, fid)`（`POST x/relation/tags/addUsers`）、纯函数 `addUsersFields` / `joinTagIds`（字段名与 `moveUsers` 不同，单测钉死）。
+  - `adapter/dynamic/UserDynamicAdapter.kt`：`followBtn.setOnLongClickListener` + 四个私有方法（拉分组/弹菜单/新建后加入/加入请求）；所有网络请求都在 `CenterThreadPool` 后台线程、提示回主线程。
+  - `strings.xml` +7 条（`uitext_userdynamicadapter_022~028`），`UiText.kt` 同步登记；`FollowApiAddUsersTest` 8 例。
+- **#85（bug）· 根因与修复**：反馈原文「发不了评论，显示发出去了，但是一刷新又没了（那个视频只有我一个人评论）」。根因是 `POST /x/v2/reply/add` 会**在评论进入公开列表之前**就回 `code=0`（审核 / 列表同步延迟），旧实现把「接口成功」当成「评论区可见」，先本地插一条再报「发送成功」，一刷新就消失。
+  - `api/ReplyApi.java`：`SendReplyResult` 增加 `rpid`（取 `data.rpid`，`data.reply` 为 null 时也能用）；新增 `isReplyVisible(oid, rpid, type)`（`getRepliesLazy(mode=2)` + `seek_rpid` 定位，0 / 0.4s / 1.0s 三次；三次都查不到再兜底查一次「按时间第一页」，防 `seek_rpid` 在个别评论区不生效）与纯函数 `containsReplyId`（含楼中楼）。
+  - `activity/reply/WriteReplyActivity.kt`：一级评论 `code=0` 后先核实可见性；查不到 → 提示「评论已提交，但评论区暂时查不到（可能正在审核）」，**不插入本地列表、不 finish**（原文保留可重试/稍后刷新）；查到才走原来的「发送成功 + ReplyEvent + finish」。楼中楼回复不做核实（`seek_rpid` 对子评论不可靠），保持原行为。
+  - `strings.xml` +1 条（`uitext_writereplyactivity_022`）；`ReplyApiTest` +4 例（顶层 / 楼中楼 / 不存在 / null 与非法入参）。**额外延迟**：每条一级评论最多多 3 次列表查询（正常评论第一次即命中，多一次请求约数百毫秒）。
+- **验证**：`:app:assembleDebug` 两 flavor **BUILD SUCCESSFUL**；`:app:testStandardDebugUnitTest` / `:app:testCoexistDebugUnitTest` 各 **126 suites / 1325 tests / 0 失败 0 错误**（基线 125/1313 + 本轮 12 例）。
+- **遗留（必须说清）**：本机唯一在线设备是 AVD `wear5`，**未登录 B 站账号**，因此 ① 长按加入分组 / 新建分组 / 追加成功的真实链路、② 评论审核场景下「查不到 → 提示暂未确认」的真实表现，**都没有端到端跑过**；两条判定都靠纯函数单测 + 代码走查。真机复现时看 logcat：分组走 `post-url`（`tags/addUsers`）与返回 code；评论走 `debug-发送评论`（服务端整包）+ 新增的 `debug-评论可见性`（三次查询结果）。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。

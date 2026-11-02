@@ -953,6 +953,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - 这两个判断是**纯函数**（`api/ReplyApi.java` 的 `canSendReply`/`uploadPendingTip`），与 `actionErrorMsg(int)` 同类；`activity_write_reply.xml` 里没有进度控件，所以「上传中」只用按钮文字（`imageText`）表达，**不做按字节的进度条**（用户拍板只做第 1 步）。
 - **图床 biz 必须与动态图一致（`new_dyn`）**：`upload_bfs` 的 `biz` 只决定图片落在哪个 BFS 目录，而评论 `pictures` 只认 `/bfs/new_dyn/` 下的图。26.10.02 的 F3-c 把它改成自造值 `new_reply`，结果是图能上传、发评论时被服务端以 12066 拒绝；26.11.02 恢复为 `new_dyn`（`ReplyApi.BIZ_DYNAMIC`）。私信图是另一个目录，走 `ReplyApi.BIZ_MESSAGE = "im"`（原先误复用了评论 biz）。
 - **不再做大会员前置拦截**（26.11.02）：图片评论的资格由服务端判定，客户端拦只会把「服务端允许」的非大会员挡在选图页外。现在点「图片」直接进选图页，被拒时由发送失败分支展示服务端的码/原话（`ReplyApi.sendReplyDetailed` + `ApiErrorText.uploadFailed`）。
+- **`code=0` 不等于「评论区已经能看到」（反馈 #85，26.11.02）**：`/x/v2/reply/add` 可能在评论进审核 / 尚未同步到公开列表时就回 `code=0`（还会带 `data.reply`）。旧实现直接提示「发送成功」并把评论本地插进列表，用户一刷新评论区就发现评论没了，体验上就是「发不出去」。现在一级评论发送成功后走 `ReplyApi.isReplyVisible(oid, rpid, type)`：用 `getRepliesLazy(..., mode=2)` + `seek_rpid` 直接定位新评论，按 0 / 0.4s / 1.0s 三次重试，查到才算成功；三次都查不到再兜底查一次「按时间的第一页」（`seek_rpid` 在个别评论区可能不生效），仍查不到就提示「已提交但评论区暂时查不到（可能正在审核）」，**不插入本地列表、不 finish 写评论页**（原文保留，用户可稍后刷新确认或重试）。`SendReplyResult` 因此多带一个 `rpid`（`data.reply` 为 null 时也能核实）；判定逻辑 `ReplyApi.containsReplyId` 是纯函数（含楼中楼），有 `ReplyApiTest` 单测。楼中楼回复暂不做可见性核实（`seek_rpid` 对子评论不可靠，仍有本地插入的老行为）。
 
 ### 7.19 动态的编辑与「管理」菜单（26.10.04 批次 6 的 C7）
 
@@ -1038,6 +1039,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **系统分组不可编辑**：`isEditableTag(tag) = tag.tagid > 0`——默认分组（`tagid = 0`）与特别关注（`-10`）长按只提示「默认分组和特别关注不能改名或删除」。
 - **分组模式不再过滤 `count == 0` 的分组**：原先 `loadGroupMode()` 只 `addGroup` 关注数 > 0 的分组，导致刚建好的空分组在列表里看不到、也就没法改名/删除；现在全部列出（空分组展开为空）。
 - 增删改成功后一律**整页重拉**（重新 `loadGroupMode()` 造新 adapter——`RefreshListActivity.setAdapter` 只是赋值，没有「只能设一次」的守卫，安全）。
+- **把某个关注加进分组（反馈 #88，26.11.02）**：`FollowApi.addFollowTagUsers(tagids, fid)` → `POST x/relation/tags/addUsers`（字段是复数 `tagids` / `fids`，纯函数 `addUsersFields` 钉字段名），语义是**追加**而不是移动（移动是 `tags/moveUsers`，两者字段名完全不同，`FollowApiAddUsersTest` 有对照断言）。入口在用户主页头部的关注按钮：**长按**「已关注」→ `FollowApi.getFollowTags()` + `FollowApi.getUserFollowTags(fid)`（`GET x/relation/tag/user?fid=`，响应是「分组 id → 分组名」对象）→ `TerminalDialog.menu` 列出自建分组（`tagid > 0`，已加入的带「（已加入）」后缀），末项「新建分组」→ `TerminalDialog.input` 取名 → 建完回查 tagid 再加入。未关注 / 未登录时长按不拦截（交回系统默认行为）。
 
 ### 7.27 下载服务分层：`DownloadService` 已拆分（26.10.04 批次 8 的 E2）
 
@@ -1851,8 +1853,8 @@ TTF/OTF/TTC，应用把它**拷进私有目录**（`filesDir/custom_font/custom_
 | 类 | 职责 | 关键方法 |
 | --- | --- | --- |
 | `UserInfoApi` | 用户/空间/关系/资料 | `getUserInfo`、`getUserSpaceInfo`、`followUser`、`updateUserInfo`、`uploadAvatar` |
-| `FollowApi` | 关注/粉丝/分组 | `getFollowingList`、`getFollowerList`、`getFollowTags` |
-| `ReplyApi` | 评论 | `getReplies`、`getRepliesLazy`、`getRootReply`、`getReplyCount`、`sendReply`、`sendDynamicReply`、`likeReply`、`dislikeReply`、`deleteReply`、`topReply`、`uploadReplyImage`（`actionErrorMsg` 统一错误码文案；`topActionFor` 纯函数） |
+| `FollowApi` | 关注/粉丝/分组 | `getFollowingList`、`getFollowerList`、`getFollowTags`、`getUserFollowTags`、`getFollowTagUsers`、`createFollowTag`、`renameFollowTag`、`deleteFollowTag`、`moveFollowTagUsers`、`addFollowTagUsers`（`moveUsersFields`/`addUsersFields`/`joinMids`/`joinTagIds`/`checkTagName`/`tagErrorMsg` 纯函数） |
+| `ReplyApi` | 评论 | `getReplies`、`getRepliesLazy`、`getRootReply`、`getReplyCount`、`sendReply`、`sendDynamicReply`、`likeReply`、`dislikeReply`、`deleteReply`、`topReply`、`uploadReplyImage`、`isReplyVisible`（`actionErrorMsg` 统一错误码文案；`topActionFor`/`containsReplyId` 纯函数） |
 | `ReplyTranslateApi` | 评论翻译（gRPC `TranslateReply`，26.10.26 新增） | `translateReplies`、`translateReply`、`encodeTranslateRequest`、`wrapGrpcFrame`、`parseTranslateResponse`、`buildLocaleHeader`（protobuf 手写编解码，全部纯函数可 JVM 单测） |
 | `PrivateMsgApi` | 私信 | `getPrivateMsg`、`getSessionsList`、`sendMsg` |
 | `MessageApi` | 消息中心/未读/消息设置 | `getUnread`、`checkMessageUnread`、`getLikeMsg/getReplyMsg/getAtMsg`、`getSystemMsg` |

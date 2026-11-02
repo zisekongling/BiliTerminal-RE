@@ -31,9 +31,11 @@ import com.RobinNotBad.BiliClient.activity.user.MedalWallActivity
 import com.RobinNotBad.BiliClient.adapter.user.ElectricUserAdapter
 import com.RobinNotBad.BiliClient.api.ApiErrorText
 import com.RobinNotBad.BiliClient.api.ElectricApi
+import com.RobinNotBad.BiliClient.api.FollowApi
 import com.RobinNotBad.BiliClient.api.UserInfoApi
 import com.RobinNotBad.BiliClient.model.Dynamic
 import com.RobinNotBad.BiliClient.model.ElectricPanel
+import com.RobinNotBad.BiliClient.model.FollowTag
 import com.RobinNotBad.BiliClient.model.UserInfo
 import com.RobinNotBad.BiliClient.ui.widget.RadiusBackgroundSpan
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -43,6 +45,7 @@ import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
+import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.request.RequestOptions
 import com.google.android.material.button.MaterialButton
@@ -309,6 +312,16 @@ class UserDynamicAdapter(
 
             this.setFollowed(userInfo.followed)
 
+            // 反馈 #88：已关注时，长按「已关注」可以把他加进关注分组。
+            // 未关注 / 未登录时长按没有意义（还没关注就谈不上分组归属），交回系统默认处理。
+            this.followBtn.setOnLongClickListener {
+                if (!userInfo.followed) return@setOnLongClickListener false
+                if (SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) == 0L)
+                    return@setOnLongClickListener false
+                showFollowGroupPicker(context, userInfo)
+                true
+            }
+
             this.msgBtn.setOnClickListener {
                 val intent = Intent(context, PrivateMsgActivity::class.java)
                 intent.putExtra("uid", userInfo.mid)
@@ -370,6 +383,121 @@ class UserDynamicAdapter(
 
             loadElectricPanel(context, userInfo)
 
+        }
+
+        // ==================== 反馈 #88：长按「已关注」→ 加入关注分组 ====================
+
+        /**
+         * 拉分组与「他已经在哪些分组里」，然后回主线程弹菜单。
+         *
+         * 两个请求都必须在后台线程跑：这是列表头部的绑定路径，主线程发网络请求会卡住整页。
+         * 失败也要回主线程提示，否则用户长按后「什么都没发生」。
+         */
+        private fun showFollowGroupPicker(context: Context, userInfo: UserInfo) {
+            CenterThreadPool.run {
+                try {
+                    // 只列自建分组：默认分组（0）与特别关注（-10）不是「加入分组」的语义，
+                    // 特别关注还有单独的接口与入口（关注列表的分组模式）。
+                    val tags = FollowApi.getFollowTags().filter { it.tagid > 0 }
+                    val joined = FollowApi.getUserFollowTags(userInfo.mid).map { it.tagid }.toSet()
+                    CenterThreadPool.runOnUiThread {
+                        showFollowGroupMenu(context, userInfo, tags, joined)
+                    }
+                } catch (e: Exception) {
+                    CenterThreadPool.runOnUiThread { MsgUtil.err(UiText.of("加入分组失败"), e) }
+                }
+            }
+        }
+
+        private fun showFollowGroupMenu(
+            context: Context,
+            userInfo: UserInfo,
+            tags: List<FollowTag>,
+            joined: Set<Int>
+        ) {
+            val items = ArrayList<String>(tags.size + 1)
+            for (tag in tags) {
+                items.add(
+                    if (tag.tagid in joined) UiText.fmt("%1\$s（已加入）", tag.name)
+                    else tag.name
+                )
+            }
+            items.add(UiText.of("新建分组"))
+            val newGroupIndex = items.size - 1
+
+            TerminalDialog.menu(
+                context = context,
+                title = UiText.of("加入分组"),
+                items = items
+            ) { which ->
+                if (which == newGroupIndex) {
+                    showCreateGroupThenJoin(context, userInfo)
+                    return@menu
+                }
+                val tag = tags.getOrNull(which) ?: return@menu
+                // 已经在里面就不必再发一次请求，直接告诉用户（服务端对重复加入也不报错，但白跑一趟）
+                if (tag.tagid in joined) {
+                    MsgUtil.showMsg(UiText.fmt("已经在「%1\$s」分组里了", tag.name))
+                } else {
+                    CenterThreadPool.run { joinFollowGroupNow(userInfo, tag.tagid, tag.name) }
+                }
+            }.show()
+        }
+
+        /** 新建一个分组，建好后直接把当前用户加进去（省得用户再长按一次）。 */
+        private fun showCreateGroupThenJoin(context: Context, userInfo: UserInfo) {
+            TerminalDialog.input(
+                context = context,
+                title = UiText.of("新建分组"),
+                hint = UiText.fmt("请输入分组名（最多 %1\$d 个字）", FollowApi.TAG_NAME_MAX_LENGTH),
+                maxLength = FollowApi.TAG_NAME_MAX_LENGTH,
+                confirmText = UiText.of("创建"),
+                onConfirm = { name ->
+                    val check = FollowApi.checkTagName(name)
+                    if (check.isNotEmpty()) {
+                        // 本地预校验失败不关窗、不回调：分组名太长的提示就在输入框上方弹一下
+                        MsgUtil.showMsg(check)
+                    } else {
+                        CenterThreadPool.run { createGroupThenJoin(userInfo, name) }
+                    }
+                }
+            ).show()
+        }
+
+        /** 后台线程：建分组 → 回查 tagid → 把用户加进去。 */
+        private fun createGroupThenJoin(userInfo: UserInfo, name: String) {
+            try {
+                val createCode = FollowApi.createFollowTag(name)
+                if (createCode != 0) {
+                    CenterThreadPool.runOnUiThread { MsgUtil.showMsg(FollowApi.tagErrorMsg(createCode)) }
+                    return
+                }
+                // create 接口只回 code（`data.tagid` 文档里写了但当前实现没取），
+                // 按名字回查一次最稳：分组名服务端保证唯一（重名会回 22106）。
+                val created = FollowApi.getFollowTags().firstOrNull { it.name == name.trim() }
+                if (created == null) {
+                    CenterThreadPool.runOnUiThread {
+                        MsgUtil.showMsg(UiText.of("分组已创建，但没找到它，请稍后刷新再试"))
+                    }
+                    return
+                }
+                joinFollowGroupNow(userInfo, created.tagid, created.name)
+            } catch (e: Exception) {
+                CenterThreadPool.runOnUiThread { MsgUtil.err(UiText.of("创建分组失败"), e) }
+            }
+        }
+
+        /** 后台线程：调用加分组接口，结果回主线程提示。 */
+        private fun joinFollowGroupNow(userInfo: UserInfo, tagid: Int, tagName: String) {
+            try {
+                val code = FollowApi.addFollowTagUsers(listOf(tagid), userInfo.mid)
+                CenterThreadPool.runOnUiThread {
+                    if (code == 0) MsgUtil.showMsg(UiText.fmt("已加入「%1\$s」", tagName))
+                    else MsgUtil.showMsg(FollowApi.tagErrorMsg(code))
+                }
+            } catch (e: Exception) {
+                CenterThreadPool.runOnUiThread { MsgUtil.err(UiText.of("加入分组失败"), e) }
+            }
         }
 
         private fun loadElectricPanel(context: Context, userInfo: UserInfo) {

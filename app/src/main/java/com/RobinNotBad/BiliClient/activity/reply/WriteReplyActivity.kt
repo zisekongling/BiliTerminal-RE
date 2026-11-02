@@ -164,21 +164,39 @@ class WriteReplyActivity : BaseActivity() {
                             val result = ReplyApi.sendReplyDetailed(oid, rpid, parent, text, replyType, pictures)
                             val resultReply = result.reply
 
-                            if (result.code == 0 && resultReply != null) {
-                                runOnUiThread { MsgUtil.showMsg(UiText.of("发送成功>w<")) }
-                                resultReply.forceDelete = true
-                                resultReply.pubTime = UiText.of("刚刚")
-                                synchronized(uploadDataList) {
-                                    for (uploadData in uploadDataList) {
-                                        resultReply.pictureList.add(uploadData.image_url)
+                            if (result.code == 0) {
+                                // 反馈 #85：/x/v2/reply/add 可能在评论还没进公开列表（审核中 /
+                                // 尚未同步）时就回 code=0。以前这里直接报「发送成功」并本地插一条，
+                                // 用户一刷新评论区就发现评论没了，体验上就是「发不出去」。
+                                // 所以一级评论发出后先回评论区核实；查不到就如实说「暂未确认」，
+                                // 并且**不插入本地列表、不关页面**，让用户能稍后自己刷新确认。
+                                val isRootComment = rpid == 0L && parent == 0L
+                                if (isRootComment && result.rpid > 0
+                                    && !ReplyApi.isReplyVisible(oid, result.rpid, replyType)
+                                ) {
+                                    runOnUiThread {
+                                        MsgUtil.showMsgLong(
+                                            UiText.of("评论已提交，但评论区暂时查不到（可能正在审核）。稍后刷新看看，先别重复发送")
+                                        )
                                     }
+                                    return@run
                                 }
-                                EventBus.getDefault().post(ReplyEvent(1, resultReply, pos, oid))
-                                finish()
-                            } else if (result.code == 0) {
-                                // 服务端成功但没回 reply：评论已经发出去了，别报「失败」让用户重发
-                                runOnUiThread { MsgUtil.showMsg(UiText.of("发送成功>w<")) }
-                                finish()
+                                if (resultReply != null) {
+                                    runOnUiThread { MsgUtil.showMsg(UiText.of("发送成功>w<")) }
+                                    resultReply.forceDelete = true
+                                    resultReply.pubTime = UiText.of("刚刚")
+                                    synchronized(uploadDataList) {
+                                        for (uploadData in uploadDataList) {
+                                            resultReply.pictureList.add(uploadData.image_url)
+                                        }
+                                    }
+                                    EventBus.getDefault().post(ReplyEvent(1, resultReply, pos, oid))
+                                    finish()
+                                } else {
+                                    // 服务端成功但没回 reply：评论已经发出去了，别报「失败」让用户重发
+                                    runOnUiThread { MsgUtil.showMsg(UiText.of("发送成功>w<")) }
+                                    finish()
+                                }
                             } else {
                                 // 已知码用本地翻译；未收录的码（如 12066）把服务端原话带上，
                                 // 不再只显示一个数字

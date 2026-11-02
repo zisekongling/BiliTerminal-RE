@@ -24,6 +24,7 @@ import org.json.JSONObject;
 
 import java.io.IOException;
 import java.net.URLEncoder;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -366,11 +367,20 @@ public class ReplyApi {
         public final int code;
         public final String message;
         public final Reply reply;
+        /**
+         * 新评论的 rpid。
+         *
+         * <p>服务端 `data.rpid` 与 `data.reply.rpid` 正常是同一个值，但 `data.reply` 可能为 null
+         * （见下方注释）。单独留一份，是为了「没有 reply 对象时仍然能去评论区核实这条评论是否存在」——
+         * 见 {@link #isReplyVisible}。
+         */
+        public final long rpid;
 
-        public SendReplyResult(int code, String message, Reply reply) {
+        public SendReplyResult(int code, String message, Reply reply, long rpid) {
             this.code = code;
             this.message = message == null ? "" : message;
             this.reply = reply;
+            this.rpid = rpid;
         }
     }
 
@@ -398,11 +408,86 @@ public class ReplyApi {
         Log.e("debug-发送评论", result.toString());
         int code = result.getInt("code");
         String message = result.optString("message", "");
+        JSONObject data = result.optJSONObject("data");
+        long newRpid = data == null ? 0 : data.optLong("rpid", 0);
         JSONObject reply = null;
-        if (result.has("data") && !result.isNull("data") && result.getJSONObject("data").has("reply") && !result.getJSONObject("data").isNull("reply")) {
-            reply = result.getJSONObject("data").getJSONObject("reply");
+        if (data != null && data.has("reply") && !data.isNull("reply")) {
+            reply = data.getJSONObject("reply");
         }
-        return new SendReplyResult(code, message, reply == null ? null : new Reply(root != 0, reply));
+        if (newRpid <= 0 && reply != null) newRpid = reply.optLong("rpid", 0);
+        return new SendReplyResult(code, message, reply == null ? null : new Reply(root != 0, reply), newRpid);
+    }
+
+    /**
+     * 刚发出的评论现在能不能在评论区里查到。
+     *
+     * <p>**这是反馈 #85 的根因兜底**：`/x/v2/reply/add` 可能在评论进入审核 / 还没同步到公开列表时
+     * 就回了 `code = 0`（并带回 reply 对象）。客户端如果照单全收，就会先把评论「本地插进列表」
+     * 再报「发送成功」，用户一刷新评论区发现评论没了——看起来就像「发不出去」。
+     * 所以发送成功后必须回评论区核实一次，查不到就别说成功。
+     *
+     * <p>实现上用 `seek_rpid` 直接定位这条评论（`mode=2` 按时间），按 0 / 0.4s / 1.0s 三次重试，
+     * 覆盖「服务端列表同步延迟」这一小段时间；审核超过这个时间就查不到，属于正常结果。
+     *
+     * @param oid  评论区 id（视频 aid 等）
+     * @param rpid 新评论的 rpid
+     * @param type 评论区类型（与发送时一致）
+     * @return true = 评论区已经能查到这条评论
+     */
+    public static boolean isReplyVisible(long oid, long rpid, int type) {
+        if (oid <= 0 || rpid <= 0) return false;
+        // 三次查询之间的等待（毫秒）；第一次立即查，避免正常评论白等
+        long[] waits = {0L, 400L, 1000L};
+        for (long wait : waits) {
+            if (wait > 0) {
+                try {
+                    Thread.sleep(wait);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+            try {
+                ArrayList<Reply> replies = new ArrayList<>();
+                Pair<Integer, String> page = getRepliesLazy(oid, rpid, "", type, 2, replies);
+                if (page.first == PAGE_ERROR) continue;
+                if (containsReplyId(replies, rpid)) return true;
+            } catch (Exception e) {
+                // 单次查询失败不代表评论没发出：继续重试，三次都失败才按「暂未确认」处理
+                Log.e("debug-评论可见性", "查询失败 rpid=" + rpid + "，" + e.getClass().getSimpleName());
+            }
+        }
+        // 兜底：seek_rpid 在个别评论区可能不生效。按时间排序的第一页就是最新评论，
+        // 新评论只要公开可见就必然在那一页里；这一步只在前面三次都查不到时才多跑一次。
+        try {
+            ArrayList<Reply> latest = new ArrayList<>();
+            getRepliesLazy(oid, 0, "", type, 2, latest);
+            if (containsReplyId(latest, rpid)) return true;
+        } catch (Exception e) {
+            Log.e("debug-评论可见性", "兜底查询失败 rpid=" + rpid + "，" + e.getClass().getSimpleName());
+        }
+        Log.e("debug-评论可见性", "评论区暂未查到 rpid=" + rpid + " oid=" + oid + " type=" + type);
+        return false;
+    }
+
+    /**
+     * 纯逻辑：这批评论（含楼中楼）里有没有指定 rpid。
+     *
+     * <p>抽出来做 JVM 单测：{@link #isReplyVisible} 的真实请求跑不到单测环境，
+     * 但「怎么算查到」这段判定可以钉死（尤其是别漏了楼中楼）。
+     */
+    public static boolean containsReplyId(List<Reply> replies, long rpid) {
+        if (replies == null || rpid <= 0) return false;
+        for (Reply reply : replies) {
+            if (reply == null) continue;
+            if (reply.rpid == rpid) return true;
+            if (reply.childMsgList != null) {
+                for (Reply child : reply.childMsgList) {
+                    if (child != null && child.rpid == rpid) return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

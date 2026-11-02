@@ -844,6 +844,14 @@ object UiText {
         "请选择 %1\$d 项" to R.string.uitext_voteinfoactivity_017,
         "请选择 %1\$d 项（已选 %2\$d）" to R.string.uitext_voteinfoactivity_018,
         "删除失败：%1\$s" to R.string.uitext_voteinfoactivity_019,
+        "加入分组" to R.string.uitext_userdynamicadapter_022,
+        "%1\$s（已加入）" to R.string.uitext_userdynamicadapter_023,
+        "已经在「%1\$s」分组里了" to R.string.uitext_userdynamicadapter_024,
+        "已加入「%1\$s」" to R.string.uitext_userdynamicadapter_025,
+        "加入分组失败" to R.string.uitext_userdynamicadapter_026,
+        "创建" to R.string.uitext_userdynamicadapter_027,
+        "分组已创建，但没找到它，请稍后刷新再试" to R.string.uitext_userdynamicadapter_028,
+        "评论已提交，但评论区暂时查不到（可能正在审核）。稍后刷新看看，先别重复发送" to R.string.uitext_writereplyactivity_022,
 // @INSERT
     )
 

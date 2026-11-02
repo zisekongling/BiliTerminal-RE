@@ -2557,4 +2557,25 @@
     <string name="setting_player_longpress_speed_desc">长按画面加速时使用的倍率（弹幕一起加速），默认 3.0x</string>
     <!-- %1$d 是分P 序号（从 1 开始） -->
     <string name="msg_player_resume_page">继续播放第 %1$d P</string>
+
+    <!-- ==================== 用户详情页：长按「已关注」加入分组（反馈 #88） ==================== -->
+    <!-- 弹窗标题 -->
+    <string name="uitext_userdynamicadapter_022">加入分组</string>
+    <!-- 菜单项后缀：%1$s 是分组名 -->
+    <string name="uitext_userdynamicadapter_023">%1$s（已加入）</string>
+    <!-- 点到已经加入的分组时的提示；%1$s 是分组名 -->
+    <string name="uitext_userdynamicadapter_024">已经在「%1$s」分组里了</string>
+    <!-- 成功加入后的提示；%1$s 是分组名 -->
+    <string name="uitext_userdynamicadapter_025">已加入「%1$s」</string>
+    <!-- 网络异常 / 接口异常时的动作名（MsgUtil.err 的标题） -->
+    <string name="uitext_userdynamicadapter_026">加入分组失败</string>
+    <!-- 新建分组弹窗的确认按钮 -->
+    <string name="uitext_userdynamicadapter_027">创建</string>
+    <!-- 新建成功但回查不到新分组（极少见）时的提示 -->
+    <string name="uitext_userdynamicadapter_028">分组已创建，但没找到它，请稍后刷新再试</string>
+
+    <!-- ==================== 评论发送成功但查不到（反馈 #85） ==================== -->
+    <!-- 服务端回了 code=0，但评论区（按时间排序、seek 到新评论）查不到这条评论：
+         多半是进了审核。不能报「发送成功」，否则用户刷新后评论消失，看起来像发不出去。 -->
+    <string name="uitext_writereplyactivity_022">评论已提交，但评论区暂时查不到（可能正在审核）。稍后刷新看看，先别重复发送</string>
 </resources>
