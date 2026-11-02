@@ -1836,6 +1836,10 @@
     <string name="uitext_locallistactivity_020">重命名文件夹</string>
     <string name="uitext_locallistactivity_021">拆散文件夹</string>
     <string name="uitext_locallistactivity_022">删除视频</string>
+    <string name="uitext_locallistactivity_023">已进入虚拟合集：%1$s（共%2$d个视频）</string>
+    <string name="uitext_locallistactivity_024">该文件夹内没有可播放的视频</string>
+    <string name="uitext_locallistactivity_025">无法定位起始视频，请重新选择</string>
+    <string name="uitext_locallistactivity_026">%1$s（虚拟合集）</string>
     <string name="uitext_seriesinfoactivity_001">系列详情</string>
     <string name="uitext_multipageactivity_001">已在下载队列</string>
     <string name="uitext_qualitychooseractivity_004">4K 超清</string>
@@ -2405,6 +2409,7 @@
     <string name="uitext_favoritevideolistactivity_022">取消失败，错误码：%1$s</string>
     <string name="uitext_favoritevideolistactivity_023">%1$s（虚拟合集）</string>
     <string name="uitext_favoritevideolistactivity_024">以虚拟合集连播</string>
+    <string name="uitext_favoritevideolistactivity_025">无法定位起始视频，请重新选择</string>
     <string name="uitext_userinfoactivity_002">用户信息-%1$s</string>
     <string name="uitext_bangumiinfofragment_020">已完结</string>
     <string name="uitext_bangumiinfofragment_021">连载中</string>

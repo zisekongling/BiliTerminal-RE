@@ -31,6 +31,7 @@ import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.VideoMetaManager
+import com.RobinNotBad.BiliClient.util.VirtualCollectionStart
 import java.io.File
 
 class LocalListActivity : InstanceActivity() {
@@ -515,13 +516,6 @@ class LocalListActivity : InstanceActivity() {
      * @param startVideoIdx 点击的视频在 videoList 中的索引（作为合集的起始播放位置）
      */
     private fun playVirtualCollection(folderName: String, startVideoIdx: Int) {
-        // 收集该文件夹内的所有视频
-        val folderVideos = videoList.filter { it.folderName == folderName }
-        if (folderVideos.isEmpty()) {
-            MsgUtil.showMsg(UiText.of("该文件夹内没有视频"))
-            return
-        }
-
         // 构建合集的分页数据
         val pagenames = ArrayList<String>()
         val videoUrlList = ArrayList<String>()
@@ -529,42 +523,62 @@ class LocalListActivity : InstanceActivity() {
         // 与 videoUrlList 一一对应的外部音轨（DASH 双文件的 audio.m4a；单文件为空串）。
         // 原先只取 mp4 主文件，没合并过的 DASH 缓存在文件夹里播放就没有声音（反馈 #51）。
         val audioUrlList = ArrayList<String>()
-        var startPageIndex = 0
+        // 合集各条在 videoList（全量列表）里的下标，顺序即合集顺序
+        val collectionIndices = ArrayList<Int>()
+        var folderCount = 0
 
-        for ((i, v) in folderVideos.withIndex()) {
+        // 一次遍历同时决定"合集有哪些条"与"四条列表的第几项"：
+        // 没有文件的条目整条不进合集。原先只跳过 videoUrlList、pagenames 照加，
+        // 四条列表长度就不一致了，起播下标会指到别的视频上（反馈 #104）。
+        for ((i, v) in videoList.withIndex()) {
+            if (v.folderName != folderName) continue
+            folderCount++
+
+            val files = v.videoFileList
+            if (files.isNullOrEmpty()) continue
+
+            collectionIndices.add(i)
             pagenames.add(v.title)
 
-            // 单文件或DASH双文件
-            if (v.videoFileList != null) {
-                if (v.videoFileList!!.size == 1) {
-                    videoUrlList.add(v.videoFileList!![0])
-                    audioUrlList.add("")
-                } else {
-                    // 取第一个mp4文件作为主文件
-                    val videoFile = v.videoFileList!!.firstOrNull { it.endsWith(".mp4") }
-                        ?: v.videoFileList!![0]
-                    videoUrlList.add(videoFile)
-                    audioUrlList.add(v.videoFileList!!.firstOrNull { it.endsWith(".m4a") } ?: "")
-                }
+            // 单文件或 DASH 双文件
+            if (files.size == 1) {
+                videoUrlList.add(files[0])
+                audioUrlList.add("")
+            } else {
+                // 取第一个 mp4 作为主文件，同目录的 m4a 作为外部音轨
+                videoUrlList.add(files.firstOrNull { it.endsWith(".mp4") } ?: files[0])
+                audioUrlList.add(files.firstOrNull { it.endsWith(".m4a") } ?: "")
             }
 
             // 弹幕文件
-            if (v.danmakuFileList != null && v.danmakuFileList!!.isNotEmpty()) {
-                danmakuUrlList.add(v.danmakuFileList!![0])
+            val danmakuFiles = v.danmakuFileList
+            if (!danmakuFiles.isNullOrEmpty()) {
+                danmakuUrlList.add(danmakuFiles[0])
             } else {
                 danmakuUrlList.add("")
             }
+        }
 
-            // 记录起始播放位置：startVideoIdx 是 videoList 的全局索引，
-            // 不能直接用来访问过滤后的 folderVideos，否则索引空间不一致会越界
-            if (startVideoIdx >= 0 && startVideoIdx < videoList.size && v == videoList[startVideoIdx]) {
-                startPageIndex = i
-            }
+        if (folderCount == 0) {
+            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_004))
+            return
+        }
+        if (collectionIndices.isEmpty()) {
+            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_024))
+            return
+        }
+
+        // 起播位置：startVideoIdx 是 videoList 的全局索引，必须换算成合集下标。
+        // 换算不出来就明说，不再静默从第一条开始（反馈 #104）
+        val startPageIndex = VirtualCollectionStart.resolveLocal(startVideoIdx, collectionIndices)
+        if (startPageIndex < 0) {
+            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_025))
+            return
         }
 
         // 构建 PlayerData，传入所有分页信息
         val playerData = PlayerData(PlayerData.TYPE_LOCAL)
-        playerData.title = "$folderName（虚拟合集）"
+        playerData.title = getString(R.string.uitext_locallistactivity_026, folderName)
         // 起播地址必须跟 currentPageIndex 走同一个下标（反馈 #51）：原先固定取 [0]，
         // 点 P2 时选集高亮在 P2、实际播的却是 P1
         playerData.videoUrl = videoUrlList[startPageIndex]
@@ -583,7 +597,7 @@ class LocalListActivity : InstanceActivity() {
                 player.putExtra("audio_track_url", audioUrlList[startPageIndex])
             }
             startActivity(player)
-            MsgUtil.showMsg("已进入虚拟合集：$folderName（共${folderVideos.size}个视频）")
+            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_023, folderName, collectionIndices.size))
         } catch (e: Exception) {
             MsgUtil.err(e)
         }

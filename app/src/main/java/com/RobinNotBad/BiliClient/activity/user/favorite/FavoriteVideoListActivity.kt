@@ -21,6 +21,7 @@ import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.VirtualCollectionPrefs
+import com.RobinNotBad.BiliClient.util.VirtualCollectionStart
 
 class FavoriteVideoListActivity : RefreshListActivity() {
 
@@ -524,19 +525,27 @@ class FavoriteVideoListActivity : RefreshListActivity() {
                 // 构建合集的pagenames和cids
                 val pagenames = ArrayList<String>()
                 val cids = ArrayList<Long>()
-                var startPageIndex = 0
                 var firstCid: Long = 0
 
-                for ((i, v) in videoList.withIndex()) {
+                for (v in videoList) {
                     pagenames.add(v.title)
                     cids.add(v.aid) // 使用aid作为标识，实际播放时会重新获取cid
-                    if (v.aid == startAid) {
-                        startPageIndex = i
-                    }
                 }
 
-                // 获取起始视频的cid
-                val firstAid = if (startPosition < videoList.size) videoList[startPosition].aid else startAid
+                // 起播项：点击位置是权威值。原先只按 aid 反查（`v.aid == startAid`），
+                // 接口没给 id（每条 aid 都是 0）或列表里 aid 重复时会一直停在第 0 条，
+                // 表现就是"点哪条都播第一条"（反馈 #104）。定不下来时明说，不猜第 0 条。
+                val startPageIndex = VirtualCollectionStart.resolveOnline(startPosition, startAid, cids)
+                if (startPageIndex < 0) {
+                    runOnUiThread {
+                        MsgUtil.showMsg(getString(R.string.uitext_favoritevideolistactivity_025))
+                    }
+                    return@run
+                }
+
+                // 起播这条的 aid 必须与 startPageIndex 取自同一处，
+                // 否则会"选集高亮在第 3 条、实际播的是第 1 条"
+                val firstAid = videoList[startPageIndex].aid
                 val videoInfo = VideoInfoApi.getVideoInfo(firstAid)
                 if (videoInfo != null && videoInfo.cids.isNotEmpty()) {
                     firstCid = videoInfo.cids[0]
