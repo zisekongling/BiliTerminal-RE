@@ -267,6 +267,8 @@
     <string name="pagename_image_viewer">图片查看</string>
     <string name="pagename_login_special">特殊登录</string>
     <string name="pagename_account_switch">账号切换</string>
+    <string name="pagename_subscription">我的订阅</string>
+    <string name="pagename_subscription_season">合集详情</string>
     <string name="pagename_menu">菜单</string>
     <string name="pagename_message">消息</string>
     <string name="pagename_myspace">我的</string>
@@ -851,6 +853,19 @@
     <string name="text_list_empty_retry">啥都木有~\n点我重试</string>
     <string name="text_list_loading">正在加载…</string>
     <string name="text_list_no_more">没有更多了</string>
+    <!-- ===== 我的订阅（收藏夹/合集订阅） ===== -->
+    <string name="text_subscription_placeholder_title">订阅标题</string>
+    <string name="text_subscription_type_folder">收藏夹</string>
+    <string name="text_subscription_type_season">合集</string>
+    <string name="text_subscription_meta">%1$s · %2$d 个视频</string>
+    <string name="msg_subscription_need_login">还没有登录喵~</string>
+    <string name="msg_subscription_csrf_invalid">登录凭证已失效，请重新登录</string>
+    <string name="msg_subscription_bad_request">请求出错了，请稍后再试</string>
+    <string name="msg_subscription_content_gone">内容不存在，可能已经被删除了</string>
+    <string name="msg_subscription_failed_with_code">操作失败（错误码 %1$d）</string>
+    <string name="msg_subscription_invalid">该收藏夹已失效</string>
+    <string name="msg_subscription_cancel_confirm">确定取消订阅「%1$s」吗？</string>
+    <string name="msg_subscription_cancelled">已取消订阅</string>
     <!-- ===== 下载过程（12.4 文案迁移：三批） ===== -->
     <string name="text_download_preparing">准备中</string>
     <string name="text_download_start">开始下载</string>
@@ -1512,7 +1527,6 @@
     <string name="uitext_replyinfoactivity_001">评论详情</string>
     <string name="uitext_writereplyactivity_001">图片处理失败</string>
     <string name="uitext_writereplyactivity_002">图片上传失败</string>
-    <string name="uitext_writereplyactivity_003">带图评论仅大会员可用喵~</string>
     <string name="uitext_writereplyactivity_004">最多只能添加9张图片喵~</string>
     <string name="uitext_writereplyactivity_005">发送成功&gt;w&lt;</string>
     <string name="uitext_searchactivity_001">还没输入内容喵~</string>

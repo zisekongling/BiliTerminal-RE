@@ -449,6 +449,16 @@
             android:label="@string/uitext_favoritefoldercreateactivity_003"
             android:screenOrientation="locked" />
         <activity
+            android:name=".activity.user.subscription.SubscriptionListActivity"
+            android:exported="false"
+            android:label="@string/pagename_subscription"
+            android:screenOrientation="locked" />
+        <activity
+            android:name=".activity.user.subscription.SubSeasonDetailActivity"
+            android:exported="false"
+            android:label="@string/pagename_subscription_season"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.user.info.UserInfoActivity"
             android:exported="false"
             android:label="@string/uitext_userinfoactivity_001"
