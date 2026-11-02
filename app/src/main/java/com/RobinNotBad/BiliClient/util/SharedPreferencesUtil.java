@@ -15,6 +15,11 @@ public class SharedPreferencesUtil {
     public static final String MENU_START = "menu_start";
     /** 菜单设置页顶部的使用说明是否已被用户长按隐藏。 */
     public static final String MENU_HELP_HIDDEN = "menu_help_hidden";
+    /**
+     * 用户是否保存过菜单配置（"1"/"0"，缺省=没保存过）。
+     * 用来区分「menu_enabled 里没有 exit」是升级前的老数据，还是用户自己关掉了退出项。
+     */
+    public static final String MENU_EXIT_STATE = "menu_exit_state";
     public static final String SEARCH_CATEGORY_SORT = "search_category_sort";
     public static final String SEARCH_CATEGORY_ARTICLE_SHOW = "search_category_article_show";
     public static final String SEARCH_CATEGORY_USER_SHOW = "search_category_user_show";

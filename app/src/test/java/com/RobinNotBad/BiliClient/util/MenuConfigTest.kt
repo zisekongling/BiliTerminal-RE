@@ -15,7 +15,7 @@ class MenuConfigTest {
             listOf(
                 "recommend", "short_video", "popular", "hotsearch", "search",
                 "dynamic", "myspace", "message", "local", "settings"
-            ) + MenuConfig.OPTIONAL_ITEMS,
+            ) + MenuConfig.OPTIONAL_ITEMS + MenuConfig.EXIT,
             MenuConfig.DEFAULT_ENABLED
         )
     }
@@ -36,7 +36,7 @@ class MenuConfigTest {
             listOf(
                 "recommend", "short_video", "popular", "hotsearch", "live",
                 "search", "dynamic", "myspace", "message", "local", "settings"
-            ) + MenuConfig.OPTIONAL_ITEMS,
+            ) + MenuConfig.OPTIONAL_ITEMS + MenuConfig.EXIT,
             MenuConfig.resolveEnabledList(oldSort, switches)
         )
     }
@@ -64,12 +64,14 @@ class MenuConfigTest {
         )
         val result = MenuConfig.resolveEnabledList(oldSort, switches)
         assertTrue("固定项必须全部在结果中", MenuConfig.FIXED_ITEMS.all { it in result })
-        // 缺失项（固定项与可选私有项）追加在末尾；固定项排在可选私有项之前。
+        // 缺失项（固定项与可选私有项）追加在末尾；固定项排在可选私有项之前；
+        // 「退出」是动作项，永远压在整份列表最后（所以固定项前面还要多让一格）
         assertEquals(
-            "缺失的固定项追加到末尾（其后只剩可选的私有项）",
+            "缺失的固定项追加到末尾（其后只剩可选的私有项与退出项）",
             "settings",
-            result[result.size - 1 - MenuConfig.OPTIONAL_ITEMS.size]
+            result[result.size - 2 - MenuConfig.OPTIONAL_ITEMS.size]
         )
+        assertEquals(MenuConfig.EXIT, result.last())
     }
 
     @Test
@@ -129,9 +131,11 @@ class MenuConfigTest {
             readBoolean = { null },
             writeString = { _, value -> written = value }
         )
-        // 认识的 key 按用户原顺序保留；缺失的可选私有项补在末尾；未知 key 被清掉
+        // 认识的 key 按用户原顺序保留；缺失的可选私有项补在末尾；未知 key 被清掉；
+        // 「退出」是老数据里没有的项，也在末尾补上
         assertEquals(
-            listOf("settings", "recommend", "local", "search") + MenuConfig.OPTIONAL_ITEMS,
+            listOf("settings", "recommend", "local", "search") +
+                MenuConfig.OPTIONAL_ITEMS + MenuConfig.EXIT,
             result
         )
         assertEquals(MenuConfig.serialize(result), written)
@@ -172,7 +176,7 @@ class MenuConfigTest {
             listOf(
                 "recommend", "short_video", "popular", "hotsearch", "search",
                 "dynamic", "myspace", "message", "local", "settings"
-            ) + MenuConfig.OPTIONAL_ITEMS
+            ) + MenuConfig.OPTIONAL_ITEMS + MenuConfig.EXIT
         )
         val result = MenuConfig.loadEnabled(
             readString = { if (it == SharedPreferencesUtil.MENU_ENABLED) valid else null },
@@ -181,6 +185,67 @@ class MenuConfigTest {
         )
         assertEquals(valid.split(";"), result)
         assertEquals(false, wrote)
+    }
+
+    @Test
+    fun loadEnabled_oldDataWithoutExit_appendsExitAndWritesBack() {
+        // 26.11.02 之前「退出」是硬编码在菜单最下方的固定按钮，老用户存下的
+        // menu_enabled 里没有这个 key；不补的话升级后菜单里再也找不到退出按钮
+        val old = MenuConfig.serialize(
+            MenuConfig.DEFAULT_ENABLED.filter { it != MenuConfig.EXIT }
+        )
+        var written: String? = null
+        val result = MenuConfig.loadEnabled(
+            readString = { key ->
+                when (key) {
+                    SharedPreferencesUtil.MENU_ENABLED -> old
+                    // 从没保存过菜单配置：读出来是空串（SharedPreferencesUtil 的缺省值）
+                    SharedPreferencesUtil.MENU_EXIT_STATE -> ""
+                    else -> null
+                }
+            },
+            readBoolean = { null },
+            writeString = { _, value -> written = value }
+        )
+        assertEquals(MenuConfig.DEFAULT_ENABLED, result)
+        assertEquals(MenuConfig.serialize(MenuConfig.DEFAULT_ENABLED), written)
+    }
+
+    @Test
+    fun loadEnabled_userDisabledExit_doesNotAddItBack() {
+        // 用户自己把「退出」拖进未启用区：保存时写过 MENU_EXIT_STATE，
+        // 于是"缺项"不再被当成老数据，别偷偷加回来
+        val stored = MenuConfig.serialize(
+            MenuConfig.DEFAULT_ENABLED.filter { it != MenuConfig.EXIT }
+        )
+        var wrote = false
+        val result = MenuConfig.loadEnabled(
+            readString = { key ->
+                when (key) {
+                    SharedPreferencesUtil.MENU_ENABLED -> stored
+                    SharedPreferencesUtil.MENU_EXIT_STATE -> "0"
+                    else -> null
+                }
+            },
+            readBoolean = { null },
+            writeString = { _, _ -> wrote = true }
+        )
+        assertEquals(false, MenuConfig.EXIT in result)
+        assertEquals(false, wrote)
+    }
+
+    @Test
+    fun saveEnabled_recordsExitStateMarker() {
+        val written = HashMap<String, String>()
+        MenuConfig.saveEnabled(listOf("recommend", MenuConfig.EXIT)) { key, value ->
+            written[key] = value
+        }
+        assertEquals("1", written[SharedPreferencesUtil.MENU_EXIT_STATE])
+        written.clear()
+        MenuConfig.saveEnabled(listOf("recommend")) { key, value ->
+            written[key] = value
+        }
+        assertEquals("0", written[SharedPreferencesUtil.MENU_EXIT_STATE])
     }
 
     @Test
@@ -217,6 +282,14 @@ class MenuConfigTest {
     fun resolveStart_storedDisabled_fallsBackToRecommend() {
         assertEquals("recommend", MenuConfig.resolveStart(MenuConfig.DEFAULT_ENABLED, "precious"))
         assertEquals("recommend", MenuConfig.resolveStart(MenuConfig.DEFAULT_ENABLED, "not_a_key"))
+    }
+
+    @Test
+    fun resolveStart_exitIsNeverAStartPage() {
+        // 启动页指向退出项 → 改回默认；连"列表首项兜底"也不能落到退出项上，
+        // 否则开机就直接收摊
+        assertEquals("recommend", MenuConfig.resolveStart(MenuConfig.DEFAULT_ENABLED, MenuConfig.EXIT))
+        assertEquals("recommend", MenuConfig.resolveStart(listOf(MenuConfig.EXIT), null))
     }
 
     @Test
@@ -269,6 +342,23 @@ class MenuConfigTest {
             enabled = MenuConfig.DEFAULT_ENABLED,
             readString = { key -> if (key == SharedPreferencesUtil.MENU_START) "timeline" else null },
             writeString = { key, value -> if (key == SharedPreferencesUtil.MENU_START) written = value }
+        )
+        assertEquals("recommend", result)
+        assertEquals("recommend", written)
+    }
+
+    @Test
+    fun loadStart_storedExit_rewritesDefault() {
+        // 旧版本可能把退出项存成了启动页（它当时还是固定按钮，不该被选），读到就改回来
+        var written: String? = null
+        val result = MenuConfig.loadStart(
+            enabled = MenuConfig.DEFAULT_ENABLED,
+            readString = { key ->
+                if (key == SharedPreferencesUtil.MENU_START) MenuConfig.EXIT else null
+            },
+            writeString = { key, value ->
+                if (key == SharedPreferencesUtil.MENU_START) written = value
+            }
         )
         assertEquals("recommend", result)
         assertEquals("recommend", written)

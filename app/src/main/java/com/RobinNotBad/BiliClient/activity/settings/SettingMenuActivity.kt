@@ -9,6 +9,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.MenuActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.adapter.MenuSettingAdapter
+import com.RobinNotBad.BiliClient.util.MenuConfig
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 
 class SettingMenuActivity : BaseActivity() {
@@ -30,7 +31,11 @@ class SettingMenuActivity : BaseActivity() {
         recyclerView.layoutManager = LinearLayoutManager(this)
 
         val adapter = MenuSettingAdapter(enabled, start, helpHidden) { key ->
-            MenuActivity.btnNames[key]?.first ?: key
+            when (key) {
+                // 「退出」不在 btnNames 里（它是动作项不是页面），名字单独取
+                MenuConfig.EXIT -> getString(R.string.btn_exit)
+                else -> MenuActivity.btnNames[key]?.first ?: key
+            }
         }
         adapter.listener = object : MenuSettingAdapter.Listener {
             override fun onChanged(enabled: List<String>) {

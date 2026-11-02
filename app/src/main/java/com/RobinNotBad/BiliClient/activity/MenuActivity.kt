@@ -125,6 +125,7 @@ class MenuActivity : BaseActivity() {
             val materialButton = MaterialButton(this)
             when (btn) {
                 "login" -> materialButton.text = UiText.of("登录")
+                MenuConfig.EXIT -> materialButton.text = getString(R.string.btn_exit)
                 "dynamic" -> {
                     var btnText = btnNames[btn]!!.first
                     if (btn == "dynamic") {
@@ -147,17 +148,12 @@ class MenuActivity : BaseActivity() {
                 }
                 else -> materialButton.text = btnNames[btn]!!.first
             }
-            materialButton.setOnClickListener { killAndJump(btn) }
+            // 「退出」是动作项：点了直接收摊，不走 killAndJump（它要往页面栈里跳）
+            materialButton.setOnClickListener {
+                if (btn == MenuConfig.EXIT) exitAppCompletely() else killAndJump(btn)
+            }
             layout.addView(materialButton, params)
         }
-
-        // 「退出」固定按钮：不放进 btnNames——菜单项受「菜单设置」管控且点了要跳页，
-        // 退出是常驻入口、点了直接收摊，固定排在菜单最下方（desc_back_disable 的文案
-        // 也一直写着"菜单最下方的退出按钮"）。手表上没有其他彻底收摊的入口，这里补上。
-        val exitButton = MaterialButton(this)
-        exitButton.text = getString(R.string.btn_exit)
-        exitButton.setOnClickListener { exitAppCompletely() }
-        layout.addView(exitButton, params)
 
         Log.e("debug", "MenuActivity onCreate in: ${System.currentTimeMillis() - time}")
     }

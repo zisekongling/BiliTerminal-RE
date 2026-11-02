@@ -146,7 +146,7 @@
     <string name="player_package_aliang">com.aliangmaker.media</string>
     <string name="player_package_mtv">com.xinxiangshicheng.wearbiliplayer.cn</string>
 
-    <string name="desc_back_disable">有一些手表（例如米兔等）是通过模拟按下返回键自行实现的右滑返回，若你在左右翻页时因触发滑动返回而退出页面，请开启此开关\n开启后，其他设备上则为按下返回键也不退出页面，并且右滑退出后会卡住。\n你可以使用菜单最下方的退出按钮结束本软件。\n正常用户无需打开。</string>
+    <string name="desc_back_disable">有一些手表（例如米兔等）是通过模拟按下返回键自行实现的右滑返回，若你在左右翻页时因触发滑动返回而退出页面，请开启此开关\n开启后，其他设备上则为按下返回键也不退出页面，并且右滑退出后会卡住。\n你可以使用菜单里的退出按钮结束本软件。\n正常用户无需打开。</string>
     <string name="desc_fav_single">打开此选项，添加收藏后即退出收藏页面，取消收藏不自动退出。</string>
     <string name="desc_fav_notice">打开此选项，退出收藏页面会提示收藏成功。\n但其实在你框选了收藏夹的时候就已经收藏了，这个选项只是为了看上去放心（</string>
     <string name="desc_cover_play">打开此选项，点击封面将播放视频，否则将查看大图。</string>
@@ -778,6 +778,7 @@
     <string name="desc_menu_disabled">未启用</string>
     <string name="desc_menu_fixed">固定</string>
     <string name="desc_menu_fixed_hint">此项不可隐藏</string>
+    <string name="msg_menu_exit_not_start">「退出」不能设为启动页</string>
     <string name="desc_menu_help_title">使用说明（点按展开）</string>
     <string name="desc_menu_help_body">启动页：勾选的那一项就是打开应用后直接进入的页面，点按已启用项即可改选（默认「推荐」）\n点按本说明可展开或收起；2 秒内连续长按两次可把它隐藏\n长按并拖动可调整菜单顺序\n拖入未启用区域可将其移入未启用列表，点按未启用项放回末尾\n推荐、设置、缓存、搜索固定不可隐藏</string>
     <string name="msg_menu_help_hide_hint">再长按一次即可隐藏说明</string>

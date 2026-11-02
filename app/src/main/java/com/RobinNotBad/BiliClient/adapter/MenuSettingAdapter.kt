@@ -184,6 +184,11 @@ class MenuSettingAdapter(
             val curIndex = cur - enabledStart()
             if (curIndex !in enabled.indices) return@setOnClickListener
             val curKey = enabled[curIndex]
+            // 「退出」是动作项，不能当启动页（选了开机就直接收摊），短按只提示
+            if (curKey == MenuConfig.EXIT) {
+                MsgUtil.showMsg(holder.itemView.context.getString(R.string.msg_menu_exit_not_start))
+                return@setOnClickListener
+            }
             if (startKey == curKey) return@setOnClickListener
             val oldIndex = enabled.indexOf(startKey)
             startKey = curKey

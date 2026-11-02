@@ -31,9 +31,15 @@ object MenuConfig {
         }
     }
 
-    /** 全量菜单 key = 公共项 + 可选私有项（顺序即默认展示顺序）。 */
+    /**
+     * 动作项「退出」的菜单 key：不是页面（点了直接收摊），但和页面项一样进菜单配置——
+     * 能排序、能关掉。26.11.02 之前它是硬编码在菜单最下方的一枚固定按钮。
+     */
+    const val EXIT = "exit"
+
+    /** 全量菜单 key = 公共项 + 可选私有项 + 动作项（顺序即默认展示顺序）。 */
     val ALL_ITEMS: List<String>
-        get() = BASE_ITEMS + OPTIONAL_ITEMS
+        get() = BASE_ITEMS + OPTIONAL_ITEMS + listOf(EXIT)
 
     /** 固定不可隐藏的菜单项。 */
     val FIXED_ITEMS = setOf("recommend", "search", "local", "settings")
@@ -107,7 +113,11 @@ object MenuConfig {
             else true
         }.toMutableList()
         for (key in ALL_ITEMS) {
-            if ((key in FIXED_ITEMS || key in OPTIONAL_ITEMS) && key !in enabled) enabled.add(key)
+            // 固定项 / 可选私有项必须齐全；[EXIT] 是默认启用的动作项，旧排序里同样没有它，
+            // 一并补在末尾（用户自己关掉它是另一回事：那时走的是 menu_enabled 直读路径）
+            if ((key in FIXED_ITEMS || key in OPTIONAL_ITEMS || key == EXIT) && key !in enabled) {
+                enabled.add(key)
+            }
         }
         return enabled
     }
@@ -122,6 +132,34 @@ object MenuConfig {
      * menu_enabled 里没有那些 key，必须走一次迁移把它们补进来，而不是当作配置合法直接返回。
      */
     fun loadEnabled(
+        readString: (String) -> String?,
+        readBoolean: (String) -> Boolean?,
+        writeString: (String, String) -> Unit
+    ): List<String> =
+        ensureExit(loadStoredEnabled(readString, readBoolean, writeString), readString, writeString)
+
+    /**
+     * 把动作项 [EXIT] 补进启用列表：它是 26.11.02 才进菜单配置的（此前是硬编码在菜单最下方的
+     * 固定按钮），老用户存下的 `menu_enabled` 里没有这个 key，不补的话升级后菜单里再也找不到
+     * 退出按钮——手表上没有别的彻底收摊入口。
+     *
+     * 区分「老数据缺这一项」与「用户自己把它关掉了」靠 [SharedPreferencesUtil.MENU_EXIT_STATE]：
+     * 只要保存过一次菜单配置就写这个键。缺项 + 没写过 = 老数据 → 补在末尾（默认启用）；
+     * 缺项 + 写过 = 用户关的 → 保持隐藏，不再偷偷加回来。
+     */
+    private fun ensureExit(
+        enabled: List<String>,
+        readString: (String) -> String?,
+        writeString: (String, String) -> Unit
+    ): List<String> {
+        if (EXIT in enabled) return enabled
+        if (!readString(SharedPreferencesUtil.MENU_EXIT_STATE).isNullOrBlank()) return enabled
+        val completed = enabled + EXIT
+        writeString(SharedPreferencesUtil.MENU_ENABLED, serialize(completed))
+        return completed
+    }
+
+    private fun loadStoredEnabled(
         readString: (String) -> String?,
         readBoolean: (String) -> Boolean?,
         writeString: (String, String) -> Unit
@@ -152,6 +190,9 @@ object MenuConfig {
     /** 保存启用列表配置。 */
     fun saveEnabled(enabled: List<String>, writeString: (String, String) -> Unit) {
         writeString(SharedPreferencesUtil.MENU_ENABLED, serialize(enabled))
+        // 记下「用户动过退出项」：之后 menu_enabled 里没有 exit 就表示是他关掉的，
+        // 不再当成老数据补回来（见 ensureExit）
+        writeString(SharedPreferencesUtil.MENU_EXIT_STATE, if (EXIT in enabled) "1" else "0")
     }
 
     /** 默认启动页：推荐（固定项，正常情况下必然在已启用列表里）。 */
@@ -163,11 +204,14 @@ object MenuConfig {
     /**
      * 解析启动页 key：已存值仍在已启用列表里就沿用，否则退回 [DEFAULT_START]。
      * 极端情况下（启用列表里连推荐都没有）才退回列表首项，最后兜底 [DEFAULT_START]。
+     *
+     * [EXIT] 是动作项不是页面，永远不能当启动页（不然开机就直接收摊），
+     * 所以它既不作沿用值、也不作列表首项兜底。
      */
     fun resolveStart(enabled: List<String>, stored: String?): String = when {
-        stored != null && stored in enabled -> stored
+        stored != null && stored != EXIT && stored in enabled -> stored
         DEFAULT_START in enabled -> DEFAULT_START
-        else -> enabled.firstOrNull() ?: DEFAULT_START
+        else -> enabled.firstOrNull { it != EXIT } ?: DEFAULT_START
     }
 
     /**
@@ -182,7 +226,8 @@ object MenuConfig {
     ): String {
         val stored = readString(SharedPreferencesUtil.MENU_START)?.takeIf { it.isNotBlank() }
         val resolved = resolveStart(enabled, stored)
-        if (stored != null && stored !in enabled) {
+        // 指向 [EXIT] 的旧值（或已不在启用列表里的值）一样要改回默认：退出项不是页面
+        if (stored != null && (stored == EXIT || stored !in enabled)) {
             writeString(SharedPreferencesUtil.MENU_START, resolved)
         }
         return resolved
