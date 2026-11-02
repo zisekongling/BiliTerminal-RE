@@ -210,3 +210,18 @@
 评论举报是**可选私有功能**（机制见 `docs/optional-features.md`）：接口可达性、理由表、错误码映射等全部结论都跟着实现一起放在私有仓库，公开侧只有 `util/OptionalFeatures` 里的门面与评论区面板上的一个条件挂点。公开文档里不写它的实现细节，理由见 `docs/optional-features.md` 的「红线」一节。
 
 需要改这块时：先把私有仓库检出到仓库根目录的 `private/`（`python build_tui.py --sync-private`），再读那边的 README。
+
+## 9. 图床 `upload_bfs` 与评论带图（26.11.02）
+
+**接口**：`POST https://api.bilibili.com/x/dynamic/feed/draw/upload_bfs`（multipart：`file_up` 文件、`category=daily`、`biz`、`csrf`＝cookie 里的 `bili_jct`；Cookie 鉴权）。成功 `data` 给 `image_url` / `image_width` / `image_height` / `img_size`（**KB，小数**，`docs/dynamic/publish.md`）。
+
+**`biz` 决定图片落在哪个 BFS 目录，不是"业务类型校验"**：
+
+| 用途 | biz | 结果目录 | 依据 |
+| --- | --- | --- | --- |
+| 动态图 / **评论图** | `new_dyn` | `/bfs/new_dyn/` | 上游 PiliPlus `common_rich_text_pub_page.dart` 评论图与动态图共用 `biz: 'new_dyn'`；评论的 `pictures` 只认这个目录下的图 |
+| 私信图 | `im` | `/bfs/im/` | 上游 PiliPlus `whisper_detail/view.dart` 传 `biz: 'im'` |
+
+- **踩过的坑**：26.10.02（F3-c）把评论图改成自造值 `new_reply`，理由是"用 new_dyn 会被服务端当成动态图处理"——这个理由是错的（biz 只影响目录）。改完后图能上传成功，但发评论被服务端以 **12066** 拒绝。26.11.02 恢复 `new_dyn`。
+- **12066 语义仍未确证**：本地 `bilibili-API/` 全库无收录，上游 collector 的 `docs/comment/action.md` 错误码表末尾也写着「其他错误码有待补充」。现在的做法是发送失败时把服务端 `message` 原样带出来（`ReplyApi.sendReplyDetailed`），下次复现能直接看到服务端说了什么。
+- **不预设大会员门槛**：图片评论的资格由服务端判定。客户端原先在点「图片」时先调 `VipApi.getVipInfo()`，非大会员直接拦掉；26.11.02 已删除（用户点名"发图不需要大会员"）。

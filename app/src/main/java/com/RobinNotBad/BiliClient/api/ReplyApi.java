@@ -41,10 +41,22 @@ public class ReplyApi {
     public static final int REPLY_TYPE_DYNAMIC = 17;
     public static final String TOP_TIP = "[置顶]";
 
-    /** 投稿图片的业务标识（动态、专栏等走投稿流程的图片）。 */
+    /**
+     * 图片动态的业务标识。
+     *
+     * <p><b>评论图也用这个</b>：图床 `upload_bfs` 的 `biz` 只决定图片落在哪个 BFS 目录，
+     * 而评论的 `pictures` 只认 `/bfs/new_dyn/` 下的图（与官方客户端一致）。
+     * 26.10.02 曾把评论图改成自造的 `new_reply`，结果图能传上去、发评论时被服务端以
+     * 12066 拒绝（`docs/review/fix-progress.md` §三.107）。这里恢复成 `new_dyn`。
+     */
     public static final String BIZ_DYNAMIC = "new_dyn";
-    /** 评论图片的业务标识，评论带图必须用这个，用 new_dyn 会被服务端当成动态图处理。 */
-    public static final String BIZ_REPLY = "new_reply";
+    /**
+     * 私信图片的业务标识（`/bfs/im/`）。
+     *
+     * <p>与动态/评论图不同：私信走 IM 图床目录，上游 PiliPlus 同样是 `biz: 'im'`
+     * （`lib/pages/whisper_detail/view.dart`）。原先私信错误地复用了评论的 biz。
+     */
+    public static final String BIZ_MESSAGE = "im";
 
     /** getRepliesLazy 返回码：请求或解析失败。 */
     public static final int PAGE_ERROR = -1;
@@ -234,7 +246,25 @@ public class ReplyApi {
      * @param fileName  文件名（含扩展名）
      */
     public static Result<UploadImageData> uploadReplyImage(byte[] imageData, String fileName) {
-        return uploadReplyImage(imageData, fileName, "image/jpeg", BIZ_REPLY);
+        return uploadReplyImage(imageData, fileName, "image/jpeg", BIZ_DYNAMIC);
+    }
+
+    /**
+     * 图片上传失败。
+     *
+     * <p>必须带上服务端 `code`：`upload_bfs` 失败时只会给一个数字码（4100001 参数错误、
+     * -101 未登录、-352 风控…），而界面原先只显示「图片上传失败」，用户和开发者都无从判断。
+     */
+    public static class UploadException extends Exception {
+        public final int code;
+        public final String serverMessage;
+
+        public UploadException(int code, String serverMessage) {
+            super("上传图片失败，code=" + code
+                    + (serverMessage == null || serverMessage.isEmpty() ? "" : "，" + serverMessage));
+            this.code = code;
+            this.serverMessage = serverMessage == null ? "" : serverMessage;
+        }
     }
 
     /**
@@ -244,7 +274,7 @@ public class ReplyApi {
      * @param fileName  文件名（含扩展名）
      * @param mimeType  图片真实的 MIME 类型。必须与数据真实格式一致（GIF/PNG 原样透传时尤其重要），
      *                  否则服务端按 image/jpeg 解码会丢掉动图帧与透明通道
-     * @param biz       业务标识，评论图必须传 {@link #BIZ_REPLY}
+     * @param biz       业务标识，评论图与动态图都传 {@link #BIZ_DYNAMIC}，私信图传 {@link #BIZ_MESSAGE}
      */
     public static Result<UploadImageData> uploadReplyImage(byte[] imageData, String fileName, String mimeType, String biz) {
         String url = "https://api.bilibili.com/x/dynamic/feed/draw/upload_bfs";
@@ -273,8 +303,11 @@ public class ReplyApi {
             String json = response.body() == null ? "" : response.body().string();
             JSONObject result = new JSONObject(json);
             int code = result.optInt("code", -1);
+            String serverMessage = result.optString("message", "");
             if (code != 0 || result.isNull("data")) {
-                return Result.failure(new Exception("上传图片失败，code=" + code));
+                // 只记 code/message：响应体里没有凭据，但整包 json 也没必要进日志
+                Log.e("debug-上传图片", "code=" + code + " message=" + serverMessage + " biz=" + biz);
+                return Result.failure(new UploadException(code, serverMessage));
             }
             JSONObject data = result.getJSONObject("data");
             UploadImageData d = new UploadImageData();
@@ -323,8 +356,39 @@ public class ReplyApi {
         return jsonArray.toString();
     }
 
+    /**
+     * 发表评论的完整结果。
+     *
+     * <p>原来的返回值只有 code 和 reply，服务端那句 `message` 被丢掉了 —— 遇到未收录的码
+     * （例如带图评论的 12066）时，界面上只剩一个数字，用户报障和自查都无从下手。
+     */
+    public static class SendReplyResult {
+        public final int code;
+        public final String message;
+        public final Reply reply;
+
+        public SendReplyResult(int code, String message, Reply reply) {
+            this.code = code;
+            this.message = message == null ? "" : message;
+            this.reply = reply;
+        }
+    }
+
     /** 发送带图评论（pictures 为评论图片 JSON 数组字符串）。 */
     public static Pair<Integer, Reply> sendReply(long oid, long root, long parent, String text, int type, String pictures) throws IOException, JSONException {
+        SendReplyResult result = sendReplyDetailed(oid, root, parent, text, type, pictures);
+        return new Pair<>(result.code, result.reply);
+    }
+
+    /**
+     * 发送评论并带回服务端 message。
+     *
+     * <p>只给需要把「未收录错误码 + 服务端原话」展示给用户的调用方用（带图评论页）；
+     * 其余调用方继续用 {@link #sendReply(long, long, long, String, int, String)}。
+     *
+     * @param pictures 评论图片 JSON 数组字符串；没有图片传空串
+     */
+    public static SendReplyResult sendReplyDetailed(long oid, long root, long parent, String text, int type, String pictures) throws IOException, JSONException {
         String url = "https://api.bilibili.com/x/v2/reply/add";
         String arg = "oid=" + oid + "&type=" + type + (root == 0 ? "" : ("&root=" + root + "&parent=" + parent))
                 + "&message=" + URLEncoder.encode(text, "UTF-8")
@@ -332,11 +396,13 @@ public class ReplyApi {
                 + "&jsonp=jsonp&csrf=" + NetWorkUtil.currentCsrf();
         JSONObject result = new JSONObject(Objects.requireNonNull(NetWorkUtil.post(url, arg, NetWorkUtil.webHeaders).body()).string());
         Log.e("debug-发送评论", result.toString());
+        int code = result.getInt("code");
+        String message = result.optString("message", "");
         JSONObject reply = null;
         if (result.has("data") && !result.isNull("data") && result.getJSONObject("data").has("reply") && !result.getJSONObject("data").isNull("reply")) {
             reply = result.getJSONObject("data").getJSONObject("reply");
         }
-        return new Pair<>(result.getInt("code"), reply == null ? null : new Reply(root != 0, reply));
+        return new SendReplyResult(code, message, reply == null ? null : new Reply(root != 0, reply));
     }
 
     /**

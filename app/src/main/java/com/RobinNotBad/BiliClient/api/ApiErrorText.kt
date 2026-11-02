@@ -47,4 +47,22 @@ object ApiErrorText {
      */
     @JvmStatic
     fun searchRejected(): String = "搜索被风控，请稍后再试"
+
+    /**
+     * 图床（`x/dynamic/feed/draw/upload_bfs`）上传图片失败的文案。
+     *
+     * 服务端失败只给一个码，界面原先统一显示「图片上传失败」，用户与开发者都无从判断是
+     * 没登录、凭证失效、还是图片本身不被接受。已知码翻成人话，未知码原样带上。
+     *
+     * @param code 图床返回的 code（网络层异常不经过这里，沿用原来的提示）
+     */
+    @JvmStatic
+    fun uploadFailed(code: Int): String = when (code) {
+        -101 -> loginRequired()
+        -102, -111 -> tokenExpired()
+        -352, -412 -> "上传被风控拦截，过一会儿再试"
+        -400, 4100001 -> "图片不被服务端接受，换一张图再试"
+        -509 -> "上传太频繁了，过一会儿再试"
+        else -> "图片上传失败（错误码 $code）"
+    }
 }

@@ -200,4 +200,16 @@ class ReplyApiTest {
         assertEquals("http://i0.hdslb.com/3.png", array.getJSONObject(2).getString("img_src"))
         assertEquals("2.5 不能被截断", 2.5, array.getJSONObject(1).getDouble("img_size"), 0.000001)
     }
+
+    // ---- 图床 biz：评论图必须与动态图同一个目录 ----
+
+    @Test
+    fun imageBiz_commentSharesDynamicDirectoryAndMessageUsesIm() {
+        // 图床 biz 只决定图片落在哪个 BFS 目录：
+        // - 动态图与评论图都是 /bfs/new_dyn/（评论的 pictures 只认这个目录下的图；
+        //   26.10.02 曾自造 new_reply，图能传上去但发评论被服务端以 12066 拒绝）
+        // - 私信图是 /bfs/im/（上游 PiliPlus 同样传 biz:'im'）
+        assertEquals("评论图与动态图必须共用 new_dyn", "new_dyn", ReplyApi.BIZ_DYNAMIC)
+        assertEquals("私信图走 IM 图床目录", "im", ReplyApi.BIZ_MESSAGE)
+    }
 }

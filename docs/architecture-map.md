@@ -951,6 +951,8 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **为什么必须有这道闸**：调用方拼 `pictures` 时只能拿到**已成功**的上传结果，图没传完就发送 = 评论**少图发出且没有任何提示**（本地还因为把后到的 url 补进 `resultReply.pictureList` 而显示得比实际更多）。
 - **闸门要在点下的那一刻置位**（`@Volatile sending`），并在后台 `try/finally` 里松开：成功了会 `finish()`，失败/提前 return 也要松，否则用户之后再想发就永远被挡。原实现是等请求返回才置位，等待期连点会发出两条评论。
 - 这两个判断是**纯函数**（`api/ReplyApi.java` 的 `canSendReply`/`uploadPendingTip`），与 `actionErrorMsg(int)` 同类；`activity_write_reply.xml` 里没有进度控件，所以「上传中」只用按钮文字（`imageText`）表达，**不做按字节的进度条**（用户拍板只做第 1 步）。
+- **图床 biz 必须与动态图一致（`new_dyn`）**：`upload_bfs` 的 `biz` 只决定图片落在哪个 BFS 目录，而评论 `pictures` 只认 `/bfs/new_dyn/` 下的图。26.10.02 的 F3-c 把它改成自造值 `new_reply`，结果是图能上传、发评论时被服务端以 12066 拒绝；26.11.02 恢复为 `new_dyn`（`ReplyApi.BIZ_DYNAMIC`）。私信图是另一个目录，走 `ReplyApi.BIZ_MESSAGE = "im"`（原先误复用了评论 biz）。
+- **不再做大会员前置拦截**（26.11.02）：图片评论的资格由服务端判定，客户端拦只会把「服务端允许」的非大会员挡在选图页外。现在点「图片」直接进选图页，被拒时由发送失败分支展示服务端的码/原话（`ReplyApi.sendReplyDetailed` + `ApiErrorText.uploadFailed`）。
 
 ### 7.19 动态的编辑与「管理」菜单（26.10.04 批次 6 的 C7）
 
@@ -1402,6 +1404,19 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **旋转 90/270 要交换宽高**：容器 `codecpar` 给的是未旋转尺寸，解码器出的是旋转后的帧（`mediacodec-auto-rotate=1` + 上面那个 `frame_rotate_degrees` 分支）。`IjkPlayerBridge` 现在把 `MEDIA_INFO_VIDEO_ROTATION_CHANGED` 的 extra 写进 `PlayerState.rotationDegrees`，消费方按它交换；不交换时竖屏视频会按横屏比例摆框，观感同样是「拉伸」。
 - **纯计算抽出来**：`activity/video/ShortVideoLayoutMath.kt`（`fit` / `fitRound` / `swapsWidthHeight` / `sanitizeRatio`）+ `ShortVideoLayoutMathTest` 10 例钉住「9:16 与 16:9 的 letterbox、非法比例退化、非法区域返回 null、圆屏内接圆与夹取、旋转交换判据」。
 - **验证口径**：`logcat | grep ANativeWindow_setBuffersGeometry` 看 surface 的 w/h 是否与视频同比例、`dumpsys window windows | grep "fl="` 看亮屏标志、`logcat | grep "画面尺寸"`（v 级日志）确认真的走了一次重摆。
+
+### 7.60 「我的订阅」：collected/list 两个 id 语义 + 两种取消订阅（26.11.02 新增）
+
+- **入口与文件**：`MySpaceMenu`（key=`subscription`）→ `activity/user/subscription/SubscriptionListActivity`；合集详情 `SubSeasonDetailActivity`；接口层 `api/SubscriptionApi.java`（纯解析函数 `parseSubscribedFolders` / `parseSeasonVideos` 可单测），模型 `model/SubscriptionFolder.java`。
+- **`platform=web` 不能漏**：`x/v3/fav/folder/collected/list` 不带这个参数时**只返回收藏夹、不返回合集**（`bilibili-API/docs/fav/info.md:273` 明写）。`up_mid` 传自己的 mid；接口返回 `data.count/list/has_more`，**`has_more` 缺失时按「没有下一页」处理**，宁可提前停也不要无限翻。
+- **`type` 决定 id 语义，别混**：`type=11` 收藏夹，`id` 是 **media_id**（进只读的 `FavoriteVideoListActivity`，`readOnly=true`）；`type=21` 合集，`id` 是 **season_id**（走 `x/space/fav/season/list`）。**不能**拿 21 的 id 去当 aid/media_id，也不能用 `CollectionInfoActivity`（那个是 `ugc_season`，从视频 aid 反查）。
+- **两种取消订阅端点不同**：收藏夹 `POST x/v3/fav/folder/unfav`、合集 `POST x/v3/fav/season/unfav`（都带 `platform=web&csrf`）。**参数名有历史分歧**：Web 文档写 `media_ids`（复数），PiliPlus 实现发 `media_id`（单数）——`SubscriptionApi.cancelFolderSubscription` 先发复数，**只有返回 -400 才用单数重试一次**，不要无脑双发。
+- **`state==1` 必须拦**：失效条目压暗，点击只提示、不发详情请求（否则整页白屏/404）。点击判定放在 Activity，不在 adapter 里发网络。
+- **空列表必须判到底**：`SubSeasonDetailActivity.isEnd()` 里「本页不满 20 条」的退化判据对 `size==0` 不成立（`0 % 20 == 0`），必须显式 `size == 0` 返回 true，否则滚动监听会无限翻页。
+- **换 list 要换 adapter**：首屏/刷新都构造**新的** `ArrayList` + **新 adapter** 再 `setAdapter`，不要后台线程原地改已挂在 RecyclerView 上的 list（`Inconsistency detected` 崩溃，收藏夹列表页踩过）；翻页只在同一份 list 上 `addAll` + `notifyItemRangeInserted`。
+- **页码回退**：翻页失败要 `page--`（`RefreshListActivity` 的 `goOnLoad` 先加过 1），否则重试会跳过一页。
+- **`MySpaceConfig` 的并集不变式**：加菜单项要同时改 `MySpaceMenu.ITEMS`、`MySpaceConfig.ALL_ITEMS`、`open()` 分支（`MySpaceConfigTest` 有守卫）。**副作用**：老用户存过的 `myspace_main` 布局里没有新 key，`resolve()` 因「总数少一项」整体回退默认并写回——即**加菜单项会把用户自定义的「我的」布局重置一次**，这是既定行为，不是 bug。
+- **验证**：`SubscriptionApiTest`（6 例，解析/兜底/脏数据）；AVD `wear5` 实测入口→空态→请求 `collected/list` 返回 `code:0`（测试账号 0 条订阅），**列表渲染与取消订阅需有订阅数据的账号再验一次**。
 
 ## 8. UI 基建速查（新增页面临摹用）
 

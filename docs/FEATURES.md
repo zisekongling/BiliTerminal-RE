@@ -471,7 +471,7 @@
 
 26.10.23 只把接口层迁到 `x/v3/fav/*` 新族，UI 与交互未动。下表是按 B 站官方客户端 9.16.1 的 `PlaySetService`（全量 48 条 `x/v3/fav/*` + `x/v2/favorite/*`）逐条比对后，本机**还没接**的部分。
 
-已接的 12 条：`folder/{add,edit,del,info}`、`folder/created/list`、`folder/created/list-all`、`folder/collected/list`、`resource/list`、`resource/batch-deal`、`resource/copy`、`resource/move`、`resource/clean`（26.10.29 接入，管理页的「清空失效内容」）。
+已接的 15 条：`folder/{add,edit,del,info}`、`folder/created/list`、`folder/created/list-all`、`folder/collected/list`、`folder/unfav`、`resource/list`、`resource/batch-deal`、`resource/copy`、`resource/move`、`resource/clean`、`space/fav/season/list`、`fav/season/unfav`（26.11.02 接入：`folder/unfav`、`space/fav/season/list`、`fav/season/unfav` 服务于 §8.6「我的订阅」）。
 
 | 能力 | 接口 | 备注 |
 | --- | --- | --- |
@@ -484,12 +484,23 @@
 | 批量查媒体信息 | `GET x/v3/fav/resource/infos` / `ids` | 可用于「失效条目批量标灰」，省掉逐条请求 |
 | 收藏夹分组 / 空间 | `GET x/v3/fav/folder/space`、`space/v2`、`whitelist` | 配合空间页的分组展示 |
 | 收藏 tab（视频/图文切换） | `GET x/v3/fav/tab`、`tab/fav`、`tab/fol` | 我们目前用 `opus/feed/fav` 单独走图文，没接 tab 体系 |
-| 番剧/合集取消收藏 | `POST x/v3/fav/season/unfav` | |
 | 收藏夹内搜索 | `GET x/v3/fav/tab/fav/search` | 手表无键盘，优先级低 |
 
 **明确不做**（官方有、但与本机定位无关）：`kid-playlist/{info,create,import}`（少儿内容）、`recommend/{items,deal}`（带货推荐位）、`statistics/count`（分享埋点）、`tab/red_dot/clean`、`tab/dels`（整夹删除，我们走 `folder/del`）、`unfav-all` / `toview/adds`（已有等价的 `batch-deal` 与独立的 `WatchLaterApi`）。
 
 接口事实与代际说明见 `docs/bilibili-api-notes.md` §6。
+
+### 8.6 我的订阅（收藏夹 / 合集订阅，26.11.02 新增）
+
+- **入口**：「我的」页 →「订阅」（`MySpaceMenu` 里 key=`subscription`，可在「我的」菜单设置里排序/收进「更多」）。
+- **这是什么**：B 站 Web 端「订阅」= 我订阅了**别人创建**的收藏夹或合集，和「收藏」（我创建的夹）是两个接口，**不能混用**：
+  - 列表 `GET x/v3/fav/folder/collected/list?platform=web&up_mid=&pn=&ps=20`：`platform=web` 必须带，否则不返回合集；每项 `type=11` 是收藏夹、`type=21` 是合集，`state=1` 表示已失效。
+  - 收藏夹（type=11）：`id` 是 **media_id**，点进去是**只读**的收藏夹内容页（不能删/不能整理）。
+  - 合集（type=21）：`id` 是 **season_id**，点进去是「合集详情」页，视频列表走 `GET x/space/fav/season/list?season_id=&pn=&ps=20`（不是 `ugc_season`，那条是从 aid 反查的，两回事）。
+- **取消订阅**：长按条目 → 二次确认 → 收藏夹走 `POST x/v3/fav/folder/unfav`、合集走 `POST x/v3/fav/season/unfav`，成功后本地移除该行（不回拉整页）。写操作都带 `csrf`。
+- **失效条目**：压暗显示，点了提示「该收藏夹已失效」，不会发详情请求。
+- **分页**：滑到底自动翻页（每页 20）；合集详情优先用接口的 `info.media_count` 判断到底，接口没给总数时按「本页不满 20 条」退化判断。
+- **限制**：没有「订阅别人收藏夹」的入口（B 站只允许在 Web/App 里点「订阅」按钮），本页只做「看我订阅了什么 + 进去看 + 取消订阅」。
 
 ---
 
@@ -544,7 +555,7 @@
 
 ### 9.7 写评论
 
-- **支持**：文字、@回复预填（"回复 @xxx :"）、表情、**带图评论**（仅大会员，最多 9 张图，选图自动压缩上传）。
+- **支持**：文字、@回复预填（"回复 @xxx :"）、表情、**带图评论**（最多 9 张图，选图自动压缩上传）。客户端**不再按大会员前置拦截**（26.11.02 起）：能不能发图由服务端判定，被拒时提示服务端返回的原因。
 - **KY 保护**：评论里提到"哔哩终端/终端"（还带 B站/bili/哔 等词）时会弹一次确认框（15 秒倒计时），确认后继续发送。
 - **错误提示**：未登录、被拉黑、敏感内容、字数过多、重复刷屏等都有对应文案提示。
 

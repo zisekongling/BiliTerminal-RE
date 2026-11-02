@@ -23,15 +23,16 @@ import java.io.InputStream;
  * 真正的 HTTP 上传有意复用 {@link ReplyApi#uploadReplyImage(byte[], String, String, String)}——
  * 上游是单独抄了一份上传实现，但两处请求体（file_up / biz / category=daily / csrf）、
  * 地址（api.bilibili.com/x/dynamic/feed/draw/upload_bfs）与鉴权头完全一致，
- * 再抄一份只会让以后改上传逻辑要改两个地方。动态图与评论图的差别只在 biz：
- * 动态用 {@link #BIZ_DYNAMIC}（new_dyn），评论用 {@link #BIZ_REPLY}（new_reply）。
+ * 再抄一份只会让以后改上传逻辑要改两个地方。动态图与评论图走同一个 biz
+ * （{@link #BIZ_DYNAMIC} = new_dyn，评论的 pictures 只认这个目录下的图），私信图走
+ * {@link #BIZ_MESSAGE}（im）。
  */
 public class ImageApi {
 
-    /** 动态图片的业务标识（投稿图床）。 */
+    /** 图片动态 / 评论图的业务标识（投稿图床，`/bfs/new_dyn/`）。 */
     public static final String BIZ_DYNAMIC = ReplyApi.BIZ_DYNAMIC;
-    /** 评论图片的业务标识。 */
-    public static final String BIZ_REPLY = ReplyApi.BIZ_REPLY;
+    /** 私信图片的业务标识（IM 图床，`/bfs/im/`）。 */
+    public static final String BIZ_MESSAGE = ReplyApi.BIZ_MESSAGE;
 
     /** 单张图硬上限。 */
     private static final long MAX_IMAGE_SIZE = 25L * 1024 * 1024;
@@ -149,7 +150,7 @@ public class ImageApi {
      * @param data     图片数据，来自 {@link #prepareImage}
      * @param fileName 文件名（含扩展名）
      * @param mimeType 图片真实 MIME 类型，必须与数据真实格式一致
-     * @param biz      业务标识，动态传 {@link #BIZ_DYNAMIC}
+     * @param biz      业务标识，动态图与评论图传 {@link #BIZ_DYNAMIC}，私信图传 {@link #BIZ_MESSAGE}
      * @return 成功为 {@link UploadedImage}，失败为原始异常
      */
     public static Result<UploadedImage> uploadImage(byte[] data, String fileName, String mimeType, String biz) {

@@ -159,7 +159,6 @@ object UiText {
         "评论详情" to R.string.uitext_replyinfoactivity_001,
         "图片处理失败" to R.string.uitext_writereplyactivity_001,
         "图片上传失败" to R.string.uitext_writereplyactivity_002,
-        "带图评论仅大会员可用喵~" to R.string.uitext_writereplyactivity_003,
         "最多只能添加9张图片喵~" to R.string.uitext_writereplyactivity_004,
         "发送成功>w<" to R.string.uitext_writereplyactivity_005,
         "还没输入内容喵~" to R.string.uitext_searchactivity_001,

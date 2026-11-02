@@ -1081,6 +1081,24 @@
   - **CANCEL 用例**：长按后发 `input motionevent CANCEL` → 倍速回落 1.0；紧接着普通横滑仍能出浮层（`23:32 / 34:15 (68%)`）→ `onLongClick` 没卡 true。
 - **遗留**：未在真手表上验；注入的 DOWN/MOVE 之间没有真人手指的微抖，但三条判据（浮层有无、倍速回落、seek 结果）都来自应用自身行为，对照组成立即可信。
 
+### 3.107 带图评论：发图失败 + 不该按大会员前置拦截（26.11.02，用户点名）
+
+- **结论先说，避免误读**：
+  - **确定改对的两件**：① 图床 `biz` 从自造值 `new_reply` 恢复成 `new_dyn`（评论 `pictures` 只认该 BFS 目录，上游 PiliPlus 同口径）；② 删除「带图评论仅大会员可用」的前置拦截，资格交还服务端判定。
+  - **未确证的**：**12066 的确切语义仍然没拿到**（本地 `bilibili-API/` 与上游 collector 的错误码表都未收录）。本次**不是**「证明 12066 就是 biz 造成的」，而是把 26.10.02 引入的确定性偏离改回官方口径，并让失败时能看见服务端的码与原话。若仍失败，下一步是拿日志里的 code/message 再收敛。
+- **根因 1（biz 被改错）**：提交 `3058512`（26.10.02，批次 6 F3-c）把 `upload_bfs` 的 `biz` 由 `new_dyn` 改成 `new_reply`，提交说明写「用 new_dyn 会被服务端当成动态图处理」——这是误判，`biz` 只决定图片落在哪个 BFS 目录，与"业务类型校验"无关。上游 PiliPlus 评论图与动态图共用 `biz:'new_dyn'`（`lib/pages/common/publish/common_rich_text_pub_page.dart:515-519`），只有私信才用 `im`（`lib/pages/whisper_detail/view.dart:329-331`）。改错后的表现：**图能上传成功，发评论时被服务端以 12066 拒绝**（与 26.10.04 用户反馈的症状一致）。
+- **根因 2（不该拦）**：`3b70a2b`（2026-08-16）给「图片」按钮加了 `VipApi.getVipInfo()` 前置检查，非大会员直接 toast「带图评论仅大会员可用喵~」。图片评论的资格应由服务端判定，客户端拦只会把服务端其实允许的用户挡在选图页外（26.11.02 用户点名：发图不需要大会员）。
+- **改法**：
+  - `api/ReplyApi.java`：`BIZ_DYNAMIC = "new_dyn"`（动态图 + 评论图），新增 `BIZ_MESSAGE = "im"`（私信图），**删除 `BIZ_REPLY`**；`uploadReplyImage` 失败改为抛 `UploadException(code, serverMessage)`，并 `Log.e("debug-上传图片", code/message/biz)`（只记码与原话，不记整包响应）；新增 `SendReplyResult` + `sendReplyDetailed(...)` 把服务端 `message` 带回来，旧 `sendReply(...)` 委托它（行为不变）。
+  - `api/ImageApi.java`：常量与类注释同步（`BIZ_MESSAGE`，评论/动态共用 `BIZ_DYNAMIC`）。
+  - `api/ApiErrorText.kt`：新增纯函数 `uploadFailed(code)`——-101 未登录 / -102·-111 凭证失效 / -352·-412 风控 / -400·4100001 图片不被接受 / -509 太频繁 / 其余带错误码。
+  - `activity/reply/WriteReplyActivity.kt`：删掉 VIP 前置检查与 `VipApi` import（点「图片」直接进内置选图页，仍保留 9 张上限）；上传失败按 `UploadException.code` 翻人话；发送失败优先用 `msgMap`，**未收录的码回落到服务端原话**；另修一个同链路缺陷：服务端 `code=0` 但 `data.reply` 为空时按成功处理（评论已发出，原先会在 `resultReply.forceDelete` 处 NPE 并被 `MsgUtil.err` 当成失败，诱导用户重发）。
+  - `activity/message/PrivateMsgActivity.kt`：私信图 biz 由 `BIZ_REPLY` 改为 `BIZ_MESSAGE`（`/bfs/im/`）。
+  - `util/UiText.kt` + `res/values/strings.xml`：删除已无引用的「带图评论仅大会员可用喵~」（`uitext_writereplyactivity_003`）。
+  - 单测：`ReplyApiTest.imageBiz_commentSharesDynamicDirectoryAndMessageUsesIm`（钉死两个 biz 值）、新增 `ApiErrorTextTest`（未登录≠凭证失效、4100001 提示换图、-509 提示频繁、未知码带码）。
+- **验证**：`:app:assembleDebug`（standard + coexist）**BUILD SUCCESSFUL**；`:app:testStandardDebugUnitTest` 与 `:app:testCoexistDebugUnitTest` 均 **125 suites / 1311 tests / 0 失败 0 错误**（机器产出 `app/build/test-results/*` 计数）；本轮新增 `ApiErrorTextTest`（5 例）与 `ReplyApiTest.imageBiz_commentSharesDynamicDirectoryAndMessageUsesIm`（1 例）。
+- **遗留**：12066 语义未确证；本机无在线设备（`adb devices` 为空），**未做真机复验**。复现时看日志 `debug-上传图片`（code/message/biz）与 `debug-发送评论`（服务端整包 code/message），可直接判断是"图床拒收"还是"评论接口拒收图片"。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。

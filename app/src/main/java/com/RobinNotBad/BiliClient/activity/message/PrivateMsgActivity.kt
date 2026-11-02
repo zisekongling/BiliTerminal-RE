@@ -227,7 +227,8 @@ class PrivateMsgActivity : BaseActivity() {
                     prepared.data,
                     prepared.fileName,
                     prepared.mimeType,
-                    ImageApi.BIZ_REPLY
+                    // 私信图走 IM 图床目录（biz=im）；26.11.02 前误用了评论图那套 biz
+                    ImageApi.BIZ_MESSAGE
                 ).getOrThrow()
                 val content = PrivateMsgApi.buildImageContentOfKb(
                     uploaded.url,
