@@ -18,6 +18,7 @@ import com.RobinNotBad.BiliClient.activity.base.InstanceActivity
 import com.RobinNotBad.BiliClient.activity.settings.login.LoginActivity
 import com.RobinNotBad.BiliClient.api.UserInfoApi
 import com.RobinNotBad.BiliClient.model.UserInfo
+import com.RobinNotBad.BiliClient.util.AccountManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -141,12 +142,11 @@ class MySpaceActivity : InstanceActivity() {
                 }
                 // 不论服务端成功与否都要清本地登录态：否则网络故障会把用户永久卡在「已登录」状态里退不出去。
                 // 服务端失败的情况靠下面的提示告知用户，不阻塞本地退出。
-                SharedPreferencesUtil.removeValue(SharedPreferencesUtil.cookies)
-                SharedPreferencesUtil.removeValue(SharedPreferencesUtil.mid)
-                SharedPreferencesUtil.removeValue(SharedPreferencesUtil.csrf)
-                SharedPreferencesUtil.removeValue(SharedPreferencesUtil.refresh_token)
-                SharedPreferencesUtil.removeValue(SharedPreferencesUtil.access_key)
-                SharedPreferencesUtil.removeValue(SharedPreferencesUtil.cookie_refresh)
+                //
+                // 走统一入口而不是逐个 removeValue：原实现只删了 5 个键，既不升账号代际
+                // （在飞的旧请求回来还能把 Cookie 写回去，退完登录又"自己登上了"），
+                // 也不清按账号走的本地缓存（大会员状态、未读红点会串到下一个账号）。
+                AccountManager.clearCurrentLogin()
                 runOnUiThread {
                     // 服务端注销失败时明确提示：用户/排查者才知道服务端会话可能仍然有效
                     MsgUtil.showMsg(if (serverLogoutOk) UiText.of("账号已退出") else UiText.of("服务端注销失败，已清除本地登录状态"))

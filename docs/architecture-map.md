@@ -350,12 +350,13 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 
 ## 6. 网络层
 
-### 6.1 `NetWorkUtil`（`util/NetWorkUtil.java`，997 行，唯一出口）
+### 6.1 `NetWorkUtil`（`util/NetWorkUtil.java`，唯一出口）
 
 - **单例 OkHttpClient**，`followRedirects(false)` + 自定义拦截器手写重定向（`b23.tv` 短链走 `RedirectHandler` 回调）。
 - **DNS 强制 IPv4**（`Inet4Selector`，注释称 IPv6 请求有异常）。
 - **`callTimeout` 有意不设**（`util/NetWorkUtil.java:144-145` 有注释）：这一个单例 OkHttpClient 同时跑 API 与大文件流式下载，而 `callTimeout` 覆盖「整个调用含读完 body」，会掐断正常的长下载。**别按「统一设超时」的直觉把它加上去**；要限时请用 `connectTimeout`/`readTimeout`。
 - **Cookie 管理**：内存缓存 `cachedCookies` + `webHeaders` 静态 `ArrayList`（**索引 1 存 Cookie 字符串**）。`putCookie`/`setCookies` 的 `synchronized` 与 `saveCookiesLocked()`（`saveCookiesFromResponse` 的加锁主体）共用同一把 `NetWorkUtil.class` 锁。
+- **账号代际隔离**（26.11.02，修账号切换凭证串号）：`NetWorkUtil` 维护 `private static volatile long accountGeneration`；四个请求构造点统一走 `newTaggedRequestBuilder()`，把**请求发出时**的代际 `tag(Long.class, …)` 打在请求上；`saveCookiesFromResponse()` 在 `synchronized (NetWorkUtil.class)` 内先比 `isStaleGeneration(请求代际, 当前代际)`，**代际不符的 `Set-Cookie` 直接丢弃**（落一行 `Logu.d("saveCookiesFromResponse", "丢弃旧账号代际的 Set-Cookie…")`）。写全局登录态的入口统一走 `AccountManager.applyCredentials(...)` / `AccountManager.clearCurrentLogin()`：它们内部调 `NetWorkUtil.applyAccountCookies()`（同一把锁里 `accountGeneration++` 再落 Cookie），并重置 `AccountStateStore` 与 `CookieRefreshScheduler` 的按账号缓存。**别在别处直接 `NetWorkUtil.setCookiesString()` 写登录态**——那样不升代际，切号瞬间在飞的旧请求回来仍会把 Cookie/csrf 写回新账号。
 - **csrf 唯一入口**（26.10.04 批次 2，台账 A1）：`currentCsrf()`（`:432`）＝ `pickCsrf(getCachedCookies(), 快照)`（`:443`，纯逻辑、有单测），优先取实时 Cookie 里的 `bili_jct`，取不到才退回 `SharedPreferencesUtil.csrf` 快照；`saveCookiesLocked()`（`:510` 附近）在落 Cookie 时**顺手回写**快照。**所有 POST 的 csrf 都必须调它，不要再直接读 `SharedPreferencesUtil.csrf`**——`bili_jct` 随 Cookie 刷新轮换，用旧快照会静默拿 `-111`（现象是「点赞/评论偶尔点了没反应」）。原来 14 个 `api/` 类里散布 41 处直接读快照的代码已全部收敛到这一处。
 - **HTTP 追踪**（26.10.14）：`HTTP_TRACE` 静态开关（默认 false，只有 Agent 测试模式会打开）控制 `HttpTraceInterceptor`，每次请求落一行 `方法 脱敏URL -> 状态码 (耗时ms) | req=… | res=…`。三条硬约束：开关关闭时只做一次 boolean 读就透传；**只预览文本类响应**（视频/图片等二进制跳过，否则每次播放都白读磁盘）；用 `peekBody` 而非 `body.string()`——后者会把流读干，调用方拿到空 body。URL 里 `access_key`/`csrf`/`bili_jct` 等查询参数值一律替换成 `***`（`maskUrl`，与审计 S2「只记 Cookie 键名」同一原则）。
 - **风控重试**：`executeJsonWithRiskRetry` 对 `code == -352 / -412` 重试；`executeWithDoctypeRetry` 对返回 `<!doctype`（被风控拦成 HTML）的响应重试。重试次数/间隔读 SharedPreferences（`api_retry_max_times`、`api_retry_interval_seconds`）。**注意调试桥的 `http` 命令不用这个默认重试**：它跑在广播的 `goAsync()` 窗口里，按 8s+16s×5 次重试会直接把广播拖成 ANR，所以另建了一个连接 5s / 读 8s 的短超时 client。
@@ -1424,6 +1425,20 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **页码回退**：翻页失败要 `page--`（`RefreshListActivity` 的 `goOnLoad` 先加过 1），否则重试会跳过一页。
 - **`MySpaceConfig` 的并集不变式**：加菜单项要同时改 `MySpaceMenu.ITEMS`、`MySpaceConfig.ALL_ITEMS`、`open()` 分支（`MySpaceConfigTest` 有守卫）。**副作用**：老用户存过的 `myspace_main` 布局里没有新 key，`resolve()` 因「总数少一项」整体回退默认并写回——即**加菜单项会把用户自定义的「我的」布局重置一次**，这是既定行为，不是 bug。
 - **验证**：`SubscriptionApiTest`（8 例，解析/兜底/脏数据/fav_state）；AVD `wear5` 实测入口→空态→`collected/list` 请求 `200`；**2026-11-02 复查发现该 AVD 的登录态其实已过期**（`nav` 返回 -101，`collected/list` 匿名返回 `code:0` 空表），所以「空态」结果仍然成立，但**列表渲染、点击进夹/进合集、订阅/取消订阅三条真实数据路径仍未有登录账号验证**。接口可用性用本机 HTTP 实测替代：`folder/info` 匿名给 `fav_state:0`、`space/fav/season/list` 匿名可用、四个写接口（folder fav/unfav、season fav/unfav）均返回 -101 而非 404。
+
+### 7.61 缓存页多选批量管理（26.11.02 新增）
+
+- **页面与适配器**：`activity/video/local/LocalListActivity.kt` 用同一个 Activity 管顶层与文件夹内两种形态，靠 `adapter.currentFolderName` 区分；`adapter/video/CacheListAdapter.kt` 只管两件事——勾选态怎么画（`applySelection`）、点了哪一项（`onVideoToggle` / `onFolderToggle`）。
+- **底部条是共用布局里的隐藏分组**：`res/layout/activity_simple_main_refresh.xml` 新增 `multiSelectBar`，默认 `visibility="gone"`。这个布局被 RefreshMainActivity / PopularActivity / RankingActivity / PreciousActivity / LocalListActivity **共用**，所以只有 `LocalListActivity` 在缓存页里点亮它，别的页面底部不会多出一条死按钮。条里是 `btnMultiSelect`（非多选态唯一可见）、`textSelectedCount`、`btnMultiOperate`、`btnMultiExit`（后三个默认 `gone`、多选态才亮）。
+- **勾选状态在页面，不在 adapter**：页面持有 `LinkedHashSet<String> selectedVideoTitles` 与 `LinkedHashSet<String> selectedFolderNames`，把同一份内容交给 adapter 的 `selectionMode` / `selectedVideoTitles` / `selectedFolderNames`。**按名字记、不按下标**：视频用标题（= 缓存目录名，同一次扫描里唯一）、文件夹用名称——删除或移动后列表会重扫，下标整体挪位，按名字才能重新画对勾选态。
+- **勾选视觉与收藏夹多选一致**：`CacheListAdapter.applySelection` 里勾中 `itemView.alpha = 1f` + 标题前缀 `"✓ "`，未勾 `alpha = 0.5f` + 全角空格 `"　 "` 占位；用 `TextUtils.concat` 拼前缀，每次绑定先 `setText` 原始标题再加前缀，holder 复用不会叠前缀。**不用 `cell_video_local.xml` 里的 `checkbox_select`**：那个复选框会把内容整体右移，两个页面视觉也对不上。
+- **`supportsChangeAnimations = false` 必须关**（`CacheListAdapter.onAttachedToRecyclerView`）：勾选态靠 `notifyItemChanged` + alpha 画，默认的 `DefaultItemAnimator` 交叉淡入会在动画期间把 alpha 复位成 `1f`，取消勾选看起来像没生效——收藏夹多选踩过同一个坑（§7.25 与 `VideoCardAdapter`）。
+- **只重绘一条**：`notifyVideoSelectionChanged(videoIndex)` / `notifyFolderSelectionChanged(folderIndex)` 在 `flatItems` 里反查扁平位置再 `notifyItemChanged`，**别整体 `notifyDataSetChanged()`**——封面走 `DiskCacheStrategy.NONE`，整体重绑会让每勾一下都把整屏封面重读一遍，手表上肉眼可见地闪。
+- **多选态覆盖点按语义**：进入多选后 `CacheListAdapter` 里点条目 / 长按条目都调 `onVideoToggle` / `onFolderToggle` 并直接 `return`，不再播放、不进文件夹、不弹单条菜单。**这覆盖了「缓存页点了就播」的固定口径**（§7.43 的 `cacheClickAction`，功能一只决定播单条还是整夹），是刻意的：多选态下点一下就该是勾选。
+- **菜单按选中内容分四类**：全视频（未分类区）删除视频 / 更新弹幕 / 添加到文件夹；全视频（文件夹内）删除视频 / 更新弹幕 / 移出文件夹；全文件夹拆散文件夹；**文件夹与视频混选不弹菜单**，只提示「文件夹和视频不能一起操作，先取消一种」。菜单走 `TerminalDialog.menu`，标题「已选 N 项」；一条没勾时「操作」半透明 + 提示「先选几条吧~」。单条专属操作（重命名文件夹 / 切换清晰度 / 查看详情）不进批量菜单。
+- **批量动作共用单条实现**：`LocalListActivity` 把单条删除抽成 `deleteVideoFiles(video)`、更新弹幕抽成 `updateDanmakuFor(video)`，单条菜单与批量都调它们——保留了原口径：路径按「扫出这条时的根」算、只删真实存在的目录、**只有真删掉才 `FolderManager.removeVideoFromAllFolders`**。批量执行统一在 `CenterThreadPool.run { }` 里跑，结果回主线程提示；完成顺序是**退出多选 → 刷新列表 → 提示结果**。
+- **返回键先退多选**：`onBackPressed` 在多选态只 `exitSelectionMode()`、不走 `super`；在文件夹里点顶栏返回箭头同样先退多选再退回顶层（`exitFolder` 里也有一道 `if (selectionMode) exitSelectionMode()`）。
+- **下载列表页不加多选**：`activity/video/local/DownloadListActivity.kt` 的任务语义（暂停 / 继续 / 重试）与缓存条目完全不同，本轮只做缓存页。
 
 ## 8. UI 基建速查（新增页面临摹用）
 

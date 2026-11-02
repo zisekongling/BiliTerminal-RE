@@ -46,8 +46,8 @@
     <string name="egg_zisekongling_nahida">你知道吗，RE:哔哩终端的作者和哔哩终端的作者Robin一样，喜欢纳西妲\n我语文也不是很好，不太会写这种文案hhh\n纳西妲是一个很可爱的小萝莉\n她的经历与自身的性格形成了很大的反差\n被囚禁500年，到最后被迫忘记了大慈树王\n我记得很清楚，她亲手抹除大慈树王存在的时候是哭着的，但当她从世界树里出来的时候\n她却不知道为什么要哭......那个滋味......让我这个坐在屏幕外的玩家都不由得心酸起来......\n但是——她依旧保持自己的童心与坚韧的性格，在治理好须弥的同时，又获得了民众和众神的认可，真的很不容易\n纳西妲不必成为大慈树王，又或者......在抹除了大慈树王存在的世界线里，她即是大慈树王\n这种成年人的责任和童心的反差，正是他与其他角色的不同之处。\n所以——纳西妲，请你继续好好生活下去\nemm....逻辑可能有些混乱哈，，，我又瞎感慨了hhh。不打扰你看视频了哈\n会见~</string>
     <string name="egg_robin_nahida">Robin喜欢纳西妲。\n也许不只是由于外表的可爱，还有对遭遇的同情。\n\n我们都被囚禁——\n纳西妲是物理上的，\n屏幕前后的你我则是心灵上的。\n\n纳西妲已经遇到了她的旅行者，\n但我们，又会有谁来关心呢……？\n\n*纳西妲：\n不要这样说哦。\n能够拯救你们的，正是你们自己。\n请用自己的行动，来努力改变这个不美好的世界。\n无论结果如何。\n\n此彩蛋的触发方式：搜索关键词中同时包含"Robin"和"纳西妲"</string>
 
-    <string name="special_login_desc">该功能是为安卓版本过低导致二维码生成组件无法工作的设备准备的，你需要手动在此页面导入登录信息来完成登录操作。\n该功能也适用于快速登录原有账号。\n\n方法教学：\n你需要在另外一台至少为安卓4.4的设备上安装哔哩终端并扫码登录，然后在那台设备上点击设置中的“查看登录信息”，将显示出来的登录信息复制到下方的文本框中，检查无误后点击“登录”按钮即可。\n提示：可以将登录信息复制到一个txt中，用电脑usb传给这台设备。若提示输入有误，请检查是否有多余或缺失字符。\n\n注意：登录数据录入完成后，请在另一台设备上直接【清除APP数据】或【卸载】，不要点击【退出登录】！</string>
-    <string name="special_login_export">以下是你的登录信息，可用于在其他设备上特殊登录，点击最下面的按钮可以复制。\n登录信息具有一定的时效性，请即取即用，导入完成请将此设备的哔哩终端清除数据。（不要点退出登录！）\n请勿将此页面的信息传给别人，以防盗号！</string>
+    <string name="special_login_desc">该功能是为安卓版本过低导致二维码生成组件无法工作的设备准备的，你需要手动在此页面导入登录信息来完成登录操作。\n该功能也适用于快速登录原有账号。\n\n方法教学：\n你需要在另外一台至少为安卓4.4的设备上安装哔哩终端并扫码登录，然后在那台设备上点击设置中的“查看登录信息”，将显示出来的登录信息复制到下方的文本框中，检查无误后点击“登录”按钮即可。\n提示：可以将登录信息复制到一个txt中，用电脑usb传给这台设备。若提示输入有误，请检查是否有多余或缺失字符。\n\n多账号：如果粘贴的是另一台设备「查看登录信息」页里导出的全部账号数据，会一次性导入所有账号。导入多账号不会切换当前账号，导入后请到「账号切换」里选择要用的账号。\n\n注意：登录数据录入完成后，请在另一台设备上直接【清除APP数据】或【卸载】，不要点击【退出登录】！</string>
+    <string name="special_login_export">以下是本机所有已保存账号的登录信息（多账号格式），可用于在其他设备上一次性导入全部账号；也可只复制其中一个账号的 JSON 做单账号登录。\n导入多账号数据不会切换当前账号，导入后请到「账号切换」里选择要用的账号。\n登录信息具有一定的时效性，请即取即用，导入完成请将此设备的哔哩终端清除数据。（不要点退出登录！）\n请勿将此页面的信息传给别人，以防盗号！</string>
 
     <string name="setting_lab_ui_landscape">！此功能将不再继续进行改进，除非开发者有时间！\n开启选项后，软件将会变为横屏，部分列表会变为三列，更适合平板等默认横屏的设备\n*注意：部分页面仍为单列式，可能有一些页面适配不佳，电视请移步官方电视版本或使用其他第三方软件。</string>
     <string name="setting_lab_ui_rotatory">默认情况下此选项无需开启，系统会自动为可滚动列表应用表冠操作，如果表冠未生效或需要自定义灵敏度，可尝试开启此选项。\n开启后可能会丢失表冠震动。\n下面的两项为灵敏度倍数，1.0 即系统原始滚动量，默认 1.0;填 0 等于该类页面不响应表冠。\n改完立即生效，无需重进页面。</string>
@@ -971,12 +971,17 @@
     <string name="msg_specialloginactivity_003">请检查输入的内容，不要有多余空格或字符</string>
     <string name="msg_specialloginactivity_004">已复制</string>
     <string name="msg_specialloginactivity_005">登录成功！</string>
+    <string name="msg_specialloginactivity_006">登录信息写入失败：账号 ID 与 Cookie 里的用户 ID 不一致，请重新导出后再试</string>
+    <string name="msg_specialloginactivity_007">没有可导入的账号，请检查登录信息是否完整</string>
+    <string name="msg_specialloginactivity_008">已导入 %1$d 个账号（新增 %2$d，更新 %3$d），到「账号切换」里选择要用的账号</string>
+    <string name="msg_specialloginactivity_009">还没有可导出的账号，请先登录</string>
     <string name="pagename_qrloginhelpactivity_001">登录方式说明</string>
     <string name="pagename_captchawebviewactivity_001">人机验证</string>
     <string name="msg_long_captchawebviewactivity_001">此设备无法显示人机验证（WebView 不可用），请改用扫码登录或 Cookie 登录</string>
     <string name="msg_captchawebviewactivity_001">验证参数错误</string>
     <string name="msg_accountswitchactivity_001">这是当前登录的账号</string>
     <string name="msg_accountswitchactivity_002">已删除账号</string>
+    <string name="msg_accountswitchactivity_003">当前登录的账号不能删除，请先切换到其他账号</string>
     <string name="msg_login_status_passwordloginfragment_001">此设备无法显示人机验证，请改用扫码登录</string>
     <string name="msg_login_status_passwordloginfragment_002">验证已取消</string>
     <string name="msg_login_status_passwordloginfragment_003">请输入账号和密码</string>
@@ -989,6 +994,7 @@
     <string name="msg_login_status_passwordloginfragment_010">提交超时，请重试</string>
     <string name="msg_login_status_passwordloginfragment_011">验证码错误，请重试</string>
     <string name="msg_login_status_passwordloginfragment_012">需要手机号验证，请使用短信验证码登录</string>
+    <string name="msg_login_status_passwordloginfragment_013">登录信息不完整（缺少用户 ID），请重试</string>
     <string name="msg_login_status_smsloginfragment_001">请输入正确的手机号</string>
     <string name="msg_login_status_smsloginfragment_002">请输入手机号和验证码</string>
     <string name="msg_login_status_smsloginfragment_003">请先完成人机验证</string>
@@ -1391,6 +1397,7 @@
     <string name="text_tutorial_history_done">历史记录：已完成过（版本 %1$d）</string>
     <string name="text_account_empty">暂无已保存的账号\n登录后会自动保存账号凭证</string>
     <string name="text_account_add_new">添加新账号</string>
+    <string name="text_account_import">导入账号数据（支持一次性导入多个账号）</string>
     <string name="text_update_current_version">本次更新 (%1$s)</string>
 
     <string name="uitext_messageactivity_001">@我</string>
@@ -1878,6 +1885,15 @@
     <string name="uitext_locallistactivity_020">重命名文件夹</string>
     <string name="uitext_locallistactivity_021">拆散文件夹</string>
     <string name="uitext_locallistactivity_022">删除视频</string>
+    <string name="uitext_locallistactivity_023">操作</string>
+    <string name="uitext_locallistactivity_024">已选 %1$d 项</string>
+    <string name="uitext_locallistactivity_025">退出</string>
+    <string name="uitext_locallistactivity_026">点条目勾选，再点「操作」</string>
+    <string name="uitext_locallistactivity_027">文件夹和视频不能一起操作，先取消一种</string>
+    <string name="uitext_locallistactivity_028">确定删除选中的 %1$d 个视频吗？此操作不可恢复。</string>
+    <string name="uitext_locallistactivity_029">确定拆散选中的 %1$d 个文件夹吗？视频会移回未分类区域。</string>
+    <string name="uitext_locallistactivity_030">已删除 %1$d 条，%2$d 条失败</string>
+    <string name="uitext_locallistactivity_031">弹幕更新完成：成功 %1$d 个，失败 %2$d 个</string>
     <string name="uitext_seriesinfoactivity_001">系列详情</string>
     <string name="uitext_multipageactivity_001">已在下载队列</string>
     <string name="uitext_qualitychooseractivity_004">4K 超清</string>

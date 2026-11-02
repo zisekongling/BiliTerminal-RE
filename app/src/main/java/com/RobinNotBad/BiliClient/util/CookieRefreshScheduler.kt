@@ -94,6 +94,19 @@ object CookieRefreshScheduler {
         loginExpiredAtMs = SystemClock.elapsedRealtime()
     }
 
+    /**
+     * 账号全局登录态被替换（登录完成 / 切号 / 退出登录）时调用：把退避状态清零。
+     *
+     * <p>退避是按「上一个账号的失败次数」算的。不清的话，切到一个 Cookie 刚好过期的账号，
+     * 会先等上最长 4 小时的退避才去刷新，表现就是「切完号一直提示登录失效，要等很久才恢复」。
+     */
+    @JvmStatic
+    fun onAccountChanged() {
+        lastAttemptMs = CookieRefreshPolicy.NO_ATTEMPT
+        consecutiveFailures = 0
+        loginExpiredAtMs = CookieRefreshPolicy.NO_ATTEMPT
+    }
+
     private fun tick() {
         try {
             if (!isLoggedIn()) {

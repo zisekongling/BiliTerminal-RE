@@ -58,6 +58,14 @@ android {
         }
     }
 
+    // 纯 JVM 单测里 android.jar 是桩：`android.util.Log` 之类未 mock 的框架方法默认直接抛
+    // 「not mocked」。AccountManager 在拒绝串号时会落一条 `Logu.w` 诊断（真机要留档），
+    // 于是那两条拒绝路径的用例在 JVM 下必炸。让桩方法返回默认值（false/0/null）既保留
+    // 生产侧日志，又能让凭证逻辑（日志之外的代码）继续被断言。
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+
     signingConfigs {
         release {
             def localProps = project.rootProject.file("local.properties")

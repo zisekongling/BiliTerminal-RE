@@ -473,6 +473,8 @@ private static void saveCookiesFromResponse(Response response) {
 
 切号时 `AccountManager.java:177-192` 先 `bumpAccountGeneration()` 再写状态。**修法**：`NetWorkUtil` 加代际 volatile + 请求 tag + 锁内比对；所有「写入全局登录态」入口（切号/登录收尾/resetLogin）自增；域名校验改点后缀匹配。改动小、风险低。
 
+> **已修（26.11.02）**：`util/NetWorkUtil.java` 已加 `volatile long accountGeneration`，四个请求构造点统一 `tag(Long.class, …)`，`saveCookiesFromResponse()` 在锁内 `isStaleGeneration()` 判定后丢弃旧代际 `Set-Cookie`；写登录态收口到 `AccountManager.applyCredentials()` / `clearCurrentLogin()` → `NetWorkUtil.applyAccountCookies()`（锁内自增代际）。域名点后缀校验此前已由 `CookieDomainPolicy` 落地（见 §13.0 的 3.3 P2-5）。落点与验收见 `docs/review/fix-progress.md` §3.112。
+
 ### 7.2 P1：Cookie 自动续期只在启动时一次
 
 `CookieRefreshApi` 唯一调用方是 `SplashActivity.checkCookieRefresh()`（`SplashActivity.kt:367-390`），且只对「有 SESSDATA、无 access_key」的账号走；失败一律保留登录态、无周期检查、无 `-101` 触发、无并发单飞。手表端常年不冷启动，Cookie 过期即掉登录且无提示。对方抽出 `CookieRefresher`：每小时（首次延迟 30 分钟）周期检查、`-101` 触发、5 分钟节流、`synchronized` 单飞、结果枚举区分「可重试/需重登」。**修法**：先把 `refreshCookie` 的 `boolean` 升级成结果枚举（独立可测），再抽 `util/CookieRefresher.kt`，`-101` 挂到统一错误处理里。
@@ -500,6 +502,8 @@ if (!TextUtils.isEmpty(refreshToken)) {
 ```
 
 **修法**：抽 `LoginApi.finishLogin(context, loginData)` 统一双结构提取 + `isBlankToken` 过滤 `"null"`、换号时清旧 token、先校验再落盘、异常回滚；三个 Fragment 各删一段重复逻辑。
+
+> **已修（26.11.02）**：没有新增 `LoginApi.finishLogin`，而是把「先校验、再一次性批量落盘」收到 `AccountManager.applyCredentials(mid, …)`——`mid` 必须与 Cookie 里的 `DedeUserID` 一致才写，缺 `access_key` / `refresh_token` 时写空串而不是沿用上一个账号的值；三个登录 Fragment 与 `SplashActivity.resetLogin()` / `MySpaceActivity.handleLogout()` 全部改走该入口。落点与验收见 `docs/review/fix-progress.md` §3.112。
 
 ### 7.4 P1：动态「仅自己可见/关闭评论」是死代码
 
@@ -919,7 +923,7 @@ override fun attachBaseContext(base: Context) {
 - §4.4（P1 OkHttp 4.12 与 minSdk 19）、§4.5 P2-1、P2-3～P2-6（P2-2 已修）
 - §5.1 P1-2 / P1-3 / P1-4 / P1-5、P2-1～P2-6
 - §6.2、§6.3（P1）；§6.4 P2-1～P2-7
-- §7.1、§7.2、§7.3、§7.5（P1）；§7.6 P2-1～P2-3
+- §7.1（已修，26.11.02 代际隔离，见 §3.112）、§7.2（已修，`CookieRefreshScheduler`）、§7.3（已修，26.11.02 统一凭据入口，见 §3.112）、§7.5（P1）；§7.6 P2-1～P2-3
 - §8.2 P2-4～P2-12
 - §9.2（lint 门禁）、§9.3 P2-1～P2-10
 - §10.1、§10.3、§10.4（P1）；§10.5 P2-1～P2-6
@@ -938,7 +942,7 @@ override fun attachBaseContext(base: Context) {
 | --- | --- | --- | --- |
 | A 崩溃可观测性 | 10.1、10.4、10.2 的哨兵部分（P2-3） | 本地留档 + 待发队列 + 冷启动补发 + 早期 handler + 崩溃页进程 handler；随后加精简 PlayerSentinel | 断网崩溃后重启可补发；日志可见 pending 计数 |
 | B 更新链可信 | 3.2、4.5 P2-6、8.2 P2-6 | SHA-256/size 校验、内部 cacheDir、安装权限预检 + 引导、try/catch、镜像与发布页兜底 | 篡改包被拒；首次安装跳设置后能完成；无安装器不崩 |
-| C 登录态生命周期 | 7.1、7.2、7.3、3.3 P2-5 | Cookie 代际隔离、CookieRefresher（1h + -101 + 单飞）、统一 finishLogin、域名点后缀校验 | 单测覆盖代际丢弃/续期枚举；真机切号无串号 |
+| C 登录态生命周期 | 7.1、7.2、7.3、3.3 P2-5 | Cookie 代际隔离、CookieRefresher（1h + -101 + 单飞）、统一 finishLogin、域名点后缀校验 | 单测覆盖代际丢弃/续期枚举；真机切号无串号。**26.11.02：代际隔离与统一凭据入口已落地（`fix-progress.md` §3.112）** |
 | D 社交功能补齐 | 7.4、7.5、7.6 | 动态可见范围/关评论开关、评论去重/本地补回/换口径、楼中楼隐藏带图、定时校验 | 空评论区发图可见；仅自己可见动态发布成功；楼中楼无带图入口 |
 | E 兼容性收口（目标手表） | 4.3、4.4 | 判断 OkHttp 4.12 在 API 19/20 的可运行性（实测或降 minSdk/降库）；API 19/21/23/26/30 的 32 位表冒烟；下载通知权限降级 + 引导（手机路径）；readme 支持范围如实 | 低版本手表登录/首页/播放/下载四链路记录；OkHttp 取舍有结论 |
 | F 发版门禁 | 9.1、9.2 | tag==versionName 硬校验、触发面收窄、annotated tag；lint 恢复 NewApi/UnusedResources | 故意推错 tag 的 CI 失败；lint 跑通 |
@@ -1013,7 +1017,7 @@ override fun attachBaseContext(base: Context) {
 ### 15.2 对本文结论的影响
 
 - §3.4「播放链路不带会话」的对方问题已在 1.2.4 修复媒体路径；但**直播弹幕 wss 握手仍下发全量 Cookie**——`PlayerActivity.danmuSocketConnect`（1.2.4 工作树 `:3215-3274`）加了 host 白名单校验与全局 OkHttp 复用，`CookieGenerator.getCookieString(true)` 未收窄。对 1.2.4 而言，该项仍属「半属实」。
-- 对方对 `-111`/CSRF 与下载服务的修法，与本文 §13.2 C、§10 的建议方向一致，说明两边在收敛到同一套修法；我方对应的 P1 项（Cookie 代际隔离、-111 重试语义）仍未修，见 §13.0。
+- 对方对 `-111`/CSRF 与下载服务的修法，与本文 §13.2 C、§10 的建议方向一致，说明两边在收敛到同一套修法；我方对应的 P1 项已部分收敛——**Cookie 代际隔离与统一凭据入口 26.11.02 已修**（`docs/review/fix-progress.md` §3.112），**`-111` 重试语义仍未修**，见 §13.0。
 - 兼容性结论不变：1.2.4 仍是 `targetSdk 26`、只打 32 位 ABI、0 测试文件；新增的 CI 资源冒烟是 APK 级断言，不构成单测覆盖。
 - 新增隐私面：`util/DeviceIdentity.java` 生成并持久化一个随机 32 位十六进制 `Display-ID`（短视频取流请求头），来源不是 ANDROID_ID，但属于新的设备级伪标识；我方「设备键」争议的同类问题在对方也出现了，只是实现不同（我方向 ANDROID_ID 哈希、对方随机持久 ID）。
 - 文档瑕疵：对方 1.2.4 更新日志多处引用 `docs/audit/00-summary.md`，该文件不在仓库中（链接 404），其自述审计结论无法复核。

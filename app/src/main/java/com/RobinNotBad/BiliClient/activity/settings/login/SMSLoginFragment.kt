@@ -275,16 +275,12 @@ class SMSLoginFragment : BaseFragment() {
             try {
                 val cookies = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "")
 
-                SharedPreferencesUtil.putLong(SharedPreferencesUtil.mid, NetWorkUtil.getInfoFromCookie("DedeUserID", cookies).toLong())
-                SharedPreferencesUtil.putString(SharedPreferencesUtil.csrf, NetWorkUtil.getInfoFromCookie("bili_jct", cookies))
-
                 val loginData = loginJson.optJSONObject("data")
                 val tokenInfo = if (loginData != null) loginData.optJSONObject("token_info") else null
                 var refreshToken = if (tokenInfo != null) tokenInfo.optString("refresh_token", "") else ""
                 if (refreshToken.isEmpty() && loginData != null) {
                     refreshToken = loginData.optString("refresh_token", "")
                 }
-                SharedPreferencesUtil.putString(SharedPreferencesUtil.refresh_token, refreshToken)
 
                 // 短信登录同样走 App 接口，响应里带 access_token；以前只存 refresh_token，
                 // 把 App 令牌丢了（详见 PasswordLoginFragment 同处注释）。
@@ -292,13 +288,18 @@ class SMSLoginFragment : BaseFragment() {
                 if (accessKey.isEmpty() && loginData != null) {
                     accessKey = loginData.optString("access_token", "")
                 }
-                SharedPreferencesUtil.putString(SharedPreferencesUtil.access_key, accessKey)
 
-                SharedPreferencesUtil.putBoolean(SharedPreferencesUtil.cookie_refresh, true)
-                SharedPreferencesUtil.putBoolean(SharedPreferencesUtil.setup, true)
+                // mid 从 Cookie 读，取不到就按失败处理：原来直接 .toLong() 抛异常后
+                // 会被外层 catch 成「登录成功但处理异常」，而凭证已经写了一半
+                val mid = NetWorkUtil.getInfoFromCookie("DedeUserID", cookies).toLongOrNull()
+                if (mid == null || mid <= 0L) {
+                    setStatusText(getAppContext().getString(R.string.msg_login_status_passwordloginfragment_013))
+                    return@run
+                }
 
+                // 统一入口：整套凭证一次性替换（缺失字段显式写空 + 升账号代际）
+                AccountManager.applyCredentials(mid, "", cookies, refreshToken, accessKey, "")
                 AccountManager.saveCurrentAccount()
-                NetWorkUtil.refreshHeaders()
 
                 try {
                     LoginApi.requestSSOs()

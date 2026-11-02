@@ -470,29 +470,32 @@ class QRLoginFragment : BaseFragment() {
                     val refreshToken = data.getString("refresh_token")
                     val mid = data.getLong("mid")
 
-                    SharedPreferencesUtil.putString(SharedPreferencesUtil.access_key, accessToken)
-                    SharedPreferencesUtil.putString(SharedPreferencesUtil.refresh_token, refreshToken)
-                    SharedPreferencesUtil.putLong(SharedPreferencesUtil.mid, mid)
-
+                    // 一次性把整套凭证交给 AccountManager：mid / cookies / refresh_token /
+                    // access_key / csrf 在同一把锁里一起写，并升账号代际（旧账号在飞的请求作废）。
+                    // 原来这里手写 5 个 putXxx，漏写一个就是「切号后凭据混乱」的来源之一。
+                    //
+                    // Cookie 从**空串**开始拼：TV 登录的 cookie_info 是完整的一套新 Cookie，
+                    // 若拿 SP 里现有 Cookie 去合并，就把上一个账号的 SESSDATA 带过来了。
+                    val cookies = Cookies("")
                     val cookieInfo = data.optJSONObject("cookie_info")
                     if (cookieInfo != null) {
                         val cookiesArray = cookieInfo.optJSONArray("cookies")
                         if (cookiesArray != null) {
-                            val cookies = Cookies(SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""))
                             for (i in 0 until cookiesArray.length()) {
                                 val cookie = cookiesArray.getJSONObject(i)
-                                val name = cookie.getString("name")
-                                val value = cookie.getString("value")
-                                cookies.set(name, value)
+                                cookies.set(cookie.getString("name"), cookie.getString("value"))
                             }
-                            NetWorkUtil.setCookiesString(cookies.toString())
-                            SharedPreferencesUtil.putString(SharedPreferencesUtil.csrf,
-                                cookies.getOrDefault("bili_jct", ""))
                         }
                     }
 
-                    SharedPreferencesUtil.putBoolean(SharedPreferencesUtil.cookie_refresh, true)
-                    SharedPreferencesUtil.putBoolean(SharedPreferencesUtil.setup, true)
+                    AccountManager.applyCredentials(
+                        mid,
+                        "",
+                        cookies.toString(),
+                        refreshToken,
+                        accessToken,
+                        ""
+                    )
 
                     AccountManager.saveCurrentAccount()
 
@@ -622,18 +625,22 @@ class QRLoginFragment : BaseFragment() {
             return
         }
 
-        SharedPreferencesUtil.putLong(SharedPreferencesUtil.mid, mid)
-        SharedPreferencesUtil.putString(SharedPreferencesUtil.csrf, NetWorkUtil.getInfoFromCookie("bili_jct", cookies))
-        // 缺字段时留空串：Splash 的 cookie 刷新会按空值跳过，不会崩
-        SharedPreferencesUtil.putString(SharedPreferencesUtil.refresh_token, data.optString("refresh_token"))
-
-        // web 协议不返回 access_token，必须显式清掉可能残留的 TV token：
-        // 否则 SplashActivity 按"有 access_key = TV 登录"分流去刷 APP token，
-        // web 的 cookie 续期链路整条被跳过，会话只能等 SESSDATA 自然失效
-        SharedPreferencesUtil.putString(SharedPreferencesUtil.access_key, "")
-
-        SharedPreferencesUtil.putBoolean(SharedPreferencesUtil.cookie_refresh, true)
-        SharedPreferencesUtil.putBoolean(SharedPreferencesUtil.setup, true)
+        // 整套凭证一次性落库（含「web 协议没有 access_token → 必须显式清空」这一点）：
+        // 原来这里手写 putXxx，access_key 只是"写空串"，其余字段各写各的；现在统一走
+        // AccountManager.applyCredentials，缺失字段一律显式写空、并升账号代际，
+        // 切号窗口里迟到的旧响应用 Set-Cookie 写不回新账号。
+        AccountManager.applyCredentials(
+            mid,
+            "",
+            cookies,
+            // JSON 显式 null 时 optString 会给字符串 "null"，那会被当成 refresh_token 存下来
+            if (data.isNull("refresh_token")) "" else data.optString("refresh_token"),
+            // web 协议不返回 access_token，必须显式清掉可能残留的 TV token：
+            // 否则 SplashActivity 按"有 access_key = TV 登录"分流去刷 APP token，
+            // web 的 cookie 续期链路整条被跳过，会话只能等 SESSDATA 自然失效
+            "",
+            ""
+        )
 
         AccountManager.saveCurrentAccount()
 

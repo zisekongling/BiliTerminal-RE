@@ -48,6 +48,20 @@ public class NetWorkUtil {
     private static volatile String cachedCookies = null;
 
     /**
+     * 账号代际（审计 §7.1「切号没有 Cookie 代际隔离」）。
+     *
+     * <p>问题：切号 / 重新登录时只换了 SP 里的 Cookie 字符串，但**旧账号还在飞的请求**回来时，
+     * 拦截器照样把它的 Set-Cookie 合并进存储——于是新账号的 SESSDATA 被旧账号的覆盖，
+     * csrf 快照被改成旧账号的 bili_jct，表现为「切完号偶尔又变回上一个人 / 发评论 -111」。
+     *
+     * <p>做法：每次全局登录态被替换（切号、登录完成、退出登录）就把代际 +1；
+     * 每个请求在**创建时**打上当时的代际标签（{@link Request.Builder#tag(Class, Object)}），
+     * 响应回来要写 Cookie 前在**同一把锁里**再比一次：代际不同就整个丢弃。
+     * 锁保证「比代际 + 写 Cookie」与「升代际 + 写新 Cookie」互斥，不存在写了一半的中间态。
+     */
+    private static volatile long accountGeneration = 0L;
+
+    /**
      * HTTP 追踪总开关（26.10.14，由 [com.RobinNotBad.BiliClient.BiliTerminal.applyLogSwitches] 写入）。
      *
      * <p>原实现只在 `get()` / `post()` 里记 URL 和 POST 正文，**不记状态码、不记响应体、不记耗时**：
@@ -128,6 +142,63 @@ public class NetWorkUtil {
         SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, cookies);
         cachedCookies = cookies;
         refreshHeaders();
+    }
+
+    /** 当前账号代际；请求创建时打标签、响应落盘前用它判断是否已经过期。 */
+    public static long getAccountGeneration() {
+        return accountGeneration;
+    }
+
+    /**
+     * 代际 +1，让所有在飞的旧请求失效（不写 Cookie）。
+     *
+     * <p>真的换 Cookie 请直接调 {@link #applyAccountCookies(String)}——它把「升代际」和
+     * 「写新 Cookie」放在同一把锁里，避免旧响应在两步之间挤进来写回旧值。
+     */
+    public static void bumpAccountGeneration() {
+        synchronized (NetWorkUtil.class) {
+            accountGeneration++;
+        }
+    }
+
+    /**
+     * 原子地替换整套 Cookie：升代际 + 写新值 + 刷新请求头，全部在同一把锁内完成。
+     *
+     * <p>登录完成、切号、退出登录都必须走这里，而不是 {@link #setCookiesString(String)}：
+     * 后者不升代际，旧账号在飞的响应回来还能把 Cookie 写回去。
+     *
+     * @param cookies 新账号的完整 Cookie 字符串，退出登录时传空串
+     */
+    public static void applyAccountCookies(String cookies) {
+        synchronized (NetWorkUtil.class) {
+            accountGeneration++;
+            SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, cookies == null ? "" : cookies);
+            cachedCookies = cookies == null ? "" : cookies;
+            refreshHeaders();
+        }
+    }
+
+    /**
+     * 创建带账号代际标签的请求构造器。
+     *
+     * <p>**所有**出口请求都必须从这里构造：响应回来时 {@link #saveCookiesFromResponse(Response)}
+     * 靠这个标签判断它是不是上一任账号的「在飞请求」，是就丢弃 Set-Cookie（审计 §7.1）。
+     * 新增请求入口时漏掉这一行，代际隔离对那条请求就失效了。
+     */
+    private static Request.Builder newTaggedRequestBuilder() {
+        // 注意这里是 new Request.Builder()，不是递归调自己——之前把全文件的
+        // `new Request.Builder()` 无脑替换成本方法时，把方法体里这一行也替换了
+        return new Request.Builder().tag(Long.class, accountGeneration);
+    }
+
+    /**
+     * 判断一条响应对应的请求是否属于「已经过去的账号代际」。
+     *
+     * <p>没有打标签的请求（理论上不该有，兜底按当前代际处理）当新请求放行。
+     * 抽成纯函数是为了能在 JVM 单测里覆盖，不用起 OkHttp。
+     */
+    static boolean isStaleGeneration(Long requestGeneration, long currentGeneration) {
+        return requestGeneration != null && requestGeneration != currentGeneration;
     }
 
     public static class Inet4Selector implements Dns {
@@ -372,7 +443,7 @@ public class NetWorkUtil {
      */
     private static JSONObject executeJsonOnce(String url, ArrayList<String> headers) throws IOException, JSONException {
         Logu.d("get-url", url);
-        Request.Builder requestBuilder = new Request.Builder().url(url).get();
+        Request.Builder requestBuilder = newTaggedRequestBuilder().url(url).get();
         for (int i = 0; i < headers.size(); i += 2)
             requestBuilder.addHeader(headers.get(i), headers.get(i + 1));
         try (Response response = getOkHttpInstance().newCall(requestBuilder.build()).execute()) {
@@ -396,7 +467,7 @@ public class NetWorkUtil {
     public static Response getHtml(String url) throws IOException {
         Logu.d("get-url", url);
         OkHttpClient client = getOkHttpInstance();
-        Request.Builder requestBuilder = new Request.Builder().url(url).get();
+        Request.Builder requestBuilder = newTaggedRequestBuilder().url(url).get();
         for (int i = 0; i < webHeaders.size(); i += 2)
             requestBuilder.addHeader(webHeaders.get(i), webHeaders.get(i + 1));
         Response response = client.newCall(requestBuilder.build()).execute();
@@ -411,7 +482,7 @@ public class NetWorkUtil {
     public static Response get(String url, ArrayList<String> headers, RedirectHandler redirectHandler) throws IOException {
         Logu.d("get-url", url);
         OkHttpClient client = getOkHttpInstance();
-        Request.Builder requestBuilder = new Request.Builder().url(url).get();
+        Request.Builder requestBuilder = newTaggedRequestBuilder().url(url).get();
         for (int i = 0; i < headers.size(); i += 2)
             requestBuilder.addHeader(headers.get(i), headers.get(i + 1));
         if (redirectHandler != null) requestBuilder.tag(RedirectHandler.class, redirectHandler);
@@ -494,7 +565,7 @@ public class NetWorkUtil {
         Logu.d("post-data", data == null ? "null" : ("length=" + data.length()));
         OkHttpClient client = getOkHttpInstance();
         RequestBody body = RequestBody.create(MediaType.parse(contentType + "; charset=utf-8"), data);
-        Request.Builder requestBuilder = new Request.Builder().url(url).post(body);
+        Request.Builder requestBuilder = newTaggedRequestBuilder().url(url).post(body);
         for (int i = 0; i < headers.size(); i += 2) {
             String key = headers.get(i);
             String val = headers.get(i + 1);
@@ -598,9 +669,19 @@ public class NetWorkUtil {
 
         //如果没有新cookies，直接返回
         if (newCookies.isEmpty()) return;
+        // 审计 §7.1：这条响应发出的那一刻属于哪个账号代际？标签在请求创建时打上（见
+        // newTaggedRequestBuilder），此处必须**在锁内**比较——锁外比完再进锁，
+        // 中间完全可能插进一次切号，那这次比较就白做了。
+        Long requestGeneration = response.request().tag(Long.class);
         // 本方法由 CookieSaveInterceptor 在任意线程调用，必须与 putCookie/setCookies/getCookies
         // 共用同一把锁，否则 read-modify-write 互相覆盖会导致偶发登录态丢失。
         synchronized (NetWorkUtil.class) {
+            if (isStaleGeneration(requestGeneration, accountGeneration)) {
+                // 只记代际数字，不记 Cookie 键值（审计 S2）
+                Logu.d("saveCookiesFromResponse", "丢弃旧账号代际的 Set-Cookie：req="
+                        + requestGeneration + " cur=" + accountGeneration);
+                return;
+            }
             saveCookiesLocked(newCookies, responseHost);
         }
     }

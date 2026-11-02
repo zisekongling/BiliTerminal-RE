@@ -85,6 +85,21 @@ object AccountStateStore {
     }
 
     /**
+     * 账号全局登录态被替换（登录完成 / 切号 / 退出登录）时调用：作废上一任账号的缓存。
+     *
+     * <p>缓存里只有「是否登录 / 是否大会员」，都是按账号算的。不清的话，从大会员账号切到
+     * 普通账号，[cached] 仍会返回 `vip=true`，新账号照样能点开 4K，实际请求到的是降级流——
+     * 这就是「切号后画质/权限混乱」的直接来源。清空后 `cached()` 退回默认（已登录、非大会员），
+     * 等下一次 [refresh] 拿到真实状态。
+     */
+    @JvmStatic
+    fun onAccountChanged() {
+        SharedPreferencesUtil.removeValue(KEY_LOGGED_IN)
+        SharedPreferencesUtil.removeValue(KEY_VIP)
+        SharedPreferencesUtil.removeValue(KEY_TIME)
+    }
+
+    /**
      * 把起播/切档请求的清晰度按账号权限夹紧。
      *
      * 超出权限时服务端不会报错，而是**降级发流**：比如未登录请求 4K(qn=120) 拿到的是
