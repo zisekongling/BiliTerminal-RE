@@ -1099,6 +1099,21 @@
 - **验证**：`:app:assembleDebug`（standard + coexist）**BUILD SUCCESSFUL**；`:app:testStandardDebugUnitTest` 与 `:app:testCoexistDebugUnitTest` 均 **125 suites / 1311 tests / 0 失败 0 错误**（机器产出 `app/build/test-results/*` 计数）；本轮新增 `ApiErrorTextTest`（5 例）与 `ReplyApiTest.imageBiz_commentSharesDynamicDirectoryAndMessageUsesIm`（1 例）。
 - **遗留**：12066 语义未确证；本机无在线设备（`adb devices` 为空），**未做真机复验**。复现时看日志 `debug-上传图片`（code/message/biz）与 `debug-发送评论`（服务端整包 code/message），可直接判断是"图床拒收"还是"评论接口拒收图片"。
 
+### 3.108 新增「我的订阅」：我订阅的收藏夹 / 合集（26.11.02，用户要求照 PiliPlus 实现）
+
+- **可见功能**：「我的」页新增「订阅」入口。列表显示我订阅的收藏夹/合集（封面、标题、UP 主、类型与视频数、失效置灰）；点收藏夹进**只读**收藏夹内容页，点合集进新的「合集详情」页；长按条目二次确认后取消订阅。
+- **接口事实**（PiliPlus `lib/http/fav.dart` / `lib/http/user.dart` + 本地 `bilibili-API/docs/fav/info.md`）：
+  - 列表 `GET x/v3/fav/folder/collected/list?platform=web&up_mid=&pn=&ps=20`。**`platform=web` 必带**，否则不返回合集；每项 `type=11`（收藏夹，`id`=media_id）/ `type=21`（合集，`id`=season_id），`state=1` 失效。
+  - 合集详情 `GET x/space/fav/season/list?season_id=&pn=&ps=20`（返回 `info`+`medias`，**不是** `ugc_season`）。
+  - 取消：`POST x/v3/fav/folder/unfav`（`media_ids`，-400 时回退单数 `media_id`，与 PiliPlus 口径兼容）/ `POST x/v3/fav/season/unfav`（`season_id`+`platform=web`），均带 `csrf`。
+- **改动**：
+  - 新增 `model/SubscriptionFolder.java`、`api/SubscriptionApi.java`（解析拆纯函数）、`adapter/subscription/SubscriptionFolderAdapter.kt`、`res/layout/cell_subscription_folder.xml`、`activity/user/subscription/{SubscriptionListActivity,SubSeasonDetailActivity}.kt`。
+  - `MySpaceMenu` 加 `subscription` 项与跳转；`MySpaceConfig.ALL_ITEMS` 同步（`MySpaceConfigTest` 守卫通过）；manifest 注册两个 `exported=false` + `screenOrientation=locked` 的 Activity；`strings.xml` 新增 2 个 pagename + 4 个 text + 7 个 msg，**无硬编码中文**。
+- **验证**：
+  - `:app:assembleDebug` 两 flavor **BUILD SUCCESSFUL**；`:app:testStandardDebugUnitTest` / `:app:testCoexistDebugUnitTest` 均 **125 suites / 1311 tests / 0 失败 0 错误**（含新增 `SubscriptionApiTest` 6 例：收藏夹/合集混合解析、脏条目跳过、可选字段兜底、合集视频与总数、空/缺字段不崩）。
+  - AVD `wear5`（466×466 圆屏）实测：我的 →「订阅」→ 页面标题「我的订阅」、空态「啥都木有~ 点我重试」、底部「没有更多了」；logcat 确认请求 `collected/list?...platform=web&pn=1` → `200`、`{"code":0,...,"data":{"count":0,"list":[],"has_more":false}}`（测试账号本身 0 条订阅），**无崩溃/无 ANR**。
+- **遗留**：① 测试账号 0 条订阅，**列表渲染、点击进夹/进合集、长按取消订阅三条路径未在真机走到**，需有订阅数据的账号复验；② `/x/space/fav/season/list` 的 200 响应字段只有 PiliPlus 源码作依据（本地 API 快照没有该接口），首次用真实 season_id 跑一次后建议把实测响应补进 `docs/bilibili-api-notes.md`；③ `folder/unfav` 的参数名两种口径只做了代码级兼容，未拿到真实成功响应验证。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。
