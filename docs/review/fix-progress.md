@@ -1111,8 +1111,24 @@
   - `MySpaceMenu` 加 `subscription` 项与跳转；`MySpaceConfig.ALL_ITEMS` 同步（`MySpaceConfigTest` 守卫通过）；manifest 注册两个 `exported=false` + `screenOrientation=locked` 的 Activity；`strings.xml` 新增 2 个 pagename + 4 个 text + 7 个 msg，**无硬编码中文**。
 - **验证**：
   - `:app:assembleDebug` 两 flavor **BUILD SUCCESSFUL**；`:app:testStandardDebugUnitTest` / `:app:testCoexistDebugUnitTest` 均 **125 suites / 1311 tests / 0 失败 0 错误**（含新增 `SubscriptionApiTest` 6 例：收藏夹/合集混合解析、脏条目跳过、可选字段兜底、合集视频与总数、空/缺字段不崩）。
-  - AVD `wear5`（466×466 圆屏）实测：我的 →「订阅」→ 页面标题「我的订阅」、空态「啥都木有~ 点我重试」、底部「没有更多了」；logcat 确认请求 `collected/list?...platform=web&pn=1` → `200`、`{"code":0,...,"data":{"count":0,"list":[],"has_more":false}}`（测试账号本身 0 条订阅），**无崩溃/无 ANR**。
+  - AVD `wear5`（466×466 圆屏）实测：我的 →「订阅」→ 页面标题「我的订阅」、空态「啥都木有~ 点我重试」、底部「没有更多了」；logcat 确认请求 `collected/list?...platform=web&pn=1` → `200`、`{"code":0,...,"data":{"count":0,"list":[],"has_more":false}}`（**勘误见 §3.109：该账号当时已登录过期，匿名请求也会返回这个结果，不是「0 条订阅」**），**无崩溃/无 ANR**。
 - **遗留**：① 测试账号 0 条订阅，**列表渲染、点击进夹/进合集、长按取消订阅三条路径未在真机走到**，需有订阅数据的账号复验；② `/x/space/fav/season/list` 的 200 响应字段只有 PiliPlus 源码作依据（本地 API 快照没有该接口），首次用真实 season_id 跑一次后建议把实测响应补进 `docs/bilibili-api-notes.md`；③ `folder/unfav` 的参数名两种口径只做了代码级兼容，未拿到真实成功响应验证。
+
+### 3.109 「我的订阅」补添加订阅入口 + 三处实测纠错（26.11.02 当晚，用户追问「我如何添加订阅」）
+
+- **用户反馈**：订阅页只能看不能加。确实——§3.108 把功能范围定成「只读」，但用户要的是完整闭环。本次补入口并顺手把接口实测中发现的错误改掉。
+- **新增添加订阅入口**：
+  - 共享布局 `activity_simple_refresh.xml` 新增默认 `gone` 的 `subBar`（一个 `subToggle`，与 `manageBar` 同层，不进自动收回）。
+  - `FavoriteVideoListActivity`：`readOnly`（别人的收藏夹）+ 已登录 + 有 media_id 时点亮「订阅 / 已订阅」；状态查 `GET x/v3/fav/folder/info?media_id=` 的 `data.fav_state`（1=已订阅）；点击走 `POST x/v3/fav/folder/fav`（`media_id`+`csrf`），已订阅时二次确认后走 unfav。查询失败整条隐藏，不显示误导性状态。
+  - `CollectionInfoActivity`（视频合集详情）：自己的合集/未登录不显示；状态先读 `space/fav/season/list` 的 `info.fav_state`，读不到时回退翻「我的订阅」前 3 页找该 season；点击走 `POST x/v3/fav/season/fav`（`platform=web`+`season_id`+`csrf`）。
+  - `strings.xml` 新增 3 条 text + 4 条 msg；`SubscriptionApi` 新增 `subscribeFolder` / `subscribeSeason` / `getFolderFavState` / `getSeasonFavState` 与两个纯函数解析；`SubscriptionApiTest` 增 2 例（共 8 例）。
+- **三处实测纠错（都是拿真接口/真设备验出来的）**：
+  1. **`x/fav/season/unfav` 是 404，正确路径带 v3**：PiliPlus `Api.unfavSeason = '/x/fav/season/unfav'` 实测 HTTP 404；`/x/v3/fav/season/unfav` 返回 -101（账号未登录），`/x/v3/fav/season/fav` 同。§3.108 的实现沿用了 PiliPlus 的错误常量，本轮已改成 v3 —— **原实现下合集取消订阅必然失败**。
+  2. **收藏夹 unfav 主参数是 `media_id`（单数）**：原实现按 Web 文档先发 `media_ids` + `platform=web`，实测这几个写接口在未登录时都先报 -101 看不出差异；但 PiliPlus 的取消订阅（已在用的路径）明确发 `media_id` 且不带 `platform`。本轮把主口径改成 `media_id`（`media_ids` 只作 -400 回退），减少一次无谓失败。
+  3. **AVD 登录态其实已过期（§3.108 的结论要更正）**：`collected/list` 当时返回 `code:0` 空表，被当成「已登录、0 条订阅」；复查 `x/web-interface/nav` 用设备里的 SESSDATA 请求返回 **-101 账号未登录**，`我的` 页用户信息也显示「加载失败」——即**匿名请求 `collected/list` 会返回 `code:0` + 空列表**。所以：空态验证有效，但「登录态下 0 条订阅」的判断作废；列表渲染/点击/订阅/取消仍未在登录账号上跑过。
+- **`space/fav/season/list` 实测响应（补上 §3.108 遗留②）**：`GET ?season_id=9126374&pn=1&ps=20`（匿名即可）→ `code:0`；`data.info` 字段只有 `id/season_type/title/cover/upper/cnt_info/media_count/intro`，**没有 `fav_state`**；`data.medias[]` 每条 `id` 是 **avid**（如 `117292654397426`）、带 `bvid/duration/pubtime/upper/cnt_info`；**没有 `has_more`**，用 `info.media_count` 判到底。
+- **验证**：`:app:assembleDebug` 两 flavor BUILD SUCCESSFUL；两 flavor 单测 **125 suites / 1313 tests / 0 失败**；AVD `wear5` 重装后实测首页/「我的」/「订阅」页均正常（共享布局加条未破坏其它页面），「订阅」页空态与请求链路同 §3.108；四个写接口用本机 HTTP 实测均为 -101（存在、需登录）而非 404。
+- **遗留**：仍是登录态不足——**订阅/取消订阅的真实成功响应、以及列表有数据时的渲染与点击，仍需用户自己登录后走一遍**（复现时看 logcat `debug-订阅收藏夹` / `debug-订阅合集` / `debug-取消订阅*` 的 code/message）。
 
 ## 4. 历史章节索引
 

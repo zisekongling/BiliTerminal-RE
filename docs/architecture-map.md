@@ -1407,16 +1407,21 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 
 ### 7.60 「我的订阅」：collected/list 两个 id 语义 + 两种取消订阅（26.11.02 新增）
 
-- **入口与文件**：`MySpaceMenu`（key=`subscription`）→ `activity/user/subscription/SubscriptionListActivity`；合集详情 `SubSeasonDetailActivity`；接口层 `api/SubscriptionApi.java`（纯解析函数 `parseSubscribedFolders` / `parseSeasonVideos` 可单测），模型 `model/SubscriptionFolder.java`。
+- **入口与文件**：`MySpaceMenu`（key=`subscription`）→ `activity/user/subscription/SubscriptionListActivity`；合集详情 `SubSeasonDetailActivity`；接口层 `api/SubscriptionApi.java`（纯解析函数 `parseSubscribedFolders` / `parseSeasonVideos` / `parseFolderFavState` 可单测），模型 `model/SubscriptionFolder.java`。
+- **添加订阅的入口在内容页**（26.11.02 补）：`activity_simple_refresh.xml` 加了默认 `gone` 的 `subBar`（一个 `subToggle`，与 `manageBar` 同层）。别人的收藏夹页（`FavoriteVideoListActivity` 且 `readOnly`）与合集详情页（`CollectionInfoActivity`）各自点亮；自己的内容/未登录不显示。
+  - 收藏夹订阅/取消：`POST x/v3/fav/folder/fav`、`POST x/v3/fav/folder/unfav`，参数 **`media_id` + `csrf`**（不带 `platform`，与 PiliPlus 同口径）；`media_ids`（复数）是历史文档口径，只作 -400 时的回退。
+  - 合集订阅/取消：`POST x/v3/fav/season/fav`、`POST x/v3/fav/season/unfav`，参数 `platform=web` + `season_id` + `csrf`。
+- **合集取消订阅前缀是 v3，PiliPlus 的常量是错的**：PiliPlus `Api.unfavSeason = '/x/fav/season/unfav'`（无 v3）实测 **HTTP 404**；正确是 `/x/v3/fav/season/unfav`（本机 2026-11-02 实测：v3 返回 -101「账号未登录」，无 v3 的 404）。`/x/v3/fav/season/fav` 同理。
+- **`space/fav/season/list` 的响应形状（实测）**：`data.info` 只有 `id/season_type/title/cover/upper/cnt_info/media_count/intro`，**没有 `fav_state`**（匿名请求；登录态未验证）；`data.medias[]` 每条 `id` 是 **avid**、还有 `bvid/duration/pubtime/upper/cnt_info`，没有 `has_more`（用 `info.media_count` 判到底）。`getSeasonFavState` 读不到 `fav_state` 时回退翻「我的订阅」前 3 页找 season，不要假设服务端一定给。
 - **`platform=web` 不能漏**：`x/v3/fav/folder/collected/list` 不带这个参数时**只返回收藏夹、不返回合集**（`bilibili-API/docs/fav/info.md:273` 明写）。`up_mid` 传自己的 mid；接口返回 `data.count/list/has_more`，**`has_more` 缺失时按「没有下一页」处理**，宁可提前停也不要无限翻。
 - **`type` 决定 id 语义，别混**：`type=11` 收藏夹，`id` 是 **media_id**（进只读的 `FavoriteVideoListActivity`，`readOnly=true`）；`type=21` 合集，`id` 是 **season_id**（走 `x/space/fav/season/list`）。**不能**拿 21 的 id 去当 aid/media_id，也不能用 `CollectionInfoActivity`（那个是 `ugc_season`，从视频 aid 反查）。
-- **两种取消订阅端点不同**：收藏夹 `POST x/v3/fav/folder/unfav`、合集 `POST x/v3/fav/season/unfav`（都带 `platform=web&csrf`）。**参数名有历史分歧**：Web 文档写 `media_ids`（复数），PiliPlus 实现发 `media_id`（单数）——`SubscriptionApi.cancelFolderSubscription` 先发复数，**只有返回 -400 才用单数重试一次**，不要无脑双发。
+- **两种取消订阅端点不同**：收藏夹 `POST x/v3/fav/folder/unfav`（`media_id`+`csrf`）、合集 `POST x/v3/fav/season/unfav`（`platform=web`+`season_id`+`csrf`）。**参数名有历史分歧**：Web 文档写 `media_ids`（复数），PiliPlus 实现发 `media_id`（单数）——`SubscriptionApi.cancelFolderSubscription` 主发单数，**只有返回 -400 才用复数重试一次**，不要无脑双发。
 - **`state==1` 必须拦**：失效条目压暗，点击只提示、不发详情请求（否则整页白屏/404）。点击判定放在 Activity，不在 adapter 里发网络。
 - **空列表必须判到底**：`SubSeasonDetailActivity.isEnd()` 里「本页不满 20 条」的退化判据对 `size==0` 不成立（`0 % 20 == 0`），必须显式 `size == 0` 返回 true，否则滚动监听会无限翻页。
 - **换 list 要换 adapter**：首屏/刷新都构造**新的** `ArrayList` + **新 adapter** 再 `setAdapter`，不要后台线程原地改已挂在 RecyclerView 上的 list（`Inconsistency detected` 崩溃，收藏夹列表页踩过）；翻页只在同一份 list 上 `addAll` + `notifyItemRangeInserted`。
 - **页码回退**：翻页失败要 `page--`（`RefreshListActivity` 的 `goOnLoad` 先加过 1），否则重试会跳过一页。
 - **`MySpaceConfig` 的并集不变式**：加菜单项要同时改 `MySpaceMenu.ITEMS`、`MySpaceConfig.ALL_ITEMS`、`open()` 分支（`MySpaceConfigTest` 有守卫）。**副作用**：老用户存过的 `myspace_main` 布局里没有新 key，`resolve()` 因「总数少一项」整体回退默认并写回——即**加菜单项会把用户自定义的「我的」布局重置一次**，这是既定行为，不是 bug。
-- **验证**：`SubscriptionApiTest`（6 例，解析/兜底/脏数据）；AVD `wear5` 实测入口→空态→请求 `collected/list` 返回 `code:0`（测试账号 0 条订阅），**列表渲染与取消订阅需有订阅数据的账号再验一次**。
+- **验证**：`SubscriptionApiTest`（8 例，解析/兜底/脏数据/fav_state）；AVD `wear5` 实测入口→空态→`collected/list` 请求 `200`；**2026-11-02 复查发现该 AVD 的登录态其实已过期**（`nav` 返回 -101，`collected/list` 匿名返回 `code:0` 空表），所以「空态」结果仍然成立，但**列表渲染、点击进夹/进合集、订阅/取消订阅三条真实数据路径仍未有登录账号验证**。接口可用性用本机 HTTP 实测替代：`folder/info` 匿名给 `fav_state:0`、`space/fav/season/list` 匿名可用、四个写接口（folder fav/unfav、season fav/unfav）均返回 -101 而非 404。
 
 ## 8. UI 基建速查（新增页面临摹用）
 
