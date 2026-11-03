@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.View
+import android.view.WindowManager
 import android.widget.TextView
 import androidx.core.content.FileProvider
 import com.RobinNotBad.BiliClient.R
@@ -14,6 +15,7 @@ import com.RobinNotBad.BiliClient.api.AppInfoApi
 import com.RobinNotBad.BiliClient.service.download.DownloadPathSpec
 import com.RobinNotBad.BiliClient.util.ApkVerifier
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.DownloadWakeLock
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -69,6 +71,10 @@ class DownloadActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_download)
+        // 反馈 #91「图片和视频前台下载时能加个暂时不休眠吗」：本页在屏幕上时保持亮屏，
+        // 让用户看得见进度；离开页面后这个标志不再生效（真正保证熄屏仍继续下载的是
+        // CenterThreadPool 那段的 DownloadWakeLock）。onDestroy 里撤掉。
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val intent = intent
 
@@ -99,51 +105,61 @@ class DownloadActivity : BaseActivity() {
 
         timer.schedule(showText, 100, 100)
         CenterThreadPool.run {
-            if (type == 0) {
-                rootPath = targetRoot
-                if (!rootPath!!.exists()) rootPath!!.mkdirs()
-                // 文件名必须从 URL 里「净化」出来：B 站图片地址可能带 `@1048w_…` 参数后缀或
-                // `?x-oss-process=…` 查询串，直接截最后一段会把参数拼进文件名 —— MediaStore 认不出
-                // 扩展名（相册里看不到保存的图），个别文件系统还会直接创建失败（反馈 #17）。
-                downFile = File(rootPath, PictureDownloadPolicy.fileNameFor(link!!))
-                // 协议相对地址（//i0.hdslb.com/…）补 https；http 统一升 https，失败再由
-                // download() 退回 http 重试一次（详见 PictureDownloadPolicy）。
-                val pictureUrl = PictureDownloadPolicy.normalizeUrl(link!!) ?: link!!
-                download(
-                    pictureUrl,
-                    downFile!!,
-                    getString(R.string.text_downloading_file),
-                    true,
-                    schemeFallback = true
-                )
-            } else {
-                val title = FileUtil.stringToFile(intent.getStringExtra("title")!!)
+            // 反馈 #91「图片和视频前台下载时能加个暂时不休眠吗」：前台下载（图片保存、播放页下载）
+            // 也跑在后台线程里，屏幕熄灭后 CPU 休眠会把网络 read() 挂住、下载停在原地。
+            // 真正开始下载前拿一把 CPU 唤醒锁，整段下载结束（成功/失败/取消）在 finally 里放掉。
+            // 与 DownloadService 的后台批量下载共用同一把系统锁、按引用计数，这里先结束也不会放掉那边的锁。
+            val wakeLockHeld = DownloadWakeLock.acquire(applicationContext)
+            try {
+                if (type == 0) {
+                    rootPath = targetRoot
+                    if (!rootPath!!.exists()) rootPath!!.mkdirs()
+                    // 文件名必须从 URL 里「净化」出来：B 站图片地址可能带 `@1048w_…` 参数后缀或
+                    // `?x-oss-process=…` 查询串，直接截最后一段会把参数拼进文件名 —— MediaStore 认不出
+                    // 扩展名（相册里看不到保存的图），个别文件系统还会直接创建失败（反馈 #17）。
+                    downFile = File(rootPath, PictureDownloadPolicy.fileNameFor(link!!))
+                    // 协议相对地址（//i0.hdslb.com/…）补 https；http 统一升 https，失败再由
+                    // download() 退回 http 重试一次（详见 PictureDownloadPolicy）。
+                    val pictureUrl = PictureDownloadPolicy.normalizeUrl(link!!) ?: link!!
+                    download(
+                        pictureUrl,
+                        downFile!!,
+                        getString(R.string.text_downloading_file),
+                        true,
+                        schemeFallback = true
+                    )
+                } else {
+                    val title = FileUtil.stringToFile(intent.getStringExtra("title")!!)
 
-                rootPath = targetRoot
+                    rootPath = targetRoot
 
-                if (type == 1) {
-                    downPath = File(rootPath, title)
-                    rootPath = downPath
+                    if (type == 1) {
+                        downPath = File(rootPath, title)
+                        rootPath = downPath
+                    }
+                    if (type == 2) {
+                        rootPath = File(rootPath, FileUtil.stringToFile(intent.getStringExtra("parent_title")!!))
+                        downPath = File(rootPath, title)
+                    }
+
+                    if (!downPath!!.exists()) downPath!!.mkdirs()
+
+                    val danmaku = intent.getStringExtra("danmaku")
+                    val cover = intent.getStringExtra("cover")
+                    val dmFile = File(downPath, DownloadPathSpec.FILE_DANMAKU)
+                    val coverFile = File(rootPath, DownloadPathSpec.FILE_COVER)
+                    val videoFile = File(downPath, DownloadPathSpec.FILE_VIDEO)
+                    // 每步失败时 download()/downdanmu() 已经提示并结束页面并返回 false，
+                    // 此时不要再接着下后面的文件：既白跑请求，又会在下不动的目录里留下空壳
+                    if (downdanmu(danmaku!!, dmFile)) {
+                        val coverOk = coverFile.exists() ||
+                            download(cover!!, coverFile, getString(R.string.text_download_cover), false)
+                        if (coverOk) download(link!!, videoFile, getString(R.string.text_download_video), true)
+                    }
                 }
-                if (type == 2) {
-                    rootPath = File(rootPath, FileUtil.stringToFile(intent.getStringExtra("parent_title")!!))
-                    downPath = File(rootPath, title)
-                }
-
-                if (!downPath!!.exists()) downPath!!.mkdirs()
-
-                val danmaku = intent.getStringExtra("danmaku")
-                val cover = intent.getStringExtra("cover")
-                val dmFile = File(downPath, DownloadPathSpec.FILE_DANMAKU)
-                val coverFile = File(rootPath, DownloadPathSpec.FILE_COVER)
-                val videoFile = File(downPath, DownloadPathSpec.FILE_VIDEO)
-                // 每步失败时 download()/downdanmu() 已经提示并结束页面并返回 false，
-                // 此时不要再接着下后面的文件：既白跑请求，又会在下不动的目录里留下空壳
-                if (downdanmu(danmaku!!, dmFile)) {
-                    val coverOk = coverFile.exists() ||
-                        download(cover!!, coverFile, getString(R.string.text_download_cover), false)
-                    if (coverOk) download(link!!, videoFile, getString(R.string.text_download_video), true)
-                }
+            } finally {
+                // 本页下载结束就放锁：空闲绝不持有，否则会吃掉待机续航
+                if (wakeLockHeld) DownloadWakeLock.release()
             }
         }
 
@@ -380,6 +396,8 @@ class DownloadActivity : BaseActivity() {
 
     override fun onDestroy() {
         timer.cancel()
+        // 反馈 #91：撤掉 onCreate 加的亮屏标志，页面没了就不该再占着屏幕
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (!finishFlag) {
             // 只删本次真正写过的文件（下载中/失败的空壳、被截断的半截文件）。
             // 以前这里 deleteFolder(整个任务目录)：重下一次同一个视频时，只要中途取消或失败，

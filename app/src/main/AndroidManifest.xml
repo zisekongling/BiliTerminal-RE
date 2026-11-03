@@ -28,8 +28,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- Android 14 起前台服务必须声明类型，播放保活走 mediaPlayback -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- 反馈 #91「图片和视频前台下载时能加个暂时不休眠吗」：屏幕熄灭后 CPU 休眠，网络 read() 被挂起、
+         下载停在原地。所以只在真的有活跃下载时（DownloadService 的后台批量下载、DownloadActivity 的
+         前台图片/视频下载）持一把 PARTIAL_WAKE_LOCK 保 CPU，顺手持 Wi-Fi 锁避免熄屏后速度掉到接近 0；
+         全部下载结束 / 服务停止时立刻释放，空闲绝不持有（常驻会吞掉待机续航）。
+         这里只需要 WAKE_LOCK：Wi-Fi 锁（WifiManager.createWifiLock）也只依赖 WAKE_LOCK，
+         不需要下面审计 M12-c 移除掉的 ACCESS_WIFI_STATE。 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- 审计 M12-c 收敛：
-         · 移除 ACCESS_WIFI_STATE —— 原注释写「Geetest」，但极验 SDK 已删除，全库无 WifiManager 引用；
+         · 移除 ACCESS_WIFI_STATE —— 原注释写「Geetest」，但极验 SDK 已删除，全库没有需要它的 Wi-Fi 状态查询
+           （反馈 #91 的下载 Wi-Fi 锁只需要 WAKE_LOCK，别把这枚权限加回来）；
          · 移除 READ_PHONE_STATE —— 全库无 TelephonyManager/getNetworkOperator 引用，属安装即索要的敏感权限；
          · SYSTEM_ALERT_WINDOW 只服务 Debug 版 UETool 悬浮窗，已下移到 src/debug/AndroidManifest.xml，
            发布包不再声明该权限。 -->
