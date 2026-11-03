@@ -144,6 +144,51 @@
                 android:textSize="13sp"
                 android:visibility="gone" />
 
+            <!-- 缓存页排序 / 搜索入口（26.11.02，反馈 #94）：与上面的多选条同一排，非多选态显示，
+                 多选态由 LocalListActivity 藏起来。和其它按钮一样默认 gone——这个布局是多个一级页
+                 共用的，不加默认 gone 会让推荐 / 热门 / 排行页凭空多出三个死按钮。 -->
+            <TextView
+                android:id="@+id/btnSort"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:minHeight="@dimen/touch_min"
+                android:paddingHorizontal="@dimen/space_md"
+                android:paddingVertical="4dp"
+                android:text="@string/btn_cache_sort"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/btnSearch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:minHeight="@dimen/touch_min"
+                android:paddingHorizontal="@dimen/space_md"
+                android:paddingVertical="4dp"
+                android:text="@string/btn_cache_search"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/btnSearchClear"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:minHeight="@dimen/touch_min"
+                android:paddingHorizontal="@dimen/space_md"
+                android:paddingVertical="4dp"
+                android:text="@string/btn_cache_search_clear"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
         </LinearLayout>
 
     </LinearLayout>

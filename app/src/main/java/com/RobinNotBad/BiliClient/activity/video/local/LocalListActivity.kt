@@ -27,8 +27,10 @@ import com.RobinNotBad.BiliClient.util.CachePathResolver
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.FolderManager
+import com.RobinNotBad.BiliClient.util.LocalListSort
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.VideoMetaManager
@@ -106,6 +108,19 @@ class LocalListActivity : InstanceActivity() {
     private lateinit var btnMultiOperate: TextView
     private lateinit var btnMultiExit: TextView
 
+    // ===================== 排序与搜索（26.11.02，反馈 #94） =====================
+
+    /** 排序档位与方向：进页面时从 SharedPreferences 读（[loadViewOptions]），改一次存一次。 */
+    private var sortKey = LocalListSort.Key.DEFAULT
+    private var sortAscending = true
+
+    /** 当前搜索词（已归一化，空串 = 不过滤）。不持久化：下次进页面先看到完整缓存更符合预期。 */
+    private var searchKeyword = ""
+
+    private lateinit var btnSort: TextView
+    private lateinit var btnSearch: TextView
+    private lateinit var btnSearchClear: TextView
+
     @SuppressLint("MissingInflatedId")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -119,6 +134,8 @@ class LocalListActivity : InstanceActivity() {
         pageName.text = UiText.of("缓存")
 
         setupSelectionBar()
+        // 排序档位要在第一次 setData 之前读出来，否则进页面会先按默认档画一遍再跳一下
+        loadViewOptions()
 
         findViewById<View>(R.id.top).setOnClickListener {
             if (adapter?.currentFolderName?.isNotEmpty() == true) {
@@ -223,6 +240,9 @@ class LocalListActivity : InstanceActivity() {
                     if (mark.exists()) continue
 
                     localVideo.sizeList.add(mediaFile.length())
+                    // 「按更新时间」排序用（反馈 #94）：没有独立的更新时间字段，取媒体文件 mtime；
+                    // 0 表示未知，排序时会被当成最旧，不会让新缓存排到后面
+                    localVideo.lastModified = mediaFile.lastModified()
                     localVideo.videoFileList.add(mediaFile.toString())
                     localVideo.danmakuFileList.add(danmakuFile.toString())
 
@@ -264,6 +284,10 @@ class LocalListActivity : InstanceActivity() {
                                 if (pageMediaFile != null) {
                                     localVideo.pageList.add(page.name)
                                     localVideo.sizeList.add(pageMediaFile.length())
+                                    // 合集取「最近修改的那一页」当更新时间（反馈 #94 的「按更新时间」排序）
+                                    if (pageMediaFile.lastModified() > localVideo.lastModified) {
+                                        localVideo.lastModified = pageMediaFile.lastModified()
+                                    }
                                     localVideo.videoFileList.add(pageMediaFile.toString())
                                     localVideo.danmakuFileList.add(pageDanmakuFile.toString())
 
@@ -312,6 +336,9 @@ class LocalListActivity : InstanceActivity() {
         adapter!!.onVideoToggle = { idx -> toggleVideoSelection(idx) }
         adapter!!.onFolderToggle = { idx -> toggleFolderSelection(idx) }
 
+        // 先把持久化的排序 / 搜索状态交给适配器：setData 重建列表时就直接按这个档位画，
+        // 不会出现「先按默认顺序画一遍、再跳成排序后的顺序」的闪动
+        adapter!!.applyViewOptions(sortKey, sortAscending, searchKeyword)
         adapter!!.setData(folderList, videoList)
 
         runOnUiThread {
@@ -320,6 +347,77 @@ class LocalListActivity : InstanceActivity() {
             updateSelectionBar()
             swipeRefreshLayout.setRefreshing(false)
         }
+    }
+
+    // ===================== 排序与搜索（26.11.02，反馈 #94） =====================
+
+    /** 读回上次的排序档位；没存过 / 值损坏时回落「默认（扫描顺序）」。 */
+    private fun loadViewOptions() {
+        sortKey = LocalListSort.keyOf(SharedPreferencesUtil.getString(SettingsKeys.CACHE_LIST_SORT_KEY, ""))
+        sortAscending = SharedPreferencesUtil.getBoolean(SettingsKeys.CACHE_LIST_SORT_ASCENDING, true)
+    }
+
+    /**
+     * 排序菜单：七档一次选完（默认 / 标题↑ / 标题↓ / 时间新→旧 / 时间旧→新 / 大小大→小 / 大小小→大）。
+     *
+     * 用小屏友好的 TerminalDialog.singleChoice：不再弹第二个「方向」窗，手表上少点一次。
+     */
+    private fun showSortDialog() {
+        val items = listOf(
+            getString(R.string.text_cache_sort_default),
+            getString(R.string.text_cache_sort_title_asc),
+            getString(R.string.text_cache_sort_title_desc),
+            getString(R.string.text_cache_sort_time_desc),
+            getString(R.string.text_cache_sort_time_asc),
+            getString(R.string.text_cache_sort_size_desc),
+            getString(R.string.text_cache_sort_size_asc)
+        )
+        TerminalDialog.singleChoice(
+            this,
+            getString(R.string.text_cache_sort_title),
+            items,
+            LocalListSort.optionIndex(sortKey, sortAscending)
+        ) { sheet, option ->
+            // singleChoice 自己不关闭（给需要多选的场景留的），这里选一次就关掉再改档位
+            sheet.dialog.dismiss()
+            applySortOption(option)
+        }.show()
+    }
+
+    /** 记下档位并立即重画；下一次进页面沿用（见 [loadViewOptions]）。 */
+    private fun applySortOption(option: Int) {
+        val key = LocalListSort.keyAt(option)
+        val ascending = LocalListSort.ascendingAt(option)
+        if (key == sortKey && ascending == sortAscending) return
+        sortKey = key
+        sortAscending = ascending
+        SharedPreferencesUtil.putString(SettingsKeys.CACHE_LIST_SORT_KEY, LocalListSort.nameOf(key))
+        SharedPreferencesUtil.putBoolean(SettingsKeys.CACHE_LIST_SORT_ASCENDING, ascending)
+        adapter?.applyViewOptions(sortKey, sortAscending, searchKeyword)
+    }
+
+    /** 搜索：复用「新建文件夹」那套输入页；留空 = 清除（清空即恢复全量）。 */
+    private fun showSearchDialog() {
+        val intent = Intent(this, InputDialogActivity::class.java)
+            .putExtra("title", getString(R.string.text_cache_search_title))
+            .putExtra("hint", getString(R.string.text_cache_search_hint))
+            // 带出当前词，用户想在原词上改一个字时不用重新敲
+            .putExtra("initial_text", searchKeyword)
+        pendingInputCallback = { text -> applySearchKeyword(text) }
+        inputLauncher.launch(intent)
+    }
+
+    private fun applySearchKeyword(raw: String) {
+        searchKeyword = LocalListSort.normalizeKeyword(raw)
+        adapter?.applyViewOptions(sortKey, sortAscending, searchKeyword)
+        // 搜出 0 条时列表里只剩一句「没有匹配的缓存」，但底部条必须留着，
+        // 否则「清除」入口消失，用户只能退页面再进来才能恢复全量
+        updateSelectionBar()
+    }
+
+    private fun clearSearch() {
+        if (searchKeyword.isEmpty()) return
+        applySearchKeyword("")
     }
 
     /**
@@ -372,6 +470,9 @@ class LocalListActivity : InstanceActivity() {
     private fun enterFolder(folderIndex: Int) {
         if (folderIndex < 0 || folderIndex >= folderList.size) return
         if (selectionMode) exitSelectionMode()
+        // 顶层搜索匹配的是「文件夹名」，把词带进夹内就变成按视频标题过滤，用户看到空列表会以为
+        // 文件夹是空的。想搜夹内视频，进来后再点「搜索」。
+        if (searchKeyword.isNotEmpty()) applySearchKeyword("")
         val folder = folderList[folderIndex]
         adapter?.setData(folderList, videoList, folder.name)
         val pageName = findViewById<TextView>(R.id.pageName)
@@ -777,21 +878,33 @@ class LocalListActivity : InstanceActivity() {
         btnMultiSelect = findViewById(R.id.btnMultiSelect)
         btnMultiOperate = findViewById(R.id.btnMultiOperate)
         btnMultiExit = findViewById(R.id.btnMultiExit)
+        btnSort = findViewById(R.id.btnSort)
+        btnSearch = findViewById(R.id.btnSearch)
+        btnSearchClear = findViewById(R.id.btnSearchClear)
 
         btnMultiSelect.setOnClickListener { enterSelectionMode() }
         btnMultiExit.setOnClickListener { exitSelectionMode() }
         btnMultiOperate.setOnClickListener { showBatchMenu() }
+        btnSort.setOnClickListener { showSortDialog() }
+        btnSearch.setOnClickListener { showSearchDialog() }
+        btnSearchClear.setOnClickListener { clearSearch() }
     }
 
     /**
-     * 按当前数据和多选态刷新底部条。
+     * 按当前数据、多选态、搜索状态刷新底部条。
      *
-     * 没有可选条目（缓存全空 / 文件夹里没视频）时整条隐藏——否则「多选」是个点了没反应的死按钮；
-     * 也顺手把可能失效的多选态收掉（比如在文件夹里删完最后一条视频后仍停在该夹）。
+     * - 多选态但已经没得勾了（比如在文件夹里删完最后一条）：先退出多选。
+     * - 没有任何可选项、也没在搜索：整条隐藏——否则「多选」是个点了没反应的死按钮。
+     * - 搜索中即使 0 条也要显示：列表里只剩「没有匹配的缓存」，底部「清除」是唯一出口。
+     * - 非多选：多选 / 排序 / 搜索 / 清除（只有搜索中才亮）同排；多选态把它们全藏起来，避免误触。
      */
     private fun updateSelectionBar() {
-        if (!hasSelectableItems()) {
-            if (selectionMode) exitSelectionMode()
+        val canSelect = hasSelectableItems()
+        if (selectionMode && !canSelect) {
+            exitSelectionMode()
+            return
+        }
+        if (!canSelect && searchKeyword.isEmpty()) {
             multiSelectBar.visibility = View.GONE
             return
         }
@@ -801,7 +914,10 @@ class LocalListActivity : InstanceActivity() {
             textSelectedCount.visibility = View.GONE
             btnMultiOperate.visibility = View.GONE
             btnMultiExit.visibility = View.GONE
-            btnMultiSelect.visibility = View.VISIBLE
+            btnMultiSelect.visibility = if (canSelect) View.VISIBLE else View.GONE
+            btnSort.visibility = if (canSelect) View.VISIBLE else View.GONE
+            btnSearch.visibility = if (canSelect) View.VISIBLE else View.GONE
+            btnSearchClear.visibility = if (searchKeyword.isNotEmpty()) View.VISIBLE else View.GONE
             return
         }
 
@@ -811,6 +927,9 @@ class LocalListActivity : InstanceActivity() {
         btnMultiSelect.visibility = View.GONE
         btnMultiOperate.visibility = View.VISIBLE
         btnMultiExit.visibility = View.VISIBLE
+        btnSort.visibility = View.GONE
+        btnSearch.visibility = View.GONE
+        btnSearchClear.visibility = View.GONE
         // 一条都没勾时「操作」压暗，点了也只会提示「先选几条吧~」（收藏夹多选的同款处理）
         btnMultiOperate.alpha = if (count == 0) 0.5f else 1f
     }

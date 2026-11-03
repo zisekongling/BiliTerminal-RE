@@ -14,6 +14,7 @@ public class LocalVideo {
     public long size;
     public long aid;                // B站视频aid（用于API调用）
     public long cid;                // B站视频cid（用于API调用）
+    public long lastModified;       // 媒体文件最后修改时间（毫秒），缓存页「按更新时间」排序用；0 表示未知
 
     public LocalVideo() {
     }
