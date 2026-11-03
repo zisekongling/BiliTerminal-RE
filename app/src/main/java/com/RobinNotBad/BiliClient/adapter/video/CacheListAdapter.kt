@@ -6,12 +6,14 @@ import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.text.TextUtils
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import androidx.recyclerview.widget.SimpleItemAnimator
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.video.local.DownloadListActivity
 import com.RobinNotBad.BiliClient.activity.video.local.LocalPageChooseActivity
@@ -37,7 +39,10 @@ import java.util.Locale
  * - 未分类视频区域标题
  * - 视频项（点击播放、长按弹功能菜单）
  * - 空态提示行（某个分区一个视频都没有时占位，替代盖住整页的居中空态）
- * - 多选按钮（底部）
+ *
+ * 多选：底部那条「多选 / 已选 N 项 / 操作 / 退出」由 Activity 提供（见 activity_simple_main_refresh.xml），
+ * 适配器只负责两件事：勾选态怎么画（[applySelection]）、点了哪一项（[onVideoToggle] / [onFolderToggle]）。
+ * [selectionMode] 打开后，条目点击与长按都变成勾选，不再播放 / 弹菜单。
  */
 class CacheListAdapter(
     private val context: Context
@@ -51,6 +56,10 @@ class CacheListAdapter(
         private const val TYPE_SECTION_VIDEO_HEADER = 4
         private const val TYPE_VIDEO_ITEM = 5
         private const val TYPE_EMPTY_TIP = 6
+
+        /** 多选前缀：勾上用 ✓，未勾用全角空格占位（与收藏夹多选同一套视觉，见 VideoCardHolder）。 */
+        private const val PREFIX_SELECTED = "✓ "
+        private const val PREFIX_UNSELECTED = "　 "
     }
 
     // 数据
@@ -81,12 +90,55 @@ class CacheListAdapter(
     /** 长按视频：由 Activity 弹功能菜单（更新弹幕 / 切换分辨率 / 移动文件夹 / 详情 / 删除）。 */
     var onVideoMenu: ((Int) -> Unit)? = null
 
+    /** 多选模式：打开后条目点击/长按都变成勾选，勾中项加前缀、未勾项压暗。 */
+    var selectionMode: Boolean = false
+
+    /**
+     * 勾中的视频，按标题记。
+     *
+     * 标题就是缓存目录名，同一次扫描里唯一；不用下标是因为刷新（删除 / 移动）后下标会整体挪位，
+     * 用标题才能在重扫后仍然对得上，[setData] 里也靠它重新画出勾选态。
+     */
+    var selectedVideoTitles: Set<String> = emptySet()
+
+    /** 勾中的文件夹，按名称记。 */
+    var selectedFolderNames: Set<String> = emptySet()
+
+    /** 多选态点了视频：由 Activity 翻转勾选。 */
+    var onVideoToggle: ((Int) -> Unit)? = null
+
+    /** 多选态点了文件夹：由 Activity 翻转勾选。 */
+    var onFolderToggle: ((Int) -> Unit)? = null
+
     fun setData(folders: ArrayList<VideoFolder>, videos: ArrayList<LocalVideo>, currentFolder: String = "") {
         folderList = folders
         videoList = videos
         currentFolderName = currentFolder
         rebuildFlatList()
         notifyDataSetChanged()
+    }
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        // 勾选态是用 notifyItemChanged + alpha 画的：默认的交叉淡入动画会在动画期间把 alpha
+        // 复位成 1f，取消勾选看起来像没生效（收藏夹多选踩过同一个坑，见 VideoCardAdapter）。
+        (recyclerView.itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
+    }
+
+    /**
+     * 勾选状态变了，只重绘这一条。
+     *
+     * 不能整体 `notifyDataSetChanged()`：封面加载用的是 `DiskCacheStrategy.NONE`，整体重绑会让
+     * 每勾一下都把整屏封面重新读一遍，手表上肉眼可见地闪。
+     */
+    fun notifyVideoSelectionChanged(videoIndex: Int) {
+        val position = flatItems.indexOfFirst { it.type == TYPE_VIDEO_ITEM && it.videoIndex == videoIndex }
+        if (position >= 0) notifyItemChanged(position)
+    }
+
+    fun notifyFolderSelectionChanged(folderIndex: Int) {
+        val position = flatItems.indexOfFirst { it.type == TYPE_FOLDER_ITEM && it.folderIndex == folderIndex }
+        if (position >= 0) notifyItemChanged(position)
     }
 
     private fun rebuildFlatList() {
@@ -214,6 +266,17 @@ class CacheListAdapter(
 
         holder.folderName.text = folder.name
         holder.folderCount.text = "${folder.getVideoCount()}个视频"
+        applySelection(holder, holder.folderName, selectionMode && selectedFolderNames.contains(folder.name))
+
+        if (selectionMode) {
+            // 多选态：点一下 = 勾选/取消，不再进文件夹；长按也走勾选，避免「长按弹出菜单、松手又跳进文件夹」。
+            holder.itemView.setOnClickListener { onFolderToggle?.invoke(folderIndex) }
+            holder.itemView.setOnLongClickListener {
+                onFolderToggle?.invoke(folderIndex)
+                true
+            }
+            return
+        }
 
         holder.itemView.setOnClickListener { onFolderClick?.invoke(folderIndex) }
         holder.itemView.setOnLongClickListener {
@@ -227,12 +290,40 @@ class CacheListAdapter(
         val video = videoList[videoIndex]
 
         holder.showVideo(video)
+        applySelection(holder, holder.title, selectionMode && selectedVideoTitles.contains(video.title))
+
+        if (selectionMode) {
+            holder.itemView.setOnClickListener { onVideoToggle?.invoke(videoIndex) }
+            holder.itemView.setOnLongClickListener {
+                onVideoToggle?.invoke(videoIndex)
+                true
+            }
+            return
+        }
 
         holder.itemView.setOnClickListener { playVideo(video) }
         holder.itemView.setOnLongClickListener {
             onVideoMenu?.invoke(videoIndex)
             true
         }
+    }
+
+    /**
+     * 画勾选态：勾中项正常亮度 + 前缀「✓ 」，未勾项压暗 + 全角空格占位。
+     *
+     * 不用复选框：`cell_video_local.xml` 里那个 `checkbox_select` 会把内容整体右移，
+     * 而收藏夹多选是「压暗 + 勾号」这一套，两个页面用同一种视觉更不容易看懵。
+     *
+     * 前缀不需要剥离：每次绑定都先 setText 原始标题（[VideoItemHolder.showVideo] / 上面文件夹那行），
+     * 再进来加前缀，holder 复用不会把前缀叠起来。
+     */
+    private fun applySelection(holder: RecyclerView.ViewHolder, label: TextView, selected: Boolean) {
+        if (!selectionMode) {
+            holder.itemView.alpha = 1f
+            return
+        }
+        holder.itemView.alpha = if (selected) 1f else 0.5f
+        label.text = TextUtils.concat(if (selected) PREFIX_SELECTED else PREFIX_UNSELECTED, label.text)
     }
 
     private fun playVideo(video: LocalVideo) {

@@ -1143,6 +1143,29 @@
 - **验证**：`:app:assembleDebug` 两 flavor **BUILD SUCCESSFUL**；`:app:testStandardDebugUnitTest` / `:app:testCoexistDebugUnitTest` 各 **126 suites / 1325 tests / 0 失败 0 错误**（基线 125/1313 + 本轮 12 例）。
 - **遗留（必须说清）**：本机唯一在线设备是 AVD `wear5`，**未登录 B 站账号**，因此 ① 长按加入分组 / 新建分组 / 追加成功的真实链路、② 评论审核场景下「查不到 → 提示暂未确认」的真实表现，**都没有端到端跑过**；两条判定都靠纯函数单测 + 代码走查。真机复现时看 logcat：分组走 `post-url`（`tags/addUsers`）与返回 code；评论走 `debug-发送评论`（服务端整包）+ 新增的 `debug-评论可见性`（三次查询结果）。
 
+### 3.111 缓存页（含文件夹）新增多选批量操作（26.11.02 傍晚，用户要求）
+
+- **需求**：缓存页（顶层与文件夹内）能一次处理多条——批量删视频、批量更新弹幕、批量移动 / 移出文件夹、批量拆散文件夹；下载列表页（`DownloadListActivity`）不加多选。
+- **入口**：`res/layout/activity_simple_main_refresh.xml` 新增默认 `gone` 的 `multiSelectBar`（这个布局被推荐 / 热门 / 排行 / 收藏 / 缓存五个一级页共用，只有 `LocalListActivity` 点亮它）；非多选态只有一个「多选」，多选态变「已选 N 项 / 操作 / 退出」；一条可选条目都没有时整条隐藏，进入多选时提示「点条目勾选，再点「操作」」。
+- **勾选实现**：`CacheListAdapter` 加 `selectionMode` / `selectedVideoTitles` / `selectedFolderNames` / `onVideoToggle` / `onFolderToggle`；多选态下条目点击与长按都变成勾选（不再播放、不进文件夹、不弹单条菜单），勾中项正常亮度 + 标题前「✓ 」，未勾项 `alpha = 0.5` 压暗 + 全角空格占位（与收藏夹多选同一套视觉）。勾选集合由页面持有（`LinkedHashSet<String>`，视频按标题、文件夹按名称），刷新重扫后仍对得上；`onAttachedToRecyclerView` 里关掉 `supportsChangeAnimations`（否则取消勾选的交叉淡入会把 alpha 改回 1，收藏夹多选踩过同样的坑）。
+- **菜单四类**：全视频（顶层）删除视频 / 更新弹幕 / 添加到文件夹；全视频（文件夹内）删除视频 / 更新弹幕 / 移出文件夹；全文件夹拆散文件夹；**混选不弹菜单**，只提示「文件夹和视频不能一起操作，先取消一种」。菜单走 `TerminalDialog.menu`（标题「已选 N 项」，删除项是危险色）；一条没勾时「操作」`alpha = 0.5` 并提示「先选几条吧~」。
+- **复用单条逻辑**：`LocalListActivity` 把单条删除抽成 `deleteVideoFiles(video)`、更新弹幕抽成 `updateDanmakuFor(video)`，批量与单条共用（删除仍按「扫出这条时的根」算路径、只删真实存在的目录、**只有真删掉才摘文件夹记录**）；批量执行都在 `CenterThreadPool.run` 里跑，完成后**退出多选 → `refresh()` → 提示结果**。
+- **文案**：删除确认「确定删除选中的 N 个视频吗？此操作不可恢复。」→「已删除 N 条」/「已删除 X 条，Y 条失败」；更新弹幕「正在更新弹幕...」→「弹幕更新成功」/「弹幕更新完成：成功 X 个，失败 Y 个」；移动「已移动到「文件夹名」」、移出「已移出文件夹」；拆散确认「确定拆散选中的 N 个文件夹吗？视频会移回未分类区域。」→「文件夹已拆散」。`strings.xml` 新增 `uitext_locallistactivity_023~031`（024 / 028 / 029 / 030 / 031 带占位符），`UiText.kt` 同步登记。
+- **返回键**：多选态下返回键只退出多选、不离开缓存页；文件夹里点顶栏返回箭头同样先退多选再退回未分类区（`exitFolder()` / `enterFolder()` 里都有 `if (selectionMode) exitSelectionMode()`）。
+- **验证**：`:app:assembleDebug`（standard + coexist 两 flavor）**BUILD SUCCESSFUL**；`:app:testStandardDebugUnitTest` **全绿**；`:app:testCoexistDebugUnitTest` 有 2 例失败，都在 `com.RobinNotBad.BiliClient.util.AccountManagerTest`（`removeAccount_removesOtherAccount` 断言失败、`applyCredentials_rejectsMidCookieMismatch_andWritesNothing` 报 `Method println in android.util.Log not mocked`），该测试类与相邻会话的账号改动（未跟踪文件，见 §3.112）同批产生，与本条无关。
+- **AVD 实测**（`wear5`，Android 14 / 466×466 圆屏；coexist Debug 包由本轮源码构建，夹具为 6 个 40.0MB 缓存目录 + 2 个文件夹，逐项见 `docs/review/real-device-regression-checklist.md` §十七）：
+  - ✅ 底部条只出现在缓存页（`推荐` / `全站排行榜` 页 dump 无 `multiSelectBar`）；默认态只有一个「多选」，多选态变「已选 N 项 / 操作 / 退出」，进多选提示「点条目勾选，再点「操作」」。
+  - ✅ 勾选视觉与交互：点 / 长按均只勾选（长按不再弹单条菜单、不跳播放），勾中项标题前「✓ 」、取消变全角空格占位，计数与选中数一致；一条没勾点「操作」只在 logcat 里提示「先选几条吧~」，不弹菜单。
+  - ✅ 菜单四类：全文件夹 → 只有「拆散文件夹」；顶层全视频 → 删除视频 / 更新弹幕 / 添加到文件夹；文件夹内全视频 → 删除视频 / 更新弹幕 / 移出文件夹；**混选只提示「文件夹和视频不能一起操作，先取消一种」且不弹菜单**。
+  - ✅ 批量删除：确认框文案「确定删除选中的 2 个视频吗？此操作不可恢复。」→ 确认后提示「已删除 2 条」，磁盘上两个缓存目录**确实消失**，自动退出多选并刷新。
+  - ✅ 批量移动：列表标题「移动到文件夹」、条目带各自视频数 → 选中后提示「已移动到「合集一」」，`.folders_info.json` 真的把两个标题加进了该文件夹。
+  - ✅ 移出文件夹：提示「已移出文件夹」，json 里对应标题被移除。
+  - ✅ 批量拆散：确认框文案「确定拆散选中的 2 个文件夹吗？视频会移回未分类区域。」→ 提示「文件夹已拆散」，`.folders_info.json` 变空数组，原来夹内的视频回到未分类区。
+  - ✅ 批量更新弹幕：流程走通——先提示「正在更新弹幕...」，全部跑完提示「弹幕更新完成：成功 0 个，失败 2 个」（该 AVD 未登录 B 站账号，接口必然失败，属预期），随后自动退出多选、列表刷新、App 不崩。
+  - ✅ 退出多选后行为恢复：长按视频重新弹单条菜单（更新弹幕 / 切换分辨率 / 添加到文件夹 …），点击视频进入 `PlayerActivity` 播放。
+  - ⚠️ **返回键未能在该 AVD 验证（BLOCKED，非本次回归）**：多选态按 BACK 会直接回表盘；对照测试发现**本次之前就有的**「文件夹内按 BACK 退出文件夹」在该 AVD 上一样失效，说明是模拟器把 BACK 当窗口层 dismiss（`values/themes.xml` 各主题的 `android:windowSwipeToDismiss`，`activity/base/BaseActivity.kt` 注释也点明「窗口层直接 finish，不走 onBackPressed」），不是本次代码问题；多选态的 BACK 分支与收藏夹多选同款，待手机 / 真机复验。
+  - ⚠️ 圆屏适配（结构判读）：底部条 `[23,344][443,440]`，466 圆屏在条中心高度处可见宽度约 x∈[63,403]，「退出」文字（中心 x≈381、宽约 26px）落在圆内不被切；按钮右侧超出圆外的部分只裁到背景，而背景取 `?android:attr/colorBackground` 与页面同底色，**视觉无割裂**。
+
 ### 3.112 账号切换 / 特殊登录的凭证隔离与多账号导入导出（26.11.02 夜，用户要求）
 
 - **需求**（用户原话方向）：① 账号切换导致凭证混乱；② 特殊登录凭据的账号隔离混乱；③ 特殊登录支持一键导入 / 导出多个登录者信息且不串号。

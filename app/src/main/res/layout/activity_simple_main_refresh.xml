@@ -72,6 +72,80 @@
             android:visibility="gone"
             tools:text="正在加载…" />
 
+        <!-- 缓存页多选条（26.11.02）：贴在页面最底部，非多选态只有一个「多选」按钮，
+             多选态变成「已选 N 项 / 操作 / 退出」。
+             注意这个布局是**多个一级页共用**的（RefreshMainActivity / PopularActivity /
+             RankingActivity / PreciousActivity / LocalListActivity），所以这里必须默认 gone，
+             只有 LocalListActivity 在缓存页里点亮它；否则推荐、热门、排行页底部会多出一条死按钮。 -->
+        <LinearLayout
+            android:id="@+id/multiSelectBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?android:attr/colorBackground"
+            android:baselineAligned="false"
+            android:elevation="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="@dimen/activity_padding_horizontal"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <TextView
+                android:id="@+id/textSelectedCount"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:minHeight="@dimen/touch_min"
+                android:paddingVertical="4dp"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="13sp"
+                android:visibility="gone"
+                tools:text="已选 3 项" />
+
+            <TextView
+                android:id="@+id/btnMultiSelect"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:minHeight="@dimen/touch_min"
+                android:paddingVertical="4dp"
+                android:text="@string/uitext_favoritevideolistactivity_009"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/btnMultiOperate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:minHeight="@dimen/touch_min"
+                android:paddingHorizontal="@dimen/space_md"
+                android:paddingVertical="4dp"
+                android:text="@string/uitext_locallistactivity_023"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/btnMultiExit"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:minHeight="@dimen/touch_min"
+                android:paddingHorizontal="@dimen/space_md"
+                android:paddingVertical="4dp"
+                android:text="@string/uitext_locallistactivity_025"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
+        </LinearLayout>
+
     </LinearLayout>
 
     <!-- 空态：列表为空是正常状态，不放 loading_2233_error 报错插画，

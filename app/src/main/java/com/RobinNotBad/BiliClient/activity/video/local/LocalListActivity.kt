@@ -89,6 +89,23 @@ class LocalListActivity : InstanceActivity() {
      */
     private var scannedRoot: File? = null
 
+    // ===================== 多选（26.11.02） =====================
+
+    /** 是否处于多选模式。打开后列表点击/长按都变成勾选，底部条换成「已选 N 项 / 操作 / 退出」。 */
+    private var selectionMode = false
+
+    /** 勾中的视频，按标题（= 缓存目录名，同一次扫描里唯一）记，刷新后仍能对上。 */
+    private val selectedVideoTitles = LinkedHashSet<String>()
+
+    /** 勾中的文件夹，按名称记。 */
+    private val selectedFolderNames = LinkedHashSet<String>()
+
+    private lateinit var multiSelectBar: View
+    private lateinit var textSelectedCount: TextView
+    private lateinit var btnMultiSelect: TextView
+    private lateinit var btnMultiOperate: TextView
+    private lateinit var btnMultiExit: TextView
+
     @SuppressLint("MissingInflatedId")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -100,6 +117,8 @@ class LocalListActivity : InstanceActivity() {
 
         val pageName = findViewById<TextView>(R.id.pageName)
         pageName.text = UiText.of("缓存")
+
+        setupSelectionBar()
 
         findViewById<View>(R.id.top).setOnClickListener {
             if (adapter?.currentFolderName?.isNotEmpty() == true) {
@@ -290,12 +309,15 @@ class LocalListActivity : InstanceActivity() {
 
         adapter!!.onVideoMenu = { idx -> showVideoMenu(idx) }
         adapter!!.onVideoPlayInVirtualCollection = { folderName, videoIdx -> playVirtualCollection(folderName, videoIdx) }
+        adapter!!.onVideoToggle = { idx -> toggleVideoSelection(idx) }
+        adapter!!.onFolderToggle = { idx -> toggleFolderSelection(idx) }
 
         adapter!!.setData(folderList, videoList)
 
         runOnUiThread {
             recyclerView.layoutManager = getLayoutManager()
             recyclerView.adapter = adapter
+            updateSelectionBar()
             swipeRefreshLayout.setRefreshing(false)
         }
     }
@@ -349,20 +371,24 @@ class LocalListActivity : InstanceActivity() {
 
     private fun enterFolder(folderIndex: Int) {
         if (folderIndex < 0 || folderIndex >= folderList.size) return
+        if (selectionMode) exitSelectionMode()
         val folder = folderList[folderIndex]
         adapter?.setData(folderList, videoList, folder.name)
         val pageName = findViewById<TextView>(R.id.pageName)
         pageName?.text = folder.name
         // 进文件夹后顶栏那个箭头点下去是"退出文件夹"，用返回箭头表达。
         pageName?.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.arrow_back, 0, 0, 0)
+        updateSelectionBar()
     }
 
     private fun exitFolder() {
+        if (selectionMode) exitSelectionMode()
         adapter?.setData(folderList, videoList, "")
         val pageName = findViewById<TextView>(R.id.pageName)
         pageName?.text = UiText.of("缓存")
         // 回到顶层：箭头点下去打开菜单，恢复成朝下的箭头。
         pageName?.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.arrow_down, 0, 0, 0)
+        updateSelectionBar()
     }
 
     private fun showNewFolderDialog() {
@@ -445,38 +471,7 @@ class LocalListActivity : InstanceActivity() {
         MsgUtil.showMsg(UiText.of("正在更新弹幕..."))
         CenterThreadPool.run {
             try {
-                val playerData = PlayerData()
-                playerData.aid = meta.aid
-                playerData.cid = meta.cid
-                playerData.qn = meta.qn
-                PlayerApi.getVideo(playerData, true)
-
-                val danmakuUrl = playerData.danmakuUrl
-                if (danmakuUrl.isNotEmpty()) {
-                    // 下载弹幕到本地
-                    val videoDir = resolveVideoDir(currentScanRoot(), video)
-                    val danmakuFile = File(videoDir, DownloadPathSpec.FILE_DANMAKU)
-                    downloadDanmakuFile(danmakuUrl, danmakuFile)
-
-                    // 更新合集内的每个分页
-                    if (video.pageList != null && video.pageList!!.isNotEmpty()) {
-                        for (i in 0 until video.pageList!!.size) {
-                            val pageName = video.pageList!![i]
-                            val pageDir = File(videoDir, pageName)
-                            val pageDanmakuFile = File(pageDir, DownloadPathSpec.FILE_DANMAKU)
-
-                            val pagePlayerData = PlayerData()
-                            pagePlayerData.aid = meta.aid
-                            // 使用cid列表（如果有的话）
-                            pagePlayerData.cid = meta.cid
-                            pagePlayerData.qn = meta.qn
-                            PlayerApi.getVideo(pagePlayerData, true)
-
-                            if (pagePlayerData.danmakuUrl.isNotEmpty()) {
-                                downloadDanmakuFile(pagePlayerData.danmakuUrl, pageDanmakuFile)
-                            }
-                        }
-                    }
+                if (updateDanmakuFor(video)) {
                     runOnUiThread { MsgUtil.showMsg(UiText.of("弹幕更新成功")) }
                 } else {
                     runOnUiThread { MsgUtil.showMsg(UiText.of("弹幕地址获取失败")) }
@@ -485,6 +480,54 @@ class LocalListActivity : InstanceActivity() {
                 runOnUiThread { MsgUtil.showMsg("弹幕更新失败: ${e.message}") }
             }
         }
+    }
+
+    /**
+     * 把一条缓存的弹幕拉到本地（合集连每个分 P 一起更新），成功返回 true。
+     *
+     * 单条菜单与批量更新共用：自身不切线程、不弹提示，异常原样抛给调用方决定怎么报。
+     * 返回 false 只有一种情况——线上取不到弹幕地址（对应旧实现的「弹幕地址获取失败」）。
+     */
+    private fun updateDanmakuFor(video: LocalVideo): Boolean {
+        val meta = readVideoMeta(video)
+        if (meta.aid <= 0 || meta.cid <= 0) {
+            throw IllegalStateException(UiText.of("缺少视频信息，无法更新弹幕"))
+        }
+
+        val playerData = PlayerData()
+        playerData.aid = meta.aid
+        playerData.cid = meta.cid
+        playerData.qn = meta.qn
+        PlayerApi.getVideo(playerData, true)
+
+        val danmakuUrl = playerData.danmakuUrl
+        if (danmakuUrl.isEmpty()) return false
+
+        // 下载弹幕到本地
+        val videoDir = resolveVideoDir(currentScanRoot(), video)
+        val danmakuFile = File(videoDir, DownloadPathSpec.FILE_DANMAKU)
+        downloadDanmakuFile(danmakuUrl, danmakuFile)
+
+        // 更新合集内的每个分页
+        if (video.pageList != null && video.pageList!!.isNotEmpty()) {
+            for (i in 0 until video.pageList!!.size) {
+                val pageName = video.pageList!![i]
+                val pageDir = File(videoDir, pageName)
+                val pageDanmakuFile = File(pageDir, DownloadPathSpec.FILE_DANMAKU)
+
+                val pagePlayerData = PlayerData()
+                pagePlayerData.aid = meta.aid
+                // 使用cid列表（如果有的话）
+                pagePlayerData.cid = meta.cid
+                pagePlayerData.qn = meta.qn
+                PlayerApi.getVideo(pagePlayerData, true)
+
+                if (pagePlayerData.danmakuUrl.isNotEmpty()) {
+                    downloadDanmakuFile(pagePlayerData.danmakuUrl, pageDanmakuFile)
+                }
+            }
+        }
+        return true
     }
 
     private fun downloadDanmakuFile(url: String, file: File) {
@@ -645,25 +688,8 @@ class LocalListActivity : InstanceActivity() {
      */
     private fun performDelete(video: LocalVideo) {
         CenterThreadPool.run {
-            // 用「这个条目被扫出来时用的根」，不是「此刻的 getVideoDownloadPath()」：
-            // 用户刚改过缓存路径、列表还没重扫时两者不同，按当前根删就又会删到不存在的路径
-            val root = scannedRoot ?: FileUtil.getVideoDownloadPath()
-            // 只删真实存在的**目录**：候选里可能有「理论上该在、其实从没建过」的路径；
-            // 用 isDirectory 而不是 exists 还有一层安全作用——万一某个候选恰好是根目录下的一个普通文件，
-            // 也绝不能顺手把它当缓存目录删掉。
-            val existingDirs = videoDirCandidates(root, video).filter { it.isDirectory }
-            var remaining: File? = null
-            for (dir in existingDirs) {
-                // 一个删不掉也继续删其它候选（同一部视频可能同时存在清洗前/后的两份目录）
-                if (!FileUtil.deleteFolderRecursively(dir) && remaining == null) remaining = dir
-            }
+            val failed = deleteVideoFiles(video)
 
-            // 只有真的删掉了才摘文件夹记录：失败时视频还在磁盘上，顺手把它移出文件夹等于又加一次意外。
-            // 用 removeVideoFromAllFolders 而不是 removeVideoFromFolder——文件夹里存的标题可能是
-            // 早期版本写入的原始标题，与磁盘目录名（清洗过）只差几个全角符号，按原文匹配会漏。
-            if (remaining == null) FolderManager.removeVideoFromAllFolders(video.title)
-
-            val failed = remaining
             runOnUiThread {
                 if (failed == null) {
                     MsgUtil.showMsg(UiText.of("删除成功"))
@@ -676,6 +702,28 @@ class LocalListActivity : InstanceActivity() {
                 refresh()
             }
         }
+    }
+
+    /**
+     * 真的把一条缓存从磁盘上删掉，返回第一个没删掉的候选目录（全删掉返回 null）。
+     *
+     * 单条删除与批量删除共用：自身不切线程、不弹提示。路径一律按「这条条目被扫出来时用的根」算，
+     * 只删真实存在的**目录**；只有真的删掉了才摘文件夹记录（失败时视频还在磁盘上，
+     * 顺手把它移出文件夹等于又加一次意外）。
+     */
+    private fun deleteVideoFiles(video: LocalVideo): File? {
+        val root = scannedRoot ?: FileUtil.getVideoDownloadPath()
+        val existingDirs = videoDirCandidates(root, video).filter { it.isDirectory }
+        var remaining: File? = null
+        for (dir in existingDirs) {
+            // 一个删不掉也继续删其它候选（同一部视频可能同时存在清洗前/后的两份目录）
+            if (!FileUtil.deleteFolderRecursively(dir) && remaining == null) remaining = dir
+        }
+
+        // 用 removeVideoFromAllFolders 而不是 removeVideoFromFolder——文件夹里存的标题可能是
+        // 早期版本写入的原始标题，与磁盘目录名（清洗过）只差几个全角符号，按原文匹配会漏。
+        if (remaining == null) FolderManager.removeVideoFromAllFolders(video.title)
+        return remaining
     }
 
     private fun showMoveToFolderDialog(videoIndex: Int) {
@@ -712,6 +760,292 @@ class LocalListActivity : InstanceActivity() {
                     MsgUtil.showMsg(UiText.of("已移出文件夹"))
                     refresh()
                 }
+            }
+        }
+    }
+
+    // ===================== 多选（26.11.02） =====================
+    //
+    // 用户诉求：缓存页（含文件夹页）最底部放按钮，支持缓存页菜单里的所有批量功能。
+    // 拍板结果：底部条非多选态只有一个「多选」，多选态是「已选 N 项 / 操作 / 退出」；
+    // 批量操作只做 删除视频 / 更新弹幕 / 移动到文件夹（文件夹内是移出）/ 拆散文件夹；
+    // 文件夹与视频可以分别勾选，但一次只做同类操作（混选直接提示先统一类型）。
+
+    private fun setupSelectionBar() {
+        multiSelectBar = findViewById(R.id.multiSelectBar)
+        textSelectedCount = findViewById(R.id.textSelectedCount)
+        btnMultiSelect = findViewById(R.id.btnMultiSelect)
+        btnMultiOperate = findViewById(R.id.btnMultiOperate)
+        btnMultiExit = findViewById(R.id.btnMultiExit)
+
+        btnMultiSelect.setOnClickListener { enterSelectionMode() }
+        btnMultiExit.setOnClickListener { exitSelectionMode() }
+        btnMultiOperate.setOnClickListener { showBatchMenu() }
+    }
+
+    /**
+     * 按当前数据和多选态刷新底部条。
+     *
+     * 没有可选条目（缓存全空 / 文件夹里没视频）时整条隐藏——否则「多选」是个点了没反应的死按钮；
+     * 也顺手把可能失效的多选态收掉（比如在文件夹里删完最后一条视频后仍停在该夹）。
+     */
+    private fun updateSelectionBar() {
+        if (!hasSelectableItems()) {
+            if (selectionMode) exitSelectionMode()
+            multiSelectBar.visibility = View.GONE
+            return
+        }
+
+        multiSelectBar.visibility = View.VISIBLE
+        if (!selectionMode) {
+            textSelectedCount.visibility = View.GONE
+            btnMultiOperate.visibility = View.GONE
+            btnMultiExit.visibility = View.GONE
+            btnMultiSelect.visibility = View.VISIBLE
+            return
+        }
+
+        val count = selectedVideoTitles.size + selectedFolderNames.size
+        textSelectedCount.visibility = View.VISIBLE
+        textSelectedCount.text = UiText.fmt("已选 %1\$d 项", count)
+        btnMultiSelect.visibility = View.GONE
+        btnMultiOperate.visibility = View.VISIBLE
+        btnMultiExit.visibility = View.VISIBLE
+        // 一条都没勾时「操作」压暗，点了也只会提示「先选几条吧~」（收藏夹多选的同款处理）
+        btnMultiOperate.alpha = if (count == 0) 0.5f else 1f
+    }
+
+    private fun hasSelectableItems(): Boolean {
+        val inFolder = adapter?.currentFolderName ?: ""
+        return if (inFolder.isEmpty()) {
+            folderList.isNotEmpty() || videoList.any { it.folderName.isNullOrEmpty() }
+        } else {
+            videoList.any { it.folderName == inFolder }
+        }
+    }
+
+    private fun enterSelectionMode() {
+        if (selectionMode) return
+        selectionMode = true
+        selectedVideoTitles.clear()
+        selectedFolderNames.clear()
+        adapter?.let { ad ->
+            ad.selectionMode = true
+            // 直接把 Activity 的集合交给适配器，勾选时两边看到的是同一份数据，不用来回同步
+            ad.selectedVideoTitles = selectedVideoTitles
+            ad.selectedFolderNames = selectedFolderNames
+            ad.notifyDataSetChanged()
+        }
+        updateSelectionBar()
+        MsgUtil.showMsg(UiText.of("点条目勾选，再点「操作」"))
+    }
+
+    private fun exitSelectionMode() {
+        if (!selectionMode) return
+        selectionMode = false
+        selectedVideoTitles.clear()
+        selectedFolderNames.clear()
+        adapter?.let { ad ->
+            ad.selectionMode = false
+            ad.notifyDataSetChanged()
+        }
+        updateSelectionBar()
+    }
+
+    private fun toggleVideoSelection(videoIndex: Int) {
+        if (!selectionMode) return
+        val video = videoList.getOrNull(videoIndex) ?: return
+        if (!selectedVideoTitles.remove(video.title)) selectedVideoTitles.add(video.title)
+        adapter?.notifyVideoSelectionChanged(videoIndex)
+        updateSelectionBar()
+    }
+
+    private fun toggleFolderSelection(folderIndex: Int) {
+        if (!selectionMode) return
+        val folder = folderList.getOrNull(folderIndex) ?: return
+        if (!selectedFolderNames.remove(folder.name)) selectedFolderNames.add(folder.name)
+        adapter?.notifyFolderSelectionChanged(folderIndex)
+        updateSelectionBar()
+    }
+
+    /** 重扫后把已经不在列表里的勾选项摘掉（删掉 / 移走 / 改名之后集合不能留着旧名字）。 */
+    private fun pruneSelection() {
+        if (!selectionMode) return
+        selectedVideoTitles.retainAll(videoList.map { it.title }.toSet())
+        selectedFolderNames.retainAll(folderList.map { it.name }.toSet())
+    }
+
+    private fun selectedVideos(): List<LocalVideo> =
+        videoList.filter { selectedVideoTitles.contains(it.title) }
+
+    /** 「操作」菜单：按勾中的是文件夹还是视频给不同入口；混选直接拦下来。 */
+    private fun showBatchMenu() {
+        val count = selectedVideoTitles.size + selectedFolderNames.size
+        if (count == 0) {
+            MsgUtil.showMsg(UiText.of("先选几条吧~"))
+            return
+        }
+        if (selectedVideoTitles.isNotEmpty() && selectedFolderNames.isNotEmpty()) {
+            MsgUtil.showMsg(UiText.of("文件夹和视频不能一起操作，先取消一种"))
+            return
+        }
+
+        val inFolder = adapter?.currentFolderName?.isNotEmpty() == true
+        val items = if (selectedFolderNames.isNotEmpty()) {
+            listOf(UiText.of("拆散文件夹"))
+        } else {
+            listOf(
+                UiText.of("删除视频"),
+                UiText.of("更新弹幕"),
+                if (inFolder) UiText.of("移出文件夹") else UiText.of("添加到文件夹")
+            )
+        }
+        val danger = if (selectedFolderNames.isEmpty()) setOf(0) else emptySet<Int>()
+
+        TerminalDialog.menu(
+            this,
+            UiText.fmt("已选 %1\$d 项", count),
+            items,
+            danger = danger
+        ) { which ->
+            when {
+                selectedFolderNames.isNotEmpty() -> confirmBatchDisband()
+                which == 0 -> confirmBatchDelete()
+                which == 1 -> performBatchUpdateDanmaku()
+                inFolder -> performBatchRemoveFromFolder()
+                else -> showBatchMoveDialog()
+            }
+        }.show()
+    }
+
+    // ---------- 批量删除 ----------
+
+    private fun confirmBatchDelete() {
+        val count = selectedVideoTitles.size
+        if (count == 0) return
+        TerminalDialog.confirm(
+            this,
+            UiText.of("删除视频"),
+            UiText.fmt("确定删除选中的 %1\$d 个视频吗？此操作不可恢复。", count),
+            UiText.of("删除")
+        ) {
+            performBatchDelete()
+        }.show()
+    }
+
+    private fun performBatchDelete() {
+        val videos = selectedVideos()
+        if (videos.isEmpty()) return
+        CenterThreadPool.run {
+            var ok = 0
+            var failed = 0
+            for (video in videos) {
+                if (deleteVideoFiles(video) == null) ok++ else failed++
+            }
+            runOnUiThread {
+                exitSelectionMode()
+                refresh()
+                if (failed == 0) {
+                    MsgUtil.showMsg(UiText.fmt("已删除 %1\$d 条", ok))
+                } else {
+                    MsgUtil.showMsgLong(UiText.fmt("已删除 %1\$d 条，%2\$d 条失败", ok, failed))
+                }
+            }
+        }
+    }
+
+    // ---------- 批量更新弹幕 ----------
+
+    private fun performBatchUpdateDanmaku() {
+        val videos = selectedVideos()
+        if (videos.isEmpty()) return
+        MsgUtil.showMsg(UiText.of("正在更新弹幕..."))
+        CenterThreadPool.run {
+            var ok = 0
+            var failed = 0
+            for (video in videos) {
+                try {
+                    if (updateDanmakuFor(video)) ok++ else failed++
+                } catch (_: Exception) {
+                    failed++
+                }
+            }
+            runOnUiThread {
+                exitSelectionMode()
+                refresh()
+                if (failed == 0) {
+                    MsgUtil.showMsg(UiText.of("弹幕更新成功"))
+                } else {
+                    MsgUtil.showMsgLong(UiText.fmt("弹幕更新完成：成功 %1\$d 个，失败 %2\$d 个", ok, failed))
+                }
+            }
+        }
+    }
+
+    // ---------- 批量移动到文件夹 / 移出文件夹 ----------
+
+    private fun showBatchMoveDialog() {
+        val titles = selectedVideoTitles.toList()
+        if (titles.isEmpty()) return
+
+        val folders = FolderManager.getAllFolders()
+        if (folders.isEmpty()) {
+            MsgUtil.showMsg(UiText.of("请先创建文件夹"))
+            return
+        }
+
+        val folderNames = folders.map { "${it.name} (${it.getVideoCount()}个视频)" }
+        showListDialog("移动到文件夹", folderNames) { which ->
+            val target = folders.getOrNull(which) ?: return@showListDialog
+            CenterThreadPool.run {
+                for (title in titles) FolderManager.addVideoToFolder(title, target.name)
+                runOnUiThread {
+                    exitSelectionMode()
+                    refresh()
+                    MsgUtil.showMsg(UiText.fmt("已移动到「%1\$s」", target.name))
+                }
+            }
+        }
+    }
+
+    private fun performBatchRemoveFromFolder() {
+        val titles = selectedVideoTitles.toList()
+        if (titles.isEmpty()) return
+        CenterThreadPool.run {
+            for (title in titles) FolderManager.removeVideoFromFolder(title)
+            runOnUiThread {
+                exitSelectionMode()
+                refresh()
+                MsgUtil.showMsg(UiText.of("已移出文件夹"))
+            }
+        }
+    }
+
+    // ---------- 批量拆散文件夹 ----------
+
+    private fun confirmBatchDisband() {
+        val count = selectedFolderNames.size
+        if (count == 0) return
+        TerminalDialog.confirm(
+            this,
+            UiText.of("拆散文件夹"),
+            UiText.fmt("确定拆散选中的 %1\$d 个文件夹吗？视频会移回未分类区域。", count),
+            UiText.of("拆散")
+        ) {
+            performBatchDisband()
+        }.show()
+    }
+
+    private fun performBatchDisband() {
+        val names = selectedFolderNames.toList()
+        if (names.isEmpty()) return
+        CenterThreadPool.run {
+            for (name in names) FolderManager.deleteFolder(name)
+            runOnUiThread {
+                exitSelectionMode()
+                // 文件夹行只在顶层出现，拆散期间不可能正停在某个被拆的夹里，这里不用 exitFolder
+                refresh()
+                MsgUtil.showMsg(UiText.of("文件夹已拆散"))
             }
         }
     }
@@ -756,6 +1090,9 @@ class LocalListActivity : InstanceActivity() {
             val currentFolder = adapter?.currentFolderName ?: ""
             runOnUiThread {
                 adapter?.setData(folderList, videoList, currentFolder)
+                // 重扫后可能有条目已经不在了（删掉 / 被移走）：勾选集合跟着收缩，底部计数才不会虚高
+                pruneSelection()
+                updateSelectionBar()
                 swipeRefreshLayout.setRefreshing(false)
             }
         }
@@ -763,6 +1100,11 @@ class LocalListActivity : InstanceActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
+        // 多选态下按返回只退出多选，不离开缓存页——和收藏夹多选的行为一致
+        if (selectionMode) {
+            exitSelectionMode()
+            return
+        }
         if (adapter?.currentFolderName?.isNotEmpty() == true) {
             exitFolder()
         } else {
