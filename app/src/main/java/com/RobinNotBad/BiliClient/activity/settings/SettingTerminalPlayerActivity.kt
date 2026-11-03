@@ -8,6 +8,7 @@ import android.os.Bundle
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
 import com.RobinNotBad.BiliClient.activity.player.PlayerLongPressPolicy
+import com.RobinNotBad.BiliClient.activity.player.PlayerSwipeSeekScalePolicy
 import com.RobinNotBad.BiliClient.adapter.SettingsAdapter
 import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.player.SkipOpEdPrefs
@@ -73,6 +74,16 @@ class SettingTerminalPlayerActivity : RefreshListActivity() {
             ))
             add(SettingSection("switch", "双击快进快退", SettingsKeys.PLAYER_DOUBLETAP_SEEK, "", "false"))
             add(SettingSection("switch", "左右滑动控制进度", SettingsKeys.PLAYER_SWIPE_SEEK, "在视频区域左右滑动快进/快退（未缩放视频时生效）", "false"))
+            // 反馈 #94a：手表 dpi 低时横滑一点点就跨过很长一段，倍率交给用户自己调。
+            // 档位/默认值/换算都在 PlayerSwipeSeekScalePolicy 里，播放页每次横滑重读存档。
+            add(listChoose(
+                getString(R.string.setting_player_swipe_seek_scale_name),
+                PlayerSwipeSeekScalePolicy.KEY,
+                getString(R.string.setting_player_swipe_seek_scale_desc),
+                PlayerSwipeSeekScalePolicy.DEFAULT_STORED,
+                PlayerSwipeSeekScalePolicy.displayNames,
+                PlayerSwipeSeekScalePolicy.storedValues
+            ))
             add(SettingSection("switch", "有缩放时，双击优先恢复缩放", SettingsKeys.PLAYER_DOUBLETAP_RESTORE_SCREEN,
                 getString(R.string.desc_player_doubletap_restore_scale), "false"))
             add(SettingSection("input_int", "快进快退秒数", SettingsKeys.PLAYER_DOUBLETAP_SEEK_SECONDS, "", "10"))
@@ -177,6 +188,9 @@ class SettingTerminalPlayerActivity : RefreshListActivity() {
             add(SettingSection("switch", "显示弹幕按钮", SettingsKeys.PLAYER_UI_SHOW_DANMAKU_BTN, "", "true"))
             add(SettingSection("switch", "显示清晰度按钮", SettingsKeys.PLAYER_UI_SHOW_QUALITY_BTN, "", "true"))
             add(SettingSection("switch", "显示分P按钮", SettingsKeys.PLAYER_UI_SHOW_PAGE_BTN, "", "true"))
+            // 反馈 #7：锁定按钮紧挨着底部进度条，拖进度时容易误触。关掉后按钮不显示、也不会进入锁定态。
+            add(SettingSection("switch", getString(R.string.setting_player_lock_button_name),
+                SettingsKeys.PLAYER_UI_SHOW_LOCK_BTN, getString(R.string.setting_player_lock_button_desc), "true"))
             add(SettingSection("input_float", "互动选项字体大小", SettingsKeys.PLAYER_INTERACTION_CHOICE_SIZE, "", SettingsKeys.PLAYER_INTERACTION_CHOICE_SIZE_DEFAULT.toString()))
         }
 

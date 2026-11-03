@@ -1894,6 +1894,22 @@
     <string name="uitext_locallistactivity_029">确定拆散选中的 %1$d 个文件夹吗？视频会移回未分类区域。</string>
     <string name="uitext_locallistactivity_030">已删除 %1$d 条，%2$d 条失败</string>
     <string name="uitext_locallistactivity_031">弹幕更新完成：成功 %1$d 个，失败 %2$d 个</string>
+
+    <!-- 缓存页排序 / 搜索（26.11.02，反馈 #94） -->
+    <string name="btn_cache_sort">排序</string>
+    <string name="btn_cache_search">搜索</string>
+    <string name="btn_cache_search_clear">清除</string>
+    <string name="text_cache_sort_title">排序方式</string>
+    <string name="text_cache_sort_default">默认（扫描顺序）</string>
+    <string name="text_cache_sort_title_asc">标题 升序</string>
+    <string name="text_cache_sort_title_desc">标题 降序</string>
+    <string name="text_cache_sort_time_desc">时间 新→旧</string>
+    <string name="text_cache_sort_time_asc">时间 旧→新</string>
+    <string name="text_cache_sort_size_desc">大小 大→小</string>
+    <string name="text_cache_sort_size_asc">大小 小→大</string>
+    <string name="text_cache_search_title">搜索缓存</string>
+    <string name="text_cache_search_hint">输入关键词，留空清除</string>
+    <string name="text_cache_search_empty">没有匹配的缓存</string>
     <string name="uitext_seriesinfoactivity_001">系列详情</string>
     <string name="uitext_multipageactivity_001">已在下载队列</string>
     <string name="uitext_qualitychooseractivity_004">4K 超清</string>
@@ -2573,6 +2589,19 @@
     <string name="setting_player_longpress_speed_desc">长按画面加速时使用的倍率（弹幕一起加速），默认 3.0x</string>
     <!-- %1$d 是分P 序号（从 1 开始） -->
     <string name="msg_player_resume_page">继续播放第 %1$d P</string>
+
+    <!-- ==================== 播放器：反馈 #94a 滑动灵敏度 / QQ#7 锁定按钮开关 / QQ#9 精确跳转 ==================== -->
+    <!-- 设置项名：横滑调进度的倍率档位（存档键/档位表在 PlayerSwipeSeekScalePolicy） -->
+    <string name="setting_player_swipe_seek_scale_name">滑动调进度灵敏度</string>
+    <string name="setting_player_swipe_seek_scale_desc">左右滑动时划过整个屏幕对应的进度倍率；手表 dpi 低、手指一动就跳很多时调小，默认 1.0x</string>
+    <!-- 设置项名：锁定按钮显隐；关掉后不显示按钮，也不会误触进入锁定 -->
+    <string name="setting_player_lock_button_name">显示锁定按钮</string>
+    <string name="setting_player_lock_button_desc">关闭后播放页不显示锁定按钮，拖动进度条时不会误触锁定</string>
+    <!-- 播放器菜单项：打开输入框，输入时间点直接跳转（直播不显示） -->
+    <string name="text_player_jump_to_time">跳到指定时间</string>
+    <string name="hint_player_jump_to_time">秒数 / mm:ss / hh:mm:ss</string>
+    <string name="msg_player_jump_invalid">时间格式不对，可输入 90、1:30 或 1:02:03</string>
+    <string name="msg_player_jump_out_of_range">已跳到视频末尾</string>
 
     <!-- ==================== 用户详情页：长按「已关注」加入分组（反馈 #88） ==================== -->
     <!-- 弹窗标题 -->

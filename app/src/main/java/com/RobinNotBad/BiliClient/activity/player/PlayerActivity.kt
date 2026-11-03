@@ -48,6 +48,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
+import com.RobinNotBad.BiliClient.activity.InputDialogActivity
 import com.RobinNotBad.BiliClient.activity.InteractionDebugActivity
 import com.RobinNotBad.BiliClient.activity.video.MultiPageResumePolicy
 import com.RobinNotBad.BiliClient.activity.video.info.VideoInfoActivity
@@ -180,6 +181,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private lateinit var lock_btn: ImageButton
     private lateinit var lock_overlay: View
     private lateinit var left_control: LinearLayout
+    /** 播放器菜单里的「跳到指定时间」（QQ#9）；非直播时由 onPrepared 置为可见。 */
+    private lateinit var jump_time_btn: TextView
+    /**
+     * 「显示锁定按钮」开关（QQ#7）。关掉后按钮不显示，也不允许进入锁定态。
+     * 每次进页面/onResume 重读存档，设置页改完返回即生效。
+     */
+    private var lockButtonEnabled: Boolean = true
     private lateinit var seekbar_progress: HighEnergyProgressBar
     private lateinit var seekbar_speed: SeekBar
     private lateinit var text_progress: TextView
@@ -329,6 +337,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
         /** 媒体控件通知的渠道 ID；渠道名取 strings.xml 的 channel_media_control（「音乐播放」）。 */
         private const val CHANNEL_MEDIA_CONTROL = "channel_media_control"
+
+        /**
+         * 「跳到指定时间」输入框的请求码（QQ#9）。
+         *
+         * 本页继承的是原生 `Activity`（不是 ComponentActivity），拿不到 Activity Result API，
+         * 只能用 `startActivityForResult` + [onActivityResult]；与 [InputDialogActivity] 的旧调用方一致。
+         */
+        private const val REQUEST_CODE_JUMP_TO_TIME = 1002
     }
 
     @Volatile // 被 PlaybackService 定时线程读（serviceDurationMs）
@@ -403,6 +419,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var swipeSeekStartPos: Long = 0L
     private var swipeSeekTarget: Long = 0L
     private val swipeSeekThreshold = 24f
+    /** 横滑调进度的灵敏度倍率（反馈 #94a）；每次手势激活时重读存档，见 [handleSwipeSeekTouch]。 */
+    private var swipeSeekScale: Float = PlayerSwipeSeekScalePolicy.DEFAULT_SCALE
     private lateinit var swipe_seek_overlay: View
     private lateinit var swipe_seek_text: TextView
 
@@ -843,6 +861,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
         setVideoGestures()
         initLockUi()
+        // QQ#9：菜单里的「跳到指定时间」只接线，显隐等 onPrepared 拿到时长后再定（直播不显示）
+        initJumpToTimeButton()
         autohideReset()
 
         initSeekbars()
@@ -967,6 +987,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         text_audio_subtitle = findViewById(R.id.audio_subtitle)
 
         btn_video_info = findViewById(R.id.video_info_btn)
+        jump_time_btn = findViewById(R.id.jump_time_btn)
 
         // 字幕字号来自设置页，这里先按存档刷一次；之后每次 onResume 再刷（改完设置返回即生效）
         applySubtitleTextSize()
@@ -1206,8 +1227,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             if (onlineTimer != null) text_online.visibility = View.VISIBLE
         }
 
-        // 锁定按钮在 control_layout 之外（锁定时要把整条控制栏一起藏掉），显隐要跟控制栏同步
-        lock_btn.visibility = View.VISIBLE
+        // 锁定按钮在 control_layout 之外（锁定时要把整条控制栏一起藏掉），显隐要跟控制栏同步；
+        // #7 关掉「显示锁定按钮」后，这条路径也不能把它放出来
+        lock_btn.visibility = if (lockButtonEnabled) View.VISIBLE else View.GONE
 
         // 控制栏浮现，字幕要抬高到控制栏之上，否则会被控制栏盖住
         setSubtitleBottomMargin(SUBTITLE_MARGIN_BOTTOM_CONTROLBAR_DP)
@@ -1266,7 +1288,33 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun initLockUi() {
         lock_overlay.setOnClickListener { onLockScreenTap() }
         lock_btn.setOnClickListener { onLockButtonClick() }
+        // #7：进页面就按设置决定锁定按钮可不可用，并保证关掉时不会残留在锁定态
+        refreshLockButtonSetting()
         alignLeftControlToRight()
+    }
+
+    /**
+     * 把「显示锁定按钮」开关（QQ#7）落到锁定状态上。
+     *
+     * 关掉时必须**立刻**退回未锁定：锁定态下 `lock_overlay` 会吞掉所有触摸，而唯一的解锁入口
+     * （`lock_btn`）已经被藏掉，继续停在 `LOCKED_*` 就是死锁。之后按钮只在控制栏浮现时显示，
+     * 所以这里也顺手把按钮收掉。
+     *
+     * 为什么每次都重读存档：设置页是另一个页面，用户改完返回播放器时只有 onResume 会经过这里；
+     * 缓存住 `lockButtonEnabled` 而不重读，就只能靠重启播放页才能生效。
+     */
+    private fun refreshLockButtonSetting() {
+        val enabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_SHOW_LOCK_BTN, true)
+        val changed = enabled != lockButtonEnabled
+        lockButtonEnabled = enabled
+        if (!enabled) {
+            // 先解锁再收按钮：applyLockPhase(UNLOCKED) 会走 showcon()，那里按 lockButtonEnabled 把按钮藏掉
+            if (PlayerLockPolicy.isLocked(lockPhase)) applyLockPhase(PlayerLockPolicy.Phase.UNLOCKED)
+            lock_btn.visibility = View.GONE
+            return
+        }
+        // 从「关」改回「开」时控制栏可能正显示着：补画一次，否则按钮要等下一次 showcon 才出现
+        if (changed && layout_control.visibility == View.VISIBLE) lock_btn.visibility = View.VISIBLE
     }
 
     /**
@@ -1291,6 +1339,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     private fun onLockButtonClick() {
+        // #7：按钮已关掉时残留的点击（隐藏动画、无障碍服务）同样不能改变锁定状态
+        if (!lockButtonEnabled) return
         val before = lockPhase
         val next = PlayerLockPolicy.phaseAfterLockButtonClick(before)
         applyLockPhase(next)
@@ -1317,9 +1367,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      * 状态只由 [PlayerLockPolicy] 决定，这里不重复判断"该不该锁"。
      */
     private fun applyLockPhase(phase: PlayerLockPolicy.Phase, autoHideMs: Long = 0L) {
-        lockPhase = phase
+        // #7：开关关掉后，任何路径都不许进入锁定态——锁定态下 overlay 吞掉全部触摸，
+        // 而唯一的解锁入口已经被藏掉，停在 LOCKED_* 就是死锁。这个互斥由 PlayerLockPolicy 保证。
+        val target = PlayerLockPolicy.phaseWithLockButtonDisabled(lockButtonEnabled, phase)
+        lockPhase = target
         mainHandler?.removeCallbacks(hideLockIcon)
-        when (phase) {
+        when (target) {
             PlayerLockPolicy.Phase.UNLOCKED -> {
                 lock_overlay.visibility = View.GONE
                 // 整条控制栏在锁定时被藏掉，解锁时连 button 组一起恢复，再走既有的 4 秒自动隐藏
@@ -1373,6 +1426,46 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (!PlayerLockPolicy.shouldSwallowExit(lockPhase)) return false
         applyLockPhase(PlayerLockPolicy.phaseAfterExitAttempt(lockPhase), PlayerLockPolicy.EXIT_HINT_MS)
         return true
+    }
+
+    // ==================== 精确空降（QQ 反馈 #9） ====================
+
+    /**
+     * 接线「跳到指定时间」：点开输入框，回来由 [onActivityResult] 解析并 seek。
+     *
+     * 显隐不在这里定：直播没有「时间点」概念，等 onPrepared 拿到 duration 后再按 [isLiveMode] 决定。
+     */
+    private fun initJumpToTimeButton() {
+        jump_time_btn.setOnClickListener {
+            val intent = Intent(this, InputDialogActivity::class.java)
+            intent.putExtra("title", getString(R.string.text_player_jump_to_time))
+            intent.putExtra("hint", getString(R.string.hint_player_jump_to_time))
+            startActivityForResult(intent, REQUEST_CODE_JUMP_TO_TIME)
+        }
+    }
+
+    /**
+     * 接「跳到指定时间」的输入。
+     *
+     * 校验放在这里而不是 [InputDialogActivity] 里：那个弹窗是通用输入框（新建文件夹等也在用），
+     * 不该认识「时间格式」这件事。非法输入提示后原地不动；合法但越界钳到末尾并明确告知，
+     * 免得用户输入 99:99 却停在结尾、看起来像没生效。
+     */
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_CODE_JUMP_TO_TIME || resultCode != RESULT_OK) return
+        // 直播/未 prepare 时 duration<=0，没有「时间点」概念；菜单虽然已隐藏，这里再兜一次时序缝隙
+        val durationMs = ijkPlayer?.duration ?: 0L
+        if (durationMs <= 0L) return
+        val seconds = PlayerJumpTimePolicy.parseToSeconds(data?.getStringExtra("input_text"))
+        if (seconds == null) {
+            MsgUtil.showMsg(getString(R.string.msg_player_jump_invalid))
+            return
+        }
+        val targetMs = PlayerJumpTimePolicy.clampMs(seconds * 1000L, durationMs) ?: return
+        if (seconds * 1000L > durationMs) MsgUtil.showMsg(getString(R.string.msg_player_jump_out_of_range))
+        seekToPosition(targetMs)
+        autohideReset()
     }
 
     /**
@@ -2964,6 +3057,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 设置页里改完「字幕字号大小」返回播放页立即生效。
         // findview() 在异步 inflate 回调里才跑，onResume 可能先到，必须判初始化。
         if (::text_subtitle.isInitialized) applySubtitleTextSize()
+        // #7：设置页里改完「显示锁定按钮」返回播放页立即生效（不这样就得重启播放页）
+        if (::lock_btn.isInitialized) refreshLockButtonSetting()
         // #31：回前台重新应用画面尺寸/比例/旋转。载入中切后台再回来时，Surface 重建、
         // 窗口几何也可能已经变了，而画面区域是手算出来的（不随布局自适应），不重算就会歪。
         // 只重排布局，不动播放状态——后台播放、MediaSession、切清晰度都不受影响。
@@ -3743,6 +3838,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 if (!swipeSeekActive && abs(deltaX) > swipeSeekThreshold) {
                     swipeSeekActive = true
                     swipeSeekStartPos = video_now.toLong()
+                    // #94a：灵敏度每次手势重读存档，设置页改完回播放器立即生效，不必重建页面
+                    swipeSeekScale = PlayerSwipeSeekScalePolicy.fromStored(
+                        SharedPreferencesUtil.getString(
+                            SettingsKeys.PLAYER_SWIPE_SEEK_SCALE,
+                            PlayerSwipeSeekScalePolicy.DEFAULT_STORED
+                        )
+                    )
                     gesture_click_disabled = true
                     hidecon.run()
                     swipe_seek_overlay.visibility = View.VISIBLE
@@ -3750,9 +3852,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 if (swipeSeekActive) {
                     val width = layout_control.width.toFloat().coerceAtLeast(1f)
                     val duration = ijkPlayer!!.duration
-                    var target = swipeSeekStartPos + (deltaX / width * duration).toLong()
-                    if (target < 0) target = 0
-                    if (duration > 0 && target > duration) target = duration
+                    // 倍率与 [0, duration] 的钳制都在纯函数里做，播放页只拿结果画浮层
+                    val target = PlayerSwipeSeekScalePolicy.targetMs(
+                        swipeSeekStartPos, deltaX, width, duration, swipeSeekScale
+                    )
                     swipeSeekTarget = target
                     seekbar_progress.progress = target.toInt()
                     updateSwipeSeekOverlay(target, duration)
@@ -5218,12 +5321,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
             if (!SharedPreferencesUtil.getBoolean("player_ui_showPageBtn", true))
                 btn_page_selector.visibility = View.GONE
+
+            // QQ#9：非直播才有「跳到指定时间」；直播在下面的 else 分支统一隐藏
+            jump_time_btn.visibility = View.VISIBLE
         } else {
             btn_loop.visibility = View.GONE
             btn_audio_only.visibility = View.GONE
             btn_page_selector.visibility = View.GONE
             btn_auto_next.visibility = View.GONE
             btn_quality.visibility = View.GONE
+            jump_time_btn.visibility = View.GONE
         }
 
         seekbar_progress.max = video_all

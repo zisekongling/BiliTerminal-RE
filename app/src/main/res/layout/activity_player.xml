@@ -379,6 +379,23 @@
                         android:background="@android:color/transparent"
                         android:visibility="gone" />
 
+                    <!--
+                        QQ#9 精确空降：点开输入时间点直接跳。
+                        手表上拖进度条很难停准，这里给一个「输入 mm:ss」的入口；
+                        直播没有时间点概念，显隐由 onPrepared 的直播分支统一控制。
+                    -->
+                    <TextView
+                        android:id="@+id/jump_time_btn"
+                        android:layout_width="wrap_content"
+                        android:layout_height="28dp"
+                        android:background="@android:color/transparent"
+                        android:gravity="center"
+                        android:paddingHorizontal="8dp"
+                        android:text="@string/text_player_jump_to_time"
+                        android:textColor="?android:attr/textColorPrimary"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
                 </LinearLayout>
 
             </HorizontalScrollView>

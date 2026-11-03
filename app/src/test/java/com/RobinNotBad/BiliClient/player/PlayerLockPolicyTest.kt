@@ -85,6 +85,29 @@ class PlayerLockPolicyTest {
     }
 
     @Test
+    fun lockButtonDisabled_neverStaysLocked() {
+        // 反馈 #7：关掉锁定按钮后 overlay 会吞掉全部触摸、又没有解锁入口，任何状态都必须回到 UNLOCKED
+        for (phase in Phase.values()) {
+            assertEquals(
+                "关闭锁定按钮后 $phase 也必须回到 UNLOCKED，否则就是死锁",
+                Phase.UNLOCKED,
+                PlayerLockPolicy.phaseWithLockButtonDisabled(false, phase)
+            )
+        }
+    }
+
+    @Test
+    fun lockButtonEnabled_keepsRequestedPhase() {
+        for (phase in Phase.values()) {
+            assertEquals(
+                "开启锁定按钮时状态机保持调用方请求的状态",
+                phase,
+                PlayerLockPolicy.phaseWithLockButtonDisabled(true, phase)
+            )
+        }
+    }
+
+    @Test
     fun timers_arePositive() {
         assertTrue(PlayerLockPolicy.ICON_VISIBLE_MS > 0)
         assertTrue(PlayerLockPolicy.EXIT_HINT_MS > 0)
