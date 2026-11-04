@@ -26,6 +26,8 @@ public class Bangumi {
         // 新增字段
         public String evaluate; // 简介
         public String staff; // 制作人员信息
+        /** 角色与声优：`"角色：CV\n角色：CV…"` 多行文本，可能为空 */
+        public String actors;
         public String record; // 备案号
         public String subtitle; // 副标题
         public Publish publish; // 发布时间信息

@@ -92,6 +92,7 @@ import com.RobinNotBad.BiliClient.util.LocalVideoProgress
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
+import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
@@ -787,6 +788,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
         setContentView(R.layout.activity_player)
         findview()
+        // 可选私有功能：详情页把「番剧标题 + 集号」带进来时，先让私有侧判断这条播放
+        // 要不要走备用片源；它接管了就直接结束本页（私有侧会自己起真正的播放）。
+        if (OptionalFeatures.handlePendingThirdParty(this, intent)) {
+            return
+        }
         if (!getExtras()) {
             finish()
             return
@@ -2352,6 +2358,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      *   **不弹选择框**。此时不走下面那段选择框逻辑。
      */
     private fun downSubtitle(fromBtn: Boolean, autoChinese: Boolean = false) {
+        // 第三方源直链播放（没有 aid/cid）在 B 站没有对应视频，字幕接口只会返回没有 data 的响应，
+        // 进而抛 JSONException 弹「数据解析错误」——这种场景直接跳过，本地文件字幕仍走下面的 File 分支。
+        if (isOnlineVideo && (aid <= 0L || cid <= 0L)) return
         try {
             if (subtitleLinks == null) {
                 subtitleLinks = if (isOnlineVideo) PlayerApi.getSubtitleLinks(aid, cid)

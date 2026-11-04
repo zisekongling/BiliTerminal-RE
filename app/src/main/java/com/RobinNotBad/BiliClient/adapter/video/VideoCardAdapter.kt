@@ -9,6 +9,7 @@ import androidx.recyclerview.widget.SimpleItemAnimator
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.listener.OnItemLongClickListener
 import com.RobinNotBad.BiliClient.model.VideoCard
+import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 
 class VideoCardAdapter(
@@ -83,9 +84,10 @@ class VideoCardAdapter(
                     longClickListener!!.onItemLongClick(position)
                     return true
                 }
-                // 没有自定义长按的浏览类列表（推荐 / 排行 / 搜索等）才回落到快速缓存
+                // 没有自定义长按的浏览类列表（推荐 / 排行 / 搜索等）才回落到快速缓存。
+                // 私有功能产出的卡片（没有 B 站 aid/cid）由门面判断跳过。
                 val quickMode = SharedPreferencesUtil.getBoolean("cache_quick_mode", true)
-                if (quickMode && videoCard.type != "live") {
+                if (quickMode && videoCard.type != "live" && !OptionalFeatures.skipQuickCache(videoCard)) {
                     VideoQuickCache.handle(context, videoCard)
                     return true
                 }

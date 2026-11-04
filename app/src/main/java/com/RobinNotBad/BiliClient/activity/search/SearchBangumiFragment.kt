@@ -9,6 +9,7 @@ import com.RobinNotBad.BiliClient.adapter.video.VideoCardAdapter
 import com.RobinNotBad.BiliClient.api.SearchApi
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.OptionalFeatures
 
 import org.json.JSONArray
 import org.json.JSONObject
@@ -52,18 +53,24 @@ class SearchBangumiFragment : SearchFragment() {
                     is JSONObject -> result.optJSONArray("media_bangumi")
                     else -> null
                 }
-                if (resultArray != null) {
+                val list = ArrayList<VideoCard>()
+                if (resultArray != null) SearchApi.getBangumiFromSearchResult(resultArray, list)
+                // 第一页追加 Bangumi 独有条目（B 站没有的番剧）；翻页不追加，避免越滚越多。
+                // 注意：B 站搜不到时 data 里连 result 字段都没有（numResults=0），
+                // 所以这一步必须在 resultArray 判空之外——否则「B 站没有、Bangumi 有」的番剧
+                // 会整页空白。具体实现在可选私有功能里；不在场时什么也不加。
+                val ctx = context
+                if (page == 1 && ctx != null) {
+                    OptionalFeatures.appendBangumiSearchExtras(ctx, keyword.orEmpty(), list)
+                }
+                if (list.isEmpty()) bottom = true
+                else CenterThreadPool.runOnUiThread {
+                    if (!isAdded || view == null) return@runOnUiThread
                     if (page == 1) showEmptyView(false)
-                    val list = ArrayList<VideoCard>()
-                    SearchApi.getBangumiFromSearchResult(resultArray, list)
-                    if (list.size == 0) bottom = true
-                    else CenterThreadPool.runOnUiThread {
-                        if (!isAdded || view == null) return@runOnUiThread
-                        val lastSize = bangumiCardList.size
-                        bangumiCardList.addAll(list)
-                        bangumiCardAdapter!!.notifyItemRangeInserted(lastSize, bangumiCardList.size - lastSize)
-                    }
-                } else bottom = true
+                    val lastSize = bangumiCardList.size
+                    bangumiCardList.addAll(list)
+                    bangumiCardAdapter!!.notifyItemRangeInserted(lastSize, bangumiCardList.size - lastSize)
+                }
             } catch (e: Exception) {
                 loadFail(e)
             }
