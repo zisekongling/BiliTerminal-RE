@@ -14,7 +14,7 @@
 - **26.10.31 发版时工作区已清空**：26.10.27 之后累积的未发版改动（§3.72~§3.85）与发版前补的登录令牌改动（§3.87）都随本版一起出去了。
 - **26.11.01 发版时工作区已清空**：§3.91~§3.94（PR #18）与 §3.83 的私有化整理（PR #19）都随本版一起发布；26.11.01 之后新的待发版改动从这里往下记。
 - **待发版改动（26.11.02 那一轮，用户点名的四条）**：①长按二级菜单弹窗与两个伪装页补圆屏适配（§3.113）；②「虚拟合集」起播索引修复（§3.114）；③菜单「退出」改为可排序、可关闭（§3.115）。版本号未动（仍是 `26.11.01` / `2611010`），发版时按上一条递增。
-- **26.11.04 待发版**：合并远程 `main` 后没解干净的冲突（资源重名 + `BaseActivity` 残留旧边距算术，§3.116）、搜索设置「视频搜索（始终启用）」显示成锁定关（§3.117）、关于页开发者列表新增 Kuinone（§3.118）。版本号未动（仍是 `26.11.01` / `2611010`）。
+- **26.11.05 待发版**：合并远程 `main` 后没解干净的冲突（资源重名 + `BaseActivity` 残留旧边距算术，§3.116）、搜索设置「视频搜索（始终启用）」显示成锁定关（§3.117）、关于页开发者列表新增 Kuinone（§3.118）。版本号未动（仍是 `26.11.01` / `2611010`）。
 - **下次递增**：先看 `app/build.gradle:23-24`；release immutability 下被 Release 用过的 tag **永久不可复用**，同版本名补丁版只能用 `26.10.24.1` 这种后缀形式，`versionCode` 递增、`versionName` 可不变。改了版本号还要同步 `strings.xml` 里 `update_log_current` 的「【YY.MM.DD 本次更新】」锚点，否则 `:app:verifyVersionConsistency` 会失败。
 - **构建命令**（单测任务名**带 flavor 前缀**，`testDebugUnitTest` 自 26.10.11 引入 flavor 后已不存在）：
 
@@ -30,7 +30,7 @@
 - **依赖仓库**：`settings.gradle` 已把 aliyun 的 `google` / `public` / `gradle-plugin` 三个镜像前置，`google()`/`mavenCentral()`/jitpack 仅作兜底。
 - **改了 `res/` 文件集合时**：`:app:clean` 与后续命令**必须分两次 Gradle 调用**，且带 `--no-build-cache --no-configuration-cache`，否则会回放陈旧资源（症状是 `Unresolved reference 'R.layout.xxx'`）。
 - **版本一致性**：`:app:verifyVersionConsistency` 以 `strings.xml` 的 `update_log_current` 为锚点校验版本一致性；发版说明也由 CI 从它抽取（抽不到直接拒绝发版）。
-- **单测（26.11.04 合并远程 `main`、修好冲突残留后实测；`testStandardDebugUnitTest` 与 `testCoexistDebugUnitTest` 各跑一遍，命令带 `--no-build-cache --no-configuration-cache`）**：两个 flavor 均 **130 suites / 1379 tests / 0 失败 0 错误 0 跳过**（`app/src/test/` 下 `*Test.kt|java` 共 129 个源文件）。**本机未同步私有功能仓库（`private/` 不存在）**，所以「注入 `private/` 后」那一套计数（上一轮是 106 suites / 1116 tests）本轮没有复测，同步后要照旧再跑一遍、两套数字都记上——公开配置少掉的正是随私有源码一起注入的那几个用例类，配置错了会立刻从计数上看出来。计数方式：`app/build/test-results/<flavor>DebugUnitTest/TEST-*.xml` 的 `tests=` 求和（**用 PowerShell 解析会因中文用例名抛 `InvalidCastToXmlDocument`，改用 Python `xml.etree`**）。用例数一律以机器产出为准，队友口述数字不进入文档。
+- **单测（26.11.05 合并远程 `main`、修好冲突残留后实测；`testStandardDebugUnitTest` 与 `testCoexistDebugUnitTest` 各跑一遍，命令带 `--no-build-cache --no-configuration-cache`）**：两个 flavor 均 **130 suites / 1379 tests / 0 失败 0 错误 0 跳过**（`app/src/test/` 下 `*Test.kt|java` 共 129 个源文件）。**本机未同步私有功能仓库（`private/` 不存在）**，所以「注入 `private/` 后」那一套计数（上一轮是 106 suites / 1116 tests）本轮没有复测，同步后要照旧再跑一遍、两套数字都记上——公开配置少掉的正是随私有源码一起注入的那几个用例类，配置错了会立刻从计数上看出来。计数方式：`app/build/test-results/<flavor>DebugUnitTest/TEST-*.xml` 的 `tests=` 求和（**用 PowerShell 解析会因中文用例名抛 `InvalidCastToXmlDocument`，改用 Python `xml.etree`**）。用例数一律以机器产出为准，队友口述数字不进入文档。
 - **26.10.10 那一轮的构建记录（历史，留作「改 minSdk / 重跑 release 链路」时的验证口径）**：`minSdk 24 → 19` 全部改动（含 jsoup 1.16.1、7 个 `res/drawable-v21` 资源）落盘后，按「`clean` → `assembleRelease` → `lintRelease` → 单测」四步跑完（均带 `--no-configuration-cache`，`clean` 与 `assemble` 分两次调用），四步全 `BUILD SUCCESSFUL`（37s / 2m13s / 1m25s / 39s）。当时单测汇总 **49 suites / 460 tests / 0 failures**（任务名当时还是 `testDebugUnitTest`，现已带 flavor 前缀），最新 XML 时间 `2026-10-09T22:59:04`（晚于当轮 APK 出包时间 22:56:58，覆盖了当轮全部源码改动）。`:app:lintRelease` 的 **`NewApi` 从 22 条降到 2 条**，且这 2 条就是 `PlayerActivity.kt:1981` 的已知假阳性。发版前仍建议再跑一次确认。
 - **「自动跳过片头片尾」已恢复上线（26.10.22）**：26.10.10 的紧急撤回**已解除**，`SkipOpEdPrefs.FEATURE_ENABLED` 回到 `true`，设置入口与搜索索引均已恢复；口径按用户拍板改为**默认关闭**（`DEFAULT_ENABLED = false`，老用户存档里显式写的值仍然优先）。恢复细节见 §3.3「恢复记录」，乱跳的三个根因修复见 §3.55。
 - **本轮基建改动（26.10.10）**：**`minSdk 24 → 21 → 19（Android 4.4）`**，唯一落点是 `app/build.gradle:21`。两级下调的成本不同，分开记：
@@ -1210,7 +1210,7 @@
 - **验证**：`MenuConfigTest` 34 例（新增「老数据缺 exit 会补上并写回」「用户关掉后不再加回」「保存时写标记」「exit 不能当启动页、旧启动页值会被改回」）；两 flavor 单测各 **109 suites / 1133 tests / 0 失败**；`:app:assembleDebug` 与 `:app:assembleRelease`（standard / coexist 各 4 个 ABI 包，6.2~12.3MB）均 `BUILD SUCCESSFUL`。
 - **未验**：模拟器不可达，菜单页面上的拖动排序 / 关掉退出项、以及升级路径（旧 `menu_enabled` 不含 exit）没能在设备上走一遍，靠单测 + 代码路径核对。
 
-### 3.116 远程合并冲突没解干净：资源重名 + `BaseActivity` 残留旧边距算术（26.11.04，用户报构建失败）
+### 3.116 远程合并冲突没解干净：资源重名 + `BaseActivity` 残留旧边距算术（26.11.05，用户报构建失败）
 
 - **现场**：用户把远程 `main`（26.11.02 那一批：缓存页排序/搜索、缓存页多选批量、账号代际隔离、订阅、播放器三项…）合并进来后 `assembleDebug` 直接失败。
 - **残留①（资源重名）**：`:app:mergeCoexistDebugResources` 报 `Found item String/uitext_locallistactivity_023 more than one time`——两边各自都从 `_023` 往后加：远程加的是多选批量（`_023` 操作 / `_024` 已选 %1$d 项 / `_025` 退出 / `_026` 点条目勾选，再点「操作」，`_027`~`_031`），我加的是虚拟合集（进入合集提示 / 该文件夹内没有可播放的视频 / 无法定位起始视频 / 合集页名）。两边 `standard` 与 `coexist` 都合并同一份 `strings.xml`，重名两个 flavor 一起挂。修法是**挪我这四条**到下一个空位 `_032`~`_035`（远程那几条的语义已被新合并进来的代码引用，不该动它们），同步改 `LocalListActivity` 四处引用。
@@ -1220,7 +1220,7 @@
 - **验证**：`:app:assembleDebug`（standard + coexist）`BUILD SUCCESSFUL`；`:app:testStandardDebugUnitTest` / `:app:testCoexistDebugUnitTest` / `:app:assembleRelease` 结果见 §1 的单测计数。
 - **未验**：模拟器不可达（MuMu `127.0.0.1:7555` 拒连），圆屏上「边距加在内容容器」的实际观感（远程改法）没能在设备上复核。
 
-### 3.117 搜索设置里「视频搜索（始终启用）」显示成「锁定关」（26.11.04，用户点名）
+### 3.117 搜索设置里「视频搜索（始终启用）」显示成「锁定关」（26.11.05，用户点名）
 
 - **现场**：用户报这一项开关看着是「锁定的关」，像视频搜索被关掉了。
 - **根因**：`activity_setting_search.xml` 里这一项只写了 `android:enabled="false"` + `android:clickable="false"`，**没有 `android:checked`**，代码侧也从不读它——`SearchActivity` 的类别表里 `"video"` 恒为 `true`，压根没有对应它的设置项，所以它一直显示「关」。它是「始终启用」的展示项，本该锁成开。
@@ -1228,7 +1228,7 @@
 - **验证**：`:app:assembleDebug` 通过；纯布局 + 一行赋值，没有逻辑分支可测。
 - **未验**：模拟器不可达，实际观感（锁定开）没能在设备上看。
 
-### 3.118 关于页开发者列表新增 Kuinone（26.11.04，用户要求）
+### 3.118 关于页开发者列表新增 Kuinone（26.11.05，用户要求）
 
 - **内容**：`AboutActivity.DEVELOPERS_RE` 追加一项——名字 `Kuinone`、签名 `Kuinone可能是迄今为止唯一一个符合RESTful API规范的苯醌`、UID `475731079`；头像由用户提供的 `misc/kuinone.jpg`（512×511）方裁成 256×256、转成 `res/mipmap-nodpi/avatar_kuinone.webp`（WebP q88，18KB），与其余 8 张头像同目录同格式。点击卡片照旧跳该 UID 的用户页（走 `BiliTerminal.jumpToUser`）。
 - **放在哪一列**：本仓库是 RE 版，所以放进「RE：哔哩终端主要开发者」（`about_dev_trae`）那一列；要改挂到「主要开发者 / 联合开发者」，改一行列表即可。
