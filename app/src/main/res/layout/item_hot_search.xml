@@ -24,10 +24,13 @@
         android:layout_height="21dp"
         android:scaleType="fitCenter"
         android:layout_marginEnd="8dp"/>
-    <TextView
+    <!-- 反馈 #92：热搜词条过长时改为跑马灯横向滚动。
+         MarqueeTextView 在 init 里读全局「文字跑马灯」开关（默认开）自己设置
+         ellipsize / singleLine，所以这里不再写 ellipsize=end；
+         0dp + layout_weight=1 的测量方式不变，仍是单行、heatText 不会被挤掉。 -->
+    <com.RobinNotBad.BiliClient.ui.widget.MarqueeTextView
         android:textSize="16sp"
         android:textColor="?android:attr/textColorPrimary"
-        android:ellipsize="end"
         android:id="@+id/keywordText"
         android:layout_width="0dp"
         android:layout_height="wrap_content"

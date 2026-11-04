@@ -152,13 +152,49 @@ object FolderManager {
         return result
     }
 
+    /**
+     * 把一条视频记录从**所有**文件夹里摘掉，删除缓存文件后调用。
+     *
+     * 与 [removeVideoFromFolder] 的区别只有两点，都跟「列表里的标题」和「文件夹里存的标题」
+     * 可能不是同一串字符有关（下载侧会用 [FileUtil.stringToFile] 清洗标题、历史版本写入的是原始标题）：
+     * 1. 匹配走 [titleMatches]，不要求逐字相同；
+     * 2. 遍历所有文件夹而不是命中第一个就返回（老数据里同一条视频可能被写进多个文件夹）。
+     *
+     * 不碰视频元数据：文件都删了，`.video_meta.json` 也一起没了。
+     *
+     * @return 是否有文件夹记录被摘掉（删除结果不受它影响）
+     */
+    @JvmStatic
+    fun removeVideoFromAllFolders(title: String): Boolean {
+        if (title.isBlank()) return false
+        val folders = getAllFolders()
+        var removed = false
+        for (folder in folders) {
+            val stored = folder.videoTitles?.firstOrNull { titleMatches(it, title) } ?: continue
+            if (folder.removeVideo(stored)) removed = true
+        }
+        if (removed) saveAllFolders(folders)
+        return removed
+    }
+
     private fun removeVideoFromAnyFolder(title: String, folders: ArrayList<VideoFolder>): Boolean {
         for (folder in folders) {
-            if (folder.removeVideo(title)) {
-                return true
-            }
+            val stored = folder.videoTitles?.firstOrNull { titleMatches(it, title) } ?: continue
+            if (folder.removeVideo(stored)) return true
         }
         return false
+    }
+
+    /**
+     * 文件夹记录里的标题与「当前标题」是否指同一条视频。
+     *
+     * 逐字相同当然算；否则按下载侧同一套清洗规则（[FileUtil.stringToFile]）比一次——
+     * 用户把 `/`、`:` 这类字符换成全角只是落盘时的处理，不该让它从文件夹里「失联」。
+     */
+    private fun titleMatches(stored: String?, target: String): Boolean {
+        if (stored.isNullOrEmpty() || target.isEmpty()) return false
+        if (stored == target) return true
+        return FileUtil.stringToFile(stored) == FileUtil.stringToFile(target)
     }
 
     /**

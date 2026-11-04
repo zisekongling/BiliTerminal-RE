@@ -1,5 +1,6 @@
 package com.RobinNotBad.BiliClient.api
 
+import com.RobinNotBad.BiliClient.model.Reply
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -199,5 +200,47 @@ class ReplyApiTest {
         assertEquals("http://i0.hdslb.com/2.png", array.getJSONObject(1).getString("img_src"))
         assertEquals("http://i0.hdslb.com/3.png", array.getJSONObject(2).getString("img_src"))
         assertEquals("2.5 不能被截断", 2.5, array.getJSONObject(1).getDouble("img_size"), 0.000001)
+    }
+
+    // ---- 图床 biz：评论图必须与动态图同一个目录 ----
+
+    @Test
+    fun imageBiz_commentSharesDynamicDirectoryAndMessageUsesIm() {
+        // 图床 biz 只决定图片落在哪个 BFS 目录：
+        // - 动态图与评论图都是 /bfs/new_dyn/（评论的 pictures 只认这个目录下的图；
+        //   26.10.02 曾自造 new_reply，图能传上去但发评论被服务端以 12066 拒绝）
+        // - 私信图是 /bfs/im/（上游 PiliPlus 同样传 biz:'im'）
+        assertEquals("评论图与动态图必须共用 new_dyn", "new_dyn", ReplyApi.BIZ_DYNAMIC)
+        assertEquals("私信图走 IM 图床目录", "im", ReplyApi.BIZ_MESSAGE)
+    }
+
+    // ---- 发送后「评论区是否已能查到」（反馈 #85） ----
+
+    private fun reply(rpid: Long) = Reply().apply { this.rpid = rpid }
+
+    @Test
+    fun containsReplyId_findsTopLevelReply() {
+        val list = listOf(reply(100), reply(200))
+        assertTrue("一级评论就在列表里", ReplyApi.containsReplyId(list, 200))
+    }
+
+    @Test
+    fun containsReplyId_findsReplyInsideChildList() {
+        // 楼中楼里新发的回复同样要能认出来，不能只看顶层
+        val parent = reply(100).apply { childMsgList.add(reply(101)) }
+        assertTrue("楼中楼里的 rpid 也算查到", ReplyApi.containsReplyId(listOf(parent), 101))
+    }
+
+    @Test
+    fun containsReplyId_absentReturnsFalse() {
+        assertFalse("列表里没有就是没查到", ReplyApi.containsReplyId(listOf(reply(100)), 999))
+    }
+
+    @Test
+    fun containsReplyId_toleratesNullAndInvalidInput() {
+        // 脏数据 / 非法入参不能崩：这条判定跑在"发送评论"的主路径上
+        assertFalse("null 列表", ReplyApi.containsReplyId(null, 100))
+        assertFalse("rpid 非法时不查", ReplyApi.containsReplyId(listOf(reply(100)), 0))
+        assertFalse("空列表", ReplyApi.containsReplyId(emptyList(), 100))
     }
 }

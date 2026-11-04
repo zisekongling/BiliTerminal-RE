@@ -118,15 +118,33 @@ public class PrivateMsgApi {
         }
     }
 
-    public static HashMap<Long, UserInfo> getUsersInfo(ArrayList<Long> uidList)
-            throws IOException, JSONException {
+    /**
+     * 把 uid 列表拼成 {@code user/cards} 接口要的 {@code uids} 参数（逗号分隔）。
+     *
+     * <p>抽成纯函数便于单测：空列表必须返回空串，**调用方要先判空**——旧实现无条件
+     * {@code substring(0, length - 1)}，列表为空时就是 {@code substring(0, -1)}，
+     * 抛 {@code StringIndexOutOfBoundsException}（反馈 #84：打开消息页每次都弹「Adapter错误」）。
+     */
+    public static String buildUidsParam(ArrayList<Long> uidList) {
+        if (uidList == null || uidList.isEmpty()) return "";
         StringBuilder userString = new StringBuilder();
         for (Long uid : uidList) {
-            userString.append(uid).append(",");
+            // 列表里混进 null 时不能拼出 "null,"（StringBuilder 会把它当字符串写进去）
+            if (uid == null) continue;
+            if (userString.length() > 0) userString.append(',');
+            userString.append(uid.longValue());
         }
-        String url = "https://api.vc.bilibili.com/account/v1/user/cards?uids="
-                + userString.substring(0, userString.length() - 1);
+        return userString.toString();
+    }
+
+    public static HashMap<Long, UserInfo> getUsersInfo(ArrayList<Long> uidList)
+            throws IOException, JSONException {
         HashMap<Long, UserInfo> userMap = new HashMap<>();
+        String uids = buildUidsParam(uidList);
+        // 一个 uid 都没有时不该发请求：会话列表为空（未登录 / 没有会话）是正常情况，
+        // 不是错误，更不是「Adapter错误」。#84 的崩溃就出在这里。
+        if (uids.isEmpty()) return userMap;
+        String url = "https://api.vc.bilibili.com/account/v1/user/cards?uids=" + uids;
         JSONObject root = NetWorkUtil.getJson(url);
         if (root.has("data") && !root.isNull("data")) {
             JSONArray data = root.getJSONArray("data");

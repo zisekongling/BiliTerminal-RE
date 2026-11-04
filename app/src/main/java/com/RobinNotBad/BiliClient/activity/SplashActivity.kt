@@ -163,10 +163,11 @@ class SplashActivity : Activity() {
     }
 
     private fun resetLogin() {
-        SharedPreferencesUtil.putLong(SharedPreferencesUtil.mid, 0L)
-        SharedPreferencesUtil.putString(SharedPreferencesUtil.csrf, "")
-        NetWorkUtil.setCookiesString("")
-        SharedPreferencesUtil.putString(SharedPreferencesUtil.refresh_token, "")
+        // 走统一入口：除了 mid/cookies/csrf/refresh_token，它还会清 access_key
+        // （原实现漏了这个 —— 全清之后仍有 access_key 时，CookieRefreshScheduler 和启动页
+        // 会继续按「TV 登录」分流去刷 APP token，等于每次启动都白刷一次还报错），
+        // 并升账号代际把在飞的请求作废、清掉按账号走的本地缓存。
+        AccountManager.clearCurrentLogin()
     }
 
     private fun applyTheme() {

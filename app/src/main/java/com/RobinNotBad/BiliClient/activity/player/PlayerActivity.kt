@@ -48,7 +48,9 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
+import com.RobinNotBad.BiliClient.activity.InputDialogActivity
 import com.RobinNotBad.BiliClient.activity.InteractionDebugActivity
+import com.RobinNotBad.BiliClient.activity.video.MultiPageResumePolicy
 import com.RobinNotBad.BiliClient.activity.video.info.VideoInfoActivity
 import com.RobinNotBad.BiliClient.adapter.QualitySelectorAdapter
 import com.RobinNotBad.BiliClient.adapter.ViewPointAdapter
@@ -179,6 +181,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private lateinit var lock_btn: ImageButton
     private lateinit var lock_overlay: View
     private lateinit var left_control: LinearLayout
+    /** 播放器菜单里的「跳到指定时间」（QQ#9）；非直播时由 onPrepared 置为可见。 */
+    private lateinit var jump_time_btn: TextView
+    /**
+     * 「显示锁定按钮」开关（QQ#7）。关掉后按钮不显示，也不允许进入锁定态。
+     * 每次进页面/onResume 重读存档，设置页改完返回即生效。
+     */
+    private var lockButtonEnabled: Boolean = true
     private lateinit var seekbar_progress: HighEnergyProgressBar
     private lateinit var seekbar_speed: SeekBar
     private lateinit var text_progress: TextView
@@ -241,6 +250,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var isLocalAudioFile = false
     private var audioTrackUrl: String? = null // DASH外部音频轨道
     private var audioPlayer: android.media.MediaPlayer? = null // 外部音频播放器
+
+    /**
+     * 外挂音轨此刻是否真的在跑（由 [syncExternalAudioPlayback] / [playerPause] 维护）。
+     *
+     * 为什么不用 `MediaPlayer.isPlaying`：那是每次都要走 binder 的调用，而这个标志在
+     * 250ms 定时器里每轮都要读；更关键的是它**不表达我们的意图**——静音期间这条音轨
+     * 会被主动暂停（见 [AudioSeekVolumePolicy]），但"视频还在播"，两者不是一回事。
+     */
+    private var externalAudioRunning: Boolean = false
 
     /**
      * 外部音频轨道的「seek 冷却截止时刻」（`SystemClock.elapsedRealtime()`）。
@@ -319,6 +337,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
         /** 媒体控件通知的渠道 ID；渠道名取 strings.xml 的 channel_media_control（「音乐播放」）。 */
         private const val CHANNEL_MEDIA_CONTROL = "channel_media_control"
+
+        /**
+         * 「跳到指定时间」输入框的请求码（QQ#9）。
+         *
+         * 本页继承的是原生 `Activity`（不是 ComponentActivity），拿不到 Activity Result API，
+         * 只能用 `startActivityForResult` + [onActivityResult]；与 [InputDialogActivity] 的旧调用方一致。
+         */
+        private const val REQUEST_CODE_JUMP_TO_TIME = 1002
     }
 
     @Volatile // 被 PlaybackService 定时线程读（serviceDurationMs）
@@ -359,6 +385,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var video_width: Int = 0
     private var video_height: Int = 0
 
+    /**
+     * 上一次拿到的**有效**源视频尺寸（来自 `ijkPlayer.videoWidth/videoHeight`）。
+     *
+     * #31：播放器重建窗口期（载入中切后台再回来、Surface 重建）`videoWidth/videoHeight`
+     * 可能还是 0，`changeVideoSize()` 若直接早退就会把"歪掉的旧布局"留在屏幕上。
+     * 缓存一份已知有效值兜底，判据在 [PlayerScreenMetricsPolicy.resolveSourceSize]。
+     */
+    private var srcVideoWidth: Int = 0
+    private var srcVideoHeight: Int = 0
+
     private var audioManager: AudioManager? = null
 
     private var scaleGestureDetector: ScaleGestureDetector? = null
@@ -383,6 +419,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var swipeSeekStartPos: Long = 0L
     private var swipeSeekTarget: Long = 0L
     private val swipeSeekThreshold = 24f
+    /** 横滑调进度的灵敏度倍率（反馈 #94a）；每次手势激活时重读存档，见 [handleSwipeSeekTouch]。 */
+    private var swipeSeekScale: Float = PlayerSwipeSeekScalePolicy.DEFAULT_SCALE
     private lateinit var swipe_seek_overlay: View
     private lateinit var swipe_seek_text: TextView
 
@@ -566,21 +604,22 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var viewPoints: MutableList<ViewPoint>? = null
     private var viewPointAdapter: ViewPointAdapter? = null
 
-    /** 从 [viewPoints] 提炼出的可自动跳过片段（片头/片尾），由 [ViewPointSkip.buildSegments] 生成。 */
-    private var skipSegments: List<ViewPointSkip.Segment> = emptyList()
-
-    /** 本次播放已经处理过的片段 key：自动跳过一次、或用户手动拖进去过，都不再重复跳。 */
-    private val skipHandled = HashSet<String>()
-
-    /** 最近一次自动跳过的片段，供「撤回」回到原位；跳完即置位，撤回后清空。 */
-    private var lastSkippedSegment: ViewPointSkip.Segment? = null
+    /**
+     * 自动跳过片头片尾的状态机（片段表 + 已处理集合 + 在途请求代次）。
+     *
+     * #34：这三样以前是本类里三个散装字段，切 P 时只把 `viewPoints` 置空、片段表还留着，
+     * 于是新一P 播到上一P 的片头秒数时会**凭空跳一下**；迟到的 `view_points` 响应也会
+     * 覆盖当前集。现在它们只在 [SkipDecider] 里改，生命周期（换P 清空、迟到响应丢弃）
+     * 由那个纯类负责，本类只调它。判定细节见 [SkipDecider] 的类注释。
+     */
+    private val skipDecider = SkipDecider()
 
     /**
      * 自动跳过判定的静默期截止时刻（`SystemClock.elapsedRealtime()`，0 = 不静默）。
      *
      * 跳转后 `video_now` 先写、IJK 的 `seekTo` 后落地，落地前 `currentPosition` 仍返回旧位置；
      * 旧位置若还在片段内就会触发下一轮判定 —— 用户看到的是「跳完又跳回去」。
-     * 原先只靠 `skipHandled` 一条防线，现在加一道时间兜底（见 [SkipCancelPolicy]）。
+     * 这是**时间**维度的一道兜底，与 [SkipDecider] 的「片段只跳一次」互补。
      */
     private var skipQuietUntilMs: Long = 0L
 
@@ -680,9 +719,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             } else {
                 cids = ArrayList()
             }
-            currentPageIndex = intent.getIntExtra("currentPageIndex", 0)
-            // 由构建方显式告知，不再靠 aid != cids[i] 猜（真实多P 下那个判据恒真，会把 cid 当 aid）
             isVirtualCollectionMode = intent.getBooleanExtra("virtual_collection", false)
+            // #83：「当前第几P」以 cid 为准纠正一次。入口若给了正确的 cid 却带着旧下标，
+            // 选集卡片会高亮错一P、自动连播也会从错的"下一P"开始（判据在 MultiPageResumePolicy）。
+            currentPageIndex = MultiPageResumePolicy.alignPageIndex(
+                cids,
+                cid,
+                intent.getIntExtra("currentPageIndex", 0),
+                isVirtualCollectionMode
+            )
             // 合集层 / 分P层由选集卡片上的「进入…」在播放器内部建立，不由 Intent 预置
             @Suppress("DEPRECATION")
             updateEnterable(intent.getParcelableExtra("enterable_info"))
@@ -816,6 +861,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
         setVideoGestures()
         initLockUi()
+        // QQ#9：菜单里的「跳到指定时间」只接线，显隐等 onPrepared 拿到时长后再定（直播不显示）
+        initJumpToTimeButton()
         autohideReset()
 
         initSeekbars()
@@ -940,6 +987,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         text_audio_subtitle = findViewById(R.id.audio_subtitle)
 
         btn_video_info = findViewById(R.id.video_info_btn)
+        jump_time_btn = findViewById(R.id.jump_time_btn)
 
         // 字幕字号来自设置页，这里先按存档刷一次；之后每次 onResume 再刷（改完设置返回即生效）
         applySubtitleTextSize()
@@ -1062,15 +1110,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                             previousY = event.getY(if (index == 0) 1 else 0)
                         }
                     }
-                    MotionEvent.ACTION_UP -> {
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                         handleSwipeSeekTouch(event)
-                        if (onLongClick) {
-                            onLongClick = false
-                            val normalSpeed = speed_values[seekbar_speed.progress]
-                            ijkPlayer?.setSpeed(normalSpeed)
-                            danmakuManager?.setSpeed(normalSpeed)
-                            text_speed.text = speed_strs[seekbar_speed.progress]
-                        }
+                        endLongPressBoost()
                         if (gesture_moved) gesture_moved = false
                         if (gesture_scaled) gesture_scaled = false
                     }
@@ -1089,12 +1131,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     doubleTapGestureDetector!!.onTouchEvent(motionEvent)
                 }
                 handleSwipeSeekTouch(motionEvent)
-                if (motionEvent.action == MotionEvent.ACTION_UP && onLongClick) {
-                    onLongClick = false
-                    val normalSpeed = speed_values[seekbar_speed.progress]
-                    ijkPlayer?.setSpeed(normalSpeed)
-                    danmakuManager?.setSpeed(normalSpeed)
-                    text_speed.text = speed_strs[seekbar_speed.progress]
+                if (motionEvent.action == MotionEvent.ACTION_UP ||
+                    motionEvent.action == MotionEvent.ACTION_CANCEL
+                ) {
+                    endLongPressBoost()
                 }
                 false
             }
@@ -1108,11 +1148,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             if (SharedPreferencesUtil.getBoolean("player_longclick", true) && ijkPlayer != null && isPlaying && !isLiveMode) {
                 if (!onLongClick && !gesture_click_disabled) {
                     hidecon.run()
-                    ijkPlayer?.setSpeed(3.0F)
-                    danmakuManager?.setSpeed(3.0f)
-                    text_speed.text = "x 3.0"
+                    // #61：倍率来自设置页，每次长按重读（改完即生效），默认 3.0 与改造前一致
+                    val boostSpeed = longPressSpeed()
+                    ijkPlayer?.setSpeed(boostSpeed)
+                    danmakuManager?.setSpeed(boostSpeed)
+                    text_speed.text = PlayerLongPressPolicy.labelOf(boostSpeed)
                     onLongClick = true
-                    Logu.v("gesture", "longclick_down")
+                    Logu.v("gesture", "longclick_down speed=$boostSpeed")
                     return@setOnLongClickListener true
                 }
                 return@setOnLongClickListener false
@@ -1185,8 +1227,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             if (onlineTimer != null) text_online.visibility = View.VISIBLE
         }
 
-        // 锁定按钮在 control_layout 之外（锁定时要把整条控制栏一起藏掉），显隐要跟控制栏同步
-        lock_btn.visibility = View.VISIBLE
+        // 锁定按钮在 control_layout 之外（锁定时要把整条控制栏一起藏掉），显隐要跟控制栏同步；
+        // #7 关掉「显示锁定按钮」后，这条路径也不能把它放出来
+        lock_btn.visibility = if (lockButtonEnabled) View.VISIBLE else View.GONE
 
         // 控制栏浮现，字幕要抬高到控制栏之上，否则会被控制栏盖住
         setSubtitleBottomMargin(SUBTITLE_MARGIN_BOTTOM_CONTROLBAR_DP)
@@ -1245,7 +1288,33 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun initLockUi() {
         lock_overlay.setOnClickListener { onLockScreenTap() }
         lock_btn.setOnClickListener { onLockButtonClick() }
+        // #7：进页面就按设置决定锁定按钮可不可用，并保证关掉时不会残留在锁定态
+        refreshLockButtonSetting()
         alignLeftControlToRight()
+    }
+
+    /**
+     * 把「显示锁定按钮」开关（QQ#7）落到锁定状态上。
+     *
+     * 关掉时必须**立刻**退回未锁定：锁定态下 `lock_overlay` 会吞掉所有触摸，而唯一的解锁入口
+     * （`lock_btn`）已经被藏掉，继续停在 `LOCKED_*` 就是死锁。之后按钮只在控制栏浮现时显示，
+     * 所以这里也顺手把按钮收掉。
+     *
+     * 为什么每次都重读存档：设置页是另一个页面，用户改完返回播放器时只有 onResume 会经过这里；
+     * 缓存住 `lockButtonEnabled` 而不重读，就只能靠重启播放页才能生效。
+     */
+    private fun refreshLockButtonSetting() {
+        val enabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_SHOW_LOCK_BTN, true)
+        val changed = enabled != lockButtonEnabled
+        lockButtonEnabled = enabled
+        if (!enabled) {
+            // 先解锁再收按钮：applyLockPhase(UNLOCKED) 会走 showcon()，那里按 lockButtonEnabled 把按钮藏掉
+            if (PlayerLockPolicy.isLocked(lockPhase)) applyLockPhase(PlayerLockPolicy.Phase.UNLOCKED)
+            lock_btn.visibility = View.GONE
+            return
+        }
+        // 从「关」改回「开」时控制栏可能正显示着：补画一次，否则按钮要等下一次 showcon 才出现
+        if (changed && layout_control.visibility == View.VISIBLE) lock_btn.visibility = View.VISIBLE
     }
 
     /**
@@ -1270,6 +1339,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     private fun onLockButtonClick() {
+        // #7：按钮已关掉时残留的点击（隐藏动画、无障碍服务）同样不能改变锁定状态
+        if (!lockButtonEnabled) return
         val before = lockPhase
         val next = PlayerLockPolicy.phaseAfterLockButtonClick(before)
         applyLockPhase(next)
@@ -1296,9 +1367,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      * 状态只由 [PlayerLockPolicy] 决定，这里不重复判断"该不该锁"。
      */
     private fun applyLockPhase(phase: PlayerLockPolicy.Phase, autoHideMs: Long = 0L) {
-        lockPhase = phase
+        // #7：开关关掉后，任何路径都不许进入锁定态——锁定态下 overlay 吞掉全部触摸，
+        // 而唯一的解锁入口已经被藏掉，停在 LOCKED_* 就是死锁。这个互斥由 PlayerLockPolicy 保证。
+        val target = PlayerLockPolicy.phaseWithLockButtonDisabled(lockButtonEnabled, phase)
+        lockPhase = target
         mainHandler?.removeCallbacks(hideLockIcon)
-        when (phase) {
+        when (target) {
             PlayerLockPolicy.Phase.UNLOCKED -> {
                 lock_overlay.visibility = View.GONE
                 // 整条控制栏在锁定时被藏掉，解锁时连 button 组一起恢复，再走既有的 4 秒自动隐藏
@@ -1352,6 +1426,46 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (!PlayerLockPolicy.shouldSwallowExit(lockPhase)) return false
         applyLockPhase(PlayerLockPolicy.phaseAfterExitAttempt(lockPhase), PlayerLockPolicy.EXIT_HINT_MS)
         return true
+    }
+
+    // ==================== 精确空降（QQ 反馈 #9） ====================
+
+    /**
+     * 接线「跳到指定时间」：点开输入框，回来由 [onActivityResult] 解析并 seek。
+     *
+     * 显隐不在这里定：直播没有「时间点」概念，等 onPrepared 拿到 duration 后再按 [isLiveMode] 决定。
+     */
+    private fun initJumpToTimeButton() {
+        jump_time_btn.setOnClickListener {
+            val intent = Intent(this, InputDialogActivity::class.java)
+            intent.putExtra("title", getString(R.string.text_player_jump_to_time))
+            intent.putExtra("hint", getString(R.string.hint_player_jump_to_time))
+            startActivityForResult(intent, REQUEST_CODE_JUMP_TO_TIME)
+        }
+    }
+
+    /**
+     * 接「跳到指定时间」的输入。
+     *
+     * 校验放在这里而不是 [InputDialogActivity] 里：那个弹窗是通用输入框（新建文件夹等也在用），
+     * 不该认识「时间格式」这件事。非法输入提示后原地不动；合法但越界钳到末尾并明确告知，
+     * 免得用户输入 99:99 却停在结尾、看起来像没生效。
+     */
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_CODE_JUMP_TO_TIME || resultCode != RESULT_OK) return
+        // 直播/未 prepare 时 duration<=0，没有「时间点」概念；菜单虽然已隐藏，这里再兜一次时序缝隙
+        val durationMs = ijkPlayer?.duration ?: 0L
+        if (durationMs <= 0L) return
+        val seconds = PlayerJumpTimePolicy.parseToSeconds(data?.getStringExtra("input_text"))
+        if (seconds == null) {
+            MsgUtil.showMsg(getString(R.string.msg_player_jump_invalid))
+            return
+        }
+        val targetMs = PlayerJumpTimePolicy.clampMs(seconds * 1000L, durationMs) ?: return
+        if (seconds * 1000L > durationMs) MsgUtil.showMsg(getString(R.string.msg_player_jump_out_of_range))
+        seekToPosition(targetMs)
+        autohideReset()
     }
 
     /**
@@ -1690,17 +1804,38 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         danmakuManager?.setSpeed(speed_values[index])
     }
 
+    /**
+     * #61：读「长按倍速」档位。
+     *
+     * 每次长按都重读存档（项目约定「改完即生效」），不在 Activity 启动时缓存；
+     * 存档缺失/脏值由 [PlayerLongPressPolicy.fromStored] 退回默认 3.0（与改造前写死的 3.0F 一致）。
+     */
+    private fun longPressSpeed(): Float =
+        PlayerLongPressPolicy.fromStored(
+            SharedPreferencesUtil.getString(PlayerLongPressPolicy.KEY, PlayerLongPressPolicy.DEFAULT_STORED)
+        )
+
     private fun changeVideoSize() {
         if (!isPrepared || ijkPlayer == null) return
-        val width = ijkPlayer!!.videoWidth
-        val height = ijkPlayer!!.videoHeight
         Logu.v("screen", screen_width.toString() + "x" + screen_height)
-        Logu.v("video", width.toString() + "x" + height)
-
-        if (width == 0 || height == 0) {
-            Logu.v("视频尺寸", "视频宽高为0，跳过尺寸调整（可能处于听视频模式）")
+        // #31：重建窗口期 videoWidth/videoHeight 可能读到 0（载入中切后台再回来就是这种场景）。
+        // 旧实现此时直接 early-return，等于把"歪掉的旧布局"留在屏幕上——画面比例就是这么坏的。
+        // 现在优先用实时值，读不到就退回上一次已知的有效值；两者都没有才真的跳过。
+        val source = PlayerScreenMetricsPolicy.resolveSourceSize(
+            ijkPlayer!!.videoWidth,
+            ijkPlayer!!.videoHeight,
+            srcVideoWidth,
+            srcVideoHeight
+        )
+        if (source == null) {
+            Logu.v("视频尺寸", "视频宽高为0且没有缓存值，跳过尺寸调整（可能处于听视频模式）")
             return
         }
+        val width = source.width
+        val height = source.height
+        srcVideoWidth = width
+        srcVideoHeight = height
+        Logu.v("video", width.toString() + "x" + height)
 
         applyAutoOrientationIfNeeded(width, height)
 
@@ -1747,12 +1882,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 if (isPrepared && isPlaying && !isSeeking && !destroyed) {
                     // 取不到播放器时保持上次位置，避免进度条突然跳回 0
                     video_now = ijkPlayer?.currentPosition?.toInt() ?: video_now
+                    // #41：每轮都校正一次外挂音轨的播放/暂停状态（静音即暂停）。
+                    // 幂等且只在状态不一致时动手，250ms 一次的开销可以忽略。
+                    syncExternalAudioPlayback()
                     // 外部音频轨道（DASH分离文件fallback）同步校正：偏差过大时重新对齐，避免音画漂移。
                     // seek 的冷却期内不校正：MediaPlayer.seekTo 异步，seek 未完成时 currentPosition
                     // 还停在旧位置，这时再校正等于同一位置 seek 两遍（用户听到的就是停顿两次）。
+                    // 音轨被静音策略暂停时也不校正：暂停态的位置本来就不会前进，
+                    // 每轮都 seek 一次等于给 AudioService 刷 binder 请求（而且毫无意义）。
                     val nowElapsed = android.os.SystemClock.elapsedRealtime()
                     audioPlayer?.let { ap ->
-                        if (nowElapsed >= audioResyncSuppressMs) {
+                        if (externalAudioRunning && nowElapsed >= audioResyncSuppressMs) {
                             try {
                                 val audioPos = ap.currentPosition
                                 if (audioPos >= 0 && Math.abs(audioPos - video_now) > 800) {
@@ -2492,6 +2632,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         text_volume.removeCallbacks(hideVolume)
         text_volume.postDelayed(hideVolume, 3000)
         autohideReset()
+        // #41：短按音量键可能正好把系统媒体音量从 0 调上来（或调到 0）。
+        // 外挂音轨的播放/暂停要当场跟上，别等 250ms 定时器那一轮——用户能听出这个延迟。
+        syncExternalAudioPlayback()
     }
 
     private val hideVolume = Runnable { text_volume.visibility = View.GONE }
@@ -2579,6 +2722,71 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         } catch (e: Exception) {
             Logu.e("无极调音", "设置外部音轨增益失败：${e.message}")
         }
+        // 增益变了，外挂音轨该起还是该停也跟着变（静音 → 暂停；解静音 → 对齐后起播）
+        syncExternalAudioPlayback()
+    }
+
+    /**
+     * 此刻用户是否听不见：软件增益 0% **或** 系统媒体音量为 0。
+     *
+     * 判据在 [AudioSeekVolumePolicy.isSilent]，这里只负责取数。取不到系统音量
+     * （`audioManager` 还没初始化/异常）时按"不静音"处理（传 [Int.MAX_VALUE]），
+     * 免得因为一次读失败把外挂音轨永久停掉。
+     */
+    private fun isAudiblySilent(): Boolean {
+        val systemVolume = try {
+            audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: Int.MAX_VALUE
+        } catch (e: Exception) {
+            Int.MAX_VALUE
+        }
+        return AudioSeekVolumePolicy.isSilent(volumeGainPercent, systemVolume)
+    }
+
+    /**
+     * #41：把外挂音轨的**播放/暂停状态**校正到"该不该出声"上。
+     *
+     * 不变式：外挂音轨只在「真的能听见」且「视频在播」时运行；静音时直接暂停。
+     * 这样在静音状态下拖进度条，`audioPlayer.seekTo` 落在一个暂停的播放器上，
+     * 不存在"seek 时重建输出缓冲、音量被重置回 1.0 而漏出一声"的窗口。
+     *
+     * 幂等，可以在 250ms 定时器里每轮调；状态已经一致时什么都不做。
+     */
+    private fun syncExternalAudioPlayback() {
+        val player = audioPlayer ?: return
+        val action = AudioSeekVolumePolicy.actionFor(
+            silent = isAudiblySilent(),
+            playbackWanted = isPlaying && isPrepared,
+            audioRunning = externalAudioRunning
+        )
+        when (action) {
+            AudioSeekVolumePolicy.AudioAction.PAUSE -> {
+                try {
+                    player.pause()
+                    externalAudioRunning = false
+                    Logu.d("AudioTrack", "静音，暂停外部音轨")
+                } catch (e: Exception) {
+                    Logu.e("AudioTrack", "暂停外部音轨失败：${e.message}")
+                }
+            }
+            AudioSeekVolumePolicy.AudioAction.START -> {
+                try {
+                    // 静音期间音轨停着、视频在走，位置早已落后：先对齐再起播，否则解静音后
+                    // 先放出半秒旧声音、再被漂移校正拽回去（听感是"解开静音先乱一下"）。
+                    if (AudioSeekVolumePolicy.shouldResyncBeforeStart(player.currentPosition, video_now)) {
+                        player.seekTo(video_now)
+                        Logu.d("AudioTrack", "起播前对齐音轨到 $video_now")
+                    }
+                    player.start()
+                    externalAudioRunning = true
+                    // 刚 seek/起播，压住 800ms 漂移校正窗口（与 seekToVideo 同一个常量）
+                    audioResyncSuppressMs = android.os.SystemClock.elapsedRealtime() + AUDIO_RESYNC_COOLDOWN_MS
+                    Logu.d("AudioTrack", "恢复外部音轨")
+                } catch (e: Exception) {
+                    Logu.e("AudioTrack", "恢复外部音轨失败：${e.message}")
+                }
+            }
+            AudioSeekVolumePolicy.AudioAction.NONE -> Unit
+        }
     }
 
     /** 落盘当前百分比。拖动过程中不写，松手/关闭面板时各写一次。 */
@@ -2617,35 +2825,93 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     /** 松手后多久收起（毫秒）：留一点时间让用户看到调完的百分比。 */
     private val VOLUME_PANEL_HIDE_AFTER_TRACK_MS = 1_200L
 
+    /**
+     * 手动旋转（「旋转按钮」+ `dev_player_rotate_software` 打开时走这条）。
+     *
+     * 软件旋屏不改窗口方向，只把 `root_layout` 转 90° 并互换逻辑宽高，
+     * 所以尺寸计算必须走 [PlayerScreenMetricsPolicy.screenSize]（真旋转时**不能**再互换，
+     * 那种情况 `DisplayMetrics` 本身已经是横屏值）。
+     */
     private fun softwareRotate() {
+        refreshScreenMetrics(swapIfSoftwareLandscape = true)
+
+        if (isPrepared && !destroyed)
+            runOnUiThread {
+                applySoftwareRotationLayout()
+                if (!SharedPreferencesUtil.getBoolean("player_display", Build.VERSION.SDK_INT < 26))
+                    MsgUtil.showMsg(UiText.of("请切换为TextureView才能支持软件旋屏！"))
+            }
+        changeVideoSize()
+    }
+
+    /**
+     * 把当前屏幕尺寸重新读一遍。
+     *
+     * @param swapIfSoftwareLandscape 只有软件旋屏横屏态才互换宽高（见 [softwareRotate]）；
+     *   其它调用点（回前台、Surface 重建）传 false——真旋转后 `DisplayMetrics` 已经是横屏值。
+     */
+    private fun refreshScreenMetrics(swapIfSoftwareLandscape: Boolean) {
         val displayMetrics = DisplayMetrics()
         windowManager.defaultDisplay.getMetrics(displayMetrics)
-        screen_width = if (screen_landscape) displayMetrics.heightPixels else displayMetrics.widthPixels
-        screen_height = if (screen_landscape) displayMetrics.widthPixels else displayMetrics.heightPixels
+        val softwareLandscape = swapIfSoftwareLandscape &&
+                screen_landscape &&
+                SharedPreferencesUtil.getBoolean("dev_player_rotate_software", false)
+        val size = PlayerScreenMetricsPolicy.screenSize(
+            displayMetrics.widthPixels,
+            displayMetrics.heightPixels,
+            softwareLandscape
+        )
+        if (PlayerScreenMetricsPolicy.changed(screen_width, screen_height, size)) {
+            Logu.d("screen", "屏幕尺寸更新 ${screen_width}x${screen_height} -> ${size.width}x${size.height}")
+        }
+        screen_width = size.width
+        screen_height = size.height
+    }
 
+    /**
+     * 按当前 [screen_landscape] 与 [screen_width]/[screen_height] 摆放软件旋屏的根布局。
+     *
+     * 只做布局，不提示、不重算画面尺寸：回前台时也要重放一次（Surface 重建后根布局可能被
+     * 系统重置），但那时候弹「请切换为 TextureView」纯属骚扰。
+     */
+    private fun applySoftwareRotationLayout() {
         val rootLayout = findViewById<ViewGroup>(R.id.root_layout)
         val params = rootLayout.layoutParams
         params.width = screen_width
         params.height = screen_height
+        rootLayout.layoutParams = params
+        rootLayout.pivotX = 0f
+        rootLayout.pivotY = 0f
+        rootLayout.x = if (screen_landscape) screen_height.toFloat() else 0f
+        rootLayout.rotation = if (screen_landscape) 90f else 0f
+        if (textureView != null) {
+            val matrix = Matrix()
+            textureView!!.getTransform(matrix)
+            matrix.postRotate(0f)
+            textureView!!.setTransform(matrix)
+        }
+    }
 
-        if (isPrepared && !destroyed)
-            runOnUiThread {
-                rootLayout.layoutParams = params
-                rootLayout.pivotX = 0f
-                rootLayout.pivotY = 0f
-                rootLayout.x = if (screen_landscape) screen_height.toFloat() else 0f
-                rootLayout.rotation = if (screen_landscape) 90f else 0f
-                if (SharedPreferencesUtil.getBoolean("player_display", Build.VERSION.SDK_INT < 26)) {
-                    if (textureView != null) {
-                        val matrix = Matrix()
-                        textureView!!.getTransform(matrix)
-                        matrix.postRotate(0f)
-                        textureView!!.setTransform(matrix)
-                    }
-                } else {
-                    MsgUtil.showMsg(UiText.of("请切换为TextureView才能支持软件旋屏！"))
-                }
-            }
+    /**
+     * #31：回前台/画面重建时重新应用画面几何（屏幕尺寸 → 旋转布局 → 画面宽高比与居中）。
+     *
+     * 现象：点开视频、**载入中**退到后台（不杀进程）再回来，画面比例变怪。
+     * 根因：画面区域不是 layout 自适应，而是 `onPrepared`/`onConfigurationChanged` 时用
+     * `videoWidth/videoHeight` + `screen_width/height` 手算一次 `layout_video` 的宽高；
+     * `onResume` 从来不算，回来后 Surface 重建、窗口几何也可能已经不是当时那份，
+     * 布局却仍停在旧计算上（见 [PlayerScreenMetricsPolicy] 的类注释）。
+     *
+     * 幂等：尺寸没变时 `changeVideoSize` 只是重写一次相同的 LayoutParams，
+     * 不会引起可见跳动；也不碰播放状态（后台播放、MediaSession、切清晰度都不受影响）。
+     */
+    private fun reapplyVideoGeometry() {
+        if (destroyed) return
+        // findview() 在异步 inflate 回调里才跑，onResume 可能先到：布局还没就绪就先别动
+        if (!::layout_video.isInitialized || !::layout_control.isInitialized) return
+        refreshScreenMetrics(swapIfSoftwareLandscape = true)
+        if (screen_landscape && SharedPreferencesUtil.getBoolean("dev_player_rotate_software", false)) {
+            applySoftwareRotationLayout()
+        }
         changeVideoSize()
     }
 
@@ -2684,7 +2950,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             ijkPlayer!!.pause()
             if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.pause()
         }
-        audioPlayer?.pause()
+        try {
+            audioPlayer?.pause()
+        } catch (_: Exception) {
+        }
+        externalAudioRunning = false
         btn_control.setImageResource(R.drawable.btn_player_play)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && mediaSession != null) {
             updateMediaSessionPlaybackState()
@@ -2697,7 +2967,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             ijkPlayer!!.start()
             if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.resume()
         }
-        audioPlayer?.start()
+        // #41：外挂音轨的起播走统一策略——暂停态不该被这里直接 start()，
+        // 静音态也不该；对齐与起播都由 syncExternalAudioPlayback() 负责。
+        syncExternalAudioPlayback()
         btn_control.setImageResource(R.drawable.btn_player_pause)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && mediaSession != null) {
             updateMediaSessionPlaybackState()
@@ -2785,6 +3057,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 设置页里改完「字幕字号大小」返回播放页立即生效。
         // findview() 在异步 inflate 回调里才跑，onResume 可能先到，必须判初始化。
         if (::text_subtitle.isInitialized) applySubtitleTextSize()
+        // #7：设置页里改完「显示锁定按钮」返回播放页立即生效（不这样就得重启播放页）
+        if (::lock_btn.isInitialized) refreshLockButtonSetting()
+        // #31：回前台重新应用画面尺寸/比例/旋转。载入中切后台再回来时，Surface 重建、
+        // 窗口几何也可能已经变了，而画面区域是手算出来的（不随布局自适应），不重算就会歪。
+        // 只重排布局，不动播放状态——后台播放、MediaSession、切清晰度都不受影响。
+        reapplyVideoGeometry()
     }
 
     override fun onStop() {
@@ -3169,6 +3447,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     // 直播下进度条恒为 0（progressChange 只在非直播写它），拖拽/缓冲期间它也可能与真实位置不一致。
                     ijkPlayer?.seekTo(video_now.toLong())
                 }
+                // #31：Surface 重建时画面区域也要按新的窗口几何重排一次。
+                // 载入中切后台再回来最常走这条路径（onPrepared 早于回前台，布局停在旧的宽高比上）。
+                reapplyVideoGeometry()
             },
             onSurfaceLost = { detachSurface() }
         )
@@ -3382,6 +3663,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
         ijkPlayer?.seekTo(position)
         if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.seekTo(position)
+        // #41：先按静音策略校正外挂音轨的播放/暂停状态，再做 seek。
+        // 静音状态下这条音轨此时已经暂停，`MediaPlayer.seekTo` 落在一个停止的播放器上，
+        // 不存在"seek 重建输出缓冲、音量回到默认 1.0 而漏出一声"的窗口——
+        // 这正是用户报的"静音时拖进度条，拖完会出声一小会"。
+        syncExternalAudioPlayback()
         // 同步外部音频轨道：DASH 双文件时只 seek 视频会让音轨留在旧位置
         if (audioPlayer != null) {
             try {
@@ -3441,19 +3727,18 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      * 自动跳过片头/片尾。
      *
      * 触发条件：用户开了设置、且当前位置落在一段**还没处理过**的片头/片尾里。
-     * 跳一次就把片段记进 [skipHandled]，这样用户点「撤回」回到原地后不会被立刻再弹走。
+     * 「该不该跳、跳完记哪个片段」全部由 [SkipDecider] 决定（每个片段只跳一次、
+     * 换P 后旧片段不参与判定），这里只负责时间兜底的静默期与真正的跳转。
      */
     private fun maybeAutoSkipOpEd(positionSec: Double) {
-        if (skipSegments.isEmpty()) return
+        if (skipDecider.segments.isEmpty()) return
         if (!skipOpEdEnabled()) return
         // 刚跳过一次：等 IJK 的异步 seek 落地再判，否则 video_now 回弹到旧位置会再判一次
         if (android.os.SystemClock.elapsedRealtime() < skipQuietUntilMs) return
-        val segment = ViewPointSkip.shouldSkip(positionSec, skipSegments, skipHandled) ?: return
-        skipHandled.add(ViewPointSkip.keyOf(segment))
+        val segment = skipDecider.decide(positionSec) ?: return
         Logu.d("跳过片头片尾", "跳过 type=" + segment.type + " " + segment.fromSec + "s -> " + segment.toSec + "s")
         // 落点是区间的右端点（右开区间之外），所以不会被自己再次判定
         seekToPosition((segment.toSec * 1000.0).toLong(), userInitiated = false)
-        lastSkippedSegment = segment
         showSkipUndoSnack(segment)
     }
 
@@ -3462,9 +3747,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         val isOpening = segment.type == ViewPointSkip.TYPE_OP
         val action = MsgUtil.Action(UiText.of("撤回"), View.OnClickListener {
             // 期间又跳过别的片段、或用户自己拖过进度，这条「撤回」就过期了，别把人拽回去
-            if (lastSkippedSegment !== segment) return@OnClickListener
-            lastSkippedSegment = null
-            // 跳回片段起点；此时该片段已在 skipHandled 里，不会再被自动跳过
+            if (!skipDecider.isUndoValid(segment)) return@OnClickListener
+            skipDecider.clearUndo()
+            // 跳回片段起点；此时该片段已在已处理集合里，不会再被自动跳过
             seekToPosition((segment.fromSec * 1000.0).toLong())
             MsgUtil.showMsg(if (isOpening) UiText.of("已回到片头") else UiText.of("已回到片尾"))
         })
@@ -3483,11 +3768,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      *   （26.10.22「乱跳」的成因之一，判据收敛在 [SkipCancelPolicy.cancelKeyFor]）。
      */
     private fun onUserSeekTo(positionMs: Long, userInitiated: Boolean) {
-        if (skipSegments.isEmpty()) return
-        val segmentKey = ViewPointSkip.keyForManualSeek(positionMs / 1000.0, skipSegments, skipHandled)
-        val key = SkipCancelPolicy.cancelKeyFor(userInitiated, segmentKey, skipHandled) ?: return
-        skipHandled.add(key)
-        lastSkippedSegment = null
+        // 判据在 SkipDecider.onUserSeek（内部保留 SkipCancelPolicy.cancelKeyFor 的语义）：
+        // 自动跳过自己传 false 进来时一律不算「用户反悔」。
+        if (!userInitiated) return
+        skipDecider.onUserSeek(positionMs)
     }
 
     /**
@@ -3504,7 +3788,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (!SkipOpEdPrefs.FEATURE_ENABLED) return
         val enabled = skipOpEdEnabled()
         if (!SkipOpEdPrefs.shouldShowGuide(
-                skipSegments.isNotEmpty(),
+                skipDecider.segments.isNotEmpty(),
                 SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SKIP_OP_ED_GUIDED, false)
             )
         ) return
@@ -3523,14 +3807,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
     /**
      * 左右滑动控制进度（横向滑动快进/快退）。返回 true 表示事件已被滑动进度消费。
-     * 仅在开启设置、未缩放视频、非直播且已准备就绪时生效。
+     * 仅在开启设置、未缩放视频、非直播、已准备就绪且**没有按住长按加速**时生效。
      */
     private fun handleSwipeSeekTouch(event: MotionEvent): Boolean {
         // 缩放状态取画面的实际比例，不读 gesture_scaled（那个标志在 ACTION_UP 就复位，
         // 捏合放大松手后会把调进度重新放行——26.10.20 修的正是这个）。
+        // 长按加速期间同理：按住时不消费横滑，松手（含 ACTION_CANCEL）后自动恢复。
         val seekAllowed = PlayerSwipeSeekPolicy.isSeekAllowed(
             swipeSeekEnabled, isPrepared, isLiveMode, ijkPlayer != null,
-            layout_video.scaleX, layout_video.scaleY
+            layout_video.scaleX, layout_video.scaleY, onLongClick
         )
         if (!seekAllowed) {
             // 门闸关闭时顺手收掉可能残留的浮层：横滑激活浮层后再捏合缩放，最终 ACTION_UP 会走到
@@ -3553,6 +3838,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 if (!swipeSeekActive && abs(deltaX) > swipeSeekThreshold) {
                     swipeSeekActive = true
                     swipeSeekStartPos = video_now.toLong()
+                    // #94a：灵敏度每次手势重读存档，设置页改完回播放器立即生效，不必重建页面
+                    swipeSeekScale = PlayerSwipeSeekScalePolicy.fromStored(
+                        SharedPreferencesUtil.getString(
+                            SettingsKeys.PLAYER_SWIPE_SEEK_SCALE,
+                            PlayerSwipeSeekScalePolicy.DEFAULT_STORED
+                        )
+                    )
                     gesture_click_disabled = true
                     hidecon.run()
                     swipe_seek_overlay.visibility = View.VISIBLE
@@ -3560,9 +3852,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 if (swipeSeekActive) {
                     val width = layout_control.width.toFloat().coerceAtLeast(1f)
                     val duration = ijkPlayer!!.duration
-                    var target = swipeSeekStartPos + (deltaX / width * duration).toLong()
-                    if (target < 0) target = 0
-                    if (duration > 0 && target > duration) target = duration
+                    // 倍率与 [0, duration] 的钳制都在纯函数里做，播放页只拿结果画浮层
+                    val target = PlayerSwipeSeekScalePolicy.targetMs(
+                        swipeSeekStartPos, deltaX, width, duration, swipeSeekScale
+                    )
                     swipeSeekTarget = target
                     seekbar_progress.progress = target.toInt()
                     updateSwipeSeekOverlay(target, duration)
@@ -3586,6 +3879,22 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         return false
     }
 
+    /**
+     * 结束长按加速，恢复用户选中的倍速与文案。
+     *
+     * **ACTION_UP 与 ACTION_CANCEL 都要调用**：长按加速期间横滑不再消费（见 [PlayerSwipeSeekPolicy]
+     * 的 longPressBoost 门闸），若触摸被父容器/失焦 CANCEL 后 `onLongClick` 卡在 true，
+     * 滑动调进度会被永久拦掉、播放速度也停在长按倍速上。
+     */
+    private fun endLongPressBoost() {
+        if (!onLongClick) return
+        onLongClick = false
+        val normalSpeed = speed_values[seekbar_speed.progress]
+        ijkPlayer?.setSpeed(normalSpeed)
+        danmakuManager?.setSpeed(normalSpeed)
+        text_speed.text = speed_strs[seekbar_speed.progress]
+    }
+
     /** 收掉可能残留的滑动进度浮层；浮层与标志都不存在时不动 UI。 */
     private fun cancelSwipeSeekIfActive() {
         if (!swipeSeekActive && swipe_seek_overlay.visibility != View.VISIBLE) return
@@ -3605,6 +3914,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun releaseAudioTrack() {
         val previous = audioPlayer
         audioPlayer = null
+        externalAudioRunning = false
         try {
             previous?.release()
         } catch (e: Exception) {
@@ -3657,6 +3967,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         try {
             val player = android.media.MediaPlayer()
             audioPlayer = player
+            val gain = PlayerVolumePolicy.percentToGain(volumeGainPercent)
+            // #41：**必须在 prepare/start 之前**把增益打上去。新建的 MediaPlayer 默认音量是 1.0，
+            // 旧写法先 start() 再等 onPrepared 末尾的 applyVolumeGain()，这一段窗口里
+            // 静音用户会听到一下声音（真实反馈就是"拖完响一小会"的同类窗口）。
+            player.setVolume(gain, gain)
             player.setOnErrorListener { failedPlayer, what, extra ->
                 if (audioPlayer === failedPlayer) {
                     Logu.e("AudioTrack", "外部音频播放失败：$what/$extra")
@@ -3669,8 +3984,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             player.prepare()
             if (isPrepared) player.seekTo(video_now)
             player.isLooping = false
-            if (isPlaying) player.start()
-            Logu.d("AudioTrack", "已启用唯一的外部音频轨道")
+            // #41：静音（软件增益 0% 或系统媒体音量 0）时不要起播——外挂音轨静音期间保持暂停，
+            // seek 就没有机会漏出声音；解除静音由 syncExternalAudioPlayback() 对齐位置后起播。
+            if (isPlaying && !isAudiblySilent()) {
+                player.start()
+                externalAudioRunning = true
+            }
+            Logu.d("AudioTrack", "已启用唯一的外部音频轨道，增益=$gain，静音=${isAudiblySilent()}")
         } catch (e: Exception) {
             Logu.e("AudioTrack", "音频轨道初始化失败: ${e.message}")
             releaseAudioTrack()
@@ -4096,8 +4416,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         cids = ArrayList(videoInfo.cids)
         isVirtualCollectionMode = false
         aid = videoInfo.aid
-        // 从第 1 个分P 起。VideoInfo 没带"上次看到哪个分P"，续播到具体分P 需要另读 player/v2 的
-        // last_play_cid，本轮不做（见台账 §3.24 的未覆盖项）
+        // 从第 1 个分P 起：这是用户主动点「进入分P」进目录，语义是"从这一层的第一集开始看"，
+        // 不是"继续上次看的"。真正处理 #83「再次打开续到上次那个P」的是详情页入口
+        // （VideoInfoFragment.playClick → MultiPageResumePolicy），那一条走的是直接起播上次的P。
         currentPageIndex = 0
         MsgUtil.showMsg(getString(R.string.msg_player_entered_multi_page, videoInfo.title ?: ""))
         switchToOnlinePage(0, pagenames!![0])
@@ -4214,6 +4535,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         viewPoints = null
         viewPointAdapter = null
         btn_viewpoint.visibility = View.GONE
+        // #34：**换P 必须立刻清空自动跳过状态**，不能等新一P 的 view_points 回来再覆盖。
+        // 旧实现只清 viewPoints（那是"分段列表"的 UI 数据），`skipSegments` 还是上一P 的，
+        // 于是新一P 播到上一P 的片头秒数时会被 250ms 定时器命中 → 在新的一P 里凭空跳一下。
+        // reset() 同时让在途的旧请求作废（见 loadViewPoints 的代次令牌）。
+        skipDecider.reset()
+        skipQuietUntilMs = 0L
 
         interactionData = null
         currentEdgeId = 0
@@ -4359,10 +4686,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     private fun loadViewPoints() {
+        // #34：发起前先领一个代次令牌，并把发起时的 aid/cid 固定下来。
+        // 换 P 之后（`doSwitchPage` → `skipDecider.reset()`）旧代次的响应会被整条丢弃，
+        // 不会把上一P 的片头片尾套到新的一P 上——那是"因为视频分段也跳过"的另一条来源。
+        val requestAid = aid
+        val requestCid = cid
+        val token = skipDecider.beginLoad(requestAid, requestCid)
         CenterThreadPool.run {
             try {
-                Logu.d("视频分段", "开始加载分段数据 aid=" + aid + " cid=" + cid)
-                viewPoints = PlayerApi.getViewPoints(aid, cid)
+                Logu.d("视频分段", "开始加载分段数据 aid=" + requestAid + " cid=" + requestCid)
+                viewPoints = PlayerApi.getViewPoints(requestAid, requestCid)
                 // 片头/片尾只是 view_points 的子集（type=1/2），这里单独提炼一份给自动跳过用。
                 // 功能总开关 [SkipOpEdPrefs.FEATURE_ENABLED] 为假（即再次紧急撤回）时直接留空，
                 // 不白跑 buildSegments：唯一的消费点 maybeAutoSkipOpEd 已被 SkipOpEdPrefs.isEnabled
@@ -4379,16 +4712,19 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
                 runOnUiThread {
                     if (destroyed) return@runOnUiThread
+                    // #34：迟到的响应直接丢掉 —— 既不能写片段表，也不能清空已处理集合。
+                    // 旧实现无条件写入，换P 期间上一P 的响应一到，当前这一P 就会按上一P 的
+                    // 片头片尾去跳；代次/ aid / cid 任一不符即过期（判据在 SkipDecider.isStale）。
+                    if (skipDecider.isStale(token, aid, cid)) {
+                        Logu.d("视频分段", "丢弃过期的分段响应 aid=$requestAid cid=$requestCid")
+                        return@runOnUiThread
+                    }
                     // 只有**片段内容真的变了**（换集/换P）才清空已处理集合与撤回位。
                     // 原先无条件 clear()：loadViewPoints() 在一次播放里会被调用多次
                     // （启动、投屏恢复等），响应晚到时会把「片头已处理」抹掉 → 下一轮定时器
                     // 重新命中 → 开播十几秒后自己又往前跳一次，每多拉一次多跳一次。
-                    // 判据收敛在 SkipCancelPolicy.segmentsChanged（有单测）。
-                    if (SkipCancelPolicy.segmentsChanged(skipSegments, segments)) {
-                        skipHandled.clear()
-                        lastSkippedSegment = null
-                    }
-                    skipSegments = segments
+                    // 判据收敛在 SkipCancelPolicy.segmentsChanged（SkipDecider 内部复用它）。
+                    skipDecider.applyLoaded(segments)
 
                     if (viewPoints != null && viewPoints!!.isNotEmpty()) {
                         // 只开了自动跳过的用户不需要这个按钮
@@ -4985,12 +5321,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
             if (!SharedPreferencesUtil.getBoolean("player_ui_showPageBtn", true))
                 btn_page_selector.visibility = View.GONE
+
+            // QQ#9：非直播才有「跳到指定时间」；直播在下面的 else 分支统一隐藏
+            jump_time_btn.visibility = View.VISIBLE
         } else {
             btn_loop.visibility = View.GONE
             btn_audio_only.visibility = View.GONE
             btn_page_selector.visibility = View.GONE
             btn_auto_next.visibility = View.GONE
             btn_quality.visibility = View.GONE
+            jump_time_btn.visibility = View.GONE
         }
 
         seekbar_progress.max = video_all

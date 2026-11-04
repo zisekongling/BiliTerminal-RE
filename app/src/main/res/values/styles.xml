@@ -34,7 +34,25 @@
         <item name="strokeWidth">1dp</item>
     </style>
 
-    <style name="ButtonStyle" parent="Widget.MaterialComponents.Button">
+    <!--
+        按钮公共基线样式：所有主题的 ButtonStyle* / 玻璃变体都继承它。
+        手表屏只有 200dp 出头，两个按钮各占一半时内容区只有 70dp 上下；放 5～6 个汉字
+        的系统字体一放大就会折行。折行后同一行两个按钮高度不同，LinearLayout 默认的
+        基线对齐还会把较矮那个上下错开——用户看到的就是「按钮对不齐、界面崩坏」。
+        这里统一成：文字永远单行，放不下时自动缩小字号（7sp～14sp），不折行也不裁字。
+        autoSize* 是 AppCompat 的自动字号能力，API 19 起由 appcompat 兼容实现。
+        显式写死字号的小按钮（如 WebView 缩放键）在各自布局里用 autoSizeTextType=none 关掉。
+    -->
+    <style name="ButtonStyleBase" parent="Widget.MaterialComponents.Button">
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+        <item name="autoSizeTextType">uniform</item>
+        <item name="autoSizeMinTextSize">7sp</item>
+        <item name="autoSizeMaxTextSize">14sp</item>
+        <item name="autoSizeStepGranularity">1sp</item>
+    </style>
+
+    <style name="ButtonStyle" parent="ButtonStyleBase">
         <item name="backgroundTint">@color/pink</item>
         <item name="cornerRadius">@dimen/card_round</item>
         <item name="android:textColor">@color/pink_btn_text</item>
@@ -48,7 +66,7 @@
         <item name="rippleColor">@color/bili_primary_light</item>
     </style>
 
-    <style name="ButtonStyleLight" parent="Widget.MaterialComponents.Button">
+    <style name="ButtonStyleLight" parent="ButtonStyleBase">
         <item name="backgroundTint">@color/pink</item>
         <item name="cornerRadius">@dimen/card_round</item>
         <item name="android:textColor">@android:color/white</item>

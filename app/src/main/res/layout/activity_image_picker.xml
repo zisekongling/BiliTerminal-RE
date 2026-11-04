@@ -43,6 +43,7 @@
         android:layout_height="wrap_content"
         android:layout_below="@id/top"
         android:layout_marginHorizontal="6dp"
+        android:baselineAligned="false"
         android:orientation="horizontal">
 
         <com.google.android.material.button.MaterialButton
@@ -56,7 +57,11 @@
             android:minHeight="@dimen/touch_min"
             android:text="@string/text_image_picker_all"
             android:textAllCaps="false"
-            android:textSize="12sp" />
+            android:textSize="12sp"
+            app:autoSizeMaxTextSize="12sp"
+            app:autoSizeMinTextSize="7sp"
+            app:autoSizeStepGranularity="1sp"
+            app:autoSizeTextType="uniform" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_system"
@@ -69,7 +74,11 @@
             android:minHeight="@dimen/touch_min"
             android:text="@string/btn_image_picker_system"
             android:textAllCaps="false"
-            android:textSize="12sp" />
+            android:textSize="12sp"
+            app:autoSizeMaxTextSize="12sp"
+            app:autoSizeMinTextSize="7sp"
+            app:autoSizeStepGranularity="1sp"
+            app:autoSizeTextType="uniform" />
 
     </LinearLayout>
 

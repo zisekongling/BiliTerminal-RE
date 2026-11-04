@@ -62,20 +62,32 @@ class MultiPageActivity : BaseActivity() {
                     }
                 } else {
                     adapter.onItemClickListener = OnItemClickListener { position ->
-                        val cidCurr = videoInfo.cids[position]
-                        if (cidCurr != playerData!!.cidHistory) {
-                            playerData = videoInfo.toPlayerData(position)
-                            playerData!!.cidHistory = cidCurr
-                            playerData!!.timeStamp = 0
+                        // #83：无论点的是不是「上次看的那个P」，都必须按**点中的分P** 重建 PlayerData。
+                        // 旧实现写的是「点中的 cid != cidHistory 才重建」，于是点上次那一P 时会沿用
+                        // 详情页预取的 P1，播出来是第 1P（cidHistory 现在会随 Intent 传过来了，这个坑更容易踩到）。
+                        // 进度归属仍然只由 PlayerApi 按服务端 last_play_cid 判定，这里不插手。
+                        if (MultiPageResumePolicy.isValidPageIndex(videoInfo.cids, position)) {
+                            val lastPlayTimeMs = playerData?.lastPlayTimeMs ?: 0L
+                            val pageData = videoInfo.toPlayerData(position)
+                            pageData.lastPlayTimeMs = lastPlayTimeMs
+                            // 归零：让 JumpToPlayerActivity 重拉 playurl，续播位置按这个分P 现算
+                            pageData.timeStamp = 0
+                            PlayerApi.startGettingUrl(pageData)
                         }
-
-                        PlayerApi.startGettingUrl(playerData!!)
-                        playerData!!.timeStamp = 0
                     }
                 }
 
                 recyclerView.layoutManager = CustomLinearManager(this)
                 recyclerView.adapter = adapter
+
+                // 「进分P 选择层默认选中上次的P」：把这个列表滚到上次观看的分P 上，
+                // 用户一进来就看得见自己上次看到哪儿（真正起播由详情页「播放」直接走，见 VideoInfoFragment）。
+                val resumeIndex = MultiPageResumePolicy.resumePageIndex(
+                    videoInfo.cids,
+                    playerData?.cidHistory ?: 0L,
+                    playerData?.lastPlayTimeMs ?: 0L
+                )
+                if (resumeIndex > 0) recyclerView.scrollToPosition(resumeIndex)
             }
         }
     }

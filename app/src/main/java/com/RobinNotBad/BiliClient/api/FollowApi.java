@@ -17,6 +17,8 @@ import org.json.JSONObject;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -198,6 +200,86 @@ public class FollowApi {
         fields.put("fids", joinMids(fids));
         fields.put("csrf", csrf == null ? "" : csrf);
         return fields;
+    }
+
+    /**
+     * 查询某个用户当前在哪些关注分组里（反馈 #88 的弹窗要标出「已加入」）。
+     *
+     * 对应 `GET https://api.bilibili.com/x/relation/tag/user?fid=`，
+     * 响应 `data` 是「分组 id → 分组名」的对象，且**只在用户不在默认分组时才出现**；
+     * 特别关注是 `tagid = -10`，调用方一般只处理 `tagid > 0` 的自建分组。
+     *
+     * @return 分组列表（count 恒为 0，这个接口不返回人数）；接口失败抛异常
+     */
+    public static List<FollowTag> getUserFollowTags(long fid) throws IOException, JSONException {
+        String url = "https://api.bilibili.com/x/relation/tag/user?fid=" + fid;
+        JSONObject callback = NetWorkUtil.getJson(url);
+        if (callback.optInt("code", -1) != 0)
+            throw new JSONException(callback.optInt("code", -1) + "：" + callback.optString("message", "未知API错误"));
+        List<FollowTag> tagList = new ArrayList<>();
+        JSONObject data = callback.optJSONObject("data");
+        if (data == null) return tagList;
+        Iterator<String> keys = data.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            try {
+                tagList.add(new FollowTag(Integer.parseInt(key), data.optString(key, ""), 0));
+            } catch (NumberFormatException ignored) {
+                // 键不是数字（理论上不会发生）：跳过而不是让整个弹窗失效
+            }
+        }
+        return tagList;
+    }
+
+    /**
+     * 把一个已关注的人**加入**若干关注分组（反馈 #88）。
+     *
+     * 对应 `POST https://api.bilibili.com/x/relation/tags/addUsers`，参数是
+     * `tagids`（逗号分隔的分组 id）与 `fids`（逗号分隔的用户 mid）。
+     * 与 {@link #moveFollowTagUsers} 的区别：这里是**追加**，不会把他从原分组里移走，
+     * 也不会取消关注——正是「长按已关注 → 加入分组」要的语义。
+     *
+     * @param tagids 目标分组 id（只该传 tagid > 0 的自建分组）
+     * @param fid    目标用户 mid
+     * @return 服务端 code（0 成功）
+     */
+    public static int addFollowTagUsers(List<Integer> tagids, long fid) throws IOException, JSONException {
+        if (tagids == null || tagids.isEmpty() || fid <= 0) return -400;
+        NetWorkUtil.FormData formData = new NetWorkUtil.FormData();
+        Map<String, String> fields = addUsersFields(tagids, Collections.singletonList(fid), NetWorkUtil.currentCsrf());
+        for (Map.Entry<String, String> entry : fields.entrySet()) {
+            formData.put(entry.getKey(), entry.getValue());
+        }
+        return postTag("https://api.bilibili.com/x/relation/tags/addUsers", formData);
+    }
+
+    /**
+     * 组装 `tags/addUsers` 的请求字段（纯函数，便于 JVM 单测）。
+     *
+     * 与 {@link #moveUsersFields} 一样抽出来是为了**钉死字段名**：这里用的是复数
+     * `tagids` / `fids`，写错只会在真机上收到一个 -400，看起来完全不像拼写问题。
+     *
+     * @return 字段名 → 字段值（顺序不保证）
+     */
+    public static Map<String, String> addUsersFields(List<Integer> tagids, List<Long> fids, String csrf) {
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("tagids", joinTagIds(tagids));
+        fields.put("fids", joinMids(fids));
+        fields.put("csrf", csrf == null ? "" : csrf);
+        return fields;
+    }
+
+    /**
+     * 把分组 id 列表拼成接口要的逗号分隔形式（纯函数，便于 JVM 单测）。
+     */
+    public static String joinTagIds(List<Integer> tagids) {
+        if (tagids == null || tagids.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < tagids.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append(tagids.get(i));
+        }
+        return sb.toString();
     }
 
     /**

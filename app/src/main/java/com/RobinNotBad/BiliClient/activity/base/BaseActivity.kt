@@ -108,6 +108,12 @@ open class BaseActivity : AppCompatActivity() {
         super.attachBaseContext(BiliTerminal.getFitDisplayContext(newBase))
     }
 
+    // 用户「界面边距」换算出的像素（左右对称，上下可不同；全 0 表示不启用）。
+    // 26.11.02 起不再加在 DecorView 上，见 applyUserPadding 的推导。
+    private var userPaddingH = 0
+    private var userPaddingT = 0
+    private var userPaddingB = 0
+
     override fun onCreate(@Nullable savedInstanceState: Bundle?) {
         val theme = SharedPreferencesUtil.getString(ColorScheme.PREF_KEY_THEME, ColorScheme.THEME_DEFAULT)
         // 「禁用返回键」为的是拦住手表自带的右滑返回；那只手势在窗口层直接 finish，不走 onBackPressed，
@@ -158,10 +164,23 @@ open class BaseActivity : AppCompatActivity() {
             window_height = scrH - insets.top - insets.bottom
             val rootView = this.window.decorView.rootView
             rootView.setPadding(insets.left, insets.top, insets.right, insets.bottom)
+            val paddingH = scrW * paddingH_percent / 100
+            val paddingT = scrH * paddingV_percent / 100
+            var paddingB = paddingT
+            if (SharedPreferencesUtil.getBoolean("player_ui_round", false))
+                paddingB += (scrH * 0.03).toInt()
+            window_width = scrW - paddingH * 2
+            window_height = scrH - paddingT - paddingB
+            userPaddingH = paddingH
+            userPaddingT = paddingT
+            userPaddingB = paddingB
         } else {
             window_width = scrW
             window_height = scrH
         }
+
+        // 用户边距加在内容容器上（不是 DecorView），推导见 applyUserPadding
+        applyUserPadding()
 
         applySystemBarInsets()
 
@@ -178,12 +197,46 @@ open class BaseActivity : AppCompatActivity() {
     }
 
     /**
+     * 把用户「界面边距」加到**内容容器** `android.R.id.content` 上（而不是窗口的 DecorView）。
+     *
+     * <h3>先给推导：标准框架下 padding 本身不会造成触摸偏移</h3>
+     * `ViewGroup.dispatchTouchEvent` 判命中走 `isTransformedTouchPointInView`，用的是子 View 的
+     * `mLeft / mTop`（= 父 left + padding + margin）与 `dispatchTransformedTouchEvent` 里同一个
+     * 偏移量；子 View 的绘制位置也是 `mLeft / mTop`。也就是说 **padding 加在任何 ViewGroup 上，
+     * 「画到哪」和「点到哪」永远是同一套坐标**，`setPadding` 的算术不可能把触摸点挪到旁边。
+     * 所以反馈 #54（边距>0 时按钮命中偏移、图片双击只抖动）不是这里的加法写错了。
+     *
+     * <h3>那为什么还要换地方</h3>
+     * `DecorView` 是**窗口根**，不是普通布局：它还参与 `setDecorFitsSystemWindows(false)` 的
+     * outsets / insets 处理、系统边缘手势区，以及 OEM 的窗口兼容层（反馈设备 HWARC 是 HarmonyOS
+     * 手表，Android 应用还要过一层兼容层）。给窗口根塞 padding 属于「非设计用法」，个别框架上
+     * 完全可能出现「视觉位置与命中位置对不上」的观感。把边距下沉到普通 FrameLayout 后，窗口根
+     * 只保留系统栏 inset（见 [applySystemBarInsets]），边距走的就是标准 ViewGroup 布局与命中路径。
+     *
+     * <h3>为什么是 content 而不是它的子 View</h3>
+     * `android.R.id.content` 是框架的 `ContentFrameLayout`，本身没有布局里声明的 padding；
+     * 而它的子 View 是各页面自己的根布局（经常自带 `android:paddingHorizontal` 等），
+     * 直接 `setPadding` 会覆盖页面自己的内边距。content 容器在 `setContentView`（含 `asyncInflate`
+     * 的二次替换）时**不会被换掉、只换它的子 View**，所以边距只设一次就够；[onContentChanged]
+     * 里再兜一次，防止个别 AppCompat 版本在换内容时重排 content 的 padding。
+     */
+    private fun applyUserPadding() {
+        if (userPaddingH == 0 && userPaddingT == 0 && userPaddingB == 0) return
+        val content = findViewById<ViewGroup>(android.R.id.content) ?: return
+        content.setPadding(userPaddingH, userPaddingT, userPaddingH, userPaddingB)
+        Logu.d(
+            "debug",
+            "界面边距已应用到内容容器：h=${userPaddingH} t=${userPaddingT} b=${userPaddingB}"
+        )
+    }
+
+    /**
      * 系统栏避让。
      *
      * [ColorScheme.applyWindowTheme] 里调用了 `setDecorFitsSystemWindows(false)`，内容会绘制到
      * 系统栏（状态栏/导航栏/刘海）下方。此前全工程没有任何 insets 处理，结果是贴底控件与列表
-     * 最后一项被导航栏压住。这里把系统栏 inset 叠加到根布局已有的 padding 上，用户自定义的
-     * 「界面边距」设置（paddingH/V_percent）仍然保留。
+     * 最后一项被导航栏压住。这里把系统栏 inset 叠加到**窗口根**已有的 padding 上；用户自定义的
+     * 「界面边距」自 26.11.02 起加在内容容器上（见 [applyUserPadding]），两者互不覆盖。
      */
     private fun applySystemBarInsets() {
         val root = window.decorView.rootView
@@ -264,9 +317,12 @@ open class BaseActivity : AppCompatActivity() {
                     val paddingV = (window_width * 0.03).toInt()
                     pagename.setPadding(paddingH, paddingV, paddingH, 0)
 
-                    // 时钟的宿主容器有两种：绝大多数布局里 top 是 RelativeLayout，时钟直接挂在它下面；
-                    // 首页那种带菜单区的布局里，时钟在 top 内的 menuArea(LinearLayout) 里。
-                    // 必须按【真实父容器】决定 LayoutParams 类型 —— 给 LinearLayout 的子 View 塞
+                    // 时钟的宿主容器：现在所有布局里 top 都是 RelativeLayout、时钟直接挂在它下面。
+                    // 但这里仍按【真实父容器】决定 LayoutParams 类型 —— 26.11.01 之前首页
+                    // (`activity_simple_main_refresh`) 把时钟套在 menuArea(LinearLayout) 里，
+                    // 拿到的是 LinearLayout.LayoutParams，加不了 RelativeLayout 规则，圆屏模式下
+                    // 时钟就一直钉在最右、被圆盘切掉；那层多余的 LinearLayout 已删掉。
+                    // 保留按父容器判型是为了防将来再出现同样的嵌套：给 LinearLayout 的子 View 塞
                     // RelativeLayout.LayoutParams，LinearLayout.measureHorizontal 强转时必崩
                     // （ClassCastException，且抛在 measure 阶段，外面的 try 根本兜不住）。
                     clock?.let { clockView ->
@@ -298,12 +354,15 @@ open class BaseActivity : AppCompatActivity() {
     /**
      * 按顶栏 View 的【真实父容器】类型造一份 LayoutParams。
      *
-     * 圆屏适配要把 pageName / timeText 改成 WRAP_CONTENT + 居中，但这两个控件的宿主容器
-     * 不统一：大多数布局里父容器是 `@id/top`(RelativeLayout)，个别布局（如顶栏带菜单区的
-     * `activity_simple_main_refresh`）时钟在 `@id/menuArea`(LinearLayout) 里。直接把
-     * RelativeLayout.LayoutParams 塞给 LinearLayout 的子 View，会在下一帧
-     * `LinearLayout.measureHorizontal` 强转时抛 ClassCastException —— 那是 measure 阶段，
-     * 调用处的 try/catch 兜不住，直接崩。
+     * 圆屏适配要把 pageName / timeText 改成 WRAP_CONTENT + 居中，前提是能拿到
+     * `RelativeLayout.LayoutParams` 才加得上 `CENTER_HORIZONTAL`。26.11.01 之前
+     * `activity_simple_main_refresh` 把时钟套在 `@id/menuArea`(LinearLayout) 里，拿到的是
+     * LinearLayout.LayoutParams，规则加不上去，圆屏模式下时钟就留在最右被圆盘切掉 ——
+     * 那层多余的 LinearLayout 已经删掉，现在所有顶栏的时钟都是 `@id/top` 的直系子 View。
+     *
+     * 仍然按【真实父容器】造 params：直接把 RelativeLayout.LayoutParams 塞给 LinearLayout
+     * 的子 View，会在下一帧 `LinearLayout.measureHorizontal` 强转时抛 ClassCastException ——
+     * 那是 measure 阶段，调用处的 try/catch 兜不住，直接崩（线上崩溃 #68）。
      *
      * 这里只覆盖工程里实际存在的两种容器，其余（FrameLayout 等）退化为 MarginLayoutParams，
      * 至少不会崩。
@@ -543,6 +602,9 @@ open class BaseActivity : AppCompatActivity() {
     override fun onContentChanged() {
         super.onContentChanged()
         AppearanceApplier.applyToContentView(this)
+        // 内容容器若被重排过 padding（个别 AppCompat 版本 / OEM 会在 setContentView 后重置），
+        // 这里再兜一次；幂等、只在边距非 0 时才动。
+        applyUserPadding()
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN, sticky = true)

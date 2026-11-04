@@ -1,13 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  选集 / 清晰度 / 看点共用的「胶囊按钮」。
+  它会被塞进**内容文本**（看点条目是「看点内容\n时间段」两行、番剧标题可能很长），
+  所以这里必须覆盖主题按钮样式里的「单行 + 自动字号」：否则多行文本会被压成一行裁掉。
+  胶囊是 wrap_content 的独立列表项，不是「同一行里的两个动作按钮」，多行不影响谁和谁对齐。
+-->
 <com.google.android.material.button.MaterialButton xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/btn"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     android:layout_marginStart="2dp"
     android:layout_marginEnd="2dp"
+    android:maxLines="10"
     android:paddingTop="6dp"
     android:paddingBottom="6dp"
     android:paddingStart="16dp"
     android:paddingEnd="16dp"
     android:minWidth="0dp"
-    android:text="1" />
+    android:text="1"
+    app:autoSizeTextType="none" />

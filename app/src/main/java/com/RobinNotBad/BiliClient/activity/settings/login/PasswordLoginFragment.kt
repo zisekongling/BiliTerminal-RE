@@ -226,22 +226,12 @@ class PasswordLoginFragment : BaseFragment() {
             try {
                 val cookies = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "")
 
-                SharedPreferencesUtil.putLong(
-                    SharedPreferencesUtil.mid,
-                    NetWorkUtil.getInfoFromCookie("DedeUserID", cookies).toLong()
-                )
-                SharedPreferencesUtil.putString(
-                    SharedPreferencesUtil.csrf,
-                    NetWorkUtil.getInfoFromCookie("bili_jct", cookies)
-                )
-
                 val loginData = loginJson.optJSONObject("data")
                 val tokenInfo = if (loginData != null) loginData.optJSONObject("token_info") else null
                 var refreshToken = if (tokenInfo != null) tokenInfo.optString("refresh_token", "") else ""
                 if (refreshToken.isEmpty() && loginData != null) {
                     refreshToken = loginData.optString("refresh_token", "")
                 }
-                SharedPreferencesUtil.putString(SharedPreferencesUtil.refresh_token, refreshToken)
 
                 // 账号密码登录走的是 App 接口，响应 data/token_info 里本来就带 access_token（App 令牌）。
                 // 以前只取了 refresh_token 就丢掉它，导致「没走网页登录就一直没有 access_key」，
@@ -250,13 +240,19 @@ class PasswordLoginFragment : BaseFragment() {
                 if (accessKey.isEmpty() && loginData != null) {
                     accessKey = loginData.optString("access_token", "")
                 }
-                SharedPreferencesUtil.putString(SharedPreferencesUtil.access_key, accessKey)
 
-                SharedPreferencesUtil.putBoolean(SharedPreferencesUtil.cookie_refresh, true)
-                SharedPreferencesUtil.putBoolean(SharedPreferencesUtil.setup, true)
+                // mid 从 Cookie 里读：原来直接 .toLong()，Cookie 缺 DedeUserID 时抛
+                // NumberFormatException，异常被外层 catch 掉，用户看到的是「登录成功但处理异常」
+                // 而登录态其实只写了一半。这里取不到就按失败处理，不写任何东西。
+                val mid = NetWorkUtil.getInfoFromCookie("DedeUserID", cookies).toLongOrNull()
+                if (mid == null || mid <= 0L) {
+                    setStatusText(getAppContext().getString(R.string.msg_login_status_passwordloginfragment_013))
+                    return@run
+                }
 
+                // 统一入口：整套凭证一次性替换（缺失字段显式写空 + 升账号代际）
+                AccountManager.applyCredentials(mid, "", cookies, refreshToken, accessKey, "")
                 AccountManager.saveCurrentAccount()
-                NetWorkUtil.refreshHeaders()
 
                 // SSO 上报失败不影响登录结果，但不能再用空 catch 静默吞掉（异常连日志都没有）
                 try {

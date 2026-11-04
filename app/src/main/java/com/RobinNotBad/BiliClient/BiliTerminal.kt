@@ -25,6 +25,7 @@ import com.RobinNotBad.BiliClient.model.UpdateConfig
 import com.RobinNotBad.BiliClient.tutorial.TutorialStore
 import com.RobinNotBad.BiliClient.util.BangumiUpdateChecker
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.CookieRefreshScheduler
 import com.RobinNotBad.BiliClient.util.CrashTrail
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgNotifier
@@ -453,6 +454,12 @@ class BiliTerminal : Application() {
             errorCatch.init(context)
 
             applyLogSwitches()
+
+            // #60 老是掉登录：原先只有 SplashActivity 在启动时刷一次 Cookie，而手表常年不冷启动，
+            // 进程一直活着就再也没人续期 SESSDATA。这里起一条进程级后台调度（每 5 分钟扫一次，
+            // 真正发请求的间隔由 CookieRefreshPolicy 决定：正常 30 分钟，失败指数退避封顶 4 小时），
+            // 不阻塞主线程、不引入 WorkManager。放在 context == null 块内，保证一个进程只起一次。
+            CookieRefreshScheduler.start()
 
             if (SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.DYNAMIC_UPDATE_CHECK_ENABLE, true)
                 && SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) != 0L

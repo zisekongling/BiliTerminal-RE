@@ -113,6 +113,15 @@ object SettingsKeys {
     const val SAVE_PATH_VIDEO = "save_path_video"
     const val SAVE_PATH_PICTURES = "save_path_pictures"
 
+    /**
+     * 缓存页排序档位，存 `util/LocalListSort.nameOf` 的短名（default / title / time / size）。
+     * 反馈 #94：用户要「选择性排序」，档位在下次进页面时沿用。
+     */
+    const val CACHE_LIST_SORT_KEY = "cache_list_sort_key"
+
+    /** 缓存页排序方向：true = 升序。和 [CACHE_LIST_SORT_KEY] 一起组成七档菜单里的一档。 */
+    const val CACHE_LIST_SORT_ASCENDING = "cache_list_sort_ascending"
+
     // ==================== 高级与实验 ====================
     const val DEV_PLAYER_ROTATE_SOFTWARE = "dev_player_rotate_software"
     const val PLAYER_SHOW_VIEWPOINTS = "player_show_viewpoints"
@@ -127,6 +136,14 @@ object SettingsKeys {
     const val PLAYER_LONGCLICK = "player_longclick"
     const val PLAYER_DOUBLETAP_SEEK = "player_doubletap_seek"
     const val PLAYER_SWIPE_SEEK = "player_swipe_seek"
+    /**
+     * 左右滑动调进度的灵敏度倍率（存字符串档位，如 "1.0"）。
+     *
+     * 反馈 #94a：手表 dpi 降低后，横滑一点点就会快进很多。换算与档位表统一在
+     * `activity/player/PlayerSeekPolicies.kt` 的 `PlayerSwipeSeekScalePolicy` 里；
+     * 播放页每次横滑重读，设置页改完返回即生效。
+     */
+    const val PLAYER_SWIPE_SEEK_SCALE = "player_swipe_seek_scale"
     /** 播放页触摸锁定的首次提示是否已经展示过（纯记账，不出现在设置页）。 */
     const val PLAYER_LOCK_HINT_SHOWN = "player_lock_hint_shown"
     /** 双击有缩放时优先复位；保留旧键兼容已保存的开关，不再还原屏幕方向。 */
@@ -180,6 +197,14 @@ object SettingsKeys {
     const val PLAYER_UI_SHOW_DANMAKU_BTN = "player_ui_showDanmakuBtn"
     const val PLAYER_UI_SHOW_QUALITY_BTN = "player_ui_showQualityBtn"
     const val PLAYER_UI_SHOW_PAGE_BTN = "player_ui_showPageBtn"
+    /**
+     * 是否显示播放页的「锁定」按钮，并允许用它进入触摸锁定态。
+     *
+     * 反馈 #7：锁定按钮紧挨着底部进度条，拖进度条时容易误触；关掉后按钮不显示、
+     * 也不会进入锁定态（锁定态下全屏 overlay 会吞掉所有触摸，没有解锁入口就是死锁）。
+     * 播放页每次进页面（onResume）重读，改完即生效。
+     */
+    const val PLAYER_UI_SHOW_LOCK_BTN = "player_ui_showLockBtn"
     const val PLAYER_INTERACTION_CHOICE_SIZE = "player_interaction_choice_size"
     /**
      * 「互动选项字体大小」的默认值（sp）。

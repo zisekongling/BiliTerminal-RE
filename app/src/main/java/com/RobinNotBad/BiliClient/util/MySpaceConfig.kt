@@ -31,7 +31,7 @@ object MySpaceConfig {
 
     /** 全部可配置的功能入口 key，顺序即默认主列表顺序。与 `MySpaceMenu.ITEMS` 一一对应。 */
     val ALL_ITEMS: List<String> = listOf(
-        "follow", "watch_later", "favorite", "bangumi", "history",
+        "follow", "watch_later", "favorite", "subscription", "bangumi", "history",
         "creative", "vip", "login_record", "coin_log", "exp_log", "edit_profile"
     )
 

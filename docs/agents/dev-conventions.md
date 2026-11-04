@@ -27,6 +27,14 @@
   1. **独立 Activity**（如「菜单设置」「我的页面设置」）——有自定义交互/独立布局时用，改三处：`SettingGroupActivity` 对应分组加 `nav`、`SettingsIndex` 加可搜索条目、`AndroidManifest.xml` 注册。
   2. **本页的另一个 `group_type` 分组**——只是若干列表项、无自定义交互时用（如 `GROUP_APPEARANCE`「外观设置」），只需：`buildContent` 加分支 + 写一个 `buildXxxGroup()` + 在上级分组加 `nav` + `SettingsIndex` 加条目。**不需要新 Activity、manifest、布局**。对用户同样是独立一屏。
 
+## 按钮文字与行内对齐（26.11.02 起，写按钮必读）
+
+- **所有主题按钮样式统一继承 `ButtonStyleBase`**（`res/values/styles.xml`；`ButtonStyle` / `ButtonStyleLight` / `ButtonStyleZhihu` / `ButtonStyleIQIYI` / `ButtonStylePurpleFantasy` / `ButtonStyleRainbow` / `ButtonStyleClassicGray` / `ButtonStyleTerminal`，玻璃变体随父样式一起继承）：**强制单行 + `ellipsize=end` + AppCompat 自动字号（7～14sp，1sp 步进）**。半宽按钮里的长标签（「从剪贴板粘贴」「稍后再看」这类）在系统大字体下自动缩字号，不再折行。
+- **需要多行文本的「按钮」必须在布局里覆盖**：`android:maxLines="10"`（或所需行数）+ `app:autoSizeTextType="none"`。现有两处：`cell_episode.xml` / `cell_item_vertical.xml`（番剧标题、看点的「内容\n时间段」）、`item_menu_setting_help.xml`（展开后的多行说明）。新增此类按钮时照抄这两处的写法。
+- **写死字号的小按钮**用 `app:autoSizeMaxTextSize="<原字号>"` 把上限钉回原值（`activity_captcha_webview.xml` 的 16/9/16sp 缩放键、`activity_image_picker.xml` 与 `activity_send_dynamic.xml` 的 12sp、`cell_subtitle.xml` 与 `activity_feedback.xml` 的 13sp）；**程序化创建的按钮**用 `setAutoSizeTextTypeUniformWithConfiguration(7, 原字号, 1, TypedValue.COMPLEX_UNIT_SP)`（见 `TutorialManagerActivity` 的 11sp 按钮）。
+- **同一行放两个以上按钮的横向 `LinearLayout` 必须写 `android:baselineAligned="false"`**：默认按文字基线对齐，一旦两颗按钮字号/行数不同就会整体上下错开，看起来就是「按钮对不齐」。
+- 自测口径：系统「字体大小」调到最大（或 `adb shell settings put system font_scale 2.0`）后，按钮文字要么单行、要么按上面的例外显式多行；同一行按钮的上下边缘必须齐平。
+
 ## 外观设置
 
 - 外观设置（配色 / 卡片圆角 / 字体）走 `ui/appearance/` 三模块：**模块只放候选值与纯函数，写入一律走 `AppearanceManager`**（它负责递增外观版本号）；模块里别做几何计算，也别在热路径上缓存。细则见 `docs/architecture-map.md` §8.7。

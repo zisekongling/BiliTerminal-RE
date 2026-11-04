@@ -352,12 +352,13 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 
 ## 6. 网络层
 
-### 6.1 `NetWorkUtil`（`util/NetWorkUtil.java`，997 行，唯一出口）
+### 6.1 `NetWorkUtil`（`util/NetWorkUtil.java`，唯一出口）
 
 - **单例 OkHttpClient**，`followRedirects(false)` + 自定义拦截器手写重定向（`b23.tv` 短链走 `RedirectHandler` 回调）。
 - **DNS 强制 IPv4**（`Inet4Selector`，注释称 IPv6 请求有异常）。
 - **`callTimeout` 有意不设**（`util/NetWorkUtil.java:144-145` 有注释）：这一个单例 OkHttpClient 同时跑 API 与大文件流式下载，而 `callTimeout` 覆盖「整个调用含读完 body」，会掐断正常的长下载。**别按「统一设超时」的直觉把它加上去**；要限时请用 `connectTimeout`/`readTimeout`。
 - **Cookie 管理**：内存缓存 `cachedCookies` + `webHeaders` 静态 `ArrayList`（**索引 1 存 Cookie 字符串**）。`putCookie`/`setCookies` 的 `synchronized` 与 `saveCookiesLocked()`（`saveCookiesFromResponse` 的加锁主体）共用同一把 `NetWorkUtil.class` 锁。
+- **账号代际隔离**（26.11.02，修账号切换凭证串号）：`NetWorkUtil` 维护 `private static volatile long accountGeneration`；四个请求构造点统一走 `newTaggedRequestBuilder()`，把**请求发出时**的代际 `tag(Long.class, …)` 打在请求上；`saveCookiesFromResponse()` 在 `synchronized (NetWorkUtil.class)` 内先比 `isStaleGeneration(请求代际, 当前代际)`，**代际不符的 `Set-Cookie` 直接丢弃**（落一行 `Logu.d("saveCookiesFromResponse", "丢弃旧账号代际的 Set-Cookie…")`）。写全局登录态的入口统一走 `AccountManager.applyCredentials(...)` / `AccountManager.clearCurrentLogin()`：它们内部调 `NetWorkUtil.applyAccountCookies()`（同一把锁里 `accountGeneration++` 再落 Cookie），并重置 `AccountStateStore` 与 `CookieRefreshScheduler` 的按账号缓存。**别在别处直接 `NetWorkUtil.setCookiesString()` 写登录态**——那样不升代际，切号瞬间在飞的旧请求回来仍会把 Cookie/csrf 写回新账号。
 - **csrf 唯一入口**（26.10.04 批次 2，台账 A1）：`currentCsrf()`（`:432`）＝ `pickCsrf(getCachedCookies(), 快照)`（`:443`，纯逻辑、有单测），优先取实时 Cookie 里的 `bili_jct`，取不到才退回 `SharedPreferencesUtil.csrf` 快照；`saveCookiesLocked()`（`:510` 附近）在落 Cookie 时**顺手回写**快照。**所有 POST 的 csrf 都必须调它，不要再直接读 `SharedPreferencesUtil.csrf`**——`bili_jct` 随 Cookie 刷新轮换，用旧快照会静默拿 `-111`（现象是「点赞/评论偶尔点了没反应」）。原来 14 个 `api/` 类里散布 41 处直接读快照的代码已全部收敛到这一处。
 - **HTTP 追踪**（26.10.14）：`HTTP_TRACE` 静态开关（默认 false，只有 Agent 测试模式会打开）控制 `HttpTraceInterceptor`，每次请求落一行 `方法 脱敏URL -> 状态码 (耗时ms) | req=… | res=…`。三条硬约束：开关关闭时只做一次 boolean 读就透传；**只预览文本类响应**（视频/图片等二进制跳过，否则每次播放都白读磁盘）；用 `peekBody` 而非 `body.string()`——后者会把流读干，调用方拿到空 body。URL 里 `access_key`/`csrf`/`bili_jct` 等查询参数值一律替换成 `***`（`maskUrl`，与审计 S2「只记 Cookie 键名」同一原则）。
 - **风控重试**：`executeJsonWithRiskRetry` 对 `code == -352 / -412` 重试；`executeWithDoctypeRetry` 对返回 `<!doctype`（被风控拦成 HTML）的响应重试。重试次数/间隔读 SharedPreferences（`api_retry_max_times`、`api_retry_interval_seconds`）。**注意调试桥的 `http` 命令不用这个默认重试**：它跑在广播的 `goAsync()` 窗口里，按 8s+16s×5 次重试会直接把广播拖成 ANR，所以另建了一个连接 5s / 读 8s 的短超时 client。
@@ -732,7 +733,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 
 **26.10.20 左右滑动调进度的缩放判据**：`PlayerActivity.handleSwipeSeekTouch()` 的「未缩放视频才生效」不能读 `gesture_scaled`——那个标志只表示「本轮触摸里捏合过」，ACTION_UP 一到就复位，捏合放大后松手会把调进度重新放行（26.10.20 修的正是这个 bug）。判据抽在 `activity/player/PlayerGesturePolicies.kt`：`PlayerZoomPolicy.isZoomed(scaleX, scaleY)`（ε=0.001f）是「画面是否仍缩放」的唯一判据；`PlayerSwipeSeekPolicy.isSeekAllowed(...)` 汇总「设置开 + 已准备 + 非直播 + 播放器就绪 + 未缩放 + 未长按加速」；`PlayerDoubleTapPolicy` 也复用 `PlayerZoomPolicy`。`PlayerActivity.isVideoZoomed()` 读 `layout_video.scaleX/scaleY` 的实际比例，单指拖动闸门同样按实际缩放与 `SettingsKeys.PLAYER_DOUBLEMOVE` 判定。`gesture_scaled` 只剩「吞掉手势结束那次点击」一个用途，别给它加语义。
 
-**26.10.30 长按三倍速期间不消费横滑**：`handleSwipeSeekTouch()` 把 `PlayerActivity.onLongClick` 作为 `PlayerSwipeSeekPolicy.isSeekAllowed(...)` 的 `longPressBoost` 参数传入，按住加速时横滑被门闸拒绝并 `cancelSwipeSeekIfActive()`。**`onLongClick` 的复位必须覆盖 ACTION_UP 与 ACTION_CANCEL**（`PlayerActivity.endLongPressBoost()`，两套 `layout_control` 触摸分支都接到）：只按 UP 复位时，触摸被父容器/失焦 CANCEL 后标志卡 true，会把滑动调进度永久锁死、倍速也停在 3 倍。
+**26.10.30 长按三倍速期间不消费横滑**：`handleSwipeSeekTouch()` 把 `PlayerActivity.onLongClick` 作为 `PlayerSwipeSeekPolicy.isSeekAllowed(...)` 的 `longPressBoost` 参数传入，按住加速时横滑被门闸拒绝并 `cancelSwipeSeekIfActive()`。**`onLongClick` 的复位必须覆盖 ACTION_UP 与 ACTION_CANCEL**（`PlayerActivity.endLongPressBoost()`，两套 `layout_control` 触摸分支都接到）：只按 UP 复位时，触摸被父容器/失焦 CANCEL 后标志卡 true，会把滑动调进度永久锁死、倍速也停在 3 倍。**这条（含 `endLongPressBoost()` 与门闸参数）在 26.10.31 的播放器回退里被一起砍掉，26.11.02 已原样补回（`docs/review/fix-progress.md` §3.106），`PlayerGesturePoliciesTest` 有 `longPressBoost_blocksSwipeSeek` / `longPressRelease_restoresSwipeSeek` 两例守着——别再当它从没做过。**
 
 **26.10.31 末：播放器相关代码整体退回 26.10.27 发版状态（现状口径，改播放前必读）**：
 
@@ -742,7 +743,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **被保留下来的同批策略文件（不在播放路径上，别误删）**：`player/PlayerStreamPolicy.kt`、`player/QualityAccessPolicy.kt`（+ 两个单测）仍被 `util/AccountStateStore.kt`、`activity/settings/SettingQualityActivity.kt`、`adapter/QualitySelectorAdapter.kt` 使用——它们只负责**清晰度面板的账号权限锁定**，与播放器实现无关，故未随播放器一起回退。
 - `activity/video/JumpToPlayerActivity.kt` 的调用点已同步回 10.27 口径（`PlayerApi.getBangumi(playerData)` / `PlayerApi.getVideo(playerData, download != 0)`），但保留了 26.10.31 的 `AccountStateStore.clampQuality()` 档位夹紧——那是权限功能，不属于播放器。
 - **验证**：`:app:assembleDebug`（standard + coexist 两个 flavor）与 `:app:testStandardDebugUnitTest` 均通过（104 suites / 1110 tests / 0 失败）；模拟器上与真机上的播放行为需按 26.10.27 发版口径复验。
-- **回退的代价（26.11.01 已踩到，必须记住）**：这次是整目录 checkout，**26.10.28 之后落在 `player/**` / `activity/player/**` 的修复被一起砍掉了**，已知至少四条：`DanmakuManager.prepared()` 补 `hide()`（反馈 #55/#78「关掉弹幕还会出」）、`switchToLocalPage` 的外挂音轨参数（反馈 #51「切 P 没声音」）、`PlayerSwipeSeekPolicy` 的 `longPressBoost` 门闸（§3.81 三倍速期间横滑）、`PlayerActivity.onDestroy` 的 `requestedOrientation` try/catch（崩溃类 6）。前两条与 onDestroy 那条已在 `docs/review/fix-progress.md` §3.96 补回。**以后再回退播放器，先跑 `git log --oneline 26.10.27..HEAD -- player/ activity/player/` 把修复清单列出来，逐条决定「保留补丁还是一起退」**，别整目录无脑 checkout。
+- **回退的代价（26.11.01 已踩到，必须记住）**：这次是整目录 checkout，**26.10.28 之后落在 `player/**` / `activity/player/**` 的修复被一起砍掉了**，已知至少四条：`DanmakuManager.prepared()` 补 `hide()`（反馈 #55/#78「关掉弹幕还会出」）、`switchToLocalPage` 的外挂音轨参数（反馈 #51「切 P 没声音」）、`PlayerSwipeSeekPolicy` 的 `longPressBoost` 门闸（§3.81 三倍速期间横滑）、`PlayerActivity.onDestroy` 的 `requestedOrientation` try/catch（崩溃类 6）。前两条与 onDestroy 那条已在 `docs/review/fix-progress.md` §3.96 补回，`longPressBoost` 门闸已于 26.11.02 补回（§3.106）。**以后再回退播放器，先跑 `git log --oneline 26.10.27..HEAD -- player/ activity/player/` 把修复清单列出来，逐条决定「保留补丁还是一起退」**，别整目录无脑 checkout。
 **26.10.11 起的网络韧性与状态恢复（§四十四，明细见 `docs/review/fix-progress.md` §3.4）**：
 
 - `PlayerActivity.setDisplay()` 的在线流选项现在含 `rw_timeout=10s` / `addrinfo_timeout=5s` / `reconnect_streamed=1` / `reconnect_delay_max=5s`（点播另开 `enable-accurate-seek=1`）。**别把 `rw_timeout` 当可选项删掉**：默认 0 = 读操作可永久阻塞且永不回 `onError`，弱网黑屏的直接原因就是它；`reconnect=1` 单独对 chunked 直播无效（ffmpeg `http.c` 有 `is_streamed && !reconnect_streamed` 就 break 的判定）。
@@ -953,6 +954,9 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **为什么必须有这道闸**：调用方拼 `pictures` 时只能拿到**已成功**的上传结果，图没传完就发送 = 评论**少图发出且没有任何提示**（本地还因为把后到的 url 补进 `resultReply.pictureList` 而显示得比实际更多）。
 - **闸门要在点下的那一刻置位**（`@Volatile sending`），并在后台 `try/finally` 里松开：成功了会 `finish()`，失败/提前 return 也要松，否则用户之后再想发就永远被挡。原实现是等请求返回才置位，等待期连点会发出两条评论。
 - 这两个判断是**纯函数**（`api/ReplyApi.java` 的 `canSendReply`/`uploadPendingTip`），与 `actionErrorMsg(int)` 同类；`activity_write_reply.xml` 里没有进度控件，所以「上传中」只用按钮文字（`imageText`）表达，**不做按字节的进度条**（用户拍板只做第 1 步）。
+- **图床 biz 必须与动态图一致（`new_dyn`）**：`upload_bfs` 的 `biz` 只决定图片落在哪个 BFS 目录，而评论 `pictures` 只认 `/bfs/new_dyn/` 下的图。26.10.02 的 F3-c 把它改成自造值 `new_reply`，结果是图能上传、发评论时被服务端以 12066 拒绝；26.11.02 恢复为 `new_dyn`（`ReplyApi.BIZ_DYNAMIC`）。私信图是另一个目录，走 `ReplyApi.BIZ_MESSAGE = "im"`（原先误复用了评论 biz）。
+- **不再做大会员前置拦截**（26.11.02）：图片评论的资格由服务端判定，客户端拦只会把「服务端允许」的非大会员挡在选图页外。现在点「图片」直接进选图页，被拒时由发送失败分支展示服务端的码/原话（`ReplyApi.sendReplyDetailed` + `ApiErrorText.uploadFailed`）。
+- **`code=0` 不等于「评论区已经能看到」（反馈 #85，26.11.02）**：`/x/v2/reply/add` 可能在评论进审核 / 尚未同步到公开列表时就回 `code=0`（还会带 `data.reply`）。旧实现直接提示「发送成功」并把评论本地插进列表，用户一刷新评论区就发现评论没了，体验上就是「发不出去」。现在一级评论发送成功后走 `ReplyApi.isReplyVisible(oid, rpid, type)`：用 `getRepliesLazy(..., mode=2)` + `seek_rpid` 直接定位新评论，按 0 / 0.4s / 1.0s 三次重试，查到才算成功；三次都查不到再兜底查一次「按时间的第一页」（`seek_rpid` 在个别评论区可能不生效），仍查不到就提示「已提交但评论区暂时查不到（可能正在审核）」，**不插入本地列表、不 finish 写评论页**（原文保留，用户可稍后刷新确认或重试）。`SendReplyResult` 因此多带一个 `rpid`（`data.reply` 为 null 时也能核实）；判定逻辑 `ReplyApi.containsReplyId` 是纯函数（含楼中楼），有 `ReplyApiTest` 单测。楼中楼回复暂不做可见性核实（`seek_rpid` 对子评论不可靠，仍有本地插入的老行为）。
 
 ### 7.19 动态的编辑与「管理」菜单（26.10.04 批次 6 的 C7）
 
@@ -1039,6 +1043,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **系统分组不可编辑**：`isEditableTag(tag) = tag.tagid > 0`——默认分组（`tagid = 0`）与特别关注（`-10`）长按只提示「默认分组和特别关注不能改名或删除」。
 - **分组模式不再过滤 `count == 0` 的分组**：原先 `loadGroupMode()` 只 `addGroup` 关注数 > 0 的分组，导致刚建好的空分组在列表里看不到、也就没法改名/删除；现在全部列出（空分组展开为空）。
 - 增删改成功后一律**整页重拉**（重新 `loadGroupMode()` 造新 adapter——`RefreshListActivity.setAdapter` 只是赋值，没有「只能设一次」的守卫，安全）。
+- **把某个关注加进分组（反馈 #88，26.11.02）**：`FollowApi.addFollowTagUsers(tagids, fid)` → `POST x/relation/tags/addUsers`（字段是复数 `tagids` / `fids`，纯函数 `addUsersFields` 钉字段名），语义是**追加**而不是移动（移动是 `tags/moveUsers`，两者字段名完全不同，`FollowApiAddUsersTest` 有对照断言）。入口在用户主页头部的关注按钮：**长按**「已关注」→ `FollowApi.getFollowTags()` + `FollowApi.getUserFollowTags(fid)`（`GET x/relation/tag/user?fid=`，响应是「分组 id → 分组名」对象）→ `TerminalDialog.menu` 列出自建分组（`tagid > 0`，已加入的带「（已加入）」后缀），末项「新建分组」→ `TerminalDialog.input` 取名 → 建完回查 tagid 再加入。未关注 / 未登录时长按不拦截（交回系统默认行为）。
 
 ### 7.27 下载服务分层：`DownloadService` 已拆分（26.10.04 批次 8 的 E2）
 
@@ -1406,6 +1411,38 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **纯计算抽出来**：`activity/video/ShortVideoLayoutMath.kt`（`fit` / `fitRound` / `swapsWidthHeight` / `sanitizeRatio`）+ `ShortVideoLayoutMathTest` 10 例钉住「9:16 与 16:9 的 letterbox、非法比例退化、非法区域返回 null、圆屏内接圆与夹取、旋转交换判据」。
 - **验证口径**：`logcat | grep ANativeWindow_setBuffersGeometry` 看 surface 的 w/h 是否与视频同比例、`dumpsys window windows | grep "fl="` 看亮屏标志、`logcat | grep "画面尺寸"`（v 级日志）确认真的走了一次重摆。
 
+### 7.60 「我的订阅」：collected/list 两个 id 语义 + 两种取消订阅（26.11.02 新增）
+
+- **入口与文件**：`MySpaceMenu`（key=`subscription`）→ `activity/user/subscription/SubscriptionListActivity`；合集详情 `SubSeasonDetailActivity`；接口层 `api/SubscriptionApi.java`（纯解析函数 `parseSubscribedFolders` / `parseSeasonVideos` / `parseFolderFavState` 可单测），模型 `model/SubscriptionFolder.java`。
+- **添加订阅的入口在内容页**（26.11.02 补）：`activity_simple_refresh.xml` 加了默认 `gone` 的 `subBar`（一个 `subToggle`，与 `manageBar` 同层）。别人的收藏夹页（`FavoriteVideoListActivity` 且 `readOnly`）与合集详情页（`CollectionInfoActivity`）各自点亮；自己的内容/未登录不显示。
+  - 收藏夹订阅/取消：`POST x/v3/fav/folder/fav`、`POST x/v3/fav/folder/unfav`，参数 **`media_id` + `csrf`**（不带 `platform`，与 PiliPlus 同口径）；`media_ids`（复数）是历史文档口径，只作 -400 时的回退。
+  - 合集订阅/取消：`POST x/v3/fav/season/fav`、`POST x/v3/fav/season/unfav`，参数 `platform=web` + `season_id` + `csrf`。
+- **合集取消订阅前缀是 v3，PiliPlus 的常量是错的**：PiliPlus `Api.unfavSeason = '/x/fav/season/unfav'`（无 v3）实测 **HTTP 404**；正确是 `/x/v3/fav/season/unfav`（本机 2026-11-02 实测：v3 返回 -101「账号未登录」，无 v3 的 404）。`/x/v3/fav/season/fav` 同理。
+- **`space/fav/season/list` 的响应形状（实测）**：`data.info` 只有 `id/season_type/title/cover/upper/cnt_info/media_count/intro`，**没有 `fav_state`**（匿名请求；登录态未验证）；`data.medias[]` 每条 `id` 是 **avid**、还有 `bvid/duration/pubtime/upper/cnt_info`，没有 `has_more`（用 `info.media_count` 判到底）。`getSeasonFavState` 读不到 `fav_state` 时回退翻「我的订阅」前 3 页找 season，不要假设服务端一定给。
+- **`platform=web` 不能漏**：`x/v3/fav/folder/collected/list` 不带这个参数时**只返回收藏夹、不返回合集**（`bilibili-API/docs/fav/info.md:273` 明写）。`up_mid` 传自己的 mid；接口返回 `data.count/list/has_more`，**`has_more` 缺失时按「没有下一页」处理**，宁可提前停也不要无限翻。
+- **`type` 决定 id 语义，别混**：`type=11` 收藏夹，`id` 是 **media_id**（进只读的 `FavoriteVideoListActivity`，`readOnly=true`）；`type=21` 合集，`id` 是 **season_id**（走 `x/space/fav/season/list`）。**不能**拿 21 的 id 去当 aid/media_id，也不能用 `CollectionInfoActivity`（那个是 `ugc_season`，从视频 aid 反查）。
+- **两种取消订阅端点不同**：收藏夹 `POST x/v3/fav/folder/unfav`（`media_id`+`csrf`）、合集 `POST x/v3/fav/season/unfav`（`platform=web`+`season_id`+`csrf`）。**参数名有历史分歧**：Web 文档写 `media_ids`（复数），PiliPlus 实现发 `media_id`（单数）——`SubscriptionApi.cancelFolderSubscription` 主发单数，**只有返回 -400 才用复数重试一次**，不要无脑双发。
+- **`state==1` 必须拦**：失效条目压暗，点击只提示、不发详情请求（否则整页白屏/404）。点击判定放在 Activity，不在 adapter 里发网络。
+- **空列表必须判到底**：`SubSeasonDetailActivity.isEnd()` 里「本页不满 20 条」的退化判据对 `size==0` 不成立（`0 % 20 == 0`），必须显式 `size == 0` 返回 true，否则滚动监听会无限翻页。
+- **换 list 要换 adapter**：首屏/刷新都构造**新的** `ArrayList` + **新 adapter** 再 `setAdapter`，不要后台线程原地改已挂在 RecyclerView 上的 list（`Inconsistency detected` 崩溃，收藏夹列表页踩过）；翻页只在同一份 list 上 `addAll` + `notifyItemRangeInserted`。
+- **页码回退**：翻页失败要 `page--`（`RefreshListActivity` 的 `goOnLoad` 先加过 1），否则重试会跳过一页。
+- **`MySpaceConfig` 的并集不变式**：加菜单项要同时改 `MySpaceMenu.ITEMS`、`MySpaceConfig.ALL_ITEMS`、`open()` 分支（`MySpaceConfigTest` 有守卫）。**副作用**：老用户存过的 `myspace_main` 布局里没有新 key，`resolve()` 因「总数少一项」整体回退默认并写回——即**加菜单项会把用户自定义的「我的」布局重置一次**，这是既定行为，不是 bug。
+- **验证**：`SubscriptionApiTest`（8 例，解析/兜底/脏数据/fav_state）；AVD `wear5` 实测入口→空态→`collected/list` 请求 `200`；**2026-11-02 复查发现该 AVD 的登录态其实已过期**（`nav` 返回 -101，`collected/list` 匿名返回 `code:0` 空表），所以「空态」结果仍然成立，但**列表渲染、点击进夹/进合集、订阅/取消订阅三条真实数据路径仍未有登录账号验证**。接口可用性用本机 HTTP 实测替代：`folder/info` 匿名给 `fav_state:0`、`space/fav/season/list` 匿名可用、四个写接口（folder fav/unfav、season fav/unfav）均返回 -101 而非 404。
+
+### 7.61 缓存页多选批量管理（26.11.02 新增）
+
+- **页面与适配器**：`activity/video/local/LocalListActivity.kt` 用同一个 Activity 管顶层与文件夹内两种形态，靠 `adapter.currentFolderName` 区分；`adapter/video/CacheListAdapter.kt` 只管两件事——勾选态怎么画（`applySelection`）、点了哪一项（`onVideoToggle` / `onFolderToggle`）。
+- **底部条是共用布局里的隐藏分组**：`res/layout/activity_simple_main_refresh.xml` 新增 `multiSelectBar`，默认 `visibility="gone"`。这个布局被 RefreshMainActivity / PopularActivity / RankingActivity / PreciousActivity / LocalListActivity **共用**，所以只有 `LocalListActivity` 在缓存页里点亮它，别的页面底部不会多出一条死按钮。条里是 `btnMultiSelect`（非多选态唯一可见）、`textSelectedCount`、`btnMultiOperate`、`btnMultiExit`（后三个默认 `gone`、多选态才亮）。
+- **勾选状态在页面，不在 adapter**：页面持有 `LinkedHashSet<String> selectedVideoTitles` 与 `LinkedHashSet<String> selectedFolderNames`，把同一份内容交给 adapter 的 `selectionMode` / `selectedVideoTitles` / `selectedFolderNames`。**按名字记、不按下标**：视频用标题（= 缓存目录名，同一次扫描里唯一）、文件夹用名称——删除或移动后列表会重扫，下标整体挪位，按名字才能重新画对勾选态。
+- **勾选视觉与收藏夹多选一致**：`CacheListAdapter.applySelection` 里勾中 `itemView.alpha = 1f` + 标题前缀 `"✓ "`，未勾 `alpha = 0.5f` + 全角空格 `"　 "` 占位；用 `TextUtils.concat` 拼前缀，每次绑定先 `setText` 原始标题再加前缀，holder 复用不会叠前缀。**不用 `cell_video_local.xml` 里的 `checkbox_select`**：那个复选框会把内容整体右移，两个页面视觉也对不上。
+- **`supportsChangeAnimations = false` 必须关**（`CacheListAdapter.onAttachedToRecyclerView`）：勾选态靠 `notifyItemChanged` + alpha 画，默认的 `DefaultItemAnimator` 交叉淡入会在动画期间把 alpha 复位成 `1f`，取消勾选看起来像没生效——收藏夹多选踩过同一个坑（§7.25 与 `VideoCardAdapter`）。
+- **只重绘一条**：`notifyVideoSelectionChanged(videoIndex)` / `notifyFolderSelectionChanged(folderIndex)` 在 `flatItems` 里反查扁平位置再 `notifyItemChanged`，**别整体 `notifyDataSetChanged()`**——封面走 `DiskCacheStrategy.NONE`，整体重绑会让每勾一下都把整屏封面重读一遍，手表上肉眼可见地闪。
+- **多选态覆盖点按语义**：进入多选后 `CacheListAdapter` 里点条目 / 长按条目都调 `onVideoToggle` / `onFolderToggle` 并直接 `return`，不再播放、不进文件夹、不弹单条菜单。**这覆盖了「缓存页点了就播」的固定口径**（§7.43 的 `cacheClickAction`，功能一只决定播单条还是整夹），是刻意的：多选态下点一下就该是勾选。
+- **菜单按选中内容分四类**：全视频（未分类区）删除视频 / 更新弹幕 / 添加到文件夹；全视频（文件夹内）删除视频 / 更新弹幕 / 移出文件夹；全文件夹拆散文件夹；**文件夹与视频混选不弹菜单**，只提示「文件夹和视频不能一起操作，先取消一种」。菜单走 `TerminalDialog.menu`，标题「已选 N 项」；一条没勾时「操作」半透明 + 提示「先选几条吧~」。单条专属操作（重命名文件夹 / 切换清晰度 / 查看详情）不进批量菜单。
+- **批量动作共用单条实现**：`LocalListActivity` 把单条删除抽成 `deleteVideoFiles(video)`、更新弹幕抽成 `updateDanmakuFor(video)`，单条菜单与批量都调它们——保留了原口径：路径按「扫出这条时的根」算、只删真实存在的目录、**只有真删掉才 `FolderManager.removeVideoFromAllFolders`**。批量执行统一在 `CenterThreadPool.run { }` 里跑，结果回主线程提示；完成顺序是**退出多选 → 刷新列表 → 提示结果**。
+- **返回键先退多选**：`onBackPressed` 在多选态只 `exitSelectionMode()`、不走 `super`；在文件夹里点顶栏返回箭头同样先退多选再退回顶层（`exitFolder` 里也有一道 `if (selectionMode) exitSelectionMode()`）。
+- **下载列表页不加多选**：`activity/video/local/DownloadListActivity.kt` 的任务语义（暂停 / 继续 / 重试）与缓存条目完全不同，本轮只做缓存页。
+
 ## 8. UI 基建速查（新增页面临摹用）
 
 ### 8.1 完整继承体系
@@ -1526,6 +1563,7 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 11. **别裸调「理论上一定存在」的框架方法——部分手表框架会把它裁掉**（26.09.13 真机崩溃）。`android.view.View.hasOnLongClickListeners()` 是 API 15 就有的公开 API，`android-34` 的 class 文件里也确实有（`javap` 验证），但某手表的 `/system/framework/framework.jar` 里没有，`BaseActivity.setupTopbarLongPressToHome()` 一调就抛
     `NoSuchMethodError: No virtual method hasOnLongClickListeners()Z in class Landroid/view/View;` —— **`onStart` 里崩，页面全打不开**，且编译期、Lint、单测全都查不出来。
     统一走 `util/ViewCapabilityProbe.probeBoolean(view, "方法名") { 名, 异常 -> 日志 }`：能反射调通就走框架，调不通返回 `null` 让调用方走降级分支（自己是标志位即可），探测结论进程级缓存、只失败一次。返回 `null` 是**降级信号**不是错误，调用方必须处理。
+12. **顶栏的 `@id/pageName` / `@id/timeText` 必须是 `@id/top`(RelativeLayout) 的直系子 View**（26.11.01）：`BaseActivity.setRound()` 的圆屏适配靠 `RelativeLayout.LayoutParams.addRule(CENTER_HORIZONTAL)` 把时钟挪到正中，而 `newTopbarParams()` 是按**真实父容器**造船型的——时钟若套在 `LinearLayout` 里，拿到的是 `LinearLayout.LayoutParams`，`if (clockParams is RelativeLayout.LayoutParams)` 判假 → **居中规则被跳过、不崩也不报错**，圆屏模式下时钟仍被 `alignParentRight` 钉在最右、被圆盘切掉。`activity_simple_main_refresh.xml` 就曾多包一层 `menuArea`(LinearLayout)，害得首页 / 推荐 / 排行榜 / 热门 / 入站必刷 / 本地列表 5 页时钟全部不居中。已删掉 `menuArea`，结构对齐 `activity_simple_refresh.xml`。
 
 ---
 
@@ -1833,8 +1871,8 @@ TTF/OTF/TTC，应用把它**拷进私有目录**（`filesDir/custom_font/custom_
 | 类 | 职责 | 关键方法 |
 | --- | --- | --- |
 | `UserInfoApi` | 用户/空间/关系/资料 | `getUserInfo`、`getUserSpaceInfo`、`followUser`、`updateUserInfo`、`uploadAvatar` |
-| `FollowApi` | 关注/粉丝/分组 | `getFollowingList`、`getFollowerList`、`getFollowTags` |
-| `ReplyApi` | 评论 | `getReplies`、`getRepliesLazy`、`getRootReply`、`getReplyCount`、`sendReply`、`sendDynamicReply`、`likeReply`、`dislikeReply`、`deleteReply`、`topReply`、`uploadReplyImage`（`actionErrorMsg` 统一错误码文案；`topActionFor` 纯函数） |
+| `FollowApi` | 关注/粉丝/分组 | `getFollowingList`、`getFollowerList`、`getFollowTags`、`getUserFollowTags`、`getFollowTagUsers`、`createFollowTag`、`renameFollowTag`、`deleteFollowTag`、`moveFollowTagUsers`、`addFollowTagUsers`（`moveUsersFields`/`addUsersFields`/`joinMids`/`joinTagIds`/`checkTagName`/`tagErrorMsg` 纯函数） |
+| `ReplyApi` | 评论 | `getReplies`、`getRepliesLazy`、`getRootReply`、`getReplyCount`、`sendReply`、`sendDynamicReply`、`likeReply`、`dislikeReply`、`deleteReply`、`topReply`、`uploadReplyImage`、`isReplyVisible`（`actionErrorMsg` 统一错误码文案；`topActionFor`/`containsReplyId` 纯函数） |
 | `ReplyTranslateApi` | 评论翻译（gRPC `TranslateReply`，26.10.26 新增） | `translateReplies`、`translateReply`、`encodeTranslateRequest`、`wrapGrpcFrame`、`parseTranslateResponse`、`buildLocaleHeader`（protobuf 手写编解码，全部纯函数可 JVM 单测） |
 | `PrivateMsgApi` | 私信 | `getPrivateMsg`、`getSessionsList`、`sendMsg` |
 | `MessageApi` | 消息中心/未读/消息设置 | `getUnread`、`checkMessageUnread`、`getLikeMsg/getReplyMsg/getAtMsg`、`getSystemMsg` |
@@ -1938,6 +1976,22 @@ TTF/OTF/TTC，应用把它**拷进私有目录**（`filesDir/custom_font/custom_
   - **播放器清晰度面板**：`QualitySelectorAdapter` 新增 `lockedMaxQuality` 与 `onLockedItemClickListener`，锁定项用 `icon_player_lock` 叠在按钮右侧 + `alpha=0.55`，点击只弹提示不切换；提示按档位分三种——`qn>=120`「4K 超清需要开通大会员」、未登录「登录后可选择 1080P 及以上的清晰度」、非大会员「开通大会员后可选择 1080P60 帧及以上的清晰度」。**4K 档位服务端对没权限的账号根本不下发**（实测匿名 `qn=127&fnval=4048` 只回 `[116,80,64,32,16]`），所以没权限时在列表末尾补一个锁定项当提示位；有权限（大会员）时**不补**——服务端会下发真实 120，硬补会在没有 4K 源的视频上造出假档位。
   - **设置页按权限隐藏而不是标锁**：`SettingQualityActivity.qnMap` 加了 `1080P60→116 / 4K→120`，列表先按 `cached()` 渲染、后台 `refresh()` 后按 `maxUnlockedQn` 过滤重渲染——设置项没有「点一下看提示」的语境，留一堆点不动的选项更迷惑。
 - 文档同步：`docs/bilibili-api-notes.md` §3.12（取流结论）、`docs/FEATURES.md`（播放清晰度）、`docs/review/fix-progress.md`（本轮实测结论）。
+
+---
+
+### 7.59 本地文件交给外部播放器：FileProvider 只认主卷，外置卷必须走自建 provider（26.11.01）
+
+- **现场**：用户（Android 6.0 手表）把设置里「缓存路径」改到外置 SD 卡后，点缓存视频用凉腕播放器（`com.aliangmaker.media`）播放就崩：`java.lang.IllegalArgumentException: Failed to find configured root that contains /storage/5C00-1D0E/Android/media/com.RobinNotBad.BiliClient.coexist/<标题>/video.mp4`，栈顶是 `FileProvider.getUriForFile`（经 `PlayerApi.getVideoUri` 的 R8 内联帧）。
+- **根因**：`androidx.core` 的 FileProvider（1.13.1 源码实测）解析 `file_paths.xml` 时，`<external-path>` 取 `Environment.getExternalStorageDirectory()`、`<external-media-path>` 取 `getExternalMediaDirs()[0]`、`<external-files-path>` / `<external-cache-path>` 取对应数组的 `[0]` —— **全部是主卷**。外置卷（`/storage/XXXX-XXXX/...`）上的路径一个根都匹配不到。XML 是编译期资源，没法按当前挂载的卷动态长根；历史上能覆盖它的 `<root-path path="" />` 已被审计 M12-e 删掉（那条等于把 `/data`、`/system` 一起登记进可授权范围）。
+- **改法**（两级 + 兜底，任何一级失败都不许崩）：
+  1. `PlayerApi.getVideoUri()` 先照旧走 FileProvider（主卷 / 应用外部缓存目录这些最常见情形行为不变）；
+  2. 只捕获 `IllegalArgumentException`（正是「路径不在配置根内」的异常类型），改走新增的 `util/LocalFileProvider`：只读 `ContentProvider`，authority `${applicationId}.LocalFileProvider`，URI 形如 `content://<authority>/f/<Uri.encode(规范绝对路径)>`；
+  3. 两级都拿不到 URI（路径不在任何存储卷内等极端情况）时**返回 null**，`jumpToPlayer` 回落 `buildTerminalPlayerIntent()` 用内置播放器打开并提示 `msg_player_local_share_fallback` —— 分享文件失败绝不能把缓存页带崩。
+- **根目录怎么来**：`util/SharedFileRoots.collect(context)` 运行时收集 —— 主卷根（`Environment.getExternalStorageDirectory()`）+ 每块卷上的应用专属 `files` / `cache` / `media` 目录（`getExternal*Dirs()` 的**全部**元素，不是只取 `[0]`）+ **由这些目录里的 `/Android/` 段反推出的卷根**（覆盖用户把缓存设到 SD 卡上非 `Android/media` 目录）+ 内部 `filesDir/video`（外部存储都取不到时的降级缓存目录，只登记这一个子目录，不是整个 `filesDir` / `cacheDir`）。反推是因为 minSdk 19 上没有「列出所有卷根」的公开 API（`StorageManager.storageVolumes` 要 API 24）。
+- **归属判断是纯函数**：`util/SharedFilePolicy`（`isUnder` 分段前缀、`volumeRoot` 反推、`findContainingRoot` 取最长根、`volumeRoots` 去重），`SharedFilePolicyTest` 14 例钉死「`/a/bc` 不在 `/a/b` 下」「根只剩 `/` 不算共享根」「`/data/user/0/...` 反推不出卷根」「多余斜杠不会被误判成包含」这些边界。
+- **安全边界**（与审计 M12-e 的收窄口径一致，别为了省事再加回 root-path）：`android:exported="false"`（只有本应用能构造 URI）+ `grantUriPermissions="true"`（外部应用只能靠 `ACTION_VIEW` 的一次性读授权拿到那一个 URI）；`openFile` 只接受 `"r"`，`insert` 抛异常、`update` / `delete` 返回 0；解析 URI 时先 `canonicalPath`（消解 `..` 与符号链接）再要求落在共享根内；`query` 只回答 `DISPLAY_NAME` / `SIZE`，不提供任何枚举能力。
+- **一个容易写错的地方**：URI 里把整条绝对路径当成**一个** pathSegment —— 先 `Uri.encode(路径)`（`/` 会被编成 `%2F`）再 `appendEncodedPath()`，解析端 `uri.pathSegments` 才恰好是 `["f", 原路径]`（`resolveFile` 的 `segments.size != 2` 校验依赖它）。`appendPath(canonical)` 是等价写法（它内部同样会 `Uri.encode`，`/` 同样变 `%2F`）；**别用 `path()` / `encodedPath()`**，那两个设置的是整条 path、不是追加段。中文 / 空格 / 《》/ `%` 的编码往返在 API 19~34 上一致（`%` 不在 `Uri.encode` 的保留集合里，会编成 `%25`，不会被当成已有转义）。
+- **验证口径**：设备侧 logcat 应出现 `文件不在 FileProvider 配置根内（多为外置卷），改走 LocalFileProvider：<路径>`，外部播放器进程能 `openInputStream` 读到字节；回归项是主卷默认目录仍然走 `content://<包名>.FileProvider/...`（外部播放器照旧能播）。
 
 ---
 

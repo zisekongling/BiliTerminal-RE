@@ -46,8 +46,8 @@
     <string name="egg_zisekongling_nahida">你知道吗，RE:哔哩终端的作者和哔哩终端的作者Robin一样，喜欢纳西妲\n我语文也不是很好，不太会写这种文案hhh\n纳西妲是一个很可爱的小萝莉\n她的经历与自身的性格形成了很大的反差\n被囚禁500年，到最后被迫忘记了大慈树王\n我记得很清楚，她亲手抹除大慈树王存在的时候是哭着的，但当她从世界树里出来的时候\n她却不知道为什么要哭......那个滋味......让我这个坐在屏幕外的玩家都不由得心酸起来......\n但是——她依旧保持自己的童心与坚韧的性格，在治理好须弥的同时，又获得了民众和众神的认可，真的很不容易\n纳西妲不必成为大慈树王，又或者......在抹除了大慈树王存在的世界线里，她即是大慈树王\n这种成年人的责任和童心的反差，正是他与其他角色的不同之处。\n所以——纳西妲，请你继续好好生活下去\nemm....逻辑可能有些混乱哈，，，我又瞎感慨了hhh。不打扰你看视频了哈\n会见~</string>
     <string name="egg_robin_nahida">Robin喜欢纳西妲。\n也许不只是由于外表的可爱，还有对遭遇的同情。\n\n我们都被囚禁——\n纳西妲是物理上的，\n屏幕前后的你我则是心灵上的。\n\n纳西妲已经遇到了她的旅行者，\n但我们，又会有谁来关心呢……？\n\n*纳西妲：\n不要这样说哦。\n能够拯救你们的，正是你们自己。\n请用自己的行动，来努力改变这个不美好的世界。\n无论结果如何。\n\n此彩蛋的触发方式：搜索关键词中同时包含"Robin"和"纳西妲"</string>
 
-    <string name="special_login_desc">该功能是为安卓版本过低导致二维码生成组件无法工作的设备准备的，你需要手动在此页面导入登录信息来完成登录操作。\n该功能也适用于快速登录原有账号。\n\n方法教学：\n你需要在另外一台至少为安卓4.4的设备上安装哔哩终端并扫码登录，然后在那台设备上点击设置中的“查看登录信息”，将显示出来的登录信息复制到下方的文本框中，检查无误后点击“登录”按钮即可。\n提示：可以将登录信息复制到一个txt中，用电脑usb传给这台设备。若提示输入有误，请检查是否有多余或缺失字符。\n\n注意：登录数据录入完成后，请在另一台设备上直接【清除APP数据】或【卸载】，不要点击【退出登录】！</string>
-    <string name="special_login_export">以下是你的登录信息，可用于在其他设备上特殊登录，点击最下面的按钮可以复制。\n登录信息具有一定的时效性，请即取即用，导入完成请将此设备的哔哩终端清除数据。（不要点退出登录！）\n请勿将此页面的信息传给别人，以防盗号！</string>
+    <string name="special_login_desc">该功能是为安卓版本过低导致二维码生成组件无法工作的设备准备的，你需要手动在此页面导入登录信息来完成登录操作。\n该功能也适用于快速登录原有账号。\n\n方法教学：\n你需要在另外一台至少为安卓4.4的设备上安装哔哩终端并扫码登录，然后在那台设备上点击设置中的“查看登录信息”，将显示出来的登录信息复制到下方的文本框中，检查无误后点击“登录”按钮即可。\n提示：可以将登录信息复制到一个txt中，用电脑usb传给这台设备。若提示输入有误，请检查是否有多余或缺失字符。\n\n多账号：如果粘贴的是另一台设备「查看登录信息」页里导出的全部账号数据，会一次性导入所有账号。导入多账号不会切换当前账号，导入后请到「账号切换」里选择要用的账号。\n\n注意：登录数据录入完成后，请在另一台设备上直接【清除APP数据】或【卸载】，不要点击【退出登录】！</string>
+    <string name="special_login_export">以下是本机所有已保存账号的登录信息（多账号格式），可用于在其他设备上一次性导入全部账号；也可只复制其中一个账号的 JSON 做单账号登录。\n导入多账号数据不会切换当前账号，导入后请到「账号切换」里选择要用的账号。\n登录信息具有一定的时效性，请即取即用，导入完成请将此设备的哔哩终端清除数据。（不要点退出登录！）\n请勿将此页面的信息传给别人，以防盗号！</string>
 
     <string name="setting_lab_ui_landscape">！此功能将不再继续进行改进，除非开发者有时间！\n开启选项后，软件将会变为横屏，部分列表会变为三列，更适合平板等默认横屏的设备\n*注意：部分页面仍为单列式，可能有一些页面适配不佳，电视请移步官方电视版本或使用其他第三方软件。</string>
     <string name="setting_lab_ui_rotatory">默认情况下此选项无需开启，系统会自动为可滚动列表应用表冠操作，如果表冠未生效或需要自定义灵敏度，可尝试开启此选项。\n开启后可能会丢失表冠震动。\n下面的两项为灵敏度倍数，1.0 即系统原始滚动量，默认 1.0;填 0 等于该类页面不响应表冠。\n改完立即生效，无需重进页面。</string>
@@ -210,6 +210,9 @@
     <string name="err_sql">数据库读写错误\n请清理空间或清除软件数据</string>
     <string name="err_login_first">\n建议登陆后再尝试</string>
     <string name="err_rejected">：被B站风控系统拦截了\n（无法解决）</string>
+    <string name="err_generic">错误：</string>
+    <string name="err_adapter">遇到Adapter错误：\n无需上报，除非你在某个界面经常遇到</string>
+    <string name="err_adapter_title">Adapter错误</string>
 
     <string name="desc_icon_license">以下是已知的开源图标的开源许可证信息</string>
     <string-array name="icon_license">
@@ -264,6 +267,8 @@
     <string name="pagename_image_viewer">图片查看</string>
     <string name="pagename_login_special">特殊登录</string>
     <string name="pagename_account_switch">账号切换</string>
+    <string name="pagename_subscription">我的订阅</string>
+    <string name="pagename_subscription_season">合集详情</string>
     <string name="pagename_menu">菜单</string>
     <string name="pagename_message">消息</string>
     <string name="pagename_myspace">我的</string>
@@ -375,16 +380,30 @@
 
     #本次版本更新日志（展示在关于页，与历史日志区分）
     <string-array name="update_log_current">
-        <item>【26.11.01 本次更新】</item>
+        <item>【26.11.02 本次更新】</item>
+        <item>1、「虚拟合集」拆成两个独立开关：原「虚拟合集」继续负责把同一文件夹 / 收藏夹的视频组成合集连播（默认开）；新增「收藏夹视频点击即播」（设置 → 高级与实验 → 功能开关，默认关），开启后收藏夹里点卡片直接播放，关闭时点卡片进视频详情页，此时长按卡片可以「以虚拟合集连播」。</item>
+        <item>2、长按加速的倍率可以自己选了：设置 → 播放与播放器 → 内置播放器设置 新增「长按倍速档位」（1.5x / 2x / 3x / 5x，默认 3x）。</item>
+        <item>3、多P 视频会记住上次看到第几P，点播放直接接着播，选集页也会自动定位到那一P。</item>
+        <item>4、看图更顺手：图片页双击放大（1x → 2x → 6.25x 循环）；评论区图片下载改成点一下就存、连点不会重复下载，成功失败都有明确提示。</item>
+        <item>5、缓存放外置 SD 卡时，用外部播放器打开不再闪退；实在交不出去会自动改用内置播放器并提示。</item>
+        <item>6、修了老是掉登录的问题：应用运行期间会定期续期登录凭证，失败时按冷却时间自动退避，不会一直硬撞。</item>
+        <item>7、修了短视频被强行拉伸铺满整屏、以及播放中莫名熄屏的问题。</item>
+        <item>8、播放器一批修正：长按加速时横滑不再误调进度；静音拖进度不再突然出声；载入中切后台回来画面比例正常；换 P 不再误跳片头片尾；缓存切 P 保留外挂音轨；关掉弹幕后不再自己冒出来。</item>
+        <item>9、界面修正：圆屏下首页 / 推荐等页的时钟居中、不再被圆盘切掉；长图评论不再被整条缩小；大字体下按钮不折行、同一行能对齐；「我的反馈」列表为空时点顶栏能正常返回；输入框选中文字看得清。</item>
+        <item>10、修了菜单设置「改了保存不住、恢复默认」的问题——装过 Beta / 内部包的人换回正式版，排序和显隐也不会被重置。</item>
+        <item>11、修了一批闪退：收藏夹列表来回进出编辑页、图片页双指操作、消息页空列表、退出播放器、弹幕内容异常。</item>
+        <item>12、一批提示更准确：取流失败不再弹「No value for durl」这类英文原文，改成说清原因；删缓存失败不再谎报成功；只有列表真异常才提示 Adapter 错误。</item>
+    </string-array>
+
+    #历史更新日志（按日期分组，## 开头为日期标题，之后为当日日志条目）
+    <string-array name="update_history_log">
+        <item>## 2026-11-01</item>
         <item>1、播放器相关代码整体退回 26.10.27 的稳定实现，修上一版在手机上「安装包明显变大、视频完全播不出来」的问题；画面与声音恢复单路流播放，音画不再错位。</item>
         <item>2、新增「退出」按钮（菜单底部），点一下彻底关闭应用，不用再去系统里强停。</item>
         <item>3、新增实验功能「圆屏列表」：圆屏模式下滚动列表时条目带曲率缩放与边缘淡出（设置 → 高级与实验，默认关闭，需与「圆屏适配」同时开启）。</item>
         <item>4、修了播放时系统媒体控件把本应用认成「下载」的问题，现在正确显示为音乐播放，并带上封面与进度。</item>
         <item>5、列表封面加载更省资源（复用图片请求参数），快速滚动更顺。</item>
-    </string-array>
-
-    #历史更新日志（按日期分组，## 开头为日期标题，之后为当日日志条目）
-    <string-array name="update_history_log">
+        <item></item>
         <item>## 2026-10-31</item>
         <item>1、播放器清晰度按账号权限锁定，新增 4K 档位（不稳定，实验性）；播放页内也能切 1080P。</item>
         <item>2、收藏夹管理页新增「内容管理」入口，可以清空失效内容。</item>
@@ -835,6 +854,26 @@
     <string name="text_list_empty_retry">啥都木有~\n点我重试</string>
     <string name="text_list_loading">正在加载…</string>
     <string name="text_list_no_more">没有更多了</string>
+    <!-- ===== 我的订阅（收藏夹/合集订阅） ===== -->
+    <string name="text_subscription_placeholder_title">订阅标题</string>
+    <string name="text_subscription_type_folder">收藏夹</string>
+    <string name="text_subscription_type_season">合集</string>
+    <string name="text_subscription_meta">%1$s · %2$d 个视频</string>
+    <string name="msg_subscription_need_login">还没有登录喵~</string>
+    <string name="msg_subscription_csrf_invalid">登录凭证已失效，请重新登录</string>
+    <string name="msg_subscription_bad_request">请求出错了，请稍后再试</string>
+    <string name="msg_subscription_content_gone">内容不存在，可能已经被删除了</string>
+    <string name="msg_subscription_failed_with_code">操作失败（错误码 %1$d）</string>
+    <string name="msg_subscription_invalid">该收藏夹已失效</string>
+    <string name="msg_subscription_cancel_confirm">确定取消订阅「%1$s」吗？</string>
+    <string name="msg_subscription_cancelled">已取消订阅</string>
+    <string name="text_sub_toggle_loading">订阅状态加载中…</string>
+    <string name="text_sub_toggle_subscribe">订阅</string>
+    <string name="text_sub_toggle_subscribed">已订阅</string>
+    <string name="msg_sub_subscribed">已订阅</string>
+    <string name="msg_sub_unsubscribed">已取消订阅</string>
+    <string name="msg_sub_confirm_unsub_folder">确定取消订阅该收藏夹吗？</string>
+    <string name="msg_sub_confirm_unsub_season">确定取消订阅该合集吗？</string>
     <!-- ===== 下载过程（12.4 文案迁移：三批） ===== -->
     <string name="text_download_preparing">准备中</string>
     <string name="text_download_start">开始下载</string>
@@ -875,6 +914,10 @@
     <string name="msg_storage_fallback">原缓存目录不可写，已自动改存到应用专属目录：%1$s</string>
     <string name="msg_picture_fallback">原图片目录不可写，已自动改存到应用专属目录：%1$s</string>
     <string name="msg_storage_unavailable">存储空间当前不可写（可能已满或被设为只读），请清理后重试</string>
+    <!-- 图片下载失败（反馈 #17）：图片链路用 Toast 提示——页面此时已经结束，页面内 Snackbar 会跟着窗口一起消失 -->
+    <string name="msg_picture_download_failed">图片下载失败，请检查网络或存储空间后重试</string>
+    <!-- 缓存视频删除失败（反馈 #58）：删除结果必须如实反馈，不能再一律提示「删除成功」 -->
+    <string name="msg_cache_delete_failed">删除失败：%1$s\n文件可能被占用，或当前没有该目录的写入权限，请用文件管理器删除</string>
     <string name="text_danmaku_download_failed">弹幕下载失败！</string>
     <string name="text_load_failed">加载失败</string>
     <!-- ===== 敏感操作前的 Cookie 检查提示（12.4 文案迁移：五批） ===== -->
@@ -929,12 +972,17 @@
     <string name="msg_specialloginactivity_003">请检查输入的内容，不要有多余空格或字符</string>
     <string name="msg_specialloginactivity_004">已复制</string>
     <string name="msg_specialloginactivity_005">登录成功！</string>
+    <string name="msg_specialloginactivity_006">登录信息写入失败：账号 ID 与 Cookie 里的用户 ID 不一致，请重新导出后再试</string>
+    <string name="msg_specialloginactivity_007">没有可导入的账号，请检查登录信息是否完整</string>
+    <string name="msg_specialloginactivity_008">已导入 %1$d 个账号（新增 %2$d，更新 %3$d），到「账号切换」里选择要用的账号</string>
+    <string name="msg_specialloginactivity_009">还没有可导出的账号，请先登录</string>
     <string name="pagename_qrloginhelpactivity_001">登录方式说明</string>
     <string name="pagename_captchawebviewactivity_001">人机验证</string>
     <string name="msg_long_captchawebviewactivity_001">此设备无法显示人机验证（WebView 不可用），请改用扫码登录或 Cookie 登录</string>
     <string name="msg_captchawebviewactivity_001">验证参数错误</string>
     <string name="msg_accountswitchactivity_001">这是当前登录的账号</string>
     <string name="msg_accountswitchactivity_002">已删除账号</string>
+    <string name="msg_accountswitchactivity_003">当前登录的账号不能删除，请先切换到其他账号</string>
     <string name="msg_login_status_passwordloginfragment_001">此设备无法显示人机验证，请改用扫码登录</string>
     <string name="msg_login_status_passwordloginfragment_002">验证已取消</string>
     <string name="msg_login_status_passwordloginfragment_003">请输入账号和密码</string>
@@ -947,6 +995,7 @@
     <string name="msg_login_status_passwordloginfragment_010">提交超时，请重试</string>
     <string name="msg_login_status_passwordloginfragment_011">验证码错误，请重试</string>
     <string name="msg_login_status_passwordloginfragment_012">需要手机号验证，请使用短信验证码登录</string>
+    <string name="msg_login_status_passwordloginfragment_013">登录信息不完整（缺少用户 ID），请重试</string>
     <string name="msg_login_status_smsloginfragment_001">请输入正确的手机号</string>
     <string name="msg_login_status_smsloginfragment_002">请输入手机号和验证码</string>
     <string name="msg_login_status_smsloginfragment_003">请先完成人机验证</string>
@@ -1349,6 +1398,7 @@
     <string name="text_tutorial_history_done">历史记录：已完成过（版本 %1$d）</string>
     <string name="text_account_empty">暂无已保存的账号\n登录后会自动保存账号凭证</string>
     <string name="text_account_add_new">添加新账号</string>
+    <string name="text_account_import">导入账号数据（支持一次性导入多个账号）</string>
     <string name="text_update_current_version">本次更新 (%1$s)</string>
 
     <string name="uitext_messageactivity_001">@我</string>
@@ -1492,7 +1542,6 @@
     <string name="uitext_replyinfoactivity_001">评论详情</string>
     <string name="uitext_writereplyactivity_001">图片处理失败</string>
     <string name="uitext_writereplyactivity_002">图片上传失败</string>
-    <string name="uitext_writereplyactivity_003">带图评论仅大会员可用喵~</string>
     <string name="uitext_writereplyactivity_004">最多只能添加9张图片喵~</string>
     <string name="uitext_writereplyactivity_005">发送成功&gt;w&lt;</string>
     <string name="uitext_searchactivity_001">还没输入内容喵~</string>
@@ -1841,6 +1890,31 @@
     <string name="uitext_locallistactivity_024">该文件夹内没有可播放的视频</string>
     <string name="uitext_locallistactivity_025">无法定位起始视频，请重新选择</string>
     <string name="uitext_locallistactivity_026">%1$s（虚拟合集）</string>
+    <string name="uitext_locallistactivity_023">操作</string>
+    <string name="uitext_locallistactivity_024">已选 %1$d 项</string>
+    <string name="uitext_locallistactivity_025">退出</string>
+    <string name="uitext_locallistactivity_026">点条目勾选，再点「操作」</string>
+    <string name="uitext_locallistactivity_027">文件夹和视频不能一起操作，先取消一种</string>
+    <string name="uitext_locallistactivity_028">确定删除选中的 %1$d 个视频吗？此操作不可恢复。</string>
+    <string name="uitext_locallistactivity_029">确定拆散选中的 %1$d 个文件夹吗？视频会移回未分类区域。</string>
+    <string name="uitext_locallistactivity_030">已删除 %1$d 条，%2$d 条失败</string>
+    <string name="uitext_locallistactivity_031">弹幕更新完成：成功 %1$d 个，失败 %2$d 个</string>
+
+    <!-- 缓存页排序 / 搜索（26.11.02，反馈 #94） -->
+    <string name="btn_cache_sort">排序</string>
+    <string name="btn_cache_search">搜索</string>
+    <string name="btn_cache_search_clear">清除</string>
+    <string name="text_cache_sort_title">排序方式</string>
+    <string name="text_cache_sort_default">默认（扫描顺序）</string>
+    <string name="text_cache_sort_title_asc">标题 升序</string>
+    <string name="text_cache_sort_title_desc">标题 降序</string>
+    <string name="text_cache_sort_time_desc">时间 新→旧</string>
+    <string name="text_cache_sort_time_asc">时间 旧→新</string>
+    <string name="text_cache_sort_size_desc">大小 大→小</string>
+    <string name="text_cache_sort_size_asc">大小 小→大</string>
+    <string name="text_cache_search_title">搜索缓存</string>
+    <string name="text_cache_search_hint">输入关键词，留空清除</string>
+    <string name="text_cache_search_empty">没有匹配的缓存</string>
     <string name="uitext_seriesinfoactivity_001">系列详情</string>
     <string name="uitext_multipageactivity_001">已在下载队列</string>
     <string name="uitext_qualitychooseractivity_004">4K 超清</string>
@@ -2375,6 +2449,7 @@
     <string name="msg_player_entered_collection">进入合集：%1$s</string>
     <string name="msg_player_entered_multi_page">进入分P：%1$s</string>
     <string name="msg_player_lock_hint">已锁定：点画面显示锁定按钮，再点按钮解锁</string>
+    <string name="msg_player_local_share_fallback">该缓存文件无法交给外部播放器，已改用内置播放器</string>
     <string name="uitext_dynamicholder_019">已经删除过了哦~</string>
     <string name="uitext_dynamicholder_020">不是自己的动态！</string>
     <string name="uitext_dynamicholder_021">%1$s人参与</string>
@@ -2513,4 +2588,45 @@
     <string name="text_image_picker_load_failed">读取相册失败，可以点上方「系统选择器」选图</string>
     <!-- 缩略图的读屏文字 -->
     <string name="text_image_picker_item">图片</string>
+
+    <!-- ==================== 播放器：#61 长按倍速档位 / #83 分P 续播 ==================== -->
+    <!-- 设置项名：与既有的「长按倍速」开关区分开，那一项管开关、这一项管倍率 -->
+    <string name="setting_player_longpress_speed_name">长按倍速档位</string>
+    <string name="setting_player_longpress_speed_desc">长按画面加速时使用的倍率（弹幕一起加速），默认 3.0x</string>
+    <!-- %1$d 是分P 序号（从 1 开始） -->
+    <string name="msg_player_resume_page">继续播放第 %1$d P</string>
+
+    <!-- ==================== 播放器：反馈 #94a 滑动灵敏度 / QQ#7 锁定按钮开关 / QQ#9 精确跳转 ==================== -->
+    <!-- 设置项名：横滑调进度的倍率档位（存档键/档位表在 PlayerSwipeSeekScalePolicy） -->
+    <string name="setting_player_swipe_seek_scale_name">滑动调进度灵敏度</string>
+    <string name="setting_player_swipe_seek_scale_desc">左右滑动时划过整个屏幕对应的进度倍率；手表 dpi 低、手指一动就跳很多时调小，默认 1.0x</string>
+    <!-- 设置项名：锁定按钮显隐；关掉后不显示按钮，也不会误触进入锁定 -->
+    <string name="setting_player_lock_button_name">显示锁定按钮</string>
+    <string name="setting_player_lock_button_desc">关闭后播放页不显示锁定按钮，拖动进度条时不会误触锁定</string>
+    <!-- 播放器菜单项：打开输入框，输入时间点直接跳转（直播不显示） -->
+    <string name="text_player_jump_to_time">跳到指定时间</string>
+    <string name="hint_player_jump_to_time">秒数 / mm:ss / hh:mm:ss</string>
+    <string name="msg_player_jump_invalid">时间格式不对，可输入 90、1:30 或 1:02:03</string>
+    <string name="msg_player_jump_out_of_range">已跳到视频末尾</string>
+
+    <!-- ==================== 用户详情页：长按「已关注」加入分组（反馈 #88） ==================== -->
+    <!-- 弹窗标题 -->
+    <string name="uitext_userdynamicadapter_022">加入分组</string>
+    <!-- 菜单项后缀：%1$s 是分组名 -->
+    <string name="uitext_userdynamicadapter_023">%1$s（已加入）</string>
+    <!-- 点到已经加入的分组时的提示；%1$s 是分组名 -->
+    <string name="uitext_userdynamicadapter_024">已经在「%1$s」分组里了</string>
+    <!-- 成功加入后的提示；%1$s 是分组名 -->
+    <string name="uitext_userdynamicadapter_025">已加入「%1$s」</string>
+    <!-- 网络异常 / 接口异常时的动作名（MsgUtil.err 的标题） -->
+    <string name="uitext_userdynamicadapter_026">加入分组失败</string>
+    <!-- 新建分组弹窗的确认按钮 -->
+    <string name="uitext_userdynamicadapter_027">创建</string>
+    <!-- 新建成功但回查不到新分组（极少见）时的提示 -->
+    <string name="uitext_userdynamicadapter_028">分组已创建，但没找到它，请稍后刷新再试</string>
+
+    <!-- ==================== 评论发送成功但查不到（反馈 #85） ==================== -->
+    <!-- 服务端回了 code=0，但评论区（按时间排序、seek 到新评论）查不到这条评论：
+         多半是进了审核。不能报「发送成功」，否则用户刷新后评论消失，看起来像发不出去。 -->
+    <string name="uitext_writereplyactivity_022">评论已提交，但评论区暂时查不到（可能正在审核）。稍后刷新看看，先别重复发送</string>
 </resources>

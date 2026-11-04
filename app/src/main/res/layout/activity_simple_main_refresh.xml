@@ -19,28 +19,25 @@
             android:layout_alignParentLeft="true"
             android:layout_marginVertical="3dp"
             android:layout_marginStart="8dp"
-            android:layout_toStartOf="@id/menuArea"
+            android:layout_toStartOf="@id/timeText"
             android:lines="1"
             android:text="@string/pagename_default"
             android:textStyle="bold"
             app:drawableStartCompat="@drawable/arrow_down" />
 
-        <LinearLayout
-            android:id="@+id/menuArea"
+        <!-- 时钟必须是 @id/top 的直系子 View，与 activity_simple_refresh.xml 等其余布局一致：
+             BaseActivity.setRound() 的圆屏适配是靠给时钟加 RelativeLayout.CENTER_HORIZONTAL
+             把它挪到顶栏正中的。此前这里套了一层 menuArea(LinearLayout)，时钟拿到的是
+             LinearLayout.LayoutParams，加不了 RelativeLayout 规则 → 圆屏模式下时钟仍被
+             alignParentRight 钉在最右，被圆盘切掉（26.11.01 修复）。 -->
+        <com.RobinNotBad.BiliClient.ui.widget.TextClock
+            android:id="@+id/timeText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_alignParentRight="true"
             android:layout_alignParentEnd="true"
-            android:orientation="horizontal">
-
-            <com.RobinNotBad.BiliClient.ui.widget.TextClock
-                android:id="@+id/timeText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="8dp"
-                android:layout_marginVertical="3dp" />
-
-        </LinearLayout>
+            android:layout_marginEnd="8dp"
+            android:layout_marginVertical="3dp" />
 
     </RelativeLayout>
 
@@ -75,15 +72,140 @@
             android:visibility="gone"
             tools:text="正在加载…" />
 
+        <!-- 缓存页多选条（26.11.02）：贴在页面最底部，非多选态只有一个「多选」按钮，
+             多选态变成「已选 N 项 / 操作 / 退出」。
+             注意这个布局是**多个一级页共用**的（RefreshMainActivity / PopularActivity /
+             RankingActivity / PreciousActivity / LocalListActivity），所以这里必须默认 gone，
+             只有 LocalListActivity 在缓存页里点亮它；否则推荐、热门、排行页底部会多出一条死按钮。 -->
+        <LinearLayout
+            android:id="@+id/multiSelectBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?android:attr/colorBackground"
+            android:baselineAligned="false"
+            android:elevation="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="@dimen/activity_padding_horizontal"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <TextView
+                android:id="@+id/textSelectedCount"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:minHeight="@dimen/touch_min"
+                android:paddingVertical="4dp"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="13sp"
+                android:visibility="gone"
+                tools:text="已选 3 项" />
+
+            <TextView
+                android:id="@+id/btnMultiSelect"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:minHeight="@dimen/touch_min"
+                android:paddingVertical="4dp"
+                android:text="@string/uitext_favoritevideolistactivity_009"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/btnMultiOperate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:minHeight="@dimen/touch_min"
+                android:paddingHorizontal="@dimen/space_md"
+                android:paddingVertical="4dp"
+                android:text="@string/uitext_locallistactivity_023"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/btnMultiExit"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:minHeight="@dimen/touch_min"
+                android:paddingHorizontal="@dimen/space_md"
+                android:paddingVertical="4dp"
+                android:text="@string/uitext_locallistactivity_025"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
+            <!-- 缓存页排序 / 搜索入口（26.11.02，反馈 #94）：与上面的多选条同一排，非多选态显示，
+                 多选态由 LocalListActivity 藏起来。和其它按钮一样默认 gone——这个布局是多个一级页
+                 共用的，不加默认 gone 会让推荐 / 热门 / 排行页凭空多出三个死按钮。 -->
+            <TextView
+                android:id="@+id/btnSort"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:minHeight="@dimen/touch_min"
+                android:paddingHorizontal="@dimen/space_md"
+                android:paddingVertical="4dp"
+                android:text="@string/btn_cache_sort"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/btnSearch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:minHeight="@dimen/touch_min"
+                android:paddingHorizontal="@dimen/space_md"
+                android:paddingVertical="4dp"
+                android:text="@string/btn_cache_search"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/btnSearchClear"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:minHeight="@dimen/touch_min"
+                android:paddingHorizontal="@dimen/space_md"
+                android:paddingVertical="4dp"
+                android:text="@string/btn_cache_search_clear"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
+        </LinearLayout>
+
     </LinearLayout>
 
     <!-- 空态：列表为空是正常状态，不放 loading_2233_error 报错插画，
-         否则会被误认成"加载失败"。确属加载失败时由 MsgUtil.err 弹提示。 -->
+         否则会被误认成"加载失败"。确属加载失败时由 MsgUtil.err 弹提示。
+
+         layout_below="@id/top" 是硬要求（26.11.02）：它排在 top 之后，RelativeLayout 会把它
+         画在顶栏上面，点击也从后往前先给它。以前铺满整页，`setOnEmptyRetry`（推荐 / 动态 /
+         热搜 / 直播等页都调）一装监听器，顶栏那一条就变成「点一下重拉列表」——首页菜单栏
+         打不开、普通页面退不出去。具体成因见 activity_simple_refresh.xml 同一处注释。 -->
     <TextView
         android:id="@+id/emptyTip"
         android:padding="@dimen/space_xl"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:layout_below="@id/top"
         android:gravity="center"
         android:text="@string/text_list_empty"
         android:textAlignment="center"

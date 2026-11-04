@@ -39,6 +39,7 @@ import com.RobinNotBad.BiliClient.activity.search.SearchActivity
 import com.RobinNotBad.BiliClient.activity.settings.SettingPlayerChooseActivity
 import com.RobinNotBad.BiliClient.activity.user.WatchLaterActivity
 import com.RobinNotBad.BiliClient.activity.video.MultiPageActivity
+import com.RobinNotBad.BiliClient.activity.video.MultiPageResumePolicy
 import com.RobinNotBad.BiliClient.activity.video.QualityChooserActivity
 import com.RobinNotBad.BiliClient.activity.video.collection.CollectionInfoActivity
 import com.RobinNotBad.BiliClient.adapter.user.UpListAdapter
@@ -780,9 +781,28 @@ class VideoInfoFragment : BaseFragment() {
         }
 
         Glide.get(getAppContext()).clearMemory()
-        if (videoInfo!!.pagenames.size == 1) PlayerApi.startGettingUrl(data)
-        else
-            startActivity(Intent(requireContext(), MultiPageActivity::class.java).putExtra("data", data))
+        // #83：多P 视频「续到上次那个P」——服务端 last_play_cid 指向本稿件的某个分P、
+        // 且 last_play_time > 0 时，直接把那一P 交给播放器起播：进度由 PlayerApi 按
+        // last_play_cid 采纳（见 adoptLastPlayTime），不再让用户每次都重选一遍。
+        // 没有观看记录、或上次看的就是 P1 时仍走原来的分P 选择页——别把"能选P"的入口吃掉。
+        // 判据（含"cid 必须属于本稿件"）收敛在 MultiPageResumePolicy。
+        val resumeIndex = MultiPageResumePolicy.resumePageIndex(
+            videoInfo!!.cids, data.cidHistory, data.lastPlayTimeMs
+        )
+        when {
+            videoInfo!!.pagenames.size == 1 -> PlayerApi.startGettingUrl(data)
+            resumeIndex > 0 -> {
+                val resumeData = videoInfo!!.toPlayerData(resumeIndex)
+                // 带上"有没有上次记录"的原值：播放器之外还要用它（当前没有消费方，但别丢信息）
+                resumeData.lastPlayTimeMs = data.lastPlayTimeMs
+                // timeStamp 归零：让 JumpToPlayerActivity 真正重拉一次 playurl，
+                // 续播位置由服务端按这个分P 现算（缓存十分钟的旧进度不能用）
+                resumeData.timeStamp = 0
+                PlayerApi.startGettingUrl(resumeData)
+                MsgUtil.showMsg(getString(R.string.msg_player_resume_page, resumeIndex + 1))
+            }
+            else -> startActivity(Intent(requireContext(), MultiPageActivity::class.java).putExtra("data", data))
+        }
 
         data.timeStamp = 0
     }

@@ -44,6 +44,10 @@ class HotSearchAdapter(
         holder.rankText.text = rank.toString()
         // 前三名用当前主题主色，其余用主题三级文字色（此前写死 B站官方粉 #FB7299 / 灰 #999999）
         holder.rankText.setTextColor(if (rank <= 3) ColorScheme.PRIMARY else ColorScheme.TEXT_TERTIARY)
+        // 反馈 #92：keywordText 是 MarqueeTextView，init 里已经置好 isSelected + MARQUEE。
+        // RecyclerView 复用的是同一个 View 实例，选中态不会因为 bind/滚出屏幕/从搜索页返回而被清，
+        // 所以这里（以及全仓库其它用 MarqueeTextView 的列表）都不需要重新 setMarquee()/setSelected()；
+        // setText 本身会让 TextView 重新排版并重开跑马灯。
         holder.keywordText.text = card.showName
         if (card.heatScore > 0) {
             holder.heatText.text = formatHeat(card.heatScore)

@@ -17,9 +17,9 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ImagePickerActivity
 import com.RobinNotBad.BiliClient.activity.EmoteActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
+import com.RobinNotBad.BiliClient.api.ApiErrorText
 import com.RobinNotBad.BiliClient.api.EmoteApi
 import com.RobinNotBad.BiliClient.api.ReplyApi
-import com.RobinNotBad.BiliClient.api.VipApi
 import com.RobinNotBad.BiliClient.event.ReplyEvent
 import com.RobinNotBad.BiliClient.model.Reply
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -161,24 +161,50 @@ class WriteReplyActivity : BaseActivity() {
                         runOnUiThread { MsgUtil.showMsg(UiText.of("正在发送…")) }
                         try {
                             val pictures = buildPictures()
-                            val result = ReplyApi.sendReply(oid, rpid, parent, text, replyType, pictures)
-                            val resultCode = result.first
-                            val resultReply = result.second
+                            val result = ReplyApi.sendReplyDetailed(oid, rpid, parent, text, replyType, pictures)
+                            val resultReply = result.reply
 
-                            if (resultCode == 0) {
-                                runOnUiThread { MsgUtil.showMsg(UiText.of("发送成功>w<")) }
-                                resultReply.forceDelete = true
-                                resultReply.pubTime = UiText.of("刚刚")
-                                synchronized(uploadDataList) {
-                                    for (uploadData in uploadDataList) {
-                                        resultReply.pictureList.add(uploadData.image_url)
+                            if (result.code == 0) {
+                                // 反馈 #85：/x/v2/reply/add 可能在评论还没进公开列表（审核中 /
+                                // 尚未同步）时就回 code=0。以前这里直接报「发送成功」并本地插一条，
+                                // 用户一刷新评论区就发现评论没了，体验上就是「发不出去」。
+                                // 所以一级评论发出后先回评论区核实；查不到就如实说「暂未确认」，
+                                // 并且**不插入本地列表、不关页面**，让用户能稍后自己刷新确认。
+                                val isRootComment = rpid == 0L && parent == 0L
+                                if (isRootComment && result.rpid > 0
+                                    && !ReplyApi.isReplyVisible(oid, result.rpid, replyType)
+                                ) {
+                                    runOnUiThread {
+                                        MsgUtil.showMsgLong(
+                                            UiText.of("评论已提交，但评论区暂时查不到（可能正在审核）。稍后刷新看看，先别重复发送")
+                                        )
                                     }
+                                    return@run
                                 }
-                                EventBus.getDefault().post(ReplyEvent(1, resultReply, pos, oid))
-                                finish()
+                                if (resultReply != null) {
+                                    runOnUiThread { MsgUtil.showMsg(UiText.of("发送成功>w<")) }
+                                    resultReply.forceDelete = true
+                                    resultReply.pubTime = UiText.of("刚刚")
+                                    synchronized(uploadDataList) {
+                                        for (uploadData in uploadDataList) {
+                                            resultReply.pictureList.add(uploadData.image_url)
+                                        }
+                                    }
+                                    EventBus.getDefault().post(ReplyEvent(1, resultReply, pos, oid))
+                                    finish()
+                                } else {
+                                    // 服务端成功但没回 reply：评论已经发出去了，别报「失败」让用户重发
+                                    runOnUiThread { MsgUtil.showMsg(UiText.of("发送成功>w<")) }
+                                    finish()
+                                }
                             } else {
-                                val toast_msg = UiText.of("评论发送失败：\n") + ((msgMap[resultCode] ?: resultCode.toString()))
-                                runOnUiThread { MsgUtil.showMsg(toast_msg) }
+                                // 已知码用本地翻译；未收录的码（如 12066）把服务端原话带上，
+                                // 不再只显示一个数字
+                                val reason = msgMap[result.code]
+                                    ?: result.message.ifEmpty { result.code.toString() }
+                                runOnUiThread {
+                                    MsgUtil.showMsg(UiText.of("评论发送失败：\n") + reason)
+                                }
                             }
                         } catch (e: Exception) {
                             runOnUiThread { MsgUtil.err(e) }
@@ -198,25 +224,14 @@ class WriteReplyActivity : BaseActivity() {
         }
 
         findViewById<android.view.View>(R.id.image).setOnClickListener {
-            // 带图评论仅大会员可用，点击前先检测大会员状态
-            CenterThreadPool.run {
-                try {
-                    val vipInfo = VipApi.getVipInfo()
-                    runOnUiThread {
-                        if (vipInfo.isVip) {
-                            if (imageList.size >= 9) {
-                                MsgUtil.showMsg(UiText.of("最多只能添加9张图片喵~"))
-                            } else {
-                                // 内置选图页（反馈 #53），页内可退回系统选择器
-                                imageLauncher.launch(ImagePickerActivity.intent(this))
-                            }
-                        } else {
-                            MsgUtil.showMsg(UiText.of("带图评论仅大会员可用喵~"))
-                        }
-                    }
-                } catch (e: Exception) {
-                    runOnUiThread { MsgUtil.err(e) }
-                }
+            // 不再按大会员前置拦截：图片评论的权限由服务端判定，客户端拦只会把
+            // 「服务端其实允许」的用户挡在门外（26.11.02 用户点名：发图不需要大会员）。
+            // 真正被拒时服务端会回错误码，发送失败分支会把码/原话展示出来。
+            if (imageList.size >= 9) {
+                MsgUtil.showMsg(UiText.of("最多只能添加9张图片喵~"))
+            } else {
+                // 内置选图页（反馈 #53），页内可退回系统选择器
+                imageLauncher.launch(ImagePickerActivity.intent(this))
             }
         }
     }
@@ -230,12 +245,21 @@ class WriteReplyActivity : BaseActivity() {
                 val prepared = prepareImage(uri)
                 // 文件名与 MIME 都按图片真实格式传，否则服务端一律按 JPEG 解析，
                 // GIF 会变成静帧、PNG 透明通道会被填成底色
-                val data = ReplyApi.uploadReplyImage(
-                    prepared.raw, prepared.fileName, prepared.mimeType, ReplyApi.BIZ_REPLY
-                ).getOrNull()
+                // biz 用 BIZ_DYNAMIC（new_dyn）：评论的 pictures 只认这个图床目录
+                val uploadResult = ReplyApi.uploadReplyImage(
+                    prepared.raw, prepared.fileName, prepared.mimeType, ReplyApi.BIZ_DYNAMIC
+                )
+                val data = uploadResult.getOrNull()
                 if (data == null) {
+                    // 服务端失败只给错误码：翻成人话再弹，别让用户对着「图片上传失败」猜
+                    var failText = UiText.of("图片上传失败")
+                    uploadResult.onFailure { e ->
+                        if (e is ReplyApi.UploadException) {
+                            failText = ApiErrorText.uploadFailed(e.code)
+                        }
+                    }
                     runOnUiThread {
-                        MsgUtil.showMsg(UiText.of("图片上传失败"))
+                        MsgUtil.showMsg(failText)
                         imageList.remove(uri.toString())
                     }
                     return@run

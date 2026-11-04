@@ -24,6 +24,7 @@ import org.json.JSONObject;
 
 import java.io.IOException;
 import java.net.URLEncoder;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -41,10 +42,22 @@ public class ReplyApi {
     public static final int REPLY_TYPE_DYNAMIC = 17;
     public static final String TOP_TIP = "[置顶]";
 
-    /** 投稿图片的业务标识（动态、专栏等走投稿流程的图片）。 */
+    /**
+     * 图片动态的业务标识。
+     *
+     * <p><b>评论图也用这个</b>：图床 `upload_bfs` 的 `biz` 只决定图片落在哪个 BFS 目录，
+     * 而评论的 `pictures` 只认 `/bfs/new_dyn/` 下的图（与官方客户端一致）。
+     * 26.10.02 曾把评论图改成自造的 `new_reply`，结果图能传上去、发评论时被服务端以
+     * 12066 拒绝（`docs/review/fix-progress.md` §三.107）。这里恢复成 `new_dyn`。
+     */
     public static final String BIZ_DYNAMIC = "new_dyn";
-    /** 评论图片的业务标识，评论带图必须用这个，用 new_dyn 会被服务端当成动态图处理。 */
-    public static final String BIZ_REPLY = "new_reply";
+    /**
+     * 私信图片的业务标识（`/bfs/im/`）。
+     *
+     * <p>与动态/评论图不同：私信走 IM 图床目录，上游 PiliPlus 同样是 `biz: 'im'`
+     * （`lib/pages/whisper_detail/view.dart`）。原先私信错误地复用了评论的 biz。
+     */
+    public static final String BIZ_MESSAGE = "im";
 
     /** getRepliesLazy 返回码：请求或解析失败。 */
     public static final int PAGE_ERROR = -1;
@@ -234,7 +247,25 @@ public class ReplyApi {
      * @param fileName  文件名（含扩展名）
      */
     public static Result<UploadImageData> uploadReplyImage(byte[] imageData, String fileName) {
-        return uploadReplyImage(imageData, fileName, "image/jpeg", BIZ_REPLY);
+        return uploadReplyImage(imageData, fileName, "image/jpeg", BIZ_DYNAMIC);
+    }
+
+    /**
+     * 图片上传失败。
+     *
+     * <p>必须带上服务端 `code`：`upload_bfs` 失败时只会给一个数字码（4100001 参数错误、
+     * -101 未登录、-352 风控…），而界面原先只显示「图片上传失败」，用户和开发者都无从判断。
+     */
+    public static class UploadException extends Exception {
+        public final int code;
+        public final String serverMessage;
+
+        public UploadException(int code, String serverMessage) {
+            super("上传图片失败，code=" + code
+                    + (serverMessage == null || serverMessage.isEmpty() ? "" : "，" + serverMessage));
+            this.code = code;
+            this.serverMessage = serverMessage == null ? "" : serverMessage;
+        }
     }
 
     /**
@@ -244,7 +275,7 @@ public class ReplyApi {
      * @param fileName  文件名（含扩展名）
      * @param mimeType  图片真实的 MIME 类型。必须与数据真实格式一致（GIF/PNG 原样透传时尤其重要），
      *                  否则服务端按 image/jpeg 解码会丢掉动图帧与透明通道
-     * @param biz       业务标识，评论图必须传 {@link #BIZ_REPLY}
+     * @param biz       业务标识，评论图与动态图都传 {@link #BIZ_DYNAMIC}，私信图传 {@link #BIZ_MESSAGE}
      */
     public static Result<UploadImageData> uploadReplyImage(byte[] imageData, String fileName, String mimeType, String biz) {
         String url = "https://api.bilibili.com/x/dynamic/feed/draw/upload_bfs";
@@ -273,8 +304,11 @@ public class ReplyApi {
             String json = response.body() == null ? "" : response.body().string();
             JSONObject result = new JSONObject(json);
             int code = result.optInt("code", -1);
+            String serverMessage = result.optString("message", "");
             if (code != 0 || result.isNull("data")) {
-                return Result.failure(new Exception("上传图片失败，code=" + code));
+                // 只记 code/message：响应体里没有凭据，但整包 json 也没必要进日志
+                Log.e("debug-上传图片", "code=" + code + " message=" + serverMessage + " biz=" + biz);
+                return Result.failure(new UploadException(code, serverMessage));
             }
             JSONObject data = result.getJSONObject("data");
             UploadImageData d = new UploadImageData();
@@ -323,8 +357,48 @@ public class ReplyApi {
         return jsonArray.toString();
     }
 
+    /**
+     * 发表评论的完整结果。
+     *
+     * <p>原来的返回值只有 code 和 reply，服务端那句 `message` 被丢掉了 —— 遇到未收录的码
+     * （例如带图评论的 12066）时，界面上只剩一个数字，用户报障和自查都无从下手。
+     */
+    public static class SendReplyResult {
+        public final int code;
+        public final String message;
+        public final Reply reply;
+        /**
+         * 新评论的 rpid。
+         *
+         * <p>服务端 `data.rpid` 与 `data.reply.rpid` 正常是同一个值，但 `data.reply` 可能为 null
+         * （见下方注释）。单独留一份，是为了「没有 reply 对象时仍然能去评论区核实这条评论是否存在」——
+         * 见 {@link #isReplyVisible}。
+         */
+        public final long rpid;
+
+        public SendReplyResult(int code, String message, Reply reply, long rpid) {
+            this.code = code;
+            this.message = message == null ? "" : message;
+            this.reply = reply;
+            this.rpid = rpid;
+        }
+    }
+
     /** 发送带图评论（pictures 为评论图片 JSON 数组字符串）。 */
     public static Pair<Integer, Reply> sendReply(long oid, long root, long parent, String text, int type, String pictures) throws IOException, JSONException {
+        SendReplyResult result = sendReplyDetailed(oid, root, parent, text, type, pictures);
+        return new Pair<>(result.code, result.reply);
+    }
+
+    /**
+     * 发送评论并带回服务端 message。
+     *
+     * <p>只给需要把「未收录错误码 + 服务端原话」展示给用户的调用方用（带图评论页）；
+     * 其余调用方继续用 {@link #sendReply(long, long, long, String, int, String)}。
+     *
+     * @param pictures 评论图片 JSON 数组字符串；没有图片传空串
+     */
+    public static SendReplyResult sendReplyDetailed(long oid, long root, long parent, String text, int type, String pictures) throws IOException, JSONException {
         String url = "https://api.bilibili.com/x/v2/reply/add";
         String arg = "oid=" + oid + "&type=" + type + (root == 0 ? "" : ("&root=" + root + "&parent=" + parent))
                 + "&message=" + URLEncoder.encode(text, "UTF-8")
@@ -332,11 +406,88 @@ public class ReplyApi {
                 + "&jsonp=jsonp&csrf=" + NetWorkUtil.currentCsrf();
         JSONObject result = new JSONObject(Objects.requireNonNull(NetWorkUtil.post(url, arg, NetWorkUtil.webHeaders).body()).string());
         Log.e("debug-发送评论", result.toString());
+        int code = result.getInt("code");
+        String message = result.optString("message", "");
+        JSONObject data = result.optJSONObject("data");
+        long newRpid = data == null ? 0 : data.optLong("rpid", 0);
         JSONObject reply = null;
-        if (result.has("data") && !result.isNull("data") && result.getJSONObject("data").has("reply") && !result.getJSONObject("data").isNull("reply")) {
-            reply = result.getJSONObject("data").getJSONObject("reply");
+        if (data != null && data.has("reply") && !data.isNull("reply")) {
+            reply = data.getJSONObject("reply");
         }
-        return new Pair<>(result.getInt("code"), reply == null ? null : new Reply(root != 0, reply));
+        if (newRpid <= 0 && reply != null) newRpid = reply.optLong("rpid", 0);
+        return new SendReplyResult(code, message, reply == null ? null : new Reply(root != 0, reply), newRpid);
+    }
+
+    /**
+     * 刚发出的评论现在能不能在评论区里查到。
+     *
+     * <p>**这是反馈 #85 的根因兜底**：`/x/v2/reply/add` 可能在评论进入审核 / 还没同步到公开列表时
+     * 就回了 `code = 0`（并带回 reply 对象）。客户端如果照单全收，就会先把评论「本地插进列表」
+     * 再报「发送成功」，用户一刷新评论区发现评论没了——看起来就像「发不出去」。
+     * 所以发送成功后必须回评论区核实一次，查不到就别说成功。
+     *
+     * <p>实现上用 `seek_rpid` 直接定位这条评论（`mode=2` 按时间），按 0 / 0.4s / 1.0s 三次重试，
+     * 覆盖「服务端列表同步延迟」这一小段时间；审核超过这个时间就查不到，属于正常结果。
+     *
+     * @param oid  评论区 id（视频 aid 等）
+     * @param rpid 新评论的 rpid
+     * @param type 评论区类型（与发送时一致）
+     * @return true = 评论区已经能查到这条评论
+     */
+    public static boolean isReplyVisible(long oid, long rpid, int type) {
+        if (oid <= 0 || rpid <= 0) return false;
+        // 三次查询之间的等待（毫秒）；第一次立即查，避免正常评论白等
+        long[] waits = {0L, 400L, 1000L};
+        for (long wait : waits) {
+            if (wait > 0) {
+                try {
+                    Thread.sleep(wait);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+            try {
+                ArrayList<Reply> replies = new ArrayList<>();
+                Pair<Integer, String> page = getRepliesLazy(oid, rpid, "", type, 2, replies);
+                if (page.first == PAGE_ERROR) continue;
+                if (containsReplyId(replies, rpid)) return true;
+            } catch (Exception e) {
+                // 单次查询失败不代表评论没发出：继续重试，三次都失败才按「暂未确认」处理
+                Log.e("debug-评论可见性", "查询失败 rpid=" + rpid + "，" + e.getClass().getSimpleName());
+            }
+        }
+        // 兜底：seek_rpid 在个别评论区可能不生效。按时间排序的第一页就是最新评论，
+        // 新评论只要公开可见就必然在那一页里；这一步只在前面三次都查不到时才多跑一次。
+        try {
+            ArrayList<Reply> latest = new ArrayList<>();
+            getRepliesLazy(oid, 0, "", type, 2, latest);
+            if (containsReplyId(latest, rpid)) return true;
+        } catch (Exception e) {
+            Log.e("debug-评论可见性", "兜底查询失败 rpid=" + rpid + "，" + e.getClass().getSimpleName());
+        }
+        Log.e("debug-评论可见性", "评论区暂未查到 rpid=" + rpid + " oid=" + oid + " type=" + type);
+        return false;
+    }
+
+    /**
+     * 纯逻辑：这批评论（含楼中楼）里有没有指定 rpid。
+     *
+     * <p>抽出来做 JVM 单测：{@link #isReplyVisible} 的真实请求跑不到单测环境，
+     * 但「怎么算查到」这段判定可以钉死（尤其是别漏了楼中楼）。
+     */
+    public static boolean containsReplyId(List<Reply> replies, long rpid) {
+        if (replies == null || rpid <= 0) return false;
+        for (Reply reply : replies) {
+            if (reply == null) continue;
+            if (reply.rpid == rpid) return true;
+            if (reply.childMsgList != null) {
+                for (Reply child : reply.childMsgList) {
+                    if (child != null && child.rpid == rpid) return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.View
+import android.view.WindowManager
 import android.widget.TextView
 import androidx.core.content.FileProvider
 import com.RobinNotBad.BiliClient.R
@@ -14,7 +15,9 @@ import com.RobinNotBad.BiliClient.api.AppInfoApi
 import com.RobinNotBad.BiliClient.service.download.DownloadPathSpec
 import com.RobinNotBad.BiliClient.util.ApkVerifier
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.DownloadWakeLock
 import com.RobinNotBad.BiliClient.util.FileUtil
+import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import com.RobinNotBad.BiliClient.util.PictureMediaStore
@@ -68,6 +71,10 @@ class DownloadActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_download)
+        // 反馈 #91「图片和视频前台下载时能加个暂时不休眠吗」：本页在屏幕上时保持亮屏，
+        // 让用户看得见进度；离开页面后这个标志不再生效（真正保证熄屏仍继续下载的是
+        // CenterThreadPool 那段的 DownloadWakeLock）。onDestroy 里撤掉。
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val intent = intent
 
@@ -88,45 +95,71 @@ class DownloadActivity : BaseActivity() {
             if (type == 0) FileUtil.resolvePictureDownloadDir(this, File(intent.getStringExtra("path") ?: ""))
             else FileUtil.resolveVideoDownloadDir(this)
         if (targetRoot == null) {
+            // 这里要自己再补一次提示：resolvePictureDownloadDir 的失败文案走的是 Snackbar，
+            // 而 Snackbar 挂在**本页窗口**上，页面一 finish 就跟着消失了（图片链路原来就是这样
+            // 静默失败的）。图片下载改用 Toast —— 它不依赖页面窗口，页面结束后仍然看得见。
+            if (type == 0) MsgUtil.toast(getString(R.string.msg_storage_unavailable))
             finish()
             return
         }
 
         timer.schedule(showText, 100, 100)
         CenterThreadPool.run {
-            if (type == 0) {
-                rootPath = targetRoot
-                if (!rootPath!!.exists()) rootPath!!.mkdirs()
-                downFile = File(rootPath, FileUtil.getFileNameFromLink(link!!))
-                download(link!!, downFile!!, getString(R.string.text_downloading_file), true)
-            } else {
-                val title = FileUtil.stringToFile(intent.getStringExtra("title")!!)
+            // 反馈 #91「图片和视频前台下载时能加个暂时不休眠吗」：前台下载（图片保存、播放页下载）
+            // 也跑在后台线程里，屏幕熄灭后 CPU 休眠会把网络 read() 挂住、下载停在原地。
+            // 真正开始下载前拿一把 CPU 唤醒锁，整段下载结束（成功/失败/取消）在 finally 里放掉。
+            // 与 DownloadService 的后台批量下载共用同一把系统锁、按引用计数，这里先结束也不会放掉那边的锁。
+            val wakeLockHeld = DownloadWakeLock.acquire(applicationContext)
+            try {
+                if (type == 0) {
+                    rootPath = targetRoot
+                    if (!rootPath!!.exists()) rootPath!!.mkdirs()
+                    // 文件名必须从 URL 里「净化」出来：B 站图片地址可能带 `@1048w_…` 参数后缀或
+                    // `?x-oss-process=…` 查询串，直接截最后一段会把参数拼进文件名 —— MediaStore 认不出
+                    // 扩展名（相册里看不到保存的图），个别文件系统还会直接创建失败（反馈 #17）。
+                    downFile = File(rootPath, PictureDownloadPolicy.fileNameFor(link!!))
+                    // 协议相对地址（//i0.hdslb.com/…）补 https；http 统一升 https，失败再由
+                    // download() 退回 http 重试一次（详见 PictureDownloadPolicy）。
+                    val pictureUrl = PictureDownloadPolicy.normalizeUrl(link!!) ?: link!!
+                    download(
+                        pictureUrl,
+                        downFile!!,
+                        getString(R.string.text_downloading_file),
+                        true,
+                        schemeFallback = true
+                    )
+                } else {
+                    val title = FileUtil.stringToFile(intent.getStringExtra("title")!!)
 
-                rootPath = targetRoot
+                    rootPath = targetRoot
 
-                if (type == 1) {
-                    downPath = File(rootPath, title)
-                    rootPath = downPath
+                    if (type == 1) {
+                        downPath = File(rootPath, title)
+                        rootPath = downPath
+                    }
+                    if (type == 2) {
+                        rootPath = File(rootPath, FileUtil.stringToFile(intent.getStringExtra("parent_title")!!))
+                        downPath = File(rootPath, title)
+                    }
+
+                    if (!downPath!!.exists()) downPath!!.mkdirs()
+
+                    val danmaku = intent.getStringExtra("danmaku")
+                    val cover = intent.getStringExtra("cover")
+                    val dmFile = File(downPath, DownloadPathSpec.FILE_DANMAKU)
+                    val coverFile = File(rootPath, DownloadPathSpec.FILE_COVER)
+                    val videoFile = File(downPath, DownloadPathSpec.FILE_VIDEO)
+                    // 每步失败时 download()/downdanmu() 已经提示并结束页面并返回 false，
+                    // 此时不要再接着下后面的文件：既白跑请求，又会在下不动的目录里留下空壳
+                    if (downdanmu(danmaku!!, dmFile)) {
+                        val coverOk = coverFile.exists() ||
+                            download(cover!!, coverFile, getString(R.string.text_download_cover), false)
+                        if (coverOk) download(link!!, videoFile, getString(R.string.text_download_video), true)
+                    }
                 }
-                if (type == 2) {
-                    rootPath = File(rootPath, FileUtil.stringToFile(intent.getStringExtra("parent_title")!!))
-                    downPath = File(rootPath, title)
-                }
-
-                if (!downPath!!.exists()) downPath!!.mkdirs()
-
-                val danmaku = intent.getStringExtra("danmaku")
-                val cover = intent.getStringExtra("cover")
-                val dmFile = File(downPath, DownloadPathSpec.FILE_DANMAKU)
-                val coverFile = File(rootPath, DownloadPathSpec.FILE_COVER)
-                val videoFile = File(downPath, DownloadPathSpec.FILE_VIDEO)
-                // 每步失败时 download()/downdanmu() 已经提示并结束页面并返回 false，
-                // 此时不要再接着下后面的文件：既白跑请求，又会在下不动的目录里留下空壳
-                if (downdanmu(danmaku!!, dmFile)) {
-                    val coverOk = coverFile.exists() ||
-                        download(cover!!, coverFile, getString(R.string.text_download_cover), false)
-                    if (coverOk) download(link!!, videoFile, getString(R.string.text_download_video), true)
-                }
+            } finally {
+                // 本页下载结束就放锁：空闲绝不持有，否则会吃掉待机续航
+                if (wakeLockHeld) DownloadWakeLock.release()
             }
         }
 
@@ -134,9 +167,17 @@ class DownloadActivity : BaseActivity() {
 
     /**
      * 下载单个文件。返回 false 表示这次下载失败、页面已被结束（调用方不要再继续后面的步骤）。
+     *
+     * @param schemeFallback 失败时是否换协议再试一次（图片链路用：http/https 互换）
      */
     @SuppressLint("SetTextI18n")
-    private fun download(url: String, file: File, desc: String, exitOnFinish: Boolean): Boolean {
+    private fun download(
+        url: String,
+        file: File,
+        desc: String,
+        exitOnFinish: Boolean,
+        schemeFallback: Boolean = false
+    ): Boolean {
         dldText = desc
         // 每个文件从头计进度：不重置的话，上一个文件（或无 content-length 的伪进度）残留的
         // 高位百分比会让新文件一上来就显示 90%+，看着像"卡住"
@@ -154,7 +195,9 @@ class DownloadActivity : BaseActivity() {
             response = resp
             // 非 2xx（404 / 风控页 / 没跟成功的 3xx）时 body 是错误页或 JSON，以前会原样写进
             // video.mp4 / cover.png，用户拿到一个"有内容"的坏文件；这里统一收尾并返回失败
-            if (abortOnHttpError(resp, file, !existedBefore, R.string.text_download_failed)) return false
+            val httpFailureMsg =
+                if (type == 0) R.string.msg_picture_download_failed else R.string.text_download_failed
+            if (abortOnHttpError(resp, file, !existedBefore, httpFailureMsg)) return false
             val body = resp.body!!
             val inputStream: InputStream = body.byteStream()
             val fileOutputStream = FileOutputStream(file)
@@ -186,7 +229,18 @@ class DownloadActivity : BaseActivity() {
             return true
         } catch (e: IOException) {
             try { response?.close() } catch (_: Exception) {}
-            runOnUiThread { MsgUtil.showMsg(getString(R.string.text_download_failed)) }
+            // 图片链路兜一层协议重试：部分手表 ROM / 代理会直接掐掉明文 http，
+            // 换 https 再要一次往往就成功（B 站图床两种协议都支持）。
+            if (schemeFallback) {
+                val alt = PictureDownloadPolicy.alternateSchemeUrl(url)
+                if (alt != null) {
+                    Logu.d("picture-download", "地址 $url 下载失败，改用 $alt 重试：${e.message}")
+                    return download(alt, file, desc, exitOnFinish, false)
+                }
+            }
+            showDownloadFailure(
+                if (type == 0) R.string.msg_picture_download_failed else R.string.text_download_failed
+            )
             e.printStackTrace()
             finish()
             return false
@@ -205,9 +259,21 @@ class DownloadActivity : BaseActivity() {
         if (response.isSuccessful) return false
         response.close()
         if (createdHere) file.delete()
-        runOnUiThread { MsgUtil.showMsg(getString(msgRes)) }
+        showDownloadFailure(msgRes)
         finish()
         return true
+    }
+
+    /**
+     * 下载失败的统一提示。
+     *
+     * 视频/番剧继续用页面内的 Snackbar（用户会盯着进度页看）；图片链路改用 Toast ——
+     * 图片失败的瞬间页面就会 `finish()`，Snackbar 绑在本页窗口上会一起消失，
+     * 用户看到的就是「点了没反应」（反馈 #17 的静默失败形态）。
+     */
+    private fun showDownloadFailure(msgRes: Int) {
+        val text = getString(msgRes)
+        if (type == 0) MsgUtil.toast(text) else runOnUiThread { MsgUtil.showMsg(text) }
     }
 
     private fun handleDownloadComplete(downloadedFile: File) {
@@ -235,13 +301,13 @@ class DownloadActivity : BaseActivity() {
             val shownPath = publishedFolder ?: downloadedFile.parent ?: downloadedFile.absolutePath
             // 提示里带上实际保存目录：以前只有一句「下载完成」，用户即使知道去相册翻，
             // 也不知道文件落在哪个文件夹
-            runOnUiThread {
-                MsgUtil.showMsg(getString(
-                    if (publishedFolder != null) R.string.msg_picture_saved
-                    else R.string.msg_picture_saved_fallback,
-                    shownPath
-                ))
-            }
+            // 用 Toast 而不是 Snackbar：本页 200ms 后就 finish，Snackbar 绑在本页窗口上会一起消失，
+            // 用户一个字都看不到（反馈 #17 的另一半：存下来了却说"没下载成功"）。
+            MsgUtil.toast(getString(
+                if (publishedFolder != null) R.string.msg_picture_saved
+                else R.string.msg_picture_saved_fallback,
+                shownPath
+            ))
         } else {
             runOnUiThread { MsgUtil.showMsg(getString(R.string.text_update_download_complete)) }
         }
@@ -330,6 +396,8 @@ class DownloadActivity : BaseActivity() {
 
     override fun onDestroy() {
         timer.cancel()
+        // 反馈 #91：撤掉 onCreate 加的亮屏标志，页面没了就不该再占着屏幕
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (!finishFlag) {
             // 只删本次真正写过的文件（下载中/失败的空壳、被截断的半截文件）。
             // 以前这里 deleteFolder(整个任务目录)：重下一次同一个视频时，只要中途取消或失败，
@@ -345,5 +413,95 @@ class DownloadActivity : BaseActivity() {
 
     override fun onBackPressed() {
         finish()
+    }
+}
+
+/**
+ * 图片下载的 URL / 本地文件名策略（纯逻辑，不碰 Android；JVM 单测见 `PictureDownloadPolicyTest`）。
+ *
+ * <h3>为什么需要它（反馈 #17「评论区图片无法下载」）</h3>
+ * `DownloadActivity` 原来用 `FileUtil.getFileNameFromLink(url)` 直接截最后一个 `/` 之后的部分当文件名。
+ * B 站图床地址里塞着两种「不是文件名」的后缀：
+ * - `@…` 处理参数：`https://i0.hdslb.com/bfs/x/abc.jpg@1048w_!web-dyn`；
+ * - 查询串：`https://i0.hdslb.com/bfs/face/x.jpg?x-oss-process=image/resize,w_100`。
+ *
+ * 直接截出来就会得到 `abc.jpg@1048w_!web-dyn` / `x.jpg?x-oss-process=image/resize,w_100`：
+ * 前者在部分文件系统上 `createNewFile()` 直接失败（页面提示「下载失败」就结束），
+ * 后者能落盘但 `PictureMediaStore.mimeTypeOf()` 认不出扩展名 → 不登记进媒体库 → 相册里永远看不到，
+ * 用户的结论同样是「没下载成功」。这里统一净化成「合法、带图片扩展名」的文件名。
+ */
+internal object PictureDownloadPolicy {
+
+    /** 文件名长度上限：给路径前缀留余量（多数文件系统单段上限 255 字节）。 */
+    private const val MAX_NAME_LENGTH = 80
+
+    /** 路径分隔符与 Windows / 部分文件系统上的非法字符。 */
+    private val ILLEGAL_NAME_CHARS = "\\/:*?\"<>|".toSet()
+
+    /**
+     * 规范化图片地址：
+     * - 去掉首尾空白；
+     * - 协议相对地址（`//i0.hdslb.com/x.jpg`）补 `https:`；
+     * - 明文 `http://` 统一升 `https://`（B 站图床与 afdiancdn 都支持 https，
+     *   而部分手表 ROM / 代理会直接掐掉明文请求）；真失败时由 [alternateSchemeUrl] 退回 http 重试。
+     *
+     * 不是 http(s) 的地址（`content://` 等）原样返回，保持调用方语义不变。
+     */
+    @JvmStatic
+    fun normalizeUrl(rawUrl: String?): String? {
+        val trimmed = rawUrl?.trim().orEmpty()
+        if (trimmed.isEmpty()) return null
+        val absolute = if (trimmed.startsWith("//")) "https:$trimmed" else trimmed
+        return if (absolute.startsWith("http://", ignoreCase = true))
+            "https://" + absolute.substring("http://".length)
+        else absolute
+    }
+
+    /** 同一地址的另一个协议；不是 http(s) 时返回 null（调用方据此放弃重试）。 */
+    @JvmStatic
+    fun alternateSchemeUrl(url: String): String? = when {
+        url.startsWith("https://", ignoreCase = true) -> "http://" + url.substring(8)
+        url.startsWith("http://", ignoreCase = true) -> "https://" + url.substring(7)
+        else -> null
+    }
+
+    /** 从图片地址推出安全、带图片扩展名的本地文件名。 */
+    @JvmStatic
+    fun fileNameFor(rawUrl: String?): String {
+        val cleaned = rawUrl?.trim().orEmpty()
+        // 先剥掉查询串 / fragment，再剥掉 B 站图床的 `@…` 处理参数
+        val path = cleaned.substringBefore('#').substringBefore('?')
+        val segment = path.substringAfterLast('/', "").substringBefore('@').trim()
+        val safe = buildString {
+            for (ch in segment) {
+                when {
+                    ch.code < 0x20 || ch.code == 0x7F -> Unit          // 控制字符直接丢
+                    ch in ILLEGAL_NAME_CHARS -> append('_')           // 非法字符换成下划线
+                    else -> append(ch)
+                }
+            }
+        }.trim('.', ' ')
+        // 纯点号 / 空串在文件系统上不合法（"." 是当前目录）
+        val base = if (safe.isEmpty() || safe == "." || safe == "..") "image" else safe
+        return truncateName(ensureImageExtension(base))
+    }
+
+    /**
+     * 补扩展名：完全没有扩展名时补 `.jpg`。
+     *
+     * 已经带扩展名（哪怕是 `.jfif` 这类我们认不出的）就保留原样——宁可让
+     * `PictureMediaStore` 跳过登记，也不要把字节内容和扩展名对不上的文件塞进相册。
+     */
+    private fun ensureImageExtension(name: String): String =
+        if (name.contains('.')) name else "$name.jpg"
+
+    /** 超长文件名截断：保留扩展名，只截主干，避免 `createNewFile()` 因文件名过长失败。 */
+    private fun truncateName(name: String): String {
+        if (name.length <= MAX_NAME_LENGTH) return name
+        val extIndex = name.lastIndexOf('.')
+        val ext = if (extIndex > 0) name.substring(extIndex) else ""
+        val stem = if (extIndex > 0) name.substring(0, extIndex) else name
+        val keep = (MAX_NAME_LENGTH - ext.length).coerceAtLeast(1)
+        return stem.take(keep) + ext
     }
 }

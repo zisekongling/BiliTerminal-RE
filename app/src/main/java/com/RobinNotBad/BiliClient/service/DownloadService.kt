@@ -31,6 +31,7 @@ import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.SubtitleLink
 import com.RobinNotBad.BiliClient.util.Aria2Util
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.DownloadWakeLock
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.Logu
@@ -404,6 +405,10 @@ class DownloadService : Service() {
         notifier.startNotifyProgress()
 
         CenterThreadPool.run {
+            // 反馈 #91：这一整段代码才是真在下载的。屏幕熄灭后 CPU 会休眠，网络 read() 被挂起、
+            // 下载原地停住，所以真正进下载分支前拿一把「下载期间不休眠」锁（只保 CPU，不亮屏）。
+            // 只在别的下载入口也没持锁时才真正申请；批次结束在 finally 里放掉，空闲时不持有。
+            var wakeLockHeld = false
             try {
                 // 服务可能不与入口 Activity 同批被拉起（START_STICKY 恢复、下载页"继续"、批量重试），
                 // 而「降级到应用专属目录」是进程级标记：新进程里它是空的。这里先解析一次根目录，
@@ -441,6 +446,11 @@ class DownloadService : Service() {
                     resetSpeedSampling()
                     activeDownloadsCount = 0
 
+                    // 反馈 #91：队列里确实有活要干，从这里开始持锁到本段 finally 释放。
+                    // START_STICKY 重启后队列为空（Action.STOP）的路径不会走到这里，不碰锁；
+                    // 用户暂停的任务 state 不是 "none"，getFirst() 取不到，批次会自然结束并放锁。
+                    wakeLockHeld = DownloadWakeLock.acquire(applicationContext)
+
                     val parallelCount = Aria2Util.getParallelDownloadVideos().coerceIn(1, 10)
                     if (parallelCount <= 1)
                         sequentialDownload()
@@ -460,6 +470,10 @@ class DownloadService : Service() {
                 MsgUtil.err(e)
                 exitCode = DownloadPathSpec.ERR_UNKNOWN
                 exitMessage = getString(R.string.text_download_failed_unknown)
+            } finally {
+                // 下载批次结束（成功 / 失败 / 被停止服务都走这里）：立刻放锁。
+                // 锁在空闲时必须释放，常驻会吞掉待机续航。
+                if (wakeLockHeld) DownloadWakeLock.release()
             }
 
             stopSelf()

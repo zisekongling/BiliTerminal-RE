@@ -42,8 +42,8 @@ android {
         applicationId "com.RobinNotBad.BiliClient"
         minSdk 19
         targetSdk 34
-        versionCode 2611010
-        versionName "26.11.01"
+        versionCode 2611020
+        versionName "26.11.02"
 
         if (betaVer) {
             versionName += "-BETA" + betaVer
@@ -56,6 +56,14 @@ android {
         vectorDrawables {
             useSupportLibrary true
         }
+    }
+
+    // 纯 JVM 单测里 android.jar 是桩：`android.util.Log` 之类未 mock 的框架方法默认直接抛
+    // 「not mocked」。AccountManager 在拒绝串号时会落一条 `Logu.w` 诊断（真机要留档），
+    // 于是那两条拒绝路径的用例在 JVM 下必炸。让桩方法返回默认值（false/0/null）既保留
+    // 生产侧日志，又能让凭证逻辑（日志之外的代码）继续被断言。
+    testOptions {
+        unitTests.returnDefaultValues = true
     }
 
     signingConfigs {

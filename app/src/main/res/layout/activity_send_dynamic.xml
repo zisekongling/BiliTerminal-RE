@@ -218,6 +218,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
+                    android:baselineAligned="false"
                     android:orientation="horizontal">
 
                     <com.google.android.material.button.MaterialButton
@@ -226,8 +227,13 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
+                        android:maxLines="1"
                         android:text="@string/text_activitysenddynamic_03"
-                        android:textSize="12sp" />
+                        android:textSize="12sp"
+                        app:autoSizeMaxTextSize="12sp"
+                        app:autoSizeMinTextSize="7sp"
+                        app:autoSizeStepGranularity="1sp"
+                        app:autoSizeTextType="uniform" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/remove_vote_btn"
@@ -235,9 +241,14 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
+                        android:maxLines="1"
                         android:text="@string/text_activitysenddynamic_02"
                         android:textSize="12sp"
-                        android:textColor="?attr/colorPrimary" />
+                        android:textColor="?attr/colorPrimary"
+                        app:autoSizeMaxTextSize="12sp"
+                        app:autoSizeMinTextSize="7sp"
+                        app:autoSizeStepGranularity="1sp"
+                        app:autoSizeTextType="uniform" />
                 </LinearLayout>
 
             </LinearLayout>

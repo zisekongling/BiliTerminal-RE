@@ -28,8 +28,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- Android 14 起前台服务必须声明类型，播放保活走 mediaPlayback -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- 反馈 #91「图片和视频前台下载时能加个暂时不休眠吗」：屏幕熄灭后 CPU 休眠，网络 read() 被挂起、
+         下载停在原地。所以只在真的有活跃下载时（DownloadService 的后台批量下载、DownloadActivity 的
+         前台图片/视频下载）持一把 PARTIAL_WAKE_LOCK 保 CPU，顺手持 Wi-Fi 锁避免熄屏后速度掉到接近 0；
+         全部下载结束 / 服务停止时立刻释放，空闲绝不持有（常驻会吞掉待机续航）。
+         这里只需要 WAKE_LOCK：Wi-Fi 锁（WifiManager.createWifiLock）也只依赖 WAKE_LOCK，
+         不需要下面审计 M12-c 移除掉的 ACCESS_WIFI_STATE。 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- 审计 M12-c 收敛：
-         · 移除 ACCESS_WIFI_STATE —— 原注释写「Geetest」，但极验 SDK 已删除，全库无 WifiManager 引用；
+         · 移除 ACCESS_WIFI_STATE —— 原注释写「Geetest」，但极验 SDK 已删除，全库没有需要它的 Wi-Fi 状态查询
+           （反馈 #91 的下载 Wi-Fi 锁只需要 WAKE_LOCK，别把这枚权限加回来）；
          · 移除 READ_PHONE_STATE —— 全库无 TelephonyManager/getNetworkOperator 引用，属安装即索要的敏感权限；
          · SYSTEM_ALERT_WINDOW 只服务 Debug 版 UETool 悬浮窗，已下移到 src/debug/AndroidManifest.xml，
            发布包不再声明该权限。 -->
@@ -66,6 +74,17 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- 缓存/下载的本地视频交给外部播放器（凉腕等）时的只读共享通道。
+             FileProvider 的根是编译期资源、只能覆盖「主卷」（androidx 只取
+             getExternalMediaDirs()[0] 等数组第一项）；用户把缓存路径改到外置 SD 卡后
+             路径形如 /storage/XXXX-XXXX/Android/media/<包名>/...，FileProvider 会抛
+             IllegalArgumentException: Failed to find configured root 把页面带崩。
+             这个 provider 在运行时按「所有存储卷」算根，细节见 util/LocalFileProvider.kt。 -->
+        <provider android:name=".util.LocalFileProvider"
+            android:authorities="${applicationId}.LocalFileProvider"
+            android:exported="false"
+            android:grantUriPermissions="true" />
 
         <activity
             android:name=".activity.vote.VoteInfoActivity"
@@ -436,6 +455,16 @@
             android:name=".activity.user.favorite.FavoriteFolderCreateActivity"
             android:exported="false"
             android:label="@string/uitext_favoritefoldercreateactivity_003"
+            android:screenOrientation="locked" />
+        <activity
+            android:name=".activity.user.subscription.SubscriptionListActivity"
+            android:exported="false"
+            android:label="@string/pagename_subscription"
+            android:screenOrientation="locked" />
+        <activity
+            android:name=".activity.user.subscription.SubSeasonDetailActivity"
+            android:exported="false"
+            android:label="@string/pagename_subscription_season"
             android:screenOrientation="locked" />
         <activity
             android:name=".activity.user.info.UserInfoActivity"
