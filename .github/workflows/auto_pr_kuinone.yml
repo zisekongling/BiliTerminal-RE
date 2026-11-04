@@ -1,0 +1,34 @@
+name: Auto Create PR
+on:
+  schedule:
+    - cron: '17 * * * *'   # 每天 UTC 9:00 运行（北京时间 17:00）
+  workflow_dispatch:        # 保留手动触发按钮，方便测试
+
+jobs:
+  auto-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # 允许推送分支
+      pull-requests: write   # 允许创建/更新 PR
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ===== 在这里放置你的“生成变更”的脚本或命令 =====
+      # 例如：运行依赖更新、文档生成、格式化等
+      - name: Make changes
+        run: |
+          # 示例：生成一个时间戳文件来测试
+          echo "Auto update at $(date)" > auto-update.txt
+
+      # ===== 创建 PR =====
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}   # 默认即可，如需触发后续CI请换成 PAT
+          branch: auto-update/${{ github.run_id }}  # 用 run_id 避免分支名冲突
+          base: main                               # 根据你的目标分支调整
+          title: "醌酱的自动Pull Request - $(date +%Y-%m-%d)"
+          body: "该Pull Request由Github Actios自动生成"
+          commit-message: "醌酱的自动Pull Request - $(date +%Y-%m-%d) [skip ci]"  # [skip ci] 可避免无意义的 CI 运行
