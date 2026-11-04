@@ -55,11 +55,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
+                <!-- 始终启用：锁成"开"（26.11.04 修：此前只有 enabled=false、没有 checked，
+                     于是它显示成"锁定关"，看着像视频搜索被关掉了） -->
                 <com.google.android.material.switchmaterial.SwitchMaterial
                     android:id="@+id/search_video"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:background="@android:color/transparent"
+                    android:checked="true"
                     android:clickable="false"
                     android:enabled="false"
                     android:text="@string/text_activitysettingsearch_07" />

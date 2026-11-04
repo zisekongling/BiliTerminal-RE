@@ -26,6 +26,11 @@ class SettingSearchActivity : BaseActivity() {
         super.onCreate(savedInstanceState)
 
         asyncInflate(R.layout.activity_setting_search) { _, _ ->
+            // 视频搜索没有开关可言（SearchActivity 里 "video" 恒为 true），这一项只是把
+            // 「始终启用」摆给用户看：布局里已 enabled=false + checked=true 锁成开，
+            // 这里再兜一次，免得个别 AppCompat 版本忽略 xml 的 android:checked、又显示成关
+            findViewById<SwitchMaterial>(R.id.search_video).isChecked = true
+
             // 读取已保存的设置状态
             searchArticle = findViewById(R.id.search_article)
             searchArticle.isChecked = SharedPreferencesUtil.getBoolean(
