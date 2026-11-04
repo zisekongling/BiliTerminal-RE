@@ -46,6 +46,7 @@ class AboutActivity : BaseActivity() {
         private val DEVELOPERS_RE = listOf(
             Developer("紫色空灵", "", R.mipmap.avatar_zise, 591904067L, R.string.about_dev_trae_desc),
             Developer("千awa", "", R.mipmap.avatar_qianawa, 1786791133L, R.string.about_dev_qianawa),
+            Developer("Kuinone", "Kuinone可能是迄今为止唯一一个符合RESTful API规范的苯醌", R.mipmap.avatar_kuinone, 475731079L),
         )
 
         /** 主要开发者。 */
