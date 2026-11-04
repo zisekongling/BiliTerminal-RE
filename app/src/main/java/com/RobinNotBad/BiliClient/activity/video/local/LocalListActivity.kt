@@ -735,7 +735,7 @@ class LocalListActivity : InstanceActivity() {
             return
         }
         if (collectionIndices.isEmpty()) {
-            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_024))
+            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_033))
             return
         }
 
@@ -743,13 +743,13 @@ class LocalListActivity : InstanceActivity() {
         // 换算不出来就明说，不再静默从第一条开始（反馈 #104）
         val startPageIndex = VirtualCollectionStart.resolveLocal(startVideoIdx, collectionIndices)
         if (startPageIndex < 0) {
-            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_025))
+            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_034))
             return
         }
 
         // 构建 PlayerData，传入所有分页信息
         val playerData = PlayerData(PlayerData.TYPE_LOCAL)
-        playerData.title = getString(R.string.uitext_locallistactivity_026, folderName)
+        playerData.title = getString(R.string.uitext_locallistactivity_035, folderName)
         // 起播地址必须跟 currentPageIndex 走同一个下标（反馈 #51）：原先固定取 [0]，
         // 点 P2 时选集高亮在 P2、实际播的却是 P1
         playerData.videoUrl = videoUrlList[startPageIndex]
@@ -768,7 +768,7 @@ class LocalListActivity : InstanceActivity() {
                 player.putExtra("audio_track_url", audioUrlList[startPageIndex])
             }
             startActivity(player)
-            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_023, folderName, collectionIndices.size))
+            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_032, folderName, collectionIndices.size))
         } catch (e: Exception) {
             MsgUtil.err(e)
         }

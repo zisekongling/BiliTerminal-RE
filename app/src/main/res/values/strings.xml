@@ -1886,10 +1886,6 @@
     <string name="uitext_locallistactivity_020">重命名文件夹</string>
     <string name="uitext_locallistactivity_021">拆散文件夹</string>
     <string name="uitext_locallistactivity_022">删除视频</string>
-    <string name="uitext_locallistactivity_023">已进入虚拟合集：%1$s（共%2$d个视频）</string>
-    <string name="uitext_locallistactivity_024">该文件夹内没有可播放的视频</string>
-    <string name="uitext_locallistactivity_025">无法定位起始视频，请重新选择</string>
-    <string name="uitext_locallistactivity_026">%1$s（虚拟合集）</string>
     <string name="uitext_locallistactivity_023">操作</string>
     <string name="uitext_locallistactivity_024">已选 %1$d 项</string>
     <string name="uitext_locallistactivity_025">退出</string>
@@ -1899,6 +1895,12 @@
     <string name="uitext_locallistactivity_029">确定拆散选中的 %1$d 个文件夹吗？视频会移回未分类区域。</string>
     <string name="uitext_locallistactivity_030">已删除 %1$d 条，%2$d 条失败</string>
     <string name="uitext_locallistactivity_031">弹幕更新完成：成功 %1$d 个，失败 %2$d 个</string>
+    <!-- 虚拟合集（26.11.02）：下面四条与上面的多选批量操作是两批文案，
+         合并时两边都从 023 起编号撞了号（资源重名会直接构建失败），故这四条从 032 起 -->
+    <string name="uitext_locallistactivity_032">已进入虚拟合集：%1$s（共%2$d个视频）</string>
+    <string name="uitext_locallistactivity_033">该文件夹内没有可播放的视频</string>
+    <string name="uitext_locallistactivity_034">无法定位起始视频，请重新选择</string>
+    <string name="uitext_locallistactivity_035">%1$s（虚拟合集）</string>
 
     <!-- 缓存页排序 / 搜索（26.11.02，反馈 #94） -->
     <string name="btn_cache_sort">排序</string>

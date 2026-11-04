@@ -162,18 +162,11 @@ open class BaseActivity : AppCompatActivity() {
             Logu.d("debug", "调整边距")
             window_width = scrW - insets.left - insets.right
             window_height = scrH - insets.top - insets.bottom
-            val rootView = this.window.decorView.rootView
-            rootView.setPadding(insets.left, insets.top, insets.right, insets.bottom)
-            val paddingH = scrW * paddingH_percent / 100
-            val paddingT = scrH * paddingV_percent / 100
-            var paddingB = paddingT
-            if (SharedPreferencesUtil.getBoolean("player_ui_round", false))
-                paddingB += (scrH * 0.03).toInt()
-            window_width = scrW - paddingH * 2
-            window_height = scrH - paddingT - paddingB
-            userPaddingH = paddingH
-            userPaddingT = paddingT
-            userPaddingB = paddingB
+            // 边距交给 [applyUserPadding] 加到内容容器上（26.11.02 起不再塞 DecorView 根，
+            // 推导见那个方法的注释）。RoundInsets 算出的左右两边相同，所以 h 取 insets.left
+            userPaddingH = insets.left
+            userPaddingT = insets.top
+            userPaddingB = insets.bottom
         } else {
             window_width = scrW
             window_height = scrH
