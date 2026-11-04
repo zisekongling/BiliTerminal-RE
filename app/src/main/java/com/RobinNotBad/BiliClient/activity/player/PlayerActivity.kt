@@ -72,6 +72,7 @@ import com.RobinNotBad.BiliClient.model.ViewPoint
 import com.RobinNotBad.BiliClient.player.DanmakuManager
 import com.RobinNotBad.BiliClient.player.IjkNativeLibs
 import com.RobinNotBad.BiliClient.player.PlayerDefaults
+import com.RobinNotBad.BiliClient.player.PlayerRequestPolicy
 import com.RobinNotBad.BiliClient.player.LocalAudioTrackPolicy
 import com.RobinNotBad.BiliClient.player.PlayerSurfaceBinder
 import com.RobinNotBad.BiliClient.player.PlayerVolumePolicy
@@ -1613,9 +1614,18 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             runOnUiThread { loading_text0.text = UiText.of("载入视频中") }
         try {
             if (isOnlineVideo) {
-                val headers = HashMap<String, String>()
-                headers["Referer"] = "https://www.bilibili.com/"
-                headers["Cookie"] = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "")
+                // Referer 与 Cookie 分开判（26.11.04）：B 站 playurl 高峰会返回 mcdn/PCDN 直链
+                // （*.edge.mountaintoys.cn 等），这些 host 不在 isBilibiliHost 白名单里，但防盗链
+                // 仍然要 Referer，缺了直接 403 → IJK 报 -10000。Cookie 是凭证，继续按白名单门控。
+                // 判据与理由见 player/PlayerRequestPolicy。
+                val bilibiliHost = isBilibiliHost(nowurl)
+                val headers = PlayerRequestPolicy.buildHeaders(
+                    thirdParty = PlayerRequestPolicy.isThirdPartySource(isLiveMode, aid, cid, bilibiliHost),
+                    bilibiliHost = bilibiliHost,
+                    cookies = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""),
+                    thirdPartyReferer = intent.getStringExtra("third_party_referer"),
+                    thirdPartyUserAgent = intent.getStringExtra("third_party_user_agent")
+                )
                 ijkPlayer!!.setDataSource(nowurl, headers)
             } else
                 ijkPlayer!!.setDataSource(nowurl)
@@ -5438,6 +5448,25 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             setResult(RESULT_OK, result)
         } else setResult(RESULT_CANCELED)
         super.finish()
+    }
+
+    /**
+     * 判断直链是否属于 B 站自己的域。
+     *
+     * <p>现在只用来决定**能不能带 B 站 Cookie**（见 [PlayerRequestPolicy]）：Cookie 是登录态，
+     * 第三方片源绝不能收到 SESSDATA。Referer 不按这个方法判——B 站 playurl 会在高峰把直链调度到
+     * mcdn/PCDN 节点（`*.edge.mountaintoys.cn` 等），那些 host 不在这里，但同样需要 B 站 Referer。
+     *
+     * <p>复用已审计的 [NetWorkUtil.isBilibiliHost]（P2-5：必须有点边界，`evilbilibili.com`
+     * 不能算 B 站域）。解析不出 host 时按第三方处理（fail-closed）。
+     */
+    private fun isBilibiliHost(url: String): Boolean {
+        val host = try {
+            java.net.URI(url).host.orEmpty()
+        } catch (e: Throwable) {
+            ""
+        }
+        return host.isNotEmpty() && NetWorkUtil.isBilibiliHost(host)
     }
 
 }
