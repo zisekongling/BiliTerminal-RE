@@ -54,6 +54,7 @@ private/
 | 视频详情页动作区 | `fragment_video_info.xml` 的 `@id/video_actions` + `VideoInfoFragment` 里的 `OptionalFeatures.attachDetailActionRow(...)` | 空操作，不多出按钮 |
 | 评论长按面板 | `adapter/ReplyAdapter.kt` 的 `showManageMenu`：`replyReportLabel(context)` 给文案、`replyReport(...)` 执行 | 文案为 null → **不加这一项**；别人的评论只剩「复制文字」，走「只剩一项就直接复制」的老捷径 |
 | 消息卡片 | `api/MessageApi.java` 两个消息流的 `default` 分支（`fillOptionalMessage`）＋ `adapter/message/NoticeHolder.kt` 的点击（`openOptionalMessage`） | `false` → 照旧显示「无法识别这个类别」/ 不处理点击 |
+| 播放页接管片源 | `activity/player/PlayerActivity.kt`：intent 带 `third_party_pending=true` 时（`url` 可为空）停在载入中，再由 `beginPendingThirdPartyResolve()` 调 `OptionalFeatures.requestThirdPartyResolve(...)`，回调 `onResolved(url, referer)` / `onFailed()` | 返回 `false`（没有私有功能）→ 弹 `msg_third_party_no_source` 并结束播放页 |
 
 老用户的 `menu_enabled` 里没有可选 key 时，`MenuConfig.loadEnabled` 会走一次迁移把它补进来
 （`resolveEnabledList` 对可选项的处理与固定项一致：缺失即补到末尾）。
