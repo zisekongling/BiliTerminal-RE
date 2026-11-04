@@ -1,0 +1,111 @@
+Starting a Gradle Daemon (subsequent builds will be faster)
+Calculating task graph as no cached configuration is available for tasks: :app:testStandardDebugUnitTest --tests com.RobinNotBad.BiliClient.util.view.*
+
+> Configure project :app
+WARNING: The option setting 'android.overridePathCheck=true' is experimental.
+The current default is 'false'.
+
+> Task :ijkplayer-java:preBuild UP-TO-DATE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:preBuild UP-TO-DATE
+> Task :DanmakuFlameMaster:preBuild UP-TO-DATE
+> Task :brotlij:preBuild UP-TO-DATE
+> Task :DanmakuFlameMaster:preDebugBuild UP-TO-DATE
+> Task :app:preStandardDebugUnitTestBuild UP-TO-DATE
+> Task :ijkplayer-java:preDebugBuild UP-TO-DATE
+> Task :app:preStandardDebugBuild UP-TO-DATE
+> Task :brotlij:preDebugBuild UP-TO-DATE
+> Task :DanmakuFlameMaster:writeDebugAarMetadata UP-TO-DATE
+> Task :app:generateStandardDebugResValues UP-TO-DATE
+> Task :app:generateStandardDebugBuildConfig UP-TO-DATE
+> Task :DanmakuFlameMaster:generateDebugResValues UP-TO-DATE
+> Task :ijkplayer-java:generateDebugResValues UP-TO-DATE
+> Task :ijkplayer-java:writeDebugAarMetadata UP-TO-DATE
+> Task :brotlij:writeDebugAarMetadata UP-TO-DATE
+> Task :brotlij:generateDebugResValues UP-TO-DATE
+> Task :brotlij:generateDebugResources UP-TO-DATE
+> Task :DanmakuFlameMaster:generateDebugResources UP-TO-DATE
+> Task :app:extractDeepLinksStandardDebug UP-TO-DATE
+> Task :app:createStandardDebugCompatibleScreenManifests UP-TO-DATE
+> Task :brotlij:extractDeepLinksDebug UP-TO-DATE
+> Task :ijkplayer-java:generateDebugResources UP-TO-DATE
+> Task :DanmakuFlameMaster:extractDeepLinksDebug UP-TO-DATE
+> Task :ijkplayer-java:extractDeepLinksDebug UP-TO-DATE
+> Task :brotlij:processDebugManifest UP-TO-DATE
+> Task :DanmakuFlameMaster:processDebugManifest UP-TO-DATE
+> Task :brotlij:javaPreCompileDebug UP-TO-DATE
+> Task :DanmakuFlameMaster:javaPreCompileDebug UP-TO-DATE
+> Task :ijkplayer-java:processDebugManifest UP-TO-DATE
+> Task :ijkplayer-java:javaPreCompileDebug UP-TO-DATE
+> Task :app:javaPreCompileStandardDebugUnitTest UP-TO-DATE
+> Task :app:javaPreCompileStandardDebug UP-TO-DATE
+> Task :brotlij:packageDebugResources UP-TO-DATE
+> Task :ijkplayer-java:packageDebugResources UP-TO-DATE
+> Task :DanmakuFlameMaster:packageDebugResources UP-TO-DATE
+> Task :brotlij:compileDebugLibraryResources UP-TO-DATE
+> Task :DanmakuFlameMaster:compileDebugLibraryResources UP-TO-DATE
+> Task :DanmakuFlameMaster:processDebugJavaRes NO-SOURCE
+> Task :ijkplayer-java:compileDebugLibraryResources UP-TO-DATE
+> Task :brotlij:processDebugJavaRes NO-SOURCE
+> Task :app:generateStandardDebugResources UP-TO-DATE
+> Task :ijkplayer-java:processDebugJavaRes NO-SOURCE
+> Task :brotlij:parseDebugLocalResources UP-TO-DATE
+> Task :DanmakuFlameMaster:parseDebugLocalResources UP-TO-DATE
+> Task :ijkplayer-java:parseDebugLocalResources UP-TO-DATE
+> Task :brotlij:generateDebugRFile UP-TO-DATE
+> Task :ijkplayer-java:generateDebugRFile UP-TO-DATE
+> Task :DanmakuFlameMaster:generateDebugRFile UP-TO-DATE
+> Task :brotlij:compileDebugJavaWithJavac UP-TO-DATE
+> Task :brotlij:bundleLibCompileToJarDebug UP-TO-DATE
+> Task :brotlij:bundleLibRuntimeToJarDebug UP-TO-DATE
+> Task :ijkplayer-java:compileDebugJavaWithJavac UP-TO-DATE
+> Task :ijkplayer-java:bundleLibCompileToJarDebug UP-TO-DATE
+> Task :ijkplayer-java:bundleLibRuntimeToJarDebug UP-TO-DATE
+> Task :app:packageStandardDebugResources UP-TO-DATE
+> Task :DanmakuFlameMaster:compileDebugJavaWithJavac UP-TO-DATE
+> Task :app:parseStandardDebugLocalResources UP-TO-DATE
+> Task :DanmakuFlameMaster:bundleLibCompileToJarDebug UP-TO-DATE
+> Task :DanmakuFlameMaster:bundleLibRuntimeToJarDebug UP-TO-DATE
+> Task :app:mapStandardDebugSourceSetPaths UP-TO-DATE
+> Task :app:checkStandardDebugAarMetadata UP-TO-DATE
+> Task :app:mergeStandardDebugResources UP-TO-DATE
+> Task :app:processStandardDebugMainManifest UP-TO-DATE
+> Task :app:processStandardDebugManifest UP-TO-DATE
+> Task :app:processStandardDebugManifestForPackage UP-TO-DATE
+> Task :app:processStandardDebugResources UP-TO-DATE
+
+> Task :app:compileStandardDebugKotlin
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/base/BaseActivity.kt:140:46 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/base/BaseActivity.kt:142:50 '@Deprecated(...) fun getRealMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/base/BaseActivity.kt:143:22 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/base/BaseActivity.kt:210:18 This declaration overrides a deprecated member but is not marked as deprecated itself. Please add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/base/BaseActivity.kt:211:77 '@Deprecated(...) @MainThread() @CallSuper() fun onBackPressed(): Unit' is deprecated. This method has been deprecated in favor of using the
+      {@link OnBackPressedDispatcher} via {@link #getOnBackPressedDispatcher()}.
+      The OnBackPressedDispatcher controls how back button events are dispatched
+      to one or more {@link OnBackPressedCallback} objects.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/util/TerminalDialog.kt:510:70 '@Deprecated(...) field scaledDensity: Float' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/util/TerminalDialog.kt:692:48 '@Deprecated(...) static field SOFT_INPUT_ADJUST_RESIZE: Int' is deprecated. Deprecated in Java.
+
+> Task :app:compileStandardDebugJavaWithJavac
+注: 某些输入文件使用或覆盖了已过时的 API。
+注: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+
+> Task :app:processStandardDebugJavaRes
+> Task :app:bundleStandardDebugClassesToRuntimeJar
+> Task :app:bundleStandardDebugClassesToCompileJar
+> Task :app:compileStandardDebugUnitTestKotlin
+> Task :app:processStandardDebugUnitTestJavaRes UP-TO-DATE
+> Task :app:compileStandardDebugUnitTestJavaWithJavac UP-TO-DATE
+> Task :app:testStandardDebugUnitTest
+
+[Incubating] Problems report is available at: file:///D:/Users/root/Desktop/BiliTerminal-RE/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.14.5/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 59s
+64 actionable tasks: 7 executed, 57 up-to-date
+Configuration cache entry stored.

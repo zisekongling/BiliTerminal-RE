@@ -1,0 +1,626 @@
+Starting a Gradle Daemon (subsequent builds will be faster)
+Calculating task graph as no cached configuration is available for tasks: :app:assembleDebug :app:assembleRelease :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest
+
+> Configure project :app
+WARNING: The option setting 'android.overridePathCheck=true' is experimental.
+The current default is 'false'.
+
+> Task :DanmakuFlameMaster:preBuild UP-TO-DATE
+> Task :ijkplayer-java:preBuild UP-TO-DATE
+> Task :app:preBuild UP-TO-DATE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :brotlij:preBuild UP-TO-DATE
+> Task :ijkplayer-java:preDebugBuild UP-TO-DATE
+> Task :DanmakuFlameMaster:preDebugBuild UP-TO-DATE
+> Task :app:preCoexistDebugBuild UP-TO-DATE
+> Task :brotlij:preDebugBuild UP-TO-DATE
+> Task :app:mergeCoexistDebugNativeDebugMetadata NO-SOURCE
+> Task :app:buildKotlinToolingMetadata UP-TO-DATE
+> Task :DanmakuFlameMaster:generateDebugResValues UP-TO-DATE
+> Task :brotlij:writeDebugAarMetadata UP-TO-DATE
+> Task :brotlij:generateDebugResValues UP-TO-DATE
+> Task :DanmakuFlameMaster:writeDebugAarMetadata UP-TO-DATE
+> Task :ijkplayer-java:writeDebugAarMetadata UP-TO-DATE
+> Task :app:generateCoexistDebugResValues UP-TO-DATE
+> Task :app:generateCoexistDebugBuildConfig UP-TO-DATE
+> Task :ijkplayer-java:generateDebugResValues UP-TO-DATE
+> Task :DanmakuFlameMaster:generateDebugResources UP-TO-DATE
+> Task :app:createCoexistDebugCompatibleScreenManifests UP-TO-DATE
+> Task :brotlij:generateDebugResources UP-TO-DATE
+> Task :app:extractDeepLinksCoexistDebug UP-TO-DATE
+> Task :brotlij:extractDeepLinksDebug UP-TO-DATE
+> Task :ijkplayer-java:generateDebugResources UP-TO-DATE
+> Task :DanmakuFlameMaster:extractDeepLinksDebug UP-TO-DATE
+> Task :brotlij:processDebugManifest UP-TO-DATE
+> Task :ijkplayer-java:extractDeepLinksDebug UP-TO-DATE
+> Task :DanmakuFlameMaster:processDebugManifest UP-TO-DATE
+> Task :brotlij:javaPreCompileDebug UP-TO-DATE
+> Task :DanmakuFlameMaster:javaPreCompileDebug UP-TO-DATE
+> Task :ijkplayer-java:javaPreCompileDebug UP-TO-DATE
+> Task :ijkplayer-java:processDebugManifest UP-TO-DATE
+> Task :app:javaPreCompileCoexistDebug UP-TO-DATE
+> Task :brotlij:mergeDebugShaders UP-TO-DATE
+> Task :app:mergeCoexistDebugShaders UP-TO-DATE
+> Task :ijkplayer-java:packageDebugResources UP-TO-DATE
+> Task :brotlij:packageDebugResources UP-TO-DATE
+> Task :DanmakuFlameMaster:packageDebugResources UP-TO-DATE
+> Task :DanmakuFlameMaster:compileDebugLibraryResources UP-TO-DATE
+> Task :DanmakuFlameMaster:parseDebugLocalResources UP-TO-DATE
+> Task :app:compileCoexistDebugShaders NO-SOURCE
+> Task :brotlij:compileDebugShaders NO-SOURCE
+> Task :brotlij:compileDebugLibraryResources UP-TO-DATE
+> Task :ijkplayer-java:compileDebugLibraryResources UP-TO-DATE
+> Task :brotlij:parseDebugLocalResources UP-TO-DATE
+> Task :ijkplayer-java:parseDebugLocalResources UP-TO-DATE
+> Task :DanmakuFlameMaster:generateDebugRFile UP-TO-DATE
+> Task :app:generateCoexistDebugAssets UP-TO-DATE
+> Task :brotlij:generateDebugAssets UP-TO-DATE
+> Task :brotlij:generateDebugRFile UP-TO-DATE
+> Task :ijkplayer-java:generateDebugRFile UP-TO-DATE
+> Task :brotlij:packageDebugAssets UP-TO-DATE
+> Task :DanmakuFlameMaster:mergeDebugShaders UP-TO-DATE
+> Task :DanmakuFlameMaster:compileDebugShaders NO-SOURCE
+> Task :DanmakuFlameMaster:generateDebugAssets UP-TO-DATE
+> Task :DanmakuFlameMaster:packageDebugAssets UP-TO-DATE
+> Task :ijkplayer-java:mergeDebugShaders UP-TO-DATE
+> Task :ijkplayer-java:compileDebugShaders NO-SOURCE
+> Task :ijkplayer-java:generateDebugAssets UP-TO-DATE
+> Task :ijkplayer-java:packageDebugAssets UP-TO-DATE
+> Task :brotlij:compileDebugJavaWithJavac UP-TO-DATE
+> Task :ijkplayer-java:compileDebugJavaWithJavac UP-TO-DATE
+> Task :brotlij:bundleLibCompileToJarDebug UP-TO-DATE
+> Task :brotlij:processDebugJavaRes NO-SOURCE
+> Task :ijkplayer-java:bundleLibCompileToJarDebug UP-TO-DATE
+> Task :ijkplayer-java:processDebugJavaRes NO-SOURCE
+> Task :ijkplayer-java:bundleLibRuntimeToJarDebug UP-TO-DATE
+> Task :DanmakuFlameMaster:compileDebugJavaWithJavac UP-TO-DATE
+> Task :DanmakuFlameMaster:bundleLibCompileToJarDebug UP-TO-DATE
+> Task :DanmakuFlameMaster:bundleLibRuntimeToJarDebug UP-TO-DATE
+> Task :brotlij:bundleLibRuntimeToJarDebug UP-TO-DATE
+> Task :DanmakuFlameMaster:processDebugJavaRes NO-SOURCE
+> Task :app:mergeCoexistDebugStartupProfile UP-TO-DATE
+> Task :app:mergeCoexistDebugJniLibFolders UP-TO-DATE
+> Task :brotlij:mergeDebugJniLibFolders UP-TO-DATE
+> Task :brotlij:mergeDebugNativeLibs NO-SOURCE
+> Task :brotlij:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :DanmakuFlameMaster:mergeDebugJniLibFolders UP-TO-DATE
+> Task :DanmakuFlameMaster:mergeDebugNativeLibs NO-SOURCE
+> Task :DanmakuFlameMaster:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :ijkplayer-java:mergeDebugJniLibFolders UP-TO-DATE
+> Task :app:generateCoexistDebugResources
+> Task :ijkplayer-java:mergeDebugNativeLibs NO-SOURCE
+> Task :app:mergeCoexistDebugAssets UP-TO-DATE
+> Task :app:desugarCoexistDebugFileDependencies UP-TO-DATE
+> Task :app:compressCoexistDebugAssets UP-TO-DATE
+> Task :ijkplayer-java:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :app:mapCoexistDebugSourceSetPaths
+> Task :app:checkCoexistDebugDuplicateClasses UP-TO-DATE
+> Task :app:writeCoexistDebugAppMetadata UP-TO-DATE
+> Task :app:preStandardDebugBuild UP-TO-DATE
+> Task :app:mergeStandardDebugNativeDebugMetadata NO-SOURCE
+> Task :app:writeCoexistDebugSigningConfigVersions UP-TO-DATE
+> Task :app:generateStandardDebugBuildConfig UP-TO-DATE
+> Task :app:generateStandardDebugResValues UP-TO-DATE
+> Task :app:validateSigningCoexistDebug UP-TO-DATE
+> Task :app:checkStandardDebugAarMetadata UP-TO-DATE
+> Task :app:mapStandardDebugSourceSetPaths
+> Task :app:createStandardDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksStandardDebug UP-TO-DATE
+> Task :app:javaPreCompileStandardDebug UP-TO-DATE
+> Task :app:mergeStandardDebugShaders UP-TO-DATE
+> Task :app:compileStandardDebugShaders NO-SOURCE
+> Task :app:generateStandardDebugAssets UP-TO-DATE
+> Task :app:mergeStandardDebugAssets UP-TO-DATE
+> Task :app:checkCoexistDebugAarMetadata UP-TO-DATE
+> Task :app:compressStandardDebugAssets UP-TO-DATE
+> Task :app:generateStandardDebugResources
+> Task :app:desugarStandardDebugFileDependencies UP-TO-DATE
+> Task :app:checkStandardDebugDuplicateClasses UP-TO-DATE
+> Task :app:processCoexistDebugMainManifest UP-TO-DATE
+> Task :app:processStandardDebugMainManifest UP-TO-DATE
+> Task :app:mergeCoexistDebugNativeLibs UP-TO-DATE
+> Task :app:processStandardDebugManifest UP-TO-DATE
+> Task :app:mergeStandardDebugStartupProfile UP-TO-DATE
+> Task :app:processStandardDebugManifestForPackage UP-TO-DATE
+> Task :app:processCoexistDebugManifest UP-TO-DATE
+> Task :app:validateSigningStandardDebug UP-TO-DATE
+> Task :app:stripCoexistDebugDebugSymbols UP-TO-DATE
+> Task :app:writeStandardDebugAppMetadata UP-TO-DATE
+> Task :app:preCoexistReleaseBuild UP-TO-DATE
+> Task :app:processCoexistDebugManifestForPackage UP-TO-DATE
+> Task :app:writeStandardDebugSigningConfigVersions UP-TO-DATE
+> Task :DanmakuFlameMaster:preReleaseBuild UP-TO-DATE
+> Task :brotlij:preReleaseBuild UP-TO-DATE
+> Task :app:mergeCoexistReleaseJniLibFolders UP-TO-DATE
+> Task :ijkplayer-java:preReleaseBuild UP-TO-DATE
+> Task :brotlij:mergeReleaseJniLibFolders UP-TO-DATE
+> Task :DanmakuFlameMaster:mergeReleaseJniLibFolders UP-TO-DATE
+> Task :brotlij:mergeReleaseNativeLibs NO-SOURCE
+> Task :DanmakuFlameMaster:mergeReleaseNativeLibs NO-SOURCE
+> Task :ijkplayer-java:mergeReleaseJniLibFolders UP-TO-DATE
+> Task :brotlij:copyReleaseJniLibsProjectOnly UP-TO-DATE
+> Task :ijkplayer-java:mergeReleaseNativeLibs NO-SOURCE
+> Task :DanmakuFlameMaster:copyReleaseJniLibsProjectOnly UP-TO-DATE
+> Task :ijkplayer-java:generateReleaseResValues UP-TO-DATE
+> Task :ijkplayer-java:javaPreCompileRelease UP-TO-DATE
+> Task :DanmakuFlameMaster:generateReleaseResValues UP-TO-DATE
+> Task :ijkplayer-java:generateReleaseResources UP-TO-DATE
+> Task :ijkplayer-java:copyReleaseJniLibsProjectOnly UP-TO-DATE
+> Task :DanmakuFlameMaster:generateReleaseResources UP-TO-DATE
+> Task :app:mergeStandardDebugJniLibFolders UP-TO-DATE
+> Task :DanmakuFlameMaster:packageReleaseResources UP-TO-DATE
+> Task :DanmakuFlameMaster:parseReleaseLocalResources UP-TO-DATE
+> Task :ijkplayer-java:packageReleaseResources UP-TO-DATE
+> Task :DanmakuFlameMaster:generateReleaseRFile UP-TO-DATE
+> Task :app:mergeStandardDebugNativeLibs UP-TO-DATE
+> Task :app:mergeCoexistReleaseNativeLibs UP-TO-DATE
+> Task :ijkplayer-java:parseReleaseLocalResources UP-TO-DATE
+> Task :DanmakuFlameMaster:javaPreCompileRelease UP-TO-DATE
+> Task :app:stripStandardDebugDebugSymbols UP-TO-DATE
+> Task :app:stripCoexistReleaseDebugSymbols UP-TO-DATE
+> Task :ijkplayer-java:generateReleaseRFile UP-TO-DATE
+> Task :brotlij:generateReleaseResValues UP-TO-DATE
+> Task :app:extractCoexistReleaseNativeSymbolTables UP-TO-DATE
+> Task :app:mergeCoexistReleaseNativeDebugMetadata NO-SOURCE
+> Task :brotlij:generateReleaseResources UP-TO-DATE
+> Task :brotlij:javaPreCompileRelease UP-TO-DATE
+> Task :brotlij:packageReleaseResources UP-TO-DATE
+> Task :brotlij:parseReleaseLocalResources UP-TO-DATE
+> Task :brotlij:generateReleaseRFile UP-TO-DATE
+> Task :app:checkCoexistReleaseDuplicateClasses UP-TO-DATE
+> Task :app:generateCoexistReleaseBuildConfig UP-TO-DATE
+> Task :brotlij:writeReleaseAarMetadata UP-TO-DATE
+> Task :DanmakuFlameMaster:writeReleaseAarMetadata UP-TO-DATE
+> Task :ijkplayer-java:writeReleaseAarMetadata UP-TO-DATE
+> Task :app:checkCoexistReleaseAarMetadata UP-TO-DATE
+> Task :app:generateCoexistReleaseResValues UP-TO-DATE
+> Task :brotlij:compileReleaseJavaWithJavac UP-TO-DATE
+> Task :brotlij:mergeReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :brotlij:exportReleaseConsumerProguardFiles UP-TO-DATE
+> Task :ijkplayer-java:compileReleaseJavaWithJavac UP-TO-DATE
+> Task :ijkplayer-java:mergeReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :ijkplayer-java:exportReleaseConsumerProguardFiles UP-TO-DATE
+> Task :app:createCoexistReleaseCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksCoexistRelease UP-TO-DATE
+> Task :brotlij:extractDeepLinksRelease UP-TO-DATE
+> Task :brotlij:processReleaseManifest UP-TO-DATE
+> Task :DanmakuFlameMaster:extractDeepLinksRelease UP-TO-DATE
+> Task :DanmakuFlameMaster:processReleaseManifest UP-TO-DATE
+> Task :ijkplayer-java:extractDeepLinksRelease UP-TO-DATE
+> Task :ijkplayer-java:processReleaseManifest UP-TO-DATE
+> Task :app:processCoexistReleaseMainManifest UP-TO-DATE
+> Task :app:processCoexistReleaseManifest UP-TO-DATE
+> Task :app:processCoexistReleaseManifestForPackage UP-TO-DATE
+> Task :brotlij:bundleLibCompileToJarRelease UP-TO-DATE
+> Task :ijkplayer-java:bundleLibCompileToJarRelease UP-TO-DATE
+> Task :app:javaPreCompileCoexistRelease UP-TO-DATE
+> Task :brotlij:prepareReleaseArtProfile UP-TO-DATE
+> Task :DanmakuFlameMaster:prepareReleaseArtProfile UP-TO-DATE
+> Task :ijkplayer-java:prepareReleaseArtProfile UP-TO-DATE
+> Task :DanmakuFlameMaster:compileReleaseJavaWithJavac UP-TO-DATE
+> Task :DanmakuFlameMaster:mergeReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :app:generateCoexistReleaseResources
+> Task :DanmakuFlameMaster:exportReleaseConsumerProguardFiles UP-TO-DATE
+> Task :app:mapCoexistReleaseSourceSetPaths
+> Task :DanmakuFlameMaster:bundleLibCompileToJarRelease UP-TO-DATE
+> Task :brotlij:bundleLibRuntimeToJarRelease UP-TO-DATE
+> Task :DanmakuFlameMaster:bundleLibRuntimeToJarRelease UP-TO-DATE
+> Task :ijkplayer-java:bundleLibRuntimeToJarRelease UP-TO-DATE
+> Task :app:extractProguardFiles UP-TO-DATE
+> Task :brotlij:processReleaseJavaRes NO-SOURCE
+> Task :DanmakuFlameMaster:processReleaseJavaRes NO-SOURCE
+> Task :ijkplayer-java:processReleaseJavaRes NO-SOURCE
+> Task :app:mergeCoexistReleaseStartupProfile UP-TO-DATE
+> Task :app:mergeCoexistReleaseShaders UP-TO-DATE
+> Task :app:compileCoexistReleaseShaders NO-SOURCE
+> Task :app:generateCoexistReleaseAssets UP-TO-DATE
+> Task :brotlij:mergeReleaseShaders UP-TO-DATE
+> Task :brotlij:compileReleaseShaders NO-SOURCE
+> Task :brotlij:generateReleaseAssets UP-TO-DATE
+> Task :brotlij:packageReleaseAssets UP-TO-DATE
+> Task :DanmakuFlameMaster:mergeReleaseShaders UP-TO-DATE
+> Task :DanmakuFlameMaster:compileReleaseShaders NO-SOURCE
+> Task :DanmakuFlameMaster:generateReleaseAssets UP-TO-DATE
+> Task :DanmakuFlameMaster:packageReleaseAssets UP-TO-DATE
+> Task :ijkplayer-java:mergeReleaseShaders UP-TO-DATE
+> Task :ijkplayer-java:compileReleaseShaders NO-SOURCE
+> Task :ijkplayer-java:generateReleaseAssets UP-TO-DATE
+> Task :ijkplayer-java:packageReleaseAssets UP-TO-DATE
+> Task :app:mergeCoexistReleaseAssets UP-TO-DATE
+> Task :app:compressCoexistReleaseAssets UP-TO-DATE
+> Task :app:extractCoexistReleaseVersionControlInfo UP-TO-DATE
+> Task :app:collectCoexistReleaseDependencies UP-TO-DATE
+> Task :app:sdkCoexistReleaseDependencyData UP-TO-DATE
+> Task :app:writeCoexistReleaseAppMetadata UP-TO-DATE
+> Task :app:writeCoexistReleaseSigningConfigVersions UP-TO-DATE
+> Task :app:preStandardReleaseBuild UP-TO-DATE
+> Task :app:mergeStandardReleaseJniLibFolders UP-TO-DATE
+> Task :app:mergeStandardReleaseNativeLibs UP-TO-DATE
+> Task :app:stripStandardReleaseDebugSymbols UP-TO-DATE
+> Task :app:extractStandardReleaseNativeSymbolTables UP-TO-DATE
+> Task :app:mergeStandardReleaseNativeDebugMetadata NO-SOURCE
+> Task :app:checkStandardReleaseDuplicateClasses UP-TO-DATE
+> Task :app:generateStandardReleaseBuildConfig UP-TO-DATE
+> Task :app:checkStandardReleaseAarMetadata UP-TO-DATE
+> Task :app:generateStandardReleaseResValues UP-TO-DATE
+> Task :app:mapStandardReleaseSourceSetPaths
+> Task :app:generateStandardReleaseResources
+> Task :app:packageCoexistReleaseResources
+> Task :app:mergeCoexistReleaseArtProfile UP-TO-DATE
+> Task :app:packageStandardDebugResources
+> Task :app:packageCoexistDebugResources
+> Task :app:packageStandardReleaseResources
+> Task :app:parseCoexistReleaseLocalResources
+> Task :app:createStandardReleaseCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksStandardRelease UP-TO-DATE
+> Task :app:processStandardReleaseMainManifest UP-TO-DATE
+> Task :app:processStandardReleaseManifest UP-TO-DATE
+> Task :app:processStandardReleaseManifestForPackage UP-TO-DATE
+> Task :app:javaPreCompileStandardRelease UP-TO-DATE
+> Task :app:mergeStandardReleaseArtProfile UP-TO-DATE
+> Task :app:mergeStandardReleaseStartupProfile UP-TO-DATE
+> Task :app:parseStandardDebugLocalResources
+> Task :app:extractStandardReleaseVersionControlInfo UP-TO-DATE
+> Task :app:mergeStandardReleaseShaders UP-TO-DATE
+> Task :app:compileStandardReleaseShaders NO-SOURCE
+> Task :app:generateStandardReleaseAssets UP-TO-DATE
+> Task :app:collectStandardReleaseDependencies UP-TO-DATE
+> Task :app:mergeStandardReleaseAssets UP-TO-DATE
+> Task :app:compressStandardReleaseAssets UP-TO-DATE
+> Task :app:sdkStandardReleaseDependencyData UP-TO-DATE
+> Task :app:writeStandardReleaseAppMetadata UP-TO-DATE
+> Task :app:preStandardDebugUnitTestBuild UP-TO-DATE
+> Task :app:writeStandardReleaseSigningConfigVersions UP-TO-DATE
+> Task :app:preCoexistDebugUnitTestBuild UP-TO-DATE
+> Task :app:javaPreCompileStandardDebugUnitTest UP-TO-DATE
+> Task :app:javaPreCompileCoexistDebugUnitTest UP-TO-DATE
+> Task :app:parseStandardReleaseLocalResources
+
+> Task :app:mergeCoexistDebugResources
+D:\Users\root\Desktop\BiliTerminal-RE\app\src\main\res\values\strings.xml: Multiple substitutions specified in non-positional format of string resource string/uitext_bangumiinfofragment_012. Did you mean to add the formatted="false" attribute?
+
+> Task :app:parseCoexistDebugLocalResources
+
+> Task :app:mergeStandardDebugResources
+D:\Users\root\Desktop\BiliTerminal-RE\app\src\main\res\values\strings.xml: Multiple substitutions specified in non-positional format of string resource string/uitext_bangumiinfofragment_012. Did you mean to add the formatted="false" attribute?
+
+> Task :app:mergeCoexistReleaseResources
+D:\Users\root\Desktop\BiliTerminal-RE\app\src\main\res\values\strings.xml: Multiple substitutions specified in non-positional format of string resource string/uitext_bangumiinfofragment_012. Did you mean to add the formatted="false" attribute?
+
+> Task :app:mergeStandardReleaseResources
+D:\Users\root\Desktop\BiliTerminal-RE\app\src\main\res\values\strings.xml: Multiple substitutions specified in non-positional format of string resource string/uitext_bangumiinfofragment_012. Did you mean to add the formatted="false" attribute?
+
+> Task :app:processCoexistReleaseResources
+> Task :app:processStandardReleaseResources
+> Task :app:processStandardDebugResources
+> Task :app:processCoexistDebugResources
+> Task :app:compileCoexistReleaseKotlin
+> Task :app:compileStandardReleaseKotlin
+> Task :app:compileStandardDebugKotlin
+> Task :app:compileCoexistDebugKotlin
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/disguise/BluetoothDisguiseActivity.kt:83:18 This declaration overrides a deprecated member but is not marked as deprecated itself. Please add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/dynamic/send/SendDynamicActivity.kt:402:32 Java type mismatch: inferred type is 'kotlin.String?', but 'kotlin.String' was expected.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/feedback/FeedbackDetailActivity.kt:65:27 '@Deprecated(...) @Nullable() fun <T : Parcelable!> getParcelableExtra(p0: String!): T?' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:675:18 This declaration overrides a deprecated member but is not marked as deprecated itself. Please add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:682:19 '@Deprecated(...) fun onBackPressed(): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:2733:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:2733:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:2823:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:2823:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3078:46 '@Deprecated(...) static field FLAG_HANDLES_MEDIA_BUTTONS: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3078:89 '@Deprecated(...) static field FLAG_HANDLES_TRANSPORT_CONTROLS: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3183:26 '@Deprecated(...) constructor(p0: Context!): Notification.Builder' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3201:21 '@Deprecated(...) fun setPriority(p0: Int): Notification.Builder!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3201:46 '@Deprecated(...) static field PRIORITY_LOW: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3213:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3213:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:4033:21 Condition is always 'true'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/search/SearchActivity.kt:111:23 '@Deprecated(...) constructor(): Handler' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/search/SearchFragment.kt:226:13 Condition is always 'true'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/AboutActivity.kt:79:103 '@Deprecated(...) field versionCode: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:92:28 'val adapterPosition: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:166:43 'val adapterPosition: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:167:37 'val adapterPosition: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:194:32 '@Deprecated(...) @NonNull() static fun animate(@NonNull() p0: View): ViewPropertyAnimatorCompat' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:201:24 '@Deprecated(...) @NonNull() static fun animate(@NonNull() p0: View): ViewPropertyAnimatorCompat' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/UpdateActivity.kt:63:15 '@Deprecated(...) fun setColorFilter(p0: Int, @NonNull() p1: PorterDuff.Mode): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/login/CaptchaWebViewActivity.kt:170:18 'var allowUniversalAccessFromFileURLs: Boolean' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/login/CaptchaWebViewActivity.kt:171:18 'var allowFileAccessFromFileURLs: Boolean' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/user/EditProfileActivity.kt:95:13 '@Deprecated(...) fun startActivityForResult(intent: Intent, requestCode: Int): Unit' is deprecated. This method has been deprecated in favor of using the Activity Result API
+      which brings increased type safety via an {@link ActivityResultContract} and the prebuilt
+      contracts for common intents available in
+      {@link androidx.activity.result.contract.ActivityResultContracts}, provides hooks for
+      testing, and allow receiving results in separate, testable classes independent from your
+      activity. Use
+      {@link #registerForActivityResult(ActivityResultContract, ActivityResultCallback)}
+      passing in a {@link StartActivityForResult} object for the {@link ActivityResultContract}.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/user/favorite/FavoriteFolderEditActivity.kt:131:9 '@Deprecated(...) fun startActivityForResult(intent: Intent, requestCode: Int): Unit' is deprecated. This method has been deprecated in favor of using the Activity Result API
+      which brings increased type safety via an {@link ActivityResultContract} and the prebuilt
+      contracts for common intents available in
+      {@link androidx.activity.result.contract.ActivityResultContracts}, provides hooks for
+      testing, and allow receiving results in separate, testable classes independent from your
+      activity. Use
+      {@link #registerForActivityResult(ActivityResultContract, ActivityResultCallback)}
+      passing in a {@link StartActivityForResult} object for the {@link ActivityResultContract}.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/user/favorite/FavoriteFolderEditActivity.kt:308:27 '@Deprecated(...) constructor(): Handler' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:31:8 '@Deprecated(...) class FragmentPagerAdapter : PagerAdapter' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:133:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:133:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:167:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:167:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/info/VideoInfoFragment.kt:262:41 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/info/VideoInfoFragment.kt:264:54 '@Deprecated(...) fun getRealMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/info/VideoInfoFragment.kt:265:26 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/adapter/ReplyAdapter.kt:193:17 Condition is always 'false'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/adapter/ReplyAdapter.kt:302:51 Condition is always 'true'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/adapter/ReplyAdapter.kt:947:20 Condition is always 'true'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/adapter/message/PrivateMsgAdapter.kt:123:44 'val adapterPosition: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/player/IjkNativeLibs.kt:225:29 '@Deprecated(...) static field CPU_ABI: String!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/player/IjkNativeLibs.kt:225:44 '@Deprecated(...) static field CPU_ABI2: String!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/util/UpdateManager.kt:59:69 '@Deprecated(...) field versionCode: Int' is deprecated. Deprecated in Java.
+
+> Task :app:compileCoexistReleaseKotlin
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/disguise/BluetoothDisguiseActivity.kt:83:18 This declaration overrides a deprecated member but is not marked as deprecated itself. Please add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/dynamic/send/SendDynamicActivity.kt:402:32 Java type mismatch: inferred type is 'kotlin.String?', but 'kotlin.String' was expected.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/feedback/FeedbackDetailActivity.kt:65:27 '@Deprecated(...) @Nullable() fun <T : Parcelable!> getParcelableExtra(p0: String!): T?' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:675:18 This declaration overrides a deprecated member but is not marked as deprecated itself. Please add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:682:19 '@Deprecated(...) fun onBackPressed(): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:2733:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:2733:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:2823:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:2823:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3078:46 '@Deprecated(...) static field FLAG_HANDLES_MEDIA_BUTTONS: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3078:89 '@Deprecated(...) static field FLAG_HANDLES_TRANSPORT_CONTROLS: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3183:26 '@Deprecated(...) constructor(p0: Context!): Notification.Builder' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3201:21 '@Deprecated(...) fun setPriority(p0: Int): Notification.Builder!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3201:46 '@Deprecated(...) static field PRIORITY_LOW: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3213:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3213:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:4033:21 Condition is always 'true'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/search/SearchActivity.kt:111:23 '@Deprecated(...) constructor(): Handler' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/search/SearchFragment.kt:226:13 Condition is always 'true'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/AboutActivity.kt:79:103 '@Deprecated(...) field versionCode: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:92:28 'val adapterPosition: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:166:43 'val adapterPosition: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:167:37 'val adapterPosition: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:194:32 '@Deprecated(...) @NonNull() static fun animate(@NonNull() p0: View): ViewPropertyAnimatorCompat' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:201:24 '@Deprecated(...) @NonNull() static fun animate(@NonNull() p0: View): ViewPropertyAnimatorCompat' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/UpdateActivity.kt:63:15 '@Deprecated(...) fun setColorFilter(p0: Int, @NonNull() p1: PorterDuff.Mode): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/login/CaptchaWebViewActivity.kt:170:18 'var allowUniversalAccessFromFileURLs: Boolean' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/login/CaptchaWebViewActivity.kt:171:18 'var allowFileAccessFromFileURLs: Boolean' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/user/EditProfileActivity.kt:95:13 '@Deprecated(...) fun startActivityForResult(intent: Intent, requestCode: Int): Unit' is deprecated. This method has been deprecated in favor of using the Activity Result API
+      which brings increased type safety via an {@link ActivityResultContract} and the prebuilt
+      contracts for common intents available in
+      {@link androidx.activity.result.contract.ActivityResultContracts}, provides hooks for
+      testing, and allow receiving results in separate, testable classes independent from your
+      activity. Use
+      {@link #registerForActivityResult(ActivityResultContract, ActivityResultCallback)}
+      passing in a {@link StartActivityForResult} object for the {@link ActivityResultContract}.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/user/favorite/FavoriteFolderEditActivity.kt:131:9 '@Deprecated(...) fun startActivityForResult(intent: Intent, requestCode: Int): Unit' is deprecated. This method has been deprecated in favor of using the Activity Result API
+      which brings increased type safety via an {@link ActivityResultContract} and the prebuilt
+      contracts for common intents available in
+      {@link androidx.activity.result.contract.ActivityResultContracts}, provides hooks for
+      testing, and allow receiving results in separate, testable classes independent from your
+      activity. Use
+      {@link #registerForActivityResult(ActivityResultContract, ActivityResultCallback)}
+      passing in a {@link StartActivityForResult} object for the {@link ActivityResultContract}.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/user/favorite/FavoriteFolderEditActivity.kt:308:27 '@Deprecated(...) constructor(): Handler' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:31:8 '@Deprecated(...) class FragmentPagerAdapter : PagerAdapter' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:133:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:133:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:167:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:167:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/info/VideoInfoFragment.kt:262:41 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/info/VideoInfoFragment.kt:264:54 '@Deprecated(...) fun getRealMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/info/VideoInfoFragment.kt:265:26 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/adapter/ReplyAdapter.kt:193:17 Condition is always 'false'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/adapter/ReplyAdapter.kt:302:51 Condition is always 'true'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/adapter/ReplyAdapter.kt:947:20 Condition is always 'true'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/adapter/message/PrivateMsgAdapter.kt:123:44 'val adapterPosition: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/player/IjkNativeLibs.kt:225:29 '@Deprecated(...) static field CPU_ABI: String!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/player/IjkNativeLibs.kt:225:44 '@Deprecated(...) static field CPU_ABI2: String!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/util/UpdateManager.kt:59:69 '@Deprecated(...) field versionCode: Int' is deprecated. Deprecated in Java.
+
+> Task :app:compileStandardReleaseKotlin
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/disguise/BluetoothDisguiseActivity.kt:83:18 This declaration overrides a deprecated member but is not marked as deprecated itself. Please add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/dynamic/send/SendDynamicActivity.kt:402:32 Java type mismatch: inferred type is 'kotlin.String?', but 'kotlin.String' was expected.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/feedback/FeedbackDetailActivity.kt:65:27 '@Deprecated(...) @Nullable() fun <T : Parcelable!> getParcelableExtra(p0: String!): T?' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:675:18 This declaration overrides a deprecated member but is not marked as deprecated itself. Please add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:682:19 '@Deprecated(...) fun onBackPressed(): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:2733:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:2733:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:2823:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:2823:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3078:46 '@Deprecated(...) static field FLAG_HANDLES_MEDIA_BUTTONS: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3078:89 '@Deprecated(...) static field FLAG_HANDLES_TRANSPORT_CONTROLS: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3183:26 '@Deprecated(...) constructor(p0: Context!): Notification.Builder' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3201:21 '@Deprecated(...) fun setPriority(p0: Int): Notification.Builder!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3201:46 '@Deprecated(...) static field PRIORITY_LOW: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3213:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3213:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:4033:21 Condition is always 'true'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/search/SearchActivity.kt:111:23 '@Deprecated(...) constructor(): Handler' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/search/SearchFragment.kt:226:13 Condition is always 'true'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/AboutActivity.kt:79:103 '@Deprecated(...) field versionCode: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:92:28 'val adapterPosition: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:166:43 'val adapterPosition: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:167:37 'val adapterPosition: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:194:32 '@Deprecated(...) @NonNull() static fun animate(@NonNull() p0: View): ViewPropertyAnimatorCompat' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:201:24 '@Deprecated(...) @NonNull() static fun animate(@NonNull() p0: View): ViewPropertyAnimatorCompat' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/UpdateActivity.kt:63:15 '@Deprecated(...) fun setColorFilter(p0: Int, @NonNull() p1: PorterDuff.Mode): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/login/CaptchaWebViewActivity.kt:170:18 'var allowUniversalAccessFromFileURLs: Boolean' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/login/CaptchaWebViewActivity.kt:171:18 'var allowFileAccessFromFileURLs: Boolean' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/user/EditProfileActivity.kt:95:13 '@Deprecated(...) fun startActivityForResult(intent: Intent, requestCode: Int): Unit' is deprecated. This method has been deprecated in favor of using the Activity Result API
+      which brings increased type safety via an {@link ActivityResultContract} and the prebuilt
+      contracts for common intents available in
+      {@link androidx.activity.result.contract.ActivityResultContracts}, provides hooks for
+      testing, and allow receiving results in separate, testable classes independent from your
+      activity. Use
+      {@link #registerForActivityResult(ActivityResultContract, ActivityResultCallback)}
+      passing in a {@link StartActivityForResult} object for the {@link ActivityResultContract}.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/user/favorite/FavoriteFolderEditActivity.kt:131:9 '@Deprecated(...) fun startActivityForResult(intent: Intent, requestCode: Int): Unit' is deprecated. This method has been deprecated in favor of using the Activity Result API
+      which brings increased type safety via an {@link ActivityResultContract} and the prebuilt
+      contracts for common intents available in
+      {@link androidx.activity.result.contract.ActivityResultContracts}, provides hooks for
+      testing, and allow receiving results in separate, testable classes independent from your
+      activity. Use
+      {@link #registerForActivityResult(ActivityResultContract, ActivityResultCallback)}
+      passing in a {@link StartActivityForResult} object for the {@link ActivityResultContract}.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/user/favorite/FavoriteFolderEditActivity.kt:308:27 '@Deprecated(...) constructor(): Handler' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:31:8 '@Deprecated(...) class FragmentPagerAdapter : PagerAdapter' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:133:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:133:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:167:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:167:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/info/VideoInfoFragment.kt:262:41 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/info/VideoInfoFragment.kt:264:54 '@Deprecated(...) fun getRealMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/info/VideoInfoFragment.kt:265:26 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/adapter/ReplyAdapter.kt:193:17 Condition is always 'false'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/adapter/ReplyAdapter.kt:302:51 Condition is always 'true'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/adapter/ReplyAdapter.kt:947:20 Condition is always 'true'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/adapter/message/PrivateMsgAdapter.kt:123:44 'val adapterPosition: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/player/IjkNativeLibs.kt:225:29 '@Deprecated(...) static field CPU_ABI: String!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/player/IjkNativeLibs.kt:225:44 '@Deprecated(...) static field CPU_ABI2: String!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/util/UpdateManager.kt:59:69 '@Deprecated(...) field versionCode: Int' is deprecated. Deprecated in Java.
+
+> Task :app:compileStandardDebugKotlin
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/disguise/BluetoothDisguiseActivity.kt:83:18 This declaration overrides a deprecated member but is not marked as deprecated itself. Please add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/dynamic/send/SendDynamicActivity.kt:402:32 Java type mismatch: inferred type is 'kotlin.String?', but 'kotlin.String' was expected.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/feedback/FeedbackDetailActivity.kt:65:27 '@Deprecated(...) @Nullable() fun <T : Parcelable!> getParcelableExtra(p0: String!): T?' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:675:18 This declaration overrides a deprecated member but is not marked as deprecated itself. Please add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:682:19 '@Deprecated(...) fun onBackPressed(): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:2733:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:2733:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:2823:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:2823:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3078:46 '@Deprecated(...) static field FLAG_HANDLES_MEDIA_BUTTONS: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3078:89 '@Deprecated(...) static field FLAG_HANDLES_TRANSPORT_CONTROLS: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3183:26 '@Deprecated(...) constructor(p0: Context!): Notification.Builder' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3201:21 '@Deprecated(...) fun setPriority(p0: Int): Notification.Builder!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3201:46 '@Deprecated(...) static field PRIORITY_LOW: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3213:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:3213:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:4033:21 Condition is always 'true'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/search/SearchActivity.kt:111:23 '@Deprecated(...) constructor(): Handler' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/search/SearchFragment.kt:226:13 Condition is always 'true'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/AboutActivity.kt:79:103 '@Deprecated(...) field versionCode: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:92:28 'val adapterPosition: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:166:43 'val adapterPosition: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:167:37 'val adapterPosition: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:194:32 '@Deprecated(...) @NonNull() static fun animate(@NonNull() p0: View): ViewPropertyAnimatorCompat' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SearchSortActivity.kt:201:24 '@Deprecated(...) @NonNull() static fun animate(@NonNull() p0: View): ViewPropertyAnimatorCompat' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/UpdateActivity.kt:63:15 '@Deprecated(...) fun setColorFilter(p0: Int, @NonNull() p1: PorterDuff.Mode): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/login/CaptchaWebViewActivity.kt:170:18 'var allowUniversalAccessFromFileURLs: Boolean' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/login/CaptchaWebViewActivity.kt:171:18 'var allowFileAccessFromFileURLs: Boolean' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/user/EditProfileActivity.kt:95:13 '@Deprecated(...) fun startActivityForResult(intent: Intent, requestCode: Int): Unit' is deprecated. This method has been deprecated in favor of using the Activity Result API
+      which brings increased type safety via an {@link ActivityResultContract} and the prebuilt
+      contracts for common intents available in
+      {@link androidx.activity.result.contract.ActivityResultContracts}, provides hooks for
+      testing, and allow receiving results in separate, testable classes independent from your
+      activity. Use
+      {@link #registerForActivityResult(ActivityResultContract, ActivityResultCallback)}
+      passing in a {@link StartActivityForResult} object for the {@link ActivityResultContract}.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/user/favorite/FavoriteFolderEditActivity.kt:131:9 '@Deprecated(...) fun startActivityForResult(intent: Intent, requestCode: Int): Unit' is deprecated. This method has been deprecated in favor of using the Activity Result API
+      which brings increased type safety via an {@link ActivityResultContract} and the prebuilt
+      contracts for common intents available in
+      {@link androidx.activity.result.contract.ActivityResultContracts}, provides hooks for
+      testing, and allow receiving results in separate, testable classes independent from your
+      activity. Use
+      {@link #registerForActivityResult(ActivityResultContract, ActivityResultCallback)}
+      passing in a {@link StartActivityForResult} object for the {@link ActivityResultContract}.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/user/favorite/FavoriteFolderEditActivity.kt:308:27 '@Deprecated(...) constructor(): Handler' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:31:8 '@Deprecated(...) class FragmentPagerAdapter : PagerAdapter' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:133:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:133:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:167:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt:167:38 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/info/VideoInfoFragment.kt:262:41 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/info/VideoInfoFragment.kt:264:54 '@Deprecated(...) fun getRealMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/activity/video/info/VideoInfoFragment.kt:265:26 '@Deprecated(...) fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/adapter/ReplyAdapter.kt:193:17 Condition is always 'false'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/adapter/ReplyAdapter.kt:302:51 Condition is always 'true'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/adapter/ReplyAdapter.kt:947:20 Condition is always 'true'.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/adapter/message/PrivateMsgAdapter.kt:123:44 'val adapterPosition: Int' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/player/IjkNativeLibs.kt:225:29 '@Deprecated(...) static field CPU_ABI: String!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/player/IjkNativeLibs.kt:225:44 '@Deprecated(...) static field CPU_ABI2: String!' is deprecated. Deprecated in Java.
+w: file:///D:/Users/root/Desktop/BiliTerminal-RE/app/src/main/java/com/RobinNotBad/BiliClient/util/UpdateManager.kt:59:69 '@Deprecated(...) field versionCode: Int' is deprecated. Deprecated in Java.
+
+> Task :app:compileStandardReleaseJavaWithJavac
+注: 某些输入文件使用或覆盖了已过时的 API。
+注: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+
+> Task :app:compileCoexistReleaseJavaWithJavac
+注: 某些输入文件使用或覆盖了已过时的 API。
+注: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+
+> Task :app:compileStandardDebugJavaWithJavac
+注: 某些输入文件使用或覆盖了已过时的 API。
+注: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+
+> Task :app:mergeStandardReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :app:mergeCoexistReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :app:processCoexistReleaseJavaRes UP-TO-DATE
+> Task :app:processStandardReleaseJavaRes UP-TO-DATE
+
+> Task :app:compileCoexistDebugJavaWithJavac
+注: 某些输入文件使用或覆盖了已过时的 API。
+注: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+
+> Task :app:mergeStandardReleaseJavaResource UP-TO-DATE
+> Task :app:mergeCoexistReleaseJavaResource UP-TO-DATE
+> Task :app:processCoexistDebugJavaRes UP-TO-DATE
+> Task :app:processStandardDebugJavaRes UP-TO-DATE
+> Task :app:mergeCoexistDebugJavaResource UP-TO-DATE
+> Task :app:mergeStandardDebugJavaResource UP-TO-DATE
+> Task :app:bundleCoexistDebugClassesToRuntimeJar
+> Task :app:bundleCoexistDebugClassesToCompileJar
+> Task :app:bundleStandardDebugClassesToRuntimeJar
+> Task :app:bundleStandardDebugClassesToCompileJar
+> Task :app:expandStandardReleaseArtProfileWildcards
+> Task :app:expandCoexistReleaseArtProfileWildcards
+> Task :app:compileCoexistDebugUnitTestKotlin
+> Task :app:processCoexistDebugUnitTestJavaRes UP-TO-DATE
+> Task :app:compileStandardDebugUnitTestKotlin
+> Task :app:processStandardDebugUnitTestJavaRes UP-TO-DATE
+> Task :app:compileCoexistDebugUnitTestJavaWithJavac UP-TO-DATE
+> Task :app:compileStandardDebugUnitTestJavaWithJavac UP-TO-DATE
+> Task :app:dexBuilderCoexistDebug
+> Task :app:dexBuilderStandardDebug
+> Task :app:minifyStandardReleaseWithR8
+> Task :app:testStandardDebugUnitTest
+> Task :app:testCoexistDebugUnitTest
+> Task :app:mergeDexCoexistDebug
+> Task :app:mergeDexStandardDebug
+> Task :app:packageStandardDebug
+> Task :app:assembleStandardDebug
+> Task :app:createStandardDebugApkListingFileRedirect
+> Task :app:packageCoexistDebug
+> Task :app:assembleCoexistDebug
+> Task :app:assembleDebug
+> Task :app:createCoexistDebugApkListingFileRedirect
+> Task :app:compileStandardReleaseArtProfile
+> Task :app:shrinkStandardReleaseRes
+> Task :app:optimizeStandardReleaseResources
+> Task :app:packageStandardRelease
+> Task :app:assembleStandardRelease
+> Task :app:createStandardReleaseApkListingFileRedirect
+> Task :app:minifyCoexistReleaseWithR8
+> Task :app:compileCoexistReleaseArtProfile
+> Task :app:shrinkCoexistReleaseRes
+> Task :app:optimizeCoexistReleaseResources
+> Task :app:packageCoexistRelease
+> Task :app:assembleCoexistRelease
+> Task :app:assembleRelease
+> Task :app:createCoexistReleaseApkListingFileRedirect
+
+[Incubating] Problems report is available at: file:///D:/Users/root/Desktop/BiliTerminal-RE/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.14.5/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 7m 6s
+278 actionable tasks: 62 executed, 216 up-to-date
+Configuration cache entry stored.
