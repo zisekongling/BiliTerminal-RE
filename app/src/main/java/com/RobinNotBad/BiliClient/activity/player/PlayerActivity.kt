@@ -239,6 +239,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var hasDanmaku: Boolean = false
     private var isOnlineVideo: Boolean = false
     private var isLiveMode: Boolean = false
+
+    /**
+     * 是否在等私有侧解析「备用片源」（见 OptionalFeatures.requestThirdPartyResolve）。
+     *
+     * 这类播放请求本身没有 url：私有侧只带「片名 + 第几集」进来，播放页先照常初始化、
+     * 停在载入中，等解析出真正的地址后再 setDisplay。
+     */
+    private var waitingThirdPartySource: Boolean = false
     private var isSeeking: Boolean = false
     private var isDanmakuVisible: Boolean = false
     private var menu_opened = false
@@ -273,6 +281,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     companion object {
         /** `onSaveInstanceState` 保存的播放位置（毫秒），用于系统重建本页后回到原位 */
         private const val STATE_POSITION = "player_state_position"
+
+        /**
+         * 「先跳播放页、再解析备用片源」的 Intent 标记（由私有侧设置）。
+         *
+         * 置位时 Intent 里没有 url，本页会先进入载入中，再让私有侧异步解析出地址。
+         */
+        private const val EXTRA_THIRD_PARTY_PENDING = "third_party_pending"
 
         /** 自动恢复的最多次数，超过就只提示、交回给用户手动重试 */
         private const val MAX_STALL_RETRY = 3
@@ -658,11 +673,20 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun getExtras(): Boolean {
         val intent = intent ?: return false
 
+        // 「先跳播放页、再解析备用片源」：私有侧带 third_party_pending=true，此时没有 url，
+        // 真实地址要在页面初始化完之后由私有侧异步给出（见 beginPendingThirdPartyResolve）。
+        // 一并固定下来：本页只在准备阶段读它，解析成功后 waitingThirdPartySource 归 false。
+        waitingThirdPartySource = intent.getBooleanExtra(EXTRA_THIRD_PARTY_PENDING, false)
+
         video_url = intent.getStringExtra("url")
         danmaku_url = intent.getStringExtra("danmaku") ?: ""
         val title = intent.getStringExtra("title")
 
-        if (video_url == null) return false
+        if (video_url == null) {
+            // 其它入口（详情页、收藏夹、直播、本地播放）都必须给 url，缺了就是脏 Intent
+            if (!waitingThirdPartySource) return false
+            video_url = ""
+        }
         if (danmaku_url.isNotEmpty()) Logu.v("弹幕", danmaku_url)
         Logu.v("视频", video_url)
         Logu.v("标题", title)
@@ -692,7 +716,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             liveCandidateIndex = liveUrlCandidates.indexOf(video_url.orEmpty()).takeIf { it >= 0 } ?: 0
             Logu.d("直播候选", "${liveUrlCandidates.size} 条，当前 $liveCandidateIndex")
         }
-        isOnlineVideo = video_url!!.contains("http")
+        // 待解析的备用片源：地址还没来，但内容一定是在线流（不是本地文件），
+        // 所以这里先按在线处理；解析成功后会补上真实 url（见 beginPendingThirdPartyResolve）
+        isOnlineVideo = waitingThirdPartySource || video_url!!.contains("http")
         hasDanmaku = danmaku_url.isNotEmpty()
 
         // 本地/缓存视频没有服务端历史可读，续播位置就存在视频目录的 `.video_meta.json` 里
@@ -788,11 +814,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
         setContentView(R.layout.activity_player)
         findview()
-        // 可选私有功能：详情页把「番剧标题 + 集号」带进来时，先让私有侧判断这条播放
-        // 要不要走备用片源；它接管了就直接结束本页（私有侧会自己起真正的播放）。
-        if (OptionalFeatures.handlePendingThirdParty(this, intent)) {
-            return
-        }
         if (!getExtras()) {
             finish()
             return
@@ -929,7 +950,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     loadInteractionVideo()
                 }
 
-                if (!destroyed) setDisplay()
+                // 待解析的备用片源没有地址，先让私有侧去解析，解析好再 setDisplay；
+                // 其余情况照旧直接进播放准备
+                if (!destroyed) {
+                    // 解析链路要起 Activity、改加载文案，统一回主线程
+                    if (waitingThirdPartySource) runOnUiThread { beginPendingThirdPartyResolve() }
+                    else setDisplay()
+                }
             }
         }, 60)
     }
@@ -1603,6 +1630,61 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun detachSurface() {
         val player = ijkPlayer ?: return
         if (textureView != null) player.setSurface(null) else player.setDisplay(null)
+    }
+
+    /**
+     * 「先跳播放页、再解析备用片源」：把解析交给私有侧，解析好了才真正开始播放。
+     *
+     * 页面此时已经完整初始化（播放器实例、UI、弹幕线程都在），所以用户看到的是本页的
+     * 载入中界面，而不是像以前那样先弹一个看不见的透明中转页、失败后连提示都没有。
+     *
+     * 失败时的 Toast 与「手动选源页」由私有侧负责（它才知道片名/别名），本页只收尾退出。
+     */
+    private fun beginPendingThirdPartyResolve() {
+        if (destroyed) return
+        runOnUiThread {
+            loading_text0.text = getString(R.string.uitext_playeractivity_030)
+            loading_text1.text = "(≧∇≦)"
+        }
+        val callback = object : OptionalFeatures.ThirdPartyResolveCallback {
+            override fun onResolved(url: String, referer: String?) {
+                runOnUiThread {
+                    if (destroyed || isFinishing) return@runOnUiThread
+                    if (url.isBlank()) {
+                        finish()
+                        return@runOnUiThread
+                    }
+                    waitingThirdPartySource = false
+                    if (!referer.isNullOrBlank()) {
+                        // 解析结果自带 Referer 时随 Intent 一起带上，MPPrepare 会按
+                        // 「内容来源是否为 B 站」决定要不要再补 B 站 Referer/Cookie
+                        intent.putExtra("third_party_referer", referer)
+                    }
+                    video_url = url
+                    isOnlineVideo = true
+                    Logu.d("备用片源", url)
+                    setDisplay()
+                }
+            }
+
+            override fun onFailed() {
+                runOnUiThread {
+                    if (destroyed || isFinishing) return@runOnUiThread
+                    waitingThirdPartySource = false
+                    finish()
+                }
+            }
+        }
+        val taken = OptionalFeatures.requestThirdPartyResolve(this, intent, callback)
+        if (!taken) {
+            // 公开构建（没有私有侧）本该拦在上游入口，走到这里说明 Intent 是脏的
+            runOnUiThread {
+                if (!destroyed && !isFinishing) {
+                    MsgUtil.showMsgLong(getString(R.string.msg_third_party_no_source))
+                    finish()
+                }
+            }
+        }
     }
 
     private fun MPPrepare(nowurl: String) {

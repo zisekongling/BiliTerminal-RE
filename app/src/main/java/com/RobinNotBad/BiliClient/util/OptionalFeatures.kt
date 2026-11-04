@@ -287,18 +287,38 @@ object OptionalFeatures {
     }
 
     /**
-     * 播放页启动时：若这条 intent 是「待解析的备用片源播放」，私有侧接管并返回 true。
+     * 「备用片源解析」的回调。
      *
-     * 返回 true 的语义：当前播放页应当直接结束（私有侧会自己起真正的播放）。
+     * 播放页收到待解析的 intent 时先照常初始化并停在载入中，然后调 [requestThirdPartyResolve]
+     * 把解析工作交给私有侧；解析结果通过这个回调回到播放页（私有侧保证在主线程回调）。
      */
-    fun handlePendingThirdParty(activity: Activity, intent: Intent): Boolean = try {
+    interface ThirdPartyResolveCallback {
+        /** 解析成功：给出可直接播放的地址和（可空）该地址需要的 Referer。 */
+        fun onResolved(url: String, referer: String?)
+
+        /** 解析失败：私有侧已经提示过用户（Toast + 手动选源），播放页只需要收尾退出。 */
+        fun onFailed()
+    }
+
+    /**
+     * 请求私有侧解析备用片源，结果走 [callback]。
+     *
+     * 返回 true 表示私有侧已接手（无论成败都会回调）；false 表示私有侧不在场，
+     * 调用方自己要给用户一个交代后退出。
+     */
+    fun requestThirdPartyResolve(
+        activity: Activity,
+        intent: Intent,
+        callback: ThirdPartyResolveCallback
+    ): Boolean = try {
         holder?.getMethod(
-            "handlePendingThirdParty",
-            Activity::class.java,
-            Intent::class.java
-        )?.invoke(null, activity, intent) as? Boolean ?: false
+            "requestThirdPartyResolve",
+            Context::class.java,
+            Intent::class.java,
+            ThirdPartyResolveCallback::class.java
+        )?.invoke(null, activity, intent, callback) as? Boolean ?: false
     } catch (e: Throwable) {
-        Logu.w("OptionalFeatures", "handlePendingThirdParty failed: " + e.message)
+        Logu.w("OptionalFeatures", "requestThirdPartyResolve failed: " + e.message)
         false
     }
 

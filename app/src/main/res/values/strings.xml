@@ -2427,6 +2427,10 @@
          的设备侧问题，客户端只能提示并退出播放页，没有系统播放器可回落。 -->
     <string name="msg_ijk_native_load_failed">播放器组件加载失败，无法播放视频，请重装应用后再试</string>
 
+    <!-- 26.11.04：播放页「先跳转、再解析备用片源」时，私有侧不在场（公开构建）或被拒绝接手的兜底提示。
+         有私有片源功能时，失败提示由私有侧给（private/res/values/strings_feature_source.xml）。 -->
+    <string name="msg_third_party_no_source">没找到可播放的片源</string>
+
     <!-- 26.10.19 审查修复批次：文案迁移新增键（util-model / player-native / ui-feed） -->
     <string name="uitext_msgnotifier_009">%1$d 条新私信</string>
     <string name="uitext_msgnotifier_010">%1$d 条新消息</string>
