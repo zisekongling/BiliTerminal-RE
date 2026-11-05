@@ -22,11 +22,13 @@ import com.RobinNotBad.BiliClient.model.Subtitle;
 import com.RobinNotBad.BiliClient.model.SubtitleLink;
 import com.RobinNotBad.BiliClient.model.VideoInfo;
 import com.RobinNotBad.BiliClient.service.DownloadService;
+import com.RobinNotBad.BiliClient.util.CenterThreadPool;
 import com.RobinNotBad.BiliClient.util.FileUtil;
 import com.RobinNotBad.BiliClient.util.LocalFileProvider;
 import com.RobinNotBad.BiliClient.util.Logu;
 import com.RobinNotBad.BiliClient.util.MsgUtil;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
+import com.RobinNotBad.BiliClient.util.PageOrderStore;
 import com.RobinNotBad.BiliClient.util.SettingsKeys;
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
 import com.RobinNotBad.BiliClient.util.ToolsUtil;
@@ -77,11 +79,15 @@ public class PlayerApi {
                     videoInfo.aid, videoInfo.cids.get(0),
                     videoInfo.cover,
                     qn, "video", "");
-        else
+        else {
+            // 反馈 #98：多P/合集下载落盘后缓存页按 listFiles() 顺序排，和 UP 主发布的顺序对不上。
+            // 入队时把服务端下发的 pagenames（合集顺序）记到合集的 .page_order.json，扫描时按它排。
+            CenterThreadPool.run(() -> PageOrderStore.remember(videoInfo.title, videoInfo.pagenames));
             DownloadService.startDownload(videoInfo.title, videoInfo.pagenames.get(page),
                     videoInfo.aid, videoInfo.cids.get(page),
                     videoInfo.cover,
                     qn, "video", "");
+        }
     }
 
     /**
@@ -98,11 +104,14 @@ public class PlayerApi {
                     videoInfo.aid, videoInfo.cids.get(0),
                     videoInfo.cover,
                     qn, "audio_only", audioUrl);
-        else
+        else {
+            // 同 startDownloading：仅音频下载也是按页落盘，页顺序同样要记下来（反馈 #98）
+            CenterThreadPool.run(() -> PageOrderStore.remember(videoInfo.title, videoInfo.pagenames));
             DownloadService.startDownload(videoInfo.title, videoInfo.pagenames.get(page),
                     videoInfo.aid, videoInfo.cids.get(page),
                     videoInfo.cover,
                     qn, "audio_only", audioUrl);
+        }
     }
 
     /**

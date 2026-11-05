@@ -32,6 +32,7 @@ import com.RobinNotBad.BiliClient.util.FolderManager
 import com.RobinNotBad.BiliClient.util.LocalListSort
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
+import com.RobinNotBad.BiliClient.util.PageOrderStore
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.VideoMetaManager
 import java.io.File
@@ -274,7 +275,17 @@ class LocalListActivity : InstanceActivity() {
                     // 合集视频：扫描子目录
                     val pages = video.listFiles()
                     if (pages != null) {
-                        for (page in pages) {
+                        // 反馈 #98：子目录的 listFiles() 顺序是文件系统顺序，不保证等于 UP 主发布合集的顺序，
+                        // 所以缓存完整个合集后「1~10 集」会乱。下载入队时写下的 .page_order.json 才是合集顺序，
+                        // 这里按它排；老缓存没有该文件时 orderedPages 原样返回扫描顺序（行为与改动前一致）。
+                        val pageDirs = pages.filter { it.isDirectory }
+                        val orderedNames = PageOrderStore.orderedPages(
+                            pageDirs.map { it.name },
+                            PageOrderStore.read(video)
+                        )
+                        val dirByName = pageDirs.associateBy { it.name }
+                        for (name in orderedNames) {
+                            val page = dirByName[name] ?: continue
                             if (page.isDirectory) {
                                 val mark = File(page, DownloadPathSpec.FILE_DOWNLOADING)
                                 if (mark.exists()) continue

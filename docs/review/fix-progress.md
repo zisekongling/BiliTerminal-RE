@@ -1220,6 +1220,18 @@
 - **未验证（推测）**：`isPgcPlayback()` 是 `PlayerActivity` 私有方法，纯 JVM 测不到，**端到端「UGC 不再自动跳片尾 / 番剧仍跳」需要在有登录态的机器上跑一遍**（本机模拟器无登录态）。
 - **遗留**：①`pgcPlaybackFlag` 只在 `onCreate` 写一次，同一个 Activity 会话里跨到另一条视频（合集 / 收藏夹混排）会继承入场时的判定——播放器目前每次都重新起 Activity，暂不触发，但若将来做「不重启 Activity 换视频」必须一并改成按 aid/epid 重算；②要把 `isPgcPlayback()` 纳入纯 JVM 单测，需把判据抽到 `player/` 下成纯函数（比如 `PlayerPlaybackKind.fromExtras(...)`），本轮没做。
 
+### 3.117 设置页搜索框取消固定 + 缓存合集按合集顺序排列（26.11.06，控制台反馈 #97 / #98）
+
+- **反馈与拍板**：#97（26.10.27，HUAWEI HWMDS）「设置里的搜索框调小一点 / 专门出一个设置」——维护者拍板**「取消固定即可」**，不做折叠交互。#98（26.11.02，OPPO OWW211）「缓存一整个合集后顺序混乱、找不到 1~10 集」——维护者补充：**反馈本意是排序**，不是「合集页点缓存不能直接播」。
+- **#97 改法**：`res/layout/activity_setting_main.xml` 把 `@id/search_input` 从「顶栏之下、scrollView 之外」挪进 `RotaryScrollView` 内容的 `LinearLayout`。搜索框跟着设置项一起滚动（取消固定）；`SettingMainActivity.filter()` 只重建 `settings_container`，输入框与焦点不受影响，无新增文案。
+- **#98 改法**：
+  - 新增 `util/PageOrderStore.kt`：合集父目录下 `.page_order.json` 记录服务端下发的 `pagenames`（先过 `FileUtil.stringToFile`，与真实落盘目录名一致）；纯函数 `parse` / `serialize` / `orderedPages`，排序口径复用 `LocalListSort.mergeOrder`（记录里的页优先、扫描到但没记录的按原序补尾、去重、记录里已删的忽略），写文件失败不影响下载本身。
+  - `api/PlayerApi.java` 的 `startDownloading` / `startDownloadingAudioOnly` 在多P分支入队前（`CenterThreadPool`）调 `PageOrderStore.remember(title, pagenames)`。
+  - `activity/video/local/LocalListActivity.kt` 的 `scanVideos` 扫描合集子目录时按记录排序；**老缓存没有该文件时原样返回扫描顺序**，行为与改动前一致。
+- **验证**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest -x lint` BUILD SUCCESSFUL；`testStandardDebugUnitTest` **143 suites / 1512 tests / 0 失败 0 错误**（新增 `PageOrderStoreTest` 11 例：JSON 往返、坏数据兜底、记录优先与补尾、已删页忽略、去重、不丢不重）。**设备未验**：本机唯一可用的 AVD 是 Play Store 镜像（android-37.0），任务栈被历史任务反复抢占（刚打开设置页就被别的 Activity 顶掉，首次启动教程 / 夜间提醒连环弹），没拿到稳定的滚动与缓存页截图。真手表复验两步：① 设置页往下滚，搜索框应随内容滚出屏幕；② 缓存一个多P合集后进缓存页，合集内页序应与 UP 主顺序一致。
+- **遗留**：旧缓存（这版之前下载的）没有 `.page_order.json`，不会自动补写顺序——需要重新缓存才会生成记录；要给老缓存补顺序得再加「按 meta 里的 aid/cid 反查 pagenames 重建」的逻辑，本轮没做。
+- **控制台状态（本轮）**：按维护者拍板把 **#11**（确认「加了」指 #53 内置选图页）、**#48**（证书信任修复，标已处理关闭）、**#82**（维护者确认 26.11.02 之后已正常）、**#89**（对应 `1a1536e` 账号代际隔离）、**#100**（26.11.02 已实现多P续播）标为已处理；#44 顺便核对私有仓库 `feature/DanmuMessage.kt` 已实现「弹幕被点赞 / 被回复」的填充与点击，公开侧仅 `OptionalFeatures` 门面，此前结论成立。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。

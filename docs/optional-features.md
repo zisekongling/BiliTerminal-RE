@@ -27,6 +27,12 @@ private/
 3. `release` 的 `proguardFile private/keep.pro`（私有类只被反射引用，R8 看不见，必须 keep）；
 4. `androidComponents.onVariants { variant.sources.manifests.addStaticManifestFile(private/manifest/AndroidManifest.xml) }`。
 
+另外 `defaultConfig` 里还有一组**构建期凭证**注入（同样只在有 `private/` 时定义）：
+
+5. `-PKAZUMI_APPID` / `-PKAZUMI_KEY`（或同名环境变量）→ `BuildConfig.BGM_MIRROR_APP_ID` /
+   `BGM_MIRROR_SECRET`，给私有侧访问第三方数据代理用。**仓库里永远是空串**；空串时私有侧
+   自动关闭代理、退回旧链路，公开构建连这两个常量都不会出现。下文「发版注入」有 CI 的做法。
+
 注意清单那处的 API 名字是 **`addStaticManifestFile`**（传文件路径），不是 `addStaticSourceDirectory`
 （那是 java/res 的 API，传目录）；AGP 8.5.2 实测如此。
 
@@ -110,6 +116,19 @@ token 抹成 `***`。**只有带了 token 才会删 `.git/`**（CI 那种场景�
 - 检出后立刻 `rm -rf private/.git`，避免 token 留在 `.git/config` 里被打进 artifact。
 
 PR 构建（包括 fork 的 PR）拿不到 Secret，因此**永远**是公开版；`ci.yml` 不需要任何改动。
+
+### 第三方凭证（构建期注入，不进仓库）
+
+私有侧有些数据代理需要第三方签发的 `AppId` / `AppSecret`（BGM 数据代理用的
+`Secrets.KAZUMI_APPID` / `Secrets.KAZUMI_KEY`）。和 Kazumi 的做法一致，**只在构建期注入**，
+源码、`private/`、文档里都不出现明文：
+
+- CI：`build-release.yml` 的「校验私有功能凭证（未配置则跳过）」一步只打印 notice，
+  「构建签名发行 APK」一步把两个 Secrets 传成同名环境变量；`app/build.gradle` 读环境变量
+  （或 `-P` 参数）写进 `BuildConfig`。没配 → 凭证为空串 → 私有侧自动退回旧链路，发版照常。
+- 本地：`$env:KAZUMI_APPID="…"; $env:KAZUMI_KEY="…"`（PowerShell）后照常
+  `gradlew` / `build_tui.py`；也可以 `-PKAZUMI_APPID=… -PKAZUMI_KEY=…`。
+  值只进 `BuildConfig`，不落任何受版本管理的文件（`local.properties` 不进仓库）。
 
 ## 红线
 
