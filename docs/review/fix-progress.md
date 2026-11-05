@@ -1188,6 +1188,14 @@
 - **验证**：`:app:assembleDebug` BUILD SUCCESSFUL；`:app:testCoexistDebugUnitTest --tests "com.RobinNotBad.BiliClient.feature.*"` 全绿（含 `FeatureHolderContractTest` 对新签名的断言）。模拟器 e2e：`third_party_episode_label=第3话` 时日志出现「集名=第3话」，界面标题不再是下标推算值。
 - **已知遗留**：标题匹配仍按「双向包含」，同系列不同季可能互相命中（改名侧下一步加季数/年份约束）。
 
+### 3.114 可选片源改成「播放来源」面板：用户自己挑源，不再点会员集静默换源（26.11.05，用户要求）
+
+- **需求**（用户原话）：「算了，咱们也和 kazumi 一样的逻辑算了，不搞静默换源了」（Kazumi 式选源；实测同机同网时，静默换源链路从点击到首帧约 9.2s，而 Kazumi 点选集到起播约 7.1s，且用户看不到在等什么）。
+- **公开侧改动**：`BangumiInfoFragment` 删掉详情页加载完成时的 `OptionalFeatures.warmUpBangumiSource(...)` 预热调用（面板化后预热没有意义，反而会和用户实际操作抢线程）；`startPlay()` 的注释改为「会员集会打开播放来源面板」。门面 `interceptBangumiPlay` / `warmUpBangumiSource` 签名不变（私有实现侧改行为）。
+- **私有侧改动**（不在本仓库）：`ThirdPartySourceActivity` 重写成「播放来源」面板——13 个源并发检索、逐源显示 `N 个结果 / 无结果 / 检索失败`、可展开选条目、再选剧集；`interceptBangumiPlay` 只负责打开面板；删除「先起播放页再背后解析」的 `playPendingInPlayer`，剧集页改为在透明中转页解析出地址后才起播放器。
+- **验证**：`:app:assembleDebug` BUILD SUCCESSFUL；模拟器（Android 37）点面板 → DM84 → 剧集 1…12 → 第 1 集 → 嗅探命中 m3u8 → 播放器 1920×1080 起播，全程没有「静默跳播放页」。
+- **已知遗留**：面板首屏会有 2~3 个慢源长时间停在「检索中…」（总预算不设上限，保证用户能看到全部结果）；「主关键词 + 别名」两轮搜索仍是串行。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。

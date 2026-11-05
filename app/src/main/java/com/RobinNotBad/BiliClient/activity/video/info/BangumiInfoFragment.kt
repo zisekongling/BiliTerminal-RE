@@ -393,24 +393,11 @@ class BangumiInfoFragment : Fragment() {
         }
         onFinishLoad()
 
-        // 这一季存在「会员」集时才需要备用片源：提前让可选私有功能预热解析，
-        // 点播放时能直接命中缓存。账号态与是否需要换源的判断都在私有侧，公开侧只报「有会员集」。
-        val seasonEpisodes = if (selectedSection in sections.indices) {
-            sections[selectedSection].episodeList
-        } else {
-            null
-        }
-        if (!seasonEpisodes.isNullOrEmpty() &&
-            seasonEpisodes.any { EpisodeCardAdapter.badgeKind(it.badge) == EpisodeCardAdapter.BadgeKind.VIP }
-        ) {
-            OptionalFeatures.warmUpBangumiSource(bangumi?.info?.title.orEmpty(), true)
-        }
-
         refreshReplies()
     }
 
     /**
-     * 播放按钮的统一入口：先问可选私有功能要不要接管（例如把会员集静默换到备用片源），
+     * 播放按钮的统一入口：先问可选私有功能要不要接管（会员集会打开「播放来源」面板让用户自己挑源），
      * 不接管时走原来的 B 站播放链路。
      */
     private fun startPlay(episode: Bangumi.Episode) {
