@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.view.View
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.RobinNotBad.BiliClient.R
@@ -23,6 +24,7 @@ import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.VideoMeta
 import com.RobinNotBad.BiliClient.model.VideoFolder
 import com.RobinNotBad.BiliClient.service.download.DownloadPathSpec
+import com.RobinNotBad.BiliClient.util.CacheListOrderStore
 import com.RobinNotBad.BiliClient.util.CachePathResolver
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.FileUtil
@@ -30,8 +32,6 @@ import com.RobinNotBad.BiliClient.util.FolderManager
 import com.RobinNotBad.BiliClient.util.LocalListSort
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
-import com.RobinNotBad.BiliClient.util.SettingsKeys
-import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.VideoMetaManager
 import java.io.File
@@ -108,11 +108,18 @@ class LocalListActivity : InstanceActivity() {
     private lateinit var btnMultiOperate: TextView
     private lateinit var btnMultiExit: TextView
 
-    // ===================== 排序与搜索（26.11.02，反馈 #94） =====================
+    // ===================== 手动排序与搜索（26.11.02 反馈 #94；26.11.05 改为拖动排序） =====================
 
-    /** 排序档位与方向：进页面时从 SharedPreferences 读（[loadViewOptions]），改一次存一次。 */
-    private var sortKey = LocalListSort.Key.DEFAULT
-    private var sortAscending = true
+    /**
+     * 排序模式：打开后条目不响应点击，长按可以上下拖动，松手即把顺序写回文件夹 / 未分类顺序记录。
+     *
+     * 用户要的是「缓存自己排序」（像菜单设置那样拖），不是按标题 / 时间 / 大小重排，
+     * 所以这里不再有排序档位，只有开 / 关。
+     */
+    private var sortMode = false
+
+    /** 未分类视频的持久化顺序（标题列表）；进页面时从 [CacheListOrderStore] 读，拖动后由适配器就地更新。 */
+    private var unclassifiedOrder: List<String> = emptyList()
 
     /** 当前搜索词（已归一化，空串 = 不过滤）。不持久化：下次进页面先看到完整缓存更符合预期。 */
     private var searchKeyword = ""
@@ -134,8 +141,6 @@ class LocalListActivity : InstanceActivity() {
         pageName.text = UiText.of("缓存")
 
         setupSelectionBar()
-        // 排序档位要在第一次 setData 之前读出来，否则进页面会先按默认档画一遍再跳一下
-        loadViewOptions()
 
         findViewById<View>(R.id.top).setOnClickListener {
             if (adapter?.currentFolderName?.isNotEmpty() == true) {
@@ -200,6 +205,10 @@ class LocalListActivity : InstanceActivity() {
                 video.cid = meta.cid
             } catch (_: Exception) {}
         }
+
+        // 未分类视频没有「列表本身」可以写顺序，单独存在 SharedPreferences 里，按缓存根目录分键。
+        // 必须在第一次 setData 之前读出来，否则进页面会先按扫描顺序画一遍再跳一下。
+        unclassifiedOrder = CacheListOrderStore.load(root.path)
     }
 
     private fun scanVideos(folder: File) {
@@ -336,64 +345,87 @@ class LocalListActivity : InstanceActivity() {
         adapter!!.onVideoToggle = { idx -> toggleVideoSelection(idx) }
         adapter!!.onFolderToggle = { idx -> toggleFolderSelection(idx) }
 
-        // 先把持久化的排序 / 搜索状态交给适配器：setData 重建列表时就直接按这个档位画，
-        // 不会出现「先按默认顺序画一遍、再跳成排序后的顺序」的闪动
-        adapter!!.applyViewOptions(sortKey, sortAscending, searchKeyword)
+        // 先把持久化的顺序 / 搜索状态交给适配器：setData 重建列表时就直接按用户的顺序画，
+        // 不会出现「先按扫描顺序画一遍、再跳成拖出来的顺序」的闪动
+        adapter!!.setUnclassifiedOrder(unclassifiedOrder)
+        adapter!!.setSearchKeyword(searchKeyword)
+        adapter!!.onOrderDragFinished = { foldersChanged, videosChanged ->
+            persistOrderChange(foldersChanged, videosChanged)
+        }
         adapter!!.setData(folderList, videoList)
 
         runOnUiThread {
             recyclerView.layoutManager = getLayoutManager()
             recyclerView.adapter = adapter
+            // 拖动排序和菜单设置页同一套：ItemTouchHelper 挂在 RecyclerView 上，长按条目时由适配器 startDrag
+            val touchHelper = ItemTouchHelper(adapter!!.dragCallback)
+            touchHelper.attachToRecyclerView(recyclerView)
+            adapter!!.touchHelper = touchHelper
             updateSelectionBar()
             swipeRefreshLayout.setRefreshing(false)
         }
     }
 
-    // ===================== 排序与搜索（26.11.02，反馈 #94） =====================
+    // ===================== 手动排序与搜索（26.11.02 反馈 #94；26.11.05 改为拖动排序） =====================
 
-    /** 读回上次的排序档位；没存过 / 值损坏时回落「默认（扫描顺序）」。 */
-    private fun loadViewOptions() {
-        sortKey = LocalListSort.keyOf(SharedPreferencesUtil.getString(SettingsKeys.CACHE_LIST_SORT_KEY, ""))
-        sortAscending = SharedPreferencesUtil.getBoolean(SettingsKeys.CACHE_LIST_SORT_ASCENDING, true)
+    /**
+     * 进入排序模式：底部「排序」变「完成」，左边提示「长按条目拖动排序」，条目点击失效、长按可拖。
+     *
+     * 排序模式下不搜索：拖动只能在「看得见的子集」里排，过滤之后无法表达被隐藏条目的相对位置，
+     * 所以先把搜索词清掉，并告诉用户现在看到的是全部缓存。
+     */
+    private fun enterSortMode() {
+        if (sortMode) return
+        if (selectionMode) exitSelectionMode()
+        if (searchKeyword.isNotEmpty()) {
+            applySearchKeyword("")
+            MsgUtil.showMsg(getString(R.string.msg_cache_sort_show_all))
+        }
+        sortMode = true
+        adapter?.sortMode = true
+        updateSelectionBar()
+    }
+
+    private fun exitSortMode() {
+        if (!sortMode) return
+        sortMode = false
+        adapter?.sortMode = false
+        updateSelectionBar()
     }
 
     /**
-     * 排序菜单：七档一次选完（默认 / 标题↑ / 标题↓ / 时间新→旧 / 时间旧→新 / 大小大→小 / 大小小→大）。
+     * 一次拖动结束，把当前顺序落盘。
      *
-     * 用小屏友好的 TerminalDialog.singleChoice：不再弹第二个「方向」窗，手表上少点一次。
+     * 只在松手时写一次（适配器在 clearView 里 post 回调），不在拖动过程中写：onMove 每挪一格都落盘
+     * 既费 I/O，又可能被后台线程乱序覆盖。这里的写都是几百字节的小文件 / SharedPreferences，
+     * 和 FolderManager.createFolder 一样直接在 UI 线程做（仓库既有先例）。
      */
-    private fun showSortDialog() {
-        val items = listOf(
-            getString(R.string.text_cache_sort_default),
-            getString(R.string.text_cache_sort_title_asc),
-            getString(R.string.text_cache_sort_title_desc),
-            getString(R.string.text_cache_sort_time_desc),
-            getString(R.string.text_cache_sort_time_asc),
-            getString(R.string.text_cache_sort_size_desc),
-            getString(R.string.text_cache_sort_size_asc)
-        )
-        TerminalDialog.singleChoice(
-            this,
-            getString(R.string.text_cache_sort_title),
-            items,
-            LocalListSort.optionIndex(sortKey, sortAscending)
-        ) { sheet, option ->
-            // singleChoice 自己不关闭（给需要多选的场景留的），这里选一次就关掉再改档位
-            sheet.dialog.dismiss()
-            applySortOption(option)
-        }.show()
+    private fun persistOrderChange(foldersChanged: Boolean, videosChanged: Boolean) {
+        if (foldersChanged) {
+            FolderManager.saveFolderOrder(folderList.map { it.name })
+        }
+        if (!videosChanged) return
+        val inFolder = adapter?.currentFolderName ?: ""
+        if (inFolder.isEmpty()) {
+            CacheListOrderStore.save(currentScanRoot().path, adapter?.unclassifiedVideoOrder ?: emptyList())
+        } else {
+            val titles = folderList.find { it.name == inFolder }?.videoTitles?.toList() ?: emptyList()
+            FolderManager.saveFolderVideoOrder(inFolder, titles)
+        }
     }
 
-    /** 记下档位并立即重画；下一次进页面沿用（见 [loadViewOptions]）。 */
-    private fun applySortOption(option: Int) {
-        val key = LocalListSort.keyAt(option)
-        val ascending = LocalListSort.ascendingAt(option)
-        if (key == sortKey && ascending == sortAscending) return
-        sortKey = key
-        sortAscending = ascending
-        SharedPreferencesUtil.putString(SettingsKeys.CACHE_LIST_SORT_KEY, LocalListSort.nameOf(key))
-        SharedPreferencesUtil.putBoolean(SettingsKeys.CACHE_LIST_SORT_ASCENDING, ascending)
-        adapter?.applyViewOptions(sortKey, sortAscending, searchKeyword)
+    /**
+     * 某个文件夹里的视频，按用户拖出来的顺序返回。
+     *
+     * 虚拟合集是「整夹连播」，播放顺序必须和列表里看到的一致，否则拖完排序再点进合集又按扫描顺序播了。
+     * 夹内顺序的唯一载体是 [VideoFolder.videoTitles]；扫描到了但记录里没有的视频，由
+     * [LocalListSort.orderByStoredTitles] 按扫描顺序补在末尾，不会因为没记录就漏播。
+     */
+    private fun orderedVideosInFolder(folderName: String): List<LocalVideo> {
+        val scanIndices = videoList.indices.filter { videoList[it].folderName == folderName }
+        val stored = folderList.find { it.name == folderName }?.videoTitles ?: emptyList()
+        return LocalListSort.orderByStoredTitles(scanIndices, stored) { videoList[it].title }
+            .map { videoList[it] }
     }
 
     /** 搜索：复用「新建文件夹」那套输入页；留空 = 清除（清空即恢复全量）。 */
@@ -409,7 +441,7 @@ class LocalListActivity : InstanceActivity() {
 
     private fun applySearchKeyword(raw: String) {
         searchKeyword = LocalListSort.normalizeKeyword(raw)
-        adapter?.applyViewOptions(sortKey, sortAscending, searchKeyword)
+        adapter?.setSearchKeyword(searchKeyword)
         // 搜出 0 条时列表里只剩一句「没有匹配的缓存」，但底部条必须留着，
         // 否则「清除」入口消失，用户只能退页面再进来才能恢复全量
         updateSelectionBar()
@@ -469,6 +501,7 @@ class LocalListActivity : InstanceActivity() {
 
     private fun enterFolder(folderIndex: Int) {
         if (folderIndex < 0 || folderIndex >= folderList.size) return
+        if (sortMode) exitSortMode()
         if (selectionMode) exitSelectionMode()
         // 顶层搜索匹配的是「文件夹名」，把词带进夹内就变成按视频标题过滤，用户看到空列表会以为
         // 文件夹是空的。想搜夹内视频，进来后再点「搜索」。
@@ -483,6 +516,7 @@ class LocalListActivity : InstanceActivity() {
     }
 
     private fun exitFolder() {
+        if (sortMode) exitSortMode()
         if (selectionMode) exitSelectionMode()
         adapter?.setData(folderList, videoList, "")
         val pageName = findViewById<TextView>(R.id.pageName)
@@ -686,8 +720,8 @@ class LocalListActivity : InstanceActivity() {
      * @param startVideoIdx 点击的视频在 videoList 中的索引（作为合集的起始播放位置）
      */
     private fun playVirtualCollection(folderName: String, startVideoIdx: Int) {
-        // 收集该文件夹内的所有视频
-        val folderVideos = videoList.filter { it.folderName == folderName }
+        // 收集该文件夹内的所有视频（按用户拖出来的夹内顺序，保证合集播放顺序和列表一致）
+        val folderVideos = orderedVideosInFolder(folderName)
         if (folderVideos.isEmpty()) {
             MsgUtil.showMsg(UiText.of("该文件夹内没有视频"))
             return
@@ -727,8 +761,9 @@ class LocalListActivity : InstanceActivity() {
             }
 
             // 记录起始播放位置：startVideoIdx 是 videoList 的全局索引，
-            // 不能直接用来访问过滤后的 folderVideos，否则索引空间不一致会越界
-            if (startVideoIdx >= 0 && startVideoIdx < videoList.size && v == videoList[startVideoIdx]) {
+            // 不能直接用来访问过滤后的 folderVideos，否则索引空间不一致会越界。
+            // 夹内顺序是用户拖出来的，所以按标题认「点的是哪一条」，而不是按扫描下标。
+            if (startVideoIdx in videoList.indices && v.title == videoList[startVideoIdx].title) {
                 startPageIndex = i
             }
         }
@@ -885,15 +920,16 @@ class LocalListActivity : InstanceActivity() {
         btnMultiSelect.setOnClickListener { enterSelectionMode() }
         btnMultiExit.setOnClickListener { exitSelectionMode() }
         btnMultiOperate.setOnClickListener { showBatchMenu() }
-        btnSort.setOnClickListener { showSortDialog() }
+        btnSort.setOnClickListener { if (sortMode) exitSortMode() else enterSortMode() }
         btnSearch.setOnClickListener { showSearchDialog() }
         btnSearchClear.setOnClickListener { clearSearch() }
     }
 
     /**
-     * 按当前数据、多选态、搜索状态刷新底部条。
+     * 按当前数据、多选态、排序模式、搜索状态刷新底部条。
      *
      * - 多选态但已经没得勾了（比如在文件夹里删完最后一条）：先退出多选。
+     * - 排序模式：左边提示「长按条目拖动排序」，右边按钮变「完成」，其余按钮全藏，避免误触。
      * - 没有任何可选项、也没在搜索：整条隐藏——否则「多选」是个点了没反应的死按钮。
      * - 搜索中即使 0 条也要显示：列表里只剩「没有匹配的缓存」，底部「清除」是唯一出口。
      * - 非多选：多选 / 排序 / 搜索 / 清除（只有搜索中才亮）同排；多选态把它们全藏起来，避免误触。
@@ -904,13 +940,33 @@ class LocalListActivity : InstanceActivity() {
             exitSelectionMode()
             return
         }
+        if (sortMode && !canSelect) {
+            // 排序模式下没有可拖的东西了（缓存被清空 / 在空文件夹里）：直接退出，别留一个点不动的「完成」
+            exitSortMode()
+            return
+        }
         if (!canSelect && searchKeyword.isEmpty()) {
             multiSelectBar.visibility = View.GONE
             return
         }
 
         multiSelectBar.visibility = View.VISIBLE
+        if (sortMode) {
+            // 排序模式只需要「提示 + 完成」两个东西：左边复用计数 TextView 显示提示，右边「排序」变「完成」
+            textSelectedCount.visibility = View.VISIBLE
+            textSelectedCount.text = getString(R.string.text_cache_sort_hint)
+            btnMultiSelect.visibility = View.GONE
+            btnMultiOperate.visibility = View.GONE
+            btnMultiExit.visibility = View.GONE
+            btnSort.visibility = View.VISIBLE
+            btnSort.text = getString(R.string.btn_cache_sort_done)
+            btnSearch.visibility = View.GONE
+            btnSearchClear.visibility = View.GONE
+            return
+        }
         if (!selectionMode) {
+            // 退出排序模式后把按钮文字恢复成「排序」（进排序模式时被改成了「完成」）
+            btnSort.text = getString(R.string.btn_cache_sort)
             textSelectedCount.visibility = View.GONE
             btnMultiOperate.visibility = View.GONE
             btnMultiExit.visibility = View.GONE
@@ -945,6 +1001,7 @@ class LocalListActivity : InstanceActivity() {
 
     private fun enterSelectionMode() {
         if (selectionMode) return
+        if (sortMode) exitSortMode()
         selectionMode = true
         selectedVideoTitles.clear()
         selectedFolderNames.clear()
@@ -1207,7 +1264,10 @@ class LocalListActivity : InstanceActivity() {
             loadData()
 
             val currentFolder = adapter?.currentFolderName ?: ""
+            // loadData 已经重读过未分类顺序；这里先交给适配器（磁盘上新增的缓存会被补到末尾），
+            // 再 setData 重建，否则新条目可能插在中间、看起来像顺序被打乱了
             runOnUiThread {
+                adapter?.setUnclassifiedOrder(unclassifiedOrder)
                 adapter?.setData(folderList, videoList, currentFolder)
                 // 重扫后可能有条目已经不在了（删掉 / 被移走）：勾选集合跟着收缩，底部计数才不会虚高
                 pruneSelection()
@@ -1219,6 +1279,11 @@ class LocalListActivity : InstanceActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
+        // 排序模式下按返回只退出排序模式（拖到一半误按返回不该直接离开缓存页）
+        if (sortMode) {
+            exitSortMode()
+            return
+        }
         // 多选态下按返回只退出多选，不离开缓存页——和收藏夹多选的行为一致
         if (selectionMode) {
             exitSelectionMode()

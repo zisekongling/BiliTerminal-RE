@@ -1895,18 +1895,13 @@
     <string name="uitext_locallistactivity_030">已删除 %1$d 条，%2$d 条失败</string>
     <string name="uitext_locallistactivity_031">弹幕更新完成：成功 %1$d 个，失败 %2$d 个</string>
 
-    <!-- 缓存页排序 / 搜索（26.11.02，反馈 #94） -->
+    <!-- 缓存页手动拖动排序 / 搜索（26.11.02，反馈 #94；26.11.05 起排序改为拖动） -->
     <string name="btn_cache_sort">排序</string>
+    <string name="btn_cache_sort_done">完成</string>
+    <string name="text_cache_sort_hint">长按条目拖动排序</string>
+    <string name="msg_cache_sort_show_all">已显示全部缓存</string>
     <string name="btn_cache_search">搜索</string>
     <string name="btn_cache_search_clear">清除</string>
-    <string name="text_cache_sort_title">排序方式</string>
-    <string name="text_cache_sort_default">默认（扫描顺序）</string>
-    <string name="text_cache_sort_title_asc">标题 升序</string>
-    <string name="text_cache_sort_title_desc">标题 降序</string>
-    <string name="text_cache_sort_time_desc">时间 新→旧</string>
-    <string name="text_cache_sort_time_asc">时间 旧→新</string>
-    <string name="text_cache_sort_size_desc">大小 大→小</string>
-    <string name="text_cache_sort_size_asc">大小 小→大</string>
     <string name="text_cache_search_title">搜索缓存</string>
     <string name="text_cache_search_hint">输入关键词，留空清除</string>
     <string name="text_cache_search_empty">没有匹配的缓存</string>

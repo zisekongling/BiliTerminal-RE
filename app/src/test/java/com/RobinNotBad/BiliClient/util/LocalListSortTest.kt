@@ -1,227 +1,145 @@
 package com.RobinNotBad.BiliClient.util
 
-import com.RobinNotBad.BiliClient.model.LocalVideo
-import com.RobinNotBad.BiliClient.model.VideoFolder
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 缓存页（LocalListActivity / CacheListAdapter）排序 + 搜索纯逻辑的单测。
+ * 缓存页（LocalListActivity / CacheListAdapter）手动排序 + 搜索纯逻辑的单测。
  *
- * 这套逻辑特意做成不碰 Android 的纯函数，所以这里直接在 JVM 上跑，不需要 Robolectric；
- * 覆盖的是「排序档位 ↔ 方向 ↔ 持久化短名」的映射、稳定排序、文件夹聚合值与搜索匹配。
+ * 26.11.05 起排序从「七档预设」改成「用户自己拖」：显示顺序只由持久化的标题序决定，
+ * 所以这里测的是「给定持久化顺序，怎么把扫描下标排出来」以及「拖动后的新顺序怎么和旧记录合并」。
+ * 这套逻辑特意做成不碰 Android 的纯函数，直接在 JVM 上跑，不需要 Robolectric。
  */
 class LocalListSortTest {
 
-    // 用 also + 显式接收者赋值：apply 里成员属性和同名参数谁优先容易看错，这里不赌解析顺序
-    private fun video(
-        title: String,
-        size: Long = 0L,
-        lastModified: Long = 0L,
-        folder: String = ""
-    ): LocalVideo = LocalVideo().also { v ->
-        v.title = title
-        v.size = size
-        v.lastModified = lastModified
-        v.folderName = folder
-    }
+    private fun titles(vararg values: String): List<String> = values.toList()
 
-    private fun folder(name: String, createTime: Long = 0L): VideoFolder = VideoFolder().also { f ->
-        f.name = name
-        f.createTime = createTime
-    }
+    private fun titleAt(titles: List<String>): (Int) -> String = { index -> titles[index] }
 
-    // ==================== 视频排序 ====================
+    // ==================== 按持久化标题序排列 ====================
 
     @Test
-    fun `默认档保持扫描顺序_降序时整体反转`() {
-        val videos = listOf(video("c"), video("a"), video("b"))
+    fun `持久化顺序优先_其余按扫描序补在末尾`() {
+        val scan = listOf(0, 1, 2, 3)
+        val stored = titles("d", "b")
 
         assertEquals(
-            listOf(0, 1, 2),
-            LocalListSort.videoOrder(videos, LocalListSort.Key.DEFAULT, true)
-        )
-        assertEquals(
-            listOf(2, 1, 0),
-            LocalListSort.videoOrder(videos, LocalListSort.Key.DEFAULT, false)
+            listOf(3, 1, 0, 2),
+            LocalListSort.orderByStoredTitles(scan, stored, titleAt(titles("a", "b", "c", "d")))
         )
     }
 
     @Test
-    fun `按标题升序忽略大小写`() {
-        val videos = listOf(video("beta"), video("Alpha"), video("Gamma"))
+    fun `没有持久化记录时保持扫描顺序`() {
+        val scan = listOf(0, 1, 2)
+        assertEquals(scan, LocalListSort.orderByStoredTitles(scan, emptyList(), titleAt(titles("a", "b", "c"))))
+    }
 
+    @Test
+    fun `持久化记录里已不存在的标题被忽略`() {
+        val scan = listOf(0, 1, 2)
         assertEquals(
             listOf(1, 0, 2),
-            LocalListSort.videoOrder(videos, LocalListSort.Key.TITLE, true)
+            LocalListSort.orderByStoredTitles(scan, titles("删掉的", "b"), titleAt(titles("a", "b", "c")))
         )
     }
 
     @Test
-    fun `按标题降序`() {
-        val videos = listOf(video("beta"), video("Alpha"), video("Gamma"))
+    fun `持久化记录里重复的标题只算一次`() {
+        val scan = listOf(0, 1, 2)
+        assertEquals(
+            listOf(1, 0, 2),
+            LocalListSort.orderByStoredTitles(scan, titles("b", "b", "a"), titleAt(titles("a", "b", "c")))
+        )
+    }
 
+    @Test
+    fun `夹内记录漏记的视频不会被丢掉_而是排到末尾`() {
+        // 真实场景：文件被手工拷进夹里 / 旧版本只写了 meta 没写 videoTitles，
+        // 扫描能看到它，但顺序记录里没有——必须还能显示出来，只是排在最后。
+        val scan = listOf(0, 1, 2)
         assertEquals(
             listOf(2, 0, 1),
-            LocalListSort.videoOrder(videos, LocalListSort.Key.TITLE, false)
+            LocalListSort.orderByStoredTitles(scan, titles("c"), titleAt(titles("a", "b", "c")))
         )
     }
 
     @Test
-    fun `按更新时间_新到旧与旧到新`() {
-        val videos = listOf(
-            video("a", lastModified = 100),
-            video("b", lastModified = 300),
-            video("c", lastModified = 200)
-        )
-
+    fun `空标题的条目仍然保留在末尾`() {
+        val titles = titles("a", "", "c")
         assertEquals(
-            listOf(1, 2, 0),
-            LocalListSort.videoOrder(videos, LocalListSort.Key.TIME, false)
-        )
-        assertEquals(
-            listOf(0, 2, 1),
-            LocalListSort.videoOrder(videos, LocalListSort.Key.TIME, true)
+            listOf(2, 0, 1),
+            LocalListSort.orderByStoredTitles(listOf(0, 1, 2), titles("c"), titleAt(titles))
         )
     }
 
     @Test
-    fun `按大小_大到小且同值保持扫描顺序`() {
-        val videos = listOf(
-            video("a", size = 10),
-            video("b", size = 30),
-            video("c", size = 30),
-            video("d", size = 20)
-        )
-
-        // b(1) 与 c(2) 大小相同，必须保持扫描原序（稳定排序），否则每次进页面顺序都会变
+    fun `空列表与单条目直接返回副本`() {
+        assertTrue(LocalListSort.orderByStoredTitles(emptyList(), titles("a")) { "" }.isEmpty())
         assertEquals(
-            listOf(1, 2, 3, 0),
-            LocalListSort.videoOrder(videos, LocalListSort.Key.SIZE, false)
-        )
-        assertEquals(
-            listOf(0, 3, 1, 2),
-            LocalListSort.videoOrder(videos, LocalListSort.Key.SIZE, true)
+            listOf(7),
+            LocalListSort.orderByStoredTitles(listOf(7), titles("a")) { "a" }
         )
     }
 
     @Test
-    fun `只有一个条目或空列表时不越界`() {
-        assertEquals(
-            listOf(0),
-            LocalListSort.videoOrder(listOf(video("only")), LocalListSort.Key.TITLE, false)
-        )
-        assertTrue(LocalListSort.videoOrder(emptyList(), LocalListSort.Key.SIZE, false).isEmpty())
+    fun `排序不会改动传入的下标表`() {
+        val scan = ArrayList(listOf(0, 1, 2))
+        LocalListSort.orderByStoredTitles(scan, titles("c"), titleAt(titles("a", "b", "c")))
+        assertEquals(listOf(0, 1, 2), scan)
     }
 
-    // ==================== 文件夹排序 ====================
+    // ==================== 拖动后的新旧顺序合并 ====================
 
     @Test
-    fun `文件夹按标题排序忽略大小写`() {
-        val folders = listOf(folder("zebra"), folder("Apple"), folder("mango"))
-
+    fun `合并时新顺序在前_旧顺序里剩下的按原相对顺序接在后面`() {
+        // 拖动只覆盖当前显示出来的条目；旧记录里暂时不显示的（搜索过滤 / 漏记）不能丢，位置也要留着
         assertEquals(
-            listOf(1, 2, 0),
-            LocalListSort.folderOrder(folders, emptyList(), LocalListSort.Key.TITLE, true)
-        )
-        assertEquals(
-            listOf(0, 2, 1),
-            LocalListSort.folderOrder(folders, emptyList(), LocalListSort.Key.TITLE, false)
+            titles("c", "a", "b", "d"),
+            LocalListSort.mergeOrder(titles("c", "a"), titles("a", "b", "c", "d"))
         )
     }
 
     @Test
-    fun `文件夹时间取创建时间与夹内最新视频的较大值`() {
-        val folders = listOf(folder("old", createTime = 100), folder("new", createTime = 500))
-        val videos = listOf(
-            video("v1", lastModified = 900, folder = "old"),  // old 夹内视频更新，取 900
-            video("v2", lastModified = 200, folder = "new")   // new 保持创建时间 500
-        )
-
+    fun `合并去重且过滤空标题`() {
         assertEquals(
-            listOf(0, 1),
-            LocalListSort.folderOrder(folders, videos, LocalListSort.Key.TIME, false)
-        )
-        assertEquals(
-            listOf(1, 0),
-            LocalListSort.folderOrder(folders, videos, LocalListSort.Key.TIME, true)
+            titles("a", "b"),
+            LocalListSort.mergeOrder(titles("a", "a", ""), titles("b", "a", ""))
         )
     }
 
     @Test
-    fun `文件夹大小是夹内视频大小之和`() {
-        val folders = listOf(folder("small"), folder("big"))
-        val videos = listOf(
-            video("v1", size = 100, folder = "small"),
-            video("v2", size = 700, folder = "big"),
-            video("v3", size = 400, folder = "big"),
-            video("v4", size = 999, folder = "")   // 未分类视频不计入任何文件夹
-        )
+    fun `旧记录为空时直接采用新顺序`() {
+        assertEquals(titles("b", "a"), LocalListSort.mergeOrder(titles("b", "a"), emptyList()))
+    }
 
-        assertEquals(
-            listOf(1, 0),
-            LocalListSort.folderOrder(folders, videos, LocalListSort.Key.SIZE, false)
-        )
+    @Test
+    fun `新顺序为空时保留旧顺序`() {
+        assertEquals(titles("a", "b"), LocalListSort.mergeOrder(emptyList(), titles("a", "b")))
     }
 
     // ==================== 搜索 ====================
 
     @Test
-    fun `搜索忽略大小写_空词匹配全部`() {
-        assertTrue(LocalListSort.matches("进击的巨人 Final Season", "final"))
-        assertTrue(LocalListSort.matches("【4K】某番", "4k"))
-        assertFalse(LocalListSort.matches("进击的巨人", "EVA"))
-
-        // 空关键词 = 不过滤（清除搜索后恢复全量）
-        assertTrue(LocalListSort.matches("任意标题", ""))
-        assertTrue(LocalListSort.matches(null, ""))
-
-        // 标题为空而关键词非空：不匹配，但不能崩
-        assertFalse(LocalListSort.matches(null, "标题"))
-        assertFalse(LocalListSort.matches("", "标题"))
-    }
-
-    @Test
-    fun `关键词归一化去首尾空白_null当空串`() {
-        assertEquals("进击", LocalListSort.normalizeKeyword("  进击  "))
+    fun `搜索词归一化去掉首尾空白_null 当空串`() {
         assertEquals("", LocalListSort.normalizeKeyword(null))
         assertEquals("", LocalListSort.normalizeKeyword("   "))
-    }
-
-    // ==================== 档位 / 持久化映射 ====================
-
-    @Test
-    fun `七个档位的下标与键和方向往返一致`() {
-        for (option in 0 until LocalListSort.OPTION_COUNT) {
-            val key = LocalListSort.keyAt(option)
-            val ascending = LocalListSort.ascendingAt(option)
-            assertEquals(
-                "档位 $option 应能回读到自身",
-                option,
-                LocalListSort.optionIndex(key, ascending)
-            )
-        }
-        // 「默认」只有扫描顺序一种，方向传什么都不该跑到别的档位
-        assertEquals(0, LocalListSort.optionIndex(LocalListSort.Key.DEFAULT, false))
+        assertEquals("hello", LocalListSort.normalizeKeyword("  hello  "))
     }
 
     @Test
-    fun `档位下标越界时夹回合法范围`() {
-        assertEquals(LocalListSort.Key.DEFAULT, LocalListSort.keyAt(-1))
-        assertEquals(LocalListSort.Key.SIZE, LocalListSort.keyAt(99))
-        assertTrue(LocalListSort.ascendingAt(99))
+    fun `空搜索词匹配任何条目`() {
+        assertTrue(LocalListSort.matches("任意标题", ""))
+        assertTrue(LocalListSort.matches(null, ""))
     }
 
     @Test
-    fun `排序键的持久化短名往返_未知值回落默认`() {
-        for (key in LocalListSort.Key.values()) {
-            assertEquals(key, LocalListSort.keyOf(LocalListSort.nameOf(key)))
-        }
-        assertEquals(LocalListSort.Key.DEFAULT, LocalListSort.keyOf(null))
-        assertEquals(LocalListSort.Key.DEFAULT, LocalListSort.keyOf(""))
-        // 只认小写短名；旧版本/脏数据不生效，避免进页面就是奇怪的顺序
-        assertEquals(LocalListSort.Key.DEFAULT, LocalListSort.keyOf("TITLE"))
+    fun `搜索忽略大小写并支持中文包含`() {
+        assertTrue(LocalListSort.matches("Alpha 合集", "alpha"))
+        assertTrue(LocalListSort.matches("Alpha 合集", "合集"))
+        assertFalse(LocalListSort.matches("Alpha", "beta"))
+        assertFalse(LocalListSort.matches(null, "a"))
     }
 }

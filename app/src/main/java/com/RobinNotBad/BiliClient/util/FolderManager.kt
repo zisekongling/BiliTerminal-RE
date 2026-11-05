@@ -208,6 +208,59 @@ object FolderManager {
     }
 
     /**
+     * 保存文件夹之间的手动顺序（缓存页长按拖动文件夹后调用）。
+     *
+     * 顺序的载体就是 `.folders_info.json` 的数组顺序，所以这里按名字重排整个数组再写回。
+     * [orderedNames] 里没有的文件夹（例如拖动期间在别处新建的）保持原来的相对顺序排到最后，
+     * 不至于因为一次拖动把它们弄丢。
+     */
+    @JvmStatic
+    fun saveFolderOrder(orderedNames: List<String>) {
+        if (orderedNames.size <= 1) return
+        val folders = getAllFolders()
+        if (folders.size <= 1) return
+
+        val rank = HashMap<String, Int>(orderedNames.size * 2)
+        for (index in orderedNames.indices) {
+            val name = orderedNames[index]
+            if (name.isNotEmpty() && !rank.containsKey(name)) rank[name] = index
+        }
+        // 未列出的用 Int.MAX_VALUE；sortedWith 是稳定排序，它们之间保持文件里的原顺序
+        val sorted = folders.sortedWith(Comparator { a, b ->
+            val rankA = rank[a.name] ?: Int.MAX_VALUE
+            val rankB = rank[b.name] ?: Int.MAX_VALUE
+            when {
+                rankA < rankB -> -1
+                rankA > rankB -> 1
+                else -> 0
+            }
+        })
+        if (sorted.map { it.name } == folders.map { it.name }) return
+        saveAllFolders(sorted)
+    }
+
+    /**
+     * 保存文件夹内视频的手动顺序（缓存页在夹内长按拖动后调用）。
+     *
+     * 顺序存在 [VideoFolder.videoTitles] 里。拖动时只看到当前扫描到的视频，
+     * 记录里可能还有暂时扫不到的标题，用 [LocalListSort.mergeOrder] 把它们按原相对顺序留在后面，
+     * 等文件回来时位置还在。
+     *
+     * @return 是否找到该文件夹（找不到时不写文件）
+     */
+    @JvmStatic
+    fun saveFolderVideoOrder(folderName: String, orderedTitles: List<String>): Boolean {
+        if (folderName.isEmpty()) return false
+        val folders = getAllFolders()
+        val folder = folders.find { it.name == folderName } ?: return false
+        val merged = LocalListSort.mergeOrder(orderedTitles, folder.videoTitles ?: emptyList())
+        if (merged == folder.videoTitles) return true
+        folder.videoTitles = ArrayList(merged)
+        saveAllFolders(folders)
+        return true
+    }
+
+    /**
      * 验证文件夹名称是否合法
      */
     @JvmStatic
