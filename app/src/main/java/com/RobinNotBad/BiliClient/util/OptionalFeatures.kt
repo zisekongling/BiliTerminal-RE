@@ -213,6 +213,9 @@ object OptionalFeatures {
     /**
      * 点「播放」时先问私有侧是否接管（无感换源）。
      *
+     * [episodeLabel] 是 B 站那一集的真实集名（如「第5话」）：私有侧拿它显示标题、并按集号对齐
+     * 采集站的集列表——只看 [episodeIndex] 会因两边列表里夹着 PV/预告而串集。
+     *
      * 返回 true = 私有侧已经把这次播放接过去了（例如静默改用备用片源），调用方**不要再走 B 站播放**；
      * 返回 false = 私有侧不接管，照旧走 B 站。私有侧不在场时永远 false。
      */
@@ -220,15 +223,17 @@ object OptionalFeatures {
         context: Context,
         title: String,
         episodeIndex: Int,
-        badge: String
+        badge: String,
+        episodeLabel: String
     ): Boolean = try {
         holder?.getMethod(
             "interceptBangumiPlay",
             Context::class.java,
             String::class.java,
             Integer.TYPE,
+            String::class.java,
             String::class.java
-        )?.invoke(null, context, title, episodeIndex, badge) as? Boolean ?: false
+        )?.invoke(null, context, title, episodeIndex, badge, episodeLabel) as? Boolean ?: false
     } catch (e: Throwable) {
         Logu.w("OptionalFeatures", "interceptBangumiPlay failed: " + e.message)
         false

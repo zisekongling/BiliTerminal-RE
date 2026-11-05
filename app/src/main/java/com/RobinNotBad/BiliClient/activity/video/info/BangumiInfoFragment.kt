@@ -415,8 +415,16 @@ class BangumiInfoFragment : Fragment() {
      */
     private fun startPlay(episode: Bangumi.Episode) {
         val title = bangumi?.info?.title.orEmpty()
+        // 把这一集的真实集名（「第5话」）一起交给私有侧：它既要拿去显示标题，也要按集号
+        // 对齐采集站的集列表——只传列表下标会在两边列表长度/顺序不一致时串集（26.11.05）
         if (title.isNotEmpty() &&
-            OptionalFeatures.interceptBangumiPlay(requireContext(), title, selectedEpisode, episode.badge.orEmpty())
+            OptionalFeatures.interceptBangumiPlay(
+                requireContext(),
+                title,
+                selectedEpisode,
+                episode.badge.orEmpty(),
+                episode.title.orEmpty()
+            )
         ) {
             return
         }

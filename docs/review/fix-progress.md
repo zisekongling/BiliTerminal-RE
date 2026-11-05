@@ -1180,6 +1180,14 @@
 - **遗留（必须说清）**：批量导入的「点登录 → toast 计数 → 账号列表多出条目」最后一步 **未在模拟器上跑通**——实测期间另一个并行会话持续抢占同一台 AVD（反复拉起 `com.RobinNotBad.BiliClient.coexist`），最后模拟器掉线；该逻辑由 `AccountManagerTest.importAccounts_*` 与 `SpecialLoginParserTest.parseAny_*` 覆盖，真机复测时重点看 toast 计数与账号列表条数。
 - **并发注意**：本轮改动与相邻会话的缓存页多选（§3.111）在同一工作区并行，本条只提交本功能涉及的文件。
 
+### 3.113 可选片源门面传入「集名」，避免只靠列表下标造成标题串集（26.11.05，用户反馈）
+
+- **现象**（用户原话方向）：「点这一集，界面却写着下一集」。
+- **公开侧根因**：`OptionalFeatures.interceptBangumiPlay()` 只把 `episodeIndex`（`BangumiInfoFragment.selectedEpisode`，即该 section 列表里的**位置**）交给可选功能实现，而位置 != 集号——两边列表只要有一边多夹了 PV/预告/第 0 话，界面标题就整体偏移一位。
+- **公开侧改动**：门面增加第 5 个参数 `episodeLabel`，`BangumiInfoFragment.startPlay()` 传 `episode.title`（`BangumiApi.analyzeEpisode` 已把 B 站 `title` 映射到 `episode.title`，形如「第5话」）；反射取方法时同步加 `String::class.java`。KDoc 写明「只看下标会串集」。私有实现侧同步接收该参数（本仓库只有门面与挂点）。
+- **验证**：`:app:assembleDebug` BUILD SUCCESSFUL；`:app:testCoexistDebugUnitTest --tests "com.RobinNotBad.BiliClient.feature.*"` 全绿（含 `FeatureHolderContractTest` 对新签名的断言）。模拟器 e2e：`third_party_episode_label=第3话` 时日志出现「集名=第3话」，界面标题不再是下标推算值。
+- **已知遗留**：标题匹配仍按「双向包含」，同系列不同季可能互相命中（改名侧下一步加季数/年份约束）。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。
