@@ -1205,6 +1205,21 @@
 - **实测**（MuMu，Android 37）：切到「搜索-番剧」2s 时 4 张 B 站卡片已在屏上、刷新圈已停；BGM 独有卡片（「约会大作战F Last Date」）约 5s 时追加在末尾。
 - **遗留**：`api.kazumi.fyi` 的 `/v0/search/subjects` 需要签名（未签名 401，签名钥匙由 Kazumi 构建期注入），因此 BGM 搜索仍以 `fxbgm.tv` 打头；补充数据本身仍是串行反代，可再并行化。
 
+### 3.116 自动跳过片头片尾把「视频分段」当片尾一直跳（26.11.05，控制台反馈 #99 / #34）
+
+- **反馈**：#99（26.11.02，OPPO OWW212，SDK 30）「开启『自动跳过片头片尾』时观看 BV1U74w6XEbB 会一直在跳过片尾」；#34（26.10.24）「跳过片头片尾会因为视频分段也跳过」。两条同根，用户要求「解决这一类问题」而不是单条。
+- **根因**：`x/player/wbi/v2` 的 `data.view_points[].type` **是分段类型，不是片头片尾类型**。番剧/影视 EP 数据的 `type == 1/2` 才带片头片尾语义；UGC 稿件的 `view_points` 是 up 主或平台自动生成的**视频分段（章节）**。实测 `BV1U74w6XEbB`（aid=117546476966330 / cid=43264904750，单P 129s）解开是 10 段普通章节，**`type` 全部为 `2`** → 旧实现 `TYPE_ED = 2` 把它们全当片尾 → 250ms 进度定时器每轮都命中 → 「一直在跳过片尾」。接口侧结论记在 `docs/bilibili-api-notes.md` §12，架构侧记在 `docs/architecture-map.md` §7.7。
+- **修法（一道闸）**：自动跳过**只对 PGC 生效**。
+  - `api/PlayerApi.buildTerminalPlayerIntent` 给播放器 Intent 补 `is_bangumi`（取自 `PlayerData.isBangumi()`），所有入口自动带上；
+  - `PlayerActivity` 读成 `pgcPlaybackFlag`（`is_bangumi || epid > 0`，**不看 seasonId**，两者都没有按 UGC 处理），`isPgcPlayback()` 供 `loadViewPoints()` 调 `ViewPointSkip.buildSegments(raw, allowAutoSkip)`：UGC 直接空表，自动跳过彻底不参与；
+  - 「显示视频分段」按钮、分段选择卡片、手动跳章节**一行未动**，UGC 用户照旧可用；
+  - 引导 `maybeShowSkipGuide()` 也只在 PGC 里弹，UGC 不再被劝「开启」。
+- **为什么不用 `content` 白名单当闸**（曾试过，已否决）：番剧片段的 `content` 常为空串或「1-1」「正片」「简介」，按标题过滤会把真片头挡掉，用户反而觉得「开了没用」；也挡不住「预告」类标注。`ViewPointSkip.isOpEdLabel()` 只保留作**诊断**，不参与过滤；单参 `buildSegments(raw)` 回到旧口径（只看 type + 区间 + 时长上限）。
+- **测试**：新增 `app/src/test/java/com/RobinNotBad/BiliClient/player/ViewPointSkipChapterTest.kt`（18 条，含 #99 十段样本逐段断言、`allowAutoSkip=false` 必为空表、`segmentAt(7.0)` 命中「泄漏源」复现旧现象、0~129s 按 250ms 逐点全 null、真片头片尾 15/95 与 1380/1440 仍保留、`isOpEdLabel` 诊断语义）；`ViewPointSkipTest.kt` 原有 12 条未改、另加 4 条。`:app:testStandardDebugUnitTest` 全绿（142 suites / 1501 tests / 0 失败 0 错误 0 跳过）。
+- **已验证**：`./gradlew.bat :app:assembleDebug --rerun-tasks` BUILD SUCCESSFUL（1m2s）；单测全绿；接口层已用 curl 实拉两条接口确认 `type` 语义；MuMu（Android 12 / x86_64）安装 `app-standard-x86-debug.apk` 成功。
+- **未验证（推测）**：`isPgcPlayback()` 是 `PlayerActivity` 私有方法，纯 JVM 测不到，**端到端「UGC 不再自动跳片尾 / 番剧仍跳」需要在有登录态的机器上跑一遍**（本机模拟器无登录态）。
+- **遗留**：①`pgcPlaybackFlag` 只在 `onCreate` 写一次，同一个 Activity 会话里跨到另一条视频（合集 / 收藏夹混排）会继承入场时的判定——播放器目前每次都重新起 Activity，暂不触发，但若将来做「不重启 Activity 换视频」必须一并改成按 aid/epid 重算；②要把 `isPgcPlayback()` 纳入纯 JVM 单测，需把判据抽到 `player/` 下成纯函数（比如 `PlayerPlaybackKind.fromExtras(...)`），本轮没做。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。

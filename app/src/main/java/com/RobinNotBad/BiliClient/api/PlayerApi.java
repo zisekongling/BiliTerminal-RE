@@ -571,6 +571,11 @@ public class PlayerApi {
             intent.putExtra("seasonId", playerData.seasonId);
             intent.putExtra("seasonType", playerData.seasonType);
         }
+        //「这条是不是番剧/影视（PGC）」的显式标记，放在这里同样是为了让所有入口自动带上。
+        // 播放器用它当自动跳过片头片尾的首道闸（反馈 #99：UGC 的 view_points 是分段章节、
+        // type 恒为 2，被当成片尾一路跳过）。不复用上面的 epid： epid 是「进度上报走心跳」的
+        // 维度，与「该不该有片头片尾」不是同一件事，由 type 标记单独承载更直白。
+        intent.putExtra("is_bangumi", playerData.isBangumi());
         if (playerData.qnStrList != null && playerData.qnValueList != null) {
             intent.putExtra("qnStrList", playerData.qnStrList);
             intent.putExtra("qnValueList", playerData.qnValueList);

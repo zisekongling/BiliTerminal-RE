@@ -514,6 +514,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var seasonId: Long = 0
     private var seasonType: Int = 0
 
+    /**
+     * 本次播放是不是**番剧/影视（PGC）**。自动跳过片头片尾的「首道闸」就靠它
+     * （反馈 #99：UGC 稿件的 `view_points` 是分段章节，不是片头片尾，见 [isPgcPlayback]）。
+     *
+     * 判据以启动方写进 Intent 的 `PlayerData.isBangumi` 标记为主，**epid 兜底**：
+     * 标记由 `PlayerApi.buildTerminalPlayerIntent` 统一写入（所有入口自动带上），
+     * 旧入口没带时退回看 epid——它只有番剧才非 0。seasonId 不当判据（番剧也可能只带 epid）。
+     */
+    private var pgcPlaybackFlag: Boolean = false
+
     // ---- 播放中周期上报 / 切P·退出即时上报的状态（详见 maybeReportProgress / reportProgressNow）----
     // 与上次上报位置的差值上限，达到才再报一次，避免每 250ms 一个请求。
     // 番剧压到 5 秒：一集十几分钟看两眼就退的人不少，间隔太长时"最后一次有效心跳"还没发出去就退出了，
@@ -704,6 +714,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         epid = intent.getLongExtra("epid", 0)
         seasonId = intent.getLongExtra("seasonId", 0)
         seasonType = intent.getIntExtra("seasonType", 0)
+        // 番剧（PGC）标记，用于自动跳过片头片尾的首道闸（见 pgcPlaybackFlag / isPgcPlayback()）。
+        // **以 type 标记为主、epid 兜底**：`PlayerApi.buildTerminalPlayerIntent` 现在会写
+        // `is_bangumi`（= PlayerData.isBangumi），所有入口自动带上；旧入口/旧 Intent 没带时
+        // 退回看 epid——它同样只有番剧才非 0（补在 buildTerminalPlayerIntent 与 JumpToPlayerActivity
+        // 两处，见那边的注释）。seasonId **不能**当判据：缺季信息时番剧也可能只有 epid。
+        // 两者都没有就按 UGC 处理（fail-closed）：判错方向宁可不跳，也不能把普通投稿跳飞。
+        pgcPlaybackFlag = intent.getBooleanExtra("is_bangumi", false) ||
+                intent.getLongExtra("epid", 0L) > 0L
 
         progress_history = intent.getIntExtra("progress", 0).toLong()
         Logu.d("history", progress_history.toString())
@@ -3801,6 +3819,23 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     /**
+     * 本次播放是否为**番剧/影视（PGC）**——自动跳过片头片尾只对 PGC 生效（反馈 #99 的首道闸）。
+     *
+     * 为什么必须有这道闸：`x/player/wbi/v2` 的 `view_points` 在 **UGC 稿件上是分段章节**，
+     * 不是片头片尾——普通投稿（反馈 #99 里的 `BV1U74w6XEbB`）每个章节的 `type` 都恒为 2，
+     * 而 2 恰好是番剧的「片尾」类型，于是每个分段都被当片尾跳，「一直跳过片尾」。
+     * 只能靠「这条稿件本来就不该有片头片尾」来挡，不能指望 `type` 字段自己会区分。
+     *
+     * 判据以 Intent 里的 PGC 标记（[pgcPlaybackFlag]）为准，** epid 兜底**：
+     * 标记由 `PlayerApi.buildTerminalPlayerIntent` 从 `PlayerData.isBangumi` 写入（所有入口自动带上），
+     * 缺标记时退回看 epid——它只有番剧才非 0。两个都不看 seasonId（缺季信息时番剧也可能只有 epid）。
+     * 「两个都没有按 UGC」是 fail-closed——判错方向宁可不跳，也不能把普通投稿跳飞。
+     *
+     * 直播与本地文件同样恒为非 PGC（它们的 [PlayerData.type] 是 TYPE_LIVE / TYPE_LOCAL）。
+     */
+    private fun isPgcPlayback(): Boolean = pgcPlaybackFlag
+
+    /**
      * 是否需要 `view_points` 数据：「显示视频分段」与「自动跳过片头片尾」都用得到。
      *
      * 26.10.10 撤回期间这里只有分段显示一项（撤回后没人消费片段表，白拉接口）；
@@ -4798,14 +4833,21 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 Logu.d("视频分段", "开始加载分段数据 aid=" + requestAid + " cid=" + requestCid)
                 viewPoints = PlayerApi.getViewPoints(requestAid, requestCid)
                 // 片头/片尾只是 view_points 的子集（type=1/2），这里单独提炼一份给自动跳过用。
-                // 功能总开关 [SkipOpEdPrefs.FEATURE_ENABLED] 为假（即再次紧急撤回）时直接留空，
+                // **第一道闸（反馈 #99）**：`view_points` 在 UGC 上是**分段章节**不是片头片尾——
+                // 普通投稿（如 BV1U74w6XEbB）的每一个章节 type 都恒为 2，把它当片尾就会一路
+                // 「一直跳过片尾」。所以非 PGC 一律喂空表：自动跳过彻底不参与，分段按钮照旧可用
+                // （viewPoints 本身不动，见下方 showViewPointSelectorCard）。
+                // 这里**只**有这一道闸：ViewPointSkip 不再拿 content 做白名单（番剧片段的 content
+                // 常是空串或「1-1」「正片」，按标题过滤会把真片头也挡掉，反而让功能失效）。
+                // 功能总开关 [SkipOpEdPrefs.FEATURE_ENABLED] 为假（即再次紧急撤回）时同样留空，
                 // 不白跑 buildSegments：唯一的消费点 maybeAutoSkipOpEd 已被 SkipOpEdPrefs.isEnabled
                 // 拦死，算了也没人看。所以「撤一次/恢复一次」都只需改那个常量，这里不用动。
                 val segments = if (SkipOpEdPrefs.FEATURE_ENABLED) {
                     ViewPointSkip.buildSegments(
                         (viewPoints ?: emptyList()).map {
-                            ViewPointSkip.Segment(it.type, it.from.toDouble(), it.to.toDouble())
-                        }
+                            ViewPointSkip.Segment(it.type, it.from.toDouble(), it.to.toDouble(), it.content)
+                        },
+                        allowAutoSkip = isPgcPlayback()
                     )
                 } else {
                     emptyList()
@@ -4834,7 +4876,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                             btn_viewpoint.setOnClickListener { showViewPointSelectorCard() }
                         }
                         Logu.d("视频分段", "成功加载 " + viewPoints!!.size + " 个分段")
-                        maybeShowSkipGuide()
+                        // 引导只在 PGC 上弹：UGC 的分段不是片头片尾，在这里引导「自动跳过」
+                        // 等于邀请用户去踩反馈 #99 那个坑
+                        if (isPgcPlayback()) maybeShowSkipGuide()
                     } else {
                         Logu.d("视频分段", "未获取到分段数据")
                     }

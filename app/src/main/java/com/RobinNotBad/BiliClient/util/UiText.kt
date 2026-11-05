@@ -594,7 +594,7 @@ object UiText {
         "弹幕准备完毕" to R.string.uitext_danmakumanager_001,
         "自动" to R.string.uitext_playercontroldelegate_001,
         "已自动跳过片头/片尾，可在下方撤回" to R.string.uitext_skipopedprefs_001,
-        "这个视频有片头片尾，可以自动跳过" to R.string.uitext_skipopedprefs_002,
+        "这个番剧有片头片尾，可以自动跳过" to R.string.uitext_skipopedprefs_002,
         "开启" to R.string.uitext_skipopedprefs_003,
         "后台播放" to R.string.uitext_playbackservice_002,
         "后台/熄屏播放时的常驻遥控通知" to R.string.uitext_playbackservice_003,

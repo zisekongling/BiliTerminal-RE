@@ -164,7 +164,7 @@ class SkipOpEdPrefsTest {
     @Test
     fun 开关未开时文案是劝开() {
         val text = SkipOpEdPrefs.guideText(enabled = false)
-        assertEquals("这个视频有片头片尾，可以自动跳过", text)
+        assertEquals("这个番剧有片头片尾，可以自动跳过", text)
         assertEquals("开启", SkipOpEdPrefs.guideActionText(enabled = false))
     }
 }

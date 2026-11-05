@@ -7,6 +7,14 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+// 注（26.11.05，#99 修复口径「一道闸」）：本文件的用例一律用**三参 Segment**（无 content）造片头片尾，
+// 这是有意的——[ViewPointSkip.buildSegments] 的单参版本是**旧口径**：只看 type + 区间 + 时长上限，
+// **不看 content**，所以空 content 的段照样保留，这些用例全绿。
+//
+// 真正拦反馈 #99（UGC 的 view_points 是普通分段却被当片尾）的闸**不在 ViewPointSkip**，而在
+// `PlayerActivity.isPgcPlayback()`：判定为 UGC 时传 `allowAutoSkip = false` 拿到空表。
+// 本文件只测「调用方给了结论之后怎么执行」，闸本身与 #99 样本见 [ViewPointSkipChapterTest]。
+
 /**
  * [ViewPointSkip] 的纯 JVM 单测。
  *
@@ -121,6 +129,77 @@ class ViewPointSkipTest {
         assertFalse(
             "片头和片尾哪怕区间相同也不能共用 key",
             ViewPointSkip.keyOf(op) == ViewPointSkip.keyOf(edSameRange)
+        )
+    }
+
+    // ================= #99 修复后新增：content 不参与过滤 + UGC 闸 =================
+
+    @Test
+    fun buildSegments_singleArgIgnoresContentEntirely() {
+        // 用带 content 的同一批数据复钉一遍区间校验：content 写什么都无所谓，
+        // 结果只由 type / 区间 / 时长决定——「区间校验」这一层不许被别的东西带偏。
+        val raw = listOf(
+            Segment(0, 100.0, 200.0, "片头"),                     // 类型不对，写「片头」也没用
+            Segment(ViewPointSkip.TYPE_OP, 15.0, 95.0, "片头"),
+            Segment(ViewPointSkip.TYPE_ED, 95.0, 95.0, "片尾"),   // 空区间
+            Segment(ViewPointSkip.TYPE_ED, 200.0, 100.0, "片尾"), // 反向区间
+            Segment(ViewPointSkip.TYPE_ED, 1380.0, 1440.0, "片尾")
+        )
+        assertEquals(
+            "content 只是随段携带的数据，筛选结果与它无关",
+            listOf(
+                Segment(ViewPointSkip.TYPE_OP, 15.0, 95.0, "片头"),
+                Segment(ViewPointSkip.TYPE_ED, 1380.0, 1440.0, "片尾")
+            ),
+            ViewPointSkip.buildSegments(raw)
+        )
+    }
+
+    @Test
+    fun 空content的片头片尾必须保留() {
+        // 三参构造（content 默认空串）不是"语义闸的后门"，而是**真实数据形态**：
+        // 番剧 EP 的 view_points 里 content 常常是空串、「1-1」「正片」。
+        // 如果哪天有人把 isOpEdLabel 白名单接回 buildSegments 当闸，这条会立刻红——
+        // 那时真片头片尾会被挡掉，用户反而觉得"开了没用"。别接回来。
+        val raw = listOf(
+            Segment(ViewPointSkip.TYPE_OP, 15.0, 95.0),
+            Segment(ViewPointSkip.TYPE_ED, 1380.0, 1440.0)
+        )
+        assertEquals(
+            "content 为空不影响取样：只要 type 对、区间合法就必须保留 2 条",
+            2,
+            ViewPointSkip.buildSegments(raw).size
+        )
+    }
+
+    @Test
+    fun 纯空白content的段也保留() {
+        // 同上：空白标题也只是"没给标题"，不是"不是片头片尾"的证据
+        val raw = listOf(Segment(ViewPointSkip.TYPE_ED, 0.0, 7.0, "   \t\u3000"))
+        assertEquals(
+            "空白 content 同样不参与过滤",
+            1,
+            ViewPointSkip.buildSegments(raw).size
+        )
+        assertTrue(
+            "唯一的闸在 allowAutoSkip：调用方判定是 UGC 时一律拿空表",
+            ViewPointSkip.buildSegments(raw, allowAutoSkip = false).isEmpty()
+        )
+    }
+
+    @Test
+    fun allowAutoSkip为false时无论内容如何都是空表() {
+        val raw = listOf(
+            Segment(ViewPointSkip.TYPE_OP, 15.0, 95.0, "片头"),
+            Segment(ViewPointSkip.TYPE_ED, 1380.0, 1440.0, "片尾")
+        )
+        assertTrue(
+            "这是 #99 真正生效的那道闸（UGC 由 PlayerActivity.isPgcPlayback() 判定后传入 false）",
+            ViewPointSkip.buildSegments(raw, allowAutoSkip = false).isEmpty()
+        )
+        assertTrue(
+            "allowAutoSkip=true 时与单参版本完全一致",
+            ViewPointSkip.buildSegments(raw, allowAutoSkip = true) == ViewPointSkip.buildSegments(raw)
         )
     }
 }
