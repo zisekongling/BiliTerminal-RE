@@ -1196,6 +1196,15 @@
 - **验证**：`:app:assembleDebug` BUILD SUCCESSFUL；模拟器（Android 37）点面板 → DM84 → 剧集 1…12 → 第 1 集 → 嗅探命中 m3u8 → 播放器 1920×1080 起播，全程没有「静默跳播放页」。
 - **已知遗留**：面板首屏会有 2~3 个慢源长时间停在「检索中…」（总预算不设上限，保证用户能看到全部结果）；「主关键词 + 别名」两轮搜索仍是串行。
 
+### 3.115 番剧搜索「先出 B 站结果、再补 BGM 卡片」，不再整页等补充数据（26.11.05，用户要求）
+
+- **现象**：番剧分类搜索要 8–10s 才整页出现（同机 Kazumi 只需 0.9s）；期间刷新圈一直转，用户以为卡死。
+- **根因**：`SearchBangumiFragment.continueLoading()` 把 B 站 wbi 搜索（约 1.2s）与 `OptionalFeatures.appendBangumiSearchExtras()`（BGM 反代搜索 + 最多 8 次详情补集数，串行多反代，最坏十几秒）串在同一个后台任务里，两者跑完才 `runOnUiThread` 贴列表。
+- **公开侧改动**：B 站结果先 `appendToAdapter(page, list)` 上屏并立即 `setRefreshing(false)`；再把结果副本交给补充数据源，返回后只追加新增卡片（新增 `appendToAdapter(page, items)` 供两段共用）。失败仍走 `loadFail` 兜底。
+- **私有侧改动**（不在本仓库）：`BgmApi` 给三个反代加 5 分钟失败短路表，挂掉的反代不再每条请求各等 6s。
+- **实测**（MuMu，Android 37）：切到「搜索-番剧」2s 时 4 张 B 站卡片已在屏上、刷新圈已停；BGM 独有卡片（「约会大作战F Last Date」）约 5s 时追加在末尾。
+- **遗留**：`api.kazumi.fyi` 的 `/v0/search/subjects` 需要签名（未签名 401，签名钥匙由 Kazumi 构建期注入），因此 BGM 搜索仍以 `fxbgm.tv` 打头；补充数据本身仍是串行反代，可再并行化。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。
