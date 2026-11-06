@@ -4,7 +4,7 @@
 
 轻量的第三方 B 站 Android 客户端，基于哔哩终端 BiliClient 2.7.0 的改版分支
 
-[![Version](https://img.shields.io/badge/version-26.11.02-blue)](https://github.com/zisekongling/BiliTerminal-RE)
+[![Version](https://img.shields.io/badge/version-26.11.06-blue)](https://github.com/zisekongling/BiliTerminal-RE)
 [![Android](https://img.shields.io/badge/android-4.4%2B-green)]()
 [![Language](https://img.shields.io/badge/language-Kotlin%20%2F%20Java-orange)]()
 [![License](https://img.shields.io/badge/license-GPL%20v3-red)]()
@@ -89,7 +89,7 @@
 
 | 功能 | 说明 |
 | --- | --- |
-| 评论带图 | 支持发送带图评论（大会员专属），选图后即时回显，图片上传兼容 GIF / PNG |
+| 评论带图 | 支持发送带图评论（客户端不再要求大会员，能否发送以服务端判定为准），选图后即时回显，图片上传兼容 GIF / PNG |
 | 表情评论 | 支持表情插入评论 |
 | 动态配图与表情 | 发布与查看动态支持配图、表情渲染，转发动态可引用原作者 |
 | 动态投票 | 支持动态中的投票内容与投票详情页 |
@@ -207,6 +207,7 @@
 
 - 本项目借鉴了 [WearBili](https://github.com/SpaceXC/WearBili) 和 [腕上哔哩](https://github.com/luern0313/WristBilibili) 的部分开源代码和它们收集的部分 API，界面曾使用 WearBili 的布局（现已重做）。
 - 本次版本开发过程中，参考了第三方 [BiliTerminal](https://github.com/PianoEthan/BiliTerminal) 仓库（本地参考目录 `BiliTerminal`）的实现，包括但不限于**评论带图发送**、更新机制等功能的实现思路，特此感谢该仓库作者。
+- 番剧「播放来源」的**选源交互**与第三方弹幕接入的思路参考了 [Kazumi](https://github.com/Predidit/Kazumi)，感谢其作者的开源工作（同样以 GPL v3 开源）。本项目**未包含** Kazumi 的源码，相关功能只在可选的构建期注入里生效，公开构建不含这部分实现。
 
 > 除此之外本项目与其他第三方 B 站浏览软件无任何关系，谢绝在无关评论区提及终端，谢谢喵。
 
