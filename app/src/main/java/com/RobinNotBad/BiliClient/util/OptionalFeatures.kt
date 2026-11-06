@@ -1,9 +1,14 @@
 package com.RobinNotBad.BiliClient.util
 
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.view.View
 import android.view.ViewGroup
+import androidx.fragment.app.Fragment
+import com.RobinNotBad.BiliClient.activity.player.PlayerActivity
 import com.RobinNotBad.BiliClient.model.MessageCard
+import com.RobinNotBad.BiliClient.model.VideoCard
 
 /**
  * 可选私有功能的反射门面。
@@ -144,6 +149,230 @@ object OptionalFeatures {
     } catch (e: Throwable) {
         Logu.w("OptionalFeatures", "openOptionalMessage failed: " + e.message)
         false
+    }
+
+    // ==================== 番剧资料（Bgm）与第三方片源：门面 ====================
+    //
+    // 实现全在 private/ 里；公开构建下这些方法全部是空操作 / null。
+    // 调用方（搜索页、番剧详情页、列表适配器、播放页）只按返回值的「有/无」决定要不要多一块内容。
+
+    /**
+     * 搜索混排：让私有侧往 [out] 追加它认识的条目（B 站没有的番剧）。
+     *
+     * 只在关键词搜索第一页、且**在后台线程**调用；私有侧不在场时什么也不加。
+     * 失败必须静默——补充源挂掉不能影响 B 站搜索结果本身。
+     */
+    fun appendBangumiSearchExtras(context: Context, keyword: String, out: MutableList<VideoCard>) {
+        try {
+            holder?.getMethod(
+                "appendBangumiSearchExtras",
+                Context::class.java,
+                String::class.java,
+                MutableList::class.java
+            )?.invoke(null, context, keyword, out)
+        } catch (e: Throwable) {
+            Logu.w("OptionalFeatures", "appendBangumiSearchExtras failed: " + e.message)
+        }
+    }
+
+    /**
+     * 番剧详情页：让私有侧在 [root] 里装它自己的资料行（评分等）并异步加载。
+     *
+     * [seasonId] / [mediaId] 用于让私有侧做条目匹配；私有侧不在场时什么都不做。
+     */
+    fun attachBangumiDetails(root: ViewGroup, title: String, seasonId: Long, mediaId: Long) {
+        try {
+            holder?.getMethod(
+                "attachBangumiDetails",
+                ViewGroup::class.java,
+                String::class.java,
+                java.lang.Long.TYPE,
+                java.lang.Long.TYPE
+            )?.invoke(null, root, title, seasonId, mediaId)
+        } catch (e: Throwable) {
+            Logu.w("OptionalFeatures", "attachBangumiDetails failed: " + e.message)
+        }
+    }
+
+    /**
+     * 番剧详情页加载完成：让私有侧异步预热片源（“点播放时立刻能播”）。
+     *
+     * [hasVipEpisode] 为 false 时调用方根本不会调（没有会员集就不需要备用源）；私有侧自己再判账号态。
+     */
+    fun warmUpBangumiSource(title: String, hasVipEpisode: Boolean) {
+        try {
+            holder?.getMethod(
+                "warmUpBangumiSource",
+                String::class.java,
+                java.lang.Boolean.TYPE
+            )?.invoke(null, title, hasVipEpisode)
+        } catch (e: Throwable) {
+            Logu.w("OptionalFeatures", "warmUpBangumiSource failed: " + e.message)
+        }
+    }
+
+    /**
+     * 点「播放」时先问私有侧是否接管（无感换源）。
+     *
+     * [episodeLabel] 是 B 站那一集的真实集名（如「第5话」）：私有侧拿它显示标题、并按集号对齐
+     * 采集站的集列表——只看 [episodeIndex] 会因两边列表里夹着 PV/预告而串集。
+     *
+     * 返回 true = 私有侧已经把这次播放接过去了（例如静默改用备用片源），调用方**不要再走 B 站播放**；
+     * 返回 false = 私有侧不接管，照旧走 B 站。私有侧不在场时永远 false。
+     */
+    fun interceptBangumiPlay(
+        context: Context,
+        title: String,
+        episodeIndex: Int,
+        badge: String,
+        episodeLabel: String
+    ): Boolean = try {
+        holder?.getMethod(
+            "interceptBangumiPlay",
+            Context::class.java,
+            String::class.java,
+            Integer.TYPE,
+            String::class.java,
+            String::class.java
+        )?.invoke(null, context, title, episodeIndex, badge, episodeLabel) as? Boolean ?: false
+    } catch (e: Throwable) {
+        Logu.w("OptionalFeatures", "interceptBangumiPlay failed: " + e.message)
+        false
+    }
+
+    /**
+     * 番剧详情页的「角色」页（私有侧提供时才有）。
+     *
+     * 返回 null = 不提供这一页，调用方保持原来的页数。
+     */
+    fun mediaActorsFragment(aid: Long): Fragment? = try {
+        holder?.getMethod("mediaActorsFragment", java.lang.Long.TYPE)?.invoke(null, aid) as? Fragment
+    } catch (e: Throwable) {
+        Logu.w("OptionalFeatures", "mediaActorsFragment failed: " + e.message)
+        null
+    }
+
+    /** 「角色」页的标题；null = 不提供该页。 */
+    fun mediaActorsPageTitle(context: Context): String? = try {
+        holder?.getMethod("mediaActorsPageTitle", Context::class.java)?.invoke(null, context) as? String
+    } catch (e: Throwable) {
+        null
+    }
+
+    /**
+     * 列表卡片点击：私有侧认识的卡片（它自己产出的那些类型）返回 true 表示已处理跳转。
+     *
+     * 公开侧只在既有的 `when (type)` 分支都命不中时才问它，公开构建的点击行为不变。
+     */
+    fun handleVideoCardClick(context: Context, card: VideoCard): Boolean = try {
+        holder?.getMethod("handleVideoCardClick", Context::class.java, VideoCard::class.java)
+            ?.invoke(null, context, card) as? Boolean ?: false
+    } catch (e: Throwable) {
+        Logu.w("OptionalFeatures", "handleVideoCardClick failed: " + e.message)
+        false
+    }
+
+    /**
+     * 卡片封面的地址覆盖：返回非 null 时用它，null 时按公开侧的默认规则（高画质后缀）。
+     *
+     * 私有侧的卡片封面可能带 query 串，加高画质后缀会 404，所以由它自己给出最终地址。
+     */
+    fun coverUrlOverride(card: VideoCard): String? = try {
+        holder?.getMethod("coverUrlOverride", VideoCard::class.java)
+            ?.invoke(null, card) as? String
+    } catch (e: Throwable) {
+        null
+    }
+
+    /** 长按卡片时的「快速缓存」是否跳过（私有侧的卡片没有 B 站 aid/cid）。 */
+    fun skipQuickCache(card: VideoCard): Boolean = try {
+        holder?.getMethod("skipQuickCache", VideoCard::class.java)
+            ?.invoke(null, card) as? Boolean ?: false
+    } catch (e: Throwable) {
+        false
+    }
+
+    /**
+     * 「备用片源解析」的回调。
+     *
+     * 播放页收到待解析的 intent 时先照常初始化并停在载入中，然后调 [requestThirdPartyResolve]
+     * 把解析工作交给私有侧；解析结果通过这个回调回到播放页（私有侧保证在主线程回调）。
+     */
+    interface ThirdPartyResolveCallback {
+        /** 解析成功：给出可直接播放的地址和（可空）该地址需要的 Referer。 */
+        fun onResolved(url: String, referer: String?)
+
+        /** 解析失败：私有侧已经提示过用户（Toast + 手动选源），播放页只需要收尾退出。 */
+        fun onFailed()
+    }
+
+    /**
+     * 请求私有侧解析备用片源，结果走 [callback]。
+     *
+     * 返回 true 表示私有侧已接手（无论成败都会回调）；false 表示私有侧不在场，
+     * 调用方自己要给用户一个交代后退出。
+     */
+    fun requestThirdPartyResolve(
+        activity: Activity,
+        intent: Intent,
+        callback: ThirdPartyResolveCallback
+    ): Boolean = try {
+        holder?.getMethod(
+            "requestThirdPartyResolve",
+            Context::class.java,
+            Intent::class.java,
+            ThirdPartyResolveCallback::class.java
+        )?.invoke(null, activity, intent, callback) as? Boolean ?: false
+    } catch (e: Throwable) {
+        Logu.w("OptionalFeatures", "requestThirdPartyResolve failed: " + e.message)
+        false
+    }
+
+    /**
+     * 请私有侧准备「第三方弹幕」（换源播放时用弹弹play 的弹幕）。
+     *
+     * 私有侧拿到参数后在后台拉取、转换、写成 B 站格式 XML，就绪后自己回调
+     * `PlayerActivity.applyThirdPartyDanmaku(file)`；失败时什么都不做（播放不受影响）。
+     *
+     * 返回 true 表示私有侧接手了这次弹幕准备；false = 私有功能不在场 / 未注入凭据 / 用户关掉了
+     * 第三方弹幕，调用方据此把「有弹幕」状态翻回 false。
+     *
+     * [bgmSubjectId] 是 BGM 条目 id（0 = 未知，私有侧退回按标题搜索）；[episodeNumber] 是集号（从 1 起）。
+     */
+    fun attachThirdPartyDanmaku(
+        activity: Activity,
+        title: String?,
+        altTitle: String?,
+        bgmSubjectId: Long,
+        episodeNumber: Int
+    ): Boolean = try {
+        holder?.getMethod(
+            "attachThirdPartyDanmaku",
+            Context::class.java,
+            String::class.java,
+            String::class.java,
+            java.lang.Long.TYPE,
+            Integer.TYPE
+        )?.invoke(null, activity, title, altTitle, bgmSubjectId, episodeNumber) as? Boolean ?: false
+    } catch (e: Throwable) {
+        Logu.w("OptionalFeatures", "attachThirdPartyDanmaku failed: " + e.message)
+        false
+    }
+
+    /**
+     * 私有侧把「备用片源解析到哪一步」推给播放页的载入界面（26.11.06）。
+     *
+     * 以前这段进度显示在独立的等待页里（换页、和 app 风格不一致）；现在解析就在播放页里跑，
+     * 私有侧只需要更新播放页载入态的那行状态文案。没有私有功能时不会被调用；
+     * 传进来的不是播放页（或已销毁）时什么也不做。
+     */
+    fun updateThirdPartyResolveHint(activity: Activity?, text: CharSequence?) {
+        if (activity !is PlayerActivity) return
+        try {
+            activity.updateResolveHint(text)
+        } catch (e: Throwable) {
+            Logu.w("OptionalFeatures", "updateThirdPartyResolveHint failed: " + e.message)
+        }
     }
 
     private fun invokeString(name: String): String? = try {

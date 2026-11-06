@@ -9,6 +9,8 @@ import com.RobinNotBad.BiliClient.adapter.video.VideoCardAdapter
 import com.RobinNotBad.BiliClient.api.SearchApi
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.Logu
+import com.RobinNotBad.BiliClient.util.OptionalFeatures
 
 import org.json.JSONArray
 import org.json.JSONObject
@@ -39,6 +41,13 @@ class SearchBangumiFragment : SearchFragment() {
         setOnLoadMoreListener { page -> continueLoading(page) }
     }
 
+    /**
+     * 取一页番剧搜索结果。
+     *
+     * <p>26.11.05 提速：B 站结果先渲染，Bangumi 独有条目（可选私有功能）**后台补**、回来再追加。
+     * 以前两者串在同一个后台任务里，`appendBangumiSearchExtras` 里的搜索 + 最多 8 条详情补全
+     * 会把整个页面的首屏拖到 8~10s（手机实测），而它对用户只是「末尾多几张 B 站没有的番剧」。
+     */
     private fun continueLoading(page: Int) {
         CenterThreadPool.run {
             try {
@@ -52,23 +61,50 @@ class SearchBangumiFragment : SearchFragment() {
                     is JSONObject -> result.optJSONArray("media_bangumi")
                     else -> null
                 }
-                if (resultArray != null) {
-                    if (page == 1) showEmptyView(false)
-                    val list = ArrayList<VideoCard>()
-                    SearchApi.getBangumiFromSearchResult(resultArray, list)
-                    if (list.size == 0) bottom = true
-                    else CenterThreadPool.runOnUiThread {
-                        if (!isAdded || view == null) return@runOnUiThread
-                        val lastSize = bangumiCardList.size
-                        bangumiCardList.addAll(list)
-                        bangumiCardAdapter!!.notifyItemRangeInserted(lastSize, bangumiCardList.size - lastSize)
+                val list = ArrayList<VideoCard>()
+                if (resultArray != null) SearchApi.getBangumiFromSearchResult(resultArray, list)
+                // 第一步：先把 B 站自己的结果贴出来，并立即停掉下拉/刷新圈——BGM 补充只影响
+                // 列表末尾多几张卡片，不该让用户一直看着转圈。
+                if (list.isNotEmpty()) appendToAdapter(page, list)
+                CenterThreadPool.runOnUiThread { if (isAdded) setRefreshing(false) }
+
+                // 第二步：后台补 Bangumi 独有条目（B 站没有的番剧）；翻页不追加，避免越滚越多。
+                // 注意：B 站搜不到时 data 里连 result 字段都没有（numResults=0），
+                // 所以这一步必须在 resultArray 判空之外——否则「B 站没有、Bangumi 有」的番剧
+                // 会整页空白。具体实现在可选私有功能里；不在场时什么也不加。
+                var extrasCount = 0
+                val ctx = context
+                if (page == 1 && ctx != null) {
+                    // 私有实现用传入的已有卡片做去重与封面借用，所以先把 B 站结果拷一份进去
+                    val seed = ArrayList<VideoCard>(list)
+                    try {
+                        OptionalFeatures.appendBangumiSearchExtras(ctx, keyword.orEmpty(), seed)
+                    } catch (e: Exception) {
+                        Logu.w("SearchBangumi", "Bangumi 补充失败：" + e.message)
                     }
-                } else bottom = true
+                    if (seed.size > list.size) {
+                        val extras = ArrayList(seed.subList(list.size, seed.size))
+                        extrasCount = extras.size
+                        appendToAdapter(page, extras)
+                    }
+                }
+                if (list.isEmpty() && extrasCount == 0) bottom = true
             } catch (e: Exception) {
                 loadFail(e)
             }
             // 无论成功失败都必须复位下拉刷新，否则刷新圈会一直转（见 docs/archive/review/fork-fix-worklog.md P18）
             setRefreshing(false)
+        }
+    }
+
+    /** 把一批卡片追加进列表（主线程）；分两次调用，保证 B 站结果先上屏。 */
+    private fun appendToAdapter(page: Int, items: List<VideoCard>) {
+        CenterThreadPool.runOnUiThread {
+            if (!isAdded || view == null) return@runOnUiThread
+            if (page == 1) showEmptyView(false)
+            val lastSize = bangumiCardList.size
+            bangumiCardList.addAll(items)
+            bangumiCardAdapter?.notifyItemRangeInserted(lastSize, items.size)
         }
     }
 

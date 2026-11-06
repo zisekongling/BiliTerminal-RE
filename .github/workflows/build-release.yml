@@ -317,7 +317,34 @@ jobs:
       - name: 运行单元测试
         run: ./gradlew :app:testStandardDebugUnitTest --stacktrace
 
+      # ── 私有功能的第三方凭证（BGM 数据代理）────────────────────────────────
+      # 和 Kazumi 一样**只在构建期注入**：值只经 Secrets → 环境变量 → app/build.gradle →
+      # BuildConfig，仓库里不出现明文。未配置时打一行 notice 按「无代理」构建，
+      # 私有侧自动退回旧端点链，发版流程不受影响。
+      - name: 校验私有功能凭证（未配置则跳过）
+        env:
+          KAZUMI_APPID: ${{ secrets.KAZUMI_APPID }}
+          KAZUMI_KEY: ${{ secrets.KAZUMI_KEY }}
+          DANDANAPI_APPID: ${{ secrets.DANDANAPI_APPID }}
+          DANDANAPI_KEY: ${{ secrets.DANDANAPI_KEY }}
+        run: |
+          if [ -z "$KAZUMI_APPID" ] || [ -z "$KAZUMI_KEY" ]; then
+            echo "::notice::未配置 Secrets.KAZUMI_APPID / KAZUMI_KEY，BGM 数据代理关闭（功能自动退回旧链路）"
+          else
+            echo "BGM 数据代理凭证已就绪（不打印值）"
+          fi
+          if [ -z "$DANDANAPI_APPID" ] || [ -z "$DANDANAPI_KEY" ]; then
+            echo "::notice::未配置 Secrets.DANDANAPI_APPID / DANDANAPI_KEY，换源播放无弹幕"
+          else
+            echo "第三方弹幕凭证已就绪（不打印值）"
+          fi
+
       - name: 构建签名发行 APK
+        env:
+          KAZUMI_APPID: ${{ secrets.KAZUMI_APPID }}
+          KAZUMI_KEY: ${{ secrets.KAZUMI_KEY }}
+          DANDANAPI_APPID: ${{ secrets.DANDANAPI_APPID }}
+          DANDANAPI_KEY: ${{ secrets.DANDANAPI_KEY }}
         run: ./gradlew :app:assembleRelease
 
       # 崩溃堆栈解混淆（R8 retrace）需要「这一版、这个 flavor、这个构建变体」的 mapping。

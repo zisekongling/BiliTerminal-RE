@@ -113,6 +113,8 @@
     - **26.10.25 起下载侧把 DASH 双文件 remux 成单文件**：`util/MediaMerger.kt` 用 `MediaExtractor`（支持分片 MP4 的 `moof`）+ `MediaMuxer` 重封装，产物就是和 `fnval=1` 同形态的双轨 MP4；这不是「把 `fnval=16` 的纯视频当合一文件」，而是容器层真正写入了音频轨。播放侧的外部音轨路径保留给老缓存。
     - **未覆盖**：`platform=html5`（播放侧 mtvPlayer 分支）实测同样是 `trak=2`，与 `pc` 一致；但只测了 1 个稿件、未登录，大会员内容与其它稿件未复验。
     - **播放侧的含义（26.10.30 修「播放器内切不到 1080P」时确认，同日两轮）**：直播之外的播放链路**一律先试 DASH**（`getVideoDash` / `getBangumiDash`，播放器另起一路外部音频），DASH 失败/缺音轨才回退 `fnval=1` 的合一 MP4。低档位也走 DASH 的原因不是「低档只能 DASH 拿」，而是清晰度面板需要 DASH 的完整档位清单：`fnval=1` 会按请求档位裁剪清单，720P 请求只回 `accept_quality:[64,16]`，1080P60/4K 直接消失。**不能只靠"列表里有 1080P 就以为能拿 1080P"**：`accept_quality` 与 `fnval` 无关，`fnval=1` 时它照样列 1080P，只是 `quality` 被降到 64。判据与取流入口见 `player/PlayerStreamPolicy.kt`、`player/QualityAccessPolicy.kt` 与 `PlayerApi.getPlaybackVideo/getPlaybackBangumi`（`docs/architecture-map.md` §7.57）。
+    - **26.11.01 回退后播放侧回到「单路合一 MP4」**：26.10.31 末引入的 ExoPlayer 统一时钟与 ijkplayer 内核补丁在 26.11.01 整套撤回（§六十四），`PlayerApi` 恢复只取 `fnval=1` 的 `durl[0]`——26.11.04 实测播放请求是 `fnval=1&qn=16`、响应 `format:"mp4"` + `durl[]`，清晰度天花板因此回到 720P。上面那条「一律先 DASH」是 26.10.30~31 的中间态结论，别照着它改代码。
+    - **直链的 CDN 防盗链只要 Referer、不要 Cookie（26.11.04 实测）**：`playurl` 高峰会把 `durl[].url` 调度到 mcdn/PCDN 边缘节点，host 形如 `r5uw39t.edge.mountaintoys.cn:4483`（`os=mcdn&og=cos&mcdnid=…&upsig=…`），**不在 `bilibili.com` / `bilivideo.com` / `hdslb.com` 任何白名单里**，但它照样强制 `Referer: https://www.bilibili.com/`：同一 URL 只发 `Range: bytes=0-1023` → **403**（openresty 页），补上 Referer → **206** + MP4 字节（`ftypisom…avc1`）。缺 Referer 时 IJK 报 `-10000`，用户看到的就是「部分视频播放时报错」。**Cookie 不是必需**——URL 自带 `upsig` 签名，别把它当第三方源，也别为了防盗链把 Cookie 一起发出去；判据实现见 `player/PlayerRequestPolicy.kt`（§六十九）。
     - **`qn` 仍然决定「清单宽度」（26.10.30 实测）**：`qn` 在 DASH 下不决定返回哪条流，但决定服务端把哪些档位写进 `accept_quality` / `dash` 流列表。`qn=64` 请求只回 `[64,16]`，`qn=127` 才回完整档位；所以播放侧取流固定用 `qn=127`（`PlayerApi.QN_REQUEST_MAX`），真正播哪档由 `DashData.getVideoStream(playerData.qn)` 选。下载侧 `QualityChooserActivity` 早就是这个做法。
     - **4K（120）是否下发由大会员权限决定**：匿名请求 `qn=127&fnval=4048&fourk=1` 实测只回 `accept_quality:[116,80,64,32,16]`，**响应里连 120 都没有**（`fnval=4048` 已含 128/4K 位、`fourk=1` 也带了）。即「列表里没有 4K」不是参数错误，而是账号权限过滤；播放器对没权限账号补一个锁定提示位（见 §7.57），**4K 流本身只能用大会员账号验证**。
 13. **搜索排序只长在「分类搜索」上，聚合搜索没有**（26.10.24 加搜索排序时核实）：`wbi/search/all/v2` 只接受 `keyword`（`bilibili-API/docs/search/search_request.md:21-27`），`order` 是 `wbi/search/type` 的参数——视频/专栏 `totalrank`（默认）/ `click` / `pubdate` / `dm` / `stow` / `scores`（专栏另有 `attention`），直播间 `online` / `live_time`，用户 `0` / `fans` / `level`（`:598`）。
@@ -252,3 +254,17 @@
 - **`addUsers` 是追加语义，`moveUsers` 是移动语义**：前者不会把他从原分组移走、也不取关；后者会。两组字段名完全不同（`tagids` vs `beforeTagids`/`afterTagids`），写错只会在真机上收到 `-400`，看不出是拼写问题——所以两个字段组装都抽成纯函数并钉了单测（`FollowApiAddUsersTest` 里有一条「加入与移动是两组不同的字段名」的对照断言）。
 - **默认分组与特别关注不进「加入分组」菜单**：`tagid=0` 是默认分组（加入它等于没加），`-10` 是特别关注（有独立接口/入口）。弹窗只列 `tagid > 0` 的自建分组。
 - **新建分组后拿不到 tagid**：`POST /x/relation/tag/create` 的响应按文档 `data.tagid` 会回新 id，但当前实现只取 `code`；加入前按名字回查一次 `GET /x/relation/tags` 拿 tagid（服务端保证分组名唯一，重名会回 22106），比猜接口稳。
+
+## 12. `view_points` 的 `type` 是「分段类型」，不是「片头/片尾类型」（26.11.05，反馈 #99 / #34）
+
+`GET /x/player/wbi/v2?aid=&cid=` 的 `data.view_points[]` 每项形如 `{type, from, to, content, img_url, logo_url}`。**同一个字段在两类内容上的语义不同**：
+
+| 内容类型 | `view_points` 的含义 | `type` 的实际取值 |
+| --- | --- | --- |
+| **番剧 / 影视（PGC）** | 片头、片尾、正片等**运营标注** | `1` / `2` 等，带片头片尾语义 |
+| **UGC 投稿** | up 主或平台自动生成的**视频分段（章节）** | 实测**恒为 `2`**，`content` 才是章节名 |
+
+- **实测样本**：`BV1U74w6XEbB`（aid=117546476966330 / cid=43264904750，单P，129s）解开后是 10 段普通章节——「狂躁损伤」「泄漏源」「留声机」「舞者」「火炉」「兔子」「浮士德」「毒雾」「源石地板」「隐匿术士，黑蛇，反伤怪，飞机」，**10 段的 `type` 全部是 `2`**。
+- **踩坑形态**：把 `type == 2` 当成「片尾」后，UGC 稿件的每个章节都成了片尾 → 250ms 进度定时器每轮都命中 → 用户看到的是「一直在跳过片尾」。这就是反馈 #99 与 #34 的同根问题。
+- **对策**：自动跳过**只对 PGC 生效**（`PlayerActivity.isPgcPlayback()`，判据是 `is_bangumi` / `epid`），UGC 拿到空片段表；「显示视频分段」的浏览/点选不受影响。
+- **不要用 `content` 白名单代替这个判据**：番剧片段的 `content` 常为空串或「1-1」「正片」「简介」，按标题过滤会把真片头也挡掉，且挡不住「预告」类标注。

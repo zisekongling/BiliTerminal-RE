@@ -20,6 +20,7 @@ import com.RobinNotBad.BiliClient.helper.TutorialHelper
 import com.RobinNotBad.BiliClient.util.AnimationUtils
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TopbarLongPressPrefs
@@ -37,6 +38,9 @@ class VideoInfoActivity : BaseActivity() {
     private var fragmentList: MutableList<Fragment>? = null
     var replyFragment: ReplyFragment? = null
     var contentFragment: Fragment? = null
+
+    /** 番剧详情第 3 页（角色）；可选私有功能不提供时为 null */
+    private var actorsFragment: Fragment? = null
     private var seek_reply: Long = -1
     private lateinit var loading: ImageView
     private lateinit var viewPager: ViewPager
@@ -65,11 +69,17 @@ class VideoInfoActivity : BaseActivity() {
     fun initMediaInfoView() {
         setPageName(UiText.of("番剧详情"))
 
-        fragmentList = ArrayList(2)
+        fragmentList = ArrayList(3)
         contentFragment = BangumiInfoFragment.newInstance(aid)
         fragmentList!!.add(contentFragment!!)
         replyFragment = ReplyFragment.newInstance(aid, 1, seek_reply == -1L, seek_reply)
         fragmentList!!.add(replyFragment!!)
+        // 第 3 页角色：由可选私有功能提供；不在场时保持原来的 2 页
+        val actors = OptionalFeatures.mediaActorsFragment(aid)
+        if (actors != null) {
+            actorsFragment = actors
+            fragmentList!!.add(actors)
+        }
 
         viewPager.offscreenPageLimit = fragmentList!!.size
         val vpfAdapter = ViewPagerFragmentAdapter(supportFragmentManager, fragmentList!!)
@@ -144,9 +154,12 @@ class VideoInfoActivity : BaseActivity() {
             setPageName(mainTitle)
             return
         }
-        val sub = when (list[position]) {
-            is ReplyFragment -> UiText.of("评论")
-            is VideoRcmdFragment -> UiText.of("相关推荐")
+        val sub = when {
+            list[position] is ReplyFragment -> UiText.of("评论")
+            list[position] is VideoRcmdFragment -> UiText.of("相关推荐")
+            // 角色页是可选私有功能提供的，标题也从门面取（公开构建里这一页根本不存在）
+            list[position] === actorsFragment ->
+                OptionalFeatures.mediaActorsPageTitle(this) ?: UiText.of("角色")
             else -> UiText.of("简介")
         }
         setPageName("$mainTitle-$sub")

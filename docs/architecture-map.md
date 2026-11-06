@@ -807,12 +807,24 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 
 设计参照 PiliPlus（`bggRGjQaUbCoE/PiliPlus` @ `2515ecf`）的 `pgcSkipType` / `SkipType` 体系。
 
-**数据来源**：`api/PlayerApi.getViewPoints(aid, cid)`（`x/player/wbi/v2` 的 `data.view_points[]`）里的 `type` —— **1 = 片头，2 = 片尾**。
-在此之前全库没有一处读取 `type` 做跳转，`view_points` 只被当成「视频分段」给用户手点，所以本功能是「只差一层判定」。
+**数据来源**：`api/PlayerApi.getViewPoints(aid, cid)`（`x/player/wbi/v2` 的 `data.view_points[]`）里的 `type`。
 
-**纯逻辑**：`player/ViewPointSkip.kt`（Kotlin `object`，零 Android 依赖，配 `app/src/test/.../ViewPointSkipTest.kt` 9 例）。
+> ⚠️ **26.11.05 纠正（反馈 #99 / #34）：`type` 是「分段类型」，不是「片头片尾类型」。**
+> 只有**番剧/影视 EP 数据**里的 `type == 1 / 2` 才带片头/片尾语义；**UGC 稿件**的 `view_points` 是
+> up 主 / B 站自动生成的「视频分段（章节）」，每个章节的 `type` 实测**恒为 2**，`content` 才是章节名
+> （例：`BV1U74w6XEbB` 下发「狂躁损伤」「泄漏源」……共 10 段，全是 `type == 2`）。旧实现把 `2`
+> 一律当片尾，于是每个分段都被自动跳过，用户看到的就是「一直跳过片尾」。
+> 所以「只看 `type` 就跳」是错的，**必须另有一道「只对 PGC 生效」的闸**（见下）。
+> 也不要改用 `content` 白名单当闸：番剧片段的 `content` 常为空串或「1-1」「正片」「简介」，
+> 按标题过滤会把真片头挡掉（用户反而觉得「开了没用」）。
 
-- `Segment(type, fromSec, toSec)` 用**秒**；`buildSegments()` 只留 `type` 为 1/2、`toSec > fromSec`、时长 ≤ `MAX_SEGMENT_SECONDS`(600s) 的段并按起点排序——上限用来挡上游偶尔下发的「0 秒 → 整集」脏区间。
+**纯逻辑**：`player/ViewPointSkip.kt`（Kotlin `object`，零 Android 依赖，配
+`app/src/test/.../ViewPointSkipTest.kt` + `ViewPointSkipChapterTest.kt`）。
+
+- `Segment(type, fromSec, toSec, content = "")` 用**秒**；`content` 只作诊断（`isOpEdLabel`），**不参与过滤**。
+- `buildSegments(raw)` 只留 `type` 为 1/2、`toSec > fromSec`、时长 ≤ `MAX_SEGMENT_SECONDS`(600s) 的段并按起点排序——上限用来挡上游偶尔下发的「0 秒 → 整集」脏区间。
+- `buildSegments(raw, allowAutoSkip)` 是**首道闸**：`allowAutoSkip == false` 直接返回空表。调用方（`PlayerActivity.loadViewPoints()`）用 `isPgcPlayback()` 判当前是不是番剧/影视，**UGC 一律传 false**，自动跳过彻底不参与，而「显示视频分段」按钮与分段选择卡片照旧可用。
+- `isPgcPlayback()` 的判据：以 Intent 里的 `is_bangumi`（`api/PlayerApi.buildTerminalPlayerIntent` 从 `PlayerData.isBangumi` 写入，所有 `jumpToPlayer` 入口自动带上）为主，**epid > 0 兜底**（只有番剧才非 0）；**不看 seasonId**（缺季信息时番剧也可能只有 epid）；两者都没有按 UGC 处理（fail-closed）。
 - `segmentAt()` 判定区间是**左闭右开** `[from, to)`。这一点不能改成右闭：跳过后的落点正好等于 `toSec`，右闭会被自己重新命中而反复跳。
 - `shouldSkip(pos, segments, handled)` 命中 `handled` 集合即返回 `null` → **每个片段只自动跳一次**。
 - `keyForManualSeek()` 专门给「用户自己拖进片段」打标记用。

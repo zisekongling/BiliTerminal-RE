@@ -22,6 +22,7 @@ import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.ToolsUtil
@@ -114,6 +115,9 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
                             TerminalContext.getInstance().enterVideoDetailPage(ctx, card.aid, null, "media")
                         }
                     }
+                    // 其它私有功能自定义的卡片类型（如 Bangumi 独有条目）：交给门面处理，
+                    // 返回 true 表示已跳转；公开构建里没有这类卡片。
+                    else -> OptionalFeatures.handleVideoCardClick(boundContext!!, boundVideoCard!!)
                 }
             }
         }
@@ -195,8 +199,9 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
 
         try {
             // 封面占半屏以上：用 url_hq（80q/1024w）而不是列表默认的 512w，
-            // 否则在 1080p 屏幕上被放大后明显发虚
-            val coverUrl = GlideUtil.url_hq(videoCard.cover)
+            // 否则在 1080p 屏幕上被放大后明显发虚。
+            // 私有功能产出的卡片（封面可能带 query 串，加后缀会 404）由门面给出最终地址。
+            val coverUrl = OptionalFeatures.coverUrlOverride(videoCard) ?: GlideUtil.url_hq(videoCard.cover)
             if (coverUrl != lastCoverUrl) {
                 lastCoverUrl = coverUrl
                 GlideUtil.with(cover).asDrawable().load(coverUrl)

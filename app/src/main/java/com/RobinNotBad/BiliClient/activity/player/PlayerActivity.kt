@@ -72,6 +72,7 @@ import com.RobinNotBad.BiliClient.model.ViewPoint
 import com.RobinNotBad.BiliClient.player.DanmakuManager
 import com.RobinNotBad.BiliClient.player.IjkNativeLibs
 import com.RobinNotBad.BiliClient.player.PlayerDefaults
+import com.RobinNotBad.BiliClient.player.PlayerRequestPolicy
 import com.RobinNotBad.BiliClient.player.LocalAudioTrackPolicy
 import com.RobinNotBad.BiliClient.player.PlayerSurfaceBinder
 import com.RobinNotBad.BiliClient.player.PlayerVolumePolicy
@@ -91,6 +92,7 @@ import com.RobinNotBad.BiliClient.util.LocalVideoProgress
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
+import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
@@ -235,8 +237,27 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     @Volatile
     private var isPrepared: Boolean = false
     private var hasDanmaku: Boolean = false
+
+    /**
+     * 第三方弹幕（弹弹play）标记：换源播放时私有侧带 `third_party_danmaku=true`，
+     * 弹幕 XML 由私有侧异步准备好后再回灌（见 [applyThirdPartyDanmaku]）。
+     * 置位时本页**不下载** B 站弹幕，也不显示发送弹幕按钮。
+     */
+    private var thirdPartyDanmaku = false
+    private var thirdPartyDanmakuBgmId = 0L
+    private var thirdPartyDanmakuEpisode = 0
+    private var thirdPartyDanmakuTitle: String? = null
+    private var thirdPartyDanmakuAltTitle: String? = null
     private var isOnlineVideo: Boolean = false
     private var isLiveMode: Boolean = false
+
+    /**
+     * 是否在等私有侧解析「备用片源」（见 OptionalFeatures.requestThirdPartyResolve）。
+     *
+     * 这类播放请求本身没有 url：私有侧只带「片名 + 第几集」进来，播放页先照常初始化、
+     * 停在载入中，等解析出真正的地址后再 setDisplay。
+     */
+    private var waitingThirdPartySource: Boolean = false
     private var isSeeking: Boolean = false
     private var isDanmakuVisible: Boolean = false
     private var menu_opened = false
@@ -271,6 +292,21 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     companion object {
         /** `onSaveInstanceState` 保存的播放位置（毫秒），用于系统重建本页后回到原位 */
         private const val STATE_POSITION = "player_state_position"
+
+        /**
+         * 「先跳播放页、再解析备用片源」的 Intent 标记（由私有侧设置）。
+         *
+         * 置位时 Intent 里没有 url，本页会先进入载入中，再让私有侧异步解析出地址。
+         */
+        private const val EXTRA_THIRD_PARTY_PENDING = "third_party_pending"
+
+        /**
+         * 「换源播放 + 第三方弹幕」的 Intent 标记（由私有侧设置）。
+         *
+         * 置位时不下载 B 站弹幕，改为让私有侧按 bgm 条目 / 标题去弹弹play 拉弹幕，
+         * 写好 B 站格式 XML 后通过 [applyThirdPartyDanmaku] 回灌。
+         */
+        private const val EXTRA_THIRD_PARTY_DANMAKU = "third_party_danmaku"
 
         /** 自动恢复的最多次数，超过就只提示、交回给用户手动重试 */
         private const val MAX_STALL_RETRY = 3
@@ -497,6 +533,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var seasonId: Long = 0
     private var seasonType: Int = 0
 
+    /**
+     * 本次播放是不是**番剧/影视（PGC）**。自动跳过片头片尾的「首道闸」就靠它
+     * （反馈 #99：UGC 稿件的 `view_points` 是分段章节，不是片头片尾，见 [isPgcPlayback]）。
+     *
+     * 判据以启动方写进 Intent 的 `PlayerData.isBangumi` 标记为主，**epid 兜底**：
+     * 标记由 `PlayerApi.buildTerminalPlayerIntent` 统一写入（所有入口自动带上），
+     * 旧入口没带时退回看 epid——它只有番剧才非 0。seasonId 不当判据（番剧也可能只带 epid）。
+     */
+    private var pgcPlaybackFlag: Boolean = false
+
     // ---- 播放中周期上报 / 切P·退出即时上报的状态（详见 maybeReportProgress / reportProgressNow）----
     // 与上次上报位置的差值上限，达到才再报一次，避免每 250ms 一个请求。
     // 番剧压到 5 秒：一集十几分钟看两眼就退的人不少，间隔太长时"最后一次有效心跳"还没发出去就退出了，
@@ -656,11 +702,20 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun getExtras(): Boolean {
         val intent = intent ?: return false
 
+        // 「先跳播放页、再解析备用片源」：私有侧带 third_party_pending=true，此时没有 url，
+        // 真实地址要在页面初始化完之后由私有侧异步给出（见 beginPendingThirdPartyResolve）。
+        // 一并固定下来：本页只在准备阶段读它，解析成功后 waitingThirdPartySource 归 false。
+        waitingThirdPartySource = intent.getBooleanExtra(EXTRA_THIRD_PARTY_PENDING, false)
+
         video_url = intent.getStringExtra("url")
         danmaku_url = intent.getStringExtra("danmaku") ?: ""
         val title = intent.getStringExtra("title")
 
-        if (video_url == null) return false
+        if (video_url == null) {
+            // 其它入口（详情页、收藏夹、直播、本地播放）都必须给 url，缺了就是脏 Intent
+            if (!waitingThirdPartySource) return false
+            video_url = ""
+        }
         if (danmaku_url.isNotEmpty()) Logu.v("弹幕", danmaku_url)
         Logu.v("视频", video_url)
         Logu.v("标题", title)
@@ -678,6 +733,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         epid = intent.getLongExtra("epid", 0)
         seasonId = intent.getLongExtra("seasonId", 0)
         seasonType = intent.getIntExtra("seasonType", 0)
+        // 番剧（PGC）标记，用于自动跳过片头片尾的首道闸（见 pgcPlaybackFlag / isPgcPlayback()）。
+        // **以 type 标记为主、epid 兜底**：`PlayerApi.buildTerminalPlayerIntent` 现在会写
+        // `is_bangumi`（= PlayerData.isBangumi），所有入口自动带上；旧入口/旧 Intent 没带时
+        // 退回看 epid——它同样只有番剧才非 0（补在 buildTerminalPlayerIntent 与 JumpToPlayerActivity
+        // 两处，见那边的注释）。seasonId **不能**当判据：缺季信息时番剧也可能只有 epid。
+        // 两者都没有就按 UGC 处理（fail-closed）：判错方向宁可不跳，也不能把普通投稿跳飞。
+        pgcPlaybackFlag = intent.getBooleanExtra("is_bangumi", false) ||
+                intent.getLongExtra("epid", 0L) > 0L
 
         progress_history = intent.getIntExtra("progress", 0).toLong()
         Logu.d("history", progress_history.toString())
@@ -690,8 +753,21 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             liveCandidateIndex = liveUrlCandidates.indexOf(video_url.orEmpty()).takeIf { it >= 0 } ?: 0
             Logu.d("直播候选", "${liveUrlCandidates.size} 条，当前 $liveCandidateIndex")
         }
-        isOnlineVideo = video_url!!.contains("http")
+        // 待解析的备用片源：地址还没来，但内容一定是在线流（不是本地文件），
+        // 所以这里先按在线处理；解析成功后会补上真实 url（见 beginPendingThirdPartyResolve）
+        isOnlineVideo = waitingThirdPartySource || video_url!!.contains("http")
         hasDanmaku = danmaku_url.isNotEmpty()
+
+        // 换源播放的第三方弹幕：弹幕文件由私有侧异步准备，这里只记参数（见 attachThirdPartyDanmaku）
+        thirdPartyDanmaku = intent.getBooleanExtra(EXTRA_THIRD_PARTY_DANMAKU, false)
+        if (thirdPartyDanmaku) {
+            thirdPartyDanmakuBgmId = intent.getLongExtra("danmaku_bgm_id", 0L)
+            thirdPartyDanmakuEpisode = intent.getIntExtra("danmaku_episode", 0)
+            thirdPartyDanmakuTitle = intent.getStringExtra("danmaku_title")
+            thirdPartyDanmakuAltTitle = intent.getStringExtra("danmaku_alt_title")
+            // 先假定有弹幕：等私有侧回灌失败再翻回 false（本地分支的既有写法同理）
+            hasDanmaku = true
+        }
 
         // 本地/缓存视频没有服务端历史可读，续播位置就存在视频目录的 `.video_meta.json` 里
         // （见 util/VideoMetaManager.readResumeMs）。Intent 里没带 progress 时用它补上，
@@ -896,7 +972,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     loading_text0.text = UiText.of("装填弹幕中")
                     loading_text1.text = "(≧∇≦)"
                 }
-                if (isOnlineVideo) {
+                if (thirdPartyDanmaku) {
+                    // 弹弹play 弹幕：没有「发送弹幕」入口，也不碰 B 站弹幕接口
+                    runOnUiThread { btn_danmaku_send.visibility = View.GONE }
+                } else if (isOnlineVideo) {
                     danmakuFile = File(cachepath, "danmaku.xml")
                     downdanmu()
                 } else {
@@ -922,7 +1001,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     loadInteractionVideo()
                 }
 
-                if (!destroyed) setDisplay()
+                // 待解析的备用片源没有地址，先让私有侧去解析，解析好再 setDisplay；
+                // 其余情况照旧直接进播放准备
+                if (!destroyed) {
+                    // 解析链路要起 Activity、改加载文案，统一回主线程
+                    if (waitingThirdPartySource) runOnUiThread { beginPendingThirdPartyResolve() }
+                    else {
+                        setDisplay()
+                        if (thirdPartyDanmaku) runOnUiThread { attachThirdPartyDanmaku() }
+                    }
+                }
             }
         }, 60)
     }
@@ -1598,6 +1686,79 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (textureView != null) player.setSurface(null) else player.setDisplay(null)
     }
 
+    /**
+     * 「先跳播放页、再解析备用片源」：把解析交给私有侧，解析好了才真正开始播放。
+     *
+     * 页面此时已经完整初始化（播放器实例、UI、弹幕线程都在），所以用户看到的是本页的
+     * 载入中界面，而不是像以前那样先弹一个看不见的透明中转页、失败后连提示都没有。
+     *
+     * 失败时的 Toast 与「手动选源页」由私有侧负责（它才知道片名/别名），本页只收尾退出。
+     */
+    private fun beginPendingThirdPartyResolve() {
+        if (destroyed) return
+        runOnUiThread {
+            loading_text0.text = getString(R.string.uitext_playeractivity_third_party_resolving)
+            loading_text1.text = "(≧∇≦)"
+        }
+        val callback = object : OptionalFeatures.ThirdPartyResolveCallback {
+            override fun onResolved(url: String, referer: String?) {
+                runOnUiThread {
+                    if (destroyed || isFinishing) return@runOnUiThread
+                    if (url.isBlank()) {
+                        finish()
+                        return@runOnUiThread
+                    }
+                    waitingThirdPartySource = false
+                    if (!referer.isNullOrBlank()) {
+                        // 解析结果自带 Referer 时随 Intent 一起带上，MPPrepare 会按
+                        // 「内容来源是否为 B 站」决定要不要再补 B 站 Referer/Cookie
+                        intent.putExtra("third_party_referer", referer)
+                    }
+                    video_url = url
+                    isOnlineVideo = true
+                    Logu.d("备用片源", url)
+                    setDisplay()
+                }
+            }
+
+            override fun onFailed() {
+                runOnUiThread {
+                    if (destroyed || isFinishing) return@runOnUiThread
+                    waitingThirdPartySource = false
+                    finish()
+                }
+            }
+        }
+        val taken = OptionalFeatures.requestThirdPartyResolve(this, intent, callback)
+        if (!taken) {
+            // 公开构建（没有私有侧）本该拦在上游入口，走到这里说明 Intent 是脏的
+            runOnUiThread {
+                if (!destroyed && !isFinishing) {
+                    MsgUtil.showMsgLong(getString(R.string.msg_third_party_no_source))
+                    finish()
+                }
+            }
+        }
+    }
+
+    /**
+     * 私有侧更新「备用片源解析到哪一步了」的提示（26.11.06）。
+     *
+     * <p>以前解析进度显示在独立的等待页里；现在解析就在本页载入界面上跑，私有侧通过
+     * [OptionalFeatures.updateThirdPartyResolveHint] 把「正在打开剧集页…」「正在嗅探播放地址…」
+     * 这类文案推过来，用户看到的是播放器自己的载入动画 + 一行状态，不再中途跳页。
+     */
+    fun updateResolveHint(text: CharSequence?) {
+        if (destroyed) return
+        runOnUiThread {
+            if (destroyed || isFinishing) return@runOnUiThread
+            loading_info.visibility = View.VISIBLE
+            anim_loading?.start()
+            loading_text0.text = text?.takeIf { it.isNotBlank() }
+                ?: getString(R.string.uitext_playeractivity_third_party_resolving)
+        }
+    }
+
     private fun MPPrepare(nowurl: String) {
         // 重载期间不能让上一轮的外部音频继续出声；onPrepared 会按新媒体轨道重新选择。
         releaseAudioTrack()
@@ -1613,9 +1774,18 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             runOnUiThread { loading_text0.text = UiText.of("载入视频中") }
         try {
             if (isOnlineVideo) {
-                val headers = HashMap<String, String>()
-                headers["Referer"] = "https://www.bilibili.com/"
-                headers["Cookie"] = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "")
+                // Referer 与 Cookie 分开判（26.11.04）：B 站 playurl 高峰会返回 mcdn/PCDN 直链
+                // （*.edge.mountaintoys.cn 等），这些 host 不在 isBilibiliHost 白名单里，但防盗链
+                // 仍然要 Referer，缺了直接 403 → IJK 报 -10000。Cookie 是凭证，继续按白名单门控。
+                // 判据与理由见 player/PlayerRequestPolicy。
+                val bilibiliHost = isBilibiliHost(nowurl)
+                val headers = PlayerRequestPolicy.buildHeaders(
+                    thirdParty = PlayerRequestPolicy.isThirdPartySource(isLiveMode, aid, cid, bilibiliHost),
+                    bilibiliHost = bilibiliHost,
+                    cookies = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""),
+                    thirdPartyReferer = intent.getStringExtra("third_party_referer"),
+                    thirdPartyUserAgent = intent.getStringExtra("third_party_user_agent")
+                )
                 ijkPlayer!!.setDataSource(nowurl, headers)
             } else
                 ijkPlayer!!.setDataSource(nowurl)
@@ -2342,6 +2512,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      *   **不弹选择框**。此时不走下面那段选择框逻辑。
      */
     private fun downSubtitle(fromBtn: Boolean, autoChinese: Boolean = false) {
+        // 第三方源直链播放（没有 aid/cid）在 B 站没有对应视频，字幕接口只会返回没有 data 的响应，
+        // 进而抛 JSONException 弹「数据解析错误」——这种场景直接跳过，本地文件字幕仍走下面的 File 分支。
+        if (isOnlineVideo && (aid <= 0L || cid <= 0L)) return
         try {
             if (subtitleLinks == null) {
                 subtitleLinks = if (isOnlineVideo) PlayerApi.getSubtitleLinks(aid, cid)
@@ -2462,6 +2635,43 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             Logu.e("新版弹幕", "获取失败: " + e.message + "，回退到旧版接口")
             runOnUiThread { MsgUtil.toast(UiText.of("新版弹幕获取失败，使用旧版接口")) }
             CenterThreadPool.run { downdanmuOld() }
+        }
+    }
+
+    /**
+     * 让私有侧准备第三方弹幕：私有侧按 bgm 条目 / 标题去弹弹play 拉取、转换、写 B 站格式 XML，
+     * 就绪后回调 [applyThirdPartyDanmaku]。
+     *
+     * 凭据缺失、功能关闭或私有功能不存在时门户返回 false：静默无弹幕，不影响播放。
+     */
+    private fun attachThirdPartyDanmaku() {
+        if (destroyed) return
+        val ok = OptionalFeatures.attachThirdPartyDanmaku(
+            this,
+            thirdPartyDanmakuTitle,
+            thirdPartyDanmakuAltTitle,
+            thirdPartyDanmakuBgmId,
+            thirdPartyDanmakuEpisode
+        )
+        if (!ok) {
+            hasDanmaku = false
+            Logu.d("弹幕", "第三方弹幕不可用（私有侧未提供）")
+        }
+    }
+
+    /** 私有侧写好弹幕 XML 后的回灌入口：在本页自己的弹幕管理器上加载。 */
+    fun applyThirdPartyDanmaku(file: File) {
+        if (destroyed) return
+        runOnUiThread {
+            if (!file.exists() || file.length() <= 0L) {
+                hasDanmaku = false
+                Logu.w("弹幕", "第三方弹幕文件无效：" + file.absolutePath)
+                return@runOnUiThread
+            }
+            danmakuFile = file
+            prepareDanmaku { it.loadFromXmlFile(file.absolutePath) }
+            hasDanmaku = true
+            Logu.d("弹幕", "第三方弹幕已载入：" + file.absolutePath)
         }
     }
 
@@ -3700,6 +3910,23 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     /**
+     * 本次播放是否为**番剧/影视（PGC）**——自动跳过片头片尾只对 PGC 生效（反馈 #99 的首道闸）。
+     *
+     * 为什么必须有这道闸：`x/player/wbi/v2` 的 `view_points` 在 **UGC 稿件上是分段章节**，
+     * 不是片头片尾——普通投稿（反馈 #99 里的 `BV1U74w6XEbB`）每个章节的 `type` 都恒为 2，
+     * 而 2 恰好是番剧的「片尾」类型，于是每个分段都被当片尾跳，「一直跳过片尾」。
+     * 只能靠「这条稿件本来就不该有片头片尾」来挡，不能指望 `type` 字段自己会区分。
+     *
+     * 判据以 Intent 里的 PGC 标记（[pgcPlaybackFlag]）为准，** epid 兜底**：
+     * 标记由 `PlayerApi.buildTerminalPlayerIntent` 从 `PlayerData.isBangumi` 写入（所有入口自动带上），
+     * 缺标记时退回看 epid——它只有番剧才非 0。两个都不看 seasonId（缺季信息时番剧也可能只有 epid）。
+     * 「两个都没有按 UGC」是 fail-closed——判错方向宁可不跳，也不能把普通投稿跳飞。
+     *
+     * 直播与本地文件同样恒为非 PGC（它们的 [PlayerData.type] 是 TYPE_LIVE / TYPE_LOCAL）。
+     */
+    private fun isPgcPlayback(): Boolean = pgcPlaybackFlag
+
+    /**
      * 是否需要 `view_points` 数据：「显示视频分段」与「自动跳过片头片尾」都用得到。
      *
      * 26.10.10 撤回期间这里只有分段显示一项（撤回后没人消费片段表，白拉接口）；
@@ -4697,14 +4924,21 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 Logu.d("视频分段", "开始加载分段数据 aid=" + requestAid + " cid=" + requestCid)
                 viewPoints = PlayerApi.getViewPoints(requestAid, requestCid)
                 // 片头/片尾只是 view_points 的子集（type=1/2），这里单独提炼一份给自动跳过用。
-                // 功能总开关 [SkipOpEdPrefs.FEATURE_ENABLED] 为假（即再次紧急撤回）时直接留空，
+                // **第一道闸（反馈 #99）**：`view_points` 在 UGC 上是**分段章节**不是片头片尾——
+                // 普通投稿（如 BV1U74w6XEbB）的每一个章节 type 都恒为 2，把它当片尾就会一路
+                // 「一直跳过片尾」。所以非 PGC 一律喂空表：自动跳过彻底不参与，分段按钮照旧可用
+                // （viewPoints 本身不动，见下方 showViewPointSelectorCard）。
+                // 这里**只**有这一道闸：ViewPointSkip 不再拿 content 做白名单（番剧片段的 content
+                // 常是空串或「1-1」「正片」，按标题过滤会把真片头也挡掉，反而让功能失效）。
+                // 功能总开关 [SkipOpEdPrefs.FEATURE_ENABLED] 为假（即再次紧急撤回）时同样留空，
                 // 不白跑 buildSegments：唯一的消费点 maybeAutoSkipOpEd 已被 SkipOpEdPrefs.isEnabled
                 // 拦死，算了也没人看。所以「撤一次/恢复一次」都只需改那个常量，这里不用动。
                 val segments = if (SkipOpEdPrefs.FEATURE_ENABLED) {
                     ViewPointSkip.buildSegments(
                         (viewPoints ?: emptyList()).map {
-                            ViewPointSkip.Segment(it.type, it.from.toDouble(), it.to.toDouble())
-                        }
+                            ViewPointSkip.Segment(it.type, it.from.toDouble(), it.to.toDouble(), it.content)
+                        },
+                        allowAutoSkip = isPgcPlayback()
                     )
                 } else {
                     emptyList()
@@ -4733,7 +4967,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                             btn_viewpoint.setOnClickListener { showViewPointSelectorCard() }
                         }
                         Logu.d("视频分段", "成功加载 " + viewPoints!!.size + " 个分段")
-                        maybeShowSkipGuide()
+                        // 引导只在 PGC 上弹：UGC 的分段不是片头片尾，在这里引导「自动跳过」
+                        // 等于邀请用户去踩反馈 #99 那个坑
+                        if (isPgcPlayback()) maybeShowSkipGuide()
                     } else {
                         Logu.d("视频分段", "未获取到分段数据")
                     }
@@ -5438,6 +5674,25 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             setResult(RESULT_OK, result)
         } else setResult(RESULT_CANCELED)
         super.finish()
+    }
+
+    /**
+     * 判断直链是否属于 B 站自己的域。
+     *
+     * <p>现在只用来决定**能不能带 B 站 Cookie**（见 [PlayerRequestPolicy]）：Cookie 是登录态，
+     * 第三方片源绝不能收到 SESSDATA。Referer 不按这个方法判——B 站 playurl 会在高峰把直链调度到
+     * mcdn/PCDN 节点（`*.edge.mountaintoys.cn` 等），那些 host 不在这里，但同样需要 B 站 Referer。
+     *
+     * <p>复用已审计的 [NetWorkUtil.isBilibiliHost]（P2-5：必须有点边界，`evilbilibili.com`
+     * 不能算 B 站域）。解析不出 host 时按第三方处理（fail-closed）。
+     */
+    private fun isBilibiliHost(url: String): Boolean {
+        val host = try {
+            java.net.URI(url).host.orEmpty()
+        } catch (e: Throwable) {
+            ""
+        }
+        return host.isNotEmpty() && NetWorkUtil.isBilibiliHost(host)
     }
 
 }

@@ -28,6 +28,7 @@ import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.bumptech.glide.Glide
@@ -271,6 +272,18 @@ class BangumiInfoFragment : Fragment() {
             styles.visibility = View.GONE
         }
 
+        // Bangumi 评分：B 站没有这套口碑数据，由可选私有功能在页面上用代码补一行（公共布局不能改）。
+        // 取不到 / 低于匹配阈值时整行隐藏，不占位、不报错；私有功能不在场时这里是空操作。
+        val detailRoot = rootView
+        if (detailRoot is ViewGroup) {
+            OptionalFeatures.attachBangumiDetails(
+                detailRoot,
+                bangumi?.info?.title.orEmpty(),
+                bangumi?.info?.season_id ?: 0L,
+                mediaId
+            )
+        }
+
         if (bangumi!!.info.evaluate != null && bangumi!!.info.evaluate!!.trim().isNotEmpty()) {
             evaluate.text = bangumi!!.info.evaluate!!.trim()
             evaluateHeader.visibility = View.VISIBLE
@@ -371,20 +384,7 @@ class BangumiInfoFragment : Fragment() {
         playButton.setOnClickListener {
             // 用安全取值代替 direct 下标：选中的季为空/下标越界时返回 null 而不是抛 IndexOutOfBoundsException
             val episode = currentEpisode() ?: return@setOnClickListener
-            Glide.get(requireContext()).clearMemory()
-            val intent = Intent(it.context, JumpToPlayerActivity::class.java)
-            // 必须带上 season_id 与季类型：番剧的观看进度要走心跳接口上报，
-            // 只有 epid 而没有 sid/sub_type 时服务端不会把它记成番剧记录。
-            // 用 currentSeasonId/currentSeasonType（页内切季后的那一季）而不是 info 上的值，
-            // 否则从第二季点播放会上报成第一季的记录
-            val data = episode.toPlayerData(currentSeasonId, currentSeasonType)
-            // 历史来源的进度单位是秒，PlayerData.progress 要毫秒；
-            // 只有当前这一集就是历史里记的那一集时才带，避免把别集的进度套到这一集上
-            if (episode.id == targetEpid && targetProgressSec > 0) {
-                data.progress = targetProgressSec * 1000
-            }
-            intent.putExtra("data", data)
-            startActivity(intent)
+            startPlay(episode)
         }
         playButton.setOnLongClickListener {
             val intent = Intent(it.context, SettingPlayerChooseActivity::class.java)
@@ -394,6 +394,46 @@ class BangumiInfoFragment : Fragment() {
         onFinishLoad()
 
         refreshReplies()
+    }
+
+    /**
+     * 播放按钮的统一入口：先问可选私有功能要不要接管（会员集会打开「播放来源」面板让用户自己挑源），
+     * 不接管时走原来的 B 站播放链路。
+     */
+    private fun startPlay(episode: Bangumi.Episode) {
+        val title = bangumi?.info?.title.orEmpty()
+        // 把这一集的真实集名（「第5话」）一起交给私有侧：它既要拿去显示标题，也要按集号
+        // 对齐采集站的集列表——只传列表下标会在两边列表长度/顺序不一致时串集（26.11.05）
+        if (title.isNotEmpty() &&
+            OptionalFeatures.interceptBangumiPlay(
+                requireContext(),
+                title,
+                selectedEpisode,
+                episode.badge.orEmpty(),
+                episode.title.orEmpty()
+            )
+        ) {
+            return
+        }
+        playOnBili(episode)
+    }
+
+    /** 原 B 站播放链路（保持既有的进度/上报语义不变）。 */
+    private fun playOnBili(episode: Bangumi.Episode) {
+        Glide.get(requireContext()).clearMemory()
+        val intent = Intent(requireContext(), JumpToPlayerActivity::class.java)
+        // 必须带上 season_id 与季类型：番剧的观看进度要走心跳接口上报，
+        // 只有 epid 而没有 sid/sub_type 时服务端不会把它记成番剧记录。
+        // 用 currentSeasonId/currentSeasonType（页内切季后的那一季）而不是 info 上的值，
+        // 否则从第二季点播放会上报成第一季的记录
+        val data = episode.toPlayerData(currentSeasonId, currentSeasonType)
+        // 历史来源的进度单位是秒，PlayerData.progress 要毫秒；
+        // 只有当前这一集就是历史里记的那一集时才带，避免把别集的进度套到这一集上
+        if (episode.id == targetEpid && targetProgressSec > 0) {
+            data.progress = targetProgressSec * 1000
+        }
+        intent.putExtra("data", data)
+        startActivity(intent)
     }
 
     /**

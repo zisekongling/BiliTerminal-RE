@@ -113,15 +113,6 @@ object SettingsKeys {
     const val SAVE_PATH_VIDEO = "save_path_video"
     const val SAVE_PATH_PICTURES = "save_path_pictures"
 
-    /**
-     * 缓存页排序档位，存 `util/LocalListSort.nameOf` 的短名（default / title / time / size）。
-     * 反馈 #94：用户要「选择性排序」，档位在下次进页面时沿用。
-     */
-    const val CACHE_LIST_SORT_KEY = "cache_list_sort_key"
-
-    /** 缓存页排序方向：true = 升序。和 [CACHE_LIST_SORT_KEY] 一起组成七档菜单里的一档。 */
-    const val CACHE_LIST_SORT_ASCENDING = "cache_list_sort_ascending"
-
     // ==================== 高级与实验 ====================
     const val DEV_PLAYER_ROTATE_SOFTWARE = "dev_player_rotate_software"
     const val PLAYER_SHOW_VIEWPOINTS = "player_show_viewpoints"

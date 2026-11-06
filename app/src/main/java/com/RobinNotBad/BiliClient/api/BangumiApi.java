@@ -236,6 +236,8 @@ public class BangumiApi {
 
             info.evaluate = result.optString("evaluate", "");
             info.staff = result.optString("staff", "");
+            // 角色/声优是"角色：CV"多行文本（不是数组），角色页的第二级数据源
+            info.actors = result.optString("actors", "");
             info.record = result.optString("record", "");
             info.subtitle = result.optString("subtitle", "");
 

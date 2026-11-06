@@ -38,33 +38,42 @@
 
     </RelativeLayout>
 
-    <EditText
-        android:id="@+id/search_input"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_below="@id/top"
-        android:layout_marginHorizontal="@dimen/activity_padding_horizontal"
-        android:layout_marginTop="4dp"
-        android:hint="@string/hint_activitysettingmain_01"
-        android:imeOptions="actionSearch"
-        android:inputType="text"
-        android:paddingHorizontal="12dp"
-        android:paddingVertical="8dp"
-        android:singleLine="true"
-        android:textSize="14sp" />
-
+    <!-- 反馈 #97：搜索框不再固定贴在顶栏下沿，改为跟内容一起滚动（「取消固定」）。
+         要恢复常驻搜索时把下面的 EditText 挪回 scrollView 外面、layout_below 指回 @id/top，
+         不要只改一处。 -->
     <com.RobinNotBad.BiliClient.ui.widget.RotaryScrollView
         android:id="@+id/scrollView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_below="@id/search_input">
+        android:layout_below="@id/top">
 
         <LinearLayout
-            android:id="@+id/settings_container"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingVertical="2dp" />
+            android:orientation="vertical">
+
+            <EditText
+                android:id="@+id/search_input"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="@dimen/activity_padding_horizontal"
+                android:layout_marginTop="4dp"
+                android:hint="@string/hint_activitysettingmain_01"
+                android:imeOptions="actionSearch"
+                android:inputType="text"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="8dp"
+                android:singleLine="true"
+                android:textSize="14sp" />
+
+            <LinearLayout
+                android:id="@+id/settings_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingVertical="2dp" />
+
+        </LinearLayout>
 
     </com.RobinNotBad.BiliClient.ui.widget.RotaryScrollView>
 

@@ -42,8 +42,8 @@ android {
         applicationId "com.RobinNotBad.BiliClient"
         minSdk 19
         targetSdk 34
-        versionCode 2611020
-        versionName "26.11.02"
+        versionCode 2611060
+        versionName "26.11.06"
 
         if (betaVer) {
             versionName += "-BETA" + betaVer
@@ -55,6 +55,40 @@ android {
 
         vectorDrawables {
             useSupportLibrary true
+        }
+
+        // ── 私有功能的构建期凭证（不进仓库）──────────────────────────────────
+        // 私有侧的 BGM 数据代理需要第三方服务签发的 AppId/AppSecret。和 Kazumi 一样
+        // **只在构建期注入**：-PKAZUMI_APPID / -PKAZUMI_KEY，或同名环境变量（CI 从 Secrets 传）。
+        // 仓库与源码里永远是空串 → 私有侧自动关闭代理、退回旧链路，公开构建行为不变。
+        // 只在有 private/ 时定义这两个字段：没有私有功能的公开构建连这个常量都不会出现。
+        if (hasPrivateFeature) {
+            // 用 providers 读属性/环境变量：这样 configuration cache 会把「值变了」当作输入变化，
+            // 不会出现改了环境变量却复用旧配置、BuildConfig 还是空串的情况。
+            def mirrorAppId = providers.gradleProperty('KAZUMI_APPID')
+                    .orElse(providers.environmentVariable('KAZUMI_APPID'))
+                    .orElse('').get()
+                    .toString().replace('\\', '\\\\').replace('"', '\\"')
+            def mirrorKey = providers.gradleProperty('KAZUMI_KEY')
+                    .orElse(providers.environmentVariable('KAZUMI_KEY'))
+                    .orElse('').get()
+                    .toString().replace('\\', '\\\\').replace('"', '\\"')
+            buildConfigField "String", "BGM_MIRROR_APP_ID", "\"${mirrorAppId}\""
+            buildConfigField "String", "BGM_MIRROR_SECRET", "\"${mirrorKey}\""
+
+            // 第三方弹幕（弹弹play）的 AppId / AppSecret：同样是构建期注入，
+            // `-PDANDANAPI_APPID / -PDANDANAPI_KEY` 或同名环境变量（CI 从 Secrets 传）。
+            // 空串 → 第三方弹幕整体关闭，换源播放退回「没有弹幕」的旧行为。
+            def dandanAppId = providers.gradleProperty('DANDANAPI_APPID')
+                    .orElse(providers.environmentVariable('DANDANAPI_APPID'))
+                    .orElse('').get()
+                    .toString().replace('\\', '\\\\').replace('"', '\\"')
+            def dandanKey = providers.gradleProperty('DANDANAPI_KEY')
+                    .orElse(providers.environmentVariable('DANDANAPI_KEY'))
+                    .orElse('').get()
+                    .toString().replace('\\', '\\\\').replace('"', '\\"')
+            buildConfigField "String", "DANDANAPI_APP_ID", "\"${dandanAppId}\""
+            buildConfigField "String", "DANDANAPI_SECRET", "\"${dandanKey}\""
         }
     }
 

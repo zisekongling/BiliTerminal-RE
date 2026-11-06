@@ -22,11 +22,13 @@ import com.RobinNotBad.BiliClient.model.Subtitle;
 import com.RobinNotBad.BiliClient.model.SubtitleLink;
 import com.RobinNotBad.BiliClient.model.VideoInfo;
 import com.RobinNotBad.BiliClient.service.DownloadService;
+import com.RobinNotBad.BiliClient.util.CenterThreadPool;
 import com.RobinNotBad.BiliClient.util.FileUtil;
 import com.RobinNotBad.BiliClient.util.LocalFileProvider;
 import com.RobinNotBad.BiliClient.util.Logu;
 import com.RobinNotBad.BiliClient.util.MsgUtil;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
+import com.RobinNotBad.BiliClient.util.PageOrderStore;
 import com.RobinNotBad.BiliClient.util.SettingsKeys;
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
 import com.RobinNotBad.BiliClient.util.ToolsUtil;
@@ -77,11 +79,15 @@ public class PlayerApi {
                     videoInfo.aid, videoInfo.cids.get(0),
                     videoInfo.cover,
                     qn, "video", "");
-        else
+        else {
+            // 反馈 #98：多P/合集下载落盘后缓存页按 listFiles() 顺序排，和 UP 主发布的顺序对不上。
+            // 入队时把服务端下发的 pagenames（合集顺序）记到合集的 .page_order.json，扫描时按它排。
+            CenterThreadPool.run(() -> PageOrderStore.remember(videoInfo.title, videoInfo.pagenames));
             DownloadService.startDownload(videoInfo.title, videoInfo.pagenames.get(page),
                     videoInfo.aid, videoInfo.cids.get(page),
                     videoInfo.cover,
                     qn, "video", "");
+        }
     }
 
     /**
@@ -98,11 +104,14 @@ public class PlayerApi {
                     videoInfo.aid, videoInfo.cids.get(0),
                     videoInfo.cover,
                     qn, "audio_only", audioUrl);
-        else
+        else {
+            // 同 startDownloading：仅音频下载也是按页落盘，页顺序同样要记下来（反馈 #98）
+            CenterThreadPool.run(() -> PageOrderStore.remember(videoInfo.title, videoInfo.pagenames));
             DownloadService.startDownload(videoInfo.title, videoInfo.pagenames.get(page),
                     videoInfo.aid, videoInfo.cids.get(page),
                     videoInfo.cover,
                     qn, "audio_only", audioUrl);
+        }
     }
 
     /**
@@ -571,6 +580,11 @@ public class PlayerApi {
             intent.putExtra("seasonId", playerData.seasonId);
             intent.putExtra("seasonType", playerData.seasonType);
         }
+        //「这条是不是番剧/影视（PGC）」的显式标记，放在这里同样是为了让所有入口自动带上。
+        // 播放器用它当自动跳过片头片尾的首道闸（反馈 #99：UGC 的 view_points 是分段章节、
+        // type 恒为 2，被当成片尾一路跳过）。不复用上面的 epid： epid 是「进度上报走心跳」的
+        // 维度，与「该不该有片头片尾」不是同一件事，由 type 标记单独承载更直白。
+        intent.putExtra("is_bangumi", playerData.isBangumi());
         if (playerData.qnStrList != null && playerData.qnValueList != null) {
             intent.putExtra("qnStrList", playerData.qnStrList);
             intent.putExtra("qnValueList", playerData.qnValueList);
