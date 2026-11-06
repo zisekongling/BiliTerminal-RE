@@ -1241,7 +1241,6 @@
 - **验证**：`:app:assembleDebug` BUILD SUCCESSFUL；`:app:testCoexistDebugUnitTest --tests "com.RobinNotBad.BiliClient.feature.*"` 全绿（含 `FeatureHolderContractTest` 对新签名的断言）。模拟器 e2e：`third_party_episode_label=第3话` 时日志出现「集名=第3话」，界面标题不再是下标推算值。
 - **已知遗留**：标题匹配仍按「双向包含」，同系列不同季可能互相命中（改名侧下一步加季数/年份约束）。
 
-
 - **需求**（用户原话）：「算了，咱们也和 kazumi 一样的逻辑算了，不搞静默换源了」（Kazumi 式选源；实测同机同网时，静默换源链路从点击到首帧约 9.2s，而 Kazumi 点选集到起播约 7.1s，且用户看不到在等什么）。
 - **公开侧改动**：`BangumiInfoFragment` 删掉详情页加载完成时的 `OptionalFeatures.warmUpBangumiSource(...)` 预热调用（面板化后预热没有意义，反而会和用户实际操作抢线程）；`startPlay()` 的注释改为「会员集会打开播放来源面板」。门面 `interceptBangumiPlay` / `warmUpBangumiSource` 签名不变（私有实现侧改行为）。
 - **私有侧改动**（不在本仓库）：`ThirdPartySourceActivity` 重写成「播放来源」面板——13 个源并发检索、逐源显示 `N 个结果 / 无结果 / 检索失败`、可展开选条目、再选剧集；`interceptBangumiPlay` 只负责打开面板；删除「先起播放页再背后解析」的 `playPendingInPlayer`，剧集页改为在透明中转页解析出地址后才起播放器。
@@ -1283,6 +1282,7 @@
 - **验证**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest -x lint` BUILD SUCCESSFUL；`testStandardDebugUnitTest` **143 suites / 1512 tests / 0 失败 0 错误**（新增 `PageOrderStoreTest` 11 例：JSON 往返、坏数据兜底、记录优先与补尾、已删页忽略、去重、不丢不重）。**设备未验**：本机唯一可用的 AVD 是 Play Store 镜像（android-37.0），任务栈被历史任务反复抢占（刚打开设置页就被别的 Activity 顶掉，首次启动教程 / 夜间提醒连环弹），没拿到稳定的滚动与缓存页截图。真手表复验两步：① 设置页往下滚，搜索框应随内容滚出屏幕；② 缓存一个多P合集后进缓存页，合集内页序应与 UP 主顺序一致。
 - **遗留**：旧缓存（这版之前下载的）没有 `.page_order.json`，不会自动补写顺序——需要重新缓存才会生成记录；要给老缓存补顺序得再加「按 meta 里的 aid/cid 反查 pagenames 重建」的逻辑，本轮没做。
 - **控制台状态（本轮）**：按维护者拍板把 **#11**（确认「加了」指 #53 内置选图页）、**#48**（证书信任修复，标已处理关闭）、**#82**（维护者确认 26.11.02 之后已正常）、**#89**（对应 `1a1536e` 账号代际隔离）、**#100**（26.11.02 已实现多P续播）标为已处理；#44 顺便核对私有仓库 `feature/DanmuMessage.kt` 已实现「弹幕被点赞 / 被回复」的填充与点击，公开侧仅 `OptionalFeatures` 门面，此前结论成立。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。
