@@ -33,16 +33,38 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/userName"
-                android:layout_width="wrap_content"
+            <!-- 昵称与「互关」徽章同一行：徽章只在查看自己的关注/粉丝/分组列表时出现，
+                 由 UserListAdapter 按 UserInfo.mutualFollow 每次 bind 重置显隐 -->
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:singleLine="true"
-                android:ellipsize="end"
-                android:textStyle="bold"
-                android:textSize="14sp"
-                android:textColor="?android:attr/textColorPrimary"
-                android:text="NappuHidda" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/userName"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:singleLine="true"
+                    android:ellipsize="end"
+                    android:textStyle="bold"
+                    android:textSize="14sp"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:text="NappuHidda" />
+
+                <TextView
+                    android:id="@+id/mutualBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:alpha="0.9"
+                    android:text="@string/social_mutual_follow_badge"
+                    android:textColor="?attr/colorAccent"
+                    android:textSize="10sp"
+                    android:visibility="gone" />
+
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/userDesc"

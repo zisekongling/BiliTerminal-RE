@@ -10,6 +10,7 @@ import com.RobinNotBad.BiliClient.BiliTerminal;
 import com.RobinNotBad.BiliClient.model.FollowTag;
 import com.RobinNotBad.BiliClient.model.UserInfo;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
+import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -26,6 +27,34 @@ import java.util.Objects;
 
 
 public class FollowApi {
+
+    // ==================== 互关标记（批次 1，社交与信息） ====================
+
+    /**
+     * 纯函数：列表主体是不是当前登录的账号。
+     *
+     * <p>「互关」只有在对**自己的**关注/粉丝/分组列表里才等价于「他和我互相关注」；
+     * 看别人的列表时，`attribute == 6` 表达的是「那个人与这一条互关」，对当前用户没有意义。
+     */
+    public static boolean isSelfList(long listOwnerMid, long currentMid) {
+        return listOwnerMid > 0 && currentMid > 0 && listOwnerMid == currentMid;
+    }
+
+    /**
+     * 纯函数：这一条是否该标「互关」。
+     *
+     * <p>B 站 `x/relation/*` 列表项的 `attribute`：1 已关注 / 2 被关注 / 6 互相关注。
+     * 必须同时满足「自己的列表」与「attribute == 6」两个条件，缺一不可。
+     */
+    public static boolean isMutualFollow(boolean selfList, int attribute) {
+        return selfList && attribute == 6;
+    }
+
+    /** 当前登录账号的 mid（未登录为 0）。抽出来只为让上面的纯函数不碰 SharedPreferences。 */
+    private static long currentLoginMid() {
+        return SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0);
+    }
+
     public static int getFollowingList(long mid, int page, List<UserInfo> userList) throws IOException, JSONException {
         String url = "https://api.bilibili.com/x/relation/followings?vmid=" + mid + "&pn=" + page + "&ps=20&order=desc&order_type=attention";
         JSONObject callback = NetWorkUtil.getJson(url);
@@ -35,13 +64,16 @@ public class FollowApi {
         JSONArray list = data.getJSONArray("list");
         if (list.length() == 0) return 1;
         else {
+            boolean selfList = isSelfList(mid, currentLoginMid());
             for (int i = 0; i < list.length(); i++) {
                 JSONObject userInfo = list.getJSONObject(i);
                 String name = userInfo.getString("uname");
                 long uid = userInfo.getLong("mid");
                 String avatar = userInfo.getString("face");
                 String sign = userInfo.getString("sign");
-                userList.add(new UserInfo(uid, name, avatar, sign, 0, 0, 0, true, "", 0, "", userInfo.optLong("mtime", 0), 0));
+                UserInfo user = new UserInfo(uid, name, avatar, sign, 0, 0, 0, true, "", 0, "", userInfo.optLong("mtime", 0), 0);
+                user.mutualFollow = isMutualFollow(selfList, userInfo.optInt("attribute", 0));
+                userList.add(user);
             }
             return 0;
         }
@@ -56,13 +88,16 @@ public class FollowApi {
         JSONArray list = data.getJSONArray("list");
         if (list.length() == 0) return 1;
         else {
+            boolean selfList = isSelfList(mid, currentLoginMid());
             for (int i = 0; i < list.length(); i++) {
                 JSONObject userInfo = list.getJSONObject(i);
                 String name = userInfo.getString("uname");
                 long uid = userInfo.getLong("mid");
                 String avatar = userInfo.getString("face");
                 String sign = userInfo.getString("sign");
-                userList.add(new UserInfo(uid, name, avatar, sign, 0, 0, 0, true, "", 0, "", userInfo.optLong("mtime", 0), 0));
+                UserInfo user = new UserInfo(uid, name, avatar, sign, 0, 0, 0, true, "", 0, "", userInfo.optLong("mtime", 0), 0);
+                user.mutualFollow = isMutualFollow(selfList, userInfo.optInt("attribute", 0));
+                userList.add(user);
             }
             return 0;
         }
@@ -99,7 +134,10 @@ public class FollowApi {
                 long uid = userInfo.getLong("mid");
                 String avatar = userInfo.getString("face");
                 String sign = userInfo.getString("sign");
-                userList.add(new UserInfo(uid, name, avatar, sign, 0, 0, 0, true, "", 0, "", 0));
+                UserInfo user = new UserInfo(uid, name, avatar, sign, 0, 0, 0, true, "", 0, "", 0);
+                // 分组列表只能查自己的（接口没有 vmid 参数），所以主体恒为当前账号
+                user.mutualFollow = isMutualFollow(true, userInfo.optInt("attribute", 0));
+                userList.add(user);
             }
             return 0;
         }

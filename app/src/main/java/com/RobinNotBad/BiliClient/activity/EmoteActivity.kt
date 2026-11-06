@@ -54,9 +54,16 @@ class EmoteActivity : BaseActivity() {
                 var from = intent.getStringExtra("from")
                 if (from == null) from = EmoteApi.BUSINESS_REPLY
 
-                val packages = EmoteApi.getEmotes(from)
+                // business=im（私信）面板不一定对网页 Cookie 开放：空包/非 0 码时由 API 层回落到 reply
+                val packages = EmoteApi.getEmotesWithFallback(from)
                 runOnUiThread {
                     loading.visibility = View.GONE
+                    if (packages.isEmpty()) {
+                        // 面板为空时不要拿 null 去建 adapter（原实现会在这里 NPE）
+                        MsgUtil.showMsg(getString(R.string.social_emote_panel_empty))
+                        finish()
+                        return@runOnUiThread
+                    }
                     viewPager.adapter = PagerAdapter(supportFragmentManager, packages) { origin ->
                         origin.setOnListScroll(onScrollListener)
                         origin

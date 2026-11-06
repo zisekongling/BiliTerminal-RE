@@ -55,6 +55,10 @@ public class UserInfoApi {
             String sys_notice = "";
             LiveRoom liveroom = null;
             boolean is_follow_display = false;
+            // 批次 1：性别 / IP 属地只在 wbi/acc/info 里返回（card 接口没有这两个字段），
+            // 隐私设置为「保密」/隐藏时服务端给空串，展示层按空串隐藏该行
+            String userSex = "";
+            String userIpLocation = "";
             try {
                 JSONObject spaceInfo = getUserSpaceInfo(mid);
                 if (spaceInfo != null) {
@@ -76,6 +80,8 @@ public class UserInfoApi {
                         JSONObject contract = spaceInfo.getJSONObject("contract");
                         is_follow_display = contract.optBoolean("is_follow_display", false);
                     }
+                    userSex = spaceInfo.optString("sex", "");
+                    userIpLocation = spaceInfo.optString("ip_location", "");
                 }
             } catch (Exception ignore) {
             }
@@ -85,10 +91,14 @@ public class UserInfoApi {
                 UserInfo result = new UserInfo(mid, name, avatar, sign, fans, attention, level, followed, notice, official, officialDesc, vip.getInt("role"), sys_notice, liveroom, card.getInt("is_senior_member"));
                 result.vip_nickname_color = vip.optString("nickname_color", "");
                 result.is_follow_display = is_follow_display;
+                result.sex = userSex;
+                result.ipLocation = userIpLocation;
                 return result;
             } else {
                 UserInfo result = new UserInfo(mid, name, avatar, sign, fans, attention, level, followed, notice, official, officialDesc, sys_notice, liveroom, card.getInt("is_senior_member"));
                 result.is_follow_display = is_follow_display;
+                result.sex = userSex;
+                result.ipLocation = userIpLocation;
                 return result;
             }
         } else return null;
@@ -102,6 +112,32 @@ public class UserInfoApi {
             return all.getJSONObject("data");
         }
         return null;
+    }
+
+    /**
+     * 纯函数：把「性别 / IP 属地」拼成一行展示文本；两项都不可展示时返回空串（调用方据此隐藏整行）。
+     *
+     * <p>放在这里而不是 adapter 里，是为了让「什么情况显示、顺序怎么排、分隔符谁加」
+     * 这三件事只存在一份实现，并能被 JVM 单测直接覆盖（adapter 那层碰 Android，测不了）。
+     *
+     * @param userInfo      用户信息
+     * @param sexFormat     性别文案模板，形如 {@code 性别：%1$s}
+     * @param ipFormat      IP 属地文案模板，形如 {@code IP属地：%1$s}
+     * @param separator     两项之间插入的分隔符
+     * @return 展示文本；空串表示整行不显示
+     */
+    public static String buildGenderIpLine(UserInfo userInfo, String sexFormat, String ipFormat, String separator) {
+        if (userInfo == null) return "";
+        String sex = userInfo.displaySex();
+        String ip = userInfo.displayIpLocation();
+        if (sex.isEmpty() && ip.isEmpty()) return "";
+        StringBuilder line = new StringBuilder();
+        if (!sex.isEmpty()) line.append(String.format(java.util.Locale.US, sexFormat == null ? "%s" : sexFormat, sex));
+        if (!ip.isEmpty()) {
+            if (line.length() > 0) line.append(separator == null ? "" : separator);
+            line.append(String.format(java.util.Locale.US, ipFormat == null ? "%s" : ipFormat, ip));
+        }
+        return line.toString();
     }
 
     public static UserInfo getCurrentUserInfo() throws IOException, JSONException {

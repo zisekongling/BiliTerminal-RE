@@ -110,6 +110,23 @@
         app:layout_constraintTop_toBottomOf="@id/userFollowers"
         tools:ignore="TouchTargetSizeCheck" />
 
+    <!-- 性别 / IP 属地（批次 1）：两项都拿不到时整行 GONE，由 UserInfoApi.buildGenderIpLine 返回空串决定。
+         默认 gone 是刻意的：老调用方还没接时不能凭空多出一行空白。 -->
+    <TextView
+        android:id="@+id/userGenderIp"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:alpha="0.7"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textSize="12sp"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/userDesc"
+        tools:text="性别：男 · IP属地：上海" />
+
     <TextView
         android:id="@+id/userNotice"
         android:layout_width="match_parent"
@@ -122,7 +139,7 @@
         android:textSize="13sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/userDesc"
+        app:layout_constraintTop_toBottomOf="@id/userGenderIp"
         tools:ignore="TouchTargetSizeCheck" />
 
 

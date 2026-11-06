@@ -12,7 +12,10 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import okhttp3.Response;
 
@@ -225,6 +228,98 @@ public class HistoryApi {
         String per = "kid=archive_" + aid + "&csrf=" + NetWorkUtil.currentCsrf();
         JSONObject result = new JSONObject(NetWorkUtil.post(url, per, NetWorkUtil.webHeaders).body().string());
         return result.getInt("code");
+    }
+
+    // ==================== 观看记录多选删除（批次 1，社交与信息） ====================
+
+    /**
+     * 多选删除一次最多提交多少条。
+     *
+     * <p>上限不是服务端限制（删除接口本来就是单条的），而是别让一次点击排出几百个串行请求：
+     * 手表弱网下要跑几分钟，用户会以为卡死。超过就只取前 N 条，由调用方提示。
+     */
+    public static final int MAX_BATCH_DELETE = 100;
+
+    /** 纯函数：勾选数量是否超过批量上限（超了要提示 {@code 一次最多删除 N 条}）。 */
+    public static boolean exceedsBatchLimit(int checkedCount) {
+        return checkedCount > MAX_BATCH_DELETE;
+    }
+
+    /** 纯函数：是否已全选。空数组不算全选，避免「0 条已全选」这种自相矛盾的状态。 */
+    public static boolean isAllSelected(boolean[] checked) {
+        if (checked == null || checked.length == 0) return false;
+        for (boolean value : checked) {
+            if (!value) return false;
+        }
+        return true;
+    }
+
+    /** 纯函数：勾选数量。 */
+    public static int countChecked(boolean[] checked) {
+        if (checked == null) return 0;
+        int count = 0;
+        for (boolean value : checked) {
+            if (value) count++;
+        }
+        return count;
+    }
+
+    /**
+     * 纯函数：把已加载的观看记录整理成「可多选快照」。
+     *
+     * <p>三条规则：按 `aid` 去重（历史里同一稿件可能出现多次，删一次就够）、跳过 `aid<=0`
+     * 的脏条目（删不掉还会让计数对不上）、最多 [limit] 条（见 {@link #MAX_BATCH_DELETE}）。
+     */
+    public static List<VideoCard> buildSelectableSnapshot(List<VideoCard> loaded, int limit) {
+        List<VideoCard> snapshot = new ArrayList<>();
+        if (loaded == null || limit <= 0) return snapshot;
+        Set<Long> seen = new HashSet<>();
+        for (VideoCard card : loaded) {
+            if (card == null || card.aid <= 0) continue;
+            if (!seen.add(card.aid)) continue;
+            snapshot.add(card);
+            if (snapshot.size() >= limit) break;
+        }
+        return snapshot;
+    }
+
+    /** 纯函数：勾选状态 → 待删除的 aid 列表（保持快照顺序）。 */
+    public static List<Long> collectSelectedAids(List<VideoCard> snapshot, boolean[] checked) {
+        List<Long> aids = new ArrayList<>();
+        if (snapshot == null || checked == null) return aids;
+        int size = Math.min(snapshot.size(), checked.length);
+        for (int i = 0; i < size; i++) {
+            if (!checked[i]) continue;
+            VideoCard card = snapshot.get(i);
+            if (card != null && card.aid > 0) aids.add(card.aid);
+        }
+        return aids;
+    }
+
+    /**
+     * 批量删除：逐条复用现有的单条删除接口，**不新增写接口**。
+     *
+     * <p>单条失败不中断整批——一条被风控挡下不该让其余记录也删不掉；失败只记日志，
+     * 由调用方用「成功条数 / 失败条数」汇总提示用户。
+     *
+     * @param aids 待删除的稿件 aid（调用方先用 {@link #collectSelectedAids} 收好）
+     * @return **成功删除**的 aid 列表（UI 据此从本地列表移除，不必整页重拉）
+     */
+    public static List<Long> deleteHistoryBatch(List<Long> aids) {
+        List<Long> succeeded = new ArrayList<>();
+        if (aids == null) return succeeded;
+        int limit = Math.min(aids.size(), MAX_BATCH_DELETE);
+        for (int i = 0; i < limit; i++) {
+            Long aid = aids.get(i);
+            if (aid == null || aid <= 0) continue;
+            try {
+                // 单条接口只认 aid（拼成 kid=archive_<aid>），bvid 形参不参与拼参
+                if (deleteHistory(aid, "") == 0) succeeded.add(aid);
+            } catch (Exception e) {
+                Logu.e("history-delete", "批量删除失败 aid=" + aid + " " + e.getMessage());
+            }
+        }
+        return succeeded;
     }
 
     /**

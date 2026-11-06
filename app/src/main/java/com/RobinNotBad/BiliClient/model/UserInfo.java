@@ -11,6 +11,19 @@ import org.json.JSONObject;
 import java.io.Serializable;
 
 public class UserInfo implements Parcelable, Serializable {
+
+    /**
+     * 显式序列化版本号（批次 1 补）。
+     *
+     * <p>类里实现了 {@code Serializable} 却没有声明 UID，一旦哪天有人把它写进文件/缓存，
+     * 之后每加一个字段默认 UID 就会变，老数据直接 {@code InvalidClassException}。
+     * 钉死成 1 之后，新增字段对老数据是「读不到就给默认值」，与本批新增的三个字段语义一致。
+     *
+     * <p>当前全仓没有任何地方把 UserInfo 序列化落盘（grep putSerializable / ObjectOutputStream 均无命中），
+     * 所以现在补是零风险；Parcelable 那条路不受 UID 影响。
+     */
+    private static final long serialVersionUID = 1L;
+
     public long mid;
     public String name;
     public String avatar;
@@ -41,6 +54,28 @@ public class UserInfo implements Parcelable, Serializable {
     public int is_senior_member = 0;
 
     public boolean is_follow_display = false;
+
+    // ==================== 批次 1 新增（社交与信息） ====================
+    /**
+     * 性别，接口原值（`x/space/wbi/acc/info` 的 `sex`：男 / 女 / 保密）。
+     *
+     * <p>保持原值不做加工，展示时统一走 {@link #displaySex()}——「保密要不要显示成一行」
+     * 这类判断只应该有一处。
+     */
+    public String sex = "";
+
+    /** IP 属地（同一接口的 `ip_location`，如「上海」）；隐私设置关闭时为空串。 */
+    public String ipLocation = "";
+
+    /**
+     * 是否与「列表主体」互相关注（B 站 `attribute == 6`）。
+     *
+     * <p>只在**查看自己的**关注/粉丝/分组列表时才有意义：看别人的列表时
+     * `attribute == 6` 表示「那个人与这一条互关」，不是「我与他互关」，
+     * 直接显示「互关」会误导用户。所以由 {@code FollowApi} 在解析时就把「是不是自己的列表」
+     * 折进来，adapter 只管按这个字段显示/隐藏。
+     */
+    public boolean mutualFollow = false;
 
     public UserInfo(long mid, String name, String avatar, String sign, int fans, int following, int level, boolean followed, String notice, int official, String officialDesc, int is_senior_member) {
         this.mid = mid;
@@ -167,6 +202,13 @@ public class UserInfo implements Parcelable, Serializable {
         live_room = in.readParcelable(LiveRoom.class.getClassLoader());
         is_senior_member = in.readInt();
         is_follow_display = in.readByte() != 0;
+        // 批次 1 追加字段：**必须**与 writeToParcel 的顺序一一对应，且只往末尾追加，
+        // 否则跨页面传参（Activity 间 Bundle 走 Parcel）会整体错位。
+        String parcelSex = in.readString();
+        sex = parcelSex == null ? "" : parcelSex;
+        String parcelIp = in.readString();
+        ipLocation = parcelIp == null ? "" : parcelIp;
+        mutualFollow = in.readByte() != 0;
     }
 
     @Override
@@ -193,6 +235,34 @@ public class UserInfo implements Parcelable, Serializable {
         dest.writeParcelable(live_room, flags);
         dest.writeInt(is_senior_member);
         dest.writeByte((byte) (is_follow_display ? 1 : 0));
+        // 与 readFromParcel 同序：sex → ipLocation → mutualFollow，只追加不改顺序
+        dest.writeString(sex == null ? "" : sex);
+        dest.writeString(ipLocation == null ? "" : ipLocation);
+        dest.writeByte((byte) (mutualFollow ? 1 : 0));
+    }
+
+    /**
+     * 可展示的性别：接口回「保密」/空串时返回空串，表示这一项不显示。
+     *
+     * <p>纯函数（不碰 Android），便于 JVM 单测覆盖「保密不显示」这个判定。
+     */
+    public String displaySex() {
+        String raw = sex == null ? "" : sex.trim();
+        if (raw.isEmpty()) return "";
+        // 服务端在用户设置「保密」时回的就是这两个字；个别老接口回「未知」
+        if ("保密".equals(raw) || "未知".equals(raw)) return "";
+        return raw;
+    }
+
+    /** 可展示的 IP 属地：空串表示不显示（与 {@link #displaySex()} 同口径）。 */
+    public String displayIpLocation() {
+        String raw = ipLocation == null ? "" : ipLocation.trim();
+        return raw;
+    }
+
+    /** 性别与 IP 属地是否至少有一项可展示——整行显隐由它决定。 */
+    public boolean hasGenderIpMeta() {
+        return !displaySex().isEmpty() || !displayIpLocation().isEmpty();
     }
 
     @Override

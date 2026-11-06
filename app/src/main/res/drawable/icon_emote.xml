@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  私信输入行的表情按钮图标（笑脸轮廓）。
+  纯矢量、单色 #fff，与同排的 send / 图 按钮一致：运行时由 ThemeTint 染成主题色，
+  不写死颜色（minSdk 19 的 drawable XML 不能用 ?attr/，见 ThemeTint 类注释）。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#fff"
+        android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM12,20c-4.41,0 -8,-3.59 -8,-8s3.59,-8 8,-8 8,3.59 8,8 -3.59,8 -8,8z" />
+    <path
+        android:fillColor="#fff"
+        android:pathData="M7,9.5C7,8.67 7.67,8 8.5,8S10,8.67 10,9.5 9.33,11 8.5,11 7,10.33 7,9.5z" />
+    <path
+        android:fillColor="#fff"
+        android:pathData="M14,9.5c0,-0.83 0.67,-1.5 1.5,-1.5S17,8.67 17,9.5 16.33,11 15.5,11 14,10.33 14,9.5z" />
+    <path
+        android:fillColor="#fff"
+        android:pathData="M12,17c-2.33,0 -4.31,-1.46 -5.11,-3.5h1.5c0.73,1.25 2.04,2 3.61,2s2.88,-0.75 3.61,-2h1.5C16.31,15.54 14.33,17 12,17z" />
+</vector>

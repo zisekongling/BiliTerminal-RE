@@ -6,6 +6,7 @@ import com.RobinNotBad.BiliClient.util.UiText
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
@@ -23,9 +24,11 @@ import androidx.annotation.NonNull
 import androidx.recyclerview.widget.RecyclerView
 
 import com.RobinNotBad.BiliClient.R
+import com.RobinNotBad.BiliClient.activity.EmoteActivity
 import com.RobinNotBad.BiliClient.activity.ImagePickerActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.adapter.message.PrivateMsgAdapter
+import com.RobinNotBad.BiliClient.api.EmoteApi
 import com.RobinNotBad.BiliClient.api.ImageApi
 import com.RobinNotBad.BiliClient.api.PrivateMsgApi
 import com.RobinNotBad.BiliClient.model.PrivateMessage
@@ -50,6 +53,7 @@ class PrivateMsgActivity : BaseActivity() {
     lateinit var contentEt: EditText
     lateinit var sendBtn: ImageButton
     lateinit var imageBtn: TextView
+    lateinit var emoteBtn: ImageButton
     lateinit var layout_input: View
     var adapter: PrivateMsgAdapter? = null
     var uid: Long = 0
@@ -70,6 +74,23 @@ class PrivateMsgActivity : BaseActivity() {
             }
         }
 
+    /**
+     * 表情面板结果回调：面板选中后回传表情码（如 `[doge]`），追加到输入框光标处，
+     * 随后照旧按 `msg_type=1` 的文本消息发送——服务端按文本里的表情码解析，
+     * 收发双方都由 [PrivateMsgAdapter] 渲染成表情图（渲染侧不用改）。
+     */
+    private val emoteLauncher: ActivityResultLauncher<Intent> =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val data = result.data
+            if (result.resultCode == android.app.Activity.RESULT_OK && data != null) {
+                val emoteCode = data.getStringExtra("text")
+                if (!emoteCode.isNullOrEmpty()) {
+                    val cursor = contentEt.selectionStart.coerceAtLeast(0)
+                    contentEt.text.insert(cursor, emoteCode)
+                }
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_private_msg)
@@ -78,9 +99,13 @@ class PrivateMsgActivity : BaseActivity() {
         contentEt = findViewById(R.id.msg_input_et)
         sendBtn = findViewById(R.id.send_btn)
         imageBtn = findViewById(R.id.image_btn)
+        emoteBtn = findViewById(R.id.emote_btn)
         // background_privatemsg_send 写死老版粉 #fb8799，这里按主题主色着色（形状/圆角不变）
         ThemeTint.tintBackground(sendBtn, ColorScheme.PRIMARY)
         ThemeTint.tintBackground(imageBtn, ColorScheme.PRIMARY)
+        ThemeTint.tintBackground(emoteBtn, ColorScheme.PRIMARY)
+        // 图标本身是单色 #fff 矢量，底已被染成主题色，图标保持白；不染的话在浅色主题下会糊成一团
+        emoteBtn.setImageDrawable(ThemeTint.tinted(this, R.drawable.icon_emote, Color.WHITE))
         layout_input = findViewById(R.id.layout_input)
 
         val intent = intent
@@ -198,6 +223,29 @@ class PrivateMsgActivity : BaseActivity() {
             } else {
                 pickImage()
             }
+        }
+
+        emoteBtn.setOnClickListener {
+            if (SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0L) == 0L) {
+                MsgUtil.showMsg(UiText.of("还没有登录喵~"))
+            } else {
+                openEmotePanel()
+            }
+        }
+    }
+
+    /**
+     * 打开表情面板：`business=im` 优先，API 层拉不到时自动回落到 reply 面板
+     * （见 [EmoteApi.getEmotesWithFallback]）；选中结果由 [emoteLauncher] 回填输入框。
+     */
+    private fun openEmotePanel() {
+        try {
+            emoteLauncher.launch(
+                Intent(this, EmoteActivity::class.java)
+                    .putExtra("from", EmoteApi.BUSINESS_IM)
+            )
+        } catch (e: Exception) {
+            MsgUtil.err(e)
         }
     }
 

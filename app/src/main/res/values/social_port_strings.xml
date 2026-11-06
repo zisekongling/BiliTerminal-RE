@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  批次 1「社交与信息」新增文案（私信表情 / 性别·IP 属地 / 互关徽章 / 历史多选删除）。
+
+  单独一个文件而不是塞进 strings.xml：这一批与其它并行改动共用仓库，
+  新键集中在这里能避免合并冲突；键名统一 social_ 前缀，不与既有键碰撞。
+-->
+<resources>
+
+    <!-- ==================== 私信表情 ==================== -->
+    <string name="social_emote_button_desc">表情</string>
+    <string name="social_emote_panel_empty">表情面板暂时不可用</string>
+
+    <!-- ==================== 性别 / IP 属地 ==================== -->
+    <string name="social_user_sex_format">性别：%1$s</string>
+    <string name="social_user_ip_format">IP属地：%1$s</string>
+    <!-- 用引号包住，保住两端的空格（AAPT 会折叠/裁剪未加引号的首尾空白） -->
+    <string name="social_user_meta_separator">" · "</string>
+
+    <!-- ==================== 互关徽章 ==================== -->
+    <string name="social_mutual_follow_badge">互关</string>
+
+    <!-- ==================== 历史记录多选删除 ==================== -->
+    <string name="social_history_delete_single">删除这条记录</string>
+    <string name="social_history_delete_multi">多选删除</string>
+    <string name="social_history_delete_title">删除观看记录</string>
+    <string name="social_history_delete_single_message">将删除这条观看记录，无法恢复：\n\n%1$s</string>
+    <string name="social_history_delete_batch_message">将删除选中的 %1$d 条观看记录，无法恢复。</string>
+    <string name="social_history_delete_confirm">删除</string>
+    <string name="social_history_cancel">取消</string>
+    <string name="social_history_select_all">全选</string>
+    <string name="social_history_deselect_all">取消全选</string>
+    <string name="social_history_selected_count">已选 %1$d 条</string>
+    <string name="social_history_delete_selected">删除已选</string>
+    <string name="social_history_batch_limit">一次最多删除 %1$d 条</string>
+    <string name="social_history_batch_empty">当前列表没有可删除的记录</string>
+    <string name="social_history_deleted_ok">已删除 %1$d 条</string>
+    <string name="social_history_deleted_partial">已删除 %1$d 条，%2$d 条失败</string>
+    <string name="social_history_deleted_none">删除失败，请稍后重试</string>
+    <string name="social_history_delete_failed_code">删除失败，错误码：%1$d</string>
+    <!-- 多选对话框里标题过长时截断，避免一条占满整屏（表盘可用宽度很小） -->
+    <string name="social_history_batch_hint">点条目勾选，点空白处取消</string>
+
+</resources>

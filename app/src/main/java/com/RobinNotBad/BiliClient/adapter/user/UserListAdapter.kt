@@ -50,6 +50,11 @@ open class UserListAdapter(
 
         holder.desc.text = user.sign
 
+        // 互关徽章：数据层（FollowApi）已经把「是不是自己的列表」折进 mutualFollow，
+        // 这里只负责显隐；Holder 复用必须每次重置，否则上一条的徽章会残留到非互关项。
+        // cell_up_list 没有这个控件（UpListAdapter 复用本 Holder），所以用可空引用。
+        holder.badge?.visibility = if (user.mutualFollow) View.VISIBLE else View.GONE
+
         if (user.avatar.isNullOrEmpty()) {
             holder.avatar.visibility = View.GONE
             holder.desc.isSingleLine = false
@@ -79,6 +84,9 @@ open class UserListAdapter(
         val name: TextView = itemView.findViewById(R.id.userName)
         val desc: TextView = itemView.findViewById(R.id.userDesc)
         val avatar: ImageView = itemView.findViewById(R.id.userAvatar)
+
+        /** 互关徽章；只有 cell_user_list 有这个控件，子类换布局（cell_up_list）时为 null。 */
+        val badge: TextView? = itemView.findViewById(R.id.mutualBadge)
 
         // 缓存上次解析的颜色值和原始字符串，避免重复调用 Color.parseColor
         private var cachedColorString: String? = null

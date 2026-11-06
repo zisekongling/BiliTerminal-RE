@@ -18,6 +18,13 @@ import java.util.Set;
 public class EmoteApi {
     public static final String BUSINESS_REPLY = "reply";
     public static final String BUSINESS_DYNAMIC = "dynamic";
+    /**
+     * 私信表情面板。
+     *
+     * <p>`business=im` 是 App 端私信在用的面板；网页 Cookie 登录不保证有权限（可能回空包或非 0 码），
+     * 所以调用方要用 {@link #getEmotesWithFallback(String)}，别直接调 {@link #getEmotes(String)}。
+     */
+    public static final String BUSINESS_IM = "im";
 
     /**
      * 获取表情包面板内容
@@ -39,6 +46,50 @@ public class EmoteApi {
     }
 
     // TODO 表情包管理页
+
+    /**
+     * 纯函数：面板拉空（或不允许）时是否要回落到 reply 面板。
+     *
+     * <p>抽出来是为了能被 JVM 单测覆盖——「什么时候回落」是本功能唯一的判定逻辑，
+     * 真机上不该靠试错确认。
+     *
+     * @param business      请求的 business
+     * @param packageCount  拉到的表情包数量（&lt;= 0 表示空包）
+     * @return true 表示应该改用 {@link #BUSINESS_REPLY} 再拉一次
+     */
+    public static boolean shouldFallbackToReply(String business, int packageCount) {
+        if (BUSINESS_REPLY.equals(business)) return false;
+        return packageCount <= 0;
+    }
+
+    /**
+     * 带回落的表情面板获取：先按 {@code business} 拉，空包或该 business 不被允许（非 0 码）时回落到 reply。
+     *
+     * <p>回落只在「面板为空 / 服务端拒绝」时发生；网络异常（IOException）照常向上抛，
+     * 让调用方显示网络错误——用 reply 面板掩盖网络问题反而更难排查。
+     *
+     * @param business 业务名，私信传 {@link #BUSINESS_IM}
+     * @return 表情包列表；回落到 reply 也拿不到时返回空列表（不返回 null，调用方少一层判空）
+     */
+    public static List<EmotePackage> getEmotesWithFallback(String business) throws JSONException, IOException {
+        List<EmotePackage> primary = null;
+        JSONException primaryError = null;
+        try {
+            primary = getEmotes(business);
+        } catch (JSONException e) {
+            // 非 0 码（面板不可用 / 未登录表情权限）才回落；IOException 不在这里兜
+            primaryError = e;
+        }
+        int size = primary == null ? 0 : primary.size();
+        if (!shouldFallbackToReply(business, size)) return primary != null ? primary : new ArrayList<>();
+
+        List<EmotePackage> fallback = getEmotes(BUSINESS_REPLY);
+        if (fallback != null && !fallback.isEmpty()) return fallback;
+        // 连 reply 也没有：主面板如果本来有数据（只是空包）就返回空，否则把主面板的错误抛给调用方
+        if (primary != null) return primary;
+        if (primaryError != null) throw primaryError;
+        return new ArrayList<>();
+    }
 
     /**
      * 获取“使用中”的表情包

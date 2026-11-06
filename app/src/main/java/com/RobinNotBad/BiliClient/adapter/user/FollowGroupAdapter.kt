@@ -272,6 +272,9 @@ class FollowGroupAdapter(
                     }
                 }
                 holder.desc.text = user.sign
+                // 分组列表主体就是「我自己关注的人」，互关徽章语义成立；每次 bind 重置，
+                // 避免 Holder 复用后残留上一个成员的徽章（cell_user_list 的默认值也是 gone）
+                holder.mutualBadge?.visibility = if (user.mutualFollow) View.VISIBLE else View.GONE
 
                 if (user.avatar == null || user.avatar.isEmpty()) {
                     holder.avatar.visibility = View.GONE
@@ -336,6 +339,9 @@ class FollowGroupAdapter(
         lateinit var name: TextView
         lateinit var desc: TextView
         lateinit var avatar: ImageView
+
+        /** 互关徽章；只有 cell_user_list 有该控件，换布局时为 null。 */
+        val mutualBadge: TextView? = itemView.findViewById(R.id.mutualBadge)
 
         init {
             name = itemView.findViewById(R.id.userName)
