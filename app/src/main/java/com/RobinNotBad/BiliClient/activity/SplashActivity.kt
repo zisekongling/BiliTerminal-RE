@@ -139,15 +139,23 @@ class SplashActivity : Activity() {
             Log.e("CorrespondPath", correspondPath)
             val refreshCsrf = CookieRefreshApi.getRefreshCsrf(correspondPath)
             Log.e("RefreshCsrf", refreshCsrf)
-            if (CookieRefreshApi.refreshCookie(refreshCsrf)) {
-                MsgUtil.showMsg(UiText.of("Cookies已刷新"))
-                AccountManager.saveCurrentAccount()
-                return
+            // 26.11.06.1：刷新结果分三档。只有服务端**明确**说会话失效（-101，NEED_LOGIN）才清
+            // 登录态；RETRY（网络抖动 / 服务端拒绝 / 新凭据没落全）一律保留本地凭证——「刷新失败
+            // 就等于掉登录」是历史上最招骂的一类问题（审计 P29 / 反馈 #60）。
+            when (CookieRefreshApi.refreshCookie(refreshCsrf)) {
+                CookieRefreshApi.RefreshResult.OK -> {
+                    MsgUtil.showMsg(UiText.of("Cookies已刷新"))
+                    AccountManager.saveCurrentAccount()
+                    return
+                }
+                CookieRefreshApi.RefreshResult.NEED_LOGIN -> {
+                    MsgUtil.showMsgLong(UiText.of("登录信息过期，请重新登录！"))
+                    resetLogin("刷新接口返回 -101（会话/口令已被服务端作废）")
+                    return
+                }
+                CookieRefreshApi.RefreshResult.RETRY ->
+                    Log.e("Cookies", "Cookie 刷新未成功，保留本地登录态")
             }
-            // 刷新返回 false 的全部来源——correspondPath / refresh_csrf 取空、confirm 接口
-            // code != 0、新 Cookie 缺 DedeUserID（此时 CookieRefreshApi 已回退旧 Cookie）——
-            // 都不是"凭证失效"，所以这里只记日志、保留登录态。
-            Log.e("Cookies", "Cookie 刷新未成功，保留本地登录态")
         } catch (e: Exception) {
             // 放宽到 Exception：原实现只接 JSONException，其余异常（IOException 等）会穿透到外层。
             // 刷新流程里的任何异常都只代表这次刷新没成功，不应清登录态。
@@ -156,17 +164,22 @@ class SplashActivity : Activity() {
 
         // 只有本地连 SESSDATA 都没有了，才是明确意义上的"未登录/凭证失效"，
         // 这时才需要提示并清空登录态引导用户重新登录。
+        // （Cookie 合并层已保证普通响应不会把 SESSDATA 抹掉，见 CookieJarPolicy）
         if (!hasLocalSession()) {
             MsgUtil.showMsgLong(UiText.of("登录信息过期，请重新登录！"))
-            resetLogin()
+            resetLogin("本地 Cookie 里没有 SESSDATA")
         }
     }
 
-    private fun resetLogin() {
+    private fun resetLogin(reason: String) {
         // 走统一入口：除了 mid/cookies/csrf/refresh_token，它还会清 access_key
         // （原实现漏了这个 —— 全清之后仍有 access_key 时，CookieRefreshScheduler 和启动页
         // 会继续按「TV 登录」分流去刷 APP token，等于每次启动都白刷一次还报错），
         // 并升账号代际把在飞的请求作废、清掉按账号走的本地缓存。
+        //
+        // 原因是 26.11.06.1 补的：这条路径会清掉整套登录凭据，是「掉登录」投诉里唯一由 App
+        // 自己动手的分支，所以必须把触发原因留在日志里，别再出现「用户说掉登录、日志里查不到」。
+        Log.w("Splash", "清空登录态：$reason")
         AccountManager.clearCurrentLogin()
     }
 

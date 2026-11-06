@@ -84,4 +84,50 @@ object CookieRefreshPolicy {
 
     /** 「没有记录」的哨兵值（`elapsedRealtime()` 从开机起算，恒 >= 0，0 不会与真实时刻冲突）。 */
     const val NO_ATTEMPT: Long = 0L
+
+    /**
+     * 一次 Cookie 刷新在「本地落盘」时的判定结果（26.11.06.1 掉登录返工）。
+     *
+     * 背景：`CookieRefreshApi.refreshCookie()` 的刷新接口会通过 `Set-Cookie` 下发**新的**
+     * SESSDATA / bili_jct / DedeUserID，紧接着的确认接口会让**旧** Cookie 失效。所以确认之前
+     * 必须先确认新凭据真的落到本地了——否则「旧会话被作废、本地却还是旧的」，用户就是彻底掉登录。
+     */
+    enum class RefreshCheck {
+        /** 新凭据齐全，可以确认刷新 */
+        READY,
+
+        /** 响应里没有新的 refresh_token：一次性轮换的口令，没有就不能继续 */
+        NO_REFRESH_TOKEN,
+
+        /** 本地 Cookie 里没有新的 SESSDATA：新会话没落盘，此时绝不能去作废旧会话 */
+        NO_SESSION_COOKIE,
+
+        /** 新 Cookie 里的 DedeUserID 与当前 mid 对不上（换号/串号），拒绝落库 */
+        MID_MISMATCH
+    }
+
+    /**
+     * 判断一次刷新的结果能不能拿去「确认」（作废旧 Cookie）。
+     *
+     * 纯函数：不读 SharedPreferences、不碰 Android API，单测直接给值。
+     *
+     * @param refreshTokenNew 刷新接口返回的新 refresh_token（空串 = 没拿到）
+     * @param sessData        刷新后本地 Cookie 里的 SESSDATA（空串 = 新会话没落盘）
+     * @param cookieMid       刷新后本地 Cookie 里的 DedeUserID 解析值（解析不出传 0）
+     * @param expectedMid     刷新前本地记录的 mid
+     */
+    @JvmStatic
+    fun checkRefreshedCredentials(
+        refreshTokenNew: String?,
+        sessData: String?,
+        cookieMid: Long,
+        expectedMid: Long
+    ): RefreshCheck {
+        if (refreshTokenNew.isNullOrBlank()) return RefreshCheck.NO_REFRESH_TOKEN
+        if (sessData.isNullOrBlank()) return RefreshCheck.NO_SESSION_COOKIE
+        // expectedMid <= 0 说明本地本来就没有有效的 mid（登录态已残缺）：这种情况不该走到刷新，
+        // 但真走到了也不要拿一个对不上的 DedeUserID 去覆盖（宁可让调用方按失败退避重试）
+        if (expectedMid <= 0L || cookieMid != expectedMid) return RefreshCheck.MID_MISMATCH
+        return RefreshCheck.READY
+    }
 }

@@ -1005,6 +1005,7 @@
     <string name="msg_accountswitchactivity_001">这是当前登录的账号</string>
     <string name="msg_accountswitchactivity_002">已删除账号</string>
     <string name="msg_accountswitchactivity_003">当前登录的账号不能删除，请先切换到其他账号</string>
+    <string name="msg_accountswitchactivity_004">这个账号保存的登录信息不完整（或与用户 ID 对不上），切换已取消，请重新登录该账号</string>
     <string name="msg_login_status_passwordloginfragment_001">此设备无法显示人机验证，请改用扫码登录</string>
     <string name="msg_login_status_passwordloginfragment_002">验证已取消</string>
     <string name="msg_login_status_passwordloginfragment_003">请输入账号和密码</string>

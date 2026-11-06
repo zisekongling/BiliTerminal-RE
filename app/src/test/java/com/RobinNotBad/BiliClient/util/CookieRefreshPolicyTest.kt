@@ -175,4 +175,67 @@ class CookieRefreshPolicyTest {
             )
         )
     }
+
+    // ---------------- checkRefreshedCredentials：确认刷新前的新凭据校验（26.11.06.1） ----------------
+    // 刷新接口下发新 Cookie、确认接口作废旧 Cookie。确认之前必须确认新凭据真的落到了本地，
+    // 否则「旧会话被作废 + 本地还是旧的」= 用户彻底掉登录。
+
+    @Test
+    fun checkRefreshedCredentials_齐全时为READY() {
+        assertEquals(
+            CookieRefreshPolicy.RefreshCheck.READY,
+            CookieRefreshPolicy.checkRefreshedCredentials(
+                refreshTokenNew = "new_token",
+                sessData = "sess_value",
+                cookieMid = 123L,
+                expectedMid = 123L
+            )
+        )
+    }
+
+    @Test
+    fun checkRefreshedCredentials_缺新refresh_token时拒绝() {
+        for (token in listOf(null, "", "   ")) {
+            assertEquals(
+                "没有新口令就不能继续（一次性轮换，丢了就再也续不上）",
+                CookieRefreshPolicy.RefreshCheck.NO_REFRESH_TOKEN,
+                CookieRefreshPolicy.checkRefreshedCredentials(token, "sess", 123L, 123L)
+            )
+        }
+    }
+
+    @Test
+    fun checkRefreshedCredentials_新Cookie里没有SESSDATA时拒绝() {
+        assertEquals(
+            "新会话没落盘就绝不能 confirm，否则旧 Cookie 被作废本地又没有新的",
+            CookieRefreshPolicy.RefreshCheck.NO_SESSION_COOKIE,
+            CookieRefreshPolicy.checkRefreshedCredentials("new_token", "", 123L, 123L)
+        )
+        assertEquals(
+            CookieRefreshPolicy.RefreshCheck.NO_SESSION_COOKIE,
+            CookieRefreshPolicy.checkRefreshedCredentials("new_token", null, 123L, 123L)
+        )
+    }
+
+    @Test
+    fun checkRefreshedCredentials_mid对不上时拒绝() {
+        assertEquals(
+            "新 Cookie 属于另一个 mid：不能拿它覆盖当前账号（串号）",
+            CookieRefreshPolicy.RefreshCheck.MID_MISMATCH,
+            CookieRefreshPolicy.checkRefreshedCredentials("new_token", "sess", 456L, 123L)
+        )
+        assertEquals(
+            CookieRefreshPolicy.RefreshCheck.MID_MISMATCH,
+            CookieRefreshPolicy.checkRefreshedCredentials("new_token", "sess", 0L, 123L)
+        )
+    }
+
+    @Test
+    fun checkRefreshedCredentials_本地没有有效mid时拒绝而不是覆盖() {
+        assertEquals(
+            "本地 mid 本来就是残缺的（<=0）时不能拿 Cookie 里的值去覆盖登录态",
+            CookieRefreshPolicy.RefreshCheck.MID_MISMATCH,
+            CookieRefreshPolicy.checkRefreshedCredentials("new_token", "sess", 123L, 0L)
+        )
+    }
 }

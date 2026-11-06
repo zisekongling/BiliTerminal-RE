@@ -198,8 +198,13 @@ class AccountSwitchActivity : BaseActivity() {
         card.setOnClickListener {
             if (isCurrent) {
                 MsgUtil.showMsg(getString(R.string.msg_accountswitchactivity_001))
+            } else if (!AccountManager.switchToAccount(account)) {
+                // 26.11.06 起 switchToAccount 走 applyCredentials：mid 与 Cookie 里的 DedeUserID
+                // 对不上、或快照 Cookie 为空时**整笔拒绝**（防止 A 的 Cookie 配 B 的 mid）。
+                // 原实现忽略返回值，照样提示「已切换到 X」再跳启动页 —— 用户看到的是「切了等于没切、
+                // 一直加载」，也就是升级后被报成「掉登录 / 所有账号都登不上」的那一类。
+                MsgUtil.showMsg(getString(R.string.msg_accountswitchactivity_004))
             } else {
-                AccountManager.switchToAccount(account)
                 val displayName = if (savedName != null && savedName.isNotEmpty()) savedName else "UID:" + account.mid
                 MsgUtil.showMsg(getString(R.string.msg_account_switched, displayName))
                 val intent = Intent(this@AccountSwitchActivity, SplashActivity::class.java)

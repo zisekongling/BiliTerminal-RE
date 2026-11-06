@@ -196,18 +196,33 @@ object CookieRefreshScheduler {
             Logu.w(TAG, "没能取到 refresh_csrf，本次不刷新（保留登录态，稍后重试）")
             return false
         }
-        val refreshed = CookieRefreshApi.refreshCookie(refreshCsrf)
-        if (refreshed) {
+        // 26.11.06.1：刷新结果分三档——只有 OK 才算成功；RETRY 保留登录态等退避重试；
+        // NEED_LOGIN 才是服务端明确说会话没了（这时也不清本地凭证，交给启动页的登录失效流程）
+        val result = try {
+            CookieRefreshApi.refreshCookie(refreshCsrf)
+        } catch (e: Exception) {
+            Logu.w(TAG, "Cookie 刷新异常（保留登录态）：" + e.message)
+            return false
+        }
+        if (result == CookieRefreshApi.RefreshResult.OK) {
             // 账号管理里存的是登录快照，Cookie 轮换后要同步，否则「切换账号」会把旧 Cookie 写回去
             try {
                 AccountManager.saveCurrentAccount()
             } catch (e: Exception) {
                 Logu.w(TAG, "刷新后同步账号快照失败：" + e.message)
             }
+            // applyCredentials 会重置本调度器的节流状态（切号语义），刷新成功后要把「刚试过」
+            // 重新记上，否则下一次 tick 会立刻再刷一遍，变成每 5 分钟轮换一次口令
+            lastAttemptMs = SystemClock.elapsedRealtime()
             Logu.i(TAG, "Cookie 已刷新")
-        } else {
-            Logu.w(TAG, "Cookie 刷新未成功（可能服务端拒绝，稍后重试）")
+            return true
         }
-        return refreshed
+        when (result) {
+            CookieRefreshApi.RefreshResult.NEED_LOGIN ->
+                Logu.w(TAG, "服务端判定登录态失效（-101），等用户重新登录；本地凭证保留")
+            else ->
+                Logu.w(TAG, "Cookie 刷新未成功（保留登录态，稍后重试）")
+        }
+        return false
     }
 }
