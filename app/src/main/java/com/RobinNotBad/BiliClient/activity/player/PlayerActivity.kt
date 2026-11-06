@@ -1300,13 +1300,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      *
      * 左右两列是竖排图标（28dp，列内自下而上堆），底部是 32×37 的横排；组展开条挂在
      * 同一侧的列旁边（右侧在左、左侧在右、底部在按钮行上方），所以四个区各自带一个展开条。
+     *
+     * 每个区传三样东西：槽位容器、展开条**外壳**（ScrollView，显隐打在它身上）、展开条**内层**
+     * （装按钮的 LinearLayout）。外壳在 XML 里默认 GONE，两种都要给——只给内层的话点了「更多」
+     * 什么也弹不出来。
      */
     private fun initButtonSlots() {
         val slots = PlayerButtonSlots(this, button_pool) { key -> buttonViewById(key) }
-        slots.bind(PlayerUiLayout.Region.LEFT, left_column_slots, left_group_slots, 28f, 28f)
-        slots.bind(PlayerUiLayout.Region.RIGHT, right_column_slots, right_group_slots, 28f, 28f)
-        slots.bind(PlayerUiLayout.Region.BOTTOM_LEFT, bottom_left_slots, bottom_group_slots, 32f, 37f)
-        slots.bind(PlayerUiLayout.Region.BOTTOM_RIGHT, bottom_right_slots, bottom_group_slots, 32f, 37f)
+        slots.bind(PlayerUiLayout.Region.LEFT, left_column_slots, left_group_scroll, left_group_slots, 28f, 28f)
+        slots.bind(PlayerUiLayout.Region.RIGHT, right_column_slots, right_group_scroll, right_group_slots, 28f, 28f)
+        slots.bind(PlayerUiLayout.Region.BOTTOM_LEFT, bottom_left_slots, bottom_group_scroll, bottom_group_slots, 32f, 37f)
+        slots.bind(PlayerUiLayout.Region.BOTTOM_RIGHT, bottom_right_slots, bottom_group_scroll, bottom_group_slots, 32f, 37f)
         buttonSlots = slots
         // 展开/收起组会改变两侧列高，中线要重新对齐
         slots.onLayoutChanged = { alignLeftControlToRight() }

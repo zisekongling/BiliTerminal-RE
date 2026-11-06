@@ -28,9 +28,16 @@ class PlayerButtonSlots(
     private val primaryOf: (String) -> View?,
 ) {
 
-    /** 一个槽位区：放槽位的容器 + 组展开条（没有展开条的区传 null）+ 单元格尺寸。 */
+    /**
+     * 一个槽位区：放槽位的容器 + 组展开条（没有展开条的区传 null）+ 单元格尺寸。
+     *
+     * [stripHost] 是展开条的外壳（`HorizontalScrollView`），[strip] 是外壳里那层放按钮的
+     * `LinearLayout`。**显隐必须打在 [stripHost] 上**：外壳在 `activity_player.xml` 里默认是
+     * `visibility="gone"`，只把里面那层设成 VISIBLE 的话父容器仍是 GONE，点「更多」什么都不会弹出来。
+     */
     private class Region(
         val container: ViewGroup,
+        val stripHost: View?,
         val strip: ViewGroup?,
         val cellWidthDp: Float,
         val cellHeightDp: Float,
@@ -53,14 +60,19 @@ class PlayerButtonSlots(
     /** key → 真身（清场后重新摆时要能找回）。 */
     private val primariesByKey = LinkedHashMap<String, View>()
 
+    /**
+     * @param stripHost 展开条的外壳（`HorizontalScrollView`），显隐打在它身上；没有展开条传 null。
+     * @param strip 外壳里装按钮的那层容器；与 [stripHost] 要么都给、要么都不给。
+     */
     fun bind(
         region: PlayerUiLayout.Region,
         container: ViewGroup,
+        stripHost: View?,
         strip: ViewGroup?,
         cellWidthDp: Float,
         cellHeightDp: Float,
     ) {
-        regions[region] = Region(container, strip, cellWidthDp, cellHeightDp)
+        regions[region] = Region(container, stripHost, strip, cellWidthDp, cellHeightDp)
     }
 
     /** 整份重摆。清场 → 逐区按槽位填 → 把影子同步一次。 */
@@ -201,7 +213,7 @@ class PlayerButtonSlots(
             strip.addView(view)
         }
         region.openIndex = index
-        strip.visibility = if (strip.childCount > 0) View.VISIBLE else View.GONE
+        setStripVisible(region, strip.childCount > 0)
         refreshMoreIcons(region)
         syncMirrors()
         onLayoutChanged?.invoke()
@@ -232,9 +244,22 @@ class PlayerButtonSlots(
                 mirrors.values.forEach { it.remove(child) }
             }
         }
-        region.strip?.visibility = View.GONE
+        setStripVisible(region, false)
         region.openIndex = -1
         refreshMoreIcons(region)
+    }
+
+    /**
+     * 显隐一条展开条。
+     *
+     * **外壳与内层都要设**：外壳是 `activity_player.xml` 里默认 `visibility="gone"` 的
+     * `HorizontalScrollView`，内层是它里面装按钮的 `LinearLayout`。两层里只要还有一层是 GONE，
+     * 组内按钮就一定看不见——「点更多展不开」的根因就是只切了内层、外壳一直是 GONE。
+     */
+    private fun setStripVisible(region: Region, visible: Boolean) {
+        val flag = if (visible) View.VISIBLE else View.GONE
+        region.stripHost?.visibility = flag
+        region.strip?.visibility = flag
     }
 
     private fun refreshMoreIcons(region: Region) {

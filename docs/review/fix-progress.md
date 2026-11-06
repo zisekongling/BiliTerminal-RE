@@ -1484,6 +1484,14 @@
 - **验证 · L0**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest` 通过（`RecommendPagePolicyTest` 删 4 个用例后其余全绿）。
 - **未验证（人测）**：一直往下滑是否持续出新内容、不再出现「没有更多了」。反向坑别踩：26.11.02 的旧代码没有游标，服务端对相同参数返回同一批，去重后 0 条新增 → 表现成「触发翻页但列表不长」；现在是游标前进 + 去重并存，连续多页全重复时列表会暂时停住，滑到底仍会继续请求（不是 bug）。
 
+### 3.136 播放器组展开条点「更多」又展不开（26.11.07.1，用户点名，§3.131 回归）
+
+- **现象**：左列 / 右列 / 底部的组格子点「更多」没有任何反应（26.11.06 修过的那条回归）。
+- **根因**：`res/layout/activity_player.xml` 里三条外层 `*_group_scroll`（`HorizontalScrollView`）当前仍写死 `android:visibility="gone"`（§3.131 当时是把 `gone` 从外层挪到了内层 `*_group_slots`，26.11.07 的按钮槽位重构把布局改回去了），而 `player/PlayerButtonSlots.kt` 的 `toggleGroup()` 只切内层 `LinearLayout` → 外层恒 GONE，按钮排进去也看不见。
+- **改法**：`PlayerButtonSlots.Region` 增加 `stripHost`（外层外壳），`bind(region, container, stripHost, strip, cellWidthDp, cellHeightDp)`；新增 `private fun setStripVisible(region, visible)` **同时**设外壳与内层，`toggleGroup()` 与 `clearAll()` 两处都改走它。这样 XML 里哪一层写着 `gone` 都能展开，不再依赖「布局里到底把 gone 写在谁身上」这个易失细节。
+- **验证 · L0**：`./gradlew.bat :app:assembleDebug`（两 flavor 出包）+ `:app:testStandardDebugUnitTest` 通过。
+- **未验证（人测）**：点「更多」能横向展开该组按钮、再点一次收起；组展开时不再压在右列按钮上（§3.131「留给后来者」那条仍开放）。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。
