@@ -8,11 +8,12 @@
 
 | 你要做的事 | 读这份 | 说明 |
 | --- | --- | --- |
-| 改任何非平凡代码 | [`../AGENTS.md`](../AGENTS.md) → [`architecture-map.md`](architecture-map.md) | AGENTS 是每次都要遵守的最小约定 + 按场景索引；领域细则在 [`agents/`](agents/)；架构地图是真实分层 + 逐条坑 |
-| 找「现在的状态 / 还没做的事」 | [`review/fix-progress.md`](review/fix-progress.md) | **唯一活台账**：当前版本状态、未完成待办（§2，含播放器合并 / 弱网 / 下载链路的剩余项与 §2.4 视觉技术债）、26.10.22 起的状态快照、历史章节索引 |
+| 改任何非平凡代码 | [`../AGENTS.md`](../AGENTS.md) → [`architecture-map.md`](architecture-map.md) | AGENTS 是每次都要遵守的最小约定 + 按场景索引；领域细则在 [`agents/`](agents/)；架构地图是真实分层 + 逐条坑。**两份都别整份读**：架构地图 ≈9.6 万 token，按 `AGENTS.md` 里的阅读预算表只读你那几节；§7 坑点库 58 个小节 ≈5.3 万 token，用 grep 定位单个 `§7.x` |
+| 找「现在的状态 / 还没做的事」 | [`review/fix-progress.md`](review/fix-progress.md) | **唯一活台账**：当前版本状态、未完成待办（§2，含播放器合并 / 弱网 / 下载链路的剩余项与 §2.4 视觉技术债）、26.10.22 起的状态快照、历史章节索引。**平时只读 §1 + §2**（全文件 ≈15.9 万 token，快照区是流水，按关键词 grep） |
+| 决定这条测试该不该自己跑 / 改完怎么验证 / 交接给人测 | [`agents/testing.md`](agents/testing.md) | **验证分工的唯一判据**：AI 能读文字与数字（日志、控件树、落盘文件、状态码），读不了画面 / 声音 / 手感。三级验证 L0/L1/L2、L1 两轮止损预算、AI 不做的事清单、人测交接单模板、结论写回哪里 |
 | 改网络 / 接口 / 风控相关 | [`bilibili-api-notes.md`](bilibili-api-notes.md) | 接口常识与风控硬约束（错误码语义、取流有效期、弹幕协议取舍） |
-| 发版前上真机 | [`review/real-device-regression-checklist.md`](review/real-device-regression-checklist.md) | 与发行版同维护的回归清单（249 条），每条的来源小节都标在标题里 |
-| 用 adb / AI agent 驱动 Debug 包测试 | [`review/agent-test-guide.md`](review/agent-test-guide.md) | 调试桥（可编程控制通道）命令表、日志与 HTTP 追踪、UETool 干扰规避、用哪个 flavor |
+| 发版前上真机 | [`review/real-device-regression-checklist.md`](review/real-device-regression-checklist.md) | 与发行版同维护的回归清单（260 条），每条的来源小节都标在标题里 |
+| 用 adb / AI agent 驱动 Debug 包测试 | [`review/agent-test-guide.md`](review/agent-test-guide.md) → [`agents/testing.md`](agents/testing.md) | 前者是调试桥（可编程控制通道）命令表、日志与 HTTP 追踪、UETool 干扰规避、用哪个 flavor；后者决定**哪些测试值得让 AI 跑、哪些直接交给人** |
 | 找不懂代码的人验收新功能 | [`review/manual-test-guide-261106.md`](review/manual-test-guide-261106.md) | 给普通用户写的手工测试指南：34 条用例，每条给「怎么做 / 应该看到 / 不算 bug」，按不登录、登录后、特殊条件分三部分 |
 | 写新功能 | [`superpowers/plans/2026-08-27-new-features-roadmap.md`](superpowers/plans/2026-08-27-new-features-roadmap.md) | 功能 backlog（含实测过的接口地址、判据与仍未落地项） |
 | 改播放器 / 弱网 / 下载 | [`architecture-map.md`](architecture-map.md) §7.4 / §7.27 / §7.54 + [`review/fix-progress.md`](review/fix-progress.md) §2.2 | 现状与坑看架构地图，剩余待办看台账；原合并方案、弱网调研、下载排查与引擎方案已归档（ijkplayer 选项语义与 `.so` 实测仍可在 `archive/superpowers/specs/` 里查） |
@@ -35,7 +36,8 @@
 | [`agents/security.md`](agents/security.md) | exported、https 与明文白名单、allowBackup、调试页只进 Debug、DUMP 权限、调试开关即改即生效 | 动清单 / 网络 / 备份 / 调试入口时 |
 | [`agents/build.md`](agents/build.md) | 构建任务名与 flavor、build_tui.py、adb / 模拟器、工具链、gradle.properties、build cache 回放、增量编译坏掉、量体积与 APK 构成、原生库 | 构建 / 单测 / 装包 / 构建报怪错时 |
 | [`agents/release.md`](agents/release.md) | Release 说明硬要求、relay 中转、附件名白名单、老客户端 config.json、build_only | 发版 / 改更新日志时 |
-| [`agents/workflow.md`](agents/workflow.md) | 小步提交、一律推 main 与 commit 格式、改完必须自测（MuMu）、小改动不必上模拟器的判据 | 准备提交 / 准备说"应该没问题"时 |
+| [`agents/workflow.md`](agents/workflow.md) | 一次改动的标准流程（带时间预算）、小步提交、一律推 main 与 commit 格式、改完必须验证的三级判据（L0/L1/L2，细则在 `testing.md`） | 准备提交 / 准备说"应该没问题"时 |
+| [`agents/testing.md`](agents/testing.md) | **验证分工**：唯一判据（结论能不能被机器读出来）、L0 静态 / L1 设备可观测 / L2 人工验收、L1 两轮止损预算（≤10 分钟、≤15 条 adb 命令）、AI 不做的事、人测交接单模板、结论落点 | 改完要验证 / 想上模拟器 / 决定交不交给人测时 |
 | [`agents/pitfalls.md`](agents/pitfalls.md) | 仍存在的已知坑：API 重复解析、跨包 id、notifyItemRangeInserted、通知 ID、下载锁、播放器 / 弹幕 / 保亮屏 / 原生库 / 主线程判活、伪装与顶栏手势 | 改这些易踩区之前 |
 | [`agents/docs.md`](agents/docs.md) | 改完同步文档的落点表、markdownlint 命令与豁免、copy-inventory 逐字素材 | 每个改动收尾时 |
 
@@ -43,12 +45,12 @@
 
 | 文件 | 内容 | 维护时机 |
 | --- | --- | --- |
-| [`architecture-map.md`](architecture-map.md) | 架构通读：§6 网络层、§7 改前必查的坑（7.1–7.55）、§8 UI 基建与外观、§9 API 层映射（48 个文件）、§10 检查清单 | 改架构 / 基建 / 新增基类时 |
+| [`architecture-map.md`](architecture-map.md) | 架构分层地图（322,334 字节 / 2,052 行 ≈9.6 万 token，**按 § 查不通读**）：§6 网络层、§7 改前必查的坑（58 个 7.x 小节，≈5.3 万 token，**只 grep 不通读**）、§8 UI 基建与外观、§9 API 层映射（48 个文件，读到 `1879–1986` 即可）、§10 检查清单 | 改架构 / 基建 / 新增基类时 |
 | [`optional-features.md`](optional-features.md) | 可选私有功能机制：`private/` 目录、AGP 四处注入点、`OptionalFeatures` 反射门面、现有挂点、本地开发与 CI 注入（不写私有功能的实现细节） | 新增/调整「不进公开仓库」的功能、改 `app/build.gradle` 的 `hasPrivateFeature`、动发版注入步骤时 |
 | [`FEATURES.md`](FEATURES.md) | 用户可见功能总表（20 章） | 新增用户可见功能时 |
 | [`bilibili-api-notes.md`](bilibili-api-notes.md) | 接口与风控常识（来源与可信度、速查表、11 条硬约束、值得做/不做） | 核实出新接口结论时 |
-| [`review/fix-progress.md`](review/fix-progress.md) | 活台账：当前状态 + 未完成待办 + 26.10.22 起的快照（更早的 §3.0~§3.51 已归档）+ 历史章节索引 | 修完 bug / 关掉待办 / 每轮真机验证后 |
-| [`review/real-device-regression-checklist.md`](review/real-device-regression-checklist.md) | 发版前真机回归清单（249 条，含第十三节视觉面；条目只增不改，失效就地标注作废） | 每个发行版 |
+| [`review/fix-progress.md`](review/fix-progress.md) | 活台账（≈15.9 万 token）：当前状态 + 未完成待办 + 26.10.22 起的快照（更早的 §3.0~§3.51 已归档）+ 历史章节索引。**平时只读 §1 §2，别整份读**（文件开头有逐节行号表） | 修完 bug / 关掉待办 / 每轮真机验证后 |
+| [`review/real-device-regression-checklist.md`](review/real-device-regression-checklist.md) | 发版前真机回归清单（260 条，唯一编号 1–258；含第十三节视觉面；条目只增不改，失效就地标注作废） | 每个发行版 |
 | [`review/agent-test-guide.md`](review/agent-test-guide.md) | Debug 包的 agent 测试手册：调试桥命令、可观测性设施、已知限制与设计原则 | 增删调试能力 / 调试桥命令时 |
 | [`review/manual-test-guide-261106.md`](review/manual-test-guide-261106.md) | 面向普通用户的手工测试指南：26.11.06 新增功能的 34 条用例（无技术术语，含「不算 bug」与已知限制） | 找人验收新功能 / 自己按步骤过一遍时 |
 | [`review/compare-with-re-biliterminal-261024.md`](review/compare-with-re-biliterminal-261024.md) | 与同源分支 `cyq114514/Re-BiliTerminal`（1.2.3fix）的六维对比审计：91 条问题（P0×2 / P1×20 / P2×69）、定量总表、P0–P2 路线图、四轮核验；**按目标设备口径（旧版安卓手表）评分** | 再次对比 / 排期取建议时；结论基于 2026-10-24 双方 HEAD |

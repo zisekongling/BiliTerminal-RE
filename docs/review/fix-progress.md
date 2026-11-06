@@ -1,8 +1,20 @@
 # 修复台账（活文档）
 
 > 这是**唯一**的当前状态 + 待办台账。完整历史正文已归档到 `docs/archive/review/fix-progress-history.md`（§一~§四十三 逐批次流水，4777 行）。
-> 什么时候写这里：修完一个 bug / 关掉一个待办 / 每轮真机验证后。**别再往下追加长流水**——超过一屏就并进「历史章节索引」那一行。
+> 什么时候写这里：修完一个 bug / 关掉一个待办 / 每轮真机验证后。**别再往下追加长流水**——超过一屏就并进 §4「历史章节索引」那一行（§3 是 26.11.06 之前就积下的旧流水，只读不追加）。
 > 架构与坑看 `docs/architecture-map.md`；功能清单看 `docs/FEATURES.md`；真机清单看 `docs/review/real-device-regression-checklist.md`（旧的 T/D 测试计划已归档为 `docs/archive/review/device-test-plan.md`，只在要查某条用例原文时翻）。
+
+**怎么读这份文件（26.11.06 起，全文 ≈15.9 万 token，别整份读）**：
+
+| 章节 | 行 | token | 什么时候读 |
+| --- | --- | --- | --- |
+| §1 当前版本状态 | `7–46` | ≈4k | **每次改动前必读** |
+| §2 未完成待办 | `47–187` | ≈10k | 接线前扫一眼；按关键词 grep，别整节读 |
+| §3 状态快照 | `188–1443` | ≈9.6 万 | **纯流水**，只在要查「某轮改动到底怎么改的」时 grep 关键词 |
+| §4 历史章节索引 | `1444–1546` | ≈2.2 万 | 一般不用读 |
+| §5 待回迁长期结论 | `1547–1586` | ≈4k | 要查某个长期结论时 |
+
+> 除 §1 外都不要通读：**先 `grep -n "关键词" docs/review/fix-progress.md` 拿到行号，再只读那一段**。行号随文件增长会漂移，对不上就用 `grep -n "^## [0-9]\."` 重新定位章节。
 
 ## 1. 当前版本状态
 
@@ -185,7 +197,7 @@
 
 **别再重复排查（已排除）**：WebView 白底闪屏**不存在**；菜单按钮 `MaterialButton` 默认 `minHeight=48dip` **已达标**；`ui/widget/recycler/` 与 `fragment_empty.xml` 是**死代码**（不当在用组件排查；`BiliTerminalApp.kt` 已于 26.10.02 删除）。**不做**：裸 `Activity` 收编（`PlayerActivity`/`ImageViewerActivity`/`SplashActivity`/`GetIntentActivity`）——播放器保持黑色系统栏是有意为之，且 `PlayerActivity.kt` 3000 行，收益不抵回归风险（理由已进 `docs/architecture-map.md` §8.7.3）。**可接受**：`CardStyle`/`ButtonStyle` 强制 `clickable+focusable`；间距/圆角 token 已建但布局未全量改用；同构布局重复；布局层静态色已清干净（`@color/(card_dark|pink|divider_dark|pink_light)` 在 `res/layout` 0 处）。
 
-## 3. 最新状态快照（26.10.22 ~ 26.10.31）
+## 3. 最新状态快照（26.10.22 ~ 26.11.06，流水，按关键词 grep 不通读）
 
 > §3.0 ~ §3.51（26.10.09 ~ 26.10.21）已原样归档到 `docs/archive/review/fix-progress-snapshots-261009-261021.md`，**编号不变**：本文其他地方写的 §3.0~§3.51 都去那里找。
 
@@ -1425,6 +1437,21 @@
 - **验证**（模拟器 emulator-5554，Android 17，1080×2400，应用内 density 4.5）：更多按钮恢复方形白框套三点；点它横向展开 `▶ CC □ ♪ 跳到指定时间 连播` 共 6 个组内按钮；锁定/解锁来回切换不再崩，新锁图标在左列与右列都正常渲染。`assembleStandardDebug` + `testStandardDebugUnitTest` 绿。
 - **图标几何核对**（独立于模拟器，可复现）：把两张 lucide SVG 的原始 `d`（相对命令、含隐式 lineto）与 vector 里折成绝对坐标后的路径，分别用同一个小光栅器（自写 `M/L/H/V/A` 解析 + 端点转圆心参数化的弧采样 + 圆头描边）渲染成 320×320 再逐像素比对，**两张都是 0 像素差异**——`clock-fading` 的六段弧与指针、`corner-down-right` 的 L 型折线 + 箭头都没走形。另外在不含 `private/` 的独立 worktree（detached `d947c2d`）里跑 `assembleDebug`（两 flavor 都出包）+ `testStandardDebugUnitTest` + `testCoexistDebugUnitTest` 全绿，顺带证明「无私有源码也能独立编译」。
 - **留给后来者**：组展开条出现时会压在右列按钮上（截图观察，未定论是遮挡还是重排），若后续确认是遮挡，动的是 `right_group_scroll` 的布局位置，不是显隐逻辑。
+
+### 3.131 搜索「用户」页没有玻璃质感（26.11.06，用户点名）
+
+- **现象**：开着「玻璃质感」时，搜索结果里视频 / 番剧 / 专栏 / 直播 tab 的卡片都是半透明 + 一道主题色亮边，唯独「用户」tab 的卡片是不透明平板灰、没有描边、永远 12dp 圆角——看起来像这个页面没开玻璃质感。
+- **根因**：另外四个 tab 的 cell 都是裸 `MaterialCardView`（`cell_video_list.xml` / `cell_article_list.xml` / `cell_up_list.xml`…），底色 / 圆角 / 描边全由主题 `materialCardViewStyle` 提供，而玻璃覆盖层 `GlassOverlay.<X>` 改的正是这条样式引用，所以自动生效。用户页走 `cell_user_list.xml`：根节点是单层 `FrameLayout` + 写死 `@drawable/bg_card_rounded`（不透明 `@color/card_dark`、12dp 圆角、`elevation=2dp`），完全不经过那条样式 → 覆盖层够不着。
+- **改法**（不回退布局）：`cell_user_list` 顶部注释写明单层 FrameLayout 是当初为「减少布局嵌套和渲染开销」刻意做的优化（手表优先），玻璃只是一个外观开关，不该为它把 cell 改回 `MaterialCardView`（那样非玻璃观感也会跟着变：圆角 12dp→6dp、多一道 1dp 描边、elevation 2dp→4dp）。改为代码侧换背景：
+  - `ui/appearance/GlassStyle.kt` 新增 `applyCardBackground(view: View): Boolean`：玻璃开启时 `background = panelBackground(context, CornerStyle.radiusPx(context))` 并把 `elevation` 置 0，关闭时直接返回（零影响）。圆角取 `CornerStyle.radiusPx` 而不是写死 12dp，才能和主题卡片同档位（选「圆角」时一起变 12dp、方角时 6dp）；`elevation` 清零沿用「半透明底一律无投影」的约定，否则轮廓外会有一圈脏边。
+  - 两个 inflate 点各调一次：`adapter/user/UserListAdapter.kt`（搜索结果「用户」页）与 `adapter/user/FollowGroupAdapter.kt`（关注分组的成员行）——同一个 cell，漏一个就有一处还是老样式。
+- **验证**（模拟器 emulator-5554 / Android 17 / 1080×2400，经典终端暗色主题；把 `search_category_sort` 写成 `user` 让「用户」成为第一页，搜 `miku` 即停在「搜索-用户」）：
+  - **玻璃关**：卡内 #2A2A35 = `@color/card_dark`、8 张卡逐张同色且不随页面背景渐变变化（不透明）、左右边缘 x=35→36 直接跳变（无描边）、左上弧顶 dx=51px ≈ 12dp、卡外有 2dp 淡投影 → 与修复前完全一致，非玻璃路径没被改坏。
+  - **玻璃开 + 方角**：卡内色随页面背景联动（card1 `(36,30,32)` … card4 `(27,27,27)`，与 `0.7216*#262626 + 0.2784*背景` 逐张吻合）、左右边缘 4px ≈ 1dp 描边（`(38,27,30)` / `(49,38,41)` / `(61,50,53)` 三段，与 `#26FFB3CA` 叠在页面底 / 卡内的理论值一致）、圆角弧顶 dx=59→24px ≈ 6dp、卡外无投影 → 与相邻 tab 的卡片同一种观感。
+  - **玻璃开 + 「圆角」档**（`ui_corner_radius=rounded`）：圆角 dx≈48–50px ≈ 12dp，描边与半透明数值和方角档一致 → 圆角跟随档位，不再是写死的 12dp。
+  - 像素换算：1dp≈4.25px（由 `strokePx = max(1,(density+0.5).toInt())` 得 4px 反推，且 12dp→51px、6dp→24px 自洽）；`wm density` 的 Physical / Override 数值与 app 内实际缩放不符，dp 判定一律按 px 比例。
+  - 截图：`outputs/glass-user-off.png`（玻璃关）/ `outputs/glass-user-on-square.png`（玻璃开 + 方角）/ `outputs/glass-user-on-rounded.png`（玻璃开 + 圆角）。
+- **留给后来者**：这个 cell 的点击涟漪仍是布局里的 `?attr/selectableItemBackground`，而主题玻璃卡片用的是 `CardStyle*.Glass` 里指定的 `rippleColor`；玻璃开启时行内涟漪颜色与相邻 tab 的卡片略有差异（改动前就是这样，本次没动）。真要统一，就在 `applyCardBackground` 里一并换成 `RippleDrawable`，但要注意别把 `foreground` 覆盖成不透光的遮罩。
 
 ## 4. 历史章节索引
 

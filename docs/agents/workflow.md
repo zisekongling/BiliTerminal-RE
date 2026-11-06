@@ -13,11 +13,28 @@
 - **为什么不再分分支**：分支桶让「一个改动」散在两处、`main` 上多出一批 merge 提交，提 PR 给上游时结构难看且容易重复。现在所有改动先落 `main`，需要 review / 合上游时再从 `main` 开 PR 或直接对比。
 - 历史上的 `feat/gitee-release`、`fix/issue-1-swipe-seek-back` **两个分支名保留、内容停在 2026-10-22 的同步点，不再往上叠**（远程对象别删，CI / 旧链接可能还引用）。要发版仍走 tag / `build-release.yml`，与分支无关。
 
-## 改完必须自测
+## 一次改动的标准流程（26.11.06 起，带预算）
 
-- **改完必须自测，不许只说"应该没问题"**（26.10.22 起）：本机常驻 **MuMu 模拟器**（`adb connect 127.0.0.1:7555`，Android 15 / x86_64，`adb root` 可用 → 用 `app-coexist-x86-debug.apk`）。
-- 凡涉及播放器 / 网络 / UI 时序的改动，改完自己装包、跑一遍、看日志与截图，把实测结论（日志原文、关键截图、未复现的原因）写进 `docs/review/fix-progress.md`。**"编译通过 + 单测绿"只证明纯函数没写错，不证明功能可用**（见 `docs/archive/review/device-test-plan.md` 〇节）。测法见 `docs/review/agent-test-guide.md`。
-- **MuMu 的坑（26.10.27 更新）**：活动会落在 `display 14/15/16...` 等**副屏**（每次启动新建一个，`dumpsys window displays | grep mDisplayId` 查）。26.10.27 实测 **`screencap -d <id>` 对任何 display 都回 `Failed to take screenshot. Status: -2`**（root 也一样），所以副屏上**截不了图**；`screencap -d 0` 拍到的是桌面。可行替代：**`uiautomator dump --display <displayId>` 拿控件树与 bounds**（文字/位置/状态都能验），配合 **`input -d <displayId> tap/swipe/motionevent`** 驱动；**`input` 不带 `-d` 一律落在桌面**。长按用 `input -d <id> motionevent DOWN x y` → sleep 1s → `motionevent UP x y`（`swipe x y x y 1200` 同点同终点会被当成滚动）。
+| 步 | 做什么 | 预算 | 卡住去哪 |
+| --- | --- | --- | --- |
+| 1 定位 | `grep` 关键字找文件，只读 1~3 个真正要改的文件 | ≤5 分钟 | 找不到入口 → `docs/architecture-map.md` §9 API 映射表 / §3 导航 |
+| 2 读上下文 | `AGENTS.md` + 上表里对应的**那一份**分册，按 § 读 | ≤10 分钟 | — |
+| 3 改 | 一次只做一件事，边改边编译 | 按改动规模 | 构建怪错误 → `docs/agents/build.md` |
+| 4 自测 | L0 必做；L1 只在判据可读时做，**两轮上限** | 见 `docs/agents/testing.md` §3 | 两轮不过 → 写交接单交人 |
+| 5 提交 | `git show --stat` 核对后 push 到 `main` | ≤2 分钟 | — |
+| 6 落文档 | `docs/review/fix-progress.md` **一行** + 该改的分册 | ≤3 分钟 | 落点表见 `docs/agents/docs.md` |
+
+- **一次改动不许整份读三份以上大文档**：`docs/architecture-map.md`（≈9.6 万 token）、`docs/review/fix-progress.md`（≈15.9 万 token）、`docs/FEATURES.md`（≈3.4 万 token）都按 § 查，永远不要从头读到尾。`fix-progress.md` 平时只需 §1（当前状态）与 §2（未完成待办），§3/§4/§5 是历史，用 `grep` 反查。
+- **需要人测的，提交之后立刻把交接单给出去**，不要攒到发版前一次性堆 30 条。
+
+## 改完必须自测（分三级，细则见 `docs/agents/testing.md`）
+
+- **改完必须自测，不许只说"应该没问题"**。但"自测"按证据形态分三级，**不是每个改动都要上模拟器**：
+  - **L0 静态**（每个改动）：`assembleDebug` + 相关单测。**"编译通过 + 单测绿"只证明纯函数没写错，不证明功能可用**（见 `docs/archive/review/device-test-plan.md` 〇节）。
+  - **L1 设备可观测**（判据能落在日志 / 控件树 / 产物结构时）：用调试桥拿证据，**两轮上限**，两轮不过就停。命令见 `docs/review/agent-test-guide.md`。
+  - **L2 人工验收**（画面、声音、手感、主观取舍、登录态写操作、长链路多步交互）：**写交接单交给人**，模板见 `docs/agents/testing.md` §5，范本是 `docs/review/manual-test-guide-261106.md`。
+- 判据是"错了 AI 能不能靠读东西发现自己错了"，不是"改动行数少不小"。**必须实测的典型**：`FLAG_KEEP_SCREEN_ON` 的写法、`View` 级 `keepScreenOn` 能否清掉、弹幕时钟接没接上——这些只能靠 `dumpsys` / 日志在设备上确认。**交给人的典型**：颜色、字有没有被切、音轨、跟手、掉帧。
+- MuMu 的环境坑（副屏 `display 14/15/16...`、`screencap -d <id>` 对任何 display 都回 `Status: -2`、`input` 不带 `-d` 落桌面）统一记在 `docs/review/agent-test-guide.md` §6，别在这里再抄一遍。
 
 ## 提交后、打 tag 前必须核对提交内容（26.11.06 事故）
 
@@ -26,8 +43,3 @@
 - **不要写 `git add -A <路径>`**：要么 `git add <路径>`（只加指定文件），要么干脆 `git add -A`（明确就要全仓）。两者混写是这次事故的直接成因，语义和直觉相反。
 - 合完 PR / 解完冲突之后尤其危险：`git merge` 自动合并成功的文件本来就躺在工作区里，此时任何一次「顺手全加」都会把它们裹进一个不相干的提交。合完 PR 应当**先独立提交一次 merge 结果**，再动别的。
 - 理由：提交历史是这个仓库唯一的追溯依据，`fix-progress.md` 与 `README` 都靠它反查「这版到底改了什么」。一条名不副实的提交，比一次构建失败更难发现。
-
-## 小改动不必上模拟器
-
-- **小改动不必上模拟器**（26.10.22 收）：文案/注释、单文件小逻辑、日志收敛、纯常量调整这类**不碰播放器状态机与线程时序**的改动，跑通 `assembleDebug`（至少 `compileCoexistDebugKotlin`）+ 相关单测即可直接提交。
-- 判据是"错了会不会只有真机才看得出来"，不是"改动行数少"。反过来的例子：`FLAG_KEEP_SCREEN_ON` 的写法、`View` 级 `keepScreenOn` 能否清掉、弹幕时钟接没接上——这些**只能**靠 `dumpsys` / 日志在设备上确认，属于必须实测的类别。

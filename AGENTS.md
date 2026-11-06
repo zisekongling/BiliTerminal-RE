@@ -6,9 +6,25 @@
 
 **与用户交流、代码注释、文档一律中文。**
 
-## 先读架构地图
+## 先读架构地图（按 § 查，别整份读）
 
-改任何非平凡代码前先读 **`docs/architecture-map.md`**：真实分层、基类体系、API 层映射表、UI 模板、逐条坑点。其他参考：**`docs/README.md`（文档总索引）**、`bilibili-API/`（B 站接口文档快照）、`docs/bilibili-api-notes.md`（接口与风控常识，改 API 前读）、`docs/FEATURES.md`（用户可见功能总表）、`docs/review/agent-test-guide.md`（**用 adb / agent 驱动 Debug 包测试的手册**，加调试能力前先读）、`docs/superpowers/specs/`（功能设计文档，写新功能前读）、`docs/tutorial-system-redesign.md`（教程系统重做中——**改教程前先读它**）。**`docs/archive/` 里全是历史资料，记录的是当时、不是现状**，别照着它改代码。
+`docs/architecture-map.md` 实测 **322,334 字节 / 2,052 行 ≈ 9.6 万 token**——整份读完就是十万 token 量级，一次任务里绝大部分是浪费。按下面这张表只读你需要的那几节（行号与 token 都是 26.11.06 实测，文件改版后行号会漂移，对不上就用 `grep -n "^## N\."` 重新定位）：
+
+| 你要干什么 | 只读这几节 | token |
+| --- | --- | --- |
+| 第一次进仓库、要搞清分层 | §1 `10–175` + §10 `2045–2052` | ≈6.0k |
+| 新增页面 / 改列表 / 改 UI 模板 | §8 `1483–1878` + §3 `223–292` | ≈13.8k |
+| 改 API 解析 / 找某接口在哪个文件 | §9 `1879–1986` + §6 `353–663` | ≈14.5k |
+| 改播放器 / 弹幕 / 下载 | §7.4 `702–783` + §7.27 `1085–1108` + §7.51 `1383–1396` + §7.54 `1419–1430`（动亮屏 / 顶栏再加 §7.52 `1397–1404`、§7.53 `1405–1418`，+1.5k） | ≈9.5k |
+| 撞到某个具体坑 | 先 `grep -n "关键词" docs/architecture-map.md` 命中单个 `§7.x` 再读 | 1–3k |
+
+三条铁律：
+
+- **§7 是坑点库，不是必读章节**：`664–1482` 行、58 个 `### 7.x`、≈5.3 万 token，**永远不要通读**，用 grep 定位到那一节。
+- **`§9` 末尾三节（7.56 收藏夹管理页 / 7.57 播放器内切 1080P / 7.59 外置卷 FileProvider，`1988–2044`，≈6.5k token）是误放在那里的坑点**，不是 API 映射——读 §9 读到 `1879–1986` 就够，那三节按坑点单独 grep（文内两处已标交叉引用）。
+- **`docs/review/fix-progress.md` 平时只读 §1 + §2**（§1 `7–46` ≈4k、§2 `47–187` ≈10k）；`§3` 起 `188–1586` 行是历史流水（≈12.2 万 token），只有要查「某轮改动到底怎么改的」才按关键词 grep 进去。
+
+其他参考：`docs/README.md`（文档总索引）、`bilibili-API/`（B 站接口文档快照，**197 份 / 5.5MB，按接口名 grep 单份，别通读**）、`docs/bilibili-api-notes.md`（接口与风控常识，改 API 前读）、`docs/FEATURES.md`（用户可见功能总表，≈3.4 万 token，按章 grep）、`docs/superpowers/specs/`（功能设计文档，只读与你这次改动相关的那一份）、`docs/tutorial-system-redesign.md`（教程系统重做中——**改教程前先读它**，全份仅 2.4k，可以整读）。**`docs/archive/` 里全是历史资料，记录的是当时、不是现状**，别照着它改代码。
 
 ## 分册索引（按"我正在做什么"读）
 
@@ -20,6 +36,7 @@
 | 构建 / 单测 / 装包 / 遇到构建怪错误 | `docs/agents/build.md` |
 | 发版 / 更新日志 / Release 说明 | `docs/agents/release.md` |
 | 准备提交、准备说"应该没问题" | `docs/agents/workflow.md` |
+| 改完要验证、想上模拟器、判断这条测试该不该交给人工 | `docs/agents/testing.md` |
 | 改 API 解析 / 播放器 / 弹幕 / 下载等易踩区 | `docs/agents/pitfalls.md` |
 | 收尾（改文档、跑 markdownlint） | `docs/agents/docs.md` |
 
@@ -39,7 +56,11 @@
 
 - 网络请求包在 `CenterThreadPool.run { }` 里。
 - **小步提交**：改动切成能独立验证的小步（`assembleDebug` + 相关单测通过）再做下一步，别一次堆大量改动。**做完自己 commit + push 到 `main`**，不等催；commit message 与 co-author 格式见 `docs/agents/workflow.md`。
-- **改完必须自测，不许只说"应该没问题"**：涉及播放器 / 网络 / UI 时序的改动装到 MuMu 模拟器（`adb connect 127.0.0.1:7555`）跑一遍，把实测结论写进 `docs/review/fix-progress.md`；纯文案 / 单文件小逻辑跑通 `assembleDebug` + 单测即可（判据见 `docs/agents/workflow.md`）。
+- **改完必须验证，不许只说"应该没问题"**，分三级（细则、预算、止损与交接单模板见 `docs/agents/testing.md`）：
+  - **L0 静态**：每个改动都做——`assembleDebug` + 相关单测绿。只证明纯函数没写错，**不证明功能能用**。
+  - **L1 设备可观测**：结论能用**文字/数字读出来**时做（日志原文、控件树文字与 bounds、落盘文件结构、HTTP 状态码），用 Debug 包 + `adb`/调试桥跑；**两轮上限，每轮 ≤10 分钟**，测不出来立刻止损写交接单，别反复试。
+  - **L2 人工验收**：结论只能靠**看画面 / 听声音 / 判手感 / 主观取舍**时，**不要自己上模拟器硬试**——写交接单交给人，并在 `docs/review/fix-progress.md` 记「未验证：<项>」。
+- **不许攒交接单**：需要人测的改动提交后立刻给交接单，别攒到发版前一次堆几十条。
 - 用户可见文案一律进 `app/src/main/res/values/strings.xml`（写法与纯函数例外见 `docs/agents/dev-conventions.md`）。
 - 不轻易引入新第三方库；**一切功能优先考虑手表端**，手机等设备只是顺便适配。
 - **改完同步文档**：修 bug / 关待办 → `docs/review/fix-progress.md`；改架构 / 基建 → `docs/architecture-map.md`；新增用户可见功能 → `docs/FEATURES.md`；接口 / 风控结论 → `docs/bilibili-api-notes.md`；本文件描述的内容变了 → 改对应分册。改任何 `.md` 后跑 `npx --yes markdownlint-cli2 "AGENTS.md" "readme.md" "docs/**/*.md" "!docs/archive/**"`，**要求 0 错误**（规则、豁免与逐字素材示例见 `docs/agents/docs.md`）。
