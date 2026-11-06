@@ -2,7 +2,8 @@
 
 > 面向对象：AI agent / 自动化脚本 / 需要脚本化验证真机行为的人。
 > 适用版本：26.10.14 起的 Debug 构建。Release 包**不含**本文描述的任何东西。
-> 配套：`docs/architecture-map.md`（架构与坑）、`docs/review/real-device-regression-checklist.md`（发版前真机回归清单）；旧的 T/D 测试计划已归档为 `docs/archive/review/device-test-plan.md`。
+> 配套：`docs/architecture-map.md`（架构与坑）、`docs/review/real-device-regression-checklist.md`（发版前真机回归清单）、`docs/agents/testing.md`（**该不该由 AI 测、测到什么程度就停**）；旧的 T/D 测试计划已归档为 `docs/archive/review/device-test-plan.md`。
+> 想找「某条功能用例该怎么断言」的现成样例：`docs/review/manual-test-guide-261106.md`（每条末尾带 `AI 断言` / `AI 半自动` / `AI 判不了`，§0 是三条起步命令与取证方式）。
 
 ---
 
