@@ -15,7 +15,7 @@
 | Toast / Snackbar | `util/MsgUtil.java` 的 `showMsg` / `showMsgLong` | 短，一句话 | 默认走 Snackbar（沉浸式、可覆盖在页面底部），用户在设置里关掉 `SNACKBAR_ENABLE` 才退回系统 Toast。两者都是 2~3 秒消失，**超过两行就要考虑换载体** |
 | 弹窗（TerminalDialog） | `util/TerminalDialog.kt` | 可长，但正文在滚动区里，高度上限为屏高的 45% | 有标题 + 正文 + 按钮，能停下阅读、能要二次确认，适合「解释原因 / 要求决定」 |
 | 整页弹窗（DialogActivity） | `util/MsgUtil.showDialog(title, content[, wait_time])` 拉起 `activity/DialogActivity.kt` | 可很长，整页滚动 | 启动时的免责声明、夜深提醒走这条；`wait_time` 是「知道了」按钮的倒计时封禁秒数 |
-| 空态页 / 列表底部状态条 | 布局里的 `emptyView` / `loadMoreTip`，文案在 `activity/base/RefreshListActivity.kt` 与 `activity/base/RefreshMainActivity.kt` | 可多行 | 常驻显示，不是一次性提示；列表底部只显示「正在加载… / 没有更多了」四个字级别 |
+| 空态页 / 列表底部状态条 | 布局里的 `emptyView` / `loadMoreTip`，文案在 `util/view/LoadMoreTipController.kt`（两个列表基类共用） | 可多行 | 空态常驻；底部状态条**不是常驻横幅**——「正在加载…」保持到加载结束，「没有更多了」是**一次性提示**（2 秒后自动收起，26.11.06 用户反馈「横幅一直固定不会隐藏」后改的口径）；只显示四个字级别 |
 | 通知栏 | `util/MsgNotifier.kt`（1029/1030）、`service/PlaybackService.kt`（1028）、`service/download/DownloadNotifier.kt`（1027） | 标题 ≤ 一行、正文 ≤ 一行 | 手表上正文常被系统截成十几个字，**关键信息要放标题** |
 | 播放器中央浮层 | `activity/player/PlayerActivity.kt` 的 `loading_text0` / `loading_text1` | 极短，2~6 字 | 转圈动画下面的两行字，第二行是速度或颜文字 |
 

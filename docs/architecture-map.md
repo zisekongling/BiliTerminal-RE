@@ -1520,6 +1520,7 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 | 并发保护 | 仅 500ms 时间戳 | `synchronized` + 100ms |
 | 触发阈值 | `findLastVisibleItemPosition >= itemCount-4`，IDLE 也查 | 完全可见项 `>= itemCount-3` 且 `!canScrollVertically(1)` |
 | 空视图 | 有 `showEmptyView/hideEmptyView` | 有（`emptyView` / `showEmptyView` / `hideEmptyView` / `setOnEmptyRetry`，26.10.10 已补） |
+| 底部状态条 | 共用 `util/view/LoadMoreTipController`（「正在加载…」保持到加载结束；「没有更多了」2 秒自动收起，不是常驻横幅） | 同上（显示策略在 `util/view/LoadMoreTipPolicy`，纯函数带单测） |
 | 性能 | `PerformanceManager` 动态缓存 + 独立 RecycledViewPool | 固定 cacheSize 10、pool max 20 |
 
 ### 8.3 Adapter 写法

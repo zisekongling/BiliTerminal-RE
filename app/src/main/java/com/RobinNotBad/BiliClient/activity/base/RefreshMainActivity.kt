@@ -11,14 +11,21 @@ import com.RobinNotBad.BiliClient.listener.OnLoadMoreListener
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.view.ImageAutoLoadScrollListener
+import com.RobinNotBad.BiliClient.util.view.LoadMoreTipController
 
 open class RefreshMainActivity : InstanceActivity() {
     lateinit var swipeRefreshLayout: SwipeRefreshLayout
     lateinit var recyclerView: RecyclerView
     var emptyView: TextView? = null
 
-    /** 列表底部"正在加载…／没有更多了"状态条（布局里的 loadMoreTip，不在列表项内） */
-    private var loadMoreTip: TextView? = null
+    /**
+     * 列表底部"正在加载…／没有更多了"状态条（布局里的 loadMoreTip，不在列表项内）。
+     *
+     * 「没有更多了」是一次性提示（2 秒后自动收起），不是常驻横幅——它是列表外的兄弟节点，
+     * 钉在屏幕底部不随列表滚走，常驻就变成用户反馈的「横幅一直固定在那里不会隐藏」。
+     * 显示策略见 [com.RobinNotBad.BiliClient.util.view.LoadMoreTipPolicy]。
+     */
+    private var loadMoreTip: LoadMoreTipController? = null
     var listener: OnLoadMoreListener? = null
     // @Volatile：子类在 CenterThreadPool 后台线程写（如 DynamicActivity 的翻页回调），
     // 滚动监听却在主线程读，两者没有 happens-before 边，主线程可能长期读到陈旧的 false，
@@ -33,7 +40,7 @@ open class RefreshMainActivity : InstanceActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_simple_main_refresh)
         emptyView = findViewById(R.id.emptyTip)
-        loadMoreTip = findViewById(R.id.loadMoreTip)
+        loadMoreTip = LoadMoreTipController(findViewById(R.id.loadMoreTip))
         swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout)
         // 下拉刷新转圈此前用 SwipeRefreshLayout 默认色（与主题无关），统一到当前主题主色
         swipeRefreshLayout.setColorSchemeColors(ColorScheme.PRIMARY)
@@ -72,17 +79,16 @@ open class RefreshMainActivity : InstanceActivity() {
         runOnUiThread { recyclerView.adapter = adapter }
     }
 
-    /** 更新底部翻页状态提示。 */
+    /** 更新底部翻页状态提示；[loading]=true 显示"正在加载…"，[end]=true 显示"没有更多了"（2 秒后自动收起）。 */
     private fun updateLoadMoreTip(loading: Boolean, end: Boolean) {
         val tip = loadMoreTip ?: return
-        runOnUiThread {
-            tip.text = when {
-                end -> getString(R.string.text_list_no_more)
-                loading -> getString(R.string.text_list_loading)
-                else -> ""
-            }
-            tip.visibility = if (end || loading) View.VISIBLE else View.GONE
-        }
+        runOnUiThread { tip.render(loading, end) }
+    }
+
+    override fun onDestroy() {
+        // 撤掉还没到点的「没有更多了」自动收起，别让定时器把 Activity 多留 2 秒
+        loadMoreTip?.release()
+        super.onDestroy()
     }
 
     /**

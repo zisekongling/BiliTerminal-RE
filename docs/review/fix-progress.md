@@ -1309,6 +1309,25 @@
   - **未验**：真实登录态下「刷新成功后服务端换发新 SESSDATA」本机无账号可复现，由官方文档语义（`bilibili-API/docs/login/cookie_refresh.md`）+ 纯函数单测覆盖。
 - **遗留**：真机上的「刷新成功后服务端是否真的换发新 SESSDATA」没有登录态可复现，靠官方文档语义 + 本地纯函数单测兜住；`Chrome` 式 Cookie「删除凭据键」的语义被有意忽略（凭据只由登录 / 切号 / 退出改写），若将来需要支持网页端「退出登录」同步下线，得单独设计一条显式失效通道。
 
+### 3.123 「没有更多了」横幅常驻在推荐 / 收藏夹底部不消失（26.11.06，用户点名）
+
+- **现象**：列表底部的「没有更多了」是**列表外的兄弟节点**（`activity_simple_refresh.xml` / `activity_simple_main_refresh.xml` 里排在 `SwipeRefreshLayout` 下面），钉在屏幕底部、不随列表滚走。以前只要某页拿到「没有下一页」的信号就**永久**留着这一条，用户看到的就是「横幅一直固定在推荐和合集-收藏夹子底部，不会隐藏」。
+- **根因**（两条叠加，都不是"某个页面写错了"）：
+  1. `updateLoadMoreTip()` 只按 `end || loading` 置 `VISIBLE`，**没有任何收起路径**——`end=true` 之后只有「再次加载」或「整页刷新」才会把它改回 `GONE`。
+  2. 「第一页就到底」的页面遍地都是：`FavoriteVideoListActivity` 的 `has_more=false`（收藏夹不足一页）、`SubscriptionListActivity` 的 `!has_more`、`DynamicTopicActivity.loadPlaza()` 的无条件 `bottom = true`……这些页面一进来就常驻一条。
+- **改法**（两个列表基类各改一处，覆盖全部列表页）：
+  - 新增纯策略 `util/view/LoadMoreTipPolicy.kt`：`stateOf(loading, end)` → `HIDDEN/LOADING/END`（`end` 优先）、`isVisible()`、`autoHides()`、`END_VISIBLE_MS = 2000`。**只有 END 自动收起**，LOADING 必须等到加载回调——请求慢时按时间收掉会让用户以为列表卡死。
+  - 新增 `util/view/LoadMoreTipController.kt`：组合而非继承（两个基类没有共同父类，`BaseActivity` 有向下类型判断的坑），持有 `TextView` + 一次性的 `postDelayed` 收起任务；每次重画先 `removeCallbacks`，避免「刚显示就翻下一页」被旧定时器提前收掉。文案也一并收进来——以前同一句话在两个基类里各写一份（`DUPLICATES.md` 的 `DUP-13`），改一处必漏一处。
+  - `RefreshListActivity` / `RefreshMainActivity`：字段由 `TextView?` 换成 `LoadMoreTipController?`，`updateLoadMoreTip()` 改为 `runOnUiThread { tip.render(loading, end) }`；新增 `onDestroy()` 调 `release()` 撤掉未到点的定时器（不撤也不崩，只是白留 Activity 2 秒）。
+- **验证**：
+  - 构建：`./gradlew.bat :app:assembleDebug`（双 flavor）**BUILD SUCCESSFUL**。
+  - 单测：`testStandardDebugUnitTest` 与 `testCoexistDebugUnitTest` 各 **184 suites / 1982 tests / 0 失败 0 错误 0 跳过**（新增 `LoadMoreTipPolicyTest` 7 例：四态判定、`end` 优先、只有 END 自动收、时长上下限）。
+  - **设备 A/B（AVD `rebili_api37_sd`，Android 17 x86_64，`standard-universal-debug`，用 `DebugBridge` 的 `start` 直接拉起 `DynamicTopicActivity` 广场页——它 `bottom = true` 且 `setRefreshing(false)`，是「第一页就到底」的最小复现）**，`uiautomator dump` 逐帧读 `@id/loadMoreTip`：
+    - **修前**（`git stash` 掉本改动后重编装包）：t=2.7s / 5.2s / 7.7s / 10.4s / 13.0s / 15.6s **每次都还是「没有更多了」**；
+    - **修后**：t=2.3s 显示「没有更多了」，t=4.7s 起（连续四次 dump 到 t=14.4s）**已不可见**，与 `END_VISIBLE_MS = 2000` 吻合。
+  - 回归：推荐页正常出内容、连续下滑仍能翻页（`fresh_idx=1 → 2` 各一次请求）、滚到底部后 `loadMoreTip` 不在树里（空闲不占位）。
+- **未验 / 说明**：推荐页本身没在设备上走到 `bottom=true`（推荐流是无限流，只有「本页不足一页」或「去重后无新增」才会置 `bottom`），所以设备证据取自同一套基类路径的广场页；收藏夹 / 我的订阅两条真机用例需要有效登录态，本机只有假会话，**未跑**。真手表复验：进一个不足一页的收藏夹 → 底部短暂出现「没有更多了」→ 约 2 秒后消失、列表底部不再被占一条。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。

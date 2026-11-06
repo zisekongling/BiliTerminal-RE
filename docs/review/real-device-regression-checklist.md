@@ -411,7 +411,7 @@
 
 - [ ] **238.** **系统栏 / insets**：分别在**手势导航**与**三键导航**下：状态栏/导航栏图标是否清晰；列表最后一项、播放器底部进度条是否被导航栏压住。不对时改 `ThemeManager.applyWindowTheme`（图标亮度）/ `BaseActivity.applySystemBarInsets`（避让）。
 - [ ] **239.** **顶栏**：随便进 10 个页面：顶栏高度、标题字号、背景与分割线；二级页是返回箭头、一级页是上箭头、菜单页是上箭头。**注意公共顶栏 `cell_topbar.xml` 已不存在**（26.10.10 复核：139 个布局里 0 引用），高度/背景/分割线由各页手抄（详见 `docs/architecture-map.md` §8.1 / §8.5 与 §7.4），要逐页看，别再照着「44 个布局共用组件」的旧描述找组件。
-- [ ] **240.** **列表页翻页 footer**：滑到列表底部应显示「正在加载…」，到底后「没有更多了」，空闲时不占位。不对时改 `adapter/LoadMoreFooterAdapter`、两个基类的 `goOnLoad`/`setRefreshing`。
+- [ ] **240.** **列表页翻页 footer**：滑到列表底部应显示「正在加载…」，到底后短暂显示「没有更多了」并在约 2 秒后自动收起（**不是常驻横幅**，26.11.06 改；收藏夹不足一页、订阅为空这类「第一页就到底」的页面最容易看出区别）。不对时改 `util/view/LoadMoreTipPolicy`（显示策略，纯函数带单测）/ `util/view/LoadMoreTipController`（落到 View）/ 两个基类的 `goOnLoad`·`setRefreshing`。
 - [ ] **241.** **视频卡封面**：视频列表滚动时行高是否稳定（不再忽高忽低）；封面是否 16:9 填满。不对时改 `cell_video_list.xml` / `cell_video_local.xml` 的封面 ConstraintLayout。
 - [ ] **242.** **占位图**：冷启动进列表是否还闪白块。不对时 `git checkout app/src/main/res/mipmap-nodpi/placeholder*.png` 回退。
 - [ ] **243.** **主题逐套切换**（批次 2 改过 152 个文件）：每套主题（含新加的「经典终端」）各走一遍播放器（含选集 / 画质弹窗）、搜索、设置、动态、私信、用户主页、投票页、热搜；哪个元素颜色不对说明它仍是静态色 → grep 对应布局。

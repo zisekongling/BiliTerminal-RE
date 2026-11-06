@@ -169,8 +169,8 @@
 
 | 写法 | 位置 |
 | --- | --- |
-| `没有更多了` | `RefreshMainActivity.kt:80`、`RefreshListActivity.kt:307`（**两处各写了一遍同样的 when 分支**） |
-| `正在加载…` | `RefreshMainActivity.kt:81`、`RefreshListActivity.kt:308`（同上） |
+| `没有更多了` | `util/view/LoadMoreTipController.kt`（26.11.06 起**只剩这一处**：两个列表基类共用同一个控制器，以前 `RefreshMainActivity.kt` / `RefreshListActivity.kt` 各写一遍同样的 when 分支） |
+| `正在加载…` | 同上 |
 | `暂时没有更多评论了` | `activity/reply/ReplyFragment.kt:265` |
 | `没有更多消息了` | `activity/message/PrivateMsgActivity.kt:355` |
 | `呐呐？这里没有更多彩蛋了呢＞﹏＜` | `strings.xml:123`（彩蛋数组末尾，见 07） |
