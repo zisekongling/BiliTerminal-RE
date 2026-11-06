@@ -2,7 +2,7 @@
 
 - **日期**：2026-11-06
 - **状态**：设计已与用户确认（三轮问答），**未实施**
-- **涉及文件**：`activity/settings/SettingPlayerUiActivity.kt`（新建）、`res/layout/activity_setting_player_ui.xml`（新建）、`res/layout/item_player_ui_card.xml`（新建）、`player/PlayerButton.kt`（新建）、`player/PlayerUiLayout.kt`（新建）、`player/PlayerSettingsGroups.kt`（新建）、`activity/player/PlayerActivity.kt`、`res/layout/activity_player.xml`、`activity/settings/SettingTerminalPlayerActivity.kt`、`activity/settings/SettingMainActivity.kt`、`activity/settings/SettingPlayerChooseActivity.kt`、`activity/settings/SettingsIndex.kt`、`util/SettingsKeys.kt`、`app/src/main/AndroidManifest.xml`、`res/values/strings.xml`、`test/.../PlayerUiLayoutTest.kt`（新建）
+- **涉及文件**：`activity/settings/SettingPlayerUiActivity.kt`（新建）、`res/layout/activity_setting_player_ui.xml`（新建）、`res/layout/item_player_ui_card.xml`（新建）、`player/PlayerButtons.kt`（新建）、`player/PlayerUiLayout.kt`（新建）、`player/PlayerSettingsGroups.kt`（新建）、`activity/player/PlayerActivity.kt`、`res/layout/activity_player.xml`、`activity/settings/SettingTerminalPlayerActivity.kt`、`activity/settings/SettingMainActivity.kt`、`activity/settings/SettingPlayerChooseActivity.kt`、`activity/settings/SettingsIndex.kt`、`util/SettingsKeys.kt`、`app/src/main/AndroidManifest.xml`、`res/values/strings.xml`、`test/.../PlayerUiLayoutTest.kt`（新建）
 
 ## 1. 目标
 
@@ -37,39 +37,43 @@
 
 ## 3. 数据结构
 
-### 3.1 按钮注册表 `player/PlayerButton.kt`
+### 3.1 按钮注册表 `player/PlayerButtons.kt`（26.11.06 已实现）
 
-一个 `enum class PlayerButton`，字段：`key`、`nameRes`、`iconRes`、`scene`（可用场景）、`group`（点它弹哪组设置）、`defaultWidthDp`。
+`object PlayerButtons` + `data class Button(key, nameRes, iconRes, settingsGroup, action, textOnly)`。落地时比原设计少两个字段：
 
-现状共 17 个可配按钮（外加 1 个待确认）：
+- `scene`（可用场景）**不进货架**：什么时候能点、能不能显示，现有代码里已有一整套判据（`hasDanmaku`、多分P、是否直播……），第 3 步渲染时按 key 沿用原判据，不在注册表里再记一份，避免两处不一致。
+- `defaultWidthDp` 也不需要：槽位宽度由假界面/播放器的容器权重决定，不按按钮单独配。
 
-| key | 现有 view id | 名称 | 可用场景（现状代码判据） | 点它弹哪组 |
+17 个可配按钮（key 即存储串里的 token，一旦发布不能改）：
+
+| key | 现有 view id | 名称（`strings.xml`） | 图标 | 点它弹哪组 |
 | --- | --- | --- | --- | --- |
-| `danmaku` | `danmaku_btn` | 弹幕开关 | 有弹幕（`hasDanmaku`） | 弹幕 |
-| `rotate` | `rotate_btn` | 旋转屏幕 | 一直（受原开关控制，开关已删） | 屏幕方向 |
-| `subtitle` | `subtitle_btn` | 字幕 | 有字幕轨 | 字幕 |
-| `loop` | `loop_btn` | 循环播放 | 非直播 | 循环播放 |
-| `audio_only` | `audio_only_btn` | 听视频 | 非直播 且 非本地音频 | 听视频 |
-| `auto_next` | `auto_next_btn` | 自动连播 | 非直播 且 多分P | 自动连播 |
-| `viewpoint` | `viewpoint_btn` | 看点 | 有看点数据 | 无（说明卡） |
-| `video_info` | `video_info_btn` | 视频信息 | 短视频模式 | 无（说明卡） |
-| `jump_time` | `jump_time_btn` | 跳转到指定时间 | 非直播 | 无（说明卡） |
-| `queue` | `queue_mode_btn` | 连播队列模式 | 有队列或知道 UP 主 | 无（说明卡） |
-| `quality` | `button_quality` | 清晰度 | 非直播 且 在线视频 | 清晰度（跳现有页） |
-| `page` | `button_page_selector` | 分P / 合集 | 多分P | 分P |
-| `speed` | `text_speed` | 倍速 | 非直播 | 倍速 |
-| `lock` | `lock_btn` | 锁定 | 一直 | 无（说明卡） |
-| `volume_up` | `button_sound_add` | 音量加 | 一直 | 音量（说明卡） |
-| `volume_down` | `button_sound_cut` | 音量减 | 一直 | 音量（说明卡） |
-| `danmaku_send` | `danmaku_send_btn` | 发弹幕 | 已登录 且 非直播 | 弹幕（**待用户确认是否进候选**） |
+| `lock` | `lock_btn` | 锁定 | `icon_player_lock` | 无（说明卡） |
+| `speed` | `text_speed` | 倍速 | `ic_player_speed`（自绘） | 播放默认值组 |
+| `danmaku` | `danmaku_btn` | 弹幕 | `danmakuoff` | 弹幕 |
+| `rotate` | `rotate_btn` | 旋转 | `rotate` | 无（说明卡） |
+| `danmaku_send` | `danmaku_send_btn` | 发弹幕 | `send` | 弹幕 |
+| `subtitle` | `subtitle_btn` | 字幕 | `subtitle_off` | 字幕 |
+| `loop` | `loop_btn` | 循环播放 | `loopoff` | 播放默认值组 |
+| `audio_only` | `audio_only_btn` | 听视频 | `icon_audio_only_off` | 播放默认值组 |
+| `auto_next` | `auto_next_btn` | 自动连播 | `icon_auto_next_off` | 播放默认值组 |
+| `viewpoint` | `viewpoint_btn` | 看点 | `icon_star`（借） | 无（说明卡） |
+| `video_info` | `video_info_btn` | 视频信息 | `icon_info` | 无（说明卡） |
+| `jump_time` | `jump_time_btn` | 跳转时间 | `icon_time`（借） | 无（说明卡） |
+| `queue_mode` | `queue_mode_btn` | 连播队列 | `icon_sort_filter`（借） | 无（说明卡） |
+| `quality` | `button_quality` | 清晰度 | `icon_menu` | 跳 `SettingQualityActivity` |
+| `sound_cut` | `button_sound_cut` | 音量减 | `soundcut` | 无（说明卡） |
+| `sound_add` | `button_sound_add` | 音量加 | `soundadd` | 无（说明卡） |
+| `page_selector` | `button_page_selector` | 分P | `icon_folder` | 无（说明卡） |
 
 - 「更多 / 组」**不占 key**：它是槽位的一种形态（`Slot.Group`），渲染时用 `mipmap/morehide`、`mipmap/moreshow` 两个现成图标。
-- 图标缺口：`jump_time`、`queue` 现在是纯文字按钮，需要用户补图标（先用占位）。
+- 图标缺口：`viewpoint`、`jump_time`、`queue_mode` 现在借的是别人的图标，等用户补图后改 `PlayerButtons.ALL` 里对应那一行即可。
+- `textOnly = true` 只有「倍速」一项：它在槽位里显示 `×1.0` 文字，不画图标。
 
-### 3.2 槽位与整份布局 `player/PlayerUiLayout.kt`
+### 3.2 槽位与整份布局 `player/PlayerUiLayout.kt`（26.11.06 已实现）
 
 ```text
-Slot = Button(key) | Group(keys: List<String>)      // 空组 = 一个什么都没装的「更多」
+Slot = Button(key) | Group(keys: List<String>)
 Layout = left: List<Slot>          // 上限 5
          right: List<Slot>         // 上限 5
          bottomLeft: List<Slot>    // 上限 3
@@ -77,31 +81,34 @@ Layout = left: List<Slot>          // 上限 5
 ```
 
 - **允许同一个 key 出现在多个槽位、也允许在同一个组里重复**（用户明确要求）；状态同步靠现有按钮状态本来就是全局的（`isDanmakuVisible`、`loop_enabled` 等），渲染时每个副本都调用同一个刷新函数。
-- 存储：`SharedPreferencesUtil` 一个键 `player_ui_layout`，值是 JSON 字符串（项目只用 `org.json`，不引入序列化库）：
+- 存储：`SharedPreferencesUtil` 一个键 `player_ui_layout`，值是一段**分隔符串**（不是 JSON——见下）：
 
-```json
-{"v":1,
- "left":["lock","speed"],
- "right":["danmaku","rotate",{"group":["danmaku_send","subtitle","loop","audio_only","auto_next","viewpoint","video_info","jump_time","queue"]}],
- "bottomLeft":["quality","volume_down"],
- "bottomRight":["volume_up","page"]}
+```text
+1;lock,speed;danmaku,rotate,{danmaku_send+subtitle+loop+audio_only+auto_next+viewpoint+video_info+jump_time+queue_mode};quality,sound_cut;sound_add,page_selector
 ```
 
-字符串 = 单按钮；对象 `{"group":[…]}` = 组。
+五段用 `;` 分隔：版本号、左、右、底部左、底部右；段内用 `,` 分隔槽位；组用 `{}` 包起来、组内用 `+` 分隔。
 
-- **默认值 = 上面的 JSON**（即现状外观，升级零感知）。
-- 解析容错：整段 JSON 坏 / `v` 不认识 → 回落默认；单个 key 不认识 → 丢弃该槽位；组里只剩 0 个按钮 → 仍保留（就是个空组）。
+- **为什么不用 JSON**：JVM 单测里 `org.json` 是 Android 的桩实现（`testOptions.unitTests.returnDefaultValues = true`，只返回默认值、不真解析），JSON 化的布局无法在单测里验证；仓库里同类的「用户自定义布局」`util/MySpaceConfig.kt` 用的也是分隔符串，格式风格保持一致。也因此 key 里**不允许出现 `; , + { }`**（单测里有断言钉着）。
+- **默认值 = 上面那一行**（即现状外观，升级零感知）。
+- 容错口径：
+  - 结构非法（段数不对、版本不认识、花括号不配对、出现空 token）→ **整体回退默认**（宁可回默认，也不要把用户按钮丢一半，与 `MySpaceConfig` 一致）；
+  - 单个 key 没登记（旧版本删掉的按钮、手改脏数据）→ **只丢这个 key**，其余保留；
+  - 组里有效 key 只剩 1 个 → 降级成单按钮；一个不剩 → 整组丢弃；
+  - 超出容量 → 截到 5/5/3/3。
+- `load()` 会把「读到的东西 ≠ 规范化结果」的情况顺手写回规范串，于是默认布局、旧格式、脏数据都在第一次读取时被修好。
 
-### 3.3 纯函数（可 JVM 单测）
+### 3.3 纯函数（可 JVM 单测，26.11.06 已实现）
 
-`PlayerUiLayout` 里只放无 Android 依赖的函数，`PlayerUiLayoutTest` 覆盖：
+`PlayerUiLayout` 里只放无 Android 依赖的函数，`PlayerUiLayoutTest`（30 个用例）覆盖：
 
-- `default(): Layout`
-- `parse(json: String?): Layout`（容错规则见上）
-- `toJson(layout): String`
-- `addSlot(slots, index, slot): List<Slot>` / `removeSlot(slots, index)` / `moveSlot(slots, from, to)`
-- `canAdd(section, count): Boolean`（5/5/3/3）
-- `isUsable(key, scene): Boolean`（场景不适用 → 不渲染，且后面的槽位自动补位）
+- `default(): Layout` / `DEFAULT` / `isDefault(layout)`
+- `parse(raw: String?): Layout`（容错规则见上）/ `encode(layout): String`
+- `slots(layout, region)` / `withSlots(layout, region, slots)` / `isFull(layout, region)`
+- `add(layout, region, slot)` / `removeAt(layout, region, index)` / `replaceAt(...)` / `move(layout, region, from, to)`（越界一律原样返回，不抛）
+- `uses(layout, key)`（候选列表标注「已放置」用）
+- `load(read, write)` / `save(layout, write)`（读写注入成函数，这层不碰 Android）
+- `Region` 枚举自带 `capacity`（5/5/3/3）
 
 ### 3.4 播放器侧渲染（`PlayerActivity`）
 
@@ -137,7 +144,7 @@ Layout = left: List<Slot>          // 上限 5
 
 | 键 | 类型 | 默认 | 含义 |
 | --- | --- | --- | --- |
-| `player_ui_layout` | String(JSON) | 空 → 用 `PlayerUiLayout.default()` | 整份槽位布局 |
+| `player_ui_layout` | String（分隔符串，格式见 §3.2） | 空 → 用 `PlayerUiLayout.default()` | 整份槽位布局 |
 | `player_ui_show_title` | boolean | `true` | 顶部标题显示 |
 | `player_ui_show_battery` | boolean | `true` | 电量显示 |
 | `player_ui_show_clock` | boolean | `true` | 时钟显示 |
@@ -167,7 +174,7 @@ Layout = left: List<Slot>          // 上限 5
 ## 5. 实施步骤（每步独立可验证，能单独提交）
 
 1. **抽数据**：新建 `PlayerSettingsGroups`，`SettingTerminalPlayerActivity` 改为按组渲染（组标题 + divider 自动生成），补 `SettingsIndex.kt` 漏掉的 7 条索引。→ 视觉与原 48 项一致，`assembleDebug` + 单测 + 模拟器点一遍。
-2. **纯逻辑层**：`PlayerButton` + `PlayerUiLayout`（默认值 = 现状）+ `PlayerUiLayoutTest`。→ 只有单测，不动 UI。
+2. **纯逻辑层**：`PlayerButtons` + `PlayerUiLayout`（默认值 = 现状）+ `PlayerUiLayoutTest`。→ 只有单测，不动 UI。
 3. **播放器渲染**：改 `activity_player.xml` 为「按钮池 + 三个空容器」，`PlayerActivity` 按布局挂载，删 5 处开关判据，修 `alignLeftControlToRight`。→ 默认布局下外观必须与现在一模一样（模拟器逐项对照）。
 4. **假界面只读版**：`SettingPlayerUiActivity` 画出假播放器与按钮位置，点击弹卡片（复用 SettingsAdapter），全部为只读展示。→ 设置主页「播放与播放器」的 `target` 改为它，48 项挂在顶栏「完整设置」。
 5. **编辑能力**：空格加按钮、长按换/移、组的新建与编辑、容量上限、恢复默认布局。→ 改完进播放页验证。
@@ -194,7 +201,7 @@ Layout = left: List<Slot>          // 上限 5
 工程：
 
 1. `:app:assembleDebug` 通过（两个 flavor）。
-2. `:app:testStandardDebugUnitTest` 与 `:app:testCoexistDebugUnitTest` 通过；新增 `PlayerUiLayoutTest` 覆盖默认值、坏 JSON 回落、未知 key 丢弃、容量上限、重复 key、场景过滤。
+2. `:app:testStandardDebugUnitTest` 与 `:app:testCoexistDebugUnitTest` 通过；新增 `PlayerUiLayoutTest` 覆盖默认值、坏串回落、未知 key 丢弃、超容量截断、重复 key、组降级与丢弃。
 3. 用户可见文案全部进 `strings.xml`，无新增硬编码中文。
 4. 无新增第三方库；新增 Activity `android:exported="false"` + `android:screenOrientation="locked"`。
 

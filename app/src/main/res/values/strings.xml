@@ -2664,4 +2664,24 @@
     <string name="setting_player_group_danmaku">弹幕</string>
     <string name="setting_player_group_subtitle">字幕</string>
     <string name="setting_player_group_toolbar">界面按钮</string>
+    <!-- 可自定义按钮的短名（假播放器设置页的候选列表与槽位用） -->
+    <string name="setting_player_btn_lock">锁定</string>
+    <string name="setting_player_btn_speed">倍速</string>
+    <string name="setting_player_btn_danmaku">弹幕</string>
+    <string name="setting_player_btn_rotate">旋转</string>
+    <string name="setting_player_btn_danmaku_send">发弹幕</string>
+    <string name="setting_player_btn_subtitle">字幕</string>
+    <string name="setting_player_btn_loop">循环播放</string>
+    <string name="setting_player_btn_audio_only">听视频</string>
+    <string name="setting_player_btn_auto_next">自动连播</string>
+    <string name="setting_player_btn_viewpoint">看点</string>
+    <string name="setting_player_btn_video_info">视频信息</string>
+    <string name="setting_player_btn_jump_time">跳转时间</string>
+    <string name="setting_player_btn_queue_mode">连播队列</string>
+    <string name="setting_player_btn_quality">清晰度</string>
+    <string name="setting_player_btn_sound_cut">音量减</string>
+    <string name="setting_player_btn_sound_add">音量加</string>
+    <string name="setting_player_btn_page_selector">分P</string>
+    <!-- 没有可调设置的按钮，卡片里显示这一行说明 -->
+    <string name="setting_player_btn_nosettings">这个按钮没有可单独调整的设置，播放时点了才有反应。</string>
 </resources>
