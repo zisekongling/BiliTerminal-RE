@@ -52,6 +52,10 @@ class PlayerControlsPreview @JvmOverloads constructor(
     private val root: View
     private val slots: PlayerButtonSlots
 
+    /** 画布按**真实屏幕分辨率**排，再整体缩到框里——这样每格按钮占屏幕的比例与真机一致。 */
+    private val canvasWidth: Int = resources.displayMetrics.widthPixels
+    private val canvasHeight: Int = resources.displayMetrics.heightPixels
+
     init {
         setBackgroundColor(Color.BLACK)
         root = LayoutInflater.from(context).inflate(R.layout.activity_player, this, false)
@@ -111,10 +115,11 @@ class PlayerControlsPreview @JvmOverloads constructor(
     }
 
     /**
-     * 让整棵控制层按 `1 / PREVIEW_SCALE` 的尺寸排版，再整体缩回框里。
+     * 让整棵控制层按真实屏幕分辨率排版，再整体缩回框里。
      *
      * 播放页的控件是按「整块屏幕」画的（底部按钮行、左右两列都按屏幕高度摆），直接按缩略框
-     * 的高度排版会挤在一起；放大画布再缩回来，等于把控件按比例缩小，占框的比例才和播放时一致。
+     * 的高度排版会挤在一起；这里按**真实屏幕分辨率**排一次画布，再整体缩到框里——于是每一格
+     * 按钮占屏幕的比例、和底部按钮行的高度，都和真机播放时一模一样。
      *
      * **必须在 onMeasure/onLayout 里做**：在 onSizeChanged 里改 root 的 layoutParams，父容器
      * 会用同一次布局里过期的测量值，整棵树会错位（进度条被顶到顶上就是这么来的）。
@@ -122,11 +127,9 @@ class PlayerControlsPreview @JvmOverloads constructor(
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
         if (measuredWidth <= 0 || measuredHeight <= 0) return
-        val innerWidth = (measuredWidth / PREVIEW_SCALE).toInt()
-        val innerHeight = (measuredHeight / PREVIEW_SCALE).toInt()
         root.measure(
-            MeasureSpec.makeMeasureSpec(innerWidth, MeasureSpec.EXACTLY),
-            MeasureSpec.makeMeasureSpec(innerHeight, MeasureSpec.EXACTLY)
+            MeasureSpec.makeMeasureSpec(canvasWidth, MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(canvasHeight, MeasureSpec.EXACTLY)
         )
     }
 
@@ -136,8 +139,8 @@ class PlayerControlsPreview @JvmOverloads constructor(
         root.layout(0, 0, root.measuredWidth, root.measuredHeight)
         root.pivotX = 0f
         root.pivotY = 0f
-        root.scaleX = PREVIEW_SCALE
-        root.scaleY = PREVIEW_SCALE
+        root.scaleX = width.toFloat() / canvasWidth
+        root.scaleY = height.toFloat() / canvasHeight
     }
 
     /**
@@ -216,14 +219,15 @@ class PlayerControlsPreview @JvmOverloads constructor(
         setOnClickListener { onAddClick?.invoke(region) }
     }
 
+    /** 格子尺寸与播放页一致：左右两列 28dp 方图，底部 32×37。画布就是真机分辨率，不用再换算。 */
     private fun cellWidthDp(region: PlayerUiLayout.Region): Float = when (region) {
-        PlayerUiLayout.Region.LEFT, PlayerUiLayout.Region.RIGHT -> 22f
-        else -> 26f
+        PlayerUiLayout.Region.LEFT, PlayerUiLayout.Region.RIGHT -> 28f
+        else -> 32f
     }
 
     private fun cellHeightDp(region: PlayerUiLayout.Region): Float = when (region) {
-        PlayerUiLayout.Region.LEFT, PlayerUiLayout.Region.RIGHT -> 22f
-        else -> 30f
+        PlayerUiLayout.Region.LEFT, PlayerUiLayout.Region.RIGHT -> 28f
+        else -> 37f
     }
 
     /** 某个区放槽位的容器（左列、右列、底部左右各一个）。 */
@@ -269,8 +273,5 @@ class PlayerControlsPreview @JvmOverloads constructor(
     private companion object {
         /** 播放页里时钟是运行时更新的，预览给个固定值就够了。 */
         const val SAMPLE_CLOCK = "20:00"
-
-        /** 控制层按 `1 / PREVIEW_SCALE` 排版后缩放回来，等于控件缩小到这么点。 */
-        const val PREVIEW_SCALE = 0.72f
     }
 }

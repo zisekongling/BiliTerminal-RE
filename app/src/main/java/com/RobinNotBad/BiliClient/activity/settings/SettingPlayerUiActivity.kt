@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
+import android.view.ViewTreeObserver
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -18,6 +19,7 @@ import com.RobinNotBad.BiliClient.player.PlayerUiLayout
 import com.RobinNotBad.BiliClient.ui.widget.PlayerControlsPreview
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import com.RobinNotBad.BiliClient.util.ToolsUtil
 
 /**
  * 设置 →「播放与播放器」的第一屏：一张真实播放器界面。
@@ -70,18 +72,16 @@ class SettingPlayerUiActivity : BaseActivity() {
             preview.onAddClick = { region -> showPicker(region, -1, PickMode.AddSlot) }
             preview.onElementClick = { element -> onElementClick(element) }
 
-            // 缩略框高度 = 宽 × 3 / 4。播放页的控件是按整块屏幕摆的，16:9 太扁会让左右两列
-            // 和底部按钮行压在一起；4:3 是能兼顾「像块屏幕」和「摆得下」的比例。
-            // 宽取预览自己的宽度——父容器带着左右 margin/padding，用父宽算出来会偏大一圈。
-            preview.post {
-                val width = preview.width
-                if (width > 0) {
-                    preview.layoutParams = preview.layoutParams.apply {
-                        height = width * 3 / 4
+            // 缩略框的比例直接取**当前设备屏幕分辨率**：PlayerControlsPreview 的画布就是真机分辨率，
+            // 框和屏幕同比例缩放才不会变形，也才看得出「真机上就是这个样子」。
+            // 第一次布局完成后才知道提示语/按钮行有多高，所以挂在全局布局回调里量一次就摘掉。
+            preview.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
+                override fun onGlobalLayout() {
+                    if (fitPreviewToScreen()) {
+                        preview.viewTreeObserver.removeOnGlobalLayoutListener(this)
                     }
-                    preview.requestLayout()
                 }
-            }
+            })
 
             reloadLayout()
         }
@@ -90,6 +90,37 @@ class SettingPlayerUiActivity : BaseActivity() {
     override fun onResume() {
         super.onResume()
         if (::preview.isInitialized) reloadLayout()
+    }
+
+    /**
+     * 按屏幕比例把预览框缩到「提示语 + 底部两个按钮」之上。
+     *
+     * 比例必须与屏幕一致：`PlayerControlsPreview` 的画布就是真机分辨率，框不同比例会被拉变形。
+     * 提示语和按钮行在内容超高时会被量成 0 高（LinearLayout 已经没空间分给它们了），所以这里
+     * 不去读它们的高度，直接按固定预算 [BOTTOM_RESERVED_DP] 给它们留位置。
+     */
+    private fun fitPreviewToScreen(): Boolean {
+        val metrics = resources.displayMetrics
+        val aspect = metrics.heightPixels.toFloat() / metrics.widthPixels
+        val parent = preview.parent as? View ?: return false
+        val top = findViewById<View>(R.id.top)
+        if (parent.width <= 0 || top.height <= 0) return false
+        val maxHeight = metrics.heightPixels - top.height - ToolsUtil.dp2px(BOTTOM_RESERVED_DP)
+        if (maxHeight <= 0) return false
+        var width = parent.width
+        var height = (width * aspect).toInt()
+        if (height > maxHeight) {
+            height = maxHeight
+            width = (height / aspect).toInt()
+        }
+        if (width <= 0 || height <= 0) return false
+        if (preview.layoutParams.width == width && preview.layoutParams.height == height) return true
+        preview.layoutParams = preview.layoutParams.apply {
+            this.width = width
+            this.height = height
+        }
+        preview.requestLayout()
+        return true
     }
 
     override fun onBackPressed() {
@@ -365,5 +396,10 @@ class SettingPlayerUiActivity : BaseActivity() {
                 cardAdapter = null
                 cardSections = emptyList()
             }.start()
+    }
+
+    private companion object {
+        /** 预览下方「提示语 + 两个按钮」的高度预算（dp），给预览框算可用高度用。 */
+        const val BOTTOM_RESERVED_DP = 120f
     }
 }
