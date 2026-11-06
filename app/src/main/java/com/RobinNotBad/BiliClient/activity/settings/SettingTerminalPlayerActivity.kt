@@ -11,6 +11,8 @@ import com.RobinNotBad.BiliClient.activity.player.PlayerLongPressPolicy
 import com.RobinNotBad.BiliClient.activity.player.PlayerSwipeSeekScalePolicy
 import com.RobinNotBad.BiliClient.adapter.SettingsAdapter
 import com.RobinNotBad.BiliClient.model.SettingSection
+import com.RobinNotBad.BiliClient.player.DanmakuLoadPolicy
+import com.RobinNotBad.BiliClient.player.LiveDanmakuFactorPolicy
 import com.RobinNotBad.BiliClient.player.SkipOpEdPrefs
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
@@ -159,10 +161,26 @@ class SettingTerminalPlayerActivity : RefreshListActivity() {
                 getString(R.string.desc_player_skip_op_ed), SkipOpEdPrefs.DEFAULT_ENABLED.toString()))
             add(SettingSection("switch", "弹幕允许重叠", SettingsKeys.PLAYER_DANMAKU_ALLOW_OVERLAP, "", "true"))
             add(SettingSection("switch", "合并重复弹幕", SettingsKeys.PLAYER_DANMAKU_MERGE_DUPLICATE, "", "false"))
+            // 弹幕数量保护：超过阈值不自动加载（可在播放器里点弹幕按钮强制加载）。
+            // 判据/阈值在 player/DanmakuLoadPolicy，这里只落开关。
+            add(SettingSection("switch",
+                getString(R.string.player_port_danmaku_guard_name),
+                DanmakuLoadPolicy.KEY_PROTECT,
+                getString(R.string.player_port_danmaku_guard_desc, DanmakuLoadPolicy.AUTO_LOAD_LIMIT),
+                DanmakuLoadPolicy.DEFAULT_PROTECT.toString()))
             add(SettingSection("switch", "强制为滚动弹幕", SettingsKeys.PLAYER_DANMAKU_FORCE_R2L,
                 getString(R.string.desc_danmaku_force_r2l), "false"))
             add(SettingSection("switch", "显示直播弹幕发送者", SettingsKeys.PLAYER_DANMAKU_SHOW_SENDER,
                 getString(R.string.desc_danmaku_showsender), "true"))
+            // 直播滚动弹幕停留时长倍率（与录播的「弹幕速度」相互独立）
+            add(listChoose(
+                getString(R.string.player_port_live_danmaku_factor_name),
+                LiveDanmakuFactorPolicy.KEY,
+                getString(R.string.player_port_live_danmaku_factor_desc),
+                LiveDanmakuFactorPolicy.DEFAULT.toString(),
+                LiveDanmakuFactorPolicy.displayNames,
+                LiveDanmakuFactorPolicy.storedValues
+            ))
             add(SettingSection("input_int", "弹幕最大行数", SettingsKeys.PLAYER_DANMAKU_MAXLINE, "", "10"))
             add(SettingSection("input_float", "弹幕字号大小", SettingsKeys.PLAYER_DANMAKU_SIZE, "", "0.7"))
             add(SettingSection("input_float", "弹幕不透明度", SettingsKeys.PLAYER_DANMAKU_TRANSPARENCY, "", "0.5"))

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  批次 1「播放器域」新增文案。
+
+  单独建文件是为了避开并行改动占用的 res/values/strings.xml；
+  合并时把本文件的 <string> 原样并入 strings.xml 即可（键名以 player_port_ 开头，不会与既有键冲突）。
+-->
+<resources>
+
+    <!-- 弹幕数量保护 -->
+    <string name="player_port_danmaku_guard_name">弹幕数量保护</string>
+    <string name="player_port_danmaku_guard_desc">单视频弹幕超过 %1$d 条时跳过自动加载，可在播放器里点弹幕按钮强制加载</string>
+    <string name="player_port_danmaku_guard_hint">弹幕超过 %1$d 条，已跳过自动加载；点弹幕按钮可强制加载</string>
+    <string name="player_port_danmaku_force_loading">正在强制加载弹幕…</string>
+
+    <!-- 直播滚动弹幕停留时长倍率 -->
+    <string name="player_port_live_danmaku_factor_name">直播弹幕停留倍率</string>
+    <string name="player_port_live_danmaku_factor_desc">直播滚动弹幕在屏幕上停留的时间倍数，默认 2.0 倍；与录播的「弹幕速度」互不影响</string>
+
+    <!-- 短视频无极调音 -->
+    <string name="player_port_volume_percent">音量：%1$d%%</string>
+
+</resources>

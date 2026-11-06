@@ -53,6 +53,7 @@ import com.RobinNotBad.BiliClient.player.PlayerDefaults
 import com.RobinNotBad.BiliClient.player.IjkOption
 import com.RobinNotBad.BiliClient.player.IjkPlayerBridge
 import com.RobinNotBad.BiliClient.player.PlayerState
+import com.RobinNotBad.BiliClient.player.PlayerVolumePolicy
 import com.bumptech.glide.Glide
 import master.flame.danmaku.ui.widget.DanmakuView
 import kotlinx.coroutines.CoroutineScope
@@ -461,7 +462,9 @@ class ShortVideoPagerAdapter(
     @Suppress("ClickableViewAccessibility")
     inner class PageHolder(
         itemView: View,
-        private val audioManager: AudioManager,
+        // 短视频音量已改走 ijk 软件增益（无极调音），不再需要系统 AudioManager。
+        // 参数保留是为了不动上层 ShortVideoFeedFragment 的构造链（该文件不属于本次改动范围）。
+        @Suppress("UNUSED_PARAMETER") audioManager: AudioManager,
         private val activity: ShortVideoPlayerActivity
     ) : androidx.recyclerview.widget.RecyclerView.ViewHolder(itemView) {
 
@@ -591,6 +594,19 @@ class ShortVideoPagerAdapter(
         private val mainHandler = Handler(Looper.getMainLooper())
         private var hideBottomRunnable: Runnable? = null
         private var hideVolumeRunnable: Runnable? = null
+
+        /**
+         * 「无极调音」的软件增益百分比（0–100），与长视频共用同一个存档键。
+         *
+         * 短视频原先调的是**系统媒体音量**（`setStreamVolume` ±1 档），手表上只有很少几档，
+         * 20% 一下跳到 33% 调不出细档；这里改走 ijk 的采样级增益，1% 一档，且与长视频手感一致。
+         */
+        private var volumeGainPercent: Int = PlayerVolumePolicy.sanitize(
+            SharedPreferencesUtil.getInt(
+                PlayerVolumePolicy.KEY_GAIN_PERCENT,
+                PlayerVolumePolicy.DEFAULT_PERCENT
+            )
+        )
 
         private var gestureDetector: GestureDetector? = null
         private var scaleGestureDetector: ScaleGestureDetector? = null
@@ -892,22 +908,46 @@ class ShortVideoPagerAdapter(
             }
         }
 
+        /**
+         * 音量键/按钮：调「无极调音」的软件增益（0–100%），不再动系统媒体音量。
+         *
+         * 0% 是真静音（采样乘 0），再按 + 从 0 恢复；静音/恢复语义与长视频播放器完全一致。
+         * 手表系统媒体音量只有很少几档，软件增益是 1% 一档，才调得出 30% 这种档位。
+         */
         private fun changeVolume(addOrCut: Boolean) {
-            var volumeNow = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-            val volumeMax = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-            val volumeNew = volumeNow + if (addOrCut) 1 else -1
-            if (volumeNew in 0..volumeMax) {
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, volumeNew, 0)
-                volumeNow = volumeNew
-            }
-            val show = (volumeNow.toFloat() / volumeMax.toFloat() * 100).toInt()
+            val next = PlayerVolumePolicy.step(
+                volumeGainPercent,
+                if (addOrCut) 1 else -1,
+                PlayerVolumePolicy.COARSE_STEP_PERCENT
+            )
+            applyVolumeGain(next)
+            // 与长视频共用存档键：在短视频里调完，回到长视频播放器也是同一档
+            SharedPreferencesUtil.putInt(PlayerVolumePolicy.KEY_GAIN_PERCENT, next)
 
             showSound.visibility = View.VISIBLE
-            showSound.text = "音量：$show%"
+            showSound.text = activity.getString(R.string.player_port_volume_percent, next)
 
             hideVolumeRunnable?.let { mainHandler.removeCallbacks(it) }
             hideVolumeRunnable = Runnable { showSound.visibility = View.GONE }
             mainHandler.postDelayed(hideVolumeRunnable!!, 3000)
+        }
+
+        /** 把 [percent] 打到当前播放器的软件增益上，并记到本页字段。 */
+        private fun applyVolumeGain(percent: Int) {
+            volumeGainPercent = PlayerVolumePolicy.clampPercent(percent)
+            val gain = PlayerVolumePolicy.percentToGain(volumeGainPercent)
+            playerBridge.setVolume(gain, gain)
+        }
+
+        /** 起播时把存档增益打到新播放器上（每个分页 holder 各自一份播放器）。 */
+        private fun applyStoredVolumeGain() {
+            volumeGainPercent = PlayerVolumePolicy.sanitize(
+                SharedPreferencesUtil.getInt(
+                    PlayerVolumePolicy.KEY_GAIN_PERCENT,
+                    PlayerVolumePolicy.DEFAULT_PERCENT
+                )
+            )
+            applyVolumeGain(volumeGainPercent)
         }
 
         private fun applyScale() {
@@ -1061,6 +1101,8 @@ class ShortVideoPagerAdapter(
                     // 这里会先按退化比例摆好，等 setOnVideoSizeChanged 补上尺寸再纠正。
                     applyVideoSizeFromState(st)
                     applySpeedToPlayers(currentSpeed)
+                    // 无极调音：新播放器要套用存档增益（换页/回收重建都走这里）
+                    applyStoredVolumeGain()
 
                     // 只有当前页面活跃时才自动播放，防止弱网延迟准备导致两个视频同时播放
                     if (isActive) {

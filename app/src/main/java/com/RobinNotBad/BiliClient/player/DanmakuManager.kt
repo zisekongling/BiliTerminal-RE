@@ -6,6 +6,7 @@ import android.content.Context
 import android.graphics.Color
 import com.RobinNotBad.BiliClient.model.DmSegMobileReply
 import com.RobinNotBad.BiliClient.util.Logu
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,14 +36,27 @@ data class DanmakuState(
     val textSizeScale: Float = 0.7f,
     val transparency: Float = 0.5f,
     val mergeDuplicate: Boolean = false,
-    val allowOverlap: Boolean = true
+    val allowOverlap: Boolean = true,
+    /** 「强制为滚动弹幕」：开启后顶部/底部固定弹幕按滚动渲染（见 [DanmakuStylePolicy]）。 */
+    val forceScroll: Boolean = false,
+    /** 直播滚动弹幕停留时长倍率（与 [speedFactor] 独立，见 [LiveDanmakuFactorPolicy]）。 */
+    val liveDurationFactor: Float = LiveDanmakuFactorPolicy.DEFAULT
 )
 
 class DanmakuManager(
-    private val danmakuView: IDanmakuView
+    private val danmakuView: IDanmakuView,
+    /** 直播模式：滚动弹幕用 [LiveDanmakuFactorPolicy] 的独立倍率，而不是录播的弹幕速度。 */
+    private val isLiveMode: Boolean = false
 ) {
     private var danmakuContext: DanmakuContext? = null
     private var danmakuParser: BaseDanmakuParser? = null
+
+    /**
+     * 弹幕数量保护的状态机（可空）。注入后，超出阈值的弹幕源在 [loadFromXmlFile] /
+     * [loadFromXmlInput] / [loadFromProtobufSegments] 入口直接跳过——计数、提示与「手动强制加载」
+     * 都在播放页（见 `player/DanmakuLoadPolicy`），这里只负责最后一道「到底要不要真加载」。
+     */
+    private var loadPolicy: DanmakuLoadPolicy? = null
 
     private var mediaPosition: (() -> Long)? = null
     private var mediaPlaying: (() -> Boolean)? = null
@@ -96,12 +110,37 @@ class DanmakuManager(
                 textSizeScale = SharedPreferencesUtil.getFloat("player_danmaku_size", 0.7f),
                 transparency = SharedPreferencesUtil.getFloat("player_danmaku_transparency", 0.5f),
                 mergeDuplicate = SharedPreferencesUtil.getBoolean("player_danmaku_mergeduplicate", false),
-                allowOverlap = SharedPreferencesUtil.getBoolean("player_danmaku_allowoverlap", true)
+                allowOverlap = SharedPreferencesUtil.getBoolean("player_danmaku_allowoverlap", true),
+                // E2：设置项一直存在（SettingTerminalPlayerActivity「强制为滚动弹幕」），这里接上消费方。
+                forceScroll = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_DANMAKU_FORCE_R2L, false),
+                // D5：直播倍率存档是 list_choose 的字符串，解析与钳制统一走策略类。
+                liveDurationFactor = LiveDanmakuFactorPolicy.parseStored(
+                    SharedPreferencesUtil.getString(
+                        LiveDanmakuFactorPolicy.KEY,
+                        LiveDanmakuFactorPolicy.DEFAULT.toString()
+                    )
+                )
             )
         }
     }
 
+    /**
+     * 注入弹幕数量保护状态机（可空 = 不保护）。播放页在绑定弹幕视图后注入同一个实例，
+     * 这样「查数量 → 判定 → 手动强制」只有一份真相，管理器只做最后一道守卫。
+     */
+    fun setLoadPolicy(policy: DanmakuLoadPolicy?) {
+        loadPolicy = policy
+    }
+
+    private fun shouldLoadByPolicy(): Boolean {
+        val policy = loadPolicy ?: return true
+        if (policy.shouldLoad()) return true
+        Logu.d("弹幕", "数量保护：已抑制本次弹幕加载（count=" + policy.knownCount() + "）")
+        return false
+    }
+
     fun loadFromXmlFile(xmlFilePath: String) {
+        if (!shouldLoadByPolicy()) return
         val file = File(xmlFilePath)
         if (!file.exists()) return
 
@@ -122,6 +161,7 @@ class DanmakuManager(
     }
 
     fun loadFromXmlInput(inputStream: InputStream) {
+        if (!shouldLoadByPolicy()) return
         try {
             val parser = createParser(inputStream)
             configureAndPrepare(parser)
@@ -137,6 +177,7 @@ class DanmakuManager(
      * 两个播放器共用同一套配置与回调。
      */
     fun loadFromProtobufSegments(segments: List<DmSegMobileReply>) {
+        if (!shouldLoadByPolicy()) return
         try {
             val parser = BiliProtobufDanmakuParser()
             parser.sharedPreferences = SharedPreferencesUtil.getSharedPreferences()
@@ -181,8 +222,11 @@ class DanmakuManager(
     }
 
     private fun configureAndPrepare(parser: BaseDanmakuParser) {
-        danmakuParser = parser
         val st = _state.value
+        // E2：强制为滚动弹幕开启时，解析结果里的顶部/底部弹幕要换成滚动弹幕
+        // （DFM 的类型由具体子类决定，必须换实例，见 [ForceScrollParser]）。
+        val activeParser: BaseDanmakuParser = if (st.forceScroll) ForceScrollParser(parser) else parser
+        danmakuParser = activeParser
 
         val maxLinesPair = hashMapOf(BaseDanmaku.TYPE_SCROLL_RL to st.maxLines)
         val overlap = hashMapOf(
@@ -193,7 +237,11 @@ class DanmakuManager(
         danmakuContext = DanmakuContext.create().apply {
             setDanmakuStyle(IDisplayer.DANMAKU_STYLE_STROKEN, 1f)
             setDuplicateMergingEnabled(st.mergeDuplicate)
-            setScrollSpeedFactor(st.speedFactor)
+            // D5：直播用独立倍率（默认 2.0），录播沿用「弹幕速度」；
+            // DFM 里 factor 越大停留越久，等于这里的「停留时长倍率」。
+            setScrollSpeedFactor(
+                LiveDanmakuFactorPolicy.scrollSpeedFactor(isLiveMode, st.speedFactor, st.liveDurationFactor)
+            )
             setScaleTextSize(st.textSizeScale)
             setMaximumLines(maxLinesPair)
             setDanmakuTransparency(st.transparency)
@@ -260,7 +308,7 @@ class DanmakuManager(
         })
 
         danmakuView.enableDanmakuDrawingCache(true)
-        danmakuView.prepare(parser, danmakuContext)
+        danmakuView.prepare(activeParser, danmakuContext)
         applyMediaClock()
         // **不在这里 start**：prepare() 只准备数据，而它何时 ready 是异步的（后台解析）。
         // 启动渲染循环放到 `prepared()` 回调里按「此刻是否真的在播」判断 —— 否则暂停中
@@ -284,7 +332,10 @@ class DanmakuManager(
         backgroundColor: Int = 0
     ) {
         val ctx = danmakuContext ?: return
-        val danmaku = ctx.mDanmakuFactory.createDanmaku(type, ctx) ?: return
+        // E2：实时插入的弹幕（直播聊天 / 用户自己发的）同样按「强制为滚动弹幕」换算类型，
+        // 否则直播的「进入直播间」等底部固定弹幕仍会挡住画面。
+        val effectiveType = DanmakuStylePolicy.effectiveType(_state.value.forceScroll, type)
+        val danmaku = ctx.mDanmakuFactory.createDanmaku(effectiveType, ctx) ?: return
         danmaku.text = text
         danmaku.padding = 5
         danmaku.priority = 1

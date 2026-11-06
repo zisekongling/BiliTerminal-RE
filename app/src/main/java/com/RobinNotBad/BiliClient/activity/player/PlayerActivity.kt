@@ -69,6 +69,9 @@ import com.RobinNotBad.BiliClient.model.Subtitle
 import com.RobinNotBad.BiliClient.model.SubtitleLink
 import com.RobinNotBad.BiliClient.model.VideoInfo
 import com.RobinNotBad.BiliClient.model.ViewPoint
+import com.RobinNotBad.BiliClient.player.AudioFocusPolicy
+import com.RobinNotBad.BiliClient.player.DanmakuLoadPolicy
+import com.RobinNotBad.BiliClient.player.DanmakuXmlCounter
 import com.RobinNotBad.BiliClient.player.DanmakuManager
 import com.RobinNotBad.BiliClient.player.IjkNativeLibs
 import com.RobinNotBad.BiliClient.player.PlayerDefaults
@@ -92,6 +95,7 @@ import com.RobinNotBad.BiliClient.util.LocalVideoProgress
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
+import com.RobinNotBad.BiliClient.util.NetworkPlaybackQuality
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.SettingsKeys
@@ -433,6 +437,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
     private var audioManager: AudioManager? = null
 
+    // ---- 音频焦点 ----
+    /** 当前是否持有音频焦点（幂等 request/abandon 用：播放器重建会重复走 request）。 */
+    private var hasAudioFocus: Boolean = false
+    /** 焦点回调实例；abandon 必须传同一个实例，所以缓存下来，销毁/放弃后置空。 */
+    private var audioFocusListener: AudioManager.OnAudioFocusChangeListener? = null
+
     private var scaleGestureDetector: ScaleGestureDetector? = null
     private var scaleGestureListener: ViewScaleGestureListener? = null
     private var doubleTapGestureDetector: GestureDetector? = null
@@ -498,6 +508,25 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var batteryManager: BatteryManager? = null
 
     private var danmakuFile: File? = null
+
+    // ---- 弹幕数量保护（任务 3）----
+    /**
+     * 数量保护状态机：先查总数，超过阈值就不自动加载；用户点弹幕按钮可手动强制加载。
+     * 判据与计数解析都在纯类 [DanmakuLoadPolicy] 里，这里只负责接线与提示。
+     */
+    private var danmakuLoadPolicy: DanmakuLoadPolicy? = null
+
+    /** [danmakuLoadPolicy] 的数量结论对应的 cid：切分P/切互动分支后数量要重查。 */
+    private var danmakuPolicyCid: Long = 0L
+
+    /** 已知的弹幕总数（[DanmakuLoadPolicy.COUNT_UNKNOWN] = 未知），仅用于提示文案。 */
+    private var knownDanmakuCount: Long = DanmakuLoadPolicy.COUNT_UNKNOWN
+
+    /** 「弹幕过多已跳过」的一次性提示是否弹过（每页一次，别切P就 toast 一次）。 */
+    private var danmakuGuardHintShown: Boolean = false
+
+    /** 弹幕是否正在加载：手动强制加载与自动加载可能撞车，用它避免重复拉同一批分段。 */
+    private var danmakuLoading: Boolean = false
 
     private var screen_landscape: Boolean = false
     private var screen_round: Boolean = false
@@ -769,6 +798,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             hasDanmaku = true
         }
 
+        // 弹幕数量保护：状态机在这里建（此时 hasDanmaku 已定稿）。
+        // 在线视频在加载弹幕前先查总数；本地/旧接口弹幕由 XML 流式计数兜底；第三方弹幕直接放行。
+        danmakuLoadPolicy = DanmakuLoadPolicy(
+            requestedInitially = hasDanmaku,
+            protectLargeVideos = SharedPreferencesUtil.getBoolean(
+                DanmakuLoadPolicy.KEY_PROTECT,
+                DanmakuLoadPolicy.DEFAULT_PROTECT
+            )
+        )
+
         // 本地/缓存视频没有服务端历史可读，续播位置就存在视频目录的 `.video_meta.json` 里
         // （见 util/VideoMetaManager.readResumeMs）。Intent 里没带 progress 时用它补上，
         // 后面的续播逻辑（onPrepared 里那段）与在线视频完全共用。
@@ -817,7 +856,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (intent.hasExtra("qnStrList") && intent.hasExtra("qnValueList")) {
             qnStrList = intent.getStringArrayExtra("qnStrList")
             qnValueList = intent.getIntArrayExtra("qnValueList")
-            currentQuality = intent.getIntExtra("currentQuality", SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN, 16))
+            currentQuality = intent.getIntExtra(
+                "currentQuality",
+                NetworkPlaybackQuality.defaultQn(this)
+            )
         }
 
         isShortVideoMode = intent.getBooleanExtra("isShortVideoMode", false)
@@ -977,7 +1019,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     runOnUiThread { btn_danmaku_send.visibility = View.GONE }
                 } else if (isOnlineVideo) {
                     danmakuFile = File(cachepath, "danmaku.xml")
-                    downdanmu()
+                    loadDanmakuWithGuard()
                 } else {
                     runOnUiThread { btn_danmaku_send.visibility = View.GONE }
                     danmakuFile = File(danmaku_url)
@@ -1811,6 +1853,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     releaseAudioTrack()
                     if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.pause()
                     btn_control.setImageResource(R.drawable.btn_player_play)
+                    // 停在互动选项上不再出声：焦点还回去
+                    abandonAudioFocus()
                     return@setOnCompletionListener
                 }
             }
@@ -1836,6 +1880,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && mediaSession != null) {
                     updateMediaSessionPlaybackState()
                 }
+                // 正常播完不再出声，把焦点还给别人（上面单曲循环/自动连播/互动分支各自继续播或已单独处理）
+                abandonAudioFocus()
             }
         }
 
@@ -1856,6 +1902,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     releaseAudioTrack()
                     if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.pause()
                     btn_control.setImageResource(R.drawable.btn_player_play)
+                    // 报错后不会继续出声：焦点要还回去，否则别的应用起播会被系统判成两个应用同时出声
+                    abandonAudioFocus()
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && mediaSession != null) {
                         updateMediaSessionPlaybackState()
                     }
@@ -2602,6 +2650,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     bufferedSink?.close()
                 }
             }
+            // 旧接口没有「先查总数」的轻量查询，只能对刚落盘的 XML 做流式计数：
+            // 超阈值立即停（DanmakuXmlCounter），命中保护就不再把整份 XML 交给 DFM。
+            if (applyXmlDanmakuGuard()) return
             prepareDanmaku { it.loadFromXmlFile(danmakuFile!!.toString()) }
         } catch (e: Exception) {
             runOnUiThread { MsgUtil.err(e) }
@@ -2635,6 +2686,109 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             Logu.e("新版弹幕", "获取失败: " + e.message + "，回退到旧版接口")
             runOnUiThread { MsgUtil.toast(UiText.of("新版弹幕获取失败，使用旧版接口")) }
             CenterThreadPool.run { downdanmuOld() }
+        }
+    }
+
+    /**
+     * 带「弹幕数量保护」的弹幕加载入口（任务 3）。
+     *
+     * 流程：先查总数 → 超过阈值就不加载并提示（可手动强制）→ 否则走原有 [downdanmu]。
+     * **必须在后台线程调用**（三个调用点都在 CenterThreadPool.run 里）。
+     */
+    private fun loadDanmakuWithGuard() {
+        val policy = danmakuLoadPolicy
+        if (!hasDanmaku || isLiveMode || policy == null) {
+            runDanmakuLoad()
+            return
+        }
+        // 切分P/切互动分支后 cid 变了：上一段视频的数量结论不能沿用到新视频
+        if (danmakuPolicyCid != cid) {
+            policy.resetCount()
+            danmakuPolicyCid = cid
+        }
+        if (policy.needsCount()) {
+            val count = if (aid > 0) DanmakuApi.getVideoDanmakuCount(aid)
+            else DanmakuLoadPolicy.COUNT_UNKNOWN
+            knownDanmakuCount = count
+            if (count >= 0) policy.setCount(count) else policy.setCountUnavailable()
+        }
+        if (!policy.shouldLoad()) {
+            if (policy.isSuppressed()) showDanmakuGuardHintOnce()
+            return
+        }
+        runDanmakuLoad()
+    }
+
+    /** 真正拉弹幕（带重复调用保护）；[downdanmu] 内部还会走新版分段/旧版 XML 两条路。 */
+    private fun runDanmakuLoad() {
+        if (danmakuLoading) return
+        danmakuLoading = true
+        try {
+            downdanmu()
+        } finally {
+            danmakuLoading = false
+        }
+    }
+
+    /**
+     * 老接口/本地 XML 的兜底计数：下载完 XML 后流式数一遍（超阈值立即停）。
+     *
+     * @return true = 已因数量保护跳过加载（调用方直接 return）
+     */
+    private fun applyXmlDanmakuGuard(): Boolean {
+        val policy = danmakuLoadPolicy ?: return false
+        if (!policy.shouldLoad()) return true
+        val file = danmakuFile ?: return false
+        val count = DanmakuXmlCounter.count(file, DanmakuLoadPolicy.AUTO_LOAD_LIMIT + 1)
+        if (count < 0) {
+            // 读不出数量就放行（失败开放）：宁可多花内存，也别让用户以为视频没弹幕
+            policy.setCountUnavailable()
+            return false
+        }
+        knownDanmakuCount = count
+        policy.setCount(count)
+        if (policy.isSuppressed()) {
+            showDanmakuGuardHintOnce()
+            return true
+        }
+        return false
+    }
+
+    /**
+     * 「弹幕过多已跳过」的一次性提示，同时把弹幕视图与按钮同步成「关」。
+     *
+     * 任意线程可调（内部回主线程）。
+     */
+    private fun showDanmakuGuardHintOnce() {
+        runOnUiThread {
+            if (destroyed || isFinishing) return@runOnUiThread
+            isDanmakuVisible = false
+            mDanmakuView?.hide()
+            if (::btn_danmaku.isInitialized) btn_danmaku.setImageResource(R.mipmap.danmakuoff)
+            if (danmakuGuardHintShown) return@runOnUiThread
+            danmakuGuardHintShown = true
+            // 用实际查到的条数提示（查不到时（理论上不会走到这里）退回阈值文案）
+            val shownCount = if (knownDanmakuCount > 0) knownDanmakuCount else DanmakuLoadPolicy.AUTO_LOAD_LIMIT
+            MsgUtil.showMsg(getString(R.string.player_port_danmaku_guard_hint, shownCount))
+        }
+    }
+
+    /**
+     * 用户手动强制加载被数量保护跳过的弹幕（播放器弹幕按钮进入）。
+     *
+     * 手动选择优先：同一视频后续不再抑制；[DanmakuLoadPolicy.resetCount] 也不清这个选择。
+     */
+    private fun forceLoadDanmaku() {
+        val policy = danmakuLoadPolicy ?: return
+        policy.forceLoad()
+        danmakuGuardHintShown = true
+        isDanmakuVisible = true
+        mDanmakuView?.show()
+        if (::btn_danmaku.isInitialized) btn_danmaku.setImageResource(R.mipmap.danmakuon)
+        SharedPreferencesUtil.putBoolean(SettingsKeys.PLAYER_LAST_DANMAKU, true)
+        MsgUtil.showMsg(getString(R.string.player_port_danmaku_force_loading))
+        CenterThreadPool.run {
+            if (!destroyed) runDanmakuLoad()
         }
     }
 
@@ -2689,7 +2843,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     /** 重新绑定弹幕视图与弹幕管理器（弹幕视图在切分页/切互动分支后会重新取一次引用）。 */
     private fun bindDanmakuView() {
         mDanmakuView = findViewById(R.id.sv_danmaku)
-        danmakuManager = DanmakuManager(mDanmakuView!!).also { manager ->
+        danmakuManager = DanmakuManager(mDanmakuView!!, isLiveMode).also { manager ->
+            // 数量保护：同一个状态机注入管理器，作为「到底要不要真加载」的最后一道守卫。
+            // 第三方弹幕（私有侧回灌的 XML）不归数量保护管，避免换源播放时被误抑制。
+            manager.setLoadPolicy(if (thirdPartyDanmaku) null else danmakuLoadPolicy)
             // 弹幕时间轴跟随播放器位置（而不是墙钟）。**直播没有有意义的播放位置**，不绑。
             //
             // 两个 provider 都在 DFM 渲染线程上被每帧调用，只能读主线程采样好的内存值：
@@ -3169,9 +3326,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && mediaSession != null) {
             updateMediaSessionPlaybackState()
         }
+        // 主动暂停（用户点暂停 / 来电让路 / 切后台暂停）后不再占着焦点，
+        // 否则别的应用起播时会被系统判成「两个应用同时出声」。
+        abandonAudioFocus()
     }
 
     private fun playerResume() {
+        // 恢复播放前重新申请焦点（暂停时已放弃）；被拒绝也照常播，
+        // 焦点只决定「别人出声时我们让不让路」，不该成为播放的前置条件。
+        requestAudioFocusForPlayback()
         isPlaying = true
         if (ijkPlayer != null && isPrepared) {
             ijkPlayer!!.start()
@@ -3183,6 +3346,60 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         btn_control.setImageResource(R.drawable.btn_player_pause)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && mediaSession != null) {
             updateMediaSessionPlaybackState()
+        }
+    }
+
+    //======= 音频焦点 =======
+    // 目标：来电/导航/别的音乐应用出声时主动暂停，不让两个应用同时响。
+    // 判据在 player/AudioFocusPolicy（纯函数、有单测），这里只做 request/abandon 与生命周期接线。
+
+    /**
+     * 申请音频焦点（幂等：播放器重建会重复走到这里）。
+     *
+     * 复用 [audioManager]（findview 里已取好的系统服务），走 API 8 就有的
+     * `requestAudioFocus(listener, stream, gain)`；minSdk 19 不用 API 26 的 AudioFocusRequest。
+     */
+    private fun requestAudioFocusForPlayback() {
+        if (hasAudioFocus || destroyed) return
+        val manager = audioManager ?: return
+        try {
+            val listener = audioFocusListener ?: AudioManager.OnAudioFocusChangeListener { change ->
+                handleAudioFocusChange(change)
+            }.also { audioFocusListener = it }
+            val result = manager.requestAudioFocus(
+                listener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN
+            )
+            hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            if (!hasAudioFocus) Logu.w("音频焦点", "申请被拒绝：$result")
+        } catch (e: Exception) {
+            // 个别 ROM 的 AudioManager 会抛 SecurityException / IllegalStateException。
+            // 焦点失败只影响「别的应用出声时是否自动暂停」，绝不能因此不播。
+            Logu.w("音频焦点", "申请异常：${e.message}")
+        }
+    }
+
+    /**
+     * 焦点变化：`LOSS` / `LOSS_TRANSIENT` 暂停且**不自动续播**；`CAN_DUCK` 不处理（见策略类注释）。
+     * 回调在主线程（request 也是在主线程发起的）。
+     */
+    private fun handleAudioFocusChange(change: Int) {
+        if (!AudioFocusPolicy.shouldPause(change)) return
+        hasAudioFocus = false
+        runOnUiThread {
+            if (destroyed || isFinishing) return@runOnUiThread
+            if (isPlaying) playerPause()
+        }
+    }
+
+    /** 放弃音频焦点（幂等）。注销后把 listener 置空，下次播放重新建。 */
+    private fun abandonAudioFocus() {
+        val listener = audioFocusListener ?: return
+        audioFocusListener = null
+        hasAudioFocus = false
+        try {
+            audioManager?.abandonAudioFocus(listener)
+        } catch (e: Exception) {
+            Logu.w("音频焦点", "放弃异常：${e.message}")
         }
     }
 
@@ -3281,6 +3498,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // onPause 之后位置不会再走，这里基本都会被去重拦掉；留一路是防 onPause 那条路径没走成
         reportProgressNow(false, "onStop")
         saveLocalProgressNow("onStop")
+        // 离开页面要放弃焦点——**除非**开了后台播放且确实在播：此时放弃焦点会让
+        // 别的应用起播、本应用退化成非焦点音频（真实表现是两个应用同时出声）。
+        // 判据在 AudioFocusPolicy.shouldAbandonOnStop（纯函数、有单测）。
+        if (AudioFocusPolicy.shouldAbandonOnStop(
+                backgroundPlaybackEnabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_BACKGROUND, false),
+                isPlaying = isPlaying,
+                isFinishing = isFinishing
+            )
+        ) {
+            abandonAudioFocus()
+        }
     }
 
     override fun onDestroy() {
@@ -3308,6 +3536,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 无论哪种退出原因（用户返回、被系统回收、后台通知里点"关闭"），
         // 后台播放服务与它的常驻通知都不能留存。
         PlaybackService.stop(this)
+        // 本页销毁后不可能再有声音，焦点一定要还回去（后台播放靠服务保活时本页也不会走到这里）。
+        abandonAudioFocus()
 
         cancelAllTimers()
 
@@ -4519,7 +4749,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
                 playerData.title = newTitle
                 playerData.mid = mid
-                playerData.qn = SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN, 16)
+                playerData.qn = NetworkPlaybackQuality.defaultQn(this)
                 playerData.pagenames = pagenames
                 playerData.cids = cids
                 playerData.currentPageIndex = currentPageIndex
@@ -4794,7 +5024,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 if (isOnlineVideo) {
                     danmakuFile = File(cacheDir, "danmaku.xml")
                     if (danmakuFile!!.exists()) danmakuFile!!.delete()
-                    downdanmu()
+                    loadDanmakuWithGuard()
                 }
 
                 if (!destroyed) {
@@ -5350,7 +5580,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                             if (isOnlineVideo) {
                                 danmakuFile = File(cacheDir, "danmaku.xml")
                                 if (danmakuFile!!.exists()) danmakuFile!!.delete()
-                                downdanmu()
+                                loadDanmakuWithGuard()
                             }
 
                             if (!destroyed) {
@@ -5385,7 +5615,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     private fun getTargetQuality(): Int {
-        val defaultQn = SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN, 16)
+        // 默认清晰度按「当前网络」取：移动数据/Wi-Fi 可各配一档（NetworkPlaybackQuality）。
+        val defaultQn = NetworkPlaybackQuality.defaultQn(this)
         if (qnValueList == null || qnValueList!!.isEmpty()) return if (currentQuality > 0) currentQuality else defaultQn
 
         for (qn in qnValueList!!) {
@@ -5477,6 +5708,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         isPrepared = true
         video_all = ijkPlayer!!.duration.toInt()
 
+        // 起播即申请音频焦点（幂等：切清晰度/重试会重建播放器再走一次本回调）。
+        requestAudioFocusForPlayback()
+
         changeVideoSize()
 
         // 起播弹幕：走 DanmakuManager 并带上当前播放位置。
@@ -5485,9 +5719,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 直播不绑媒体时钟，从头开始是正确的。
         if (isLiveMode || hasDanmaku) danmakuManager?.start(video_now.toLong())
         if (SharedPreferencesUtil.getBoolean("player_ui_showDanmakuBtn", true)) {
+            // 数量保护抑制了自动加载时，按钮默认是「关」；点它 = 手动强制加载（见 onClick）。
+            val danmakuSuppressed = danmakuLoadPolicy?.isSuppressed() == true
             // 「播放默认值 → 弹幕」：开/关直接决定；沿用上次读 pref_switch_danmaku
             // （沿用既有键，默认开 —— 与改造前完全一致）。
-            isDanmakuVisible = PlayerDefaults.resolveTriState(
+            isDanmakuVisible = if (danmakuSuppressed) false else PlayerDefaults.resolveTriState(
                 SharedPreferencesUtil.getString(SettingsKeys.PLAYER_DEFAULT_DANMAKU, SettingsKeys.PLAYER_DEFAULT_MODE_LAST),
                 SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_LAST_DANMAKU, true)
             )
@@ -5499,6 +5735,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             btn_danmaku.setImageResource(if (isDanmakuVisible) R.mipmap.danmakuon else R.mipmap.danmakuoff)
             btn_danmaku.setOnClickListener {
                 if (mDanmakuView == null) return@setOnClickListener
+                // 被数量保护跳过时，这次点击的语义是「强制加载」，而不是「显示一份从未加载的弹幕」
+                if (danmakuLoadPolicy?.isSuppressed() == true) {
+                    forceLoadDanmaku()
+                    return@setOnClickListener
+                }
                 if (isDanmakuVisible) mDanmakuView!!.hide()
                 else mDanmakuView!!.show()
                 btn_danmaku.setImageResource(if (isDanmakuVisible) R.mipmap.danmakuoff else R.mipmap.danmakuon)

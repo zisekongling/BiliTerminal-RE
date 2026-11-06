@@ -1,6 +1,7 @@
 package com.RobinNotBad.BiliClient.api;
 
 import com.RobinNotBad.BiliClient.model.DmSegMobileReply;
+import com.RobinNotBad.BiliClient.player.DanmakuLoadPolicy;
 import com.RobinNotBad.BiliClient.util.Logu;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
 import com.RobinNotBad.BiliClient.util.ProtobufParser;
@@ -69,6 +70,34 @@ public class DanmakuApi {
                 Objects.requireNonNull(NetWorkUtil.post(url, arg, NetWorkUtil.webHeaders).body()).string());
         Logu.i(result.toString());
         return result.getInt("code");
+    }
+
+    /**
+     * 查视频弹幕总数（只读统计，**不下载任何弹幕内容**）。
+     *
+     * 取的是稿件信息接口的 `data.stat.danmaku`——与详情页显示的弹幕数是同一个值，
+     * 但播放页不会去拉详情，所以这里单独查一次轻量接口。
+     *
+     * 供「弹幕数量保护」在加载分段前判断是否跳过（见
+     * {@link com.RobinNotBad.BiliClient.player.DanmakuLoadPolicy}）。
+     *
+     * @param aid 稿件 avid
+     * @return 弹幕总数；接口失败/未登录/字段缺失返回
+     *         {@link com.RobinNotBad.BiliClient.player.DanmakuLoadPolicy#COUNT_UNKNOWN}，
+     *         调用方按「数量未知」失败开放处理（照常加载）
+     */
+    public static long getVideoDanmakuCount(long aid) {
+        if (aid <= 0) return DanmakuLoadPolicy.COUNT_UNKNOWN;
+        try {
+            String url = "https://api.bilibili.com/x/web-interface/view?aid=" + aid;
+            JSONObject body = NetWorkUtil.getJson(url, NetWorkUtil.webHeaders);
+            long count = DanmakuLoadPolicy.parseCount(body);
+            Logu.d("弹幕数量", "aid=" + aid + " count=" + count);
+            return count;
+        } catch (Exception e) {
+            Logu.w("弹幕数量", "查询失败 aid=" + aid + "：" + e.getMessage());
+            return DanmakuLoadPolicy.COUNT_UNKNOWN;
+        }
     }
 
     /**

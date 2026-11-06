@@ -21,6 +21,7 @@ import com.RobinNotBad.BiliClient.model.PlayerData;
 import com.RobinNotBad.BiliClient.model.Subtitle;
 import com.RobinNotBad.BiliClient.model.SubtitleLink;
 import com.RobinNotBad.BiliClient.model.VideoInfo;
+import com.RobinNotBad.BiliClient.player.PlayUrlFallbackPolicy;
 import com.RobinNotBad.BiliClient.service.DownloadService;
 import com.RobinNotBad.BiliClient.util.CenterThreadPool;
 import com.RobinNotBad.BiliClient.util.FileUtil;
@@ -122,8 +123,7 @@ public class PlayerApi {
     public static void getVideoDash(PlayerData playerData) throws JSONException, IOException {
         playerData.danmakuUrl = "https://comment.bilibili.com/" + playerData.cid + ".xml";
 
-        String url = "https://api.bilibili.com/x/player/wbi/playurl?"
-                + "avid=" + playerData.aid
+        String query = "?avid=" + playerData.aid
                 + "&cid=" + playerData.cid
                 + "&qn=" + playerData.qn
                 + "&fnval=4048&fnver=0" // 4048: DASH|HDR|4K|杜比全景声|杜比视界|8K|AV1
@@ -133,13 +133,11 @@ public class PlayerApi {
                 + "&gaia_source=pre-load"
                 + "&isGaiaAvoided=true";
 
-        url = ConfInfoApi.signWBI(url);
-
-        JSONObject body = NetWorkUtil.getJson(url, NetWorkUtil.webHeaders);
-        JSONObject data = body.getJSONObject("data");
+        // WBI 不可用时自动回退旧接口（判据见 PlayUrlFallbackPolicy）；两次都只回 durl 时降级到合一 MP4。
+        JSONObject data = requestVideoPlayData(query, true);
 
         // 解析DASH数据
-        if (data.has("dash")) {
+        if (data != null && data.has("dash")) {
             JSONObject dashJson = data.getJSONObject("dash");
             playerData.dashData = DashData.fromJson(dashJson);
 
@@ -195,57 +193,74 @@ public class PlayerApi {
      */
     public static boolean tryGetVideoWithFnval(PlayerData playerData, int fnval) {
         try {
-            String url = "https://api.bilibili.com/x/player/wbi/playurl?"
-                    + "avid=" + playerData.aid
-                    + "&cid=" + playerData.cid
-                    + "&qn=" + playerData.qn
-                    + "&fnval=" + fnval + "&fnver=0"
-                    + "&platform=pc"
-                    + "&fourk=1"
-                    + "&voice_balance=1"
-                    + "&gaia_source=pre-load"
-                    + "&isGaiaAvoided=true";
-
-            url = ConfInfoApi.signWBI(url);
-
-            JSONObject body = NetWorkUtil.getJson(url, NetWorkUtil.webHeaders);
-            JSONObject data = body.getJSONObject("data");
-
-            // 尝试解析DASH数据
-            if (data.has("dash")) {
-                JSONObject dashJson = data.getJSONObject("dash");
-                playerData.dashData = DashData.fromJson(dashJson);
-
-                DashVideoStream videoStream = playerData.dashData.getVideoStream(playerData.qn);
-                if (videoStream != null) {
-                    playerData.videoUrl = videoStream.baseUrl;
-                }
-
-                DashAudioStream audioStream = playerData.dashData.getBestAudioStream();
-                if (audioStream != null) {
-                    playerData.audioUrl = audioStream.baseUrl;
-                }
-
-                if (playerData.videoUrl != null && !playerData.videoUrl.isEmpty()) {
-                    return true;
-                }
-            }
-
-            // 回退：尝试MP4格式
-            JSONArray durl = data.getJSONArray("durl");
-            if (durl != null && durl.length() > 0) {
-                JSONObject videoUrlObj = durl.getJSONObject(0);
-                playerData.videoUrl = videoUrlObj.getString("url");
-                if (playerData.videoUrl != null && !playerData.videoUrl.isEmpty()) {
-                    return true;
-                }
-            }
-
-            return false;
+            if (tryGetVideoWithFnvalOnce(playerData, fnval, true)) return true;
+        } catch (Exception e) {
+            Logu.w("PlayerApi", "高画质 WBI 取流失败，回退旧接口：" + e.getMessage());
+        }
+        try {
+            return tryGetVideoWithFnvalOnce(playerData, fnval, false);
         } catch (Exception e) {
             Logu.e("PlayerApi", "tryGetVideoWithFnval error: " + e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * [tryGetVideoWithFnval] 的单次尝试：主/回退端点共用同一套解析。
+     *
+     * @param useWbi true = WBI 端点（需要签名）；false = 旧接口
+     */
+    private static boolean tryGetVideoWithFnvalOnce(PlayerData playerData, int fnval, boolean useWbi)
+            throws JSONException, IOException {
+        String query = "?avid=" + playerData.aid
+                + "&cid=" + playerData.cid
+                + "&qn=" + playerData.qn
+                + "&fnval=" + fnval + "&fnver=0"
+                + "&platform=pc"
+                + "&fourk=1"
+                + "&voice_balance=1"
+                + "&gaia_source=pre-load"
+                + "&isGaiaAvoided=true";
+
+        String url = useWbi
+                ? ConfInfoApi.signWBI(PlayUrlFallbackPolicy.videoWbiUrl(query))
+                : PlayUrlFallbackPolicy.videoLegacyUrl(query);
+
+        JSONObject body = NetWorkUtil.getJson(url, NetWorkUtil.webHeaders);
+        JSONObject data = body.optJSONObject("data");
+        if (data == null) return false;
+
+        // 尝试解析DASH数据
+        if (data.has("dash")) {
+            JSONObject dashJson = data.getJSONObject("dash");
+            playerData.dashData = DashData.fromJson(dashJson);
+
+            DashVideoStream videoStream = playerData.dashData.getVideoStream(playerData.qn);
+            if (videoStream != null) {
+                playerData.videoUrl = videoStream.baseUrl;
+            }
+
+            DashAudioStream audioStream = playerData.dashData.getBestAudioStream();
+            if (audioStream != null) {
+                playerData.audioUrl = audioStream.baseUrl;
+            }
+
+            if (playerData.videoUrl != null && !playerData.videoUrl.isEmpty()) {
+                return true;
+            }
+        }
+
+        // 回退：尝试MP4格式
+        JSONArray durl = data.optJSONArray("durl");
+        if (durl != null && durl.length() > 0) {
+            JSONObject videoUrlObj = durl.getJSONObject(0);
+            playerData.videoUrl = videoUrlObj.getString("url");
+            if (playerData.videoUrl != null && !playerData.videoUrl.isEmpty()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -259,15 +274,12 @@ public class PlayerApi {
         if (System.currentTimeMillis() - playerData.timeStamp < 600000)
             return;
 
-        playerData.timeStamp = System.currentTimeMillis();
-
         playerData.danmakuUrl = "https://comment.bilibili.com/" + playerData.cid + ".xml";
 
         boolean html5 = !download && SharedPreferencesUtil.getString(SettingsKeys.PLAYER, "").equals("mtvPlayer");
         // html5方式现在已经仅对小电视播放器保留了
 
-        String url = "https://api.bilibili.com/x/player/wbi/playurl?"
-                + "avid=" + playerData.aid
+        String query = "?avid=" + playerData.aid
                 + "&cid=" + playerData.cid
                 + (html5 ? "&high_quality=1" : "")
                 + "&qn=" + playerData.qn
@@ -277,17 +289,15 @@ public class PlayerApi {
                 + "&gaia_source=pre-load"
                 + "&isGaiaAvoided=true";
 
-        url = ConfInfoApi.signWBI(url);
-
-        JSONObject body = NetWorkUtil.getJson(url, NetWorkUtil.webHeaders);
-        JSONObject data = body.optJSONObject("data");
+        // WBI 失败/只回非 durl 时自动回退旧接口，两次都失败才把可读原因抛给调用方。
+        JSONObject data = requestVideoPlayData(query, false);
         JSONArray durl = data == null ? null : data.optJSONArray("durl");
         if (durl == null || durl.length() == 0) {
             // 反馈 #80：部分稿件（付费/充电专属、地区限制、需要登录、互动视频走错接口……）
             // 的 playurl 不带 durl，或者干脆把错误码放在 data 里。原来直接
             // data.getJSONArray("durl") 会抛 JSONException("No value for durl")，
             // 而详情页的取流预取（VideoInfoFragment）会把它原样弹给用户。
-            String detail = describePlayUrlFailure(body);
+            String detail = "无法获取播放地址（播放接口未返回可用的 durl，该视频可能为付费/充电专属、地区限制或需要登录）";
             Logu.e("PlayerApi", "取播放地址失败：" + detail
                     + "；aid=" + playerData.aid + " cid=" + playerData.cid
                     + " dataKeys=" + (data == null ? "null" : data.names().toString()));
@@ -297,6 +307,9 @@ public class PlayerApi {
         if (playerData.videoUrl == null || playerData.videoUrl.isEmpty()) {
             throw new NoPlayUrlException("无法获取播放地址（该视频可能为付费/充电专属、地区限制或需要登录）");
         }
+        // 只有成功拿到地址才记缓存时间：失败请求若也写时间戳，10 分钟内重试会被直接跳过，
+        // 弱网/WBI 风控的偶发失败就变成「这个视频十分钟都打不开」。
+        playerData.timeStamp = System.currentTimeMillis();
         //last_play_cid/last_play_time 是 aid 级"上次播放"数据：进度只属于 last_play_cid 那一P。
         //请求的 cid 与上次播放的 cid 不一致时（多P视频换P续播）不能把别的P的进度套在本P上，应从 0 开始
         playerData.cidHistory = data.optLong("last_play_cid", 0);
@@ -345,20 +358,21 @@ public class PlayerApi {
                                 String.valueOf(System.currentTimeMillis() - SystemClock.currentThreadTimeMillis())))
                 .put("platform", "pc");
 
-        String url = "https://api.bilibili.com/pgc/player/web/playurl" + reqData.toString();
-
-        JSONObject body = NetWorkUtil.getJson(url);
+        // 先试 v2（播放数据在 result.video_info），不可用再回退 v1（播放数据在 result）。
+        // 回退判据见 PlayUrlFallbackPolicy 的 classifyBangumiBody。
+        JSONObject body = requestBangumiPlayData(reqData.toString());
         Logu.v(body.toString());
 
-        JSONObject data = body.optJSONObject("result");
+        // v2 的播放数据在 result.video_info，v1 在 result 本身；统一由策略类取出。
+        JSONObject data = PlayUrlFallbackPolicy.bangumiPayload(body);
         JSONArray durl = data == null ? null : data.optJSONArray("durl");
         if (durl == null || durl.length() == 0) {
-            // 同 getVideo：番剧/影视的 pgc/player/web/playurl 也可能只回错误码而没有 durl
+            // 同 getVideo：番剧/影视的 pgc 取流也可能只回错误码而没有 durl
             // （未登录、地区限制、大会员专享）。给一句能看懂的话，别把 org.json 的异常弹给用户。
             String detail = describePlayUrlFailure(body);
             Logu.e("PlayerApi", "番剧取播放地址失败：" + detail
                     + "；aid=" + playerData.aid + " cid=" + playerData.cid
-                    + " resultKeys=" + (data == null ? "null" : data.names().toString()));
+                    + " dataKeys=" + (data == null ? "null" : data.names().toString()));
             throw new NoPlayUrlException(detail);
         }
         playerData.videoUrl = durl.getJSONObject(0).optString("url");
@@ -393,16 +407,116 @@ public class PlayerApi {
             playerData.progress = 0;
         }
 
-        JSONArray accept_description = data.getJSONArray("accept_description");
-        JSONArray accept_quality = data.getJSONArray("accept_quality");
-        String[] qnStrList = new String[accept_description.length()];
-        int[] qnValueList = new int[accept_description.length()];
-        for (int i = 0; i < qnStrList.length; i++) {
-            qnStrList[i] = accept_description.optString(i);
-            qnValueList[i] = accept_quality.optInt(i);
+        // v2 的清晰度列表可能在 result 顶层、播放数据在 result.video_info；两处都找一遍。
+        // 找不到时只让清晰度按钮空着，不抛异常把整次播放弄挂（v1 从未缺过，v2 不能保证）。
+        JSONObject meta = body.optJSONObject("result");
+        if (meta == null || !meta.has("accept_description") || !meta.has("accept_quality")) {
+            meta = data;
         }
-        playerData.qnStrList = qnStrList;
-        playerData.qnValueList = qnValueList;
+        JSONArray accept_description = meta.optJSONArray("accept_description");
+        JSONArray accept_quality = meta.optJSONArray("accept_quality");
+        if (accept_description != null && accept_quality != null && accept_description.length() > 0) {
+            String[] qnStrList = new String[accept_description.length()];
+            int[] qnValueList = new int[accept_description.length()];
+            for (int i = 0; i < qnStrList.length; i++) {
+                qnStrList[i] = accept_description.optString(i);
+                qnValueList[i] = accept_quality.optInt(i);
+            }
+            playerData.qnStrList = qnStrList;
+            playerData.qnValueList = qnValueList;
+        } else {
+            Logu.w("PlayerApi", "番剧响应缺少清晰度列表，清晰度选择暂不可用；aid=" + playerData.aid);
+            playerData.qnStrList = null;
+            playerData.qnValueList = null;
+        }
+    }
+
+    /**
+     * 视频取流：先打 WBI 端点，失败再回退旧端点（旧端点不需要签名）。
+     *
+     * 回退判据见 {@link PlayUrlFallbackPolicy}；请求头始终是 {@link NetWorkUtil#webHeaders}，
+     * **不改变 Cookie/Referer 的发放规则**——流地址本身的防盗链由播放侧
+     * {@link com.RobinNotBad.BiliClient.player.PlayerRequestPolicy} 负责。
+     *
+     * @param query       以 `?` 开头的 playurl 查询串
+     * @param requireDash true = 要 DASH（1080P 及以上）；false = 要 durl 合一 MP4
+     * @return 可用响应的 `data`；仅当「两次都只回了 durl 而调用方要 DASH」时返回 null（调用方降级到合一 MP4）
+     */
+    private static JSONObject requestVideoPlayData(String query, boolean requireDash)
+            throws JSONException, IOException {
+        JSONObject primaryBody = null;
+        Exception primaryError = null;
+        PlayUrlFallbackPolicy.Failure primaryFailure = null;
+        try {
+            String primaryUrl = ConfInfoApi.signWBI(PlayUrlFallbackPolicy.videoWbiUrl(query));
+            primaryBody = NetWorkUtil.getJson(primaryUrl, NetWorkUtil.webHeaders);
+            primaryFailure = PlayUrlFallbackPolicy.classifyVideoBody(primaryBody, requireDash);
+            if (primaryFailure == null) return PlayUrlFallbackPolicy.videoData(primaryBody);
+        } catch (IOException | JSONException e) {
+            primaryError = e;
+        }
+
+        // 主端点只回 durl 时仍有救：旧接口有时能给出 DASH，所以先回退；两次都只给 durl 才降级。
+        boolean primaryHadDurl = primaryBody != null
+                && PlayUrlFallbackPolicy.classifyVideoBody(primaryBody, false) == null;
+        Logu.w("PlayerApi", "视频 WBI 取流不可用（"
+                + (primaryError != null ? primaryError.getMessage() : String.valueOf(primaryFailure))
+                + "），回退旧接口");
+
+        try {
+            JSONObject legacyBody = NetWorkUtil.getJson(
+                    PlayUrlFallbackPolicy.videoLegacyUrl(query), NetWorkUtil.webHeaders);
+            PlayUrlFallbackPolicy.Failure legacyFailure =
+                    PlayUrlFallbackPolicy.classifyVideoBody(legacyBody, requireDash);
+            if (legacyFailure == null) return PlayUrlFallbackPolicy.videoData(legacyBody);
+            if (legacyFailure == PlayUrlFallbackPolicy.Failure.NO_DASH) {
+                // 旧接口也只给 durl：调用方降级到合一 MP4（与加入回退前的行为一致）
+                return null;
+            }
+            String detail = describePlayUrlFailure(legacyBody);
+            Logu.e("PlayerApi", "取播放地址失败：" + detail + "；aid 已尝试 WBI 与旧接口");
+            throw new NoPlayUrlException(detail);
+        } catch (IOException | JSONException e) {
+            if (primaryError != null) e.addSuppressed(primaryError);
+            // 旧接口网络失败但主接口已经拿到 durl 时，宁可降级也不要让整次播放失败
+            if (primaryHadDurl && requireDash) return null;
+            throw e;
+        }
+    }
+
+    /**
+     * 番剧取流：先试 v2（播放数据在 `result.video_info`），不可用再回退 v1（`result`）。
+     *
+     * v2 是新端点，个别地区/账号会回 -404 或空 durl；此时继续用 v1，
+     * 而不是把「接口改版」变成用户看到的「这集放不了」。
+     */
+    private static JSONObject requestBangumiPlayData(String query) throws JSONException, IOException {
+        JSONObject primaryBody = null;
+        Exception primaryError = null;
+        PlayUrlFallbackPolicy.Failure primaryFailure = null;
+        try {
+            primaryBody = NetWorkUtil.getJson(PlayUrlFallbackPolicy.bangumiV2Url(query));
+            primaryFailure = PlayUrlFallbackPolicy.classifyBangumiBody(primaryBody);
+            if (primaryFailure == null) return primaryBody;
+        } catch (IOException | JSONException e) {
+            primaryError = e;
+        }
+        Logu.w("PlayerApi", "番剧 v2 取流不可用（"
+                + (primaryError != null ? primaryError.getMessage() : String.valueOf(primaryFailure))
+                + "），回退 v1");
+
+        try {
+            JSONObject legacyBody = NetWorkUtil.getJson(PlayUrlFallbackPolicy.bangumiV1Url(query));
+            PlayUrlFallbackPolicy.Failure legacyFailure =
+                    PlayUrlFallbackPolicy.classifyBangumiBody(legacyBody);
+            if (legacyFailure == null) return legacyBody;
+            String detail = describePlayUrlFailure(legacyBody);
+            Logu.e("PlayerApi", "番剧取播放地址失败：" + detail + "；已尝试 v2 与 v1");
+            throw new NoPlayUrlException(detail);
+        } catch (IOException | JSONException e) {
+            if (primaryError != null) e.addSuppressed(primaryError);
+            throw e;
+        }
     }
 
     /**
