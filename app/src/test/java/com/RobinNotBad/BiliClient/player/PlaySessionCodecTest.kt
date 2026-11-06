@@ -20,6 +20,7 @@ class PlaySessionCodecTest {
         aid = 114514L,
         cid = 223344L,
         mid = 5566L,
+        uploaderMid = 778899L,
         epid = 7788L,
         seasonId = 9900L,
         seasonType = 1,
@@ -64,5 +65,26 @@ class PlaySessionCodecTest {
         assertNull(PlaySessionCodec.decode("PLAYSESSION1\t1\t2"))
         assertNull(PlaySessionCodec.decode("PLAYSESSION2\t1\t2\t3\t4\t5\t1\t1\t1\t1\tfavorite\t0\t1\t1\tt"))
         assertNull(PlaySessionCodec.decode("PLAYSESSION1\ta\t2\t3\t4\t5\t1\t1\t1\t1\tfavorite\t0\t1\t1\tt"))
+    }
+
+    @Test
+    fun `作者 mid 随会话往返保留`() {
+        val decoded = PlaySessionCodec.decode(PlaySessionCodec.encode(session()))
+        assertEquals(778899L, decoded?.uploaderMid)
+        // 登录 mid 与作者 mid 是两个字段，不能串
+        assertEquals(5566L, decoded?.mid)
+    }
+
+    /**
+     * 老版本（26.11.06 之前）写下的会话文本只有 15 段、没有作者 mid：
+     * 必须仍能解出其余字段，作者回落 0（播放器会按 aid 现查），**标题不能被当成数字读坏**。
+     */
+    @Test
+    fun `旧格式会话缺作者字段时回落 0 且标题完好`() {
+        val legacy = "PLAYSESSION1\t114514\t223344\t5566\t7788\t9900\t1\t1\t123456\t654321\tfavorite\t3\t1\t1700000000000\t旧标题"
+        val decoded = PlaySessionCodec.decode(legacy)
+        assertEquals("旧标题", decoded?.title)
+        assertEquals(5566L, decoded?.mid)
+        assertEquals(0L, decoded?.uploaderMid)
     }
 }

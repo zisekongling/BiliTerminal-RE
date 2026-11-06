@@ -762,6 +762,10 @@ class FavoriteVideoListActivity : RefreshListActivity() {
                 // 但"这一条能不能进得去"得让播放器知道：起播这条不走播放器的 switchToOnlinePage，
                 // 它拿不到 videoInfo。上面这次请求已经拿到了，顺手带过去（省掉播放器再请求一次）。
                 playerData.enterableInfo = videoInfo
+                // 连播「按 UP 主投稿」要的是**这条视频的作者**，不是登录账号的 mid（见 PlayerData#uploaderMid）。
+                // 这条起播路径不走 VideoInfo.toPlayerData（列表是自己拼的），所以要单独补；
+                // 上面的请求已经把 videoInfo 拿在手里，不补的话播放器为点连播还得再查一次。
+                playerData.uploaderMid = videoInfo?.uploaderMid() ?: 0L
 
                 // 在主线程启动播放
                 runOnUiThread {

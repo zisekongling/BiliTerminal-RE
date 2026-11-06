@@ -1328,6 +1328,30 @@
   - 回归：推荐页正常出内容、连续下滑仍能翻页（`fresh_idx=1 → 2` 各一次请求）、滚到底部后 `loadMoreTip` 不在树里（空闲不占位）。
 - **未验 / 说明**：推荐页本身没在设备上走到 `bottom=true`（推荐流是无限流，只有「本页不足一页」或「去重后无新增」才会置 `bottom`），所以设备证据取自同一套基类路径的广场页；收藏夹 / 我的订阅两条真机用例需要有效登录态，本机只有假会话，**未跑**。真手表复验：进一个不足一页的收藏夹 → 底部短暂出现「没有更多了」→ 约 2 秒后消失、列表底部不再被占一条。
 
+### 3.124 连播「按 UP 主投稿」拉的是登录账号自己的投稿（26.11.06，用户点名）
+
+- **现象**：播放页点「连播」，拉出来的队列是**登录账号自己**的投稿，连播层标题（选集卡片上那一行）也变成自己的昵称，而不是当前视频的作者。
+- **根因**（一个字段当两件事用）：
+  - `model/VideoInfo.java` 的 `toPlayerData()` 把 `SharedPreferencesUtil.getLong("mid", 0)`（**当前登录账号**）写进 `PlayerData.mid`；
+  - `PlayerActivity` 的连播按钮又用同一个 `mid` 去 `UserInfoApi.getUserVideos(mid, ...)` 拉「UP 主投稿」，`applyUploaderQueue()` 还把列表里第一条的 `upName` 当连播层标题。
+  - 于是「作者」= 登录账号。`mid` 在播放器里其实只该回答「我是谁」（直播弹幕握手包的 `uid`、进度上报的登录闸），不是视频作者。
+- **改法**（作者与登录态彻底分开，新增一个字段贯穿整条链路）：
+  - `model/PlayerData.java`：新增 `uploaderMid`（作者 mid，0 = 未知），Parcelable 读写**追加在末尾**；`mid` 的注释写明它是登录账号、不是作者。
+  - `model/VideoInfo.java`：新增 `uploaderMid()`（取 `staff[0]`，联合投稿即第一作者；`staff` 为空返回 0），`toPlayerData()` 里另写 `data.uploaderMid`。
+  - `api/PlayerApi.java`：`buildTerminalPlayerIntent` 补 `putExtra("uploader_mid", …)`；`buildResumeIntent` 从会话哨兵回填。
+  - `player/PlaySessionStore.kt`：`PlaySession` 加 `uploaderMid`，编解码把它**追加在标题之后**——老文本（15 段）仍能解析，作者回落 0，标题不受影响（有单测钉住）。
+  - `activity/player/PlayerActivity.kt`：新增字段 `uploaderMid`；连播按钮判据收进新纯策略 `player/PlayerQueueAuthorPolicy.kt`（`!直播 && !番剧 && 在线 && (作者已知 || 有 aid)`）；`loadUploaderQueue()` 用作者 mid，未知时 `resolveUploaderMid(aid)` 用 `x/web-interface/view` 现查（**绝不回退登录 mid**）；切P/换清晰度/互动跳转都把 `uploaderMid` 带进新建的 `PlayerData`；切到别的条目 / 进入分P层时按新 `videoInfo` **重新定稿**（允许 0，不许沿用上一条的作者）；`buildPlaySession()` 落盘。
+  - `activity/user/favorite/FavoriteVideoListActivity.kt`：虚拟合集起播这条自拼 `PlayerData` 的路径补一行 `uploaderMid`（`videoInfo` 本来就在手里，省掉播放器现查的 1~2 个请求）。
+  - **顺带修正**：番剧（PGC）播放页不再显示「连播」按钮——它连的是剧集列表，原来的按钮点了也是去拉登录账号的投稿。
+- **验证**：
+  - 构建：`./gradlew.bat :app:assembleDebug`（双 flavor）**BUILD SUCCESSFUL**。
+  - 单测：`testStandardDebugUnitTest` **185 suites / 1991 tests / 0 失败 0 错误 0 跳过**（新增 `PlayerQueueAuthorPolicyTest` 9 例：按钮矩阵六格 + 换条目/换P 的作者取舍；新增 `VideoInfoUploaderMidTest` 4 例：单P / 联合投稿 / 空 staff / `toPlayerData` 里登录 mid 与作者 mid 不串；`PlaySessionCodecTest` 由 4 例扩到 6 例，含 15 段老文本回落 0 且标题完好）。
+  - **设备（AVD `rebili_api37_sd`，Android 17 x86_64，`standard-universal-debug`，用 `DebugBridge` 注入 `mid=999888` 当"登录账号"）**：`VideoInfoActivity`（aid=80433022，作者 486906719「索尼音乐中国」）→ 播放 → 读回会话哨兵 `player_last_session_v1`：
+    `PLAYSESSION1  80433022  137649199  999888  0  0  0  0  45248  212394  collection  0  0  1793952400682  【官方 MV】…  486906719`
+    —— 第 4 段是登录 mid、第 16 段是**视频作者**，两者分离且作者值正确，证明 `VideoInfo → PlayerData → Intent → PlayerActivity → 会话哨兵` 整条链路搬的是真作者。
+  - **未验（设备）**：点「连播」按钮那一下没在设备上跑到。该按钮在播放器控制栏里，而本机 AVD 上控制栏用 `input tap` / `motionevent` 都拉不出来（`uiautomator dump` 只在极少数帧里出现过 `bottom_control`，之后再也复现不了；怀疑是 dump 等 idle 超过 4 秒自动隐藏窗口）。所以「`arc/search?mid=<作者>`」这条请求没有设备抓包证据，靠 `PlayerQueueAuthorPolicyTest` + 代码走查覆盖。真手表复验：进任意投稿 → 点「连播」→ 连播层标题应是**视频作者**的昵称、队列是该作者的投稿；收藏夹里切到另一个 UP 主的条目后再点「连播」，队列应跟着换成新作者。
+- **遗留**：①联合投稿取 `staff[0]`，接口没有明文契约保证顺序（`getInfoByJson` 在联合投稿分支丢弃了 `owner`），真遇到排错再按 `staff[i].sign == "UP主"` 筛；②`resolveUploaderMid()` 现查时 `VideoInfoApi.getVideoInfo` 会顺带发一次 `archive/relation`（登录态下），所以「入口没带作者」的路径比带作者多 1~2 个请求，已在收藏夹虚拟合集那条入口上堵掉。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。

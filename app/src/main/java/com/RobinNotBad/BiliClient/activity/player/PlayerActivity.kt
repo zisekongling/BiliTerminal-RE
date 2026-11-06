@@ -84,6 +84,7 @@ import com.RobinNotBad.BiliClient.player.PlayQueueMode
 import com.RobinNotBad.BiliClient.player.PlayQueueSource
 import com.RobinNotBad.BiliClient.player.PlaySession
 import com.RobinNotBad.BiliClient.player.PlaySessionStore
+import com.RobinNotBad.BiliClient.player.PlayerQueueAuthorPolicy
 import com.RobinNotBad.BiliClient.player.IjkNativeLibs
 import com.RobinNotBad.BiliClient.player.PlayerDefaults
 import com.RobinNotBad.BiliClient.player.PlayerRequestPolicy
@@ -655,7 +656,18 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
     private var aid: Long = 0
     private var cid: Long = 0
+    /** 当前登录账号的 mid（**不是**作者）：只给直播弹幕握手包当 uid 用。 */
     private var mid: Long = 0
+
+    /**
+     * 这条视频的 UP 主 mid —— 连播「按 UP 主投稿续播」唯一的作者来源。
+     *
+     * 曾经这里直接用 [mid]（登录账号）当作者，结果连播拉的是登录账号自己的投稿、
+     * 连播层标题也变成自己的昵称（26.11.06 修）。入口由 `VideoInfo.toPlayerData` 从
+     * `staff[0]` 填，随 Intent / 会话哨兵传进来；0 表示入口不知道，点连播时按 aid 现查一次
+     * （[resolveUploaderMid]）。切换分P/合集条目后若拿到了新作者，也会跟着更新。
+     */
+    private var uploaderMid: Long = 0
 
     // 番剧(PGC)专用维度：投稿视频的进度上报只有 aid/cid 两个维度，
     // 番剧必须走心跳接口并带上 epid/sid/sub_type，否则观看记录与续播进度都不会被服务端更新
@@ -867,6 +879,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         aid = intent.getLongExtra("aid", 0)
         cid = intent.getLongExtra("cid", 0)
         mid = intent.getLongExtra("mid", 0)
+        // 作者 mid 与登录 mid 是两个 extra：缺了（旧 Intent / 外部入口）就留 0，点连播时按 aid 现查
+        uploaderMid = intent.getLongExtra("uploader_mid", 0)
         // 番剧心跳的三个维度。PlayerApi.jumpToPlayer 没有传，由 JumpToPlayerActivity.jump() 补进 Intent；
         // 缺了它们就退化成投稿上报，番剧观看记录不会被更新
         epid = intent.getLongExtra("epid", 0)
@@ -5138,22 +5152,37 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 MsgUtil.showMsg(getString(R.string.player_queue_mode_toast, queueModeLabel(mode)))
                 return@setOnClickListener
             }
-            if (mid > 0 && isOnlineVideo && !isLiveMode) loadUploaderQueue()
+            if (canLoadUploaderQueue()) loadUploaderQueue()
             else MsgUtil.showMsg(UiText.of(getString(R.string.player_queue_empty)))
         }
         // 长按总是尝试拉 UP 主投稿队列（即便手里已有收藏夹/合集队列），给用户一个"换成 UP 主连播"的入口
         queue_mode_btn.setOnLongClickListener {
-            if (mid > 0 && isOnlineVideo && !isLiveMode) {
+            if (canLoadUploaderQueue()) {
                 loadUploaderQueue()
                 true
             } else false
         }
     }
 
+    /**
+     * 能不能「按 UP 主投稿」拉队列（判据在 [PlayerQueueAuthorPolicy.canLoadUploader]）。
+     *
+     * 判据不是「有没有登录」：作者 mid 未知（旧会话 / 只拿到 aid 的入口）时也能点，
+     * [loadUploaderQueue] 会按 aid 现查一次真实作者。直播与本地文件没有 UP 主投稿可拉；
+     * 番剧（PGC）同理——它连的是剧集列表、不是某个 UP 主的投稿，给这个按钮只会点了报错。
+     */
+    private fun canLoadUploaderQueue(): Boolean = PlayerQueueAuthorPolicy.canLoadUploader(
+        isLive = isLiveMode,
+        isPgc = pgcPlaybackFlag,
+        isOnline = isOnlineVideo,
+        uploaderMid = uploaderMid,
+        aid = aid
+    )
+
     private fun updateQueueModeButton() {
         val queue = playQueue
         val hasQueue = queue != null && queue.size > 1
-        val canLoadUploader = mid > 0 && isOnlineVideo && !isLiveMode
+        val canLoadUploader = canLoadUploaderQueue()
         if (isLiveMode || (!hasQueue && !canLoadUploader)) {
             queue_mode_btn.visibility = View.GONE
             return
@@ -5200,21 +5229,26 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             MsgUtil.showMsg(UiText.of(getString(R.string.player_queue_empty)))
             return
         }
-        if (mid <= 0) {
-            MsgUtil.showMsg(UiText.of(getString(R.string.player_queue_empty)))
-            return
-        }
         if (uploaderQueueLoading) return
         uploaderQueueLoading = true
         MsgUtil.showMsg(UiText.of(getString(R.string.player_queue_loading)))
+        val currentAid = aid
+        val knownUploaderMid = uploaderMid
         CenterThreadPool.run {
+            // 作者必须是**这条视频的作者**，不能是登录账号（见 uploaderMid 的注释）。
+            // 入口没带作者时（旧会话、只拿到 aid 的入口）按 aid 现查一次。
+            val authorMid = if (knownUploaderMid > 0) knownUploaderMid else resolveUploaderMid(currentAid)
             val cards = ArrayList<VideoCard>()
             var ok = false
-            try {
-                // 0 = 还有下一页，1 = 没有更多，-1 = 出错；这里只要第一页，非空即成功
-                ok = UserInfoApi.getUserVideos(mid, 1, "", cards) >= 0 && cards.isNotEmpty()
-            } catch (e: Exception) {
-                Logu.e("连播队列", "UP 主投稿加载失败: " + e.message)
+            if (authorMid > 0) {
+                try {
+                    // 0 = 还有下一页，1 = 没有更多，-1 = 出错；这里只要第一页，非空即成功
+                    ok = UserInfoApi.getUserVideos(authorMid, 1, "", cards) >= 0 && cards.isNotEmpty()
+                } catch (e: Exception) {
+                    Logu.e("连播队列", "UP 主投稿加载失败: " + e.message)
+                }
+            } else {
+                Logu.e("连播队列", "作者 mid 未知（aid=$currentAid），无法拉 UP 主投稿")
             }
             runOnUiThread {
                 uploaderQueueLoading = false
@@ -5223,8 +5257,37 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     MsgUtil.showMsg(UiText.of(getString(R.string.player_queue_failed)))
                     return@runOnUiThread
                 }
+                // 这期间用户可能已经切到别的条目（自动连播/手动下一个）：这份队列与作者只属于
+                // 发起时那条视频，套到新条目上就成了"连播里混进别人的投稿"，宁可不装
+                if (aid != currentAid) {
+                    Logu.d("连播队列", "期间切到了别的视频（$currentAid → $aid），丢弃这次 UP 主投稿队列")
+                    return@runOnUiThread
+                }
+                uploaderMid = authorMid
                 applyUploaderQueue(cards)
             }
+        }
+    }
+
+    /**
+     * 按 aid 现查这条视频的作者 mid（`x/web-interface/view` 的 owner / staff[0]）。
+     *
+     * 只在入口没带 `uploader_mid` 时才走（旧会话哨兵、外部 Intent、只拿得到 aid 的入口）。
+     * 查不到返回 0，调用方按「拉不到投稿」处理——**不要**退回去用登录账号的 mid 顶替，
+     * 那正是这个 bug 本身。
+     *
+     * **必须在后台线程调用**（内部有网络请求）：唯一调用点在 [loadUploaderQueue] 的
+     * `CenterThreadPool.run {}` 里。从 UI 线程调会撞 `NetworkOnMainThreadException`。
+     */
+    private fun resolveUploaderMid(aidValue: Long): Long {
+        if (aidValue <= 0) return 0
+        return try {
+            val upMid = VideoInfoApi.getVideoInfo(aidValue)?.uploaderMid() ?: 0L
+            Logu.d("连播队列", "按 aid=$aidValue 现查作者 mid=$upMid")
+            upMid
+        } catch (e: Exception) {
+            Logu.e("连播队列", "作者 mid 现查失败（aid=$aidValue）: " + e.message)
+            0L
         }
     }
 
@@ -5296,7 +5359,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         updateQueueModeButton()
         persistQueueToken()
         MsgUtil.showMsg(getString(R.string.player_queue_loaded, items.size.toString(), queueModeLabel(playQueue!!.mode)))
-        Logu.d("连播队列", "UP 主投稿队列已载入：${items.size} 项，当前下标=$index")
+        Logu.d("连播队列", "UP 主投稿队列已载入：${items.size} 项，当前下标=$index，作者 mid=$uploaderMid")
     }
 
     // ------------------------------------------------------------------ 播放会话哨兵
@@ -5317,6 +5380,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             aid = aid,
             cid = cid,
             mid = mid,
+            uploaderMid = uploaderMid,
             epid = epid,
             seasonId = seasonId,
             seasonType = seasonType,
@@ -5479,6 +5543,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 // 突然被换成一门 105 讲课程的分P 列表，收藏夹里后面的条目全被跳过。
                 // 这一次 getVideoInfo 本来就要发（为了拿首个 cid），响应里的 ugc_season 是白拿的。
                 var videoInfoForEnter: VideoInfo? = null
+                // 这条新条目的作者：null = 没有换视频（真实多P 换P），沿用当前作者；
+                // 非 null = 换了一条视频，**原样采用（允许 0）**，不许退回上一条的作者
+                var newVideoAuthorMid: Long? = null
 
                 if (isVirtualCollectionMode) {
                     // 虚拟合集模式：cids 里存的是每个视频的 **aid**，要拿它反查该视频的首个 cid
@@ -5486,6 +5553,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     playerData.cid = 0 // 需要从API获取
                     val videoInfo = com.RobinNotBad.BiliClient.api.VideoInfoApi.getVideoInfo(cidValue)
                     videoInfoForEnter = videoInfo
+                    // 换到另一条视频了：作者按新条目重算。staff 为空（UP 已注销等）就是 0 = 未知，
+                    // 点连播时按 aid 现查；沿用上一条作者会变成"连播拉到别人的投稿"
+                    newVideoAuthorMid = videoInfo?.uploaderMid() ?: 0L
                     if (videoInfo != null && videoInfo.cids.isNotEmpty()) {
                         // 不进去时只播第 1 个分P——想听其它分P 就点选集卡片上的「进入分P」
                         playerData.cid = videoInfo.cids[0]
@@ -5498,6 +5568,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
                 playerData.title = newTitle
                 playerData.mid = mid
+                // 先按"当前作者"带过去；真正的作者在下面 runOnUiThread 里按新条目定稿
+                playerData.uploaderMid = uploaderMid
                 playerData.qn = startupDefaultQn()
                 playerData.pagenames = pagenames
                 playerData.cids = cids
@@ -5515,6 +5587,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     // aid 还停在第一个视频上，进度上报就会变成 reportHistory(视频1, 视频N的cid)——
                     // 把 N 的进度写到 1 的记录里（26.10.15 修）
                     if (playerData.aid > 0) aid = playerData.aid
+                    // 新条目的作者：换了视频就按新条目定稿（拿不到就是 0 = 未知，点连播时按 aid 现查）；
+                    // 只是换P 则沿用。判据在 PlayerQueueAuthorPolicy.authorAfterSwitch（有单测）。
+                    val settledUploaderMid = PlayerQueueAuthorPolicy.authorAfterSwitch(newVideoAuthorMid, uploaderMid)
+                    if (settledUploaderMid != uploaderMid) {
+                        uploaderMid = settledUploaderMid
+                        updateQueueModeButton()
+                    }
                     // 在 UI 线程落地"这条能不能进得去"，供选集卡片画那一行（见 enterableCollection）
                     updateEnterable(videoInfoForEnter)
                     // 在线切 P 没有外挂音轨（26.10.27 架构下在线取流是合一 MP4），传空即可
@@ -5625,6 +5704,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         cids = ArrayList(videoInfo.cids)
         isVirtualCollectionMode = false
         aid = videoInfo.aid
+        // 进了某个多P视频 = 当前这条换成了它，作者跟着换（**允许 0**：拿不到就是未知，
+        // 点连播时按 aid 现查；沿用上一个作者会变成"连播拉到别人的投稿"）
+        uploaderMid = PlayerQueueAuthorPolicy.authorAfterSwitch(videoInfo.uploaderMid(), uploaderMid)
+        updateQueueModeButton()
         // 从第 1 个分P 起：这是用户主动点「进入分P」进目录，语义是"从这一层的第一集开始看"，
         // 不是"继续上次看的"。真正处理 #83「再次打开续到上次那个P」的是详情页入口
         // （VideoInfoFragment.playClick → MultiPageResumePolicy），那一条走的是直接起播上次的P。
@@ -5856,6 +5939,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 playerData.cid = cid
                 playerData.title = text_title!!.text.toString()
                 playerData.mid = mid
+                playerData.uploaderMid = uploaderMid
                 playerData.qn = newQuality
                 playerData.pagenames = pagenames
                 playerData.cids = cids
@@ -6269,6 +6353,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 playerData.cid = targetCid
                 playerData.title = newData.title
                 playerData.mid = mid
+                playerData.uploaderMid = uploaderMid
                 playerData.qn = getTargetQuality()
 
                 if (pagenames != null && cids != null) {

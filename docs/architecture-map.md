@@ -727,7 +727,8 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 **26.11.06 新增的 `player/` 模块（都在用，改播放前先看它们）**：
 
 - `PlayQueue.kt` — 连播队列**纯模型**（`PlayQueueSource` 5 种来源 × `PlayQueueMode` 4 档、确定性洗牌、历史栈 64、行式 token 编解码）。`PlayerActivity` 只负责接线（`playlistQueueItems` / `rebuildQueueFromPlaylist` / `restoreQueueTokenIfMatches` / `playNextFromQueue`），队列 token 存 prefs `player_last_queue_token_v1`。
-- `PlaySessionStore.kt` — 播放会话哨兵（`PLAYSESSION1` 编解码、15 秒节流落盘 + 生命周期兜底、`player_last_session_v1`）。`PlayerApi.buildResumeIntent` 与主菜单「继续播放」消费它；**`PlayerData.progress` 的单位是毫秒**，别再按秒处理。
+- `PlayerQueueAuthorPolicy.kt` — 「按 UP 主投稿连播」用谁当作者（纯逻辑，有单测）：按钮能不能点（`!直播 && !番剧 && 在线 && (作者已知 || 有 aid)`）、换条目/换P 后作者取谁。作者走 `PlayerData.uploaderMid`（`VideoInfo.toPlayerData` 从 `staff[0]` 填，随 Intent `uploader_mid` 与会话哨兵传递），**`PlayerData.mid` 是登录账号、不是作者**——两者混用就是「连播拉到自己的投稿」那个 bug（§3.124）。
+- `PlaySessionStore.kt` — 播放会话哨兵（`PLAYSESSION1` 编解码、15 秒节流落盘 + 生命周期兜底、`player_last_session_v1`）。`PlayerApi.buildResumeIntent` 与主菜单「继续播放」消费它；**`PlayerData.progress` 的单位是毫秒**，别再按秒处理；新字段只能**追加在标题之后**（老文本 15 段必须还能解出来）。
 - `BangumiProgressStore.kt` — 番剧每集进度（epid 维度、上限 128、`player_bangumi_progress_v1`），`PlayerApi.getBangumi` 用它覆盖服务端 `last_play_time`。
 - `DanmakuStreamLoader.kt` — 360 秒分段窗口加载（窗口计算在纯函数 `DanmakuWindow`），配 `util/DanmakuDiskCache`（`cacheDir/danmaku_cache`）；`DanmakuManager.appendSegments` 是唯一灌入口，别绕过它直接碰 DFM。
 

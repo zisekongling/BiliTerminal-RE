@@ -695,6 +695,9 @@ public class PlayerApi {
         intent.putExtra("aid", playerData.aid);
         intent.putExtra("cid", playerData.cid);
         intent.putExtra("mid", playerData.mid);
+        // 作者 mid 必须单独带进去：mid 是登录账号（直播弹幕 uid），连播要的是视频作者，
+        // 两者混用会让「按 UP 主投稿续播」拉到登录账号自己的投稿（见 PlayerData#uploaderMid）
+        intent.putExtra("uploader_mid", playerData.uploaderMid);
         intent.putExtra("progress", playerData.progress);
         intent.putExtra("live_mode", playerData.isLive());
         // 直播的候选地址表随 Intent 一起进播放器：弱网/线路故障时播放器要能在不改请求的前提下换线路。
@@ -769,6 +772,8 @@ public class PlayerApi {
         data.aid = session.getAid();
         data.cid = session.getCid();
         data.mid = session.getMid();
+        // 续播也要把作者带回来，否则「继续播放」之后点连播只能按 aid 现查（多一次请求）
+        data.uploaderMid = session.getUploaderMid();
         data.epid = session.getEpid();
         data.seasonId = session.getSeasonId();
         data.seasonType = session.getSeasonType();

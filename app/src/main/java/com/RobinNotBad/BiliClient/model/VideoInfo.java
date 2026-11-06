@@ -119,12 +119,32 @@ public class VideoInfo implements Parcelable, Serializable { // 自定义类需�
         return new VideoCard(title, upName, viewStr, cover, aid, bvid);
     }
 
+    /**
+     * 这条视频的 UP 主 mid：没有 staff（稿件被删 / 接口没返回）时返回 0。
+     *
+     * <p>**口径**：非联合投稿时 `staff` 就是由 `owner` 拼出来的（见 `VideoInfoApi.getInfoByJson`），
+     * 取第一个即投稿人；联合投稿时接口下发的 `staff` 列表把投稿者排在首位（样例里
+     * `staff[0].title == "UP主"`），但接口没有明文契约保证顺序——真遇到排错再按 `title` 筛。
+     *
+     * <p>连播「按 UP 主投稿续播」只认这个值，**不能用登录账号的 mid 顶替**
+     * （见 {@link PlayerData#uploaderMid}）。
+     */
+    public long uploaderMid() {
+        if (staff == null || staff.isEmpty()) return 0L;
+        UserInfo first = staff.get(0);
+        return first == null ? 0L : first.mid;
+    }
+
     public PlayerData toPlayerData(int index) {
         PlayerData data = new PlayerData();
         data.aid = aid;
         data.cid = cids.get(index);
         data.title = pagenames.size() == 1 ? title : pagenames.get(index);
+        // 两个 mid 不是一回事：mid = 当前登录账号（直播弹幕 uid / 登录态判据），
+        // uploaderMid = 这条视频的作者（连播用）。以前这里把登录 mid 塞进去当作者，
+        // 连播就会去拉登录账号自己的投稿，连播层标题也变成自己的昵称。
         data.mid = SharedPreferencesUtil.getLong("mid", 0);
+        data.uploaderMid = uploaderMid();
         // 起播清晰度按当前网络类型决定（Wi-Fi / 移动数据可分别配置，判定统一在 NetworkPlaybackQuality）。
         // BiliTerminal.context 在极早期/单测环境可能为 null，此时退回「只读默认清晰度」的老行为，不崩。
         android.content.Context context = BiliTerminal.context;

@@ -12,6 +12,7 @@ import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 data class PlaySession(
     val aid: Long,
     val cid: Long,
+    /** 当前登录账号的 mid（**不是**视频作者，见 [com.RobinNotBad.BiliClient.model.PlayerData#mid]）。 */
     val mid: Long,
     val epid: Long,
     val seasonId: Long,
@@ -24,7 +25,14 @@ data class PlaySession(
     val source: PlayQueueSource,
     val pageIndex: Int,
     val hasQueueToken: Boolean,
-    val updatedAt: Long
+    val updatedAt: Long,
+    /**
+     * 视频作者 mid（连播用，见 [com.RobinNotBad.BiliClient.model.PlayerData#uploaderMid]）；0 = 未知。
+     *
+     * 放在参数表**末尾**是有意的：它与 [epid] 同为 `Long`，将来谁写一次位置传参就会把 epid
+     * 静默塞进作者字段（编译不报错）。末尾与文本 / Parcel 的追加顺序也一致。
+     */
+    val uploaderMid: Long = 0L
 ) {
     fun isMeaningful(): Boolean = positionMs > 0L || cid > 0L || aid > 0L || epid > 0L
 }
@@ -50,6 +58,10 @@ object PlaySessionCodec {
             .append(if (session.hasQueueToken) 1 else 0).append('\t')
             .append(session.updatedAt).append('\t')
             .append(escape(session.title))
+        // uploaderMid 只能追加在**末尾**：标题在它前面且已转义（不含制表符），
+        // 老版本写下的 15 段文本仍然能按前 15 段正确解析，只是读不到作者（回落 0）。
+        // 插到标题之前会让老文本的标题被当成数字解析，标题静默丢失。
+        sb.append('\t').append(session.uploaderMid)
         return sb.toString()
     }
 
@@ -71,8 +83,10 @@ object PlaySessionCodec {
         val hasQueueToken = parts[12] == "1"
         val updatedAt = parts[13].toLongOrNull() ?: 0L
         val title = unescape(parts[14])
+        // 老会话没有这一段：缺了当 0（作者未知），播放器会按 aid 现查一次
+        val uploaderMid = parts.getOrNull(15)?.toLongOrNull() ?: 0L
         return PlaySession(
-            aid = aid, cid = cid, mid = mid, epid = epid, seasonId = seasonId,
+            aid = aid, cid = cid, mid = mid, uploaderMid = uploaderMid, epid = epid, seasonId = seasonId,
             seasonType = seasonType, type = type, title = title,
             positionMs = positionMs.coerceAtLeast(0L), durationMs = durationMs.coerceAtLeast(0L),
             source = source, pageIndex = pageIndex, hasQueueToken = hasQueueToken,
