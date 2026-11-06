@@ -46,6 +46,8 @@ object PlayerButtons {
      *   `null` 表示这个按钮没有可调项，卡片退化成「一行说明 + 换一个 / 移除」。
      * @param action 非 `null` 时卡片改为跳转（目前只有清晰度按钮）。
      * @param textOnly 槽位里不画图标而画文字（只有「倍速」——它本来就显示 `×1.0`）。
+     * @param mayHide 这个按钮在某些视频里会被播放页收起来（直播、本地文件、单P视频、没有字幕等），
+     *   设置页据此给它标一个「注意」——不然用户摆好位置后在那个视频里找不着，会以为布局坏了。
      */
     data class Button(
         val key: String,
@@ -53,7 +55,8 @@ object PlayerButtons {
         @DrawableRes val iconRes: Int,
         val settingsGroup: String? = null,
         val action: Action? = null,
-        val textOnly: Boolean = false
+        val textOnly: Boolean = false,
+        val mayHide: Boolean = false
     )
 
     /**
@@ -64,22 +67,22 @@ object PlayerButtons {
      */
     val ALL: List<Button> = listOf(
         Button(LOCK, R.string.setting_player_btn_lock, R.drawable.icon_player_lock),
-        Button(SPEED, R.string.setting_player_btn_speed, R.drawable.ic_player_speed, PlayerSettingsGroups.DEFAULTS, textOnly = true),
+        Button(SPEED, R.string.setting_player_btn_speed, R.drawable.ic_player_speed, PlayerSettingsGroups.DEFAULTS, textOnly = true, mayHide = true),
         Button(DANMAKU, R.string.setting_player_btn_danmaku, R.mipmap.danmakuoff, PlayerSettingsGroups.DANMAKU),
         Button(ROTATE, R.string.setting_player_btn_rotate, R.mipmap.rotate),
-        Button(DANMAKU_SEND, R.string.setting_player_btn_danmaku_send, R.drawable.send, PlayerSettingsGroups.DANMAKU),
+        Button(DANMAKU_SEND, R.string.setting_player_btn_danmaku_send, R.drawable.send, PlayerSettingsGroups.DANMAKU, mayHide = true),
         Button(SUBTITLE, R.string.setting_player_btn_subtitle, R.mipmap.subtitle_off, PlayerSettingsGroups.SUBTITLE),
-        Button(LOOP, R.string.setting_player_btn_loop, R.mipmap.loopoff, PlayerSettingsGroups.DEFAULTS),
-        Button(AUDIO_ONLY, R.string.setting_player_btn_audio_only, R.drawable.icon_audio_only_off, PlayerSettingsGroups.DEFAULTS),
-        Button(AUTO_NEXT, R.string.setting_player_btn_auto_next, R.drawable.icon_auto_next_off, PlayerSettingsGroups.DEFAULTS),
-        Button(VIEWPOINT, R.string.setting_player_btn_viewpoint, R.drawable.icon_star),
-        Button(VIDEO_INFO, R.string.setting_player_btn_video_info, R.drawable.icon_info),
-        Button(JUMP_TIME, R.string.setting_player_btn_jump_time, R.drawable.icon_time),
-        Button(QUEUE_MODE, R.string.setting_player_btn_queue_mode, R.drawable.icon_sort_filter),
-        Button(QUALITY, R.string.setting_player_btn_quality, R.drawable.icon_menu, action = Action.OPEN_QUALITY),
+        Button(LOOP, R.string.setting_player_btn_loop, R.mipmap.loopoff, PlayerSettingsGroups.DEFAULTS, mayHide = true),
+        Button(AUDIO_ONLY, R.string.setting_player_btn_audio_only, R.drawable.icon_audio_only_off, PlayerSettingsGroups.DEFAULTS, mayHide = true),
+        Button(AUTO_NEXT, R.string.setting_player_btn_auto_next, R.drawable.icon_auto_next_off, PlayerSettingsGroups.DEFAULTS, mayHide = true),
+        Button(VIEWPOINT, R.string.setting_player_btn_viewpoint, R.drawable.icon_star, mayHide = true),
+        Button(VIDEO_INFO, R.string.setting_player_btn_video_info, R.drawable.icon_info, mayHide = true),
+        Button(JUMP_TIME, R.string.setting_player_btn_jump_time, R.drawable.icon_time, mayHide = true),
+        Button(QUEUE_MODE, R.string.setting_player_btn_queue_mode, R.drawable.icon_sort_filter, mayHide = true),
+        Button(QUALITY, R.string.setting_player_btn_quality, R.drawable.icon_menu, action = Action.OPEN_QUALITY, mayHide = true),
         Button(SOUND_CUT, R.string.setting_player_btn_sound_cut, R.mipmap.soundcut),
         Button(SOUND_ADD, R.string.setting_player_btn_sound_add, R.mipmap.soundadd),
-        Button(PAGE_SELECTOR, R.string.setting_player_btn_page_selector, R.drawable.icon_folder)
+        Button(PAGE_SELECTOR, R.string.setting_player_btn_page_selector, R.drawable.icon_folder, mayHide = true)
     )
 
     /** 默认布局里右侧那个「组」的内容——即改造前 `right_second` 那一排，顺序与原 XML 一致。 */

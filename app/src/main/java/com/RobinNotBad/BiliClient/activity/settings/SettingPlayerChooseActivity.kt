@@ -43,6 +43,11 @@ class SettingPlayerChooseActivity : BaseActivity() {
 
             qnChoose.setOnClickListener { handleQnChoose() }
 
+            // 26.11.06：播放器界面（按钮布局与各处设置）单独一页，从这里进。
+            findViewById<View>(R.id.player_ui_choose).setOnClickListener {
+                startActivity(Intent(this, SettingPlayerUiActivity::class.java))
+            }
+
             cardViewList = ArrayList()
             cardViewList.add(terminalPlayer)
             cardViewList.add(mtvPlayer)

@@ -34,6 +34,7 @@ class SettingPlayerUiActivity : BaseActivity() {
 
     private lateinit var contentList: RecyclerView
     private lateinit var cardPanel: LinearLayout
+    private lateinit var cardScrim: View
     private lateinit var cardTitle: TextView
     private lateinit var cardList: RecyclerView
 
@@ -51,6 +52,8 @@ class SettingPlayerUiActivity : BaseActivity() {
             cardPanel = findViewById(R.id.cardPanel)
             cardTitle = findViewById(R.id.cardTitle)
             cardList = findViewById(R.id.cardList)
+            cardScrim = findViewById(R.id.cardScrim)
+            cardScrim.setOnClickListener { hideCard() }
 
             findViewById<View>(R.id.pageName).setOnClickListener { finish() }
             findViewById<View>(R.id.btnFull).setOnClickListener { openFullSettings() }
@@ -116,7 +119,7 @@ class SettingPlayerUiActivity : BaseActivity() {
                         val button = PlayerButtons.byKey(slot.key)
                         navRow(
                             button?.let { getString(it.nameRes) } ?: slot.key,
-                            getString(R.string.setting_player_ui_region_desc, getString(regionNameRes(region)), index + 1),
+                            slotDesc(region, index, button),
                             button?.iconRes ?: R.drawable.icon_menu
                         ) { showSlotMenu(region, index) }
                     }
@@ -230,10 +233,13 @@ class SettingPlayerUiActivity : BaseActivity() {
         val rows = ArrayList<SettingSection>()
         rows += noteSection(getString(R.string.setting_player_ui_group_members))
         slot.keys.forEach { key ->
-            val name = PlayerButtons.byKey(key)?.let { getString(it.nameRes) } ?: key
-            rows += editRow(getString(R.string.setting_player_ui_group_member_settings, name)) {
-                showButtonCard(key)
-            }
+            val button = PlayerButtons.byKey(key)
+            val name = button?.let { getString(it.nameRes) } ?: key
+            rows += navRow(
+                getString(R.string.setting_player_ui_group_member_settings, name),
+                if (button?.mayHide == true) getString(R.string.setting_player_ui_may_hide) else "",
+                button?.iconRes ?: R.drawable.icon_menu
+            ) { showButtonCard(key) }
         }
         rows += dividerSection()
         rows += editRow(getString(R.string.setting_player_ui_group_add_member)) {
@@ -281,7 +287,11 @@ class SettingPlayerUiActivity : BaseActivity() {
             PickMode.AddGroupMember -> getString(R.string.setting_player_ui_group_add_member)
         }
         val rows = PlayerButtons.ALL.map { button ->
-            editRow(getString(button.nameRes)) {
+            navRow(
+                getString(button.nameRes),
+                if (button.mayHide) getString(R.string.setting_player_ui_may_hide) else "",
+                button.iconRes
+            ) {
                 val picked = PlayerUiLayout.Slot.Button(button.key)
                 applyLayout(
                     when (mode) {
@@ -382,6 +392,16 @@ class SettingPlayerUiActivity : BaseActivity() {
     private fun navRow(title: String, desc: String, @DrawableRes iconRes: Int, onClick: () -> Unit) =
         SettingSection("nav", title, "", desc, "", SettingsAdapter.NavExtra(iconRes, { onClick() }))
 
+    /** 槽位行的副标题：先写「哪一列第几格」，按钮在某些视频里会被收起时再加一句注意。 */
+    private fun slotDesc(region: PlayerUiLayout.Region, index: Int, button: PlayerButtons.Button?): String {
+        val base = getString(R.string.setting_player_ui_region_desc, getString(regionNameRes(region)), index + 1)
+        return if (button?.mayHide == true) {
+            base + " · " + getString(R.string.setting_player_ui_may_hide)
+        } else {
+            base
+        }
+    }
+
     /** 一行可点的动作（`button` 类型，标题就是动作名）。 */
     private fun editRow(text: String, onClick: () -> Unit) =
         SettingSection("button", text, "", "", "", SettingsAdapter.ButtonExtra { onClick() })
@@ -401,6 +421,9 @@ class SettingPlayerUiActivity : BaseActivity() {
         // 上一次收起动画可能还在跑，它的 withEndAction 会把卡片设成 GONE，必须先掐掉
         cardPanel.animate().cancel()
         cardPanel.visibility = View.VISIBLE
+        cardScrim.visibility = View.VISIBLE
+        cardScrim.bringToFront()
+        cardPanel.bringToFront()
         // 卡片初始在屏幕外，量到高度后滑上来（GONE 期间 height 是 0，不能在 showCard 之前算）
         cardPanel.post {
             if (cardPanel.visibility != View.VISIBLE) return@post
@@ -412,6 +435,7 @@ class SettingPlayerUiActivity : BaseActivity() {
     private fun hideCard() {
         if (cardPanel.visibility != View.VISIBLE) return
         cardPanel.animate().cancel()
+        cardScrim.visibility = View.GONE
         cardPanel.animate().translationY(cardPanel.height.toFloat()).setDuration(160L)
             .withEndAction {
                 cardPanel.visibility = View.GONE

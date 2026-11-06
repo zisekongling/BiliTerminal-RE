@@ -2687,15 +2687,12 @@
     <!-- 播放页「组」槽位那个按钮的无障碍说明：点一下把组里的按钮横向展开 -->
     <string name="desc_player_group_expand">展开这组按钮</string>
 
-    <!-- 设置 → 播放与播放器 → 假播放器界面（26.11.06） -->
+    <!-- 设置 → 播放与播放器 → 播放器界面（26.11.06） -->
     <string name="pagename_setting_player_ui">播放器界面</string>
+    <string name="setting_player_ui_entry_desc">调整播放器上的按钮与布局</string>
     <string name="setting_player_ui_full">完整设置</string>
     <string name="setting_player_ui_choose_player">选择播放器</string>
     <string name="setting_player_ui_reset">恢复默认布局</string>
-    <string name="setting_player_ui_hint">点按钮调它的设置，点虚线格加按钮。这里只是布局预览，播放时的实际效果与它一致。</string>
-    <string name="setting_player_ui_speed_sample">×1.0</string>
-    <string name="setting_player_ui_title_sample">视频标题</string>
-    <string name="setting_player_ui_online_sample">1.2 万人在看</string>
     <!-- 卡片标题：点了播放器上哪块地方 -->
     <string name="setting_player_ui_label_progress">进度条</string>
     <string name="setting_player_ui_label_online">在线人数</string>
@@ -2734,6 +2731,9 @@
     <string name="setting_player_ui_group_members_desc">%1$s</string>
     <string name="setting_player_ui_add_button">＋ 加一个按钮</string>
     <string name="setting_player_ui_add_group_member">＋ 往这组里加按钮</string>
-    <string name="setting_player_ui_slot_hint">点一格可以换按钮、挪位置或移除</string>    <string name="setting_player_ui_region_title">%1$s（%2$d 格）</string>
+    <string name="setting_player_ui_slot_hint">点一格可以换按钮、挪位置或移除</string>
+    <string name="setting_player_ui_may_hide">注意：有些视频里不显示</string>
+    <string name="setting_player_ui_region_title">%1$s（%2$d 格）</string>
     <string name="setting_player_ui_label_elements">画面元素</string>
-    <string name="setting_player_ui_element_desc">点一下调整与它相关的设置</string></resources>
+    <string name="setting_player_ui_element_desc">点一下调整与它相关的设置</string>
+</resources>

@@ -49,6 +49,17 @@
         android:layout_height="match_parent"
         android:layout_below="@id/top"
         android:paddingHorizontal="@dimen/activity_padding_horizontal" />
+    <!-- 卡片打开时铺满列表区当遮罩：点空白处就收起卡片 -->
+    <View
+        android:id="@+id/cardScrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_below="@id/top"
+        android:background="#66000000"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone" />
+
     <!-- 点一行后从下半屏滑出来的卡片：换按钮 / 挪位置 / 选按钮 / 那组设置，复用 SettingsAdapter -->
     <LinearLayout
         android:id="@+id/cardPanel"

@@ -113,16 +113,14 @@ class SettingMainActivity : InstanceActivity() {
     // ==================== 各分组入口构建 ====================
 
     private fun buildPlayerGroup() {
-        // 26.11.06：第一屏改成假播放器界面（点按钮调它管的设置、调按钮位置），
-        // 「选择播放器」与「完整设置」（48 项列表）都收进那一页的入口里。
         addGroup(
             R.drawable.icon_player,
             "播放与播放器",
-            "点播放器上的按钮调整设置与布局",
+            "选择播放器、清晰度与内置播放器设置",
             // 注意：这个 "player" 是分组 id / 跳转标记，**不是** SharedPreferences 的
             // SettingsKeys.PLAYER 键，两者只是字面量碰巧相同，别顺手替换。
             "player",
-            SettingPlayerUiActivity::class.java
+            SettingPlayerChooseActivity::class.java
         )
     }
 

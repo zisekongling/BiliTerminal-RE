@@ -1378,6 +1378,31 @@
 - **验证**：`./gradlew.bat :app:assembleDebug` 双 flavor BUILD SUCCESSFUL；`./gradlew.bat :app:testStandardDebugUnitTest` BUILD SUCCESSFUL（186 suites 全绿）。真机观感（组标题在本页列表里的字号/间距、`highlight` 定位是否准）**尚未上机**，等第 4 步假界面一起验。
 - **注意（给后来者）**：`SettingsIndex` 的搜索定位靠 `indexOfFirst { it.name == highlight }` 与页内 `SettingSection.name` **逐字比对**，插了 title 行不影响它，但**改任一项的名字必须同步改索引**，否则搜索命中后跳过去停在原地。
 
+### 3.127 设置页还原成改造前的样子，播放器界面独立成一个入口（26.11.06，用户点名）
+
+- **背景**：用户在看过假播放器预览后改口：「设置页面还原成没改过之前的样子，但是功能保留（播放器界面设置单独开一个界面）」。
+- **还原**：`SettingMainActivity.buildPlayerGroup()` 的描述回到「选择播放器、清晰度与内置播放器设置」、`target` 回到 `SettingPlayerChooseActivity`；`SettingsIndex` 一级 Entry 同步还原，子页面区保留「播放器界面」并排在「选择播放器」之后。
+- **新入口**：`res/layout/activity_setting_player_choose.xml` 在「清晰度」卡片前插一张 `MaterialCardView id=player_ui_choose`（标题「播放器界面」+ 副标题「调整播放器上的按钮与布局」），`SettingPlayerChooseActivity` 里点它开 `SettingPlayerUiActivity`。选这张页而不是主设置页，是因为四个播放侧入口（视频详情 / 番剧详情 / 直播间 / `PlayerApi`）都直接开「选择播放器」页，放在这儿不额外增加一层。
+- **验证**：设置主页第 0 行回到「选择播放器、清晰度与内置播放器设置」（模拟器实测），点进去能看到新的「播放器界面」卡片。
+
+### 3.128 播放器界面：点空白收起卡片、可能被收起的按钮加注意标志（26.11.06，用户点名）
+
+- **问题一**：卡片打开后点列表空白处关不掉（用户「点击空白处底部按钮没变化」）。原来只有返回键和卡片里的动作能收卡片。改法：`activity_setting_player_ui.xml` 在 `contentList` 与 `cardPanel` 之间加一层遮罩 `View id=cardScrim`（`#66000000`、clickable），`showCard()` 里 `bringToFront()` 后显示、点它 `hideCard()`，`hideCard()` 里连带隐藏。
+- **问题二**：有些按钮在特定视频里根本没有（直播没有循环/分P、本地音频没有清晰度、无字幕视频没有字幕……），用户摆上去以后会以为布局配坏了。改法：`PlayerButtons.Button` 新增 `mayHide` 标记（true 的 11 个：倍速/发弹幕/循环/听视频/自动连播/看点/视频信息/跳转时间/连播队列/清晰度/分P），播放器界面的槽位行、候选按钮列表、组内成员列表都在描述里追加「注意：有些视频里不显示」。
+- **顺带**：删掉预览版遗留、已无人引用的 `setting_player_ui_hint` / `_speed_sample` / `_title_sample` / `_online_sample` 四条字符串，并修掉一处重复的 `setting_player_ui_region_left`。
+- **验证**：`assembleStandardDebug` + 单测（187 suites / 2039 cases / 0 failure）；模拟器上点「锁定」行弹出卡片、点遮罩收起正常。
+
+### 3.129 锁定按钮被摆到右列/底部后，锁屏就解不开了（26.11.06，用户点名）
+
+- **现象**：用户把锁定按钮从默认的左列摆到右列或底部，锁屏后按钮跟着控制栏一起消失，锁再也解不开；而且「原有的地方（左列）的按钮还显示着」。
+- **根因**：右列与底部两区的槽位在 `control_layout` 内部，锁定态 `layout_control.visibility = GONE` 会把整条控制栏连按钮一起藏掉。而 `left_control` 在 root 层（`control_layout` 之外），锁定时只单独隐藏了 `lock_btn` / `text_speed`，所以用户摆进左列的**其它**按钮会浮在遮罩上——两个方向都是同一个结构性疏忽：锁定态以前只认识「锁定按钮和倍速文字」这两个写死的成员。
+- **改法**：
+  - `activity_player.xml` 在 `lock_overlay` 之后加 `FrameLayout id=lock_holder`（match_parent、不可点），作为锁定期间锁定按钮的落脚点。
+  - `PlayerActivity.parkLockButton()` 把 `lock_btn` 搬进 `lock_holder`，按它原来所在的区决定贴边（左/右贴边居中、底部贴底，`lockButtonGravity()` 从当前布局里找含 `lock` 的槽，含组内）；`unparkLockButton()` 解锁后按用户布局摆回去。锁定态三相处都补上 `left_control` 的显隐，LOCKED_ICON_VISIBLE 时 `parkLockButton()`。
+  - `applyPlayerButtonLayout()` 记住当前布局（`playerUiLayout`），并在锁定态里重摆时重跑一遍 `applyLockPhase(lockPhase)`——否则从设置页回来会把图标摆回被藏起来的控制栏里。
+  - `PlayerButtonSlots.clearAll()` 补一条：被外部搬走的真身（真身不在任何槽位容器里时）也要收回按钮池。不补这条，解锁重摆时真身被当成「已摆放」，槽位里摆出的是一个影子、真身留在遮罩层原处——用户看到的就是「锁解开后右侧还是有锁的图标」。
+- **验证**（模拟器 emulator-5554，Android 17，1080×2400，设备上存的布局把锁放在右列第 4 格）：点锁 → `lock_overlay` 可见、`left_control` 变 GONE、按钮搬进 `lock_holder` 且贴在右边缘垂直居中（936,1077-1062,1203）；点画面浮现图标 → 点图标解锁后 `lock_overlay` GONE、`lock_holder` 空、`lock_btn` 回到 `right_column_slots` 第 4 格。**踩坑**：浮现图标只有约 3 秒，用 `adb` 分两次 tap 会错过窗口（第二次点到遮罩上，看起来像「点了没反应」），要在一条 `sh -c` 里连着敲两次 tap。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。
