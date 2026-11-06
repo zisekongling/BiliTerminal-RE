@@ -21,6 +21,9 @@ import com.RobinNotBad.BiliClient.model.PlayerData;
 import com.RobinNotBad.BiliClient.model.Subtitle;
 import com.RobinNotBad.BiliClient.model.SubtitleLink;
 import com.RobinNotBad.BiliClient.model.VideoInfo;
+import com.RobinNotBad.BiliClient.player.BangumiProgressStore;
+import com.RobinNotBad.BiliClient.player.PlaySession;
+import com.RobinNotBad.BiliClient.player.PlaySessionStore;
 import com.RobinNotBad.BiliClient.player.PlayUrlFallbackPolicy;
 import com.RobinNotBad.BiliClient.service.DownloadService;
 import com.RobinNotBad.BiliClient.util.CenterThreadPool;
@@ -407,6 +410,18 @@ public class PlayerApi {
             playerData.progress = 0;
         }
 
+        // 每集独立进度：服务端的 last_play_time 有延迟、离线/风控时还会整段丢失，
+        // 所以本地按 epid 记一份并优先采用。resumePositionMs：>0 续播位置，-1 表示这一集已看完。
+        long localEpidProgress = BangumiProgressStore.resumePositionMs(playerData.epid);
+        if (localEpidProgress > 0) {
+            playerData.progress = normalizeProgress(localEpidProgress, data.optLong("timelength", 0));
+            Logu.d("history-last", "采用本地 epid 进度：" + localEpidProgress + "ms → " + playerData.progress + "ms, epid=" + playerData.epid);
+        } else if (localEpidProgress < 0) {
+            // 本地记着已看完：不要从末尾续播，从头开始这一集
+            playerData.progress = 0;
+            Logu.d("history-last", "本地记录本集已看完，从头播放, epid=" + playerData.epid);
+        }
+
         // v2 的清晰度列表可能在 result 顶层、播放数据在 result.video_info；两处都找一遍。
         // 找不到时只让清晰度按钮空着，不抛异常把整次播放弄挂（v1 从未缺过，v2 不能保证）。
         JSONObject meta = body.optJSONObject("result");
@@ -722,6 +737,53 @@ public class PlayerApi {
             // 不转的话 putExtra 两个重载都匹配，编译报"引用不明确"
             intent.putExtra("enterable_info", (android.os.Parcelable) playerData.enterableInfo);
         }
+        return intent;
+    }
+
+    /**
+     * 「继续播放」：把会话哨兵（{@link PlaySessionStore}）里上次的播放会话还原成一次跳转。
+     *
+     * 入口在主页（MainActivity）加一行即可：
+     * <pre>
+     * Intent resume = PlayerApi.buildResumeIntent(this);
+     * if (resume != null) startActivity(resume);
+     * </pre>
+     * 走 {@link JumpToPlayerActivity} 而不是直接起播放器，是因为续播时还没有 playurl：
+     * 跳转页会按 PlayerData 的类型（投稿/番剧/直播/本地）重新取流，再进播放器；
+     * progress 一并带过去，起播就落在上次的位置。
+     *
+     * @return 没有可续播的会话时返回 null（调用方不要起 Activity）
+     */
+    public static Intent buildResumeIntent(Context context) {
+        PlaySession session = PlaySessionStore.INSTANCE.last();
+        if (session == null || !session.isMeaningful()) return null;
+        // 看完（位置 0）或纯直播（没有位置概念）不提供续播入口
+        if (session.getPositionMs() <= 0 || session.getType() == PlayerData.TYPE_LIVE) return null;
+        // 只看了几秒就退出不算「没看完」，别在主页占一个入口
+        if (session.getPositionMs() < 5000L) return null;
+        // 会话太旧（超过 7 天）也不再提示：位置早就不作数了
+        if (session.getUpdatedAt() > 0L
+                && System.currentTimeMillis() - session.getUpdatedAt() > 7L * 24L * 60L * 60L * 1000L) return null;
+
+        PlayerData data = new PlayerData();
+        data.aid = session.getAid();
+        data.cid = session.getCid();
+        data.mid = session.getMid();
+        data.epid = session.getEpid();
+        data.seasonId = session.getSeasonId();
+        data.seasonType = session.getSeasonType();
+        data.type = session.getType();
+        data.title = session.getTitle();
+        // PlayerData.progress 的单位是毫秒（与 buildTerminalPlayerIntent 直传、PlayerActivity 的
+        // progress_history 一致；HistoryApi/卡片入口都是先把秒乘 1000 再赋值的）。这里除以 1000
+        // 会把 13662ms 变成 13，播放器 seekTo(13) 等于从头开始——续播看似没生效。
+        data.progress = (int) session.getPositionMs();
+        data.qn = -1; // 交给 JumpToPlayerActivity 按网络/设备档位决定
+        Logu.d("继续播放", "aid=" + data.aid + " cid=" + data.cid + " progress=" + data.progress);
+        Intent intent = new Intent(context, JumpToPlayerActivity.class).putExtra("data", data);
+        // 取流时 PlayerApi.getVideo/getBangumi 会用服务端 last_play_time 覆盖 data.progress
+        // （匿名态/无记录时归零），所以本地会话进度另存一份，由跳转页在取流完成后补回。
+        intent.putExtra(JumpToPlayerActivity.EXTRA_RESUME_PROGRESS_MS, (int) session.getPositionMs());
         return intent;
     }
 

@@ -126,6 +126,13 @@ class JumpToPlayerActivity : BaseActivity() {
                 if (playerData!!.isBangumi) PlayerApi.getBangumi(playerData!!)
                 else PlayerApi.getVideo(playerData!!, download != 0)
 
+                // 「继续播放」入口带来的本地会话进度必须在取流之后补回：getVideo/getBangumi 会
+                // 用服务端 last_play_time 覆盖 playerData.progress（匿名态或没有观看记录时直接
+                // 变 0），覆盖后播放器拿到的续播位置就是 0，表现为"续播没生效"。
+                // 只有明确带了该 extra 的入口才生效，其它入口行为不变。
+                val resumeMs = intent.getIntExtra(EXTRA_RESUME_PROGRESS_MS, 0)
+                if (resumeMs > 0) playerData!!.progress = resumeMs
+
                 Logu.d("history", playerData!!.progress.toString())
                 jump()
             } catch (e: IOException) {
@@ -178,5 +185,10 @@ class JumpToPlayerActivity : BaseActivity() {
             textView.text = reason
             textView.setOnClickListener { finish() }
         }
+    }
+
+    companion object {
+        /** 本地会话续播进度（毫秒）：只有「继续播放」入口会带，见 PlayerApi.buildResumeIntent。 */
+        const val EXTRA_RESUME_PROGRESS_MS = "resume_progress_ms"
     }
 }

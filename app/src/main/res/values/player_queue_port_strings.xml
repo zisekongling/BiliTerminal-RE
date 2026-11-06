@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    批次 2「连播队列」新增文案（移植自 BiliTerminal-Revival 的播放队列功能）。
+    按任务约定单独成文件，不打散进 strings.xml；后续如需统一归档再合并。
+-->
+<resources>
+    <string name="player_queue_btn_label">连播</string>
+    <string name="player_queue_mode_sequential">顺序</string>
+    <string name="player_queue_mode_reverse">倒序</string>
+    <string name="player_queue_mode_shuffle">随机</string>
+    <string name="player_queue_mode_repeat_one">单曲</string>
+    <string name="player_queue_mode_toast">连播模式：%1$s</string>
+    <string name="player_queue_loading">正在载入 UP 主投稿…</string>
+    <string name="player_queue_loaded">已载入 %1$s 条投稿，连播：%2$s</string>
+    <string name="player_queue_failed">连播列表加载失败</string>
+    <string name="player_queue_empty">当前没有可连播的列表</string>
+    <!-- 会话哨兵：主页「继续播放」入口（有上次未看完的会话时才出现） -->
+    <string name="player_queue_resume_last">继续播放</string>
+    <string name="player_queue_resume_desc">上次看到：%1$s</string>
+</resources>

@@ -59,6 +59,7 @@ import com.RobinNotBad.BiliClient.api.DanmakuApi
 import com.RobinNotBad.BiliClient.api.HistoryApi
 import com.RobinNotBad.BiliClient.api.InteractionVideoApi
 import com.RobinNotBad.BiliClient.api.PlayerApi
+import com.RobinNotBad.BiliClient.api.UserInfoApi
 import com.RobinNotBad.BiliClient.api.VideoInfoApi
 import com.RobinNotBad.BiliClient.event.SnackEvent
 import com.RobinNotBad.BiliClient.model.HighEnergyData
@@ -68,11 +69,20 @@ import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.Subtitle
 import com.RobinNotBad.BiliClient.model.SubtitleLink
 import com.RobinNotBad.BiliClient.model.VideoInfo
+import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.model.ViewPoint
 import com.RobinNotBad.BiliClient.player.AudioFocusPolicy
 import com.RobinNotBad.BiliClient.player.DanmakuLoadPolicy
 import com.RobinNotBad.BiliClient.player.DanmakuXmlCounter
 import com.RobinNotBad.BiliClient.player.DanmakuManager
+import com.RobinNotBad.BiliClient.player.DanmakuStreamLoader
+import com.RobinNotBad.BiliClient.player.BangumiProgressStore
+import com.RobinNotBad.BiliClient.player.PlayQueue
+import com.RobinNotBad.BiliClient.player.PlayQueueItem
+import com.RobinNotBad.BiliClient.player.PlayQueueMode
+import com.RobinNotBad.BiliClient.player.PlayQueueSource
+import com.RobinNotBad.BiliClient.player.PlaySession
+import com.RobinNotBad.BiliClient.player.PlaySessionStore
 import com.RobinNotBad.BiliClient.player.IjkNativeLibs
 import com.RobinNotBad.BiliClient.player.PlayerDefaults
 import com.RobinNotBad.BiliClient.player.PlayerRequestPolicy
@@ -89,6 +99,7 @@ import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.CookieDomainPolicy
+import com.RobinNotBad.BiliClient.util.DeviceProfile
 import com.RobinNotBad.BiliClient.util.DisguiseGesture
 import com.RobinNotBad.BiliClient.util.DisguisePrefs
 import com.RobinNotBad.BiliClient.util.LocalVideoProgress
@@ -197,6 +208,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private lateinit var seekbar_progress: HighEnergyProgressBar
     private lateinit var seekbar_speed: SeekBar
     private lateinit var text_progress: TextView
+    private lateinit var queue_mode_btn: TextView
     private lateinit var text_online: TextView
     private lateinit var text_volume: TextView
     private lateinit var loading_text0: TextView
@@ -231,7 +243,53 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var resizePostRunnable: Runnable? = null // 改变视频尺寸后的位置延时修正，避免快速旋转时叠加
     private var video_url: String? = null
     private var danmaku_url: String = ""
-    private var mediaSession: MediaSession? = null
+    /**
+     * 系统媒体会话（[MediaSession]，API 21+）。
+     *
+     * **字段刻意声明成 [Any]**：MediaSession 是 API 21 才有的类，而本应用 minSdk 19。
+     * 字段描述符里的类型在类加载/校验阶段就可能被解析，若这里写 `MediaSession?`，API 19
+     * 设备加载本 Activity 时有 NoClassDefFoundError 风险（媒体控件默认关闭，但类照样要加载）。
+     * 因此所有真实用法都放在 `SDK_INT >= LOLLIPOP` 的分支里，用局部 `as? MediaSession`
+     * 强转后再操作；未初始化时字段为 null。
+     */
+    private var mediaSession: Any? = null
+
+    /**
+     * 取未初始化的会话对象（API 19 恒为 null）。
+     *
+     * 刻意返回 [Any] 而不是 MediaSession：方法签名里的类型同样会在链接/校验阶段参与解析，
+     * 让 API21 的类名只出现在 `SDK_INT >= LOLLIPOP` 分支内的局部 `as? MediaSession`，
+     * 才是 API19 上最稳妥的写法。调用方拿到后必须自行强转。
+     */
+    private fun mediaSessionOrNull(): Any? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) mediaSession else null
+
+    /**
+     * 连播队列（顺序/倒序/随机/单曲），来源为当前页的 pagenames/cids 或懒加载的 UP 主投稿。
+     *
+     * null 表示"没有可连播的列表"：单条视频、或列表只有一项且没加载 UP 主投稿时。
+     * 队列与虚拟合集层（[returnPlaylist]、[enterCollectionPlaylist]）是并存的两层：
+     * 后者决定"当前能切哪些 P"，本队列只决定"播完之后下一个是谁"。
+     */
+    private var playQueue: PlayQueue? = null
+
+    /** 上一次播放会话落盘的时间（墙钟），用于 15 秒节流 */
+    private var lastSessionSaveAt = 0L
+
+    /** Intent/会话恢复带进来的队列 token，等 pagenames/cids 就绪后再 decode */
+    private var pendingQueueToken: String? = null
+
+    /** UP 主投稿队列是否正在加载，防止连点重复请求 */
+    private var uploaderQueueLoading = false
+
+    /**
+     * 弹幕分段窗口加载器（批次 2，见 [DanmakuStreamLoader]）。
+     *
+     * 与 [danmakuManager] 同生命周期：`bindDanmakuView()` 里创建、`releaseDanmaku()` 里释放。
+     * 旧链路是"整段视频的 6 分钟分段全下完"；窗口链路只保证当前位置前后各 2 段，
+     * 首窗口失败时由调用方回退整段/XML 链路。
+     */
+    private var danmakuStreamLoader: DanmakuStreamLoader? = null
 
     @Volatile // 被 PlaybackService 定时线程读（serviceIsPlaying）
     private var isPlaying: Boolean = false
@@ -385,6 +443,20 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
          * 只能用 `startActivityForResult` + [onActivityResult]；与 [InputDialogActivity] 的旧调用方一致。
          */
         private const val REQUEST_CODE_JUMP_TO_TIME = 1002
+
+        /**
+         * 播放会话哨兵的周期落盘间隔（毫秒）。
+         *
+         * 与本地续播位置同频：都靠 250ms 定时器节流，最大丢失量 15 秒；比每次位置变化都写盘
+         * 省得多（SharedPreferences 的 apply 虽然是异步的，但序列化 + 队列压力仍在主线程）。
+         */
+        private const val SESSION_SAVE_INTERVAL_MS = 15_000L
+
+        /** 连播队列 token 的 Intent 键：会话恢复时由 [PlaySessionStore] 取出后带进来 */
+        private const val EXTRA_PLAY_QUEUE_TOKEN = "play_queue_token"
+
+        /** 上一次选的连播模式（顺序/倒序/随机/单曲），跨视频记住用户的偏好 */
+        private const val KEY_PLAY_QUEUE_MODE = "player_play_queue_mode"
     }
 
     @Volatile // 被 PlaybackService 定时线程读（serviceDurationMs）
@@ -858,11 +930,18 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             qnValueList = intent.getIntArrayExtra("qnValueList")
             currentQuality = intent.getIntExtra(
                 "currentQuality",
-                NetworkPlaybackQuality.defaultQn(this)
+                startupDefaultQn()
             )
         }
 
         isShortVideoMode = intent.getBooleanExtra("isShortVideoMode", false)
+
+        // 连播队列：优先取"上一层带进来的 token"（进程重建/会话恢复），其次取会话哨兵落盘的那份。
+        // 这里只记录待恢复的 token，真正的恢复要等 pagenames/cids 就绪后（restoreQueueTokenIfMatches），
+        // 且 token 里必须能找到当前视频，否则宁可丢弃——避免把上一个视频的队列带进新视频。
+        pendingQueueToken = intent.getStringExtra(EXTRA_PLAY_QUEUE_TOKEN)
+            ?: PlaySessionStore.queueToken()
+        rebuildQueueFromPlaylist(detectQueueSource(), currentPageIndex)
 
         return true
     }
@@ -922,6 +1001,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         }
 
         initUI()
+
+        // 连播队列恢复：getExtras 里已经按当前列表重建过一次队列，这里再尝试用 token 覆盖，
+        // 拿到"上次看的那条视频所在的整个队列"（进程重建后仍能继续连播）。
+        restoreQueueTokenIfMatches()
+        setupQueueButton()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.PLAYER_MEDIA_SESSION_ENABLE, false)) {
             initMediaSession()
@@ -1118,6 +1202,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
         btn_video_info = findViewById(R.id.video_info_btn)
         jump_time_btn = findViewById(R.id.jump_time_btn)
+        queue_mode_btn = findViewById(R.id.queue_mode_btn)
 
         // 字幕字号来自设置页，这里先按存档刷一次；之后每次 onResume 再刷（改完设置返回即生效）
         applySubtitleTextSize()
@@ -1653,8 +1738,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_frame", 48)
             ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", 48)
         } else {
+            // 硬解默认值：用户显式设过 player_codec 就听用户的；没设过则按设备档位
+            // （低端机 DeviceProfile.preferSoftwareDecode=true → 默认软解，避免花屏/绿屏）
             ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec",
-                if (SharedPreferencesUtil.getBoolean("player_codec", true)) 1 else 0)
+                if (hardwareDecodeEnabled()) 1 else 0)
             ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", 48)
         }
 
@@ -1840,7 +1927,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             finishWatching = true
             // 看完立刻上报 -1（"已看完"）：退出路径补报的是当前位置，服务端只会记成
             // "看到最后几秒"，续播就停在本集末尾而不是接着看下一集。番剧（epid）才有这个语义
-            if (epid != 0L) reportProgressNow(true, "看完上报")
+            if (epid != 0L) {
+                reportProgressNow(true, "看完上报")
+                // 本地也记成"已看完"：服务端写失败（风控/离线）时下一集仍能从头开始
+                BangumiProgressStore.markCompleted(epid)
+            }
             // 本地视频没有服务端，直接落盘"看完"：下次进来从头播（loop/自动连播不受影响，
             // 重新播起来后周期落盘会再把真实位置写回去）
             if (!isOnlineVideo) saveLocalProgressNow("看完清零")
@@ -1856,6 +1947,27 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     // 停在互动选项上不再出声：焦点还回去
                     abandonAudioFocus()
                     return@setOnCompletionListener
+                }
+            }
+
+            // 连播队列优先：用户在队列按钮里明确选了倒序/随机/单曲，就按队列走。
+            // 顺序模式落回原有 loop/自动下一P 逻辑，保证不选队列时行为与升级前一致。
+            val queue = playQueue
+            if (queue != null && queue.size > 1) {
+                if (queue.mode == PlayQueueMode.REPEAT_ONE) {
+                    finishWatching = false
+                    ijkPlayer!!.seekTo(0)
+                    if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.seekTo(0L)
+                    ijkPlayer!!.start()
+                    return@setOnCompletionListener
+                }
+                // 倒序/随机和顺序一样受「自动连播」开关管：用户关掉自动前进时，不该被队列偷跑
+                if (auto_next_enabled && queue.mode != PlayQueueMode.SEQUENTIAL) {
+                    val step = queue.advance(auto = true)
+                    if (step != null && !step.replayCurrent && step.index != currentPageIndex) {
+                        switchToPage(step.index)
+                        return@setOnCompletionListener
+                    }
                 }
             }
 
@@ -2178,6 +2290,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                         maybeReportProgress()
                         // 本地视频没有服务端心跳，靠这条周期落盘（15 秒节流）防止被系统杀进程后丢位置
                         maybeSaveLocalProgress()
+                        // 播放会话哨兵：同样借这个 250ms 定时器，墙钟 15 秒节流
+                        maybeSavePlaySession()
+                        // 弹幕窗口：位置变化就核对一次"前后 2 段是否都在内存里"，
+                        // 缺段才排后台补拉（DanmakuStreamLoader 内部串行去重，重复调用无副作用）
+                        danmakuStreamLoader?.ensureWindow(video_now.toLong())
                     }
                 }
                 // 停滞判定放在 if 之外：暂停/seek/未准备好时也需要复位计数器
@@ -2372,6 +2489,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
         lastReportedProgressMs = video_now.toLong()
         lastReportedProgressSec = progressSec
+        // 每集独立进度：本地同步记一份（不依赖网络结果），服务端写失败/离线时仍能续播
+        if (epid != 0L && !isLiveMode) {
+            BangumiProgressStore.remember(
+                epid,
+                if (finished) 0L else video_now.toLong(),
+                video_all.toLong(),
+                completed = finished
+            )
+        }
         sendProgressReport(progressSec, reason)
         return true
     }
@@ -2670,17 +2796,27 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
             Logu.d("新版弹幕", "开始获取新版弹幕，aid=" + aid + ", cid=" + cid)
 
-            val segments = DanmakuApi.getAllVideoDanmaku(aid, cid, estimatedDuration)
-
-            if (segments.isEmpty()) {
-                Logu.w("新版弹幕", "未获取到弹幕，尝试使用旧版接口")
-                CenterThreadPool.run { downdanmuOld() }
-                return
+            // 窗口链路：只保证起始位置前后各 2 段（最多 5 段 ≈ 30 分钟）在内存里，
+            // 后续由 progressChange / seekToVideo 调 ensureWindow 补拉。
+            // 本方法本来就在 CenterThreadPool 的后台线程里跑，prepare 会同步发请求。
+            danmakuStreamLoader?.attach(this, aid, cid, estimatedDuration)
+            prepareDanmaku { manager ->
+                if (danmakuStreamLoader?.prepare(manager) == true) {
+                    Logu.d("新版弹幕", "窗口加载完成，已加载分段=" + danmakuStreamLoader?.loadedSegments())
+                    return@prepareDanmaku
+                }
+                // 首窗口一段都没拿到（网络全失败/被数量保护抑制）：回退整段链路，再不行回退旧版 XML。
+                // 这条兜底与改造前「segments.isEmpty() 就回退」的语义一致。
+                Logu.w("新版弹幕", "窗口加载失败，回退整段接口")
+                val segments = DanmakuApi.getAllVideoDanmaku(aid, cid, estimatedDuration)
+                if (segments.isEmpty()) {
+                    Logu.w("新版弹幕", "未获取到弹幕，尝试使用旧版接口")
+                    CenterThreadPool.run { downdanmuOld() }
+                    return@prepareDanmaku
+                }
+                Logu.d("新版弹幕", "成功获取 " + segments.size + " 个弹幕分段")
+                manager.loadFromProtobufSegments(segments)
             }
-
-            Logu.d("新版弹幕", "成功获取 " + segments.size + " 个弹幕分段")
-
-            prepareDanmaku { it.loadFromProtobufSegments(segments) }
         } catch (e: Exception) {
             e.printStackTrace()
             Logu.e("新版弹幕", "获取失败: " + e.message + "，回退到旧版接口")
@@ -2858,10 +2994,18 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 )
             }
         }
+        // 弹幕窗口加载器：与 manager 同生命周期。切 P 会重建 manager，所以这里一并重建；
+        // 数量保护注入给它，保证「大视频不自动加载」在拉段这一层就生效（不是在拿到数据后才拦）。
+        danmakuStreamLoader = DanmakuStreamLoader().also {
+            it.setLoadPolicy(if (thirdPartyDanmaku) null else danmakuLoadPolicy)
+        }
     }
 
     /** 释放弹幕视图与管理器。 */
     private fun releaseDanmaku() {
+        // 先停窗口加载，避免 release 后还有 worker 把分段追加到已释放的 manager 上
+        danmakuStreamLoader?.release()
+        danmakuStreamLoader = null
         danmakuManager?.release()
         danmakuManager = null
         mDanmakuView = null
@@ -3464,6 +3608,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         reportProgressNow(false, UiText.of("切后台"))
         // 本地视频的续播位置只存在磁盘上，切后台是"可能回不来"的第一个时点，先落一次
         saveLocalProgressNow("切后台")
+        savePlaySessionNow("切后台")
         if (!SharedPreferencesUtil.getBoolean("player_background", false)) {
             playerPause()
         } else if (!isFinishing && isPrepared && !finishWatching && isPlaying) {
@@ -3498,6 +3643,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // onPause 之后位置不会再走，这里基本都会被去重拦掉；留一路是防 onPause 那条路径没走成
         reportProgressNow(false, "onStop")
         saveLocalProgressNow("onStop")
+        savePlaySessionNow("onStop")
         // 离开页面要放弃焦点——**除非**开了后台播放且确实在播：此时放弃焦点会让
         // 别的应用起播、本应用退化成非焦点音频（真实表现是两个应用同时出声）。
         // 判据在 AudioFocusPolicy.shouldAbandonOnStop（纯函数、有单测）。
@@ -3529,6 +3675,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 且只依赖内存里的 video_now（不碰 ijkPlayer 的 JNI 调用）。正常退出时会被去重拦掉。
         reportProgressNow(true, UiText.of("销毁兜底"))
         saveLocalProgressNow("销毁兜底")
+        savePlaySessionNow("销毁兜底")
         destroyed = true
         // 锁定按钮自动隐去的延时任务要撤掉，别在 Activity 销毁后再去动 View
         mainHandler?.removeCallbacks(hideLockIcon)
@@ -3556,14 +3703,18 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         liveWebSocket?.close(1000, "")
         liveWebSocket = null
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && mediaSession != null) {
-            // 先撤媒体控件通知再释放会话：通知是按会话令牌配对的，会话没了通知必须跟着走，
-            // 否则会留下一张点不动的「僵尸」媒体卡片，还可能被系统按渠道再次误归类
-            (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)
-                ?.cancel(NOTIFY_ID_MEDIA_CONTROL)
-            mediaSession!!.release()
-            mediaSession = null
+        // API19 上 mediaSession 恒为 null；类型只在 SDK 分支里出现，避免类加载/校验解析
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            val session = mediaSessionOrNull() as? MediaSession
+            if (session != null) {
+                // 先撤媒体控件通知再释放会话：通知是按会话令牌配对的，会话没了通知必须跟着走，
+                // 否则会留下一张点不动的「僵尸」媒体卡片，还可能被系统按渠道再次误归类
+                (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)
+                    ?.cancel(NOTIFY_ID_MEDIA_CONTROL)
+                session.release()
+            }
         }
+        mediaSession = null
 
         // onDestroy 阶段改方向是「非全屏 activity 请求方向」/窗口已销毁的经典崩点
         // （崩溃类 6：IllegalStateException / "Unable to destroy activity"）。
@@ -3680,8 +3831,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             notifyManager.createNotificationChannel(channel)
         }
         mediaSession = MediaSession(this, "BiliClientPlayer")
-        mediaSession!!.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS)
-        mediaSession!!.setCallback(object : MediaSession.Callback() {
+        // 字段是 Any?（见声明处注释），这里起所有会话操作都走局部变量，避免每处 `!!` 强转
+        val session = mediaSessionOrNull() as? MediaSession ?: return
+        session.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS)
+        session.setCallback(object : MediaSession.Callback() {
             override fun onPlay() {
                 super.onPlay()
                 runOnUiThread {
@@ -3705,8 +3858,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             override fun onSkipToNext() {
                 super.onSkipToNext()
                 runOnUiThread {
-                    if (hasMultiplePages() && currentPageIndex < pagenames!!.size - 1) {
-                        switchToPage(currentPageIndex + 1)
+                    if (!playNextFromQueue()) {
+                        if (hasMultiplePages() && currentPageIndex < pagenames!!.size - 1) {
+                            switchToPage(currentPageIndex + 1)
+                        }
                     }
                 }
             }
@@ -3714,8 +3869,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             override fun onSkipToPrevious() {
                 super.onSkipToPrevious()
                 runOnUiThread {
-                    if (hasMultiplePages() && currentPageIndex > 0) {
-                        switchToPage(currentPageIndex - 1)
+                    if (!playPreviousFromQueue()) {
+                        if (hasMultiplePages() && currentPageIndex > 0) {
+                            switchToPage(currentPageIndex - 1)
+                        }
                     }
                 }
             }
@@ -3728,21 +3885,23 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 }
             }
         })
-        mediaSession!!.isActive = true
+        session.isActive = true
     }
 
     private fun updateMediaSessionMetadata() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP || mediaSession == null) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return
+        val session = mediaSessionOrNull() as? MediaSession ?: return
         val metadataBuilder = MediaMetadata.Builder()
         if (videoTitle != null) metadataBuilder.putString(MediaMetadata.METADATA_KEY_TITLE, videoTitle)
         if (video_all > 0) metadataBuilder.putLong(MediaMetadata.METADATA_KEY_DURATION, video_all.toLong())
-        mediaSession!!.setMetadata(metadataBuilder.build())
+        session.setMetadata(metadataBuilder.build())
         // 元数据齐了才挂媒体控件通知：它按会话令牌配对，是手表系统给媒体控件归类的依据
         postMediaControlNotification()
     }
 
     private fun updateMediaSessionPlaybackState() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP || mediaSession == null) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return
+        val session = mediaSessionOrNull() as? MediaSession ?: return
         val state = if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
         // 位置取 video_now（progressChange 每 250ms 刷新）。本方法在播放中每秒都会被调用一次，
         // 用 ijkPlayer.currentPosition 等于每秒在主线程上摸一次 native 锁
@@ -3752,16 +3911,19 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 or PlaybackState.ACTION_SEEK_TO.toLong()
                 or PlaybackState.ACTION_SKIP_TO_NEXT.toLong()
                 or PlaybackState.ACTION_SKIP_TO_PREVIOUS.toLong())
-        if (!hasMultiplePages() || currentPageIndex >= pagenames!!.size - 1) {
+        // 媒体键算的是"用户手动能不能切"，所以 canNext 传 auto=false（REPEAT_ONE 下仍允许手动切）
+        val queueCanNext = playQueue?.canNext(false) == true
+        val queueCanPrev = playQueue?.canPrevious() == true
+        if (!queueCanNext && (!hasMultiplePages() || currentPageIndex >= pagenames!!.size - 1)) {
             actions = actions and PlaybackState.ACTION_SKIP_TO_NEXT.inv()
         }
-        if (!hasMultiplePages() || currentPageIndex <= 0) {
+        if (!queueCanPrev && (!hasMultiplePages() || currentPageIndex <= 0)) {
             actions = actions and PlaybackState.ACTION_SKIP_TO_PREVIOUS.inv()
         }
         val stateBuilder = PlaybackState.Builder()
             .setState(state, position, 1.0f)
             .setActions(actions)
-        mediaSession!!.setPlaybackState(stateBuilder.build())
+        session.setPlaybackState(stateBuilder.build())
     }
 
     /**
@@ -3780,7 +3942,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      * 进度由 PlaybackState 提供，通知上不放进度条。
      */
     private fun postMediaControlNotification() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP || mediaSession == null) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return
+        val session = mediaSessionOrNull() as? MediaSession ?: return
         val notifyManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             Notification.Builder(this, CHANNEL_MEDIA_CONTROL)
@@ -3804,7 +3967,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             .setVisibility(Notification.VISIBILITY_PUBLIC)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O)
             builder.setPriority(Notification.PRIORITY_LOW)
-        builder.setStyle(Notification.MediaStyle().setMediaSession(mediaSession!!.sessionToken))
+        builder.setStyle(Notification.MediaStyle().setMediaSession(session.sessionToken))
         try {
             notifyManager.notify(NOTIFY_ID_MEDIA_CONTROL, builder.build())
         } catch (e: Exception) {
@@ -4061,6 +4224,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 KeyEvent.KEYCODE_DPAD_RIGHT -> seekToPosition(video_now + 10000L)
                 KeyEvent.KEYCODE_DPAD_UP -> changeVolume(true)
                 KeyEvent.KEYCODE_DPAD_DOWN -> changeVolume(false)
+                // API19 没有 MediaSession（媒体控件默认也不开），耳机线控/蓝牙的媒体键由这里兜底。
+                // 有会话的设备上，MediaSession 回调会先把事件吃掉，同一条逻辑两处共用。
+                KeyEvent.KEYCODE_MEDIA_NEXT ->
+                    if (playNextFromQueue()) true else super.onKeyDown(keyCode, event)
+                KeyEvent.KEYCODE_MEDIA_PREVIOUS ->
+                    if (playPreviousFromQueue()) true else super.onKeyDown(keyCode, event)
+                KeyEvent.KEYCODE_HEADSETHOOK, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                    controlVideo()
+                    true
+                }
             }
         return super.onKeyDown(keyCode, event)
     }
@@ -4103,6 +4276,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
         ijkPlayer?.seekTo(position)
         if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.seekTo(position)
+        // 跳转可能跨过整个窗口（片头 → 片尾），让窗口加载器立刻核对并补拉目标位置附近的段落。
+        // 必须在 mDanmakuView.seekTo 之后：否则补进来的段会被 DFM 的 seek 清掉。
+        danmakuStreamLoader?.ensureWindow(position)
         // #41：先按静音策略校正外挂音轨的播放/暂停状态，再做 seek。
         // 静音状态下这条音轨此时已经暂停，`MediaPlayer.seekTo` 落在一个停止的播放器上，
         // 不存在"seek 重建输出缓冲、音量回到默认 1.0 而漏出一声"的窗口——
@@ -4627,6 +4803,346 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         }
     }
 
+    // ------------------------------------------------------------------ 连播队列
+
+    /**
+     * 把当前 [pagenames]/[cids] 映射成队列项。
+     *
+     * 三种列表的语义不同，不能一律按 cids[i] 当 cid：
+     * - 虚拟合集（收藏夹/UP 主投稿）：cids 里存的是 **aid**，cid 等切页时再解析首个分P（传 0）；
+     * - 本地缓存：cids 里是本地序号，aid 无意义（传原始值）；
+     * - 真实多P：aid 是同一个视频，cids 里是真 cid。
+     */
+    private fun playlistQueueItems(): List<PlayQueueItem> {
+        val names = pagenames ?: return emptyList()
+        val idList = cids ?: return emptyList()
+        if (names.isEmpty() || idList.size != names.size) return emptyList()
+        val items = ArrayList<PlayQueueItem>(names.size)
+        for (i in names.indices) {
+            val id = idList[i]
+            val item = when {
+                isVirtualCollectionMode || !isOnlineVideo -> PlayQueueItem(id, 0L, names[i])
+                else -> PlayQueueItem(aid, id, names[i])
+            }
+            items.add(item)
+        }
+        return items
+    }
+
+    /** 当前播放列表的来源（只用于会话记录与队列 token 的元信息）。 */
+    private fun detectQueueSource(): PlayQueueSource = when {
+        isLiveMode -> PlayQueueSource.SINGLE
+        !isOnlineVideo -> PlayQueueSource.LOCAL_CACHE
+        isVirtualCollectionMode -> PlayQueueSource.FAVORITE
+        else -> PlayQueueSource.COLLECTION
+    }
+
+    /**
+     * 按当前播放列表重建队列；只有一项时队列置空（单条视频没有"下一个"）。
+     *
+     * 模式从 [KEY_PLAY_QUEUE_MODE] 读，跨视频记忆用户上次选的顺序/倒序/随机/单曲。
+     */
+    private fun rebuildQueueFromPlaylist(source: PlayQueueSource, index: Int) {
+        val items = playlistQueueItems()
+        if (items.size <= 1) {
+            playQueue = null
+            updateQueueModeButton()
+            return
+        }
+        val mode = PlayQueueMode.fromStorage(SharedPreferencesUtil.getString(KEY_PLAY_QUEUE_MODE, null))
+        playQueue = PlayQueue.create(
+            items = items,
+            currentIndex = index.coerceIn(0, items.size - 1),
+            mode = mode,
+            source = source
+        )
+        updateQueueModeButton()
+        persistQueueToken()
+    }
+
+    /**
+     * 从 [pendingQueueToken] 恢复队列。
+     *
+     * 安全阀：token 里的列表必须与**当前 pagenames/cids 逐项对齐**，否则丢弃。
+     * 只校验"包含当前视频"是不够的：switchToPage 用的是 pagenames/cids 的下标，
+     * 队列顺序一旦和当前列表不同，恢复后点「下一个」就会跳到别的视频上去。
+     * 对齐校验还顺带挡掉「拿 A 视频的会话进 B 视频」时把整条队列带过来的问题。
+     */
+    private fun restoreQueueTokenIfMatches() {
+        val token = pendingQueueToken ?: return
+        pendingQueueToken = null
+        val restored = PlayQueue.decode(token) ?: return
+        if (restored.size <= 1) return
+        val items = playlistQueueItems()
+        val aligned = items.size == restored.size &&
+            items.indices.all { items[it].aid == restored.itemAt(it)?.aid }
+        if (!aligned) {
+            Logu.d("连播队列", "token 与当前播放列表不对齐（${restored.size} vs ${items.size}），忽略")
+            return
+        }
+        restored.select(currentPageIndex.coerceIn(0, restored.size - 1))
+        playQueue = restored
+        updateQueueModeButton()
+        Logu.d("连播队列", "从 token 恢复：${restored.size} 项，模式=${restored.mode}")
+    }
+
+    /** 队列 token 只在队列变化/退出时写（可能几十 KB，不能跟 15 秒会话心跳一起写）。 */
+    private fun persistQueueToken() {
+        val queue = playQueue
+        if (queue == null || queue.size <= 1) {
+            PlaySessionStore.saveQueueToken(null)
+            return
+        }
+        PlaySessionStore.saveQueueToken(queue.encode())
+    }
+
+    /** 连播按钮：有队列时显示模式，没队列但知道 UP 主时显示「连播」（点了懒加载 UP 主投稿）。 */
+    private fun setupQueueButton() {
+        updateQueueModeButton()
+        queue_mode_btn.setOnClickListener {
+            val queue = playQueue
+            if (queue != null && queue.size > 1) {
+                val mode = queue.cycleMode()
+                SharedPreferencesUtil.putString(KEY_PLAY_QUEUE_MODE, mode.storageValue)
+                persistQueueToken()
+                updateQueueModeButton()
+                MsgUtil.showMsg(getString(R.string.player_queue_mode_toast, queueModeLabel(mode)))
+                return@setOnClickListener
+            }
+            if (mid > 0 && isOnlineVideo && !isLiveMode) loadUploaderQueue()
+            else MsgUtil.showMsg(UiText.of(getString(R.string.player_queue_empty)))
+        }
+        // 长按总是尝试拉 UP 主投稿队列（即便手里已有收藏夹/合集队列），给用户一个"换成 UP 主连播"的入口
+        queue_mode_btn.setOnLongClickListener {
+            if (mid > 0 && isOnlineVideo && !isLiveMode) {
+                loadUploaderQueue()
+                true
+            } else false
+        }
+    }
+
+    private fun updateQueueModeButton() {
+        val queue = playQueue
+        val hasQueue = queue != null && queue.size > 1
+        val canLoadUploader = mid > 0 && isOnlineVideo && !isLiveMode
+        if (isLiveMode || (!hasQueue && !canLoadUploader)) {
+            queue_mode_btn.visibility = View.GONE
+            return
+        }
+        queue_mode_btn.visibility = View.VISIBLE
+        queue_mode_btn.text = if (hasQueue) queueModeLabel(queue!!.mode) else getString(R.string.player_queue_btn_label)
+    }
+
+    private fun queueModeLabel(mode: PlayQueueMode): String = getString(
+        when (mode) {
+            PlayQueueMode.SEQUENTIAL -> R.string.player_queue_mode_sequential
+            PlayQueueMode.REVERSE -> R.string.player_queue_mode_reverse
+            PlayQueueMode.SHUFFLE -> R.string.player_queue_mode_shuffle
+            PlayQueueMode.REPEAT_ONE -> R.string.player_queue_mode_repeat_one
+        }
+    )
+
+    /**
+     * 手动「下一个」（按键/耳机线控）：队列优先，队列走不动时返回 false 交给调用方回落多P逻辑。
+     *
+     * 先判 [hasMultiplePages]：切页依赖 pagenames/cids，队列虽然存在但当前列表不可切时不能白移游标。
+     */
+    private fun playNextFromQueue(): Boolean {
+        val queue = playQueue ?: return false
+        if (queue.size <= 1 || !hasMultiplePages()) return false
+        val step = queue.advance(auto = false) ?: return false
+        if (step.replayCurrent || step.index == currentPageIndex) return false
+        switchToPage(step.index)
+        return true
+    }
+
+    private fun playPreviousFromQueue(): Boolean {
+        val queue = playQueue ?: return false
+        if (queue.size <= 1 || !hasMultiplePages()) return false
+        val step = queue.retreat() ?: return false
+        if (step.index == currentPageIndex) return false
+        switchToPage(step.index)
+        return true
+    }
+
+    /** 懒加载 UP 主投稿当连播队列（第一页 40 条，手表上够听很久）。 */
+    private fun loadUploaderQueue() {
+        if (isLiveMode || !isOnlineVideo) {
+            MsgUtil.showMsg(UiText.of(getString(R.string.player_queue_empty)))
+            return
+        }
+        if (mid <= 0) {
+            MsgUtil.showMsg(UiText.of(getString(R.string.player_queue_empty)))
+            return
+        }
+        if (uploaderQueueLoading) return
+        uploaderQueueLoading = true
+        MsgUtil.showMsg(UiText.of(getString(R.string.player_queue_loading)))
+        CenterThreadPool.run {
+            val cards = ArrayList<VideoCard>()
+            var ok = false
+            try {
+                // 0 = 还有下一页，1 = 没有更多，-1 = 出错；这里只要第一页，非空即成功
+                ok = UserInfoApi.getUserVideos(mid, 1, "", cards) >= 0 && cards.isNotEmpty()
+            } catch (e: Exception) {
+                Logu.e("连播队列", "UP 主投稿加载失败: " + e.message)
+            }
+            runOnUiThread {
+                uploaderQueueLoading = false
+                if (destroyed) return@runOnUiThread
+                if (!ok) {
+                    MsgUtil.showMsg(UiText.of(getString(R.string.player_queue_failed)))
+                    return@runOnUiThread
+                }
+                applyUploaderQueue(cards)
+            }
+        }
+    }
+
+    /**
+     * 把 UP 主投稿列表装成虚拟合集层 + 队列。
+     *
+     * 与 [enterCollectionPlaylist] 一样先压 [returnPlaylist]（这样"返回主合集"仍能回到原来的播放列表），
+     * 区别是**不立刻切页**：用户点「连播」时正在看的这条不该被换掉，只是把"下一个是谁"接上。
+     */
+    private fun applyUploaderQueue(cards: List<VideoCard>) {
+        val items = ArrayList<PlayQueueItem>(cards.size + 1)
+        for (card in cards) {
+            if (card.aid <= 0L) continue
+            items.add(PlayQueueItem(card.aid, 0L, card.title ?: ""))
+        }
+        if (items.isEmpty()) {
+            MsgUtil.showMsg(UiText.of(getString(R.string.player_queue_failed)))
+            return
+        }
+        // 当前视频不在投稿第一页（老视频）时插到队首：保证它自己仍是"当前项"，
+        // 而"下一个"是投稿列表的最新一条。
+        var index = items.indexOfFirst { it.aid == aid }
+        if (index < 0) {
+            items.add(0, PlayQueueItem(aid, 0L, videoTitle ?: ""))
+            index = 0
+        }
+        if (items.size <= 1) {
+            MsgUtil.showMsg(UiText.of(getString(R.string.player_queue_empty)))
+            return
+        }
+
+        // 与进入合集同语义：当前层压进返回栈（只压一层），再换成本层列表
+        if (pagenames != null && pagenames!!.isNotEmpty()) {
+            val back = PlayerData()
+            back.title = rootTitle ?: videoTitle ?: ""
+            back.pagenames = ArrayList(pagenames!!)
+            back.cids = ArrayList(cids ?: emptyList())
+            back.currentPageIndex = currentPageIndex
+            back.virtualCollection = isVirtualCollectionMode
+            returnPlaylist = back
+        }
+        collectionId = 0L
+        collectionTitle = null
+        multiPageAid = 0L
+        multiPageTitle = null
+        enterableCollection = null
+        enterableMultiPage = null
+        val uploaderName = cards.firstOrNull { !it.upName.isNullOrEmpty() }?.upName
+        if (!uploaderName.isNullOrEmpty()) rootTitle = uploaderName
+        pagenames = ArrayList(items.map { it.title })
+        cids = ArrayList(items.map { it.aid })
+        isVirtualCollectionMode = true
+        currentPageIndex = index
+        playQueue = PlayQueue.create(
+            items = items,
+            currentIndex = index,
+            mode = PlayQueueMode.fromStorage(SharedPreferencesUtil.getString(KEY_PLAY_QUEUE_MODE, null)),
+            source = PlayQueueSource.UPLOADER
+        )
+        // 用户明确点了「连播」：本次会话自动前进，即使用户全局关了「自动连播」（不改全局设置）
+        auto_next_enabled = true
+        updateAutoNextButton()
+        // 列表换了，选集按钮/自动下一P 按钮要重新可见（与 onPrepared 里那段显隐逻辑一致）
+        if (hasMultiplePages()) {
+            btn_page_selector.visibility = View.VISIBLE
+            btn_page_selector.setOnClickListener { showPageSelectorCard() }
+            btn_auto_next.visibility = View.VISIBLE
+        }
+        updateQueueModeButton()
+        persistQueueToken()
+        MsgUtil.showMsg(getString(R.string.player_queue_loaded, items.size.toString(), queueModeLabel(playQueue!!.mode)))
+        Logu.d("连播队列", "UP 主投稿队列已载入：${items.size} 项，当前下标=$index")
+    }
+
+    // ------------------------------------------------------------------ 播放会话哨兵
+
+    /**
+     * 把"正在播什么、播到哪"落盘；位置取不到/未起播时不写，避免覆盖掉上一次有效会话。
+     */
+    private fun buildPlaySession(): PlaySession? {
+        if (!isPrepared && video_now <= 0) return null
+        if (aid == 0L && cid == 0L && video_now <= 0 && epid == 0L) return null
+        val type = when {
+            isLiveMode -> PlayerData.TYPE_LIVE
+            epid != 0L -> PlayerData.TYPE_BANGUMI
+            !isOnlineVideo -> PlayerData.TYPE_LOCAL
+            else -> PlayerData.TYPE_VIDEO
+        }
+        return PlaySession(
+            aid = aid,
+            cid = cid,
+            mid = mid,
+            epid = epid,
+            seasonId = seasonId,
+            seasonType = seasonType,
+            type = type,
+            title = videoTitle ?: "",
+            positionMs = video_now.toLong().coerceAtLeast(0L),
+            durationMs = video_all.toLong().coerceAtLeast(0L),
+            source = playQueue?.source ?: detectQueueSource(),
+            pageIndex = currentPageIndex,
+            hasQueueToken = playQueue != null && playQueue!!.size > 1,
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
+    /** 15 秒墙钟节流（挂在 progressChange 的 250ms 定时器上）。直播没有可续播的位置，跳过。 */
+    private fun maybeSavePlaySession() {
+        if (destroyed || isLiveMode) return
+        val now = System.currentTimeMillis()
+        if (now - lastSessionSaveAt < SESSION_SAVE_INTERVAL_MS) return
+        lastSessionSaveAt = now
+        savePlaySessionNow("周期落盘")
+    }
+
+    /**
+     * 立即落盘会话（退出/切后台/销毁）。
+     *
+     * 非周期落盘时顺带写队列 token：token 可能几十 KB，只在"要走了"这种低频时机更新。
+     */
+    private fun savePlaySessionNow(reason: String) {
+        if (isLiveMode) return
+        val session = buildPlaySession() ?: return
+        PlaySessionStore.save(session)
+        if (reason != "周期落盘") persistQueueToken()
+        Logu.d("播放会话", "$reason → ${session.title} ${session.positionMs}ms")
+    }
+
+    // ------------------------------------------------------------------ 设备档位（DeviceProfile）
+
+    /**
+     * 起播默认清晰度：用户显式配过网络分档（PLAY_QN/PLAY_QN_WIFI/PLAY_QN_MOBILE 任一 >0）时
+     * 以网络分档为主、但不超过设备档位上限；都没配过时直接用设备档位（低端机默认 720P）。
+     */
+    private fun startupDefaultQn(): Int {
+        val networkQn = NetworkPlaybackQuality.defaultQn(this)
+        val profile = DeviceProfile.resolve(this)
+        val userConfigured = SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN, -1) > 0 ||
+            SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN_WIFI, -1) > 0 ||
+            SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN_MOBILE, -1) > 0
+        return if (userConfigured) minOf(networkQn, profile.playQn) else profile.playQn
+    }
+
+    /** 硬解默认值：用户显式设过 `player_codec` 就听用户的，没设过按设备档位。 */
+    private fun hardwareDecodeEnabled(): Boolean =
+        SharedPreferencesUtil.getBoolean("player_codec", !DeviceProfile.resolve(this).preferSoftwareDecode)
+
     private fun hasMultiplePages(): Boolean = pagenames != null && pagenames!!.size > 1
 
     private fun showPageSelectorCard() {
@@ -4697,6 +5213,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (!hasMultiplePages() || pageIndex < 0 || pageIndex >= pagenames!!.size) return
         if (pageIndex == currentPageIndex) return
 
+        // 队列与切页保持同步：手动选集/自动下一P 都靠这一步把游标挪到同一项。
+        // 少了它，随机/倒序模式下"下一次"会从旧位置算起，历史栈也会错位。
+        playQueue?.select(pageIndex)
+
         // 切P之前先把"当前这一P"的进度报出去，否则这一P的尾部进度只有 15 秒周期上报兜底，
         // 切走时的最后十几秒会丢；必须在 currentPageIndex 被改写之前调用（aid/cid 还指向旧P）
         reportProgressNow(true, UiText.of("切P前"))
@@ -4749,7 +5269,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
                 playerData.title = newTitle
                 playerData.mid = mid
-                playerData.qn = NetworkPlaybackQuality.defaultQn(this)
+                playerData.qn = startupDefaultQn()
                 playerData.pagenames = pagenames
                 playerData.cids = cids
                 playerData.currentPageIndex = currentPageIndex
@@ -4820,6 +5340,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         isVirtualCollectionMode = true
         val target = items.indexOfFirst { it.aid == startAid }.coerceAtLeast(0)
         currentPageIndex = target
+        // 进入合集 = 换了一条播放列表：连播队列跟着换成合集条目，
+        // 否则「合集播完」时队列还在按收藏夹那层的顺序算。
+        rebuildQueueFromPlaylist(PlayQueueSource.COLLECTION, target)
         MsgUtil.showMsg(getString(R.string.msg_player_entered_collection, collection.title ?: ""))
         switchToOnlinePage(target, pagenames!![target])
     }
@@ -4877,6 +5400,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 不是"继续上次看的"。真正处理 #83「再次打开续到上次那个P」的是详情页入口
         // （VideoInfoFragment.playClick → MultiPageResumePolicy），那一条走的是直接起播上次的P。
         currentPageIndex = 0
+        // 分P层同样是一条新列表：队列换成这一层的分P（顺序模式下等价于原来的"自动下一P"）
+        rebuildQueueFromPlaylist(PlayQueueSource.COLLECTION, 0)
         MsgUtil.showMsg(getString(R.string.msg_player_entered_multi_page, videoInfo.title ?: ""))
         switchToOnlinePage(0, pagenames!![0])
     }
@@ -4914,6 +5439,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         multiPageTitle = null
         returnPlaylist = null
         currentPageIndex = resume
+
+        // 回到上一层 = 又换了一条播放列表：队列跟着换回这一层（虚拟合集 → FAVORITE，其它 → COLLECTION）
+        rebuildQueueFromPlaylist(
+            if (back.virtualCollection) PlayQueueSource.FAVORITE else PlayQueueSource.COLLECTION,
+            resume
+        )
 
         MsgUtil.showMsg(
             when {
@@ -5615,8 +6146,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     private fun getTargetQuality(): Int {
-        // 默认清晰度按「当前网络」取：移动数据/Wi-Fi 可各配一档（NetworkPlaybackQuality）。
-        val defaultQn = NetworkPlaybackQuality.defaultQn(this)
+        // 默认清晰度按「当前网络」取：移动数据/Wi-Fi 可各配一档（NetworkPlaybackQuality），
+        // 再按设备档位封顶（DeviceProfile.playQn：低端机 720P、中端 1080P、高端不降）。
+        val defaultQn = startupDefaultQn()
         if (qnValueList == null || qnValueList!!.isEmpty()) return if (currentQuality > 0) currentQuality else defaultQn
 
         for (qn in qnValueList!!) {
@@ -5809,6 +6341,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             btn_quality.visibility = View.GONE
             jump_time_btn.visibility = View.GONE
         }
+        // 连播按钮：有队列时显示当前模式（顺序/倒序/随机/单曲），没有队列但有 UP 主时显示「连播」，
+        // 点一下懒加载 UP 主投稿当队列。显隐与文案都在 updateQueueModeButton 里统一算。
+        setupQueueButton()
 
         seekbar_progress.max = video_all
         progress_str = StringUtil.toTime(video_all / 1000)
@@ -5901,6 +6436,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         val progressReported = reportProgressNow(true, UiText.of("退出前"))
         // 本地视频没有服务端历史：在这里落一次盘，等价于在线视频的"退出前上报"
         saveLocalProgressNow("退出前")
+        savePlaySessionNow("退出前")
         if (ijkPlayer != null) {
             val result = Intent()
             result.putExtra("progress", ijkPlayer!!.currentPosition.toInt())
