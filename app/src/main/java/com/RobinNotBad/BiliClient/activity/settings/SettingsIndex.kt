@@ -51,6 +51,24 @@ object SettingsIndex {
         list += Entry("清晰度", "设置默认播放清晰度") { a ->
             a.startActivity(Intent(a, SettingQualityActivity::class.java))
         }
+        list += Entry(
+            BiliTerminal.context!!.getString(R.string.net_quality_wifi_title),
+            BiliTerminal.context!!.getString(R.string.net_quality_wifi_desc)
+        ) { a ->
+            a.startActivity(Intent(a, SettingQualityActivity::class.java))
+        }
+        list += Entry(
+            BiliTerminal.context!!.getString(R.string.net_quality_mobile_title),
+            BiliTerminal.context!!.getString(R.string.net_quality_mobile_desc)
+        ) { a ->
+            a.startActivity(Intent(a, SettingQualityActivity::class.java))
+        }
+        list += Entry(
+            BiliTerminal.context!!.getString(R.string.storage_entry_title),
+            BiliTerminal.context!!.getString(R.string.storage_entry_desc)
+        ) { a ->
+            a.startActivity(Intent(a, StorageActivity::class.java))
+        }
         list += Entry("内置播放器设置", "内置播放器的播放、弹幕、字幕与界面") { a ->
             a.startActivity(Intent(a, SettingTerminalPlayerActivity::class.java))
         }

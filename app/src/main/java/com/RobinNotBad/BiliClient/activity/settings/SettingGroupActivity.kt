@@ -587,6 +587,13 @@ class SettingGroupActivity : RefreshListActivity() {
         switch("强制高分辨率选项", getString(R.string.desc_force_high_quality), SettingsKeys.FORCE_HIGH_QUALITY, true)
 
         title("存储路径")
+        // 「存储空间」页（批次 1 移植）：统计图片缓存 / 临时文件 / 更新安装包占用，按白名单清理。
+        // 放在「存储路径」分组：用户想知道「占了多少、怎么清」时，路径与清理在同一屏最自然。
+        nav(
+            R.drawable.icon_folder,
+            getString(R.string.storage_entry_title),
+            getString(R.string.storage_entry_desc)
+        ) { startActivity(Intent(this, StorageActivity::class.java)) }
         // 这里显示「用户配置/按 API 分档的默认目录」，不是运行时降级目录：降级时设置页
         // 不该预填一个临时的应用专属路径，否则用户会以为自己配置的路径被覆盖了。
         input("缓存路径", getString(R.string.setting_lab_path_video), SettingsKeys.SAVE_PATH_VIDEO, "input_string", FileUtil.getConfiguredVideoDownloadPath().toString())

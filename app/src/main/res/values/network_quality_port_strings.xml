@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  「移动数据 / Wi-Fi 独立默认画质」（批次 1）的全部文案。
+
+  为什么不写进 res/values/strings.xml：该文件由并行批次占用，新增键集中在本文件避免冲突。
+  命名前缀统一 net_quality_；读取逻辑在 util/NetworkPlaybackQuality，
+  设置界面在 activity/settings/SettingQualityActivity。
+-->
+<resources>
+
+    <!-- 页面标题（默认清晰度页 / 两个网络子页） -->
+    <string name="net_quality_page_title">清晰度</string>
+    <string name="net_quality_wifi_title">Wi-Fi 默认清晰度</string>
+    <string name="net_quality_mobile_title">移动数据默认清晰度</string>
+
+    <!-- 列表行：%1$s 是「跟随默认」或具体档位名（360P/720P/…） -->
+    <string name="net_quality_row_wifi">Wi-Fi 默认清晰度（当前：%1$s）</string>
+    <string name="net_quality_row_mobile">移动数据默认清晰度（当前：%1$s）</string>
+
+    <!-- 子列表首行：存 -1 表示不覆盖默认清晰度 -->
+    <string name="net_quality_follow_default">跟随默认</string>
+
+    <!-- 设置搜索索引用的说明（SettingsIndex） -->
+    <string name="net_quality_wifi_desc">Wi-Fi 网络下起播使用的清晰度</string>
+    <string name="net_quality_mobile_desc">移动数据网络下起播使用的清晰度</string>
+
+</resources>

@@ -123,6 +123,20 @@ object SettingsKeys {
     const val PLAYER = "player"
     /** 默认清晰度（qn）。 */
     const val PLAY_QN = "play_qn"
+    /**
+     * Wi-Fi 下起播用的默认清晰度（qn）。
+     *
+     * -1 = **跟随 [PLAY_QN]**（默认值），即「不配置就与改造前完全一致」。
+     * 读取统一走 `util/NetworkPlaybackQuality.defaultQn(context)`，不要在调用点自己拼
+     * 「先读 PLAY_QN_WIFI 再看是不是 -1」——同一套判定出现两份实现时必然漂移。
+     */
+    const val PLAY_QN_WIFI = "play_qn_wifi"
+    /**
+     * 移动数据下起播用的默认清晰度（qn）。
+     *
+     * -1 = 跟随 [PLAY_QN]；判定与 [PLAY_QN_WIFI] 同源，见 `util/NetworkPlaybackQuality`。
+     */
+    const val PLAY_QN_MOBILE = "play_qn_mobile"
 
     const val PLAYER_LONGCLICK = "player_longclick"
     const val PLAYER_DOUBLETAP_SEEK = "player_doubletap_seek"

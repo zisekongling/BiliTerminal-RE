@@ -1,11 +1,13 @@
 package com.RobinNotBad.BiliClient.api
 
 import android.os.Build
+import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.ShortVideoItem
 import com.RobinNotBad.BiliClient.util.DeviceIdentity
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
+import com.RobinNotBad.BiliClient.util.NetworkPlaybackQuality
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import org.json.JSONException
@@ -57,8 +59,18 @@ object ShortVideoFeedApi {
         }
     }
 
-    /** 「视频设置 → 分辨率」里保存的目标清晰度；老用户没有该键时沿用 16（360P）。 */
-    fun defaultPlayQuality(): Int = SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN, 16)
+    /**
+     * 「视频设置 → 分辨率」里保存的目标清晰度；老用户没有该键时沿用 16（360P）。
+     *
+     * 26.11.06 起改为按网络类型取值（Wi-Fi / 移动数据可分别设置），判定与播放页同源，
+     * 见 [NetworkPlaybackQuality.defaultQn]。`BiliTerminal.context` 在极早期可能为 null
+     * （API 层单测/初始化前），此时退回「只读 PLAY_QN」的老行为。
+     */
+    fun defaultPlayQuality(): Int {
+        val context = BiliTerminal.context
+        return if (context != null) NetworkPlaybackQuality.defaultQn(context)
+        else SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN, NetworkPlaybackQuality.DEFAULT_QN)
+    }
 
     /** 供 [StoryFeedPager] 复用的请求头。 */
     internal fun buildHeaders(): ArrayList<String> {

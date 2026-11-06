@@ -19,8 +19,7 @@ import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.AccountStateStore
 import com.RobinNotBad.BiliClient.util.MsgUtil
-import com.RobinNotBad.BiliClient.util.SettingsKeys
-import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import com.RobinNotBad.BiliClient.util.NetworkPlaybackQuality
 import org.json.JSONException
 import java.io.IOException
 
@@ -110,7 +109,9 @@ class JumpToPlayerActivity : BaseActivity() {
 
         download = intent.getIntExtra("download", 0)
 
-        data.qn = if (data.qn != -1) data.qn else SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN, 16)
+        // 起播清晰度：Intent 显式指定的优先；否则按「当前网络类型 + 默认清晰度」决定
+        // （Wi-Fi / 移动数据可分别设置，判定统一在 NetworkPlaybackQuality）
+        data.qn = if (data.qn != -1) data.qn else NetworkPlaybackQuality.defaultQn(this)
         // 下载不受清晰度权限影响（可用性由服务端决定）；播放要把请求档位夹到账号权限内，
         // 否则超权请求会被服务端降级，反而可能拿到比权限内最高档更低的流
         if (download == 0) data.qn = AccountStateStore.clampQuality(data.qn)

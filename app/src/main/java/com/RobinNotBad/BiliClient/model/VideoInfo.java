@@ -3,6 +3,8 @@ package com.RobinNotBad.BiliClient.model;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import com.RobinNotBad.BiliClient.BiliTerminal;
+import com.RobinNotBad.BiliClient.util.NetworkPlaybackQuality;
 import com.RobinNotBad.BiliClient.util.SettingsKeys;
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
 import com.RobinNotBad.BiliClient.util.StringUtil;
@@ -123,7 +125,12 @@ public class VideoInfo implements Parcelable, Serializable { // 自定义类需�
         data.cid = cids.get(index);
         data.title = pagenames.size() == 1 ? title : pagenames.get(index);
         data.mid = SharedPreferencesUtil.getLong("mid", 0);
-        data.qn = SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN, 16);
+        // 起播清晰度按当前网络类型决定（Wi-Fi / 移动数据可分别配置，判定统一在 NetworkPlaybackQuality）。
+        // BiliTerminal.context 在极早期/单测环境可能为 null，此时退回「只读默认清晰度」的老行为，不崩。
+        android.content.Context context = BiliTerminal.context;
+        data.qn = context != null
+                ? NetworkPlaybackQuality.defaultQn(context)
+                : SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN, NetworkPlaybackQuality.DEFAULT_QN);
         data.pagenames = pagenames;
         data.cids = cids;
         data.currentPageIndex = index;

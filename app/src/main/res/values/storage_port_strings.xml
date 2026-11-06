@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  存储空间页（批次 1「存储/设置/工具」移植）的全部文案。
+
+  为什么不写进 res/values/strings.xml：该文件由并行批次占用，新增键集中在本文件避免冲突。
+  命名前缀统一 storage_，加载入口是 activity/settings/StorageActivity。
+-->
+<resources>
+
+    <!-- 页面与入口 -->
+    <string name="storage_page_title">存储空间</string>
+    <string name="storage_entry_title">存储空间</string>
+    <string name="storage_entry_desc">查看图片缓存、临时文件与更新安装包的占用，按需清理</string>
+
+    <!-- 分区标题 -->
+    <string name="storage_section_usage">占用情况</string>
+    <string name="storage_section_clean">清理</string>
+
+    <!-- 统计行（%1$s 是已格式化的体积，见 StorageMath.formatBytes） -->
+    <string name="storage_row_images">图片缓存：%1$s</string>
+    <string name="storage_row_temp">临时文件：%1$s</string>
+    <string name="storage_row_apk">更新安装包：%1$s</string>
+    <string name="storage_row_apk_none">更新安装包：无</string>
+    <string name="storage_row_space_detail">可用 %1$s，共 %2$s</string>
+    <string name="storage_row_space_unknown">可用空间：未知</string>
+    <string name="storage_calculating">正在统计…</string>
+
+    <!-- 安全说明：清理范围 -->
+    <string name="storage_protected_note">只清理图片缓存与临时文件，不会删除已缓存的视频、已下载的图片和正在播放的内容。</string>
+
+    <!-- 按钮 -->
+    <string name="storage_btn_clear_images">清理图片缓存</string>
+    <string name="storage_btn_clear_temp">清理临时文件</string>
+    <string name="storage_btn_delete_apk">删除更新安装包</string>
+    <string name="storage_btn_refresh">重新统计</string>
+
+    <!-- 确认对话框 -->
+    <string name="storage_confirm_title">确认清理</string>
+    <string name="storage_confirm_images">清理图片缓存？已下载的视频和图片不受影响，下次看视频会重新生成缩略图。</string>
+    <string name="storage_confirm_temp">清理临时文件？只清理应用缓存目录里的临时内容，已缓存的视频与正在播放的内容不受影响。</string>
+    <string name="storage_confirm_apk">删除已下载的更新安装包？下次检查更新会重新下载。</string>
+
+    <!-- 结果提示 -->
+    <string name="storage_clear_done">已清理 %1$s</string>
+    <string name="storage_clear_nothing">没有需要清理的内容</string>
+    <string name="storage_clear_failed">部分文件未能删除，可能正被占用</string>
+    <string name="storage_apk_deleted">更新安装包已删除</string>
+    <string name="storage_apk_none_toast">没有已下载的更新安装包</string>
+    <string name="storage_busy">正在清理，请稍候</string>
+
+</resources>

@@ -48,6 +48,22 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
             .build()
     }
 
+    /**
+     * 「检查更新」专用客户端：在 [okHttpClient] 之上加 **20s 总闸**（`callTimeout`）。
+     *
+     * 为什么需要：连接超时 15s / 读超时 60s 都是**单阶段**上限，DNS 慢、TLS 握手卡、服务端
+     * 一点点吐字节时整次调用可以远超 20s，而更新检查是在启动路径上报的——它挂住就会连带
+     * 拖慢启动。`callTimeout` 覆盖「DNS + 连接 + 写 + 读」全流程，是真正的总时限。
+     *
+     * 为什么下载**不用**这个 client：APK 几十 MB，读超时 60s 在慢网下是**合法**的，
+     * 套 20s 总闸会把正常下载打断（下载只看单阶段超时，不设总时限）。
+     */
+    private val checkClient: OkHttpClient by lazy {
+        okHttpClient.newBuilder()
+            .callTimeout(20, TimeUnit.SECONDS)
+            .build()
+    }
+
     @Volatile
     private var cachedConfig: UpdateConfig? = null
 
@@ -230,6 +246,17 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
         }
     }
 
+    /**
+     * 已下载的更新安装包（**存在才返回**，否则 null）。
+     *
+     * 给「存储空间」页统计与删除用。路径拼接仍只在本类里做一次，避免存储页另抄一份
+     * `externalCacheDir/update/<文件名>`——那种重复在改文件名/换目录时必然漏改。
+     */
+    fun currentUpdatePackageFile(context: Context? = BiliTerminal.context): File? {
+        val file = getApkFile(context) ?: return null
+        return if (file.isFile) file else null
+    }
+
     fun deleteOldApkFile() {
         try {
             val apkFile = getApkFile()
@@ -270,7 +297,8 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
     private fun fetchRelease(url: String): UpdateConfig {
         val request = Request.Builder().url(url).get().build()
         // use{} 保证失败分支抛异常时连接也归还（OkHttp 只在 body 读到 EOF 时才自动归还）
-        return okHttpClient.newCall(request).execute().use { response ->
+        // 检查更新走 checkClient（20s callTimeout 总闸），下载走 okHttpClient（见 checkClient 注释）
+        return checkClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IOException("服务器响应错误: ${response.code}")
             }

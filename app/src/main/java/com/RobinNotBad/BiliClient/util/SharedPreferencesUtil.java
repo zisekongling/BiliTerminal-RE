@@ -101,7 +101,15 @@ public class SharedPreferencesUtil {
         // sharedPreferences 由 Application.onCreate 赋值，静态初始化或早期调用可能早于赋值，
         // 直接解引用会 NPE。未就绪时返回调用方传入的默认值（BiliTerminal.kt 有 getString(key, null)
         // 的调用点，故这里必须原样返回 def，不能擅自把 null 换成空串）。
-        return sharedPreferences != null ? sharedPreferences.getString(key, def) : def;
+        if (sharedPreferences == null) return def;
+        // 类型保险丝：同一个 key 若被别的类型写过（历史版本、跨模块误用、或用户从备份恢复），
+        // 原生 getString 会抛 ClassCastException 直接把整个页面崩掉。这里只保证「不崩、回落默认值」，
+        // 写入类型错误仍属调用方 bug，不在这里静默改写数据。
+        try {
+            return sharedPreferences.getString(key, def);
+        } catch (ClassCastException e) {
+            return def;
+        }
     }
 
     public static void putString(String key, String value) {
@@ -110,7 +118,13 @@ public class SharedPreferencesUtil {
 
     public static int getInt(String key, int def) {
         // 同 getString：sharedPreferences 未就绪时不能解引用，返回默认值（审计 P10）
-        return sharedPreferences != null ? sharedPreferences.getInt(key, def) : def;
+        if (sharedPreferences == null) return def;
+        // 同 getString 的类型保险丝，见该方法注释
+        try {
+            return sharedPreferences.getInt(key, def);
+        } catch (ClassCastException e) {
+            return def;
+        }
     }
 
     public static void putInt(String key, int value) {
@@ -119,7 +133,12 @@ public class SharedPreferencesUtil {
 
     public static long getLong(String key, long def) {
         // 同 getString：sharedPreferences 未就绪时不能解引用，返回默认值（审计 P10）
-        return sharedPreferences != null ? sharedPreferences.getLong(key, def) : def;
+        if (sharedPreferences == null) return def;
+        try {
+            return sharedPreferences.getLong(key, def);
+        } catch (ClassCastException e) {
+            return def;
+        }
     }
 
     public static void putLong(String key, long value) {
@@ -128,7 +147,12 @@ public class SharedPreferencesUtil {
 
     public static boolean getBoolean(String key, boolean def) {
         // 同 getString：sharedPreferences 未就绪时不能解引用，返回默认值（审计 P10）
-        return sharedPreferences != null ? sharedPreferences.getBoolean(key, def) : def;
+        if (sharedPreferences == null) return def;
+        try {
+            return sharedPreferences.getBoolean(key, def);
+        } catch (ClassCastException e) {
+            return def;
+        }
     }
 
     public static void putBoolean(String key, boolean value) {
@@ -141,7 +165,12 @@ public class SharedPreferencesUtil {
 
     public static float getFloat(String key, float def) {
         // 同 getString：sharedPreferences 未就绪时不能解引用，返回默认值（审计 P10）
-        return sharedPreferences != null ? sharedPreferences.getFloat(key, def) : def;
+        if (sharedPreferences == null) return def;
+        try {
+            return sharedPreferences.getFloat(key, def);
+        } catch (ClassCastException e) {
+            return def;
+        }
     }
 
     public static void removeValue(String key) {

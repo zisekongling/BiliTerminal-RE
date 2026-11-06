@@ -562,6 +562,13 @@
             android:exported="false"
             android:label="@string/label_activity_no_03"
             android:screenOrientation="locked" />
+        <!-- 存储空间页（批次 1）：只被设置页内部启动，不导出、锁竖屏（与其它设置页一致）。
+             label 用本页专属字符串（storage_port_strings.xml），不要借用 SettingGroupActivity 的。 -->
+        <activity
+            android:name=".activity.settings.StorageActivity"
+            android:exported="false"
+            android:label="@string/storage_page_title"
+            android:screenOrientation="locked" />
         <activity
             android:name=".activity.settings.TutorialManagerActivity"
             android:exported="false"

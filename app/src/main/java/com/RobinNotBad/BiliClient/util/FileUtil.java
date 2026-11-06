@@ -191,9 +191,11 @@ public class FileUtil {
 
     public static String readString(File file) {
         if (file == null || !file.exists() || !file.canRead() || !file.isFile()) return null;
-        try {
+        // try-with-resources：旧实现手工 new FileInputStream 从不关闭，readString 是配置/主题/JSON 的
+        // 通用读取入口，热路径反复调用会持续泄漏 FileDescriptor（minSdk 19 的老手表 fd 上限很紧）。
+        // 返回语义与异常吞掉策略保持不变（失败仍返回 null），编码仍走 outputStream.toString() 的平台默认。
+        try (FileInputStream inputStream = new FileInputStream(file)) {
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            FileInputStream inputStream = new FileInputStream(file);
             FileChannel channel = inputStream.getChannel();
             ByteBuffer buffer = ByteBuffer.allocate(1 << 13);
             int i;
