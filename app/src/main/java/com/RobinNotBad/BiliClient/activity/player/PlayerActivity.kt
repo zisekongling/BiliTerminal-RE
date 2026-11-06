@@ -1718,13 +1718,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             // 位置取 video_now 而不是 ijkPlayer.currentPosition —— 后者在 seek 落地前仍返回旧值
             // （见 seekToVideo 的注释），而 video_now 是已经对齐过的媒体时钟。
             // 0 位置（未 prepare / 直播）不预填，保持空框 + 提示语。
+            // 光标按 InputDialogActivity 的既有行为落在末尾（不整串选中），方便接着往后补位。
             val prefill = PlayerJumpTimePolicy.prefillText(video_now.toLong())
-            if (prefill != null) {
-                intent.putExtra("initial_text", prefill)
-                // 预填值整体选中：直接敲数字就是「重输」，想微调再点一下定位光标。
-                // 不这么做的话光标停在末尾，敲一位就变成 `12:349` 这种非法值，反而要多删。
-                intent.putExtra("select_all", true)
-            }
+            if (prefill != null) intent.putExtra("initial_text", prefill)
             startActivityForResult(intent, REQUEST_CODE_JUMP_TO_TIME)
         }
     }
