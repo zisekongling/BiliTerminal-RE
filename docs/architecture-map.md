@@ -724,6 +724,15 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 
 **改播放相关代码时的判断顺序**：先确认要改的是"普通播放器那套"还是"短视频那套"。合并方案（已归档：`docs/archive/superpowers/specs/2026-09-10-player-core-merge.md`）S1/S2/S3 已完成，S4、S5 后半与 `PlayerControlDelegate` 去留仍未做，待办登记在 `docs/review/fix-progress.md` §2.2；**当前 `player/` 包仍不是公共层** —— `PlayerActivity` 只用了 `DanmakuManager` 与 `PlayerSurfaceBinder`，播放器本身还是裸 `IjkMediaPlayer`。
 
+**26.11.06 新增的 `player/` 模块（都在用，改播放前先看它们）**：
+
+- `PlayQueue.kt` — 连播队列**纯模型**（`PlayQueueSource` 5 种来源 × `PlayQueueMode` 4 档、确定性洗牌、历史栈 64、行式 token 编解码）。`PlayerActivity` 只负责接线（`playlistQueueItems` / `rebuildQueueFromPlaylist` / `restoreQueueTokenIfMatches` / `playNextFromQueue`），队列 token 存 prefs `player_last_queue_token_v1`。
+- `PlaySessionStore.kt` — 播放会话哨兵（`PLAYSESSION1` 编解码、15 秒节流落盘 + 生命周期兜底、`player_last_session_v1`）。`PlayerApi.buildResumeIntent` 与主菜单「继续播放」消费它；**`PlayerData.progress` 的单位是毫秒**，别再按秒处理。
+- `BangumiProgressStore.kt` — 番剧每集进度（epid 维度、上限 128、`player_bangumi_progress_v1`），`PlayerApi.getBangumi` 用它覆盖服务端 `last_play_time`。
+- `DanmakuStreamLoader.kt` — 360 秒分段窗口加载（窗口计算在纯函数 `DanmakuWindow`），配 `util/DanmakuDiskCache`（`cacheDir/danmaku_cache`）；`DanmakuManager.appendSegments` 是唯一灌入口，别绕过它直接碰 DFM。
+
+**`android.media.session.MediaSession` 是 API 21 类，而本项目 minSdk 19**：字段、方法签名、返回值里一律不许出现这个类型（否则 API 19 上 `PlayerActivity` 类加载即崩）。26.11.06 已把字段与四个入口（`initMediaSession` / `updateMediaSessionMetadata` / `updateMediaSessionPlaybackState` / `postMediaControlNotification`）改成 `Any?` + SDK 守卫 + 局部 `as? MediaSession`，新加代码照此办理。
+
 **弹幕序列化的两个硬约束（踩过坑，别重犯）**：
 
 1. **`DanmakuManager.createParser()` 只能在主线程、且不可并发**。`DanmakuLoaderFactory.create(TAG_BILI)` 返回的是**进程级单例** `BiliDanmakuLoader.instance()`（`BiliDanmakuLoader.java:27-38`），而 `dataSource` 是它的**实例字段**（`:29`），`load()` 写字段 + `loader.dataSource` 读字段是一段 check-then-act。并发时两个 holder 会拿到同一个数据源，表现为弹幕串台或解析为空。
