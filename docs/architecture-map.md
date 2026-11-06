@@ -731,6 +731,16 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - `BangumiProgressStore.kt` — 番剧每集进度（epid 维度、上限 128、`player_bangumi_progress_v1`），`PlayerApi.getBangumi` 用它覆盖服务端 `last_play_time`。
 - `DanmakuStreamLoader.kt` — 360 秒分段窗口加载（窗口计算在纯函数 `DanmakuWindow`），配 `util/DanmakuDiskCache`（`cacheDir/danmaku_cache`）；`DanmakuManager.appendSegments` 是唯一灌入口，别绕过它直接碰 DFM。
 
+**26.11.06 新增的交互/数据策略类（都是纯逻辑 + JVM 单测，改对应功能先看它们）**：
+
+- `player/SkipOpEdPolicy.kt` + `player/SkipOpEdPrefs.kt` — 片头片尾五档（0 关 / 1 仅头 / 2 仅尾 / 3 都跳 / 4 询问），新键 `player_skip_op_ed_mode` 优先、旧布尔 `player_skip_op_ed` 只用于迁移（true→3）；询问档由 `PlayerActivity` 弹一次、绝不自动 seek。
+- `player/DanmakuTimestampPolicy.kt` — 弹幕正文里认时间（`01:23` / `1:23` / `01:23:45`），点弹幕跳进度用。
+- `player/LongPressSwitchPolicy.kt` — 长按后上下划切上一条/下一条的判定（纵向阈值 0.18 屏高 + 横向容差 + 时长窗），命中先结束倍速再切页。
+- `player/DanmakuSelfStylePolicy.kt` — 本人弹幕边框的哈希比对（mid 的 CRC32 vs 弹幕 `userHash`）。**`DanmakuFlameMaster` 已被改动**：`BaseDanmaku.borderColor` 去掉 `final`，两个 parser 补写 `userHash`（protobuf 走 `midHash`、XML 走 p 的第 6 段）；渲染侧 `AndroidDisplayer` 本来就有 borderColor 分支，没加新绘制。
+- `util/RecommendPagePolicy.kt` — 推荐流翻页游标（`ps` + `fresh_idx`；`brush` 实测无效）。翻页请求要带代数判据，旧请求回来不能覆盖新列表。
+- `util/ScheduleTimePolicy.kt` — 动态定时发布的合法窗口（+6 分钟 ~ +7 天，闭区间）与 `yyyy-MM-dd HH:mm[:ss]` 解析。
+- `ui/appearance/BackgroundImage.kt` — 主题背景图（私有目录拷贝、16MB / 8192px 上限、≤1024 采样、填充/适应、0/25/50/75% 遮罩）；`ColorScheme.applyWindowTheme` 里与 `AmbientGlow.createOverlayDrawable` 组成 `LayerDrawable`，**光晕是图上面的一层半透明叠色**，别再用 if/else 把两者设成互斥。
+
 **`android.media.session.MediaSession` 是 API 21 类，而本项目 minSdk 19**：字段、方法签名、返回值里一律不许出现这个类型（否则 API 19 上 `PlayerActivity` 类加载即崩）。26.11.06 已把字段与四个入口（`initMediaSession` / `updateMediaSessionMetadata` / `updateMediaSessionPlaybackState` / `postMediaControlNotification`）改成 `Any?` + SDK 守卫 + 局部 `as? MediaSession`，新加代码照此办理。
 
 **弹幕序列化的两个硬约束（踩过坑，别重犯）**：
