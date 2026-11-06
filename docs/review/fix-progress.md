@@ -1414,6 +1414,17 @@
 - **验证**（模拟器）：`显示标题` 关掉后进播放页，顶栏只剩电量与时间、标题消失（截图 `outputs/player-top-off.png`）；默认全开时 `dumpsys` 里 `text_title` / `battery` / `clock_layout` 都是 `V`（可见），与改造前一致。
 - **留给后来者**：`layout_top` 整条仍可点（点标题栏退出播放）。把标题关掉后这块区域变成不可见的可点区——这是沿用改造前的行为，没再动；若以后要收紧，判据应放在 `layout_top.setOnClickListener` 那一处（:4228 附近）。
 
+### 3.131 组格「更多」按钮被压扁、点了展不开，外加锁定后解锁崩溃（26.11.06，用户点名：「更多按钮是扁的，且点击后展不开」）
+
+- **现象**：右列第三个「更多」画成一条扁白横条（截图量到内容区 108×34，约 3.2:1），点它没有任何反应。
+- **「扁」的根因**：`PlayerButtonSlots.moreButton()` 给 `ImageButton` 设了 `setBackgroundResource(selectableItemBackground)`，这份背景 drawable 自带 inset，`View` 会把它转成控件内边距（126−40=86=43dp×2），于是 `ScaleType.FIT_XY` 把 128×128 的方形图标压进 `126×40` 的扁框。实测日志：`lp=126x126 measured=126x126 st=FIT_XY intrinsic=128x128 bounds=0 0 126 40`。**注意视图本身一直是 126×126 正方形**（临时把背景换成红色，红块 bbox 实测 `x936..1061, y1153..1278`），所以只量 bounds 是查不出来的，必须看 `drawable.bounds`。
+- **「展不开」的根因**：三条展开条的外层 `left/right/bottom_group_scroll`（`HorizontalScrollView`）在 `activity_player.xml` 里写死 `android:visibility="gone"`，而 `toggleGroup()` 只切内层 `*_group_slots`（`LinearLayout`）——外层永远 GONE，组内按钮排进去了也看不见。
+- **修复**：`moreButton()` 在设完背景后显式 `setPadding(0, 0, 0, 0)`（改完 `drawableBounds=0 0 126 126`）；XML 把 `android:visibility="gone"` 从三条外层 ScrollView 挪到内层 LinearLayout，并留注释说明外层必须一直可见。
+- **顺带修掉的真崩溃**：锁定态下 `lock_btn` 被 `parkLockButton()` 搬进 `lock_holder`，解锁时 `clearAll()` 收真身直接 `pool.addView(view)` → `java.lang.IllegalStateException: The specified child already has a parent`（`PlayerButtonSlots.clearAll` ← `render` ← `applyPlayerButtonLayout` ← `unparkLockButton` ← `applyLockPhase` ← `onLockButtonClick`）。改成先 `detach` 再入池。
+- **锁定图标重画**：按用户给的 lucide `lock-keyhole` / `lock-keyhole-open` 两个 SVG，以 24×24 viewBox 原值改写成 Android vector（`#ffffff` 描边、线宽 2、`fillColor="#00000000"`），覆盖 `icon_player_lock.xml` / `icon_player_unlock.xml`。用户最初给的是 24×24 黑色 PNG，直接放进来在深色播放器上看不见、放大必糊（28dp × density 4.5 = 126px），所以改成矢量。同一批还把「跳转时间 / 连播队列」两个文字按钮换成 `icon_player_clock_fading` / `icon_player_corner_down_right`，模式与时间点写进 `contentDescription`。
+- **验证**（模拟器 emulator-5554，Android 17，1080×2400，应用内 density 4.5）：更多按钮恢复方形白框套三点；点它横向展开 `▶ CC □ ♪ 跳到指定时间 连播` 共 6 个组内按钮；锁定/解锁来回切换不再崩，新锁图标在左列与右列都正常渲染。`assembleStandardDebug` + `testStandardDebugUnitTest` 绿。
+- **留给后来者**：组展开条出现时会压在右列按钮上（截图观察，未定论是遮挡还是重排），若后续确认是遮挡，动的是 `right_group_scroll` 的布局位置，不是显隐逻辑。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。
