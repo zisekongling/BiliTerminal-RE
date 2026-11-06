@@ -44,21 +44,6 @@ class PlayerButtonSlots(
     /** 重摆/展开之后回调（播放页拿它对一次左右两列的中线）。 */
     var onLayoutChanged: (() -> Unit)? = null
 
-    /**
-     * 长按「更多」的回调（只有设置页用：进去编辑这一组）。
-     *
-     * 播放页不设它，长按「更多」没有任何反应；设置页里它是编辑组的入口。
-     */
-    var onMoreLongClick: ((PlayerUiLayout.Region, Int, List<String>) -> Unit)? = null
-
-    /**
-     * 每个区末尾追加一个「空格子」的工厂（只有设置页用）。
-     *
-     * 播放页传 null，界面上就不会有「＋」；设置页用它给每列留一个加按钮的位置。
-     * 该区已经满了（`PlayerUiLayout.isFull`）时不会问工厂要视图。
-     */
-    var trailingViewFactory: ((PlayerUiLayout.Region) -> View?)? = null
-
     /** 正在槽位里的「真身」，清场时要送回池子。 */
     private val placedPrimaries = HashSet<View>()
 
@@ -90,10 +75,6 @@ class PlayerButtonSlots(
                     is PlayerUiLayout.Slot.Button -> placeButton(region, regionKey, slot.key)
                     is PlayerUiLayout.Slot.Group -> region.container.addView(moreButton(region, regionKey, index, slot.keys))
                 }
-            }
-            val factory = trailingViewFactory
-            if (factory != null && !PlayerUiLayout.isFull(layout, regionKey)) {
-                factory(regionKey)?.let { region.container.addView(it) }
             }
         }
         syncMirrors()
@@ -192,11 +173,6 @@ class PlayerButtonSlots(
         tag = index
         layoutParams = cellParams(null, region)
         setOnClickListener { toggleGroup(regionKey, index, keys) }
-        setOnLongClickListener {
-            val callback = onMoreLongClick ?: return@setOnLongClickListener false
-            callback(regionKey, index, keys)
-            true
-        }
     }
 
     private fun toggleGroup(regionKey: PlayerUiLayout.Region, index: Int, keys: List<String>) {

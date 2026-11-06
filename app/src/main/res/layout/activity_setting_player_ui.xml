@@ -42,72 +42,22 @@
 
     </RelativeLayout>
 
-    <LinearLayout
-        android:id="@+id/body"
+    <!-- 一类「点一下改一下」的设置：一列一节，一格一行（见 SettingPlayerUiActivity.rebuildRows） -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/contentList"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="match_parent"
         android:layout_below="@id/top"
-        android:layout_centerVertical="true"
-        android:orientation="vertical"
-        android:paddingHorizontal="@dimen/activity_padding_horizontal">
-
-        <!-- 这里不是仿画的图，是播放页那一套真控件（见 PlayerControlsPreview） -->
-        <com.RobinNotBad.BiliClient.ui.widget.PlayerControlsPreview
-            android:id="@+id/preview"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal" />
-
-        <TextView
-            android:id="@+id/hint"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:gravity="center"
-            android:text="@string/setting_player_ui_hint"
-            android:textSize="10sp" />
-
-        <LinearLayout
-            android:id="@+id/actions"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:divider="@drawable/empty"
-            android:gravity="center"
-            android:orientation="horizontal"
-            android:showDividers="middle">
-
-            <TextView
-                android:id="@+id/btnChoosePlayer"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="?android:attr/selectableItemBackground"
-                android:paddingHorizontal="8dp"
-                android:paddingVertical="4dp"
-                android:text="@string/setting_player_ui_choose_player"
-                android:textSize="12sp" />
-
-            <TextView
-                android:id="@+id/btnReset"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="?android:attr/selectableItemBackground"
-                android:paddingHorizontal="8dp"
-                android:paddingVertical="4dp"
-                android:text="@string/setting_player_ui_reset"
-                android:textSize="12sp" />
-
-        </LinearLayout>
-
-    </LinearLayout>
-
-    <!-- 点按钮后从下半屏滑出来的卡片：里面是那一组设置项，复用 SettingsAdapter -->
+        android:paddingHorizontal="@dimen/activity_padding_horizontal" />
+    <!-- 点一行后从下半屏滑出来的卡片：换按钮 / 挪位置 / 选按钮 / 那组设置，复用 SettingsAdapter -->
     <LinearLayout
         android:id="@+id/cardPanel"
         android:layout_width="match_parent"
         android:layout_height="240dp"
         android:layout_alignParentBottom="true"
-        android:background="@drawable/background_edittext"
+        android:layout_margin="4dp"
+        android:background="@drawable/background_card"
+        android:elevation="8dp"
         android:orientation="vertical"
         android:padding="4dp"
         android:visibility="gone">

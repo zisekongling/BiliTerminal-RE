@@ -4,10 +4,10 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
-import android.view.ViewTreeObserver
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.annotation.DrawableRes
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
@@ -16,25 +16,23 @@ import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.player.PlayerButtons
 import com.RobinNotBad.BiliClient.player.PlayerSettingsGroups
 import com.RobinNotBad.BiliClient.player.PlayerUiLayout
-import com.RobinNotBad.BiliClient.ui.widget.PlayerControlsPreview
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
-import com.RobinNotBad.BiliClient.util.ToolsUtil
 
 /**
- * 设置 →「播放与播放器」的第一屏：一张真实播放器界面。
+ * 设置 →「播放与播放器」的第一屏：播放器按钮的排布。
  *
- * 这张界面不是仿画的图，而是把播放页那套控件（[R.layout.activity_player] 的控制层）直接充进
- * 16:9 的框里，按钮的摆放由 [PlayerUiLayout] 决定、由 [com.RobinNotBad.BiliClient.player.PlayerButtonSlots]
- * 渲染——和播放页看到的完全一致。点按钮把「它管得着的那一组设置」从下半屏滑出来；长按某一格
- * 可以换按钮 / 改成一组 / 挪位置 / 移除，点每列末尾的 ＋ 加按钮，长按「更多」编辑这一组。
+ * 这里不做图形预览，就是一类「点一下改一下」的设置：左边一列、右边一列、底部两侧各一节，
+ * 每一格一行，点一行能换按钮 / 挪位置 / 改成一组 / 移除；每列末尾一行「加一个按钮」。
+ * 「画面元素」那一节是进度条、在线人数、播放手势、标题栏、播放与暂停这些没有自己按钮、
+ * 但点哪都能调一堆设置的地方。
  *
- * 布局本身存在 [SettingsKeys.PLAYER_UI_LAYOUT]，播放页 [com.RobinNotBad.BiliClient.activity.player.PlayerActivity]
- * 用同一份数据渲染真界面，所以这里看到的就是播放时的样子。
+ * 排布本身存在 [SettingsKeys.PLAYER_UI_LAYOUT]，播放页 [com.RobinNotBad.BiliClient.activity.player.PlayerActivity]
+ * 用同一份数据渲染真界面，所以这里改完播放时就是这个样子。
  */
 class SettingPlayerUiActivity : BaseActivity() {
 
-    private lateinit var preview: PlayerControlsPreview
+    private lateinit var contentList: RecyclerView
     private lateinit var cardPanel: LinearLayout
     private lateinit var cardTitle: TextView
     private lateinit var cardList: RecyclerView
@@ -49,39 +47,16 @@ class SettingPlayerUiActivity : BaseActivity() {
         super.onCreate(savedInstanceState)
 
         asyncInflate(R.layout.activity_setting_player_ui) { _, _ ->
-            preview = findViewById(R.id.preview)
+            contentList = findViewById(R.id.contentList)
             cardPanel = findViewById(R.id.cardPanel)
             cardTitle = findViewById(R.id.cardTitle)
             cardList = findViewById(R.id.cardList)
 
             findViewById<View>(R.id.pageName).setOnClickListener { finish() }
             findViewById<View>(R.id.btnFull).setOnClickListener { openFullSettings() }
-            findViewById<View>(R.id.btnChoosePlayer).setOnClickListener {
-                startActivity(Intent(this, SettingPlayerChooseActivity::class.java))
-            }
-            findViewById<View>(R.id.btnReset).setOnClickListener { resetLayout() }
 
+            contentList.layoutManager = getLayoutManager()
             cardList.layoutManager = getLayoutManager()
-
-            preview.onButtonClick = { key -> showButtonCard(key) }
-            preview.onButtonLongClick = { key -> onButtonLongClick(key) }
-            preview.onMoreLongClick = { region, index ->
-                val slot = PlayerUiLayout.slots(layout, region).getOrNull(index) as? PlayerUiLayout.Slot.Group
-                if (slot != null) showGroupCard(region, index, slot)
-            }
-            preview.onAddClick = { region -> showPicker(region, -1, PickMode.AddSlot) }
-            preview.onElementClick = { element -> onElementClick(element) }
-
-            // 缩略框的比例直接取**当前设备屏幕分辨率**：PlayerControlsPreview 的画布就是真机分辨率，
-            // 框和屏幕同比例缩放才不会变形，也才看得出「真机上就是这个样子」。
-            // 第一次布局完成后才知道提示语/按钮行有多高，所以挂在全局布局回调里量一次就摘掉。
-            preview.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
-                override fun onGlobalLayout() {
-                    if (fitPreviewToScreen()) {
-                        preview.viewTreeObserver.removeOnGlobalLayoutListener(this)
-                    }
-                }
-            })
 
             reloadLayout()
         }
@@ -89,38 +64,7 @@ class SettingPlayerUiActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::preview.isInitialized) reloadLayout()
-    }
-
-    /**
-     * 按屏幕比例把预览框缩到「提示语 + 底部两个按钮」之上。
-     *
-     * 比例必须与屏幕一致：`PlayerControlsPreview` 的画布就是真机分辨率，框不同比例会被拉变形。
-     * 提示语和按钮行在内容超高时会被量成 0 高（LinearLayout 已经没空间分给它们了），所以这里
-     * 不去读它们的高度，直接按固定预算 [BOTTOM_RESERVED_DP] 给它们留位置。
-     */
-    private fun fitPreviewToScreen(): Boolean {
-        val metrics = resources.displayMetrics
-        val aspect = metrics.heightPixels.toFloat() / metrics.widthPixels
-        val parent = preview.parent as? View ?: return false
-        val top = findViewById<View>(R.id.top)
-        if (parent.width <= 0 || top.height <= 0) return false
-        val maxHeight = metrics.heightPixels - top.height - ToolsUtil.dp2px(BOTTOM_RESERVED_DP)
-        if (maxHeight <= 0) return false
-        var width = parent.width
-        var height = (width * aspect).toInt()
-        if (height > maxHeight) {
-            height = maxHeight
-            width = (height / aspect).toInt()
-        }
-        if (width <= 0 || height <= 0) return false
-        if (preview.layoutParams.width == width && preview.layoutParams.height == height) return true
-        preview.layoutParams = preview.layoutParams.apply {
-            this.width = width
-            this.height = height
-        }
-        preview.requestLayout()
-        return true
+        if (::contentList.isInitialized) reloadLayout()
     }
 
     override fun onBackPressed() {
@@ -142,15 +86,112 @@ class SettingPlayerUiActivity : BaseActivity() {
             { key -> SharedPreferencesUtil.getString(key, "") },
             { key, value -> SharedPreferencesUtil.putString(key, value) }
         )
-        preview.render(layout)
+        rebuildRows()
+    }
+
+    // ---- 主列表 ----
+
+    /**
+     * 把当前排布摊成一张列表：四个区各一节，每格一行，末尾一行是「加一个按钮」。
+     *
+     * 列标题里带上容量（「左列（最多 5 格）」），行里的 desc 写第几格，全部走 [R.string]。
+     */
+    private fun rebuildRows() {
+        val rows = ArrayList<SettingSection>()
+        for (region in PlayerUiLayout.Region.values()) {
+            rows += noteSection(
+                getString(
+                    R.string.setting_player_ui_region_title,
+                    getString(regionNameRes(region)),
+                    region.capacity
+                )
+            )
+            val slots = PlayerUiLayout.slots(layout, region)
+            if (slots.isEmpty()) {
+                rows += noteSection(getString(R.string.setting_player_ui_region_empty))
+            }
+            slots.forEachIndexed { index, slot ->
+                rows += when (slot) {
+                    is PlayerUiLayout.Slot.Button -> {
+                        val button = PlayerButtons.byKey(slot.key)
+                        navRow(
+                            button?.let { getString(it.nameRes) } ?: slot.key,
+                            getString(R.string.setting_player_ui_region_desc, getString(regionNameRes(region)), index + 1),
+                            button?.iconRes ?: R.drawable.icon_menu
+                        ) { showSlotMenu(region, index) }
+                    }
+                    is PlayerUiLayout.Slot.Group -> navRow(
+                        getString(R.string.setting_player_ui_group_count, slot.keys.size),
+                        slot.keys.joinToString("、") { key ->
+                            PlayerButtons.byKey(key)?.let { getString(it.nameRes) } ?: key
+                        },
+                        R.mipmap.morehide
+                    ) { showGroupCard(region, index, slot) }
+                }
+            }
+            if (!PlayerUiLayout.isFull(layout, region)) {
+                rows += navRow(
+                    getString(R.string.setting_player_ui_add_button),
+                    getString(R.string.setting_player_ui_region_capacity, region.capacity),
+                    android.R.drawable.ic_input_add
+                ) { showPicker(region, -1, PickMode.AddSlot) }
+            }
+        }
+
+        rows += noteSection(getString(R.string.setting_player_ui_label_elements))
+        rows += navRow(
+            getString(R.string.setting_player_ui_label_progress),
+            getString(R.string.setting_player_ui_element_desc),
+            R.drawable.icon_menu
+        ) { onElementClick("progress") }
+        rows += navRow(
+            getString(R.string.setting_player_ui_label_online),
+            getString(R.string.setting_player_ui_element_desc),
+            R.drawable.icon_menu
+        ) { onElementClick("online") }
+        rows += navRow(
+            getString(R.string.setting_player_ui_label_blank),
+            getString(R.string.setting_player_ui_element_desc),
+            R.drawable.icon_menu
+        ) { onElementClick("blank") }
+        rows += navRow(
+            getString(R.string.setting_player_ui_label_title),
+            getString(R.string.setting_player_ui_element_desc),
+            R.drawable.icon_menu
+        ) { onElementClick("title") }
+        rows += navRow(
+            getString(R.string.setting_player_ui_label_play),
+            getString(R.string.setting_player_ui_element_desc),
+            R.drawable.icon_menu
+        ) { onElementClick("play") }
+
+        rows += navRow(
+            getString(R.string.setting_player_ui_choose_player),
+            "",
+            R.drawable.icon_menu
+        ) { startActivity(Intent(this, SettingPlayerChooseActivity::class.java)) }
+        rows += navRow(
+            getString(R.string.setting_player_ui_reset),
+            "",
+            android.R.drawable.ic_menu_revert
+        ) { resetLayout() }
+
+        contentList.adapter = SettingsAdapter(this, rows)
+    }
+
+    private fun regionNameRes(region: PlayerUiLayout.Region) = when (region) {
+        PlayerUiLayout.Region.LEFT -> R.string.setting_player_ui_region_left
+        PlayerUiLayout.Region.RIGHT -> R.string.setting_player_ui_region_right
+        PlayerUiLayout.Region.BOTTOM_LEFT -> R.string.setting_player_ui_region_bottom_left
+        PlayerUiLayout.Region.BOTTOM_RIGHT -> R.string.setting_player_ui_region_bottom_right
     }
 
     private fun resetLayout() {
         PlayerUiLayout.save(PlayerUiLayout.DEFAULT) { key, value ->
             SharedPreferencesUtil.putString(key, value)
         }
-        reloadLayout()
         hideCard()
+        reloadLayout()
     }
 
     private fun openFullSettings() {
@@ -158,31 +199,6 @@ class SettingPlayerUiActivity : BaseActivity() {
     }
 
     // ---- 点按钮 ----
-
-    /** 长按某个按钮：找到它摆在哪一格，弹出那一格的编辑菜单。 */
-    private fun onButtonLongClick(key: String) {
-        val found = findSlotOf(key)
-        if (found == null) {
-            // 组内展开出来的成员没有自己的格子，长按就当点了一下（进它的设置）
-            showButtonCard(key)
-            return
-        }
-        when (val slot = PlayerUiLayout.slots(layout, found.first).getOrNull(found.second)) {
-            is PlayerUiLayout.Slot.Group -> showGroupCard(found.first, found.second, slot)
-            is PlayerUiLayout.Slot.Button -> showSlotMenu(found.first, found.second)
-            null -> Unit
-        }
-    }
-
-    /** 某个按钮当前摆在哪一格；没有就返回 null（组内成员没有独立格子）。 */
-    private fun findSlotOf(key: String): Pair<PlayerUiLayout.Region, Int>? {
-        for (region in PlayerUiLayout.Region.values()) {
-            val index = PlayerUiLayout.slots(layout, region)
-                .indexOfFirst { it is PlayerUiLayout.Slot.Button && it.key == key }
-            if (index >= 0) return region to index
-        }
-        return null
-    }
 
     private fun showSlotMenu(region: PlayerUiLayout.Region, index: Int) {
         val slot = PlayerUiLayout.slots(layout, region).getOrNull(index) ?: return
@@ -285,7 +301,7 @@ class SettingPlayerUiActivity : BaseActivity() {
         showCard(title, rows)
     }
 
-    /** 布局改了就保存 + 重画 + 收起卡片（手表屏幕小，改完要马上看见效果）。 */
+    /** 布局改了就保存 + 重排列表 + 收起卡片（手表屏幕小，改完要马上看见结果）。 */
     private fun applyLayout(newLayout: PlayerUiLayout.Layout) {
         if (newLayout == layout) {
             hideCard()
@@ -293,7 +309,7 @@ class SettingPlayerUiActivity : BaseActivity() {
         }
         layout = newLayout
         PlayerUiLayout.save(layout) { key, value -> SharedPreferencesUtil.putString(key, value) }
-        preview.render(layout)
+        rebuildRows()
         hideCard()
     }
 
@@ -362,6 +378,10 @@ class SettingPlayerUiActivity : BaseActivity() {
 
     private fun dividerSection() = SettingSection("divider", "", "", "", "")
 
+    /** 一行「位置 → 按钮」：左边图标、上面标题、下面一行说明，点整行进它自己的卡。 */
+    private fun navRow(title: String, desc: String, @DrawableRes iconRes: Int, onClick: () -> Unit) =
+        SettingSection("nav", title, "", desc, "", SettingsAdapter.NavExtra(iconRes, { onClick() }))
+
     /** 一行可点的动作（`button` 类型，标题就是动作名）。 */
     private fun editRow(text: String, onClick: () -> Unit) =
         SettingSection("button", text, "", "", "", SettingsAdapter.ButtonExtra { onClick() })
@@ -378,6 +398,8 @@ class SettingPlayerUiActivity : BaseActivity() {
         val adapter = SettingsAdapter(this, sections)
         cardAdapter = adapter
         cardList.adapter = adapter
+        // 上一次收起动画可能还在跑，它的 withEndAction 会把卡片设成 GONE，必须先掐掉
+        cardPanel.animate().cancel()
         cardPanel.visibility = View.VISIBLE
         // 卡片初始在屏幕外，量到高度后滑上来（GONE 期间 height 是 0，不能在 showCard 之前算）
         cardPanel.post {
@@ -389,6 +411,7 @@ class SettingPlayerUiActivity : BaseActivity() {
 
     private fun hideCard() {
         if (cardPanel.visibility != View.VISIBLE) return
+        cardPanel.animate().cancel()
         cardPanel.animate().translationY(cardPanel.height.toFloat()).setDuration(160L)
             .withEndAction {
                 cardPanel.visibility = View.GONE
@@ -398,8 +421,5 @@ class SettingPlayerUiActivity : BaseActivity() {
             }.start()
     }
 
-    private companion object {
-        /** 预览下方「提示语 + 两个按钮」的高度预算（dp），给预览框算可用高度用。 */
-        const val BOTTOM_RESERVED_DP = 120f
-    }
+
 }
