@@ -4,24 +4,32 @@ import com.RobinNotBad.BiliClient.util.UiText
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.View
+import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.TextView
 import androidx.viewpager.widget.ViewPager
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.adapter.viewpager.ViewPagerViewAdapter
+import com.RobinNotBad.BiliClient.ui.widget.BigImageView
 import com.RobinNotBad.BiliClient.ui.widget.PhotoViewpager
+import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.GlideUtil
+import com.RobinNotBad.BiliClient.util.ImageTilePolicy
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
+import com.bumptech.glide.request.FutureTarget
 import com.bumptech.glide.request.target.Target
 import com.github.chrisbanes.photoview.PhotoView
+import java.io.File
 import kotlin.math.abs
 
 /**
@@ -74,6 +82,48 @@ internal object ImageViewerZoomPolicy {
         if (value.isNaN() || value.isInfinite() || value <= 0f) fallback else value
 }
 
+/** 页状态：还没探测出这张图该走哪条路径。 */
+private const val PAGE_PENDING = 0
+
+/** 普通整图路径（PhotoView + Glide）：小图，以及分块不可用时的回退目标。 */
+private const val PAGE_PHOTO = 1
+
+/** 分块路径（[BigImageView]）：长图 / 超大图。 */
+private const val PAGE_BIG = 2
+
+/**
+ * 一页的全部状态。
+ *
+ * [container] 交给 `PagerAdapter`；[photoView] 是原来的整图路径（逻辑一字未改，只是从
+ * 「直接当页」变成「装在容器里」）；[bigView] 只在探测出「这张图太大」时才懒创建、叠在
+ * PhotoView 上层。
+ */
+private class ImagePage(val container: FrameLayout, val photoView: PhotoView) {
+
+    var bigView: BigImageView? = null
+
+    var mode: Int = PAGE_PENDING
+
+    /** 每页只探测一次尺寸（探测结果同时决定路径）。 */
+    var probeStarted = false
+
+    /** 探测到的磁盘原图路径：大图页被切走释放后，切回来用它重新打开。 */
+    var filePath: String? = null
+
+    var sourceWidth: Int = 0
+
+    var sourceHeight: Int = 0
+
+    /** 「清晰度已降低」只提示一次。 */
+    var degradedNotified = false
+
+    /** 进行中的尺寸探测请求，活动销毁时要取消（否则 Glide 会往已销毁的宿主里回调）。 */
+    var probeRequest: FutureTarget<File>? = null
+}
+
+/** 原图尺寸探测结果（`inJustDecodeBounds` 的解码结果，只读文件头）。 */
+private data class ImageBounds(val width: Int, val height: Int, val mimeType: String?)
+
 class ImageViewerActivity : BaseActivity() {
 
     /**
@@ -84,8 +134,8 @@ class ImageViewerActivity : BaseActivity() {
     override val forceNoSwipeTheme: Boolean
         get() = true
 
-    /** 与 ViewPager 的页序一一对应，双击时按 [PhotoViewpager.currentItem] 取当前页。 */
-    private val photoViews = ArrayList<PhotoView>()
+    /** 与 ViewPager 的页序一一对应；每页一个容器，容器里可能同时有 PhotoView 与 BigImageView。 */
+    private val pages = ArrayList<ImagePage>()
 
     private lateinit var viewPager: PhotoViewpager
     private lateinit var imageList: ArrayList<String>
@@ -136,7 +186,10 @@ class ImageViewerActivity : BaseActivity() {
             )
         }
 
+        // 每页：容器 + PhotoView（原来的整图路径）。BigImageView 等探测出「这是长图/超大图」再叠上去，
+        // 小图完全走原逻辑，不产生任何额外开销。
         for (i in imageList.indices) {
+            val container = FrameLayout(this)
             val photoView = PhotoView(this)
             // 显式给三档，别只改 maximumScale：PhotoView 的中间档默认 1.75，手表上双击后
             // 放大不明显，用户会觉得"没放大"。
@@ -149,36 +202,24 @@ class ImageViewerActivity : BaseActivity() {
             // PhotoViewpager 类注释），否则容器拦截时它收不到事件，没被拦截时又会和我们的
             // 缩放动画叠在一起。
             photoView.setOnDoubleTapListener(NOOP_DOUBLE_TAP_LISTENER)
-            photoViews.add(photoView)
+            container.addView(
+                photoView,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+            pages.add(ImagePage(container, photoView))
         }
 
         // 26.10.27 性能：原来 onCreate 里一次性把**所有**图按原尺寸（SIZE_ORIGINAL）解码，
         // 九宫格动态就是 9 张 1024w ARGB 位图同时进内存，手表上容易 OOM（而且 Glide 的异步 OOM
         // 根本不会落到这里的 catch）。现在只加载当前页和左右各一页，翻页时再补。
-        val loaded = BooleanArray(imageList.size)
-        fun loadAround(position: Int) {
-            for (i in (position - 1)..(position + 1)) {
-                if (i !in imageList.indices || loaded[i]) continue
-                loaded[i] = true
-                try {
-                    Glide.with(this).asDrawable()
-                        .load(GlideUtil.url_zoom(imageList[i]))
-                        .transition(GlideUtil.getTransitionOptions())
-                        .override(Target.SIZE_ORIGINAL)
-                        .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
-                        .into(photoViews[i])
-                } catch (e: OutOfMemoryError) {
-                    MsgUtil.showMsg(UiText.of("超出内存，加载失败"))
-                } catch (e: Exception) {
-                    MsgUtil.err(UiText.of("图片查看"), e)
-                }
-            }
-        }
-        loadAround(0)
-
-        val vpiAdapter = ViewPagerViewAdapter(photoViews)
-
-        viewPager.adapter = vpiAdapter
+        // 26.11.06 大图：加载前先异步探一次「文件尺寸 + 格式」——单边 >4096 或面积 >16M 的图
+        // 走 BigImageView 分块解码（见 ImageTilePolicy），否则仍走原来的 PhotoView 整图路径。
+        val pageViews = ArrayList<View>(pages.size)
+        for (page in pages) pageViews.add(page.container)
+        viewPager.adapter = ViewPagerViewAdapter(pageViews)
 
         // 双击 → 当前页在触点位置放大 / 再放大 / 复原
         viewPager.onDoubleTap = { x, y -> zoomAt(viewPager.currentItem, x, y) }
@@ -192,11 +233,18 @@ class ImageViewerActivity : BaseActivity() {
 
             override fun onPageSelected(position: Int) {
                 loadAround(position)
+                // 离当前页两页以上的分块页立刻释放块位图与 decoder：长图一张就可能占几十 MB，
+                // 九宫格翻到后面时前面的分块页不能继续占着。
+                for (i in pages.indices) {
+                    if (abs(i - position) > 1) pages[i].bigView?.releaseImage()
+                }
             }
 
             override fun onPageScrollStateChanged(state: Int) {
             }
         })
+
+        loadAround(0)
     }
 
     override fun onResume() {
@@ -205,15 +253,206 @@ class ImageViewerActivity : BaseActivity() {
         downloadLaunched = false
     }
 
+    override fun onDestroy() {
+        // 探测请求必须取消：Glide 的 FutureTarget 若在宿主销毁后才回调，会往死掉的活动里塞 View。
+        for (page in pages) {
+            page.probeRequest?.let { target ->
+                try {
+                    Glide.with(this).clear(target)
+                } catch (e: Exception) {
+                    Logu.d("image-viewer", "clear probe target failed: ${e.message}")
+                }
+            }
+            page.probeRequest = null
+            page.bigView?.destroy()
+            page.bigView = null
+        }
+        super.onDestroy()
+    }
+
+    /** 加载当前页与左右各一页：已探测过的页（切走又切回）只做「大图重新挂上」。 */
+    private fun loadAround(position: Int) {
+        for (i in (position - 1)..(position + 1)) {
+            if (i !in imageList.indices) continue
+            val page = pages[i]
+            if (page.probeStarted) {
+                if (page.mode == PAGE_BIG) attachTiled(page)
+                continue
+            }
+            page.probeStarted = true
+            probePage(page, i)
+        }
+    }
+
+    /**
+     * 探测第 [index] 页的磁盘文件尺寸与格式，决定走分块还是整图。
+     *
+     * 用 Glide 的 `asFile()` 先拿到 disk cache 里的原图文件（与后面 `into(photoView)` 用的是
+     * 同一个 URL、同一份缓存），再在主线程之外用 `inJustDecodeBounds` 只读文件头——不解码像素，
+     * 开销是 O(1)。
+     */
+    private fun probePage(page: ImagePage, index: Int) {
+        val request = try {
+            Glide.with(this).asFile()
+                .load(GlideUtil.url_zoom(imageList[index]))
+                .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
+                .submit()
+        } catch (e: Exception) {
+            null
+        }
+        page.probeRequest = request
+        if (request == null) {
+            // 连请求都发不出去（网络/磁盘异常）：退回整图路径，让 Glide 自己报错
+            attachPhoto(page, index, fallback = false)
+            return
+        }
+        CenterThreadPool.run {
+            val file = try {
+                request.get()
+            } catch (t: Throwable) {
+                null
+            }
+            val bounds = if (file != null) readImageBounds(file) else ImageBounds(0, 0, null)
+            CenterThreadPool.runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                onProbed(page, index, file, bounds)
+            }
+        }
+    }
+
+    /** 只读文件头拿尺寸与 MIME（`inJustDecodeBounds` 不会分配像素内存）。 */
+    private fun readImageBounds(file: File): ImageBounds {
+        return try {
+            val options = BitmapFactory.Options()
+            options.inJustDecodeBounds = true
+            BitmapFactory.decodeFile(file.absolutePath, options)
+            ImageBounds(options.outWidth, options.outHeight, options.outMimeType)
+        } catch (e: Exception) {
+            ImageBounds(0, 0, null)
+        }
+    }
+
+    /** 探测结束：大图且格式可分块 → 分块路径；否则（含探测失败）→ 原整图路径。 */
+    private fun onProbed(page: ImagePage, index: Int, file: File?, bounds: ImageBounds) {
+        if (file == null || !ImageTilePolicy.isTileableMime(bounds.mimeType) ||
+            !ImageTilePolicy.shouldTile(bounds.width, bounds.height)
+        ) {
+            attachPhoto(page, index, fallback = false)
+            return
+        }
+        page.mode = PAGE_BIG
+        page.filePath = file.absolutePath
+        page.sourceWidth = bounds.width
+        page.sourceHeight = bounds.height
+        attachTiled(page)
+    }
+
+    /** 把该页切到分块路径（幂等：ViewPager 来回翻时重复调用只会重挂已释放的图）。 */
+    private fun attachTiled(page: ImagePage) {
+        val path = page.filePath ?: return
+        val big = page.bigView ?: BigImageView(this).also { created ->
+            created.onTilesUnavailable = { reason -> onTilesUnavailable(page, reason) }
+            created.onTilesDegraded = { onTilesDegraded(page) }
+            page.container.addView(
+                created,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+            page.bigView = created
+        }
+        page.photoView.visibility = View.GONE
+        // 底下那张整图不再需要：清掉它，别让「整图位图 + 分块位图」同时占内存（分块的初衷）。
+        try {
+            Glide.with(this).clear(page.photoView)
+        } catch (e: Exception) {
+            Logu.d("image-viewer", "clear photo view failed: ${e.message}")
+        }
+        if (!big.hasImage()) {
+            big.setImageFile(
+                path,
+                page.sourceWidth,
+                page.sourceHeight,
+                getString(R.string.image_viewer_port_tile_loading)
+            )
+        }
+    }
+
+    /** 分块路径不可用（文件损坏 / 内存不足且已降到底）：回退整图，并提示一次。 */
+    private fun onTilesUnavailable(page: ImagePage, reason: Int) {
+        if (page.mode != PAGE_BIG) return
+        val index = pages.indexOf(page)
+        if (index < 0) return
+        page.mode = PAGE_PHOTO
+        MsgUtil.showMsg(
+            getString(
+                if (reason == BigImageView.REASON_OOM) {
+                    R.string.image_viewer_port_tile_oom
+                } else {
+                    R.string.image_viewer_port_tile_failed
+                }
+            )
+        )
+        attachPhoto(page, index, fallback = true)
+    }
+
+    /** 分块中途自动降了清晰度：只提示一次，别每块都弹。 */
+    private fun onTilesDegraded(page: ImagePage) {
+        if (page.degradedNotified) return
+        page.degradedNotified = true
+        MsgUtil.showMsg(getString(R.string.image_viewer_port_tile_degraded))
+    }
+
+    /**
+     * 回到原整图路径。
+     *
+     * [fallback] = true 表示「大图分块失败后回退」：此时**不能**再按 `SIZE_ORIGINAL` 解码
+     * （那正是会 OOM 的路径），交给 Glide 按 View 尺寸降采样，先显示出来再说；
+     * [fallback] = false 是普通小图，保持原来的 `SIZE_ORIGINAL` 行为不变。
+     */
+    private fun attachPhoto(page: ImagePage, index: Int, fallback: Boolean) {
+        page.mode = PAGE_PHOTO
+        page.bigView?.let { view ->
+            page.container.removeView(view)
+            view.destroy()
+            page.bigView = null
+        }
+        page.photoView.visibility = View.VISIBLE
+        try {
+            val builder = Glide.with(this).asDrawable()
+                .load(GlideUtil.url_zoom(imageList[index]))
+                .transition(GlideUtil.getTransitionOptions())
+                .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
+            if (!fallback) {
+                builder.override(Target.SIZE_ORIGINAL)
+            }
+            builder.into(page.photoView)
+        } catch (e: OutOfMemoryError) {
+            MsgUtil.showMsg(UiText.of("超出内存，加载失败"))
+        } catch (e: Exception) {
+            MsgUtil.err(UiText.of("图片查看"), e)
+        }
+    }
+
     /**
      * 对第 [position] 张图做一次双击缩放，触点 ([x], [y]) 作为缩放中心。
+     *
+     * 分块页交给 [BigImageView.zoomNextAt]（内部复用同一套 [ImageViewerZoomPolicy] 档位）；
+     * 其余情况走原来的 PhotoView 逻辑，一个字没改。
      *
      * 缩放动画落地后再校验一次：部分 ROM 上图片刚好在双击动画期间加载完成，PhotoView 的
      * `updateBaseMatrix()` 会把缩放矩阵重置回原比例，观感就是「抖两下、还是原样」（反馈 #14 /
      * #54 的原话）。发现被重置就不再走动画、直接钉到目标倍率，避免反复抖动。
      */
     private fun zoomAt(position: Int, x: Float, y: Float) {
-        val photoView = photoViews.getOrNull(position) ?: return
+        val page = pages.getOrNull(position) ?: return
+        val big = page.bigView
+        if (page.mode == PAGE_BIG && big != null && big.hasImage() && big.zoomNextAt(x, y)) {
+            return
+        }
+        if (page.mode != PAGE_PHOTO) return
+        val photoView = page.photoView
         val target = ImageViewerZoomPolicy.nextScale(
             photoView.scale,
             photoView.minimumScale,

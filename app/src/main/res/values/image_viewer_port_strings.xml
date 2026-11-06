@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  看图页「大图分块解码」的文案（独立成文件，避免与并行任务改同一个 strings.xml 冲突）。
+  只用在该页：分块视图的加载提示、降级提示、回退整图提示。
+-->
+<resources>
+    <!-- 分块视图还没有任何块解码完成时的居中提示 -->
+    <string name="image_viewer_port_tile_loading">正在加载大图…</string>
+    <!-- 解码 OOM 后自动降采样，提示一次「清晰度降低了」 -->
+    <string name="image_viewer_port_tile_degraded">内存不足，已降低大图清晰度</string>
+    <!-- 文件打不开/解不出任何块，回退到普通整图加载 -->
+    <string name="image_viewer_port_tile_failed">大图解码失败，已切换普通加载</string>
+    <!-- 降采样到底仍 OOM，回退到普通整图加载 -->
+    <string name="image_viewer_port_tile_oom">内存不足，已切换普通加载</string>
+</resources>
