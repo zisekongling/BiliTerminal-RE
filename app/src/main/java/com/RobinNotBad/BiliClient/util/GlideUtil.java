@@ -30,8 +30,21 @@ public class GlideUtil {
     private static final DrawableCrossFadeFactory CROSS_FADE_FACTORY =
             new DrawableCrossFadeFactory.Builder(300).setCrossFadeEnabled(true).build();
 
+    /**
+     * 这条图片地址能不能拼 `@0e_75q_640w.webp` 这种缩放后缀。
+     *
+     * 26.11.06 起改成按主机白名单判定（[ImageRequestPolicy.supportsResizeSuffix]，纯函数、有单测）：
+     * 以前是「凡是 http 图片都拼」，站外地址会被拼坏——关于页「赞赏」那张 gitee 收款码被拼成
+     * `ma.jpg@0e_75q_640w.webp`，直接 404、图空白。gif 本来也不能拼，已经带过 `@` 的别重复拼。
+     */
+    private static boolean canAppendResizeSuffix(String url) {
+        return !url.endsWith("gif")
+                && !url.contains("@")
+                && ImageRequestPolicy.supportsResizeSuffix(url);
+    }
+
     public static String url(String url) {
-        if (!url.startsWith("http") || url.endsWith("gif") || url.contains("@") || url.contains("afdian"))
+        if (!canAppendResizeSuffix(url))
             return url;
         final int quality = PerformanceManager.getImageQuality();
         final int maxWidth = PerformanceManager.getImageMaxWidth();
@@ -61,7 +74,7 @@ public class GlideUtil {
     }
 
     private static String hqUrl(String url, int maxWidth) {
-        if (!url.startsWith("http") || url.endsWith("gif") || url.contains("@") || url.contains("afdiancdn.com"))
+        if (!canAppendResizeSuffix(url))
             return url;
         final int quality = PerformanceManager.getHqImageQuality();
         if (SharedPreferencesUtil.getBoolean("image_request_jpg", false)) {

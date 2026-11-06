@@ -56,6 +56,30 @@ object ImageRequestPolicy {
     }
 
     /**
+     * 认 `@0e_75q_640w.webp`（`@…q_…w.jpeg`）这类缩放后缀的 B 站图床主机。
+     * 与 [NetWorkUtil.isBilibiliHost] 分开写：主站域名（www/api/passport…）虽然属于 B 站，
+     * 但同样不认这个后缀，拼上去一样 404。
+     */
+    private val RESIZE_CDN_HOST_SUFFIXES = listOf(".hdslb.com", ".biliimg.com", ".bilivideo.com")
+
+    /**
+     * 这条图片地址能不能拼 CDN 缩放后缀（[com.RobinNotBad.BiliClient.util.GlideUtil.url] /
+     * [com.RobinNotBad.BiliClient.util.GlideUtil.url_zoom] 用）。
+     *
+     * 后缀是 B 站图床的路径约定，拼给站外地址一律 404。26.11.06 加「赞赏」入口时踩到：
+     * gitee 上的收款码被拼成 `ma.jpg@0e_75q_640w.webp`，图直接加载不出来。所以按主机白名单判定，
+     * 而不是「凡是 http 图片都拼」。
+     *
+     * 失败方向：解析不出 host（协议相对 `//i0.hdslb.com/x.jpg`、裸域名、坏串）一律返回 false ——
+     * 保守地请求原图，最多多下几十 KB，不会像拼错后缀那样整张图空白。
+     */
+    @JvmStatic
+    fun supportsResizeSuffix(url: String?): Boolean {
+        val host = hostOf(url) ?: return false
+        return RESIZE_CDN_HOST_SUFFIXES.any { host.endsWith(it) }
+    }
+
+    /**
      * 计算这条图片请求最终要写的头。
      *
      * @param webHeaders [NetWorkUtil.webHeaders] 的快照（扁平 key/value 对，构造处见 NetWorkUtil#buildWebHeaders）

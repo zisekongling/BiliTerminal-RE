@@ -161,6 +161,48 @@ class ImageRequestPolicyTest {
         assertTrue(ImageRequestPolicy.headersToRemove("https://i0.hdslb.com/x.jpg").isEmpty())
     }
 
+    // ---------------- supportsResizeSuffix：只有 B 站图床认 @…w.webp 缩放后缀 ----------------
+
+    @Test
+    fun supportsResizeSuffix_bilibiliCdn_true() {
+        listOf(
+            "https://i0.hdslb.com/bfs/archive/cover.jpg",
+            "https://s1.hdslb.com/bfs/face/x.png",
+            "https://album.biliimg.com/bfs/new_dyn/x.jpg",
+            "https://upos-sz-mirrorcos.bilivideo.com/x.jpg"
+        ).forEach { url ->
+            assertTrue("B 站图床应允许拼缩放后缀：$url", ImageRequestPolicy.supportsResizeSuffix(url))
+        }
+    }
+
+    @Test
+    fun supportsResizeSuffix_externalHosts_false() {
+        // 站外拼后缀一律 404。26.11.06「赞赏」入口就是这么坏的：gitee 上的收款码被拼成
+        // ma.jpg@0e_75q_640w.webp，图片直接加载不出来。
+        listOf(
+            "https://gitee.com/zisekongling/bili-terminal-re/raw/master/ma.jpg",
+            "https://afdiancdn.com/img/avatar.jpg",
+            "https://example.com/x.jpg"
+        ).forEach { url ->
+            assertFalse("站外地址不能拼缩放后缀：$url", ImageRequestPolicy.supportsResizeSuffix(url))
+        }
+    }
+
+    @Test
+    fun supportsResizeSuffix_bilibiliMainSite_false() {
+        // 主站域名属于 B 站（isBilibiliHost 为 true），但同样不认 @…w 后缀，拼上去一样是坏地址。
+        assertFalse(ImageRequestPolicy.supportsResizeSuffix("https://www.bilibili.com/x/web-interface/card"))
+        assertFalse(ImageRequestPolicy.supportsResizeSuffix("https://api.bilibili.com/x/test.jpg"))
+    }
+
+    @Test
+    fun supportsResizeSuffix_unparsable_false() {
+        assertFalse(ImageRequestPolicy.supportsResizeSuffix(null))
+        assertFalse(ImageRequestPolicy.supportsResizeSuffix(""))
+        assertFalse(ImageRequestPolicy.supportsResizeSuffix("//i0.hdslb.com/bfs/x.jpg")) // 协议相对
+        assertFalse(ImageRequestPolicy.supportsResizeSuffix("i0.hdslb.com/bfs/x.jpg")) // 裸域名
+    }
+
     // ---------------- pairsOf：扁平列表的解析（防御式） ----------------
 
     @Test
