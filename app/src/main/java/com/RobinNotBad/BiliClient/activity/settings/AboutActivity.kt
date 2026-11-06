@@ -16,11 +16,13 @@ import android.widget.TextView
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.FeedbackActivity
+import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
+import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
@@ -122,6 +124,21 @@ class AboutActivity : BaseActivity() {
                 startActivity(Intent(this, OpenSourceActivity::class.java))
             }
 
+            // 赞赏：先弹免责声明，点「同意」才去看收款码（点「取消」什么都不发生）。
+            // 收款码交给图片查看器（能双指放大，手表屏幕小，二维码得看得清）；
+            // 地址走 strings.xml 的 about_donate_url，换图不用改代码。
+            // 注意 TerminalDialog 只「造」弹窗不负责显示，调用完必须 .show()（漏了就是点了没反应）。
+            findViewById<View>(R.id.donate_qr_entry).setOnClickListener {
+                TerminalDialog.confirm(
+                    context = this,
+                    title = getString(R.string.about_donate_entry),
+                    message = getString(R.string.about_donate_disclaimer),
+                    confirmText = getString(R.string.privacy_consent_agree), // 同意
+                    confirmIsDanger = false,
+                    onConfirm = { openDonateQr() }
+                ).show()
+            }
+
             findViewById<View>(R.id.sponsor_list).setOnClickListener {
                 val intent = Intent(this, SponsorActivity::class.java)
                 startActivity(intent)
@@ -157,6 +174,14 @@ class AboutActivity : BaseActivity() {
             scrollView.isFocusableInTouchMode = true
             scrollView.requestFocus()
         }
+    }
+
+    /** 打开赞赏用的收款码（图片查看器，可双指放大）。 */
+    private fun openDonateQr() {
+        startActivity(
+            Intent(this, ImageViewerActivity::class.java)
+                .putExtra("imageList", arrayListOf(getString(R.string.about_donate_url)))
+        )
     }
 
     /** 把开发者列表渲染成卡片塞进容器。 */

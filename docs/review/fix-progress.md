@@ -1460,6 +1460,21 @@
 - **没动的**：`activity/settings/SettingPlayerUiActivity.kt`、`res/layout/activity_setting_player_ui.xml`、manifest 里的注册、`strings.xml` 的 `pagename_setting_player_ui` / `setting_player_ui_entry_desc`（另有页面内文案）、`SettingPlayerChooseActivity` 里对 `player_ui_choose` 的点击绑定（view 仍是 gone 但存在，留着恢复时少改一处），以及播放器侧 `player/PlayerButtonSlots.kt` / `PlayerUiLayout.kt` 的渲染逻辑——已存档的布局继续生效，只是用户进不去改了。
 - **验证 · L0**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest` → `BUILD SUCCESSFUL in 45s`（两 flavor 都出包）；`testStandardDebugUnitTest` 187 suites / 2039 tests / 0 失败 0 错误 0 跳过（数字取自 `app/build/test-results/testStandardDebugUnitTest/TEST-*.xml` 求和；本机存在 `private/`，与 §1 记的旧计数不同源，未逐类核对）。**没上设备**：本条结论是「卡片不出现 + 搜索里搜不到」，由 `visibility="gone"` 与索引条目删除静态可判，按 `docs/agents/testing.md` 不占人测额度。
 
+### 3.134 关于页新增「赞赏」入口，顺手把「捐赠列表」入口藏起来（26.11.06，用户点名）
+
+- **要求原文**：用户先给了图（`https://gitee.com/zisekongling/bili-terminal-re/raw/master/ma.jpg`）说「关于设置里加一个赞赏，点击之后调用播放器弹出这张图」，随即澄清「不是调用播放器，是调用图片查看啊」；随后追加免责声明的措辞（「收到的钱只用于维护服务器和AIapikey」）；最后一句「这个先隐藏吧」经反问确认，指的是**原有的「捐赠列表」入口**，不是新加的「赞赏」。
+- **关于页四件事**：
+  1. `res/layout/activity_setting_about.xml`：在 `sponsor_list` 卡之前插一张 `MaterialCardView id=donate_qr_entry`（行样式照抄 `sponsor_list`：`TextView` 35dp / 13sp / `textAlignment="textStart"` / `app:drawableEndCompat="@drawable/arrow_forward"`），两侧各一个 `cell_divider`。**顺序是「赞赏」在前、「捐赠列表」在后**，后者现在藏了。
+  2. `strings.xml`：`about_donate_entry`=赞赏、`about_donate_url`（`translatable="false"`，就是上面那个 gitee 地址，换图不用改代码）、`about_donate_disclaimer`=四行免责声明（纯自愿 / 钱只用于维护服务器和 AI API Key / 不设付费功能、意见同等考虑 / 未成年人征求意见，末行「点「同意」查看收款码」）。同一文件里 `donate_desc` 的「仅用于维护服务器」同步改成「仅用于维护服务器和 AI API Key」，两句口径保持一致。
+  3. `AboutActivity.kt`：`TerminalDialog.confirm(...)` 弹免责声明，`confirmText` 复用 `privacy_consent_agree`（同意）、`confirmIsDanger=false`，`onConfirm` 才 `openDonateQr()`；`openDonateQr()` = `startActivity(Intent(this, ImageViewerActivity::class.java).putExtra("imageList", arrayListOf(getString(R.string.about_donate_url))))`。走**图片查看器**不是播放器：手表屏幕窄，收款码得能双指放大。
+  4. 「捐赠列表」入口先藏：`sponsor_list` 那张卡加 `android:visibility="gone"`（卡上方注释写明是用户要求、恢复时删这一行），`SponsorActivity` 页面与 `AboutActivity` 里的点击绑定**全都留着**。
+- **顺带修掉的两个 bug（都是这次踩出来的）**：
+  - **站外图被拼上 B 站 CDN 的缩放后缀 → 404**：`util/GlideUtil.java` 的 `url()` / `hqUrl()` 原来只排除「非 http / gif / 已带 `@` / afdian」，其余一律拼 `@0e_<q>q_<w>w.webp`（jpg 模式 `.jpeg`）。gitee 的 `ma.jpg` 拼完是 `ma.jpg@0e_75q_640w.webp`，实测 **HTTP 404**，图片查看器里就是一片空白。改法：两个方法共用新的 `private static boolean canAppendResizeSuffix(String url)`，判断下沉到纯 JVM 可测的 `util/ImageRequestPolicy.supportsResizeSuffix(url)`（白名单 `.hdslb.com` / `.biliimg.com` / `.bilivideo.com`，解析不出 host 一律 false）。**故意不用 `NetWorkUtil.isBilibiliHost`**：主站域名属 B 站但不认这个后缀。
+  - **`TerminalDialog` 只造弹窗、不负责显示**：`confirm/menu/alert/...` 返回 `AlertDialog`，调用点必须自己接 `.show()`（仓里既有写法见 `FavoriteVideoListActivity.kt:192`、`SubscriptionListActivity.kt:149` 的 `).show()`）。第一版漏了 → 用户实测「点不动」，已补上并在 `AboutActivity` 该块注释里写明这个坑。
+- **验证 · L0**：`./gradlew.bat :app:assembleDebug` → `BUILD SUCCESSFUL`（两 flavor 出包）；`:app:testStandardDebugUnitTest` 187 suites / **2043** tests / 0 失败 0 错误 0 跳过（`ImageRequestPolicyTest` 新增 4 个用例：`supportsResizeSuffix_bilibiliCdn_true` / `_externalHosts_false` / `_bilibiliMainSite_false` / `_unparsable_false`）。
+- **验证 · L1（模拟器 emulator-5554，Android 17 / 1080×2400 / standardDebug）**：关于页 →「赞赏」行在「注意：本软件仅使用了 WearBili…」卡之下 →点它弹出免责声明（标题「赞赏」、四行正文、底部「取消 / 同意」）→ 点「同意」→ `图片查看` 页，底部「第 1/1 张」，**收款码完整显示**（这条同时证明 Glide 后缀修复在真机链路上成立）。隐藏生效后再看，「赞赏」行下面直接是「此版本主要开发者」，捐赠列表不再出现。全程 `logcat -b crash` 为空。本机没有 OCR 后端，定位控件只能用 `android_ui_tree` + `android_tap_element`（按 text 匹配）。
+- **未验证（人测，见 `docs/review/handoff-261106-about-donate.md`）**：① 收款码能不能被手机扫码识别（要真人拿手机扫手表屏幕，属于实操 + 观感）；② 免责声明在 466×466 圆屏上是否需要滚动才能看全、按钮是否够得着。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。

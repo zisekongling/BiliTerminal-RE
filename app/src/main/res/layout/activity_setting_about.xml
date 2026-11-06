@@ -242,11 +242,35 @@
 
             <include layout="@layout/cell_divider" />
 
+            <!-- 赞赏：点开是一张收款码。走图片查看器（ImageViewerActivity）而不是播放器：
+                 二维码在手表上得能双指放大才看得清、扫得动。图片地址在 strings.xml 的 about_donate_url。 -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/donate_qr_entry"
+                android:layout_marginBottom="4dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="35dp"
+                    android:layout_marginHorizontal="8dp"
+                    android:gravity="center_vertical"
+                    android:text="@string/about_donate_entry"
+                    android:textAlignment="textStart"
+                    android:textSize="13sp"
+                    app:drawableEndCompat="@drawable/arrow_forward" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <include layout="@layout/cell_divider" />
+
+            <!-- 「捐赠列表」入口按用户要求（26.11.06）先隐藏：只藏入口，页面 SponsorActivity 与
+                 AboutActivity 里的点击绑定都留着，恢复时删掉下一行的 android:visibility="gone" 即可。 -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/sponsor_list"
                 android:layout_marginBottom="4dp"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content">
+                android:layout_height="wrap_content"
+                android:visibility="gone">
 
                 <TextView
                     android:layout_width="match_parent"
