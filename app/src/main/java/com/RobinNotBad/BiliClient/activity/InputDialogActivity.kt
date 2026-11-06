@@ -30,7 +30,14 @@ class InputDialogActivity : BaseActivity() {
         val hint = intent.getStringExtra("hint")
         if (!initialText.isNullOrEmpty()) {
             editText.setText(initialText)
-            editText.setSelection(initialText.length)
+            // select_all：预填值整体选中，方便「直接重输」（播放器的「跳到指定时间」用它——
+            // 光标停在末尾的话敲一位就成了 `12:349` 这种非法时间，反倒要多删几下）。
+            // 默认仍把光标放末尾，重命名文件夹/标签等原有调用方行为不变。
+            if (intent.getBooleanExtra("select_all", false)) {
+                editText.setSelection(0, initialText.length)
+            } else {
+                editText.setSelection(initialText.length)
+            }
         }
         if (!hint.isNullOrEmpty()) {
             editText.hint = hint

@@ -1714,6 +1714,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             val intent = Intent(this, InputDialogActivity::class.java)
             intent.putExtra("title", getString(R.string.text_player_jump_to_time))
             intent.putExtra("hint", getString(R.string.hint_player_jump_to_time))
+            // 预填当前播放位置：手表上从头敲一串时间太费劲，给个「当前位置」当底稿再改更省事。
+            // 位置取 video_now 而不是 ijkPlayer.currentPosition —— 后者在 seek 落地前仍返回旧值
+            // （见 seekToVideo 的注释），而 video_now 是已经对齐过的媒体时钟。
+            // 0 位置（未 prepare / 直播）不预填，保持空框 + 提示语。
+            val prefill = PlayerJumpTimePolicy.prefillText(video_now.toLong())
+            if (prefill != null) {
+                intent.putExtra("initial_text", prefill)
+                // 预填值整体选中：直接敲数字就是「重输」，想微调再点一下定位光标。
+                // 不这么做的话光标停在末尾，敲一位就变成 `12:349` 这种非法值，反而要多删。
+                intent.putExtra("select_all", true)
+            }
             startActivityForResult(intent, REQUEST_CODE_JUMP_TO_TIME)
         }
     }

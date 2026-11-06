@@ -90,4 +90,28 @@ class PlayerJumpTimePolicyTest {
         assertNull("直播 duration 为 0", PlayerJumpTimePolicy.clampMs(5_000L, 0L))
         assertNull("未 prepare 时 duration 为负", PlayerJumpTimePolicy.clampMs(5_000L, -1L))
     }
+
+    @Test
+    fun 预填文本按播放位置格式化() {
+        assertNull("位置 0 不预填（空框只留提示语）", PlayerJumpTimePolicy.prefillText(0L))
+        assertNull("负数位置不预填", PlayerJumpTimePolicy.prefillText(-1L))
+        assertEquals("90 秒写成 01:30", "01:30", PlayerJumpTimePolicy.prefillText(90_000L))
+        assertEquals("毫秒零头直接截掉", "01:30", PlayerJumpTimePolicy.prefillText(90_999L))
+        assertEquals("不足一分钟也要补零", "00:05", PlayerJumpTimePolicy.prefillText(5_000L))
+        assertEquals("超过一小时带小时段", "1:02:03", PlayerJumpTimePolicy.prefillText(3_723_000L))
+    }
+
+    @Test
+    fun 预填文本能被原样解析回同一秒() {
+        // 「不改直接确定」必须等于原地不动：预填文本与解析器必须同源，不能出现格式对不上的非法输入
+        val positions = listOf(1_000L, 59_999L, 60_000L, 3_599_000L, 3_600_000L, 7_384_000L)
+        for (positionMs in positions) {
+            val text = PlayerJumpTimePolicy.prefillText(positionMs)!!
+            assertEquals(
+                "预填「$text」应解析回 ${positionMs / 1000} 秒",
+                positionMs / 1000,
+                PlayerJumpTimePolicy.parseToSeconds(text)
+            )
+        }
+    }
 }

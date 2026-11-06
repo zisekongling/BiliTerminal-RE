@@ -121,6 +121,28 @@ object PlayerJumpTimePolicy {
     }
 
     /**
+     * 输入框的预填文本：把当前播放位置（毫秒）写成 [parseToSeconds] 能原样读回来的格式。
+     *
+     * 为什么要预填：手表上从头敲一串时间很费劲，用户多数只是想「在当前位置附近微调几秒/几分钟」，
+     * 给一份可改的底稿比空输入框省事得多。
+     *
+     * 格式与解析器同源（`mm:ss`，超过一小时给 `h:mm:ss`），保证「不改直接确定」= 原地不动，
+     * 不会因为格式对不上被当成非法输入弹提示。
+     *
+     * @return 位置 <= 0（未 prepare、直播无位置）时返回 null，调用方据此保持空输入框、只显示提示语。
+     */
+    fun prefillText(positionMs: Long): String? {
+        if (positionMs <= 0L) return null
+        val totalSec = positionMs / 1000L
+        val hour = totalSec / SECONDS_PER_HOUR
+        val minute = totalSec % SECONDS_PER_HOUR / SECONDS_PER_MINUTE
+        val second = totalSec % SECONDS_PER_MINUTE
+        // 固定 Locale.US：`%02d` 在部分语言的 Locale 下会产出非 ASCII 数字，解析器只认 0-9
+        return if (hour > 0L) String.format(Locale.US, "%d:%02d:%02d", hour, minute, second)
+        else String.format(Locale.US, "%02d:%02d", minute, second)
+    }
+
+    /**
      * 把目标毫秒限制进 `[0, durationMs]`；时长无效（直播、未 prepare）返回 null。
      *
      * 直播没有「时间点」，调用方据此不显示入口；播放页再兜一次，防止菜单隐藏与点击的时序缝隙。
