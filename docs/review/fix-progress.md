@@ -1438,20 +1438,18 @@
 - **图标几何核对**（独立于模拟器，可复现）：把两张 lucide SVG 的原始 `d`（相对命令、含隐式 lineto）与 vector 里折成绝对坐标后的路径，分别用同一个小光栅器（自写 `M/L/H/V/A` 解析 + 端点转圆心参数化的弧采样 + 圆头描边）渲染成 320×320 再逐像素比对，**两张都是 0 像素差异**——`clock-fading` 的六段弧与指针、`corner-down-right` 的 L 型折线 + 箭头都没走形。另外在不含 `private/` 的独立 worktree（detached `d947c2d`）里跑 `assembleDebug`（两 flavor 都出包）+ `testStandardDebugUnitTest` + `testCoexistDebugUnitTest` 全绿，顺带证明「无私有源码也能独立编译」。
 - **留给后来者**：组展开条出现时会压在右列按钮上（截图观察，未定论是遮挡还是重排），若后续确认是遮挡，动的是 `right_group_scroll` 的布局位置，不是显隐逻辑。
 
-### 3.131 搜索「用户」页没有玻璃质感（26.11.06，用户点名）
+### 3.132 搜索「用户」页没有玻璃质感（26.11.06，用户点名）
 
 - **现象**：开着「玻璃质感」时，搜索结果里视频 / 番剧 / 专栏 / 直播 tab 的卡片都是半透明 + 一道主题色亮边，唯独「用户」tab 的卡片是不透明平板灰、没有描边、永远 12dp 圆角——看起来像这个页面没开玻璃质感。
 - **根因**：另外四个 tab 的 cell 都是裸 `MaterialCardView`（`cell_video_list.xml` / `cell_article_list.xml` / `cell_up_list.xml`…），底色 / 圆角 / 描边全由主题 `materialCardViewStyle` 提供，而玻璃覆盖层 `GlassOverlay.<X>` 改的正是这条样式引用，所以自动生效。用户页走 `cell_user_list.xml`：根节点是单层 `FrameLayout` + 写死 `@drawable/bg_card_rounded`（不透明 `@color/card_dark`、12dp 圆角、`elevation=2dp`），完全不经过那条样式 → 覆盖层够不着。
 - **改法**（不回退布局）：`cell_user_list` 顶部注释写明单层 FrameLayout 是当初为「减少布局嵌套和渲染开销」刻意做的优化（手表优先），玻璃只是一个外观开关，不该为它把 cell 改回 `MaterialCardView`（那样非玻璃观感也会跟着变：圆角 12dp→6dp、多一道 1dp 描边、elevation 2dp→4dp）。改为代码侧换背景：
   - `ui/appearance/GlassStyle.kt` 新增 `applyCardBackground(view: View): Boolean`：玻璃开启时 `background = panelBackground(context, CornerStyle.radiusPx(context))` 并把 `elevation` 置 0，关闭时直接返回（零影响）。圆角取 `CornerStyle.radiusPx` 而不是写死 12dp，才能和主题卡片同档位（选「圆角」时一起变 12dp、方角时 6dp）；`elevation` 清零沿用「半透明底一律无投影」的约定，否则轮廓外会有一圈脏边。
   - 两个 inflate 点各调一次：`adapter/user/UserListAdapter.kt`（搜索结果「用户」页）与 `adapter/user/FollowGroupAdapter.kt`（关注分组的成员行）——同一个 cell，漏一个就有一处还是老样式。
-- **验证**（模拟器 emulator-5554 / Android 17 / 1080×2400，经典终端暗色主题；把 `search_category_sort` 写成 `user` 让「用户」成为第一页，搜 `miku` 即停在「搜索-用户」）：
-  - **玻璃关**：卡内 #2A2A35 = `@color/card_dark`、8 张卡逐张同色且不随页面背景渐变变化（不透明）、左右边缘 x=35→36 直接跳变（无描边）、左上弧顶 dx=51px ≈ 12dp、卡外有 2dp 淡投影 → 与修复前完全一致，非玻璃路径没被改坏。
-  - **玻璃开 + 方角**：卡内色随页面背景联动（card1 `(36,30,32)` … card4 `(27,27,27)`，与 `0.7216*#262626 + 0.2784*背景` 逐张吻合）、左右边缘 4px ≈ 1dp 描边（`(38,27,30)` / `(49,38,41)` / `(61,50,53)` 三段，与 `#26FFB3CA` 叠在页面底 / 卡内的理论值一致）、圆角弧顶 dx=59→24px ≈ 6dp、卡外无投影 → 与相邻 tab 的卡片同一种观感。
-  - **玻璃开 + 「圆角」档**（`ui_corner_radius=rounded`）：圆角 dx≈48–50px ≈ 12dp，描边与半透明数值和方角档一致 → 圆角跟随档位，不再是写死的 12dp。
-  - 像素换算：1dp≈4.25px（由 `strokePx = max(1,(density+0.5).toInt())` 得 4px 反推，且 12dp→51px、6dp→24px 自洽）；`wm density` 的 Physical / Override 数值与 app 内实际缩放不符，dp 判定一律按 px 比例。
-  - 截图：`outputs/glass-user-off.png`（玻璃关）/ `outputs/glass-user-on-square.png`（玻璃开 + 方角）/ `outputs/glass-user-on-rounded.png`（玻璃开 + 圆角）。
-- **留给后来者**：这个 cell 的点击涟漪仍是布局里的 `?attr/selectableItemBackground`，而主题玻璃卡片用的是 `CardStyle*.Glass` 里指定的 `rippleColor`；玻璃开启时行内涟漪颜色与相邻 tab 的卡片略有差异（改动前就是这样，本次没动）。真要统一，就在 `applyCardBackground` 里一并换成 `RippleDrawable`，但要注意别把 `foreground` 覆盖成不透光的遮罩。
+- **验证 · L0**：`./gradlew.bat :app:assembleDebug` 通过；`:app:testStandardDebugUnitTest` + `:app:testCoexistDebugUnitTest` 均绿（退出码 0）。
+- **验证 · L1（机器可读部分）**：模拟器 emulator-5554（Android 17 / 1080×2400 / standardDebug 26.11.06 / 经典终端暗色主题，`search_category_sort=user` 让「用户」成为第一页后搜 `miku`）跑玻璃开、玻璃关两种状态，全程 `logcat -b crash` 为空、无 `am_anr` —— 换背景这步没有引入崩溃。另有旁证数值（**不作判据**，理由见下）：玻璃关时 8 张用户卡内一律 `(42,42,53)`＝`@color/card_dark`、边缘 x=35→36 硬跳变、左上弧顶 dx=51px；玻璃开时卡内色随页面背景单调变化、边缘出现 4px＝`strokePx` 的 `(38,27,30)`/`(49,38,41)`/`(61,50,53)` 三段描边、弧顶 dx=24px；`ui_corner_radius=rounded` 时弧顶 dx 从 24px 变到 49–51px（1dp≈4.25px）。**按 `docs/agents/testing.md` §4，AI 不用截图下颜色 / 布局结论**，这些数值只说明「改动确实落到了视图上」，观感好坏仍归人测。
+- **未验证（人测，见 `docs/review/handoff-261106-search-user-glass.md`）**：① 玻璃开时「搜索-用户」卡片观感是否与相邻 tab 一致；② 玻璃关时是否与修复前一模一样；③ 点用户卡仍能进用户空间（`input tap` 那次被这台模拟器吞掉没跳转，随后模拟器整体消失，没拿到 `top` 复核）；④ 关注分组页的成员行——该包未登录，`FollowApi.getFollowTags()` 走未登录分支（`{"code":-101,"message":"账号未登录"}`），`FollowUsersActivity` 起来即 finish，进不到分组列表。
+- **踩坑**：DebugBridge 的 `set` 只写 prefs、`start` 带 CLEAR_TOP 不重建，改外观开关后必须 force-stop 再起进程才生效；`search_category_sort` 写成 `user` 是最省事的复现姿势（不用滑页，「用户」就是第一页）。
+- **留给后来者**：这个 cell 的点击涟漪仍是布局里的 `?attr/selectableItemBackground`，而主题玻璃卡片用的是 `CardStyle*.Glass` 里指定的 `rippleColor`；玻璃开启时行内涟漪颜色与相邻 tab 的卡片略有差异（改动前就是这样，本次没动）。真要统一，就在 `applyCardBackground` 里一并换成 `RippleDrawable`，但要注意别把 `foreground` 覆盖成不透光的遮罩。另有一处已知细节：`MaterialCardView` 的 1dp 描边画在卡片内侧，而这里的 `GradientDrawable` 描边由 `box()` 居中画（轮廓外多 2px），颜色与宽度一致，肉眼基本无差。
 
 ## 4. 历史章节索引
 
