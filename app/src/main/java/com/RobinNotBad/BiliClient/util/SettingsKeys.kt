@@ -227,18 +227,21 @@ object SettingsKeys {
      * 改这里就顺手改布局（XML 里读不到 Kotlin 常量，只能两处一起看）。
      */
     const val PLAYER_SUBTITLE_SIZE_DEFAULT = 11
+    /**
+     * 旧的「显示××按钮」开关，26.11.06 起**已停用**。
+     *
+     * 按钮显不显示改由「播放界面布局」（[PLAYER_UI_LAYOUT]）决定：放没放进槽位就是开关本身。
+     * 这几个键只为「不误删用户存档」而留着（不读、不写、不迁移），不要再接线到新代码。
+     */
     const val PLAYER_UI_SHOW_ROTATE_BTN = "player_ui_showRotateBtn"
     const val PLAYER_UI_SHOW_DANMAKU_BTN = "player_ui_showDanmakuBtn"
     const val PLAYER_UI_SHOW_QUALITY_BTN = "player_ui_showQualityBtn"
     const val PLAYER_UI_SHOW_PAGE_BTN = "player_ui_showPageBtn"
-    /**
-     * 是否显示播放页的「锁定」按钮，并允许用它进入触摸锁定态。
-     *
-     * 反馈 #7：锁定按钮紧挨着底部进度条，拖进度条时容易误触；关掉后按钮不显示、
-     * 也不会进入锁定态（锁定态下全屏 overlay 会吞掉所有触摸，没有解锁入口就是死锁）。
-     * 播放页每次进页面（onResume）重读，改完即生效。
-     */
+    /** 已停用，见上面 [PLAYER_UI_SHOW_ROTATE_BTN] 的说明。 */
     const val PLAYER_UI_SHOW_LOCK_BTN = "player_ui_showLockBtn"
+
+    /** 播放界面按钮的自定义布局（分隔符串，格式见 `player/PlayerUiLayout.kt`）。 */
+    const val PLAYER_UI_LAYOUT = "player_ui_layout"
     const val PLAYER_INTERACTION_CHOICE_SIZE = "player_interaction_choice_size"
     /**
      * 「互动选项字体大小」的默认值（sp）。

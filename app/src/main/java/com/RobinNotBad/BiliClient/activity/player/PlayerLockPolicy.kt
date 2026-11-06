@@ -67,14 +67,4 @@ object PlayerLockPolicy {
 
     /** 锁定期间是否拦截离开播放页（返回键、右滑、`finish()`）。 */
     fun shouldSwallowExit(phase: Phase): Boolean = isLocked(phase)
-
-    /**
-     * 设置页关掉「显示锁定按钮」后该落在哪个状态（QQ 反馈 #7）。
-     *
-     * 为什么必须由状态机兜住：锁定态下 `lock_overlay` 会吞掉全部触摸，而唯一的解锁入口就是
-     * 被设置页藏掉的锁定按钮；如果还停在 [Phase.LOCKED_HIDDEN]/[Phase.LOCKED_ICON_VISIBLE]，
-     * 用户没有任何办法解开，只能杀进程。所以「按钮不可用」与「处于锁定」在状态机层面互斥。
-     */
-    fun phaseWithLockButtonDisabled(lockButtonEnabled: Boolean, phase: Phase): Phase =
-        if (lockButtonEnabled) phase else Phase.UNLOCKED
 }

@@ -87,6 +87,9 @@ import com.RobinNotBad.BiliClient.player.PlaySessionStore
 import com.RobinNotBad.BiliClient.player.PlayerQueueAuthorPolicy
 import com.RobinNotBad.BiliClient.player.IjkNativeLibs
 import com.RobinNotBad.BiliClient.player.PlayerDefaults
+import com.RobinNotBad.BiliClient.player.PlayerButtonSlots
+import com.RobinNotBad.BiliClient.player.PlayerButtons
+import com.RobinNotBad.BiliClient.player.PlayerUiLayout
 import com.RobinNotBad.BiliClient.player.PlayerRequestPolicy
 import com.RobinNotBad.BiliClient.player.LocalAudioTrackPolicy
 import com.RobinNotBad.BiliClient.player.PlayerSurfaceBinder
@@ -181,7 +184,19 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private lateinit var right_control: LinearLayout
     private lateinit var loading_info: LinearLayout
     private lateinit var bottom_buttons: RelativeLayout
-    private lateinit var right_second: HorizontalScrollView
+    // 槽位容器：按钮放哪几个、怎么排，由用户布局决定（见 player/PlayerButtonSlots.kt）
+    private lateinit var button_pool: LinearLayout
+    private lateinit var left_column_slots: LinearLayout
+    private lateinit var left_group_scroll: HorizontalScrollView
+    private lateinit var left_group_slots: LinearLayout
+    private lateinit var right_column_slots: LinearLayout
+    private lateinit var right_group_scroll: HorizontalScrollView
+    private lateinit var right_group_slots: LinearLayout
+    private lateinit var bottom_left_slots: LinearLayout
+    private lateinit var bottom_right_slots: LinearLayout
+    private lateinit var bottom_group_scroll: HorizontalScrollView
+    private lateinit var bottom_group_slots: LinearLayout
+    private var buttonSlots: PlayerButtonSlots? = null
     private lateinit var card_subtitle: LinearLayout
     private lateinit var card_danmaku_send: LinearLayout
     private lateinit var card_page_selector: LinearLayout
@@ -194,7 +209,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private lateinit var btn_danmaku: ImageButton
     private lateinit var btn_loop: ImageButton
     private lateinit var btn_rotate: ImageButton
-    private lateinit var btn_menu: ImageButton
     private lateinit var btn_subtitle: ImageButton
     private lateinit var btn_danmaku_send: ImageButton
     private lateinit var btn_audio_only: ImageButton
@@ -208,11 +222,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private lateinit var left_control: LinearLayout
     /** 播放器菜单里的「跳到指定时间」（QQ#9）；非直播时由 onPrepared 置为可见。 */
     private lateinit var jump_time_btn: TextView
-    /**
-     * 「显示锁定按钮」开关（QQ#7）。关掉后按钮不显示，也不允许进入锁定态。
-     * 每次进页面/onResume 重读存档，设置页改完返回即生效。
-     */
-    private var lockButtonEnabled: Boolean = true
     private lateinit var seekbar_progress: HighEnergyProgressBar
     private lateinit var seekbar_speed: SeekBar
     private lateinit var text_progress: TextView
@@ -248,6 +257,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var loadingRunnable: Runnable? = null
     private var onlineTimer: Timer? = null
     private var mainHandler: Handler? = null
+
+    /** 影子按钮的状态对齐定时器（同一按钮放多份时才有活干，见 [PlayerButtonSlots.syncMirrors]）。 */
+    private var mirrorSyncTimer: Runnable? = null
     private var resizePostRunnable: Runnable? = null // 改变视频尺寸后的位置延时修正，避免快速旋转时叠加
     private var video_url: String? = null
     private var danmaku_url: String = ""
@@ -330,7 +342,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var waitingThirdPartySource: Boolean = false
     private var isSeeking: Boolean = false
     private var isDanmakuVisible: Boolean = false
-    private var menu_opened = false
 
     /** 播放页触摸锁定的当前状态（状态转移见 [PlayerLockPolicy]）。 */
     private var lockPhase = PlayerLockPolicy.Phase.UNLOCKED
@@ -443,6 +454,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
          */
         private const val SUBTITLE_MARGIN_BOTTOM_CONTROLBAR_DP = 76f
         private const val SUBTITLE_MARGIN_BOTTOM_COLLAPSED_DP = 17f
+
+        /**
+         * 影子按钮状态对齐的节拍（毫秒）。播放页改按钮状态的地方很散（起播、切弹幕、切循环……），
+         * 逐个接线容易漏；同一个按钮放多份时，影子每 400ms 抄一次真身的图标/文字/显隐。
+         * 一个按钮只放一份（绝大多数情况）时 `syncMirrors()` 第一行就返回，白跑的代价可以忽略。
+         */
+        private const val MIRROR_SYNC_INTERVAL_MS = 400L
 
         /**
          * 媒体控件通知 ID。1027 下载 / 1028 后台播放 / 1029 新消息 / 1030 追番更新已占用，勿改。
@@ -1135,7 +1153,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             CenterThreadPool.run {
                 if (isLiveMode) {
                     runOnUiThread {
-                        btn_menu.visibility = View.GONE
                         btn_quality.visibility = View.GONE
                         btn_loop.visibility = View.GONE
                         btn_audio_only.visibility = View.GONE
@@ -1197,7 +1214,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         layout_control = findViewById(R.id.control_layout)
         layout_top = findViewById(R.id.top)
         right_control = findViewById(R.id.right_control)
-        right_second = findViewById(R.id.right_second)
         layout_card_bg = findViewById(R.id.card_bg)
         card_subtitle = findViewById(R.id.subtitle_card)
         card_danmaku_send = findViewById(R.id.danmaku_send_card)
@@ -1214,7 +1230,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         btn_danmaku = findViewById(R.id.danmaku_btn)
         btn_loop = findViewById(R.id.loop_btn)
         btn_rotate = findViewById(R.id.rotate_btn)
-        btn_menu = findViewById(R.id.menu_btn)
         btn_danmaku_send = findViewById(R.id.danmaku_send_btn)
         btn_subtitle = findViewById(R.id.subtitle_btn)
         btn_audio_only = findViewById(R.id.audio_only_btn)
@@ -1256,8 +1271,73 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         jump_time_btn = findViewById(R.id.jump_time_btn)
         queue_mode_btn = findViewById(R.id.queue_mode_btn)
 
+        button_pool = findViewById(R.id.button_pool)
+        left_column_slots = findViewById(R.id.left_column_slots)
+        left_group_scroll = findViewById(R.id.left_group_scroll)
+        left_group_slots = findViewById(R.id.left_group_slots)
+        right_column_slots = findViewById(R.id.right_column_slots)
+        right_group_scroll = findViewById(R.id.right_group_scroll)
+        right_group_slots = findViewById(R.id.right_group_slots)
+        bottom_left_slots = findViewById(R.id.bottom_left_slots)
+        bottom_right_slots = findViewById(R.id.bottom_right_slots)
+        bottom_group_scroll = findViewById(R.id.bottom_group_scroll)
+        bottom_group_slots = findViewById(R.id.bottom_group_slots)
+        initButtonSlots()
+
         // 字幕字号来自设置页，这里先按存档刷一次；之后每次 onResume 再刷（改完设置返回即生效）
         applySubtitleTextSize()
+    }
+
+    /**
+     * 接线「按钮按用户布局摆放」。
+     *
+     * 左右两列是竖排图标（28dp，列内自下而上堆），底部是 32×37 的横排；组展开条挂在
+     * 同一侧的列旁边（右侧在左、左侧在右、底部在按钮行上方），所以四个区各自带一个展开条。
+     */
+    private fun initButtonSlots() {
+        val slots = PlayerButtonSlots(this, button_pool) { key -> buttonViewById(key) }
+        slots.bind(PlayerUiLayout.Region.LEFT, left_column_slots, left_group_slots, 28f, 28f)
+        slots.bind(PlayerUiLayout.Region.RIGHT, right_column_slots, right_group_slots, 28f, 28f)
+        slots.bind(PlayerUiLayout.Region.BOTTOM_LEFT, bottom_left_slots, bottom_group_slots, 32f, 37f)
+        slots.bind(PlayerUiLayout.Region.BOTTOM_RIGHT, bottom_right_slots, bottom_group_slots, 32f, 37f)
+        buttonSlots = slots
+        // 展开/收起组会改变两侧列高，中线要重新对齐
+        slots.onLayoutChanged = { alignLeftControlToRight() }
+        applyPlayerButtonLayout()
+    }
+
+    /** 按存档的布局重摆按钮；设置页改完布局回来，onResume 会再走一遍。 */
+    private fun applyPlayerButtonLayout() {
+        val slots = buttonSlots ?: return
+        val layout = PlayerUiLayout.load(
+            { key -> SharedPreferencesUtil.getString(key, "") },
+            { key, value -> SharedPreferencesUtil.putString(key, value) },
+        )
+        slots.render(layout)
+        // 列高变了（组的展开条、格数），左右两列的中线要重新对齐
+        alignLeftControlToRight()
+    }
+
+    /** key → 池子里的按钮本体。没接线的按钮（如当前视频不支持的）返回 null，槽位就留空。 */
+    private fun buttonViewById(key: String): View? = when (key) {
+        PlayerButtons.LOCK -> lock_btn
+        PlayerButtons.SPEED -> text_speed
+        PlayerButtons.DANMAKU -> btn_danmaku
+        PlayerButtons.ROTATE -> btn_rotate
+        PlayerButtons.DANMAKU_SEND -> btn_danmaku_send
+        PlayerButtons.SUBTITLE -> btn_subtitle
+        PlayerButtons.LOOP -> btn_loop
+        PlayerButtons.AUDIO_ONLY -> btn_audio_only
+        PlayerButtons.AUTO_NEXT -> btn_auto_next
+        PlayerButtons.VIEWPOINT -> btn_viewpoint
+        PlayerButtons.VIDEO_INFO -> btn_video_info
+        PlayerButtons.JUMP_TIME -> jump_time_btn
+        PlayerButtons.QUEUE_MODE -> queue_mode_btn
+        PlayerButtons.QUALITY -> btn_quality
+        PlayerButtons.SOUND_CUT -> findViewById(R.id.button_sound_cut)
+        PlayerButtons.SOUND_ADD -> findViewById(R.id.button_sound_add)
+        PlayerButtons.PAGE_SELECTOR -> btn_page_selector
+        else -> null
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -1501,9 +1581,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             if (onlineTimer != null) text_online.visibility = View.VISIBLE
         }
 
-        // 锁定按钮在 control_layout 之外（锁定时要把整条控制栏一起藏掉），显隐要跟控制栏同步；
-        // #7 关掉「显示锁定按钮」后，这条路径也不能把它放出来
-        lock_btn.visibility = if (lockButtonEnabled) View.VISIBLE else View.GONE
+        // 锁定按钮在 control_layout 之外（锁定时要把整条控制栏一起藏掉），显隐要跟控制栏同步
+        lock_btn.visibility = View.VISIBLE
 
         // 控制栏浮现，字幕要抬高到控制栏之上，否则会被控制栏盖住
         setSubtitleBottomMargin(SUBTITLE_MARGIN_BOTTOM_CONTROLBAR_DP)
@@ -1548,7 +1627,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             text_progress.setPadding(0, 0, 0, ToolsUtil.dp2px(8f))
             if (onlineTimer != null) text_online.visibility = View.GONE
         }
-        if (menu_opened) btn_menu.performClick()
+        // 控制栏收起时把展开的组一并收回：组的展开条悬在列旁，留着会盖在画面上
+        buttonSlots?.collapseAll()
     }
 
     // ==================== 播放页触摸锁定（防误触） ====================
@@ -1562,33 +1642,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun initLockUi() {
         lock_overlay.setOnClickListener { onLockScreenTap() }
         lock_btn.setOnClickListener { onLockButtonClick() }
-        // #7：进页面就按设置决定锁定按钮可不可用，并保证关掉时不会残留在锁定态
-        refreshLockButtonSetting()
         alignLeftControlToRight()
-    }
-
-    /**
-     * 把「显示锁定按钮」开关（QQ#7）落到锁定状态上。
-     *
-     * 关掉时必须**立刻**退回未锁定：锁定态下 `lock_overlay` 会吞掉所有触摸，而唯一的解锁入口
-     * （`lock_btn`）已经被藏掉，继续停在 `LOCKED_*` 就是死锁。之后按钮只在控制栏浮现时显示，
-     * 所以这里也顺手把按钮收掉。
-     *
-     * 为什么每次都重读存档：设置页是另一个页面，用户改完返回播放器时只有 onResume 会经过这里；
-     * 缓存住 `lockButtonEnabled` 而不重读，就只能靠重启播放页才能生效。
-     */
-    private fun refreshLockButtonSetting() {
-        val enabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_SHOW_LOCK_BTN, true)
-        val changed = enabled != lockButtonEnabled
-        lockButtonEnabled = enabled
-        if (!enabled) {
-            // 先解锁再收按钮：applyLockPhase(UNLOCKED) 会走 showcon()，那里按 lockButtonEnabled 把按钮藏掉
-            if (PlayerLockPolicy.isLocked(lockPhase)) applyLockPhase(PlayerLockPolicy.Phase.UNLOCKED)
-            lock_btn.visibility = View.GONE
-            return
-        }
-        // 从「关」改回「开」时控制栏可能正显示着：补画一次，否则按钮要等下一次 showcon 才出现
-        if (changed && layout_control.visibility == View.VISIBLE) lock_btn.visibility = View.VISIBLE
     }
 
     /**
@@ -1613,8 +1667,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     private fun onLockButtonClick() {
-        // #7：按钮已关掉时残留的点击（隐藏动画、无障碍服务）同样不能改变锁定状态
-        if (!lockButtonEnabled) return
         val before = lockPhase
         val next = PlayerLockPolicy.phaseAfterLockButtonClick(before)
         applyLockPhase(next)
@@ -1641,9 +1693,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      * 状态只由 [PlayerLockPolicy] 决定，这里不重复判断"该不该锁"。
      */
     private fun applyLockPhase(phase: PlayerLockPolicy.Phase, autoHideMs: Long = 0L) {
-        // #7：开关关掉后，任何路径都不许进入锁定态——锁定态下 overlay 吞掉全部触摸，
-        // 而唯一的解锁入口已经被藏掉，停在 LOCKED_* 就是死锁。这个互斥由 PlayerLockPolicy 保证。
-        val target = PlayerLockPolicy.phaseWithLockButtonDisabled(lockButtonEnabled, phase)
+        // 26.11.06 起「显示锁定按钮」开关由布局取代：锁定按钮放没放进槽位是用户的自由，
+        // 没放就点不到、也就进不了锁定态，不再需要开关关闭时的死锁互斥。
+        val target = phase
         lockPhase = target
         mainHandler?.removeCallbacks(hideLockIcon)
         when (target) {
@@ -3670,6 +3722,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     override fun onPause() {
         super.onPause()
         Logu.v("onPause")
+        // 界面不可见了，影子对齐没必要再跑（onResume 会重新起）
+        mirrorSyncTimer?.let { mainHandler?.removeCallbacks(it) }
+        mirrorSyncTimer = null
         // 退到后台/被别的页面盖住时补报一次：正常退出走 finish() 已经报过同一秒，这里会被去重拦掉
         reportProgressNow(false, UiText.of("切后台"))
         // 本地视频的续播位置只存在磁盘上，切后台是"可能回不来"的第一个时点，先落一次
@@ -3695,8 +3750,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 设置页里改完「字幕字号大小」返回播放页立即生效。
         // findview() 在异步 inflate 回调里才跑，onResume 可能先到，必须判初始化。
         if (::text_subtitle.isInitialized) applySubtitleTextSize()
-        // #7：设置页里改完「显示锁定按钮」返回播放页立即生效（不这样就得重启播放页）
-        if (::lock_btn.isInitialized) refreshLockButtonSetting()
+        // 设置页里改完按钮布局返回播放页立即生效（不这样就得重启播放页）
+        if (::button_pool.isInitialized) applyPlayerButtonLayout()
+        // 同一个按钮放多份时，影子要跟真身的状态走；回到前台就开始定时对齐
+        mirrorSyncTimer?.let { mainHandler?.removeCallbacks(it) }
+        mirrorSyncTimer = object : Runnable {
+            override fun run() {
+                buttonSlots?.syncMirrors()
+                mainHandler?.postDelayed(this, MIRROR_SYNC_INTERVAL_MS)
+            }
+        }.also { mainHandler?.postDelayed(it, MIRROR_SYNC_INTERVAL_MS) }
         // #31：回前台重新应用画面尺寸/比例/旋转。载入中切后台再回来时，Surface 重建、
         // 窗口几何也可能已经变了，而画面区域是手算出来的（不随布局自适应），不重算就会歪。
         // 只重排布局，不动播放状态——后台播放、MediaSession、切清晰度都不受影响。
@@ -4048,9 +4111,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         screen_width = displayMetrics.widthPixels
         screen_height = displayMetrics.heightPixels
 
-        if (SharedPreferencesUtil.getBoolean("player_ui_showRotateBtn", true))
-            btn_rotate.visibility = View.VISIBLE
-        else btn_rotate.visibility = View.GONE
+        // 26.11.06 起按钮显不显示由用户布局决定（放没放进槽位），不再有「显示××按钮」开关
+        btn_rotate.visibility = View.VISIBLE
 
         screen_round = SharedPreferencesUtil.getBoolean("player_ui_round", false)
         if (screen_round) {
@@ -4152,17 +4214,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         findViewById<View>(R.id.button_sound_cut).setOnLongClickListener {
             showVolumePanel()
             true
-        }
-
-        btn_menu.setOnClickListener {
-            if (menu_opened) {
-                right_second.visibility = View.GONE
-                btn_menu.setImageResource(R.mipmap.morehide)
-            } else {
-                right_second.visibility = View.VISIBLE
-                btn_menu.setImageResource(R.mipmap.moreshow)
-            }
-            menu_opened = !menu_opened
         }
 
         layout_card_bg.setOnClickListener {
@@ -6573,37 +6624,36 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 续播/直播已经跑了一段时再 start 会让弹幕跳回开头闪一下。
         // 直播不绑媒体时钟，从头开始是正确的。
         if (isLiveMode || hasDanmaku) danmakuManager?.start(video_now.toLong())
-        if (SharedPreferencesUtil.getBoolean("player_ui_showDanmakuBtn", true)) {
-            // 数量保护抑制了自动加载时，按钮默认是「关」；点它 = 手动强制加载（见 onClick）。
-            val danmakuSuppressed = danmakuLoadPolicy?.isSuppressed() == true
-            // 「播放默认值 → 弹幕」：开/关直接决定；沿用上次读 pref_switch_danmaku
-            // （沿用既有键，默认开 —— 与改造前完全一致）。
-            isDanmakuVisible = if (danmakuSuppressed) false else PlayerDefaults.resolveTriState(
-                SharedPreferencesUtil.getString(SettingsKeys.PLAYER_DEFAULT_DANMAKU, SettingsKeys.PLAYER_DEFAULT_MODE_LAST),
-                SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_LAST_DANMAKU, true)
-            )
-            // 直接把视图与图标设成解析结果。旧写法是"先设成反值、再 performClick() 翻一次"，
-            // 那种取反技巧叠加三种默认模式后很容易对不上（开/关会互相打架），改成直白设置。
-            if (mDanmakuView != null) {
-                if (isDanmakuVisible) mDanmakuView!!.show() else mDanmakuView!!.hide()
+        // 26.11.06 起「弹幕按钮显不显示」由布局决定，这里只负责图标与点击
+        // 数量保护抑制了自动加载时，按钮默认是「关」；点它 = 手动强制加载（见 onClick）。
+        val danmakuSuppressed = danmakuLoadPolicy?.isSuppressed() == true
+        // 「播放默认值 → 弹幕」：开/关直接决定；沿用上次读 pref_switch_danmaku
+        // （沿用既有键，默认开 —— 与改造前完全一致）。
+        isDanmakuVisible = if (danmakuSuppressed) false else PlayerDefaults.resolveTriState(
+            SharedPreferencesUtil.getString(SettingsKeys.PLAYER_DEFAULT_DANMAKU, SettingsKeys.PLAYER_DEFAULT_MODE_LAST),
+            SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_LAST_DANMAKU, true)
+        )
+        // 直接把视图与图标设成解析结果。旧写法是"先设成反值、再 performClick() 翻一次"，
+        // 那种取反技巧叠加三种默认模式后很容易对不上（开/关会互相打架），改成直白设置。
+        if (mDanmakuView != null) {
+            if (isDanmakuVisible) mDanmakuView!!.show() else mDanmakuView!!.hide()
+        }
+        btn_danmaku.setImageResource(if (isDanmakuVisible) R.mipmap.danmakuon else R.mipmap.danmakuoff)
+        btn_danmaku.setOnClickListener {
+            if (mDanmakuView == null) return@setOnClickListener
+            // 被数量保护跳过时，这次点击的语义是「强制加载」，而不是「显示一份从未加载的弹幕」
+            if (danmakuLoadPolicy?.isSuppressed() == true) {
+                forceLoadDanmaku()
+                return@setOnClickListener
             }
-            btn_danmaku.setImageResource(if (isDanmakuVisible) R.mipmap.danmakuon else R.mipmap.danmakuoff)
-            btn_danmaku.setOnClickListener {
-                if (mDanmakuView == null) return@setOnClickListener
-                // 被数量保护跳过时，这次点击的语义是「强制加载」，而不是「显示一份从未加载的弹幕」
-                if (danmakuLoadPolicy?.isSuppressed() == true) {
-                    forceLoadDanmaku()
-                    return@setOnClickListener
-                }
-                if (isDanmakuVisible) mDanmakuView!!.hide()
-                else mDanmakuView!!.show()
-                btn_danmaku.setImageResource(if (isDanmakuVisible) R.mipmap.danmakuoff else R.mipmap.danmakuon)
-                isDanmakuVisible = !isDanmakuVisible
-                // 「播放默认值 → 弹幕 = 沿用上次」的记录位
-                SharedPreferencesUtil.putBoolean(SettingsKeys.PLAYER_LAST_DANMAKU, isDanmakuVisible)
-            }
-            btn_danmaku.visibility = View.VISIBLE
-        } else btn_danmaku.visibility = View.GONE
+            if (isDanmakuVisible) mDanmakuView!!.hide()
+            else mDanmakuView!!.show()
+            btn_danmaku.setImageResource(if (isDanmakuVisible) R.mipmap.danmakuoff else R.mipmap.danmakuon)
+            isDanmakuVisible = !isDanmakuVisible
+            // 「播放默认值 → 弹幕 = 沿用上次」的记录位
+            SharedPreferencesUtil.putBoolean(SettingsKeys.PLAYER_LAST_DANMAKU, isDanmakuVisible)
+        }
+        btn_danmaku.visibility = View.VISIBLE
 
         if (!isLiveMode) {
             if (loop_enabled) btn_loop.setImageResource(R.mipmap.loopon)
@@ -6644,15 +6694,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 btn_auto_next.visibility = View.GONE
             }
 
-            if (SharedPreferencesUtil.getBoolean("player_ui_showQualityBtn", true) && isOnlineVideo) {
+            if (isOnlineVideo) {
                 btn_quality.visibility = View.VISIBLE
                 btn_quality.setOnClickListener { showQualitySelectorCard() }
             } else {
                 btn_quality.visibility = View.GONE
             }
-
-            if (!SharedPreferencesUtil.getBoolean("player_ui_showPageBtn", true))
-                btn_page_selector.visibility = View.GONE
 
             // QQ#9：非直播才有「跳到指定时间」；直播在下面的 else 分支统一隐藏
             jump_time_btn.visibility = View.VISIBLE

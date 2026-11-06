@@ -321,15 +321,15 @@ object PlayerSettingsGroups {
             SettingsKeys.PLAYER_SUBTITLE_SIZE_DEFAULT.toString())
     )
 
+    /**
+     * 界面按钮组。
+     *
+     * 26.11.06 起原来的 5 个「显示××按钮」开关（旋转/弹幕/清晰度/分P/锁定）全部删除：
+     * 按钮显不显示改成由「播放界面布局」决定——放没放进槽位就是开关本身。
+     * 旧键 [SettingsKeys.PLAYER_UI_SHOW_ROTATE_BTN] 等保留在存档里（不迁移、不读取），
+     * 免得用户升级回来看到旧值被清空而疑惑。
+     */
     private fun toolbar(context: Context) = listOf(
-        SettingSection("switch", "显示旋转按钮", SettingsKeys.PLAYER_UI_SHOW_ROTATE_BTN, "", "true"),
-        SettingSection("switch", "显示弹幕按钮", SettingsKeys.PLAYER_UI_SHOW_DANMAKU_BTN, "", "true"),
-        SettingSection("switch", "显示清晰度按钮", SettingsKeys.PLAYER_UI_SHOW_QUALITY_BTN, "", "true"),
-        SettingSection("switch", "显示分P按钮", SettingsKeys.PLAYER_UI_SHOW_PAGE_BTN, "", "true"),
-        // 反馈 #7：锁定按钮紧挨着底部进度条，拖进度时容易误触。关掉后按钮不显示、也不会进入锁定态。
-        SettingSection("switch", context.getString(R.string.setting_player_lock_button_name),
-            SettingsKeys.PLAYER_UI_SHOW_LOCK_BTN,
-            context.getString(R.string.setting_player_lock_button_desc), "true"),
         SettingSection("input_float", "互动选项字体大小", SettingsKeys.PLAYER_INTERACTION_CHOICE_SIZE, "",
             SettingsKeys.PLAYER_INTERACTION_CHOICE_SIZE_DEFAULT.toString())
     )

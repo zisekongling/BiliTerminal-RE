@@ -214,68 +214,84 @@
                 android:thumbOffset="8dp"
                 tools:targetApi="lollipop" />
 
+            <!--
+                底部按钮行（26.11.06 起可自定义）：中间是播放/暂停（不可自定义），
+                两侧各一个槽位容器，各最多 3 格；容器本身是横向滚动条，装不下时横向滑。
+                按钮本体都在最外层隐藏的 button_pool 里，运行时由 PlayerButtonSlots 搬进来。
+            -->
             <RelativeLayout
                 android:id="@+id/bottom_buttons"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
                 <LinearLayout
+                    android:id="@+id/bottom_row"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_centerInParent="true"
-                    android:gravity="center"
+                    android:layout_alignParentBottom="true"
+                    android:layout_centerHorizontal="true"
+                    android:gravity="center_vertical"
                     android:orientation="horizontal">
 
-                    <ImageButton
-                        android:id="@+id/button_quality"
-                        android:layout_width="32dp"
-                        android:layout_height="37dp"
+                    <HorizontalScrollView
+                        android:id="@+id/bottom_left_scroll"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
                         android:layout_marginEnd="6dp"
-                        android:adjustViewBounds="true"
-                        android:background="?android:attr/selectableItemBackground"
-                        android:scaleType="fitCenter"
-                        android:src="@drawable/icon_menu" />
+                        android:scrollbars="none">
 
-                    <ImageButton
-                        android:id="@+id/button_sound_cut"
-                        android:layout_width="32dp"
-                        android:layout_height="37dp"
-                        android:adjustViewBounds="true"
-                        android:background="?android:attr/selectableItemBackground"
-                        android:scaleType="fitCenter"
-                        android:src="@mipmap/soundcut" />
+                        <LinearLayout
+                            android:id="@+id/bottom_left_slots"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal" />
+                    </HorizontalScrollView>
 
                     <ImageButton
                         android:id="@+id/button_video"
                         android:layout_width="32dp"
                         android:layout_height="37dp"
-                        android:layout_marginStart="6dp"
                         android:adjustViewBounds="true"
                         android:background="?android:attr/selectableItemBackground"
                         android:scaleType="fitCenter"
                         android:src="@drawable/btn_player_play" />
 
-                    <ImageButton
-                        android:id="@+id/button_sound_add"
-                        android:layout_width="32dp"
-                        android:layout_height="37dp"
+                    <HorizontalScrollView
+                        android:id="@+id/bottom_right_scroll"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
                         android:layout_marginStart="6dp"
-                        android:adjustViewBounds="true"
-                        android:background="?android:attr/selectableItemBackground"
-                        android:scaleType="fitCenter"
-                        android:src="@mipmap/soundadd" />
+                        android:scrollbars="none">
 
-                    <ImageButton
-                        android:id="@+id/button_page_selector"
-                        android:layout_width="32dp"
-                        android:layout_height="37dp"
-                        android:layout_marginStart="6dp"
-                        android:adjustViewBounds="true"
-                        android:background="?android:attr/selectableItemBackground"
-                        android:scaleType="fitCenter"
-                        android:src="@drawable/icon_folder"
-                        android:visibility="gone" />
+                        <LinearLayout
+                            android:id="@+id/bottom_right_slots"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal" />
+                    </HorizontalScrollView>
                 </LinearLayout>
+
+                <!-- 底部的组展开条：组按钮点开后，组内按钮排在这里（在按钮行上方） -->
+                <HorizontalScrollView
+                    android:id="@+id/bottom_group_scroll"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_above="@+id/bottom_row"
+                    android:layout_centerHorizontal="true"
+                    android:background="@drawable/background_edittext"
+                    android:scrollbars="none"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:id="@+id/bottom_group_slots"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="4dp"
+                        android:paddingVertical="4dp" />
+                </HorizontalScrollView>
 
             </RelativeLayout>
 
@@ -293,8 +309,13 @@
             android:orientation="horizontal">
 
 
+            <!--
+                组的展开条（26.11.06）：槽位里的「组」渲染成一个更多按钮，点开后组内按钮排在
+                竖列左侧这条横条上，同一侧同时只展开一组。原来这里是固定的「第二排」九个按钮，
+                现在全部收进 button_pool，位置由用户布局决定。
+            -->
             <HorizontalScrollView
-                android:id="@+id/right_second"
+                android:id="@+id/right_group_scroll"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="28dp"
@@ -303,152 +324,23 @@
                 android:visibility="gone">
 
                 <LinearLayout
-                    android:id="@+id/right_second_container"
+                    android:id="@+id/right_group_slots"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:paddingHorizontal="4dp"
-                    android:paddingVertical="4dp">
-
-                    <ImageButton
-                        android:id="@+id/danmaku_send_btn"
-                        android:layout_width="28dp"
-                        android:layout_height="28dp"
-                        android:adjustViewBounds="true"
-                        android:background="?android:attr/selectableItemBackground"
-                        android:scaleType="fitXY"
-                        android:src="@drawable/send" />
-
-                    <ImageButton
-                        android:id="@+id/subtitle_btn"
-                        android:layout_width="28dp"
-                        android:layout_height="28dp"
-                        android:adjustViewBounds="true"
-                        android:background="?android:attr/selectableItemBackground"
-                        android:scaleType="fitXY"
-                        android:src="@mipmap/subtitle_off" />
-
-                    <ImageButton
-                        android:id="@+id/loop_btn"
-                        android:layout_width="28dp"
-                        android:layout_height="28dp"
-                        android:adjustViewBounds="true"
-                        android:background="?android:attr/selectableItemBackground"
-                        android:scaleType="fitXY"
-                        android:src="@mipmap/loopoff" />
-
-                    <ImageButton
-                        android:id="@+id/audio_only_btn"
-                        android:layout_width="28dp"
-                        android:layout_height="28dp"
-                        android:adjustViewBounds="true"
-                        android:background="?android:attr/selectableItemBackground"
-                        android:scaleType="fitXY"
-                        android:src="@drawable/icon_play_16"
-                        android:visibility="gone" />
-
-                    <ImageButton
-                        android:id="@+id/auto_next_btn"
-                        android:layout_width="28dp"
-                        android:layout_height="28dp"
-                        android:adjustViewBounds="true"
-                        android:background="?android:attr/selectableItemBackground"
-                        android:scaleType="fitXY"
-                        android:src="@drawable/icon_auto_next_off"
-                        android:visibility="gone" />
-
-                    <ImageButton
-                        android:id="@+id/viewpoint_btn"
-                        android:layout_width="28dp"
-                        android:layout_height="28dp"
-                        android:adjustViewBounds="true"
-                        android:background="?android:attr/selectableItemBackground"
-                        android:scaleType="fitXY"
-                        android:src="@drawable/icon_folder"
-                        android:visibility="gone" />
-
-                    <TextView
-                        android:id="@+id/video_info_btn"
-                        android:layout_width="wrap_content"
-                        android:layout_height="28dp"
-                        android:gravity="center"
-                        android:paddingHorizontal="8dp"
-                        android:text="@string/uitext_videoinfoactivity_002"
-                        android:textColor="?android:attr/textColorPrimary"
-                        android:textSize="12sp"
-                        android:background="@android:color/transparent"
-                        android:visibility="gone" />
-
-                    <!--
-                        QQ#9 精确空降：点开输入时间点直接跳。
-                        手表上拖进度条很难停准，这里给一个「输入 mm:ss」的入口；
-                        直播没有时间点概念，显隐由 onPrepared 的直播分支统一控制。
-                    -->
-                    <TextView
-                        android:id="@+id/jump_time_btn"
-                        android:layout_width="wrap_content"
-                        android:layout_height="28dp"
-                        android:background="@android:color/transparent"
-                        android:gravity="center"
-                        android:paddingHorizontal="8dp"
-                        android:text="@string/text_player_jump_to_time"
-                        android:textColor="?android:attr/textColorPrimary"
-                        android:textSize="12sp"
-                        android:visibility="gone" />
-
-                    <!--
-                        连播队列按钮（批次 2）：有队列时显示当前模式（顺序/倒序/随机/单曲），
-                        点一下切模式；没有队列但知道 UP 主时显示「连播」，点一下懒加载 UP 主投稿。
-                        长按总是尝试换成 UP 主投稿队列。显隐与文案由 updateQueueModeButton() 统一算。
-                    -->
-                    <TextView
-                        android:id="@+id/queue_mode_btn"
-                        android:layout_width="wrap_content"
-                        android:layout_height="28dp"
-                        android:background="@android:color/transparent"
-                        android:gravity="center"
-                        android:paddingHorizontal="8dp"
-                        android:text="@string/player_queue_btn_label"
-                        android:textColor="?android:attr/textColorPrimary"
-                        android:textSize="12sp"
-                        android:visibility="gone" />
-
-                </LinearLayout>
+                    android:paddingVertical="4dp" />
 
             </HorizontalScrollView>
 
+            <!-- 右列槽位：最多 5 格，运行时按用户布局填 -->
             <LinearLayout
+                android:id="@+id/right_column_slots"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
+                android:gravity="center"
+                android:orientation="vertical" />
 
-                <ImageButton
-                    android:id="@+id/danmaku_btn"
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:adjustViewBounds="true"
-                    android:background="?android:attr/selectableItemBackground"
-                    android:scaleType="fitXY"
-                    android:src="@mipmap/danmakuoff" />
-
-                <ImageButton
-                    android:id="@+id/rotate_btn"
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:adjustViewBounds="true"
-                    android:background="?android:attr/selectableItemBackground"
-                    android:scaleType="fitXY"
-                    android:src="@mipmap/rotate" />
-
-                <ImageButton
-                    android:id="@+id/menu_btn"
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:adjustViewBounds="true"
-                    android:background="?android:attr/selectableItemBackground"
-                    android:scaleType="fitXY"
-                    android:src="@mipmap/morehide" />
-            </LinearLayout>
 
         </LinearLayout>
 
@@ -833,33 +725,176 @@
     </RelativeLayout>
 
     <!--
-        播放页触摸锁定（防误触）：锁定时全屏的 lock_overlay 盖住所有控制元素并吞掉触摸，
-        只有它上面的 lock_btn 可以点。两个兄弟节点必须放在最外层最后，才能压住 card_bg 等弹层。
-    -->
-    <View
-        android:id="@+id/lock_overlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:clickable="true"
-        android:focusable="true"
-        android:visibility="gone" />
-
-    <!--
-        左侧按钮列：与 right_control 的竖排图标列对称（同 28dp 图标、同 4dp 边距、上下居中）。
-        右列的上下锚点在 control_layout 内部，root 层够不到，所以中线对齐由
-        PlayerActivity.alignLeftControlToRight() 在运行时用 translationY 补。
-        列内自上而下：锁定按钮、倍速文字（原本挂在 control_layout 里、与锁图标并排，实测挤在一起）。
-        锁定后 control_layout 整体隐藏，这一列仍留着 lock_btn；倍速文字由锁定逻辑单独隐藏。
+        可自定义按钮的池子（26.11.06）。这里放的是**按钮本体**，永远 GONE 不出现在画面上：
+        播放器里的状态、监听器全都写在它们身上（`PlayerActivity.btn_danmaku` 等字段指的也是这里），
+        视觉位置由 `player/PlayerButtonSlots.kt` 按用户布局把它们搬进四个槽位容器。
+        所以增删按钮不需要改这段结构，只要保证 id 不变。
+        「更多」不在这里：它是组槽位在运行时现画的按钮。
     -->
     <LinearLayout
-        android:id="@+id/left_control"
+        android:id="@+id/button_pool"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignParentLeft="true"
-        android:layout_centerVertical="true"
-        android:layout_marginStart="4dp"
-        android:gravity="center"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <ImageButton
+            android:id="@+id/button_quality"
+            android:layout_width="32dp"
+            android:layout_height="37dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="fitCenter"
+            android:src="@drawable/icon_menu" />
+
+        <ImageButton
+            android:id="@+id/button_sound_cut"
+            android:layout_width="32dp"
+            android:layout_height="37dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="fitCenter"
+            android:src="@mipmap/soundcut" />
+
+        <ImageButton
+            android:id="@+id/button_sound_add"
+            android:layout_width="32dp"
+            android:layout_height="37dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="fitCenter"
+            android:src="@mipmap/soundadd" />
+
+        <ImageButton
+            android:id="@+id/button_page_selector"
+            android:layout_width="32dp"
+            android:layout_height="37dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="fitCenter"
+            android:src="@drawable/icon_folder"
+            android:visibility="gone" />
+
+        <ImageButton
+            android:id="@+id/danmaku_send_btn"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="fitXY"
+            android:src="@drawable/send" />
+
+        <ImageButton
+            android:id="@+id/subtitle_btn"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="fitXY"
+            android:src="@mipmap/subtitle_off" />
+
+        <ImageButton
+            android:id="@+id/loop_btn"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="fitXY"
+            android:src="@mipmap/loopoff" />
+
+        <ImageButton
+            android:id="@+id/audio_only_btn"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="fitXY"
+            android:src="@drawable/icon_play_16"
+            android:visibility="gone" />
+
+        <ImageButton
+            android:id="@+id/auto_next_btn"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="fitXY"
+            android:src="@drawable/icon_auto_next_off"
+            android:visibility="gone" />
+
+        <ImageButton
+            android:id="@+id/viewpoint_btn"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="fitXY"
+            android:src="@drawable/icon_folder"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/video_info_btn"
+            android:layout_width="wrap_content"
+            android:layout_height="28dp"
+            android:background="@android:color/transparent"
+            android:gravity="center"
+            android:paddingHorizontal="8dp"
+            android:text="@string/uitext_videoinfoactivity_002"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <!--
+            QQ#9 精确空降：点开输入时间点直接跳。
+            手表上拖进度条很难停准，这里给一个「输入 mm:ss」的入口；
+            直播没有时间点概念，显隐由 onPrepared 的直播分支统一控制。
+        -->
+        <TextView
+            android:id="@+id/jump_time_btn"
+            android:layout_width="wrap_content"
+            android:layout_height="28dp"
+            android:background="@android:color/transparent"
+            android:gravity="center"
+            android:paddingHorizontal="8dp"
+            android:text="@string/text_player_jump_to_time"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <!--
+            连播队列按钮（批次 2）：有队列时显示当前模式（顺序/倒序/随机/单曲），
+            点一下切模式；没有队列但知道 UP 主时显示「连播」，点一下懒加载 UP 主投稿。
+            长按总是尝试换成 UP 主投稿队列。显隐与文案由 updateQueueModeButton() 统一算。
+        -->
+        <TextView
+            android:id="@+id/queue_mode_btn"
+            android:layout_width="wrap_content"
+            android:layout_height="28dp"
+            android:background="@android:color/transparent"
+            android:gravity="center"
+            android:paddingHorizontal="8dp"
+            android:text="@string/player_queue_btn_label"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <ImageButton
+            android:id="@+id/danmaku_btn"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="fitXY"
+            android:src="@mipmap/danmakuoff" />
+
+        <ImageButton
+            android:id="@+id/rotate_btn"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="fitXY"
+            android:src="@mipmap/rotate" />
 
         <ImageButton
             android:id="@+id/lock_btn"
@@ -885,6 +920,61 @@
             android:textColor="?android:attr/textColorPrimary"
             android:textSize="14sp"
             android:visibility="gone" />
+
+    </LinearLayout>
+
+    <!--
+        播放页触摸锁定（防误触）：锁定时全屏的 lock_overlay 盖住所有控制元素并吞掉触摸，
+        只有它上面的 lock_btn 可以点。两个兄弟节点必须放在最外层最后，才能压住 card_bg 等弹层。
+    -->
+    <View
+        android:id="@+id/lock_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone" />
+
+    <!--
+        左侧槽位列（26.11.06 起可自定义）：与 right_control 的竖列对称（同单元格、同 4dp 边距）。
+        右列的上下锚点在 control_layout 内部，root 层够不到，所以中线对齐由
+        PlayerActivity.alignLeftControlToRight() 在运行时用 translationY 补。
+        锁定后 control_layout 整体隐藏，这一列仍留着锁定按钮；倍速文字由锁定逻辑单独隐藏。
+        组的展开条在列的右边：点更多按钮后组内按钮横向排在那一侧。
+    -->
+    <LinearLayout
+        android:id="@+id/left_control"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentLeft="true"
+        android:layout_centerVertical="true"
+        android:layout_marginStart="4dp"
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:id="@+id/left_column_slots"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:orientation="vertical" />
+
+        <HorizontalScrollView
+            android:id="@+id/left_group_scroll"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/background_edittext"
+            android:scrollbars="none"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/left_group_slots"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingHorizontal="4dp"
+                android:paddingVertical="4dp" />
+        </HorizontalScrollView>
 
     </LinearLayout>
 
