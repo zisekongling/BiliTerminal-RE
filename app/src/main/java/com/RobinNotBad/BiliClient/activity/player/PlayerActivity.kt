@@ -1697,7 +1697,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun beginPendingThirdPartyResolve() {
         if (destroyed) return
         runOnUiThread {
-            loading_text0.text = getString(R.string.uitext_playeractivity_030)
+            loading_text0.text = getString(R.string.uitext_playeractivity_third_party_resolving)
             loading_text1.text = "(≧∇≦)"
         }
         val callback = object : OptionalFeatures.ThirdPartyResolveCallback {
@@ -1738,6 +1738,24 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     finish()
                 }
             }
+        }
+    }
+
+    /**
+     * 私有侧更新「备用片源解析到哪一步了」的提示（26.11.06）。
+     *
+     * <p>以前解析进度显示在独立的等待页里；现在解析就在本页载入界面上跑，私有侧通过
+     * [OptionalFeatures.updateThirdPartyResolveHint] 把「正在打开剧集页…」「正在嗅探播放地址…」
+     * 这类文案推过来，用户看到的是播放器自己的载入动画 + 一行状态，不再中途跳页。
+     */
+    fun updateResolveHint(text: CharSequence?) {
+        if (destroyed) return
+        runOnUiThread {
+            if (destroyed || isFinishing) return@runOnUiThread
+            loading_info.visibility = View.VISIBLE
+            anim_loading?.start()
+            loading_text0.text = text?.takeIf { it.isNotBlank() }
+                ?: getString(R.string.uitext_playeractivity_third_party_resolving)
         }
     }
 

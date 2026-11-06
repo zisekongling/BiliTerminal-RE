@@ -6,6 +6,7 @@ import android.content.Intent
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
+import com.RobinNotBad.BiliClient.activity.player.PlayerActivity
 import com.RobinNotBad.BiliClient.model.MessageCard
 import com.RobinNotBad.BiliClient.model.VideoCard
 
@@ -356,6 +357,22 @@ object OptionalFeatures {
     } catch (e: Throwable) {
         Logu.w("OptionalFeatures", "attachThirdPartyDanmaku failed: " + e.message)
         false
+    }
+
+    /**
+     * 私有侧把「备用片源解析到哪一步」推给播放页的载入界面（26.11.06）。
+     *
+     * 以前这段进度显示在独立的等待页里（换页、和 app 风格不一致）；现在解析就在播放页里跑，
+     * 私有侧只需要更新播放页载入态的那行状态文案。没有私有功能时不会被调用；
+     * 传进来的不是播放页（或已销毁）时什么也不做。
+     */
+    fun updateThirdPartyResolveHint(activity: Activity?, text: CharSequence?) {
+        if (activity !is PlayerActivity) return
+        try {
+            activity.updateResolveHint(text)
+        } catch (e: Throwable) {
+            Logu.w("OptionalFeatures", "updateThirdPartyResolveHint failed: " + e.message)
+        }
     }
 
     private fun invokeString(name: String): String? = try {
