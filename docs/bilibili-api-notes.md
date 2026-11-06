@@ -268,3 +268,13 @@
 - **踩坑形态**：把 `type == 2` 当成「片尾」后，UGC 稿件的每个章节都成了片尾 → 250ms 进度定时器每轮都命中 → 用户看到的是「一直在跳过片尾」。这就是反馈 #99 与 #34 的同根问题。
 - **对策**：自动跳过**只对 PGC 生效**（`PlayerActivity.isPgcPlayback()`，判据是 `is_bangumi` / `epid`），UGC 拿到空片段表；「显示视频分段」的浏览/点选不受影响。
 - **不要用 `content` 白名单代替这个判据**：番剧片段的 `content` 常为空串或「1-1」「正片」「简介」，按标题过滤会把真片头也挡掉，且挡不住「预告」类标注。
+
+## 13. Web Cookie 刷新：`refresh_token` 一次性轮换 + confirm 作废旧 Cookie（26.11.06）
+
+接口与流程文档在仓库快照 `bilibili-API/docs/login/cookie_refresh.md`（原始出处 socialsisteryi/bilibili-API-collect）。三条与实现直接相关的结论：
+
+1. **`cookie/refresh` 的响应会通过 `Set-Cookie` 下发新的 `SESSDATA` / `bili_jct` / `DedeUserID` / `DedeUserID__ckMd5` / `sid`**（`Domain=bilibili.com`，有效期约半年），同时在 JSON 的 `data.refresh_token` 里返回**新的** `refresh_token`。响应样例见上述文档快照。
+2. **`refresh_token` 是一次性轮换的**：刷新成功后旧的 `refresh_token` 就不再是「下次可用的口令」。所以「等 `confirm` 成功后再落盘新口令」是错的——中途任何异常（网络断、解析失败、进程被杀）都会让本地永久续不上会话，最终表现为随机掉登录。正确顺序：拿到新口令立刻持久化。
+3. **`confirm/refresh` 的语义是「让旧 `refresh_token` 对应的 Cookie 失效」**，它必须带**旧的** `refresh_token` 与**新** Cookie 里的 `bili_jct`。因此 confirm 之前必须先核对新 Cookie 真的落到本地了（至少 `SESSDATA` 非空、`DedeUserID` 与当前 mid 一致），否则「旧会话被作废 + 本地还是旧的」= 必掉登录。
+
+实现侧对应 `api/CookieRefreshApi.refreshCookie()` 返回的 `RefreshResult{OK, RETRY, NEED_LOGIN}`：只有刷新接口返回 `-101` 才算 `NEED_LOGIN`；`86095`（refresh_csrf 错 / 口令与 Cookie 不匹配）之类只算 `RETRY`，**不得**清本地凭证。
