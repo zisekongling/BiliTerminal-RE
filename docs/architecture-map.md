@@ -739,9 +739,11 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - `player/DanmakuTimestampPolicy.kt` — 弹幕正文里认时间（`01:23` / `1:23` / `01:23:45`），点弹幕跳进度用。
 - `player/LongPressSwitchPolicy.kt` — 长按后上下划切上一条/下一条的判定（纵向阈值 0.18 屏高 + 横向容差 + 时长窗），命中先结束倍速再切页。
 - `player/DanmakuSelfStylePolicy.kt` — 本人弹幕边框的哈希比对（mid 的 CRC32 vs 弹幕 `userHash`）。**`DanmakuFlameMaster` 已被改动**：`BaseDanmaku.borderColor` 去掉 `final`，两个 parser 补写 `userHash`（protobuf 走 `midHash`、XML 走 p 的第 6 段）；渲染侧 `AndroidDisplayer` 本来就有 borderColor 分支，没加新绘制。
-- `util/RecommendPagePolicy.kt` — 推荐流翻页游标（`ps` + `fresh_idx`；`brush` 实测无效）。翻页请求要带代数判据，旧请求回来不能覆盖新列表。
 - `util/ScheduleTimePolicy.kt` — 动态定时发布的合法窗口（+6 分钟 ~ +7 天，闭区间）与 `yyyy-MM-dd HH:mm[:ss]` 解析。
+- `util/RecommendPagePolicy.kt` — 推荐流分页游标（`ps` 页大小 + `fresh_idx` 页码、`fresh_type` 仅为兼容）+ bvid 去重；**26.11.07 已删掉 `shouldStop`**，推荐页按无底流处理、永不判到底（详见本节结尾那段）。
 - `ui/appearance/BackgroundImage.kt` — 主题背景图（私有目录拷贝、16MB / 8192px 上限、≤1024 采样、填充/适应、0/25/50/75% 遮罩）；`ColorScheme.applyWindowTheme` 里与 `AmbientGlow.createOverlayDrawable` 组成 `LayerDrawable`，**光晕是图上面的一层半透明叠色**，别再用 if/else 把两者设成互斥。
+
+**26.11.07 推荐页「没有更多了」修复：保留游标、不判到底**：`util/RecommendPagePolicy.kt` 与 `RecommendPagePolicyTest` 都保留（`ps`/`fresh_idx` 游标、bvid 去重），只**删掉 `shouldStop`**（连同它的 4 个用例）。原判据拿「跳过广告/番剧卡之后的本页条数」跟「请求页大小」比 —— 一页 20 条里只要有一张非 av 卡就 19 < 20 判成到底，页面随即永久 `bottom = true`，父类于是弹底部「没有更多了」，并且滚动监听里的 `!bottom` 守卫从此永久拦住翻页（**两个症状同一个根**）。推荐页是无底流：`fresh_idx` 每次请求后无条件前进（哪怕本页全是重复卡片），但 **永不置 `bottom`**，所以既翻得动、也不会出现「没有更多了」。反向的坑同样别踩：26.11.02 的旧代码没有游标，服务端对相同参数返回同一批，`loadedBvids` 去重后 0 条新增 → 表现为「翻页触发后列表不长」。改这个页面前先读 `docs/review/fix-progress.md` §3.135。
 
 **`android.media.session.MediaSession` 是 API 21 类，而本项目 minSdk 19**：字段、方法签名、返回值里一律不许出现这个类型（否则 API 19 上 `PlayerActivity` 类加载即崩）。26.11.06 已把字段与四个入口（`initMediaSession` / `updateMediaSessionMetadata` / `updateMediaSessionPlaybackState` / `postMediaControlNotification`）改成 `Any?` + SDK 守卫 + 局部 `as? MediaSession`，新加代码照此办理。
 

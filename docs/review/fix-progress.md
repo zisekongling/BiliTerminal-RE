@@ -18,7 +18,8 @@
 
 ## 1. 当前版本状态
 
-- **版本号**：`26.11.06`（`versionCode 2611060`，tag `26.11.06`）——CI 的 `verify-version` 会拿 tag 的 `YY.MM.DD` 段去比 `versionName`；`strings.xml` 的 `update_log_current` 锚点是「【26.11.06 本次更新】」，`:app:verifyVersionConsistency` 以该锚点校验。tag `26.10.31`、`26.10.31.1`、`26.11.01`、`26.11.02`、`26.11.06` 均已占用（发版记录见 §4）。
+- **版本号**：`26.11.07`（`versionCode 2611070`，tag `26.11.07`）——CI 的 `verify-version` 会拿 tag 的 `YY.MM.DD` 段去比 `versionName`；`strings.xml` 的 `update_log_current` 锚点是「【26.11.07 本次更新】」，`:app:verifyVersionConsistency` 以该锚点校验。tag `26.10.31`、`26.10.31.1`、`26.11.01`、`26.11.02`、`26.11.06`、`26.11.06.1`、`26.11.07` 均已占用（发版记录见 §4）；补丁版 `26.11.07.1` **沿用** `versionName 26.11.07` / `versionCode 2611070`，只多带两处修复（§3.135 / §3.136）。
+- **26.11.07 本次更新日志 31 条**＝26.11.06 的 19 条**逐字保留**+ 12 条新增（播放器按钮槽位与七组设置、连播队列与继续播放、弹幕分段与磁盘缓存、评论三层兜底、片头片尾五档、推荐页游标去重、主题背景图、赞赏入口等）。按用户要求 **26.11.06 不单独进 `update_history_log`**（「06 版本就当不存在」），历史页顶部仍是「## 2026-11-02」。
 - **26.11.06 本轮改动**：覆盖 26.11.02 之后的 28 个提交（§3.108~§3.118），分别是「我的订阅」（含订阅 / 取消订阅入口）、缓存页多选批量操作与拖动排序搜索、缓存合集按下载页序排列、下载期间不休眠 + 下载页常亮、热搜跑马灯、播放器滑动调进度灵敏度 / 跳到指定时间 / 锁定按钮开关、mcdn 直链 -10000 修复、自动跳过片头片尾只对 PGC 生效、番剧「播放来源」面板与换源播放接入弹弹play 弹幕（可选私有功能）、账号代际隔离与多账号导入导出、#88 关注分组长按、#85 评论「假发送成功」、#97 设置页搜索框随内容滚动、带图评论图床目录与大会员前置拦截。文档侧另补：App 开源信息页与 `readme.md` 致谢加入 Kazumi（选源交互 / 第三方弹幕接入思路，GPL v3，未包含其源码）。
 - **上一版**：`26.11.02` / tag `26.11.02`（`versionCode 2611020`、`versionName 26.11.02`）；其 12 条日志已归档进 `update_history_log` 的「## 2026-11-02」组（本版首次把它补进历史页——26.11.02 发版时该组未写入）。
 - **上一版（26.11.01）**：按用户要求把**播放器相关代码整体退回 26.10.27 发版状态**（§3.90）——撤掉自编译的 ijkplayer 补丁库（`.so` 回到上游预编译版，三 ABI 体积回落）、ExoPlayer 统一时钟内核与 DASH 双流方案，修上一版在真机上「安装包明显变大、视频完全播不出来」；同时合并 PR #18（§3.91 菜单退出按钮、§3.92 媒体控件归类、§3.93 圆屏列表实验效果、§3.94 封面请求复用）与 PR #19（§3.83 举报 / 弹幕消息迁入可选私有功能，公开侧只留门面与挂点）。明细见 `strings.xml` 的 `update_log_current`（5 条编号条目，另 1 条为版本锚点）。
@@ -1474,6 +1475,14 @@
 - **验证 · L0**：`./gradlew.bat :app:assembleDebug` → `BUILD SUCCESSFUL`（两 flavor 出包）；`:app:testStandardDebugUnitTest` 187 suites / **2043** tests / 0 失败 0 错误 0 跳过（`ImageRequestPolicyTest` 新增 4 个用例：`supportsResizeSuffix_bilibiliCdn_true` / `_externalHosts_false` / `_bilibiliMainSite_false` / `_unparsable_false`）。
 - **验证 · L1（模拟器 emulator-5554，Android 17 / 1080×2400 / standardDebug）**：关于页 →「赞赏」行在「注意：本软件仅使用了 WearBili…」卡之下 →点它弹出免责声明（标题「赞赏」、四行正文、底部「取消 / 同意」）→ 点「同意」→ `图片查看` 页，底部「第 1/1 张」，**收款码完整显示**（这条同时证明 Glide 后缀修复在真机链路上成立）。隐藏生效后再看，「赞赏」行下面直接是「此版本主要开发者」，捐赠列表不再出现。全程 `logcat -b crash` 为空。本机没有 OCR 后端，定位控件只能用 `android_ui_tree` + `android_tap_element`（按 text 匹配）。
 - **未验证（人测，见 `docs/review/handoff-261106-about-donate.md`）**：① 收款码能不能被手机扫码识别（要真人拿手机扫手表屏幕，属于实操 + 观感）；② 免责声明在 466×466 圆屏上是否需要滚动才能看全、按钮是否够得着。
+
+### 3.135 推荐页误判「到底」：弹一次「没有更多了」之后再也翻不动（26.11.07.1，用户点名）
+
+- **现象**：推荐页滑几屏后底部弹「没有更多了」，此后怎么滑都不再加载新内容。
+- **根因**：26.11.06 批次 3 引入的 `RecommendPagePolicy.shouldStop(usableCount, requestedPageSize, newItemCount)` 拿「过滤掉广告 / 番剧 / 直播卡之后的可用条数」跟请求页大小比——一页 20 条里只要有 1 张非 av 卡就 `19 < 20` 判成到底，`bottom` 置 true（`activity/video/RecommendActivity.kt` ← 父类 `RefreshMainActivity` 的滚动监听）。**两个症状同一个根**：父类看到 `bottom` 弹底部提示，同时滚动监听里的 `!bottom` 守卫永久拦住翻页；「去重后 0 条新增」分支同样会置 `bottom = true`。
+- **改法**：`util/RecommendPagePolicy.kt` 删掉 `shouldStop`（连同 `RecommendPagePolicyTest` 里它的 4 个用例），页面侧**永不置 `bottom = true`**（去重后没新增只表示这一页回绕到旧内容，不是到底）；`nextPage = RecommendPagePolicy.nextPage(requestPage)` 从「有新增」分支提到去重**之前**，改为无条件前进——否则某一页全重复时会永远卡在同一个 `fresh_idx` 上反复拿同一批。`RecommendApi.java` 与 `RecommendPagePolicy` 的类注释同步改口径：推荐流是无底流，接口深翻（`fresh_idx≈120`）仍返回满页、**没有空页信号**。
+- **验证 · L0**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest` 通过（`RecommendPagePolicyTest` 删 4 个用例后其余全绿）。
+- **未验证（人测）**：一直往下滑是否持续出新内容、不再出现「没有更多了」。反向坑别踩：26.11.02 的旧代码没有游标，服务端对相同参数返回同一批，去重后 0 条新增 → 表现成「触发翻页但列表不长」；现在是游标前进 + 去重并存，连续多页全重复时列表会暂时停住，滑到底仍会继续请求（不是 bug）。
 
 ## 4. 历史章节索引
 

@@ -48,7 +48,7 @@ public class RecommendApi {
      *     <li>{@code fresh_idx} 生效：固定其它参数时 idx=1/2/3 三批两两 bvid 交集为 0；</li>
      *     <li>{@code brush} 单独改无效（同 idx 下 brush=1 与 brush=2 是同一批），故不下发；</li>
      *     <li>{@code fresh_type} 单独改也无效（3/4/不传 相同），只为兼容保留原值；</li>
-     *     <li>深翻没有空页信号（idx=120 仍返回满页），「到底」由调用方按「本页不足」判断。</li>
+     *     <li>深翻没有空页信号（idx=120 仍返回满页）；推荐页按无底流处理，**不**判「到底」。</li>
      * </ul>
      *
      * @param freshType 原来的 fresh_type（保留兼容，实测不影响内容）

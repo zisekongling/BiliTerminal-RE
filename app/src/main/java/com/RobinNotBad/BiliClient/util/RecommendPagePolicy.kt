@@ -15,11 +15,15 @@ import com.RobinNotBad.BiliClient.model.VideoCard
  * - `fresh_idx` 生效：固定 ps/brush/fresh_type 时，fresh_idx=1/2/3 三批两两交集为 0；
  * - `brush` 单独改**无效**：fresh_idx 固定时 brush=1 与 brush=2 的 bvid 交集为 20（同一批）；
  * - `fresh_type` 单独改**无效**：3/4/不传 的交集为 20（同一批）；
- * - 深翻（fresh_idx=5/10/30/60/120）依然是 `code=0` + 20 条满页，**没有空页信号**，
- *   所以「翻到底」只能靠「本页条数不足」或「去重后没有新增」判断。
+ * - 深翻（fresh_idx=5/10/30/60/120）依然是 `code=0` + 20 条满页，**没有空页信号**。
  *
  * 结论：只下发 `ps` + `fresh_idx`（`fresh_type` 保留原值仅作兼容），**不伪造 `brush`**；
  * 下拉刷新用「page 归 1 + 清空本地 bvid 去重集合」表达，而不是靠一个服务端不认的计数参数。
+ *
+ * 26.11.07：删掉 `shouldStop`（连同它的单测）。原判据拿「过滤掉广告/番剧卡之后的可用条数」
+ * 跟「请求页大小」比，一页 20 条里只要有 1 张非 av 卡就会 19 < 20 被判成到底，
+ * 推荐页随之永久停在 bottom = true，既弹「没有更多了」也再也翻不动。
+ * 推荐流本来就没有尽头，页面侧不该判到底。
  */
 object RecommendPagePolicy {
 
@@ -63,19 +67,6 @@ object RecommendPagePolicy {
     /** 下一页页码；非法输入按第 1 页处理后再 +1。 */
     @JvmStatic
     fun nextPage(current: Int): Int = current.coerceAtLeast(FIRST_PAGE) + 1
-
-    /**
-     * 是否该结束分页。
-     *
-     * @param usableCount       本页解析出的可用卡片数（已跳过广告/非普通投稿）
-     * @param requestedPageSize 本次请求的 ps
-     * @param newItemCount      按 bvid 去重后真正新增的卡片数
-     *
-     * 两条判据：本页不足一页（服务端给不满），或去重后没有任何新卡片（再翻也是重复）。
-     */
-    @JvmStatic
-    fun shouldStop(usableCount: Int, requestedPageSize: Int, newItemCount: Int): Boolean =
-        newItemCount <= 0 || usableCount < requestedPageSize
 
     /**
      * 按 bvid 去重：保留 [seen] 里没有的卡片，并把它们登记进 [seen]。

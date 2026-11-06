@@ -18,6 +18,10 @@ import com.RobinNotBad.BiliClient.util.RecommendPagePolicy.FIRST_PAGE
 //2023-07-13
 //26.11.06 批次 3（task-16）：补上分页游标（ps + fresh_idx），
 //否则「参数不变 → 服务端返回同一批」会让下拉加载更多变成重复追加。
+//26.11.07：游标保留，但本页按**无底流**处理——不再判「到底」、不再置 bottom。
+//原因：26.11.06 的到底判据拿「过滤掉广告/番剧卡之后的可用条数」跟「请求页大小」比，
+//一页 20 条里只要有一张非 av 卡就判成到底；父类收到 bottom = true 后会弹
+//「没有更多了」，并让滚动监听里的 !bottom 守卫永久拦住翻页。
 
 class RecommendActivity : RefreshMainActivity() {
 
@@ -68,7 +72,7 @@ class RecommendActivity : RefreshMainActivity() {
         freshType = RecommendPagePolicy.DEFAULT_FRESH_TYPE
         nextPage = FIRST_PAGE
         loadedBvids.clear()
-        // 刷新等于从第 1 页重新开始：解除「没有更多了」，否则刷完还是翻不动
+        // 兜底：本页不判到底，但父类的 bottom 可能是上一版本/别处留下的
         bottom = false
         ++loadGeneration
         // 上一轮请求即使还在飞，也已经被代数判据作废了；这里必须清掉 loading，
@@ -100,11 +104,15 @@ class RecommendActivity : RefreshMainActivity() {
 
                 runOnUiThread {
                     if (generation != loadGeneration) return@runOnUiThread
+                    // 游标无条件前进：即使这一页全是已出现过的卡片，下一页也要换一批，
+                    // 否则会永远卡在同一个 fresh_idx 上反复拿到同一批内容。
+                    nextPage = RecommendPagePolicy.nextPage(requestPage)
                     // 按 bvid 去重：服务端偶尔会给回已出现过的卡片（翻页边界/推荐池重叠）
                     val newItems = RecommendPagePolicy.filterNewCards(list, loadedBvids)
                     if (newItems.isEmpty()) {
-                        // 去重后没有任何新内容：这一页到头了，别再让父类继续触发加载
-                        bottom = true
+                        // 去重后没有新内容：这一页大概率是回绕到旧内容了。
+                        // 26.11.07 起**不**把它当成「到底」——游标已经在上面前进过，
+                        // 下次滑到底会自动请求下一批，既不会卡死也不会弹「没有更多了」。
                         loading = false
                         setRefreshing(false)
                         // 首屏就拉不到内容时给出空态，否则用户只看到"转圈消失 + 一片空白"
@@ -112,7 +120,6 @@ class RecommendActivity : RefreshMainActivity() {
                         return@runOnUiThread
                     }
                     hideEmptyView()
-                    nextPage = RecommendPagePolicy.nextPage(requestPage)
                     videoCardList!!.addAll(newItems)
                     if (firstRefresh) {
                         firstRefresh = false
@@ -121,11 +128,8 @@ class RecommendActivity : RefreshMainActivity() {
                     } else {
                         videoCardAdapter!!.notifyItemRangeInserted(videoCardList!!.size - newItems.size, newItems.size)
                     }
-                    // 本页不足一页（或去重后没新增）说明没有下一页了；
-                    // 实测深翻不会返回空页，只能靠这个判据，等空页会无限翻下去。
-                    if (RecommendPagePolicy.shouldStop(list.size, pageSize, newItems.size)) {
-                        bottom = true
-                    }
+                    // 这里刻意不判「到底」：接口深翻（fresh_idx≈120）仍是满页、没有空页信号，
+                    // 而推荐流本来就没有尽头，置 bottom = true 只会永久掐断翻页并弹「没有更多了」。
                     loading = false
                     setRefreshing(false)
                 }

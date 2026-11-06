@@ -12,6 +12,9 @@ import org.junit.Test
  * 26.11.06 批次 3（task-16）：接口实测结论（`ps` 生效、`fresh_idx` 是真正的游标、
  * `brush`/`fresh_type` 单独改无效、深翻没有空页信号）都固化在这里，
  * 避免以后被人"顺手"加回无效参数、或改回「等空页才停」。
+ *
+ * 26.11.07：`shouldStop` 连同它的用例已删除（误判见 `RecommendPagePolicy` 类注释）——
+ * 推荐页是无底流，不该判到底。
  */
 class RecommendPagePolicyTest {
 
@@ -54,40 +57,6 @@ class RecommendPagePolicyTest {
         assertEquals("0 按第一页处理", 2, RecommendPagePolicy.nextPage(0))
         assertEquals("负数按第一页处理", 2, RecommendPagePolicy.nextPage(-5))
         assertEquals("100 的下一页是 101", 101, RecommendPagePolicy.nextPage(100))
-    }
-
-    // ---- 是否该结束分页 ----
-
-    @Test
-    fun shouldStop_continuesOnFullPageWithNewItems() {
-        assertFalse(
-            "20 条满页 + 有新增 → 还没到底",
-            RecommendPagePolicy.shouldStop(usableCount = 20, requestedPageSize = 20, newItemCount = 20)
-        )
-    }
-
-    @Test
-    fun shouldStop_stopsWhenPageIsShort() {
-        assertTrue(
-            "只给 7 条（请求 20）→ 到底",
-            RecommendPagePolicy.shouldStop(usableCount = 7, requestedPageSize = 20, newItemCount = 7)
-        )
-    }
-
-    @Test
-    fun shouldStop_stopsWhenNothingNewAfterDedupe() {
-        assertTrue(
-            "本页全是重复卡片 → 到底",
-            RecommendPagePolicy.shouldStop(usableCount = 20, requestedPageSize = 20, newItemCount = 0)
-        )
-    }
-
-    @Test
-    fun shouldStop_stopsOnEmptyPage() {
-        assertTrue(
-            "0 条 → 到底",
-            RecommendPagePolicy.shouldStop(usableCount = 0, requestedPageSize = 20, newItemCount = 0)
-        )
     }
 
     // ---- bvid 去重 ----
