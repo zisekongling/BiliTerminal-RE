@@ -148,6 +148,11 @@ object SettingsIndex {
         }
         list += Entry("玻璃质感", "卡片与按钮半透明，让光晕透进来") { a -> openGroup(a, GROUP_APPEARANCE, "外观设置", "玻璃质感") }
         list += Entry("卡片圆角", "调整卡片与按钮的圆角") { a -> openGroup(a, GROUP_APPEARANCE, "外观设置", "卡片圆角") }
+        // 批次 3（26.11.06）：背景图三项。highlight 用页内 SettingSection.name，
+        // 分别是标题「背景图」/ 导航「选择背景图」/ 两个 listChoose 的名字。
+        list += Entry("背景图", "给页面铺一张自己的图片") { a -> openGroup(a, GROUP_APPEARANCE, "外观设置", "背景图") }
+        list += Entry("背景图适配方式", "填满裁切还是完整显示") { a -> openGroup(a, GROUP_APPEARANCE, "外观设置", "适配方式") }
+        list += Entry("背景图遮罩强度", "遮罩越强文字越清楚") { a -> openGroup(a, GROUP_APPEARANCE, "外观设置", "遮罩强度") }
         list += Entry("横屏模式", "启用横屏显示") { a -> openGroup(a, "layout", "布局适配", "横屏模式") }
         list += Entry("开屏文字", "自定义开屏显示文字") { a -> openGroup(a, "ui", "界面与外观", "开屏文字") }
         list += Entry("文字跑马灯", "文字跑马灯效果") { a -> openGroup(a, "ui", "界面与外观", "文字跑马灯") }
@@ -211,6 +216,8 @@ object SettingsIndex {
             // 关键词必须与页内 SettingSection.name 严格一致，否则搜索命中定位不到。
             "显示高能进度条", "自动跳过片头片尾", "弹幕允许重叠", "合并重复弹幕", "强制为滚动弹幕",
             "显示直播弹幕发送者", "弹幕最大行数", "弹幕字号大小", "弹幕不透明度", "弹幕速度",
+            // 批次 3（26.11.06）新增的三项：名字必须与页内 SettingSection.name 严格一致
+            "本人弹幕边框", "长按上下划切换视频", "长按倍速提示尺寸",
             "自动弹出字幕选择", "允许仅AI字幕", "字幕校准", "字幕字号大小",
             "显示旋转按钮", "显示弹幕按钮", "显示清晰度按钮", "显示分P按钮", "互动选项字体大小"
         ))

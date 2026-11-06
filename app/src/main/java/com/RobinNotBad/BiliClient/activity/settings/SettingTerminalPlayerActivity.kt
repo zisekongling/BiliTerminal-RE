@@ -13,6 +13,8 @@ import com.RobinNotBad.BiliClient.adapter.SettingsAdapter
 import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.player.DanmakuLoadPolicy
 import com.RobinNotBad.BiliClient.player.LiveDanmakuFactorPolicy
+import com.RobinNotBad.BiliClient.player.LongPressSwitchPolicy
+import com.RobinNotBad.BiliClient.player.SkipOpEdPolicy
 import com.RobinNotBad.BiliClient.player.SkipOpEdPrefs
 import com.RobinNotBad.BiliClient.util.DanmakuDiskCache
 import com.RobinNotBad.BiliClient.util.SettingsKeys
@@ -76,6 +78,21 @@ class SettingTerminalPlayerActivity : RefreshListActivity() {
                 PlayerLongPressPolicy.storedValues
             ))
             add(SettingSection("switch", "双击快进快退", SettingsKeys.PLAYER_DOUBLETAP_SEEK, "", "false"))
+            // task-14 ③：长按倍速期间上下划切视频（上划=下一条）。默认开，无连播队列时静默。
+            add(SettingSection("switch",
+                getString(R.string.player_s_longpress_switch_name),
+                SettingsKeys.PLAYER_LONGPRESS_SWITCH,
+                getString(R.string.player_s_longpress_switch_desc),
+                LongPressSwitchPolicy.DEFAULT_SWITCH_ENABLED.toString()))
+            // task-14 ④：长按倍速提示「x 3.0」的文字大小（80%~150%）。
+            add(listChoose(
+                getString(R.string.player_s_hint_scale_name),
+                SettingsKeys.PLAYER_LONGPRESS_HINT_SCALE,
+                getString(R.string.player_s_hint_scale_desc),
+                LongPressSwitchPolicy.HINT_DEFAULT_STORED,
+                LongPressSwitchPolicy.hintDisplayNames,
+                LongPressSwitchPolicy.hintStoredValues
+            ))
             add(SettingSection("switch", "左右滑动控制进度", SettingsKeys.PLAYER_SWIPE_SEEK, "在视频区域左右滑动快进/快退（未缩放视频时生效）", "false"))
             // 反馈 #94a：手表 dpi 低时横滑一点点就跨过很长一段，倍率交给用户自己调。
             // 档位/默认值/换算都在 PlayerSwipeSeekScalePolicy 里，播放页每次横滑重读存档。
@@ -157,9 +174,30 @@ class SettingTerminalPlayerActivity : RefreshListActivity() {
 
             add(SettingSection("switch", "显示高能进度条", SettingsKeys.PLAYER_HIGH_ENERGY,
                 getString(R.string.desc_player_high_energy), "false"))
-            // 「自动跳过片头片尾」26.10.10 紧急撤回、26.10.22 恢复（默认关闭，见 SkipOpEdPrefs）。
-            add(SettingSection("switch", "自动跳过片头片尾", SettingsKeys.PLAYER_SKIP_OP_ED,
-                getString(R.string.desc_player_skip_op_ed), SkipOpEdPrefs.DEFAULT_ENABLED.toString()))
+            // 「自动跳过片头片尾」26.10.10 紧急撤回、26.10.22 恢复；task-14 起由布尔开关改成五档
+            // （关/仅头/仅尾/都跳/询问），旧布尔键只在迁移时读，判据见 player/SkipOpEdPolicy。
+            if (SkipOpEdPrefs.FEATURE_ENABLED) {
+                add(listChoose(
+                    getString(R.string.player_s_skip_mode_name),
+                    SettingsKeys.PLAYER_SKIP_OP_ED_MODE,
+                    getString(R.string.player_s_skip_mode_desc),
+                    SkipOpEdPrefs.currentMode().toString(),
+                    listOf(
+                        getString(R.string.player_s_skip_mode_off),
+                        getString(R.string.player_s_skip_mode_op),
+                        getString(R.string.player_s_skip_mode_ed),
+                        getString(R.string.player_s_skip_mode_both),
+                        getString(R.string.player_s_skip_mode_ask)
+                    ),
+                    listOf(
+                        SkipOpEdPolicy.MODE_OFF.toString(),
+                        SkipOpEdPolicy.MODE_OP.toString(),
+                        SkipOpEdPolicy.MODE_ED.toString(),
+                        SkipOpEdPolicy.MODE_BOTH.toString(),
+                        SkipOpEdPolicy.MODE_ASK.toString()
+                    )
+                ))
+            }
             add(SettingSection("switch", "弹幕允许重叠", SettingsKeys.PLAYER_DANMAKU_ALLOW_OVERLAP, "", "true"))
             add(SettingSection("switch", "合并重复弹幕", SettingsKeys.PLAYER_DANMAKU_MERGE_DUPLICATE, "", "false"))
             // 弹幕数量保护：超过阈值不自动加载（可在播放器里点弹幕按钮强制加载）。
@@ -173,6 +211,12 @@ class SettingTerminalPlayerActivity : RefreshListActivity() {
                 getString(R.string.desc_danmaku_force_r2l), "false"))
             add(SettingSection("switch", "显示直播弹幕发送者", SettingsKeys.PLAYER_DANMAKU_SHOW_SENDER,
                 getString(R.string.desc_danmaku_showsender), "true"))
+            // 本人弹幕边框（批次 3）：按登录 mid 的 CRC32 比对弹幕发送者，给自己的弹幕描一圈主题色。
+            // 判定与染色在 player/DanmakuSelfStylePolicy + DanmakuManager；开关/换肤在下次 prepare 生效。
+            add(SettingSection("switch",
+                getString(R.string.danmaku_self_border_name),
+                SettingsKeys.PLAYER_DANMAKU_SELF_BORDER,
+                getString(R.string.danmaku_self_border_desc), "true"))
             // 直播滚动弹幕停留时长倍率（与录播的「弹幕速度」相互独立）
             add(listChoose(
                 getString(R.string.player_port_live_danmaku_factor_name),

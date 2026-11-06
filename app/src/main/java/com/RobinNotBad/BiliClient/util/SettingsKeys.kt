@@ -39,6 +39,18 @@ object SettingsKeys {
     const val UI_GLASS_COMPONENTS = "ui_glass_components"
     /** 暗色 / 亮色模式（"dark" / "light"），见 `ui/appearance/ColorMode`。 */
     const val UI_COLOR_MODE = "ui_color_mode"
+    /**
+     * 页面背景图（用户从相册选的图，装进 `filesDir/appearance/` 后的绝对路径）。空串 = 未设置。
+     * 取值与判据见 `ui/appearance/BackgroundImage`。
+     */
+    const val UI_BACKGROUND_PATH = "appearance_background_path"
+    /** 背景图适配方式（"cover" 填满 / "contain" 适应），见 `BackgroundImage.FIT_*`。 */
+    const val UI_BACKGROUND_FIT = "appearance_background_fit"
+    /**
+     * 背景图遮罩强度（百分比，0/25/50/75），**以字符串存**：设置页的 listChoose 统一按字符串存值。
+     * 非法值由 `BackgroundImage.coerceScrimPercent` 兜回默认。
+     */
+    const val UI_BACKGROUND_SCRIM = "appearance_background_scrim"
 
     // ==================== 详情页设置 ====================
     const val FAV_SINGLE = "fav_single"
@@ -178,6 +190,23 @@ object SettingsKeys {
      * 「自动跳过片头片尾」的首次引导是否已经弹过。纯记账用，不出现在设置页。
      */
     const val PLAYER_SKIP_OP_ED_GUIDED = "player_skip_op_ed_guided"
+    /**
+     * 片头片尾跳过档位（26.11.06 起）：0=关、1=仅片头、2=仅片尾、3=都跳、4=询问。
+     * 旧键 [PLAYER_SKIP_OP_ED] 只在迁移时读（true → 3），判据与迁移见 `player/SkipOpEdPolicy.kt`。
+     */
+    const val PLAYER_SKIP_OP_ED_MODE = "player_skip_op_ed_mode"
+    /**
+     * 长按后上下划切换上一条/下一条视频，默认开。判据见 `player/LongPressSwitchPolicy.kt`。
+     */
+    const val PLAYER_LONGPRESS_SWITCH = "player_longpress_switch"
+    /**
+     * 长按倍速提示的尺寸百分比（80/100/120/150），默认 100。
+     */
+    const val PLAYER_LONGPRESS_HINT_SCALE = "player_longpress_hint_scale"
+    /**
+     * 自己发的弹幕加边框（按登录 mid 的 CRC32 比对，只比自己的 hash），默认开。
+     */
+    const val PLAYER_DANMAKU_SELF_BORDER = "player_danmaku_self_border"
     const val PLAYER_DANMAKU_ALLOW_OVERLAP = "player_danmaku_allowoverlap"
     const val PLAYER_DANMAKU_MERGE_DUPLICATE = "player_danmaku_mergeduplicate"
     const val PLAYER_DANMAKU_FORCE_R2L = "player_danmaku_forceR2L"
