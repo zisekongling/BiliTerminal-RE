@@ -9,9 +9,11 @@ import android.widget.TextView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.NetworkPlaybackQuality
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.ToolsUtil
+import com.RobinNotBad.BiliClient.util.UiText
 import com.google.android.material.card.MaterialCardView
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 
@@ -78,15 +80,25 @@ class SettingPlayerChooseActivity : BaseActivity() {
         updateQn()
     }
 
+    /**
+     * 刷新「分辨率」摘要。
+     *
+     * 显示**当前网络下的实际起播档位**（[NetworkPlaybackQuality.defaultQn]），而不是无脑读
+     * [SettingsKeys.PLAY_QN]：Wi-Fi / 移动数据各自设了档位后，摘要必须跟着当前网络走，
+     * 否则会出现「摘要写 720P、起播却是 1080P」这种看着像设置没生效的假象。
+     */
     private fun updateQn() {
-        if (findViewById<TextView>(R.id.qn_tv) != null) {
-            val savedVal = SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN, 16)
-            for (entry in SettingQualityActivity.qnMap.entries) {
-                if (entry.value == savedVal) {
-                    (findViewById<TextView>(R.id.qn_tv)).text = entry.key
-                    break
-                }
-            }
+        val qnTv = findViewById<TextView>(R.id.qn_tv) ?: return
+        val effective = NetworkPlaybackQuality.defaultQn(this)
+        val name = SettingQualityActivity.qnMap.entries.firstOrNull { it.value == effective }?.key
+            ?: UiText.of("默认")
+        val hasNetworkOverride =
+            SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN_WIFI, NetworkPlaybackQuality.FOLLOW_DEFAULT) > 0 ||
+                SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN_MOBILE, NetworkPlaybackQuality.FOLLOW_DEFAULT) > 0
+        qnTv.text = if (hasNetworkOverride) {
+            getString(R.string.appearance_net_quality_effective, name)
+        } else {
+            name
         }
     }
 
