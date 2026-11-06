@@ -6,6 +6,7 @@ import android.util.Log;
 import com.RobinNotBad.BiliClient.model.VideoCard;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
 import com.RobinNotBad.BiliClient.util.PerformanceManager;
+import com.RobinNotBad.BiliClient.util.RecommendPagePolicy;
 import com.RobinNotBad.BiliClient.util.StringUtil;
 
 import org.json.JSONArray;
@@ -15,6 +16,7 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 
@@ -26,15 +28,46 @@ import java.util.Random;
 public class RecommendApi {
     private static final long UNIQ_ID = (long) (new Random().nextDouble() * (1500000000000L - 1300000000000L));
 
+    /**
+     * 不带分页游标的旧入口：等价于「第 1 页 + 设备档位页大小」。
+     */
     public static void getRecommend(List<VideoCard> videoCardList, int freshType) throws IOException, JSONException {
+        getRecommend(videoCardList, freshType, RecommendPagePolicy.FIRST_PAGE, PerformanceManager.getPageSize());
+    }
+
+    /**
+     * 带分页游标的推荐流。
+     *
+     * <p>26.11.06 批次 3（task-16）：原来只带 {@code fresh_type}，服务端对「参数完全相同」的两次
+     * 请求返回同一批内容，于是下拉加载更多只是把同一批卡片再追加一遍。现在按
+     * {@link RecommendPagePolicy} 下发 {@code ps}（每页条数）与 {@code fresh_idx}（页码游标）。
+     *
+     * <p>接口实测（2026-11-06，匿名、不带 Cookie/WBI 签名）：
+     * <ul>
+     *     <li>{@code ps} 生效：ps=5 返回 5 条、ps=20 返回 20 条、不传 30 条；</li>
+     *     <li>{@code fresh_idx} 生效：固定其它参数时 idx=1/2/3 三批两两 bvid 交集为 0；</li>
+     *     <li>{@code brush} 单独改无效（同 idx 下 brush=1 与 brush=2 是同一批），故不下发；</li>
+     *     <li>{@code fresh_type} 单独改也无效（3/4/不传 相同），只为兼容保留原值；</li>
+     *     <li>深翻没有空页信号（idx=120 仍返回满页），「到底」由调用方按「本页不足」判断。</li>
+     * </ul>
+     *
+     * @param freshType 原来的 fresh_type（保留兼容，实测不影响内容）
+     * @param page      页码，从 1 开始（对应 fresh_idx）
+     * @param pageSize  每页条数（ps），建议用 {@link PerformanceManager#getPageSize()}
+     */
+    public static void getRecommend(List<VideoCard> videoCardList, int freshType, int page, int pageSize) throws IOException, JSONException {
+        RecommendPagePolicy.Params params = RecommendPagePolicy.of(page, pageSize, freshType);
         String url = ("https://api.bilibili.com/x/web-interface/wbi/index/top/feed/rcmd");
-        url += new NetWorkUtil.FormData().setUrlParam(true)
+        NetWorkUtil.FormData formData = new NetWorkUtil.FormData().setUrlParam(true)
                 .put("web_location", 1430650)
                 .put("feed_version", "V8")
                 .put("homepage_ver", 1)
                 .put("uniq_id", UNIQ_ID)
-                .put("screen", "1100-2056")
-                .put("fresh_type", freshType);
+                .put("screen", "1100-2056");
+        for (Map.Entry<String, String> entry : RecommendPagePolicy.query(params).entrySet()) {
+            formData.put(entry.getKey(), entry.getValue());
+        }
+        url += formData;
 
         JSONObject result = NetWorkUtil.getJson(ConfInfoApi.signWBI(url));
 
@@ -44,7 +77,14 @@ public class RecommendApi {
 
         for (int i = 0; i < item.length(); i++) {
             JSONObject card = item.getJSONObject(i);
-            String bvid = card.getString("bvid");
+            // 与 web 端/PiliPlus 对齐：番剧/直播/广告卡也可能带 bvid，必须显式判 goto，
+            // 只靠「bvid 为空」会漏过它们（实测当前推荐全是 av，但接口不保证）
+            String gotoType = card.optString("goto", "");
+            if (!TextUtils.isEmpty(gotoType) && !"av".equals(gotoType)) {
+                Log.d("BiliClient", "RecommendApi getRecommend: skip goto=" + gotoType);
+                continue;
+            }
+            String bvid = card.optString("bvid", "");
             if (TextUtils.isEmpty(bvid)) {
                 Log.d("BiliClient", "RecommendApi getRecommend: isAd");
                 continue;
@@ -53,7 +93,7 @@ public class RecommendApi {
             String title = card.getString("title");
             String upName = card.getJSONObject("owner").getString("name");
             String view = StringUtil.toWan(card.getJSONObject("stat").getInt("view")) + "观看";
-            videoCardList.add(new VideoCard(title, upName, view, cover, 0, bvid));
+            videoCardList.add(new VideoCard(title, upName, view, cover, card.optLong("id", 0L), bvid));
         }
     }
 
