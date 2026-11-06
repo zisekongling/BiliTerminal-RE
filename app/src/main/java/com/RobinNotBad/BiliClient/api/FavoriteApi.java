@@ -258,19 +258,83 @@ public class FavoriteApi {
      * @param order {@link #ORDER_FAV_TIME} / {@link #ORDER_VIEW} / {@link #ORDER_PUBTIME}
      */
     public static int getFolderVideosNew(long mediaId, int page, ArrayList<VideoCard> videoList, String order) throws IOException, JSONException {
-        String url = "https://api.bilibili.com/x/v3/fav/resource/list" + new NetWorkUtil.FormData()
+        return getFolderVideosNew(mediaId, page, videoList, order, null);
+    }
+
+    /**
+     * 带排序 + 服务端关键词搜索的收藏夹内容（新接口）。
+     *
+     * <p>搜索走服务端 {@code keyword} 参数（依据 {@code bilibili-API/docs/fav/list.md:19}，
+     * 该参数标注「非必要」；实测标题与 UP 名都参与匹配、可与 order 同时生效、分页正常），
+     * 因此调用方不需要再自己过滤一遍。空串/null 等同不传；中文由
+     * {@link NetWorkUtil.FormData} 统一 URL encode，安全。
+     *
+     * @param keyword 搜索关键词，null/空串表示不过滤
+     * @return 0：成功 1：已到底（含无匹配结果） -1：失败
+     */
+    public static int getFolderVideosNew(long mediaId, int page, ArrayList<VideoCard> videoList, String order, String keyword) throws IOException, JSONException {
+        FavMediaPage result = fetchFolderMedias(mediaId, page, order, keyword);
+        if (result.code < 0) return -1;
+        for (FavMedia media : result.items) videoList.add(media.card);
+        return result.code;
+    }
+
+    /**
+     * 收藏夹内容条目：视频卡 + 收藏时间。
+     *
+     * <p>{@link VideoCard} 没有收藏时间字段，而跨夹「全部收藏」聚合要按最近收藏排序，
+     * 所以这里包一层。{@code favTimeSec} 来自 {@code medias[].fav_time}（**单位秒**，
+     * 接口未下发时为 0），只在聚合页参与排序，不影响普通列表。
+     */
+    public static final class FavMedia {
+        public final VideoCard card;
+        public final long favTimeSec;
+
+        public FavMedia(VideoCard card, long favTimeSec) {
+            this.card = card;
+            this.favTimeSec = favTimeSec;
+        }
+    }
+
+    /**
+     * 收藏夹一页内容 + 返回码，供聚合页复用（{@link FavMediaPage#code} 语义同
+     * {@link #getFolderVideosNew(long, int, ArrayList)}：0 成功 / 1 已到底或无内容 / -1 失败）。
+     */
+    public static final class FavMediaPage {
+        public final int code;
+        public final ArrayList<FavMedia> items;
+
+        FavMediaPage(int code, ArrayList<FavMedia> items) {
+            this.code = code;
+            this.items = items;
+        }
+    }
+
+    /**
+     * 拉取收藏夹一页内容（带收藏时间），供跨夹聚合与搜索复用。
+     *
+     * <p>依据 {@code bilibili-API/docs/fav/list.md:5-21}：
+     * {@code media_id}/{@code platform}/{@code pn}/{@code ps}/{@code order}/{@code keyword}。
+     * 注意实测的一个服务端怪癖：不带 keyword 时 order=mtime 返回升序、带 keyword 时返回降序，
+     * 所以客户端不要依赖 mtime 的方向，本地排序只在聚合页自己做。
+     */
+    public static FavMediaPage fetchFolderMedias(long mediaId, int page, String order, String keyword) throws IOException, JSONException {
+        NetWorkUtil.FormData params = new NetWorkUtil.FormData()
                 .setUrlParam(true)
                 .put("media_id", mediaId)
                 .put("platform", "web")
                 .put("pn", page)
                 .put("ps", 20)
                 .put("order", order == null ? ORDER_FAV_TIME : order);
+        if (keyword != null && !keyword.isEmpty()) params.put("keyword", keyword);
+        String url = "https://api.bilibili.com/x/v3/fav/resource/list" + params;
         JSONObject result = NetWorkUtil.getJson(url);
-        if (result.optInt("code", -1) != 0) return -1;
+        if (result.optInt("code", -1) != 0) return new FavMediaPage(-1, new ArrayList<>());
         JSONObject data = result.optJSONObject("data");
-        if (data == null) return -1;
+        if (data == null) return new FavMediaPage(-1, new ArrayList<>());
+        ArrayList<FavMedia> items = new ArrayList<>();
         JSONArray medias = data.optJSONArray("medias");
-        if (medias == null || medias.length() == 0) return 1;
+        if (medias == null || medias.length() == 0) return new FavMediaPage(1, items);
         for (int i = 0; i < medias.length(); i++) {
             JSONObject video = medias.getJSONObject(i);
             String title = video.optString("title");
@@ -289,9 +353,10 @@ public class FavoriteApi {
             VideoCard card = new VideoCard(title, upName, view, cover, aid, video.optString("bvid", ""));
             // id 可能是 avid / auid / 合集 id，类型决定后续批量操作怎么拼 resources
             card.favType = normalizeFavType(video.optInt("type", FAV_TYPE_VIDEO));
-            videoList.add(card);
+            // fav_time 是收藏时间（秒）；聚合页按它排序，普通列表不读
+            items.add(new FavMedia(card, video.optLong("fav_time", 0)));
         }
-        return data.optBoolean("has_more", false) ? 0 : 1;
+        return new FavMediaPage(data.optBoolean("has_more", false) ? 0 : 1, items);
     }
 
     /**

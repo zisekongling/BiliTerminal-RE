@@ -3,7 +3,12 @@ package com.RobinNotBad.BiliClient.activity.user
 import com.RobinNotBad.BiliClient.util.UiText
 
 import android.os.Bundle
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
+import android.widget.LinearLayout
+import android.widget.TextView
 
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
@@ -12,6 +17,7 @@ import com.RobinNotBad.BiliClient.api.HistoryApi
 import com.RobinNotBad.BiliClient.model.ApiResult
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.FavoriteSearchPolicy
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 
@@ -31,6 +37,17 @@ class HistoryActivity : RefreshListActivity() {
     private var videoList: ArrayList<VideoCard> = ArrayList()
     private var videoCardAdapter: HistoryVideoCardAdapter? = null
 
+    /**
+     * 已从服务端加载的全部记录；[videoList] 只是它的「搜索结果视图」。
+     *
+     * <p>历史接口（`x/web-interface/history/cursor`）的参数只有 max/business/view_at/type/ps，
+     * **没有 keyword/q**（见 `bilibili-API/docs/historytoview/history.md:17-23`），
+     * 所以搜索只能在已加载记录里做客户端过滤，界面上要如实说明搜索范围。
+     */
+    private val allHistory: ArrayList<VideoCard> = ArrayList()
+    private var historyKeyword: String = ""
+    private var historySearchBar: TextView? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -39,25 +56,29 @@ class HistoryActivity : RefreshListActivity() {
         recyclerView.setHasFixedSize(true)
 
         videoList = ArrayList()
+        setupSearchBar()
 
         CenterThreadPool.run {
             try {
-                lastResult = HistoryApi.getHistory(lastResult, videoList)
+                val list: ArrayList<VideoCard> = ArrayList()
+                lastResult = HistoryApi.getHistory(lastResult, list)
                 if (lastResult.code == 0) {
-                    videoCardAdapter = HistoryVideoCardAdapter(this, videoList)
-
-                    videoCardAdapter!!.setOnLongClickListener { position ->
-                        showRecordMenu(position)
+                    runOnUiThread {
+                        allHistory.addAll(list)
+                        // 适配器在 UI 线程创建：它要绑的 videoList 刚被过滤视图填过
+                        applyHistoryFilter()
+                        videoCardAdapter = HistoryVideoCardAdapter(this, videoList)
+                        videoCardAdapter!!.setOnLongClickListener { position ->
+                            showRecordMenu(position)
+                        }
+                        setOnLoadMoreListener { page -> continueLoading(page) }
+                        setRefreshing(false)
+                        setAdapter(videoCardAdapter!!)
+                        if (lastResult.isBottom) bottom = true
                     }
-
-                    setOnLoadMoreListener { page -> continueLoading(page) }
-                    setRefreshing(false)
-                    setAdapter(videoCardAdapter!!)
-
-                    if (lastResult.isBottom) {
-                        bottom = true
-                    }
-                } else MsgUtil.showMsg(lastResult.message)
+                } else {
+                    MsgUtil.showMsg(lastResult.message)
+                }
 
             } catch (e: Exception) {
                 loadFail(e)
@@ -72,8 +93,8 @@ class HistoryActivity : RefreshListActivity() {
                 lastResult = HistoryApi.getHistory(lastResult, list)
                 if (lastResult.code == 0) {
                     runOnUiThread {
-                        videoList.addAll(list)
-                        videoCardAdapter!!.updateList(videoList)
+                        allHistory.addAll(list)
+                        applyHistoryFilter()
                     }
                     if (lastResult.isBottom) {
                         bottom = true
@@ -84,6 +105,99 @@ class HistoryActivity : RefreshListActivity() {
             } catch (e: Exception) {
                 loadFail(e)
             }
+        }
+    }
+
+    // ==================== 历史记录搜索（客户端过滤已加载记录） ====================
+
+    /**
+     * 搜索入口：复用公共布局的 `filterBar`（隐藏它自带的三项「稍后再看」筛选）。
+     *
+     * <p>不新增 res/layout：写权限里没有布局目录，且手表屏多一行就少一条记录。
+     */
+    private fun setupSearchBar() {
+        val filterBar = findViewById<LinearLayout>(R.id.filterBar) ?: return
+        filterBar.visibility = View.VISIBLE
+        findViewById<View>(R.id.filterAll)?.visibility = View.GONE
+        findViewById<View>(R.id.filterUnfinished)?.visibility = View.GONE
+        findViewById<View>(R.id.clearWatched)?.visibility = View.GONE
+
+        val bar = TextView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            gravity = Gravity.CENTER
+            minHeight = resources.getDimensionPixelSize(R.dimen.touch_min)
+            val padV = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 4f, resources.displayMetrics).toInt()
+            setPadding(0, padV, 0, padV)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            isSingleLine = true
+            setOnClickListener { promptSearch() }
+        }
+        historySearchBar = bar
+        filterBar.addView(bar)
+        updateSearchBar()
+    }
+
+    private fun updateSearchBar() {
+        val bar = historySearchBar ?: return
+        bar.text =
+            if (historyKeyword.isEmpty()) getString(R.string.fav_port_history_search_entry)
+            else getString(R.string.fav_port_history_search_active, historyKeyword)
+    }
+
+    private fun promptSearch() {
+        if (historyKeyword.isEmpty()) showSearchInput() else showSearchMenu()
+    }
+
+    private fun showSearchInput() {
+        TerminalDialog.input(
+            context = this,
+            title = getString(R.string.fav_port_history_search_dialog_title),
+            hint = getString(R.string.fav_port_history_search_hint),
+            initialText = historyKeyword,
+            confirmText = getString(R.string.fav_port_search_confirm),
+            cancelText = getString(R.string.fav_port_search_cancel)
+        ) { keyword -> applyKeyword(keyword) }.show()
+    }
+
+    /** 已有关键词时的菜单：修改 / 清除（输入框留空不会回调，清除必须走这里）。 */
+    private fun showSearchMenu() {
+        TerminalDialog.menu(
+            context = this,
+            title = getString(R.string.fav_port_history_search_current, historyKeyword),
+            items = listOf(
+                getString(R.string.fav_port_history_search_edit),
+                getString(R.string.fav_port_history_search_clear)
+            )
+        ) { which ->
+            if (which == 0) showSearchInput() else applyKeyword("")
+        }.show()
+    }
+
+    private fun applyKeyword(keyword: String) {
+        val normalized = keyword.trim()
+        if (normalized == historyKeyword) return
+        historyKeyword = normalized
+        updateSearchBar()
+        // 历史搜索没有服务端接口，过滤范围就是「已加载的这么多条」，说清楚免得用户以为搜了全部
+        if (historyKeyword.isNotEmpty()) {
+            MsgUtil.showMsg(getString(R.string.fav_port_history_search_scope, allHistory.size))
+        }
+        applyHistoryFilter()
+    }
+
+    /** 用 [historyKeyword] 重建 [videoList]（显示视图），并同步空态文案。 */
+    private fun applyHistoryFilter() {
+        val filtered = FavoriteSearchPolicy.filter(allHistory, historyKeyword)
+        videoList.clear()
+        videoList.addAll(filtered)
+        videoCardAdapter?.updateList(videoList)
+        if (videoList.isEmpty()) {
+            emptyView?.text =
+                if (historyKeyword.isEmpty()) getString(R.string.text_list_empty)
+                else getString(R.string.fav_port_history_search_empty)
+            showEmptyView()
+        } else {
+            hideEmptyView()
         }
     }
 
@@ -293,11 +407,8 @@ class HistoryActivity : RefreshListActivity() {
     private fun removeDeletedFromList(deletedAids: List<Long>) {
         if (deletedAids.isEmpty()) return
         val deleted = HashSet(deletedAids)
-        val iterator = videoList.iterator()
-        while (iterator.hasNext()) {
-            if (deleted.contains(iterator.next().aid)) iterator.remove()
-        }
-        videoCardAdapter?.updateList(videoList)
-        if (videoList.isEmpty()) showEmptyView() else hideEmptyView()
+        // 全量列表同步移除：否则清掉搜索词后，已删除的记录会「复活」
+        allHistory.removeAll { deleted.contains(it.aid) }
+        applyHistoryFilter()
     }
 }

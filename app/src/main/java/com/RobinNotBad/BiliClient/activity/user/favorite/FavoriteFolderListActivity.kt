@@ -65,6 +65,16 @@ class FavoriteFolderListActivity : RefreshListActivity() {
                         }
                     }
                     adapter = newAdapter
+                    newAdapter.setOnAggregateClickListener {
+                        // 跨夹「全部收藏」：服务端没有聚合接口，进的是只读的本地合并页
+                        // （夹数与条数上限见 util/FavoriteAggregatePolicy）
+                        val intent = Intent(this, FavoriteVideoListActivity::class.java)
+                        intent.putExtra("mid", mid)
+                        intent.putExtra("aggregate", true)
+                        intent.putExtra("readOnly", true)
+                        intent.putExtra("name", getString(R.string.fav_port_aggregate_title))
+                        startActivity(intent)
+                    }
                     setAdapter(newAdapter)
                     setRefreshing(false)
                 }

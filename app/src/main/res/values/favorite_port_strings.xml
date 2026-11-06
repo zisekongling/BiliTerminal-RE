@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  收藏夹搜索 / 跨夹「全部收藏」聚合 / 批量下载 / 历史记录搜索的全部文案。
+
+  为什么不写进 res/values/strings.xml：该文件由并行批次占用，新增键集中在本文件避免冲突。
+  命名前缀统一 fav_port_，加载入口是 activity/user/favorite/FavoriteVideoListActivity、
+  activity/user/favorite/FavoriteFolderListActivity 与 activity/user/HistoryActivity。
+  文案里引用的动态值一律用带编号的占位符（%1$d / %1$s），避免多参数格式化时错位。
+-->
+<resources>
+
+    <!-- 收藏夹内搜索（服务端 keyword） -->
+    <string name="fav_port_search_entry">搜索收藏夹</string>
+    <string name="fav_port_search_active">搜索：%1$s</string>
+    <string name="fav_port_search_dialog_title">搜索收藏夹内容</string>
+    <string name="fav_port_search_hint">标题或 UP 名</string>
+    <string name="fav_port_search_confirm">搜索</string>
+    <string name="fav_port_search_cancel">取消</string>
+    <string name="fav_port_search_current">正在搜索：%1$s</string>
+    <string name="fav_port_search_edit">修改关键词</string>
+    <string name="fav_port_search_clear">清除搜索</string>
+    <string name="fav_port_search_empty">没有匹配的收藏内容</string>
+
+    <!-- 跨夹「全部收藏」聚合 -->
+    <string name="fav_port_aggregate_entry">全部收藏（最近）</string>
+    <string name="fav_port_aggregate_title">全部收藏</string>
+    <string name="fav_port_aggregate_empty">没有可聚合的收藏内容</string>
+    <string name="fav_port_aggregate_summary">共 %1$d 条，来自 %2$d 个收藏夹；%3$d 个读取失败</string>
+
+    <!-- 收藏夹多选 → 批量下载 -->
+    <string name="fav_port_download_entry">下载</string>
+    <string name="fav_port_download_entry_count">下载(%1$d)</string>
+    <string name="fav_port_download_title">批量下载</string>
+    <string name="fav_port_download_confirm">开始下载</string>
+    <string name="fav_port_download_message">将缓存 %1$d 条视频（清晰度：%2$s）</string>
+    <string name="fav_port_download_skipped">\n\n另有 %1$d 条不支持下载或重复，已跳过</string>
+    <string name="fav_port_download_no_supported">选中的条目都不支持下载</string>
+    <string name="fav_port_download_quality_highest">最高可用</string>
+    <string name="fav_port_download_quality_audio">仅音频</string>
+    <string name="fav_port_download_quality_fixed">清晰度 %1$d</string>
+    <string name="fav_port_download_dir_failed">下载目录不可用，已取消</string>
+    <string name="fav_port_download_starting">正在提交 %1$d 条下载…</string>
+    <string name="fav_port_download_summary">已提交 %1$d 条，跳过已缓存 %2$d 条，失败 %3$d 条</string>
+    <string name="fav_port_download_none">一条都没能提交，请检查网络或稍后再试</string>
+
+    <!-- 历史记录搜索（客户端过滤已加载记录） -->
+    <string name="fav_port_history_search_entry">搜索记录</string>
+    <string name="fav_port_history_search_active">搜索：%1$s</string>
+    <string name="fav_port_history_search_dialog_title">搜索观看记录</string>
+    <string name="fav_port_history_search_hint">标题或 UP 名</string>
+    <string name="fav_port_history_search_current">正在搜索：%1$s</string>
+    <string name="fav_port_history_search_edit">修改关键词</string>
+    <string name="fav_port_history_search_clear">清除搜索</string>
+    <string name="fav_port_history_search_empty">没有匹配的记录</string>
+    <string name="fav_port_history_search_scope">仅在本页已加载的 %1$d 条记录中搜索</string>
+
+</resources>
