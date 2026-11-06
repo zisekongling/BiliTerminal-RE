@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  批次 3「数据与发布域」新增文案（推荐分页游标 / 动态定时发布范围校验）。
+
+  单独一个文件而不是塞进 strings.xml：这一批与其它并行改动共用仓库，
+  新键集中在这里能避免合并冲突；键名统一 data_s_ 前缀，不与既有键碰撞。
+-->
+<resources>
+
+    <!-- ==================== 动态定时发布 ==================== -->
+    <!-- 固定档之外的自定义入口（手表上固定档不够用时再输入日期时间） -->
+    <string name="data_s_timer_custom">自定义时间…</string>
+    <!-- 输入框提示：日期时间格式 -->
+    <string name="data_s_timer_input_hint">例如 2026-11-07 12:00</string>
+    <!-- 解析失败：把正确格式直接给出来，比只说"格式错"有用 -->
+    <string name="data_s_timer_invalid_format">时间格式不对，示例：2026-11-07 12:00</string>
+    <!-- 目标时间已经过去 -->
+    <string name="data_s_timer_past">这个时间已经过去了，请重新选</string>
+    <!-- 早于「现在 +6 分钟」 -->
+    <string name="data_s_timer_too_soon">太早了：定时时间至少要在 6 分钟之后</string>
+    <!-- 晚于「现在 +7 天」 -->
+    <string name="data_s_timer_too_late">太晚了：定时时间最多只能定到 7 天以内</string>
+    <!-- 自定义入口的弹窗标题 -->
+    <string name="data_s_timer_custom_title">自定义定时时间</string>
+
+</resources>

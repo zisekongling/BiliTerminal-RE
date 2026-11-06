@@ -29,6 +29,7 @@ import com.RobinNotBad.BiliClient.model.VideoInfo
 import com.RobinNotBad.BiliClient.model.VoteDraft
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.ScheduleTimePolicy
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TerminalDialog
@@ -237,6 +238,10 @@ class SendDynamicActivity : BaseActivity() {
                     return@setOnClickListener
                 }
 
+                // 定时发布：提交前再校验一次窗口（+6 分钟 ~ +7 天）。
+                // 选档时已经校验过，但用户可能选完又放了很久才点发送，时间会滑出窗口。
+                if (!ensureTimerValid()) return@setOnClickListener
+
                 // 处理投票草稿：投票区开着但内容不合法时，collectVoteDraft 已经提示过了，
                 // 这里必须中止发送——否则会把投票悄悄丢掉、只发出正文
                 val draft = collectVoteDraft()
@@ -324,13 +329,18 @@ class SendDynamicActivity : BaseActivity() {
      * 定时发布的时间选择。
      *
      * <p>手表屏幕小、没有键盘友好的日期输入，项目里也没有 DatePicker/TimePicker 的先例，
-     * 所以只给「几分钟后」这种固定档 + 明天 12:00，点一下就定，不再让用户打字。
+     * 所以默认只给「几分钟后」这种固定档 + 明天 12:00，点一下就定。
+     *
+     * <p>26.11.06 批次 3（task-16）：固定档之外补一个「自定义时间…」入口（日期+时间文本输入），
+     * 并且所有入口都过一遍 [ScheduleTimePolicy] 的窗口校验——B 站只接受
+     * 「当前时间 +6 分钟 ~ +7 天」，窗口外的定时会被服务端拒绝。
      */
     private fun showTimerPicker() {
         val now = System.currentTimeMillis() / 1000
         val items = arrayOf(
             UiText.of("10 分钟后"), UiText.of("30 分钟后"), UiText.of("1 小时后"),
-            UiText.of("2 小时后"), UiText.of("明天 12:00"), UiText.of("不定时")
+            UiText.of("2 小时后"), UiText.of("明天 12:00"),
+            getString(R.string.data_s_timer_custom), UiText.of("不定时")
         )
         TerminalDialog.menu(
             context = this,
@@ -343,8 +353,38 @@ class SendDynamicActivity : BaseActivity() {
                 2 -> applyTimer(DynamicApi.timerSecondsAt(now, 60))
                 3 -> applyTimer(DynamicApi.timerSecondsAt(now, 120))
                 4 -> applyTimer(tomorrowNoonSeconds())
+                5 -> showCustomTimerInput()
                 else -> applyTimer(0L)
             }
+        }.show()
+    }
+
+    /**
+     * 自定义定时时间：文本输入「yyyy-MM-dd HH:mm」（也接受 `:` 秒与 `/` 日期分隔符）。
+     *
+     * <p>解析用 [ScheduleTimePolicy.parse]，越界日期（如 13 月 40 日）与格式错都归到具体错误，
+     * 选中时立刻给反馈，而不是等到发送才发现。
+     */
+    private fun showCustomTimerInput() {
+        val now = System.currentTimeMillis() / 1000
+        val initial = ScheduleTimePolicy.format(
+            if (timerPubTime > 0) timerPubTime else ScheduleTimePolicy.defaultInputSeconds(now)
+        )
+        TerminalDialog.input(
+            context = this,
+            title = getString(R.string.data_s_timer_custom_title),
+            hint = getString(R.string.data_s_timer_input_hint),
+            initialText = initial,
+            confirmText = UiText.of("确定")
+        ) { text ->
+            val validation = ScheduleTimePolicy.parse(text, System.currentTimeMillis() / 1000)
+            if (!validation.valid) {
+                val reason = scheduleErrorText(validation.error)
+                if (reason.isNotEmpty()) MsgUtil.showMsg(reason)
+                return@input
+            }
+            // 成功提示由 applyTimer 统一给出（与固定档一致），这里不再重复弹
+            applyTimer(validation.targetSeconds)
         }.show()
     }
 
@@ -363,6 +403,29 @@ class SendDynamicActivity : BaseActivity() {
         timerPubTime = seconds
         updateTimerText()
         if (seconds > 0) MsgUtil.showMsg(UiText.of("已设为定时发布"))
+    }
+
+    /**
+     * 提交前的定时窗口校验。
+     *
+     * <p>不合法时提示具体原因并返回 false——调用方据此直接 return，**不发起任何请求**。
+     */
+    private fun ensureTimerValid(): Boolean {
+        if (ScheduleTimePolicy.isUnset(timerPubTime)) return true
+        val validation = ScheduleTimePolicy.validate(timerPubTime, System.currentTimeMillis() / 1000)
+        if (validation.valid) return true
+        val reason = scheduleErrorText(validation.error)
+        if (reason.isNotEmpty()) MsgUtil.showMsg(reason)
+        return false
+    }
+
+    /** 把校验失败原因翻成用户可读的一句话；合法/未设置返回空串。 */
+    private fun scheduleErrorText(error: ScheduleTimePolicy.Error): String = when (error) {
+        ScheduleTimePolicy.Error.INVALID_FORMAT -> getString(R.string.data_s_timer_invalid_format)
+        ScheduleTimePolicy.Error.PAST -> getString(R.string.data_s_timer_past)
+        ScheduleTimePolicy.Error.TOO_SOON -> getString(R.string.data_s_timer_too_soon)
+        ScheduleTimePolicy.Error.TOO_LATE -> getString(R.string.data_s_timer_too_late)
+        else -> ""
     }
 
     @SuppressLint("SetTextI18n")
