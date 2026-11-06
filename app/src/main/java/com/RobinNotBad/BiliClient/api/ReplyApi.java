@@ -25,8 +25,10 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 //腕上哔哩那边注释里写了一连串的麻烦麻烦麻烦，顿时预感不妙
 //其实还好
@@ -488,6 +490,43 @@ public class ReplyApi {
             }
         }
         return false;
+    }
+
+    /**
+     * 纯逻辑：跨页去重。
+     *
+     * <p>评论接口在翻页/下拉刷新时可能把同一 rpid 返回两次（置顶、游标回退、发完评论后服务端列表
+     * 还没稳定都会出现）。不去重的话列表里同一条评论出现两遍，而且「按可见位置插入」的位号会
+     * 因为多出来的行整体错位，表现为点 A 弹出 B 的评论详情。
+     *
+     * <p>规则：`seen` 里已经有的 rpid 从 `incoming` 里删掉；保留下来的（rpid > 0）登记进 `seen`。
+     * rpid <= 0 的脏数据不参与去重、也不登记——没有 id 就无法判断重复，直接留着比误删安全。
+     *
+     * <p>纯函数：只动传入的列表和集合，便于在 JVM 单测里钉死（见 `ReplyApiTest`）。
+     *
+     * @param incoming 新拉到的一页评论（会被就地修改）
+     * @param seen     已经进过列表的 rpid 集合（会被就地补充）
+     * @return 被去掉的条数
+     */
+    public static int filterDuplicateReplies(List<Reply> incoming, Set<Long> seen) {
+        if (incoming == null || incoming.isEmpty() || seen == null) return 0;
+        int removed = 0;
+        Iterator<Reply> iterator = incoming.iterator();
+        while (iterator.hasNext()) {
+            Reply reply = iterator.next();
+            if (reply == null) {
+                iterator.remove();
+                removed++;
+                continue;
+            }
+            long rpid = reply.rpid;
+            if (rpid <= 0) continue;
+            if (!seen.add(rpid)) {
+                iterator.remove();
+                removed++;
+            }
+        }
+        return removed;
     }
 
     /**

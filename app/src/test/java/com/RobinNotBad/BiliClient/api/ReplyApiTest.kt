@@ -243,4 +243,49 @@ class ReplyApiTest {
         assertFalse("rpid 非法时不查", ReplyApi.containsReplyId(listOf(reply(100)), 0))
         assertFalse("空列表", ReplyApi.containsReplyId(emptyList(), 100))
     }
+
+    // ---- 跨页去重（ReplyApi.filterDuplicateReplies，三层兜底的第 1 层） ----
+
+    private fun seenOf(vararg rpids: Long): MutableSet<Long> {
+        val seen = java.util.HashSet<Long>()
+        for (rpid in rpids) if (rpid > 0) seen.add(rpid)
+        return seen
+    }
+
+    @Test
+    fun filterDuplicateReplies_removesRepeatsAndKeepsFirstOccurrenceOrder() {
+        val seen = seenOf(100)
+        val incoming = arrayListOf(reply(100), reply(200), reply(200), reply(300))
+        assertEquals("删掉 2 条重复", 2, ReplyApi.filterDuplicateReplies(incoming, seen))
+        assertEquals("seen 里已有的 100 与同页重复的第二个 200 都被删掉，剩下保持首次出现顺序", listOf(200L, 300L), incoming.map { it.rpid })
+    }
+
+    @Test
+    fun filterDuplicateReplies_registersFirstTimersInSeen() {
+        val seen = java.util.HashSet<Long>()
+        val incoming = arrayListOf(reply(1), reply(2))
+        ReplyApi.filterDuplicateReplies(incoming, seen)
+        assertEquals("首次出现的 rpid 要登记，翻页时才不会再放进来", setOf(1L, 2L), seen)
+    }
+
+    @Test
+    fun filterDuplicateReplies_dropsNullEntries() {
+        val incoming = arrayListOf(reply(1), null, reply(2))
+        assertEquals("null 是脏数据，必须一起清掉（后面按字段访问会 NPE）", 1, ReplyApi.filterDuplicateReplies(incoming, java.util.HashSet()))
+        assertEquals(listOf(1L, 2L), incoming.map { it!!.rpid })
+    }
+
+    @Test
+    fun filterDuplicateReplies_keepsInvalidRpidAndDoesNotRegisterIt() {
+        val seen = java.util.HashSet<Long>()
+        val incoming = arrayListOf(reply(0), reply(-5), reply(7))
+        assertEquals("rpid 非法既不删也不登记", 0, ReplyApi.filterDuplicateReplies(incoming, seen))
+        assertEquals("非法 rpid 不能进 seen，否则以后所有脏数据都被判成重复", setOf(7L), seen)
+    }
+
+    @Test
+    fun filterDuplicateReplies_toleratesEmptyInput() {
+        assertEquals("null 列表", 0, ReplyApi.filterDuplicateReplies(null, java.util.HashSet()))
+        assertEquals("空列表", 0, ReplyApi.filterDuplicateReplies(ArrayList(), java.util.HashSet()))
+    }
 }

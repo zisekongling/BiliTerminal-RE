@@ -47,6 +47,8 @@ import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.LongPressPrefs
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
+import com.RobinNotBad.BiliClient.util.ReplyState
+import com.RobinNotBad.BiliClient.util.ReplyStateStore
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
@@ -94,6 +96,24 @@ class ReplyAdapter(
 
     fun setOnSortSwitchListener(listener: OnItemClickListener) {
         this.listener = listener
+    }
+
+    /**
+     * 当前登录账号。跨页状态按账号隔离——切号后不能把上一个账号的点赞状态套到新列表上。
+     */
+    private fun currentAccount(): Long = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0L)
+
+    /**
+     * 把这条评论最新的赞/踩状态写进进程内共享存储，通知其它还开着的评论页（列表页 ↔ 详情页）。
+     *
+     * <p>只在服务端确认成功之后调用：失败时写进去会让另一个页面显示一个并不存在的状态，
+     * 下次刷新又变回去，用户会以为按钮时好时坏。
+     */
+    private fun publishReaction(reply: Reply) {
+        ReplyStateStore.instance.recordReaction(
+            currentAccount(), replyType, oid, reply.rpid, reply.root,
+            reply.liked, reply.disliked, reply.likeCount
+        )
     }
 
     // 主评论列表（非详情页）的排序名。0/1 位置写「未知排序」是因为主列表走服务端排序的 2/3 两档。
@@ -192,6 +212,21 @@ class ReplyAdapter(
             val reply = replyList[realPosition]
             if (reply == null || reply.sender == null)
                 return
+
+            val account = currentAccount()
+            if (ReplyStateStore.instance.applyTo(reply, account, replyType, oid)) {
+                // 已在别处被删：这条不该再显示。删除是低频操作，就地摘掉并整表刷新即可；
+                // 用 itemView.post 挪到下一帧做（runOnUiThread 在主线程是立即执行，
+                // 在 layout 过程中改数据会触发 RecyclerView 的 computing-a-layout 异常）。
+                replyHolder.itemView.post {
+                    val index = replyList.indexOf(reply)
+                    if (index >= 0) {
+                        replyList.removeAt(index)
+                        notifyDataSetChanged()
+                    }
+                }
+                return
+            }
 
             if (GlideUtil.url(reply.sender!!.avatar) != replyHolder.lastAvatarUrl) {
                 replyHolder.lastAvatarUrl = GlideUtil.url(reply.sender!!.avatar)
@@ -302,10 +337,17 @@ class ReplyAdapter(
                 if (reply.childMsgList != null && replyHolder.childReplies != null) {
                     val childCount = reply.childMsgList!!.size
                     val existingViewCount = replyHolder.childReplies!!.childCount
+                    // 已删除的楼中楼会被跳过，视图下标不能直接用 i，
+                    // 否则跳过后同一行会被下一条覆盖、GONE 收尾也会藏错行
+                    var renderIndex = 0
 
                     for (i in 0 until childCount) {
                         val child = reply.childMsgList!![i]
                         if (child == null || child.sender == null)
+                            continue
+                        // 楼中楼同样可能已在详情页被赞/踩/删，状态一并从共享存储取；
+                        // 已删除的子评论直接跳过（后面的 GONE 收尾循环会把它对应的 TextView 藏掉）
+                        if (ReplyStateStore.instance.applyTo(child, account, replyType, oid))
                             continue
 
                         val childMsg = SpannableStringBuilder()
@@ -322,8 +364,8 @@ class ReplyAdapter(
                         childMsg.append("：").append(child.message)
 
                         val textView: TextView
-                        if (i < existingViewCount) {
-                            textView = replyHolder.childReplies!!.getChildAt(i) as TextView
+                        if (renderIndex < existingViewCount) {
+                            textView = replyHolder.childReplies!!.getChildAt(renderIndex) as TextView
                             textView.visibility = View.VISIBLE
                         } else {
                             @SuppressLint("InflateParams")
@@ -333,9 +375,10 @@ class ReplyAdapter(
                             textView = newTextView
                         }
                         textView.text = childMsg
+                        renderIndex++
                     }
 
-                    for (i in childCount until existingViewCount) {
+                    for (i in renderIndex until existingViewCount) {
                         replyHolder.childReplies!!.getChildAt(i).visibility = View.GONE
                     }
                 }
@@ -423,6 +466,7 @@ class ReplyAdapter(
                                         replyHolder.likeCount.setCompoundDrawablesWithIntrinsicBounds(
                                                 likeDrawable1, null, null,
                                                 null)
+                                        publishReaction(reply)
                                     }
                                 } else
                                     (context as Activity).runOnUiThread {
@@ -445,6 +489,7 @@ class ReplyAdapter(
                                         replyHolder.likeCount.setCompoundDrawablesWithIntrinsicBounds(
                                                 likeDrawable0, null, null,
                                                 null)
+                                        publishReaction(reply)
                                     }
                                 } else
                                     (context as Activity).runOnUiThread {
@@ -483,6 +528,7 @@ class ReplyAdapter(
                             if (hateCode == 0) {
                                 (context as Activity).runOnUiThread {
                                     applyDislikeResult(replyHolder, reply, target)
+                                    publishReaction(reply)
                                     MsgUtil.showMsg(if (target) UiText.of("已点踩") else UiText.of("已取消"))
                                 }
                             } else {
@@ -677,6 +723,15 @@ class ReplyAdapter(
                 val result = ReplyApi.deleteReply(oid, reply.rpid, replyType)
                 (context as Activity).runOnUiThread {
                     if (result == 0) {
+                        // 同步给其它还开着的评论页：这条评论在别处也不该再出现。
+                        // 放在移列表之前写，是因为列表里可能已经找不到它（期间刷新过），
+                        // 但状态仍然要广播出去。
+                        // 注意：markDeleted 会同步通知本页监听器，监听器可能已经把这行移掉了，
+                        // 所以「是不是详情页根评论」要在广播前先记下来。
+                        val indexBefore = replyList.indexOf(reply)
+                        ReplyStateStore.instance.markDeleted(
+                            currentAccount(), replyType, oid, reply.rpid, reply.root
+                        )
                         // 数据改动必须和 notify 一样在主线程执行：原来 removeAt 在后台线程做、
                         // notify 在主线程做，主线程读到的可能还是旧列表，会删错行甚至下标越界崩溃。
                         // 位置现取现用（列表可能在弹窗打开期间被刷新过），不再用绑定时捕获的下标。
@@ -690,7 +745,7 @@ class ReplyAdapter(
                             notifyItemRangeChanged(adapterPosition, replyList.size + 1 - adapterPosition)
                         }
                         MsgUtil.showMsg(UiText.of("删除成功~"))
-                        if (index == 0 && isDetail) {
+                        if (indexBefore == 0 && isDetail) {
                             (context as Activity).finish()
                         }
                     } else {
@@ -807,6 +862,59 @@ class ReplyAdapter(
         val index = replyList.indexOf(reply)
         if (index < 0) return
         notifyItemChanged(if (isDetail && index == 0) 0 else index + 1)
+    }
+
+    /**
+     * 收到别的页面的状态变化：把变化应用到本适配器持有的那条评论上。
+     *
+     * <p>只处理「本适配器的账号 + 评论区类型 + oid」这一份数据，其它一律忽略——
+     * 全进程共用一个存储，不按维度过滤会把别的视频的评论状态套到当前列表上。
+     *
+     * <p>查找顺序：先顶层，再逐个父评论的楼中楼。子评论被删时同时把父评论的
+     * `childCount` 减掉，否则「共 N 条回复」会比实际多一条。
+     *
+     * @return true 表示找到了对应评论并已刷新（找不到说明这条不在本页，由调用方忽略）
+     */
+    fun applyState(state: ReplyState): Boolean {
+        if (state.account != currentAccount()) return false
+        if (state.type != replyType || state.oid != oid) return false
+
+        val index = replyList.indexOfFirst { it.rpid == state.rpid }
+        if (index >= 0) {
+            if (state.deleted) {
+                val adapterPosition = if (isDetail && index == 0) 0 else index + 1
+                replyList.removeAt(index)
+                notifyItemRemoved(adapterPosition)
+                val changedCount = (itemCount - adapterPosition).coerceAtLeast(0)
+                if (changedCount > 0) notifyItemRangeChanged(adapterPosition, changedCount)
+                return true
+            }
+            val reply = replyList[index]
+            reply.liked = state.liked
+            reply.disliked = state.disliked
+            reply.likeCount = state.likeCount
+            notifyItemChanged(if (isDetail && index == 0) 0 else index + 1)
+            return true
+        }
+
+        for (parent in replyList) {
+            val children = parent.childMsgList
+            if (children == null || children.isEmpty()) continue
+            val childIndex = children.indexOfFirst { it.rpid == state.rpid }
+            if (childIndex < 0) continue
+            if (state.deleted) {
+                children.removeAt(childIndex)
+                parent.childCount = (parent.childCount - 1).coerceAtLeast(0)
+            } else {
+                val child = children[childIndex]
+                child.liked = state.liked
+                child.disliked = state.disliked
+                child.likeCount = state.likeCount
+            }
+            notifyReplyChanged(parent)
+            return true
+        }
+        return false
     }
 
     override fun onViewRecycled(@NonNull holder: RecyclerView.ViewHolder) {

@@ -8,11 +8,11 @@ import android.os.Build
 import android.os.Bundle
 import android.util.DisplayMetrics
 import android.util.Log
-import android.util.Pair
 import android.view.Display
 import android.view.View
 import android.view.WindowManager
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.RefreshListFragment
 import com.RobinNotBad.BiliClient.adapter.ReplyAdapter
 import com.RobinNotBad.BiliClient.api.ReplyApi
@@ -21,7 +21,13 @@ import com.RobinNotBad.BiliClient.model.Reply
 import com.RobinNotBad.BiliClient.model.UserInfo
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.LocalReplyCache
+import com.RobinNotBad.BiliClient.util.ReplyFetchPolicy
+import com.RobinNotBad.BiliClient.util.ReplyState
+import com.RobinNotBad.BiliClient.util.ReplyStateStore
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import java.util.Collections
+import java.util.HashSet
 
 class ReplyFragment : RefreshListFragment() {
 
@@ -53,6 +59,25 @@ class ReplyFragment : RefreshListFragment() {
     // 父类的 bottom 是给滚动监听用的界面状态，不能拿来当线程间的同步标志
     @Volatile
     private var isEnd: Boolean = false
+
+    // 已经进过列表的 rpid。翻页/下拉刷新时服务端会把同一条评论再吐一遍（置顶、游标回退、
+    // 刚发完评论服务端列表还没稳定都会出现），不去重就会出现两条一样的评论、位号整体错位。
+    // 用同步 Set：写入在主线程，翻页过滤在后台线程。
+    private val loadedRpids: MutableSet<Long> = Collections.synchronizedSet(HashSet<Long>())
+
+    // 本页自己刚发出去的评论。分页失败/首屏刷不出来时拿它把评论补回列表，
+    // 不让"我明明发出去了"变成一片空白（详见 util/ReplyFetchPolicy.kt 的 LocalReplyCache）
+    private val localReplies = LocalReplyCache()
+
+    private var account: Long = 0L
+
+    // 跨页状态监听：别的页面点赞/点踩/删除后，这里立即把对应条目刷新掉。
+    // 必须在 onDestroyView 里摘掉，否则页面销毁后仍被 Store 持有着，回调里碰 view 会崩、页面也回收不了
+    private val storeListener: ReplyStateStore.Listener = object : ReplyStateStore.Listener {
+        override fun onReplyStateChanged(state: ReplyState) {
+            runOnUiThread { applyStateFromStore(state) }
+        }
+    }
 
     companion object {
         // 单次翻页的总超时上限。没有这个兜底时，只要服务端把连接吊住，
@@ -149,7 +174,17 @@ class ReplyFragment : RefreshListFragment() {
 
         replyList = ArrayList()
 
+        account = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0L)
+        ReplyStateStore.instance.addListener(storeListener)
+
         if (!dontload) refresh(aid)
+    }
+
+    override fun onDestroyView() {
+        // 必须在 view 销毁时摘监听：Store 是进程内的，留着这个 fragment 就回收不掉，
+        // 回调里再碰 recyclerView 就是 null/已销毁的 view
+        ReplyStateStore.instance.removeListener(storeListener)
+        super.onDestroyView()
     }
 
     fun setManager(source: Any?) {
@@ -174,8 +209,49 @@ class ReplyFragment : RefreshListFragment() {
         }
     }
 
-    private fun createReplyAdapter(): ReplyAdapter {
-        return ReplyAdapter(requireContext(), replyList!!, aid, mid, 0L, replyType, sort, replyType)
+    /**
+     * 保证 adapter 存在并跟当前的列表/类型/计数同步。
+     *
+     * <p>首屏数据、失败兜底、自己发评论三条路都可能先于首屏响应到达界面，统一走这里，
+     * 避免每条路径各写一份"先 new adapter 再 setAdapter"（写漏一处就是空列表或类型错）。
+     */
+    private fun ensureReplyAdapter() {
+        val list = replyList ?: return
+        val existing = replyAdapter
+        // 评论来源变了（换视频、或首屏兜底换了评论区类型）就必须重建：
+        // oid/type 是 adapter 的 val，留着旧值会把后续点赞发到错的评论区
+        if (existing != null && (existing.oid != aid || existing.replyType != replyType)) {
+            replyAdapter = null
+        }
+        if (replyAdapter == null) {
+            val adapter = ReplyAdapter(requireContext(), list, aid, mid, 0L, replyType, sort, replyType)
+            adapter.count = count.toLong()
+            adapter.isManager = isManager
+            replyAdapter = adapter
+            setOnSortSwitch()
+            setAdapter(adapter)
+        } else {
+            existing!!.sort = sort
+            // 计数可能是 getReplyCount 补回来的，adapter 上的旧值要跟着更新（"共 N 条评论"）
+            existing.count = count.toLong()
+            existing.notifyDataSetChanged()
+        }
+    }
+
+    /**
+     * 把本页自己刚发出去的评论补回列表。
+     *
+     * <p>只在「服务端这一页没给全」时才有内容可补：正常刷新会先 clear 再 addAll，
+     * 补回的是本地 cache 里还没过期、且服务端列表里确实没有的那些。
+     */
+    private fun mergeLocalReplies() {
+        val list = replyList ?: return
+        val merged = localReplies.mergeInto(list, System.currentTimeMillis())
+        if (merged.isEmpty()) return
+        for (reply in merged) {
+            if (reply.rpid > 0) loadedRpids.add(reply.rpid)
+        }
+        replyAdapter?.notifyDataSetChanged()
     }
 
     @SuppressLint("NotifyDataSetChanged")
@@ -198,13 +274,16 @@ class ReplyFragment : RefreshListFragment() {
                     // 每轮开始前先确认自己还是当前世代，过期就立刻撤退，绝不碰数据源
                     if (generation != loadGeneration) return@run
 
+                    // 发请求前记下修订号：响应回来合并状态时用它判断"这次读是不是已经过时"
+                    val read = ReplyStateStore.instance.beginRead()
+
                     val list = ArrayList<Reply>()
                     val pageState = ReplyApi.getRepliesLazy(aid, 0, pagination, type, sort, list)
                     val result = pageState.first
 
                     if (generation != loadGeneration) return@run
 
-                    if (result == -1) {
+                    if (result == ReplyApi.PAGE_ERROR) {
                         // 失败也必须复位加载状态，否则下拉/上拉会永远卡在转圈
                         runOnUiThread {
                             if (generation == loadGeneration) loadFail()
@@ -219,7 +298,11 @@ class ReplyFragment : RefreshListFragment() {
                     }
 
                     val nextPagination = pageState.second
-                    val finalEnd = result == 1
+                    val finalEnd = result == ReplyApi.PAGE_END
+
+                    // 第 1 层兜底：跨页去重。置顶/游标回退/刚发完评论时服务端会把同一 rpid 再吐一遍，
+                    // 不去重列表里就会同时出现两条一样的评论，后面"按可见位置插入"的位号也会整体错位。
+                    ReplyApi.filterDuplicateReplies(list, loadedRpids)
 
                     if (list.isEmpty()) {
                         // 空列表且已到底，直接收尾
@@ -233,6 +316,9 @@ class ReplyFragment : RefreshListFragment() {
                             }
                             return@run
                         }
+                        // 整页都是重复项（或服务端就是空页）：游标必须推进，
+                        // 否则会卡在同一页上反复拉同一批重复数据
+                        pagination = nextPagination
                         emptyPages++
                         continue
                     }
@@ -247,9 +333,22 @@ class ReplyFragment : RefreshListFragment() {
                             isEnd = true
                             bottom = true
                         }
-                        replyList!!.addAll(list)
-                        if (replyAdapter != null)
-                            replyAdapter!!.notifyItemRangeInserted(replyList!!.size - list.size + 1, list.size)
+                        // 服务端快照先入库（供其它页面合并），再把已在别处删掉的条目挡在列表外
+                        ReplyStateStore.instance.observeReplies(list, account, replyType, aid, read)
+                        val visible = ArrayList<Reply>(list.size)
+                        for (item in list) {
+                            if (item == null) continue
+                            if (ReplyStateStore.instance.applyTo(item, account, replyType, aid)) continue
+                            visible.add(item)
+                        }
+                        if (visible.isEmpty()) {
+                            // 整页都被"已在别处删除"过滤掉了：当成空页处理，别把界面刷成空的
+                            setRefreshing(false)
+                            return@runOnUiThread
+                        }
+                        val startIndex = replyList!!.size
+                        replyList!!.addAll(visible)
+                        replyAdapter?.notifyItemRangeInserted(startIndex + 1, visible.size)
                         setRefreshing(false)
                     }
                     return@run
@@ -274,34 +373,90 @@ class ReplyFragment : RefreshListFragment() {
         }
     }
 
+    /**
+     * 收到「新评论发出去了」的事件（父 Activity 的 EventBus 订阅转进来，或评论详情页自己发）。
+     *
+     * <p>两点必须守住：
+     * ① **按 rpid 去重**：EventBus 订阅是 sticky=true，页面重建后会再投递一次同一个事件，
+     *    不挡就会出现两条一样的评论；
+     * ② 楼中楼按 `root`（父评论 rpid）找父行，不能用事件里的 pos——翻页/插队后
+     *    那个位置早就不对了，会把回复挂到别的评论下面。
+     */
     fun notifyReplyInserted(replyEvent: ReplyEvent) {
         if (replyEvent.oid != aid) return
         val reply = replyEvent.message ?: return
+        val rpid = reply.rpid
+
+        // 已经在列表里（sticky 重投递 / 同时收到两次）：直接忽略，绝不重复插入
+        val current = replyList
+        if (rpid > 0 && current != null && ReplyApi.containsReplyId(current, rpid)) return
+
         // 这个回调来自 EventBus 的 ThreadMode.ASYNC，实际跑在后台线程上。
         // 因此数据的增删和 RecyclerView 的通知必须一起丢到主线程执行：
         // 后台改数据源、主线程读数据源会出现"数据改了但通知的位号对不上"，
         // 轻则插入位置错乱，重则下标越界直接崩
         runOnUiThread {
             val list = replyList ?: return@runOnUiThread
-            val adapter = replyAdapter ?: return@runOnUiThread
-            if (reply.root == 0L) {
-                val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return@runOnUiThread
-                // findFirstCompletelyVisibleItemPosition 返回的是 adapter 位置，
-                // 而 adapter 第 0 位是"写评论"头部，所以要减 1 才是数据列表下标
-                var dataIndex = Math.max(layoutManager.findFirstCompletelyVisibleItemPosition() - 1, 0)
-                if (dataIndex > list.size) dataIndex = list.size
-                list.add(dataIndex, reply)
-                // 上面减了 1，这里加回来才是这条评论真正的 adapter 位置
-                val adapterPos = dataIndex + 1
-                adapter.notifyItemInserted(adapterPos)
-                adapter.notifyItemRangeChanged(adapterPos, list.size + 1 - adapterPos)
-                layoutManager.scrollToPositionWithOffset(adapterPos, 0)
-            } else if (replyEvent.pos >= 0L && replyEvent.pos < list.size) {
-                // 加下标保护：这个事件的 pos 是对端发事件时的位置，越界会直接崩
-                list[replyEvent.pos].childMsgList.add(reply)
-                list[replyEvent.pos].childCount++
-                adapter.notifyItemChanged(replyEvent.pos + 1)
+            if (rpid > 0 && ReplyApi.containsReplyId(list, rpid)) return@runOnUiThread
+
+            if (replyEvent.isRootReply()) {
+                // 记住自己刚发的评论：后续下拉刷新失败/服务端列表没立刻包含它时还能补回来
+                localReplies.remember(reply, System.currentTimeMillis())
+                if (rpid > 0) loadedRpids.add(rpid)
+
+                val wasEmpty = list.isEmpty()
+                val adapter = replyAdapter
+                if (adapter == null) {
+                    // 首屏还没回来就在空评论区发出了第一条：先建适配器，整表刷新
+                    list.add(0, reply)
+                    ensureReplyAdapter()
+                    scrollToFirstDataRow()
+                    return@runOnUiThread
+                }
+
+                val layoutManager = recyclerView.layoutManager as? LinearLayoutManager
+                val firstVisible = layoutManager?.findFirstCompletelyVisibleItemPosition() ?: 0
+                // adapter 第 0 位是"写评论"头部，所以可见位号减 1 才是数据下标
+                val dataIndex = if (firstVisible > 1) firstVisible - 1 else 0
+                val insertIndex = dataIndex.coerceIn(0, list.size)
+                list.add(insertIndex, reply)
+                val adapterPos = insertIndex + 1
+                if (wasEmpty) {
+                    adapter.notifyDataSetChanged()
+                    scrollToFirstDataRow()
+                } else {
+                    adapter.notifyItemInserted(adapterPos)
+                    adapter.notifyItemRangeChanged(adapterPos, list.size + 1 - adapterPos)
+                    layoutManager?.scrollToPositionWithOffset(adapterPos, 0)
+                }
+            } else {
+                val parentIndex = list.indexOfFirst { it.rpid == reply.root }
+                if (parentIndex < 0) return@runOnUiThread
+                val parent = list[parentIndex]
+                if (parent.childMsgList == null) parent.childMsgList = ArrayList()
+                parent.childMsgList!!.add(reply)
+                parent.childCount++
+                val adapterPos = if (replyAdapter?.isDetail == true && parentIndex == 0) 0 else parentIndex + 1
+                replyAdapter?.notifyItemChanged(adapterPos)
             }
+        }
+    }
+
+    private fun scrollToFirstDataRow() {
+        val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return
+        layoutManager.scrollToPositionWithOffset(0, 0)
+    }
+
+    /**
+     * 把另一页写下的状态变化应用到本页：找到那条评论就地改赞/踩，或在别处被删时把它从列表摘掉。
+     */
+    private fun applyStateFromStore(state: ReplyState) {
+        if (!isAdded) return
+        val adapter = replyAdapter ?: return
+        if (!adapter.applyState(state)) return
+        // 删除后列表可能空了，收起"正在加载"并给一句提示，别让用户对着空白页以为崩了
+        if (replyList?.isEmpty() == true) {
+            showEmptyView()
         }
     }
 
@@ -313,22 +468,95 @@ class ReplyFragment : RefreshListFragment() {
         isEnd = false
         bottom = false
         this.aid = aid
+        account = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0L)
+        // 整表刷新：上一轮见过的 rpid 全部作废，否则第一页会被自己的历史记录判成"重复"
+        loadedRpids.clear()
         setRefreshing(true)
         CenterThreadPool.run {
             try {
-                val list = ArrayList<Reply>()
-                val pageState = ReplyApi.getRepliesLazy(aid, seek, "", type, sort, list)
+                // 发请求前记下修订号，供合并状态时判断"这次读是不是已经过时"
+                val read = ReplyStateStore.instance.beginRead()
 
-                if (generation != loadGeneration) return@run
-                val result = pageState.first
-                val nextPagination = pageState.second
-                if (result == -1) {
+                // 评论区不可用的兜底：没有 oid 时接口必然失败，先把本地能显示的显示出来，
+                // 再给一句明确的话，别让用户看着转圈等一个永远不会成功的请求
+                if (aid <= 0) {
                     runOnUiThread {
-                        if (generation == loadGeneration) loadFail()
+                        if (generation != loadGeneration) return@runOnUiThread
+                        if (!isAdded) {
+                            setRefreshing(false)
+                            return@runOnUiThread
+                        }
+                        if (replyList == null) replyList = ArrayList()
+                        replyList!!.clear()
+                        mergeLocalReplies()
+                        ensureReplyAdapter()
+                        setRefreshing(false)
+                        MsgUtil.showMsgLong(getString(R.string.reply_port_empty_retry))
                     }
                     return@run
                 }
-                val finalEnd = result == 1
+
+                var workingType = type
+                var workingSort = sort
+                var list = ArrayList<Reply>()
+                var pageState = ReplyApi.getRepliesLazy(aid, seek, "", workingType, workingSort, list)
+                var result = pageState.first
+
+                // 计数兜底：列表接口不一定给出总数，补一次用来判断"空列表到底是真没有还是没刷出来"
+                if (count <= 0 && seek <= 0) {
+                    try {
+                        val declared = ReplyApi.getReplyCount(aid, workingType)
+                        if (declared > 0) count = declared.toInt()
+                    } catch (e: Exception) {
+                        Log.e("ReplyFragment", "getReplyCount failed: ${e.message}")
+                    }
+                }
+
+                // 第 3 层兜底：主路径"成功但没内容、而服务端说有评论"时，换排序 → 换评论区类型重拉。
+                // 单次失败不换、有内容不换——换类型会改变这份列表的语义，不能随便动
+                if (result != ReplyApi.PAGE_ERROR &&
+                    ReplyFetchPolicy.shouldTryFirstPageFallback(list.size, count, seek)
+                ) {
+                    for (attempt in ReplyFetchPolicy.firstPageFallbackPlan(type, sort)) {
+                        if (attempt.type == workingType && attempt.sort == workingSort) continue
+                        val retryList = ArrayList<Reply>()
+                        val retryState = ReplyApi.getRepliesLazy(aid, seek, "", attempt.type, attempt.sort, retryList)
+                        if (retryState.first != ReplyApi.PAGE_ERROR && retryList.isNotEmpty()) {
+                            workingType = attempt.type
+                            workingSort = attempt.sort
+                            list = retryList
+                            pageState = retryState
+                            result = retryState.first
+                            Log.e("ReplyFragment", "first page fallback hit: type=$workingType sort=$workingSort")
+                            break
+                        }
+                    }
+                }
+
+                if (generation != loadGeneration) return@run
+                val nextPagination = pageState.second
+
+                if (result == ReplyApi.PAGE_ERROR) {
+                    // 第 2 层兜底：这一页彻底拉不到时，至少把本页自己刚发的评论显示出来，
+                    // 用户看到的是"我发的还在"，而不是一片空白
+                    runOnUiThread {
+                        if (generation != loadGeneration) return@runOnUiThread
+                        if (!isAdded) {
+                            setRefreshing(false)
+                            return@runOnUiThread
+                        }
+                        if (replyList == null) replyList = ArrayList()
+                        replyList!!.clear()
+                        mergeLocalReplies()
+                        ensureReplyAdapter()
+                        setRefreshing(false)
+                        if (replyList!!.isEmpty()) MsgUtil.showMsgLong(getString(R.string.reply_port_empty_retry))
+                        else MsgUtil.showMsgLong(getString(R.string.reply_port_local_only))
+                    }
+                    return@run
+                }
+
+                val finalEnd = result == ReplyApi.PAGE_END
                 runOnUiThread {
                     // 不是当前世代说明又发起了新的刷新，转圈由新世代负责，这里不能去动它
                     if (generation != loadGeneration) return@runOnUiThread
@@ -338,24 +566,34 @@ class ReplyFragment : RefreshListFragment() {
                         return@runOnUiThread
                     }
                     Log.e("debug", if (finalEnd) "到底了" else "下一页")
+
+                    // 换类型/换排序成功时把界面与 adapter 一起切过去，否则后续翻页会按错的类型去拉
+                    if (workingType != type || workingSort != sort) {
+                        type = workingType
+                        replyType = workingType
+                        sort = workingSort
+                    }
+
                     pagination = nextPagination
                     if (finalEnd) {
                         isEnd = true
                         bottom = true
                     }
-                    if (replyList != null) replyList!!.clear()
-                    else replyList = ArrayList()
-                    replyList!!.addAll(list)
-                    if (replyAdapter == null) {
-                        val adapter = createReplyAdapter()
-                        replyAdapter = adapter
-                        adapter.count = count.toLong()
-                        adapter.isManager = isManager
-                        setOnSortSwitch()
-                        setAdapter(adapter)
-                    } else {
-                        replyAdapter!!.notifyDataSetChanged()
+
+                    ReplyStateStore.instance.observeReplies(list, account, replyType, aid, read)
+                    if (replyList == null) replyList = ArrayList()
+                    replyList!!.clear()
+                    for (item in list) {
+                        if (item == null) continue
+                        // 已在别处被删的评论不再回到列表（本地删除优先于服务端列表）
+                        if (ReplyStateStore.instance.applyTo(item, account, replyType, aid)) continue
+                        replyList!!.add(item)
+                        if (item.rpid > 0) loadedRpids.add(item.rpid)
                     }
+                    mergeLocalReplies()
+                    ensureReplyAdapter()
+                    if (replyList!!.isEmpty() && count > 0)
+                        MsgUtil.showMsgLong(getString(R.string.reply_port_empty_retry))
                     // 列表已经交给界面了，加载状态必须复位，否则翻页会永久卡死
                     setRefreshing(false)
                 }
