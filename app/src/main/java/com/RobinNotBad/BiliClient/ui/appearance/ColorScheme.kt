@@ -5,6 +5,7 @@ import com.RobinNotBad.BiliClient.util.UiText
 import android.app.Activity
 import android.content.Context
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.LayerDrawable
 import android.os.Build
 import android.view.Window
 import android.view.WindowManager
@@ -706,7 +707,30 @@ object ColorScheme {
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
 
         val rootView = activity.window.decorView.findViewById<android.view.View>(android.R.id.content)
-        if (AmbientGlow.isEnabled()) {
+        // 蒙版方向按「这个 Activity 实际的夜间位」取，而不是读偏好：闪屏 / 播放器强制暗色
+        // （ColorMode.nightBits(forceDark = true)），按偏好取会让强制暗色的页面压一层亮色蒙版。
+        val nightMode = activity.resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK
+        val wallpaper = BackgroundImage.drawable(
+            nightMode == android.content.res.Configuration.UI_MODE_NIGHT_NO,
+            BACKGROUND
+        )
+        if (wallpaper != null) {
+            // 自定义背景图与弥散光晕可以叠加：图铺底，光晕作半透明叠加层（AmbientGlow 的
+            // 正常 drawable 是整屏不透明底色，直接叠会把图盖住，所以这里用只画光晕圆的那份）。
+            // 两层都画在窗口背景（DecorView 整屏），content 置透明。
+            // 解码结果有内存缓存 + 降采样，重复进页面不会重复解原图。
+            val glowOverlay = if (AmbientGlow.isEnabled()) {
+                AmbientGlow.createOverlayDrawable(
+                    getCurrentThemeName(), ColorMode.isLight(), AmbientGlow.currentSource()
+                )
+            } else null
+            window.setBackgroundDrawable(
+                if (glowOverlay == null) wallpaper
+                else LayerDrawable(arrayOf(wallpaper, glowOverlay))
+            )
+            rootView?.background = null
+        } else if (AmbientGlow.isEnabled()) {
             // 弥散光晕画在窗口背景上（DecorView 整屏，含「界面边距」留出的外圈，不会在边距处断层），
             // content 自己不再铺纯色，否则会把光晕整块盖住。关闭时走下面的原路径，零额外开销。
             window.setBackgroundDrawable(

@@ -1,5 +1,6 @@
 package com.RobinNotBad.BiliClient.activity.settings
 
+import com.RobinNotBad.BiliClient.ui.appearance.BackgroundImage
 import com.RobinNotBad.BiliClient.ui.appearance.ColorMode
 import com.RobinNotBad.BiliClient.util.UiText
 
@@ -90,6 +91,31 @@ class SettingGroupActivity : RefreshListActivity() {
                     MsgUtil.showMsg(getString(R.string.msg_font_apply_failed, error))
                 } else {
                     MsgUtil.showMsg(getString(R.string.msg_settinggroupactivity_001))
+                    rebuild(GROUP_APPEARANCE)
+                    recreate()
+                }
+            }
+        }
+    }
+
+    /**
+     * 背景图选择。与字体同一套做法：`ACTION_GET_CONTENT` 拿到临时读权限，立刻把图拷进
+     * `filesDir/appearance/`（[BackgroundImage.install]），拷完就不需要原 URI 了。
+     * 拷完要 `recreate()`，因为窗口背景是在 `onCreate` 里画的。
+     */
+    private val backgroundPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uri = result.data?.data
+        if (result.resultCode != Activity.RESULT_OK || uri == null) return@registerForActivityResult
+        // 拷贝（最多 16MB）+ 尺寸校验放后台，别卡手表的 UI 线程
+        CenterThreadPool.run {
+            val error = BackgroundImage.install(this, uri)
+            runOnUiThread {
+                if (error != null) {
+                    MsgUtil.showMsg(getString(R.string.appearance_background_failed, error))
+                } else {
+                    MsgUtil.showMsg(getString(R.string.appearance_background_applied))
                     rebuild(GROUP_APPEARANCE)
                     recreate()
                 }
@@ -434,6 +460,48 @@ class SettingGroupActivity : RefreshListActivity() {
         // **常驻**，不藏在「已安装」条件后面：自定义字体出问题时（最典型的是字体缺中文字形，
         // 界面全变方框、文字读不了）这一条是唯一能自救的入口，必须一直在、位置稳定。
         button("恢复系统字体") { restoreSystemFont() }
+
+        title("背景图")
+        nav(
+            R.drawable.icon_folder,
+            getString(R.string.appearance_background_pick),
+            if (BackgroundImage.isEnabled()) getString(R.string.appearance_background_current_on)
+            else getString(R.string.appearance_background_current_off)
+        ) { pickBackgroundImage() }
+        // 与字体同理常驻：图太暗/太花影响阅读时必须能一键回到纯色背景，不能等出问题再找入口。
+        button(getString(R.string.appearance_background_clear)) { clearBackgroundImage() }
+
+        // 两项都常驻：没有背景图时改了也只是存档，等选了图立刻生效（比按状态隐藏更可预期）。
+        listChoose(
+            getString(R.string.appearance_background_fit_title),
+            null,
+            BackgroundImage.KEY_FIT,
+            BackgroundImage.DEFAULT_FIT,
+            listOf(
+                getString(R.string.appearance_background_fit_cover),
+                getString(R.string.appearance_background_fit_contain)
+            ),
+            listOf(BackgroundImage.FIT_COVER, BackgroundImage.FIT_CONTAIN)
+        ) { _, value ->
+            AppearanceManager.setBackgroundFit(value)
+            recreate()
+        }
+        listChoose(
+            getString(R.string.appearance_background_scrim_title),
+            getString(R.string.appearance_background_scrim_desc),
+            BackgroundImage.KEY_SCRIM,
+            BackgroundImage.DEFAULT_SCRIM.toString(),
+            listOf(
+                getString(R.string.appearance_background_scrim_0),
+                getString(R.string.appearance_background_scrim_25),
+                getString(R.string.appearance_background_scrim_50),
+                getString(R.string.appearance_background_scrim_75)
+            ),
+            BackgroundImage.SCRIM_PERCENTS.map { it.toString() }
+        ) { _, value ->
+            AppearanceManager.setBackgroundScrim(BackgroundImage.coerceScrimPercent(value))
+            recreate()
+        }
     }
 
     /** 打开文件管理器挑选字体文件。 */
@@ -457,6 +525,30 @@ class SettingGroupActivity : RefreshListActivity() {
         }
         FontStyle.clear(this)
         MsgUtil.showMsg(getString(R.string.msg_settinggroupactivity_006))
+        rebuild(GROUP_APPEARANCE)
+        recreate()
+    }
+
+    /** 打开文件管理器挑选背景图。 */
+    private fun pickBackgroundImage() {
+        try {
+            val intent = Intent(Intent.ACTION_GET_CONTENT)
+            intent.type = "image/*"
+            intent.addCategory(Intent.CATEGORY_OPENABLE)
+            backgroundPickerLauncher.launch(intent)
+        } catch (e: Throwable) {
+            MsgUtil.showMsg(getString(R.string.appearance_background_no_picker))
+        }
+    }
+
+    /** 删除背景图并回到纯色 / 弥散光晕背景。没设置时只提示。 */
+    private fun clearBackgroundImage() {
+        if (!BackgroundImage.isEnabled()) {
+            MsgUtil.showMsg(getString(R.string.appearance_background_none))
+            return
+        }
+        BackgroundImage.clear(this)
+        MsgUtil.showMsg(getString(R.string.appearance_background_cleared))
         rebuild(GROUP_APPEARANCE)
         recreate()
     }

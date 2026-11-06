@@ -51,6 +51,12 @@ object AppearanceManager {
         val colorMode: String,
         val cornerRadius: String,
         val fontPath: String,
+        /** 自定义背景图绝对路径；空串 = 未设置（见 [BackgroundImage]）。 */
+        val backgroundPath: String,
+        /** 背景图适配方式：填满 / 适应（[BackgroundImage.FIT_COVER] / [BackgroundImage.FIT_CONTAIN]）。 */
+        val backgroundFit: String,
+        /** 背景图遮罩强度百分比 0..100（[BackgroundImage.DEFAULT_SCRIM]）。 */
+        val backgroundScrim: Int,
         val ambientGlow: Boolean,
         val ambientGlowSource: String,
         val glassComponents: Boolean,
@@ -76,6 +82,9 @@ object AppearanceManager {
         colorMode = ColorMode.current(),
         cornerRadius = CornerStyle.current(),
         fontPath = FontStyle.currentPath(),
+        backgroundPath = BackgroundImage.currentPath(),
+        backgroundFit = BackgroundImage.currentFit(),
+        backgroundScrim = BackgroundImage.currentScrimPercent(),
         ambientGlow = AmbientGlow.isEnabled(),
         ambientGlowSource = AmbientGlow.currentSource(),
         glassComponents = GlassStyle.isEnabled(),
@@ -138,6 +147,35 @@ object AppearanceManager {
     fun clearFontPath() {
         SharedPreferencesUtil.putStringSync(FontStyle.KEY_PATH, "")
         FontStyle.invalidateCache()
+        bumpVersion()
+    }
+
+    /** 写入自定义背景图路径（[BackgroundImage.install] 落盘后调用）。写完作废解码缓存。 */
+    fun setBackgroundPath(path: String) {
+        SharedPreferencesUtil.putStringSync(BackgroundImage.KEY_PATH, path)
+        BackgroundImage.invalidateCache()
+        bumpVersion()
+    }
+
+    /** 清除自定义背景图，回到纯色 / 弥散光晕背景。 */
+    fun clearBackgroundPath() {
+        SharedPreferencesUtil.putStringSync(BackgroundImage.KEY_PATH, "")
+        BackgroundImage.invalidateCache()
+        bumpVersion()
+    }
+
+    /** 设置背景图适配方式（填满 / 适应）。非法值由 [BackgroundImage.normalizeFit] 归一化。 */
+    fun setBackgroundFit(fit: String) {
+        SharedPreferencesUtil.putStringSync(BackgroundImage.KEY_FIT, BackgroundImage.normalizeFit(fit))
+        bumpVersion()
+    }
+
+    /** 设置背景图遮罩强度（0..100 百分比）。 */
+    fun setBackgroundScrim(percent: Int) {
+        SharedPreferencesUtil.putStringSync(
+            BackgroundImage.KEY_SCRIM,
+            percent.coerceIn(0, 100).toString()
+        )
         bumpVersion()
     }
 }

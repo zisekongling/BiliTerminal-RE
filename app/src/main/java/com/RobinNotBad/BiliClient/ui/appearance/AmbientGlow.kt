@@ -209,6 +209,29 @@ object AmbientGlow {
     ): Drawable = AmbientGlowDrawable(specFor(themeKey, light), background, normalizeSource(source))
 
     /**
+     * 叠在自定义背景图**上面**的光晕层（只有光晕圆，没有底色渐变）。
+     *
+     * 为什么需要单独一份：正常光晕是整屏窗口背景（`drawRect` 铺满 + 声明 OPAQUE），
+     * 直接叠在背景图上会把图整块盖住。这里只画那 1～2 团径向光晕、底色透明、
+     * 声明 TRANSLUCENT，于是「背景图 + 光晕」能同时存在：图在下面，光晕像一层光洒在图上。
+     *
+     * [alphaFactor] 再压一次整体透明度（背景图本身有明暗细节，光晕照 1.0 会糊成一片）。
+     */
+    fun createOverlayDrawable(
+        themeKey: String,
+        light: Boolean = false,
+        source: String = DEFAULT_SOURCE,
+        alphaFactor: Float = OVERLAY_ALPHA
+    ): Drawable = AmbientGlowOverlayDrawable(
+        specFor(themeKey, light),
+        normalizeSource(source),
+        alphaFactor.coerceIn(0f, 1f)
+    )
+
+    /** 叠在背景图上时的整体透明度：既看得出光晕，又不至于把图糊掉。 */
+    const val OVERLAY_ALPHA = 0.55f
+
+    /**
      * 把一团光晕（按「光源在顶部」写的坐标）放到 [source] 指定的位置，返回 `[cx, cy, r]`（像素，相对 bounds 左上角）。
      * 纯函数，供 JVM 单测。只在 `onBoundsChange` 调用，不在 draw 热路径上。
      *
@@ -333,5 +356,64 @@ object AmbientGlow {
 
         @Deprecated("Deprecated in Java")
         override fun getOpacity(): Int = PixelFormat.OPAQUE
+    }
+
+    /**
+     * 只有光晕、没有底色的叠加层，见 [createOverlayDrawable]。
+     *
+     * 与 [AmbientGlowDrawable] 的差别只有两处：不画底色渐变、声明 TRANSLUCENT。
+     * 几何计算（[placeGlow]）与色标（[GLOW_STOPS] / [GLOW_ALPHAS]）完全共用，
+     * 所以「背景图 + 光晕」与「只有光晕」的光源位置、形状是同一套。
+     */
+    private class AmbientGlowOverlayDrawable(
+        private val spec: Spec,
+        private val source: String,
+        private val alphaFactor: Float
+    ) : Drawable() {
+
+        private val glowPaints = Array(spec.glows.size) { Paint().apply { isDither = true } }
+        private val geometry = FloatArray(spec.glows.size * 3)
+        private var ready = false
+
+        override fun onBoundsChange(bounds: Rect) {
+            super.onBoundsChange(bounds)
+            val w = bounds.width().toFloat()
+            val h = bounds.height().toFloat()
+            if (w <= 0f || h <= 0f) {
+                ready = false
+                return
+            }
+            val left = bounds.left.toFloat()
+            val top = bounds.top.toFloat()
+            for (i in spec.glows.indices) {
+                val g = spec.glows[i]
+                val p = placeGlow(spec, i, source, w, h)
+                val cx = left + p[0]
+                val cy = top + p[1]
+                val r = p[2]
+                val colors = IntArray(GLOW_ALPHAS.size) {
+                    scaleAlpha(g.color, GLOW_ALPHAS[it] * alphaFactor)
+                }
+                glowPaints[i].shader = RadialGradient(cx, cy, r, colors, GLOW_STOPS, Shader.TileMode.CLAMP)
+                geometry[i * 3] = cx
+                geometry[i * 3 + 1] = cy
+                geometry[i * 3 + 2] = r
+            }
+            ready = true
+        }
+
+        override fun draw(canvas: Canvas) {
+            if (!ready) return
+            for (i in glowPaints.indices) {
+                canvas.drawCircle(geometry[i * 3], geometry[i * 3 + 1], geometry[i * 3 + 2], glowPaints[i])
+            }
+        }
+
+        override fun setAlpha(alpha: Int) {}
+
+        override fun setColorFilter(colorFilter: ColorFilter?) {}
+
+        @Deprecated("Deprecated in Java")
+        override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
     }
 }

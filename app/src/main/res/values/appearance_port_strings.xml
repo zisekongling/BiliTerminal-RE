@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  外观域新增文案（背景图）。前缀 appearance_，避免与 strings.xml、UiText 的中文映射冲突。
+  迁移说明：这些键最终应并入 strings.xml 的对应章节；现在单开一个文件是为了不与并行改动抢 strings.xml。
+-->
+<resources>
+    <string name="appearance_background_pick">选择背景图</string>
+    <string name="appearance_background_current_on">当前：已设置</string>
+    <string name="appearance_background_current_off">当前：未设置（纯色 / 弥散光晕）</string>
+    <string name="appearance_background_clear">清除背景图</string>
+    <string name="appearance_background_applied">已设置背景图</string>
+    <string name="appearance_background_cleared">已清除背景图</string>
+    <string name="appearance_background_none">当前没有背景图</string>
+    <string name="appearance_background_no_picker">没有可用的文件管理器</string>
+    <string name="appearance_background_failed">设置失败：%1$s</string>
+    <!-- 背景图档位：适配方式与遮罩强度 -->
+    <string name="appearance_background_fit_title">适配方式</string>
+    <string name="appearance_background_fit_cover">填满（裁切边缘）</string>
+    <string name="appearance_background_fit_contain">适应（显示全图，留底色）</string>
+    <string name="appearance_background_scrim_title">遮罩强度</string>
+    <string name="appearance_background_scrim_desc">遮罩越强背景越暗、文字越清楚；只影响背景图</string>
+    <string name="appearance_background_scrim_0">不遮罩</string>
+    <string name="appearance_background_scrim_25">25%</string>
+    <string name="appearance_background_scrim_50">50%（默认）</string>
+    <string name="appearance_background_scrim_75">75%</string>
+    <!-- 播放器设置页的「分辨率」摘要：配了 Wi-Fi / 移动数据分档时，标注这是按当前网络取的档 -->
+    <string name="appearance_net_quality_effective">当前网络：%1$s</string>
+</resources>
