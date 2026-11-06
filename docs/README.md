@@ -13,6 +13,7 @@
 | 改网络 / 接口 / 风控相关 | [`bilibili-api-notes.md`](bilibili-api-notes.md) | 接口常识与风控硬约束（错误码语义、取流有效期、弹幕协议取舍） |
 | 发版前上真机 | [`review/real-device-regression-checklist.md`](review/real-device-regression-checklist.md) | 与发行版同维护的回归清单（249 条），每条的来源小节都标在标题里 |
 | 用 adb / AI agent 驱动 Debug 包测试 | [`review/agent-test-guide.md`](review/agent-test-guide.md) | 调试桥（可编程控制通道）命令表、日志与 HTTP 追踪、UETool 干扰规避、用哪个 flavor |
+| 找不懂代码的人验收新功能 | [`review/manual-test-guide-261106.md`](review/manual-test-guide-261106.md) | 给普通用户写的手工测试指南：34 条用例，每条给「怎么做 / 应该看到 / 不算 bug」，按不登录、登录后、特殊条件分三部分 |
 | 写新功能 | [`superpowers/plans/2026-08-27-new-features-roadmap.md`](superpowers/plans/2026-08-27-new-features-roadmap.md) | 功能 backlog（含实测过的接口地址、判据与仍未落地项） |
 | 改播放器 / 弱网 / 下载 | [`architecture-map.md`](architecture-map.md) §7.4 / §7.27 / §7.54 + [`review/fix-progress.md`](review/fix-progress.md) §2.2 | 现状与坑看架构地图，剩余待办看台账；原合并方案、弱网调研、下载排查与引擎方案已归档（ijkplayer 选项语义与 `.so` 实测仍可在 `archive/superpowers/specs/` 里查） |
 | 改教程系统 | [`tutorial-system-redesign.md`](tutorial-system-redesign.md) | 重做进行中，旧链路未删完——**动之前先读它** |
@@ -49,6 +50,7 @@
 | [`review/fix-progress.md`](review/fix-progress.md) | 活台账：当前状态 + 未完成待办 + 26.10.22 起的快照（更早的 §3.0~§3.51 已归档）+ 历史章节索引 | 修完 bug / 关掉待办 / 每轮真机验证后 |
 | [`review/real-device-regression-checklist.md`](review/real-device-regression-checklist.md) | 发版前真机回归清单（249 条，含第十三节视觉面；条目只增不改，失效就地标注作废） | 每个发行版 |
 | [`review/agent-test-guide.md`](review/agent-test-guide.md) | Debug 包的 agent 测试手册：调试桥命令、可观测性设施、已知限制与设计原则 | 增删调试能力 / 调试桥命令时 |
+| [`review/manual-test-guide-261106.md`](review/manual-test-guide-261106.md) | 面向普通用户的手工测试指南：26.11.06 新增功能的 34 条用例（无技术术语，含「不算 bug」与已知限制） | 找人验收新功能 / 自己按步骤过一遍时 |
 | [`review/compare-with-re-biliterminal-261024.md`](review/compare-with-re-biliterminal-261024.md) | 与同源分支 `cyq114514/Re-BiliTerminal`（1.2.3fix）的六维对比审计：91 条问题（P0×2 / P1×20 / P2×69）、定量总表、P0–P2 路线图、四轮核验；**按目标设备口径（旧版安卓手表）评分** | 再次对比 / 排期取建议时；结论基于 2026-10-24 双方 HEAD |
 | [`review/fork-comparison-2026-11-06.md`](review/fork-comparison-2026-11-06.md) | 三个兄弟分支（Revival / PianoEthan / cyq 1.3.0）与我们的功能增量对比、实现质量优化、不建议照搬清单与三批实施路线；分报告在 `review/forks/` | 排期移植 / 参考兄弟分支实现时；结论基于 2026-11-06 双方 HEAD |
 | [`superpowers/plans/2026-08-27-new-features-roadmap.md`](superpowers/plans/2026-08-27-new-features-roadmap.md) | 功能路线图 + 从各报告回迁的仍未落地项 | 排期 / 落地后 |
