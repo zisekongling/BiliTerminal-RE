@@ -175,6 +175,8 @@ class DebugBridge : BroadcastReceiver() {
         |  --es cmd start --es activity <类名> [--es extras "aid=2;seekReply=-1"]
         |                                    类名可只写简单名（如 VideoInfoActivity）
         |                                    extras 也可写 JSON，但 adb shell 下要转义：'{\"aid\":2}'
+        |                                    值前缀 int:/long:/bool:/float:/string: 可强制类型
+        |                                    （如 danmaku_episode=int:1）
         |  --es cmd activities               列出所有可启动的 Activity 全名
         |  --es cmd notutorials              把全部教程标记为已读（否则教程页会盖住你拉起的页面）
         |  --es cmd http --es url <URL> [--es method GET|POST] [--es data <体>]
@@ -496,8 +498,31 @@ class DebugBridge : BroadcastReceiver() {
      * <p>Intent extra 的类型必须与接收方 `getLongExtra` / `getStringExtra` 对得上，猜错就是
      * `ClassCastException`。所以这里优先按「看起来像什么」定：纯数字 → `Long`（页面 id 都是长整型），
      * `true/false` → `Boolean`，其余 → `String`。
+     *
+     * <p>猜不准时必须能强制指定：`PlayerActivity` 的 `danmaku_episode` 用 `getIntExtra` 读，
+     * 而 `95225` 这种纯数字会被猜成 `Long`，`getIntExtra` 于是只拿到 0（实测踩过）。
+     * 所以支持值前缀 `int:` / `long:` / `bool:` / `float:` / `string:`：
+     * `--es extras "danmaku_episode=int:1;danmaku_bgm_id=95225"`。
      */
     private fun putTyped(bundle: Bundle, key: String, value: String) {
+        val (prefix, rest) = when {
+            value.startsWith("int:", true) -> "int:" to value.substring(4).trim()
+            value.startsWith("long:", true) -> "long:" to value.substring(5).trim()
+            value.startsWith("bool:", true) -> "bool:" to value.substring(5).trim()
+            value.startsWith("float:", true) -> "float:" to value.substring(6).trim()
+            value.startsWith("string:", true) -> "string:" to value.substring(7)
+            else -> "" to value
+        }
+        if (prefix.isNotEmpty()) {
+            when (prefix) {
+                "int:" -> bundle.putInt(key, rest.toIntOrNull() ?: 0)
+                "long:" -> bundle.putLong(key, rest.toLongOrNull() ?: 0L)
+                "bool:" -> bundle.putBoolean(key, rest.toBooleanStrictOrNull() ?: false)
+                "float:" -> bundle.putFloat(key, rest.toFloatOrNull() ?: 0f)
+                else -> bundle.putString(key, rest)
+            }
+            return
+        }
         when {
             value.equals("true", true) || value.equals("false", true) ->
                 bundle.putBoolean(key, value.toBoolean())

@@ -75,6 +75,20 @@ android {
                     .toString().replace('\\', '\\\\').replace('"', '\\"')
             buildConfigField "String", "BGM_MIRROR_APP_ID", "\"${mirrorAppId}\""
             buildConfigField "String", "BGM_MIRROR_SECRET", "\"${mirrorKey}\""
+
+            // 第三方弹幕（弹弹play）的 AppId / AppSecret：同样是构建期注入，
+            // `-PDANDANAPI_APPID / -PDANDANAPI_KEY` 或同名环境变量（CI 从 Secrets 传）。
+            // 空串 → 第三方弹幕整体关闭，换源播放退回「没有弹幕」的旧行为。
+            def dandanAppId = providers.gradleProperty('DANDANAPI_APPID')
+                    .orElse(providers.environmentVariable('DANDANAPI_APPID'))
+                    .orElse('').get()
+                    .toString().replace('\\', '\\\\').replace('"', '\\"')
+            def dandanKey = providers.gradleProperty('DANDANAPI_KEY')
+                    .orElse(providers.environmentVariable('DANDANAPI_KEY'))
+                    .orElse('').get()
+                    .toString().replace('\\', '\\\\').replace('"', '\\"')
+            buildConfigField "String", "DANDANAPI_APP_ID", "\"${dandanAppId}\""
+            buildConfigField "String", "DANDANAPI_SECRET", "\"${dandanKey}\""
         }
     }
 

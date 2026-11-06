@@ -325,17 +325,26 @@ jobs:
         env:
           KAZUMI_APPID: ${{ secrets.KAZUMI_APPID }}
           KAZUMI_KEY: ${{ secrets.KAZUMI_KEY }}
+          DANDANAPI_APPID: ${{ secrets.DANDANAPI_APPID }}
+          DANDANAPI_KEY: ${{ secrets.DANDANAPI_KEY }}
         run: |
           if [ -z "$KAZUMI_APPID" ] || [ -z "$KAZUMI_KEY" ]; then
             echo "::notice::未配置 Secrets.KAZUMI_APPID / KAZUMI_KEY，BGM 数据代理关闭（功能自动退回旧链路）"
           else
-            echo "私有功能凭证已就绪（不打印值）"
+            echo "BGM 数据代理凭证已就绪（不打印值）"
+          fi
+          if [ -z "$DANDANAPI_APPID" ] || [ -z "$DANDANAPI_KEY" ]; then
+            echo "::notice::未配置 Secrets.DANDANAPI_APPID / DANDANAPI_KEY，换源播放无弹幕"
+          else
+            echo "第三方弹幕凭证已就绪（不打印值）"
           fi
 
       - name: 构建签名发行 APK
         env:
           KAZUMI_APPID: ${{ secrets.KAZUMI_APPID }}
           KAZUMI_KEY: ${{ secrets.KAZUMI_KEY }}
+          DANDANAPI_APPID: ${{ secrets.DANDANAPI_APPID }}
+          DANDANAPI_KEY: ${{ secrets.DANDANAPI_KEY }}
         run: ./gradlew :app:assembleRelease
 
       # 崩溃堆栈解混淆（R8 retrace）需要「这一版、这个 flavor、这个构建变体」的 mapping。

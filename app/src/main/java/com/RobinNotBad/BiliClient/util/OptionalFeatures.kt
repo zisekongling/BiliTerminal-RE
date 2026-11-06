@@ -327,6 +327,37 @@ object OptionalFeatures {
         false
     }
 
+    /**
+     * 请私有侧准备「第三方弹幕」（换源播放时用弹弹play 的弹幕）。
+     *
+     * 私有侧拿到参数后在后台拉取、转换、写成 B 站格式 XML，就绪后自己回调
+     * `PlayerActivity.applyThirdPartyDanmaku(file)`；失败时什么都不做（播放不受影响）。
+     *
+     * 返回 true 表示私有侧接手了这次弹幕准备；false = 私有功能不在场 / 未注入凭据 / 用户关掉了
+     * 第三方弹幕，调用方据此把「有弹幕」状态翻回 false。
+     *
+     * [bgmSubjectId] 是 BGM 条目 id（0 = 未知，私有侧退回按标题搜索）；[episodeNumber] 是集号（从 1 起）。
+     */
+    fun attachThirdPartyDanmaku(
+        activity: Activity,
+        title: String?,
+        altTitle: String?,
+        bgmSubjectId: Long,
+        episodeNumber: Int
+    ): Boolean = try {
+        holder?.getMethod(
+            "attachThirdPartyDanmaku",
+            Context::class.java,
+            String::class.java,
+            String::class.java,
+            java.lang.Long.TYPE,
+            Integer.TYPE
+        )?.invoke(null, activity, title, altTitle, bgmSubjectId, episodeNumber) as? Boolean ?: false
+    } catch (e: Throwable) {
+        Logu.w("OptionalFeatures", "attachThirdPartyDanmaku failed: " + e.message)
+        false
+    }
+
     private fun invokeString(name: String): String? = try {
         holder?.getMethod(name)?.invoke(null) as? String
     } catch (e: Throwable) {

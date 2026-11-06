@@ -32,6 +32,8 @@ private/
 5. `-PKAZUMI_APPID` / `-PKAZUMI_KEY`（或同名环境变量）→ `BuildConfig.BGM_MIRROR_APP_ID` /
    `BGM_MIRROR_SECRET`，给私有侧访问第三方数据代理用。**仓库里永远是空串**；空串时私有侧
    自动关闭代理、退回旧链路，公开构建连这两个常量都不会出现。下文「发版注入」有 CI 的做法。
+6. `-PDANDANAPI_APPID` / `-PDANDANAPI_KEY`（或同名环境变量）→ `BuildConfig.DANDANAPI_APP_ID` /
+   `DANDANAPI_SECRET`，给私有侧的第三方弹幕源用；空串时换源播放照旧、只是没有第三方弹幕。
 
 注意清单那处的 API 名字是 **`addStaticManifestFile`**（传文件路径），不是 `addStaticSourceDirectory`
 （那是 java/res 的 API，传目录）；AGP 8.5.2 实测如此。
@@ -61,6 +63,7 @@ private/
 | 评论长按面板 | `adapter/ReplyAdapter.kt` 的 `showManageMenu`：`replyReportLabel(context)` 给文案、`replyReport(...)` 执行 | 文案为 null → **不加这一项**；别人的评论只剩「复制文字」，走「只剩一项就直接复制」的老捷径 |
 | 消息卡片 | `api/MessageApi.java` 两个消息流的 `default` 分支（`fillOptionalMessage`）＋ `adapter/message/NoticeHolder.kt` 的点击（`openOptionalMessage`） | `false` → 照旧显示「无法识别这个类别」/ 不处理点击 |
 | 播放页接管片源 | `activity/player/PlayerActivity.kt`：intent 带 `third_party_pending=true` 时（`url` 可为空）停在载入中，再由 `beginPendingThirdPartyResolve()` 调 `OptionalFeatures.requestThirdPartyResolve(...)`，回调 `onResolved(url, referer)` / `onFailed()` | 返回 `false`（没有私有功能）→ 弹 `msg_third_party_no_source` 并结束播放页 |
+| 播放页第三方弹幕 | `PlayerActivity.getExtras()` 读 `third_party_danmaku` 等 extra；不下载 B 站弹幕，改为调 `OptionalFeatures.attachThirdPartyDanmaku(...)`，私有侧后台准备好 XML 后回调 `PlayerActivity.applyThirdPartyDanmaku(file)` | 返回 `false` 或无私有功能 → `hasDanmaku=false`，播放照常、只是没有弹幕 |
 
 老用户的 `menu_enabled` 里没有可选 key 时，`MenuConfig.loadEnabled` 会走一次迁移把它补进来
 （`resolveEnabledList` 对可选项的处理与固定项一致：缺失即补到末尾）。
@@ -120,14 +123,16 @@ PR 构建（包括 fork 的 PR）拿不到 Secret，因此**永远**是公开版
 ### 第三方凭证（构建期注入，不进仓库）
 
 私有侧有些数据代理需要第三方签发的 `AppId` / `AppSecret`（BGM 数据代理用的
-`Secrets.KAZUMI_APPID` / `Secrets.KAZUMI_KEY`）。和 Kazumi 的做法一致，**只在构建期注入**，
+`Secrets.KAZUMI_APPID` / `Secrets.KAZUMI_KEY`；第三方弹幕源用的
+`Secrets.DANDANAPI_APPID` / `Secrets.DANDANAPI_KEY`）。和 Kazumi 的做法一致，**只在构建期注入**，
 源码、`private/`、文档里都不出现明文：
 
 - CI：`build-release.yml` 的「校验私有功能凭证（未配置则跳过）」一步只打印 notice，
-  「构建签名发行 APK」一步把两个 Secrets 传成同名环境变量；`app/build.gradle` 读环境变量
-  （或 `-P` 参数）写进 `BuildConfig`。没配 → 凭证为空串 → 私有侧自动退回旧链路，发版照常。
-- 本地：`$env:KAZUMI_APPID="…"; $env:KAZUMI_KEY="…"`（PowerShell）后照常
-  `gradlew` / `build_tui.py`；也可以 `-PKAZUMI_APPID=… -PKAZUMI_KEY=…`。
+  「构建签名发行 APK」一步把 Secrets 传成同名环境变量；`app/build.gradle` 读环境变量
+  （或 `-P` 参数）写进 `BuildConfig`。没配 → 凭证为空串 → 私有侧自动退回旧链路 / 关闭该功能，
+  发版照常。
+- 本地：`$env:KAZUMI_APPID="…"; $env:KAZUMI_KEY="…"; $env:DANDANAPI_APPID="…"; $env:DANDANAPI_KEY="…"`
+  （PowerShell）后照常 `gradlew` / `build_tui.py`；也可以 `-PKAZUMI_APPID=… -PDANDANAPI_APPID=…`。
   值只进 `BuildConfig`，不落任何受版本管理的文件（`local.properties` 不进仓库）。
 
 ## 红线

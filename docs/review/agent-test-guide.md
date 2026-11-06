@@ -139,6 +139,13 @@ adb shell $BRIDGE --es cmd activities
 
 **`extras` 用 `key=value` 分号分隔，这是推荐写法**——纯数字自动转 `Long`，`true`/`false` 转 `Boolean`，其余按 `String`。
 
+猜的类型不对时用**值前缀**强制：`int:` / `long:` / `bool:` / `float:` / `string:`。
+最常见的坑是 `getIntExtra` 读的字段：`danmaku_episode=1` 会被猜成 `Long`，接收方 `getIntExtra` 只能拿到 0，
+必须写 `danmaku_episode=int:1`。
+
+> 另外注意：**`;` 在设备端 shell 里是命令分隔符**。整条 `am broadcast` 要作为一个字符串传给 `adb shell`，
+> 并对 extras 加单引号；否则 `--es extras "a=1;b=2"` 只有 `a=1` 会到应用侧（实测踩过：`标题>null` + `night: inaccessible`）。
+
 也可以写 JSON，但**经 `adb shell` 传递时双引号会被设备端 shell 吃掉**，必须转义：
 
 ```bash

@@ -237,6 +237,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     @Volatile
     private var isPrepared: Boolean = false
     private var hasDanmaku: Boolean = false
+
+    /**
+     * 第三方弹幕（弹弹play）标记：换源播放时私有侧带 `third_party_danmaku=true`，
+     * 弹幕 XML 由私有侧异步准备好后再回灌（见 [applyThirdPartyDanmaku]）。
+     * 置位时本页**不下载** B 站弹幕，也不显示发送弹幕按钮。
+     */
+    private var thirdPartyDanmaku = false
+    private var thirdPartyDanmakuBgmId = 0L
+    private var thirdPartyDanmakuEpisode = 0
+    private var thirdPartyDanmakuTitle: String? = null
+    private var thirdPartyDanmakuAltTitle: String? = null
     private var isOnlineVideo: Boolean = false
     private var isLiveMode: Boolean = false
 
@@ -288,6 +299,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
          * 置位时 Intent 里没有 url，本页会先进入载入中，再让私有侧异步解析出地址。
          */
         private const val EXTRA_THIRD_PARTY_PENDING = "third_party_pending"
+
+        /**
+         * 「换源播放 + 第三方弹幕」的 Intent 标记（由私有侧设置）。
+         *
+         * 置位时不下载 B 站弹幕，改为让私有侧按 bgm 条目 / 标题去弹弹play 拉弹幕，
+         * 写好 B 站格式 XML 后通过 [applyThirdPartyDanmaku] 回灌。
+         */
+        private const val EXTRA_THIRD_PARTY_DANMAKU = "third_party_danmaku"
 
         /** 自动恢复的最多次数，超过就只提示、交回给用户手动重试 */
         private const val MAX_STALL_RETRY = 3
@@ -739,6 +758,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         isOnlineVideo = waitingThirdPartySource || video_url!!.contains("http")
         hasDanmaku = danmaku_url.isNotEmpty()
 
+        // 换源播放的第三方弹幕：弹幕文件由私有侧异步准备，这里只记参数（见 attachThirdPartyDanmaku）
+        thirdPartyDanmaku = intent.getBooleanExtra(EXTRA_THIRD_PARTY_DANMAKU, false)
+        if (thirdPartyDanmaku) {
+            thirdPartyDanmakuBgmId = intent.getLongExtra("danmaku_bgm_id", 0L)
+            thirdPartyDanmakuEpisode = intent.getIntExtra("danmaku_episode", 0)
+            thirdPartyDanmakuTitle = intent.getStringExtra("danmaku_title")
+            thirdPartyDanmakuAltTitle = intent.getStringExtra("danmaku_alt_title")
+            // 先假定有弹幕：等私有侧回灌失败再翻回 false（本地分支的既有写法同理）
+            hasDanmaku = true
+        }
+
         // 本地/缓存视频没有服务端历史可读，续播位置就存在视频目录的 `.video_meta.json` 里
         // （见 util/VideoMetaManager.readResumeMs）。Intent 里没带 progress 时用它补上，
         // 后面的续播逻辑（onPrepared 里那段）与在线视频完全共用。
@@ -942,7 +972,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     loading_text0.text = UiText.of("装填弹幕中")
                     loading_text1.text = "(≧∇≦)"
                 }
-                if (isOnlineVideo) {
+                if (thirdPartyDanmaku) {
+                    // 弹弹play 弹幕：没有「发送弹幕」入口，也不碰 B 站弹幕接口
+                    runOnUiThread { btn_danmaku_send.visibility = View.GONE }
+                } else if (isOnlineVideo) {
                     danmakuFile = File(cachepath, "danmaku.xml")
                     downdanmu()
                 } else {
@@ -973,7 +1006,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 if (!destroyed) {
                     // 解析链路要起 Activity、改加载文案，统一回主线程
                     if (waitingThirdPartySource) runOnUiThread { beginPendingThirdPartyResolve() }
-                    else setDisplay()
+                    else {
+                        setDisplay()
+                        if (thirdPartyDanmaku) runOnUiThread { attachThirdPartyDanmaku() }
+                    }
                 }
             }
         }, 60)
@@ -2581,6 +2617,43 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             Logu.e("新版弹幕", "获取失败: " + e.message + "，回退到旧版接口")
             runOnUiThread { MsgUtil.toast(UiText.of("新版弹幕获取失败，使用旧版接口")) }
             CenterThreadPool.run { downdanmuOld() }
+        }
+    }
+
+    /**
+     * 让私有侧准备第三方弹幕：私有侧按 bgm 条目 / 标题去弹弹play 拉取、转换、写 B 站格式 XML，
+     * 就绪后回调 [applyThirdPartyDanmaku]。
+     *
+     * 凭据缺失、功能关闭或私有功能不存在时门户返回 false：静默无弹幕，不影响播放。
+     */
+    private fun attachThirdPartyDanmaku() {
+        if (destroyed) return
+        val ok = OptionalFeatures.attachThirdPartyDanmaku(
+            this,
+            thirdPartyDanmakuTitle,
+            thirdPartyDanmakuAltTitle,
+            thirdPartyDanmakuBgmId,
+            thirdPartyDanmakuEpisode
+        )
+        if (!ok) {
+            hasDanmaku = false
+            Logu.d("弹幕", "第三方弹幕不可用（私有侧未提供）")
+        }
+    }
+
+    /** 私有侧写好弹幕 XML 后的回灌入口：在本页自己的弹幕管理器上加载。 */
+    fun applyThirdPartyDanmaku(file: File) {
+        if (destroyed) return
+        runOnUiThread {
+            if (!file.exists() || file.length() <= 0L) {
+                hasDanmaku = false
+                Logu.w("弹幕", "第三方弹幕文件无效：" + file.absolutePath)
+                return@runOnUiThread
+            }
+            danmakuFile = file
+            prepareDanmaku { it.loadFromXmlFile(file.absolutePath) }
+            hasDanmaku = true
+            Logu.d("弹幕", "第三方弹幕已载入：" + file.absolutePath)
         }
     }
 
