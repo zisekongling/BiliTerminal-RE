@@ -112,7 +112,7 @@ Revival 纯 Java 63k 行、415 `@Test` + 60 个仪器化测试；PianoEthan 纯 
 
 - **我方**：功能面最宽的 Kotlin 主线，工程化最好（1429 个 JVM 单测、双 flavor、资源化、隐私与安全基线），播放器与下载在「能覆盖多少场景」上领先，但在播放器内核一致性、弹幕内存模型、连播队列、存储可观测性上欠账。
 - **Revival**：上游 2.9.5 的 Java 维护线。**用户可感知的完整性最好**——ExoPlayer 单时间轴 DASH、完整连播队列、SAF 外置 SD、存储清理页、设备档位、举报/拉黑、创作中心稿件管理、历史多选删除。但很多「独有功能」可能来自上游 2.7→2.9.5 的增量（对方历史仅 13 个压缩提交，无法区分归属，分报告已标【推测】）。
-- **PianoEthan**：只做主题。M3 动态色板、`.btheme`（ZIP 容器 + 白名单校验 + 原子安装）、背景图、播放器封面取色；其余 60 个提交是 API 14–18 兼容补丁与全量 Gson 迁移，对我方基本不适用。
+- **PianoEthan**：主增量是**主题引擎**（M3 动态色板、`.btheme` ZIP 容器 + 白名单校验 + 原子安装、背景图、播放器封面取色）；其余 60 个提交以 API 14–18 兼容补丁与 Gson 迁移为主，另有少量上游修复与个人资料编辑（release 日志复查后修正，见 §9.2），均不构成对我方的功能增量。
 - **cyq**：节奏最快、细节最密。1.2.9 上线「听歌域」（音频页/队列/歌词），1.3.0 补私信表情、卡片长按菜单、性别/IP 属地、互关徽章、分享得经验；同时它把自己 1.3.0 的严重崩溃（横滑必崩）当补丁发——**零测试**的代价。
 
 ### 2.2 我方领先项（不必再学，避免重复造轮子）
@@ -144,7 +144,7 @@ Revival 纯 Java 63k 行、415 `@Test` + 60 个仪器化测试；PianoEthan 纯 
 | 8 | 互动视频进度/分支状态持久化 | 退出后回到同一分支 | 我方互动视频实现完整，但 `currentEdgeId` 只在内存/Intent | S |
 | 9 | 视频/动态举报、关注/拉黑、创作中心本人稿件管理、历史多选删除 | 内容与关系管理闭环 | 举报/拉黑/稿件管理无；历史只有单条删除 | S/M（写操作需拍板） |
 | 10 | 移动数据 / Wi-Fi 独立默认画质 | 流量降档、Wi-Fi 高清 | 只有单一默认清晰度 | S |
-| 11 | 本人弹幕边框、强制滚动弹幕、弹幕窗口、直播弹幕昵称/时钟对齐 | 弹幕可用性 | 无（我方弹幕样式项里没有这些） | S |
+| 11 | 本人弹幕边框、强制滚动弹幕、弹幕窗口、直播弹幕昵称/时钟对齐 | 弹幕可用性 | 昵称**已有**（`PlayerDanmuClientListener.kt:161`）；「强制滚动」是**有开关不生效的死开关**；其余无（§9 有修正） | S |
 | 12 | 长按后上/下划切上/下一条视频 | 竖屏浏览省一次回列表 | 无（长按只有倍速） | S |
 | 13 | 大图分块解码（超大图/长图/动图/失败态） | 长图不 OOM | 整图 PhotoView + Glide | M |
 | 14 | 差分更新（BSDIFF40） | 弱网省流量 | 全量 APK（有签名校验） | L |
@@ -218,7 +218,9 @@ Revival 纯 Java 63k 行、415 `@Test` + 60 个仪器化测试；PianoEthan 纯 
 | 弹幕窗口加载（360s 一段、有界内存、失败重试、可取消） | Revival | 高：长视频内存与请求有界 | 一次性全量取段全量解析 | M | P2 |
 | 弹幕磁盘缓存（`cid+segment` 落盘 + TTL） | cyq | 中：重复播放省流量 | 只有分段拉取，无落盘 | M | P2 |
 | 本人弹幕边框（CRC32 比对自己 mid 的 hash） | Revival | 中：一眼找到自己 | 无 | S | P2 |
-| 强制滚动弹幕 / 直播弹幕昵称 / 直播弹幕时钟对齐 | Revival | 中低 | 无 | S/M | P3 |
+| 强制滚动弹幕 | Revival | 中低 | 开关已有但**不生效**（`SettingsKeys.kt:183` 全仓无消费方） | S | **P1（补漏）** |
+| 直播弹幕昵称 | Revival | 中低 | **已有**（`PlayerDanmuClientListener.kt:161`，原报告判错） | — | 不做 |
+| 直播弹幕时钟对齐 / 停留倍率 | Revival | 中低 | 时钟走墙钟；停留倍率无（release 日志 D5） | S/M | P2 |
 | 弹幕点击空降（时间戳 seek） | cyq | 中 | 只有输入式「跳到指定时间」 | L | P3 |
 | 片头片尾五档（关/仅头/仅尾/都跳/询问） | cyq | 中 | 单布尔 + 撤回 | M | P3 |
 
@@ -382,6 +384,10 @@ cyq 1.2.9 与 Revival 都有「音频播放器」方向（音频页 / 队列 / �
 9. **历史记录多选删除** — `activity/user/HistoryActivity.kt` + `api/HistoryApi.java`；选择态与「单批上限」抽纯函数单测。
 10. **移动数据 / Wi-Fi 独立画质** — 新增 `util/NetworkPlaybackQuality.kt`（网络类型 → 取哪个 qn 键）+ `activity/settings/SettingQualityActivity.kt` 加两个选择项 + `util/SettingsKeys.kt`；纯函数单测。
 11. **SP 类型保险丝** — `util/SharedPreferencesUtil.java`。
+12. **动态卡片评论入口 + 评论数**（release 日志复查 D2）— `adapter/dynamic/DynamicHolder.kt` + `res/layout/cell_dynamic_action.xml`；「万/亿」缩写抽纯函数 + 单测；无评论显示「评论」。
+13. **直播滚动弹幕停留倍率**（D5）— `SettingTerminalPlayerActivity` 加 1.0–3.0 档位（默认 2.0），`PlayerDanmuClientListener`/`DanmakuManager` 取值，与普通弹幕速度分离。
+14. **「强制为滚动弹幕」死开关接线**（E2）— 开关已存在但不生效，`player/DanmakuManager.kt` 落实消费。
+15. **视频详情争议信息判空**（D9/S1）— `api/VideoInfoApi.java:231-232` 的 `getString("argue_msg")` 改 `optString`，补缺字段 JSON 单测。
 
 **批次 1 验收**：`./gradlew.bat :app:assembleDebug`（双 flavor）+ `:app:testStandardDebugUnitTest` / `:app:testCoexistDebugUnitTest` 全绿；涉及 UI 的项装 MuMu 模拟器实测并把结论写进 `docs/review/fix-progress.md`；面试文案进 `strings.xml`；文档同步 `docs/FEATURES.md`。
 
@@ -427,13 +433,65 @@ cyq 1.2.9 与 Revival 都有「音频播放器」方向（音频页 / 队列 / �
 
 ---
 
-## 附录 A：三份分报告
+## 9. release 日志复核增量（2026-11-06 补）
+
+> 代码差异分析之后又做了一轮「**三个分支的 release 更新日志 vs 已有报告**」的对照（含 GitHub Releases、各仓库应用内更新日志、cyq 的 `docs/更新日志.md`、Revival 官网的 1.2.5-BETA 公告），详见 [`forks/release-notes-delta.md`](forks/release-notes-delta.md)。
+> 数字：真缺口 10 条（可排期 9）、报告漏但核实后**非缺口** 12 条、**判错 3 条**、日志吹牛/未入库 3 条、我方同类风险 6 条。
+
+### 9.1 已并入批次 1 的 4 项（S 级）
+
+| 项 | 来源（版本） | 我方现状 | 成本 |
+| --- | --- | --- | --- |
+| 动态卡片评论入口 + 评论数 | Revival 1.2.3 | `adapter/dynamic/` 四个文件 grep「评论/comment」0 命中，卡片没有评论入口 | S |
+| 直播滚动弹幕停留倍率（默认 2×，1.0–3.0） | Revival 1.2.3 | 我方只有 `speedFactor`，无「停留」语义 | S |
+| 「强制为滚动弹幕」死开关接线 | 我方自身缺陷（PianoEthan 早有实现） | 开关 + 文案索引都在，**全仓无消费方**，用户开了不生效 | S |
+| 视频详情争议信息判空（`argue_msg`） | Revival 1.2.5-BETA 修过同类崩溃 | `api/VideoInfoApi.java:231-232` 判了外层非空仍用 `getString`，缺字段即抛 `JSONException` | S |
+
+### 9.2 报告判错的 3 条（已在上文修正）
+
+- **E1 直播弹幕显示发送者**：报告写「我方无」不成立——设置项、设置页、消费方（`PlayerDanmuClientListener.kt:161`）齐全，已修正为「已有」。
+- **E2 强制滚动弹幕**：报告写「我方无」不准确——**有开关但不生效**，比「无」更严重（用户以为开了）。已改为 P1 补漏并进批次 1。
+- **E3 PianoEthan 画像**：报告写「其余 60 个提交是兼容补丁与 Gson 迁移」过窄——另有个人资料编辑、评论带图、收藏 v3、隐私模式、崩溃修复等；但这些我方均已对等或更强，**不构成功能增量**，只修正措辞。
+
+### 9.3 新增的批次 2/3 项（M 级为主）
+
+- **D1 收藏夹/历史内搜索 + 跨夹「全部收藏」聚合流**（Revival 1.2.3）：我方收藏列表只有服务端三档排序，无 `keyword`/`allFolders`。M。
+- **D3 评论点赞/点踩/删除状态跨页同步**（Revival 1.2.3）：我方只在当前列表内改。M，纯逻辑可 JVM 测。
+- **D6 消息「一键已读」+ 返回自动刷新 + 已读同步**（Revival 1.2.5-BETA，**源码未入库**，需先实测接口）。M。
+- **D7 收藏夹视频手动排序**（同 1.2.5-BETA，未入库）。M。
+- **D8 创作中心稿件搜索/单稿详情/评论快捷入口**（同 1.2.5-BETA，未入库）。M，随稿件管理一起评估。
+- **D4 评论举报**：公开侧已有 `OptionalFeatures.replyReport` 私有门面，是否已覆盖待确认；公开侧不另做（写操作）。
+- **S3 高能进度条数据源**：对方判定官方 `view_points` 接口失效并换成本地弹幕密度；我方仍走 `bvc.bilivideo.com/pbp/data`，**需实测**是否还有数据（不报错但可能空）。
+- **S5 主题 API 降级闸**：若将来引入取色/主题包，必须按 API 降级而不是崩（PianoEthan 曾在 Android 5–9 上 `NoSuchMethodError`）。
+
+### 9.4 日志写了但代码里没有 / 未入库（不采信）
+
+- PianoEthan 应用内日志「增加番剧追番按钮」：代码未见（只有追番数文案），v3.1.3 Release 正文为空、唯一提交是收藏 v3 → **不能当功能版本**。
+- Revival 1.2.5-BETA（2026-11-05，官网已发布）：GitHub 与 clone 都没有源码 → D6–D9 只能给日志级结论，实现是否落地未验证。
+
+### 9.5 我方同类风险（修复类条目，供批次 2 顺带处理）
+
+| # | 对方修复 | 我方可疑点 |
+| --- | --- | --- |
+| S1 | 争议信息缺失崩溃 | `api/VideoInfoApi.java:231-232`（已进批次 1） |
+| S2 | `CatchActivity` `setSpan` 越界 | 我方 `activity/CatchActivity.kt:168` 的 `setSpan(..., 0, 8, ...)` 写死 8，靠「可能的崩溃原因：」正好 8 字，改文案就会让崩溃页自己崩 |
+| S3 | 高能进度条无波形 | 我方数据源未实测（见 §9.3） |
+| S4 | 顶栏返回热区随电量文本变窄 | `res/layout/activity_player.xml:163` 同款结构，真机核 |
+| S5 | 旧系统主题 `NoSuchMethodError` | 我方目前无运行时取色，引入时需降级闸 |
+| S6 | SP 类型漂移 `ClassCastException` | 已在批次 1（`SharedPreferencesUtil` 保险丝） |
+
+### 9.6 报告漏了但**不是缺口**的 12 条（避免重复造轮子）
+
+收藏夹长按编辑/删除、手势防误触、隐私模式不记历史、界面边距、个人资料编辑、经验变化记录、热搜/排行榜入口、记住倍速、深链白名单、第三方播放器 Cookie 过滤、下载服务重建续跑、设置项搜索——我方均已有（或更强），明细见 `forks/release-notes-delta.md` §3.2。
+
+## 附录 A：四份分报告
 
 | 分报告 | 覆盖内容 | 关键结论 |
 | --- | --- | --- |
 | [`forks/revival.md`](forks/revival.md) | Revival 全部源码/资源/构建/测试对比；功能增量 20 项；Top10 推荐 | 功能完整度最高，但约一半是上游 2.9.5 增量；ExoPlayer/连播/存储/档位最值得看 |
 | [`forks/piano-ethan.md`](forks/piano-ethan.md) | 主题引擎完整拆解（格式/安装/校验/色板/背景/取色）；37 个真正独有文件；Top8 推荐 | 唯一成体系增量是主题；互斥范式，按切片移植；`FileUtil` 流泄漏可直抄 |
 | [`forks/cyq.md`](forks/cyq.md) | 旧报告 25 条功能缺口逐条复核（4 已补/19 仍缺/1 部分/1 不适用）+ 1.2.5→1.3.0 增量；Top9 推荐 | 高优先缺口已被我们两个迭代消化；剩下私信表情/音频焦点/性别属地/互关/搜索排序等细节 |
+| [`forks/release-notes-delta.md`](forks/release-notes-delta.md) | 三个分支全部 release 更新日志 vs 已有报告的对照：真缺口 10 / 非缺口 12 / 判错 3 / 吹牛未入库 3 / 我方同类风险 6 | 补出 4 个 S 级批次 1 项与 5 个批次 2/3 项；修正 3 条判错（见 §9） |
 
 ## 附录 B：统计口径
 
@@ -457,3 +515,6 @@ cyq 1.2.9 与 Revival 都有「音频播放器」方向（音频页 / 队列 / �
 | 我方 `PlayerActivity` 是否调用 `setRequestedOrientation` | 否（26.10.19 的 `Only fullscreen activities can request orientation` 崩溃已随代码移除，当前版本无此调用） |
 | 我方导出组件数量 | 2 处（`SplashActivity`/`GetIntentActivity`），与分报告一致 |
 | 三份分报告是否触碰 `private/` | 均声明未读取、未引用 |
+| 「强制为滚动弹幕」是否死开关 | 属实：开关与设置页在 `SettingTerminalPlayerActivity.kt:162`，全仓无消费方 |
+| 动态卡片是否有评论入口 | 属实：`adapter/dynamic/` 四文件 grep「评论/comment」0 命中 |
+| 直播弹幕昵称是否已有 | 属实：`PlayerDanmuClientListener.kt:161` 按 `player_danmaku_showsender` 拼接昵称（原报告判错） |
