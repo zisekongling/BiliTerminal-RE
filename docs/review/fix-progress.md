@@ -1423,6 +1423,7 @@
 - **顺带修掉的真崩溃**：锁定态下 `lock_btn` 被 `parkLockButton()` 搬进 `lock_holder`，解锁时 `clearAll()` 收真身直接 `pool.addView(view)` → `java.lang.IllegalStateException: The specified child already has a parent`（`PlayerButtonSlots.clearAll` ← `render` ← `applyPlayerButtonLayout` ← `unparkLockButton` ← `applyLockPhase` ← `onLockButtonClick`）。改成先 `detach` 再入池。
 - **锁定图标重画**：按用户给的 lucide `lock-keyhole` / `lock-keyhole-open` 两个 SVG，以 24×24 viewBox 原值改写成 Android vector（`#ffffff` 描边、线宽 2、`fillColor="#00000000"`），覆盖 `icon_player_lock.xml` / `icon_player_unlock.xml`。用户最初给的是 24×24 黑色 PNG，直接放进来在深色播放器上看不见、放大必糊（28dp × density 4.5 = 126px），所以改成矢量。同一批还把「跳转时间 / 连播队列」两个文字按钮换成 `icon_player_clock_fading` / `icon_player_corner_down_right`，模式与时间点写进 `contentDescription`。
 - **验证**（模拟器 emulator-5554，Android 17，1080×2400，应用内 density 4.5）：更多按钮恢复方形白框套三点；点它横向展开 `▶ CC □ ♪ 跳到指定时间 连播` 共 6 个组内按钮；锁定/解锁来回切换不再崩，新锁图标在左列与右列都正常渲染。`assembleStandardDebug` + `testStandardDebugUnitTest` 绿。
+- **图标几何核对**（独立于模拟器，可复现）：把两张 lucide SVG 的原始 `d`（相对命令、含隐式 lineto）与 vector 里折成绝对坐标后的路径，分别用同一个小光栅器（自写 `M/L/H/V/A` 解析 + 端点转圆心参数化的弧采样 + 圆头描边）渲染成 320×320 再逐像素比对，**两张都是 0 像素差异**——`clock-fading` 的六段弧与指针、`corner-down-right` 的 L 型折线 + 箭头都没走形。另外在不含 `private/` 的独立 worktree（detached `d947c2d`）里跑 `assembleDebug`（两 flavor 都出包）+ `testStandardDebugUnitTest` + `testCoexistDebugUnitTest` 全绿，顺带证明「无私有源码也能独立编译」。
 - **留给后来者**：组展开条出现时会压在右列按钮上（截图观察，未定论是遮挡还是重排），若后续确认是遮挡，动的是 `right_group_scroll` 的布局位置，不是显隐逻辑。
 
 ## 4. 历史章节索引
