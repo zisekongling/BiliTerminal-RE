@@ -2686,4 +2686,24 @@
     <string name="setting_player_btn_nosettings">这个按钮没有可单独调整的设置，播放时点了才有反应。</string>
     <!-- 播放页「组」槽位那个按钮的无障碍说明：点一下把组里的按钮横向展开 -->
     <string name="desc_player_group_expand">展开这组按钮</string>
+
+    <!-- 设置 → 播放与播放器 → 假播放器界面（26.11.06） -->
+    <string name="pagename_setting_player_ui">播放器界面</string>
+    <string name="setting_player_ui_full">完整设置</string>
+    <string name="setting_player_ui_choose_player">选择播放器</string>
+    <string name="setting_player_ui_reset">恢复默认布局</string>
+    <string name="setting_player_ui_hint">点按钮调它的设置，点虚线格加按钮。这里只是布局预览，播放时的实际效果与它一致。</string>
+    <string name="setting_player_ui_speed_sample">×1.0</string>
+    <string name="setting_player_ui_title_sample">视频标题</string>
+    <string name="setting_player_ui_online_sample">1.2 万人在看</string>
+    <!-- 卡片标题：点了播放器上哪块地方 -->
+    <string name="setting_player_ui_label_progress">进度条</string>
+    <string name="setting_player_ui_label_online">在线人数</string>
+    <string name="setting_player_ui_label_blank">播放手势</string>
+    <string name="setting_player_ui_label_title">标题栏</string>
+    <string name="setting_player_ui_label_play">播放与暂停</string>
+    <!-- 标题栏那三个新开关 -->
+    <string name="setting_player_ui_show_title">显示标题</string>
+    <string name="setting_player_ui_show_battery">显示电量</string>
+    <string name="setting_player_ui_show_clock">显示时钟</string>
 </resources>

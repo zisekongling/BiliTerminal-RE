@@ -26,8 +26,9 @@ object SettingsIndex {
         val list = ArrayList<Entry>()
 
         // ---- 一级分组 ----
-        list += Entry("播放与播放器", "选择播放器、清晰度与内置播放器设置") { a ->
-            a.startActivity(Intent(a, SettingPlayerChooseActivity::class.java))
+        // 26.11.06：第一屏是假播放器界面；「选择播放器」与「完整设置」在那一页里。
+        list += Entry("播放与播放器", "点播放器上的按钮调整设置与布局") { a ->
+            a.startActivity(Intent(a, SettingPlayerUiActivity::class.java))
         }
         list += Entry("账号与登录", "登录、切换账号与查看登录信息") { a -> openGroup(a, "account", "账号与登录") }
         list += Entry("界面与外观", "主题配色、字体与布局适配") { a -> openGroup(a, "ui", "界面与外观") }
@@ -45,6 +46,9 @@ object SettingsIndex {
         list += Entry("关于与帮助", "版本信息、更新、公告与教程") { a -> openGroup(a, "about", "关于与帮助") }
 
         // ---- 子页面 ----
+        list += Entry("播放器界面", "调播放器上的按钮与它们的设置") { a ->
+            a.startActivity(Intent(a, SettingPlayerUiActivity::class.java))
+        }
         list += Entry("选择播放器", "切换播放器、视频清晰度") { a ->
             a.startActivity(Intent(a, SettingPlayerChooseActivity::class.java))
         }

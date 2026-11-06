@@ -242,6 +242,16 @@ object SettingsKeys {
 
     /** 播放界面按钮的自定义布局（分隔符串，格式见 `player/PlayerUiLayout.kt`）。 */
     const val PLAYER_UI_LAYOUT = "player_ui_layout"
+
+    /**
+     * 播放页顶部那一条（标题 / 电量 / 时钟）的显示开关。
+     *
+     * 26.11.06 新加：此前标题栏是**一直显示**、没有开关可调，所以假播放器点「标题栏」时
+     * 没有设置可弹——现在补上这三项，播放页读它们（默认全开，行为与以前一致）。
+     */
+    const val PLAYER_UI_SHOW_TITLE = "player_ui_show_title"
+    const val PLAYER_UI_SHOW_BATTERY = "player_ui_show_battery"
+    const val PLAYER_UI_SHOW_CLOCK = "player_ui_show_clock"
     const val PLAYER_INTERACTION_CHOICE_SIZE = "player_interaction_choice_size"
     /**
      * 「互动选项字体大小」的默认值（sp）。

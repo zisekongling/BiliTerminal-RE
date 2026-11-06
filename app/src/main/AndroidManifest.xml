@@ -387,6 +387,11 @@
             android:label="@string/pagename_setting_player_choose"
             android:screenOrientation="locked" />
         <activity
+            android:name=".activity.settings.SettingPlayerUiActivity"
+            android:exported="false"
+            android:label="@string/pagename_setting_player_ui"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.video.JumpToPlayerActivity"
             android:exported="false"
             android:label="@string/label_activity_no_13"
