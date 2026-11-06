@@ -38,6 +38,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -220,6 +221,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private lateinit var lock_btn: ImageButton
     private lateinit var lock_overlay: View
     private lateinit var left_control: LinearLayout
+    /** 锁定期间锁定按钮的落脚点（root 层，压在 lock_overlay 之上）；见 [parkLockButton]。 */
+    private lateinit var lock_holder: FrameLayout
+    /** 当前生效的按钮布局；锁定态要靠它判断锁定按钮被摆在哪一区。 */
+    private var playerUiLayout: PlayerUiLayout.Layout = PlayerUiLayout.DEFAULT
     /** 播放器菜单里的「跳到指定时间」（QQ#9）；非直播时由 onPrepared 置为可见。 */
     private lateinit var jump_time_btn: TextView
     private lateinit var seekbar_progress: HighEnergyProgressBar
@@ -1261,6 +1266,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         btn_debug = findViewById(R.id.btn_debug)
         lock_btn = findViewById(R.id.lock_btn)
         lock_overlay = findViewById(R.id.lock_overlay)
+        lock_holder = findViewById(R.id.lock_holder)
         left_control = findViewById(R.id.left_control)
 
         text_subtitle = findViewById(R.id.text_subtitle)
@@ -1313,9 +1319,59 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             { key -> SharedPreferencesUtil.getString(key, "") },
             { key, value -> SharedPreferencesUtil.putString(key, value) },
         )
+        playerUiLayout = layout
         slots.render(layout)
+        // 锁定态里重摆（比如从设置页回来）：锁屏的图标已经搬到遮罩上，重摆会把它放回 control_layout
+        // 里跟着一起藏掉，所以整段锁定态要重跑一遍，把图标再搬回来/按当前相位显隐
+        if (lockPhase != PlayerLockPolicy.Phase.UNLOCKED) applyLockPhase(lockPhase)
         // 列高变了（组的展开条、格数），左右两列的中线要重新对齐
         alignLeftControlToRight()
+    }
+
+    // ==================== 锁定按钮的临时落脚点 ====================
+
+    /**
+     * 锁定期间把锁定按钮搬到 root 层的 [lock_holder]。
+     *
+     * 右列与底部两区的槽位在 `control_layout` 里面，锁定会把整条控制栏藏掉；用户把锁定按钮摆到
+     * 那儿的话，锁屏后按钮跟着消失、就解不开锁了。所以锁定时搬到遮罩之上，按它原来所在的那一区
+     * 贴边摆；解锁后再按用户布局摆回去（[applyPlayerButtonLayout]）。
+     */
+    private fun parkLockButton() {
+        if (lock_btn.parent === lock_holder) return
+        val gravity = lockButtonGravity()
+        val side = ToolsUtil.dp2px(4f)
+        // 贴在底部时要躲开底部的按钮行，别压在一起
+        val bottom = if (gravity and Gravity.BOTTOM != 0) ToolsUtil.dp2px(12f) else side
+        val lp = FrameLayout.LayoutParams(ToolsUtil.dp2px(28f), ToolsUtil.dp2px(28f), gravity)
+        lp.setMargins(side, side, side, bottom)
+        lock_btn.layoutParams = lp
+        (lock_btn.parent as? ViewGroup)?.removeView(lock_btn)
+        lock_holder.addView(lock_btn)
+    }
+
+    /** 解锁后把锁定按钮还给布局（重新摆一遍所有按钮最省事，也就一次 requestLayout 的量）。 */
+    private fun unparkLockButton() {
+        if (lock_btn.parent === lock_holder) applyPlayerButtonLayout()
+    }
+
+    /** 锁定按钮被用户摆在哪一区，锁定态就贴哪一边显示；找不到就退回原来的左侧中部。 */
+    private fun lockButtonGravity(): Int {
+        val region = PlayerUiLayout.Region.values().firstOrNull { r ->
+            PlayerUiLayout.slots(playerUiLayout, r).any { slot ->
+                when (slot) {
+                    is PlayerUiLayout.Slot.Button -> slot.key == PlayerButtons.LOCK
+                    is PlayerUiLayout.Slot.Group -> slot.keys.contains(PlayerButtons.LOCK)
+                }
+            }
+        }
+        return when (region) {
+            PlayerUiLayout.Region.LEFT -> Gravity.START or Gravity.CENTER_VERTICAL
+            PlayerUiLayout.Region.RIGHT -> Gravity.END or Gravity.CENTER_VERTICAL
+            PlayerUiLayout.Region.BOTTOM_LEFT -> Gravity.BOTTOM or Gravity.START
+            PlayerUiLayout.Region.BOTTOM_RIGHT -> Gravity.BOTTOM or Gravity.END
+            null -> Gravity.START or Gravity.CENTER_VERTICAL
+        }
     }
 
     /** key → 池子里的按钮本体。没接线的按钮（如当前视频不支持的）返回 null，槽位就留空。 */
@@ -1703,9 +1759,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 lock_overlay.visibility = View.GONE
                 // 整条控制栏在锁定时被藏掉，解锁时连 button 组一起恢复，再走既有的 4 秒自动隐藏
                 layout_control.visibility = View.VISIBLE
+                left_control.visibility = View.VISIBLE
                 // 图标画的是「当前状态」：未锁定＝开锁，锁定＝闭锁（26.10.21 用户反馈原先把状态画反了）
                 lock_btn.setImageResource(R.drawable.icon_player_unlock)
                 lock_btn.contentDescription = getString(R.string.desc_player_lock_locked)
+                // 锁定时锁定按钮被临时搬到了遮罩层，解锁先按用户布局摆回它的格子，再显示控制栏，
+                // 这样图标一出现就在自己的格子里，不会先在右边闪一下
+                unparkLockButton()
                 showcon()
                 // 解锁后 control_layout 重新可见，右列位置可能变过，重新对齐左列
                 alignLeftControlToRight()
@@ -1714,6 +1774,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             PlayerLockPolicy.Phase.LOCKED_HIDDEN -> {
                 lock_overlay.visibility = View.VISIBLE
                 layout_control.visibility = View.GONE
+                // 左列在 control_layout 外面，锁定时要单独藏，否则用户摆进去的按钮会浮在遮罩上
+                left_control.visibility = View.GONE
                 lock_btn.visibility = View.GONE
                 // 倍速文字现在挂在左侧列里，不随 control_layout 一起隐藏，得单独收掉
                 text_speed.visibility = View.GONE
@@ -1726,6 +1788,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             PlayerLockPolicy.Phase.LOCKED_ICON_VISIBLE -> {
                 lock_overlay.visibility = View.VISIBLE
                 layout_control.visibility = View.GONE
+                left_control.visibility = View.GONE
+                // 锁定按钮搬到遮罩之上：它可能被摆在被藏起来的 control_layout 里，留原处就点不到
+                parkLockButton()
                 lock_btn.visibility = View.VISIBLE
                 text_speed.visibility = View.GONE
                 // 锁定时控制栏整体 GONE 而字幕仍显示，底下没了控制栏占位，字幕要下沉到低位

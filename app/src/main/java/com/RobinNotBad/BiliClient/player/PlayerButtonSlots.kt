@@ -256,6 +256,13 @@ class PlayerButtonSlots(
                 if (placedPrimaries.remove(child)) pool.addView(child)
             }
         }
+        // 真身也可能被外部搬走（锁定态把锁定按钮挪到遮罩层上落脚）。这些不在任何容器里，
+        // 上面的循环够不着，不收回池子的话它会被当成"已摆放"——槽位里摆出一个影子，
+        // 真身留在外面，解锁后右侧就多出一个锁图标。
+        for (view in ArrayList(placedPrimaries)) {
+            if (view.parent !== pool) pool.addView(view)
+        }
+        placedPrimaries.clear()
         primariesByKey.clear()
         mirrors.clear()
     }

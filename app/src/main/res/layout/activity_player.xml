@@ -938,6 +938,19 @@
         android:visibility="gone" />
 
     <!--
+        锁定期间的锁定按钮落脚点（26.11.06）。锁定会把 control_layout 整条藏掉，而右列 / 底部
+        两区的槽位就在 control_layout 里面——用户把锁定按钮摆到那儿的话，锁屏后按钮会跟着消失、
+        解不开锁。所以锁定时 PlayerActivity 把 lock_btn 临时搬到这里，按它原来所在的那一区贴边
+        显示；解锁后再按用户布局摆回去。必须排在 lock_overlay 之后才能压在遮罩上面。
+    -->
+    <FrameLayout
+        android:id="@+id/lock_holder"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="false"
+        android:focusable="false" />
+
+    <!--
         左侧槽位列（26.11.06 起可自定义）：与 right_control 的竖列对称（同单元格、同 4dp 边距）。
         右列的上下锚点在 control_layout 内部，root 层够不到，所以中线对齐由
         PlayerActivity.alignLeftControlToRight() 在运行时用 translationY 补。
