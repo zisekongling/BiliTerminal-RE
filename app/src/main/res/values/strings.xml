@@ -2697,7 +2697,6 @@
     <string name="setting_player_ui_label_progress">进度条</string>
     <string name="setting_player_ui_label_online">在线人数</string>
     <string name="setting_player_ui_label_blank">播放手势</string>
-    <string name="setting_player_ui_label_title">标题栏</string>
     <string name="setting_player_ui_label_play">播放与暂停</string>
     <!-- 标题栏那三个新开关 -->
     <string name="setting_player_ui_show_title">显示标题</string>

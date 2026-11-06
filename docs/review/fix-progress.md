@@ -1403,6 +1403,17 @@
   - `PlayerButtonSlots.clearAll()` 补一条：被外部搬走的真身（真身不在任何槽位容器里时）也要收回按钮池。不补这条，解锁重摆时真身被当成「已摆放」，槽位里摆出的是一个影子、真身留在遮罩层原处——用户看到的就是「锁解开后右侧还是有锁的图标」。
 - **验证**（模拟器 emulator-5554，Android 17，1080×2400，设备上存的布局把锁放在右列第 4 格）：点锁 → `lock_overlay` 可见、`left_control` 变 GONE、按钮搬进 `lock_holder` 且贴在右边缘垂直居中（936,1077-1062,1203）；点画面浮现图标 → 点图标解锁后 `lock_overlay` GONE、`lock_holder` 空、`lock_btn` 回到 `right_column_slots` 第 4 格。**踩坑**：浮现图标只有约 3 秒，用 `adb` 分两次 tap 会错过窗口（第二次点到遮罩上，看起来像「点了没反应」），要在一条 `sh -c` 里连着敲两次 tap。
 
+### 3.130 顶部标题栏三件套：显示标题 / 显示电量 / 显示时钟（26.11.06，用户点名「写在完整设置里吧」）
+
+- **背景**：布局可自定义之后，顶部标题栏仍是常显、没有开关。第 6 步先做成了「播放器界面」里点标题栏弹出的卡片，用户要求改到「完整设置（内置播放器设置）」里。
+- **改法**：
+  - `player/PlayerSettingsGroups.kt` 的 `display()` 最前面加三条 `switch`：`显示标题` / `显示电量` / `显示时钟`，键 `SettingsKeys.PLAYER_UI_SHOW_TITLE` / `_BATTERY` / `_CLOCK`，默认 `"true"`（与改造前常显一致）。
+  - `activity/settings/SettingsIndex.kt` 的「内置播放器设置」补三条搜索词（名字与页内 `SettingSection.name` 严格一致，否则搜索点进来定位不到）。
+  - `activity/player/PlayerActivity.kt` 新增 `applyTopBarSwitches()`，在 `applyPlayerButtonLayout()` 末尾调用（`onResume` 会重跑 → 设置里改完返回即生效），按三个键分别设 `R.id.text_title` / `R.id.battery` / `R.id.clock` 的显隐。用 `findViewById` 现取不加字段——只在应用设置时读一次。
+  - 「播放器界面」页去掉「画面元素 → 标题栏」那一行与其 `onElementClick("title")` 分支，以及只服务于它的 `switchSection()` 和 `setting_player_ui_label_title` 字符串，避免两处入口。
+- **验证**（模拟器）：`显示标题` 关掉后进播放页，顶栏只剩电量与时间、标题消失（截图 `outputs/player-top-off.png`）；默认全开时 `dumpsys` 里 `text_title` / `battery` / `clock_layout` 都是 `V`（可见），与改造前一致。
+- **留给后来者**：`layout_top` 整条仍可点（点标题栏退出播放）。把标题关掉后这块区域变成不可见的可点区——这是沿用改造前的行为，没再动；若以后要收紧，判据应放在 `layout_top.setOnClickListener` 那一处（:4228 附近）。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。

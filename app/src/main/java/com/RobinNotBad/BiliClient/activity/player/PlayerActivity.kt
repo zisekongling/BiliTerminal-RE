@@ -225,12 +225,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private lateinit var lock_holder: FrameLayout
     /** 当前生效的按钮布局；锁定态要靠它判断锁定按钮被摆在哪一区。 */
     private var playerUiLayout: PlayerUiLayout.Layout = PlayerUiLayout.DEFAULT
-    /** 播放器菜单里的「跳到指定时间」（QQ#9）；非直播时由 onPrepared 置为可见。 */
-    private lateinit var jump_time_btn: TextView
+    /** 播放器菜单里的「跳到指定时间」（QQ#9）；非直播时由 onPrepared 置为可见。图标按钮，文字在 contentDescription。 */
+    private lateinit var jump_time_btn: ImageButton
     private lateinit var seekbar_progress: HighEnergyProgressBar
     private lateinit var seekbar_speed: SeekBar
     private lateinit var text_progress: TextView
-    private lateinit var queue_mode_btn: TextView
+    /** 连播队列按钮：图标按钮，当前模式写在 contentDescription 里（见 [updateQueueModeButton]）。 */
+    private lateinit var queue_mode_btn: ImageButton
     private lateinit var text_online: TextView
     private lateinit var text_volume: TextView
     private lateinit var loading_text0: TextView
@@ -5262,7 +5263,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         PlaySessionStore.saveQueueToken(queue.encode())
     }
 
-    /** 连播按钮：有队列时显示模式，没队列但知道 UP 主时显示「连播」（点了懒加载 UP 主投稿）。 */
+    /**
+     * 连播按钮：有队列时点一下切模式（模式名走 toast），没队列但知道 UP 主时点了懒加载 UP 主投稿。
+     *
+     * 26.11.06 起按钮从文字改成图标（lucide corner-down-right），所以「当前是哪一档」不再常显，
+     * 只在点按的 toast 与 contentDescription 里给出（见 [updateQueueModeButton]）。
+     */
     private fun setupQueueButton() {
         updateQueueModeButton()
         queue_mode_btn.setOnClickListener {
@@ -5311,7 +5317,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             return
         }
         queue_mode_btn.visibility = View.VISIBLE
-        queue_mode_btn.text = if (hasQueue) queueModeLabel(queue!!.mode) else getString(R.string.player_queue_btn_label)
+        // 26.11.06 起按钮只画图标，没有文字可写：当前模式改由点按后的 toast（[setupQueueButton]）
+        // 与这里写进 contentDescription 的描述传达，读屏/长按提示也能知道现在是哪一档。
+        queue_mode_btn.contentDescription = if (hasQueue) {
+            getString(R.string.player_queue_mode_toast, queueModeLabel(queue!!.mode))
+        } else {
+            getString(R.string.player_queue_btn_label)
+        }
     }
 
     private fun queueModeLabel(mode: PlayQueueMode): String = getString(

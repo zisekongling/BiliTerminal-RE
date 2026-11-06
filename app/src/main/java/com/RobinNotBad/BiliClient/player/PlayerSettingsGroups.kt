@@ -212,7 +212,14 @@ object PlayerSettingsGroups {
     )
 
     private fun display(context: Context): List<SettingSection> {
-        val out = ArrayList<SettingSection>(5)
+        val out = ArrayList<SettingSection>(8)
+        // 顶部标题栏三件套：原来标题栏是常显、没有开关，26.11.06 补上，默认全开与旧行为一致
+        out.add(SettingSection("switch", context.getString(R.string.setting_player_ui_show_title),
+            SettingsKeys.PLAYER_UI_SHOW_TITLE, "", "true"))
+        out.add(SettingSection("switch", context.getString(R.string.setting_player_ui_show_battery),
+            SettingsKeys.PLAYER_UI_SHOW_BATTERY, "", "true"))
+        out.add(SettingSection("switch", context.getString(R.string.setting_player_ui_show_clock),
+            SettingsKeys.PLAYER_UI_SHOW_CLOCK, "", "true"))
         out.add(SettingSection("switch", "显示实时人数", SettingsKeys.PLAYER_SHOW_ONLINE,
             context.getString(R.string.desc_showonline),
             "false"))

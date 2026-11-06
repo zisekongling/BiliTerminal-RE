@@ -59,15 +59,17 @@
 | `auto_next` | `auto_next_btn` | 自动连播 | `icon_auto_next_off` | 播放默认值组 |
 | `viewpoint` | `viewpoint_btn` | 看点 | `icon_star`（借） | 无（说明卡） |
 | `video_info` | `video_info_btn` | 视频信息 | `icon_info` | 无（说明卡） |
-| `jump_time` | `jump_time_btn` | 跳转时间 | `icon_time`（借） | 无（说明卡） |
-| `queue_mode` | `queue_mode_btn` | 连播队列 | `icon_sort_filter`（借） | 无（说明卡） |
+| `jump_time` | `jump_time_btn` | 跳转时间 | `icon_player_clock_fading` | 无（说明卡） |
+| `queue_mode` | `queue_mode_btn` | 连播队列 | `icon_player_corner_down_right` | 无（说明卡） |
 | `quality` | `button_quality` | 清晰度 | `icon_menu` | 跳 `SettingQualityActivity` |
 | `sound_cut` | `button_sound_cut` | 音量减 | `soundcut` | 无（说明卡） |
 | `sound_add` | `button_sound_add` | 音量加 | `soundadd` | 无（说明卡） |
 | `page_selector` | `button_page_selector` | 分P | `icon_folder` | 无（说明卡） |
 
 - 「更多 / 组」**不占 key**：它是槽位的一种形态（`Slot.Group`），渲染时用 `mipmap/morehide`、`mipmap/moreshow` 两个现成图标。
-- 图标缺口：`viewpoint`、`jump_time`、`queue_mode` 现在借的是别人的图标，等用户补图后改 `PlayerButtons.ALL` 里对应那一行即可。
+- 图标缺口：只剩 `viewpoint` 还借 `icon_star`，等用户补图后改 `PlayerButtons.ALL` 里对应那一行即可。
+  `jump_time` / `queue_mode` 26.11.06 已换成用户给的 lucide 图（`clock-fading` / `corner-down-right`），
+  播放页里这两个按钮本体也从文字改成了 `ImageButton`。
 - `textOnly = true` 只有「倍速」一项：它在槽位里显示 `×1.0` 文字，不画图标。
 
 ### 3.2 槽位与整份布局 `player/PlayerUiLayout.kt`（26.11.06 已实现）
@@ -149,6 +151,8 @@ Layout = left: List<Slot>          // 上限 5
 | `player_ui_show_battery` | boolean | `true` | 电量显示 |
 | `player_ui_show_clock` | boolean | `true` | 时钟显示 |
 
+> 后三个开关的位置：**用户在 m02770 明确要求放进「完整设置」（内置播放器设置 → 画面与显示组），不进「播放器界面」页**。所以 `SettingPlayerUiActivity` 里不再有「标题栏」那一行；播放页由 `PlayerActivity.applyTopBarSwitches()` 读，`applyPlayerButtonLayout()` 末尾调用（`onResume` 会重跑）。
+
 删除：`PLAYER_UI_SHOW_ROTATE_BTN` / `PLAYER_UI_SHOW_DANMAKU_BTN` / `PLAYER_UI_SHOW_QUALITY_BTN` / `PLAYER_UI_SHOW_PAGE_BTN` / `PLAYER_UI_SHOW_LOCK_BTN`（键留在 `SettingsKeys` 里标 legacy，不做迁移，直接忽略旧值；默认布局已等于"全开"）。
 
 ## 4. 假界面交互（`SettingPlayerUiActivity`）
@@ -208,7 +212,9 @@ Layout = left: List<Slot>          // 上限 5
 ## 7. 未决 / 风险
 
 1. **「发弹幕」按钮**：我给的候选表漏了它（`danmaku_send_btn`）。按"第二排那 9 个都在"的默认布局它必须存在，所以先按"进候选"实现，用户若不要再删。
-2. **图标**：`jump_time` / `queue` 现在是纯文字，`speed` 是文字 `×1.0`；组格用 `morehide`/`moreshow`。用户说会补图标，先用占位。
+2. **图标**：`speed` 仍是文字 `×1.0`；组格用 `morehide`/`moreshow`；`viewpoint` 借 `icon_star`。
+   `jump_time` / `queue` 26.11.06 已换成用户给的 lucide 图、播放页本体从文字改成 `ImageButton`，
+   连播按钮因此不再常显模式文字（模式只在点按 toast 与 `contentDescription` 里给出）。
 3. **re-parent 风险**：同一 View 只能有一个 parent，`activity_player.xml` 改动较大（17 个按钮搬家），任何遗漏都会直接崩或按钮消失——第 3 步必须模拟器逐项对照。
 4. **锁定态**：现有逻辑依赖"锁定按钮一定存在"（`refreshLockButtonSetting`、`:1560` 注释），布局允许删掉它 → 需要一条兜底规则（要么锁定时强制显示解锁出口，要么删掉锁定时同步删除锁定手势）。
 5. **`alignLeftControlToRight`**：列高可变后 translationY 对齐会错位，需要重做。

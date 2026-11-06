@@ -158,11 +158,6 @@ class SettingPlayerUiActivity : BaseActivity() {
             R.drawable.icon_menu
         ) { onElementClick("blank") }
         rows += navRow(
-            getString(R.string.setting_player_ui_label_title),
-            getString(R.string.setting_player_ui_element_desc),
-            R.drawable.icon_menu
-        ) { onElementClick("title") }
-        rows += navRow(
             getString(R.string.setting_player_ui_label_play),
             getString(R.string.setting_player_ui_element_desc),
             R.drawable.icon_menu
@@ -360,14 +355,6 @@ class SettingPlayerUiActivity : BaseActivity() {
                 PlayerSettingsGroups.group(this, PlayerSettingsGroups.GESTURE)?.sections.orEmpty() +
                     pick("视频可缩放", "缩放时可移动")
             )
-            "title" -> showCard(
-                getString(R.string.setting_player_ui_label_title),
-                listOf(
-                    switchSection(SettingsKeys.PLAYER_UI_SHOW_TITLE, getString(R.string.setting_player_ui_show_title)),
-                    switchSection(SettingsKeys.PLAYER_UI_SHOW_BATTERY, getString(R.string.setting_player_ui_show_battery)),
-                    switchSection(SettingsKeys.PLAYER_UI_SHOW_CLOCK, getString(R.string.setting_player_ui_show_clock))
-                )
-            )
             "play" -> showCard(
                 getString(R.string.setting_player_ui_label_play),
                 PlayerSettingsGroups.group(this, PlayerSettingsGroups.DEFAULTS)?.sections.orEmpty()
@@ -380,9 +367,6 @@ class SettingPlayerUiActivity : BaseActivity() {
         val all = PlayerSettingsGroups.flatten(this)
         return names.mapNotNull { name -> all.firstOrNull { it.name == name } }
     }
-
-    private fun switchSection(key: String, name: String) =
-        SettingSection("switch", name, key, "", "true")
 
     private fun noteSection(text: String) = SettingSection("title", text, "", "", "")
 
