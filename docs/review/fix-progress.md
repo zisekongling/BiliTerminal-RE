@@ -1367,6 +1367,17 @@
   - **反例验证**：视频播完（`02:34/02:34`）后打开弹窗，框里是空的（`video_now=0` → `prefillText` 返回 null），仍是原来的输入体验——不会预填出一个 0 秒的假位置。
 - **遗留 / 说明**：①「当前时间」取的是**上报进度用的 `video_now`**（每 250ms 由 `progressChange()` 刷新），最长滞后 250ms，对跳转精度无实际影响；②光标落在末尾，想改高位得先挪光标（用户选择「不要整串选中」的直接后果）；③寻址到秒（与输入格式的最小单位一致），不支持毫秒预填。
 
+### 3.126 内置播放器设置按七组重构（26.11.06，用户要求「改设置-播放与播放器的层级结构」第 1 步 / 共 6 步）
+
+- **背景**：用户要「假播放器界面当设置」，最终目标是把播放器控制按钮做成可自定义槽位（设计文档 `docs/superpowers/specs/2026-11-06-player-ui-custom-layout.md`，§2 十七条口径已与用户逐条确认）。六步走：①抽分组数据（本条）②布局纯逻辑 + 单测 ③播放器按布局挂载按钮 ④假界面只读 ⑤编辑能力 ⑥顶部三开关 + 其余点击映射。
+- **原状**：`SettingTerminalPlayerActivity` 里一段 200 行的 `ArrayList<SettingSection>().apply { … }`，48 项平铺，中间 5 条 `divider` 全无标题，「从历史位置播放 / 视频可缩放 / 缩放时可移动」被视觉上并进了上一个「播放默认值」标题之下。
+- **改法**：设置项全集搬到新文件 `app/src/main/java/com/RobinNotBad/BiliClient/player/PlayerSettingsGroups.kt`：`data class Group(key, title, sections)` + 七个 `private fun`（gesture / defaults / display / decode / danmaku / subtitle / toolbar）。对外三个入口：`build(context)`（全部组）、`group(context, key)`（按组取，给假界面的按钮卡片用）、`flatten(context)`（每组前插一行 `type="title"` 的 `SettingSection`，供「完整设置」页）。Activity 只剩 47 行：`sections = PlayerSettingsGroups.flatten(this)` → `SettingsAdapter` → 把 `list_choose` 回写接回 `applyListChooseResult`。
+- **组名**：新增 7 条字符串 `setting_player_group_*`（手势与滑动 / 播放默认值 / 画面与显示 / 渲染与解码 / 弹幕 / 字幕 / 界面按钮），**不用中文硬编码**——这条路径不经过 `SettingText` 的字面量映射表。
+- **分组实况（48 项一项没少、key 一个没动，只重排 + 补标题）**：手势与滑动 10 / 播放默认值 8（原 7 项 + 从历史位置播放）/ 画面与显示 5（显示实时人数·视频可缩放·缩放时可移动·显示高能进度条·自动跳过片头片尾）/ 渲染与解码 3 / 弹幕 12 / 字幕 4 / 界面按钮 6（5 个「显示××按钮」+ 互动选项字体大小，这 5 个开关会在第 3 步被布局取代后删除）。
+- **顺带修掉的真缺陷**：`SettingsIndex.kt` 的「内置播放器设置」搜索词漏收录 7 项，本次补 6 项（左右滑动控制进度 / 滑动调进度灵敏度 / 弹幕数量保护 / 直播弹幕停留倍率 / 弹幕缓存上限 / 长按倍速档位）；「显示锁定按钮」故意不补——该开关第 3 步就要删。另外把 4 个组名加进搜索词，点一下直接滚到那一组开头。
+- **验证**：`./gradlew.bat :app:assembleDebug` 双 flavor BUILD SUCCESSFUL；`./gradlew.bat :app:testStandardDebugUnitTest` BUILD SUCCESSFUL（186 suites 全绿）。真机观感（组标题在本页列表里的字号/间距、`highlight` 定位是否准）**尚未上机**，等第 4 步假界面一起验。
+- **注意（给后来者）**：`SettingsIndex` 的搜索定位靠 `indexOfFirst { it.name == highlight }` 与页内 `SettingSection.name` **逐字比对**，插了 title 行不影响它，但**改任一项的名字必须同步改索引**，否则搜索命中后跳过去停在原地。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。

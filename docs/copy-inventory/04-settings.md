@@ -449,6 +449,13 @@
 
 ### 2.3 内置播放器设置页（设置 → 播放与播放器 → 长按「内置播放器」卡片 / 或从卡片首次选中）
 
+> ⚠️ **26.11.06 起本节的行号已失效**：设置项定义整体搬到
+> `app/src/main/java/com/RobinNotBad/BiliClient/player/PlayerSettingsGroups.kt`（按七个组分组），
+> `SettingTerminalPlayerActivity.kt` 只剩「拍平交给列表」的十几行。
+> 改这一页的文案请按 `SettingSection` 的 name / `R.string` 名去新文件里搜，别照本节行号定位。
+> 组标题本身在 `strings.xml` 的 `setting_player_group_*`（手势与滑动 / 播放默认值 / 画面与显示 /
+> 渲染与解码 / 弹幕 / 字幕 / 界面按钮）。
+
 ### S-035 页面标题「内置播放器设置」
 
 - **位置**：`app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SettingTerminalPlayerActivity.kt:50`

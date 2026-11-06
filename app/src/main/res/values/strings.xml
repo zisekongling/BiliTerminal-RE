@@ -2654,4 +2654,14 @@
     <!-- 服务端回了 code=0，但评论区（按时间排序、seek 到新评论）查不到这条评论：
          多半是进了审核。不能报「发送成功」，否则用户刷新后评论消失，看起来像发不出去。 -->
     <string name="uitext_writereplyactivity_022">评论已提交，但评论区暂时查不到（可能正在审核）。稍后刷新看看，先别重复发送</string>
+
+    <!-- ==================== 内置播放器设置：分组标题 ==================== -->
+    <!-- 「完整设置」页与假播放器的按钮设置卡片共用这七个组名（见 player/PlayerSettingsGroups.kt）。 -->
+    <string name="setting_player_group_gesture">手势与滑动</string>
+    <string name="setting_player_group_defaults">播放默认值</string>
+    <string name="setting_player_group_display">画面与显示</string>
+    <string name="setting_player_group_decode">渲染与解码</string>
+    <string name="setting_player_group_danmaku">弹幕</string>
+    <string name="setting_player_group_subtitle">字幕</string>
+    <string name="setting_player_group_toolbar">界面按钮</string>
 </resources>

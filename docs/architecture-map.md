@@ -1620,6 +1620,13 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 读写统一走 `SharedPreferencesUtil.getXxx(key, default)` / `putXxx(key, value)`。
 **外观类设置例外**：写入必须走 `AppearanceManager.setXxx()`，它负责递增外观版本号（见 §8.7）。
 
+**内置播放器的设置不走上面第 2 步**（26.11.06 起）：那一页的设置项不在 `SettingGroupActivity` 里拼，
+而是全集落在 `player/PlayerSettingsGroups.kt`（七个组，每组一个 `private fun`），
+`activity/settings/SettingTerminalPlayerActivity.kt` 只做 `PlayerSettingsGroups.flatten(this)` 交给
+`SettingsAdapter`。加一项内置播放器设置 = 在对应组的列表里 add 一条 `SettingSection` + 第 1 步的 key +
+第 3 步的搜索词；**不要**再回到 Activity 里写列表。理由：同一份数据还要给「假播放器」的按钮设置卡片用
+（见 `docs/superpowers/specs/2026-11-06-player-ui-custom-layout.md`），两处各写一份必然错位。
+
 ---
 
 ### 8.7 外观三模块：配色 / 卡片圆角 / 字体（26.09.11 起）
