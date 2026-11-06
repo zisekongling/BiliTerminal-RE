@@ -1451,6 +1451,15 @@
 - **踩坑**：DebugBridge 的 `set` 只写 prefs、`start` 带 CLEAR_TOP 不重建，改外观开关后必须 force-stop 再起进程才生效；`search_category_sort` 写成 `user` 是最省事的复现姿势（不用滑页，「用户」就是第一页）。
 - **留给后来者**：这个 cell 的点击涟漪仍是布局里的 `?attr/selectableItemBackground`，而主题玻璃卡片用的是 `CardStyle*.Glass` 里指定的 `rippleColor`；玻璃开启时行内涟漪颜色与相邻 tab 的卡片略有差异（改动前就是这样，本次没动）。真要统一，就在 `applyCardBackground` 里一并换成 `RippleDrawable`，但要注意别把 `foreground` 覆盖成不透光的遮罩。另有一处已知细节：`MaterialCardView` 的 1dp 描边画在卡片内侧，而这里的 `GradientDrawable` 描边由 `box()` 居中画（轮廓外多 2px），颜色与宽度一致，肉眼基本无差。
 
+### 3.133 「播放器界面」（播放器按钮自定义）的设置入口先藏起来（26.11.06，用户点名）
+
+- **要求原文**：用户说「先把调整播放器按钮的设置入口隐藏起来」。按「只藏入口、页面与功能全留」执行，随时可原路恢复。
+- **改了两处入口**：
+  1. `res/layout/activity_setting_player_choose.xml` 的 `MaterialCardView id=player_ui_choose`（「播放器界面 / 调整播放器上的按钮与布局」那张卡）加 `android:visibility="gone"`，卡上方留了注释写明是用户要求、恢复时删这一行。
+  2. `activity/settings/SettingsIndex.kt` 子页面区的「播放器界面」Entry 整段注释掉。**两条必须一起藏**：全局设置搜索是第二条入口，只藏卡片的话搜「播放器界面」仍能直达该页（`openPage` 直接 `startActivity`，不经过「选择播放器」页）。
+- **没动的**：`activity/settings/SettingPlayerUiActivity.kt`、`res/layout/activity_setting_player_ui.xml`、manifest 里的注册、`strings.xml` 的 `pagename_setting_player_ui` / `setting_player_ui_entry_desc`（另有页面内文案）、`SettingPlayerChooseActivity` 里对 `player_ui_choose` 的点击绑定（view 仍是 gone 但存在，留着恢复时少改一处），以及播放器侧 `player/PlayerButtonSlots.kt` / `PlayerUiLayout.kt` 的渲染逻辑——已存档的布局继续生效，只是用户进不去改了。
+- **验证 · L0**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest` → `BUILD SUCCESSFUL in 45s`（两 flavor 都出包）；`testStandardDebugUnitTest` 187 suites / 2039 tests / 0 失败 0 错误 0 跳过（数字取自 `app/build/test-results/testStandardDebugUnitTest/TEST-*.xml` 求和；本机存在 `private/`，与 §1 记的旧计数不同源，未逐类核对）。**没上设备**：本条结论是「卡片不出现 + 搜索里搜不到」，由 `visibility="gone"` 与索引条目删除静态可判，按 `docs/agents/testing.md` 不占人测额度。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。

@@ -219,10 +219,13 @@
             </com.google.android.material.card.MaterialCardView>
 
 
+            <!-- 「播放器界面」（自定义播放器按钮布局）入口：26.11.06 用户要求先藏起来。
+                 页面、manifest、代码与字符串全部保留，恢复时删掉下面的 visibility 一行即可。 -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/player_ui_choose"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content">
+                android:layout_height="wrap_content"
+                android:visibility="gone">
 
                 <LinearLayout
                     android:layout_width="match_parent"

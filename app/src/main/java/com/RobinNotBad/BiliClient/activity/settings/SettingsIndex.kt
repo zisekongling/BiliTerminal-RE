@@ -48,9 +48,12 @@ object SettingsIndex {
         list += Entry("选择播放器", "切换播放器、视频清晰度") { a ->
             a.startActivity(Intent(a, SettingPlayerChooseActivity::class.java))
         }
-        list += Entry("播放器界面", "调播放器上的按钮与它们的设置") { a ->
-            a.startActivity(Intent(a, SettingPlayerUiActivity::class.java))
-        }
+        // 「播放器界面」（自定义播放器按钮布局）入口：26.11.06 用户要求先藏起来。
+        // 页面本身保留（manifest 里仍有），入口只从「选择播放器」页的卡片进；那里也一起 gone 了，
+        // 这里不能再留可搜索条目，否则搜索会绕过界面把用户直接送进这个页面。恢复时整段还原。
+        // list += Entry("播放器界面", "调播放器上的按钮与它们的设置") { a ->
+        //     a.startActivity(Intent(a, SettingPlayerUiActivity::class.java))
+        // }
         list += Entry("清晰度", "设置默认播放清晰度") { a ->
             a.startActivity(Intent(a, SettingQualityActivity::class.java))
         }
