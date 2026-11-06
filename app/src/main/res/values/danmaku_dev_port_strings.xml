@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    弹幕内核移植（批次 2）新增文案。
+    单独成文件而不是塞进 strings.xml：这一批改动与别的任务并行开发，独立文件避免
+    res/values/strings.xml 的合并冲突；内容全部是用户可见文案，翻译与命名规范同 strings.xml。
+-->
+<resources>
+    <!-- 播放器设置页：「弹幕缓存上限」 -->
+    <string name="danmaku_cache_limit_name">弹幕缓存上限</string>
+    <string name="danmaku_cache_limit_desc">按 360 秒分段缓存已下载的弹幕，回看/重进视频不再重复请求；超出上限时淘汰最久未用的段。清理临时文件会一并清空。</string>
+    <string name="danmaku_cache_limit_off">关闭</string>
+    <string name="danmaku_cache_limit_16">16 MB</string>
+    <string name="danmaku_cache_limit_32">32 MB</string>
+    <string name="danmaku_cache_limit_64">64 MB</string>
+    <string name="danmaku_cache_limit_128">128 MB</string>
+</resources>

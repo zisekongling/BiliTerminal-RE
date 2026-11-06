@@ -14,6 +14,7 @@ import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.player.DanmakuLoadPolicy
 import com.RobinNotBad.BiliClient.player.LiveDanmakuFactorPolicy
 import com.RobinNotBad.BiliClient.player.SkipOpEdPrefs
+import com.RobinNotBad.BiliClient.util.DanmakuDiskCache
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 
@@ -185,6 +186,17 @@ class SettingTerminalPlayerActivity : RefreshListActivity() {
             add(SettingSection("input_float", "弹幕字号大小", SettingsKeys.PLAYER_DANMAKU_SIZE, "", "0.7"))
             add(SettingSection("input_float", "弹幕不透明度", SettingsKeys.PLAYER_DANMAKU_TRANSPARENCY, "", "0.5"))
             add(SettingSection("input_float", "弹幕速度", SettingsKeys.PLAYER_DANMAKU_SPEED, "", "1.0"))
+            // 弹幕磁盘缓存上限（批次 2）：按 cid+360s 分段缓存弹幕，回看/重进视频不再重复请求。
+            // LRU 淘汰与原子写在 util/DanmakuDiskCache；这里只落档位（存字符串 MB 数，与
+            // LiveDanmakuFactorPolicy 等 list_choose 项同一套落盘格式）。
+            add(listChoose(
+                getString(R.string.danmaku_cache_limit_name),
+                DanmakuDiskCache.KEY_MAX_MB,
+                getString(R.string.danmaku_cache_limit_desc),
+                DanmakuDiskCache.DEFAULT_MAX_MB.toString(),
+                DanmakuDiskCache.displayNameRes.map { getString(it) },
+                DanmakuDiskCache.storedValues
+            ))
 
             add(SettingSection("divider", "", "", "", ""))
 

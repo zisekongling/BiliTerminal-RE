@@ -133,10 +133,71 @@ public class DanmakuApi {
      */
     public static DmSegMobileReply getVideoDanmakuSegment(long aid, long cid, int segmentIndex)
             throws IOException, JSONException {
-        String baseUrl = "https://api.bilibili.com/x/v2/dm/wbi/web/seg.so";
+        byte[] data = getVideoDanmakuSegmentBytes(aid, cid, segmentIndex);
 
-        // 构建 URL 参数
-        String url = baseUrl + "?type=1" +
+        // 解析 protobuf 数据
+        DmSegMobileReply reply = ProtobufParser.parseDmSegMobileReply(data);
+        Logu.d("新版弹幕API", "分段 " + segmentIndex + " 获取到 " + reply.elems.size() + " 条弹幕");
+
+        return reply;
+    }
+
+    /**
+     * 拉取单个分段的**原始 protobuf 字节**（不解码）。
+     *
+     * 给弹幕窗口加载用（`player/DanmakuStreamLoader`）：同一份字节既可以被
+     * {@link #parseDanmakuSegment(byte[])} 解析，也能原样落进
+     * `util/DanmakuDiskCache` 的磁盘缓存（按 cid + segmentIndex 存），下次播放直接读盘，
+     * 不再走 WBI 签名请求。语义与 {@link #getVideoDanmakuSegment} 完全一致（同 URL、同签名）。
+     *
+     * @param aid          稿件 avid
+     * @param cid          视频 cid
+     * @param segmentIndex 分包索引（**从 1 开始**）
+     * @return protobuf 原始字节
+     * @throws IOException   IO异常
+     * @throws JSONException JSON异常
+     */
+    public static byte[] getVideoDanmakuSegmentBytes(long aid, long cid, int segmentIndex)
+            throws IOException, JSONException {
+        String url = buildSegmentUrl(aid, cid, segmentIndex);
+
+        // 发送请求获取 protobuf 数据
+        Response response = NetWorkUtil.get(url, NetWorkUtil.webHeaders);
+        byte[] data = Objects.requireNonNull(response.body()).bytes();
+        Logu.d("新版弹幕API", "分段 " + segmentIndex + " 下载 " + data.length + " 字节");
+        return data;
+    }
+
+    /**
+     * 拉一个分段并重试一次，返回原始字节；**失败返回 null**（不抛异常）。
+     *
+     * 窗口加载器要的是「这一批段里能拿到几段就先喂几段」，单个分段失败绝不能把整批拖垮，
+     * 所以这里把异常收成 null，由调用方决定是留空还是等 15 秒后重试。
+     */
+    public static byte[] getVideoDanmakuSegmentBytesWithRetry(long aid, long cid, int segmentIndex) {
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                return getVideoDanmakuSegmentBytes(aid, cid, segmentIndex);
+            } catch (Exception e) {
+                Logu.e("新版弹幕API", "获取分段 " + segmentIndex + " 第 " + attempt + " 次失败: " + e.getMessage());
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 解析一段弹幕 protobuf 字节（纯解码，不发请求）。
+     *
+     * 抽出来的原因：磁盘缓存命中时手里只有字节，没有 {@link DmSegMobileReply}。
+     */
+    public static DmSegMobileReply parseDanmakuSegment(byte[] data) throws IOException {
+        return ProtobufParser.parseDmSegMobileReply(data);
+    }
+
+    /** 拼 `seg.so` 请求 URL 并做 WBI 签名（分段接口的唯一入口，别再复制粘贴 URL）。 */
+    private static String buildSegmentUrl(long aid, long cid, int segmentIndex)
+            throws IOException, JSONException {
+        String url = "https://api.bilibili.com/x/v2/dm/wbi/web/seg.so" + "?type=1" +
                 "&oid=" + cid +
                 "&pid=" + aid +
                 "&segment_index=" + segmentIndex;
@@ -145,16 +206,7 @@ public class DanmakuApi {
         url = ConfInfoApi.signWBI(url);
 
         Logu.d("新版弹幕API", "URL: " + url);
-
-        // 发送请求获取 protobuf 数据
-        Response response = NetWorkUtil.get(url, NetWorkUtil.webHeaders);
-        byte[] data = Objects.requireNonNull(response.body()).bytes();
-
-        // 解析 protobuf 数据
-        DmSegMobileReply reply = ProtobufParser.parseDmSegMobileReply(data);
-        Logu.d("新版弹幕API", "分段 " + segmentIndex + " 获取到 " + reply.elems.size() + " 条弹幕");
-
-        return reply;
+        return url;
     }
 
     /**
@@ -234,13 +286,13 @@ public class DanmakuApi {
      * 在时间轴上留下 6 分钟的空洞**（不是"少几条"，是整段消失），用户只会描述成"弹幕突然没了"。
      */
     private static DmSegMobileReply fetchSegmentWithRetry(long aid, long cid, int segmentIndex) {
-        for (int attempt = 1; attempt <= 2; attempt++) {
-            try {
-                return getVideoDanmakuSegment(aid, cid, segmentIndex);
-            } catch (Exception e) {
-                Logu.e("新版弹幕API", "获取分段 " + segmentIndex + " 第 " + attempt + " 次失败: " + e.getMessage());
-            }
+        byte[] data = getVideoDanmakuSegmentBytesWithRetry(aid, cid, segmentIndex);
+        if (data == null) return null;
+        try {
+            return ProtobufParser.parseDmSegMobileReply(data);
+        } catch (Exception e) {
+            Logu.e("新版弹幕API", "解析分段 " + segmentIndex + " 失败: " + e.getMessage());
+            return null;
         }
-        return null;
     }
 }

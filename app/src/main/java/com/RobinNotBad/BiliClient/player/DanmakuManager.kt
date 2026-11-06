@@ -5,6 +5,7 @@ import com.RobinNotBad.BiliClient.util.UiText
 import android.content.Context
 import android.graphics.Color
 import com.RobinNotBad.BiliClient.model.DmSegMobileReply
+import com.RobinNotBad.BiliClient.util.DeviceProfile
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
@@ -24,6 +25,7 @@ import master.flame.danmaku.danmaku.model.android.Danmakus
 import master.flame.danmaku.danmaku.parser.BaseDanmakuParser
 import master.flame.danmaku.danmaku.parser.android.BiliDanmukuParser
 import master.flame.danmaku.danmaku.parser.android.BiliProtobufDanmakuParser
+import master.flame.danmaku.danmaku.util.DanmakuUtils
 import org.json.JSONObject
 import java.io.File
 import java.io.InputStream
@@ -70,6 +72,17 @@ class DanmakuManager(
      */
     private var pendingSpeed: Float? = null
 
+    /**
+     * 窗口加载（批次 2）追加分段时的同步锁与待灌队列。
+     *
+     * 追加路径有两个线程：`DanmakuStreamLoader` 在后台拉完段后 `runOnUiThread` 调
+     * [appendSegments]；而 DFM 的 `prepared()` 回调跑在**渲染线程**上补灌。
+     * 另外 [appendSegments] 可能在 `prepare()` 完成之前就到了 —— `DrawHandler.addDanmaku`
+     * 在 `drawTask == null` 时会**静默丢弃**，直接调就永久丢段，所以先入队、`prepared()` 里再灌。
+     */
+    private val appendLock = Any()
+    private val pendingSegments = ArrayList<DmSegMobileReply>()
+
     private val _state = MutableStateFlow(DanmakuState())
     val state: StateFlow<DanmakuState> = _state.asStateFlow()
 
@@ -105,7 +118,13 @@ class DanmakuManager(
         val prefs = SharedPreferencesUtil.getSharedPreferences()
         _state.update {
             DanmakuState(
-                maxLines = SharedPreferencesUtil.getInt("player_danmaku_maxline", 15),
+                // 批次 2：弹幕行数按设备档位封顶。用户设置仍然生效，但不会超过档位上限
+                // （低端 6 行 / 中端 10 行 / 高端 15 行，依据见 util/DeviceProfile 的 KDoc）——
+                // 弱机上同屏行数过多会先掉帧、再出现弹幕互相压字，而这类设备正是反馈「播放卡」的主力。
+                maxLines = DeviceProfile.capDanmakuMaxLines(
+                    SharedPreferencesUtil.getInt(SettingsKeys.PLAYER_DANMAKU_MAXLINE, 15),
+                    DeviceProfile.current().danmakuMaxLines
+                ),
                 speedFactor = SharedPreferencesUtil.getFloat("player_danmaku_speed", 1.0f),
                 textSizeScale = SharedPreferencesUtil.getFloat("player_danmaku_size", 0.7f),
                 transparency = SharedPreferencesUtil.getFloat("player_danmaku_transparency", 0.5f),
@@ -222,6 +241,10 @@ class DanmakuManager(
     }
 
     private fun configureAndPrepare(parser: BaseDanmakuParser) {
+        // 新一次 prepare 意味着一批全新的弹幕源（换视频 / 切 P / 回退 XML）：上一轮窗口加载
+        // 还没灌进去的分段必须丢掉，否则会串到新视频的时间轴上（弹幕「提前出现」或重复）。
+        synchronized(appendLock) { pendingSegments.clear() }
+
         val st = _state.value
         // E2：强制为滚动弹幕开启时，解析结果里的顶部/底部弹幕要换成滚动弹幕
         // （DFM 的类型由具体子类决定，必须换实例，见 [ForceScrollParser]）。
@@ -254,6 +277,10 @@ class DanmakuManager(
                 // 一旦异常逸出会打断该线程，表现就是"弹幕一条都不显示"且没有任何上层报错。
                 try {
                     _state.update { it.copy(isPrepared = true) }
+                    // 窗口加载（批次 2）：`prepare()` 之前/期间到达的后续分段此时补灌。
+                    // 必须放在这里 —— `DrawHandler.addDanmaku` 在 drawTask 就绪前会静默丢弃，
+                    // 那正是「弹幕只出前几分钟」这类问题的根因。
+                    flushPendingSegments()
                     // 补设可见性：`show()` / `hide()` 在 prepare 之前调用时只把意图写进 state，
                     // 真正作用到 DanmakuView 的这一步必须在这里补。漏掉的话，用户明明已经关掉弹幕，
                     // 新建的 DanmakuManager（短视频每条一建、长视频切 P 也重建）却按默认可见起播，
@@ -348,6 +375,89 @@ class DanmakuManager(
         danmakuView.addDanmaku(danmaku)
     }
 
+    /**
+     * 窗口加载：把**后续分段**增量追加进当前弹幕视图（批次 2，供 [DanmakuStreamLoader] 调用）。
+     *
+     * 与 [loadFromProtobufSegments] 的区别：后者重建 parser（等价于「重新 prepare 一份弹幕源」），
+     * 这里只往**已经准备好的**视图里补条目，不打断正在滚的弹幕、不重置时间轴。
+     *
+     * 线程与时机：
+     * - 应由调用方 `runOnUiThread`（`DanmakuStreamLoader` 已经这么做）；
+     * - DFM 还没 prepared 时**不会丢**：分段先入 [pendingSegments]，在 `prepared()` 里补灌；
+     * - 同一次 prepare 周期内同一段只该喂一次（重复喂会重影），去重由调用方负责。
+     *
+     * 数量保护：仍走 [shouldLoadByPolicy]，与首次加载同一道闸。
+     */
+    fun appendSegments(segments: List<DmSegMobileReply>) {
+        if (segments.isEmpty()) return
+        if (!shouldLoadByPolicy()) return
+
+        val ready = _state.value.isPrepared && danmakuContext != null
+        if (!ready) {
+            synchronized(appendLock) { pendingSegments.addAll(segments) }
+            Logu.d("弹幕", "DFM 未就绪，${segments.size} 个分段先入待灌队列")
+            return
+        }
+        for (segment in segments) {
+            appendSegmentInternal(segment)
+        }
+    }
+
+    /** 把 pending 队列灌进视图（`prepared()` 回调里调用，运行在 DFM 渲染线程）。 */
+    private fun flushPendingSegments() {
+        var pending: List<DmSegMobileReply>? = null
+        synchronized(appendLock) {
+            if (pendingSegments.isNotEmpty()) {
+                pending = ArrayList(pendingSegments)
+                pendingSegments.clear()
+            }
+        }
+        val list = pending ?: return
+        var ok = 0
+        for (segment in list) {
+            if (appendSegmentInternal(segment)) ok++
+        }
+        Logu.d("弹幕", "补灌 ${list.size} 个分段（成功 $ok）")
+    }
+
+    /**
+     * 单个分段 → 逐条 `addDanmaku`。
+     *
+     * 字段换算**必须与 `BiliProtobufDanmakuParser.parseDanmakuElem` 保持一致**（那条路径仍在用：
+     * 首窗口就是交给 parser 解析的），否则「首窗口」与「后续窗口」的弹幕字号/颜色/高度会不一样：
+     * - `mode 7/8`（高级/代码弹幕）跳过 —— 与解析器一致，DFM 也不支持；
+     * - `DanmakuUtils.fillText` 负责换行符分段（`\n`），不能自己写 `item.text = content`；
+     * - `textSize = fontsize * (density - 0.6f)`、`textColor = color | 0xFF000000`（不透明化）。
+     */
+    private fun appendSegmentInternal(segment: DmSegMobileReply): Boolean {
+        val context = danmakuContext ?: return false
+        val st = _state.value
+        val elems = segment.elems ?: return false
+        var added = 0
+        for (elem in elems) {
+            try {
+                if (elem.mode == 7 || elem.mode == 8) continue
+                val content = elem.content
+                if (content.isNullOrEmpty()) continue
+                val type = DanmakuStylePolicy.effectiveType(st.forceScroll, elem.mode)
+                val item = context.mDanmakuFactory.createDanmaku(type, context) ?: continue
+                item.time = elem.progress.toLong()
+                DanmakuUtils.fillText(item, content)
+                item.textSize = elem.fontsize * (context.displayer.density - 0.6f)
+                item.textColor = elem.color or 0xFF000000.toInt()
+                item.textShadowColor =
+                    if ((elem.color or 0xFF000000.toInt()) <= Color.BLACK) Color.WHITE else Color.BLACK
+                // 不在这里 setTimer / 设 flags：`DrawHandler.addDanmaku` 会自己补
+                // `item.flags = mGlobalFlagValues` 与 `item.setTimer(timer)`，
+                // 我们拿不到渲染线程的 timer（也没有稳定句柄），重复设置反而会打乱计时基准。
+                danmakuView.addDanmaku(item)
+                added++
+            } catch (e: Exception) {
+                Logu.e("弹幕", "追加弹幕失败: ${e.message}")
+            }
+        }
+        return added > 0
+    }
 
     fun show() {
         _state.update { it.copy(isVisible = true) }
@@ -410,6 +520,9 @@ class DanmakuManager(
     }
 
     fun release() {
+        // 窗口加载（批次 2）：待灌队列里的分段属于这次播放，释放后不再有意义。
+        // 不清的话，复用同一 DanmakuManager 的下一个视频会把上一部的尾段灌进新时间轴。
+        synchronized(appendLock) { pendingSegments.clear() }
         try { danmakuView.release() } catch (_: Exception) {}
         // 复位 isPrepared：show/hide/pause/resume/seekTo 都有 `if (!isPrepared) return` 守卫，
         // 释放后不复位会让复用同一 DanmakuManager 的路径以为弹幕还挂在已释放的 view 上
