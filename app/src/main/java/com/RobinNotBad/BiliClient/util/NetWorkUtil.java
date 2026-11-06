@@ -687,8 +687,16 @@ public class NetWorkUtil {
     }
 
     private static void saveCookiesLocked(List<String> newCookies, String responseHost) {
+        // 26.11.06.1：SharedPreferences 还没就绪时**绝不能落盘**。此时 getCachedCookies() 读到的是
+        // 空串（Application.onCreate 尚未给它赋值），拿空串当底合并出来的 Cookie 会丢掉
+        // SESSDATA / DedeUserID —— 等于把登录态写没了，下一次冷启动就成了「掉登录」。
+        // 宁可丢掉这一次响应下发的 Set-Cookie（下次请求服务端会重发）。
+        if (SharedPreferencesUtil.sharedPreferences == null) {
+            Logu.d("newCookie", "SharedPreferences 未就绪，丢弃本次 Set-Cookie（避免写丢登录态）");
+            return;
+        }
         String cookiesStr = getCachedCookies();
-        ArrayList<String> oldCookies = (cookiesStr.equals("") ? new ArrayList<>() : new ArrayList<>(Arrays.asList(cookiesStr.split("; "))));  //转list
+        ArrayList<String> acceptedHeaders = new ArrayList<>(newCookies.size());
 
         for (String newCookie : newCookies) {  //对每一条新cookie遍历
 
@@ -702,50 +710,33 @@ public class NetWorkUtil {
                 continue;
             }
 
-            int index = newCookie.indexOf("; ");
-            if (index != -1) newCookie = newCookie.substring(0, index);  //如果没有分号不做处理
-
-            index = newCookie.indexOf("=") + 1;
-            if (index == 0) continue;   //如果没有等号，跳过
-
-            String key = newCookie.substring(0, index);    //key=
-            // 只记录 Cookie 键名，绝不记录值：轮换后的 SESSDATA/bili_jct 等本身就是登录凭证，
-            // 写进日志等于把会话明文留在了设备与 logcat 里（审计 S2）
-            Logu.d("newCookie", newCookie.substring(0, Math.max(key.length() - 1, 0)));
-
-            boolean added = false;
-            for (int i = 0; i < oldCookies.size(); i++) {  //查找旧cookie表有没有
-                String oldCookie = oldCookies.get(i);
-                if (oldCookie.contains(key)) {
-                    oldCookies.set(i, newCookie);    //有的话直接换掉
-                    added = true;
-                    break;
-                }
-            }
-            if (!added) {
-                oldCookies.add(newCookie);  //没有就加项
-            }
+            acceptedHeaders.add(newCookie);
         }
 
-        StringBuilder setCookies = new StringBuilder();
-        for (String setCookie : oldCookies) {
-            setCookies.append(setCookie).append("; ");
+        // 解析与合并交给纯策略 CookieJarPolicy（有 JVM 单测）：
+        // · 属性按 ';' 切（不再只认 "; "），不会被 `Domain=` 之类属性污染值；
+        // · SESSDATA / bili_jct / DedeUserID 等**登录凭据不接受删除或清空**——Cookie 刷新接口
+        //   成功后会下发新 SESSDATA，确认接口才让旧 Cookie 失效；若这里把凭据按空值覆盖，
+        //   本地就变成「没有 SESSDATA」，下次启动直接判登录过期（掉登录）；
+        // · 空值写入一律忽略，非凭据键的 Max-Age=0 / Expires 过期正常删除。
+        CookieJarPolicy.MergeResult merged =
+                CookieJarPolicy.merge(cookiesStr, CookieJarPolicy.parseAll(acceptedHeaders));
+        if (!merged.getProtectedKeys().isEmpty()) {
+            // 只记键名，不记值（这些就是凭据本身，审计 S2）
+            Logu.d("newCookie", "拒绝删除/清空登录凭据：" + merged.getProtectedKeys());
         }
-        //如果一次setCookies都没有，就不要存了， 因为是个空字符串
-        if (setCookies.length() >= 2) {
-            String result = setCookies.substring(0, setCookies.length() - 2);
-            if (!result.equals(cookiesStr)) {
-                SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, result);
-                cachedCookies = result;
-                refreshHeaders();
-                // 这里也是 bili_jct 轮换的唯一落点：顺手同步 csrf 快照，否则所有读快照的 POST
-                // 都会静默拿 -111（详见 currentCsrf() 的说明）。只在值真的变了时才写，避免每次
-                // 响应都多一次 SharedPreferences 写入。
-                String liveJct = getInfoFromCookie("bili_jct", result);
-                if (!liveJct.isEmpty()
-                        && !liveJct.equals(SharedPreferencesUtil.getString(SharedPreferencesUtil.csrf, ""))) {
-                    SharedPreferencesUtil.putString(SharedPreferencesUtil.csrf, liveJct);
-                }
+        String result = merged.getCookies();
+        if (!result.equals(cookiesStr)) {
+            SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, result);
+            cachedCookies = result;
+            refreshHeaders();
+            // 这里也是 bili_jct 轮换的唯一落点：顺手同步 csrf 快照，否则所有读快照的 POST
+            // 都会静默拿 -111（详见 currentCsrf() 的说明）。只在值真的变了时才写，避免每次
+            // 响应都多一次 SharedPreferences 写入。
+            String liveJct = getInfoFromCookie("bili_jct", result);
+            if (!liveJct.isEmpty()
+                    && !liveJct.equals(SharedPreferencesUtil.getString(SharedPreferencesUtil.csrf, ""))) {
+                SharedPreferencesUtil.putString(SharedPreferencesUtil.csrf, liveJct);
             }
         }
     }
@@ -758,6 +749,12 @@ public class NetWorkUtil {
      */
     public static void putCookie(String key, String val) {
         synchronized (NetWorkUtil.class) {
+            // 与 saveCookiesLocked 同因：SharedPreferences 未就绪时读到的 Cookie 是空串，
+            // 拿它当底写回会丢掉 SESSDATA 等登录凭据（26.11.06.1 掉登录返工）
+            if (SharedPreferencesUtil.sharedPreferences == null) {
+                Logu.d("putCookie", "SharedPreferences 未就绪，跳过写入 " + key);
+                return;
+            }
             Cookies cookies = new Cookies(getCachedCookies());
             cookies.set(key, val);
             String result = cookies.toString();
