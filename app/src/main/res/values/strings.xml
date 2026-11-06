@@ -2706,4 +2706,20 @@
     <string name="setting_player_ui_show_title">显示标题</string>
     <string name="setting_player_ui_show_battery">显示电量</string>
     <string name="setting_player_ui_show_clock">显示时钟</string>
+    <!-- 布局编辑 -->
+    <string name="setting_player_ui_add_slot">＋</string>
+    <string name="setting_player_ui_pick_button">选一个按钮</string>
+    <string name="setting_player_ui_pick_button_replace">换成哪个按钮</string>
+    <string name="setting_player_ui_replace">换成别的按钮</string>
+    <string name="setting_player_ui_make_group">这格改成一组按钮</string>
+    <string name="setting_player_ui_remove">移除这一格</string>
+    <string name="setting_player_ui_move_up">往前挪一格</string>
+    <string name="setting_player_ui_move_down">往后挪一格</string>
+    <string name="setting_player_ui_group_title">一组按钮</string>
+    <string name="setting_player_ui_group_members">组里的按钮，点一条进它的设置</string>
+    <string name="setting_player_ui_group_member_settings">设置：%1$s</string>
+    <string name="setting_player_ui_group_drop_member">移除组里的按钮</string>
+    <string name="setting_player_ui_group_add_member">往这组里加按钮</string>
+    <string name="setting_player_ui_group_remove_member">移除 %1$s</string>
+    <string name="setting_player_ui_region_full">这一列已经放不下了</string>
 </resources>

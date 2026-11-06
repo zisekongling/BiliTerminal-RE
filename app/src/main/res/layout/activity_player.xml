@@ -215,6 +215,29 @@
                 tools:targetApi="lollipop" />
 
             <!--
+                底部组展开条：组按钮点开后，组内按钮排在这里（在按钮行上方）。
+                放在 bottom_control 里而不是 bottom_buttons 里，是因为 bottom_buttons 用
+                wrap_content 的 RelativeLayout 承载按钮行，一旦里面有贴底的子项它就会撑满父容器。
+            -->
+            <HorizontalScrollView
+                android:id="@+id/bottom_group_scroll"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:background="@drawable/background_edittext"
+                android:scrollbars="none"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:id="@+id/bottom_group_slots"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="4dp"
+                    android:paddingVertical="4dp" />
+            </HorizontalScrollView>
+
+            <!--
                 底部按钮行（26.11.06 起可自定义）：中间是播放/暂停（不可自定义），
                 两侧各一个槽位容器，各最多 3 格；容器本身是横向滚动条，装不下时横向滑。
                 按钮本体都在最外层隐藏的 button_pool 里，运行时由 PlayerButtonSlots 搬进来。
@@ -228,8 +251,7 @@
                     android:id="@+id/bottom_row"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_alignParentBottom="true"
-                    android:layout_centerHorizontal="true"
+                    android:layout_centerInParent="true"
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
@@ -272,26 +294,6 @@
                             android:orientation="horizontal" />
                     </HorizontalScrollView>
                 </LinearLayout>
-
-                <!-- 底部的组展开条：组按钮点开后，组内按钮排在这里（在按钮行上方） -->
-                <HorizontalScrollView
-                    android:id="@+id/bottom_group_scroll"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_above="@+id/bottom_row"
-                    android:layout_centerHorizontal="true"
-                    android:background="@drawable/background_edittext"
-                    android:scrollbars="none"
-                    android:visibility="gone">
-
-                    <LinearLayout
-                        android:id="@+id/bottom_group_slots"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:paddingHorizontal="4dp"
-                        android:paddingVertical="4dp" />
-                </HorizontalScrollView>
 
             </RelativeLayout>
 

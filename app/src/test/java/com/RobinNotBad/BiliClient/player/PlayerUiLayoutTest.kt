@@ -13,7 +13,7 @@ import org.junit.Test
  * 这里钉住的是几条**一旦破了就会让用户按钮静默消失**的口径：
  * 1. 结构非法整体回退默认（宁可回默认，也不要丢一半）；
  * 2. 单个未知 key 只丢自己，不连坐（旧版本删按钮、手改脏数据都会走到这条路）；
- * 3. 组里只剩 1 个有效 key 要降级成单按钮，一个不剩才丢整组；
+ * 3. 组里全部 key 都不认识才丢整组；只剩 1 个也保留成组（建组中途的合法状态）；
  * 4. 超容量截断，不能让脏数据把 5 格变 50 格；
  * 5. 默认布局的编码串是稳定值——它同时是「没存过」的落盘内容，格式一改就得同步 [DEFAULT_SERIALIZED]。
  */
@@ -154,9 +154,10 @@ class PlayerUiLayoutTest {
     }
 
     @Test
-    fun `group with single known key degrades to button`() {
+    fun `group with single known key stays a group`() {
+        // 用户是先建组再往里加成员的，单成员组是合法中间态
         val parsed = layout.parse("1;{loop};;;")
-        assertEquals(listOf<PlayerUiLayout.Slot>(PlayerUiLayout.Slot.Button("loop")), parsed.left)
+        assertEquals(listOf<PlayerUiLayout.Slot>(PlayerUiLayout.Slot.Group(listOf("loop"))), parsed.left)
     }
 
     @Test

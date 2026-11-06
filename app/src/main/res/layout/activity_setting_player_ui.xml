@@ -51,7 +51,8 @@
         android:orientation="vertical"
         android:paddingHorizontal="@dimen/activity_padding_horizontal">
 
-        <com.RobinNotBad.BiliClient.ui.widget.FakePlayerPreview
+        <!-- 这里不是仿画的图，是播放页那一套真控件（见 PlayerControlsPreview） -->
+        <com.RobinNotBad.BiliClient.ui.widget.PlayerControlsPreview
             android:id="@+id/preview"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

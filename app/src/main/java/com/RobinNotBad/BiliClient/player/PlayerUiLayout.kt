@@ -193,7 +193,8 @@ object PlayerUiLayout {
                     .filter { PlayerButtons.isKnown(it) }
                 when (keys.size) {
                     0 -> Unit
-                    1 -> slots += Slot.Button(keys[0])
+                    // 只留 1 个按钮也保留成「组」：用户是先建组、再往组里加成员的，
+                    // 中途必然出现单成员组，这时候不能悄悄降级成单按钮。
                     else -> slots += Slot.Group(keys)
                 }
             } else {
