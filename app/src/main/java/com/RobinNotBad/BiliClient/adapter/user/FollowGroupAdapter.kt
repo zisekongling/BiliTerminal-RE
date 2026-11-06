@@ -1,6 +1,7 @@
 package com.RobinNotBad.BiliClient.adapter.user
 
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
+import com.RobinNotBad.BiliClient.ui.appearance.GlassStyle
 import com.RobinNotBad.BiliClient.util.UiText
 
 import android.animation.ObjectAnimator
@@ -236,6 +237,9 @@ class FollowGroupAdapter(
             return GroupHolder(view)
         } else {
             val view = LayoutInflater.from(context).inflate(R.layout.cell_user_list, parent, false)
+            // 与 UserListAdapter 同一个 cell：写死的 bg_card_rounded 不读 materialCardViewStyle，
+            // 玻璃质感下要自己换成玻璃面板（关闭时不动）。
+            GlassStyle.applyCardBackground(view)
             return UserHolder(view)
         }
     }

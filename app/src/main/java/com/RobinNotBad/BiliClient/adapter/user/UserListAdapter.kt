@@ -1,6 +1,7 @@
 package com.RobinNotBad.BiliClient.adapter.user
 
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
+import com.RobinNotBad.BiliClient.ui.appearance.GlassStyle
 import android.content.Context
 import android.graphics.Color
 import android.view.LayoutInflater
@@ -36,6 +37,9 @@ open class UserListAdapter(
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
         val view = LayoutInflater.from(context).inflate(R.layout.cell_user_list, parent, false)
+        // 玻璃质感：本 cell 是单层 FrameLayout + 写死的 bg_card_rounded（不透明 shape），
+        // 不读 materialCardViewStyle，主题覆盖层够不着 → 建 holder 时换成玻璃面板（关闭时不动）。
+        GlassStyle.applyCardBackground(view)
         return Holder(view)
     }
 

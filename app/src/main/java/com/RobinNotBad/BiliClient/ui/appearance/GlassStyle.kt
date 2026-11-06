@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
+import android.view.View
 import androidx.core.content.ContextCompat
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.util.SettingsKeys
@@ -62,6 +63,7 @@ object GlassStyle {
     // 写死的 shape drawable 或在代码里 setBackgroundColor，覆盖层够不着，只能在设置背景时换成玻璃版：
     // - 播放器里的分P / 字幕选择、互动视频选项（PlayerActivity 不继承 BaseActivity，本就不叠覆盖层）
     // - 评论区的楼中楼预览框、「UP主觉得很赞」标签
+    // - 用户列表行 cell_user_list（搜索结果「用户」页、关注分组）：单层 FrameLayout，见 applyCardBackground
     // 色值与 themes_glass.xml 同源（colors_glass.xml），**不另抄一份**。
 
     /** 一套主题的玻璃色（已解析成 ARGB）。 */
@@ -128,6 +130,27 @@ object GlassStyle {
     fun panelBackground(context: Context, radiusPx: Float = cornerPx(context)): Drawable {
         val p = palette(context)
         return box(p.card, p.stroke, radiusPx, strokePx(context))
+    }
+
+    /**
+     * 把「写死 shape 底」的列表卡片就地换成玻璃面板，返回是否改动（关闭玻璃质感时什么都不做）。
+     *
+     * 现存唯一调用点是 `cell_user_list`（搜索结果「用户」页、关注分组里的用户行）：它是
+     * 单层 `FrameLayout` + `@drawable/bg_card_rounded`（不透明 `@color/card_dark`），不读
+     * `materialCardViewStyle`，主题覆盖层够不着，所以只能在建 holder 时自己换背景。
+     *
+     * 圆角取 [CornerStyle.radiusPx]：主题卡片（`CardStyle*`）的圆角是 `@dimen/card_round`，
+     * 选「圆角」档时由 [AppearanceApplier] 运行时覆盖成 `card_round_large`；写死背景不经过主题样式，
+     * 只能按同一档位自己取值，否则同一屏里会出现两种圆角。
+     *
+     * elevation 一并置 0：半透明底下的阴影会从下面透出来形成沿轮廓一圈的脏边，
+     * 与 `themes_glass.xml` 里卡片 / 按钮 `cardElevation=0` 是同一条约定。
+     */
+    fun applyCardBackground(view: View): Boolean {
+        if (!isEnabled()) return false
+        view.background = panelBackground(view.context, CornerStyle.radiusPx(view.context))
+        view.elevation = 0f
+        return true
     }
 
     /**
