@@ -169,6 +169,9 @@ class PlayerButtonSlots(
         if (context.theme.resolveAttribute(android.R.attr.selectableItemBackground, attr, true)) {
             setBackgroundResource(attr.resourceId)
         }
+        // 显式清零内边距：selectableItemBackground 这类自带 padding/inset 的背景会被 View 转成
+        // 控件内边距，FIT_XY 就会把方形图标压成一条扁条（更多按钮「扁了」的根因）
+        setPadding(0, 0, 0, 0)
         contentDescription = context.getString(R.string.desc_player_group_expand)
         tag = index
         layoutParams = cellParams(null, region)
@@ -260,7 +263,11 @@ class PlayerButtonSlots(
         // 上面的循环够不着，不收回池子的话它会被当成"已摆放"——槽位里摆出一个影子，
         // 真身留在外面，解锁后右侧就多出一个锁图标。
         for (view in ArrayList(placedPrimaries)) {
-            if (view.parent !== pool) pool.addView(view)
+            if (view.parent === pool) continue
+            // 必须先脱离原父容器：锁定态里 lock_btn 被搬到 lock_holder 上，直接 addView 会抛
+            // "The specified child already has a parent"（PlayerButtonSlots.clearAll 崩溃）
+            detach(view)
+            pool.addView(view)
         }
         placedPrimaries.clear()
         primariesByKey.clear()

@@ -1,0 +1,25 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- 26.11.06 换用用户提供的 lucide「corner-down-right」图标（播放页的「连播」按钮）。
+         原 SVG 是 currentColor + 2px 描边，播放页背景是深色，这里统一改成白色描边。
+         形状：一条线从左上下来、拐个圆角向右，末端是一个指向右下的箭头。 -->
+    <!-- 箭头：15,10 → 20,15 → 15,20 -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M15,10 L20,15 L15,20"
+        android:strokeColor="#ffffff"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="2" />
+    <!-- 主干：4,4 竖下来 7，r4 拐弯，向右到 20,15（与箭头尾相接） -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M4,4 L4,11 A4,4 0 0 0 8,15 L20,15"
+        android:strokeColor="#ffffff"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="2" />
+</vector>

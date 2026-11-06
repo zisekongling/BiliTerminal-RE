@@ -62,8 +62,9 @@ object PlayerButtons {
     /**
      * 全部可自定义按钮，顺序即候选列表顺序（先左列习惯用的，再右侧第二排的，最后底部的）。
      *
-     * 图标现状：倍速是自绘的 `ic_player_speed`；跳转时间 / 连播队列 / 看点是**借来的**图标，
-     * 等用户补图后替换这里一行即可。
+     * 图标现状：倍速是自绘的 `ic_player_speed`；看点仍是**借来的** `icon_star`，等用户补图后
+     * 替换这里一行即可。跳转时间（lucide clock-fading）与连播队列（lucide corner-down-right）
+     * 26.11.06 已换成用户给的专用图标，播放页里那两个按钮本体也从文字改成了同一张图。
      */
     val ALL: List<Button> = listOf(
         Button(LOCK, R.string.setting_player_btn_lock, R.drawable.icon_player_lock),
@@ -77,8 +78,8 @@ object PlayerButtons {
         Button(AUTO_NEXT, R.string.setting_player_btn_auto_next, R.drawable.icon_auto_next_off, PlayerSettingsGroups.DEFAULTS, mayHide = true),
         Button(VIEWPOINT, R.string.setting_player_btn_viewpoint, R.drawable.icon_star, mayHide = true),
         Button(VIDEO_INFO, R.string.setting_player_btn_video_info, R.drawable.icon_info, mayHide = true),
-        Button(JUMP_TIME, R.string.setting_player_btn_jump_time, R.drawable.icon_time, mayHide = true),
-        Button(QUEUE_MODE, R.string.setting_player_btn_queue_mode, R.drawable.icon_sort_filter, mayHide = true),
+        Button(JUMP_TIME, R.string.setting_player_btn_jump_time, R.drawable.icon_player_clock_fading, mayHide = true),
+        Button(QUEUE_MODE, R.string.setting_player_btn_queue_mode, R.drawable.icon_player_corner_down_right, mayHide = true),
         Button(QUALITY, R.string.setting_player_btn_quality, R.drawable.icon_menu, action = Action.OPEN_QUALITY, mayHide = true),
         Button(SOUND_CUT, R.string.setting_player_btn_sound_cut, R.mipmap.soundcut),
         Button(SOUND_ADD, R.string.setting_player_btn_sound_add, R.mipmap.soundadd),

@@ -850,34 +850,34 @@
             QQ#9 精确空降：点开输入时间点直接跳。
             手表上拖进度条很难停准，这里给一个「输入 mm:ss」的入口；
             直播没有时间点概念，显隐由 onPrepared 的直播分支统一控制。
+            26.11.06 起按钮画图标（lucide clock-fading），文字只留作无障碍描述与输入框标题。
         -->
-        <TextView
+        <ImageButton
             android:id="@+id/jump_time_btn"
-            android:layout_width="wrap_content"
+            android:layout_width="28dp"
             android:layout_height="28dp"
-            android:background="@android:color/transparent"
-            android:gravity="center"
-            android:paddingHorizontal="8dp"
-            android:text="@string/text_player_jump_to_time"
-            android:textColor="?android:attr/textColorPrimary"
-            android:textSize="12sp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/text_player_jump_to_time"
+            android:scaleType="fitXY"
+            android:src="@drawable/icon_player_clock_fading"
             android:visibility="gone" />
 
         <!--
-            连播队列按钮（批次 2）：有队列时显示当前模式（顺序/倒序/随机/单曲），
-            点一下切模式；没有队列但知道 UP 主时显示「连播」，点一下懒加载 UP 主投稿。
-            长按总是尝试换成 UP 主投稿队列。显隐与文案由 updateQueueModeButton() 统一算。
+            连播队列按钮（批次 2）：有队列时点一下切模式（顺序/倒序/随机/单曲），
+            没有队列但知道 UP 主时点一下懒加载 UP 主投稿；长按总是尝试换成 UP 主投稿队列。
+            显隐由 updateQueueModeButton() 统一算。
+            26.11.06 起按钮画图标（lucide corner-down-right），当前模式写进 contentDescription。
         -->
-        <TextView
+        <ImageButton
             android:id="@+id/queue_mode_btn"
-            android:layout_width="wrap_content"
+            android:layout_width="28dp"
             android:layout_height="28dp"
-            android:background="@android:color/transparent"
-            android:gravity="center"
-            android:paddingHorizontal="8dp"
-            android:text="@string/player_queue_btn_label"
-            android:textColor="?android:attr/textColorPrimary"
-            android:textSize="12sp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/player_queue_btn_label"
+            android:scaleType="fitXY"
+            android:src="@drawable/icon_player_corner_down_right"
             android:visibility="gone" />
 
         <ImageButton
