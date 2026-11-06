@@ -1,5 +1,7 @@
 package com.RobinNotBad.BiliClient.player
 
+import com.RobinNotBad.BiliClient.util.SettingsKeys
+import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.UiText
 
 /**
@@ -47,12 +49,56 @@ object SkipOpEdPrefs {
     const val FEATURE_ENABLED = true
 
     /**
-     * 自动跳过当前是否生效：功能总开关 **与** 用户存档，两者都为真才算开。
+     * 自动跳过当前是否生效：功能总开关 **与** 用户档位（非「关闭」）。
      *
      * 抽成纯函数是为了能直接单测「撤回期间存档里写着 `true` 也不能跳」这条断言——
      * 它恰恰是这次撤回最容易被改错的地方（只改默认值是最常见的错法）。
      */
     fun isEnabled(prefValue: Boolean): Boolean = FEATURE_ENABLED && prefValue
+
+    /**
+     * 读取**当前五档**（0=关 / 1=仅头 / 2=仅尾 / 3=都跳 / 4=询问）。
+     *
+     * 顺序：
+     * 1. 功能总开关为假 → 恒为 [SkipOpEdPolicy.MODE_OFF]（紧急撤回时整体下线）；
+     * 2. 新键 `player_skip_op_ed_mode` 合法 → 用它；
+     * 3. 否则回落旧布尔键 `player_skip_op_ed`（true→3 / false/缺失→0），**并把迁移结果写回新键**，
+     *    这样后续读取不再重复迁移，设置页也能直接显示迁移后的档位。
+     *
+     * 播放页每次判定都重读（与「改完即生效」的约定一致），不在 Activity 启动时缓存。
+     */
+    fun currentMode(): Int {
+        if (!FEATURE_ENABLED) return SkipOpEdPolicy.MODE_OFF
+        val newRaw = SharedPreferencesUtil.getString(SettingsKeys.PLAYER_SKIP_OP_ED_MODE, null)
+        val mode = SkipOpEdPolicy.migrate(
+            newRaw,
+            SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SKIP_OP_ED, DEFAULT_ENABLED)
+        )
+        // 只在「新键缺失/非法」时写回，避免每次判定都碰 SharedPreferences
+        if (SkipOpEdPolicy.fromStored(newRaw) != mode) {
+            SharedPreferencesUtil.putString(SettingsKeys.PLAYER_SKIP_OP_ED_MODE, mode.toString())
+        }
+        return mode
+    }
+
+    /**
+     * 读取**存档原文对应的档位**（不看 [FEATURE_ENABLED]）。
+     *
+     * 只给 `needViewPoints()` 用：是否要拉 `view_points` 取决于「用户配过跳过档位」，
+     * 与总开关无关——总开关若为假，跳过不会执行，但用户自己的配置不该因此丢失。
+     */
+    fun storedMode(): Int = SkipOpEdPolicy.migrate(
+        SharedPreferencesUtil.getString(SettingsKeys.PLAYER_SKIP_OP_ED_MODE, null),
+        SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SKIP_OP_ED, DEFAULT_ENABLED)
+    )
+
+    /** 写入五档档位（设置页选完 / 迁移写回都走这里）。 */
+    fun storeMode(mode: Int) {
+        SharedPreferencesUtil.putString(
+            SettingsKeys.PLAYER_SKIP_OP_ED_MODE,
+            SkipOpEdPolicy.fromInt(mode).toString()
+        )
+    }
 
     /**
      * 首次引导是否该弹。
@@ -79,4 +125,7 @@ object SkipOpEdPrefs {
 
     /** 引导上的按钮文案：已经开着就没有「开启」可点，只留一个「知道了」。 */
     fun guideActionText(enabled: Boolean): String = if (enabled) UiText.of("知道了") else UiText.of("开启")
+
+    /** 引导里「开启」按钮写回的档位：都跳（与升级前开关打开的行为一致）。 */
+    const val GUIDE_ENABLE_MODE = SkipOpEdPolicy.MODE_BOTH
 }

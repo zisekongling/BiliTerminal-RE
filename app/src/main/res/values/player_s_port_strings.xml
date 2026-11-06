@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  task-14（播放器交互四项）新增文案。
+
+  这里只放本批新增的字符串；`strings.xml` 由主线维护，本批不碰，避免和并发改动冲突。
+  命名统一 player_s_ 前缀（s = skip/switch/scale 三件事的合集）。
+-->
+<resources>
+    <!-- 片头片尾五档（0=关 / 1=仅头 / 2=仅尾 / 3=都跳 / 4=询问） -->
+    <string name="player_s_skip_mode_off">关闭</string>
+    <string name="player_s_skip_mode_op">仅片头</string>
+    <string name="player_s_skip_mode_ed">仅片尾</string>
+    <string name="player_s_skip_mode_both">片头+片尾</string>
+    <string name="player_s_skip_mode_ask">询问我</string>
+    <string name="player_s_skip_mode_name">自动跳过片头片尾</string>
+    <string name="player_s_skip_mode_desc">选择跳过哪些分段；「询问我」不会自动跳，只在检测到时问一次</string>
+
+    <!-- 询问档的提示 -->
+    <string name="player_s_skip_ask_op">检测到片头，是否跳过？</string>
+    <string name="player_s_skip_ask_ed">检测到片尾，是否跳过？</string>
+    <string name="player_s_skip_action">跳过</string>
+
+    <!-- 长按后上下划切视频 -->
+    <string name="player_s_longpress_switch_name">长按上下划切换视频</string>
+    <string name="player_s_longpress_switch_desc">长按倍速时向上划看下一条、向下划看上一条；没有连播队列时不响应</string>
+
+    <!-- 长按倍速提示尺寸 -->
+    <string name="player_s_hint_scale_name">长按倍速提示尺寸</string>
+    <string name="player_s_hint_scale_desc">长按时「x 3.0」提示文字的大小</string>
+
+    <!-- 点弹幕时间戳空降 -->
+    <string name="player_s_danmaku_jump_done">已跳转到 %1$s</string>
+</resources>

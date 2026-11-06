@@ -35,6 +35,7 @@ import android.view.MotionEvent
 import android.view.SurfaceView
 import android.view.TextureView
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.HorizontalScrollView
@@ -91,6 +92,9 @@ import com.RobinNotBad.BiliClient.player.PlayerSurfaceBinder
 import com.RobinNotBad.BiliClient.player.PlayerVolumePolicy
 import com.RobinNotBad.BiliClient.player.SkipCancelPolicy
 import com.RobinNotBad.BiliClient.player.SkipOpEdPrefs
+import com.RobinNotBad.BiliClient.player.SkipOpEdPolicy
+import com.RobinNotBad.BiliClient.player.LongPressSwitchPolicy
+import com.RobinNotBad.BiliClient.player.DanmakuTimestampPolicy
 import com.RobinNotBad.BiliClient.player.ViewPointSkip
 import com.RobinNotBad.BiliClient.player.SurfaceTarget
 import com.RobinNotBad.BiliClient.service.PlaybackService
@@ -117,6 +121,9 @@ import com.RobinNotBad.BiliClient.util.VideoMetaManager
 import com.RobinNotBad.BiliClient.util.view.EditorEnterKeyGuard
 import com.google.android.material.snackbar.Snackbar
 import master.flame.danmaku.controller.IDanmakuView
+import master.flame.danmaku.danmaku.model.BaseDanmaku
+import master.flame.danmaku.danmaku.model.IDanmakuIterator
+import master.flame.danmaku.danmaku.model.IDanmakus
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -398,6 +405,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
          */
         private const val DANMAKU_DRIFT_LOG_INTERVAL_MS = 5_000L
 
+        /**
+         * 「点弹幕空降」允许的最大按压时长（毫秒）。
+         *
+         * 只认短促点击：拖动进度、双击、长按都会走到 ACTION_UP，若不筛时长，
+         * 松手那一刻就会被当成一次空降点击。
+         */
+        private const val DANMAKU_TAP_MAX_MS = 300L
+
         /** 恢复后位置又前进了这么多毫秒，才算"真的播起来了"，恢复计数清零 */
         private const val STALL_RECOVERED_MS = 5_000
 
@@ -529,6 +544,21 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var video_origY: Float = 0f
     private var timestamp_click: Long = 0
     private var onLongClick: Boolean = false
+
+    // ==================== 长按后纵向划切视频（task-14 ③） ====================
+    /** 长按已触发后，是否已经开始记录「切视频划动」的起点。 */
+    private var longPressSwitchTracking: Boolean = false
+    /** 这一轮触摸里已经切过视频：后续 MOVE 不再重复触发。 */
+    private var longPressSwitchConsumed: Boolean = false
+    private var longPressSwitchStartX: Float = 0f
+    private var longPressSwitchStartY: Float = 0f
+    private var longPressSwitchStartAt: Long = 0L
+
+    // ==================== 点弹幕空降（task-14 ②） ====================
+    /** 本轮按下的坐标/时间：ACTION_UP 时用来区分「点」与「滑」。 */
+    private var danmakuTapDownX: Float = 0f
+    private var danmakuTapDownY: Float = 0f
+    private var danmakuTapDownAt: Long = 0L
 
     // 左右滑动控制进度
     private var swipeSeekEnabled: Boolean = false
@@ -760,6 +790,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      * 由那个纯类负责，本类只调它。判定细节见 [SkipDecider] 的类注释。
      */
     private val skipDecider = SkipDecider()
+
+    /**
+     * 「询问」档已经问过的片段 key（[ViewPointSkip.keyOf]）。
+     *
+     * 生命周期与 [skipDecider] 对齐：换P/换集时和 `skipDecider.reset()` 一起清空，
+     * 保证「每集只问一次」而不是「整个播放器只问一次」。
+     */
+    private val askedSkipKeys = HashSet<String>()
 
     /**
      * 自动跳过判定的静默期截止时刻（`SystemClock.elapsedRealtime()`，0 = 不静默）。
@@ -1258,6 +1296,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             val doublemove_enabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_DOUBLEMOVE, true)
 
             layout_control.setOnTouchListener { v, event ->
+                // task-14 ②③：点弹幕空降 / 长按后纵向划切视频，先于缩放与横滑判定处理。
+                if (handlePlayerTouchExtras(event)) return@setOnTouchListener true
                 if (doubleTapSeekEnabled && doubleTapGestureDetector != null) {
                     doubleTapGestureDetector!!.onTouchEvent(event)
                 }
@@ -1342,6 +1382,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             }
         } else {
             layout_control.setOnTouchListener { _, motionEvent ->
+                if (handlePlayerTouchExtras(motionEvent)) return@setOnTouchListener true
                 if (doubleTapSeekEnabled && doubleTapGestureDetector != null) {
                     doubleTapGestureDetector!!.onTouchEvent(motionEvent)
                 }
@@ -1368,6 +1409,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     ijkPlayer?.setSpeed(boostSpeed)
                     danmakuManager?.setSpeed(boostSpeed)
                     text_speed.text = PlayerLongPressPolicy.labelOf(boostSpeed)
+                    // task-14 ④：长按提示尺寸可调（80%~150%），且长按会先 hidecon 把提示一起藏掉，
+                    // 这里必须重新放出来——否则「倍速提示」只在控制栏可见时能看到。
+                    applyLongPressHintScale()
+                    text_speed.visibility = View.VISIBLE
                     onLongClick = true
                     Logu.v("gesture", "longclick_down speed=$boostSpeed")
                     return@setOnLongClickListener true
@@ -4342,37 +4387,76 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      */
     private fun needViewPoints(): Boolean =
         SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SHOW_VIEWPOINTS, true) ||
-                SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SKIP_OP_ED, SkipOpEdPrefs.DEFAULT_ENABLED)
+                SkipOpEdPrefs.storedMode() != SkipOpEdPolicy.MODE_OFF
+
+    /**
+     * 当前五档档位（0=关 / 1=仅头 / 2=仅尾 / 3=都跳 / 4=询问）。
+     *
+     * 每次判定都重读：设置页改完档位回到播放器就该生效，不缓存。
+     * 总开关（[SkipOpEdPrefs.FEATURE_ENABLED]）为假时 [SkipOpEdPrefs.currentMode] 直接返回「关」。
+     */
+    private fun skipOpEdMode(): Int = SkipOpEdPrefs.currentMode()
 
     /**
      * 自动跳过片头片尾当前是否生效。
      *
-     * 是否生效 = [SkipOpEdPrefs.FEATURE_ENABLED]（与存档无关的总否决位）**且** 用户存档。
-     * 26.10.22 恢复后默认关闭：没在设置页主动打开过的用户，这里恒为 `false`。
-     * 默认值与判据统一走 [SkipOpEdPrefs]，别在调用点写死字面量。
+     * 是否生效 = [SkipOpEdPrefs.FEATURE_ENABLED]（与存档无关的总否决位）**且** 用户档位不是「关」。
+     * 档位与迁移判据统一走 [SkipOpEdPrefs]/[SkipOpEdPolicy]，别在调用点写死字面量。
      */
-    private fun skipOpEdEnabled(): Boolean =
-        SkipOpEdPrefs.isEnabled(
-            SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SKIP_OP_ED, SkipOpEdPrefs.DEFAULT_ENABLED)
-        )
+    private fun skipOpEdEnabled(): Boolean = SkipOpEdPolicy.isEnabled(skipOpEdMode())
 
     /**
-     * 自动跳过片头/片尾。
+     * 自动跳过片头/片尾（五档）。
      *
-     * 触发条件：用户开了设置、且当前位置落在一段**还没处理过**的片头/片尾里。
+     * 触发条件：当前位置落在一段**还没处理过**的片头/片尾里，且当前档位允许该类型。
      * 「该不该跳、跳完记哪个片段」全部由 [SkipDecider] 决定（每个片段只跳一次、
-     * 换P 后旧片段不参与判定），这里只负责时间兜底的静默期与真正的跳转。
+     * 换P 后旧片段不参与判定），这里只负责档位分支、时间兜底的静默期与真正的跳转。
+     *
+     * 「询问」档**绝不自动 seek**：只弹一次 Snack，由用户点「跳过」才动。
      */
     private fun maybeAutoSkipOpEd(positionSec: Double) {
         if (skipDecider.segments.isEmpty()) return
-        if (!skipOpEdEnabled()) return
+        val mode = skipOpEdMode()
+        if (!SkipOpEdPolicy.isEnabled(mode)) return
         // 刚跳过一次：等 IJK 的异步 seek 落地再判，否则 video_now 回弹到旧位置会再判一次
         if (android.os.SystemClock.elapsedRealtime() < skipQuietUntilMs) return
-        val segment = skipDecider.decide(positionSec) ?: return
-        Logu.d("跳过片头片尾", "跳过 type=" + segment.type + " " + segment.fromSec + "s -> " + segment.toSec + "s")
-        // 落点是区间的右端点（右开区间之外），所以不会被自己再次判定
-        seekToPosition((segment.toSec * 1000.0).toLong(), userInitiated = false)
-        showSkipUndoSnack(segment)
+        val segment = ViewPointSkip.segmentAt(positionSec, skipDecider.segments) ?: return
+        if (SkipOpEdPolicy.shouldAutoSkip(mode, segment.type)) {
+            val decided = skipDecider.decide(positionSec) ?: return
+            Logu.d("跳过片头片尾", "跳过 type=" + decided.type + " " + decided.fromSec + "s -> " + decided.toSec + "s")
+            // 落点是区间的右端点（右开区间之外），所以不会被自己再次判定
+            seekToPosition((decided.toSec * 1000.0).toLong(), userInitiated = false)
+            showSkipUndoSnack(decided)
+            return
+        }
+        if (SkipOpEdPolicy.shouldAsk(mode, segment.type)) {
+            // 每集（每次 reset）同一片段只问一次：不点就继续播，别 250ms 弹一条
+            if (askedSkipKeys.add(ViewPointSkip.keyOf(segment))) showSkipAskSnack(segment)
+        }
+    }
+
+    /**
+     * 「询问」档的提示：检测到片头/片尾，问用户跳不跳。
+     *
+     * 这里刻意不调 [SkipDecider.decide]（那会把片段记成已处理），只在用户点「跳过」时才决定并跳转；
+     * 不操作则本轮不再问（[askedSkipKeys] 已记）。
+     */
+    private fun showSkipAskSnack(segment: ViewPointSkip.Segment) {
+        val isOpening = segment.type == ViewPointSkip.TYPE_OP
+        val action = MsgUtil.Action(UiText.of(getString(R.string.player_s_skip_action)), View.OnClickListener {
+            val decided = skipDecider.decide(segment.fromSec) ?: return@OnClickListener
+            seekToPosition((decided.toSec * 1000.0).toLong(), userInitiated = false)
+            showSkipUndoSnack(decided)
+        })
+        val anchor = findViewById<View>(android.R.id.content) ?: return
+        MsgUtil.createSnack(
+            anchor,
+            UiText.of(
+                getString(if (isOpening) R.string.player_s_skip_ask_op else R.string.player_s_skip_ask_ed)
+            ),
+            Snackbar.LENGTH_LONG,
+            action
+        ).show()
     }
 
     /** 跳过后给一次反悔机会：屏幕下方留一个「撤回」按钮，点一下回到被跳过的地方。 */
@@ -4428,7 +4512,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         SharedPreferencesUtil.putBoolean(SettingsKeys.PLAYER_SKIP_OP_ED_GUIDED, true)
         val action = MsgUtil.Action(SkipOpEdPrefs.guideActionText(enabled), View.OnClickListener {
             if (!enabled) {
-                SharedPreferencesUtil.putBoolean(SettingsKeys.PLAYER_SKIP_OP_ED, true)
+                // 引导只负责「一键开启」：写都跳（与升级前布尔开关打开的行为一致）
+                SkipOpEdPrefs.storeMode(SkipOpEdPrefs.GUIDE_ENABLE_MODE)
                 MsgUtil.showMsg(UiText.of("已开启自动跳过片头片尾"))
             }
         })
@@ -4526,6 +4611,150 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         ijkPlayer?.setSpeed(normalSpeed)
         danmakuManager?.setSpeed(normalSpeed)
         text_speed.text = speed_strs[seekbar_speed.progress]
+        // 长按提示只在控制栏可见时保留（showcon 会自己放出来）；控制栏收着就跟着收掉，
+        // 否则松手后「x 3.0」会孤零零挂在画面上，直到下一次自动隐藏。
+        if (layout_top.visibility != View.VISIBLE) text_speed.visibility = View.GONE
+    }
+
+    /**
+     * 长按提示（text_speed）按设置里的百分比缩放。
+     *
+     * 每次长按重读存档（改完即生效），脏值/缺失由 [LongPressSwitchPolicy.hintScale] 回默认 1.0。
+     */
+    private fun applyLongPressHintScale() {
+        val scale = LongPressSwitchPolicy.hintScale(
+            SharedPreferencesUtil.getString(
+                SettingsKeys.PLAYER_LONGPRESS_HINT_SCALE,
+                LongPressSwitchPolicy.HINT_DEFAULT_STORED
+            )
+        )
+        text_speed.scaleX = scale
+        text_speed.scaleY = scale
+    }
+
+    /**
+     * 播放页的两项「附加触摸」：
+     * 1. 长按后纵向划切视频（上划=下一条 / 下划=上一条）；
+     * 2. 点弹幕里的时间戳空降。
+     *
+     * 顺序不能反过来：切视频是一次拖动，空降判定只认短促点击，先判拖动可以避免
+     * 拖动松手那一帧被当成点击。返回 true 表示这次触摸已被消费，调用方必须直接 return true。
+     */
+    private fun handlePlayerTouchExtras(event: MotionEvent): Boolean {
+        if (handleLongPressSwitchTouch(event)) return true
+        return handleDanmakuTimeJumpTap(event)
+    }
+
+    /**
+     * 长按倍速期间，向上/向下划动切换视频。
+     *
+     * 与长按倍速的关系（回归重点）：**只有**长按已经生效（[onLongClick] 为 true）之后才开始记录起点，
+     * 松开/取消仍走原来的 [endLongPressBoost] 复位路径，所以两条手势共享同一次长按但互不抢状态。
+     * 开关关掉时直接返回 false，一次字段都不碰，行为与改造前完全一致。
+     */
+    private fun handleLongPressSwitchTouch(event: MotionEvent): Boolean {
+        if (isLiveMode) return false
+        if (!SharedPreferencesUtil.getBoolean(
+                SettingsKeys.PLAYER_LONGPRESS_SWITCH,
+                LongPressSwitchPolicy.DEFAULT_SWITCH_ENABLED
+            )
+        ) return false
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                longPressSwitchTracking = false
+                longPressSwitchConsumed = false
+                longPressSwitchStartAt = 0L
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                if (!onLongClick || longPressSwitchConsumed) return false
+                if (!longPressSwitchTracking) {
+                    longPressSwitchTracking = true
+                    longPressSwitchStartX = event.x
+                    longPressSwitchStartY = event.y
+                    longPressSwitchStartAt = event.eventTime
+                    return false
+                }
+                val screenHeight =
+                    if (layout_control.height > 0) layout_control.height
+                    else resources.displayMetrics.heightPixels
+                val direction = LongPressSwitchPolicy.direction(
+                    dxPx = event.x - longPressSwitchStartX,
+                    dyPx = event.y - longPressSwitchStartY,
+                    screenHeightPx = screenHeight,
+                    durationMs = event.eventTime - longPressSwitchStartAt,
+                    touchSlopPx = ViewConfiguration.get(this).scaledTouchSlop.toFloat()
+                )
+                if (direction == LongPressSwitchPolicy.NONE) return false
+                longPressSwitchConsumed = true
+                // 先复位倍速，再切页：切页会重建播放器，留着长按态会污染新实例的 speed。
+                endLongPressBoost()
+                gesture_click_disabled = true
+                // 没有连播队列时静默不切（savePlaySessionNow 等逻辑都不用知道这里发生过什么）。
+                if (direction == LongPressSwitchPolicy.NEXT) playNextFromQueue()
+                else playPreviousFromQueue()
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * 点击弹幕正文里的时间戳（如 `01:23` / `1:23:45`）直接空降。
+     *
+     * 为什么接在 `layout_control` 而不是 DFM 自己的 [DanmakuView.setOnDanmakuClickListener]：
+     * `activity_player.xml` 里 `layout_control` 是后声明的全屏视图、盖在 `sv_danmaku` 上，
+     * DFM 的 `DanmakuTouchHelper` 根本收不到触摸（详见 task-14 报告）。
+     *
+     * 判定用「短促 + 小位移」而不是只认 ACTION_UP：拖动进度条/双击/长按都会经过 UP，
+     * 不筛会把它们全误判成空降。命中后返回 true 消费这次触摸，未命中返回 false 让原有点击逻辑照常走。
+     */
+    private fun handleDanmakuTimeJumpTap(event: MotionEvent): Boolean {
+        if (isLiveMode || !isPrepared || !hasDanmaku) return false
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                danmakuTapDownX = event.x
+                danmakuTapDownY = event.y
+                danmakuTapDownAt = event.eventTime
+            }
+
+            MotionEvent.ACTION_UP -> {
+                // 控制栏开着时这次点击是「关控制栏」，不参与空降
+                if (onLongClick || layout_top.visibility == View.VISIBLE) return false
+                // 长按/拖动松手的事件时长会明显更长，不当作点击
+                if (event.eventTime - danmakuTapDownAt > DANMAKU_TAP_MAX_MS) return false
+                val slop = ViewConfiguration.get(this).scaledTouchSlop.toFloat()
+                if (abs(event.x - danmakuTapDownX) > slop || abs(event.y - danmakuTapDownY) > slop) return false
+                val view = mDanmakuView ?: return false
+                if (!view.isPrepared) return false
+                val hit = findTappedDanmaku(view.currentVisibleDanmakus, event.x, event.y)
+                    ?: return false
+                val match = DanmakuTimestampPolicy.find(hit.text) ?: return false
+                gesture_click_disabled = true
+                seekToPosition(match.timeMs)
+                MsgUtil.showMsg(
+                    UiText.of(getString(R.string.player_s_danmaku_jump_done, match.raw))
+                )
+                Logu.d("danmaku", "点击时间戳空降：${match.raw} -> ${match.timeMs}ms")
+                return true
+            }
+        }
+        return false
+    }
+
+    /** 在被点到坐标上找一条可见弹幕；DFM 的命中判定是矩形包围盒，与它自己的 touch helper 一致。 */
+    private fun findTappedDanmaku(danmakus: IDanmakus?, x: Float, y: Float): BaseDanmaku? {
+        if (danmakus == null || danmakus.isEmpty) return null
+        val iterator: IDanmakuIterator = danmakus.iterator()
+        while (iterator.hasNext()) {
+            val danmaku = iterator.next() ?: continue
+            if (!danmaku.isShown) continue
+            if (x >= danmaku.left && x <= danmaku.right && y >= danmaku.top && y <= danmaku.bottom) {
+                return danmaku
+            }
+        }
+        return null
     }
 
     /** 收掉可能残留的滑动进度浮层；浮层与标志都不存在时不动 UI。 */
@@ -5529,6 +5758,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // reset() 同时让在途的旧请求作废（见 loadViewPoints 的代次令牌）。
         skipDecider.reset()
         skipQuietUntilMs = 0L
+        // 「询问」档的已问集合跟着上一次 reset 一起清，保证每集都能重新问一次
+        askedSkipKeys.clear()
 
         interactionData = null
         currentEdgeId = 0
