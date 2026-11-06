@@ -144,6 +144,22 @@
         app:layout_constraintTop_toBottomOf="@id/extraCard" />
 
 
+    <!-- 评论入口：0 条时显示「评论」，有评论时显示 万/亿 数字；点击进详情页的评论页。
+         drawable 的尺寸在 DynamicHolder 里按 14dp 重设（icon_reply 的固有尺寸是 24dp，
+         直接当 compound drawable 会比这一行的 20dp 高，导致图标被裁）。 -->
+    <TextView
+        android:id="@+id/item_dynamic_comment"
+        android:layout_width="wrap_content"
+        android:layout_height="20dp"
+        android:layout_marginStart="4dp"
+        android:alpha="0.7"
+        android:gravity="center_vertical"
+        android:text="@string/dynamic_port_comment_entry"
+        android:textColor="?android:attr/textColorPrimary"
+        android:textSize="14sp"
+        app:layout_constraintStart_toEndOf="@+id/likes"
+        app:layout_constraintTop_toTopOf="@+id/likes" />
+
     <!-- MMP哪个B在代码里设置了点赞的颜色害得我排除半天色调不对的问题 -->
     <TextView
         android:id="@+id/item_dynamic_share"
@@ -155,7 +171,7 @@
         android:text="@string/text_celldynamic_02"
         android:alpha="0.7"
         app:drawableStartCompat="@drawable/icon_share"
-        app:layout_constraintStart_toEndOf="@+id/likes"
+        app:layout_constraintStart_toEndOf="@+id/item_dynamic_comment"
         app:layout_constraintTop_toTopOf="@+id/likes"
         android:textSize="14sp" />
 

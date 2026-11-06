@@ -86,6 +86,17 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
          */
         private const val MANAGE_DEDUP_MS = 400L
 
+        /**
+         * 「评论」入口跳动态详情页时传给 `seekReply` 的值：0 表示**只切到评论页、不定位具体评论**。
+         *
+         * <p>为什么是 0：`OpusInfoActivity` / `DynamicInfoActivity` 都用 `seek_reply != -1` 决定
+         * 是否把 ViewPager 切到评论页（-1 = 停在正文页），而 `ReplyApi.getRepliesLazy` 只在
+         * `rpid > 0` 时才带 `seek_rpid` 参数——于是 0 正好等于「切页但不 seek」。
+         * 这个约定在 `TerminalContext.enterDynamicDetailPage(context, id, position, seekReply)`
+         * 里已有对应参数，直接复用、不新写页面。
+         */
+        private const val COMMENT_PAGE_ONLY = 0L
+
         // 动态点赞去重：记录正在请求中的 dynamicId。
         // 放在 companion 里而不是实例字段，是因为 ViewHolder 会被回收复用，
         // 实例字段会随着复用被重置而失去去重效果。用同步 Set 是因为它会被点击线程和请求线程同时访问。
@@ -392,6 +403,9 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
     var item_dynamic_share: TextView? = null
     var item_dynamic_delete: TextView? = null
     var likeCount: TextView? = null
+
+    /** 卡片操作栏的「评论」入口（只有父卡片有：子转发卡片 `cell_dynamic_child` 没有操作栏）。 */
+    var item_dynamic_comment: TextView? = null
     lateinit var cell_dynamic_child: View
     var relayDynamicLauncher: ActivityResultLauncher<Intent>? = null
     var childDynamicHolder: DynamicHolder? = null
@@ -500,6 +514,7 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
             item_dynamic_share = itemView.findViewById(R.id.item_dynamic_share)
             likeCount = itemView.findViewById(R.id.likes)
             item_dynamic_delete = itemView.findViewById(R.id.item_dynamic_delete)
+            item_dynamic_comment = itemView.findViewById(R.id.item_dynamic_comment)
             relayDynamicLauncher = mActivity.relayDynamicLauncher
             this.cell_dynamic_child = extraCard.findViewById(R.id.dynamic_child)
             this.cell_dynamic_video = extraCard.findViewById(R.id.dynamic_video_extra)
@@ -1003,6 +1018,35 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
                         likingDynamicIds.remove(dynamic.dynamicId)
                     }
                 }
+            }
+        }
+
+        // 「评论」入口：0 条显示「评论」标签，有数显示 万/亿 数字；点击进详情页的评论页。
+        if (item_dynamic_comment != null) {
+            val emptyLabel = context.getString(R.string.dynamic_port_comment_entry)
+            val commentText = DynamicCommentText.build(dynamic.stats?.reply?.toLong() ?: 0L, emptyLabel)
+            item_dynamic_comment!!.text = commentText
+            item_dynamic_comment!!.contentDescription = if (commentText == emptyLabel) {
+                emptyLabel
+            } else {
+                context.getString(R.string.dynamic_port_comment_desc, commentText)
+            }
+            // icon_reply 固有尺寸 24dp，比这一行的 20dp 高，直接当 compound drawable 会被裁；
+            // 按 14dp 重设边界，与同行 icon_reply_like0（14dp）视觉一致（不新增 drawable）。
+            val icon = ContextCompat.getDrawable(context, R.drawable.icon_reply)
+            if (icon != null) {
+                val side = (context.resources.displayMetrics.density * 14f).toInt()
+                icon.setBounds(0, 0, side, side)
+                item_dynamic_comment!!.setCompoundDrawables(icon, null, null, null)
+            }
+            item_dynamic_comment!!.isEnabled = dynamic.dynamicId > 0L
+            item_dynamic_comment!!.setOnClickListener {
+                if (dynamic.dynamicId <= 0L) return@setOnClickListener
+                // 复用现成跳法（不新写页面）：seekReply=0 表示只切到评论页、不定位具体评论，
+                // 见 [COMMENT_PAGE_ONLY]。
+                TerminalContext.getInstance().enterDynamicDetailPage(
+                    context, dynamic.dynamicId, adapterPosition, COMMENT_PAGE_ONLY
+                )
             }
         }
     }

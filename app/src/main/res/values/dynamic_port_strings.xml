@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 动态卡片操作栏的「评论」入口：0 条评论时显示这个标签，有评论时显示 万/亿 数字。 -->
+    <string name="dynamic_port_comment_entry">评论</string>
+    <!-- 「评论」入口的无障碍描述（有评论数时用，%1$s 是已经缩写过的数字）。 -->
+    <string name="dynamic_port_comment_desc">评论，共 %1$s 条</string>
+</resources>

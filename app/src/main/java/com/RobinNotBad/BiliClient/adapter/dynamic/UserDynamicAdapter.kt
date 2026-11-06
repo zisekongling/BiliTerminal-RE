@@ -132,6 +132,7 @@ class UserDynamicAdapter(
         val userMedal: TextView = itemView.findViewById(R.id.userMedal)
         val userDesc: TextView = itemView.findViewById(R.id.userDesc)
         val userNotice: TextView = itemView.findViewById(R.id.userNotice)
+        val userGenderIp: TextView = itemView.findViewById(R.id.userGenderIp)
         val userOfficial: TextView = itemView.findViewById(R.id.userOfficial)
         val exclusiveTipLabel: TextView = itemView.findViewById(R.id.exclusiveTipLabel)
         val liveRoomLabel: TextView = itemView.findViewById(R.id.liveRoomLabel)
@@ -382,6 +383,18 @@ class UserDynamicAdapter(
             }
 
             loadElectricPanel(context, userInfo)
+
+            // 性别 / IP 属地（批次 1）：数据在 UserInfo（`x/space/wbi/acc/info` 的 sex / ip_location），
+            // 「什么情况显示、顺序、分隔符」由 UserInfoApi.buildGenderIpLine 统一决定（纯函数，有 JVM 单测）。
+            // 每次都重设 text 与 visibility，避免 Holder 复用后残留上一条用户的行。
+            val genderIpLine = UserInfoApi.buildGenderIpLine(
+                userInfo,
+                context.getString(R.string.social_user_sex_format),
+                context.getString(R.string.social_user_ip_format),
+                context.getString(R.string.social_user_meta_separator)
+            )
+            this.userGenderIp.text = genderIpLine
+            this.userGenderIp.visibility = if (genderIpLine.isEmpty()) View.GONE else View.VISIBLE
 
         }
 

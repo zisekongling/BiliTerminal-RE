@@ -1004,7 +1004,16 @@ public class DynamicApi {
                 stats.liked = like.optBoolean("status", false);
                 stats.like_disabled = like.optBoolean("forbidden", false);
             }
-            // TODO 转发&回复
+            // 评论数（task-8）：`DynamicHolder` 的「评论」入口要拿它显示 万/亿 数字，
+            // 之前这里只有 like，stats.reply 恒为 0 → 入口永远只能显示「评论」两个字。
+            // 字段位置与 like.count 同层（`module_stat.comment.count`），缺失时保持 0 即显示标签。
+            JSONObject comment = module_stat.optJSONObject("comment");
+            if (comment != null) {
+                stats.reply = comment.optInt("count", 0);
+                stats.reply_disabled = comment.optBoolean("forbidden", false)
+                        || comment.optBoolean("hidden", false);
+            }
+            // TODO 转发
 
             dynamic.stats = stats;
         }

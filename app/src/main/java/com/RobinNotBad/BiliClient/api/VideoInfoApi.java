@@ -77,7 +77,9 @@ public class VideoInfoApi {
         collection.intro = json.optString("intro");
         collection.cover = json.optString("cover");
         collection.mid = json.optLong("mid");
-        collection.view = StringUtil.toWan(json.getJSONObject("stat").optLong("view"));
+        // stat 缺失时以前直接 getJSONObject 抛异常；播放量只用于显示，降级成 0 即可
+        JSONObject seasonStat = json.optJSONObject("stat");
+        collection.view = StringUtil.toWan(seasonStat == null ? 0L : seasonStat.optLong("view"));
         JSONArray sections = json.optJSONArray("sections");
         if (sections != null) {
             List<Collection.Section> sectionList = new ArrayList<>();
@@ -175,7 +177,8 @@ public class VideoInfoApi {
             ArrayList<Long> cids = new ArrayList<>();
             for (int i = 0; i < pages.length(); i++) {
                 JSONObject page = pages.getJSONObject(i);
-                String pagename = page.getString("part");
+                // part 只用于显示分P标题：缺字段没必要让整个详情页抛异常
+                String pagename = page.optString("part");
                 pagenames.add(pagename);
                 Logu.v("第" + i + "个视频的标题", pagename);
                 long cid = page.getLong("cid");
@@ -197,40 +200,47 @@ public class VideoInfoApi {
 
         ArrayList<UserInfo> staff_list = new ArrayList<>();
         if (videoInfo.isCooperation) { //如果是联合投稿就存储联合UP列表
-            JSONArray staff = data.getJSONArray("staff");
-            for (int i = 0; i < staff.length(); i++) {
-                UserInfo staff_member = new UserInfo();
-                JSONObject staff_info = staff.getJSONObject(i);
+            // 「is_cooperation=1 但 staff 缺失/为 null」的响应出现过：getJSONArray 会直接抛，
+            // 把整个详情页打挂。缺列表按「没有联合 UP」处理，页面本来就有空列表兜底。
+            JSONArray staff = data.optJSONArray("staff");
+            if (staff != null) {
+                for (int i = 0; i < staff.length(); i++) {
+                    JSONObject staff_info = staff.optJSONObject(i);
+                    if (staff_info == null) continue;
+                    UserInfo staff_member = new UserInfo();
 
-                staff_member.mid = staff_info.getLong("mid");
-                staff_member.sign = staff_info.getString("title"); //卡片的简介用来显示参与的事物
-                staff_member.name = staff_info.getString("name");
-                staff_member.avatar = staff_info.getString("face");
-                staff_member.fans = staff_info.getInt("follower");
-                staff_member.level = 6;
-                staff_member.followed = false;
-                staff_member.notice = "";
-                staff_member.official = staff_info.getJSONObject("official").getInt("role");
-                staff_member.officialDesc = staff_info.getJSONObject("official").getString("title");
+                    staff_member.mid = staff_info.optLong("mid");
+                    staff_member.sign = staff_info.optString("title"); //卡片的简介用来显示参与的事物
+                    staff_member.name = staff_info.optString("name");
+                    staff_member.avatar = staff_info.optString("face");
+                    staff_member.fans = staff_info.optInt("follower");
+                    staff_member.level = 6;
+                    staff_member.followed = false;
+                    staff_member.notice = "";
+                    // official 在部分联合投稿成员上缺失；以前这里两次 getJSONObject 都会抛
+                    JSONObject official = staff_info.optJSONObject("official");
+                    if (official != null) {
+                        staff_member.official = official.optInt("role");
+                        staff_member.officialDesc = official.optString("title");
+                    }
 
-                staff_list.add(staff_member);
+                    staff_list.add(staff_member);
+                }
             }
         } else {
-            if (data.optJSONObject("owner") != null) {
-                JSONObject owner = data.getJSONObject("owner");
+            JSONObject owner = data.optJSONObject("owner");
+            if (owner != null) {
                 UserInfo userInfo = new UserInfo();
-                userInfo.name = owner.getString("name");
-                userInfo.avatar = owner.getString("face");
-                userInfo.mid = owner.getLong("mid");
+                userInfo.name = owner.optString("name");
+                userInfo.avatar = owner.optString("face");
+                userInfo.mid = owner.optLong("mid");
                 userInfo.sign = "UP主";
                 staff_list.add(userInfo);
             }
         }
         videoInfo.staff = staff_list;
 
-        if (data.optJSONObject("argue_info") != null) {
-            videoInfo.argueMsg = data.getJSONObject("argue_info").getString("argue_msg");
-        }
+        videoInfo.argueMsg = parseArgueMsg(data);
 
         try {
             if (data.has("redirect_url") && (!data.getString("redirect_url").isEmpty()) && (data.getString("redirect_url").contains("bangumi")))
@@ -247,6 +257,24 @@ public class VideoInfoApi {
         }
 
         return videoInfo;
+    }
+
+    /**
+     * 纯解析「争议信息」。
+     *
+     * <p>原实现是「判了 {@code argue_info} 非空，却用 {@code getString("argue_msg")}」：
+     * 服务端出现过「有 {@code argue_info} 对象但缺 {@code argue_msg}」的形态，这时
+     * {@code getString} 抛 {@code JSONException}，整页详情直接加载失败（Revival 1.2.5-BETA
+     * 修过同一处崩溃）。这里缺字段一律按「没有争议信息」处理，返回空串而不是 null——
+     * {@code VideoInfoFragment} 直接对 {@code argueMsg} 调 {@code isNotEmpty()}，null 会 NPE。
+     *
+     * @return 争议信息正文；无争议信息或字段缺失时返回空串（永不为 null）
+     */
+    public static String parseArgueMsg(JSONObject data) {
+        if (data == null) return "";
+        JSONObject argueInfo = data.optJSONObject("argue_info");
+        if (argueInfo == null) return "";
+        return argueInfo.optString("argue_msg");
     }
 
     public static String getWatching(long aid, long cid) throws IOException, JSONException {
