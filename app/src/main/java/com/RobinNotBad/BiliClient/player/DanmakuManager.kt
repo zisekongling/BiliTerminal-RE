@@ -5,6 +5,7 @@ import com.RobinNotBad.BiliClient.util.UiText
 import android.content.Context
 import android.graphics.Color
 import com.RobinNotBad.BiliClient.model.DmSegMobileReply
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.DeviceProfile
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.SettingsKeys
@@ -82,6 +83,19 @@ class DanmakuManager(
      */
     private val appendLock = Any()
     private val pendingSegments = ArrayList<DmSegMobileReply>()
+
+    /**
+     * 批次 3「本人弹幕边框」的判定快照：是否开启、本人 mid、边框色。
+     *
+     * 为什么是快照而不是每次读 SharedPreferences：
+     * - 判定发生在 DFM 的**渲染线程**（`prepared()` 回调里遍历全部弹幕）与逐条追加路径上，
+     *   那里绝不能做 SharedPreferences / 主题缓存的 IO；
+     * - 设置项本来也只在「下一次加载弹幕」时生效（换视频 / 切 P / 重进播放页会重新 prepare），
+     *   在 [configureAndPrepare] 里刷新一次正是这个粒度。
+     */
+    private var selfBorderEnabled = false
+    private var selfBorderOwnMid = 0L
+    private var selfBorderColor = 0
 
     private val _state = MutableStateFlow(DanmakuState())
     val state: StateFlow<DanmakuState> = _state.asStateFlow()
@@ -245,6 +259,10 @@ class DanmakuManager(
         // 还没灌进去的分段必须丢掉，否则会串到新视频的时间轴上（弹幕「提前出现」或重复）。
         synchronized(appendLock) { pendingSegments.clear() }
 
+        // 批次 3：刷新「本人弹幕边框」的判定快照（开关 / 本人 mid / 主题主色）。
+        // 必须在这里（调用方的主线程）算好，`prepared()` 跑在渲染线程上只能读字段。
+        refreshSelfBorderSpec()
+
         val st = _state.value
         // E2：强制为滚动弹幕开启时，解析结果里的顶部/底部弹幕要换成滚动弹幕
         // （DFM 的类型由具体子类决定，必须换实例，见 [ForceScrollParser]）。
@@ -281,6 +299,10 @@ class DanmakuManager(
                     // 必须放在这里 —— `DrawHandler.addDanmaku` 在 drawTask 就绪前会静默丢弃，
                     // 那正是「弹幕只出前几分钟」这类问题的根因。
                     flushPendingSegments()
+                    // 批次 3：给本人的弹幕加边框。必须放在 prepared()（首帧绘制之前）——
+                    // DFM 的 `paintWidth/paintHeight` 是首帧 measure 时才定（带边框会多出
+                    // 2*BORDER_WIDTH 的内边距），之后再设 borderColor 会出现「框比字小」。
+                    markSelfDanmakuBorders()
                     // 补设可见性：`show()` / `hide()` 在 prepare 之前调用时只把意图写进 state，
                     // 真正作用到 DanmakuView 的这一步必须在这里补。漏掉的话，用户明明已经关掉弹幕，
                     // 新建的 DanmakuManager（短视频每条一建、长视频切 P 也重建）却按默认可见起播，
@@ -421,6 +443,46 @@ class DanmakuManager(
     }
 
     /**
+     * 批次 3：刷新「本人弹幕边框」的判定快照。
+     *
+     * 只在 [configureAndPrepare] 里调用（调用方主线程）。开关默认开
+     * （`SettingsKeys.PLAYER_DANMAKU_SELF_BORDER`）；未登录时 [selfBorderOwnMid] <= 0，
+     * 即使开关开着也不会有任何弹幕命中。
+     */
+    private fun refreshSelfBorderSpec() {
+        selfBorderEnabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_DANMAKU_SELF_BORDER, true)
+        selfBorderOwnMid = SharedPreferencesUtil.getLong(SettingsKeys.MID, 0L)
+        // 主题主色可能带透明度；DFM 画的是描边矩形，半透明在视频画面上几乎看不见，
+        // 所以统一置为不透明（见 DanmakuSelfStylePolicy.borderColorFor）。
+        selfBorderColor = DanmakuSelfStylePolicy.borderColorFor(ColorScheme.PRIMARY)
+    }
+
+    /**
+     * 批次 3：遍历解析结果，给本人的弹幕设置边框色（在 DFM 渲染线程的 `prepared()` 里调用）。
+     *
+     * - 时机：此时 `DrawTask` 已 `getDanmakus()` 拿到缓存集合，遍历不会触发重新解析；
+     *   且首帧尚未绘制，`measure()` 会算上边框内边距（`AndroidDisplayer` 在
+     *   `borderColor != 0` 时给宽高各加 `2 * BORDER_WIDTH`），边框不会压住文字。
+     * - 复杂度：单次 O(n) 的字符串归一化比较；5000 条弹幕量级约 1~2ms，**一次性**，
+     *   不进渲染循环、不产生额外对象分配（`normalize` 最多生成短字符串）。
+     * - 覆盖范围：首窗口与「prepare 期间补灌的分段」都在解析结果里，见 [flushPendingSegments]。
+     */
+    private fun markSelfDanmakuBorders() {
+        if (!selfBorderEnabled || selfBorderOwnMid <= 0L) return
+        val items = danmakuParser?.danmakus ?: return
+        val iterator = items.iterator()
+        var marked = 0
+        while (iterator.hasNext()) {
+            val item = iterator.next() ?: continue
+            if (DanmakuSelfStylePolicy.matchesOwnHash(selfBorderOwnMid, item.userHash)) {
+                item.borderColor = selfBorderColor
+                marked++
+            }
+        }
+        if (marked > 0) Logu.d("弹幕", "本人弹幕边框：已标记 $marked 条")
+    }
+
+    /**
      * 单个分段 → 逐条 `addDanmaku`。
      *
      * 字段换算**必须与 `BiliProtobufDanmakuParser.parseDanmakuElem` 保持一致**（那条路径仍在用：
@@ -447,6 +509,15 @@ class DanmakuManager(
                 item.textColor = elem.color or 0xFF000000.toInt()
                 item.textShadowColor =
                     if ((elem.color or 0xFF000000.toInt()) <= Color.BLACK) Color.WHITE else Color.BLACK
+                // 批次 3：窗口追加的分段同样要识别本人弹幕。首窗口走解析器 + `prepared()` 遍历，
+                // 后续分段是应用层逐条建实例，两条路径都得覆盖，
+                // 否则「视频后半段自己发的弹幕没有边框」。
+                if (DanmakuSelfStylePolicy.shouldApplyBorder(
+                        selfBorderOwnMid, elem.midHash, selfBorderEnabled
+                    )
+                ) {
+                    item.borderColor = selfBorderColor
+                }
                 // 不在这里 setTimer / 设 flags：`DrawHandler.addDanmaku` 会自己补
                 // `item.flags = mGlobalFlagValues` 与 `item.setTimer(timer)`，
                 // 我们拿不到渲染线程的 timer（也没有稳定句柄），重复设置反而会打乱计时基准。

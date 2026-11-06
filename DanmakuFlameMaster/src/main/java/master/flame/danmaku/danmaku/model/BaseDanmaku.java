@@ -98,8 +98,14 @@ public abstract class BaseDanmaku {
 
     /**
      * 框的颜色,0表示无框
+     *
+     * <p>26.11.06：由 {@code final} 改为可写，供「本人弹幕边框」功能使用——
+     * 写入方是应用层 {@code player/DanmakuManager}（遍历解析结果、按发送者 mid 的 CRC32
+     * 比对后给本人的弹幕赋值），读取方只有 {@code model/android/AndroidDisplayer}
+     * （测量时加边框内边距、绘制时画方框，均在 {@code borderColor != 0} 时生效）。
+     * 默认值仍为 0，即不设边框时行为与改动前完全一致。
      */
-    public final int borderColor = 0;
+    public int borderColor = 0;
 
     /**
      * 内边距(像素)

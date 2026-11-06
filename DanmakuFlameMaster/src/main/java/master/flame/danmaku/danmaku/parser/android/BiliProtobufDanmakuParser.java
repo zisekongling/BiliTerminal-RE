@@ -107,6 +107,10 @@ public class BiliProtobufDanmakuParser extends BaseDanmakuParser {
                 DanmakuUtils.fillText(item, content);
                 item.index = index;
 
+                // 26.11.06：把发送者 hash（mid 的 CRC32，十六进制字符串）带进模型，
+                // 供应用层「本人弹幕边框」与既有的黑名单过滤使用；字段可能为 null。
+                item.userHash = (String) elemClass.getField("midHash").get(elemObj);
+
                 item.textSize = fontsize * (mDispDensity - 0.6f);
 
                 item.textColor = color | 0xFF000000;

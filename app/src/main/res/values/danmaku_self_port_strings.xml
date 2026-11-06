@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  批次 3 移植项「本人弹幕边框」的文案（26.11.06）。
+
+  为什么不写进 res/values/strings.xml：批次 3 有 4 路并行改动，strings.xml 是公共文件，
+  谁都在改就会互相覆盖；移植项统一放各自的 *_port_strings.xml，收尾时再决定要不要并入。
+-->
+<resources>
+    <string name="danmaku_self_border_name">本人弹幕边框</string>
+    <string name="danmaku_self_border_desc">给自己发送的弹幕加一圈主题色边框（需登录）</string>
+</resources>

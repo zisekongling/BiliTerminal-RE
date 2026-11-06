@@ -137,6 +137,9 @@ public class BiliDanmukuParser extends BaseDanmakuParser {
                             item.textSize = textSize * (mDispDensity - 0.6f);
                             item.textColor = color;
                             item.textShadowColor = color <= Color.BLACK ? Color.WHITE : Color.BLACK;
+                            // 26.11.06：第 6 段是发送者 hash（mid 的 CRC32 十六进制串），
+                            // 供应用层「本人弹幕边框」与既有黑名单过滤使用。
+                            item.userHash = values.length > 6 ? values[6] : null;
                         }
                     } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
                         // 单条脏数据不能把整页弹幕解析带崩：本方法跑在 DanmakuFlameMaster 的
