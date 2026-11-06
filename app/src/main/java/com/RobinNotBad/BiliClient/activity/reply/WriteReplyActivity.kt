@@ -223,7 +223,16 @@ class WriteReplyActivity : BaseActivity() {
             emoteLauncher.launch(Intent(this, EmoteActivity::class.java).putExtra("from", EmoteApi.BUSINESS_REPLY))
         }
 
-        findViewById<android.view.View>(R.id.image).setOnClickListener {
+        // 图片评论只对「一级评论」开放：B 站的楼中楼回复（root/parent 非 0）不支持 pictures 参数，
+        // 传了也会被服务端忽略。早先这里的图片入口对楼中楼同样显示，用户选图、等压缩上传、
+        // 发出去却没有图，白等一场还以为是发送失败。所以按 rpid/parent 判一级评论，
+        // 不是一级评论就把入口整个收起来（imageText 一并隐藏，否则会留一个孤零零的「图片」）。
+        val isRootCommentBox = rpid == 0L && parent == 0L
+        val imageEntry = findViewById<android.view.View>(R.id.image)
+        if (!isRootCommentBox) {
+            imageEntry.visibility = android.view.View.GONE
+            imageText.visibility = android.view.View.GONE
+        } else imageEntry.setOnClickListener {
             // 不再按大会员前置拦截：图片评论的权限由服务端判定，客户端拦只会把
             // 「服务端其实允许」的用户挡在门外（26.11.02 用户点名：发图不需要大会员）。
             // 真正被拒时服务端会回错误码，发送失败分支会把码/原话展示出来。

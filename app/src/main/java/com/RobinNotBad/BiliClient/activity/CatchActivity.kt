@@ -165,7 +165,11 @@ class CatchActivity : BaseActivity() {
         }
 
         if (reasonStr != null) {
-            reasonStr.setSpan(StyleSpan(Typeface.BOLD), 0, 8, Spanned.SPAN_INCLUSIVE_EXCLUSIVE)
+            // 结束下标必须夹到字符串长度内：早先写死 8，一旦上面某条原因文案短于 8 个字
+            // 就会 IndexOutOfBoundsException——崩溃页自己再崩一次，报错信息还全丢了。
+            val boldEnd = minOf(8, reasonStr.length)
+            if (boldEnd > 0)
+                reasonStr.setSpan(StyleSpan(Typeface.BOLD), 0, boldEnd, Spanned.SPAN_INCLUSIVE_EXCLUSIVE)
             reasonView.text = reasonStr
         } else reasonView.text = UiText.of("未知的崩溃原因")
 
