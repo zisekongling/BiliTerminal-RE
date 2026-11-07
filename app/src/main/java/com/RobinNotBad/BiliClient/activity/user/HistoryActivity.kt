@@ -230,7 +230,7 @@ class HistoryActivity : RefreshListActivity() {
             title = getString(R.string.social_history_delete_title),
             message = getString(R.string.social_history_delete_single_message, card.title),
             confirmText = getString(R.string.social_history_delete_confirm),
-            cancelText = getString(R.string.social_history_cancel)
+            cancelText = getString(R.string.btn_cancel)
         ) {
             CenterThreadPool.run {
                 try {
@@ -348,7 +348,7 @@ class HistoryActivity : RefreshListActivity() {
         rows.forEachIndexed { index, row -> row.root.setOnClickListener { toggle(index) } }
         selectAllRow.root.setOnClickListener { toggleAll() }
 
-        sheet.addButton(getString(R.string.social_history_cancel), sheet.secondaryColor()) {
+        sheet.addButton(getString(R.string.btn_cancel), sheet.secondaryColor()) {
             sheet.dialog.dismiss()
         }
         sheet.addButton(getString(R.string.social_history_delete_selected), sheet.errorColor()) {
@@ -384,7 +384,7 @@ class HistoryActivity : RefreshListActivity() {
             title = getString(R.string.social_history_delete_title),
             message = getString(R.string.social_history_delete_batch_message, aids.size),
             confirmText = getString(R.string.social_history_delete_confirm),
-            cancelText = getString(R.string.social_history_cancel)
+            cancelText = getString(R.string.btn_cancel)
         ) {
             CenterThreadPool.run {
                 val succeeded = HistoryApi.deleteHistoryBatch(aids)

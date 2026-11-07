@@ -27,7 +27,6 @@
     <string name="social_history_delete_single_message">将删除这条观看记录，无法恢复：\n\n%1$s</string>
     <string name="social_history_delete_batch_message">将删除选中的 %1$d 条观看记录，无法恢复。</string>
     <string name="social_history_delete_confirm">删除</string>
-    <string name="social_history_cancel">取消</string>
     <string name="social_history_select_all">全选</string>
     <string name="social_history_deselect_all">取消全选</string>
     <string name="social_history_selected_count">已选 %1$d 条</string>

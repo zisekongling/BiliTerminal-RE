@@ -838,7 +838,7 @@ object UiText {
         "确定把《%1\$s》从收藏夹里去掉吗？" to R.string.uitext_favoritevideolistactivity_020,
         "删除失败，错误码：%1\$s" to R.string.uitext_favoritevideolistactivity_021,
         "取消失败，错误码：%1\$s" to R.string.uitext_favoritevideolistactivity_022,
-        "%1\$s（虚拟合集）" to R.string.uitext_favoritevideolistactivity_023,
+        "%1\$s（虚拟合集）" to R.string.uitext_locallistactivity_035,
         "用户信息-%1\$s" to R.string.uitext_userinfoactivity_002,
         "已完结" to R.string.uitext_bangumiinfofragment_020,
         "连载中" to R.string.uitext_bangumiinfofragment_021,

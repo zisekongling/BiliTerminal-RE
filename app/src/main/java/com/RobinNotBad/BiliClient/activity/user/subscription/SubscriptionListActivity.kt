@@ -12,6 +12,7 @@ import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
+import com.RobinNotBad.BiliClient.util.subscriptionErrorText
 
 /**
  * 「我的订阅」：我订阅的收藏夹与合集。
@@ -58,7 +59,7 @@ class SubscriptionListActivity : RefreshListActivity() {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     if (result.first != 0) {
                         // -101/-111 等：给明确文案，空态可点重试
-                        MsgUtil.showMsg(errorText(result.first))
+                        MsgUtil.showMsg(subscriptionErrorText(result.first))
                         showEmptyView()
                         setRefreshing(false)
                         return@runOnUiThread
@@ -97,7 +98,7 @@ class SubscriptionListActivity : RefreshListActivity() {
                         this.page--
                         onLoadComplete()
                         setRefreshing(false)
-                        MsgUtil.showMsg(errorText(result.first))
+                        MsgUtil.showMsg(subscriptionErrorText(result.first))
                         return@runOnUiThread
                     }
                     val lastSize = folderList.size
@@ -160,7 +161,7 @@ class SubscriptionListActivity : RefreshListActivity() {
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     if (code != 0) {
-                        MsgUtil.showMsg(errorText(code))
+                        MsgUtil.showMsg(subscriptionErrorText(code))
                         return@runOnUiThread
                     }
                     MsgUtil.showMsg(getString(R.string.msg_subscription_cancelled))
@@ -183,12 +184,4 @@ class SubscriptionListActivity : RefreshListActivity() {
         if (folderList.isEmpty()) showEmptyView()
     }
 
-    /** 接口错误码 → 可读文案。调用方都在 UI 线程，直接用 Activity 的 getString。 */
-    private fun errorText(code: Int): String = when (code) {
-        -101 -> getString(R.string.msg_subscription_need_login)
-        -111 -> getString(R.string.msg_subscription_csrf_invalid)
-        -400 -> getString(R.string.msg_subscription_bad_request)
-        11010 -> getString(R.string.msg_subscription_content_gone)
-        else -> getString(R.string.msg_subscription_failed_with_code, code)
-    }
 }

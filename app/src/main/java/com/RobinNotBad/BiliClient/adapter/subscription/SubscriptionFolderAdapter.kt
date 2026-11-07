@@ -53,7 +53,7 @@ class SubscriptionFolderAdapter(
             R.string.text_subscription_meta,
             context.getString(
                 if (item.isSeason) R.string.text_subscription_type_season
-                else R.string.text_subscription_type_folder
+                else R.string.uitext_favoritevideolistactivity_011
             ),
             item.mediaCount
         )

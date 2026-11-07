@@ -53,17 +53,17 @@ class AboutActivity : BaseActivity() {
 
         /** 主要开发者。 */
         private val DEVELOPERS_MAIN = listOf(
-            Developer("RobinNotBad", "", R.mipmap.avatar_robin, 646521226L, R.string.about_dev_robin_desc),
-            Developer("爅峫（moye）", "", R.mipmap.avatar_moye, 394675616L, R.string.about_dev_moye_desc),
+            Developer("RobinNotBad", "", R.mipmap.avatar_robin, 646521226L, R.string.settingtext_aboutactivity_001),
+            Developer("爅峫（moye）", "", R.mipmap.avatar_moye, 394675616L, R.string.settingtext_aboutactivity_003),
         )
 
         /** 联合开发者。 */
         private val DEVELOPERS_JOINT = listOf(
-            Developer("silent碎月", "", R.mipmap.avatar_silent, 40140732L, R.string.about_dev_silent_desc),
-            Developer("dudu", "", R.mipmap.avatar_dudu, 517053179L, R.string.about_dev_dudu_desc),
-            Developer("达达", "", -1, 432128342L, R.string.about_dev_dada_desc),
-            Developer("huanli233", "", R.mipmap.avatar_huanli, 673815151L, R.string.about_dev_huanli_desc),
-            Developer("Jank000.h", "", R.mipmap.avatar_jank, 661403494L, R.string.about_dev_jank_desc),
+            Developer("silent碎月", "", R.mipmap.avatar_silent, 40140732L, R.string.settingtext_aboutactivity_005),
+            Developer("dudu", "", R.mipmap.avatar_dudu, 517053179L, R.string.settingtext_aboutactivity_006),
+            Developer("达达", "", -1, 432128342L, R.string.settingtext_aboutactivity_008),
+            Developer("huanli233", "", R.mipmap.avatar_huanli, 673815151L, R.string.settingtext_aboutactivity_009),
+            Developer("Jank000.h", "", R.mipmap.avatar_jank, 661403494L, R.string.settingtext_aboutactivity_010),
         )
     }
 

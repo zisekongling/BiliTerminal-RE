@@ -32,6 +32,7 @@ import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.VirtualCollectionPrefs
 import com.RobinNotBad.BiliClient.util.VirtualCollectionStart
+import com.RobinNotBad.BiliClient.util.subscriptionErrorText
 
 class FavoriteVideoListActivity : RefreshListActivity() {
 
@@ -178,7 +179,7 @@ class FavoriteVideoListActivity : RefreshListActivity() {
 
     private fun updateSubToggle() {
         subToggle?.text = getString(
-            if (isSubscribed) R.string.text_sub_toggle_subscribed else R.string.text_sub_toggle_subscribe
+            if (isSubscribed) R.string.msg_sub_subscribed else R.string.text_sub_toggle_subscribe
         )
     }
 
@@ -212,7 +213,7 @@ class FavoriteVideoListActivity : RefreshListActivity() {
                         isSubscribed = subscribe
                         updateSubToggle()
                         MsgUtil.showMsg(
-                            getString(if (subscribe) R.string.msg_sub_subscribed else R.string.msg_sub_unsubscribed)
+                            getString(if (subscribe) R.string.msg_sub_subscribed else R.string.msg_subscription_cancelled)
                         )
                     } else {
                         MsgUtil.showMsg(subscriptionErrorText(code))
@@ -223,14 +224,6 @@ class FavoriteVideoListActivity : RefreshListActivity() {
                 report(e)
             }
         }
-    }
-
-    private fun subscriptionErrorText(code: Int): String = when (code) {
-        -101 -> getString(R.string.msg_subscription_need_login)
-        -111 -> getString(R.string.msg_subscription_csrf_invalid)
-        -400 -> getString(R.string.msg_subscription_bad_request)
-        11010 -> getString(R.string.msg_subscription_content_gone)
-        else -> getString(R.string.msg_subscription_failed_with_code, code)
     }
 
     private fun setupSortBar() {
@@ -723,7 +716,7 @@ class FavoriteVideoListActivity : RefreshListActivity() {
                 val startPageIndex = VirtualCollectionStart.resolveOnline(startPosition, startAid, cids)
                 if (startPageIndex < 0) {
                     runOnUiThread {
-                        MsgUtil.showMsg(getString(R.string.uitext_favoritevideolistactivity_025))
+                        MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_034))
                     }
                     return@run
                 }

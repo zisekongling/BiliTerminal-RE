@@ -9,6 +9,7 @@ import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
+import com.RobinNotBad.BiliClient.util.subscriptionErrorText
 
 /**
  * 订阅的合集详情：一个 season_id 下的视频列表。
@@ -57,7 +58,7 @@ class SubSeasonDetailActivity : RefreshListActivity() {
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     if (code != 0) {
-                        MsgUtil.showMsg(errorText(code))
+                        MsgUtil.showMsg(subscriptionErrorText(code))
                         showEmptyView()
                         setRefreshing(false)
                         return@runOnUiThread
@@ -94,7 +95,7 @@ class SubSeasonDetailActivity : RefreshListActivity() {
                         this.page--
                         onLoadComplete()
                         setRefreshing(false)
-                        MsgUtil.showMsg(errorText(code))
+                        MsgUtil.showMsg(subscriptionErrorText(code))
                         return@runOnUiThread
                     }
                     val lastSize = videoList.size
@@ -129,13 +130,5 @@ class SubSeasonDetailActivity : RefreshListActivity() {
         if (total > 0) return size >= total
         // 空列表必须判到底，否则滚动监听会一直触发翻页（0 % 20 == 0）
         return size == 0 || size % SubscriptionApi.PS != 0
-    }
-
-    private fun errorText(code: Int): String = when (code) {
-        -101 -> getString(R.string.msg_subscription_need_login)
-        -111 -> getString(R.string.msg_subscription_csrf_invalid)
-        -400 -> getString(R.string.msg_subscription_bad_request)
-        11010 -> getString(R.string.msg_subscription_content_gone)
-        else -> getString(R.string.msg_subscription_failed_with_code, code)
     }
 }

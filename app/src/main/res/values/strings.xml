@@ -6,13 +6,6 @@
     <!-- 千awa 的自我介绍，末尾刻意保留两个空格（原样），别顺手 trim 掉 -->
     <string name="about_dev_qianawa">"很懒，很忙，很累（  "</string>
     <string name="about_dev_kuinone_desc">Kuinone可能是迄今为止唯一一个符合RESTful API规范的苯醌</string>
-    <string name="about_dev_robin_desc">和他的纳西妲酱（项目发起者|屎山奠基人）</string>
-    <string name="about_dev_moye_desc">你就说能不能用吧（代码贡献量大|屎山铺路人|想换个头像的说）</string>
-    <string name="about_dev_silent_desc">我是镜流小姐的狗</string>
-    <string name="about_dev_dudu_desc">一个摆烂的开发者</string>
-    <string name="about_dev_dada_desc">（这位开发者很懒，什么也没有留下）</string>
-    <string name="about_dev_huanli_desc">与你的日常，就是奇迹</string>
-    <string name="about_dev_jank_desc">CQCQCQ，这里是BI1TIA，是否有友台能够抄收？</string>
     <string name="about_say">软件名来自原神中的“虚空终端”\n最低兼容安卓7.0\n愿你在这一方小小的屏幕中，找到属于自己的小小的快乐\n提示：长按设置中的“关于”按钮有彩蛋哦！</string>
     <string name="about_group_tip">哔哩终端开发团队不会对个别用户出现的个别问题进行针对性修复，不会对特殊情况下才触发的问题进行及时修复，不会保证实现不必要或难以实现的功能。\n\n另外，如果你有能力修复问题，欢迎fork终端仓库提交pr</string>
     <string name="about_group">官网：https://biliterminal.zsapp.asia/\n如果你位于福建、河南、黑龙江等地区，您可能无法正常访问官网。\n\n交流群：1129816758</string>
@@ -905,7 +898,6 @@
     <string name="text_list_no_more">没有更多了</string>
     <!-- ===== 我的订阅（收藏夹/合集订阅） ===== -->
     <string name="text_subscription_placeholder_title">订阅标题</string>
-    <string name="text_subscription_type_folder">收藏夹</string>
     <string name="text_subscription_type_season">合集</string>
     <string name="text_subscription_meta">%1$s · %2$d 个视频</string>
     <string name="msg_subscription_need_login">还没有登录喵~</string>
@@ -918,9 +910,7 @@
     <string name="msg_subscription_cancelled">已取消订阅</string>
     <string name="text_sub_toggle_loading">订阅状态加载中…</string>
     <string name="text_sub_toggle_subscribe">订阅</string>
-    <string name="text_sub_toggle_subscribed">已订阅</string>
     <string name="msg_sub_subscribed">已订阅</string>
-    <string name="msg_sub_unsubscribed">已取消订阅</string>
     <string name="msg_sub_confirm_unsub_folder">确定取消订阅该收藏夹吗？</string>
     <string name="msg_sub_confirm_unsub_season">确定取消订阅该合集吗？</string>
     <!-- ===== 下载过程（12.4 文案迁移：三批） ===== -->
@@ -2552,9 +2542,7 @@
     <string name="uitext_favoritevideolistactivity_020">确定把《%1$s》从收藏夹里去掉吗？</string>
     <string name="uitext_favoritevideolistactivity_021">删除失败，错误码：%1$s</string>
     <string name="uitext_favoritevideolistactivity_022">取消失败，错误码：%1$s</string>
-    <string name="uitext_favoritevideolistactivity_023">%1$s（虚拟合集）</string>
     <string name="uitext_favoritevideolistactivity_024">以虚拟合集连播</string>
-    <string name="uitext_favoritevideolistactivity_025">无法定位起始视频，请重新选择</string>
     <string name="uitext_favoritevideolistactivity_026">点条目勾选，再点「删除」或「下载」</string>
     <string name="uitext_userinfoactivity_002">用户信息-%1$s</string>
     <string name="uitext_bangumiinfofragment_020">已完结</string>
