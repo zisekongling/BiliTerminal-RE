@@ -158,7 +158,9 @@ open class BaseActivity : AppCompatActivity() {
             SharedPreferencesUtil.getInt(SettingsKeys.PADDING_V, 0),
             SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROUND, false)
         )
-        if (insets.left != 0 || insets.top != 0) {
+        // 判据必须用 isEmpty：圆屏适配只让出底部（extraBottom）而「界面边距」留默认 0 时，
+        // left/top 都是 0，旧写法会把整段跳过，底部补偿与窗口尺寸一起失效。
+        if (!insets.isEmpty) {
             Logu.d("debug", "调整边距")
             window_width = scrW - insets.left - insets.right
             window_height = scrH - insets.top - insets.bottom

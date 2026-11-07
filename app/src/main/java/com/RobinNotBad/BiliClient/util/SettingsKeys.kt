@@ -229,6 +229,13 @@ object SettingsKeys {
     const val PLAYER_DANMAKU_SIZE = "player_danmaku_size"
     const val PLAYER_DANMAKU_TRANSPARENCY = "player_danmaku_transparency"
     const val PLAYER_DANMAKU_SPEED = "player_danmaku_speed"
+    /**
+     * 弹幕磁盘缓存上限（list_choose 存字符串，单位 MB）。
+     *
+     * 读写都在 util/DanmakuDiskCache，登记在这里只为「设置键集中一处」，
+     * 别在业务类里另起同义键名。
+     */
+    const val PLAYER_DANMAKU_CACHE_MAX_MB = "player_danmaku_cache_max_mb"
     const val PLAYER_SUBTITLE_AUTOSHOW = "player_subtitle_autoshow"
     const val PLAYER_SUBTITLE_AI_ALLOWED = "player_subtitle_ai_allowed"
     const val PLAYER_SUBTITLE_DELTA = "player_subtitle_delta"

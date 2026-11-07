@@ -155,8 +155,8 @@ class DanmakuDiskCache(
         /** 1MB 的字节数。 */
         const val MB = 1024L * 1024L
 
-        /** 缓存上限的设置键（`list_choose` 存字符串）。 */
-        const val KEY_MAX_MB = "player_danmaku_cache_max_mb"
+        /** 缓存上限的设置键（`list_choose` 存字符串，键本身登记在 [SettingsKeys]）。 */
+        const val KEY_MAX_MB = SettingsKeys.PLAYER_DANMAKU_CACHE_MAX_MB
 
         /** 默认上限 64MB：约可缓存 6 分钟视频的 400 段，实际远超日常观看量。 */
         const val DEFAULT_MAX_MB = 64

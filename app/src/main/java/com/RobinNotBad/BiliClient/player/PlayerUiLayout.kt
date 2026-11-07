@@ -17,16 +17,17 @@ package com.RobinNotBad.BiliClient.player
  * - 段顺序固定为 左 / 右 / 底部左 / 底部右；
  * - 空段表示该区域没有槽位（合法）。
  *
- * **为什么不用 JSON**：JVM 单测里 `org.json` 是 Android 的桩实现（`testOptions.unitTests
- * .returnDefaultValues = true` 下只返回默认值、不真解析），JSON 化的布局没法在单测里验证；
- * 而且仓库里同类的「用户自定义布局」`util/MySpaceConfig.kt` 用的就是分隔符串，格式风格保持一致。
+ * **为什么不用 JSON**：仓库里同类的「用户自定义布局」`util/MySpaceConfig.kt` 用的就是分隔符串，
+ * 两份配置格式风格保持一致；分隔符串在 JVM 单测里也不需要额外依赖就能逐字验证
+ * （`org.json` 在单测里是可用的——`testImplementation 'org.json:json'`——但没必要为四个区域引入它）。
  *
  * ## 容错口径
  *
  * - **结构非法**（段数不对、版本不认识、花括号不配对）→ 整体回退默认布局（与 MySpaceConfig 一致，
  *   宁可回到默认，也不要把用户按钮弄丢一半）；
  * - **单个 key 没登记**（旧版本删掉的按钮、手改脏的数据）→ 只丢这个 key，其余保留；
- * - **组里有效 key 少于 2 个** → 1 个降级成单按钮，0 个整组丢弃；
+ * - **组里有效 key 只剩 1 个** → 仍然保留成组，不降级成单按钮（用户是先建组再往里放成员的，
+ *   中途必然出现单成员组；悄悄拆掉组会让他刚建的组消失），0 个整组丢弃；
  * - **超出容量** → 截到 [Region.capacity]。
  */
 object PlayerUiLayout {

@@ -101,7 +101,8 @@ class FavoriteAggregatePolicyTest {
             )
         )
         assertEquals(listOf(3L, 1L), result.items.map { it.card.aid })
-        assertEquals(3, result.folderCount)
+        // 失败的夹一条都没贡献，不能算进「来自 N 个收藏夹」；两个数相加才是请求过的夹数
+        assertEquals(2, result.folderCount)
         assertEquals(1, result.failedFolderCount)
     }
 

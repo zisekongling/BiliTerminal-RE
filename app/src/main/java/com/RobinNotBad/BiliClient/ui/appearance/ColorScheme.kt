@@ -711,18 +711,18 @@ object ColorScheme {
         // （ColorMode.nightBits(forceDark = true)），按偏好取会让强制暗色的页面压一层亮色蒙版。
         val nightMode = activity.resources.configuration.uiMode and
             android.content.res.Configuration.UI_MODE_NIGHT_MASK
-        val wallpaper = BackgroundImage.drawable(
-            nightMode == android.content.res.Configuration.UI_MODE_NIGHT_NO,
-            BACKGROUND
-        )
+        val isLightNight = nightMode == android.content.res.Configuration.UI_MODE_NIGHT_NO
+        val wallpaper = BackgroundImage.drawable(isLightNight, BACKGROUND)
         if (wallpaper != null) {
             // 自定义背景图与弥散光晕可以叠加：图铺底，光晕作半透明叠加层（AmbientGlow 的
             // 正常 drawable 是整屏不透明底色，直接叠会把图盖住，所以这里用只画光晕圆的那份）。
             // 两层都画在窗口背景（DecorView 整屏），content 置透明。
             // 解码结果有内存缓存 + 降采样，重复进页面不会重复解原图。
+            // 亮暗来源与 wallpaper 一致（Activity 的实际夜间位）——以前这里读 ColorMode.isLight()，
+            // 强制暗色的页面会出现「背景图按暗色解、光晕按亮色画」的一深一浅。
             val glowOverlay = if (AmbientGlow.isEnabled()) {
                 AmbientGlow.createOverlayDrawable(
-                    getCurrentThemeName(), ColorMode.isLight(), AmbientGlow.currentSource()
+                    getCurrentThemeName(), isLightNight, AmbientGlow.currentSource()
                 )
             } else null
             window.setBackgroundDrawable(
@@ -734,7 +734,7 @@ object ColorScheme {
             // 弥散光晕画在窗口背景上（DecorView 整屏，含「界面边距」留出的外圈，不会在边距处断层），
             // content 自己不再铺纯色，否则会把光晕整块盖住。关闭时走下面的原路径，零额外开销。
             window.setBackgroundDrawable(
-                AmbientGlow.createDrawable(getCurrentThemeName(), BACKGROUND, ColorMode.isLight(), AmbientGlow.currentSource())
+                AmbientGlow.createDrawable(getCurrentThemeName(), BACKGROUND, isLightNight, AmbientGlow.currentSource())
             )
             rootView?.background = null
         } else {
