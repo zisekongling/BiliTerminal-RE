@@ -108,6 +108,7 @@ import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.CookieDomainPolicy
+import com.RobinNotBad.BiliClient.util.DanmakuFileFetcher
 import com.RobinNotBad.BiliClient.util.DeviceProfile
 import com.RobinNotBad.BiliClient.util.DisguiseGesture
 import com.RobinNotBad.BiliClient.util.DisguisePrefs
@@ -133,9 +134,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
-import okio.BufferedSink
-import okio.buffer
-import okio.sink
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
@@ -2972,22 +2970,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
 
     private fun downdanmuOld() {
         try {
-            // use{} 保证 createNewFile()/sink() 抛异常提前跳出时连接也归还
-            NetWorkUtil.get(danmaku_url, NetWorkUtil.webHeaders).use { response ->
-                var bufferedSink: BufferedSink? = null
-                try {
-                    if (!danmakuFile!!.exists()) danmakuFile!!.createNewFile()
-                    val sink = danmakuFile!!.sink()
-                    val decompressBytes = NetWorkUtil.decompress(response.body!!.bytes())
-                    bufferedSink = sink.buffer()
-                    bufferedSink!!.write(decompressBytes)
-                    bufferedSink!!.close()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                } finally {
-                    bufferedSink?.close()
-                }
-            }
+            // 统一走 DanmakuFileFetcher：非 2xx（B 站 CDN 的 404/412 错误页）直接抛 IOException，
+            // 不再把错误页当弹幕正文写进 danmaku.xml（调研清单第 1 条，原实现漏判状态码）
+            DanmakuFileFetcher.fetchToFile(danmaku_url, danmakuFile!!, NetWorkUtil.webHeaders)
             // 旧接口没有「先查总数」的轻量查询，只能对刚落盘的 XML 做流式计数：
             // 超阈值立即停（DanmakuXmlCounter），命中保护就不再把整份 XML 交给 DFM。
             if (applyXmlDanmakuGuard()) return

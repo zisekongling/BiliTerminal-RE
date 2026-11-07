@@ -38,6 +38,7 @@ import com.RobinNotBad.BiliClient.model.ShortVideoItem
 import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
 import com.RobinNotBad.BiliClient.ui.widget.SwipePageLayout
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.DanmakuFileFetcher
 import com.RobinNotBad.BiliClient.util.DisguiseGesture
 import com.RobinNotBad.BiliClient.util.DisguisePrefs
 import com.RobinNotBad.BiliClient.util.Logu
@@ -1194,20 +1195,16 @@ class ShortVideoPagerAdapter(
         /** 旧版 XML 弹幕回退路径。 */
         private fun loadDanmakuFromXml(danmakuUrl: String) {
             if (danmakuUrl.isEmpty()) return
-            val response = NetWorkUtil.get(danmakuUrl, NetWorkUtil.webHeaders)
-            val body = response.body
-            if (body != null) {
-                // 解压弹幕数据
-                val decompressed = NetWorkUtil.decompress(body.bytes())
-                val inputStream = java.io.ByteArrayInputStream(decompressed)
-                // 必须回主线程：DanmakuManager.createParser 内部用的是进程级单例
-                // BiliDanmakuLoader（dataSource 是它的实例字段），并发调用会互相覆盖；
-                // 真正的 XML 解析是懒执行的，在 DanmakuView 自己的渲染线程上做，不在这里
-                mainHandler.post {
-                    danmakuManager?.loadFromXmlInput(inputStream)
-                }
+            // 统一走 DanmakuFileFetcher：非 2xx / 空正文直接抛 IOException，由上层 catch 记日志；
+            // 旧实现不判状态码，404/412 的 HTML 错误页会被解压后喂给解析器（调研清单第 1 条）
+            val decompressed = DanmakuFileFetcher.fetch(danmakuUrl, NetWorkUtil.webHeaders)
+            val inputStream = java.io.ByteArrayInputStream(decompressed)
+            // 必须回主线程：DanmakuManager.createParser 内部用的是进程级单例
+            // BiliDanmakuLoader（dataSource 是它的实例字段），并发调用会互相覆盖；
+            // 真正的 XML 解析是懒执行的，在 DanmakuView 自己的渲染线程上做，不在这里
+            mainHandler.post {
+                danmakuManager?.loadFromXmlInput(inputStream)
             }
-            response.close()
         }
 
         private fun startStateCollection() {

@@ -27,6 +27,7 @@ import com.RobinNotBad.BiliClient.service.download.DownloadPathSpec
 import com.RobinNotBad.BiliClient.util.CacheListOrderStore
 import com.RobinNotBad.BiliClient.util.CachePathResolver
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.DanmakuFileFetcher
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.FolderManager
 import com.RobinNotBad.BiliClient.util.LocalListSort
@@ -678,16 +679,10 @@ class LocalListActivity : InstanceActivity() {
     }
 
     private fun downloadDanmakuFile(url: String, file: File) {
-        NetWorkUtil.get(url).use { response ->
-            // 不判状态码时，404/412 的错误页会被当成弹幕正文写进 danmaku.xml，
-            // 用户看到的是「更新成功」但播放时依旧没有弹幕 —— 和下载服务里的
-            // 审计 M11-f 是同一类坑，改成失败即抛出、由上层提示「弹幕更新失败」。
-            if (!response.isSuccessful) throw java.io.IOException("HTTP " + response.code)
-            val body = response.body ?: throw java.io.IOException("empty body")
-            val data = NetWorkUtil.decompress(body.bytes())
-            if (data.isEmpty()) throw java.io.IOException("empty danmaku")
-            file.writeBytes(data)
-        }
+        // 统一走 DanmakuFileFetcher：非 2xx 时 404/412 的错误页会被当成弹幕正文写进 danmaku.xml，
+        // 用户看到的是「更新成功」但播放时依旧没有弹幕 —— 和下载服务里的审计 M11-f 是同一类坑，
+        // 现在失败即抛 IOException、由上层提示「弹幕更新失败」（调研清单第 1 条收口 4 份副本）。
+        DanmakuFileFetcher.fetchToFile(url, file)
     }
 
     /**
