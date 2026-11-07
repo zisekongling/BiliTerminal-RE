@@ -124,7 +124,7 @@ Layout = left: List<Slot>          // 上限 5
 - 场景不适用：`isUsable` 返回 false 的槽位整个不挂载，后面的自动往前补位。
 - 删掉 5 处 `getBoolean("player_ui_showXxxBtn")` 判据（`PlayerActivity.kt:4051`、`:6576`、`:6647`、`:6654`、`:1581`），改为「在布局里就在，不在就不在」。
 - `alignLeftControlToRight()`（`PlayerActivity.kt:1598-1607`）用 translationY 对齐左右列中线的做法，在列高可变后要改成按容器中线对齐或直接放弃 translationY 改用 `layout_centerVertical`。
-- 锁定态：`left_control` 在锁定时仍显示 `lock_btn` 的既有逻辑不变；若用户在布局里没放 `lock`，锁定时就只剩 `lock_overlay` 的解锁手势（沿用现有 `refreshLockButtonSetting` 的兜底语义，需实测确认不会死锁）。
+- 锁定态：锁定时 `control_layout` 与 `left_control` 一起隐藏，锁定按钮由 `PlayerActivity.parkLockButton()` 从它所在的槽位 **re-parent 到 root 层、压在 `lock_overlay` 之上**，所以「用户把 `lock` 放进了会被隐藏的容器」也能点得到；解锁时 `unparkLockButton()` 先按用户布局摆回原槽位再显示控制栏，避免图标在原位闪一下。用户没放 `lock` 就点不到、进不了锁定态，不存在解不开的死锁 → 见 §7 风险 4。
 
 ### 3.5 设置分组的来源 `player/PlayerSettingsGroups.kt`
 
@@ -217,7 +217,7 @@ Layout = left: List<Slot>          // 上限 5
    `jump_time` / `queue` 26.11.06 已换成用户给的 lucide 图、播放页本体从文字改成 `ImageButton`，
    连播按钮因此不再常显模式文字（模式只在点按 toast 与 `contentDescription` 里给出）。
 3. **re-parent 风险**：同一 View 只能有一个 parent，`activity_player.xml` 改动较大（17 个按钮搬家），任何遗漏都会直接崩或按钮消失——第 3 步必须模拟器逐项对照。
-4. **锁定态**：现有逻辑依赖"锁定按钮一定存在"（`refreshLockButtonSetting`、`:1560` 注释），布局允许删掉它 → 需要一条兜底规则（要么锁定时强制显示解锁出口，要么删掉锁定时同步删除锁定手势）。
+4. **锁定态**：现有逻辑依赖"锁定按钮一定存在"（`refreshLockButtonSetting`、`:1560` 注释），布局允许删掉它 → **已按「锁定时把按钮搬出隐藏容器」实现**（26.11.07）：`parkLockButton` 把它 re-parent 到 root 层压在 `lock_overlay` 之上，`unparkLockButton` 解锁时摆回原槽位；用户没放 `lock` 就进不了锁定态，故无需额外的强制出口或缺省手势。
 5. **`alignLeftControlToRight`**：列高可变后 translationY 对齐会错位，需要重做。→ **已按「两条列中线差」实现**（26.11.07）：比较的是**窗口坐标**里的中线（两列不在同一 parent 下，raw `top` 不可比，原实现跨 parent 直接相减），并在两列的 `addOnLayoutChangeListener` 里随布局变化重算，不再是一次性量取。
 6. **搜索索引**：`SettingsIndex.highlight` 靠 name 逐字比对定位，48 项重分组后 `SettingSection.name` 不能改字面量，否则高亮失效。
 7. **假界面与真播放器的尺寸比例**：380×380 方形屏幕上 16:9 的假画面只有约 214px 高，左右列各 5 格、底部 7 格在缩略图上会挤在一起——第 4 步实测后可能要放大假界面（允许上下滚动）或给每个格子一个最小点击热区（≥40px）。
