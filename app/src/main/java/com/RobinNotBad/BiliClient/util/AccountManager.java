@@ -223,8 +223,10 @@ public class AccountManager {
         String safeCookies = cookies == null ? "" : cookies.trim();
         if (mid <= 0 || safeCookies.isEmpty()) return false;
 
+        // 无条件比对：以前 Cookie 里没有 DedeUserID 就放行，等于给「只拿到半截 Cookie 的写入」开口子——
+        // 写进去的 mid 与凭据对不上，之后切号 / 刷新全是错的，而且很难回溯。
         String cookieMid = NetWorkUtil.getInfoFromCookie("DedeUserID", safeCookies);
-        if (!cookieMid.isEmpty() && !cookieMid.equals(String.valueOf(mid))) {
+        if (!cookieMid.equals(String.valueOf(mid))) {
             Logu.w("AccountManager", "拒绝写入凭据：mid=" + mid
                     + " 与 Cookie 里的 DedeUserID=" + cookieMid + " 不一致");
             return false;

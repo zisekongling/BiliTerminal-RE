@@ -112,6 +112,17 @@ class AccountManagerTest {
     }
 
     @Test
+    fun applyCredentials_rejectsCookieWithoutDedeUserId() {
+        // Cookie 里连 DedeUserID 都没有时无法核对身份，以前会直接放行（空值放水）
+        assertFalse(
+            "Cookie 里没有 DedeUserID 时不能写凭据",
+            AccountManager.applyCredentials(8L, "", "SESSDATA=sess; bili_jct=csrf", "rt", "ak", "")
+        )
+        assertEquals(0L, SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0))
+        assertTrue(AccountManager.getAccounts().isEmpty())
+    }
+
+    @Test
     fun applyCredentials_rejectsInvalidArguments() {
         assertFalse(AccountManager.applyCredentials(0L, "", cookiesOf(1L), "rt", "ak", ""))
         assertFalse(AccountManager.applyCredentials(-1L, "", cookiesOf(1L), "rt", "ak", ""))

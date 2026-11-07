@@ -132,14 +132,27 @@ object SpecialLoginParser {
     }
 
     /**
+     * 取字符串字段，「缺失」和「JSON null」都归一成空串。
+     *
+     * org.json 的 optString 对 JSON null 会返回**字符串 "null"**，直接当值用就会把字面量
+     * "null" 存成 Cookie / refresh_token——看起来有值，实际每次请求都鉴权失败，还很难查。
+     */
+    private fun JSONObject.stringOrEmpty(key: String): String {
+        if (!has(key) || isNull(key)) return ""
+        val value = optString(key, "").trim()
+        return if (value == "null") "" else value
+    }
+
+    /**
      * 校验单条记录。[where] 只用于拼错误提示（"登录信息"/"第 2 个账号"）。
      */
     private fun parseObject(json: JSONObject, where: String): Result {
         if (!json.has("cookies")) return Result.Failure(UiText.of(where + "缺少 cookies 字段"))
-        val cookies = json.optString("cookies").trim()
+        val cookies = json.stringOrEmpty("cookies")
         if (cookies.isEmpty()) return Result.Failure(UiText.of(where + "的 cookies 是空的"))
 
-        if (!json.has("refresh_token")) return Result.Failure(UiText.of(where + "缺少 refresh_token 字段"))
+        val refreshToken = json.stringOrEmpty("refresh_token")
+        if (refreshToken.isEmpty()) return Result.Failure(UiText.of(where + "缺少 refresh_token 字段"))
 
         val mid = NetWorkUtil.getInfoFromCookie("DedeUserID", cookies).toLongOrNull()
             ?: return Result.Failure(UiText.of(where + "的 Cookie 中缺少用户 ID（DedeUserID），请检查复制的内容是否完整"))
@@ -153,16 +166,13 @@ object SpecialLoginParser {
 
         return Result.Success(
             cookies = cookies,
-            refreshToken = json.optString("refresh_token"),
+            refreshToken = refreshToken,
             // JSON null 在部分 org.json 版本里 optString 会给出字符串 "null"，必须显式排除，
             // 否则会把 "null" 当成 access_key 存进去，请求全部鉴权失败
-            accessKey = if (json.has("access_key") && !json.isNull("access_key")) {
-                json.optString("access_key")
-            } else null,
+            accessKey = json.stringOrEmpty("access_key").ifEmpty { null },
             mid = mid,
-            // 显式 null 同样要挡掉：org.json 的 optString 对 JSON null 会返回字符串 "null"
-            name = if (json.isNull("name")) "" else json.optString("name", ""),
-            avatar = if (json.isNull("avatar")) "" else json.optString("avatar", ""),
+            name = json.stringOrEmpty("name"),
+            avatar = json.stringOrEmpty("avatar"),
         )
     }
 }
