@@ -254,6 +254,7 @@
 - **`addUsers` 是追加语义，`moveUsers` 是移动语义**：前者不会把他从原分组移走、也不取关；后者会。两组字段名完全不同（`tagids` vs `beforeTagids`/`afterTagids`），写错只会在真机上收到 `-400`，看不出是拼写问题——所以两个字段组装都抽成纯函数并钉了单测（`FollowApiAddUsersTest` 里有一条「加入与移动是两组不同的字段名」的对照断言）。
 - **默认分组与特别关注不进「加入分组」菜单**：`tagid=0` 是默认分组（加入它等于没加），`-10` 是特别关注（有独立接口/入口）。弹窗只列 `tagid > 0` 的自建分组。
 - **新建分组后拿不到 tagid**：`POST /x/relation/tag/create` 的响应按文档 `data.tagid` 会回新 id，但当前实现只取 `code`；加入前按名字回查一次 `GET /x/relation/tags` 拿 tagid（服务端保证分组名唯一，重名会回 22106），比猜接口稳。
+- **列表项的关系字段（26.11.07 核实）**：`GET /x/relation/followings` 与 `/x/relation/followers` 的 `list[]` 里，`attribute == 6` 是互相关注、`special == 1` 是「**列表主体**特别关注了这一条」。两者都只对「看自己的列表」有意义（看别人的列表时主体是对方）；`attribute` 的 `128` 是**已拉黑**，不是特别关注（兄弟仓库 `cyq-Re-BiliTerminal` 的 `FollowApi` 注释写成「128=特别关注」是错的）。分组明细 `GET /x/relation/tag` 的 `special` 恒为 0。
 
 ## 12. `view_points` 的 `type` 是「分段类型」，不是「片头/片尾类型」（26.11.05，反馈 #99 / #34）
 

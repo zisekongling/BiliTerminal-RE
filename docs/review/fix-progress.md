@@ -87,6 +87,12 @@
   - **L1（AVD `rebili_watch37`，384×384 @320dpi，standard debug 包；`GetIntentActivity --es type user --el content 2` 直达用户主页后左滑到「视频」Tab）**：改前该页只有「视频系列」入口与卡片；改后同一视角多出搜索栏（左排序图标、hint「搜索 TA 的稿件~」、右侧搜索图标），点排序图标弹出「投稿排序 / 最新发布 / 最多播放 / 最多收藏」且当前档位带对勾。对照图 `outputs/user-video-search-before.png` / `-after.png` / `-sort-dialog.png`（`outputs/` 已 gitignore）。**顺手修掉一个实测出来的布局缺陷**：排序按钮原先声明在 `EditText` 之前，被输入框整块盖住——点图标弹出的是键盘、排序弹窗根本不开（改成声明在输入框之后，与搜索页一致）。
   - **未验证（第二次启动模拟器后图形后端报 `Failed to bind to texture` 并 adb 掉线，按「两轮上限」止损）**：①切换排序后列表是否真按播放量重排（弹窗与勾选态已验，选项点击后的重排没截到图）；②输入关键词后的空态与「回到有结果时列表恢复」；③搜索栏随列表滚出的 `scroll|snap` 手感。三条留作真机验收，交接单 [`review/manual-test-guide-261107-user-video-search.md`](manual-test-guide-261107-user-video-search.md)（4 条，含 AI 断言写法）。
 
+- **26.11.07 关注/粉丝列表补「特别关注」徽章（用户要求「关注列表互关显示和特别关注显示」；互关已在 26.11.06 的批次 1 实现，本批补特别关注；互关做法参照 `outputs/ref/cyq-Re-BiliTerminal`）**：
+  - 数据：`api/FollowApi` 解析 `x/relation/followings` / `followers` 列表项的 `special`（0/1），新增纯函数 `isSpecialFollow(selfList, special)`——与互关同口径，只有查看自己的列表才成立；`getFollowTagUsers` 不设（分组明细的 `special` 恒为 0，且特别关注本身就是系统分组 `tagid=-10`）。`model/UserInfo` 末尾追加 `specialFollow`（Parcelable 只追加、与 `mutualFollow` 同序；`UserInfo` 没有落盘序列化，老数据不受影响）。
+  - 展示：`res/layout/cell_user_list.xml` 昵称行在「互关」左侧加金色「特别关注」徽章，亮色模式由 `ColorScheme.getGold()` 取更深的金；`UserListAdapter` / `FollowGroupAdapter` 每次 bind 重置显隐，`cell_up_list` 换布局时判空。文案 `social_special_follow_badge` 加在 `values/social_port_strings.xml`（与互关徽章同文件）。
+  - **L0（26.11.07 实测，隔离工作树 `outputs/wt-follow`，未同步 `private/`）**：`:app:assembleDebug` BUILD SUCCESSFUL（两 flavor 各 4 个 APK），两 flavor 单测各 **179 suites / 1937 tests / 0 失败 0 错误**（含 `MutualFollowPolicyTest.isSpecialFollow_requiresSelfListAndSpecial1` 1 例；比含私有功能的全量少 24 suites / 264 tests，因 `private/` 未同步）。
+  - **未验证（L2）**：本机模拟器没有登录态、关注列表打不开，徽章的实际显示、金色在暗/亮主题下的可读性、双徽章挤压与列表滚动复用时是否串行都只能人看；交接单 [`review/manual-test-guide-261107-follow-special.md`](manual-test-guide-261107-follow-special.md)（2 条）。
+
 - **下次递增（26.11.07 之后）必须同时做三件事，缺一件 CI 就红或用户收不到包**：
   1. **升 `versionCode`**（`app/build.gradle:45`，`versionName` 在 `:46`）：补丁版把尾号补成 tag 的 `.N`（`26.11.07.2` → `2611072`）。CI 的 `verify-version` 现在硬校验「`versionCode` 末位 == tag 的 `.N` 后缀」，写错直接发版失败（26.11.07.1 事故的封堵，先例 `1c404c3` 只升尾号、`versionName` 不动；而 `UpdateManager` 是严格大于比较，尾号不升老用户收不到修正包）。
   2. **改 `strings.xml` 的 `update_log_current` 锚点**为「【YY.MM.DD 本次更新】」，否则 `:app:verifyVersionConsistency` 失败、CI 抽不到发版说明。
@@ -122,6 +128,8 @@
 ## 2. 未完成待办
 
 ### 2.1 真机未验证（无设备 / 无登录态）
+
+- [ ] **26.11.07 关注/粉丝列表「特别关注」徽章真机未验（L2，只能看画面 / 需要登录态）**：本机模拟器没有登录态，关注列表打不开，只做了 L0（构建 + 单测）。需要在手表上确认：①自己的关注列表里，特别关注的人有金色「特别关注」、互关的人有粉色「互关」，两个都满足时两个徽章同时出现；自己的粉丝列表里，我特别关注过的粉丝也有金色徽章；②看别人的关注/粉丝列表时一个徽章都不出现；③暗色 / 亮色模式下金色都清楚可读，长昵称截断不压住徽章、两个徽章不重叠不出屏、列表滚动复用时不串行。交接单 [`review/manual-test-guide-261107-follow-special.md`](manual-test-guide-261107-follow-special.md)（2 条）。
 
 - [ ] **26.11.07 番剧分区页（§3.138）设备端整页未验（L1+L2）**：本轮没能起模拟器（见 §3.138 末条），需要在手表上确认：①菜单里出现「番剧」且点得开（老用户升级后应被自动回填，自己在菜单设置里关掉后不应再加回来）；②三个页签的选中态（主题色 + 加粗）与切换后列表是否保留；③推荐/追番/索引三个列表的下拉刷新与滑到底翻页，**尤其「追番」未登录时的空态与「点我去登录 → 回来自动加载」**；④索引页「筛选」弹窗的分组单选在 192–233dp 手表宽度上是否放得下、选项（风格 45 个）能否滚到底、选完是否立刻换列表且回显正确；⑤失败态（断网/风控）应提示「点我重试」而不是显示成空列表；⑥圆屏模式下顶栏与页签不被圆盘切掉、表冠能在列表里滚动。
 
