@@ -75,7 +75,10 @@ jobs:
   # 校验项：
   #   1) tag 匹配 ^YY.MM.DD([.N])?(-后缀)?$（glob 已挡一层，这里再严格解析）；
   #   2) app/build.gradle 的 versionName == YY.MM.DD（末尾 -BETA<n> 不算差异）；
-  #   3) versionCode / 10 == YYMMDD（同日重发的尾号历史上是 0/1/2 无固定规律，故不校验尾号）；
+  #   3) versionCode 前 6 位 == YYMMDD，**尾号 == tag 的 .N 后缀**（无后缀即 0）。这条是
+  #      26.11.07.1 事故的补丁：那一版只改了 tag 没升 versionCode，装过同日首包的用户
+  #      因为 UpdateManager 用严格大于比较，永远收不到修正包。
+  #      （26.10.03.1 / 26.10.03.2 / 26.11.06.1 三个历史 tag 实测都符合「尾号 == N」）；
   #   4) strings.xml 含更新日志锚点「【YY.MM.DD 本次更新】」。
   # 手工 build_only（tag 留空）不校验——那条路本来就不发版。
   verify-version:
@@ -148,6 +151,8 @@ jobs:
           dd="${BASH_REMATCH[3]}"
           expect_name="$yy.$mm.$dd"
           expect_code_prefix=$((10#$yy * 10000 + 10#$mm * 100 + 10#$dd))
+          # 同日重发的第 N 次（tag 形如 YY.MM.DD.N）；无后缀就是当天首包
+          suffix="${BASH_REMATCH[4]:-}"
 
           # 2) build.gradle 实际值
           gradle=app/build.gradle
@@ -170,6 +175,16 @@ jobs:
           elif [ $((10#$actual_code / 10)) -ne "$expect_code_prefix" ]; then
             echo "::error::tag「$TAG」期望 versionCode 前缀 $expect_code_prefix（YYMMDD），实际 $actual_code/10 = $((10#$actual_code / 10))"
             fail=1
+          else
+            # 同日重发的尾号必须跟着 tag 走：装了同日首包的用户靠它才能收到修正包
+            # （UpdateManager 对 versionCode 用严格大于比较，尾号不变等于这一版发不出去）。
+            expect_tail=0
+            if [ -n "$suffix" ]; then expect_tail=$((10#${suffix#.})); fi
+            actual_tail=$((10#$actual_code % 10))
+            if [ "$actual_tail" -ne "$expect_tail" ]; then
+              echo "::error::tag「$TAG」期望 versionCode 尾号 $expect_tail（YY.MM.DD.N 的第 N 次重发），实际 $actual_code 的尾号是 $actual_tail；同日重发必须升尾号，否则装过同日首包的用户收不到更新"
+              fail=1
+            fi
           fi
           if [ "$fail" -ne 0 ]; then
             echo "::error::tag 与安装包版本不一致，拒绝构建/发版（见 findings/standards.md P1-1）"
@@ -221,10 +236,14 @@ jobs:
       # 没配这两个 Secret 也能正常发版（发的是公开版）；PR 构建永远拿不到 Secrets，
       # 必然是公开版。机制说明见 docs/optional-features.md。
       - name: 注入可选私有功能源码（未配置则跳过）
+        id: private_src
         env:
           PRIVATE_FEATURE_REPO: ${{ secrets.PRIVATE_FEATURE_REPO }}
           PRIVATE_FEATURE_TOKEN: ${{ secrets.PRIVATE_FEATURE_TOKEN }}
         run: |
+          # 注入结果要交给「校验私有功能凭证」用：注入了私有源码却缺凭证，等于发一个半残的包，
+          # 那一步会直接 fail 而不是只打 notice（见 findings/standards.md）。
+          echo "injected=false" >> "$GITHUB_OUTPUT"
           if [ -z "$PRIVATE_FEATURE_REPO" ] || [ -z "$PRIVATE_FEATURE_TOKEN" ]; then
             echo "::notice::未配置 Secrets.PRIVATE_FEATURE_REPO / PRIVATE_FEATURE_TOKEN，按公开版构建（不含私有功能）"
             exit 0
@@ -238,6 +257,7 @@ jobs:
             echo "::error::私有仓库里没有 src/main/java，private/ 结构不对"
             exit 1
           fi
+          echo "injected=true" >> "$GITHUB_OUTPUT"
           echo "私有功能源码已注入："
           find private -maxdepth 2 -type d | sort
 
@@ -317,27 +337,40 @@ jobs:
       - name: 运行单元测试
         run: ./gradlew :app:testStandardDebugUnitTest --stacktrace
 
-      # ── 私有功能的第三方凭证（BGM 数据代理）────────────────────────────────
+      # ── 私有功能的第三方凭证（BGM 数据代理 / 第三方弹幕）──────────────────────
       # 和 Kazumi 一样**只在构建期注入**：值只经 Secrets → 环境变量 → app/build.gradle →
-      # BuildConfig，仓库里不出现明文。未配置时打一行 notice 按「无代理」构建，
-      # 私有侧自动退回旧端点链，发版流程不受影响。
-      - name: 校验私有功能凭证（未配置则跳过）
+      # BuildConfig，仓库里不出现明文。公开版缺凭证是正常的（直接打 notice 继续）；
+      # 但注入了私有源码还缺凭证就是半残的包，这一步会 fail。
+      - name: 校验私有功能凭证（注入私有源码后缺凭证即 fail）
         env:
           KAZUMI_APPID: ${{ secrets.KAZUMI_APPID }}
           KAZUMI_KEY: ${{ secrets.KAZUMI_KEY }}
           DANDANAPI_APPID: ${{ secrets.DANDANAPI_APPID }}
           DANDANAPI_KEY: ${{ secrets.DANDANAPI_KEY }}
         run: |
+          # 公开版（没注入私有源码）缺凭证是正常的：这两个值只被私有侧消费，公开版根本用不到。
+          # 但**注入了私有源码还缺凭证**就是发一个半残的包，必须 fail —— 从前只打 notice，
+          # 于是「私有功能在、功能却全套降级」的包被静默发出去过一次。
+          injected="${{ steps.private_src.outputs.injected }}"
+          missing=""
           if [ -z "$KAZUMI_APPID" ] || [ -z "$KAZUMI_KEY" ]; then
-            echo "::notice::未配置 Secrets.KAZUMI_APPID / KAZUMI_KEY，BGM 数据代理关闭（功能自动退回旧链路）"
+            missing="$missing KAZUMI_APPID/KAZUMI_KEY"
           else
             echo "BGM 数据代理凭证已就绪（不打印值）"
           fi
           if [ -z "$DANDANAPI_APPID" ] || [ -z "$DANDANAPI_KEY" ]; then
-            echo "::notice::未配置 Secrets.DANDANAPI_APPID / DANDANAPI_KEY，换源播放无弹幕"
+            missing="$missing DANDANAPI_APPID/DANDANAPI_KEY"
           else
             echo "第三方弹幕凭证已就绪（不打印值）"
           fi
+          if [ -z "$missing" ]; then
+            exit 0
+          fi
+          if [ "$injected" = "true" ]; then
+            echo "::error::已注入私有功能源码，但缺少 Secrets:$missing —— 这样发出去的包私有功能会整套降级，拒绝发版"
+            exit 1
+          fi
+          echo "::notice::公开版构建，缺少 Secrets:$missing（私有功能不在这次构建里，无需凭证）"
 
       - name: 构建签名发行 APK
         env:
