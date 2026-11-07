@@ -1,7 +1,7 @@
 # 播放器界面设置（假播放器）与播放器按钮自定义布局
 
 - **日期**：2026-11-06
-- **状态**：设计已与用户确认（三轮问答），**未实施**
+- **状态**：设计已与用户确认（三轮问答），**已实施**（26.11.06 落地，随 26.11.07 发版；实现与验证记录见 `docs/review/fix-progress.md` §1 的「26.11.07 本次更新日志」相关条目）
 - **涉及文件**：`activity/settings/SettingPlayerUiActivity.kt`（新建）、`res/layout/activity_setting_player_ui.xml`（新建）、`res/layout/item_player_ui_card.xml`（新建）、`player/PlayerButtons.kt`（新建）、`player/PlayerUiLayout.kt`（新建）、`player/PlayerSettingsGroups.kt`（新建）、`activity/player/PlayerActivity.kt`、`res/layout/activity_player.xml`、`activity/settings/SettingTerminalPlayerActivity.kt`、`activity/settings/SettingMainActivity.kt`、`activity/settings/SettingPlayerChooseActivity.kt`、`activity/settings/SettingsIndex.kt`、`util/SettingsKeys.kt`、`app/src/main/AndroidManifest.xml`、`res/values/strings.xml`、`test/.../PlayerUiLayoutTest.kt`（新建）
 
 ## 1. 目标

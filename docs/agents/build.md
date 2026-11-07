@@ -34,7 +34,7 @@
 ## 多模块与工具链
 
 - 多模块 `:app` / `:ijkplayer-java` / `:DanmakuFlameMaster` / `:brotlij`（后三个别乱动）。
-- Gradle 8.11.1、AGP 8.5.2、Kotlin 2.0.0、JDK 17、minSdk 19 / compileSdk 34、`resConfigs 'zh'`。
+- Gradle 8.14.5（`gradle/wrapper/gradle-wrapper.properties`）、AGP 8.5.2、Kotlin 2.0.0、JDK 17、minSdk 19 / compileSdk 34、`resConfigs 'zh'`。
 - 降 minSdk 时必须先看 `docs/architecture-map.md` §1.1 的兼容清单（依赖版本下限、`Build.SUPPORTED_ABIS`、`res/drawable-v21` 双份资源等）。
 
 ## 环境坑（gradle.properties 等）

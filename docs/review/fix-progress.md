@@ -4,15 +4,15 @@
 > 什么时候写这里：修完一个 bug / 关掉一个待办 / 每轮真机验证后。**别再往下追加长流水**——超过一屏就并进 §4「历史章节索引」那一行（§3 是 26.11.06 之前就积下的旧流水，只读不追加）。
 > 架构与坑看 `docs/architecture-map.md`；功能清单看 `docs/FEATURES.md`；真机清单看 `docs/review/real-device-regression-checklist.md`（旧的 T/D 测试计划已归档为 `docs/archive/review/device-test-plan.md`，只在要查某条用例原文时翻）。
 
-**怎么读这份文件（26.11.07 实测：全文 ≈17.4 万 token / 1662 行，别整份读）**：
+**怎么读这份文件（26.11.07 实测：全文 ≈17.4 万 token / 1,678 行，别整份读）**：
 
 | 章节 | 行 | token | 什么时候读 |
 | --- | --- | --- | --- |
-| §1 当前版本状态 | `19–67` | ≈5.6k | **每次改动前必读** |
-| §2 未完成待办 | `68–215` | ≈12.3k | 接线前扫一眼；按关键词 grep，别整节读 |
-| §3 状态快照 | `216–1519` | ≈12.1 万 | **纯流水**，只在要查「某轮改动到底怎么改的」时 grep 关键词 |
-| §4 历史章节索引 | `1520–1622` | ≈2.9 万 | 一般不用读 |
-| §5 待回迁长期结论 | `1623–1661` | ≈5k | 要查某个长期结论时 |
+| §1 当前版本状态 | `19–74` | ≈5.6k | **每次改动前必读** |
+| §2 未完成待办 | `75–230` | ≈12.3k | 接线前扫一眼；按关键词 grep，别整节读 |
+| §3 状态快照 | `231–1534` | ≈12.1 万 | **纯流水**，只在要查「某轮改动到底怎么改的」时 grep 关键词 |
+| §4 历史章节索引 | `1535–1637` | ≈2.9 万 | 一般不用读 |
+| §5 待回迁长期结论 | `1638–1678` | ≈5k | 要查某个长期结论时 |
 
 > 除 §1 外都不要通读：**先 `grep -n "关键词" docs/review/fix-progress.md` 拿到行号，再只读那一段**。行号随文件增长会漂移，对不上就用 `grep -n "^## [0-9]\."` 重新定位章节。
 
@@ -40,6 +40,17 @@
 - **26.11.07.1 审查修复清单（第三批，纯去重，无用户可见变化）**：㉒订阅类错误码文案收口到 `util/SubscriptionErrorText.kt` 的 `Context.subscriptionErrorText(code)`——此前收藏夹页 / 合集页 / 订阅列表页 / 番剧详情页各抄一份**逐字相同**的 `when`，服务端加一个码就要改四处、漏一处就有一边显示「操作失败（xxxxx）」（为什么是 `Context` 扩展而不是纯函数：这几句必须走资源，而 JVM 单测拿不到 `Context`，取舍口径同 `api/ApiErrorText.kt`）；㉓合掉审查点名的 6 组重复文案：`text_subscription_type_folder` → `uitext_favoritevideolistactivity_011`（「收藏夹」）、`msg_sub_unsubscribed` → `msg_subscription_cancelled`（「已取消订阅」）、`text_sub_toggle_subscribed` → `msg_sub_subscribed`（「已订阅」，开关按钮与提示语用同一份）、`uitext_favoritevideolistactivity_025` → `uitext_locallistactivity_034`、`uitext_favoritevideolistactivity_023` → `uitext_locallistactivity_035`（「虚拟合集」两串以本地列表为源，`util/UiText.MAP` 的映射同步改指）、`social_history_cancel` → `btn_cancel`；㉔清掉第二批自己引入的 7 组重复：关于页开发者简介（Robin / moye / silent / dudu / 达达 / huanli / Jank）改为复用既有 `settingtext_aboutactivity_*`，只保留 Kuinone、紫色空灵、千awa 三条真正新增的描述键；本批净删死键 13 个。
 - **26.11.07 设置页新增「番剧设置」分组挂点（公开侧只有门面 + 挂点）**：`activity/settings/SettingGroupActivity.kt` 加文件级 `const val GROUP_BANGUMI = "bangumi"` 与 `buildBangumiGroup()`（两行 `nav`：管理源 / 管理弹幕），`SettingMainActivity.buildGroups()` 在「内容与浏览」之后插一张 `icon_bangumi` 卡片，`SettingsIndex.build()` 加三条带 `highlight` 的搜索条目（分组 + 两个子页），`strings.xml` 新增 6 条 `setting_bangumi_*`；门面 `util/OptionalFeatures.kt` 加 `thirdPartySettingsAvailable` / `openThirdPartySourceSettings(context)` / `openThirdPartyDanmakuSettings(context)`（反射 `FeatureHolder` 同名方法，异常只 `Logu.w`）。私有功能不在场时整组（主设置页卡片 + 分组页两行 + 三条搜索条目）都不出现，**公开构建行为不变**；两个设置页的实现与视觉重排、实测记录都在私有仓库 README，不进公开文档。
 
+- **26.11.07 调研清单第 1/2/3/4/6/7/10 条已落地（本机 `main` 已提交；本环境无 GitHub 凭据，未 push）**：
+  - ①弹幕下载收口成 `util/DanmakuFileFetcher`：非 2xx / 空正文一律抛 `IOException`，给 `PlayerActivity.downdanmuOld` 与 `ShortVideoPlayerActivity.loadDanmakuFromXml` 补上原先漏掉的状态码校验（404/412 错误页不再落盘），原 4 份副本合一，`DanmakuFileFetcherTest` 5 例。
+  - ②Opus 段落富文本改走纯解析器 `model/OpusRichTextParser` + `model/RichTextSegment`：段落里的 AT / WEB 与整篇 `rich_list` 共用同一套解析与渲染，删掉 bilibili-API 快照里不存在的 `RICH_TEXT_NODE_TYPE_RICH` 死分支；WEB 点击改用 `jump_url`（显示文本可能被缩短），`OpusRichTextParserTest` 8 例。
+  - ③CI 两处堆内存 `sed` 改整行替换 + `grep` 硬校验（原先写死 `-Xmx4096m`、替换 0 命中且被 `|| true` 掩盖）。
+  - ④台账 versionCode 硬错（2611070 → 2611071）与「下次递增」三件事已更正。
+  - ⑤`ci.yml` 增加 coexist flavor 单测与 `assembleRelease`（R8 / shrinkResources / keep 规则）冒烟——这条链路此前只在打 tag 发版时第一次被验证。
+  - ⑥双文件缓存删页下标错位（B2）改走纯函数 `util/LocalPageFileIndexPolicy`（按目录名反查、降序删除），`LocalPageFileIndexPolicyTest` 6 例。
+  - ⑦文档漂移一批：`FEATURES.md` 的锁定按钮开关（已随播放器按钮槽位删除）、`AGENTS.md` / `architecture-map.md` 的「无 CI」、播放器界面 spec 的状态、`docs/README.md` 收录 3 份活 spec、`agents/build.md` 的 Gradle 版本（8.11.1 → 8.14.5）与架构地图实测尺寸/行号。
+  - **L0 验证（26.11.07 实测，本机已注入 `private/`）**：两 flavor 全量单测各 **197 suites / 2149 tests / 0 失败 0 错误**；`:app:assembleDebug`、`:app:testStandardDebugUnitTest`、`:app:testCoexistDebugUnitTest`、`:app:assembleRelease` 全部 BUILD SUCCESSFUL。
+  - 调研清单第 **5/8/9/11/12** 条（教程旧链路收尾、播放器巨类收口、零测试模块补测、无障碍与热区、x86 瘦身）按用户 26.11.07 指示另拆工单，本批未展开。
+
 - **下次递增（26.11.07 之后）必须同时做三件事，缺一件 CI 就红或用户收不到包**：
   1. **升 `versionCode`**（`app/build.gradle:45`，`versionName` 在 `:46`）：补丁版把尾号补成 tag 的 `.N`（`26.11.07.2` → `2611072`）。CI 的 `verify-version` 现在硬校验「`versionCode` 末位 == tag 的 `.N` 后缀」，写错直接发版失败（26.11.07.1 事故的封堵，先例 `1c404c3` 只升尾号、`versionName` 不动；而 `UpdateManager` 是严格大于比较，尾号不升老用户收不到修正包）。
   2. **改 `strings.xml` 的 `update_log_current` 锚点**为「【YY.MM.DD 本次更新】」，否则 `:app:verifyVersionConsistency` 失败、CI 抽不到发版说明。
@@ -59,7 +70,7 @@
 - **依赖仓库**：`settings.gradle` 已把 aliyun 的 `google` / `public` / `gradle-plugin` 三个镜像前置，`google()`/`mavenCentral()`/jitpack 仅作兜底。
 - **改了 `res/` 文件集合时**：`:app:clean` 与后续命令**必须分两次 Gradle 调用**，且带 `--no-build-cache --no-configuration-cache`，否则会回放陈旧资源（症状是 `Unresolved reference 'R.layout.xxx'`）。
 - **版本一致性**：`:app:verifyVersionConsistency` 以 `strings.xml` 的 `update_log_current` 为锚点校验版本一致性；发版说明也由 CI 从它抽取（抽不到直接拒绝发版）。
-- **单测（26.11.05 合并远程 `main`、修好冲突残留后实测；`testStandardDebugUnitTest` 与 `testCoexistDebugUnitTest` 各跑一遍，命令带 `--no-build-cache --no-configuration-cache`）**：两个 flavor 均 **130 suites / 1379 tests / 0 失败 0 错误 0 跳过**（`app/src/test/` 下 `*Test.kt|java` 共 129 个源文件）。**本机未同步私有功能仓库（`private/` 不存在）**，所以「注入 `private/` 后」那一套计数（上一轮是 106 suites / 1116 tests）本轮没有复测，同步后要照旧再跑一遍、两套数字都记上——公开配置少掉的正是随私有源码一起注入的那几个用例类，配置错了会立刻从计数上看出来。计数方式：`app/build/test-results/<flavor>DebugUnitTest/TEST-*.xml` 的 `tests=` 求和（**用 PowerShell 解析会因中文用例名抛 `InvalidCastToXmlDocument`，改用 Python `xml.etree`**）。用例数一律以机器产出为准，队友口述数字不进入文档。
+- **单测（26.11.05 合并远程 `main`、修好冲突残留后实测；`testStandardDebugUnitTest` 与 `testCoexistDebugUnitTest` 各跑一遍，命令带 `--no-build-cache --no-configuration-cache`）**：两个 flavor 均 **130 suites / 1379 tests / 0 失败 0 错误 0 跳过**（`app/src/test/` 下 `*Test.kt|java` 共 129 个源文件）。**本机已同步私有功能仓库（`private/` 存在，26.11.07 复核）**——本行 130 suites / 1379 tests 是 26.11.05「未同步 `private/`」口径的历史记录，**已不代表现在**；本机当前全量计数（含随 `private/` 一起注入的用例类）记在 §1「26.11.07 调研清单」那条。计数方式：`app/build/test-results/<flavor>DebugUnitTest/TEST-*.xml` 的 `tests=` 求和（**用 PowerShell 解析会因中文用例名抛 `InvalidCastToXmlDocument`，改用 Python `xml.etree`**）。用例数一律以机器产出为准，队友口述数字不进入文档。
 - **26.10.10 那一轮的构建记录（历史，留作「改 minSdk / 重跑 release 链路」时的验证口径）**：`minSdk 24 → 19` 全部改动（含 jsoup 1.16.1、7 个 `res/drawable-v21` 资源）落盘后，按「`clean` → `assembleRelease` → `lintRelease` → 单测」四步跑完（均带 `--no-configuration-cache`，`clean` 与 `assemble` 分两次调用），四步全 `BUILD SUCCESSFUL`（37s / 2m13s / 1m25s / 39s）。当时单测汇总 **49 suites / 460 tests / 0 failures**（任务名当时还是 `testDebugUnitTest`，现已带 flavor 前缀），最新 XML 时间 `2026-10-09T22:59:04`（晚于当轮 APK 出包时间 22:56:58，覆盖了当轮全部源码改动）。`:app:lintRelease` 的 **`NewApi` 从 22 条降到 2 条**，且这 2 条就是 `PlayerActivity.kt:1981` 的已知假阳性。发版前仍建议再跑一次确认。
 - **「自动跳过片头片尾」已恢复上线（26.10.22）**：26.10.10 的紧急撤回**已解除**，`SkipOpEdPrefs.FEATURE_ENABLED` 回到 `true`，设置入口与搜索索引均已恢复；口径按用户拍板改为**默认关闭**（`DEFAULT_ENABLED = false`，老用户存档里显式写的值仍然优先）。恢复细节见 §3.3「恢复记录」，乱跳的三个根因修复见 §3.55。
 - **本轮基建改动（26.10.10）**：**`minSdk 24 → 21 → 19（Android 4.4）`**，唯一落点是 `app/build.gradle:21`。两级下调的成本不同，分开记：
@@ -134,9 +145,7 @@
 - [ ] **评论侧「长按双弹窗」未复现**（`res/layout/cell_reply_list.xml` 兄弟节点分析证明布局层面不可能）。§30.2 / §30.4
 - [ ] **`MANAGE_DEDUP_MS = 400L` 去重未真机验证**：`app/build.gradle` 只有 junit 与 org.json，**无 Robolectric**，`SystemClock` 无法进 JVM 单测。§30.3 / §30.4
 - [ ] **300×300 表盘上弹窗实际可点性未在真机确认**。§30.4
-- [ ] **未决项：`activity/reply/ReplyInfoActivity.kt` 分页插入起点 `+2` 疑似越界** ——「发现但未修改」。
-  - 建议单独立项 + 真机复现（楼中楼详情页 → 切时间排序 → 持续下滑翻页 → 观察 `IndexOutOfBoundsException` / `Inconsistency detected` / 新页错位）。
-  - 判越界前必须先确认**宿主页第 0 位放了什么**：同一个 `ReplyAdapter`，在 `activity/reply/ReplyFragment.kt:250`（主评论列表）第 0 位是「头部占位」，在 `ReplyInfoActivity`（楼中楼详情页）第 0 位却是**根评论**，前提正好相反。§30.5b
+- [x] ~~**未决项：`activity/reply/ReplyInfoActivity.kt` 分页插入起点 `+2` 疑似越界**~~ —— **已确认不是越界**（26.11.07 复核）：`ReplyInfoActivity.kt:211` 现在写的是 `startIndex + 1`，且 `:209-210` 的注释写明「数据下标 i >= 1 的楼中楼在 adapter 里的位置是 i + 1（第 0 位是根评论、第 1 位是『写评论』头部）」；热度排序走 `applySort()` 整体重排、不拼插入位置。原先按主评论列表（`ReplyFragment` 第 0 位是头部占位）的口径读出 `+2`，宿主页前提不同。§30.5b
 - [ ] **动态详情页线上 NPE 未真机复现**：用户只给了混淆栈、未给触发场景。若补丁后同一栈还在，说明真凶是被 R8 内联进来的别处，需新 mapping 重新 retrace，并附触发页面 + 操作步骤。§38.5 / §38.6
 - [ ] **收藏夹顶部工具条三处修法均未真机复现**（团队无设备）：
   - (1) 取消勾选不暗（排除法：`itemView.alpha` 只由 `VideoCardHolder.applySelection()` 写）。
@@ -190,7 +199,7 @@
   - 建议清单见 `docs/archive/superpowers/specs/2026-10-11-player-network-resilience.md` §4（已归档，行号为当时位置）；该文档 §2.4 附**本仓库 `.so` 的选项存在性实测**（`reconnect_on_network_error`、`max_cached_duration`、`http-detect-range-support` 均不存在）。§四十四
 - [ ] **播放器核合并剩余项**（26.10.27 从已归档的 `docs/archive/superpowers/specs/2026-09-10-player-core-merge.md` 回迁）：S1–S3 已完成，S6 里 `PlayerIntegrator` / `PlayerScaleMode` 已删、`DanmakuManager.loadFromProtobuf` 已换成 `loadFromProtobufSegments`。仍未做：**S4** 短视频迁到 `player/VideoPlayerCore.kt`（它至今**没有任何消费方**，`PlayerActivity` 只在注释里提到它；短视频仍直接用 `IjkPlayerBridge`）；**S5 后半** `TextureView` 复用与相邻页预创建；**S6 收尾** `player/PlayerControlDelegate.kt` 全库零外部引用，删或接线待决定。
 - [ ] **下载链路剩余缺陷**（26.10.27 从已归档的 `docs/archive/superpowers/specs/2026-10-13-download-bug-diagnosis.md` / `2026-10-13-download-engine-optimization.md` 回迁；C3、B1 播放侧、A1/A2、A5 已修，见归档快照 §3.12/§3.13/§3.36）：
-  - **B2** `activity/video/local/LocalPageChooseActivity.kt` 删除分 P 时 `videoFileList.removeAt(position)` 按页下标删，双文件目录（旧缓存或合并失败时 `video.mp4` + `audio.m4a`）每页占 2 个元素，会删错；**B3** `LocalListActivity.playVirtualCollection()` 只取 `.mp4`，双文件目录的虚拟合集无声。26.10.25 起新下载合并成单文件（§3.66），这两条只在旧缓存 / 合并失败时可达。
+  - **B2 已修（26.11.07，调研清单第 7 条）**：`activity/video/local/LocalPageChooseActivity.kt` 删分 P 时不再对 `videoFileList` 用页下标 `removeAt(position)`，改由纯函数 `util/LocalPageFileIndexPolicy.kt` 按「文件所在目录名 == 页目录名」找出该页占用的全部下标、从大到小删（双文件目录每页占 2 项），`buildPageMediaFiles()` 的旧格式兜底也改走同一映射；6 例 JVM 单测。**B3 已修（反馈 #51，早于本批）**：`LocalListActivity.playVirtualCollection()` 现在同时构建 `videoUrlList` / `audioUrlList`，双文件目录的 `.mp4` 作主文件、同目录 `.m4a` 作外部音轨。26.10.25 起新下载合并成单文件（§3.66），这两条只在旧缓存 / 合并失败时可达。
   - **A3** 分片失败回退时进度先满后退；**A4** 未知大小时伪进度封顶 0.9（`DownloadProgressMath.PSEUDO_MAX`）；**A6** 通知栏总进度按「当前文件」口径汇总，跨阶段时可能回退。
   - **引擎层**：没有真正的断点续传（分片失败仍整文件单连接重下）、没有「仅 WiFi 下载」、没有磁盘空间预检（只有合并前的 `StatFs` 检查）、弹幕仍走单文件 XML。分片看门狗 / Range 校验 / 强制 HTTP/1.1 已于 26.10.25 落地（§3.63）。
 - [ ] **26.10.05 那个已发布的 Release 说明没能补上**：本机无 `gh` CLI 也无 GitHub token，只能人工在网页端编辑，把 `update_log_current` 的 28 条粘进去。§40.5

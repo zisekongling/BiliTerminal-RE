@@ -2057,5 +2057,5 @@ TTF/OTF/TTC，应用把它**拷进私有目录**（`filesDir/custom_font/custom_
 2. 网络请求**必须**在 `CenterThreadPool.run {}` 里调，API 方法是阻塞的。
 3. 新增页面：选基类（第 3.2 节）→ 注册 Manifest → 如需菜单入口再改 `MenuActivity.btnNames` + `loadMenuEnabled` 默认值。
 4. 新增 API：加在 `api/` 下对应类里，用 `NetWorkUtil.getJson/post` + `FormData`，纯解析部分抽成 `static` 函数以便单测。
-5. 改动后跑 `./gradlew.bat :app:assembleDebug`（无 CI，编译通过 + 真机手测为准）；解析逻辑改动补 `app/src/test/` 单测。
+5. 改动后跑 `./gradlew.bat :app:assembleDebug`（本地以编译通过 + 真机手测为准；CI 另跑 `assembleDebug` 与 `testStandardDebugUnitTest`，见 `.github/workflows/ci.yml`）；解析逻辑改动补 `app/src/test/` 单测。
 6. 改完顺手看一眼 `docs/review/fix-progress.md` 的待办，如果修掉了其中的条目就更新它。

@@ -45,7 +45,7 @@
 
 | 文件 | 内容 | 维护时机 |
 | --- | --- | --- |
-| [`architecture-map.md`](architecture-map.md) | 架构分层地图（322,334 字节 / 2,052 行 ≈9.6 万 token，**按 § 查不通读**）：§6 网络层、§7 改前必查的坑（58 个 7.x 小节，≈5.3 万 token，**只 grep 不通读**）、§8 UI 基建与外观、§9 API 层映射（48 个文件，读到 `1879–1986` 即可）、§10 检查清单 | 改架构 / 基建 / 新增基类时 |
+| [`architecture-map.md`](architecture-map.md) | 架构分层地图（326,141 字节 / 2,062 行 ≈9.6 万 token，**按 § 查不通读**）：§6 网络层、§7 改前必查的坑（61 个 7.x 小节，≈5.5 万 token，**只 grep 不通读**）、§8 UI 基建与外观、§9 API 层映射（48 个文件，读到 `1888–1994` 即可）、§10 检查清单 | 改架构 / 基建 / 新增基类时 |
 | [`optional-features.md`](optional-features.md) | 可选私有功能机制：`private/` 目录、AGP 四处注入点、`OptionalFeatures` 反射门面、现有挂点、本地开发与 CI 注入（不写私有功能的实现细节） | 新增/调整「不进公开仓库」的功能、改 `app/build.gradle` 的 `hasPrivateFeature`、动发版注入步骤时 |
 | [`FEATURES.md`](FEATURES.md) | 用户可见功能总表（20 章） | 新增用户可见功能时 |
 | [`bilibili-api-notes.md`](bilibili-api-notes.md) | 接口与风控常识（来源与可信度、速查表、11 条硬约束、值得做/不做） | 核实出新接口结论时 |
@@ -59,6 +59,9 @@
 | [`superpowers/specs/2026-10-20-menu-start-page.md`](superpowers/specs/2026-10-20-menu-start-page.md) | 菜单启动页与菜单设置说明改造：需求、验收标准、存储键与行结构设计 | 改菜单设置 / 启动流程时 |
 | [`superpowers/specs/2026-10-21-short-video-feed-protocol.md`](superpowers/specs/2026-10-21-short-video-feed-protocol.md) | 竖屏短视频取流协议修订：参数约定、会话级分页状态、横屏过滤、跨批去重、降级池与验收标准 | 改短视频取流 / 排查短视频页内容异常时 |
 | [`superpowers/specs/2026-10-22-disguise-mode.md`](superpowers/specs/2026-10-22-disguise-mode.md) | 伪装与安全：双击顶栏触发、两种样式与各自退出方式、三个存储键、手势层三个接线点、验收标准与已知取舍 | 改伪装页 / 顶栏双击手势时 |
+| [`superpowers/specs/2026-10-14-console-v2-design.md`](superpowers/specs/2026-10-14-console-v2-design.md) | 控制台 v2 改造方案：数据稳定性、定向回复、删除、单文件前端、共存版去重（`server/` + APK 侧匿名遥测链路）；只做方案设计 | 维护控制台 / 改遥测上报链路时 |
+| [`superpowers/specs/2026-10-25-dash-merge-single-file.md`](superpowers/specs/2026-10-25-dash-merge-single-file.md) | DASH 下载改合并单文件：合并时机、失败回退保留双文件、端到端待登录实测 | 改下载合并 / 排查双文件缓存时 |
+| [`superpowers/specs/2026-11-06-player-ui-custom-layout.md`](superpowers/specs/2026-11-06-player-ui-custom-layout.md) | 播放器界面设置（假播放器）与按钮自定义布局：槽位模型、七组设置、默认布局与验收标准；**已实施** | 改播放器按钮 / 播放器界面设置时 |
 | [`tutorial-system-redesign.md`](tutorial-system-redesign.md) | 教程系统重做（含 §五 待办 4 项） | 动教程时 |
 | [`copy-inventory/README.md`](copy-inventory/README.md) | 全仓文案清单总索引（7 份、1012 条：`A` 应用身份 / `L` 更新日志 / `T` 教程 / `S` 设置项 / `U` 页面静态文案 / `M` 运行时提示 / `E` 彩蛋） | 改文案时按需打开对应那一份，改完在「改写」栏回填 |
 | [`copy-inventory/GUIDE.md`](copy-inventory/GUIDE.md) | 文案改写指南：同一句话的多出处、四种改法、十条红线、手表字数常识、自查清单、FAQ、**怎么把新文案交给 agent** | **动手改文案前先读这一份**，比总索引更先看 |
