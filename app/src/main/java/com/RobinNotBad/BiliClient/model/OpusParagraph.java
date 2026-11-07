@@ -204,23 +204,12 @@ public class OpusParagraph {
                     break;
 
                 case "TEXT_NODE_TYPE_RICH":
-                    JSONObject rich = node.getJSONObject("rich");
-                    stringBuilder.append(rich.getString("text"));
-                    switch (rich.optString("type")) {
-                        case "RICH_TEXT_NODE_TYPE_EMOJI":
-                            JSONObject emoji = rich.getJSONObject("emoji");
-                            EmoteUtil.replaceSingle(stringBuilder, emoji.optString("icon_url"), emoji.optInt("size"), stringBuilder.length() - rich.getString("text").length(), stringBuilder.length(), 1.0f);
-                            break;
-                        case "RICH_TEXT_NODE_TYPE_RICH":  //TODO:忘记这个叫什么名字了，根据记忆应该是这个，如果不对请调整
-                            stringBuilder.setSpan(new StringUtil.LinkClickableSpan(rich.optString("jump_url"), TYPE_WEB_URL, rich.getString("jump_url")), stringBuilder.length() - rich.getString("text").length(), stringBuilder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                            break;
-                        case "RICH_TEXT_NODE_TYPE_TOPIC":
-                            // 段落内嵌话题（TEXT_NODE_TYPE_RICH 里 type 为 TOPIC 的那种）。
-                            // 原先只处理 EMOJI/RICH，话题在这里退化成普通黑字、点不动，
-                            // 和 analyzeOpus() 里的 TOPIC 表现不一致。
-                            StringUtil.setSingleTopic(stringBuilder, stringBuilder.length() - rich.getString("text").length(),
-                                    stringBuilder.length(), rich.optString("jump_url"));
-                            break;
+                    // 段落里的富文本节点（EMOJI / AT / TOPIC / WEB …）与整篇 rich_list 走同一套解析，
+                    // 两条路径不再各写一份 switch：旧实现只处理 EMOJI/TOPIC，@ 和网页链接在段落里
+                    // 退化成不可点纯文本，还留了一个快照里不存在的 RICH_TEXT_NODE_TYPE_RICH 死分支
+                    RichTextSegment segment = OpusRichTextParser.parseOne(node.optJSONObject("rich"));
+                    if (segment != null) {
+                        appendRichSegments(stringBuilder, java.util.Collections.singletonList(segment));
                     }
                     break;
                 default:
@@ -252,38 +241,45 @@ public class OpusParagraph {
     }
 
     public CharSequence analyzeOpus(JSONArray rich_list) throws JSONException {
-        if (rich_list == null) return "";
         SpannableStringBuilder stringBuilder = new SpannableStringBuilder();
-        for (int i = 0; i < rich_list.length(); i++) {
-            JSONObject rich = rich_list.getJSONObject(i);
-            int startLength = stringBuilder.length();
-            switch (rich.getString("type")) {
-                case "RICH_TEXT_NODE_TYPE_AT":
-                    stringBuilder.append(rich.getString("text"));
-                    At at = new At(rich.optLong("rid"), startLength, stringBuilder.length());
-                    StringUtil.setSingleAt(stringBuilder, at);
+        appendRichSegments(stringBuilder, OpusRichTextParser.parse(rich_list));
+        return stringBuilder;
+    }
+
+    /**
+     * 把解析好的富文本段落依次追加进 [stringBuilder]，并按种类挂可点击 / 表情 span。
+     *
+     * 这是两条 Opus 路径（段落 `text.nodes` 与整篇 `rich_list`）**唯一**的渲染实现：
+     * 同一种节点在摘要与正文里必须表现一致（调研清单第 2 条）。
+     */
+    private static void appendRichSegments(SpannableStringBuilder stringBuilder, java.util.List<RichTextSegment> segments) {
+        for (RichTextSegment segment : segments) {
+            if (segment == null) continue;
+            int start = stringBuilder.length();
+            stringBuilder.append(segment.text);
+            int end = stringBuilder.length();
+            switch (segment.kind) {
+                case RichTextSegment.KIND_AT:
+                    StringUtil.setSingleAt(stringBuilder, new At(segment.atMid, start, end));
                     break;
-                case "RICH_TEXT_NODE_TYPE_TOPIC":
-                    // 话题统一走 StringUtil.setSingleTopic：主色 + 可点击。
-                    // 原先这里只挂 LinkClickableSpan 没上色，和动态正文的话题样式对不上。
-                    stringBuilder.append(rich.getString("text"));
-                    StringUtil.setSingleTopic(stringBuilder, startLength, stringBuilder.length(),
-                            rich.optString("jump_url"));
+                case RichTextSegment.KIND_TOPIC:
+                    StringUtil.setSingleTopic(stringBuilder, start, end, segment.jumpUrl);
                     break;
-                case "RICH_TEXT_NODE_TYPE_EMOJI":
-                    stringBuilder.append(rich.optString("text"));
-                    JSONObject emoji = rich.getJSONObject("emoji");
-                    String url = emoji.optString("icon_url");
-                    int size = emoji.optInt("size");
-                    EmoteUtil.replaceSingle(stringBuilder, url, size, startLength, stringBuilder.length(), 1.0f);
+                case RichTextSegment.KIND_WEB:
+                    // WEB 节点的 text 可能被服务端缩短（text="av1"、jump_url 才是真地址），
+                    // 所以把 jump_url 当「真实值」传给 LinkClickableSpan，点击用的是它
+                    stringBuilder.setSpan(new StringUtil.LinkClickableSpan(segment.text, TYPE_WEB_URL, segment.jumpUrl),
+                            start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                     break;
-                case "RICH_TEXT_NODE_TYPE_TEXT":
+                case RichTextSegment.KIND_EMOJI:
+                    if (segment.emojiUrl != null && !segment.emojiUrl.isEmpty()) {
+                        EmoteUtil.replaceSingle(stringBuilder, segment.emojiUrl, segment.emojiSize, start, end, 1.0f);
+                    }
+                    break;
                 default:
-                    stringBuilder.append(rich.getString("orig_text"));
                     break;
             }
         }
-        return stringBuilder;
     }
 
 

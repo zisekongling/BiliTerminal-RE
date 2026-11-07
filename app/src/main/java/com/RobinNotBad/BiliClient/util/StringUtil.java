@@ -497,7 +497,9 @@ public class StringUtil {
                     BiliTerminal.jumpToUser(widget.getContext(), Long.parseLong(val));
                     break;
                 case TYPE_WEB_URL:
-                    LinkUrlUtil.handleWebURL(widget.getContext(), text);
+                    // 富文本 WEB 节点的显示文本可能被服务端缩短（text="av1"、jump_url 才是真地址），
+                    // 所以 val 非空时以它为准；正文里正则匹配出来的裸链接仍传 null、用显示文本当地址
+                    LinkUrlUtil.handleWebURL(widget.getContext(), (val != null && !val.isEmpty()) ? val : text);
                     break;
                 case TYPE_BVID:
                     TerminalContext.getInstance().enterVideoDetailPage(widget.getContext(), text);
