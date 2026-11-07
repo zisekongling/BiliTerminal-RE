@@ -50,7 +50,6 @@ object UiText {
         "此设备打不开系统的「所有文件访问」设置页，请手动到 设置 → 应用 → 权限 里授予本应用存储权限" to R.string.uitext_fileutil_001,
         "没有可处理此链接的应用！" to R.string.uitext_linkurlutil_001,
         "此设备打不开悬浮窗权限设置页，UETool 调试悬浮窗不可用" to R.string.uitext_biliterminal_001,
-        "加载教程时遇到问题" to R.string.uitext_tutorialhelper_001,
         "后台播放启动失败" to R.string.uitext_playbackservice_001,
         "获取专栏信息失败" to R.string.uitext_articlecardadapter_001,
         "专栏已缓存" to R.string.uitext_articlecardadapter_002,
@@ -590,7 +589,6 @@ object UiText {
         "置顶成功~" to R.string.uitext_replyadapter_011,
         "删除后无法恢复，确定删除这条评论吗？" to R.string.uitext_replyadapter_012,
         " (今天)" to R.string.uitext_timelineadapter_001,
-        "教程已更新" to R.string.uitext_tutorialhelper_002,
         "弹幕准备完毕" to R.string.uitext_danmakumanager_001,
         "自动" to R.string.uitext_playercontroldelegate_001,
         "已自动跳过片头/片尾，可在下方撤回" to R.string.uitext_skipopedprefs_001,
@@ -880,6 +878,13 @@ object UiText {
         "继续下载" to R.string.uitext_videoinfofragment_034,
         "打不开系统设置，请手动在系统设置中允许通知" to R.string.uitext_videoinfofragment_035,
         "无极调音" to R.string.text_activityplayer_09,
+        // 教程注册表里页面滑动提示（HINT）的标题：原来由管理页按宿主类名硬编码映射，
+        // 迁移到注册表后标题也走这里，改文案仍然只改 strings.xml。
+        "搜索页面引导" to R.string.tutorial_hint_search,
+        "视频详情页引导" to R.string.tutorial_hint_video_info,
+        "用户主页引导" to R.string.tutorial_hint_user_info,
+        "专栏详情页引导" to R.string.tutorial_hint_opus_info,
+        "动态详情页引导" to R.string.tutorial_hint_dynamic_info,
 // @INSERT
     )
 

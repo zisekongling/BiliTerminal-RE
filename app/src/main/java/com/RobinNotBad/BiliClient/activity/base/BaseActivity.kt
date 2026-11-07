@@ -33,6 +33,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.MenuActivity
 import com.RobinNotBad.BiliClient.activity.dynamic.DynamicActivity
 import com.RobinNotBad.BiliClient.event.SnackEvent
+import com.RobinNotBad.BiliClient.tutorial.TutorialHints
 import com.RobinNotBad.BiliClient.tutorial.TutorialPagerActivity
 import com.RobinNotBad.BiliClient.tutorial.TutorialStore
 import com.RobinNotBad.BiliClient.tutorial.Tutorials
@@ -544,7 +545,14 @@ open class BaseActivity : AppCompatActivity() {
      * 集中式教程触发：按当前页面类名去 [Tutorials] 注册表里找未读教程。
      *
      * 新增教程只需改注册表，页面本身不用动。旧实现靠每个页面手写
-     * `TutorialHelper.showTutorialList(...)`，漏写就永不展示（`tutorial_article` 就是这么漏掉的）。
+     * `TutorialHelper.showTutorialList(...)` / `showPagerTutorial(...)`，漏写就永不展示
+     * （`tutorial_article` 就是这么漏掉的）。
+     *
+     * 两类教程在这里分流：
+     * - 全屏教程（GUIDE / NOTICE）：交给 [TutorialPagerActivity] 分页展示；
+     * - 页面滑动提示（HINT）：交给 [TutorialHints] 在宿主页上显示一层文字。
+     * 两者可以同页共存（视频详情页就有），提示会避让到全屏教程关闭之后再出现。
+     *
      * 每个 Activity 实例只检查一次；教程页自身覆写 [tutorialAutoTriggerEnabled] 返回 false，避免递归。
      */
     private fun autoTriggerTutorial() {
@@ -554,7 +562,13 @@ open class BaseActivity : AppCompatActivity() {
 
         val pending = Tutorials.forPage(javaClass).filter { !TutorialStore.isRead(it) }
         if (pending.isEmpty()) return
-        TutorialPagerActivity.start(this, pending)
+
+        val fullScreen = pending.filter { it.isFullScreen }
+        val hints = pending.filterNot { it.isFullScreen }
+        if (fullScreen.isNotEmpty()) TutorialPagerActivity.start(this, fullScreen)
+        // 有全屏教程时先让教程页起来，提示由 TutorialHints 自己避让，不必在这里判断时序
+        val hintDelay = if (fullScreen.isEmpty()) 0L else HINT_AFTER_TUTORIAL_DELAY_MS
+        hints.forEach { TutorialHints.show(this, it, hintDelay) }
     }
 
     /** 是否参与教程自动触发。 */
@@ -709,5 +723,13 @@ open class BaseActivity : AppCompatActivity() {
 
         /** 顶栏伪装延迟装载的重试间隔（毫秒）。 */
         const val DISGUISE_INSTALL_RETRY_MS = 50L
+
+        /**
+         * 同页既有全屏教程、又有页面滑动提示时，提示的首次尝试延迟（毫秒）。
+         *
+         * 教程分页页是另一个 Activity，先等它 `onCreate` 把 `isShowing` 置起来，
+         * 提示才不会显示在它底下（用户看不到，还会被误记成「已展示」）。
+         */
+        const val HINT_AFTER_TUTORIAL_DELAY_MS = 500L
     }
 }

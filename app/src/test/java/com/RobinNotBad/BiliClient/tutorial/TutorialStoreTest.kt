@@ -1,6 +1,7 @@
 package com.RobinNotBad.BiliClient.tutorial
 
 import android.app.Activity
+import com.RobinNotBad.BiliClient.activity.search.SearchActivity
 import com.RobinNotBad.BiliClient.util.FakeSharedPreferences
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import org.junit.After
@@ -165,9 +166,18 @@ class TutorialStoreTest {
 
     // ==================== 页面滑动提示 ====================
 
+    /** 造一个 HINT 教程：宿主页类名就是它的存档键，因此 target 必须是真的宿主 Activity。 */
+    private fun hintTut(target: Class<out Activity>): Tutorial = tutorial(
+        id = "hint_${target.simpleName}",
+        title = "页面引导",
+        version = 1,
+        target = target,
+        kind = TutorialKind.HINT,
+    )
+
     @Test
     fun hint_keysMatchLegacyPagerFormat() {
-        // 键格式必须与 TutorialHelper.showPagerTutorial 写的完全一致，否则重置会失效。
+        // 键格式必须与旧 TutorialHelper.showPagerTutorial 写的完全一致，否则老用户会重新看到提示。
         assertEquals("tutorial_pager_VideoInfoActivity", TutorialStore.hintKeyOf("VideoInfoActivity"))
     }
 
@@ -188,22 +198,56 @@ class TutorialStoreTest {
     }
 
     @Test
-    fun hintPages_areDistinctAndKnown() {
-        assertEquals(5, TutorialStore.HINT_PAGES.size)
-        assertEquals(TutorialStore.HINT_PAGES.size, TutorialStore.HINT_PAGES.toSet().size)
-        assertTrue(TutorialStore.HINT_PAGES.contains("SearchActivity"))
-        assertTrue(TutorialStore.HINT_PAGES.contains("DynamicInfoActivity"))
+    fun hint_readStateGoesThroughTutorialApi_andNeverTouchesVersionKey() {
+        val hint = hintTut(SearchActivity::class.java)
+        assertFalse(TutorialStore.isRead(hint))
+
+        TutorialStore.markRead(hint)
+
+        assertTrue(TutorialStore.isRead(hint))
+        assertTrue(TutorialStore.isHintShown("SearchActivity"))
+        // HINT 不该写版本键：它的存档格式是 tutorial_pager_<页类名>，写版本键会在管理页留下
+        // 一条「历史记录：已完成过（版本 1）」，而重看按钮对 HINT 无意义。
+        assertFalse(prefs.contains(TutorialStore.keyOf(hint.id)))
+
+        TutorialStore.clear(hint)
+        assertFalse(TutorialStore.isRead(hint))
+        assertFalse(prefs.contains(TutorialStore.hintKeyOf("SearchActivity")))
     }
 
     @Test
-    fun clearAllHints_clearsEveryKnownPage() {
-        for (page in TutorialStore.HINT_PAGES) TutorialStore.markHintShown(page)
+    fun hintRegistryTargetsFiveDistinctPagesAndIsWellFormed() {
+        // 注册表是 HINT 的唯一数据源：宿主页、提示文案、目标 View 都从这里取，页面里不再手写。
+        val hints = Tutorials.hints
+        assertEquals(5, hints.size)
+        assertEquals(hints.size, hints.map { it.target.simpleName }.toSet().size)
 
-        TutorialStore.clearAllHints()
+        val pages = hints.map { it.target.simpleName }
+        assertTrue(pages.contains("SearchActivity"))
+        assertTrue(pages.contains("DynamicInfoActivity"))
+        assertTrue(pages.contains("VideoInfoActivity"))
+        assertTrue(pages.contains("UserInfoActivity"))
+        assertTrue(pages.contains("OpusInfoActivity"))
 
-        for (page in TutorialStore.HINT_PAGES) {
-            assertFalse(TutorialStore.isHintShown(page))
-            assertFalse(prefs.contains(TutorialStore.hintKeyOf(page)))
+        for (hint in hints) {
+            assertEquals(TutorialKind.HINT, hint.kind)
+            assertNotNull("HINT 必须声明提示文案资源: ${hint.id}", hint.hintTextRes)
+            assertNotNull("HINT 必须声明目标 View: ${hint.id}", hint.hintViewId)
+            assertTrue("HINT 不该有分页正文: ${hint.id}", hint.pages.isEmpty())
+            assertFalse("HINT 不是全屏页: ${hint.id}", hint.isFullScreen)
+        }
+    }
+
+    @Test
+    fun clearEveryHint_removesEveryKnownPage() {
+        for (hint in Tutorials.hints) TutorialStore.markRead(hint)
+        for (hint in Tutorials.hints) assertTrue(TutorialStore.isRead(hint))
+
+        for (hint in Tutorials.hints) TutorialStore.clear(hint)
+
+        for (hint in Tutorials.hints) {
+            assertFalse(TutorialStore.isRead(hint))
+            assertFalse(prefs.contains(TutorialStore.hintKeyOf(hint.target.simpleName)))
         }
     }
 
@@ -211,7 +255,10 @@ class TutorialStoreTest {
 
     @Test
     fun registry_byId_roundTripsEveryTutorial() {
-        assertEquals(11, Tutorials.all.size)
+        // 11 篇全屏教程 + 5 篇页面滑动提示（HINT），两类都在同一张注册表里。
+        assertEquals(11, Tutorials.all.count { it.isFullScreen })
+        assertEquals(5, Tutorials.hints.size)
+        assertEquals(Tutorials.all.size, Tutorials.hints.size + 11)
         for (t in Tutorials.all) {
             assertSame(t, Tutorials.byId(t.id))
         }
@@ -225,9 +272,10 @@ class TutorialStoreTest {
     }
 
     @Test
-    fun registry_everyTutorialHasDescription() {
+    fun registry_everyFullScreenTutorialHasDescription() {
         // 管理页的描述直接取 descriptionRes；漏填就只是少一行文案，但新加教程时容易忘，故在这里兜。
-        for (t in Tutorials.all) {
+        // HINT 卡片不显示描述（它只有一行标题 + 通过/清除），不要求填。
+        for (t in Tutorials.all.filter { it.isFullScreen }) {
             assertNotNull("教程 ${t.id} 缺少 descriptionRes", t.descriptionRes)
         }
     }

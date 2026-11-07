@@ -790,56 +790,6 @@
     <string name="desc_search_suggestions_enable">打开此选项，在搜索页输入关键词时会自动显示搜索建议，关闭后仅显示搜索历史</string>
     <string name="desc_search_default_content_enable">打开此选项，搜索框会显示默认搜索内容作为占位符，未输入内容直接点击搜索时会搜索默认内容</string>
 
-    <!-- 后来写新功能添加的教程请放在列表的第一个 -->
-    <array name="tutorial_space">
-        <item>xml/tutorial_space_2</item>
-        <item>xml/tutorial_space</item>
-    </array>
-    <!-- 后来写新功能添加的教程请放在列表的第一个 -->
-    <array name="tutorial_video">
-        <item>xml/tutorial_video_2</item>
-        <item>xml/tutorial_video</item>
-    </array>
-    <!-- 后来写新功能添加的教程请放在列表的第一个 -->
-    <array name="tutorial_search">
-        <item>xml/tutorial_search</item>
-    </array>
-    <array name="tutorial_recommend">
-        <item>xml/tutorial_recommend</item>
-    </array>
-    <!-- 后来写新功能添加的教程请放在列表的第一个 -->
-    <array name="tutorial_message">
-        <item>xml/tutorial_message</item>
-    </array>
-    <!-- 后来写新功能添加的教程请放在列表的第一个 -->
-    <array name="tutorial_article">
-        <item>xml/tutorial_article</item>
-    </array>
-    <!-- 后来写新功能添加的教程请放在列表的第一个 -->
-    <array name="tutorial_dynamic">
-        <item>xml/tutorial_dynamic</item>
-    </array>
-    <!-- 后来写新功能添加的教程请放在列表的第一个 -->
-    <array name="tutorial_dynamic_info">
-        <item>xml/tutorial_dynamic_info</item>
-    </array>
-    <!-- 后来写新功能添加的教程请放在列表的第一个 -->
-    <array name="tutorial_short_video">
-        <item>xml/tutorial_short_video</item>
-    </array>
-
-    <array name="tutorial_list">
-        <item>recommend</item>
-        <item>video</item>
-        <item>space</item>
-        <item>search</item>
-        <item>message</item>
-        <item>dynamic</item>
-        <item>dynamic_info</item>
-        <item>article</item>
-        <item>short_video</item>
-    </array>
-
     <string name="desc_menu_enabled">已启用</string>
     <string name="desc_menu_disabled">未启用</string>
     <string name="desc_menu_fixed">固定</string>
@@ -1483,7 +1433,6 @@
     <string name="uitext_fileutil_001">此设备打不开系统的「所有文件访问」设置页，请手动到 设置 → 应用 → 权限 里授予本应用存储权限</string>
     <string name="uitext_linkurlutil_001">没有可处理此链接的应用！</string>
     <string name="uitext_biliterminal_001">此设备打不开悬浮窗权限设置页，UETool 调试悬浮窗不可用</string>
-    <string name="uitext_tutorialhelper_001">加载教程时遇到问题</string>
     <string name="uitext_playbackservice_001">后台播放启动失败</string>
 
     <string name="uitext_articlecardadapter_001">获取专栏信息失败</string>
@@ -2038,7 +1987,6 @@
     <string name="uitext_replyadapter_011">置顶成功~</string>
     <string name="uitext_replyadapter_012">删除后无法恢复，确定删除这条评论吗？</string>
     <string name="uitext_timelineadapter_001"> (今天)</string>
-    <string name="uitext_tutorialhelper_002">教程已更新</string>
     <string name="uitext_danmakumanager_001">弹幕准备完毕</string>
     <string name="uitext_playercontroldelegate_001">自动</string>
     <string name="uitext_skipopedprefs_001">已自动跳过片头/片尾，可在下方撤回</string>

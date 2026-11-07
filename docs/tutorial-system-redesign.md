@@ -1,8 +1,8 @@
 # 教程系统重做：设计与 POC
 
-> 状态：**全量迁移已完成**——`tutorial/Tutorials.kt` 注册表共 **11 篇**教程，全部走新链路（集中触发 + 内部分页 + 串行）；旧代码（`res/xml/tutorial_*.xml` ×12 / `TutorialHelper` / `TutorialActivity` / 管理页）待清理（见 §五「待办」）。
-> 注：§四 / §六 里的「44 / 46 个单测」是当时的验证快照；26.10.04 实测 `app/src/test` 共 20 个文件（19 个测试类 + 1 个共享假实现）、147 个用例。
-> 关联：`docs/architecture-map.md`（教程系统旧实现见第 8 节 UI 速查）、`docs/review/fix-progress.md`
+> 状态：**已完成（26.11.07 收尾）**——`tutorial/Tutorials.kt` 注册表共 **16 篇**（11 篇全屏教程 + 5 篇页面滑动提示 `HINT`），全部走新链路（集中触发 + 内部分页 + 串行）；旧链路（`res/xml/tutorial_*.xml` ×12 / `TutorialHelper` / `TutorialActivity` / `model/Tutorial.java` / `model/CustomText.java` / `strings.xml` 里的 `tutorial_*` 数组 / Manifest 旧教程页注册）**已全部删除**，见 §五。
+> 注：§四 / §六 里的「44 / 46 个单测」是当时的验证快照；26.10.04 实测 `app/src/test` 共 20 个文件（19 个测试类 + 1 个共享假实现）、147 个用例。本文件只保留设计与历史证据，当前待办与验证状态以 `docs/review/fix-progress.md` 为准。
+> 关联：`docs/architecture-map.md`、`docs/review/fix-progress.md`
 
 ---
 
@@ -41,14 +41,16 @@
 ```text
 tutorial/TutorialModel.kt        TutorialKind / TutorialStyle / TutorialSpan / TutorialPage / Tutorial
 tutorial/TutorialDsl.kt          tutorial { page { text().bold().color() / newline() / image() } }
-tutorial/Tutorials.kt            注册表：11 篇（recommend / theme_notice / video_main / space / search / message / dynamic / dynamic_info / article / short_video / local），另有 all / forPage() / byId()
-tutorial/TutorialStore.kt        已读状态（tutorial_ver_<id>）
+tutorial/Tutorials.kt            注册表：16 篇 = 11 篇全屏（recommend / theme_notice / video_main / space / search / message / dynamic / dynamic_info / article / short_video / local）+ 5 篇页面滑动提示（hint_search / hint_video_info / hint_user_info / hint_opus_info / hint_dynamic_info），另有 all / hints / forPage() / byId()
+tutorial/TutorialStore.kt        已读状态（全屏教程 tutorial_ver_<id>，HINT 沿用旧键 tutorial_pager_<宿主类名>）
 tutorial/TutorialRenderer.kt     spans → SpannableStringBuilder（未指定或解析失败的颜色不挂色，跟随主题文字色）
-tutorial/TutorialPagerActivity.kt  分页展示页（POC）
+tutorial/TutorialPagerActivity.kt  分页展示页
+tutorial/TutorialHints.kt        页面滑动提示（HINT）的渲染：显示 R.id.text_tutorial_pager、页数取宿主 ViewPager/ViewPager2 真实页数
 res/layout/activity_tutorial_pager.xml / item_tutorial_page.xml
 ```
 
-**触发链路**：`BaseActivity.onStart()` → `Tutorials.forPage(javaClass)` → 过滤未读 → `TutorialPagerActivity.start()`。
+**触发链路**：`BaseActivity.onStart()` → `Tutorials.forPage(javaClass)` → 过滤未读 → 按类型分流：
+全屏教程进 `TutorialPagerActivity.start()`，`HINT` 进 `TutorialHints.show()`（同页两者共存时提示避让到教程关闭之后）。
 每个 Activity 实例只检查一次；教程页自身覆写 `tutorialAutoTriggerEnabled()` 返回 `false` 避免递归。
 
 **加一篇教程 = 注册表加一行**（并在 `all` 里登记）。
@@ -86,15 +88,14 @@ res/layout/activity_tutorial_pager.xml / item_tutorial_page.xml
 | ✅ 旧键迁移 | `TutorialStore.migrateLegacyKeys()`，`BiliTerminal.onCreate` 启动时执行，幂等 |
 | ✅ 孤儿补接 | `tutorial_article` → `article`，target = `OpusInfoActivity`（旧实现从未被展示） |
 | ✅ 删除旧调用点 | Recommend / UserInfo / Search / Message / Dynamic / DynamicInfo / ShortVideo / VideoInfo 八处手写调用已移除，改由 `BaseActivity` 集中触发 |
+| ✅ 管理页改造（26.10.24） | 「重看」调 `TutorialPagerActivity.start`；通过/清除/一键通过/清除全部改走 `TutorialStore`，页面里不再拼 `tutorial_ver_*` 键 |
+| ✅ HINT 纳入注册表（26.11.07） | 5 条页面滑动提示改成 `TutorialKind.HINT` 条目（`Tutorials.hints`），`BaseActivity` 与全屏教程一起分流、`tutorial/TutorialHints.kt` 渲染；宿主页不再手写 `showPagerTutorial(activity, 页数)`，页数改读宿主 ViewPager / ViewPager2 的真实页数。`SearchActivity` 自己抄的那份显隐逻辑一并删除 |
+| ✅ 删除旧链路（26.11.07） | `helper/TutorialHelper.kt`、`activity/TutorialActivity.kt`、`model/Tutorial.java`、`model/CustomText.java`、`res/layout/activity_tutorial.xml`、`res/xml/tutorial_*.xml` ×12、`strings.xml` 里 10 个 `tutorial_*` 数组与 2 条只被 `TutorialHelper` 使用的文案、Manifest 里的旧教程页注册，全部删除 |
 
 **待办**
 
-- ⬜ **HINT 纳入**：`TutorialHelper.showPagerTutorial` 里硬编码的 5 个类名改成注册表驱动（`TutorialKind.HINT`）。
-  注意 `SearchActivity` 的翻页提示是自己实现的，不走这个方法，迁移时要一并处理。
 - ⬜ **强制声明清单** `TutorialCoverage` + 单测：每个 `BaseActivity` 子类表态「有教程 / 无教程」，新增页面不改清单就测试失败。
-- ⬜ **管理页改造**：加「重看」按钮（调 `TutorialPagerActivity.start`），一键通过/清除改走 `TutorialStore`。
-- ⬜ **删旧代码**：`TutorialHelper`、`TutorialActivity`、`model/Tutorial.java`、`model/CustomText.java`、`res/xml/tutorial_*.xml`、`strings.xml` 里的 `tutorial_*` 数组、Manifest 里的旧教程页注册。
-  （这些暂时保留是因为 `TutorialManagerActivity` 仍在读 `R.array.tutorial_*`，删了会编译失败。）
+- ⬜ **真机验收 HINT 迁移**：5 个宿主页的翻页提示文字与页数、翻页后收起、教程页盖住时提示延后出现——只能在真机上看（L2），见 `docs/review/fix-progress.md` §2。
 
 ---
 
@@ -105,3 +106,4 @@ res/layout/activity_tutorial_pager.xml / item_tutorial_page.xml
 | 26.09.08 | `:app:testDebugUnitTest` | ✅ 44 用例全绿（含 `TutorialDslTest` 6 例） |
 | 26.09.08 | `:app:assembleDebug` | ✅ 见 `fix-progress.md` |
 | 26.10.27 | 亮色主题下教程正文仍为白字 | ✅ 修：`TutorialSpan.color` 默认 `null`（原写死 `#ffffff`），渲染时不挂色、跟随主题；`theme_notice` 升 v2，补亮/暗色、弥散光晕、玻璃质感说明，并新增 `Tutorial.action` 底部按钮直达「外观设置」。`assembleDebug` + `testStandardDebugUnitTest` 通过；模拟器中途断开，**亮色下实机截图未完成** |
+| 26.11.07 | 教程旧链路与硬编码 HINT 收尾 | ✅ 5 条 HINT 进注册表、旧链路删除（明细见 §五）；两 flavor `assembleDebug` + 单测通过。验证口径与真机未验项记在 `docs/review/fix-progress.md` |

@@ -16,7 +16,6 @@ import com.RobinNotBad.BiliClient.activity.video.info.BangumiInfoFragment
 import com.RobinNotBad.BiliClient.adapter.viewpager.ViewPagerFragmentAdapter
 import com.RobinNotBad.BiliClient.event.CloseAllVideoPagesEvent
 import com.RobinNotBad.BiliClient.event.ReplyEvent
-import com.RobinNotBad.BiliClient.helper.TutorialHelper
 import com.RobinNotBad.BiliClient.util.AnimationUtils
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -93,9 +92,7 @@ class VideoInfoActivity : BaseActivity() {
     }
 
     protected fun initVideoInfoView() {
-        // 视频详情页的教程改由 BaseActivity 按 Tutorials 注册表集中触发，这里不再手动调用
-        TutorialHelper.showPagerTutorial(this, 3)
-
+        // 视频详情页的教程与翻页提示都由 BaseActivity 按 Tutorials 注册表集中触发，这里不再手动调用
         setPageName(UiText.of("视频详情"))
         TerminalContext.getInstance().getVideoInfoByAidOrBvId(aid, bvid).observe(this) { result ->
             result.onSuccess { videoInfo ->

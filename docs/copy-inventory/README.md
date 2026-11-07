@@ -156,4 +156,4 @@
 
 - 05 的 `U-188`（`activity_todo_list.xml`「TO DO 清单页」）**入口没找到**，可能已无调用者；
 - 05 的 `U-113`（`cell_message_reply.xml:26` 示例正文）运行时会被真实内容覆盖，但无法 100% 排除某些分支会显示；
-- 03 的旧链路 `res/xml/tutorial_*.xml` 已不被任何 `R.array.tutorial_*` 引用（`tutorial_theme_notice.xml` 是孤儿），但**尚未删除**——改与不改取决于教程系统重做的进度，见 [`../tutorial-system-redesign.md`](../tutorial-system-redesign.md)。
+- ~~03 的旧链路 `res/xml/tutorial_*.xml` 尚未删除~~——26.11.07 已随教程系统收尾**整体删除**（12 个 XML、`TutorialHelper`、`TutorialActivity`、`tutorial_*` 数组），见 [`../tutorial-system-redesign.md`](../tutorial-system-redesign.md) §五。**03 里对这批 XML 的逐字收录从此只是历史存档，代码里已没有对应文件。**

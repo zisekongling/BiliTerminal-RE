@@ -25,7 +25,8 @@ import com.google.android.material.card.MaterialCardView
 /**
  * 教程管理页。
  *
- * 数据源只有两处：[Tutorials.all]（全屏教程注册表）与 [TutorialStore.HINT_PAGES]（页面滑动提示）。
+ * 数据源只有一处：[Tutorials.all]（全屏教程与页面滑动提示都在同一张注册表里，
+ * 后者按 [Tutorials.hints] 单独分组渲染）。
  * 列表、进度、通过、清除**全部走 [TutorialStore] 的正式 API**，本类里不再出现
  * `tutorial_ver_*` / `tutorial_pager_*` / `tutorial_history_*` 这类键名字面量：
  * 之前它按旧 tag 拼键（`tutorial_ver_<旧 tag>`），而新教程系统按 `tutorial_ver_<id>` 读，
@@ -75,12 +76,12 @@ class TutorialManagerActivity : BaseActivity() {
         listContainer?.let { renderCards(it) }
     }
 
-    /** 重画全部卡片：教程注册表 + 页面滑动提示。 */
+    /** 重画全部卡片：教程注册表（全屏教程 + 页面滑动提示）。 */
     private fun renderCards(container: LinearLayout) {
         container.removeAllViews()
 
         for (tutorial in Tutorials.all) {
-            container.addView(buildTutorialCard(tutorial))
+            if (tutorial.isFullScreen) container.addView(buildTutorialCard(tutorial))
         }
 
         container.addView(
@@ -89,8 +90,8 @@ class TutorialManagerActivity : BaseActivity() {
                 getString(R.string.tutorial_section_page_hint_desc)
             )
         )
-        for (page in TutorialStore.HINT_PAGES) {
-            container.addView(buildHintCard(page))
+        for (hint in Tutorials.hints) {
+            container.addView(buildHintCard(hint))
         }
     }
 
@@ -118,14 +119,14 @@ class TutorialManagerActivity : BaseActivity() {
         )
     }
 
-    private fun buildHintCard(page: String): MaterialCardView = buildCard(
-        title = hintTitle(page),
+    private fun buildHintCard(hint: Tutorial): MaterialCardView = buildCard(
+        title = hint.title,
         description = null,
-        done = TutorialStore.isHintShown(page),
+        done = TutorialStore.isRead(hint),
         history = null,
         buttons = listOf(
-            getString(R.string.tutorial_btn_pass) to { passHint(page) },
-            getString(R.string.tutorial_btn_clear) to { resetHint(page) },
+            getString(R.string.tutorial_btn_pass) to { passHint(hint) },
+            getString(R.string.tutorial_btn_clear) to { resetHint(hint) },
         )
     )
 
@@ -341,34 +342,32 @@ class TutorialManagerActivity : BaseActivity() {
         TutorialPagerActivity.start(this, listOf(tutorial))
     }
 
-    private fun passHint(page: String) {
-        TutorialStore.markHintShown(page)
-        afterProgressChanged(getString(R.string.msg_tutorial_passed, hintTitle(page)))
+    private fun passHint(hint: Tutorial) {
+        TutorialStore.markRead(hint)
+        afterProgressChanged(getString(R.string.msg_tutorial_passed, hint.title))
     }
 
-    private fun resetHint(page: String) {
-        TutorialStore.clearHint(page)
-        afterProgressChanged(getString(R.string.msg_tutorial_progress_cleared, hintTitle(page)))
+    private fun resetHint(hint: Tutorial) {
+        TutorialStore.clear(hint)
+        afterProgressChanged(getString(R.string.msg_tutorial_progress_cleared, hint.title))
     }
 
     // ==================== 批量操作 ====================
 
     private fun passAllTutorials() {
         for (tutorial in Tutorials.all) TutorialStore.markRead(tutorial)
-        for (page in TutorialStore.HINT_PAGES) TutorialStore.markHintShown(page)
         MsgUtil.showMsg(getString(R.string.msg_tutorialmanageractivity_001))
         recreate()
     }
 
     private fun clearAllTutorials() {
-        for (tutorial in Tutorials.all) TutorialStore.clear(tutorial.id)
-        for (page in TutorialStore.HINT_PAGES) TutorialStore.clearHint(page)
+        for (tutorial in Tutorials.all) TutorialStore.clear(tutorial)
         MsgUtil.showMsg(getString(R.string.msg_tutorialmanageractivity_002))
         recreate()
     }
 
     private fun clearPagerTutorials() {
-        TutorialStore.clearAllHints()
+        for (hint in Tutorials.hints) TutorialStore.clear(hint)
         MsgUtil.showMsg(getString(R.string.msg_tutorialmanageractivity_003))
         recreate()
     }
@@ -378,16 +377,6 @@ class TutorialManagerActivity : BaseActivity() {
     private fun afterProgressChanged(message: String) {
         MsgUtil.showMsg(message)
         recreate()
-    }
-
-    /** 页面滑动提示的展示名。没登记的宿主页退回类名，保证新加的页面至少能被看到。 */
-    private fun hintTitle(page: String): String = when (page) {
-        "SearchActivity" -> getString(R.string.tutorial_hint_search)
-        "VideoInfoActivity" -> getString(R.string.tutorial_hint_video_info)
-        "UserInfoActivity" -> getString(R.string.tutorial_hint_user_info)
-        "OpusInfoActivity" -> getString(R.string.tutorial_hint_opus_info)
-        "DynamicInfoActivity" -> getString(R.string.tutorial_hint_dynamic_info)
-        else -> page
     }
 
     private fun dp2px(dp: Float): Int {

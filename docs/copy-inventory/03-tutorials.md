@@ -8,6 +8,7 @@
 > 生成：2026-10-18 · 基于当前工作区
 > 计数：共 53 条（T-001 ~ T-053）
 > **改写入口**：每条最后的 `- **改写**：` 里**已经预填了原文**（2026-10-19 起），你直接在原地改成新文案，再把该条标题加上 `〔待落地〕`；怎么配合见 [GUIDE.md](GUIDE.md) 第十一节。
+> **状态更新（26.11.07）**：教程系统收尾完成，**旧链路已整体删除**（12 个 `res/xml/tutorial_*.xml`、`TutorialHelper`、`TutorialActivity`、`model/Tutorial` + `CustomText`、`tutorial_*` 数组、旧教程页 Manifest 注册）；5 条滑动提示已进 `Tutorials.hints` 注册表。本文件第四节对旧 XML 的逐字收录因此只是**历史存档**，第四节与旧链路各条不再对应任何现存文件；活文案仍是第一节（`tutorial/Tutorials.kt`）与第五节（管理页）。
 
 ---
 

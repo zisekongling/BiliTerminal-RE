@@ -84,9 +84,6 @@ class SearchActivity : InstanceActivity() {
     private var defaultSearchContent: String? = null
     private var defaultSearchContentEnabled: Boolean = false
 
-    var tutorial_show: Boolean = false
-    var classname: String? = null
-
     // 搜索类别动态列表：根据用户设置动态管理启用的搜索类别及排序
     private lateinit var categoryList: ArrayList<String>
 
@@ -102,11 +99,8 @@ class SearchActivity : InstanceActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        classname = javaClass.simpleName
-        tutorial_show = SharedPreferencesUtil.getBoolean("tutorial_pager_$classname", true)
-
         asyncInflate(R.layout.activity_search) { _, _ ->
-            // 教程改由 BaseActivity 按 Tutorials 注册表集中触发
+            // 教程（含这页的左右翻页提示）改由 BaseActivity 按 Tutorials 注册表集中触发
 
             handler = Handler()
 
@@ -179,11 +173,6 @@ class SearchActivity : InstanceActivity() {
                         // 而空关键词时分类页没有任何内容可滚，收起后再也没有事件把搜索框拉回来
                         // （反馈 #42：输入框隐藏，只能切到别的页面再切回搜索）。搜索框的显隐只由
                         // 列表真实滚动驱动，见 onScrolled()。
-                        if (tutorial_show) {
-                            tutorial_show = false
-                            findViewById<View>(R.id.text_tutorial_pager).visibility = View.GONE
-                            SharedPreferencesUtil.putBoolean("tutorial_pager_$classname", false)
-                        }
                         lastPosition = position
                     }
                     super.onPageScrolled(position, positionOffset, positionOffsetPixels)
@@ -561,14 +550,6 @@ class SearchActivity : InstanceActivity() {
                     report(e)
                 }
                 refreshing = false
-
-                if (tutorial_show) {
-                    runOnUiThread {
-                        val textView = findViewById<TextView>(R.id.text_tutorial_pager)
-                        textView.visibility = View.VISIBLE
-                        textView.text = getString(R.string.tutorial_pager, categoryList.size - 1)
-                    }
-                }
             }
         }
     }

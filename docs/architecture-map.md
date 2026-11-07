@@ -2,7 +2,7 @@
 
 > 通读日期：当前 `main` 分支工作区（`versionName 26.10.19` / `versionCode 2610190`），26.10.04 初版、26.10.10 复核、26.10.11 复核、26.10.20 复核（版本与测试计数）
 > 目的：改功能前先摸清**真实**架构。本文结论均基于逐文件读源码核实；`AGENTS.md` 已按本文事实重写。
-> 配套阅读：`docs/review/fix-progress.md`（**当前状态快照 + 未完成待办**，唯一活台账）、`docs/FEATURES.md`（用户可见功能总表）、`docs/tutorial-system-redesign.md`（教程系统重做，进行中）。
+> 配套阅读：`docs/review/fix-progress.md`（**当前状态快照 + 未完成待办**，唯一活台账）、`docs/FEATURES.md`（用户可见功能总表）、`docs/tutorial-system-redesign.md`（教程系统重做，**已完成**：注册表驱动 + 旧链路已删，留作设计与历史证据）。
 > 历史调研 / 审计 / 已执行完毕的方案已全部移入 `docs/archive/`（总索引见 `docs/archive/README.md`，文档总索引见 `docs/README.md`）——**归档文档只代表当时，引用前先确认现状**。
 
 ---

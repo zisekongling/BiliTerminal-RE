@@ -15,7 +15,6 @@ import com.RobinNotBad.BiliClient.activity.reply.ReplyFragment
 import com.RobinNotBad.BiliClient.adapter.viewpager.ViewPagerFragmentAdapter
 import com.RobinNotBad.BiliClient.api.ReplyApi
 import com.RobinNotBad.BiliClient.event.ReplyEvent
-import com.RobinNotBad.BiliClient.helper.TutorialHelper
 import com.RobinNotBad.BiliClient.util.AnimationUtils
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
@@ -74,7 +73,6 @@ class DynamicInfoActivity : BaseActivity() {
                             scrollView.requestFocus()
                         }
                     }
-                    TutorialHelper.showPagerTutorial(this, 2)
                 }.onFailure { e ->
                     MsgUtil.err(e)
                     (findViewById<View>(R.id.loading) as ImageView).setImageResource(R.mipmap.loading_2233_error)

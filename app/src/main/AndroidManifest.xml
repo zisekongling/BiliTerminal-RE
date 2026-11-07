@@ -176,12 +176,6 @@
             android:label="@string/uitext_feedbackdetailactivity_002"
             android:screenOrientation="locked" />
         <activity
-            android:name=".activity.TutorialActivity"
-            android:exported="false"
-            android:label="@string/pagename_tutorial"
-            android:screenOrientation="locked"
-            android:theme="@style/Theme.NoSwipe.AppCompat" />
-        <activity
             android:name=".tutorial.TutorialPagerActivity"
             android:exported="false"
             android:label="@string/pagename_tutorial"

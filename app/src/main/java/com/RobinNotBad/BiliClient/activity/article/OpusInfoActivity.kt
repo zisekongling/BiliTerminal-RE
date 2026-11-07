@@ -14,7 +14,6 @@ import com.RobinNotBad.BiliClient.activity.dynamic.DynamicInfoActivity
 import com.RobinNotBad.BiliClient.activity.reply.ReplyFragment
 import com.RobinNotBad.BiliClient.adapter.viewpager.ViewPagerFragmentAdapter
 import com.RobinNotBad.BiliClient.event.ReplyEvent
-import com.RobinNotBad.BiliClient.helper.TutorialHelper
 import com.RobinNotBad.BiliClient.model.Opus
 import com.RobinNotBad.BiliClient.model.Stats
 import com.RobinNotBad.BiliClient.model.UserInfo
@@ -76,7 +75,6 @@ class OpusInfoActivity : BaseActivity() {
                     if (seek_reply != -1L) viewPager.currentItem = 1
 
                     AnimationUtils.crossFade(loadingView, oiFragment.view)
-                    TutorialHelper.showPagerTutorial(this, 2)
                 }.onFailure { error ->
                     loadingView.setImageResource(R.mipmap.loading_2233_error)
                     MsgUtil.err(error)
