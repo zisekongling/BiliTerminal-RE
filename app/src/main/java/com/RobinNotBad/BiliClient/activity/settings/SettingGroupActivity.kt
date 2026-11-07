@@ -373,7 +373,7 @@ class SettingGroupActivity : RefreshListActivity() {
     private fun buildAppearanceGroup() {
         title("配色")
         listChoose(
-            "颜色模式",
+            getString(R.string.setting_index_color_mode),
             getString(R.string.desc_setting_color_mode),
             ColorMode.KEY,
             ColorMode.DEFAULT,
@@ -412,7 +412,7 @@ class SettingGroupActivity : RefreshListActivity() {
         }
         // 开关本身由 SettingsAdapter 落盘；这里再走门面写一次，为的是递增外观版本号，
         // 让返回栈里的其它页面在 onResume 时一起重建
-        switch("弥散光晕", getString(R.string.desc_setting_ambient_glow), SettingsKeys.UI_AMBIENT_GLOW, AmbientGlow.DEFAULT) { isChecked ->
+        switch(getString(R.string.setting_index_ambient_glow), getString(R.string.desc_setting_ambient_glow), SettingsKeys.UI_AMBIENT_GLOW, AmbientGlow.DEFAULT) { isChecked ->
             AppearanceManager.setAmbientGlow(isChecked)
             recreate()
         }
@@ -429,7 +429,7 @@ class SettingGroupActivity : RefreshListActivity() {
                 recreate()
             }
         }
-        switch("玻璃质感", getString(R.string.desc_setting_glass_components), SettingsKeys.UI_GLASS_COMPONENTS, GlassStyle.DEFAULT) { isChecked ->
+        switch(getString(R.string.setting_index_glass_components), getString(R.string.desc_setting_glass_components), SettingsKeys.UI_GLASS_COMPONENTS, GlassStyle.DEFAULT) { isChecked ->
             AppearanceManager.setGlassComponents(isChecked)
             recreate()
         }
@@ -751,7 +751,7 @@ class SettingGroupActivity : RefreshListActivity() {
             VirtualCollectionPrefs.CLICK_PLAY,
             VirtualCollectionPrefs.DEFAULT_CLICK_PLAY
         )
-        switch("圆屏列表", getString(R.string.desc_ui_round_list_effect), SettingsKeys.UI_ROUND_LIST_EFFECT, false)
+        switch(getString(R.string.setting_index_round_list), getString(R.string.desc_ui_round_list_effect), SettingsKeys.UI_ROUND_LIST_EFFECT, false)
 
         title("播放器兼容")
         switch("播放器旋屏兼容方案", getString(R.string.desc_player_rotate_software), SettingsKeys.DEV_PLAYER_ROTATE_SOFTWARE, false)

@@ -2844,4 +2844,19 @@
 
     <!-- 界面按钮 -->
     <string name="setting_player_interaction_choice_size">互动选项字体大小</string>
+    <!-- 设置索引（SettingsIndex）：全局设置搜索里显示的条目名与说明。 -->
+    <string name="setting_index_color_mode">颜色模式</string>
+    <string name="desc_setting_index_color_mode">暗色 / 亮色模式切换</string>
+    <string name="setting_index_ambient_glow">弥散光晕</string>
+    <string name="desc_setting_index_ambient_glow">页面边缘的主题色光晕背景</string>
+    <string name="setting_index_glass_components">玻璃质感</string>
+    <string name="desc_setting_index_glass_components">卡片与按钮半透明，让光晕透进来</string>
+    <string name="setting_index_background_image">背景图</string>
+    <string name="desc_setting_index_background_image">给页面铺一张自己的图片</string>
+    <string name="setting_index_background_fit">背景图适配方式</string>
+    <string name="desc_setting_index_background_fit">填满裁切还是完整显示</string>
+    <string name="setting_index_background_scrim">背景图遮罩强度</string>
+    <string name="desc_setting_index_background_scrim">遮罩越强文字越清楚</string>
+    <string name="setting_index_round_list">圆屏列表</string>
+    <string name="desc_setting_index_round_list">圆屏模式的滚动列表曲率效果</string>
 </resources>
