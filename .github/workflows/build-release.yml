@@ -284,8 +284,16 @@ jobs:
           # 与 ci.yml 同一处修正：注释形式的代理行也要删，守卫只看生效行。
           sed -i -E '/^[[:space:]]*#?[[:space:]]*org\.gradle\.java\.home=/d' gradle.properties
           sed -i -E '/^[[:space:]]*#?[[:space:]]*systemProp\.(http|https)\.(proxyHost|proxyPort)=/d' gradle.properties
-          sed -i 's/org.gradle.jvmargs=-Xmx4096m/org.gradle.jvmargs=-Xmx2048m/' gradle.properties || true
-          sed -i 's/kotlin.daemon.jvmargs=-Xmx8192m/kotlin.daemon.jvmargs=-Xmx2048m/' gradle.properties || true
+          # 堆内存必须整行替换（与 ci.yml 同一处修正，调研清单第 3 条）：原先写死 `-Xmx4096m`，
+          # 本仓库实际是 `-Xmx8192m`，替换 0 命中、后面又挂了 `|| true`，「防 runner OOM」从未生效。
+          sed -i -E 's/^org\.gradle\.jvmargs=.*/org.gradle.jvmargs=-Xmx2048m -Xms1024m -Dfile.encoding=UTF-8/' gradle.properties
+          sed -i -E 's/^kotlin\.daemon\.jvmargs=.*/kotlin.daemon.jvmargs=-Xmx2048m/' gradle.properties
+          if ! grep -qE '^org\.gradle\.jvmargs=-Xmx2048m' gradle.properties; then
+            echo "::error::org.gradle.jvmargs 未被替换成 -Xmx2048m，Gradle daemon 堆内存设置没生效"
+            exit 1
+          fi
+          echo "CI 实际生效的 JVM 参数："
+          grep -nE '^(org\.gradle\.jvmargs|kotlin\.daemon\.jvmargs)=' gradle.properties
           if grep -nE '^[[:space:]]*(org\.gradle\.java\.home|systemProp\.(http|https)\.(proxyHost|proxyPort))=' gradle.properties; then
             echo "::error::gradle.properties 仍残留生效中的本机配置，请检查"
             exit 1
