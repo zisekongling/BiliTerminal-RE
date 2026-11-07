@@ -375,6 +375,20 @@ object OptionalFeatures {
         }
     }
 
+    /**
+     * 进程启动后让私有侧在后台静默预热自己的数据（26.11.07）。
+     *
+     * <p>公开侧只负责「叫一声」：要预热什么、多久做一次、要不要发网络请求，全由私有侧自己决定，
+     * 而且必须立刻返回（活都在后台线程上）。没有私有功能时是空操作，也不会抛异常。
+     */
+    fun warmUpOptionalData() {
+        try {
+            holder?.getMethod("warmUpOptionalData")?.invoke(null)
+        } catch (e: Throwable) {
+            Logu.w("OptionalFeatures", "warmUpOptionalData failed: " + e.message)
+        }
+    }
+
     private fun invokeString(name: String): String? = try {
         holder?.getMethod(name)?.invoke(null) as? String
     } catch (e: Throwable) {

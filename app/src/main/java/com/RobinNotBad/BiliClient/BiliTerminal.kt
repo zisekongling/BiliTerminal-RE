@@ -31,6 +31,7 @@ import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgNotifier
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
+import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.PerformanceManager
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
@@ -460,6 +461,11 @@ class BiliTerminal : Application() {
             // 真正发请求的间隔由 CookieRefreshPolicy 决定：正常 30 分钟，失败指数退避封顶 4 小时），
             // 不阻塞主线程、不引入 WorkManager。放在 context == null 块内，保证一个进程只起一次。
             CookieRefreshScheduler.start()
+
+            // 私有功能在后台静默预热自己的数据（现在是第三方片源规则的静默检查/同步）。
+            // 门面只调一声就返回：拉不拉、多久拉一次、要不要发请求都由私有侧自己决定并自带节流；
+            // 没有私有功能时是空操作。同样放在 context == null 块内，一个进程只叫一次。
+            OptionalFeatures.warmUpOptionalData()
 
             if (SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.DYNAMIC_UPDATE_CHECK_ENABLE, true)
                 && SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) != 0L
