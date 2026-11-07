@@ -108,6 +108,19 @@ class UserVideoFragment : RefreshListFragment() {
         loadFirstPage()
     }
 
+    override fun onViewStateRestored(savedInstanceState: Bundle?) {
+        super.onViewStateRestored(savedInstanceState)
+        // 主题 / 密度变化会重建页面：EditText 的文字由视图状态自动恢复，keyword 字段不会。
+        // 不同步的话会出现「输入框里是关键词、列表却是全部投稿」。onViewCreated 那次首屏请求
+        // 已经发出，这里发现关键词不一致就按恢复后的关键词重拉一次——loadFirstPage 会自增代次，
+        // 旧请求的结果会被丢掉，不会覆盖新结果。
+        val restored = keywordInput?.text?.toString()?.trim().orEmpty()
+        if (restored != keyword) {
+            keyword = restored
+            loadFirstPage()
+        }
+    }
+
     // ==================== 搜索栏与排序入口 ====================
 
     private fun initSearchBar(view: View) {
@@ -219,9 +232,11 @@ class UserVideoFragment : RefreshListFragment() {
                 runOnUiThread {
                     // 旧请求的异常不要弹给用户
                     if (generation != loadGeneration) return@runOnUiThread
-                    // 首屏失败：数据没上屏，给一句「下拉重试」，否则用户只看到转圈停住
                     loadFail(e)
-                    showEmptyView(getString(R.string.text_space_video_empty_failed))
+                    // 只有「数据没上屏」时才能换成失败空态：下拉刷新 / 换排序失败时 videoList 里还留着
+                    // 上一批数据，无条件 showEmptyView 会把 recyclerView 设成 GONE，一次网络抖动
+                    // 就让整页投稿消失（参考实现同一位置同样以 videoList.isEmpty() 为守卫）。
+                    if (videoList.isEmpty()) showEmptyView(getString(R.string.text_space_video_empty_failed))
                 }
             }
         }

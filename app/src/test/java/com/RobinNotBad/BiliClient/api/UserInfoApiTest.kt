@@ -34,8 +34,9 @@ class UserInfoApiTest {
     fun buildUserVideoUrl_encodesKeyword() {
         val url = UserInfoApi.buildUserVideoUrl(2L, 3, "a&b=c d", UserInfoApi.ORDER_CLICK)
 
-        // 空格编码成 +、& 编码成 %26、= 编码成 %3D：编码后的参数串才是服务端签名校验的那一份
-        assertTrue(url, url.contains("keyword=a%26b%3Dc+d"))
+        // 空格按 encodeURIComponent 编成 %20（不是表单编码的 +）、& 编成 %26、= 编成 %3D：
+        // 编码后的参数串才是服务端签名校验的那一份
+        assertTrue(url, url.contains("keyword=a%26b%3Dc%20d"))
         assertFalse(url, url.contains("keyword=a&b=c"))
         assertTrue(url, url.contains("&mid=2&"))
         assertTrue(url, url.contains("&order=click&"))
@@ -48,5 +49,20 @@ class UserInfoApiTest {
 
         assertTrue(url, url.contains("keyword=&"))
         assertTrue(url, url.contains("&order=pubdate&"))
+    }
+
+    /**
+     * 关键词编码口径：WBI 要的是 `encodeURIComponent`，`URLEncoder`（表单编码）的差异项必须掰回来。
+     * 26.11.07 实测：`a~b` 用 `a%7Eb` 签 WBI 会被服务端判 -352「风控校验失败」。
+     */
+    @Test
+    fun encodeKeyword_matchesEncodeUriComponent() {
+        assertEquals("", UserInfoApi.encodeKeyword(null))
+        assertEquals("", UserInfoApi.encodeKeyword(""))
+        assertEquals("%E4%B8%AD%E6%96%87", UserInfoApi.encodeKeyword("中文"))
+        assertEquals("a%20b", UserInfoApi.encodeKeyword("a b"))
+        // encodeURIComponent 不编码这几个：~ ! ' ( ) * - _ .
+        assertEquals("a~b!c'd(e)f*g-h_i.j", UserInfoApi.encodeKeyword("a~b!c'd(e)f*g-h_i.j"))
+        assertEquals("a%26b%3Dc%23d%2Be", UserInfoApi.encodeKeyword("a&b=c#d+e"))
     }
 }

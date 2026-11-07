@@ -244,14 +244,39 @@ public class UserInfoApi {
      * <p>纯函数，见 `UserInfoApiTest`。
      */
     public static String buildUserVideoUrl(long mid, int page, String searchKeyword, String order) throws IOException {
-        String keyword = searchKeyword == null ? "" : searchKeyword;
         String safeOrder = normalizeOrder(order);
         return "https://api.bilibili.com/x/space/wbi/arc/search?"
-                + "keyword=" + URLEncoder.encode(keyword, "UTF-8")
+                + "keyword=" + encodeKeyword(searchKeyword)
                 + "&mid=" + mid
                 + "&order_avoided=true&order=" + safeOrder
                 + "&pn=" + page
                 + "&ps=40&tid=0&web_location=333.999";
+    }
+
+    /**
+     * 关键词编码，口径对齐 WBI 签名要的 `encodeURIComponent`，**不是**表单编码。
+     *
+     * <p>为什么不能直接用 `URLEncoder.encode`：它是 `application/x-www-form-urlencoded`——
+     * 空格编成 `+`、`~ ! ' ( )` 也各自编成 `%XX`，而 WBI 的服务端是「解码出原值 →
+     * `encodeURIComponent` 重编码 → 比 md5」。差异项会让签名串对不上，服务端回 -352
+     * 「风控校验失败」，用户看到的就是「加载失败」。26.11.07 用脚本按仓库 signWBI 的
+     * 算法对 `space/wbi/arc/search` 实测：`a~b` 用 `a%7Eb` 签 → -352，用 `a~b` 签 → 签名通过
+     * （服务端返回业务码而非风控码）。
+     *
+     * <p>`URLEncoder` 编出来的其余部分（中文 / 结构字符 / 大写十六进制）与 `encodeURIComponent`
+     * 一致，所以这里只把差异项掰回来即可。
+     *
+     * <p>纯函数，见 `UserInfoApiTest`。
+     */
+    public static String encodeKeyword(String keyword) throws IOException {
+        if (keyword == null || keyword.isEmpty()) return "";
+        return URLEncoder.encode(keyword, "UTF-8")
+                .replace("+", "%20")     // 表单编码的空格 -> encodeURIComponent 的 %20
+                .replace("%7E", "~")
+                .replace("%21", "!")
+                .replace("%27", "'")
+                .replace("%28", "(")
+                .replace("%29", ")");
     }
 
 
