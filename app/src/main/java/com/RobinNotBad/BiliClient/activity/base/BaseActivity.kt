@@ -270,6 +270,11 @@ open class BaseActivity : AppCompatActivity() {
      * 这里挂在 **DecorView** 上：`ViewRootImpl` 总是先把事件派给 DecorView，而 DecorView 只在
      * 所有子 View 都没处理时才调用自己的 `onGenericMotionEvent` 监听器，
      * 因此不会与控件级监听器重复滚动。
+     *
+     * 26.11.07.1 起这条兜底**不再受总开关限制**（issue #21：Wear OS 5 上大部分界面失去系统滚动）：
+     * 开关关闭时它用默认灵敏度补位，开关开启时用用户灵敏度。之所以不会「叠加」，是因为
+     * `Rotary*` 控件在框架滚过之后会把事件吃掉（[RotaryEncoderSupport.handleSystemFirst]），
+     * 事件根本没机会冒泡到这里；能走到这里的都是「框架一点没动」的情况。
      */
     private fun installRotaryFallback() {
         val decor = window?.decorView ?: return

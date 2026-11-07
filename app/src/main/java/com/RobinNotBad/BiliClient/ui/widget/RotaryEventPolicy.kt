@@ -65,4 +65,26 @@ object RotaryEventPolicy {
      * 页面级兜底本来就是 `dy == 0 → false`，这里把两者对齐。
      */
     fun shouldConsume(dy: Int): Boolean = dy != 0
+
+    /**
+     * 「系统优先」路径：框架处理完之后，App 是否必须把事件吃掉。
+     *
+     * 两个条件任一成立就得吞：
+     * 1. `frameworkHandled`——框架自己说处理了（`NestedScrollView`/`ScrollView` 滚完返回 true）；
+     * 2. `frameworkMoved`——框架滚了却返回 false（`RecyclerView.onGenericMotionEvent`
+     *    在 `RecyclerView.java:3985` 恒 return false）。
+     *
+     * 为什么必须吞：不吞的话事件会一路冒泡到 DecorView 的页面级兜底，兜底再把同一个容器
+     * 滚一遍——这就是 issue #21 报的「软件和系统滚动效果叠加」。
+     */
+    fun shouldConsumeAfterFramework(frameworkHandled: Boolean, frameworkMoved: Boolean): Boolean =
+        frameworkHandled || frameworkMoved
+
+    /**
+     * 「系统优先」路径：框架什么都没滚时，App 是否补位。
+     *
+     * 框架已经滚过就绝不再补（见 [shouldConsumeAfterFramework]）；换算后没有位移也不补，
+     * 与 [shouldConsume] 同一条语义。
+     */
+    fun shouldFillIn(frameworkMoved: Boolean, dy: Int): Boolean = !frameworkMoved && dy != 0
 }

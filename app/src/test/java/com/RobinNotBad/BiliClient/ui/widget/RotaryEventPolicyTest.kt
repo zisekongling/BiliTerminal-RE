@@ -115,4 +115,39 @@ class RotaryEventPolicyTest {
         assertTrue(RotaryEventPolicy.shouldConsume(2))
         assertTrue(RotaryEventPolicy.shouldConsume(-3))
     }
+
+    // ---------- shouldConsumeAfterFramework / shouldFillIn（issue #21） ----------
+
+    @Test
+    fun 框架自己说处理了就吞事件() {
+        // NestedScrollView / ScrollView 滚完返回 true，再冒泡给兜底就是「叠加」
+        assertTrue(RotaryEventPolicy.shouldConsumeAfterFramework(frameworkHandled = true, frameworkMoved = true))
+        assertTrue(RotaryEventPolicy.shouldConsumeAfterFramework(frameworkHandled = true, frameworkMoved = false))
+    }
+
+    @Test
+    fun 框架滚了却说没处理时也要吞() {
+        // RecyclerView.onGenericMotionEvent（androidx 1.3.2，RecyclerView.java:3985）恒 return false，
+        // 只靠返回值判断会把「已经滚过」当成「没处理」，于是兜底再滚一遍 = 反馈里的叠加
+        assertTrue(RotaryEventPolicy.shouldConsumeAfterFramework(frameworkHandled = false, frameworkMoved = true))
+    }
+
+    @Test
+    fun 框架没动也不吞时交给补位判定() {
+        assertFalse(RotaryEventPolicy.shouldConsumeAfterFramework(frameworkHandled = false, frameworkMoved = false))
+        // 框架一点没动、补位有位移 → 才轮得到 App 接管
+        assertTrue(RotaryEventPolicy.shouldFillIn(frameworkMoved = false, dy = 2))
+    }
+
+    @Test
+    fun 框架动过就绝不补位() {
+        // 这条是「不叠加」的核心断言：框架只要滚过，哪怕补位能算出位移也不许再滚
+        assertFalse(RotaryEventPolicy.shouldFillIn(frameworkMoved = true, dy = 2))
+        assertFalse(RotaryEventPolicy.shouldFillIn(frameworkMoved = true, dy = -3))
+    }
+
+    @Test
+    fun 框架没动且补位位移为零时不补() {
+        assertFalse(RotaryEventPolicy.shouldFillIn(frameworkMoved = false, dy = 0))
+    }
 }

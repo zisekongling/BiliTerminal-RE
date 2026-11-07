@@ -51,6 +51,16 @@ import java.util.concurrent.atomic.AtomicInteger
  * 另外加了 W 级诊断日志（[probe]）：内存环形缓冲只留 W/E/F，反馈页勾「附带应用日志」会把
  * 它一起带上来。同一个进程最多 [PROBE_MAX] 条，正常用户看不到任何变化，但下次「转不动」的
  * 反馈里就能直接读出事发时的 action / source / 两个轴值 / 命中目标——这比再猜一轮省事。
+ *
+ * **26.11.07.1 起总开关关闭时也接管，但顺序反过来：系统优先、App 补位**（issue #21：
+ * Wear OS 5 / OneUI 6 上「几乎所有界面失去了系统滚动，只有视频详情、评论区正常」）。
+ * 原先开关关闭等于「App 什么都不做」，只能吃框架的默认行为：`NestedScrollView` /
+ * `ScrollView` / `RecyclerView` 三种容器各自的 `onGenericMotionEvent` 只认 `AXIS_SCROLL`
+ * （`RecyclerView.java:3961-3967` 与 `NestedScrollView.java:1337-1344`），且前两者的
+ * 命中依赖事件沿焦点链经过它们——页面里没有可获焦控件时事件根本到不了容器，于是
+ * 「原版能用、这里转不动」。现在的顺序是：先让框架处理（[handleSystemFirst]），
+ * 框架动了就**把事件吃掉**（防止冒泡到页面级兜底再滚一遍 = 「叠加」），框架没动才由 App
+ * 按双轴补位。开关开启（[isEnabled]）仍是老的「App 先接管」，灵敏度可调的手感不变。
  */
 internal object RotaryEncoderSupport {
 
@@ -76,6 +86,20 @@ internal object RotaryEncoderSupport {
      */
     fun multipleOf(key: String): Float =
         if (isEnabled()) SharedPreferencesUtil.getFloat(key, DEFAULT_MULTIPLE.toFloat()) else 0f
+
+    /**
+     * 补位/兜底用的倍率：开关关闭时是 [DEFAULT_MULTIPLE]，开启时是用户填的灵敏度。
+     *
+     * 与 [multipleOf] 的区别只在开关关闭时——[multipleOf] 返回 0 表示「App 先接管」这条路不走，
+     * 而补位这条路关闭时也要走（否则就是 issue #21 的「大部分界面没有表冠滚动」）。
+     * 用户显式填 0 仍是「这类页面不响应表冠」的逃生口。
+     */
+    fun sensitivityOf(key: String): Float =
+        if (isEnabled()) SharedPreferencesUtil.getFloat(key, DEFAULT_MULTIPLE.toFloat())
+        else DEFAULT_MULTIPLE.toFloat()
+
+    /** 总开关关闭时走「系统优先、App 补位」，开启时走老的「App 先接管」。 */
+    fun isSystemFirstMode(): Boolean = !isEnabled()
 
     /**
      * 处理一次 generic motion 事件（控件级）。
@@ -115,6 +139,58 @@ internal object RotaryEncoderSupport {
     }
 
     /**
+     * 「系统优先、App 补位」的控件级入口（总开关关闭时走这条，见类注释最后一段）。
+     *
+     * 顺序是先让框架自己处理（`runFramework` 里就是 `super.onGenericMotionEvent` /
+     * `super.dispatchGenericMotionEvent`），再用**滚动位置有没有变化**判断框架到底动没动：
+     *
+     * - 动了（或框架自己说处理了）→ `return true` 把事件吃掉。这一步是「不叠加」的关键：
+     *   `RecyclerView.onGenericMotionEvent` 滚完仍然 `return false`，不吞就会一路冒泡到
+     *   DecorView 的页面级兜底，兜底再把同一个容器滚一遍。
+     * - 没动 → 按双轴换算位移补位（`AXIS_VSCROLL` 的 ROM 就是靠这一步才有反应）。
+     *
+     * @param multiple 补位倍率（开关关闭时用 [DEFAULT_MULTIPLE]，用户填 0 则不补位）
+     * @param scrollOffset 竖直滚动位置的读数，用来判断框架动没动
+     * @param runFramework 交给框架处理，返回框架自己的「是否已处理」
+     * @param smoothScrollBy 补位时的平滑滚动动作
+     */
+    fun handleSystemFirst(
+        view: View,
+        event: MotionEvent,
+        multiple: Float,
+        scrollOffset: () -> Int,
+        runFramework: () -> Boolean,
+        smoothScrollBy: (Int) -> Unit
+    ): Boolean {
+        if (multiple <= 0f) return runFramework()
+        if (!RotaryEventPolicy.isRotaryEvent(event.action, event.source)) return runFramework()
+
+        val before = scrollOffset()
+        val frameworkHandled = runFramework()
+        val moved = scrollOffset() != before
+        if (RotaryEventPolicy.shouldConsumeAfterFramework(frameworkHandled, moved)) {
+            if (moved && systemFirstProbed.compareAndSet(false, true)) {
+                probe("系统优先：框架已滚动，吞掉事件（本进程首次）", event, "view=${view.javaClass.simpleName}")
+            }
+            return true
+        }
+
+        val dy = pixelDelta(view, event, multiple)
+        if (!RotaryEventPolicy.shouldFillIn(moved, dy)) {
+            probe(
+                "系统优先：框架没动、补位位移为 0，不吞事件", event,
+                "view=${view.javaClass.simpleName} multiple=$multiple"
+            )
+            return false
+        }
+        smoothScrollBy(dy)
+        if (successProbed.compareAndSet(false, true)) {
+            probe("补位：框架没动，App 接管（本进程首次）", event, "dy=$dy view=${view.javaClass.simpleName}")
+        }
+        return true
+    }
+
+    /**
      * 页面级兜底：挂在 DecorView 的 generic motion 监听器上，谁都没处理时才被调用。
      *
      * 找出本页第一个「可见、且当前确实能上下滚」的竖直滚动容器并滚它。
@@ -124,7 +200,6 @@ internal object RotaryEncoderSupport {
      * @return 是否消费了这次事件
      */
     fun handlePage(root: View, event: MotionEvent): Boolean {
-        if (!isEnabled()) return false
         if (!RotaryEventPolicy.isRotaryEvent(event.action, event.source)) {
             if (RotaryEventPolicy.isScrollEvent(event.action)) {
                 probe("兜底：非表冠源，未处理", event, "root=${root.javaClass.simpleName}")
@@ -138,9 +213,9 @@ internal object RotaryEncoderSupport {
             return false
         }
         val multiple = if (target is RecyclerView)
-            multipleOf(SettingsKeys.UI_ROTATORY_RECYCLER)
+            sensitivityOf(SettingsKeys.UI_ROTATORY_RECYCLER)
         else
-            multipleOf(SettingsKeys.UI_ROTATORY_SCROLL)
+            sensitivityOf(SettingsKeys.UI_ROTATORY_SCROLL)
         if (multiple <= 0f) return false
 
         val dy = pixelDelta(target, event, multiple)
@@ -180,6 +255,7 @@ internal object RotaryEncoderSupport {
     private const val PROBE_MAX = 6
     private val probeCount = AtomicInteger(0)
     private val successProbed = AtomicBoolean(false)
+    private val systemFirstProbed = AtomicBoolean(false)
 
     private fun probe(reason: String, event: MotionEvent, extra: String = "") {
         if (probeCount.getAndIncrement() >= PROBE_MAX) return
