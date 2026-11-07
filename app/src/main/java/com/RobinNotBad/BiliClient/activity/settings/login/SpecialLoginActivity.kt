@@ -78,7 +78,14 @@ class SpecialLoginActivity : BaseActivity() {
             desc.setText(R.string.special_login_export)
 
             val exported = AccountManager.exportAllAccounts()
-            textInput.setText(if (exported.isEmpty()) getString(R.string.msg_specialloginactivity_009) else exported)
+            if (exported.isEmpty()) {
+                // 没账号可导出时不要把提示文案塞进输入框：那是一个可编辑、可全选复制的文本框，
+                // 提示混进去会被当成「导出的数据」贴到别的设备上。输入框留空，提示写回说明栏。
+                textInput.setText("")
+                desc.setText(R.string.msg_specialloginactivity_009)
+            } else {
+                textInput.setText(exported)
+            }
             textInput.clearFocus()
 
             // 导出模式下没有「登录」这件事，粘贴登录按钮一并隐藏
