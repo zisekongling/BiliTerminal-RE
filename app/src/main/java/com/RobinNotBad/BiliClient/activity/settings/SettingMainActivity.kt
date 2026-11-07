@@ -13,6 +13,7 @@ import android.widget.TextView
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.InstanceActivity
+import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.google.android.material.card.MaterialCardView
 
 class SettingMainActivity : InstanceActivity() {
@@ -71,6 +72,7 @@ class SettingMainActivity : InstanceActivity() {
         buildAccountGroup()
         buildUIGroup()
         buildContentGroup()
+        buildBangumiGroup()
         buildNotifyGroup()
         buildDisguiseGroup()
         buildDownloadGroup()
@@ -148,6 +150,22 @@ class SettingMainActivity : InstanceActivity() {
             "内容与浏览",
             "菜单、搜索、详情页、评论区与偏好",
             "content"
+        )
+    }
+
+    /**
+     * 「番剧设置」分组（26.11.07）。
+     *
+     * <p>两个子页面（管理源 / 管理弹幕）都在私有注入里，所以整张卡片按
+     * [OptionalFeatures.thirdPartySettingsAvailable] 条件挂载——公开构建下设置页与从前完全一致。
+     */
+    private fun buildBangumiGroup() {
+        if (!OptionalFeatures.thirdPartySettingsAvailable) return
+        addGroup(
+            R.drawable.icon_bangumi,
+            getString(R.string.setting_bangumi_group),
+            getString(R.string.desc_setting_bangumi_group),
+            GROUP_BANGUMI
         )
     }
 

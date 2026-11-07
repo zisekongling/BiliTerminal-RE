@@ -160,6 +160,12 @@
     <string name="desc_setting_detail_note_entry">打开此选项，视频详情页的动作区会显示「笔记」按钮（需要登录）；默认关闭</string>
     <string name="setting_detail_share_row_entry">分享到其他设备</string>
     <string name="desc_setting_detail_share_row_entry">打开此选项，视频详情页的动作区会显示跨设备分享入口；默认关闭</string>
+    <string name="setting_bangumi_group">番剧设置</string>
+    <string name="desc_setting_bangumi_group">第三方番剧源与第三方弹幕</string>
+    <string name="setting_bangumi_source_entry">管理源</string>
+    <string name="desc_setting_bangumi_source_entry">启用、排序与测活第三方番剧源</string>
+    <string name="setting_bangumi_danmaku_entry">管理弹幕</string>
+    <string name="desc_setting_bangumi_danmaku_entry">第三方弹幕的开关、简繁、偏移与屏蔽</string>
     <string name="desc_creative_enable">打开此选项，在“我的”页面会显示创作中心（可查看投稿视频的数据变化情况）</string>
     <string name="desc_ban_gallery">打开此选项，缓存的视频将不会出现在系统相册中</string>
     <string name="desc_copy_enable">打开此选项，长按一些文字（如视频描述或评论）可以打开复制界面以复制这些文本</string>

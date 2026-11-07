@@ -395,6 +395,42 @@ object OptionalFeatures {
         }
     }
 
+    // ==================== 番剧设置（第三方源 / 第三方弹幕） ====================
+
+    /**
+     * 「番剧设置」这个大类的两页是否可用（26.11.07）。
+     *
+     * <p>两页都在 private/ 里；公开构建、PR 构建、别人的开发机上这里返回 false，
+     * 设置页面据此**整组不出现**——否则用户会看到点了没反应的入口。
+     * 私有侧还会再判一次「两个页面类是不是真都在」（见 FeatureHolder），分步注入时也不会漏。
+     */
+    val thirdPartySettingsAvailable: Boolean
+        get() = try {
+            holder?.getMethod("hasThirdPartySettings")?.invoke(null) as? Boolean ?: false
+        } catch (e: Throwable) {
+            false
+        }
+
+    /** 打开「番剧设置 → 管理源」（第三方番剧源列表、开关、排序、测活）。 */
+    fun openThirdPartySourceSettings(context: Context) {
+        try {
+            holder?.getMethod("openThirdPartySourceSettings", Context::class.java)
+                ?.invoke(null, context)
+        } catch (e: Throwable) {
+            Logu.w("OptionalFeatures", "openThirdPartySourceSettings failed: " + e.message)
+        }
+    }
+
+    /** 打开「番剧设置 → 管理弹幕」（第三方弹幕的开关、简繁转换、偏移与屏蔽）。 */
+    fun openThirdPartyDanmakuSettings(context: Context) {
+        try {
+            holder?.getMethod("openThirdPartyDanmakuSettings", Context::class.java)
+                ?.invoke(null, context)
+        } catch (e: Throwable) {
+            Logu.w("OptionalFeatures", "openThirdPartyDanmakuSettings failed: " + e.message)
+        }
+    }
+
     private fun invokeString(name: String): String? = try {
         holder?.getMethod(name)?.invoke(null) as? String
     } catch (e: Throwable) {

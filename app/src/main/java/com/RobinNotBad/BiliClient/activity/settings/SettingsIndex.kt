@@ -61,6 +61,32 @@ object SettingsIndex {
         list += Entry(groupDownload, text(R.string.settingtext_settingmainactivity_012)) { a -> openGroup(a, "download", groupDownload) }
         list += Entry(groupLab, text(R.string.settingtext_settingsindex_001)) { a -> openGroup(a, "lab", groupLab) }
         list += Entry(groupAbout, text(R.string.settingtext_settingmainactivity_016)) { a -> openGroup(a, "about", groupAbout) }
+        // 「番剧设置」（26.11.07）：组内两页都在 private/ 里，与设置页那张卡片用同一条判断。
+        // 不存在的组不收录，否则搜索会把用户送进一个点了没反应的页面。
+        if (OptionalFeatures.thirdPartySettingsAvailable) {
+            val groupBangumi = text(R.string.setting_bangumi_group)
+            list += Entry(groupBangumi, text(R.string.desc_setting_bangumi_group)) { a ->
+                openGroup(a, GROUP_BANGUMI, groupBangumi)
+            }
+            list += Entry(
+                text(R.string.setting_bangumi_source_entry),
+                text(R.string.desc_setting_bangumi_source_entry)
+            ) { a ->
+                openGroup(
+                    a, GROUP_BANGUMI, groupBangumi,
+                    text(R.string.setting_bangumi_source_entry)
+                )
+            }
+            list += Entry(
+                text(R.string.setting_bangumi_danmaku_entry),
+                text(R.string.desc_setting_bangumi_danmaku_entry)
+            ) { a ->
+                openGroup(
+                    a, GROUP_BANGUMI, groupBangumi,
+                    text(R.string.setting_bangumi_danmaku_entry)
+                )
+            }
+        }
 
         // ---- 子页面 ----
         list += Entry(text(R.string.pagename_setting_player_choose), text(R.string.settingtext_settingsindex_002)) { a ->

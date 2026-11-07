@@ -36,6 +36,7 @@ import com.RobinNotBad.BiliClient.util.DisguisePrefs
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
+import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.PerformanceManager
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
@@ -60,6 +61,18 @@ const val GROUP_NOTIFY = "notify"
 
 /** 「伪装与安全」分组的 group_type 取值（issue #22）。`SettingsIndex` / `SettingMainActivity` 共用。 */
 const val GROUP_DISGUISE = "disguise"
+
+/**
+ * 「番剧设置」分组的 group_type 取值（26.11.07）。
+ *
+ * <p>用户要求「番剧设置加到设置页里」：原先两个入口只长在换源面板 / 播放页里，
+ * 不触发一次换源就根本找不到。现在按其它分组的形态挂到第一层级，点进去是两行
+ * 「管理源」「管理弹幕」。
+ *
+ * <p>两个子页面**都在私有注入里**，所以整组只在 [OptionalFeatures.thirdPartySettingsAvailable]
+ * 为 true 时出现——公开构建不显示，否则入口点了没反应。
+ */
+const val GROUP_BANGUMI = "bangumi"
 
 /**
  * 分组设置页：统一使用声明式 SettingSection 列表 + SettingsAdapter 渲染。
@@ -163,6 +176,7 @@ class SettingGroupActivity : RefreshListActivity() {
             GROUP_NOTIFY -> buildNotifyGroup()
             GROUP_DISGUISE -> buildDisguiseGroup()
             GROUP_FEEDBACK -> buildFeedbackGroup()
+            GROUP_BANGUMI -> buildBangumiGroup()
             "content" -> buildContentGroup()
             "download" -> buildDownloadGroup()
             "lab" -> buildLabGroup()
@@ -890,6 +904,31 @@ class SettingGroupActivity : RefreshListActivity() {
             SettingsKeys.FEEDBACK_ATTACH_MID,
             false
         )
+    }
+
+    /**
+     * 「番剧设置」分组（26.11.07）：管理源 / 管理弹幕两行。
+     *
+     * <p>两页本身在私有注入里（第三方番剧源、第三方弹幕），公开构建下整组直接跳过，
+     * 不留空分组。行名与 [SettingsIndex] 里的搜索条目取同一批字符串资源，
+     * 全局搜索点进来才能按 highlight 定位（见 [SettingsIndex] 的注释）。
+     */
+    private fun buildBangumiGroup() {
+        if (!OptionalFeatures.thirdPartySettingsAvailable) return
+        nav(
+            R.drawable.icon_bangumi,
+            getString(R.string.setting_bangumi_source_entry),
+            getString(R.string.desc_setting_bangumi_source_entry)
+        ) {
+            OptionalFeatures.openThirdPartySourceSettings(this)
+        }
+        nav(
+            R.drawable.icon_danmaku,
+            getString(R.string.setting_bangumi_danmaku_entry),
+            getString(R.string.desc_setting_bangumi_danmaku_entry)
+        ) {
+            OptionalFeatures.openThirdPartyDanmakuSettings(this)
+        }
     }
 
     /**
