@@ -1296,8 +1296,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     /**
      * 接线「按钮按用户布局摆放」。
      *
-     * 左右两列是竖排图标（28dp，列内自下而上堆），底部是 32×37 的横排；组展开条挂在
-     * 同一侧的列旁边（右侧在左、左侧在右、底部在按钮行上方），所以四个区各自带一个展开条。
+     * 左右两列是竖排图标，底部是横排；组展开条挂在同一侧的列旁边（右侧在左、左侧在右、
+     * 底部在按钮行上方），所以四个区各自带一个展开条。
+     *
+     * **热区（26.11.07 调研清单第 11 条）**：底部行的格子 44dp（手表紧凑档的触控下限，
+     * 与 `dialog_item_min_height` 同值；48dp 放不下「清晰度/音量±/分P/播放」5 个键 ——
+     * 2×48×2 + 播放键 48 + 间距会超过 233dp 屏宽），图标仍按 32×37 画（多出来的一圈是内边距，
+     * 也就是可点区域）；左右两列受手表屏幕高度限制，宽度先固定 48dp（热区向屏幕内侧扩，
+     * 图标位置不变），高度按可用空间放大，上限 48dp（判据见 `player/PlayerControlCellSize.kt`）。
      *
      * 每个区传三样东西：槽位容器、展开条**外壳**（ScrollView，显隐打在它身上）、展开条**内层**
      * （装按钮的 LinearLayout）。外壳在 XML 里默认 GONE，两种都要给——只给内层的话点了「更多」
@@ -1305,10 +1311,18 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      */
     private fun initButtonSlots() {
         val slots = PlayerButtonSlots(this, button_pool) { key -> buttonViewById(key) }
-        slots.bind(PlayerUiLayout.Region.LEFT, left_column_slots, left_group_scroll, left_group_slots, 28f, 28f)
-        slots.bind(PlayerUiLayout.Region.RIGHT, right_column_slots, right_group_scroll, right_group_slots, 28f, 28f)
-        slots.bind(PlayerUiLayout.Region.BOTTOM_LEFT, bottom_left_slots, bottom_group_scroll, bottom_group_slots, 32f, 37f)
-        slots.bind(PlayerUiLayout.Region.BOTTOM_RIGHT, bottom_right_slots, bottom_group_scroll, bottom_group_slots, 32f, 37f)
+        // 左右两列：格宽 48dp（热区向屏幕内侧扩，图标保持 28dp、贴原边缘），高度先按 28dp 摆，
+        // 量完容器高度后再由 PlayerButtonSlots 放大。
+        slots.bind(
+            PlayerUiLayout.Region.LEFT, left_column_slots, left_group_scroll, left_group_slots,
+            48f, 28f, 28f, 28f, PlayerButtonSlots.IconAlign.START
+        )
+        slots.bind(
+            PlayerUiLayout.Region.RIGHT, right_column_slots, right_group_scroll, right_group_slots,
+            48f, 28f, 28f, 28f, PlayerButtonSlots.IconAlign.END
+        )
+        slots.bind(PlayerUiLayout.Region.BOTTOM_LEFT, bottom_left_slots, bottom_group_scroll, bottom_group_slots, 44f, 44f, 32f, 37f)
+        slots.bind(PlayerUiLayout.Region.BOTTOM_RIGHT, bottom_right_slots, bottom_group_scroll, bottom_group_slots, 44f, 44f, 32f, 37f)
         buttonSlots = slots
         // 展开/收起组会改变两侧列高，中线要重新对齐
         slots.onLayoutChanged = { alignLeftControlToRight() }

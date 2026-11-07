@@ -69,7 +69,9 @@
                     android:layout_marginVertical="8dp">
 
                     <ImageView
+                        android:contentDescription="@null"
                         android:id="@+id/userAvatar"
+                        android:importantForAccessibility="no"
                         android:layout_width="45dp"
                         android:layout_height="45dp"
                         android:adjustViewBounds="true"

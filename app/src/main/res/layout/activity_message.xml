@@ -71,7 +71,9 @@
                             android:layout_height="wrap_content">
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/reply_go"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="9dp"
@@ -83,7 +85,9 @@
                                 app:layout_constraintTop_toTopOf="parent" />
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/reply_icon"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="0dp"
                                 android:layout_marginStart="8dp"
@@ -124,7 +128,9 @@
                             android:layout_height="wrap_content">
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/at_go"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="9dp"
@@ -136,7 +142,9 @@
                                 app:layout_constraintTop_toTopOf="parent" />
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/at_icon"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="0dp"
                                 android:layout_marginStart="8dp"
@@ -177,7 +185,9 @@
                             android:layout_height="wrap_content">
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/like_go"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="9dp"
@@ -189,7 +199,9 @@
                                 app:layout_constraintTop_toTopOf="parent" />
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/like_icon"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="0dp"
                                 android:layout_marginStart="8dp"
@@ -231,7 +243,9 @@
                             android:layout_height="wrap_content">
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/system_go"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="9dp"
@@ -243,7 +257,9 @@
                                 app:layout_constraintTop_toTopOf="parent" />
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/system_icon"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="0dp"
                                 android:layout_marginStart="8dp"
@@ -284,7 +300,9 @@
                             android:layout_height="wrap_content">
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/setting_go"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="9dp"
@@ -296,7 +314,9 @@
                                 app:layout_constraintTop_toTopOf="parent" />
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/setting_icon"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="0dp"
                                 android:layout_marginStart="8dp"

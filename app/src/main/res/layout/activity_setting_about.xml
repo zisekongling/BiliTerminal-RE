@@ -50,6 +50,8 @@
             android:paddingBottom="20dp">
 
             <ImageView
+                android:contentDescription="@null"
+                android:importantForAccessibility="no"
                 android:layout_height="65dp"
                 android:layout_width="65dp"
                 android:src="@mipmap/icon"

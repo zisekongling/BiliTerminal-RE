@@ -12,7 +12,9 @@
         android:padding="8dp">
 
         <ImageView
+            android:contentDescription="@null"
             android:id="@+id/img_cover"
+            android:importantForAccessibility="no"
             android:layout_width="80dp"
             android:layout_height="60dp"
             android:layout_marginEnd="8dp"

@@ -29,7 +29,9 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="fitCenter"
-        android:visibility="gone" />
+        android:visibility="gone"
+        android:contentDescription="@null"
+        android:importantForAccessibility="no" />
 
     <ImageView
         android:id="@+id/playIcon"
@@ -38,7 +40,9 @@
         android:layout_gravity="center"
         android:src="@android:drawable/ic_media_play"
         android:visibility="gone"
-        android:alpha="0.7" />
+        android:alpha="0.7"
+        android:contentDescription="@null"
+        android:importantForAccessibility="no" />
 
     <RelativeLayout
         android:id="@+id/top"
@@ -136,7 +140,8 @@
                     android:background="?android:attr/selectableItemBackground"
                     android:scaleType="fitCenter"
                     android:src="@drawable/icon_menu_overlay"
-                    android:visibility="gone" />
+                    android:visibility="gone"
+        android:contentDescription="@string/setting_player_btn_quality" />
 
                 <ImageButton
                     android:id="@+id/button_sound_cut"
@@ -145,7 +150,8 @@
                     android:adjustViewBounds="true"
                     android:background="?android:attr/selectableItemBackground"
                     android:scaleType="fitCenter"
-                    android:src="@mipmap/soundcut" />
+                    android:src="@mipmap/soundcut"
+        android:contentDescription="@string/setting_player_btn_sound_cut" />
 
                 <ImageButton
                     android:id="@+id/button_video"
@@ -155,7 +161,8 @@
                     android:adjustViewBounds="true"
                     android:background="?android:attr/selectableItemBackground"
                     android:scaleType="fitCenter"
-                    android:src="@drawable/btn_player_pause" />
+                    android:src="@drawable/btn_player_pause"
+        android:contentDescription="@string/setting_player_ui_label_play" />
 
                 <ImageButton
                     android:id="@+id/button_sound_add"
@@ -165,7 +172,8 @@
                     android:adjustViewBounds="true"
                     android:background="?android:attr/selectableItemBackground"
                     android:scaleType="fitCenter"
-                    android:src="@mipmap/soundadd" />
+                    android:src="@mipmap/soundadd"
+        android:contentDescription="@string/setting_player_btn_sound_add" />
 
                 <TextView
                     android:id="@+id/button_speed"
@@ -189,7 +197,8 @@
                     android:adjustViewBounds="true"
                     android:background="?android:attr/selectableItemBackground"
                     android:scaleType="fitCenter"
-                    android:src="@mipmap/danmakuon" />
+                    android:src="@mipmap/danmakuon"
+        android:contentDescription="@string/setting_player_btn_danmaku" />
 
                 <ImageButton
                     android:id="@+id/button_page_selector"
@@ -200,7 +209,8 @@
                     android:background="?android:attr/selectableItemBackground"
                     android:scaleType="fitCenter"
                     android:src="@drawable/icon_folder_overlay"
-                    android:visibility="gone" />
+                    android:visibility="gone"
+        android:contentDescription="@string/setting_player_btn_page_selector" />
             </LinearLayout>
 
         </RelativeLayout>

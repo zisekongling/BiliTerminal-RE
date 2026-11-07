@@ -20,6 +20,7 @@
             android:layout_height="wrap_content">
 
             <ImageView
+                android:contentDescription="@string/a11y_play_video_or_cover"
                 android:id="@+id/img_cover"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -224,7 +225,9 @@
                     android:orientation="vertical">
 
                     <ImageView
+                        android:contentDescription="@null"
                         android:id="@+id/btn_like"
+                        android:importantForAccessibility="no"
                         android:layout_width="30dp"
                         android:layout_height="30dp"
                         android:background="#0000"
@@ -247,7 +250,9 @@
                     android:orientation="vertical">
 
                     <ImageView
+                        android:contentDescription="@null"
                         android:id="@+id/btn_coin"
+                        android:importantForAccessibility="no"
                         android:layout_width="30dp"
                         android:layout_height="30dp"
                         android:background="#0000"
@@ -271,7 +276,9 @@
                     android:orientation="vertical">
 
                     <ImageView
+                        android:contentDescription="@null"
                         android:id="@+id/btn_fav"
+                        android:importantForAccessibility="no"
                         android:layout_width="30dp"
                         android:layout_height="30dp"
                         android:background="#0000"

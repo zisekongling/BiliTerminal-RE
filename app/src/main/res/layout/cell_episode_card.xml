@@ -26,6 +26,7 @@
             android:orientation="horizontal">
 
             <ImageView
+                android:contentDescription="@string/a11y_episode_playing"
                 android:id="@+id/episode_playing"
                 android:layout_width="12dp"
                 android:layout_height="12dp"

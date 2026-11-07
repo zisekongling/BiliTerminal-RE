@@ -14,7 +14,9 @@
         android:layout_height="wrap_content">
 
         <ImageView
+            android:contentDescription="@null"
             android:id="@+id/userAvatar"
+            android:importantForAccessibility="no"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:layout_marginStart="8dp"

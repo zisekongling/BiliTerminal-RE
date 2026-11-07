@@ -8,6 +8,7 @@
     android:layout_height="wrap_content">
 
     <ImageView
+        android:contentDescription="@string/a11y_view_user"
         android:id="@+id/replyAvatar"
         android:layout_width="40dp"
         android:layout_height="40dp"
@@ -81,6 +82,7 @@
         app:layout_constraintTop_toBottomOf="@id/imageCard" />
 
     <ImageView
+        android:contentDescription="@string/a11y_reply_dislike"
         android:id="@+id/dislikeBtn"
         android:layout_width="wrap_content"
         android:layout_height="0dp"

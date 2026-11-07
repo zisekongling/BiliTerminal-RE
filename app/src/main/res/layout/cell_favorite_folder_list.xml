@@ -15,7 +15,9 @@
         android:layout_height="wrap_content">
 
         <ImageView
+            android:contentDescription="@null"
             android:id="@+id/img_cover"
+            android:importantForAccessibility="no"
             android:layout_width="0dp"
             android:layout_height="0dp"
             android:layout_marginStart="10dp"
@@ -74,7 +76,9 @@
             app:layout_constraintTop_toTopOf="@+id/guide_title_bottom" />
 
         <ImageView
+            android:contentDescription="@null"
             android:id="@+id/icon_count"
+            android:importantForAccessibility="no"
             android:layout_width="@dimen/icon_sm"
             android:layout_height="@dimen/icon_sm"
             android:alpha="0.7"

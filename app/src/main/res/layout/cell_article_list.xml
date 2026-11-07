@@ -17,7 +17,9 @@
         android:paddingBottom="8dp">
 
         <ImageView
+            android:contentDescription="@null"
             android:id="@+id/img_cover"
+            android:importantForAccessibility="no"
             android:layout_width="0dp"
             android:layout_height="0dp"
             android:layout_marginStart="8dp"
@@ -40,7 +42,9 @@
             app:layout_constraintGuide_percent="0.48" />
 
         <ImageView
+            android:contentDescription="@null"
             android:id="@+id/imageView3"
+            android:importantForAccessibility="no"
             android:layout_width="wrap_content"
             android:layout_height="0dp"
             android:layout_marginTop="1dp"
@@ -54,7 +58,9 @@
             android:src="@drawable/icon_cv" />
 
         <ImageView
+            android:contentDescription="@null"
             android:id="@+id/avatarIcon"
+            android:importantForAccessibility="no"
             android:layout_width="wrap_content"
             android:layout_height="0dp"
             android:layout_marginStart="4dp"

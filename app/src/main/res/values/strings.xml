@@ -2801,4 +2801,23 @@
     <string name="desc_setting_index_background_scrim">遮罩越强文字越清楚</string>
     <string name="setting_index_round_list">圆屏列表</string>
     <string name="desc_setting_index_round_list">圆屏模式的滚动列表曲率效果</string>
+
+    <!-- 无障碍描述（26.11.07 调研清单第 11 条）：
+         全 res/layout 的 ImageView / ImageButton 要么给出可读描述，要么显式标成装饰图
+         （contentDescription="@null" + importantForAccessibility="no"）。
+         播放器控制按钮复用 setting_player_btn_*，这里只收「图片本身承担语义」的新文案。 -->
+    <string name="a11y_image_viewer_download">下载图片</string>
+    <string name="a11y_view_user">查看用户主页</string>
+    <string name="a11y_view_live_cover">查看直播间封面</string>
+    <string name="a11y_view_collection_cover">查看合集封面大图</string>
+    <string name="a11y_play_video_or_cover">播放视频，长按查看封面大图</string>
+    <string name="a11y_qr_help">扫码登录帮助</string>
+    <string name="a11y_reply_dislike">点踩</string>
+    <string name="a11y_player_debug">互动视频调试</string>
+    <string name="a11y_private_msg_picture">查看图片消息</string>
+    <string name="a11y_episode_playing">正在播放</string>
+    <string name="a11y_like">点赞</string>
+    <string name="a11y_coin">投币</string>
+    <string name="a11y_favorite">收藏</string>
+    <string name="a11y_verified">已认证</string>
 </resources>

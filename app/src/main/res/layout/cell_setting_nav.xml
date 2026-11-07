@@ -11,7 +11,9 @@
         android:layout_height="wrap_content">
 
         <ImageView
+            android:contentDescription="@null"
             android:id="@+id/nav_icon"
+            android:importantForAccessibility="no"
             android:layout_width="@dimen/icon_lg"
             android:layout_height="@dimen/icon_lg"
             android:layout_marginStart="8dp"
@@ -53,7 +55,9 @@
             app:layout_constraintTop_toBottomOf="@+id/nav_title" />
 
         <ImageView
+            android:contentDescription="@null"
             android:id="@+id/nav_arrow"
+            android:importantForAccessibility="no"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"

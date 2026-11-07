@@ -30,7 +30,9 @@
             android:layout_toEndOf="@id/checkbox_select">
 
             <ImageView
+                android:contentDescription="@null"
                 android:id="@+id/img_cover"
+                android:importantForAccessibility="no"
                 android:layout_width="0dp"
                 android:layout_height="0dp"
                 android:scaleType="centerCrop"

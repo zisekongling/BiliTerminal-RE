@@ -52,6 +52,7 @@
             android:paddingBottom="4dp">
 
             <ImageView
+                android:contentDescription="@string/a11y_view_live_cover"
                 android:id="@+id/img_cover"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -88,7 +89,9 @@
                 tools:listitem="@layout/cell_up_list" />
 
             <ImageView
+                android:contentDescription="@null"
                 android:id="@+id/viewIcon"
+                android:importantForAccessibility="no"
                 android:layout_width="wrap_content"
                 android:layout_height="0dp"
                 android:adjustViewBounds="true"
@@ -204,6 +207,8 @@
                 app:layout_constraintTop_toBottomOf="@+id/play" />
 
             <ImageView
+                android:contentDescription="@null"
+                android:importantForAccessibility="no"
                 android:layout_height="0dp"
                 android:layout_width="wrap_content"
                 android:adjustViewBounds="true"
@@ -232,6 +237,8 @@
                 app:layout_constraintTop_toBottomOf="@id/viewCount" />
 
             <ImageView
+                android:contentDescription="@null"
+                android:importantForAccessibility="no"
                 android:layout_height="0dp"
                 android:layout_width="wrap_content"
                 android:adjustViewBounds="true"
@@ -332,7 +339,9 @@
     </com.RobinNotBad.BiliClient.ui.widget.RotaryNestedScrollView>
 
     <ImageView
+        android:contentDescription="@null"
         android:id="@+id/loading"
+        android:importantForAccessibility="no"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:src="@mipmap/loading_2233"

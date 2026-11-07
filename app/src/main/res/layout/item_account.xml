@@ -13,7 +13,9 @@
         android:padding="12dp">
 
         <ImageView
+            android:contentDescription="@null"
             android:id="@+id/account_avatar"
+            android:importantForAccessibility="no"
             android:layout_width="56dp"
             android:layout_height="56dp"
             android:scaleType="centerCrop"

@@ -28,6 +28,9 @@ class PlayerButtonSlots(
     private val primaryOf: (String) -> View?,
 ) {
 
+    /** 图标在格子里靠哪边；列贴屏幕边缘，热区向内扩，图标位置保持改造前的位置。 */
+    enum class IconAlign { START, CENTER, END }
+
     /**
      * 一个槽位区：放槽位的容器 + 组展开条（没有展开条的区传 null）+ 单元格尺寸。
      *
@@ -39,8 +42,13 @@ class PlayerButtonSlots(
         val container: ViewGroup,
         val stripHost: View?,
         val strip: ViewGroup?,
-        val cellWidthDp: Float,
-        val cellHeightDp: Float,
+        /** 格子的可点尺寸；竖列会按可用高度放大（见 [fitColumnsToAvailableHeight]）。 */
+        var cellWidthDp: Float,
+        var cellHeightDp: Float,
+        /** 图标本身的视觉尺寸；放大热区时保持不变，靠内边距居中。 */
+        val iconWidthDp: Float,
+        val iconHeightDp: Float,
+        val iconAlign: IconAlign,
     ) {
         /** 当前展开的槽位下标；-1 = 都收着。 */
         var openIndex: Int = -1
@@ -54,6 +62,12 @@ class PlayerButtonSlots(
     /** 正在槽位里的「真身」，清场时要送回池子。 */
     private val placedPrimaries = HashSet<View>()
 
+    /** 最近一次 render 的布局；按可用高度放大竖列时要按同一份布局重摆。 */
+    private var lastLayout: PlayerUiLayout.Layout? = null
+
+    /** 正在按高度重摆（防止 post 里再次触发自己）。 */
+    private var fitting = false
+
     /** key → 影子；真身在别处时用。 */
     private val mirrors = LinkedHashMap<String, MutableList<View>>()
 
@@ -63,6 +77,9 @@ class PlayerButtonSlots(
     /**
      * @param stripHost 展开条的外壳（`HorizontalScrollView`），显隐打在它身上；没有展开条传 null。
      * @param strip 外壳里装按钮的那层容器；与 [stripHost] 要么都给、要么都不给。
+     * @param iconWidthDp / iconHeightDp 图标的视觉尺寸。默认与格子同大（即保持改造前的观感）；
+     *   放大热区时单独传原来的图标尺寸，让图标不跟着变胖。
+     * @param iconAlign 图标在格子里的位置。左右两列贴屏幕边缘，热区向内扩，图标位置不变。
      */
     fun bind(
         region: PlayerUiLayout.Region,
@@ -71,12 +88,18 @@ class PlayerButtonSlots(
         strip: ViewGroup?,
         cellWidthDp: Float,
         cellHeightDp: Float,
+        iconWidthDp: Float = cellWidthDp,
+        iconHeightDp: Float = cellHeightDp,
+        iconAlign: IconAlign = IconAlign.CENTER,
     ) {
-        regions[region] = Region(container, stripHost, strip, cellWidthDp, cellHeightDp)
+        regions[region] = Region(
+            container, stripHost, strip, cellWidthDp, cellHeightDp, iconWidthDp, iconHeightDp, iconAlign
+        )
     }
 
     /** 整份重摆。清场 → 逐区按槽位填 → 把影子同步一次。 */
     fun render(layout: PlayerUiLayout.Layout) {
+        lastLayout = layout
         clearAll()
         for (regionKey in PlayerUiLayout.Region.values()) {
             val region = regions[regionKey] ?: continue
@@ -90,6 +113,52 @@ class PlayerButtonSlots(
             }
         }
         syncMirrors()
+        if (!fitting) scheduleColumnFit()
+    }
+
+    /**
+     * 竖列按「量到的可用高度」再摆一次（26.11.07 调研清单第 11 条）。
+     *
+     * render() 发生在 onCreate 里，那时还没有 layout，量不到高度；所以第一帧先按 28dp 摆，
+     * 等容器量完高度再 post 回来放大。控制栏本来就要等起播后才显示，这次重摆用户看不到。
+     * **只放大不缩小**：避免反复测量在 28 和 48 之间来回抖。
+     */
+    private fun scheduleColumnFit() {
+        if (PlayerUiLayout.Region.LEFT !in regions && PlayerUiLayout.Region.RIGHT !in regions) return
+        val container = regions[PlayerUiLayout.Region.RIGHT]?.container
+            ?: regions[PlayerUiLayout.Region.LEFT]?.container ?: return
+        container.post { fitColumnsToAvailableHeight() }
+    }
+
+    private fun fitColumnsToAvailableHeight() {
+        val layout = lastLayout ?: return
+        val density = context.resources.displayMetrics.density
+        if (density <= 0f) return
+        var changed = false
+        for (regionKey in listOf(PlayerUiLayout.Region.LEFT, PlayerUiLayout.Region.RIGHT)) {
+            val region = regions[regionKey] ?: continue
+            val count = PlayerUiLayout.slots(layout, regionKey).size
+            if (count <= 0) continue
+            // 右列被夹在顶栏与底栏之间，父容器的高度就是可用高度；
+            // 左列是根布局里的居中列，整个窗口高度都能用。
+            val availablePx = when (regionKey) {
+                PlayerUiLayout.Region.RIGHT -> (region.container.parent as? View)?.height ?: 0
+                else -> region.container.rootView?.height ?: 0
+            }
+            if (availablePx <= 0) continue
+            val cell = PlayerControlCellSize.cellSizeDp(availablePx / density, count)
+            if (cell > region.cellHeightDp + 0.5f) {
+                // 只动高度：宽度改造时就已给到 48dp（左右两列向内扩，图标位置不变）
+                region.cellHeightDp = cell
+                changed = true
+            }
+        }
+        if (!changed) return
+        fitting = true
+        render(layout)
+        fitting = false
+        // 列高变了，左列的中线对齐要重新算一次（播放页拿这个回调对 translationY）
+        onLayoutChanged?.invoke()
     }
 
     /** 收起所有展开的组（控制栏自动隐藏时调用，跟原来「更多」收起的手感一致）。 */
@@ -145,7 +214,7 @@ class PlayerButtonSlots(
             placedPrimaries.add(primary)
             view = primary
         }
-        view.layoutParams = cellParams(primary, region)
+        view.layoutParams = cellParams(view, region)
         region.container.addView(view)
     }
 
@@ -198,7 +267,7 @@ class PlayerButtonSlots(
         setPadding(0, 0, 0, 0)
         contentDescription = context.getString(R.string.desc_player_group_expand)
         tag = index
-        layoutParams = cellParams(null, region)
+        layoutParams = cellParams(this, region)
         setOnClickListener { toggleGroup(regionKey, index, keys) }
     }
 
@@ -221,7 +290,7 @@ class PlayerButtonSlots(
                 placedPrimaries.add(primary)
                 view = primary
             }
-            view.layoutParams = cellParams(primary, region)
+            view.layoutParams = cellParams(view, region)
             strip.addView(view)
         }
         region.openIndex = index
@@ -318,12 +387,29 @@ class PlayerButtonSlots(
     }
 
     /** 图标类槽位按区的单元格尺寸铺满；文字类（倍速/视频信息/跳转/连播）宽度交给文字自己。 */
-    private fun cellParams(primary: View?, region: Region): LinearLayout.LayoutParams {
+    private fun cellParams(view: View, region: Region): LinearLayout.LayoutParams {
         val w = ToolsUtil.dp2px(region.cellWidthDp)
         val h = ToolsUtil.dp2px(region.cellHeightDp)
-        return if (primary is TextView && primary !is ImageButton) {
+        return if (view is TextView && view !is ImageButton) {
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, h)
         } else {
+            // 图标保持改造前的视觉尺寸，放大的那圈全算热区（26.11.07 调研清单第 11 条）：
+            // 直接用 48dp 的 ImageButton 会把 28dp 的图标一起拉大，观感全变。
+            if (view is ImageButton) {
+                val iconW = ToolsUtil.dp2px(region.iconWidthDp)
+                val iconH = ToolsUtil.dp2px(region.iconHeightDp)
+                val padH = (w - iconW).coerceAtLeast(0)
+                val padV = ((h - iconH) / 2).coerceAtLeast(0)
+                when (region.iconAlign) {
+                    // 左列贴左边，多出来的宽度留在图标右边；右列反过来 —— 图标位置与改造前一致
+                    IconAlign.START -> view.setPadding(0, padV, padH, padV)
+                    IconAlign.END -> view.setPadding(padH, padV, 0, padV)
+                    IconAlign.CENTER -> {
+                        val half = padH / 2
+                        view.setPadding(half, padV, padH - half, padV)
+                    }
+                }
+            }
             LinearLayout.LayoutParams(w, h)
         }
     }

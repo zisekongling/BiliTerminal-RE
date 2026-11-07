@@ -63,7 +63,9 @@
                     android:padding="12dp">
 
                     <ImageView
+                        android:contentDescription="@null"
                         android:id="@+id/upload_avatar_icon"
+                        android:importantForAccessibility="no"
                         android:layout_width="64dp"
                         android:layout_height="64dp"
                         android:scaleType="centerCrop"
@@ -78,6 +80,8 @@
                         android:textSize="13sp" />
 
                     <ImageView
+                        android:contentDescription="@null"
+                        android:importantForAccessibility="no"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:src="@drawable/arrow_forward" />
@@ -99,6 +103,8 @@
                     android:padding="12dp">
 
                     <ImageView
+                        android:contentDescription="@null"
+                        android:importantForAccessibility="no"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:src="@drawable/icon_info" />
@@ -112,6 +118,8 @@
                         android:textSize="13sp" />
 
                     <ImageView
+                        android:contentDescription="@null"
+                        android:importantForAccessibility="no"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:src="@drawable/arrow_forward" />
@@ -133,6 +141,8 @@
                     android:padding="12dp">
 
                     <ImageView
+                        android:contentDescription="@null"
+                        android:importantForAccessibility="no"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:src="@drawable/icon_info" />
@@ -146,6 +156,8 @@
                         android:textSize="13sp" />
 
                     <ImageView
+                        android:contentDescription="@null"
+                        android:importantForAccessibility="no"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:src="@drawable/arrow_forward" />

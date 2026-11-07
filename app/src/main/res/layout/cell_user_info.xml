@@ -7,6 +7,7 @@
     android:layout_height="wrap_content">
 
     <ImageView
+        android:contentDescription="@string/a11y_view_user"
         android:id="@+id/userAvatar"
         android:layout_width="56dp"
         android:layout_height="56dp"
@@ -246,6 +247,7 @@
     </com.google.android.material.card.MaterialCardView>
 
     <ImageView
+        android:contentDescription="@string/a11y_verified"
         android:id="@+id/officialIcon"
         android:layout_width="14dp"
         android:layout_height="14dp"
@@ -269,7 +271,9 @@
         app:layout_constraintTop_toBottomOf="@id/electricPanel" />
 
     <ImageView
+        android:contentDescription="@null"
         android:id="@+id/uidIcon"
+        android:importantForAccessibility="no"
         android:layout_width="14dp"
         android:layout_height="14dp"
         android:adjustViewBounds="true"

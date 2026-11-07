@@ -102,6 +102,7 @@
                         android:textSize="13sp" />
 
                     <ImageView
+                        android:contentDescription="@string/a11y_qr_help"
                         android:id="@+id/helpIcon"
                         android:layout_width="28dp"
                         android:layout_height="28dp"

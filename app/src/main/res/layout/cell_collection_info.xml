@@ -35,6 +35,7 @@
         tools:ignore="TouchTargetSizeCheck" />
 
     <ImageView
+        android:contentDescription="@string/a11y_view_collection_cover"
         android:id="@+id/img_cover"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
@@ -49,7 +50,9 @@
         tools:ignore="ImageContrastCheck,SpeakableTextPresentCheck" />
 
     <ImageView
+        android:contentDescription="@null"
         android:id="@+id/playView"
+        android:importantForAccessibility="no"
         android:layout_width="wrap_content"
         android:layout_height="0dp"
         android:layout_marginTop="1dp"

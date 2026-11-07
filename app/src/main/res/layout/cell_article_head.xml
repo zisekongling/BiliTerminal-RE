@@ -19,7 +19,9 @@
             android:layout_height="60dp">
 
             <ImageView
+                android:contentDescription="@null"
                 android:id="@+id/upInfo_Icon"
+                android:importantForAccessibility="no"
                 android:layout_width="0dp"
                 android:layout_height="0dp"
                 android:layout_marginStart="6dp"

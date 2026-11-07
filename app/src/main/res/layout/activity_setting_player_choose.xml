@@ -64,7 +64,9 @@
                     android:layout_height="wrap_content">
 
                     <ImageView
+                        android:contentDescription="@null"
                         android:id="@+id/clientPlayer_icon"
+                        android:importantForAccessibility="no"
                         android:layout_width="wrap_content"
                         android:layout_height="0dp"
                         android:layout_marginStart="8dp"
@@ -119,7 +121,9 @@
                     android:layout_height="wrap_content">
 
                     <ImageView
+                        android:contentDescription="@null"
                         android:id="@+id/aliangPlayer_icon"
+                        android:importantForAccessibility="no"
                         android:layout_width="wrap_content"
                         android:layout_height="0dp"
                         android:layout_marginStart="8dp"
@@ -174,7 +178,9 @@
                     android:layout_height="wrap_content">
 
                     <ImageView
+                        android:contentDescription="@null"
                         android:id="@+id/mtvPlayer_icon"
+                        android:importantForAccessibility="no"
                         android:layout_width="wrap_content"
                         android:layout_height="0dp"
                         android:layout_marginStart="8dp"

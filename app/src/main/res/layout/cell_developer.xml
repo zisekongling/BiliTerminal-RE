@@ -15,7 +15,9 @@
         android:layout_height="wrap_content">
 
         <ImageView
+            android:contentDescription="@null"
             android:id="@+id/dev_avatar"
+            android:importantForAccessibility="no"
             android:layout_width="0dp"
             android:layout_height="0dp"
             android:layout_marginStart="8dp"

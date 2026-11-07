@@ -25,6 +25,8 @@
             tools:src="@mipmap/placeholder" />
 
         <ImageView
+            android:contentDescription="@null"
+            android:importantForAccessibility="no"
             android:layout_height="0dp"
             android:layout_width="wrap_content"
             android:adjustViewBounds="true"
@@ -149,7 +151,9 @@
                 app:layout_constraintEnd_toStartOf="@+id/icon_evaluate_arrow" />
 
             <ImageView
+                android:contentDescription="@null"
                 android:id="@+id/icon_evaluate_arrow"
+                android:importantForAccessibility="no"
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/arrow_down"
@@ -200,7 +204,9 @@
                 app:layout_constraintEnd_toStartOf="@+id/icon_staff_arrow" />
 
             <ImageView
+                android:contentDescription="@null"
                 android:id="@+id/icon_staff_arrow"
+                android:importantForAccessibility="no"
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/arrow_down"

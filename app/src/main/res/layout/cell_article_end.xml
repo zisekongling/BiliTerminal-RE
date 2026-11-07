@@ -6,7 +6,9 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <ImageView
+        android:contentDescription="@null"
         android:id="@+id/viewIcon"
+        android:importantForAccessibility="no"
         android:layout_width="wrap_content"
         android:layout_height="0dp"
         android:layout_marginStart="@dimen/activity_padding_horizontal"
@@ -30,7 +32,9 @@
         app:layout_constraintTop_toBottomOf="@id/like_coin_fav" />
 
     <ImageView
+        android:contentDescription="@null"
         android:id="@+id/timeIcon"
+        android:importantForAccessibility="no"
         android:layout_height="0dp"
         android:layout_width="wrap_content"
         android:adjustViewBounds="true"
@@ -58,7 +62,9 @@
         app:layout_constraintTop_toBottomOf="@id/cvidText" />
 
     <ImageView
+        android:contentDescription="@null"
         android:id="@+id/cvidIcon"
+        android:importantForAccessibility="no"
         android:layout_width="wrap_content"
         android:layout_height="0dp"
         android:layout_marginStart="8dp"
@@ -114,6 +120,7 @@
                 android:orientation="vertical">
 
                 <ImageButton
+                    android:contentDescription="@string/a11y_like"
                     android:id="@+id/btn_like"
                     android:layout_width="30dp"
                     android:layout_height="30dp"
@@ -137,6 +144,7 @@
                 android:orientation="vertical">
 
                 <ImageButton
+                    android:contentDescription="@string/a11y_coin"
                     android:id="@+id/btn_coin"
                     android:layout_width="30dp"
                     android:layout_height="30dp"
@@ -161,6 +169,7 @@
                 android:orientation="vertical">
 
                 <ImageButton
+                    android:contentDescription="@string/a11y_favorite"
                     android:id="@+id/btn_fav"
                     android:layout_width="30dp"
                     android:layout_height="30dp"

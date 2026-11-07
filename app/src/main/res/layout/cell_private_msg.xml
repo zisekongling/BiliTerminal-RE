@@ -38,6 +38,7 @@
         layout="@layout/cell_video_list" />
 
     <ImageView
+        android:contentDescription="@string/a11y_private_msg_picture"
         android:layout_height="60dp"
         android:layout_width="60dp"
         android:layout_margin="5dp"

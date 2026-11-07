@@ -53,6 +53,13 @@
 
 - **26.11.07 教程系统收尾（调研清单第 5 条；本机 `main` 已提交，本环境无 GitHub 凭据、未 push）**：①5 条页面滑动提示改成注册表驱动的 `TutorialKind.HINT`（`Tutorials.hints`），新增 `tutorial/TutorialHints.kt` 统一渲染，页数读宿主 ViewPager / ViewPager2 的**真实页数**（旧实现写死 3/4/2/2，搜索页还是 `size-1`），5 个宿主页不再手写 `showPagerTutorial(activity, 页数)`，`SearchActivity` 自己抄的那份显隐逻辑删除；②`TutorialStore` 的 `isRead` / `markRead` / `clear` 按 kind 分流，管理页改由 `Tutorials.all` + `Tutorials.hints` 渲染，不再维护 `HINT_PAGES` 硬编码清单；③**旧链路整体删除**：`helper/TutorialHelper.kt`、`activity/TutorialActivity.kt`、`model/Tutorial.java`、`model/CustomText.java`、`res/layout/activity_tutorial.xml`、`res/xml/tutorial_*.xml` ×12、`strings.xml` 的 10 个 `tutorial_*` 数组与 2 条只被 `TutorialHelper` 使用的文案、Manifest 旧教程页注册；④存档键仍是 `tutorial_pager_<宿主类名>`，老用户「看过不再弹」不会重来。**L0（26.11.07 实测，隔离工作树、未同步 `private/`）**：`:app:assembleDebug`、`:app:testStandardDebugUnitTest`、`:app:testCoexistDebugUnitTest`、`:app:assembleRelease` 全部 BUILD SUCCESSFUL，两 flavor 各 **175 suites / 1911 tests / 0 失败 0 错误**。真机未验项见 §2.1，交接单 [`review/manual-test-guide-261107-tutorial-hint.md`](manual-test-guide-261107-tutorial-hint.md)（5 条）。
 
+- **26.11.07 无障碍与触控热区（调研清单第 11 条；本机 `main` 已提交，本环境无 GitHub 凭据、未 push）**：
+  - ①**布局无障碍全量收口**：`res/layout` 下 124 个 `ImageView|ImageButton` 现在全部显式声明——49 个交互 / 信息图给可读描述（播放器按钮复用既有 `setting_player_btn_*`、`setting_player_ui_label_play`，其余新增 14 条 `a11y_*`），75 个装饰图统一 `contentDescription="@null"` + `importantForAccessibility="no"`（改造前只有 12 处 `contentDescription`、0 处 `importantForAccessibility`）。新增 `ui/a11y/LayoutAccessibilityTest`（4 例）防回归：每个图片控件必须有声明、装饰图必须对读屏隐藏、`ImageButton` / `android:clickable="true"` 的图必须有可读文案、引用的 `@string` 必须真实存在（`values/` 下多个文件都算）。
+  - ②**播放器热区**：底部按钮 32×37 → **44×44dp**（「清晰度 / 音量± / 分P / 播放」5 个键全上 48dp 会超过 233dp 屏宽；44 是仓库已有的手表紧凑档下限，与 `dialog_item_min_height` 同值）；左右两列 28×28 → **48dp 宽 × 按可用高度自适应的格高**（新增纯函数 `player/PlayerControlCellSize` + 6 例单测；图标视觉尺寸与贴屏幕边缘的位置不变，多出来的宽度向屏幕内侧扩）；进度条 20 → **48dp**（`paddingTop/Bottom=14dp` 保住原来 20dp 的波形高度）；弹幕发送按钮 35 → 48dp；倍速 / 无极调音两个滑杆补 `minHeight=48dp` + 上下内边距（原来实际高度约 32dp）；底部按钮行两侧改成 `layout_weight=1` 的横向滚动条（按钮少时贴播放键，多时在自己的半屏内滚动），避免整行比屏幕宽被裁。
+  - **L1（AVD 466×466 @320dpi，standard debug 包，本地 mp4 起播，`uiautomator dump` 量控件 bounds；2px=1dp）**：播放键 `[201,344][265,418]`=32×37dp → `[189,330][277,418]`=44×44dp；进度条 `40px`=20dp → `96px`=48dp；右列弹幕 `[402,91][458,147]`=28×28dp → `[362,53][458,111]`=48×29dp（宽度达标、图标仍贴右边缘）；同一次 dump 里 `danmaku_btn` / `rotate_btn` / `button_sound_cut` / `button_video` 的 `content-desc` 从空串变成「弹幕 / 旋转 / 音量减 / 播放与暂停」。改造前后同视角对照图：`outputs/a11y/player-touch-before-after.png`（`outputs/` 已 gitignore）。
+  - **已知限制（未在本条擅自改交互）**：小屏手表的窗口可用高度只有 209dp，「顶栏 + 进度条 48dp + 按钮行 44dp + 右列 3 格」放不下 48×48 的竖列，实测只能到 48×29dp；要让竖列真正 48×48 必须减少常驻按钮或改成可滚动列，属设计决定，留给真机验证后再定（见 §2.1）。短视频播放页（`fragment_short_video_page.xml`）底部一排 6 个 32×37dp 按钮同样没动：6×44dp 会超出 233dp 屏宽，要改得先定「这排按钮怎么折行 / 滚动」。文章页点赞/投币/收藏的 30dp 图标本来就不在播放器里，也不在本条范围。
+  - 真机 TalkBack 逐屏走查与手感见 §2.1。
+
 - **下次递增（26.11.07 之后）必须同时做三件事，缺一件 CI 就红或用户收不到包**：
   1. **升 `versionCode`**（`app/build.gradle:45`，`versionName` 在 `:46`）：补丁版把尾号补成 tag 的 `.N`（`26.11.07.2` → `2611072`）。CI 的 `verify-version` 现在硬校验「`versionCode` 末位 == tag 的 `.N` 后缀」，写错直接发版失败（26.11.07.1 事故的封堵，先例 `1c404c3` 只升尾号、`versionName` 不动；而 `UpdateManager` 是严格大于比较，尾号不升老用户收不到修正包）。
   2. **改 `strings.xml` 的 `update_log_current` 锚点**为「【YY.MM.DD 本次更新】」，否则 `:app:verifyVersionConsistency` 失败、CI 抽不到发版说明。
@@ -88,6 +95,8 @@
 ## 2. 未完成待办
 
 ### 2.1 真机未验证（无设备 / 无登录态）
+
+- [ ] **26.11.07 无障碍与播放器热区的真机项未验（L2，只能上手 / 听读屏；交接单见本条）**：①**TalkBack 逐屏走查**：播放页 17 个按钮与左右列图标要读作「弹幕 / 旋转 / 音量减 / 播放与暂停 / 清晰度…」而不是「按钮」；列表页头像读作「查看用户主页」，封面 / 角标 / 装饰图标不再被逐个念成「图片」；登录页二维码、搜索结果排序键仍能读到原描述。②**手感**：44dp 底部按钮在真手指下是否明显减少误触；进度条 48dp 热区是否更好拖；③**小屏手表**（可用高度约 209dp）：右列 3 格 + 顶栏 + 改高后的底栏不重叠、圆屏边缘不切按钮；④**按钮多时**（左右底部各 3 格）底部行两侧的横向滚动是否顺手、不会和播放器滑动手势打架。
 
 - [ ] **26.11.07 教程旧链路收尾（调研清单第 5 条）的翻页提示未验（L2，只能看画面；交接单 [`review/manual-test-guide-261107-tutorial-hint.md`](manual-test-guide-261107-tutorial-hint.md)）**：5 个宿主页（搜索 / 视频详情 / 用户主页 / 专栏详情 / 动态详情）首次进入应出现「←这个页面可以左右翻页喵→（共有 N 页）」，N 要与真实分页数一致（视频详情：公开包 2 页、注入了私有功能带「演职人员」页时 3 页；搜索页按启用的搜索类别数）；左右滑一次后提示消失且不再出现；同页还有全屏教程（视频详情 `video_main`）时，提示要等教程关闭后才出现，不能在教程盖住时被记成「已展示」；管理页「重置所有页面滑动引导」后回到页面应重新出现；老用户（`tutorial_pager_*` 已有存档）升级后**不应**重新弹。
 
@@ -235,8 +244,8 @@
 > 真机验证项已并进 `docs/review/real-device-regression-checklist.md` 第十三节（第 238~247 条）。下面只留「代码里真的还没做」的部分。
 
 - [ ] **顶栏仍是 45 份手抄复制品**：`cell_topbar.xml` 与 `include layout="@layout/cell_topbar"` 全工程 **0 匹配**，`android:id="@+id/top"` 在 **45 个 layout** 里各自手写（`activity_simple_refresh.xml:9`、`activity_menu.xml:10`、`activity_player.xml:144` …），`@dimen/topbar_height`（30dp / w300dp 36dp）**0 引用**（死 token）；退出靠 `BaseActivity.kt:182-197 setTopbarExit()` 代码兜。**批次 4 的公共顶栏成果实际已被回退**（详见 `docs/architecture-map.md` §8.1/§8.5/§7.4），顶部返回是 45 个页面的唯一返回入口、高度无 48dp 保证。值得做（风险中）。
-- [ ] **无障碍：`contentDescription` 覆盖率 4.3%**：全 `res/layout` 仅 5 处（`activity_loading.xml:46`、`cell_follow_group.xml:46`、`cell_loading.xml:9`、`fragment_qr_login.xml:57`、`item_vote_option.xml:20`=`@null`），而 `<ImageView|<ImageButton` 共 **115 处** → 缺口 **110**；装饰图也没有 `importantForAccessibility="no"`。TalkBack 全站不可用。可脚本化批量补，风险低。
-- [ ] **播放器触控热区大量 <48dp**：`activity_player.xml` 28dp 高 11 处（`:310/319/328/337/347/357/367/388/397/406/418`）、37dp 5 处（`:226/236/245/255/265`）、进度条 `:201`=20dp / `:464`=32dp / `:645`=35dp；该文件对 `@dimen/touch_min`（48dp）**0 引用**。（2.17「点下去零反馈」已修，尺寸没改。）
+- [x] **无障碍：`contentDescription` 覆盖率 4.3%**（26.11.07 已收口，见 §1「无障碍与触控热区」）：改造前全 `res/layout` 只有 12 处 `contentDescription`（其中 1 处 `@null`）、0 处 `importantForAccessibility`，而 `<ImageView|<ImageButton` 共 124 处；现在 124 个图片控件**全部**显式声明（49 个可读描述 + 75 个装饰图 `@null` + `importantForAccessibility="no"`），由 `ui/a11y/LayoutAccessibilityTest` 锁死。真机 TalkBack 逐屏走查见 §2.1。
+- [x] **播放器触控热区大量 <48dp**（26.11.07 已收口，见 §1「无障碍与触控热区」）：底部按钮 32×37→44×44dp、进度条 20→48dp、弹幕发送 35→48dp、左右两列 28×28→48dp 宽 × 自适应高（小屏实测 48×29dp），图标视觉尺寸与贴边位置不变，底部行改 `weight` 均分 + 各自横向滚动。**仍未达 48×48 的部分**：小屏手表竖列高度受可用高度限制，要改交互才能满足（§1 已知限制 / §2.1 真机项）。
 - [ ] **无自适应图标**：`res/mipmap*` 只有 `mipmap-nodpi/`（约 52 个 png/webp），无 `mipmap-anydpi-v26`、无 `ic_launcher_foreground/background`；桌面图标形状由系统强制裁切。需要设计资产，非纯代码任务。
 - [ ] **残留 px 单位与全透明短写色**：`layout_height="0px"` `activity_download.xml:23`、`cell_video_local.xml:87`，`1px` `activity_player.xml:16/17`（共 5 处）；`background="#6000"` `activity_search.xml:129`，`background="#0000"` `cell_article_end.xml:117/140/164` + `fragment_video_info.xml:229/252/276`（共 7 处）。一次改完，零风险。
 - [ ] **过小字号**：`textSize="8|9|10|11sp"` 共 **57 处**，其中真正不可读的 6 处是 8sp（`activity_player.xml:181`）、9sp（`activity_captcha_webview.xml:33`）、10sp（`activity_feedback.xml:66/109`、`activity_player.xml:479/493`）；`android:alpha` 在 layout 下仍有 **142 处**（文字靠 alpha 拉层级基本没动）。先修那 6 处成本极低。

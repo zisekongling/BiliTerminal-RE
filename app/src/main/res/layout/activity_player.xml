@@ -204,8 +204,10 @@
                 android:id="@+id/videoprogress"
                 style="@style/Widget.AppCompat.SeekBar"
                 android:layout_width="match_parent"
-                android:layout_height="20dp"
+                android:layout_height="@dimen/touch_min"
                 android:layout_marginTop="2dp"
+                android:paddingTop="14dp"
+                android:paddingBottom="14dp"
                 android:paddingStart="14dp"
                 android:paddingEnd="14dp"
                 android:progressTint="?attr/colorPrimary"
@@ -247,9 +249,15 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
+                <!--
+                    底部按钮行：左侧 / 右侧各是一条可横向滚动的槽位条，中间是播放/暂停。
+                    26.11.07 起格子放大到 44dp（热区；5 个键都上 48dp 会超过 233dp 屏宽），
+                    两侧各用 weight 平分剩余宽度：按钮少时贴着播放键（左条 end、右条 start），
+                    按钮多时在自己的半屏内横向滚动，不会再出现「整行比屏幕宽、两头被裁掉」。
+                -->
                 <LinearLayout
                     android:id="@+id/bottom_row"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_centerInParent="true"
                     android:gravity="center_vertical"
@@ -257,40 +265,49 @@
 
                     <HorizontalScrollView
                         android:id="@+id/bottom_left_scroll"
-                        android:layout_width="wrap_content"
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_marginEnd="6dp"
+                        android:layout_weight="1"
+                        android:fillViewport="true"
                         android:scrollbars="none">
 
                         <LinearLayout
                             android:id="@+id/bottom_left_slots"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
+                            android:gravity="center_vertical|end"
                             android:orientation="horizontal" />
                     </HorizontalScrollView>
 
                     <ImageButton
+                        android:contentDescription="@string/setting_player_ui_label_play"
                         android:id="@+id/button_video"
-                        android:layout_width="32dp"
-                        android:layout_height="37dp"
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
                         android:adjustViewBounds="true"
                         android:background="?android:attr/selectableItemBackground"
+                        android:paddingStart="6dp"
+                        android:paddingEnd="6dp"
+                        android:paddingTop="3dp"
+                        android:paddingBottom="3dp"
                         android:scaleType="fitCenter"
                         android:src="@drawable/btn_player_play" />
 
                     <HorizontalScrollView
                         android:id="@+id/bottom_right_scroll"
-                        android:layout_width="wrap_content"
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="6dp"
+                        android:layout_weight="1"
+                        android:fillViewport="true"
                         android:scrollbars="none">
 
                         <LinearLayout
                             android:id="@+id/bottom_right_slots"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
+                            android:gravity="center_vertical|start"
                             android:orientation="horizontal" />
                     </HorizontalScrollView>
                 </LinearLayout>
@@ -347,9 +364,14 @@
         </LinearLayout>
 
         <ImageButton
+            android:contentDescription="@string/a11y_player_debug"
             android:id="@+id/btn_debug"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:layout_alignParentLeft="true"
             android:layout_above="@+id/bottom_control"
             android:layout_marginStart="4dp"
@@ -372,8 +394,9 @@
             app:layout_constraintTop_toTopOf="parent">
 
             <ImageView
+                android:contentDescription="@null"
                 android:id="@+id/circle"
-
+                android:importantForAccessibility="no"
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:layout_gravity="center" />
@@ -440,6 +463,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginHorizontal="26dp"
+                android:minHeight="@dimen/touch_min"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
                 android:indeterminate="false"
                 android:max="7"
                 android:progress="2"
@@ -518,9 +544,11 @@
             android:layout_height="wrap_content"
             android:layout_marginHorizontal="20dp"
             android:layout_marginTop="6dp"
+            android:minHeight="@dimen/touch_min"
             android:indeterminate="false"
             android:max="100"
-            android:paddingVertical="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:progress="100" />
 
         <TextView
@@ -610,7 +638,7 @@
             <Button
                 android:id="@+id/danmaku_send"
                 android:layout_width="match_parent"
-                android:layout_height="35dp"
+                android:layout_height="@dimen/touch_min"
                 android:layout_marginHorizontal="6dp"
                 android:layout_marginBottom="6dp"
                 android:background="@drawable/background_card_borderless"
@@ -741,36 +769,56 @@
         android:visibility="gone">
 
         <ImageButton
+            android:contentDescription="@string/setting_player_btn_quality"
             android:id="@+id/button_quality"
-            android:layout_width="32dp"
-            android:layout_height="37dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitCenter"
             android:src="@drawable/icon_menu" />
 
         <ImageButton
+            android:contentDescription="@string/setting_player_btn_sound_cut"
             android:id="@+id/button_sound_cut"
-            android:layout_width="32dp"
-            android:layout_height="37dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitCenter"
             android:src="@mipmap/soundcut" />
 
         <ImageButton
+            android:contentDescription="@string/setting_player_btn_sound_add"
             android:id="@+id/button_sound_add"
-            android:layout_width="32dp"
-            android:layout_height="37dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitCenter"
             android:src="@mipmap/soundadd" />
 
         <ImageButton
+            android:contentDescription="@string/setting_player_btn_page_selector"
             android:id="@+id/button_page_selector"
-            android:layout_width="32dp"
-            android:layout_height="37dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitCenter"
@@ -778,36 +826,56 @@
             android:visibility="gone" />
 
         <ImageButton
+            android:contentDescription="@string/setting_player_btn_danmaku_send"
             android:id="@+id/danmaku_send_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
             android:src="@drawable/send" />
 
         <ImageButton
+            android:contentDescription="@string/setting_player_btn_subtitle"
             android:id="@+id/subtitle_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
             android:src="@mipmap/subtitle_off" />
 
         <ImageButton
+            android:contentDescription="@string/setting_player_btn_loop"
             android:id="@+id/loop_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
             android:src="@mipmap/loopoff" />
 
         <ImageButton
+            android:contentDescription="@string/setting_player_btn_audio_only"
             android:id="@+id/audio_only_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
@@ -815,9 +883,14 @@
             android:visibility="gone" />
 
         <ImageButton
+            android:contentDescription="@string/setting_player_btn_auto_next"
             android:id="@+id/auto_next_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
@@ -825,9 +898,14 @@
             android:visibility="gone" />
 
         <ImageButton
+            android:contentDescription="@string/setting_player_btn_viewpoint"
             android:id="@+id/viewpoint_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
@@ -854,8 +932,12 @@
         -->
         <ImageButton
             android:id="@+id/jump_time_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:contentDescription="@string/text_player_jump_to_time"
@@ -871,8 +953,12 @@
         -->
         <ImageButton
             android:id="@+id/queue_mode_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:contentDescription="@string/player_queue_btn_label"
@@ -881,18 +967,28 @@
             android:visibility="gone" />
 
         <ImageButton
+            android:contentDescription="@string/setting_player_btn_danmaku"
             android:id="@+id/danmaku_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
             android:src="@mipmap/danmakuoff" />
 
         <ImageButton
+            android:contentDescription="@string/setting_player_btn_rotate"
             android:id="@+id/rotate_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
@@ -900,8 +996,12 @@
 
         <ImageButton
             android:id="@+id/lock_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:contentDescription="@string/desc_player_lock_locked"
