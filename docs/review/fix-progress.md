@@ -18,7 +18,7 @@
 
 ## 1. 当前版本状态
 
-- **版本号**：`26.11.07`（`versionCode 2611070`，tag `26.11.07`）——CI 的 `verify-version` 会拿 tag 的 `YY.MM.DD` 段去比 `versionName`；`strings.xml` 的 `update_log_current` 锚点是「【26.11.07 本次更新】」，`:app:verifyVersionConsistency` 以该锚点校验。tag `26.10.31`、`26.10.31.1`、`26.11.01`、`26.11.02`、`26.11.06`、`26.11.06.1`、`26.11.07` 均已占用（发版记录见 §4）；补丁版 `26.11.07.1` **沿用** `versionName 26.11.07` / `versionCode 2611070`，只多带两处修复（§3.135 / §3.136）。
+- **版本号**：`26.11.07`（`versionCode 2611070`，tag `26.11.07`）——CI 的 `verify-version` 会拿 tag 的 `YY.MM.DD` 段去比 `versionName`；`strings.xml` 的 `update_log_current` 锚点是「【26.11.07 本次更新】」，`:app:verifyVersionConsistency` 以该锚点校验。tag `26.10.31`、`26.10.31.1`、`26.11.01`、`26.11.02`、`26.11.06`、`26.11.06.1`、`26.11.07` 均已占用（发版记录见 §4）；补丁版 `26.11.07.1` **沿用** `versionName 26.11.07` / `versionCode 2611071`（尾号 1 必须等于 tag 的 `.1`，见下条「下次递增」），只多带两处修复（§3.135 / §3.136）。
 - **26.11.07 本次更新日志 31 条**＝26.11.06 的 19 条**逐字保留**+ 12 条新增（播放器按钮槽位与七组设置、连播队列与继续播放、弹幕分段与磁盘缓存、评论三层兜底、片头片尾五档、推荐页游标去重、主题背景图、赞赏入口等）。按用户要求 **26.11.06 不单独进 `update_history_log`**（「06 版本就当不存在」），历史页顶部仍是「## 2026-11-02」。
 - **26.11.06 本轮改动**：覆盖 26.11.02 之后的 28 个提交（§3.108~§3.118），分别是「我的订阅」（含订阅 / 取消订阅入口）、缓存页多选批量操作与拖动排序搜索、缓存合集按下载页序排列、下载期间不休眠 + 下载页常亮、热搜跑马灯、播放器滑动调进度灵敏度 / 跳到指定时间 / 锁定按钮开关、mcdn 直链 -10000 修复、自动跳过片头片尾只对 PGC 生效、番剧「播放来源」面板与换源播放接入弹弹play 弹幕（可选私有功能）、账号代际隔离与多账号导入导出、#88 关注分组长按、#85 评论「假发送成功」、#97 设置页搜索框随内容滚动、带图评论图床目录与大会员前置拦截。文档侧另补：App 开源信息页与 `readme.md` 致谢加入 Kazumi（选源交互 / 第三方弹幕接入思路，GPL v3，未包含其源码）。
 - **上一版**：`26.11.02` / tag `26.11.02`（`versionCode 2611020`、`versionName 26.11.02`）；其 12 条日志已归档进 `update_history_log` 的「## 2026-11-02」组（本版首次把它补进历史页——26.11.02 发版时该组未写入）。
@@ -40,7 +40,11 @@
 - **26.11.07.1 审查修复清单（第三批，纯去重，无用户可见变化）**：㉒订阅类错误码文案收口到 `util/SubscriptionErrorText.kt` 的 `Context.subscriptionErrorText(code)`——此前收藏夹页 / 合集页 / 订阅列表页 / 番剧详情页各抄一份**逐字相同**的 `when`，服务端加一个码就要改四处、漏一处就有一边显示「操作失败（xxxxx）」（为什么是 `Context` 扩展而不是纯函数：这几句必须走资源，而 JVM 单测拿不到 `Context`，取舍口径同 `api/ApiErrorText.kt`）；㉓合掉审查点名的 6 组重复文案：`text_subscription_type_folder` → `uitext_favoritevideolistactivity_011`（「收藏夹」）、`msg_sub_unsubscribed` → `msg_subscription_cancelled`（「已取消订阅」）、`text_sub_toggle_subscribed` → `msg_sub_subscribed`（「已订阅」，开关按钮与提示语用同一份）、`uitext_favoritevideolistactivity_025` → `uitext_locallistactivity_034`、`uitext_favoritevideolistactivity_023` → `uitext_locallistactivity_035`（「虚拟合集」两串以本地列表为源，`util/UiText.MAP` 的映射同步改指）、`social_history_cancel` → `btn_cancel`；㉔清掉第二批自己引入的 7 组重复：关于页开发者简介（Robin / moye / silent / dudu / 达达 / huanli / Jank）改为复用既有 `settingtext_aboutactivity_*`，只保留 Kuinone、紫色空灵、千awa 三条真正新增的描述键；本批净删死键 13 个。
 - **26.11.07 设置页新增「番剧设置」分组挂点（公开侧只有门面 + 挂点）**：`activity/settings/SettingGroupActivity.kt` 加文件级 `const val GROUP_BANGUMI = "bangumi"` 与 `buildBangumiGroup()`（两行 `nav`：管理源 / 管理弹幕），`SettingMainActivity.buildGroups()` 在「内容与浏览」之后插一张 `icon_bangumi` 卡片，`SettingsIndex.build()` 加三条带 `highlight` 的搜索条目（分组 + 两个子页），`strings.xml` 新增 6 条 `setting_bangumi_*`；门面 `util/OptionalFeatures.kt` 加 `thirdPartySettingsAvailable` / `openThirdPartySourceSettings(context)` / `openThirdPartyDanmakuSettings(context)`（反射 `FeatureHolder` 同名方法，异常只 `Logu.w`）。私有功能不在场时整组（主设置页卡片 + 分组页两行 + 三条搜索条目）都不出现，**公开构建行为不变**；两个设置页的实现与视觉重排、实测记录都在私有仓库 README，不进公开文档。
 
-- **下次递增**：先看 `app/build.gradle:23-24`；release immutability 下被 Release 用过的 tag **永久不可复用**，同版本名补丁版只能用 `26.10.24.1` 这种后缀形式，`versionCode` 递增、`versionName` 可不变。改了版本号还要同步 `strings.xml` 里 `update_log_current` 的「【YY.MM.DD 本次更新】」锚点，否则 `:app:verifyVersionConsistency` 会失败。
+- **下次递增（26.11.07 之后）必须同时做三件事，缺一件 CI 就红或用户收不到包**：
+  1. **升 `versionCode`**（`app/build.gradle:45`，`versionName` 在 `:46`）：补丁版把尾号补成 tag 的 `.N`（`26.11.07.2` → `2611072`）。CI 的 `verify-version` 现在硬校验「`versionCode` 末位 == tag 的 `.N` 后缀」，写错直接发版失败（26.11.07.1 事故的封堵，先例 `1c404c3` 只升尾号、`versionName` 不动；而 `UpdateManager` 是严格大于比较，尾号不升老用户收不到修正包）。
+  2. **改 `strings.xml` 的 `update_log_current` 锚点**为「【YY.MM.DD 本次更新】」，否则 `:app:verifyVersionConsistency` 失败、CI 抽不到发版说明。
+  3. **把 HEAD 上所有未发版提交补进 `update_log_current`**：26.11.07.1 之后仍有 31 个提交（表冠三处加固、三入口默认隐藏、背景图入口、本批调研清单修复等）没进日志，`versionCode` 仍停在已发布的 `2611071`。发版前必须逐条归属到日志条目，别出现「装了什么说不清」的版本（26.11.06 事故，见 §3.135）。
+  - release immutability 下被 Release 用过的 tag **永久不可复用**，同版本名补丁版只能用 `26.11.07.1` 这种后缀形式。
 - **构建命令**（单测任务名**带 flavor 前缀**，`testDebugUnitTest` 自 26.10.11 引入 flavor 后已不存在）：
 
   ```text
