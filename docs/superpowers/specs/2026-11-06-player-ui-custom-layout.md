@@ -96,7 +96,8 @@ Layout = left: List<Slot>          // 上限 5
 - 容错口径：
   - 结构非法（段数不对、版本不认识、花括号不配对、出现空 token）→ **整体回退默认**（宁可回默认，也不要把用户按钮丢一半，与 `MySpaceConfig` 一致）；
   - 单个 key 没登记（旧版本删掉的按钮、手改脏数据）→ **只丢这个 key**，其余保留；
-  - 组里有效 key 只剩 1 个 → 降级成单按钮；一个不剩 → 整组丢弃；
+  - 组里有效 key 只剩 1 个 → **仍保留成组**，不降级成单按钮（用户是先建组再往里放成员，
+    中途必然出现单成员组；悄悄拆掉组会让他刚建的组消失）；一个不剩 → 整组丢弃；
   - 超出容量 → 截到 5/5/3/3。
 - `load()` 会把「读到的东西 ≠ 规范化结果」的情况顺手写回规范串，于是默认布局、旧格式、脏数据都在第一次读取时被修好。
 
@@ -205,7 +206,7 @@ Layout = left: List<Slot>          // 上限 5
 工程：
 
 1. `:app:assembleDebug` 通过（两个 flavor）。
-2. `:app:testStandardDebugUnitTest` 与 `:app:testCoexistDebugUnitTest` 通过；新增 `PlayerUiLayoutTest` 覆盖默认值、坏串回落、未知 key 丢弃、超容量截断、重复 key、组降级与丢弃。
+2. `:app:testStandardDebugUnitTest` 与 `:app:testCoexistDebugUnitTest` 通过；新增 `PlayerUiLayoutTest` 覆盖默认值、坏串回落、未知 key 丢弃、超容量截断、重复 key、单成员组保留与空组丢弃。
 3. 用户可见文案全部进 `strings.xml`，无新增硬编码中文。
 4. 无新增第三方库；新增 Activity `android:exported="false"` + `android:screenOrientation="locked"`。
 
@@ -217,6 +218,6 @@ Layout = left: List<Slot>          // 上限 5
    连播按钮因此不再常显模式文字（模式只在点按 toast 与 `contentDescription` 里给出）。
 3. **re-parent 风险**：同一 View 只能有一个 parent，`activity_player.xml` 改动较大（17 个按钮搬家），任何遗漏都会直接崩或按钮消失——第 3 步必须模拟器逐项对照。
 4. **锁定态**：现有逻辑依赖"锁定按钮一定存在"（`refreshLockButtonSetting`、`:1560` 注释），布局允许删掉它 → 需要一条兜底规则（要么锁定时强制显示解锁出口，要么删掉锁定时同步删除锁定手势）。
-5. **`alignLeftControlToRight`**：列高可变后 translationY 对齐会错位，需要重做。
+5. **`alignLeftControlToRight`**：列高可变后 translationY 对齐会错位，需要重做。→ **已按「两条列中线差」实现**（26.11.07）：比较的是**窗口坐标**里的中线（两列不在同一 parent 下，raw `top` 不可比，原实现跨 parent 直接相减），并在两列的 `addOnLayoutChangeListener` 里随布局变化重算，不再是一次性量取。
 6. **搜索索引**：`SettingsIndex.highlight` 靠 name 逐字比对定位，48 项重分组后 `SettingSection.name` 不能改字面量，否则高亮失效。
 7. **假界面与真播放器的尺寸比例**：380×380 方形屏幕上 16:9 的假画面只有约 214px 高，左右列各 5 格、底部 7 格在缩略图上会挤在一起——第 4 步实测后可能要放大假界面（允许上下滚动）或给每个格子一个最小点击热区（≥40px）。

@@ -4,15 +4,15 @@
 > 什么时候写这里：修完一个 bug / 关掉一个待办 / 每轮真机验证后。**别再往下追加长流水**——超过一屏就并进 §4「历史章节索引」那一行（§3 是 26.11.06 之前就积下的旧流水，只读不追加）。
 > 架构与坑看 `docs/architecture-map.md`；功能清单看 `docs/FEATURES.md`；真机清单看 `docs/review/real-device-regression-checklist.md`（旧的 T/D 测试计划已归档为 `docs/archive/review/device-test-plan.md`，只在要查某条用例原文时翻）。
 
-**怎么读这份文件（26.11.06 起，全文 ≈15.9 万 token，别整份读）**：
+**怎么读这份文件（26.11.07 实测：全文 ≈17.3 万 token / 1652 行，别整份读）**：
 
 | 章节 | 行 | token | 什么时候读 |
 | --- | --- | --- | --- |
-| §1 当前版本状态 | `7–46` | ≈4k | **每次改动前必读** |
-| §2 未完成待办 | `47–187` | ≈10k | 接线前扫一眼；按关键词 grep，别整节读 |
-| §3 状态快照 | `188–1443` | ≈9.6 万 | **纯流水**，只在要查「某轮改动到底怎么改的」时 grep 关键词 |
-| §4 历史章节索引 | `1444–1546` | ≈2.2 万 | 一般不用读 |
-| §5 待回迁长期结论 | `1547–1586` | ≈4k | 要查某个长期结论时 |
+| §1 当前版本状态 | `19–61` | ≈5.6k | **每次改动前必读** |
+| §2 未完成待办 | `62–205` | ≈12.3k | 接线前扫一眼；按关键词 grep，别整节读 |
+| §3 状态快照 | `206–1509` | ≈12.1 万 | **纯流水**，只在要查「某轮改动到底怎么改的」时 grep 关键词 |
+| §4 历史章节索引 | `1510–1612` | ≈2.9 万 | 一般不用读 |
+| §5 待回迁长期结论 | `1613–1652` | ≈5k | 要查某个长期结论时 |
 
 > 除 §1 外都不要通读：**先 `grep -n "关键词" docs/review/fix-progress.md` 拿到行号，再只读那一段**。行号随文件增长会漂移，对不上就用 `grep -n "^## [0-9]\."` 重新定位章节。
 
@@ -31,6 +31,9 @@
 - **26.11.05 已随 26.11.06 发版**：合并远程 `main` 后没解干净的冲突（资源重名 + `BaseActivity` 残留旧边距算术，§3.116）、搜索设置「视频搜索（始终启用）」显示成锁定关（§3.117）、关于页开发者列表新增 Kuinone（§3.118）。版本号未动（仍是 `26.11.01` / `2611010`）。
 - **26.11.07 之后待发版的改动**：表冠三处加固（反馈 #103/#107）——新增纯函数 `ui/widget/RotaryEventPolicy.kt`（13 例 JVM 单测）+ 改 `ui/widget/RotaryEncoderSupport.kt`（位移为 0 不再吞事件、滚动量回落 `AXIS_VSCROLL`、兜底找目标要求与窗口有实际交集、加 W 级诊断日志）。两个 flavor 单测 **189 suites / 2067 tests / 0 失败**（26.11.07 实测）；真机验证项见 §2.2 同名待办。
 - **26.11.07 另加一个启动期静默预热挂点（公开侧只有门面 + 挂点）**：`util/OptionalFeatures.warmUpOptionalData()`（新增、无参、异常吞掉）+ `BiliTerminal.onCreate` 的 `if (context == null)` 块内、`CookieRefreshScheduler.start()` 之后调一次。私有功能不在场时是纯空操作，公开构建行为不变；具体预热什么由私有侧自己决定（本次是第三方片源规则的静默检查/同步，实现与实测记录写在私有仓库 README，不进公开文档）。
+- **26.11.07.1 补丁（`versionCode 2611071`、`versionName` 仍 `26.11.07`）**：在 tag `26.11.02` → `26.11.07.1` 区间做了一轮全量 code review（Standards + Spec 双轴），修复随本补丁一起出去。**必须升 `versionCode`**：`UpdateManager` 是严格大于比较，与 26.11.07 首包尾号相同时老用户收不到修正包（先例 `1c404c3` 只升尾号、`versionName` 不动）。
+- **26.11.07.1 审查修复清单（按域）**：①存储页三个清理按钮的确认对话框补 `.show()`（此前点了没反应，按钮全是死的）；②播放器七组设置、播放器界面页、关于页开发者简介、本地列表批量操作对话框的文案全部资源化（`strings.xml` 新增 `setting_player_*` / `about_dev_*_desc` / `uitext_locallistactivity_036..046` 等，`SettingPlayerUiActivity` 选按钮改用 `@StringRes` 而不是拿中文当键）；③清死键 9 个（`text_activityplayer_10`、`setting_player_ui_{add_slot,group_members_desc,add_group_member,slot_hint}`、`setting_player_lock_button_{name,desc}`、`player_queue_resume_desc`），`strings.xml` 里 12 行「裸 `#` 当注释」改成 XML 注释，`update_log_current` 删掉宣传已删功能「显示锁定按钮」的条目并重排编号；④`player/DanmakuStreamLoader` 加代际号 `generation`：`attach()` 之后在飞的旧 worker 不再把上一条视频的分段塞进新 manager，也不会两个 worker 抢带宽；⑤`api/SubscriptionApi.getSeasonFavState` 请求失败不再短路「翻我的订阅」兜底，删掉语义相反的 `parseSeasonFavState`；⑥`util/AccountManager.applyCredentials` 无条件比对 `DedeUserID`（不再「Cookie 里没有就放行」），`util/SpecialLoginParser` 把 JSON `null` 归一成空（org.json 的 `optString` 会给字符串 `"null"`）；⑦`api/ReplyTranslateApi` 的 gRPC 请求改用 `NetWorkUtil.newTaggedRequestBuilder()`，跟其它请求一样带账号代际标签；⑧`util/OptionalFeatures` 不再反向依赖 `activity/player/PlayerActivity`，改成 `ResolveHintHost` 接口由播放页实现；⑨`player/PlayerButtonSlots` 的影子按钮阴影照抄真身（原先写死 3f/2f/黑）；左列对齐改到窗口坐标并随布局重算（原先跨 parent 比 raw `top`，列高可变就错位）；⑩`ui/appearance/ColorScheme` 的光晕与背景图统一按夜间位判亮暗（原先光晕读偏好，闪屏/播放器强制暗色时两者不一致）；⑪`util/FavoriteAggregatePolicy` 的「来自 N 个收藏夹」不再把读取失败的页算进去；⑫弹幕缓存上限键登记进 `util/SettingsKeys`（`PLAYER_DANMAKU_CACHE_MAX_MB`）；⑬修 8 条恒真 / 自比 / 只断 size 的假通过单测；⑭账号切换页删除失败不再提示「当前登录的账号不能删除」，该页对话框文案也搬进资源。
+- **本轮判定为「不改」或「非问题」的审查项**：`SettingsIndex.kt` 里约 60 条 Entry 标题/描述仍是硬编码中文（改动面大、且要与 `SettingSection.name` 逐字对齐，另开一批做）；`SettingsKeys` 里 5 个已停用的「显示××按钮」旧键**故意保留**（删了会连带删掉用户存档，KDoc 已写明不读不写不迁移）；`strings.xml` 里成批的空 `<item></item>` 是更新日志的日期分组间隔符，不是脏数据；`SubscriptionApi` / 订阅错误码 `when` 的三段重复属结构问题，重构成本高于收益。
 - **下次递增**：先看 `app/build.gradle:23-24`；release immutability 下被 Release 用过的 tag **永久不可复用**，同版本名补丁版只能用 `26.10.24.1` 这种后缀形式，`versionCode` 递增、`versionName` 可不变。改了版本号还要同步 `strings.xml` 里 `update_log_current` 的「【YY.MM.DD 本次更新】」锚点，否则 `:app:verifyVersionConsistency` 会失败。
 - **构建命令**（单测任务名**带 flavor 前缀**，`testDebugUnitTest` 自 26.10.11 引入 flavor 后已不存在）：
 
@@ -62,6 +65,8 @@
 ## 2. 未完成待办
 
 ### 2.1 真机未验证（无设备 / 无登录态）
+
+- [ ] **26.11.07.1 审查修复里的四处观感项（L2，只能看画面判）**：①播放页左列与右列的中线对齐（删/加格子、展开组、横竖屏切换后都要仍然居中，不高不低）；②闪屏与播放器强制暗色时，背景图与弥散光晕的明暗配套，不应出现「暗底亮光晕」；③播放器影子按钮（组格展开、后台镜像）的阴影粗细与真身一致，不再出现 2px 硬黑影；④关于页开发者简介换行与「版本名 / 版本号」加粗区间（标签字数变了也要对齐）；⑤账号切换页长按删除账号的确认对话框文案与资源化后的排版。
 
 - [ ] **收藏夹管理页新版式 + 内容管理入口（§3.80）部分设备验证**：已在 SDK AVD `wear5`（Android 14 / 466×466）上用 `coexistDebug` universal 包核对了**结构与文案**（默认夹与非默认夹两种版式、两行内容管理入口、点「批量删除内容」能开出夹内容页）。**仍未验的**：①点「批量删除内容」后是否真的**直达多选态**（要先登录拉到列表，空列表按设计不进多选）；②「清空失效内容」的确认框与 `data=0` 成功提示；③真手表/圆屏上的实际观感。**注意**：删除与清空都是真实账号的破坏性写操作，真机验证要做好心理准备，别拿主号试。
 
