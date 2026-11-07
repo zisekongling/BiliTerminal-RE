@@ -185,7 +185,7 @@ public class NetWorkUtil {
      * 靠这个标签判断它是不是上一任账号的「在飞请求」，是就丢弃 Set-Cookie（审计 §7.1）。
      * 新增请求入口时漏掉这一行，代际隔离对那条请求就失效了。
      */
-    private static Request.Builder newTaggedRequestBuilder() {
+    public static Request.Builder newTaggedRequestBuilder() {
         // 注意这里是 new Request.Builder()，不是递归调自己——之前把全文件的
         // `new Request.Builder()` 无脑替换成本方法时，把方法体里这一行也替换了
         return new Request.Builder().tag(Long.class, accountGeneration);
