@@ -21,6 +21,7 @@ import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.FileUtil
+import com.RobinNotBad.BiliClient.util.LocalPageFileIndexPolicy
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import java.io.File
 
@@ -114,8 +115,21 @@ class LocalPageChooseActivity : BaseActivity() {
 
                         // 只有在磁盘上真的删掉了才从模型里摘：失败时保持列表原样，用户能看到它确实还在
                         if (failure == null) {
+                            // 双文件页（video.mp4 + audio.m4a 同时存在）在 videoFileList 里占两个下标，
+                            // 旧实现只 removeAt(position) 一项：删中间页会把 audio.m4a 留给下一页、
+                            // 点剩下的分 P 就播到已删文件。这里按目录名找出该页的全部下标，
+                            // 再从大到小删（调研清单第 7 条 B2）。
+                            val fileIndices = LocalPageFileIndexPolicy.indicesOfPage(videoFileList, pageName)
+                                .ifEmpty {
+                                    val fallback = LocalPageFileIndexPolicy.fallbackStartIndex(
+                                        position, pageList.size, videoFileList.size
+                                    )
+                                    if (fallback >= 0) listOf(fallback) else emptyList()
+                                }
+                            for (i in LocalPageFileIndexPolicy.removalOrder(fileIndices)) {
+                                if (i in videoFileList.indices) videoFileList.removeAt(i)
+                            }
                             if (position in pageList.indices) pageList.removeAt(position)
-                            if (position in videoFileList.indices) videoFileList.removeAt(position)
                             if (position in danmakuFileList.indices) danmakuFileList.removeAt(position)
                             deleted = true
                         }
@@ -179,8 +193,10 @@ class LocalPageChooseActivity : BaseActivity() {
             } else if (audioFile.exists()) {
                 result.add(Pair(audioFile.toString(), ""))
             } else {
-                // 兼容旧格式：直接从列表取
-                val idx = result.size
+                // 兼容旧格式：直接从列表取。优先按目录名反查（双文件页占两项也不会错位），
+                // 匹配不到才退回「第几页 = 第几项」的老口径（调研清单第 7 条 B2）
+                val idx = LocalPageFileIndexPolicy.indicesOfPage(videoFileList, pageName).firstOrNull()
+                    ?: result.size
                 if (idx < videoFileList.size) {
                     result.add(Pair(videoFileList[idx], ""))
                 } else {
