@@ -8,6 +8,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.FeedbackActivity
 import com.RobinNotBad.BiliClient.activity.feedback.FeedbackListActivity
 import com.RobinNotBad.BiliClient.activity.settings.login.AccountSwitchActivity
+import com.RobinNotBad.BiliClient.util.OptionalFeatures
 
 /**
  * 全局设置搜索索引：集中维护「分组 / 子页面 / 内联设置项 / 叶子设置项」的可搜索条目。
@@ -191,10 +192,19 @@ object SettingsIndex {
         list += Entry("圆屏列表", "圆屏模式的滚动列表曲率效果") { a -> openGroup(a, "lab", "高级与实验", "圆屏列表") }
 
         // ---- 叶子设置项（独立设置页）----
-        addLeafItems(list, "详情页设置", SettingInfoActivity::class.java, listOf(
+        // 26.11.07：详情页动作区两个默认隐藏的入口。名字必须与 SettingInfoActivity 里
+        // SettingSection.name 严格一致——那两处都取同一批字符串资源，改名只需改资源。
+        val detailLeaves = mutableListOf(
             "收藏夹单选", "收藏成功提示", "点击封面播放", "显示视频标签",
-            "视频相关推荐", "以游客方式观看直播", "一键三连"
-        ))
+            "视频相关推荐", "以游客方式观看直播", "一键三连",
+            BiliTerminal.context!!.getString(R.string.setting_detail_note_entry)
+        )
+        // 「分享到其他设备」只在带私有功能的构建里存在（设置页那条也一样），
+        // 公开构建不收录，否则搜索会把用户送进一个点了没反应的开关。
+        if (OptionalFeatures.available) {
+            detailLeaves += BiliTerminal.context!!.getString(R.string.setting_detail_share_row_entry)
+        }
+        addLeafItems(list, "详情页设置", SettingInfoActivity::class.java, detailLeaves)
         addLeafItems(list, "评论区设置", SettingRepliesActivity::class.java, listOf(
             "众生平等", "粉丝铭牌消失术", "昵称不换行显示"
         ))

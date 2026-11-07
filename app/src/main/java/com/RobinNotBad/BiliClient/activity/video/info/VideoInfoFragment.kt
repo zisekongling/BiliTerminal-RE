@@ -57,6 +57,7 @@ import com.RobinNotBad.BiliClient.model.VideoInfo
 import com.RobinNotBad.BiliClient.ui.widget.RadiusBackgroundSpan
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.DetailEntryPrefs
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.Logu
@@ -617,18 +618,28 @@ class VideoInfoFragment : BaseFragment() {
         // 可选私有功能的挂点：在动作区插一整行按钮（插在「笔记」之前）。
         // 公共构建里 OptionalFeatures 是空操作，这里连按钮都不会出现；私有构建才插入。
         // 不跟下面的未登录隐藏逻辑走：这个入口不依赖登录态。
-        OptionalFeatures.attachDetailActionRow(
-            rootview.findViewById(R.id.video_actions),
-            note,
-            videoInfo!!.bvid ?: "",
-            videoInfo!!.aid,
-            videoInfo!!.title ?: ""
-        )
+        //
+        // 26.11.07：用户要求默认藏起来 —— 只有设置里「分享到其他设备」开关打开时才挂，
+        // 否则连反射都不做（公开构建读到的这份配置永远不会被用到）。
+        if (DetailEntryPrefs.isShareRowEnabled()) {
+            OptionalFeatures.attachDetailActionRow(
+                rootview.findViewById(R.id.video_actions),
+                note,
+                videoInfo!!.bvid ?: "",
+                videoInfo!!.aid,
+                videoInfo!!.title ?: ""
+            )
+        }
 
         if (SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) == 0L) {
             addWatchlater.visibility = View.GONE
             relay.visibility = View.GONE
             videoSummary.visibility = View.GONE
+            note.visibility = View.GONE
+        } else if (!DetailEntryPrefs.isNoteEntryEnabled()) {
+            // 26.11.07：登录态下也默认不显示「笔记」——用户要求把这个入口藏起来，
+            // 想用就在「设置 → 内容与浏览 → 详情页设置」里打开（默认关）。
+            // 点击监听与 NoteActivity 都还在，只是没有入口。
             note.visibility = View.GONE
         }
 
