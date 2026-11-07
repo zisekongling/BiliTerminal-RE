@@ -626,6 +626,11 @@
             android:launchMode="singleTask"
             android:screenOrientation="locked" />
         <activity
+            android:name=".activity.video.BangumiActivity"
+            android:exported="false"
+            android:label="@string/pagename_bangumi"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.video.PreciousActivity"
             android:exported="false"
             android:label="@string/uitext_preciousactivity_001"

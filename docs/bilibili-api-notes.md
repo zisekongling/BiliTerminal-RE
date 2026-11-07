@@ -278,3 +278,21 @@
 3. **`confirm/refresh` 的语义是「让旧 `refresh_token` 对应的 Cookie 失效」**，它必须带**旧的** `refresh_token` 与**新** Cookie 里的 `bili_jct`。因此 confirm 之前必须先核对新 Cookie 真的落到本地了（至少 `SESSDATA` 非空、`DedeUserID` 与当前 mid 一致），否则「旧会话被作废 + 本地还是旧的」= 必掉登录。
 
 实现侧对应 `api/CookieRefreshApi.refreshCookie()` 返回的 `RefreshResult{OK, RETRY, NEED_LOGIN}`：只有刷新接口返回 `-101` 才算 `NEED_LOGIN`；`86095`（refresh_csrf 错 / 口令与 Cookie 不匹配）之类只算 `RETRY`，**不得**清本地凭证。
+
+## 14. 番剧索引 / 推荐 / 动态筛选条件（26.11.07 实测）
+
+番剧分区页（`activity/video/BangumiActivity`）的三个数据源，两个接口都**无 WBI、Cookie 可选**（未登录能拿到完整结果）：
+
+| 用途 | 接口 | 关键参数 |
+| --- | --- | --- |
+| 索引 / 推荐 | `GET /pgc/season/index/result` | `season_type=1`（番剧）、`type=1`、`order`（排序 field）、`sort=0`、`page`/`pagesize`、9 个筛选字段 |
+| 筛选条件 | `GET /pgc/season/index/condition` | `season_type=1`、`type=0` |
+
+实测结论（26.11.07 本机直连，`code=0`）：
+
+1. **响应字段与仓库里的旧快照对不上**：`data.list[]` 的 `score`（评分，字符串，未开分是 `"0.0"`）与 `order`（**当前排序指标的展示文案**，字符串）才是现役字段；旧文档里的 `rating` / `styles` / `order` 对象已不存在。`has_next` / `total` / `num` / `size` 照旧。
+2. **`order` 的含义随排序指标变**：`order=3`（最多追番）时是 `"762.3万追番"`，`order=4`（最高评分）时是 `"9.9分"`。所以卡片副标题不能无条件显示 `score`——没开分（`0.0`）时要退回 `order` 文案。
+3. **筛选条件必须从 `condition` 接口拿，不要硬编码**：它下发 `order[]`（5 项排序：综合 `8` / 最多追番 `3` / 最多播放 `2` / 最近更新 `0` / 最高评分 `4`）与 `filter[]` 9 组（地区 / 风格 / 类型 / 付费 / 配音 / 版权 / 状态 / 年份 / 季度）。每组的 `values[].keyword` 才是 query 值，第一项固定是 `-1`（全部）。
+4. **`year` 的 keyword 是区间串**（`[2026,2027)`、`[1990,2000)`），必须原样透传；`area` 的「国产」是 `1,6,7` 这种逗号列表，也别自己拆。
+5. **到底判据**：`has_next` 之外再看 `page * pagesize < total`——深翻过 `total/pagesize` 时 `has_next` 可能仍是 1。请求失败（`-412` 风控、HTML 错误页）必须抛异常，**不能**返回空页：空页会被上层当成「到底了」，页码永久停在半截。
+6. **`media_id` 缺省时退回 `season_id`**：列表项两者通常相等，但个别条目只给其一；拿 `0` 去开详情页会得到空页。

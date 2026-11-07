@@ -2830,4 +2830,25 @@
     <string name="a11y_coin">投币</string>
     <string name="a11y_favorite">收藏</string>
     <string name="a11y_verified">已认证</string>
+    <!-- 番剧分区页（推荐 / 追番 / 索引 + 动态筛选）。筛选走 TerminalDialog 的分组单选，
+         不再把 9 组条件铺成 chip 行（手表一屏放不下，也会挤掉列表空间）。 -->
+    <string name="pagename_bangumi">番剧</string>
+    <string name="text_bangumi_tab_recommend">推荐</string>
+    <string name="text_bangumi_tab_following">追番</string>
+    <string name="text_bangumi_tab_index">索引</string>
+    <string name="text_bangumi_filter">筛选</string>
+    <string name="text_bangumi_filter_title">筛选</string>
+    <string name="text_bangumi_filter_order">排序</string>
+    <string name="text_bangumi_filter_summary">筛选：%1$s</string>
+    <string name="text_bangumi_empty_recommend">番剧推荐加载失败\n点我重试</string>
+    <string name="text_bangumi_empty_recommend_empty">暂时没有推荐的番剧～</string>
+    <string name="text_bangumi_empty_following">还没有追番内容～</string>
+    <string name="text_bangumi_empty_following_login">未登录，无法获取追番列表\n点我去登录</string>
+    <string name="text_bangumi_empty_following_failed">追番加载失败\n点我重试</string>
+    <string name="text_bangumi_empty_index">没有符合筛选条件的番剧～</string>
+    <string name="text_bangumi_empty_index_failed">索引加载失败\n点我重试</string>
+    <string name="text_bangumi_condition_failed">筛选条件加载失败，正在重试</string>
+    <string name="msg_bangumi_recommend_failed">番剧推荐加载失败，请下拉重试</string>
+    <string name="msg_bangumi_following_failed">追番加载失败，请下拉重试</string>
+    <string name="msg_bangumi_index_failed">索引加载失败，请重试</string>
 </resources>

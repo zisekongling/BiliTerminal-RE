@@ -24,6 +24,7 @@ import com.RobinNotBad.BiliClient.activity.search.SearchActivity
 import com.RobinNotBad.BiliClient.activity.settings.SettingMainActivity
 import com.RobinNotBad.BiliClient.activity.settings.login.LoginActivity
 import com.RobinNotBad.BiliClient.activity.user.MySpaceActivity
+import com.RobinNotBad.BiliClient.activity.video.BangumiActivity
 import com.RobinNotBad.BiliClient.activity.video.HotSearchActivity
 import com.RobinNotBad.BiliClient.activity.video.PopularActivity
 import com.RobinNotBad.BiliClient.activity.video.PreciousActivity
@@ -51,6 +52,8 @@ class MenuActivity : BaseActivity() {
             put("recommend", Pair(UiText.of("推荐"), RecommendActivity::class.java))
             put("short_video", Pair(UiText.of("短视频"), ShortVideoPlayerActivity::class.java))
             put("popular", Pair(UiText.of("热门"), PopularActivity::class.java))
+            // 番剧分区（推荐 / 追番 / 索引 + 动态筛选，26.11.07 新增）
+            put(MenuConfig.BANGUMI, Pair(UiText.of("番剧"), BangumiActivity::class.java))
             put("precious", Pair(UiText.of("入站必刷"), PreciousActivity::class.java))
             put("ranking", Pair(UiText.of("全站排行榜"), RankingActivity::class.java))
             put("hotsearch", Pair(UiText.of("热搜"), HotSearchActivity::class.java))

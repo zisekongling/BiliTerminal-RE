@@ -20,6 +20,13 @@ public class SharedPreferencesUtil {
      * 用来区分「menu_enabled 里没有 exit」是升级前的老数据，还是用户自己关掉了退出项。
      */
     public static final String MENU_EXIT_STATE = "menu_exit_state";
+    /**
+     * 用户在「菜单设置」里保存过菜单配置时，记下当时「番剧分区」是启用还是关闭（"1"/"0"，缺省=没保存过）。
+     * 用来区分「menu_enabled 里没有 bangumi」是老数据（需要回填）还是用户自己关掉了。
+     *
+     * @see com.RobinNotBad.BiliClient.util.MenuConfig
+     */
+    public static final String MENU_BANGUMI_STATE = "menu_bangumi_state";
     public static final String SEARCH_CATEGORY_SORT = "search_category_sort";
     public static final String SEARCH_CATEGORY_ARTICLE_SHOW = "search_category_article_show";
     public static final String SEARCH_CATEGORY_USER_SHOW = "search_category_user_show";

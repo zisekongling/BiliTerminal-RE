@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 番剧分区页：页签（推荐 / 追番 / 索引）+ 索引筛选入口 + 三块列表。
+
+     页签与筛选入口是**固定**的两条，不随列表滚走：手表屏幕只有一两百 dp 高，
+     但这一页的三个页签是切换列表的唯一入口，滚走以后用户会以为「页面只有这一个列表」。
+     筛选栏在这一页刻意不做成整排 chip（9 组条件 × 每组 3-45 个选项，手表上横滑到底也看不全），
+     改成一行「筛选：当前条件」，点开走 TerminalDialog 的分组单选——与本项目「搜索排序」
+     同一套交互（见 docs/agents/dev-conventions.md「弹窗」）。 -->
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- 顶栏：pageName / timeText 必须是本 RelativeLayout 的直系子 View（圆屏适配按 RelativeLayout.LayoutParams 挪时钟），
+         结构照抄 activity_simple_main_refresh.xml，别套 LinearLayout。 -->
+    <RelativeLayout
+        android:id="@+id/top"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true">
+
+        <TextView
+            android:id="@+id/pageName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_alignParentStart="true"
+            android:layout_alignParentLeft="true"
+            android:layout_marginVertical="3dp"
+            android:layout_marginStart="8dp"
+            android:layout_toStartOf="@id/timeText"
+            android:layout_toLeftOf="@id/timeText"
+            android:lines="1"
+            android:text="@string/pagename_bangumi"
+            android:textStyle="bold"
+            app:drawableStartCompat="@drawable/arrow_down" />
+
+        <com.RobinNotBad.BiliClient.ui.widget.TextClock
+            android:id="@+id/timeText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentRight="true"
+            android:layout_alignParentEnd="true"
+            android:layout_marginVertical="3dp"
+            android:layout_marginEnd="8dp" />
+
+    </RelativeLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_below="@id/top"
+        android:orientation="vertical">
+
+        <!-- 页签：三等分，触控下限 44dp（手表上 40dp 以下就很难点中） -->
+        <LinearLayout
+            android:id="@+id/tabBar"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:baselineAligned="false"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="@dimen/activity_padding_horizontal">
+
+            <TextView
+                android:id="@+id/tabRecommend"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:text="@string/text_bangumi_tab_recommend"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="@dimen/text_subtitle" />
+
+            <TextView
+                android:id="@+id/tabFollowing"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:text="@string/text_bangumi_tab_following"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="@dimen/text_subtitle" />
+
+            <TextView
+                android:id="@+id/tabIndex"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:text="@string/text_bangumi_tab_index"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="@dimen/text_subtitle" />
+
+        </LinearLayout>
+
+        <!-- 索引筛选入口：只在索引页显示，点开是分组单选弹窗 -->
+        <TextView
+            android:id="@+id/filterEntry"
+            android:layout_width="match_parent"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="center"
+            android:paddingHorizontal="@dimen/activity_padding_horizontal"
+            android:singleLine="true"
+            android:ellipsize="end"
+            android:text="@string/text_bangumi_filter"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="@dimen/text_caption"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                android:id="@+id/refreshRecommend"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent">
+
+                <com.RobinNotBad.BiliClient.ui.widget.RotaryRecyclerView
+                    android:id="@+id/recyclerRecommend"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent" />
+
+            </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+            <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                android:id="@+id/refreshFollowing"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone">
+
+                <com.RobinNotBad.BiliClient.ui.widget.RotaryRecyclerView
+                    android:id="@+id/recyclerFollowing"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent" />
+
+            </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+            <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                android:id="@+id/refreshIndex"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone">
+
+                <com.RobinNotBad.BiliClient.ui.widget.RotaryRecyclerView
+                    android:id="@+id/recyclerIndex"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent" />
+
+            </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+            <!-- 空态 / 失败态：三个列表共用一块（同一时刻只显示一个列表），
+                 失败态可点重试，空态点击无效。 -->
+            <TextView
+                android:id="@+id/emptyTip"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:padding="@dimen/space_xl"
+                android:textAlignment="center"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="@dimen/text_subtitle"
+                android:visibility="gone"
+                tools:text="@string/text_bangumi_empty_recommend"
+                tools:visibility="visible" />
+
+        </FrameLayout>
+
+    </LinearLayout>
+
+</RelativeLayout>

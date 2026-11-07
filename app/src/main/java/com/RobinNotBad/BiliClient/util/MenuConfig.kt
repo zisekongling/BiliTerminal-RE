@@ -12,7 +12,7 @@ object MenuConfig {
 
     /** 全量菜单 key，顺序即默认展示顺序（对应 MenuActivity.btnNames 的全部 key）。 */
     private val BASE_ITEMS = listOf(
-        "recommend", "short_video", "popular", "precious", "ranking",
+        "recommend", "short_video", "popular", BANGUMI, "precious", "ranking",
         "hotsearch", "live", "timeline", "search", "dynamic",
         "myspace", "message", "local", "settings"
     )
@@ -30,6 +30,14 @@ object MenuConfig {
             emptyList()
         }
     }
+
+    /**
+     * 「番剧分区」菜单 key（26.11.07 新增，页面见 `activity/video/BangumiActivity`）。
+     *
+     * 它是**内容区块**而不是工具页，默认启用；并且对老用户做一次回填（见 [ensureBangumi]）——
+     * 否则这个新功能只有新装用户看得见，提需求的人自己反而要先翻「菜单设置」才能用上。
+     */
+    const val BANGUMI = "bangumi"
 
     /**
      * 动作项「退出」的菜单 key：不是页面（点了直接收摊），但和页面项一样进菜单配置——
@@ -57,7 +65,7 @@ object MenuConfig {
     val FIXED_ITEMS = setOf("recommend", "search", "local", "settings")
 
     /** 历史上有独立显隐开关的菜单项（menu_<key> 布尔）。 */
-    val SWITCHABLE_KEYS = setOf("popular", "short_video", "precious", "ranking", "live", "timeline")
+    val SWITCHABLE_KEYS = setOf("popular", "short_video", "precious", "ranking", "live", "timeline", BANGUMI)
 
     /** 上述开关的默认值（与旧 SettingMenuActivity 的 getBoolean 默认值一致）。 */
     val SWITCH_DEFAULTS = mapOf(
@@ -66,7 +74,9 @@ object MenuConfig {
         "precious" to false,
         "ranking" to false,
         "live" to false,
-        "timeline" to false
+        "timeline" to false,
+        // 番剧分区没有历史开关，这里给 true 只是为了让「从 menu_sort 迁移」的老用户也能拿到它
+        BANGUMI to true
     )
 
     /**
@@ -157,7 +167,52 @@ object MenuConfig {
         readBoolean: (String) -> Boolean?,
         writeString: (String, String) -> Unit
     ): List<String> =
-        ensureExit(loadStoredEnabled(readString, readBoolean, writeString), readString, writeString)
+        ensureBangumi(
+            ensureExit(loadStoredEnabled(readString, readBoolean, writeString), readString, writeString),
+            readString,
+            writeString
+        )
+
+    /**
+     * 把 [BANGUMI]（番剧分区）补进启用列表：它是 26.11.07 才出现的菜单项，
+     * 老用户存下的 `menu_enabled` 里没有这个 key，不回填的话新功能只有新装用户看得见。
+     *
+     * 与 [ensureExit] 同一套判据：[SharedPreferencesUtil.MENU_BANGUMI_STATE] 只要被
+     * [saveEnabled] 写过一次，就说明用户动过菜单配置——缺项即「他自己关掉的」，不再加回来。
+     *
+     * 插入位置按 [DEFAULT_ENABLED] 的规范顺序算（排在「热门」之后），不直接追加到末尾：
+     * 末尾是「退出」这类动作项的位置，追加在后面会让菜单看起来像错位了。
+     */
+    private fun ensureBangumi(
+        enabled: List<String>,
+        readString: (String) -> String?,
+        writeString: (String, String) -> Unit
+    ): List<String> {
+        if (BANGUMI in enabled) return enabled
+        if (!readString(SharedPreferencesUtil.MENU_BANGUMI_STATE).isNullOrBlank()) return enabled
+        val completed = insertAtCanonicalPosition(enabled, BANGUMI)
+        writeString(SharedPreferencesUtil.MENU_ENABLED, serialize(completed))
+        return completed
+    }
+
+    /**
+     * 把 [key] 按 [DEFAULT_ENABLED] 的相对顺序插进 [enabled]：紧跟最后一个「规范顺序里排在它前面」的项。
+     *
+     * 例：用户顺序是 `settings;recommend;local;search` 时插入番剧 → 落在 `recommend` 之后，
+     * 而不是被自己的顺序硬拖到 `settings` 前面。找不到可比较的邻居（列表里全是动作项 / 未知 key）
+     * 就插在最前面——这只影响观感，不影响功能。
+     */
+    private fun insertAtCanonicalPosition(enabled: List<String>, key: String): List<String> {
+        val canonicalIndex = DEFAULT_ENABLED.indexOf(key)
+        if (canonicalIndex < 0) return enabled + key
+        val insertAfter = enabled.indexOfLast { existing ->
+            val index = DEFAULT_ENABLED.indexOf(existing)
+            index in 0 until canonicalIndex
+        }
+        val result = enabled.toMutableList()
+        result.add(insertAfter + 1, key)
+        return result
+    }
 
     /**
      * 把动作项 [EXIT] 补进启用列表：它是 26.11.02 才进菜单配置的（此前是硬编码在菜单最下方的
@@ -214,6 +269,8 @@ object MenuConfig {
         // 记下「用户动过退出项」：之后 menu_enabled 里没有 exit 就表示是他关掉的，
         // 不再当成老数据补回来（见 ensureExit）
         writeString(SharedPreferencesUtil.MENU_EXIT_STATE, if (EXIT in enabled) "1" else "0")
+        // 同上，番剧分区的回填判据（见 ensureBangumi）
+        writeString(SharedPreferencesUtil.MENU_BANGUMI_STATE, if (BANGUMI in enabled) "1" else "0")
     }
 
     /** 默认启动页：推荐（固定项，正常情况下必然在已启用列表里）。 */

@@ -13,7 +13,7 @@ class MenuConfigTest {
         // 所以这条断言对两种构建都成立，不需要分叉。
         assertEquals(
             listOf(
-                "recommend", "short_video", "popular", "hotsearch", "search",
+                "recommend", "short_video", "popular", "bangumi", "hotsearch", "search",
                 "dynamic", "myspace", "message", "local", "settings"
             ) + MenuConfig.OPTIONAL_ITEMS + MenuConfig.EXIT,
             MenuConfig.DEFAULT_ENABLED
@@ -51,7 +51,7 @@ class MenuConfigTest {
 
     @Test
     fun resolve_missingSwitchKeys_useDefaults() {
-        val oldSort = "recommend;short_video;popular;precious;ranking;hotsearch;live;timeline;search;dynamic;myspace;message;local;settings"
+        val oldSort = "recommend;short_video;popular;bangumi;precious;ranking;hotsearch;live;timeline;search;dynamic;myspace;message;local;settings"
         assertEquals(MenuConfig.DEFAULT_ENABLED, MenuConfig.resolveEnabledList(oldSort, emptyMap()))
     }
 
@@ -132,9 +132,10 @@ class MenuConfigTest {
             writeString = { _, value -> written = value }
         )
         // 认识的 key 按用户原顺序保留；缺失的可选私有项补在末尾；未知 key 被清掉；
-        // 「退出」是老数据里没有的项，也在末尾补上
+        // 「退出」是老数据里没有的项，也在末尾补上；
+        // 「番剧」是 26.11.07 新增项，按规范顺序插到「推荐」之后（不是甩到列表最前面）
         assertEquals(
-            listOf("settings", "recommend", "local", "search") +
+            listOf("settings", "recommend", "bangumi", "local", "search") +
                 MenuConfig.OPTIONAL_ITEMS + MenuConfig.EXIT,
             result
         )
@@ -176,7 +177,7 @@ class MenuConfigTest {
         // 「合法」的定义包含可选私有项：私有构建下缺了它们要走一次迁移（见 MenuConfig.loadEnabled）。
         val valid = MenuConfig.serialize(
             listOf(
-                "recommend", "short_video", "popular", "hotsearch", "search",
+                "recommend", "short_video", "popular", "bangumi", "hotsearch", "search",
                 "dynamic", "myspace", "message", "local", "settings"
             ) + MenuConfig.OPTIONAL_ITEMS + MenuConfig.EXIT
         )
@@ -248,6 +249,68 @@ class MenuConfigTest {
             written[key] = value
         }
         assertEquals("0", written[SharedPreferencesUtil.MENU_EXIT_STATE])
+    }
+
+    // ---- 番剧分区（26.11.07 新增菜单项）：老用户回填一次 ----
+
+    @Test
+    fun loadEnabled_oldDataWithoutBangumi_backfillsAfterRecommend() {
+        // 26.11.07 之前存下的 menu_enabled 里没有 bangumi：不回填的话，新装的用户能看见
+        // 「番剧」、老用户反而看不见（提需求的人自己就是老用户）
+        val old = MenuConfig.serialize(
+            MenuConfig.DEFAULT_ENABLED.filter { it != MenuConfig.BANGUMI }
+        )
+        var written: String? = null
+        val result = MenuConfig.loadEnabled(
+            readString = { key ->
+                when (key) {
+                    SharedPreferencesUtil.MENU_ENABLED -> old
+                    else -> null
+                }
+            },
+            readBoolean = { null },
+            writeString = { _, value -> written = value }
+        )
+        // 回填后就是规范顺序本身（番剧被插回「热门」之后，而不是甩到末尾）
+        assertEquals(MenuConfig.DEFAULT_ENABLED, result)
+        assertEquals(MenuConfig.serialize(MenuConfig.DEFAULT_ENABLED), written)
+    }
+
+    @Test
+    fun loadEnabled_userDisabledBangumi_doesNotAddItBack() {
+        // 用户在菜单设置里把它拖进「未启用」：保存时写过 MENU_BANGUMI_STATE，
+        // 于是"缺项"不再被当成老数据
+        val stored = MenuConfig.serialize(
+            MenuConfig.DEFAULT_ENABLED.filter { it != MenuConfig.BANGUMI }
+        )
+        var wrote = false
+        val result = MenuConfig.loadEnabled(
+            readString = { key ->
+                when (key) {
+                    SharedPreferencesUtil.MENU_ENABLED -> stored
+                    SharedPreferencesUtil.MENU_BANGUMI_STATE -> "0"
+                    else -> null
+                }
+            },
+            readBoolean = { null },
+            writeString = { _, _ -> wrote = true }
+        )
+        assertEquals(false, MenuConfig.BANGUMI in result)
+        assertEquals(false, wrote)
+    }
+
+    @Test
+    fun saveEnabled_recordsBangumiStateMarker() {
+        val written = HashMap<String, String>()
+        MenuConfig.saveEnabled(listOf("recommend", MenuConfig.BANGUMI, MenuConfig.EXIT)) { key, value ->
+            written[key] = value
+        }
+        assertEquals("1", written[SharedPreferencesUtil.MENU_BANGUMI_STATE])
+        written.clear()
+        MenuConfig.saveEnabled(listOf("recommend", MenuConfig.EXIT)) { key, value ->
+            written[key] = value
+        }
+        assertEquals("0", written[SharedPreferencesUtil.MENU_BANGUMI_STATE])
     }
 
     @Test

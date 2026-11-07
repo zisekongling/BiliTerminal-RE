@@ -224,17 +224,18 @@ SplashActivity（LAUNCHER，typewriter 动画）
 
 ### 3.1 菜单表（唯一导航注册点）
 
-`activity/MenuActivity.kt:45-59` 的 `btnNames` 是 `LinkedHashMap<String, Pair<标题, Class>>`，共 **14 个入口**：
+`activity/MenuActivity.kt:45-59` 的 `btnNames` 是 `LinkedHashMap<String, Pair<标题, Class>>`，共 **15 个入口**：
 
 | key | 标题 | Activity | key | 标题 | Activity |
 | --- | --- | --- | --- | --- | --- |
 | `recommend` | 推荐 | RecommendActivity | `dynamic` | 动态 | DynamicActivity |
 | `short_video` | 短视频 | ShortVideoPlayerActivity | `myspace` | 我的 | MySpaceActivity |
 | `popular` | 热门 | PopularActivity | `message` | 消息 | MessageActivity |
-| `precious` | 入站必刷 | PreciousActivity | `local` | 缓存 | LocalListActivity |
-| `ranking` | 全站排行榜 | RankingActivity | `settings` | 设置 | SettingMainActivity |
-| `hotsearch` | 热搜 | HotSearchActivity | `search` | 搜索 | SearchActivity |
-| `live` | 直播 | RecommendLiveActivity | `timeline` | 时间线 | TimelineActivity |
+| `bangumi` | 番剧 | BangumiActivity（26.11.07 新增） | `local` | 缓存 | LocalListActivity |
+| `precious` | 入站必刷 | PreciousActivity | `settings` | 设置 | SettingMainActivity |
+| `ranking` | 全站排行榜 | RankingActivity | `search` | 搜索 | SearchActivity |
+| `hotsearch` | 热搜 | HotSearchActivity | `timeline` | 时间线 | TimelineActivity |
+| `live` | 直播 | RecommendLiveActivity | | | |
 
 `MenuActivity` 是 `launchMode="singleTask"` 的独立页；用户在设置里排序/启用哪些项存在 SharedPreferences（`SharedPreferencesUtil.loadMenuEnabled()`）。
 
@@ -243,6 +244,8 @@ SplashActivity（LAUNCHER，typewriter 动画）
 1. `MenuActivity.btnNames` 加一行（id → 标题 + Activity Class）。
 2. `util/MenuConfig.kt` 的 `ALL_ITEMS` 加同一个 id —— 这是 `menu_enabled` 配置串的**单一数据源**，`MenuConfig.parse()` 遇到未知 key 会直接返回 `null`，导致整份用户菜单配置被判非法并回退默认。决定默认是否显示还要看 `FIXED_ITEMS` / `SWITCHABLE_KEYS` / `SWITCH_DEFAULTS`。
 3. `AndroidManifest.xml` 注册 Activity。
+
+> **新增项对老用户默认不出现**——`MenuConfig.loadEnabled` 对已存的 `menu_enabled` 直接返回。若这个新入口是「内容区块」而不是工具页（典型：`bangumi` 番剧分区），希望老用户也能立刻用到，就在 `MenuConfig` 里照 `ensureExit` 的写法加一次回填（`ensureBangumi`）：缺项 + 对应的 `menu_*_state` 标记没写过 = 老数据 → 按规范顺序插进去并写回；标记写过 = 用户自己关的 → 保持隐藏。回填位置用 `insertAtCanonicalPosition` 算，别直接追加到末尾（末尾是「退出」这类动作项的位置）。
 
 > 菜单 key 不一定是页面：动作项 `MenuConfig.EXIT = "exit"`（26.11.02，可排序可关闭的退出按钮）就没有对应的 Activity Class，它在 `MenuActivity` 的渲染循环里特判（`getString(R.string.btn_exit)` + `exitAppCompletely()`）、名字由 `SettingMenuActivity` 的 `titleOf` 特判，并且**不能当启动页**（`resolveStart` / `loadStart` / `MenuSettingAdapter` 三处都要挡住）。加这类 key 时 `ALL_ITEMS` 是唯一必改项，`btnNames` 反而不能加（加了会被当成要跳转的页面）。
 
@@ -1519,6 +1522,8 @@ setMenuClick()                               // 2. 仅 RefreshMainActivity 需�
 setOnRefreshListener { load(1) }             // 3. 不注册则 swipeRefresh 永远转圈（基类 onCreate 里是 isEnabled=false, isRefreshing=true）
 setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别再 ++
 ```
+**Fragment 版列表页要自带一条随列表滚动的工具条时**（26.11.07 首个：用户主页「TA 的投稿」的搜索栏，`res/layout/fragment_user_video.xml`）：覆写 `onCreateView` 换成 `CoordinatorLayout`，工具条放 `com.google.android.material.appbar.AppBarLayout` 里并标 `app:layout_scrollFlags="scroll|snap"`，列表区套一层 `app:layout_behavior="@string/appbar_scrolling_view_behavior"` 的 `FrameLayout` 再 `include fragment_simple_refresh`（基类按 id 仍找得到 `swipeRefreshLayout` / `recyclerView` / `emptyTip`）。AppBar 必须**透明底 + `elevation=0` + `liftOnScroll=false`**，否则会切断 DecorView 那层氛围背景、并在滚动时冒出一条阴影横条；`snap` 不能省——只写 `scroll` 时手指停在半途松手会长期停在「半收起」，卡片从半透明工具条底下透出来。程序性回到第一页（换关键词 / 换排序）时要 `appBar.setExpanded(true, false)`：列表滚回顶部不会产生嵌套滚动事件，工具条会一直停在收起态、用户点不到它。
+
 
 加载完成**必须**调 `setRefreshing(false)`——它是 `isLoading`/`isRefreshing` 的唯一复位信号（只改 `swipeRefreshLayout.isRefreshing` 不算）。失败走 `loadFail(e)`（会 `page--` 并复位）。到底置 `bottom = true`。
 
@@ -1534,7 +1539,6 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 | 底部状态条 | 共用 `util/view/LoadMoreTipController`（「正在加载…」保持到加载结束；「没有更多了」2 秒自动收起，不是常驻横幅） | 同上（显示策略在 `util/view/LoadMoreTipPolicy`，纯函数带单测） |
 | 性能 | `PerformanceManager` 动态缓存 + 独立 RecycledViewPool | 固定 cacheSize 10、pool max 20 |
 
-**Fragment 版列表页要自带一条随列表滚动的工具条时**（26.11.07 首个：用户主页「TA 的投稿」的搜索栏，`res/layout/fragment_user_video.xml`）：覆写 `onCreateView` 换成 `CoordinatorLayout`，工具条放 `com.google.android.material.appbar.AppBarLayout` 里并标 `app:layout_scrollFlags="scroll|snap"`，列表区套一层 `app:layout_behavior="@string/appbar_scrolling_view_behavior"` 的 `FrameLayout` 再 `include fragment_simple_refresh`（基类按 id 仍找得到 `swipeRefreshLayout` / `recyclerView` / `emptyTip`）。AppBar 必须**透明底 + `elevation=0` + `liftOnScroll=false`**，否则会切断 DecorView 那层氛围背景、并在滚动时冒出一条阴影横条；`snap` 不能省——只写 `scroll` 时手指停在半途松手会长期停在「半收起」，卡片从半透明工具条底下透出来。程序性回到第一页（换关键词 / 换排序）时要 `appBar.setExpanded(true, false)`：列表滚回顶部不会产生嵌套滚动事件，工具条会一直停在收起态、用户点不到它。
 
 ### 8.3 Adapter 写法
 
@@ -1891,7 +1895,7 @@ TTF/OTF/TTC，应用把它**拷进私有目录**（`filesDir/custom_font/custom_
 
 > **注意**：本节末尾三节 `### 7.56` / `### 7.57` / `### 7.59` 是误放在这里的坑点内容（本属 §7），不是 API 映射；只用映射表读到 `### 视频与播放` 之前的分组即可，那三节按坑点单独查。
 
-按功能域分组。`api/` 下 42 个 Java + 6 个 Kotlin（`ApiErrorText.kt`、`HotSearchApi.kt`、`ServerTimeApi.kt`、`ShortVideoFeedApi.kt`、`StoryFeedQuery.kt`、`StorySeenStore.kt`）（26.10.27 实测；`BilibiliIDConverter` 已删除，见下）。`ApiErrorText`（共用错误文案）与 `StorySeenStore`（短视频跨会话去重记忆）不是接口类，未单独列行。
+按功能域分组。`api/` 下 42 个 Java + 7 个 Kotlin（`ApiErrorText.kt`、`BangumiIndexApi.kt`、`HotSearchApi.kt`、`ServerTimeApi.kt`、`ShortVideoFeedApi.kt`、`StoryFeedQuery.kt`、`StorySeenStore.kt`）（26.11.07 实测；`BilibiliIDConverter` 已删除，见下）。`ApiErrorText`（共用错误文案）与 `StorySeenStore`（短视频跨会话去重记忆）不是接口类，未单独列行。
 
 ### 视频与播放
 
@@ -1920,6 +1924,7 @@ TTF/OTF/TTC，应用把它**拷进私有目录**（`filesDir/custom_font/custom_
 | `VoteApi` | 投票 | `createVote`、`doVote`、`getVoteInfo`、`parseVoteInfo` |
 | `SeriesApi` | 合集/系列 | `getUserSeries`、`getSeriesInfo`、`getSeriesByJson` |
 | `BangumiApi` | 番剧/追番 | `getFollowingList`、`getBangumi`、`getSections`、`getMdidFromEpid`、`getSeasonDetail`（页内切季）、`getEpisodeFromEpid`（历史卡片续播）、`getFollowStatus`/`setFollow`（追番按钮） |
+| `BangumiIndexApi.kt` | 番剧索引 / 推荐 / 动态筛选条件（26.11.07 新增） | `getCondition`/`parseCondition`（排序项 + 9 组筛选项，接口下发）、`getIndex`/`parseIndex`（`pgc/season/index/result`，返回 `hasNext` 与卡片）、`defaultFilters` |
 | `TimelineApi` | 番剧时间表 | `getTimeline` |
 | `TopicApi` | 话题广场 / 话题下动态列表（26.10.04 批次 6 的 C10） | `getRecommendedTopics`、`searchTopics`、`parseTopics`、`getTopicDynamicList` |
 | `NoteApi` | 视频笔记（只读，26.10.04 批次 6 的 C27） | `getNoteIdsOfVideo`、`getNoteInfo`、`parseBlocks`、`parseNoteDetail` |
