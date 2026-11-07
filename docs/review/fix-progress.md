@@ -1614,7 +1614,7 @@
 
 **L0 验证（26.11.07，隔离工作树、未同步 `private/`）**：`:app:assembleDebug`、`:app:testStandardDebugUnitTest` 均 BUILD SUCCESSFUL；standard flavor **178 suites / 1931 tests / 0 失败 0 错误**。接口侧另做了直连实测（见 `docs/bilibili-api-notes.md` §14：两个接口 `code=0`、`order=3` 的分页与字段、`condition` 的 5 项排序 + 9 组筛选）。
 
-**设备端没跑成（L1/L2 未验）**：本机 `system-images` 只剩 `android-37.0/google_apis_playstore/x86_64`，`wear5`（android-34 wear）镜像缺失；唯一可用的 `rebili_watch37` 当时正被另一个工单占用，而 Android 模拟器要求「同时运行多个实例时全部带 `-read-only`」，后起的 `rebili_api37_sd` 在 5556 上随即退出。真机用例见 §2.1。
+**设备端没跑成（L1/L2 未验）**：本机 `system-images` 只剩 `android-37.0/google_apis_playstore/x86_64`，`wear5`（android-34 wear）镜像缺失。`rebili_watch37`（384×384 @320dpi）能 headless 起机、装包、拉起应用，但启动后的服务端公告 / 免责声明是一串 `ShowTextActivity` 页，headless 下按返回只能在这些页之间翻，到不了菜单；期间宿主重启三次，按「两轮上限」止损。改前 / 改后两个调试包已放到 `outputs/`（gitignore）供人工对照：`ReBiliClient-baseline-standard-debug.apk`（0a5900e）与 `ReBiliClient-bangumi-standard-debug.apk`（620a0e9，含本功能）。真机用例见 §2.1。
 
 ## 4. 历史章节索引
 
