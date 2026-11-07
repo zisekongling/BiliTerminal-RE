@@ -95,9 +95,19 @@ jobs:
 
       # 112 个单测此前不在任何自动化路径执行，测试全红也能发版（见 §五 E3）
       # 引入 product flavor 后任务名带 flavor：testDebugUnitTest 已不存在。
-      # 两个 flavor 共用同一份 app/src/test，跑普通版那一个即可。
-      - name: 运行单元测试
+      # 两个 flavor 共用同一份 app/src/test，但构建配置不同（applicationId / 清单 / 资源），
+      # 所以两个都要跑：coexist 此前从未进过任何 CI（调研清单第 6 条）。
+      - name: 运行单元测试（standard flavor）
         run: ./gradlew :app:testStandardDebugUnitTest --no-configuration-cache --stacktrace
+
+      - name: 运行单元测试（coexist flavor）
+        run: ./gradlew :app:testCoexistDebugUnitTest --no-configuration-cache --stacktrace
+
+      # R8 / shrinkResources / proguard / private keep.pro 这条链路此前只在打 tag 发版时
+      # 第一次被验证，keep 漏一条就是运行期崩溃，而那是发现代价最高的时刻（调研清单第 6 条）。
+      # 这里用 unsigned release 包做冒烟：CI 不写签名材料，没有签名配置时 AGP 产出 unsigned APK 是正常的。
+      - name: 编译 Release 包（R8 冒烟）
+        run: ./gradlew :app:assembleRelease --no-configuration-cache --stacktrace
 
       # 单测失败时也要把报告传上来，否则只能看到一行 FAILED
       - name: 上传单测报告
@@ -105,7 +115,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: unit-test-report
-          path: app/build/reports/tests/testStandardDebugUnitTest/
+          path: app/build/reports/tests/
           if-no-files-found: warn
 
       - name: 上传 Debug APK
