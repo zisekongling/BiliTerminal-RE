@@ -11,7 +11,7 @@
     <string name="appearance_background_applied">已设置背景图</string>
     <string name="appearance_background_cleared">已清除背景图</string>
     <string name="appearance_background_none">当前没有背景图</string>
-    <string name="appearance_background_no_picker">没有可用的文件管理器</string>
+    <string name="appearance_background_no_picker">无法打开选图页</string>
     <string name="appearance_background_failed">设置失败：%1$s</string>
     <!-- 背景图档位：适配方式与遮罩强度 -->
     <string name="appearance_background_fit_title">适配方式</string>

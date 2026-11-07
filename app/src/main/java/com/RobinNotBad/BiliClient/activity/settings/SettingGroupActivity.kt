@@ -14,6 +14,7 @@ import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.BuildConfig
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.FeedbackActivity
+import com.RobinNotBad.BiliClient.activity.ImagePickerActivity
 import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
 import com.RobinNotBad.BiliClient.activity.feedback.FeedbackListActivity
 import com.RobinNotBad.BiliClient.activity.settings.login.AccountSwitchActivity
@@ -99,8 +100,10 @@ class SettingGroupActivity : RefreshListActivity() {
     }
 
     /**
-     * 背景图选择。与字体同一套做法：`ACTION_GET_CONTENT` 拿到临时读权限，立刻把图拷进
-     * `filesDir/appearance/`（[BackgroundImage.install]），拷完就不需要原 URI 了。
+     * 背景图选择。走内置选图页（反馈 #53；与私信 / 带图评论 / 发动态 / 换头像同一套），
+     * 页内仍可退回系统选择器，结果格式与 `ACTION_GET_CONTENT` 相同（`data.data` 为 content Uri）。
+     * 拿到图后立刻拷进 `filesDir/appearance/`（[BackgroundImage.install]），拷完就不需要原 URI 了，
+     * 所以**不申请存储权限**（内置选图页自己按需申请读图权限）。
      * 拷完要 `recreate()`，因为窗口背景是在 `onCreate` 里画的。
      */
     private val backgroundPickerLauncher = registerForActivityResult(
@@ -529,14 +532,18 @@ class SettingGroupActivity : RefreshListActivity() {
         recreate()
     }
 
-    /** 打开文件管理器挑选背景图。 */
+    /**
+     * 打开内置选图页挑选背景图（页内「系统选择器」仍可退回原来的 `ACTION_GET_CONTENT`）。
+     *
+     * **不要再直接拉 `ACTION_GET_CONTENT`**：手表上它多半落到文件管理器，要从存储根目录
+     * 一层层点进 DCIM / Pictures，缩略图很小甚至没有——背景图这一入口漏掉了 #53 的统一改造，
+     * 26.11.07 之后补齐。
+     */
     private fun pickBackgroundImage() {
         try {
-            val intent = Intent(Intent.ACTION_GET_CONTENT)
-            intent.type = "image/*"
-            intent.addCategory(Intent.CATEGORY_OPENABLE)
-            backgroundPickerLauncher.launch(intent)
+            backgroundPickerLauncher.launch(ImagePickerActivity.intent(this))
         } catch (e: Throwable) {
+            // 选图页就在本包内，正常不会触发；留兜底避免个别 ROM 的 Activity 启动限制
             MsgUtil.showMsg(getString(R.string.appearance_background_no_picker))
         }
     }

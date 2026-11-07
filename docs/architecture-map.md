@@ -1357,10 +1357,11 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - `DanmakuManager.loadFromXmlInput(inputStream)` 不会关流，短播放器（`activity/video/ShortVideoPlayerActivity.kt` 的 `loadDanmakuFromXml`）一直按这个约定传 `ByteArrayInputStream`，所以只有普通播放器/本地缓存那条路中招。
 - 顺带：**同一份文件的注释也可能自相矛盾**（`createParser` 的 doc 早写明了懒执行，`loadFromXmlFile` 的 use{} 注释却断言同步解析）。改这块前以 `DrawTask` 与 `BiliDanmukuParser` 的实体代码为准，别信注释。
 
-### 7.47 选图一律 `ACTION_GET_CONTENT`：`ACTION_PICK` 在部分手表 ROM 上无人处理（26.10.20，崩溃 #63）
+### 7.47 选图别用 `ACTION_PICK`；图片入口统一走内置选图页（26.10.20 崩溃 #63，26.11.07 补齐背景图入口）
 
 - **判据**：`Intent(ACTION_PICK, content://media/external/images/media)` 只由「声明了 `ACTION_PICK` 的系统相册」响应。XTC monaco_go Z10（SDK 30）这类手表 / 定制 ROM 的图片提供方只接 `ACTION_GET_CONTENT` / `ACTION_OPEN_DOCUMENT`，`startActivityForResult` **同步**抛 `ActivityNotFoundException: No Activity found to handle Intent { act=android.intent.action.PICK … }`（线上 #63：`activity/user/EditProfileActivity.kt` 的 `selectImage()`，当时是全仓唯一一处 `ACTION_PICK`）。
-- **写法**：`Intent(Intent.ACTION_GET_CONTENT)` + `type = "image/*"` + `addCategory(Intent.CATEGORY_OPENABLE)`，外面 `try/catch (e: Exception)`，设备上一个选图应用都没有时提示 `R.string.msg_no_image_picker`。四个既有入口同写法：`PrivateMsgActivity.kt:203`、`WriteReplyActivity.kt:209`、`SendDynamicActivity.kt:168`、`SettingGroupActivity.kt:374`（后者用 `catch (Throwable)`）。选文件（字体 / 播客）同理，只换 MIME。
+- **图片入口一律先拉内置选图页**（`activity/ImagePickerActivity.kt` 的 `ImagePickerActivity.intent(context)`，反馈 #53）：三列缩略图 + 相册筛选，页内「系统选择器」再退回 `ACTION_GET_CONTENT`，结果格式与直接拉系统选图相同（`RESULT_OK` + `data.data` 为 content Uri），调用方的结果处理不用改。五个入口：`PrivateMsgActivity.kt`、`WriteReplyActivity.kt`、`SendDynamicActivity.kt`、`EditProfileActivity.kt`（换头像）、`SettingGroupActivity.kt`（背景图——26.11.07 之后补上，此前漏改仍直接拉系统选图，手表上会落到文件管理器）。
+- **内置页自己的兜底 / 选文件仍用 `ACTION_GET_CONTENT`**：`Intent(Intent.ACTION_GET_CONTENT)` + 通配 MIME + `addCategory(Intent.CATEGORY_OPENABLE)`，外面 `try/catch`，设备上一个应用都接不住时提示 `R.string.msg_no_image_picker`。选文件（字体 / 播客）同理，只换 MIME；`SettingGroupActivity` 的字体入口用 `catch (Throwable)`。
 - **不要用 `intent.resolveActivity(packageManager)` 判活**：targetSdk ≥ 30 的包可见性限制下，不声明 `<queries>` 时它对真实存在的相册也返回 `null`，等于把崩溃换成「点了没反应」。
 - **顺带的语法坑**：Kotlin 块注释**可以嵌套**，在 KDoc / 块注释里原样写 `image/*` 会被当成开了一个新注释，编译器报 `Unclosed comment` 指着文件末尾、真正出错的地方在注释里。写这类 MIME 串时放进行内 `//` 注释或干脆不写。
 
