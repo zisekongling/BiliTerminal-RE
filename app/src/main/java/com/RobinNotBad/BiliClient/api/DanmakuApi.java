@@ -75,8 +75,10 @@ public class DanmakuApi {
     /**
      * 查视频弹幕总数（只读统计，**不下载任何弹幕内容**）。
      *
-     * 取的是稿件信息接口的 `data.stat.danmaku`——与详情页显示的弹幕数是同一个值，
-     * 但播放页不会去拉详情，所以这里单独查一次轻量接口。
+     * 取的是稿件信息接口（`x/web-interface/view`）的 `data.stat.danmaku`——与详情页显示的
+     * 弹幕数是同一个值。这个接口返回的是**完整稿件信息**（分 P、staff 等），并不轻量；
+     * 之所以在这里单独查一次，是因为「数量保护」必须在请求任何分段之前就有数，
+     * 不能等播放页别处顺手拿到的详情（那里并不可靠、也不一定发生）。
      *
      * 供「弹幕数量保护」在加载分段前判断是否跳过（见
      * {@link com.RobinNotBad.BiliClient.player.DanmakuLoadPolicy}）。

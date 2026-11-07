@@ -122,7 +122,8 @@ class SubSeasonDetailActivity : RefreshListActivity() {
      * 是否到底。
      *
      * 有总数时按总数判断（接口可能把本页填满但总数已到）；没有总数时按「本页不满一页」判断。
-     * 两个判据都要留 20 的余量判断：`media_count` 与 `medias` 偶尔会不一致（失效视频被剔除）。
+     * 两个判据都可能偏一个：`media_count` 与 `medias` 偶尔不一致（失效视频被剔除），
+     * 所以判到底宁可早一页也别晚一页——晚一页的表现是「没有更多了」之后还在发请求。
      */
     private fun isEnd(size: Int): Boolean {
         if (total > 0) return size >= total

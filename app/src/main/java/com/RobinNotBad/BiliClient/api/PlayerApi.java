@@ -746,10 +746,10 @@ public class PlayerApi {
     /**
      * 「继续播放」：把会话哨兵（{@link PlaySessionStore}）里上次的播放会话还原成一次跳转。
      *
-     * 入口在主页（MainActivity）加一行即可：
+     * 入口在 {@link com.RobinNotBad.BiliClient.activity.MenuActivity} 的「继续播放」菜单项：
      * <pre>
-     * Intent resume = PlayerApi.buildResumeIntent(this);
-     * if (resume != null) startActivity(resume);
+     * val resumeIntent = PlayerApi.buildResumeIntent(this)
+     * if (resumeIntent != null) startActivity(resumeIntent)
      * </pre>
      * 走 {@link JumpToPlayerActivity} 而不是直接起播放器，是因为续播时还没有 playurl：
      * 跳转页会按 PlayerData 的类型（投稿/番剧/直播/本地）重新取流，再进播放器；
