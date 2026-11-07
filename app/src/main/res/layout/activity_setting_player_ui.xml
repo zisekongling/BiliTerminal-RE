@@ -55,7 +55,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_below="@id/top"
-        android:background="#66000000"
+        android:background="@color/card_scrim"
         android:clickable="true"
         android:focusable="true"
         android:visibility="gone" />

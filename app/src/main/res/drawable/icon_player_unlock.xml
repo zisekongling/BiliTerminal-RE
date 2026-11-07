@@ -4,19 +4,20 @@
     android:viewportWidth="24"
     android:viewportHeight="24">
     <!-- 26.11.06 换用用户提供的 lucide「lock-keyhole-open」图标（未上锁时显示）。
-         原 SVG 用 currentColor + 2px 描边，播放器背景是深色，所以这里统一改成白色描边。
+         原 SVG 用 currentColor + 2px 描边。播放器背景是深色视频画面，图标必须保持纯白，
+         故描边统一走语义色 @color/player_icon_on_scrim（亮暗两套同值），别在这里写死色值。
          路径与 24×24 viewBox 一一对应，改图标时按 SVG 原值替换即可。 -->
     <!-- 钥匙孔：r=1 的圆 + 2px 描边 = 实心小圆点 -->
     <path
         android:fillColor="#00000000"
         android:pathData="M12,15 A1,1 0 1 1 12,17 A1,1 0 1 1 12,15 Z"
-        android:strokeColor="#ffffff"
+        android:strokeColor="@color/player_icon_on_scrim"
         android:strokeWidth="2" />
     <!-- 锁体：x3 y10 w18 h12 rx2 的圆角矩形 -->
     <path
         android:fillColor="#00000000"
         android:pathData="M5,10 L19,10 A2,2 0 0 1 21,12 L21,20 A2,2 0 0 1 19,22 L5,22 A2,2 0 0 1 3,20 L3,12 A2,2 0 0 1 5,10 Z"
-        android:strokeColor="#ffffff"
+        android:strokeColor="@color/player_icon_on_scrim"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:strokeWidth="2" />
@@ -24,7 +25,7 @@
     <path
         android:fillColor="#00000000"
         android:pathData="M7,10 L7,7 A5,5 0 0 1 16.33,4.5"
-        android:strokeColor="#ffffff"
+        android:strokeColor="@color/player_icon_on_scrim"
         android:strokeLineCap="round"
         android:strokeWidth="2" />
 </vector>

@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 进度条上「投屏 / TV」图标（按下、聚焦态用）。根节点的 android:tint 会把整张图统一着色，
+     所以内部路径只需是「蒙版白」@color/vector_icon_mask（白＝不着色，换别的色会把图压暗）。
+     实际的暖白偏粉来自下面的 tint 值。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:tint="#ebe0e2"
     android:width="16dp"
@@ -10,31 +13,31 @@
         android:translateX="-232.00506"
         android:translateY="-172.92147">
         <path
-            android:strokeColor="#ffffff"
+            android:strokeColor="@color/vector_icon_mask"
             android:strokeWidth="2"
             android:strokeMiterLimit="10"
             android:strokeLineCap="round"
             android:pathData="M235.92166,173.92148l1.37251,1.80142" />
         <path
-            android:strokeColor="#ffffff"
+            android:strokeColor="@color/vector_icon_mask"
             android:strokeWidth="2"
             android:strokeMiterLimit="10"
             android:strokeLineCap="round"
             android:pathData="M242.72308,175.74754l1.37252,-1.80142" />
         <path
-            android:strokeColor="#ffffff"
+            android:strokeColor="@color/vector_icon_mask"
             android:strokeWidth="2"
             android:strokeMiterLimit="10"
             android:strokeLineCap="round"
             android:pathData="M233.00506,184.90158v-7.89194l1.11516,-1.02939h11.75214l1.13981,1.05402v7.89195l-1.11517,1.02939h-11.75214z" />
         <path
-            android:strokeColor="#ffffff"
+            android:strokeColor="@color/vector_icon_mask"
             android:strokeWidth="2"
             android:strokeMiterLimit="10"
             android:strokeLineCap="round"
             android:pathData="M237.03682,179.75466v1.45829" />
         <path
-            android:strokeColor="#ffffff"
+            android:strokeColor="@color/vector_icon_mask"
             android:strokeWidth="2"
             android:strokeMiterLimit="10"
             android:strokeLineCap="round"

@@ -200,7 +200,7 @@ object AmbientGlow {
         )
     }
 
-    /** 为当前主题创建背景 drawable。每个 Activity 创建一次（冷路径），不缓存。 */
+    /** 为当前主题创建**窗口背景** drawable（底色渐变 + 光晕团，声明 OPAQUE）。每个 Activity 创建一次（冷路径），不缓存。 */
     fun createDrawable(
         themeKey: String,
         background: Int,
@@ -212,8 +212,8 @@ object AmbientGlow {
      * 叠在自定义背景图**上面**的光晕层（只有光晕圆，没有底色渐变）。
      *
      * 为什么需要单独一份：正常光晕是整屏窗口背景（`drawRect` 铺满 + 声明 OPAQUE），
-     * 直接叠在背景图上会把图整块盖住。这里只画那 1～2 团径向光晕、底色透明、
-     * 声明 TRANSLUCENT，于是「背景图 + 光晕」能同时存在：图在下面，光晕像一层光洒在图上。
+     * 直接叠在背景图上会把图整块盖住。这里改用 [AmbientGlowDrawable] 的叠加模式：只画那 1～2 团
+     * 径向光晕、不画底色、声明 TRANSLUCENT，于是「背景图 + 光晕」能同时存在：图在下面，光晕像一层光洒在图上。
      *
      * [alphaFactor] 再压一次整体透明度（背景图本身有明暗细节，光晕照 1.0 会糊成一片）。
      */
@@ -222,8 +222,9 @@ object AmbientGlow {
         light: Boolean = false,
         source: String = DEFAULT_SOURCE,
         alphaFactor: Float = OVERLAY_ALPHA
-    ): Drawable = AmbientGlowOverlayDrawable(
+    ): Drawable = AmbientGlowDrawable(
         specFor(themeKey, light),
+        null,
         normalizeSource(source),
         alphaFactor.coerceIn(0f, 1f)
     )
@@ -291,13 +292,30 @@ object AmbientGlow {
     internal val GLOW_STOPS = floatArrayOf(0f, 0.3f, 0.62f, 1f)
     internal val GLOW_ALPHAS = floatArrayOf(1f, 0.75f, 0.32f, 0f)
 
+    /**
+     * 唯一一份光晕 Drawable，两种用法靠 [bottom] 区分：
+     *
+     * - **窗口背景**（[bottom] 非空）：先铺一层「光源处 [Spec.top] → [bottom]」的底色渐变，再叠光晕团，
+     *   声明 [PixelFormat.OPAQUE] 让系统跳过它下方内容的绘制（见 [createDrawable]）；
+     * - **背景图上的叠加层**（[bottom] 为 null）：只画光晕团、不画底色，声明 [PixelFormat.TRANSLUCENT]，
+     *   于是「背景图 + 光晕」能同时存在（见 [createOverlayDrawable]）。
+     *
+     * 26.11.07 合并：此前这里是两份几乎相同的实现——本类（窗口背景）与 AmbientGlowOverlayDrawable
+     * （叠加层），几何计算、色标、Drawable 三件套契约全是重复代码，只差「画不画底色」与整体透明度。
+     * 合并成一份，免得住一处忘另一处。
+     *
+     * @param bottom 底色渐变的终点色；null 表示叠加层（不画底色）
+     * @param alphaFactor 光晕整体的 alpha 系数：窗口背景 1.0，叠在背景图上用 [OVERLAY_ALPHA] 压一档
+     */
     private class AmbientGlowDrawable(
         private val spec: Spec,
-        private val bottom: Int,
-        private val source: String
+        private val bottom: Int?,
+        private val source: String,
+        private val alphaFactor: Float = 1f
     ) : Drawable() {
 
-        private val basePaint = Paint().apply { isDither = true }
+        /** 底色渐变的画笔；叠加层没有底色，保持 null。 */
+        private val basePaint = if (bottom != null) Paint().apply { isDither = true } else null
         private val glowPaints = Array(spec.glows.size) { Paint().apply { isDither = true } }
         /** 每团光晕的 (cx, cy, r)，在 onBoundsChange 里算好，draw 时直接用。 */
         private val geometry = FloatArray(spec.glows.size * 3)
@@ -314,77 +332,18 @@ object AmbientGlow {
             val left = bounds.left.toFloat()
             val top = bounds.top.toFloat()
 
-            val base = baseGradient(spec, source, w, h)
-            basePaint.shader = if (source == SOURCE_CENTER) {
-                RadialGradient(left + base[0], top + base[1], base[2], spec.top, bottom, Shader.TileMode.CLAMP)
-            } else {
-                LinearGradient(
-                    left + base[0], top + base[1], left + base[2], top + base[3],
-                    spec.top, bottom, Shader.TileMode.CLAMP
-                )
+            val bg = bottom
+            if (bg != null) {
+                val base = baseGradient(spec, source, w, h)
+                basePaint?.shader = if (source == SOURCE_CENTER) {
+                    RadialGradient(left + base[0], top + base[1], base[2], spec.top, bg, Shader.TileMode.CLAMP)
+                } else {
+                    LinearGradient(
+                        left + base[0], top + base[1], left + base[2], top + base[3],
+                        spec.top, bg, Shader.TileMode.CLAMP
+                    )
+                }
             }
-            for (i in spec.glows.indices) {
-                val g = spec.glows[i]
-                val p = placeGlow(spec, i, source, w, h)
-                val cx = left + p[0]
-                val cy = top + p[1]
-                val r = p[2]
-                val colors = IntArray(GLOW_ALPHAS.size) { scaleAlpha(g.color, GLOW_ALPHAS[it]) }
-                glowPaints[i].shader = RadialGradient(cx, cy, r, colors, GLOW_STOPS, Shader.TileMode.CLAMP)
-                geometry[i * 3] = cx
-                geometry[i * 3 + 1] = cy
-                geometry[i * 3 + 2] = r
-            }
-            ready = true
-        }
-
-        override fun draw(canvas: Canvas) {
-            if (!ready) {
-                canvas.drawColor(bottom)
-                return
-            }
-            canvas.drawRect(bounds, basePaint)
-            for (i in glowPaints.indices) {
-                canvas.drawCircle(geometry[i * 3], geometry[i * 3 + 1], geometry[i * 3 + 2], glowPaints[i])
-            }
-        }
-
-        // 窗口背景不做整体透明度 / 滤色，这两个按 Drawable 契约留空即可。
-        override fun setAlpha(alpha: Int) {}
-
-        override fun setColorFilter(colorFilter: ColorFilter?) {}
-
-        @Deprecated("Deprecated in Java")
-        override fun getOpacity(): Int = PixelFormat.OPAQUE
-    }
-
-    /**
-     * 只有光晕、没有底色的叠加层，见 [createOverlayDrawable]。
-     *
-     * 与 [AmbientGlowDrawable] 的差别只有两处：不画底色渐变、声明 TRANSLUCENT。
-     * 几何计算（[placeGlow]）与色标（[GLOW_STOPS] / [GLOW_ALPHAS]）完全共用，
-     * 所以「背景图 + 光晕」与「只有光晕」的光源位置、形状是同一套。
-     */
-    private class AmbientGlowOverlayDrawable(
-        private val spec: Spec,
-        private val source: String,
-        private val alphaFactor: Float
-    ) : Drawable() {
-
-        private val glowPaints = Array(spec.glows.size) { Paint().apply { isDither = true } }
-        private val geometry = FloatArray(spec.glows.size * 3)
-        private var ready = false
-
-        override fun onBoundsChange(bounds: Rect) {
-            super.onBoundsChange(bounds)
-            val w = bounds.width().toFloat()
-            val h = bounds.height().toFloat()
-            if (w <= 0f || h <= 0f) {
-                ready = false
-                return
-            }
-            val left = bounds.left.toFloat()
-            val top = bounds.top.toFloat()
             for (i in spec.glows.indices) {
                 val g = spec.glows[i]
                 val p = placeGlow(spec, i, source, w, h)
@@ -403,17 +362,26 @@ object AmbientGlow {
         }
 
         override fun draw(canvas: Canvas) {
-            if (!ready) return
+            val bg = bottom
+            if (!ready) {
+                // 尺寸还没量出来：窗口背景先把底色铺满（绝不能透出后画的内容），叠加层什么都不画。
+                if (bg != null) canvas.drawColor(bg)
+                return
+            }
+            if (bg != null) basePaint?.let { canvas.drawRect(bounds, it) }
             for (i in glowPaints.indices) {
                 canvas.drawCircle(geometry[i * 3], geometry[i * 3 + 1], geometry[i * 3 + 2], glowPaints[i])
             }
         }
 
+        // 不做整体透明度 / 滤色：叠加层要压暗走构造参数的 alphaFactor，窗口背景本就不该半透明。
         override fun setAlpha(alpha: Int) {}
 
         override fun setColorFilter(colorFilter: ColorFilter?) {}
 
         @Deprecated("Deprecated in Java")
-        override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
+        override fun getOpacity(): Int =
+            if (bottom != null) PixelFormat.OPAQUE else PixelFormat.TRANSLUCENT
     }
+
 }

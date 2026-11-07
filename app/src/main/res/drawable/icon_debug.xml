@@ -3,8 +3,10 @@
     android:height="24dp"
     android:viewportWidth="960"
     android:viewportHeight="960">
+    <!-- 播放页左下的调试入口按钮（debug 构建才可见），压在视频画面上，故用纯白的
+         @color/player_icon_on_scrim，不随亮暗模式变化。 -->
     <path
         android:pathData="M200,840L200,120L760,120L760,840L200,840ZM280,760L680,760L680,200L280,200L280,760ZM360,680L600,680L600,600L360,600L360,680ZM360,520L600,520L600,440L360,440L360,520ZM360,360L480,360L480,280L360,280L360,360Z"
-        android:fillColor="#ffffff" />
+        android:fillColor="@color/player_icon_on_scrim" />
 </vector>
 

@@ -68,6 +68,10 @@
     <color name="player_control_bg">#4D000000</color>
     <color name="player_progress_bg">#55FFFFFF</color>
     <color name="player_progress_fill">#FF6699</color>
+    <!-- 播放器控件图标：锁 / 解锁 / 跳到指定时间 / 连播 / 倍速 / 调试这几个图层都压在视频画面上，
+         视频画面始终偏暗，图标只有保持纯白才看得清。原来它们在各自 drawable 里写死 #ffffff，
+         现统一引用本语义色；亮暗两套同值，故 values-notnight 不覆盖。 -->
+    <color name="player_icon_on_scrim">#FFFFFFFF</color>
 
     <!-- 特殊色 (Special Colors) -->
     <color name="gold">#FFB800</color>
@@ -544,5 +548,24 @@
     <!-- 经典终端主题（默认） -->
     <color name="on_surface_terminal">#EBE0E2</color>
     <color name="error_terminal">#FF6699</color>
+
+    <!-- =========================================================== -->
+    <!-- 26.11.07：把散落在 drawable / 布局 / Kotlin 里的写死色值收成语义色     -->
+    <!-- 这三处都作用在「图像或遮罩之上」，与主题底色无关，故亮暗两套同值；      -->
+    <!-- 仓库的亮色覆盖（values-notnight）只放真正随模式变色的项，这里不重复声明。-->
+    <!-- =========================================================== -->
+
+    <!-- 矢量图标内部的「蒙版白」：这些图标的路径颜色会被 android:tint 统一重新着色
+         （tint 是 SRC_IN 混合，白＝不着色，换成别的色会把整张图压暗），所以必须纯白。 -->
+    <color name="vector_icon_mask">#FFFFFFFF</color>
+
+    <!-- 大图查看器的「加载中 / 分块暂不可用」提示文字：压在照片上，半透明白（80%）
+         才能在任何底图上都读得出来。 -->
+    <color name="image_viewer_hint_text">#CCFFFFFF</color>
+
+    <!-- 设置页卡片滑出时压在列表上的遮罩（点它收起卡片）：40% 黑。
+         与已有的通用 scrim（#60000000，activity_simple_viewpager 用）取值不同，
+         这里保持原值以免改变观感，故不合并成同一个色。 -->
+    <color name="card_scrim">#66000000</color>
 
 </resources>

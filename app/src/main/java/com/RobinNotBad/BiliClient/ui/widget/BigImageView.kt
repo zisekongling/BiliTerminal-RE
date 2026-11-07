@@ -17,6 +17,8 @@ import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.animation.DecelerateInterpolator
+import androidx.core.content.ContextCompat
+import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ImageViewerZoomPolicy
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.ImageTilePolicy
@@ -107,8 +109,13 @@ class BigImageView @JvmOverloads constructor(
         isFilterBitmap = true
     }
 
+    /**
+     * 「加载中 / 分块暂不可用」提示文字的画笔：半透明白，压在照片上任何底色都读得出来。
+     * 颜色走语义色 [R.color.image_viewer_hint_text]（原来在这里写死 0xCCFFFFFF），
+     * 它作用在图片之上、与主题无关，故亮暗两套同值；minSdk 19 用 ContextCompat 取色。
+     */
     private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xCCFFFFFF.toInt()
+        color = ContextCompat.getColor(context, R.color.image_viewer_hint_text)
         textAlign = Paint.Align.CENTER
         textSize = 14f * resources.displayMetrics.scaledDensity
     }
