@@ -39,7 +39,7 @@ class ReplyStateStoreTest {
     // ---- 服务端快照合并 ----
 
     @Test
-    fun observe_writesServerSnapshotAndNotifiesOnce() {
+    fun observe_firstSnapshotIsSilentThenNotifiesOnChange() {
         val store = store()
         var notified = 0
         store.addListener(object : ReplyStateStore.Listener {
@@ -52,11 +52,15 @@ class ReplyStateStoreTest {
         val state = store.current(account, type, oid, 100L)
         assertEquals("服务端赞数要落库", 7, state!!.likeCount)
         assertFalse(state.deleted)
-        assertEquals("第一次写入要通知一次", 1, notified)
+        assertEquals("首次见到这条评论时没有人在看它，不该通知", 0, notified)
 
         // 内容没变再 observe 一次：不该把整行重新绑一遍
         store.observe(account, type, oid, 100L, 0L, false, false, 7, store.beginRead())
-        assertEquals("内容没变化不该再通知", 1, notified)
+        assertEquals("内容没变化不该通知", 0, notified)
+
+        // 内容真的变了（别处点了赞）：必须通知一次
+        store.observe(account, type, oid, 100L, 0L, true, false, 8, store.beginRead())
+        assertEquals("内容变化要通知一次", 1, notified)
     }
 
     @Test

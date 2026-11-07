@@ -1,6 +1,5 @@
 package com.RobinNotBad.BiliClient.util
 
-import android.util.Log
 import com.RobinNotBad.BiliClient.model.Reply
 import java.util.LinkedHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -119,7 +118,9 @@ class ReplyStateStore(private val capacity: Int = DEFAULT_CAPACITY) {
      * 2. 本地动作的 revision 比这次读更新 → 保留本地状态，别被晚到的响应冲掉；
      * 3. 否则以服务端快照覆盖，revision 记为这次读的修订号。
      *
-     * 内容没变化时不会通知监听器，避免刷新一次把列表里所有行都重绑一遍。
+     * **只在「已经存过、且内容真的变了」时通知监听器。**
+     * 首屏/翻页第一次见到某条评论不算变化——那一行还没有任何监听者在显示它，
+     * 通知只会让列表把刚绑好的行再重绑一遍（首屏 20 条 = 20 次无意义的重绑）。
      */
     fun observe(
         account: Long,
@@ -142,7 +143,7 @@ class ReplyStateStore(private val capacity: Int = DEFAULT_CAPACITY) {
                 val fresh = ReplyState(
                     account, type, oid, rpid, root, liked, disliked, likeCount, false, read
                 )
-                if (old == null || !fresh.hasSameContent(old)) changed = fresh
+                if (old != null && !fresh.hasSameContent(old)) changed = fresh
                 putState(key, fresh)
                 fresh
             }
@@ -279,7 +280,7 @@ class ReplyStateStore(private val capacity: Int = DEFAULT_CAPACITY) {
                 listener.onReplyStateChanged(state)
             } catch (e: Exception) {
                 // 一个页面刷新失败不能拖累其它页面；监听器自己负责把异常挡在 UI 层
-                Log.e("ReplyStateStore", "listener failed: ${e.message}")
+                Logu.e("评论状态", "监听器刷新失败：" + e.message)
             }
         }
     }

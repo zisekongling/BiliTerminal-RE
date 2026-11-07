@@ -105,6 +105,9 @@ class ReplyFetchPolicyTest {
         val merged = cache.mergeInto(target, 3_000L)
         assertEquals("先发的在上、后发的在下", listOf(1L, 2L), target.map { it.rpid })
         assertEquals(2, merged.size)
+        // 返回值的顺序以前是插入顺序（与最终顺序相反），拿它去登记「已加载 rpid」虽不受影响，
+        // 但任何按顺序使用的调用方都会拿到倒序列表
+        assertEquals("返回值顺序必须与列表最终顺序一致", listOf(1L, 2L), merged.map { it.rpid })
     }
 
     @Test

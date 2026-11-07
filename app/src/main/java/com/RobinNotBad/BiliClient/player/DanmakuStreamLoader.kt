@@ -107,6 +107,17 @@ class DanmakuStreamLoader(
     private var retryAfterMs: Long = 0L
 
     /**
+     * 「这一轮」的代号，[attach] / [prepare] / [release] 各 +1。
+     *
+     * 补窗口 worker 在后台跑，切 P / 换视频时它可能还在拉**上一条视频**的分段。光靠 [released]
+     * 挡不住：新视频 [attach] 一进来就把 [released] 改回 false、把 [fetching] 清掉，旧 worker
+     * 于是以为自己还有效，继续把旧 cid 的分段塞进 [loadedSegments] 和新 manager——结果是两代
+     * 数据混在一起，而且新旧两个 worker 会同时抢带宽。worker 只认启动时记下的这一代。
+     */
+    @Volatile
+    private var generation: Int = 0
+
+    /**
      * 绑定一条视频。可重复调用（切 P / 换视频）：会清空上一轮的分段记录。
      *
      * @param context 任意 Context（内部只取 `applicationContext` 的 `cacheDir`）
@@ -121,6 +132,7 @@ class DanmakuStreamLoader(
         this.aid = aid
         this.cid = cid
         this.maxDurationSec = maxDurationSec
+        generation++
         released = false
         fetching = false
         lastPositionMs = -1L
@@ -156,6 +168,7 @@ class DanmakuStreamLoader(
             return false
         }
         managerRef = WeakReference(manager)
+        generation++
         released = false
         fetching = false
         retryAfterMs = 0L
@@ -217,12 +230,14 @@ class DanmakuStreamLoader(
         if (fetching) return
         if (System.currentTimeMillis() < retryAfterMs) return
         fetching = true
-        CenterThreadPool.run { fetchWindowLoop() }
+        val gen = generation
+        CenterThreadPool.run { fetchWindowLoop(gen) }
     }
 
     /** 释放：停止后续补窗口（已经在跑的 worker 会在下一段前自行退出）。 */
     @Synchronized
     fun release() {
+        generation++
         released = true
         managerRef = null
         fetching = false
@@ -260,11 +275,16 @@ class DanmakuStreamLoader(
         return created
     }
 
-    /** 后台补窗口：串行拉缺段 → 追加给 DFM。**单个 worker**，异常全部吞掉。 */
-    private fun fetchWindowLoop() {
+    /**
+     * 后台补窗口：串行拉缺段 → 追加给 DFM。**单个 worker**，异常全部吞掉。
+     *
+     * @param gen 启动时记下的代号；与当前 [generation] 不一致说明这期间又 attach/prepare/release 过，
+     *   本轮立刻收手，绝不能把上一条视频的分段塞进新的一代。
+     */
+    private fun fetchWindowLoop(gen: Int) {
         try {
             var rounds = 0
-            while (!released && rounds++ < MAX_FETCH_ROUNDS) {
+            while (!released && gen == generation && rounds++ < MAX_FETCH_ROUNDS) {
                 val manager = managerRef?.get() ?: return
                 val missing = DanmakuWindow.missing(snapshotLoaded(), windowAt(lastPositionMs))
                 if (missing.isEmpty()) {
@@ -274,7 +294,7 @@ class DanmakuStreamLoader(
                 val replies = ArrayList<DmSegMobileReply>(missing.size)
                 var failed = 0
                 for (index in missing) {
-                    if (released) return
+                    if (released || gen != generation) return
                     val reply = fetchOne(index)
                     if (reply == null) {
                         failed++
@@ -287,7 +307,9 @@ class DanmakuStreamLoader(
                     retryAfterMs = 0L
                     // 追加必须回主线程：DanmakuView.addDanmaku 会直接改 DFM 的 handler 状态，
                     // 且 DanmakuManager 的 pending 队列按「主线程 / 渲染线程」假设写的。
-                    CenterThreadPool.runOnUiThread { if (!released) manager.appendSegments(replies) }
+                    CenterThreadPool.runOnUiThread {
+                        if (!released && gen == generation) manager.appendSegments(replies)
+                    }
                     Logu.d(
                         "弹幕窗口",
                         "补齐窗口：segments=$missing 非空=${replies.size}/${missing.size} 条数=" +
@@ -304,7 +326,9 @@ class DanmakuStreamLoader(
         } catch (e: Exception) {
             Logu.e("弹幕窗口", "补窗口异常：${e.message}")
         } finally {
-            fetching = false
+            // 只有当前这一代才允许清标志：切视频时 attach 已经把 fetching 归零并起了新一代的
+            // worker，旧 worker 收尾时再清一次会把新一代的「正在补」状态抹掉，导致重复起 worker。
+            if (gen == generation) fetching = false
         }
     }
 
