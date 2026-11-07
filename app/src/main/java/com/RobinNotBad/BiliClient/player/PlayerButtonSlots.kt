@@ -112,6 +112,14 @@ class PlayerButtonSlots(
         }
     }
 
+    /**
+     * 当前有没有影子（同一个按钮被放了多份）。
+     *
+     * 播放页据此决定要不要挂对齐定时器：绝大多数机器上这里都是 false，那就一个定时器都不挂，
+     * 别为了一个不存在的影子每 400ms 醒一次主线程。
+     */
+    fun hasMirrors(): Boolean = mirrors.isNotEmpty()
+
     private fun syncOne(primary: View, mirror: View) {
         mirror.visibility = primary.visibility
         if (primary is ImageButton && mirror is ImageButton) {

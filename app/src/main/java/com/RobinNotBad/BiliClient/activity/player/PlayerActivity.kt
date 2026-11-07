@@ -1331,6 +1331,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         if (lockPhase != PlayerLockPolicy.Phase.UNLOCKED) applyLockPhase(lockPhase)
         // 列高变了（组的展开条、格数），左右两列的中线要重新对齐
         alignLeftControlToRight()
+        // 重摆之后影子可能刚出现/刚消失，对齐定时器要跟着重新判断
+        startMirrorSync()
     }
 
     // ==================== 锁定按钮的临时落脚点 ====================
@@ -3811,6 +3813,25 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         if (!isLiveMode && isPrepared) outState.putInt(STATE_POSITION, video_now)
     }
 
+    /**
+     * 起「影子对齐」定时器；没有影子（[PlayerButtonSlots.hasMirrors] 为 false）就什么都不挂。
+     *
+     * 从前是 onResume 无条件挂 400ms 轮询：只摆了一份按钮的机器上影子集合是空的，
+     * 每次唤醒都在空转。现在只在真有影子时才有定时器，布局变了（[applyPlayerButtonLayout]）
+     * 也会重新判断一次。
+     */
+    private fun startMirrorSync() {
+        mirrorSyncTimer?.let { mainHandler?.removeCallbacks(it) }
+        mirrorSyncTimer = null
+        if (buttonSlots?.hasMirrors() != true) return
+        mirrorSyncTimer = object : Runnable {
+            override fun run() {
+                buttonSlots?.syncMirrors()
+                mainHandler?.postDelayed(this, MIRROR_SYNC_INTERVAL_MS)
+            }
+        }.also { mainHandler?.postDelayed(it, MIRROR_SYNC_INTERVAL_MS) }
+    }
+
     override fun onPause() {
         super.onPause()
         Logu.v("onPause")
@@ -3844,14 +3865,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         if (::text_subtitle.isInitialized) applySubtitleTextSize()
         // 设置页里改完按钮布局返回播放页立即生效（不这样就得重启播放页）
         if (::button_pool.isInitialized) applyPlayerButtonLayout()
-        // 同一个按钮放多份时，影子要跟真身的状态走；回到前台就开始定时对齐
-        mirrorSyncTimer?.let { mainHandler?.removeCallbacks(it) }
-        mirrorSyncTimer = object : Runnable {
-            override fun run() {
-                buttonSlots?.syncMirrors()
-                mainHandler?.postDelayed(this, MIRROR_SYNC_INTERVAL_MS)
-            }
-        }.also { mainHandler?.postDelayed(it, MIRROR_SYNC_INTERVAL_MS) }
+        // 同一个按钮放多份时，影子要跟真身的状态走；回到前台就开始定时对齐（没有影子就不挂）
+        startMirrorSync()
         // #31：回前台重新应用画面尺寸/比例/旋转。载入中切后台再回来时，Surface 重建、
         // 窗口几何也可能已经变了，而画面区域是手算出来的（不随布局自适应），不重算就会歪。
         // 只重排布局，不动播放状态——后台播放、MediaSession、切清晰度都不受影响。
