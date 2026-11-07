@@ -151,7 +151,7 @@ import java.util.TimerTask
 import java.util.regex.Pattern
 import kotlin.math.abs
 
-class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
+class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeatures.ResolveHintHost {
     // @Volatile：PlaybackService 的定时线程会读它（见下方「后台播放服务（PlaybackService）状态桥」），
     // 不加的话主线程写的值不保证被服务线程看见。
     @Volatile
@@ -1703,23 +1703,41 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun initLockUi() {
         lock_overlay.setOnClickListener { onLockScreenTap() }
         lock_btn.setOnClickListener { onLockButtonClick() }
+        // 两列的格子数、组展开条都会改它们的高度与位置，布局一变就重新对齐一次。
+        // 比较的是窗口坐标里两条列的中线（两列不在同一个 parent 下，raw top 不可比）；
+        // translationY 不改 layout bounds，不会自激。
+        left_control.addOnLayoutChangeListener(alignOnLayoutChange)
+        right_control.addOnLayoutChangeListener(alignOnLayoutChange)
         alignLeftControlToRight()
     }
+
+    private val alignOnLayoutChange =
+        View.OnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (top != oldTop || bottom != oldBottom) applyLeftControlAlignment()
+        }
 
     /**
      * 把左侧按钮列对齐到右侧竖列（弹幕/旋转/更多）的竖向中线。
      *
      * 右列的上下锚点（`top` 与 `bottom_control`）都在 `control_layout` 内部，位于 root 层的
-     * `left_control` 够不到它们，所以这里量一次两条列的中线差、用 translationY 平移。
-     * 一旦量到就不再重复——顶栏/底栏高度变化会触发重新布局，那时会重新量。
+     * `left_control` 够不到它们，所以这里量两条列在**窗口坐标**里的中线差、用 translationY 平移。
+     * 列高可变（格子数、组展开），因此布局变化时由 [alignOnLayoutChange] 重新量，不是一次性的。
      */
     private fun alignLeftControlToRight() {
-        left_control.post {
-            if (left_control.height <= 0 || right_control.height <= 0) return@post
-            val dy = (right_control.top + right_control.bottom) / 2f -
-                    (left_control.top + left_control.bottom) / 2f
-            left_control.translationY = dy
-        }
+        left_control.post { applyLeftControlAlignment() }
+    }
+
+    /** 按「两条列中线差」平移左列；量不到（还没布局）就跳过。 */
+    private fun applyLeftControlAlignment() {
+        if (left_control.height <= 0 || right_control.height <= 0) return
+        val leftLoc = IntArray(2)
+        val rightLoc = IntArray(2)
+        left_control.getLocationInWindow(leftLoc)
+        right_control.getLocationInWindow(rightLoc)
+        val dy = (rightLoc[1] + right_control.height / 2f) -
+                (leftLoc[1] + left_control.height / 2f)
+        // getLocationInWindow 已经把当前 translationY 算进去，所以这里加的是差值
+        left_control.translationY += dy
     }
 
     /** 浮现中的锁定按钮到点自动隐去。 */
@@ -2061,11 +2079,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     /**
      * 私有侧更新「备用片源解析到哪一步了」的提示（26.11.06）。
      *
-     * <p>以前解析进度显示在独立的等待页里；现在解析就在本页载入界面上跑，私有侧通过
-     * [OptionalFeatures.updateThirdPartyResolveHint] 把「正在打开剧集页…」「正在嗅探播放地址…」
-     * 这类文案推过来，用户看到的是播放器自己的载入动画 + 一行状态，不再中途跳页。
+     * <p>以前这段进度显示在独立的等待页里；现在就在本页载入界面上跑，用户看到的是播放器自己的
+     * 载入动画 + 一行状态文案，不再中途跳页。文案由 [OptionalFeatures.updateThirdPartyResolveHint]
+     * 推过来，为空时显示默认的「解析中」。
      */
-    fun updateResolveHint(text: CharSequence?) {
+    override fun showResolveHint(text: CharSequence?) {
+        updateResolveHint(text)
+    }
+
+    private fun updateResolveHint(text: CharSequence?) {
         if (destroyed) return
         runOnUiThread {
             if (destroyed || isFinishing) return@runOnUiThread
@@ -5494,6 +5516,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             btn_page_selector.visibility = View.VISIBLE
             btn_page_selector.setOnClickListener { showPageSelectorCard() }
             btn_auto_next.visibility = View.VISIBLE
+            // 可见就必须可点：本函数把按钮点亮后不会走 onPrepared 里那段绑定，
+            // 漏了这行按钮就是「看得见、点不动」。
+            updateAutoNextButton()
+            btn_auto_next.setOnClickListener { toggleAutoNext() }
         }
         updateQueueModeButton()
         persistQueueToken()

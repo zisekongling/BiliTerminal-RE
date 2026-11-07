@@ -6,7 +6,6 @@ import android.content.Intent
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
-import com.RobinNotBad.BiliClient.activity.player.PlayerActivity
 import com.RobinNotBad.BiliClient.model.MessageCard
 import com.RobinNotBad.BiliClient.model.VideoCard
 
@@ -302,7 +301,7 @@ object OptionalFeatures {
         /** 解析成功：给出可直接播放的地址和（可空）该地址需要的 Referer。 */
         fun onResolved(url: String, referer: String?)
 
-        /** 解析失败：私有侧已经提示过用户（Toast + 手动选源），播放页只需要收尾退出。 */
+        /** 解析失败：失败原因已由私有侧处理完，播放页只需要收尾退出。 */
         fun onFailed()
     }
 
@@ -331,8 +330,7 @@ object OptionalFeatures {
     /**
      * 请私有侧准备「第三方弹幕」（换源播放时用弹弹play 的弹幕）。
      *
-     * 私有侧拿到参数后在后台拉取、转换、写成 B 站格式 XML，就绪后自己回调
-     * `PlayerActivity.applyThirdPartyDanmaku(file)`；失败时什么都不做（播放不受影响）。
+     * 私有侧拿到参数后自己准备数据，就绪后回调宿主页面做挂载；失败时什么都不做（播放不受影响）。
      *
      * 返回 true 表示私有侧接手了这次弹幕准备；false = 私有功能不在场 / 未注入凭据 / 用户关掉了
      * 第三方弹幕，调用方据此把「有弹幕」状态翻回 false。
@@ -360,16 +358,24 @@ object OptionalFeatures {
     }
 
     /**
-     * 私有侧把「备用片源解析到哪一步」推给播放页的载入界面（26.11.06）。
+     * 能把「备用片源解析到哪一步」显示出来的宿主页面。
      *
-     * 以前这段进度显示在独立的等待页里（换页、和 app 风格不一致）；现在解析就在播放页里跑，
-     * 私有侧只需要更新播放页载入态的那行状态文案。没有私有功能时不会被调用；
-     * 传进来的不是播放页（或已销毁）时什么也不做。
+     * 由播放页实现；门面只认这个接口，不认具体是哪个 Activity——util 层不反向依赖 activity 层。
+     */
+    interface ResolveHintHost {
+        /** 更新载入界面上那行状态文案。 */
+        fun showResolveHint(text: CharSequence?)
+    }
+
+    /**
+     * 私有侧把「备用片源解析到哪一步」推给宿主页面（26.11.06）。
+     *
+     * 没有私有功能时不会被调用；传进来的不是 [ResolveHintHost]（或已销毁）时什么也不做。
      */
     fun updateThirdPartyResolveHint(activity: Activity?, text: CharSequence?) {
-        if (activity !is PlayerActivity) return
+        val host = activity as? ResolveHintHost ?: return
         try {
-            activity.updateResolveHint(text)
+            host.showResolveHint(text)
         } catch (e: Throwable) {
             Logu.w("OptionalFeatures", "updateThirdPartyResolveHint failed: " + e.message)
         }

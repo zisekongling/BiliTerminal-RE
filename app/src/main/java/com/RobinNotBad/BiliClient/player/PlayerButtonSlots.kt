@@ -157,7 +157,11 @@ class PlayerButtonSlots(
                     setTextColor(source.textColors)
                     gravity = source.gravity
                     setPadding(source.paddingLeft, source.paddingTop, source.paddingRight, source.paddingBottom)
-                    setShadowLayer(3f, 2f, 0f, android.graphics.Color.BLACK)
+                    // 阴影参数照抄真身，别用「3f/2f/黑」这种拍出来的值：真身的阴影来自布局或主题，
+                    // 主题或截图改了以后影子就跟不上；真身本来没有阴影时也不该凭空多一层黑边。
+                    if (source.shadowRadius > 0f) {
+                        setShadowLayer(source.shadowRadius, source.shadowDx, source.shadowDy, source.shadowColor)
+                    }
                 }
             }
         }
