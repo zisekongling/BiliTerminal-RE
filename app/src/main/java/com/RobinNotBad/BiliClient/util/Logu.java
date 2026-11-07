@@ -16,7 +16,9 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.io.RandomAccessFile;
+import java.io.StringWriter;
 import java.text.SimpleDateFormat;
 import java.util.ArrayDeque;
 import java.util.Date;
@@ -111,42 +113,71 @@ public class Logu {
     // 因为文件里只有本应用的日志，不需要靠 tag 区分来源，但需要能定位到代码。
     // 详见类顶部关于「不要统一 tag」的说明。
 
+    /**
+     * 写 logcat。**绝不抛**。
+     *
+     * <p>纯 JVM 单测里 `android.util.Log` 是桩实现（任何方法都 `RuntimeException: Stub!`），
+     * 生产代码「打了一条日志」不该让单测变红；真机上日志链路本身出问题也不该把进程带崩。
+     * 拿不到 logcat 就退回 stdout —— CI 与单测输出里仍看得到这条日志。
+     *
+     * <p>不开 `testOptions.unitTests.returnDefaultValues`（那会让**所有**未 mock 的框架调用
+     * 静默返回默认值，单测里误用 Android API 就再也发现不了），兜在这一处就够了。
+     */
+    private static void cat(int priority, String tag, String message) {
+        try {
+            Log.println(priority, tag, message);
+        } catch (RuntimeException e) {
+            System.out.println(tag + ": " + message);
+        }
+    }
+
+    /** 取堆栈串；同样兜住 JVM 单测里的桩实现。 */
+    private static String stackTraceOf(Throwable throwable) {
+        try {
+            return Log.getStackTraceString(throwable);
+        } catch (RuntimeException e) {
+            StringWriter out = new StringWriter();
+            throwable.printStackTrace(new PrintWriter(out));
+            return out.toString();
+        }
+    }
+
     public static void v(String s) {
         if (!LOGV_ENABLED) return;
         String caller = getCaller();
-        Log.v(caller, s);
+        cat(Log.VERBOSE, caller, s);
         toFile("V", caller, s);
     }
 
     public static void i(String s) {
         if (!LOGI_ENABLED) return;
         String caller = getCaller();
-        Log.i(caller, s);
+        cat(Log.INFO, caller, s);
         toFile("I", caller, s);
     }
 
     public static void d(String s) {
         if (!LOGD_ENABLED) return;
         String caller = getCaller();
-        Log.d(caller, s);
+        cat(Log.DEBUG, caller, s);
         toFile("D", caller, s);
     }
 
     public static void w(String s) {
         String caller = getCaller();
-        Log.w(caller, s);
+        cat(Log.WARN, caller, s);
         toFile("W", caller, s);
     }
 
     public static void e(String s) {
         String caller = getCaller();
-        Log.e(caller, s);
+        cat(Log.ERROR, caller, s);
         toFile("E", caller, s);
     }
 
     public static void wtf(String s) {
         String caller = getCaller();
-        Log.wtf(caller, s);
+        cat(Log.ASSERT, caller, s);
         toFile("F", caller, s);
     }
 
@@ -187,14 +218,14 @@ public class Logu {
     private static void logPair(int priority, String fileLevel, String tag, String info) {
         String caller = getCaller();
         String message = tag + ">" + info;
-        Log.println(priority, caller, message);
+        cat(priority, caller, message);
         toFile(fileLevel, caller, message);
     }
 
     /** 把异常按错误级打出来（含堆栈），同时进 logcat 与日志文件。 */
     public static void e(String tag, String info, Throwable throwable) {
         e(tag, info + " : " + throwable);
-        if (throwable != null) toFile("E", getCaller(), Log.getStackTraceString(throwable));
+        if (throwable != null) toFile("E", getCaller(), stackTraceOf(throwable));
     }
 
     private static String getCaller() {
