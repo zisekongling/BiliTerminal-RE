@@ -61,12 +61,21 @@ class ImageTilePolicyTest {
         assertTrue(ImageTilePolicy.isTileableMime("image/webp"))
         // 大小写不该影响判断
         assertTrue(ImageTilePolicy.isTileableMime("IMAGE/PNG"))
-        // 拿不到 MIME 时按「可以试」处理（真解不了由 BigImageView 回退整图兜住）
-        assertTrue(ImageTilePolicy.isTileableMime(null))
-        assertTrue(ImageTilePolicy.isTileableMime(""))
         // 动图必须走整图，否则只显示第一帧
         assertFalse(ImageTilePolicy.isTileableMime("image/gif"))
+        // 大小写归一也要在「拒绝」这一侧同样成立，否则 IMAGE/GIF 会被当成静态图分块
+        assertFalse(ImageTilePolicy.isTileableMime("IMAGE/GIF"))
         assertFalse(ImageTilePolicy.isTileableMime("video/mp4"))
+    }
+
+    @Test
+    fun MIME缺失时兜底放行_这是兜底不是正确性() {
+        // 注意：下面两条断言钉的是**兜底取值**，不是「MIME 未知就能分块」这条正确性结论。
+        // 设计意图：拿不到 MIME（null/空串）时无法判断格式，一律返回 true 让调用方按静态图去试分块，
+        // 真正解不出来时由 BigImageView 回退整图兜住。之所以要钉住 true：
+        // 一旦改成返回 false，所有 MIME 缺失的图都会静默退回整图解码——大图在手表上直接 OOM。
+        assertTrue("未知 MIME 走兜底放行，必须返回 true", ImageTilePolicy.isTileableMime(null))
+        assertTrue("空串 MIME 走兜底放行，必须返回 true", ImageTilePolicy.isTileableMime(""))
     }
 
     // ---------- 适配倍率 ----------

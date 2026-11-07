@@ -29,7 +29,9 @@ class DanmakuDiskCacheTest {
     @Test
     fun `缓存键由 cid 与分段号唯一确定`() {
         assertEquals("dm_123_1.bin", DanmakuDiskCache.fileName(123L, 1))
-        assertEquals("同一个键必须稳定（缓存命中率的前提）", "dm_123_1.bin", DanmakuDiskCache.fileName(123L, 1))
+        // 换一组输入再钉一次格式：原先这一行拿同一个 key 再断一次相同字面量，恒真——
+        // 哪怕文件名格式整体改掉（比如换成 "123-1.bin"）它也会过。
+        assertEquals("dm_999999_3.bin", DanmakuDiskCache.fileName(999999L, 3))
         assertTrue(
             "不同分段不能撞键，否则第 2 段会读成第 1 段",
             DanmakuDiskCache.fileName(123L, 1) != DanmakuDiskCache.fileName(123L, 2)

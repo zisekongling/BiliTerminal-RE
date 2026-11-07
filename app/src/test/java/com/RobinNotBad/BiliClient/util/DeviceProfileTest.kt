@@ -41,10 +41,19 @@ class DeviceProfileTest {
     }
 
     @Test
-    fun `探测还没出结果时默认落在中端档`() {
-        // PerformanceManager 首次运行先落 MEDIUM、硬件探测在后台跑；这段时间播放器取到
-        // 中途档位必须是「不激进也不过分保守」的中端，而不是低端（否则高清用户被无故降质）。
-        assertEquals(DeviceProfile.TIER_MEDIUM, DeviceProfile.tierOf(1, lowPerfDevice = false, effectiveHighPerf = false))
+    fun `高性能模式对中端硬件同样生效 且 低端信号压过硬件等级`() {
+        // 原用例与上面的「中端硬件且无额外信号」用的是同一组入参 tierOf(1, false, false)，
+        // 断言也相同，等于没覆盖任何新分支。这里换成两个原先没钉过的入参组合：
+        // 1) 中端 perfLevel + 手动开了高性能 → 必须升到高端（高性能模式不能只对低端机生效）；
+        assertEquals(
+            DeviceProfile.TIER_HIGH,
+            DeviceProfile.tierOf(1, lowPerfDevice = false, effectiveHighPerf = true)
+        )
+        // 2) 硬件等级是高（perfLevel=2）但被判成低端设备 → 低端信号优先，仍是低端档。
+        assertEquals(
+            DeviceProfile.TIER_LOW,
+            DeviceProfile.tierOf(2, lowPerfDevice = true, effectiveHighPerf = false)
+        )
     }
 
     @Test
