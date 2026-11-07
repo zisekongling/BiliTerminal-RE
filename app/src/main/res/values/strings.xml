@@ -1581,7 +1581,7 @@
     <string name="uitext_playeractivity_028">网络似乎已断开，可稍后手动重试</string>
     <string name="uitext_playeractivity_029">正在缓冲</string>
     <string name="uitext_playeractivity_030">载入视频中</string>
-<string name="uitext_playeractivity_third_party_resolving">正在解析片源…</string>
+    <string name="uitext_playeractivity_third_party_resolving">正在解析片源…</string>
     <string name="uitext_playeractivity_031">载入直播中</string>
     <string name="uitext_playeractivity_032">初始化播放</string>
     <string name="uitext_playeractivity_033">不支持默认横屏！</string>
