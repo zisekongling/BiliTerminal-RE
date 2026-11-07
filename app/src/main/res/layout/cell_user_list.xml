@@ -35,8 +35,8 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
-            <!-- 昵称与「互关」徽章同一行：徽章只在查看自己的关注/粉丝/分组列表时出现，
-                 由 UserListAdapter 按 UserInfo.mutualFollow 每次 bind 重置显隐 -->
+            <!-- 昵称与「互关 / 特别关注」徽章同一行：徽章只在查看自己的关注/粉丝/分组列表时出现，
+                 由 UserListAdapter 按 UserInfo.mutualFollow / specialFollow 每次 bind 重置显隐 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -54,6 +54,19 @@
                     android:textSize="14sp"
                     android:textColor="?android:attr/textColorPrimary"
                     android:text="NappuHidda" />
+
+                <!-- 特别关注徽章：B 站 special == 1，金色与「互关」区分；
+                     亮色模式的金色由绑定处按 ColorScheme.getGold() 修正 -->
+                <TextView
+                    android:id="@+id/specialBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:alpha="0.9"
+                    android:text="@string/social_special_follow_badge"
+                    android:textColor="@color/gold"
+                    android:textSize="10sp"
+                    android:visibility="gone" />
 
                 <TextView
                     android:id="@+id/mutualBadge"

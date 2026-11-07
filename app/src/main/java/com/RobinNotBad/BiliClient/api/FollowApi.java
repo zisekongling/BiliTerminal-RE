@@ -50,6 +50,20 @@ public class FollowApi {
         return selfList && attribute == 6;
     }
 
+    /**
+     * 纯函数：这一条是否该标「特别关注」。
+     *
+     * <p>B 站 `x/relation/*` 列表项的 `special`：1 表示「**列表主体**特别关注了这一条」。
+     * 与互关同一口径：只有查看自己的关注/粉丝列表时才等价于「我特别关注了 TA」；
+     * 看别人的列表时它表示「那个人特别关注了 TA」，对当前用户没有意义，不能标。
+     *
+     * <p>注意别把 `attribute` 的 128 当成特别关注——那是「已拉黑」（见 bilibili-API
+     * `docs/user/relation.md` §关系列表对象），特别关注只看 `special` 字段。
+     */
+    public static boolean isSpecialFollow(boolean selfList, int special) {
+        return selfList && special == 1;
+    }
+
     /** 当前登录账号的 mid（未登录为 0）。抽出来只为让上面的纯函数不碰 SharedPreferences。 */
     private static long currentLoginMid() {
         return SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0);
@@ -73,6 +87,7 @@ public class FollowApi {
                 String sign = userInfo.getString("sign");
                 UserInfo user = new UserInfo(uid, name, avatar, sign, 0, 0, 0, true, "", 0, "", userInfo.optLong("mtime", 0), 0);
                 user.mutualFollow = isMutualFollow(selfList, userInfo.optInt("attribute", 0));
+                user.specialFollow = isSpecialFollow(selfList, userInfo.optInt("special", 0));
                 userList.add(user);
             }
             return 0;
@@ -97,6 +112,7 @@ public class FollowApi {
                 String sign = userInfo.getString("sign");
                 UserInfo user = new UserInfo(uid, name, avatar, sign, 0, 0, 0, true, "", 0, "", userInfo.optLong("mtime", 0), 0);
                 user.mutualFollow = isMutualFollow(selfList, userInfo.optInt("attribute", 0));
+                user.specialFollow = isSpecialFollow(selfList, userInfo.optInt("special", 0));
                 userList.add(user);
             }
             return 0;
@@ -137,6 +153,8 @@ public class FollowApi {
                 UserInfo user = new UserInfo(uid, name, avatar, sign, 0, 0, 0, true, "", 0, "", 0);
                 // 分组列表只能查自己的（接口没有 vmid 参数），所以主体恒为当前账号
                 user.mutualFollow = isMutualFollow(true, userInfo.optInt("attribute", 0));
+                // 分组明细接口的 special 恒为 0（bilibili-API 字段表已注明），且「特别关注」本身就是一个
+                // 系统分组（tagid = -10），分组视图里再标一遍只是重复，故这里不设 specialFollow。
                 userList.add(user);
             }
             return 0;

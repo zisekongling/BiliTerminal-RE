@@ -17,8 +17,9 @@
     <!-- 用引号包住，保住两端的空格（AAPT 会折叠/裁剪未加引号的首尾空白） -->
     <string name="social_user_meta_separator">" · "</string>
 
-    <!-- ==================== 互关徽章 ==================== -->
+    <!-- ==================== 互关 / 特别关注徽章 ==================== -->
     <string name="social_mutual_follow_badge">互关</string>
+    <string name="social_special_follow_badge">特别关注</string>
 
     <!-- ==================== 历史记录多选删除 ==================== -->
     <string name="social_history_delete_single">删除这条记录</string>

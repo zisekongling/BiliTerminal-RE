@@ -279,6 +279,8 @@ class FollowGroupAdapter(
                 // 分组列表主体就是「我自己关注的人」，互关徽章语义成立；每次 bind 重置，
                 // 避免 Holder 复用后残留上一个成员的徽章（cell_user_list 的默认值也是 gone）
                 holder.mutualBadge?.visibility = if (user.mutualFollow) View.VISIBLE else View.GONE
+                // 分组明细接口的 special 恒为 0，分组模式实际不会亮；绑定仍然写全，防止 Holder 复用残留
+                holder.specialBadge?.visibility = if (user.specialFollow) View.VISIBLE else View.GONE
 
                 if (user.avatar == null || user.avatar.isEmpty()) {
                     holder.avatar.visibility = View.GONE
@@ -347,7 +349,12 @@ class FollowGroupAdapter(
         /** 互关徽章；只有 cell_user_list 有该控件，换布局时为 null。 */
         val mutualBadge: TextView? = itemView.findViewById(R.id.mutualBadge)
 
+        /** 特别关注徽章；只有 cell_user_list 有该控件，换布局时为 null。 */
+        val specialBadge: TextView? = itemView.findViewById(R.id.specialBadge)
+
         init {
+            // 金色跟着亮/暗模式走（亮色模式用更深的金），与 UserListAdapter 保持一致
+            specialBadge?.setTextColor(ColorScheme.getGold(itemView.context))
             name = itemView.findViewById(R.id.userName)
             desc = itemView.findViewById(R.id.userDesc)
             avatar = itemView.findViewById(R.id.userAvatar)

@@ -54,10 +54,11 @@ open class UserListAdapter(
 
         holder.desc.text = user.sign
 
-        // 互关徽章：数据层（FollowApi）已经把「是不是自己的列表」折进 mutualFollow，
+        // 徽章：数据层（FollowApi）已经把「是不是自己的列表」折进 mutualFollow / specialFollow，
         // 这里只负责显隐；Holder 复用必须每次重置，否则上一条的徽章会残留到非互关项。
         // cell_up_list 没有这个控件（UpListAdapter 复用本 Holder），所以用可空引用。
         holder.badge?.visibility = if (user.mutualFollow) View.VISIBLE else View.GONE
+        holder.specialBadge?.visibility = if (user.specialFollow) View.VISIBLE else View.GONE
 
         if (user.avatar.isNullOrEmpty()) {
             holder.avatar.visibility = View.GONE
@@ -92,6 +93,9 @@ open class UserListAdapter(
         /** 互关徽章；只有 cell_user_list 有这个控件，子类换布局（cell_up_list）时为 null。 */
         val badge: TextView? = itemView.findViewById(R.id.mutualBadge)
 
+        /** 特别关注徽章；换布局时同样为 null，语义同 [badge]。 */
+        val specialBadge: TextView? = itemView.findViewById(R.id.specialBadge)
+
         // 缓存上次解析的颜色值和原始字符串，避免重复调用 Color.parseColor
         private var cachedColorString: String? = null
         private var cachedColor: Int = ColorScheme.TEXT_PRIMARY
@@ -114,6 +118,8 @@ open class UserListAdapter(
         }
 
         init {
+            // 金色跟着亮/暗模式走（亮色模式用更深的金），布局里的 @color/gold 只是兜底
+            specialBadge?.setTextColor(ColorScheme.getGold(itemView.context))
             // 点击事件只在创建时设置一次，避免 onBindViewHolder 中重复创建 lambda
             itemView.setOnClickListener {
                 val position = bindingAdapterPosition
