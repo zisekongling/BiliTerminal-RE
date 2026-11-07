@@ -51,6 +51,8 @@
   - **L0 验证（26.11.07 实测，本机已注入 `private/`）**：两 flavor 全量单测各 **197 suites / 2149 tests / 0 失败 0 错误**；`:app:assembleDebug`、`:app:testStandardDebugUnitTest`、`:app:testCoexistDebugUnitTest`、`:app:assembleRelease` 全部 BUILD SUCCESSFUL。
   - 调研清单第 **5/8/9/11/12** 条（教程旧链路收尾、播放器巨类收口、零测试模块补测、无障碍与热区、x86 瘦身）按用户 26.11.07 指示另拆工单，本批未展开。
 
+- **26.11.07 教程系统收尾（调研清单第 5 条；本机 `main` 已提交，本环境无 GitHub 凭据、未 push）**：①5 条页面滑动提示改成注册表驱动的 `TutorialKind.HINT`（`Tutorials.hints`），新增 `tutorial/TutorialHints.kt` 统一渲染，页数读宿主 ViewPager / ViewPager2 的**真实页数**（旧实现写死 3/4/2/2，搜索页还是 `size-1`），5 个宿主页不再手写 `showPagerTutorial(activity, 页数)`，`SearchActivity` 自己抄的那份显隐逻辑删除；②`TutorialStore` 的 `isRead` / `markRead` / `clear` 按 kind 分流，管理页改由 `Tutorials.all` + `Tutorials.hints` 渲染，不再维护 `HINT_PAGES` 硬编码清单；③**旧链路整体删除**：`helper/TutorialHelper.kt`、`activity/TutorialActivity.kt`、`model/Tutorial.java`、`model/CustomText.java`、`res/layout/activity_tutorial.xml`、`res/xml/tutorial_*.xml` ×12、`strings.xml` 的 10 个 `tutorial_*` 数组与 2 条只被 `TutorialHelper` 使用的文案、Manifest 旧教程页注册；④存档键仍是 `tutorial_pager_<宿主类名>`，老用户「看过不再弹」不会重来。**L0（26.11.07 实测，隔离工作树、未同步 `private/`）**：`:app:assembleDebug`、`:app:testStandardDebugUnitTest`、`:app:testCoexistDebugUnitTest`、`:app:assembleRelease` 全部 BUILD SUCCESSFUL，两 flavor 各 **175 suites / 1911 tests / 0 失败 0 错误**。真机未验项见 §2.1，交接单 [`review/manual-test-guide-261107-tutorial-hint.md`](manual-test-guide-261107-tutorial-hint.md)（5 条）。
+
 - **下次递增（26.11.07 之后）必须同时做三件事，缺一件 CI 就红或用户收不到包**：
   1. **升 `versionCode`**（`app/build.gradle:45`，`versionName` 在 `:46`）：补丁版把尾号补成 tag 的 `.N`（`26.11.07.2` → `2611072`）。CI 的 `verify-version` 现在硬校验「`versionCode` 末位 == tag 的 `.N` 后缀」，写错直接发版失败（26.11.07.1 事故的封堵，先例 `1c404c3` 只升尾号、`versionName` 不动；而 `UpdateManager` 是严格大于比较，尾号不升老用户收不到修正包）。
   2. **改 `strings.xml` 的 `update_log_current` 锚点**为「【YY.MM.DD 本次更新】」，否则 `:app:verifyVersionConsistency` 失败、CI 抽不到发版说明。
@@ -87,7 +89,7 @@
 
 ### 2.1 真机未验证（无设备 / 无登录态）
 
-- [ ] **26.11.07 教程旧链路收尾（调研清单第 5 条）的翻页提示未验（L2，只能看画面）**：5 个宿主页（搜索 / 视频详情 / 用户主页 / 专栏详情 / 动态详情）首次进入应出现「←这个页面可以左右翻页喵→（共有 N 页）」，N 要与真实分页数一致（视频详情：公开包 2 页、注入了私有功能带「演职人员」页时 3 页；搜索页按启用的搜索类别数）；左右滑一次后提示消失且不再出现；同页还有全屏教程（视频详情 `video_main`）时，提示要等教程关闭后才出现，不能在教程盖住时被记成「已展示」；管理页「重置所有页面滑动引导」后回到页面应重新出现；老用户（`tutorial_pager_*` 已有存档）升级后**不应**重新弹。
+- [ ] **26.11.07 教程旧链路收尾（调研清单第 5 条）的翻页提示未验（L2，只能看画面；交接单 [`review/manual-test-guide-261107-tutorial-hint.md`](manual-test-guide-261107-tutorial-hint.md)）**：5 个宿主页（搜索 / 视频详情 / 用户主页 / 专栏详情 / 动态详情）首次进入应出现「←这个页面可以左右翻页喵→（共有 N 页）」，N 要与真实分页数一致（视频详情：公开包 2 页、注入了私有功能带「演职人员」页时 3 页；搜索页按启用的搜索类别数）；左右滑一次后提示消失且不再出现；同页还有全屏教程（视频详情 `video_main`）时，提示要等教程关闭后才出现，不能在教程盖住时被记成「已展示」；管理页「重置所有页面滑动引导」后回到页面应重新出现；老用户（`tutorial_pager_*` 已有存档）升级后**不应**重新弹。
 
 - [ ] **26.11.07 调研清单第 1、2 条的观感与端到端未验（L2 / L1）**：①Opus 正文段落里的 `@某某` 与网页链接现在按 `StringUtil.LinkClickableSpan` 的链接色渲染并可点（此前是普通正文色、点不动），需真机看：颜色与话题 / 动态正文一致、不抢正文、长按不误触；点 @ 进对应用户页；点链接进 `LinkUrlUtil.handleWebURL` 的正确地址（服务端会把显示文本缩短成 `av1`，点击必须用 `jump_url`，单测只锁了解析、没锁真实跳转）。②弹幕下载失败（弹幕地址 404/412 或 CDN 返回空正文）时应提示失败、不再把错误页写进 `danmaku.xml`：用 Debug 包把 `danmaku_url` 换成必然 404 的地址，播放页应报错且 `danmaku.xml` 不出现错误页；本地列表「更新弹幕」走同一路径。
 

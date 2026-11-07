@@ -53,6 +53,7 @@
 | [`review/real-device-regression-checklist.md`](review/real-device-regression-checklist.md) | 发版前真机回归清单（260 条，唯一编号 1–258；含第十三节视觉面；条目只增不改，失效就地标注作废） | 每个发行版 |
 | [`review/agent-test-guide.md`](review/agent-test-guide.md) | Debug 包的 agent 测试手册：调试桥命令、可观测性设施、已知限制与设计原则 | 增删调试能力 / 调试桥命令时 |
 | [`review/manual-test-guide-261106.md`](review/manual-test-guide-261106.md) | 人机双轨的验收清单：26.11.06 新增功能的 34 条用例（无技术术语，含「不算 bug」与已知限制），每条另标 AI 能不能断言（7 条可断言 / 14 条半自动 / 13 条只能人判） | 找人验收新功能 / 自己按步骤过一遍 / 想知道某条该不该交给 AI 时 |
+| [`review/manual-test-guide-261107-tutorial-hint.md`](review/manual-test-guide-261107-tutorial-hint.md) | 26.11.07 教程翻页提示迁移的验收单（5 条，约 8 分钟）：5 个宿主页的提示文字与页数、出现/收起的时机、管理页通过/清除、老存档不重弹；每条带 `AI 断言` 的可执行取证命令 | 验收教程收尾这次改动 / 下一个拿到设备的 agent 直接照做时 |
 | [`review/compare-with-re-biliterminal-261024.md`](review/compare-with-re-biliterminal-261024.md) | 与同源分支 `cyq114514/Re-BiliTerminal`（1.2.3fix）的六维对比审计：91 条问题（P0×2 / P1×20 / P2×69）、定量总表、P0–P2 路线图、四轮核验；**按目标设备口径（旧版安卓手表）评分** | 再次对比 / 排期取建议时；结论基于 2026-10-24 双方 HEAD |
 | [`review/fork-comparison-2026-11-06.md`](review/fork-comparison-2026-11-06.md) | 三个兄弟分支（Revival / PianoEthan / cyq 1.3.0）与我们的功能增量对比、实现质量优化、不建议照搬清单与三批实施路线；分报告在 `review/forks/` | 排期移植 / 参考兄弟分支实现时；结论基于 2026-11-06 双方 HEAD |
 | [`superpowers/plans/2026-08-27-new-features-roadmap.md`](superpowers/plans/2026-08-27-new-features-roadmap.md) | 功能路线图 + 从各报告回迁的仍未落地项 | 排期 / 落地后 |
@@ -62,7 +63,7 @@
 | [`superpowers/specs/2026-10-14-console-v2-design.md`](superpowers/specs/2026-10-14-console-v2-design.md) | 控制台 v2 改造方案：数据稳定性、定向回复、删除、单文件前端、共存版去重（`server/` + APK 侧匿名遥测链路）；只做方案设计 | 维护控制台 / 改遥测上报链路时 |
 | [`superpowers/specs/2026-10-25-dash-merge-single-file.md`](superpowers/specs/2026-10-25-dash-merge-single-file.md) | DASH 下载改合并单文件：合并时机、失败回退保留双文件、端到端待登录实测 | 改下载合并 / 排查双文件缓存时 |
 | [`superpowers/specs/2026-11-06-player-ui-custom-layout.md`](superpowers/specs/2026-11-06-player-ui-custom-layout.md) | 播放器界面设置（假播放器）与按钮自定义布局：槽位模型、七组设置、默认布局与验收标准；**已实施** | 改播放器按钮 / 播放器界面设置时 |
-| [`tutorial-system-redesign.md`](tutorial-system-redesign.md) | 教程系统重做（含 §五 待办 4 项） | 动教程时 |
+| [`tutorial-system-redesign.md`](tutorial-system-redesign.md) | 教程系统重做（**已完成**：注册表驱动 + 旧链路已删；§五 记录迁移明细，剩余待办只有强制声明清单） | 动教程时 |
 | [`copy-inventory/README.md`](copy-inventory/README.md) | 全仓文案清单总索引（7 份、1012 条：`A` 应用身份 / `L` 更新日志 / `T` 教程 / `S` 设置项 / `U` 页面静态文案 / `M` 运行时提示 / `E` 彩蛋） | 改文案时按需打开对应那一份，改完在「改写」栏回填 |
 | [`copy-inventory/GUIDE.md`](copy-inventory/GUIDE.md) | 文案改写指南：同一句话的多出处、四种改法、十条红线、手表字数常识、自查清单、FAQ、**怎么把新文案交给 agent** | **动手改文案前先读这一份**，比总索引更先看 |
 | [`copy-inventory/DUPLICATES.md`](copy-inventory/DUPLICATES.md) | 重复文案报告：16 组同一句话的多处位置（逐字相同的 8 组 + 措辞不一致的 8 组 + 刻意保留的 4 类） | 改任何一句之前查它，避免改一处漏一处 |
