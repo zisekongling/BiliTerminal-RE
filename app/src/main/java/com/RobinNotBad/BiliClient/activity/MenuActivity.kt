@@ -110,13 +110,18 @@ class MenuActivity : BaseActivity() {
 
         findViewById<android.view.View>(R.id.top).setOnClickListener { finish() }
 
-        var btnList: MutableList<String> = SharedPreferencesUtil.loadMenuEnabled().toMutableList()
+        val enabledMenu = SharedPreferencesUtil.loadMenuEnabled()
+        var btnList: MutableList<String> = enabledMenu.toMutableList()
 
         // 会话哨兵：上次有没看完的视频时，主页顶部给一个「继续播放」入口。
         // 这里刻意不做「一启动就续播」——手表上打开应用往往是想去别处，被播放器抢前台很烦；
         // 菜单项既不打扰又比藏在二级页好找。会话在 PlayerApi.buildResumeIntent 里做过期/过短过滤。
+        //
+        // 26.11.07：这一项和「退出」同待遇，进菜单配置（见 MenuConfig.RESUME）——默认不启用，
+        // 用户想留就在「菜单设置」里打开；启用且有会话时依旧置顶，没会话时连空位都不留。
         val resumeIntent: Intent? = PlayerApi.buildResumeIntent(this)
-        if (resumeIntent != null) btnList.add(0, "resume")
+        btnList.remove(MenuConfig.RESUME)
+        if (resumeIntent != null && MenuConfig.RESUME in enabledMenu) btnList.add(0, MenuConfig.RESUME)
 
         if (SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) == 0L) {
             btnList.add(0, "login")
@@ -133,7 +138,7 @@ class MenuActivity : BaseActivity() {
             when (btn) {
                 "login" -> materialButton.text = UiText.of("登录")
                 MenuConfig.EXIT -> materialButton.text = getString(R.string.btn_exit)
-                "resume" -> materialButton.text = getString(R.string.player_queue_resume_last)
+                MenuConfig.RESUME -> materialButton.text = getString(R.string.player_queue_resume_last)
                 "dynamic" -> {
                     var btnText = btnNames[btn]!!.first
                     if (btn == "dynamic") {
@@ -161,7 +166,7 @@ class MenuActivity : BaseActivity() {
             materialButton.setOnClickListener {
                 when {
                     btn == MenuConfig.EXIT -> exitAppCompletely()
-                    btn == "resume" -> {
+                    btn == MenuConfig.RESUME -> {
                         if (resumeIntent != null) startActivity(resumeIntent)
                         finish()
                     }

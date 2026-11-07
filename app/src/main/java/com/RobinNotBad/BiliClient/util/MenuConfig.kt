@@ -37,9 +37,21 @@ object MenuConfig {
      */
     const val EXIT = "exit"
 
+    /**
+     * 动作项「继续播放」的菜单 key：不是页面（拉起上次的播放会话后收掉主页）。
+     *
+     * 26.11.07 之前它是菜单页里硬编码的「有会话就插到第一位」——用户关不掉、也移不走
+     * （反馈：不想让菜单第一项总被一个按钮占着）。现在和 [EXIT] 同待遇：进菜单配置，
+     * 能排序、能关掉，**默认不启用**（[DEFAULT_ENABLED] 里不含它）。
+     */
+    const val RESUME = "resume"
+
+    /** 全部动作项：不是页面，既不能当启动页，也不能按「页面」的默认值处理。 */
+    val ACTION_ITEMS: List<String> = listOf(EXIT, RESUME)
+
     /** 全量菜单 key = 公共项 + 可选私有项 + 动作项（顺序即默认展示顺序）。 */
     val ALL_ITEMS: List<String>
-        get() = BASE_ITEMS + OPTIONAL_ITEMS + listOf(EXIT)
+        get() = BASE_ITEMS + OPTIONAL_ITEMS + ACTION_ITEMS
 
     /** 固定不可隐藏的菜单项。 */
     val FIXED_ITEMS = setOf("recommend", "search", "local", "settings")
@@ -57,9 +69,14 @@ object MenuConfig {
         "timeline" to false
     )
 
-    /** 默认已启用列表（新装用户、无旧数据时的结果）。 */
+    /**
+     * 默认已启用列表（新装用户、无旧数据时的结果）。
+     *
+     * [RESUME] 是**默认关闭**的动作项：它只在有未看完会话时才有意义，不该默认占着菜单
+     * 第一项（26.11.07 用户要求默认隐藏，想要的话自己去菜单设置里打开）。
+     */
     val DEFAULT_ENABLED: List<String> = ALL_ITEMS.filter { key ->
-        key in FIXED_ITEMS || key !in SWITCHABLE_KEYS || SWITCH_DEFAULTS.getValue(key)
+        key != RESUME && (key in FIXED_ITEMS || key !in SWITCHABLE_KEYS || SWITCH_DEFAULTS.getValue(key))
     }
 
     fun serialize(enabled: List<String>): String = enabled.joinToString(";")
@@ -106,7 +123,10 @@ object MenuConfig {
      * 以旧排序为基准（非法则用默认顺序），按旧开关过滤，最后补全缺失的固定项。
      */
     fun resolveEnabledList(oldSort: String?, oldSwitches: Map<String, Boolean>): List<String> {
-        val base = parse(oldSort) ?: ALL_ITEMS
+        // 旧排序非法时退回「默认已启用列表」，而不是 [ALL_ITEMS]：后者含 [RESUME]，
+        // 会顺着下面的 else 分支被当成「不在开关表里 → 默认启用」，让老用户菜单里
+        // 莫名多出「继续播放」。
+        val base = parse(oldSort) ?: DEFAULT_ENABLED
         val enabled = base.filter { key ->
             if (key in FIXED_ITEMS) true
             else if (key in SWITCHABLE_KEYS) oldSwitches[key] ?: SWITCH_DEFAULTS.getValue(key)
@@ -114,7 +134,8 @@ object MenuConfig {
         }.toMutableList()
         for (key in ALL_ITEMS) {
             // 固定项 / 可选私有项必须齐全；[EXIT] 是默认启用的动作项，旧排序里同样没有它，
-            // 一并补在末尾（用户自己关掉它是另一回事：那时走的是 menu_enabled 直读路径）
+            // 一并补在末尾（用户自己关掉它是另一回事：那时走的是 menu_enabled 直读路径）。
+            // [RESUME] 故意**不补**：它默认就该是关的，老用户升级后菜单里不该突然多一项。
             if ((key in FIXED_ITEMS || key in OPTIONAL_ITEMS || key == EXIT) && key !in enabled) {
                 enabled.add(key)
             }
@@ -205,13 +226,13 @@ object MenuConfig {
      * 解析启动页 key：已存值仍在已启用列表里就沿用，否则退回 [DEFAULT_START]。
      * 极端情况下（启用列表里连推荐都没有）才退回列表首项，最后兜底 [DEFAULT_START]。
      *
-     * [EXIT] 是动作项不是页面，永远不能当启动页（不然开机就直接收摊），
-     * 所以它既不作沿用值、也不作列表首项兜底。
+     * [EXIT] / [RESUME] 是动作项不是页面，永远不能当启动页（不然开机就直接收摊 /
+     * 直接进播放器），所以它们既不作沿用值、也不作列表首项兜底。
      */
     fun resolveStart(enabled: List<String>, stored: String?): String = when {
-        stored != null && stored != EXIT && stored in enabled -> stored
+        stored != null && stored !in ACTION_ITEMS && stored in enabled -> stored
         DEFAULT_START in enabled -> DEFAULT_START
-        else -> enabled.firstOrNull { it != EXIT } ?: DEFAULT_START
+        else -> enabled.firstOrNull { it !in ACTION_ITEMS } ?: DEFAULT_START
     }
 
     /**
@@ -226,8 +247,8 @@ object MenuConfig {
     ): String {
         val stored = readString(SharedPreferencesUtil.MENU_START)?.takeIf { it.isNotBlank() }
         val resolved = resolveStart(enabled, stored)
-        // 指向 [EXIT] 的旧值（或已不在启用列表里的值）一样要改回默认：退出项不是页面
-        if (stored != null && (stored == EXIT || stored !in enabled)) {
+        // 指向动作项的旧值（或已不在启用列表里的值）一样要改回默认：动作项不是页面
+        if (stored != null && (stored in ACTION_ITEMS || stored !in enabled)) {
             writeString(SharedPreferencesUtil.MENU_START, resolved)
         }
         return resolved

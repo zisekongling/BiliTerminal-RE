@@ -155,6 +155,10 @@
     <string name="desc_cover_play">打开此选项，点击封面将播放视频，否则将查看大图。</string>
     <string name="desc_tags_enable">打开此选项，视频详情页会显示形如“原神UP主激励计划/原神/纳西妲/手机游戏”的视频标签</string>
     <string name="desc_related_enable">打开此选项，视频详情页的评论区右侧会有相关视频推荐</string>
+    <string name="setting_detail_note_entry">视频笔记</string>
+    <string name="desc_setting_detail_note_entry">打开此选项，视频详情页的动作区会显示「笔记」按钮（需要登录）；默认关闭</string>
+    <string name="setting_detail_share_row_entry">分享到其他设备</string>
+    <string name="desc_setting_detail_share_row_entry">打开此选项，视频详情页的动作区会显示跨设备分享入口；默认关闭</string>
     <string name="desc_creative_enable">打开此选项，在“我的”页面会显示创作中心（可查看投稿视频的数据变化情况）</string>
     <string name="desc_ban_gallery">打开此选项，缓存的视频将不会出现在系统相册中</string>
     <string name="desc_copy_enable">打开此选项，长按一些文字（如视频描述或评论）可以打开复制界面以复制这些文本</string>
@@ -835,6 +839,7 @@
     <string name="desc_menu_fixed">固定</string>
     <string name="desc_menu_fixed_hint">此项不可隐藏</string>
     <string name="msg_menu_exit_not_start">「退出」不能设为启动页</string>
+    <string name="msg_menu_resume_not_start">「继续播放」不是页面，不能设为启动页</string>
     <string name="desc_menu_help_title">使用说明（点按展开）</string>
     <string name="desc_menu_help_body">启动页：勾选的那一项就是打开应用后直接进入的页面，点按已启用项即可改选（默认「推荐」）\n点按本说明可展开或收起；2 秒内连续长按两次可把它隐藏\n长按并拖动可调整菜单顺序\n拖入未启用区域可将其移入未启用列表，点按未启用项放回末尾\n推荐、设置、缓存、搜索固定不可隐藏</string>
     <string name="msg_menu_help_hide_hint">再长按一次即可隐藏说明</string>

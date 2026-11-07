@@ -184,9 +184,14 @@ class MenuSettingAdapter(
             val curIndex = cur - enabledStart()
             if (curIndex !in enabled.indices) return@setOnClickListener
             val curKey = enabled[curIndex]
-            // 「退出」是动作项，不能当启动页（选了开机就直接收摊），短按只提示
-            if (curKey == MenuConfig.EXIT) {
-                MsgUtil.showMsg(holder.itemView.context.getString(R.string.msg_menu_exit_not_start))
+            // 动作项（「退出」「继续播放」）不能当启动页：一个开机就收摊，一个开机直接进播放器
+            if (curKey in MenuConfig.ACTION_ITEMS) {
+                MsgUtil.showMsg(
+                    holder.itemView.context.getString(
+                        if (curKey == MenuConfig.RESUME) R.string.msg_menu_resume_not_start
+                        else R.string.msg_menu_exit_not_start
+                    )
+                )
                 return@setOnClickListener
             }
             if (startKey == curKey) return@setOnClickListener

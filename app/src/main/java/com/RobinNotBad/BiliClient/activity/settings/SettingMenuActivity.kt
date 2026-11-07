@@ -32,8 +32,9 @@ class SettingMenuActivity : BaseActivity() {
 
         val adapter = MenuSettingAdapter(enabled, start, helpHidden) { key ->
             when (key) {
-                // 「退出」不在 btnNames 里（它是动作项不是页面），名字单独取
+                // 「退出」「继续播放」不在 btnNames 里（它们是动作项不是页面），名字单独取
                 MenuConfig.EXIT -> getString(R.string.btn_exit)
+                MenuConfig.RESUME -> getString(R.string.player_queue_resume_last)
                 else -> MenuActivity.btnNames[key]?.first ?: key
             }
         }

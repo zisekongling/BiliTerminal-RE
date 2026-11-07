@@ -162,8 +162,10 @@ class MenuConfigTest {
 
     @Test
     fun disabledFrom_returnsCanonicalComplement() {
+        // 未启用区 = 全量顺序减去已启用项；「继续播放」（26.11.07 起是默认关闭的动作项）
+        // 排在最后，用户在菜单设置里能把它拖回已启用区。
         assertEquals(
-            listOf("precious", "ranking", "live", "timeline"),
+            listOf("precious", "ranking", "live", "timeline", MenuConfig.RESUME),
             MenuConfig.disabledFrom(MenuConfig.DEFAULT_ENABLED)
         )
     }
@@ -397,5 +399,82 @@ class MenuConfigTest {
         // 缓存是固定项：不存在「断网目标页被移入未启用」这种组合
         assertTrue(MenuConfig.OFFLINE_START in MenuConfig.FIXED_ITEMS)
         assertTrue(MenuConfig.OFFLINE_START in MenuConfig.ALL_ITEMS)
+    }
+
+    // ---- 动作项「继续播放」（26.11.07：默认不启用，用户可自己打开）----
+
+    @Test
+    fun resume_isActionItemButNotEnabledByDefault() {
+        // 26.11.07 之前它是有会话就硬插到第一位的固定按钮，用户关不掉；
+        // 现在进菜单配置、能排序能关掉，但默认必须是关的
+        assertTrue(MenuConfig.RESUME in MenuConfig.ALL_ITEMS)
+        assertTrue(MenuConfig.RESUME in MenuConfig.ACTION_ITEMS)
+        assertTrue(MenuConfig.RESUME !in MenuConfig.DEFAULT_ENABLED)
+        assertEquals(MenuConfig.EXIT, MenuConfig.DEFAULT_ENABLED.last())
+    }
+
+    @Test
+    fun loadEnabled_oldDataWithoutResume_keepsItDisabled() {
+        // 老用户存下的 menu_enabled 里没有 resume，升级后菜单不该突然多出「继续播放」
+        val old = MenuConfig.serialize(MenuConfig.DEFAULT_ENABLED)
+        var wrote = false
+        val result = MenuConfig.loadEnabled(
+            readString = { key ->
+                if (key == SharedPreferencesUtil.MENU_ENABLED) old else null
+            },
+            readBoolean = { null },
+            writeString = { _, _ -> wrote = true }
+        )
+        assertTrue(MenuConfig.RESUME !in result)
+        // 配置本身合法（固定项齐全），不该被当成老数据改写
+        assertEquals(false, wrote)
+    }
+
+    @Test
+    fun loadEnabled_userEnabledResume_isPreserved() {
+        // 用户在菜单设置里把「继续播放」放回已启用（并排在最前）：读回来顺序不能动
+        val stored = MenuConfig.serialize(listOf(MenuConfig.RESUME) + MenuConfig.DEFAULT_ENABLED)
+        var wrote = false
+        val result = MenuConfig.loadEnabled(
+            readString = { key ->
+                if (key == SharedPreferencesUtil.MENU_ENABLED) stored else null
+            },
+            readBoolean = { null },
+            writeString = { _, _ -> wrote = true }
+        )
+        assertEquals(0, result.indexOf(MenuConfig.RESUME))
+        assertEquals(stored, MenuConfig.serialize(result))
+        assertEquals(false, wrote)
+    }
+
+    @Test
+    fun resolveStart_resumeIsNeverAStartPage() {
+        assertEquals(
+            "recommend",
+            MenuConfig.resolveStart(MenuConfig.DEFAULT_ENABLED, MenuConfig.RESUME)
+        )
+        // 连推荐都缺时跳过动作项，取第一个真正的页面
+        assertEquals(
+            "search",
+            MenuConfig.resolveStart(listOf(MenuConfig.RESUME, MenuConfig.EXIT, "search"), null)
+        )
+        // 只剩动作项时退回默认启动页，不能返回 resume
+        assertEquals("recommend", MenuConfig.resolveStart(listOf(MenuConfig.RESUME), null))
+    }
+
+    @Test
+    fun loadStart_storedResume_rewritesDefault() {
+        var written: String? = null
+        val result = MenuConfig.loadStart(
+            enabled = MenuConfig.DEFAULT_ENABLED,
+            readString = { key ->
+                if (key == SharedPreferencesUtil.MENU_START) MenuConfig.RESUME else null
+            },
+            writeString = { key, value ->
+                if (key == SharedPreferencesUtil.MENU_START) written = value
+            }
+        )
+        assertEquals("recommend", result)
+        assertEquals("recommend", written)
     }
 }
