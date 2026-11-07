@@ -223,14 +223,14 @@ class AccountSwitchActivity : BaseActivity() {
                 val displayName = if (savedName != null && savedName.isNotEmpty()) savedName else "UID:" + account.mid
                 TerminalDialog.confirm(
                     context = this,
-                    title = "删除账号",
-                    message = "确定要删除账号 $displayName 吗？\n删除后需重新登录才能恢复。",
-                    confirmText = "删除"
+                    title = getString(R.string.accountswitch_delete_title),
+                    message = getString(R.string.accountswitch_delete_message, displayName),
+                    confirmText = getString(R.string.accountswitch_delete_confirm)
                 ) {
                     if (AccountManager.removeAccount(account.mid)) {
                         MsgUtil.showMsg(getString(R.string.msg_accountswitchactivity_002))
                     } else {
-                        MsgUtil.showMsg(getString(R.string.msg_accountswitchactivity_003))
+                        MsgUtil.showMsg(getString(R.string.msg_accountswitchactivity_005))
                     }
                     refreshAccountList()
                 }.show()

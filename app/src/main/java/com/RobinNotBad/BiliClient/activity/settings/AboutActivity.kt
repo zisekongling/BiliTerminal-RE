@@ -48,22 +48,22 @@ class AboutActivity : BaseActivity() {
         private val DEVELOPERS_RE = listOf(
             Developer("紫色空灵", "", R.mipmap.avatar_zise, 591904067L, R.string.about_dev_trae_desc),
             Developer("千awa", "", R.mipmap.avatar_qianawa, 1786791133L, R.string.about_dev_qianawa),
-            Developer("Kuinone", "Kuinone可能是迄今为止唯一一个符合RESTful API规范的苯醌", R.mipmap.avatar_kuinone, 475731079L),
+            Developer("Kuinone", "", R.mipmap.avatar_kuinone, 475731079L, R.string.about_dev_kuinone_desc),
         )
 
         /** 主要开发者。 */
         private val DEVELOPERS_MAIN = listOf(
-            Developer("RobinNotBad", "和他的纳西妲酱（项目发起者|屎山奠基人）", R.mipmap.avatar_robin, 646521226L),
-            Developer("爅峫（moye）", "你就说能不能用吧（代码贡献量大|屎山铺路人|想换个头像的说）", R.mipmap.avatar_moye, 394675616L),
+            Developer("RobinNotBad", "", R.mipmap.avatar_robin, 646521226L, R.string.about_dev_robin_desc),
+            Developer("爅峫（moye）", "", R.mipmap.avatar_moye, 394675616L, R.string.about_dev_moye_desc),
         )
 
         /** 联合开发者。 */
         private val DEVELOPERS_JOINT = listOf(
-            Developer("silent碎月", "我是镜流小姐的狗", R.mipmap.avatar_silent, 40140732L),
-            Developer("dudu", "一个摆烂的开发者", R.mipmap.avatar_dudu, 517053179L),
-            Developer("达达", "（这位开发者很懒，什么也没有留下）", -1, 432128342L),
-            Developer("huanli233", "与你的日常，就是奇迹", R.mipmap.avatar_huanli, 673815151L),
-            Developer("Jank000.h", "CQCQCQ，这里是BI1TIA，是否有友台能够抄收？", R.mipmap.avatar_jank, 661403494L),
+            Developer("silent碎月", "", R.mipmap.avatar_silent, 40140732L, R.string.about_dev_silent_desc),
+            Developer("dudu", "", R.mipmap.avatar_dudu, 517053179L, R.string.about_dev_dudu_desc),
+            Developer("达达", "", -1, 432128342L, R.string.about_dev_dada_desc),
+            Developer("huanli233", "", R.mipmap.avatar_huanli, 673815151L, R.string.about_dev_huanli_desc),
+            Developer("Jank000.h", "", R.mipmap.avatar_jank, 661403494L, R.string.about_dev_jank_desc),
         )
     }
 
@@ -75,12 +75,15 @@ class AboutActivity : BaseActivity() {
             Log.e("debug", "进入关于页面")
 
             try {
-                val versionStr = SpannableString("版本名\n" + packageManager.getPackageInfo(packageName, 0).versionName)
-                versionStr.setSpan(StyleSpan(Typeface.BOLD), 0, 3, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+                // 前两行标签加粗，值不加粗：加粗区间按标签实际长度算，翻译改了字数也不会错位
+                val nameLabel = getString(R.string.text_activitysettingabout_07)
+                val versionStr = SpannableString(nameLabel + "\n" + packageManager.getPackageInfo(packageName, 0).versionName)
+                versionStr.setSpan(StyleSpan(Typeface.BOLD), 0, nameLabel.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
                 (findViewById<TextView>(R.id.app_version)).text = versionStr
 
-                val codeStr = SpannableString("版本号\n" + packageManager.getPackageInfo(packageName, 0).versionCode)
-                codeStr.setSpan(StyleSpan(Typeface.BOLD), 0, 3, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+                val codeLabel = getString(R.string.text_activitysettingabout_06)
+                val codeStr = SpannableString(codeLabel + "\n" + packageManager.getPackageInfo(packageName, 0).versionCode)
+                codeStr.setSpan(StyleSpan(Typeface.BOLD), 0, codeLabel.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
                 (findViewById<TextView>(R.id.app_version_code)).text = codeStr
 
                 val currentLogItems = resources.getStringArray(R.array.update_log_current)

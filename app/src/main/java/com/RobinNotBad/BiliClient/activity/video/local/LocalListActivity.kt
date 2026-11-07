@@ -579,7 +579,7 @@ class LocalListActivity : InstanceActivity() {
         TerminalDialog.confirm(
             this,
             UiText.of("拆散文件夹"),
-            "视频会移回未分类区域。",
+            UiText.of("视频会移回未分类区域。"),
             UiText.of("拆散")
         ) {
             disbandFolder(folderIndex)
@@ -624,7 +624,7 @@ class LocalListActivity : InstanceActivity() {
                     runOnUiThread { MsgUtil.showMsg(UiText.of("弹幕地址获取失败")) }
                 }
             } catch (e: Exception) {
-                runOnUiThread { MsgUtil.showMsg("弹幕更新失败: ${e.message}") }
+                runOnUiThread { MsgUtil.showMsg(UiText.fmt("弹幕更新失败: %1\$s", e.message)) }
             }
         }
     }
@@ -826,7 +826,7 @@ class LocalListActivity : InstanceActivity() {
         TerminalDialog.confirm(
             this,
             UiText.of("删除视频"),
-            "此操作不可恢复。",
+            UiText.of("此操作不可恢复。"),
             UiText.of("删除")
         ) {
             performDelete(video)
@@ -896,13 +896,15 @@ class LocalListActivity : InstanceActivity() {
             return
         }
 
-        val folderNames = folders.map { "${it.name} (${it.getVideoCount()}个视频)" }.toTypedArray()
+        val folderNames = folders.map {
+            UiText.fmt("%1\$s (%2\$d个视频)", it.name, it.getVideoCount())
+        }.toTypedArray()
 
-        showListDialog("移动到文件夹", folderNames.toList()) { which ->
+        showListDialog(UiText.of("移动到文件夹"), folderNames.toList()) { which ->
             CenterThreadPool.run {
                 if (FolderManager.addVideoToFolder(video.title, folders[which].name)) {
                     runOnUiThread {
-                        MsgUtil.showMsg("已移动到「${folders[which].name}」")
+                        MsgUtil.showMsg(UiText.fmt("已移动到「%1\$s」", folders[which].name))
                         refresh()
                     }
                 }
@@ -1194,8 +1196,10 @@ class LocalListActivity : InstanceActivity() {
             return
         }
 
-        val folderNames = folders.map { "${it.name} (${it.getVideoCount()}个视频)" }
-        showListDialog("移动到文件夹", folderNames) { which ->
+        val folderNames = folders.map {
+            UiText.fmt("%1\$s (%2\$d个视频)", it.name, it.getVideoCount())
+        }
+        showListDialog(UiText.of("移动到文件夹"), folderNames) { which ->
             val target = folders.getOrNull(which) ?: return@showListDialog
             CenterThreadPool.run {
                 for (title in titles) FolderManager.addVideoToFolder(title, target.name)

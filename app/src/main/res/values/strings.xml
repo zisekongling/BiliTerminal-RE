@@ -5,6 +5,14 @@
     <string name="about_dev_trae_desc">RE：哔哩终端主要开发者</string>
     <!-- 千awa 的自我介绍，末尾刻意保留两个空格（原样），别顺手 trim 掉 -->
     <string name="about_dev_qianawa">"很懒，很忙，很累（  "</string>
+    <string name="about_dev_kuinone_desc">Kuinone可能是迄今为止唯一一个符合RESTful API规范的苯醌</string>
+    <string name="about_dev_robin_desc">和他的纳西妲酱（项目发起者|屎山奠基人）</string>
+    <string name="about_dev_moye_desc">你就说能不能用吧（代码贡献量大|屎山铺路人|想换个头像的说）</string>
+    <string name="about_dev_silent_desc">我是镜流小姐的狗</string>
+    <string name="about_dev_dudu_desc">一个摆烂的开发者</string>
+    <string name="about_dev_dada_desc">（这位开发者很懒，什么也没有留下）</string>
+    <string name="about_dev_huanli_desc">与你的日常，就是奇迹</string>
+    <string name="about_dev_jank_desc">CQCQCQ，这里是BI1TIA，是否有友台能够抄收？</string>
     <string name="about_say">软件名来自原神中的“虚空终端”\n最低兼容安卓7.0\n愿你在这一方小小的屏幕中，找到属于自己的小小的快乐\n提示：长按设置中的“关于”按钮有彩蛋哦！</string>
     <string name="about_group_tip">哔哩终端开发团队不会对个别用户出现的个别问题进行针对性修复，不会对特殊情况下才触发的问题进行及时修复，不会保证实现不必要或难以实现的功能。\n\n另外，如果你有能力修复问题，欢迎fork终端仓库提交pr</string>
     <string name="about_group">官网：https://biliterminal.zsapp.asia/\n如果你位于福建、河南、黑龙江等地区，您可能无法正常访问官网。\n\n交流群：1129816758</string>
@@ -16,7 +24,7 @@
     <string name="title_opensource_icon">开源图标许可</string>
     <string name="about_source">本程序使用或借鉴了下列项目的部分代码及其合法收集的API：\nWearBili：https://github.com/SpaceXC/WearBili\n腕上哔哩：https://github.com/luern0313/WristBilibili\nBAC Document：https://socialsisteryi.github.io/bilibili-API-collect\n小电视播放器：https://github.com/xinxiangshiicheng/xinxiangshicheng_wearbili_player\nKazumi：https://github.com/Predidit/Kazumi\n程序的界面借鉴于WearBili的UI部分，设计者为@JesseGary_（已得到授权）\n\n本程序使用的第三方库：\nOkHttp：com.squareup.okhttp3:okhttp\nGlide：com.github.bumptech.glide:glide\nPhotoView：com.github.chrisbanes:PhotoView\nJsoup：org.jsoup:jsoup\nEventBus：org.greenrobot:eventbus\nIJKPlayer：https://github.com/bilibili/ijkplayer\nDanmakuFlameMaster：com.github.ctiao:DanmakuFlameMaster\nGeetest：com.geetest.sensebot:sensebot\nAOSP：https://source.android.google.cn/\n\n软件图标提供者：银狐enlab（原图来自B站）\n其他部分图标来自网络，有修改，版权归原作者所有，如有侵权，请联系开发组删除。</string>
 
-    # 旧的免责声明
+    <!-- 旧的免责声明 -->
     <string name="about_to_uncle">本软件开发的目的是使配置较低的安卓手表与老旧手机能够使用B站网页端提供的部分基本功能。本软件基于B站网页端接口运行，不会对任何接口进行恶意轰炸。软件默认开启一项匿名的使用统计（只包含随机生成的安装号、版本号与机型，不含账号、Cookie；为在同一台设备同时安装普通版与共存版时不重复计数，另有一个由系统匿名标识派生、不可逆的哈希短串，仅用于设备去重），你可以在「设置 - 关于与帮助」中随时关闭，关闭后不再上报；崩溃时也会自动上报一份错误报告，同样可以关闭；崩溃页与反馈页另提供「附带应用日志」的选项（默认分别为勾选 / 不勾选，可自行更改），日志在写入前已做脱敏——登录凭据这类敏感参数的值会被替换成占位符，不会明文外发。软件不存在付费功能，代码完全开源，收到的捐赠仅用于软件服务器的日常维护。如果您仍然认为本软件侵犯了您的权利，请联系我们（有事好商量呜呜呜）\n同时，我们也不对学生用户在不恰当的时间、地点使用本软件导致的财产损失（设备被没收）或精神伤害（？）负责。请尽量自控，不要影响到自己的学习和生活哦！</string>
 
     <string name="desc_setup_ui">首次使用，非常建议调整下界面哦~\n调整下面的选项，然后查看预览\n直到对布局满意为止</string>
@@ -333,7 +341,7 @@
 
     <string name="update_tip">如果你是跨版本更新到这个版本的，可以前往官网biliterminal.zsapp.asia查看过往的更新日志。\n\n此版本为哔哩终端停更后的改版分支（RE:哔哩终端），基于原版2.7.0进行开发，保留了原版轻量流畅的特性并新增了大量功能。\n\n请注意：本项目通过AI辅助编程（vibe coding）开发，非官方项目，与原开发组无关，代码未经严格验证，使用风险自负。遇到bug请反馈给本分支维护者，不要找原版哔哩终端开发组。\n\n原版说明：为了防止被函，哔哩终端已经宣布停更，2.7.0为最后一个哔哩终端的官方正式版。\n       ——爅峫（moye）</string>
 
-    #新增功能放到上面，修复问题放下面，方便用户看见
+    <!-- 新增功能放到上面，修复问题放下面，方便用户看见 -->
     <string-array name="update_log_items">
         <item>【重要更新】</item>
         <item></item>
@@ -385,7 +393,7 @@
         <item>1. 全项目代码由Java重构为Kotlin，引入Hilt依赖注入、Retrofit与协程架构。</item>
     </string-array>
 
-    #本次版本更新日志（展示在关于页，与历史日志区分）
+    <!-- 本次版本更新日志（展示在关于页，与历史日志区分） -->
     <string-array name="update_log_current">
         <item>【26.11.07 本次更新】</item>
         <item>注意！！此版本多为实验性更新，可能存在未知bug</item>
@@ -396,33 +404,32 @@
         <item>5、热搜关键词改成跑马灯</item>
         <item>6、新增「滑动调进度灵敏度」</item>
         <item>7、播放器菜单新增「跳到指定时间」（实验性，打开时自动填好当前时间）</item>
-        <item>8、可以关掉「显示锁定按钮」</item>
-        <item>9、修了「部分视频一打开就报错」</item>
-        <item>10、修复跳过片头片尾功能</item>
-        <item>11、番剧换源播放（可以播放B站没有/大会员的番剧）</item>
-        <item>12、账号更稳登录更稳定</item>
-        <item>13、用户主页「已关注」长按可以直接加入关注分组、还能顺手新建分组</item>
-        <item>14、设置页搜索框不再一直钉在顶栏下面，跟着内容一起滚动</item>
-        <item>15、评论发图（所有人可用）</item>
-        <item>16、圆屏上长按弹出的二级菜单不再被表盘切掉</item>
-        <item>17、伪装界面也按圆屏收边距了</item>
-        <item>18、播放虚拟合集时，点哪一集就播哪一集</item>
-        <item>19、菜单里的「退出」也能排序和关掉了</item>
-        <item>20、播放器设置更好找了：内置播放器设置重新分成七组（手势与滑动 / 播放默认值 / 画面与显示 / 渲染与解码 / 弹幕 / 字幕 / 界面按钮）；顶部标题栏能关（显示标题 / 显示电量 / 显示时钟，默认全开）；锁定 / 解锁、跳到指定时间、连播队列都换了更清楚的图标</item>
-        <item>21、播放更稳：播放地址改双接口兜底；起播和暂停接上音频焦点，不再跟别的应用抢声音；弹幕超过 5000 条不自动加载（点弹幕按钮再加载）；弹幕加本地缓存，默认上限 64MB，可调到 128MB</item>
-        <item>22、连播队列能自己攒了（顺序 / 倒序 / 随机 / 单曲循环，媒体键和耳机也能切歌）；「继续播放」接着上次的位置播（进度存本地，超过 7 天或直播的不接）；番剧会记住每一集看到哪</item>
-        <item>23、片头片尾能分开处理了：关闭 / 只跳片头 / 只跳片尾 / 都跳 / 每次问我，五档</item>
-        <item>24、点带时间的弹幕直接跳到那个时间；长按屏幕上下划切上一个 / 下一个视频；自己发的弹幕加一圈边框；长按倍速的提示尺寸能调（80% / 100% / 120% / 150% 四档）</item>
-        <item>25、评论区更稳了：拉评论加了三层兜底，点赞和删除在几个页面之间会同步；收藏夹能直接搜、能在「全部收藏」一次看齐、支持批量下载（一次 20 个）；历史记录支持多选删除</item>
-        <item>26、私信能发表情了；用户主页显示性别、IP 属地和「互相关注」徽章；新增「存储空间」页：图片缓存、临时文件、更新包、可用空间一目了然，能按白名单清理</item>
-        <item>27、移动数据和 Wi-Fi 可以分别设默认画质；检查更新加了 20 秒超时，不再无限转圈；选择播放器页的清晰度摘要按当前网络分档显示</item>
-        <item>28、动态卡片上直接显示评论数和评论入口（之前点进详情，评论数总是 0）；推荐页一直往下刷更顺，不会重复推同一个视频；超大图不再一整张解码（分块渲染），看图集不容易闪退</item>
-        <item>29、主题能换背景图了：填充 / 适应两种铺法，四档遮罩（0 / 25% / 50% / 75%），还能和弥散光晕叠着用；定时发布可以自己选时间（6 分钟到 7 天）；搜索「用户」页补上了玻璃质感</item>
-        <item>30、关于页新增「赞赏」入口：先看一遍免责声明，点「同意」才显示收款码，可以双指放大看</item>
-        <item>31、修了崩溃页自己的越界崩溃、排行榜畸形数据崩溃、写评论页「楼中楼」隐藏图片入口失效、视频详情缺争议信息时崩、「没有更多了」反复弹、连播「按 UP 主投稿」拉错人</item>
+        <item>8、修了「部分视频一打开就报错」</item>
+        <item>9、修复跳过片头片尾功能</item>
+        <item>10、番剧换源播放（可以播放B站没有/大会员的番剧）</item>
+        <item>11、账号更稳登录更稳定</item>
+        <item>12、用户主页「已关注」长按可以直接加入关注分组、还能顺手新建分组</item>
+        <item>13、设置页搜索框不再一直钉在顶栏下面，跟着内容一起滚动</item>
+        <item>14、评论发图（所有人可用）</item>
+        <item>15、圆屏上长按弹出的二级菜单不再被表盘切掉</item>
+        <item>16、伪装界面也按圆屏收边距了</item>
+        <item>17、播放虚拟合集时，点哪一集就播哪一集</item>
+        <item>18、菜单里的「退出」也能排序和关掉了</item>
+        <item>19、播放器设置更好找了：内置播放器设置重新分成七组（手势与滑动 / 播放默认值 / 画面与显示 / 渲染与解码 / 弹幕 / 字幕 / 界面按钮）；顶部标题栏能关（显示标题 / 显示电量 / 显示时钟，默认全开）；锁定 / 解锁、跳到指定时间、连播队列都换了更清楚的图标</item>
+        <item>20、播放更稳：播放地址改双接口兜底；起播和暂停接上音频焦点，不再跟别的应用抢声音；弹幕超过 5000 条不自动加载（点弹幕按钮再加载）；弹幕加本地缓存，默认上限 64MB，可调到 128MB</item>
+        <item>21、连播队列能自己攒了（顺序 / 倒序 / 随机 / 单曲循环，媒体键和耳机也能切歌）；「继续播放」接着上次的位置播（进度存本地，超过 7 天或直播的不接）；番剧会记住每一集看到哪</item>
+        <item>22、片头片尾能分开处理了：关闭 / 只跳片头 / 只跳片尾 / 都跳 / 每次问我，五档</item>
+        <item>23、点带时间的弹幕直接跳到那个时间；长按屏幕上下划切上一个 / 下一个视频；自己发的弹幕加一圈边框；长按倍速的提示尺寸能调（80% / 100% / 120% / 150% 四档）</item>
+        <item>24、评论区更稳了：拉评论加了三层兜底，点赞和删除在几个页面之间会同步；收藏夹能直接搜、能在「全部收藏」一次看齐、支持批量下载（一次 20 个）；历史记录支持多选删除</item>
+        <item>25、私信能发表情了；用户主页显示性别、IP 属地和「互相关注」徽章；新增「存储空间」页：图片缓存、临时文件、更新包、可用空间一目了然，能按白名单清理</item>
+        <item>26、移动数据和 Wi-Fi 可以分别设默认画质；检查更新加了 20 秒超时，不再无限转圈；选择播放器页的清晰度摘要按当前网络分档显示</item>
+        <item>27、动态卡片上直接显示评论数和评论入口（之前点进详情，评论数总是 0）；推荐页一直往下刷更顺，不会重复推同一个视频；超大图不再一整张解码（分块渲染），看图集不容易闪退</item>
+        <item>28、主题能换背景图了：填充 / 适应两种铺法，四档遮罩（0 / 25% / 50% / 75%），还能和弥散光晕叠着用；定时发布可以自己选时间（6 分钟到 7 天）；搜索「用户」页补上了玻璃质感</item>
+        <item>29、关于页新增「赞赏」入口：先看一遍免责声明，点「同意」才显示收款码，可以双指放大看</item>
+        <item>30、修了崩溃页自己的越界崩溃、排行榜畸形数据崩溃、写评论页「楼中楼」隐藏图片入口失效、视频详情缺争议信息时崩、「没有更多了」反复弹、连播「按 UP 主投稿」拉错人</item>
     </string-array>
 
-    #历史更新日志（按日期分组，## 开头为日期标题，之后为当日日志条目）
+    <!-- 历史更新日志（按日期分组，## 开头为日期标题，之后为当日日志条目） -->
     <string-array name="update_history_log">
         <item>## 2026-11-02</item>
         <item>1、「虚拟合集」拆成两个独立开关：原「虚拟合集」继续负责把同一文件夹 / 收藏夹的视频组成合集连播（默认开）；新增「收藏夹视频点击即播」（设置 → 高级与实验 → 功能开关，默认关），开启后收藏夹里点卡片直接播放，关闭时点卡片进视频详情页，此时长按卡片可以「以虚拟合集连播」。</item>
@@ -784,40 +791,40 @@
     <string name="desc_search_suggestions_enable">打开此选项，在搜索页输入关键词时会自动显示搜索建议，关闭后仅显示搜索历史</string>
     <string name="desc_search_default_content_enable">打开此选项，搜索框会显示默认搜索内容作为占位符，未输入内容直接点击搜索时会搜索默认内容</string>
 
-    #后来写新功能添加的教程请放在列表的第一个
+    <!-- 后来写新功能添加的教程请放在列表的第一个 -->
     <array name="tutorial_space">
         <item>xml/tutorial_space_2</item>
         <item>xml/tutorial_space</item>
     </array>
-    #后来写新功能添加的教程请放在列表的第一个
+    <!-- 后来写新功能添加的教程请放在列表的第一个 -->
     <array name="tutorial_video">
         <item>xml/tutorial_video_2</item>
         <item>xml/tutorial_video</item>
     </array>
-    #后来写新功能添加的教程请放在列表的第一个
+    <!-- 后来写新功能添加的教程请放在列表的第一个 -->
     <array name="tutorial_search">
         <item>xml/tutorial_search</item>
     </array>
     <array name="tutorial_recommend">
         <item>xml/tutorial_recommend</item>
     </array>
-    #后来写新功能添加的教程请放在列表的第一个
+    <!-- 后来写新功能添加的教程请放在列表的第一个 -->
     <array name="tutorial_message">
         <item>xml/tutorial_message</item>
     </array>
-    #后来写新功能添加的教程请放在列表的第一个
+    <!-- 后来写新功能添加的教程请放在列表的第一个 -->
     <array name="tutorial_article">
         <item>xml/tutorial_article</item>
     </array>
-    #后来写新功能添加的教程请放在列表的第一个
+    <!-- 后来写新功能添加的教程请放在列表的第一个 -->
     <array name="tutorial_dynamic">
         <item>xml/tutorial_dynamic</item>
     </array>
-    #后来写新功能添加的教程请放在列表的第一个
+    <!-- 后来写新功能添加的教程请放在列表的第一个 -->
     <array name="tutorial_dynamic_info">
         <item>xml/tutorial_dynamic_info</item>
     </array>
-    #后来写新功能添加的教程请放在列表的第一个
+    <!-- 后来写新功能添加的教程请放在列表的第一个 -->
     <array name="tutorial_short_video">
         <item>xml/tutorial_short_video</item>
     </array>
@@ -1026,6 +1033,12 @@
     <string name="msg_accountswitchactivity_002">已删除账号</string>
     <string name="msg_accountswitchactivity_003">当前登录的账号不能删除，请先切换到其他账号</string>
     <string name="msg_accountswitchactivity_004">这个账号保存的登录信息不完整（或与用户 ID 对不上），切换已取消，请重新登录该账号</string>
+    <!-- 删除账号确认对话框与失败提示（26.11.07 从 AccountSwitchActivity 的硬编码文案搬过来） -->
+    <string name="accountswitch_delete_title">删除账号</string>
+    <string name="accountswitch_delete_message">确定要删除账号 %1$s 吗？
+删除后需重新登录才能恢复。</string>
+    <string name="accountswitch_delete_confirm">删除</string>
+    <string name="msg_accountswitchactivity_005">删除失败，请稍后重试</string>
     <string name="msg_login_status_passwordloginfragment_001">此设备无法显示人机验证，请改用扫码登录</string>
     <string name="msg_login_status_passwordloginfragment_002">验证已取消</string>
     <string name="msg_login_status_passwordloginfragment_003">请输入账号和密码</string>
@@ -1945,6 +1958,17 @@
     <string name="uitext_locallistactivity_033">该文件夹内没有可播放的视频</string>
     <string name="uitext_locallistactivity_034">无法定位起始视频，请重新选择</string>
     <string name="uitext_locallistactivity_035">%1$s（虚拟合集）</string>
+    <string name="uitext_locallistactivity_036">移动到文件夹</string>
+    <string name="uitext_locallistactivity_037">%1$s (%2$d个视频)</string>
+    <string name="uitext_locallistactivity_038">重命名</string>
+    <string name="uitext_locallistactivity_039">更新弹幕</string>
+    <string name="uitext_locallistactivity_040">切换分辨率</string>
+    <string name="uitext_locallistactivity_041">查看详情</string>
+    <string name="uitext_locallistactivity_042">拆散</string>
+    <string name="uitext_locallistactivity_043">存储目录当前不可写，下载会失败</string>
+    <string name="uitext_locallistactivity_044">视频会移回未分类区域。</string>
+    <string name="uitext_locallistactivity_045">此操作不可恢复。</string>
+    <string name="uitext_locallistactivity_046">弹幕更新失败: %1$s</string>
 
     <!-- 缓存页手动拖动排序 / 搜索（26.11.02，反馈 #94；26.11.05 起排序改为拖动） -->
     <string name="btn_cache_sort">排序</string>
@@ -2531,6 +2555,7 @@
     <string name="uitext_favoritevideolistactivity_023">%1$s（虚拟合集）</string>
     <string name="uitext_favoritevideolistactivity_024">以虚拟合集连播</string>
     <string name="uitext_favoritevideolistactivity_025">无法定位起始视频，请重新选择</string>
+    <string name="uitext_favoritevideolistactivity_026">点条目勾选，再点「删除」或「下载」</string>
     <string name="uitext_userinfoactivity_002">用户信息-%1$s</string>
     <string name="uitext_bangumiinfofragment_020">已完结</string>
     <string name="uitext_bangumiinfofragment_021">连载中</string>
@@ -2579,7 +2604,6 @@
     <string name="text_activitysenddynamic_06">仅自己可见</string>
     <string name="text_activitysenddynamic_07">关闭评论</string>
     <string name="text_activityplayer_09">无极调音</string>
-    <string name="text_activityplayer_10">%1$s%%</string>
     <string name="tutorial_desc_recommend">认识推荐页与顶部菜单</string>
     <string name="tutorial_desc_theme_notice">默认主题已改回经典终端风格</string>
     <string name="tutorial_desc_video_main">播放器手势、弹幕与快捷操作</string>
@@ -2645,9 +2669,6 @@
     <!-- 设置项名：横滑调进度的倍率档位（存档键/档位表在 PlayerSwipeSeekScalePolicy） -->
     <string name="setting_player_swipe_seek_scale_name">滑动调进度灵敏度</string>
     <string name="setting_player_swipe_seek_scale_desc">左右滑动时划过整个屏幕对应的进度倍率；手表 dpi 低、手指一动就跳很多时调小，默认 1.0x</string>
-    <!-- 设置项名：锁定按钮显隐；关掉后不显示按钮，也不会误触进入锁定 -->
-    <string name="setting_player_lock_button_name">显示锁定按钮</string>
-    <string name="setting_player_lock_button_desc">关闭后播放页不显示锁定按钮，拖动进度条时不会误触锁定</string>
     <!-- 播放器菜单项：打开输入框，输入时间点直接跳转（直播不显示） -->
     <string name="text_player_jump_to_time">跳到指定时间</string>
     <string name="hint_player_jump_to_time">秒数 / mm:ss / hh:mm:ss</string>
@@ -2723,7 +2744,6 @@
     <string name="setting_player_ui_show_battery">显示电量</string>
     <string name="setting_player_ui_show_clock">显示时钟</string>
     <!-- 布局编辑 -->
-    <string name="setting_player_ui_add_slot">＋</string>
     <string name="setting_player_ui_pick_button">选一个按钮</string>
     <string name="setting_player_ui_pick_button_replace">换成哪个按钮</string>
     <string name="setting_player_ui_replace">换成别的按钮</string>
@@ -2747,12 +2767,81 @@
     <string name="setting_player_ui_region_capacity">最多放 %1$d 格</string>
     <string name="setting_player_ui_region_empty">这一列还空着，点下面加一个</string>
     <string name="setting_player_ui_group_count">一组按钮（%1$d 个）</string>
-    <string name="setting_player_ui_group_members_desc">%1$s</string>
     <string name="setting_player_ui_add_button">＋ 加一个按钮</string>
-    <string name="setting_player_ui_add_group_member">＋ 往这组里加按钮</string>
-    <string name="setting_player_ui_slot_hint">点一格可以换按钮、挪位置或移除</string>
     <string name="setting_player_ui_may_hide">注意：有些视频里不显示</string>
     <string name="setting_player_ui_region_title">%1$s（%2$d 格）</string>
     <string name="setting_player_ui_label_elements">画面元素</string>
     <string name="setting_player_ui_element_desc">点一下调整与它相关的设置</string>
+
+    <!-- ==================== 内置播放器设置：各设置项的名字与说明 ==================== -->
+    <!-- 26.11.07 起 player/PlayerSettingsGroups.kt 里不再写裸中文字面量，全部走这里的资源。
+         顺序与那个文件里「手势/默认值/显示/解码/弹幕/字幕/按钮」七组一致；
+         要改文案只改这里，别把字面量写回代码。 -->
+
+    <!-- 手势与滑动 -->
+    <string name="setting_player_longpress_boost">长按倍速</string>
+    <string name="setting_player_doubletap_seek">双击快进快退</string>
+    <string name="setting_player_swipe_seek">左右滑动控制进度</string>
+    <string name="desc_setting_player_swipe_seek">在视频区域左右滑动快进/快退（未缩放视频时生效）</string>
+    <string name="setting_player_doubletap_restore_scale">有缩放时，双击优先恢复缩放</string>
+    <string name="setting_player_doubletap_seek_seconds">快进快退秒数</string>
+    <string name="setting_player_background">后台/熄屏继续播放</string>
+    <string name="desc_setting_player_background">退到后台或熄屏时继续播放，并挂出通知栏遥控</string>
+
+    <!-- 播放默认值：三态与「沿用上次」的公共选项名（顺序与 PlayerSettingsGroups.triStateNames 一致） -->
+    <string name="setting_player_option_on">开</string>
+    <string name="setting_player_option_off">关</string>
+    <string name="setting_player_option_last">沿用上次</string>
+    <string name="setting_player_default_danmaku">弹幕</string>
+    <string name="desc_setting_player_default_danmaku">开播时的弹幕开关；「沿用上次」= 上次退出播放器时的实际状态</string>
+    <string name="setting_player_default_audio_only">听视频模式</string>
+    <string name="setting_player_default_loop">循环播放</string>
+    <string name="desc_setting_player_default_loop">单集播放结束后循环重播当前视频</string>
+    <string name="setting_player_default_autonext">自动连播</string>
+    <string name="desc_setting_player_default_autonext">多分P视频播完当前分P后自动播下一个</string>
+    <string name="setting_player_default_speed">倍速</string>
+    <string name="desc_setting_player_default_speed">开播时的播放速度；「沿用上次」= 上次用过的倍速</string>
+    <string name="setting_player_default_subtitle">字幕</string>
+    <string name="desc_setting_player_default_subtitle">中文 = 开播自动选中文字幕（优先人工，其次 AI）；自行选择 = 是否弹出选择框由下方「自动弹出字幕选择」决定</string>
+    <string name="setting_player_option_subtitle_zh">中文</string>
+    <string name="setting_player_option_subtitle_manual">自行选择</string>
+    <string name="setting_player_default_orientation">屏幕方向</string>
+    <string name="desc_setting_player_default_orientation">播放器的默认屏幕方向；「按视频分辨率选择」= 视频宽大于高则横屏</string>
+    <string name="setting_player_option_orientation_landscape">默认横屏</string>
+    <string name="setting_player_option_orientation_portrait">竖屏</string>
+    <string name="setting_player_option_orientation_auto">按视频分辨率选择</string>
+    <string name="setting_player_from_last">从历史位置播放</string>
+
+    <!-- 画面与显示 -->
+    <string name="setting_player_show_online">显示实时人数</string>
+    <string name="setting_player_scale">视频可缩放</string>
+    <string name="setting_player_double_move">缩放时可移动</string>
+    <string name="setting_player_high_energy">显示高能进度条</string>
+
+    <!-- 渲染与解码 -->
+    <string name="setting_player_display_mode">显示方式</string>
+    <string name="setting_player_codec">解码方式</string>
+    <string name="setting_player_option_codec_hw">硬件解码</string>
+    <string name="setting_player_option_codec_sw">软件解码</string>
+    <string name="setting_player_audio_output">音频输出</string>
+
+    <!-- 弹幕 -->
+    <string name="setting_player_danmaku_allow_overlap">弹幕允许重叠</string>
+    <string name="setting_player_danmaku_merge_duplicate">合并重复弹幕</string>
+    <string name="setting_player_danmaku_force_r2l">强制为滚动弹幕</string>
+    <string name="setting_player_danmaku_show_sender">显示直播弹幕发送者</string>
+    <string name="setting_player_danmaku_maxline">弹幕最大行数</string>
+    <string name="setting_player_danmaku_size">弹幕字号大小</string>
+    <string name="setting_player_danmaku_transparency">弹幕不透明度</string>
+    <string name="setting_player_danmaku_speed">弹幕速度</string>
+
+    <!-- 字幕 -->
+    <string name="setting_player_subtitle_autoshow">自动弹出字幕选择</string>
+    <string name="setting_player_subtitle_ai_allowed">允许仅AI字幕</string>
+    <string name="setting_player_subtitle_delta">字幕校准</string>
+    <string name="desc_setting_player_subtitle_delta">将字幕提前/退后一段时间，从而与视频对齐</string>
+    <string name="setting_player_subtitle_size">字幕字号大小</string>
+
+    <!-- 界面按钮 -->
+    <string name="setting_player_interaction_choice_size">互动选项字体大小</string>
 </resources>

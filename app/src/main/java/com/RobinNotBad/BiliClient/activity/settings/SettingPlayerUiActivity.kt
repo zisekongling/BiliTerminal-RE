@@ -8,6 +8,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.annotation.DrawableRes
+import androidx.annotation.StringRes
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
@@ -344,16 +345,20 @@ class SettingPlayerUiActivity : BaseActivity() {
         when (element) {
             "progress" -> showCard(
                 getString(R.string.setting_player_ui_label_progress),
-                pick("显示高能进度条", "左右滑动控制进度", "滑动调进度灵敏度")
+                pick(
+                    R.string.setting_player_high_energy,
+                    R.string.setting_player_swipe_seek,
+                    R.string.setting_player_swipe_seek_scale_name
+                )
             )
             "online" -> showCard(
                 getString(R.string.setting_player_ui_label_online),
-                pick("显示实时人数")
+                pick(R.string.setting_player_show_online)
             )
             "blank" -> showCard(
                 getString(R.string.setting_player_ui_label_blank),
                 PlayerSettingsGroups.group(this, PlayerSettingsGroups.GESTURE)?.sections.orEmpty() +
-                    pick("视频可缩放", "缩放时可移动")
+                    pick(R.string.setting_player_scale, R.string.setting_player_double_move)
             )
             "play" -> showCard(
                 getString(R.string.setting_player_ui_label_play),
@@ -362,10 +367,19 @@ class SettingPlayerUiActivity : BaseActivity() {
         }
     }
 
-    /** 从全部设置项里按名字挑几项（名字就是 PlayerSettingsGroups 里的中文字面量）。 */
-    private fun pick(vararg names: String): List<SettingSection> {
+    /**
+     * 从全部设置项里挑几项，返回它们**所在的整个分组**——即定位到某个设置项后，
+     * 把它的上下文（同组其它项）一并显示出来，用户改完还能看到相关项。
+     *
+     * <p>按字符串资源定位而不是按中文字面量：`SettingSection.name` 本来就是落地文案，
+     * 拿它当键的话，改一个字就静默匹配不上、卡片变成空的。
+     */
+    private fun pick(@StringRes vararg nameRes: Int): List<SettingSection> {
         val all = PlayerSettingsGroups.flatten(this)
-        return names.mapNotNull { name -> all.firstOrNull { it.name == name } }
+        return nameRes.flatMap { res ->
+            val name = getString(res)
+            all.filter { it.name == name }
+        }
     }
 
     private fun noteSection(text: String) = SettingSection("title", text, "", "", "")
