@@ -223,8 +223,14 @@ class SearchActivity : InstanceActivity() {
                 searchHistory = ArrayList()
             }
             searchHistoryAdapter = SearchHistoryAdapter(this, searchHistory)
-            searchHistoryAdapter.setOnClickListener { position -> keywordInput.setText(searchHistory[position]) }
+            // 回调里的 position 是列表变化前绑定的，点下去那一刻才算数：越界就当没点
+            // （26.11.07 线上崩溃 #230：IndexOutOfBoundsException: Index: 1, Size: 1）
+            searchHistoryAdapter.setOnClickListener { position ->
+                if (position < 0 || position >= searchHistory.size) return@setOnClickListener
+                keywordInput.setText(searchHistory[position])
+            }
             searchHistoryAdapter.setOnLongClickListener { position ->
+                if (position < 0 || position >= searchHistory.size) return@setOnLongClickListener
                 MsgUtil.showMsg(UiText.of("删除成功"))
                 searchHistory.removeAt(position)
                 searchHistoryAdapter.notifyItemRemoved(position)
@@ -243,6 +249,7 @@ class SearchActivity : InstanceActivity() {
             searchSuggestions = ArrayList()
             searchSuggestionsAdapter = SearchSuggestionsAdapter(this, searchSuggestions)
             searchSuggestionsAdapter.setOnClickListener { position ->
+                if (position < 0 || position >= searchSuggestions.size) return@setOnClickListener
                 val suggestion = searchSuggestions[position]
                 // 中文输入法还在组词（composing）状态时直接 setText，会把组合区的半成品和整词叠加，出现串字；
                 // 先清掉组合态再整词替换

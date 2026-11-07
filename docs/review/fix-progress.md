@@ -60,6 +60,23 @@
   - **已知限制（未在本条擅自改交互）**：小屏手表的窗口可用高度只有 209dp，「顶栏 + 进度条 48dp + 按钮行 44dp + 右列 3 格」放不下 48×48 的竖列，实测只能到 48×29dp；要让竖列真正 48×48 必须减少常驻按钮或改成可滚动列，属设计决定，留给真机验证后再定（见 §2.1）。短视频播放页（`fragment_short_video_page.xml`）底部一排 6 个 32×37dp 按钮同样没动：6×44dp 会超出 233dp 屏宽，要改得先定「这排按钮怎么折行 / 滚动」。文章页点赞/投币/收藏的 30dp 图标本来就不在播放器里，也不在本条范围。
   - 真机 TalkBack 逐屏走查与手感见 §2.1。
 
+- **26.11.07 番剧分区页（对比清单「番剧分区的推荐 / 追番 / 索引 / 筛选」这一条，本机 `main` 已提交；本环境无 GitHub 凭据，未 push）**：
+  - **新增一级页面** `activity/video/BangumiActivity`（菜单项 `bangumi`，标题「番剧」）+ 布局 `activity_bangumi.xml`：三个页签「推荐 / 追番 / 索引」，三份独立的分页状态（页码 / 到底 / 在飞 / 代际），切页签不丢已加载内容。
+  - **推荐**：`/pgc/season/index/result` + 固定 `order=3`（最多追番）、无筛选；未登录也能看。
+  - **追番**：复用 `BangumiApi.getFollowingList`；未登录时不发请求，给「点我去登录」的空态，登录回来 `onResume` 自动补拉。
+  - **索引 + 筛选**：筛选条件走 `/pgc/season/index/condition` 动态下发（排序 5 项 + 地区/风格/类型/付费/配音/版权/状态/年份/季度 9 组）。**刻意没做整排 chip**：9 组 × 最多 45 个选项在 192–233dp 的手表屏上横滑也看不全，还会挤掉列表空间；改成一行「筛选：当前条件」+ `TerminalDialog` 分组单选（与「搜索排序」同一套交互）。选完立即按新条件重拉，入口行回显当前条件。
+  - **新 API**：`api/BangumiIndexApi.kt`（`getCondition` / `parseCondition` / `getIndex` / `parseIndex` / `defaultFilters`）。解析按 26.11.07 实测的现役字段写（`score` / `order` 是字符串，`has_next` 要和 `total` 一起判到底），请求失败一律抛 `IOException`——**不能**返回空页，否则上层会把风控页当成「到底了」。单测 `BangumiIndexApiTest` 7 例。
+  - **菜单项对老用户回填一次**：新增 `MenuConfig.BANGUMI` + `ensureBangumi()`（照 `ensureExit` 的写法，判据是新键 `menu_bangumi_state`，由 `saveEnabled` 写入），否则新功能只有新装用户看得见。回填位置用 `insertAtCanonicalPosition` 算（落在「热门」之后，不是甩到末尾）。`MenuConfigTest` 补 2 例 + 更新 4 处既有断言。菜单表/API 映射同步进 `docs/architecture-map.md` §3.1 / §9，接口结论进 `docs/bilibili-api-notes.md` §14，功能说明进 `docs/FEATURES.md` §2.8 与 §1.2（14 → 15 个入口）。
+  - **L0（26.11.07 实测，隔离工作树、未同步 `private/`）**：`:app:assembleDebug`、`:app:testStandardDebugUnitTest` 均 BUILD SUCCESSFUL，standard flavor **178 suites / 1931 tests / 0 失败 0 错误**。**设备端（L1/L2）本轮没跑成**：本机只有 android-37 的 google_apis 镜像，`wear5`（android-34 wear）系统镜像缺失；唯一可用的 `rebili_watch37` 正被另一个工单占用，且所有模拟器必须一起 `-read-only` 才能并存——手机 AVD 起在 5556 后随即退出。真机项见 §2.1。
+
+- **26.11.07.1 之后新修：点搜索历史崩溃（控制台崩溃 #230）**：
+  - **现象**：`java.lang.IndexOutOfBoundsException: Index: 1, Size: 1` → `SearchHistoryAdapter.onBindViewHolder$lambda$0` → `SearchActivity.onCreate$lambda$14$lambda$9(SearchActivity.kt:237)`，即**点搜索历史条目**时崩。现场：26.11.07 / 共存版 / OPPO OWW231 / Android 11，控制台用 `2611070_coexist_private_mapping.txt` 解混淆成功（`retrace_state=1`）。
+  - **根因**：adapter 在 `onBindViewHolder` 里把 **position 捕获进点击/长按 lambda**，点下去才用它索引**可变的 ArrayList**（`searchHistory`），列表增删之后旧下标就过期。`onBindViewHolder` 里那句「position 越界就早退」的守卫在帮倒忙：早退时 holder 上的旧监听器不清空，行还在、点它拿到的却是越界 position。
+  - **修法**：①`adapter/SearchHistoryAdapter.kt` 点击与长按改成事件发生时取 `holder.bindingAdapterPosition`（`NO_POSITION` / 越界直接吞）；②`adapter/SearchSuggestionsAdapter.kt` 同样处理（建议列表每轮 `clear + addAll`，同一个坑）；③`SearchActivity` 三处回调（历史点击 / 历史长按删除 / 建议点击）补 `position in list.indices` 边界检查。
+  - **同族排查（20 处回调站点逐处定性）**：另命中 1 处并一并修掉——`activity/video/local/LocalPageChooseActivity.kt`：删分 P 之后 `notifyItemRangeChanged(0, size - position)` 的**起点写错**（应为 `position`），删中间页时尾段 holder 不重绑、仍握着旧下标，点它就是 `pageMediaFiles[position]` 越界（**不需要竞态**，比 #230 更确定性）；回调体同时改 `getOrNull` 兜底。其余 19 处不命中——7 处已有边界守卫，其余对应集合在本页只读、无收缩路径。
+  - **L0（26.11.07 实测，本机已同步 `private/`）**：`:app:assembleDebug`、`:app:testStandardDebugUnitTest`、`:app:testCoexistDebugUnitTest` 全部 BUILD SUCCESSFUL，两 flavor 各 **203 suites / 2201 tests / 0 失败 0 错误**（首次 `assembleDebug` 撞上 Gradle build cache 写盘报 `Could not get file mode …SettingsAdapter$InputExtra.class`，按 `docs/agents/build.md` 加 `--no-build-cache` 后通过）。
+  - **未验证**：真机复现路径（点历史条目 / 长按删历史后再点 / 删分 P 后再点）属人测，本次只做到 L0——这条是崩溃兜底修复，越界时降级成「点了没反应」，不再崩。
+
 - **下次递增（26.11.07 之后）必须同时做三件事，缺一件 CI 就红或用户收不到包**：
   1. **升 `versionCode`**（`app/build.gradle:45`，`versionName` 在 `:46`）：补丁版把尾号补成 tag 的 `.N`（`26.11.07.2` → `2611072`）。CI 的 `verify-version` 现在硬校验「`versionCode` 末位 == tag 的 `.N` 后缀」，写错直接发版失败（26.11.07.1 事故的封堵，先例 `1c404c3` 只升尾号、`versionName` 不动；而 `UpdateManager` 是严格大于比较，尾号不升老用户收不到修正包）。
   2. **改 `strings.xml` 的 `update_log_current` 锚点**为「【YY.MM.DD 本次更新】」，否则 `:app:verifyVersionConsistency` 失败、CI 抽不到发版说明。
@@ -95,6 +112,8 @@
 ## 2. 未完成待办
 
 ### 2.1 真机未验证（无设备 / 无登录态）
+
+- [ ] **26.11.07 番剧分区页（§3.138）设备端整页未验（L1+L2）**：本轮没能起模拟器（见 §3.138 末条），需要在手表上确认：①菜单里出现「番剧」且点得开（老用户升级后应被自动回填，自己在菜单设置里关掉后不应再加回来）；②三个页签的选中态（主题色 + 加粗）与切换后列表是否保留；③推荐/追番/索引三个列表的下拉刷新与滑到底翻页，**尤其「追番」未登录时的空态与「点我去登录 → 回来自动加载」**；④索引页「筛选」弹窗的分组单选在 192–233dp 手表宽度上是否放得下、选项（风格 45 个）能否滚到底、选完是否立刻换列表且回显正确；⑤失败态（断网/风控）应提示「点我重试」而不是显示成空列表；⑥圆屏模式下顶栏与页签不被圆盘切掉、表冠能在列表里滚动。
 
 - [ ] **26.11.07 无障碍与播放器热区的真机项未验（L2，只能上手 / 听读屏；交接单见本条）**：①**TalkBack 逐屏走查**：播放页 17 个按钮与左右列图标要读作「弹幕 / 旋转 / 音量减 / 播放与暂停 / 清晰度…」而不是「按钮」；列表页头像读作「查看用户主页」，封面 / 角标 / 装饰图标不再被逐个念成「图片」；登录页二维码、搜索结果排序键仍能读到原描述。②**手感**：44dp 底部按钮在真手指下是否明显减少误触；进度条 48dp 热区是否更好拖；③**小屏手表**（可用高度约 209dp）：右列 3 格 + 顶栏 + 改高后的底栏不重叠、圆屏边缘不切按钮；④**按钮多时**（左右底部各 3 格）底部行两侧的横向滚动是否顺手、不会和播放器滑动手势打架。
 
@@ -1557,6 +1576,35 @@
 - **验证 · L0**：`./gradlew.bat :app:assembleDebug`（两 flavor 出包）+ `:app:testStandardDebugUnitTest` 与 `:app:testCoexistDebugUnitTest` 各 **187 suites / 2044 tests、0 失败**（`MenuConfigTest` 新增 5 例、`SettingsKeysTest` 锁定 2 个新键、`disabledFrom_returnsCanonicalComplement` 期望值补上 `RESUME`）。
 - **验证 · L1**：见下方交接单所在 §2.1 条目；模拟器（AVD `Medium_Phone_API_37.0`，本机 `wear5` 的系统镜像已缺、起不来）实测到的部分记在那里。
 - **未验证（人测）**：登录态下「笔记」开关前后的真实显示与跳转、可续播会话下「继续播放」的置顶出现、带私有功能构建里那行按钮的点击落地、圆屏/方屏动作区排版疲劳度。
+
+### 3.138 番剧分区页：推荐 / 追番 / 索引 + 动态筛选（26.11.07）
+
+来源：用户对比清单里「番剧分区极其内部的推荐/追番/索引/筛选」这一条（参照仓库 `cyq114514/Re-BiliTerminal` 的 `activity/video/BangumiActivity`）。
+
+**做了什么**
+
+| 落点 | 内容 |
+| --- | --- |
+| `activity/video/BangumiActivity.kt`（新） | 三个页签 + 三份独立分页状态；推荐固定 `order=3`；追番复用 `BangumiApi.getFollowingList`；索引带筛选 |
+| `res/layout/activity_bangumi.xml`（新） | 顶栏（结构照抄 `activity_simple_main_refresh.xml`，时钟是 `@id/top` 直系子 View）+ 页签行 44dp + 筛选入口 36dp + 三块 `SwipeRefreshLayout`/`RotaryRecyclerView` + 共用空态 |
+| `api/BangumiIndexApi.kt`（新） | `getCondition` / `parseCondition` / `getIndex` / `parseIndex` / `defaultFilters`；纯解析可 JVM 测 |
+| `MenuActivity.btnNames` / `MenuConfig` / `SharedPreferencesUtil` / `AndroidManifest.xml` | 菜单项 `bangumi`（标题「番剧」，排在「热门」之后）、默认启用、对老用户回填一次 |
+| `strings.xml` | 19 条 `text_bangumi_*` / `msg_bangumi_*` / `pagename_bangumi` |
+| `app/src/test/.../BangumiIndexApiTest.kt`（新）、`MenuConfigTest.kt` | 解析 7 例 + 菜单回填 2 例，另更新 4 处既有断言 |
+
+**几个刻意的取舍（改之前先读）**
+
+1. **不继承 `RefreshMainActivity`**：那套基类只服务单个列表（`page` / `bottom` / `listener` 都是单例状态），三个列表共用一个实例会互相踩。本页自己管三份「页码 / 到底 / 在飞 / 代际」，`setRefreshing(false)` 也自己按页签复位。
+2. **代际（`generation`）必须有**：连点筛选项或快速下拉时，旧请求回来会覆盖新条件的结果（现象是「选了日本却显示全部」）。三处代际不匹配的回调直接丢弃。
+3. **筛选不做 chip 行**：`condition` 接口风格一组就有 45 个选项。手表可用宽度 192–233dp，横滑 chip 既看不全又要吃掉列表 100dp 左右的竖向空间（参考实现里「折叠 3 行」在 233dp 屏上就把列表挤到只剩两三条）。改成一行「筛选：当前条件」+ `TerminalDialog.menu → singleChoice` 两级弹窗，与本项目「搜索排序」「选季」同一套交互。
+4. **失败不能当到底**：`BangumiIndexApi.parseIndex` 在 `code != 0` / 结构缺失时抛 `IOException`，上层分别走「可点重试的空态」与「下拉重试 Toast」。返回空页会让页码永久停住且无任何提示。
+5. **追番未登录不发请求**：`code=-101` 的失败没必要打出去；直接给「点我去登录」的空态，`onResume` 发现已登录就自动补拉（手表上很容易漏掉手动下拉）。
+6. **卡片映射**：左侧副信息放评分（没开分退回 `order` 文案，例如「762.3万追番」），右侧放更新进度（「全24话」）。`media_id` 缺失时退回 `season_id`——拿 0 去开详情页是空页。
+7. **菜单回填**：`MenuConfig.ensureBangumi()` 与既有 `ensureExit()` 同一套判据（缺项 + 新键 `menu_bangumi_state` 没写过 = 老数据 → 回填）。不直接追加到列表末尾，否则会排在「退出」后面；用 `insertAtCanonicalPosition` 按规范顺序插入。
+
+**L0 验证（26.11.07，隔离工作树、未同步 `private/`）**：`:app:assembleDebug`、`:app:testStandardDebugUnitTest` 均 BUILD SUCCESSFUL；standard flavor **178 suites / 1931 tests / 0 失败 0 错误**。接口侧另做了直连实测（见 `docs/bilibili-api-notes.md` §14：两个接口 `code=0`、`order=3` 的分页与字段、`condition` 的 5 项排序 + 9 组筛选）。
+
+**设备端没跑成（L1/L2 未验）**：本机 `system-images` 只剩 `android-37.0/google_apis_playstore/x86_64`，`wear5`（android-34 wear）镜像缺失；唯一可用的 `rebili_watch37` 当时正被另一个工单占用，而 Android 模拟器要求「同时运行多个实例时全部带 `-read-only`」，后起的 `rebili_api37_sd` 在 5556 上随即退出。真机用例见 §2.1。
 
 ## 4. 历史章节索引
 

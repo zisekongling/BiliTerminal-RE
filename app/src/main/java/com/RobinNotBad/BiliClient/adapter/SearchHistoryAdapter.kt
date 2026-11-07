@@ -40,18 +40,23 @@ class SearchHistoryAdapter(
             return
         holder.show(historyList[position])
 
+        // 位置一律在事件发生的那一刻重新取，不要用绑定时捕获的 position：
+        // 历史列表增删之后旧下标就过期了，点一下就是 ArrayList 越界
+        // （26.11.07 线上崩溃 #230：IndexOutOfBoundsException: Index: 1, Size: 1）。
         holder.itemView.setOnClickListener {
-            if (clickListener != null) {
-                clickListener!!.onItemClick(position)
-            }
+            val pos = holder.bindingAdapterPosition
+            if (pos == RecyclerView.NO_POSITION || pos >= historyList.size)
+                return@setOnClickListener
+            clickListener?.onItemClick(pos)
         }
 
         holder.itemView.setOnLongClickListener {
-            if (longClickListener != null) {
-                longClickListener!!.onItemLongClick(position)
-                return@setOnLongClickListener true
-            } else
-                false
+            val pos = holder.bindingAdapterPosition
+            if (pos == RecyclerView.NO_POSITION || pos >= historyList.size)
+                return@setOnLongClickListener false
+            val listener = longClickListener ?: return@setOnLongClickListener false
+            listener.onItemLongClick(pos)
+            true
         }
     }
 

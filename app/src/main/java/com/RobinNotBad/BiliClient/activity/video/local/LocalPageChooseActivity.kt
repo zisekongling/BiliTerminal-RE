@@ -61,13 +61,17 @@ class LocalPageChooseActivity : BaseActivity() {
 
         val adapter = PageChooseAdapter(this, pageList)
         adapter.onItemClickListener = OnItemClickListener { position ->
+            // 删除跑在后台线程：列表可能已经短了而 RecyclerView 还没重绑，旧行上的下标就是越界值
+            // （与 26.11.07 线上崩溃 #230 同形，见 docs/review/fix-progress.md）
+            val mediaInfo = pageMediaFiles.getOrNull(position)
+            val pageTitle = pageList.getOrNull(position)
+            if (mediaInfo == null || pageTitle == null) return@OnItemClickListener
             val playerData = PlayerData(PlayerData.TYPE_LOCAL)
-            val mediaInfo = pageMediaFiles[position]
             playerData.videoUrl = mediaInfo.first
             if (position < danmakuFileList.size) {
                 playerData.danmakuUrl = danmakuFileList[position]
             }
-            playerData.title = pageList[position]
+            playerData.title = pageTitle
             try {
                 val player = PlayerApi.jumpToPlayer(playerData)
                 if (mediaInfo.first.endsWith("audio.m4a")) {
@@ -137,7 +141,10 @@ class LocalPageChooseActivity : BaseActivity() {
                         runOnUiThread {
                             if (failure == null) {
                                 adapter.notifyItemRemoved(position)
-                                adapter.notifyItemRangeChanged(0, (pageList.size - position).coerceAtLeast(0))
+                                // 起点必须是被删的那一项：删掉下标 p（长度 n → n-1）后要重绑的是
+                                // p..n-2，从 0 起取「size - position」个只覆盖 0..n-2-p，尾段 holder
+                                // 不重绑、仍握着旧 position，点它就是越界（同 #230 的成因）
+                                adapter.notifyItemRangeChanged(position, (pageList.size - position).coerceAtLeast(0))
                                 // 列表短了一项，分页→播放文件的映射要一起重建
                                 pageMediaFiles = buildPageMediaFiles(pageList, videoFileList, title)
                                 MsgUtil.showMsg(UiText.of("删除成功"))
