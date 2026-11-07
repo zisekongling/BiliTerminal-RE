@@ -281,6 +281,8 @@ AppCompatActivity
 
 **`BaseActivity.onCreate()` 末尾装了表冠页面级兜底**（26.10.17，`installRotaryFallback()`）：把 `ui/widget/RotaryEncoderSupport.handlePage()` 挂在 **DecorView** 的 generic motion 监听器上，谁都没消费旋转事件时，找出本页第一个「可见且当前能上下滚」的竖直容器（`RecyclerView` / `NestedScrollView` / `ScrollView`）并滚它。原因：**旋转编码器事件只沿焦点路径分发**，列表页的 `RecyclerView` 默认不抢焦点，只把监听器挂在 `Rotary*` 控件自身上的旧写法在「页面上没有任何控件获焦」时永远收不到事件（表现为「设置页里能用、退出即失灵」）。两条约束，改之前先看：① **不要改回覆写 `Activity.dispatchGenericMotionEvent`**——generic motion 由 `ViewRootImpl` 直接派给 DecorView，不走那条路；② DecorView 的监听器只在所有子 View 都没处理后才被调用，所以不会与控件级监听器重复滚动，但**任何新的滚动容器都必须能被 `findScrollTarget` 认出来**，否则那一页的表冠仍然失效。
 
+**表冠三处静默失效点（26.11.07 修反馈 #103/#107「视频详情-简介里表冠不适配」时一并堵掉）**：判定逻辑已抽成纯函数 `ui/widget/RotaryEventPolicy.kt`（有 JVM 单测），三个坑分别是 ① **位移算出 0 时不消费事件**——原先控件级 `handle()` 不管算出多少都 return true，事件被吞、画面不动、父级与 DecorView 兜底再也接不到；② **滚动量要回落 `AXIS_VSCROLL`**——只读 `AXIS_SCROLL` 时，把量放在另一轴上的 ROM 恒算出 0，与 ① 叠加就是「转表冠完全没反应」；③ **兜底找目标要求与窗口有实际交集**——`isShown()` 只看 VISIBILITY 位，而视频详情页 `viewPager.offscreenPageLimit = 页数`、离屏页始终 attached + VISIBLE，只按 `isShown` 找会滚到用户看不见的那一页。另外 `RotaryEncoderSupport` 里有 W 级诊断日志（同一进程最多 6 条，记 reason / action / source / 两个轴值 / 命中目标）：内存环形缓冲只留 W/E/F，反馈页勾「附带应用日志」会一起带上来，下次「转不动」的反馈直接看日志就能区分「事件没进 App / 进了但不是表冠源 / 进了但位移为 0」。
+
 ### 3.3 导航坑（两条均已在 26.09.08 修复）
 
 - **MENU 键双重触发**：`InstanceActivity.onKeyDown` 打开 MenuActivity 后原本继续走 `super`，被 `BaseActivity.onKeyDown` 又 `finish()` 当前页。现在前者消费按键并 `return true`。

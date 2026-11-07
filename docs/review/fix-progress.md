@@ -29,6 +29,7 @@
 - **26.11.01 发版时工作区已清空**：§3.91~§3.94（PR #18）与 §3.83 的私有化整理（PR #19）都随本版一起发布；26.11.01 之后新的待发版改动从这里往下记。
 - **PR #20 已合入（26.11.06 发版前）**：①长按二级菜单弹窗与两个伪装页补圆屏适配（§3.113）；②「虚拟合集」起播索引修复（§3.114）；③菜单「退出」改为可排序、可关闭（§3.115）；④搜索设置「视频搜索（始终启用）」显示修正（§3.117）；⑤关于页开发者列表新增 Kuinone（§3.118）。来源 PR #20（作者 Kuinone）；合入时剔除了误提交的 16 个 build-*.log 与 .github/workflows/auto_pr_kuinone.yml。
 - **26.11.05 已随 26.11.06 发版**：合并远程 `main` 后没解干净的冲突（资源重名 + `BaseActivity` 残留旧边距算术，§3.116）、搜索设置「视频搜索（始终启用）」显示成锁定关（§3.117）、关于页开发者列表新增 Kuinone（§3.118）。版本号未动（仍是 `26.11.01` / `2611010`）。
+- **26.11.07 之后待发版的改动**：表冠三处加固（反馈 #103/#107）——新增纯函数 `ui/widget/RotaryEventPolicy.kt`（13 例 JVM 单测）+ 改 `ui/widget/RotaryEncoderSupport.kt`（位移为 0 不再吞事件、滚动量回落 `AXIS_VSCROLL`、兜底找目标要求与窗口有实际交集、加 W 级诊断日志）。两个 flavor 单测 **189 suites / 2067 tests / 0 失败**（26.11.07 实测）；真机验证项见 §2.2 同名待办。
 - **下次递增**：先看 `app/build.gradle:23-24`；release immutability 下被 Release 用过的 tag **永久不可复用**，同版本名补丁版只能用 `26.10.24.1` 这种后缀形式，`versionCode` 递增、`versionName` 可不变。改了版本号还要同步 `strings.xml` 里 `update_log_current` 的「【YY.MM.DD 本次更新】」锚点，否则 `:app:verifyVersionConsistency` 会失败。
 - **构建命令**（单测任务名**带 flavor 前缀**，`testDebugUnitTest` 自 26.10.11 引入 flavor 后已不存在）：
 
@@ -150,6 +151,7 @@
 
 ### 2.2 功能与工程待办
 
+- [ ] **表冠三处加固（26.11.07，反馈 #103/#107）待带表冠设备验证**：新增纯函数 `ui/widget/RotaryEventPolicy.kt`（13 例 JVM 单测），`ui/widget/RotaryEncoderSupport.kt` 随之改三处——①位移算出 0 时不再吞事件（原先控件级 `handle()` 无论算出多少都 return true，事件被吃、画面不动、DecorView 兜底也接不到）；②滚动量在 `AXIS_SCROLL` 为 0 时回落 `AXIS_VSCROLL`；③兜底找目标要求与窗口有实际交集，不再只看 `isShown()`（视频详情页 `offscreenPageLimit = 页数`，离屏页始终 shown）。原理与两条既有约束见 `docs/architecture-map.md` §3.2 末段。L0 已过（两 flavor 构建 + 单测）；**维护者没有表冠设备**，真机结论只能等带表冠用户：①首页推荐列表转表冠手感不变；②视频详情-简介页转表冠能一直滚到底；③设置里关掉「表冠适配」后整页仍完全不响应（回归）；④若仍转不动，让用户勾「附带应用日志」再反馈，日志里应有 `RotaryEncoder` 开头的 W 行（同进程最多 6 条），按它区分「事件没进 App / 进了但不是表冠源 / 进了但位移为 0」三种形态。**未验证**。
 - [x] ~~**「自动跳过片头片尾」处于撤回状态**~~ ——26.10.22 **已恢复**（默认关闭），恢复清单 ①–④ 已完成，⑤⑥（发版公告与版本号）随下次发版做。§3.3
 - [ ] **播放器弱网 / 直播：P0-1、P0-3、P1-1、P1-2、P2-1 与半个 P2-3 已实施，其余待办**（26.10.11 已过编译 + 两 flavor 各 478 个 JVM 单测全绿；真机只验证到「播放器能正常起播、回前台位置未复现回跳」，**看门狗/线路轮换未在真机触发**——release 包 `Logu` 默认关闭，需 debug 包 + 真实直播间）：
   - 已实施：**P0-1** `activity/player/PlayerActivity.kt` 的 `setDisplay()` 给在线流加 `rw_timeout=10s` / `addrinfo_timeout=5s` / `reconnect_streamed=1` / `reconnect_delay_max=5s`；**P0-3** 新增 `checkStall()` 停滞看门狗（直播 20s / 点播 30s 不动就重试，直播切候选线路、点播原地重建；最多 3 次、冷却 15s、位置前进 5s 后复位）；**P1-1** 状态保存恢复；**P1-2** 重挂 Surface 改用 `video_now`；**P2-1** 删 `activity/video/ShortVideoPlayerActivity.kt` 里实测不存在的 `max_cached_duration`；**P2-3 的一半** 新增纯函数 `util/live/LiveStreamSelector.kt`（14 个单测），候选按「FLV 各线路 → HLS」排序，随 Intent `live_url_candidates` 交给播放器做运行时线路轮换。
