@@ -1534,6 +1534,8 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 | 底部状态条 | 共用 `util/view/LoadMoreTipController`（「正在加载…」保持到加载结束；「没有更多了」2 秒自动收起，不是常驻横幅） | 同上（显示策略在 `util/view/LoadMoreTipPolicy`，纯函数带单测） |
 | 性能 | `PerformanceManager` 动态缓存 + 独立 RecycledViewPool | 固定 cacheSize 10、pool max 20 |
 
+**Fragment 版列表页要自带一条随列表滚动的工具条时**（26.11.07 首个：用户主页「TA 的投稿」的搜索栏，`res/layout/fragment_user_video.xml`）：覆写 `onCreateView` 换成 `CoordinatorLayout`，工具条放 `com.google.android.material.appbar.AppBarLayout` 里并标 `app:layout_scrollFlags="scroll|snap"`，列表区套一层 `app:layout_behavior="@string/appbar_scrolling_view_behavior"` 的 `FrameLayout` 再 `include fragment_simple_refresh`（基类按 id 仍找得到 `swipeRefreshLayout` / `recyclerView` / `emptyTip`）。AppBar 必须**透明底 + `elevation=0` + `liftOnScroll=false`**，否则会切断 DecorView 那层氛围背景、并在滚动时冒出一条阴影横条；`snap` 不能省——只写 `scroll` 时手指停在半途松手会长期停在「半收起」，卡片从半透明工具条底下透出来。程序性回到第一页（换关键词 / 换排序）时要 `appBar.setExpanded(true, false)`：列表滚回顶部不会产生嵌套滚动事件，工具条会一直停在收起态、用户点不到它。
+
 ### 8.3 Adapter 写法
 
 **注意**：`ui/widget/recycler/` 下的 `AbstractAdapter` / `BaseAdapter` / `BaseHolder` 三件套**全工程没有任何子类**，已于 **26.09.11 删除**（连同 `WrapContentLinearLayoutManager`）。现役适配器一律 `extends RecyclerView.Adapter<XxxHolder>()` + Holder 直接继承 `RecyclerView.ViewHolder`。该目录现在只剩 `CustomLinearManager` / `CustomGridManager` 两个 LayoutManager。
@@ -1602,7 +1604,7 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 3. `RefreshMainActivity.kt:58` 把 layoutManager 强转 `LinearLayoutManager`——换 StaggeredGrid 会 CCE（横屏给的 `CustomGridManager` 是 GridLayoutManager 子类，安全）。
 4. 主题/密度变化触发 `recreate()`，子类 `onResume` 的一次性逻辑会重跑。
 5. 覆写 `eventBusEnabled()` 返回 false 会连 sticky Snackbar 一起失效。
-6. `RefreshListFragment` 的 `setRefreshing` 只切 UI，不复位状态；也没有 `hideEmptyView`。
+6. `RefreshListFragment` 的 `setRefreshing` 只切 UI，不复位状态。（26.11.07 补了带文案的空态 `showEmptyView(文案)` 与 `hideEmptyView()`：搜索类页面从「没搜到」变回有结果时必须调 `hideEmptyView()`，因为空态是把 `recyclerView` 设成 `GONE` 顶上去的，只换 adapter 不还原可见性，用户会一直看着空态文案。）
 7. `setAdapter/setRefreshing/showEmptyView` 内部已切主线程，但直接 `recyclerView.adapter =` / `notifyItemRangeInserted` 必须自己回主线程。
 8. **改 `Guideline.setGuidelinePercent` 不会自动重新布局**：`Guideline.onMeasure` 恒 `setMeasuredDimension(0,0)`，自身尺寸不随 percent 变化，父级若是 `wrap_content` 的 ConstraintLayout 就不会重算，必须手动 `requestLayout()`。登录页二维码缩放（`QRLoginFragment.kt`）踩过这个坑；另外宽度变化要带动高度得靠 `app:layout_constraintDimensionRatio`。
 9. **`wrap_content` 的 RelativeLayout 里不能放 `layout_alignParentBottom` 的子元素**：只要有一个"贴底"子元素，RelativeLayout 的 `wrap_content` 就会被撑成父容器高度。公共顶栏 `cell_topbar.xml` 第一版就是这么写的（1dp 分割线贴底），结果**顶栏直接吃满整屏、列表被顶到屏幕外**（真机实测 `top` bounds = `[0,114][1080,2394]`）。现在顶栏根节点是竖向 LinearLayout，内层 RelativeLayout 只放标题/时钟（`BaseActivity.setRound()` 需要 RelativeLayout.LayoutParams）。

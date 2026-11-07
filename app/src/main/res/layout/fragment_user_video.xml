@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+  用户主页「TA 的投稿」：空间内搜索 + 排序入口 + 列表。
+
+  样式与搜索页（activity_search.xml）的搜索框保持一致：同一个 background_searchbar、
+  同一个 icon_search / icon_sort_filter、同样 42dp 高的输入框，避免这一页看起来像另一套 UI。
+
+  列表直接 include fragment_simple_refresh：本页只多一条搜索栏，没必要复制一份
+  SwipeRefreshLayout + RecyclerView + 空态，RefreshListFragment 按 id 就能找到。
+
+  搜索栏放进 AppBarLayout 并标 layout_scrollFlags="scroll"：列表区套一层
+  appbar_scrolling_view_behavior 跟着滚，上滑时搜索栏 1:1 移出屏幕（手表屏本来就小，
+  焊死在顶部等于常驻少一条视频的高度）。加 snap 是因为只写 scroll 时手指停在半途松手，
+  AppBar 会长期停在「半收起」，卡片从半透明的搜索栏底下透出来。
+-->
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- 透明底 + 无阴影：页面内容铺在氛围背景（DecorView 那层）之上，盖不透明底会切出一条黑带 -->
+    <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/videoSearchAppBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@android:color/transparent"
+        app:elevation="0dp"
+        app:liftOnScroll="false">
+
+        <!--
+          focusableInTouchMode + 可聚焦：抢住窗口的初始焦点。EditText 若成为首个可变焦控件，
+          ViewPager 一显示这一页就会拉起输入法。
+        -->
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:id="@+id/videoSearchbar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:paddingStart="@dimen/activity_padding_horizontal"
+            android:paddingTop="2dp"
+            android:paddingEnd="@dimen/activity_padding_horizontal"
+            android:paddingBottom="2dp"
+            app:layout_scrollFlags="scroll|snap">
+
+            <EditText
+                android:id="@+id/keywordInput"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="3dp"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/background_searchbar"
+                android:drawableEnd="@drawable/icon_search"
+                android:ems="10"
+                android:hint="@string/hint_search_space_video"
+                android:imeOptions="actionSearch"
+                android:inputType="text"
+                android:maxLines="1"
+                android:minHeight="42dp"
+                android:paddingStart="38dp"
+                android:paddingEnd="8dp"
+                android:textSize="13sp"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent" />
+
+            <!-- 排序入口：点开「投稿排序」单选弹窗；非默认档位时图标用主题主色（见 UserVideoFragment.updateSortButton）。
+                 图标压在输入框左侧，输入框用 paddingStart 让出它的宽度（3dp 边距 + 30dp 图标 + 5dp 间隙 = 38dp）。
+
+                 **必须声明在 EditText 之后**：ConstraintLayout 按子 View 声明顺序叠放，声明在输入框前面时
+                 会被输入框整个盖住，点击落在输入框上（26.11.07 在 384×384 模拟器上实测：点图标弹出的是键盘，
+                 排序弹窗根本没开）。搜索页的排序图标同样是「输入框在前、图标在后」。 -->
+            <androidx.appcompat.widget.AppCompatImageButton
+                android:id="@+id/sortButton"
+                android:layout_width="30dp"
+                android:layout_height="0dp"
+                android:layout_marginStart="3dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/text_space_video_sort_title"
+                android:padding="5dp"
+                android:scaleType="fitCenter"
+                app:layout_constraintBottom_toBottomOf="@+id/keywordInput"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="@+id/keywordInput"
+                app:srcCompat="@drawable/icon_sort_filter" />
+
+            <!-- 搜索图标是 drawableEnd，本身点不到；叠一个同位置的透明热区接住点击（与搜索页同做法） -->
+            <View
+                android:id="@+id/searchButton"
+                android:layout_width="35dp"
+                android:layout_height="0dp"
+                app:layout_constraintBottom_toBottomOf="@+id/keywordInput"
+                app:layout_constraintEnd_toEndOf="@+id/keywordInput"
+                app:layout_constraintTop_toTopOf="@+id/keywordInput" />
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <!-- 列表区：交给 CoordinatorLayout 跟随 AppBar 一起滚 -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <include
+            layout="@layout/fragment_simple_refresh"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+    </FrameLayout>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

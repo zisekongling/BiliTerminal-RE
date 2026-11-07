@@ -23,6 +23,14 @@ open class RefreshListFragment : BaseFragment() {
     var listener: OnLoadMoreListener? = null
 
     /**
+     * 空态的默认文案（布局里写的那句）。
+     *
+     * 页面可以按当前状态换成别的文案（如「TA 还没有投稿过视频」/「没有搜到相关稿件」），
+     * 换过之后要能回到默认这句，所以在这里留一份。
+     */
+    private var emptyText: CharSequence? = null
+
+    /**
      * 是否已到列表底部（没有更多数据）。
      *
      * 子类在网络回调（[com.RobinNotBad.BiliClient.util.CenterThreadPool] 的后台线程）里赋值，
@@ -43,6 +51,7 @@ open class RefreshListFragment : BaseFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         emptyView = view.findViewById(R.id.emptyTip)
+        emptyText = emptyView?.text
         swipeRefreshLayout = view.findViewById(R.id.swipeRefreshLayout)
         swipeRefreshLayout.isEnabled = false
         swipeRefreshLayout.isRefreshing = true
@@ -101,11 +110,38 @@ open class RefreshListFragment : BaseFragment() {
         }
     }
 
+    /** 空态：隐藏列表、显示默认文案（布局里的那句「啥都木有~」）。 */
     fun showEmptyView() {
-        emptyView?.let {
+        showEmptyView(emptyText)
+    }
+
+    /**
+     * 带文案的空态。
+     *
+     * 有的页面得按状态换说法——「TA 一条投稿都没有」和「这个关键词没搜到」不是一回事，
+     * 用默认文案会让用户以为这个 UP 主没投过稿。文案由调用方在 UI 线程取（fragment 用 getString）。
+     */
+    fun showEmptyView(message: CharSequence?) {
+        emptyView?.let { tip ->
             runOnUiThread {
                 recyclerView.visibility = View.GONE
-                it.visibility = View.VISIBLE
+                if (message != null && tip.text != message) tip.text = message
+                tip.visibility = View.VISIBLE
+            }
+        }
+    }
+
+    /**
+     * 收起空态、把列表放回来。
+     *
+     * 搜索这类「列表可能从空变回有数据」的页面必须调：空态是把 recyclerView 设成 GONE 顶上去的，
+     * 只换 adapter 不还原可见性，用户会一直看着「没有搜到相关稿件」。
+     */
+    fun hideEmptyView() {
+        emptyView?.let { tip ->
+            runOnUiThread {
+                if (tip.visibility == View.VISIBLE) tip.visibility = View.GONE
+                recyclerView.visibility = View.VISIBLE
             }
         }
     }

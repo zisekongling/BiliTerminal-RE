@@ -1560,6 +1560,16 @@
     <string name="text_search_sort_title">搜索结果排序</string>
     <string name="text_search_sort_blocked">因B站风控不可用</string>
     <string name="msg_search_sort_retry_later">请稍候再试</string>
+    <!-- 用户主页「TA 的投稿」：空间内搜索与排序 -->
+    <string name="hint_search_space_video">搜索 TA 的稿件~</string>
+    <string name="text_space_video_sort_title">投稿排序</string>
+    <string name="text_space_video_sort_pubdate">最新发布</string>
+    <string name="text_space_video_sort_click">最多播放</string>
+    <string name="text_space_video_sort_stow">最多收藏</string>
+    <string name="text_space_video_sort_button">排序：%1$s</string>
+    <string name="text_space_video_empty">TA 还没有投稿过视频~</string>
+    <string name="text_space_video_empty_search">没有搜到相关稿件~</string>
+    <string name="text_space_video_empty_failed">加载失败，请下拉重试</string>
     <string name="uitext_favoritefoldercreateactivity_001">创建成功</string>
     <string name="uitext_favoritefoldercreateactivity_002">请输入收藏夹名称</string>
     <string name="uitext_favoritefoldercreateactivity_003">创建收藏夹</string>
