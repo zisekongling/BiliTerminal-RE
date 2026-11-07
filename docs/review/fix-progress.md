@@ -150,6 +150,8 @@
 
 - [ ] **短视频画面尺寸 state 驱动（§3.98）的边界形态待真机**：`videoWidth==0` 的真实流（容器无分辨率 / probe 窗过短）与旋转 90/270 的真实视频（`MEDIA_INFO_VIDEO_ROTATION_CHANGED`）模拟器上都构造不出来（B 站 9:16 合一 MP4 尺寸非 0、rotation 全 0），这两条靠 `ShortVideoLayoutMathTest` + 代码走查兜底。真机用例：①刷到「容器元数据不带分辨率」的短视频时画面应留黑边而不是铺满拉伸；②刷到带旋转元数据的竖屏视频时比例正确、不横向压扁；③播放中 Home → 回前台，`dumpsys window windows` 里该窗口的 `fl` 应重新含 `KEEP_SCREEN_ON`；④暂停/切后台时不得残留 `KEEP_SCREEN_ON`。
 
+- [ ] **三个入口默认藏起来（§3.137）的登录态 / 会话态未验证**：模拟器（AVD `Medium_Phone_API_37.0`，Android 17、1080×2400；本机 `wear5` 的系统镜像缺失、起不来）上已实测：①默认配置下菜单页依次是「登录 / 推荐 / 短视频 / 热门 / 热搜 / 搜索 / 缓存 / 设置 / 扫一扫 / 退出」，**没有**「继续播放」；②「设置 → 内容与浏览 → 菜单设置」的「未启用」区末尾有「继续播放」，点回已启用后再点它提示「继续播放」不是页面、不能设为启动页（`adb logcat` 抓到 `MsgUtil>showMsg: 「继续播放」不是页面，不能设为启动页`）；③「设置 → 内容与浏览 → 详情页设置」在原 7 个开关之后多了「视频笔记」（默认关）与「分享到其他设备」（默认关；这条只在 `OptionalFeatures.available` 为真的构建里出现，本次模拟器装的是带 `private/` 注入的 standard debug 包）；④把「视频笔记」打开后设备上 `shared_prefs/default.xml` 多出 `<boolean name="detail_note_entry" value="true" />`，关掉后恢复，键名与 `SettingsKeys.DETAIL_NOTE_ENTRY` 一致。**仍未验的（都要登录态或真实播放会话）**：①有可续播会话时，把「继续播放」放到已启用区，菜单最上方应出现它、点进去回到上次视频与位置；再关掉开关应立刻消失；②登录态下「视频笔记」开 → 详情页动作区出现「笔记」且能进笔记页，关 → 不出现；③带 `private/` 的构建里「分享到其他设备」开 → 详情页出现该行并能进分享页，关 → 不出现且不做反射；④设置页搜索框搜「笔记」「跨设备」应命中这两条并滚到高亮；⑤466×466 圆屏上动作区多一行后的排版与滚动观感。**未验证**。
+
 ### 2.2 功能与工程待办
 
 - [ ] **表冠三处加固（26.11.07，反馈 #103/#107）待带表冠设备验证**：新增纯函数 `ui/widget/RotaryEventPolicy.kt`（13 例 JVM 单测），`ui/widget/RotaryEncoderSupport.kt` 随之改三处——①位移算出 0 时不再吞事件（原先控件级 `handle()` 无论算出多少都 return true，事件被吃、画面不动、DecorView 兜底也接不到）；②滚动量在 `AXIS_SCROLL` 为 0 时回落 `AXIS_VSCROLL`；③兜底找目标要求与窗口有实际交集，不再只看 `isShown()`（视频详情页 `offscreenPageLimit = 页数`，离屏页始终 shown）。原理与两条既有约束见 `docs/architecture-map.md` §3.2 末段。L0 已过（两 flavor 构建 + 单测）；**维护者没有表冠设备**，真机结论只能等带表冠用户：①首页推荐列表转表冠手感不变；②视频详情-简介页转表冠能一直滚到底；③设置里关掉「表冠适配」后整页仍完全不响应（回归）；④若仍转不动，让用户勾「附带应用日志」再反馈，日志里应有 `RotaryEncoder` 开头的 W 行（同进程最多 6 条），按它区分「事件没进 App / 进了但不是表冠源 / 进了但位移为 0」三种形态。**未验证**。
@@ -1494,6 +1496,16 @@
 - **改法**：`PlayerButtonSlots.Region` 增加 `stripHost`（外层外壳），`bind(region, container, stripHost, strip, cellWidthDp, cellHeightDp)`；新增 `private fun setStripVisible(region, visible)` **同时**设外壳与内层，`toggleGroup()` 与 `clearAll()` 两处都改走它。这样 XML 里哪一层写着 `gone` 都能展开，不再依赖「布局里到底把 gone 写在谁身上」这个易失细节。
 - **验证 · L0**：`./gradlew.bat :app:assembleDebug`（两 flavor 出包）+ `:app:testStandardDebugUnitTest` 通过。
 - **未验证（人测）**：点「更多」能横向展开该组按钮、再点一次收起；组展开时不再压在右列按钮上（§3.131「留给后来者」那条仍开放）。
+
+### 3.137 三个入口默认藏起来：菜单「继续播放」、详情页「笔记」、私有分享行（26.11.07，用户要求）
+
+- **需求**：用户要求把三个入口藏掉，且都不是删功能，而是「给个开关、默认关、想用自己打开」：① 菜单页「继续播放」；② 视频详情页「视频笔记」；③ 视频详情页那行可选私有功能（公共侧只有反射挂点，私有仓库一行不改）。
+- **改法 · ①（`util/MenuConfig.kt`）**：`resume` 从「有可续播会话就硬插第一位」提升为**动作项**——新增 `RESUME` 常量与 `ACTION_ITEMS = listOf(EXIT, RESUME)`，`ALL_ITEMS = BASE_ITEMS + OPTIONAL_ITEMS + ACTION_ITEMS`；`DEFAULT_ENABLED` 显式排除 `RESUME`；`resolveEnabledList` 迁移时**故意不补** resume（老用户升级后菜单里不该多一项），并把「旧排序非法」的兜底基准从 `ALL_ITEMS` 改成 `DEFAULT_ENABLED`（否则 resume 会顺着「不在开关表里 → 视为启用」被重新塞回来，26.11.07 首轮 L0 就是挂了这 5 个用例）；`resolveStart` / `loadStart` 一律不认动作项（不能被设为启动页）。`activity/MenuActivity.kt` 改成「已启用才插，且只在真有可续播会话时插」；`SettingMenuActivity.titleOf` 与 `adapter/MenuSettingAdapter.kt`（短按提示）补 `RESUME` 分支，文案 `msg_menu_resume_not_start`。
+- **改法 · ②③（公共侧）**：新增 `util/DetailEntryPrefs.kt`（`isNoteEntryEnabled()` / `isShareRowEnabled()`，默认都 `false`；默认值集中一处，免得设置页显示关着、详情页却按开处理）+ `SettingsKeys.DETAIL_NOTE_ENTRY` / `DETAIL_SHARE_ROW`；开关落在「设置 → 内容与浏览 → 详情页设置」（`SettingInfoActivity`），其中那条私有入口开关只在 `OptionalFeatures.available` 为真（带私有功能的构建）时才出现，`SettingsIndex` 的搜索索引按同一条件收录。`activity/video/info/VideoInfoFragment.kt`：`OptionalFeatures.attachDetailActionRow(...)` 整段进 `if (DetailEntryPrefs.isShareRowEnabled())`（默认连反射都不做）；未登录隐藏那段之后追加 `else if (!DetailEntryPrefs.isNoteEntryEnabled()) note.visibility = View.GONE`（登录态下默认也藏；点击监听与 `NoteActivity` 都保留）。
+- **范围**：`NoteApi` / `NoteActivity` / 私有仓库源码一行未改（只是公共挂点不再调用它）。
+- **验证 · L0**：`./gradlew.bat :app:assembleDebug`（两 flavor 出包）+ `:app:testStandardDebugUnitTest` 与 `:app:testCoexistDebugUnitTest` 各 **187 suites / 2044 tests、0 失败**（`MenuConfigTest` 新增 5 例、`SettingsKeysTest` 锁定 2 个新键、`disabledFrom_returnsCanonicalComplement` 期望值补上 `RESUME`）。
+- **验证 · L1**：见下方交接单所在 §2.1 条目；模拟器（AVD `Medium_Phone_API_37.0`，本机 `wear5` 的系统镜像已缺、起不来）实测到的部分记在那里。
+- **未验证（人测）**：登录态下「笔记」开关前后的真实显示与跳转、可续播会话下「继续播放」的置顶出现、带私有功能构建里那行按钮的点击落地、圆屏/方屏动作区排版疲劳度。
 
 ## 4. 历史章节索引
 
