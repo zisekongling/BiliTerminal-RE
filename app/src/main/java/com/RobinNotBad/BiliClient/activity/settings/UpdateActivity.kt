@@ -14,6 +14,7 @@ import com.RobinNotBad.BiliClient.model.UpdateConfig
 import com.RobinNotBad.BiliClient.util.BetaUpdate
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import com.RobinNotBad.BiliClient.util.UpdateChannel
 import com.RobinNotBad.BiliClient.util.UpdateManager
 import java.io.File
 
@@ -214,7 +215,14 @@ class UpdateActivity : BaseActivity() {
                     updateConfig = config
                     showUpdateInfo()
                 } else {
-                    MsgUtil.showMsg(getString(R.string.text_update_latest))
+                    // 带上通道名：三通道下「已是最新」这句话本身有歧义——稳定通道没更新，
+                    // 不代表测试 / 实验通道也没有；不写清楚，用户会以为检查坏了。
+                    MsgUtil.showMsg(
+                        getString(
+                            R.string.text_update_latest_channel,
+                            getString(UpdateChannel.nameRes(UpdateManager.currentChannel()))
+                        )
+                    )
                     finish()
                 }
                 kotlin.Unit

@@ -112,6 +112,8 @@ public class AppInfoApi {
                     .put("versionName", BuildConfig.VERSION_NAME)
                     .put("versionCode", BuildConfig.VERSION_CODE)
                     .put("isBeta", BuildConfig.BETA)
+                    // 三通道：报的是这个包的通道（stable/beta/exp），与 TelemetryApi 的 ping 字段一致
+                    .put("channel", BuildConfig.UPDATE_CHANNEL)
                     .put("applicationId", BuildConfig.APPLICATION_ID)
                     .put("buildType", BuildConfig.BUILD_TYPE)
                     .put("debugEnabled", BuildConfig.DEBUG)

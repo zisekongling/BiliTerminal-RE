@@ -16,6 +16,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -275,47 +276,127 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
      * 两者都是公开仓库，读 release **不需要 token**。
      * 注意：这里不再读 123pan 上单独部署的 config.json —— 版本信息以发行版本身为准，
      * 少一处要人工同步的远端文件（历史上它就漂移过）。
+     *
+     * 三通道（见 `docs/version-channels.md` §5）下每条源有两种取法：
+     * - 稳定版走 `/releases/latest`，响应小但**必须校验 tag 不带后缀**；
+     * - 测试版 / 实验版走 `/releases?per_page=N`，自己按 tag 后缀过滤后取 `versionCode` 最大的一条。
      */
-    private val releaseSources = listOf(
-        "Gitee" to "https://gitee.com/api/v5/repos/zisekongling/bili-terminal-re/releases/latest",
-        "GitHub" to "https://api.github.com/repos/zisekongling/BiliTerminal-RE/releases/latest"
+    private val releaseApis = listOf(
+        "Gitee" to "https://gitee.com/api/v5/repos/zisekongling/bili-terminal-re/releases",
+        "GitHub" to "https://api.github.com/repos/zisekongling/BiliTerminal-RE/releases"
     )
 
+    /**
+     * 列表模式的每页条数。
+     *
+     * 实验版一天可能发好几次，30 条足够覆盖最近几天；再大也没意义——响应体里每条都带完整更新日志，
+     * 手表上网时是在给启动路径加负担。
+     */
+    private const val RELEASE_LIST_PAGE_SIZE = 30
+
+    /** 内部信号：`/releases/latest` 返回的那条其实不是稳定版（说明该源不排除预发布）。 */
+    private class NotStableReleaseException(val tag: String) :
+        IOException("latest 指向的不是稳定版（tag=$tag）")
+
+    /** 更新检查当前用的通道（用户在设置里选的，没选过就跟着当前这个包的通道走）。 */
+    fun currentChannel(): String = UpdateChannel.current()
+
+    /**
+     * 用户切换了更新通道。
+     *
+     * 除了记下新通道，还要清掉「上一个通道选出的那条版本」留下的状态：不清的话，beta 发过一条
+     * `forceUpdate`、用户切回 stable 之后，那条强制更新仍然会拦启动（`forceUpdateBlocking` 是
+     * 内存标志 + SP 一起判的），可 stable 通道里根本没有那个版本。
+     */
+    fun onChannelChanged(newChannel: String) {
+        UpdateChannel.save(newChannel)
+        cachedConfig = null
+        BiliTerminal.clearForceUpdate()
+        SharedPreferencesUtil.removeValue("update_last_new_version")
+    }
+
     private fun doFetchUpdateConfig(): UpdateConfig {
+        val channel = currentChannel()
         val errors = ArrayList<String>()
-        for ((name, url) in releaseSources) {
+        for ((name, base) in releaseApis) {
             try {
-                return fetchRelease(url)
+                return fetchRelease(base, channel)
             } catch (e: Exception) {
-                Logu.e(TAG, "从 $name 取发行版信息失败：${e.message}")
+                Logu.e(TAG, "从 $name 取发行版信息失败（通道 $channel）：${e.message}")
                 errors.add("$name：${e.message}")
             }
         }
         throw IOException("所有更新源都失败（${errors.joinToString("；")}）")
     }
 
-    private fun fetchRelease(url: String): UpdateConfig {
+    private fun fetchRelease(base: String, channel: String): UpdateConfig {
+        if (channel == UpdateChannel.STABLE) {
+            // 快路径：latest 只有一条、体积小。但万一这个源不过滤预发布，拿到的就是测试版包，
+            // 把它推给稳定用户是最坏的事故——所以校验不过就改走列表，绝不将错就错。
+            try {
+                return fetchLatest("$base/latest", channel)
+            } catch (e: NotStableReleaseException) {
+                Logu.w(TAG, "$base 的 latest 不是稳定版（tag=${e.tag}），改走发行版列表")
+            }
+        }
+        return fetchBestFromList(base, channel)
+    }
+
+    /** 检查更新统一走 checkClient（20s callTimeout 总闸），下载走 okHttpClient（见 checkClient 注释）。 */
+    private fun fetchBody(url: String): String {
         val request = Request.Builder().url(url).get().build()
         // use{} 保证失败分支抛异常时连接也归还（OkHttp 只在 body 读到 EOF 时才自动归还）
-        // 检查更新走 checkClient（20s callTimeout 总闸），下载走 okHttpClient（见 checkClient 注释）
         return checkClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IOException("服务器响应错误: ${response.code}")
             }
-            val body = response.body?.string() ?: throw IOException("响应体为空")
-            parseRelease(body)
+            response.body?.string() ?: throw IOException("响应体为空")
         }
     }
 
+    private fun fetchLatest(url: String, channel: String): UpdateConfig {
+        val json = JSONObject(fetchBody(url))
+        val tag = json.optString("tag_name", "")
+        if (!UpdateChannel.accepts(channel, tag)) throw NotStableReleaseException(tag)
+        return buildConfig(json, tag)
+    }
+
     /**
-     * 解析发行版 JSON（Gitee / GitHub 字段形状一致）→ [UpdateConfig]。
+     * 列表模式：拉最近的发行版，按渠道过滤后取最新的一条。
+     *
+     * **不能依赖接口返回顺序**：Gitee 的 `/releases` 实测是升序、GitHub 是降序，两者相反，
+     * 只能按 `versionCode` 自己比（比较逻辑在 [UpdateChannel.bestOf]）。
+     */
+    private fun fetchBestFromList(base: String, channel: String): UpdateConfig {
+        val body = fetchBody("$base?per_page=$RELEASE_LIST_PAGE_SIZE&page=1")
+        if (body.trimStart().startsWith("{")) {
+            // 限流 / 鉴权失败时 GitHub 回的是对象而不是数组，报错要说清是这一层，别让人去猜解析器
+            throw IOException("发行版列表接口返回了对象而非数组（可能被限流）：${body.take(120)}")
+        }
+        val array = JSONArray(body)
+        val candidates = ArrayList<UpdateChannel.Candidate>()
+        val byTag = HashMap<String, JSONObject>()
+        for (i in 0 until array.length()) {
+            val obj = array.optJSONObject(i) ?: continue
+            val tag = obj.optString("tag_name", "")
+            if (!UpdateChannel.accepts(channel, tag)) continue
+            val code = UpdateRelease.parseMeta(obj.optString("body", ""), tag).versionCode
+            if (code <= 0) continue
+            candidates.add(UpdateChannel.Candidate(tag, code))
+            byTag[tag] = obj
+        }
+        val best = UpdateChannel.bestOf(candidates, channel)
+            ?: throw IOException("发行版列表里没有「$channel」通道可用的版本（共 ${array.length()} 条）")
+        return buildConfig(byTag.getValue(best.tag), best.tag)
+    }
+
+    /**
+     * 把一条 release JSON（Gitee / GitHub 字段形状一致）解析成 [UpdateConfig]。
      *
      * 版本号优先取 CI 写进 Release 说明的机器可读元数据，缺失时按 tag 推算；
      * 下载直链按设备 ABI 从附件里挑（Gitee 还会自动带 `{tag}.zip` 源码归档，必须按精确文件名匹配）。
      */
-    private fun parseRelease(jsonStr: String): UpdateConfig {
-        val json = JSONObject(jsonStr)
-        val tag = json.optString("tag_name", "")
+    private fun buildConfig(json: JSONObject, tag: String): UpdateConfig {
         val body = json.optString("body", "")
         val meta = UpdateRelease.parseMeta(body, tag)
 
@@ -324,18 +405,7 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
             throw IOException("无法确定发行版版本号（tag=「$tag」，且 Release 说明里没有元数据）")
         }
 
-        val assetsJson = json.optJSONArray("assets")
-        val assets = ArrayList<UpdateRelease.ReleaseAsset>()
-        if (assetsJson != null) {
-            for (i in 0 until assetsJson.length()) {
-                val a = assetsJson.optJSONObject(i) ?: continue
-                val name = a.optString("name", "")
-                val downloadUrl = a.optString("browser_download_url", "")
-                if (name.isNotEmpty() && downloadUrl.isNotEmpty()) {
-                    assets.add(UpdateRelease.ReleaseAsset(name, downloadUrl))
-                }
-            }
-        }
+        val assets = parseAssets(json)
         // Build.SUPPORTED_ABIS 是 API 21 的静态字段，minSdk 19 上直接读会 NoSuchFieldError，
         // 统一走 TerminalApi.supportedAbis()（内部有 SDK_INT 闸 + CPU_ABI 回落）。
         // 共存版必须只认自己那套附件名（app-coexist-*），否则会下到普通版、被 ApkVerifier 拒装。
@@ -354,6 +424,20 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
         )
         cachedConfig = config
         return config
+    }
+
+    private fun parseAssets(json: JSONObject): List<UpdateRelease.ReleaseAsset> {
+        val assetsJson = json.optJSONArray("assets") ?: return emptyList()
+        val assets = ArrayList<UpdateRelease.ReleaseAsset>()
+        for (i in 0 until assetsJson.length()) {
+            val a = assetsJson.optJSONObject(i) ?: continue
+            val name = a.optString("name", "")
+            val downloadUrl = a.optString("browser_download_url", "")
+            if (name.isNotEmpty() && downloadUrl.isNotEmpty()) {
+                assets.add(UpdateRelease.ReleaseAsset(name, downloadUrl))
+            }
+        }
+        return assets
     }
 
     fun downloadApk(

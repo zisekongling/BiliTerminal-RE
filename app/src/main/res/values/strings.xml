@@ -72,7 +72,6 @@
     <string name="text_update">下载的APK保存在: %s\n\n你可以使用pm install或其他方法自己安装，或在下方选择一个安装器进行安装\n若安装出现问题请删除安装包重试，仍然无法安装请反馈给开发者</string>
     <string name="text_update_success">终端的每个版本都可能会新增一些兼容性相关的设置项。\n如果你遇到了某些奇葩问题，请先在设置里找一找相关的兼容性选项，视频放不了、无法加载图片的问题都有可能解决哦~</string>
     <string name="text_update_checking">正在检查更新...</string>
-    <string name="text_update_latest">当前已是最新版</string>
     <string name="text_update_network_error">检查更新失败：网络错误，请稍后重试</string>
     <string name="text_update_config_error">检查更新失败：配置文件解析错误</string>
     <string name="text_update_download_failed">下载失败：%s</string>
@@ -851,6 +850,14 @@
     <string name="text_update_beta_version">%1$s（%2$s）</string>
     <string name="text_update_beta_default_name">内测包</string>
     <string name="text_update_beta_desc">内测码：%1$s\n内测包下载完成后直接安装，不比较版本号。</string>
+    <!-- ===== 三通道（稳定 / 测试 / 实验），口径见 docs/version-channels.md ===== -->
+    <string name="setting_update_channel">更新通道</string>
+    <string name="desc_update_channel">决定「检查更新」能收到哪些版本：稳定版只收正式版，测试版还能收到 -beta 包，实验版连完全没测过的包一起收。切到更保守的通道不会降级已装版本。</string>
+    <string name="update_channel_stable">稳定版</string>
+    <string name="update_channel_beta">测试版</string>
+    <string name="update_channel_exp">实验版</string>
+    <string name="msg_update_channel_changed">已切到%1$s。已装的更高版本不会被降级，等日期更新的版本发布后才会自动换回来。</string>
+    <string name="text_update_latest_channel">当前已是最新版（%1$s）</string>
     <!-- ===== 列表空态 / 翻页（12.4 文案迁移：二批） ===== -->
     <string name="text_list_empty">啥都木有~</string>
     <string name="text_list_empty_retry">啥都木有~\n点我重试</string>

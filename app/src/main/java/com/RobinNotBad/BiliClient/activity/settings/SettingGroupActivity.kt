@@ -43,6 +43,8 @@ import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.TerminalReportPrefs
+import com.RobinNotBad.BiliClient.util.UpdateChannel
+import com.RobinNotBad.BiliClient.util.UpdateManager
 import com.RobinNotBad.BiliClient.util.VirtualCollectionPrefs
 
 /** 「外观设置」分组的 group_type 取值。`SettingsIndex` 里跳转该分组时也用这个常量。 */
@@ -819,6 +821,32 @@ class SettingGroupActivity : RefreshListActivity() {
                 true
             }
         )
+        // 三通道（docs/version-channels.md §5）：包本身属于哪个通道只决定「默认值」，
+        // 用户随时可以改。选项就是渠道名的中文名，落盘存英文值（stable/beta/exp），
+        // 因为那三个字符串同时是 tag 后缀与后台上报字段，必须与 CI 保持一致。
+        listChoose(
+            getString(R.string.setting_update_channel),
+            getString(R.string.desc_update_channel),
+            SharedPreferencesUtil.UPDATE_CHANNEL,
+            UpdateChannel.current(),
+            listOf(
+                getString(R.string.update_channel_stable),
+                getString(R.string.update_channel_beta),
+                getString(R.string.update_channel_exp)
+            ),
+            UpdateChannel.ALL
+        ) { _, value ->
+            val channel = UpdateChannel.normalize(value)
+            // 切通道要连带清掉「上一条强制更新」与「已提示过的版本」，否则换了通道还在被旧通道的
+            // 规则拦着（原因见 UpdateManager.onChannelChanged 注释）。
+            UpdateManager.onChannelChanged(channel)
+            MsgUtil.showMsg(
+                getString(
+                    R.string.msg_update_channel_changed,
+                    getString(UpdateChannel.nameRes(channel))
+                )
+            )
+        }
         nav(R.drawable.icon_announcement, "公告列表", "查看哔哩终端发布公告") {
             startActivity(Intent(this, AnnouncementsActivity::class.java))
         }

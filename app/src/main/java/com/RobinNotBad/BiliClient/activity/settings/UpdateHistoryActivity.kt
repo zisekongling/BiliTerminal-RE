@@ -114,8 +114,10 @@ class UpdateHistoryActivity : BaseActivity() {
                 context.resources.getStringArray(R.array.update_log_current),
                 context.resources.getStringArray(R.array.update_history_log)
             )
-            // beta 包的 versionName 形如「26.09.24-BETA1」，比对前先砍掉后缀
-            val current = BuildConfig.VERSION_NAME.substringBefore('-')
+            // 更新日志的锚点只有日期（三通道共用同一份当日日志，见 docs/version-channels.md §3），
+            // 所以比对要用 VERSION_NAME_BASE 而不是砍后缀：`26.11.08-beta.1` 要砍，`26.11.08.1`
+            // 这种同日重发的稳定版后缀也要砍，`substringBefore('-')` 只处理得了前者。
+            val current = BuildConfig.VERSION_NAME_BASE
             val index = versions.indexOfFirst { it.version == current }
             return if (index >= 0) index else 0
         }

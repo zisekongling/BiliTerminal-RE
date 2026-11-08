@@ -163,11 +163,16 @@ public class TerminalApi {
      * <p>{@code device_key} 用于把同一台手机上的普通版与共存版合并成一台设备；
      * {@code is_coexist} 让后台能分开看两个版本的装机量。两者服务端都有默认值，
      * 所以老客户端不带它们也能正常计数。
+     *
+     * <p>{@code channel}（26.11.08 三通道，见 {@code docs/version-channels.md} §6）报的是
+     * <b>这个包属于哪个通道</b>（{@code BuildConfig.UPDATE_CHANNEL}），不是用户在设置里选的
+     * 「检查更新渠道」——后者只影响客户端收什么包，不能把一台 beta 包装设备报成稳定版。
+     * 服务端新增列时沿用「没报就保留原值」的策略，所以老客户端不发这个字段也不会被刷成空。
      */
     public static JSONObject buildPingPayload(String installId, int versionCode, String versionName,
                                               boolean isBeta, int sdk, String brand,
                                               String device, String abi, String deviceKey,
-                                              boolean isCoexist) throws JSONException {
+                                              boolean isCoexist, String channel) throws JSONException {
         JSONObject data = new JSONObject();
         data.put("install_id", safe(installId));
         data.put("version_code", versionCode);
@@ -179,6 +184,7 @@ public class TerminalApi {
         data.put("abi", safe(abi));
         data.put("device_key", safe(deviceKey));
         data.put("is_coexist", isCoexist);
+        data.put("channel", safe(channel));
         return data;
     }
 
@@ -639,14 +645,17 @@ public class TerminalApi {
             JSONObject payload = buildPingPayload(
                     getInstallId(),
                     BuildConfig.VERSION_CODE,
-                    BuildConfig.VERSION_NAME,
+                    // 只报日期、不带渠道后缀：后台版本分布直接 GROUP BY version_name，
+                    // 带 `-beta.1` 会碎成一堆一次性条目（docs/version-channels.md §6）。
+                    BuildConfig.VERSION_NAME_BASE,
                     BuildConfig.BETA,
                     Build.VERSION.SDK_INT,
                     Build.BRAND,
                     Build.DEVICE,
                     firstAbi(),
                     getDeviceKey(),
-                    BuildConfig.COEXIST);
+                    BuildConfig.COEXIST,
+                    BuildConfig.UPDATE_CHANNEL);
             return post("/telemetry/ping", payload).optInt("code", -1) == 0;
         } catch (Exception e) {
             // 遥测是尽力而为：任何失败都不能影响用户使用，也不能弹窗打扰。
