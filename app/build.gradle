@@ -3,7 +3,38 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
-int betaVer = 0
+// ── 版本号（三通道：稳定 / 测试 / 实验）────────────────────────────────────
+// 口径与理由见 docs/version-channels.md §2：
+//   versionCode = YYMMDD × 100 + 渠道码 × 10 + 当日序号   （stable=0, beta=1, exp=2）
+//   versionName = tag，两者完全相等
+//
+// 唯一手写项是下面的日期；渠道与序号走 Gradle 参数，不手算：
+//   ./gradlew :app:assembleRelease                         → 26.11.07 / 26110700
+//   ./gradlew :app:assembleRelease -Pseq=1                 → 26.11.07.1 / 26110701
+//   ./gradlew :app:assembleRelease -Pchannel=beta -Pseq=2  → 26.11.07-beta.2 / 26110712
+//   ./gradlew :app:assembleRelease -Pchannel=exp  -Pseq=1  → 26.11.07-exp.1 / 26110721
+def appVersionDate = "26.11.07"
+def appChannel = (project.findProperty('channel') ?: 'stable').toString().trim()
+def appChannelCode = [stable: 0, beta: 1, exp: 2][appChannel]
+def appSeq = (project.findProperty('seq') ?: (appChannel == 'stable' ? '0' : '1')).toString().trim().toInteger()
+
+if (!(appVersionDate ==~ /\d{2}\.\d{2}\.\d{2}/)) {
+    throw new GradleException("appVersionDate 必须是 YY.MM.DD，当前是：${appVersionDate}")
+}
+if (appChannelCode == null) {
+    throw new GradleException("-Pchannel 只能是 stable / beta / exp，收到：${appChannel}")
+}
+if (appSeq < 0 || appSeq > 9) {
+    throw new GradleException("-Pseq 必须是 0~9（同日同渠道最多 10 次），收到：${appSeq}")
+}
+if (appChannel != 'stable' && appSeq < 1) {
+    throw new GradleException("beta / exp 通道的 -Pseq 从 1 开始（0 只留给稳定版）")
+}
+
+def appVersionCode = appVersionDate.replaceAll('\\.', '').toInteger() * 100 + appChannelCode * 10 + appSeq
+def appVersionName = appVersionDate + (appChannel == 'stable'
+        ? (appSeq > 0 ? ".${appSeq}" : "")
+        : "-${appChannel}.${appSeq}")
 
 // ── 可选私有功能源码（不入库）──────────────────────────────────────────────
 // 私有功能的源码/资源/清单放在仓库根目录的 private/ 下，已被 .gitignore 排除，永不进公开仓库。
@@ -42,12 +73,8 @@ android {
         applicationId "com.RobinNotBad.BiliClient"
         minSdk 19
         targetSdk 34
-        versionCode 2611071
-        versionName "26.11.07"
-
-        if (betaVer) {
-            versionName += "-BETA" + betaVer
-        }
+        versionCode appVersionCode
+        versionName appVersionName
 
         multiDexEnabled true
 
@@ -132,7 +159,9 @@ android {
 
     buildTypes {
         release {
-            buildConfigField "boolean", "BETA", String.valueOf(betaVer > 0)
+            buildConfigField "boolean", "BETA", String.valueOf(appChannel != 'stable')
+            buildConfigField "String", "UPDATE_CHANNEL", "\"${appChannel}\""
+            buildConfigField "String", "VERSION_NAME_BASE", "\"${appVersionDate}\""
             buildConfigField "boolean", "LOG_DEBUG", "false"
             shrinkResources true
             minifyEnabled true
@@ -153,7 +182,9 @@ android {
             crunchPngs false
         }
         debug {
-            buildConfigField "boolean", "BETA", String.valueOf(betaVer > 0)
+            buildConfigField "boolean", "BETA", String.valueOf(appChannel != 'stable')
+            buildConfigField "String", "UPDATE_CHANNEL", "\"${appChannel}\""
+            buildConfigField "String", "VERSION_NAME_BASE", "\"${appVersionDate}\""
             signingConfig signingConfigs.debug
             minifyEnabled false
             shrinkResources false
@@ -369,7 +400,10 @@ dependencies {
 // versionName / versionCode 分散在多处，全靠人工同步，历史上已实际漂移过两次
 //（readme badge 停在 26.09.07、docs/FEATURES.md 停在 26.08.14）：
 //   1. 本文件 defaultConfig —— 唯一真正决定安装包版本的地方
-//   2. app/src/main/res/values/strings.xml 的更新日志锚点「【<versionName> 本次更新】」—— 用户可见
+//   2. app/src/main/res/values/strings.xml 的更新日志锚点「【<日期> 本次更新】」—— 用户可见
+//
+// 锚点只带日期、不带渠道后缀（见 docs/version-channels.md §3）：三条通道共用同一份当日日志标题，
+// 否则每发一次 beta / exp 都要再改一遍 strings.xml。
 //
 // 注：更新检查已改为直接读 Gitee / GitHub 的发行版（见 util/UpdateManager.kt 与
 // 发版工作流 .github/workflows/build-release.yml），版本号由发版工作流从本文件读出来、
@@ -388,11 +422,12 @@ tasks.register('verifyVersionConsistency') {
     // 显式声明输入，保证配置缓存命中时不会拿旧值
     inputs.property('versionName', expectName)
     inputs.property('versionCode', expectCode)
+    inputs.property('versionDate', appVersionDate)
     inputs.file(stringsFile)
 
     doLast {
         def problems = []
-        def anchor = "【${expectName} 本次更新】"
+        def anchor = "【${appVersionDate} 本次更新】"
 
         // 2) 更新日志锚点：关于页的「本次更新」标题必须跟着版本号走
         if (!stringsFile.getText('UTF-8').contains(anchor)) {
