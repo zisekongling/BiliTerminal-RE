@@ -54,13 +54,15 @@
 | [`review/agent-test-guide.md`](review/agent-test-guide.md) | Debug 包的 agent 测试手册：调试桥命令、可观测性设施、已知限制与设计原则 | 增删调试能力 / 调试桥命令时 |
 | [`review/manual-test-guide-261106.md`](review/manual-test-guide-261106.md) | 人机双轨的验收清单：26.11.06 新增功能的 34 条用例（无技术术语，含「不算 bug」与已知限制），每条另标 AI 能不能断言（7 条可断言 / 14 条半自动 / 13 条只能人判） | 找人验收新功能 / 自己按步骤过一遍 / 想知道某条该不该交给 AI 时 |
 | [`review/manual-test-guide-261107-tutorial-hint.md`](review/manual-test-guide-261107-tutorial-hint.md) | 26.11.07 教程翻页提示迁移的验收单（5 条，约 8 分钟）：5 个宿主页的提示文字与页数、出现/收起的时机、管理页通过/清除、老存档不重弹；每条带 `AI 断言` 的可执行取证命令 | 验收教程收尾这次改动 / 下一个拿到设备的 agent 直接照做时 |
+| [`review/manual-test-guide-261108-a11y.md`](review/manual-test-guide-261108-a11y.md) | 26.11.08 无障碍描述与播放器热区的验收单（7 条，约 19 分钟）：读屏念什么、图标大小是否没变、热区手感，以及**自定义布局左列放 3 个以上按键是否压住进度条 / 拖不动**（26.11.08 修的回归，H05 是重点）；每条带 `AI 断言` | 验收 a11y 与热区 / 复现左列回归 / 判 TalkBack 读数时 |
+| [`review/manual-test-guide-261108-opus-danmaku.md`](review/manual-test-guide-261108-opus-danmaku.md) | 26.11.08 专栏段落富文本与弹幕下载失败语义的验收单（6 条，约 15 分钟）：段落里的 @ 与链接能不能点、点得准不准、跳得对不对；弹幕地址失效时应报失败而不是「成功但没弹幕」 | 验收专栏富文本 / 弹幕下载 / 判点击命中时 |
+| [`review/manual-test-guide-261108-bangumi.md`](review/manual-test-guide-261108-bangumi.md) | 26.11.08 番剧分区页的验收单（7 条，约 18 分钟）：菜单入口与老用户回填、推荐/追番/索引三个页签、筛选弹窗与条件生效、翻到底与失败态、圆屏排版 | 验收番剧分区页 / 改该页筛选或翻页时 |
 | [`review/compare-with-re-biliterminal-261024.md`](review/compare-with-re-biliterminal-261024.md) | 与同源分支 `cyq114514/Re-BiliTerminal`（1.2.3fix）的六维对比审计：91 条问题（P0×2 / P1×20 / P2×69）、定量总表、P0–P2 路线图、四轮核验；**按目标设备口径（旧版安卓手表）评分** | 再次对比 / 排期取建议时；结论基于 2026-10-24 双方 HEAD |
 | [`review/fork-comparison-2026-11-06.md`](review/fork-comparison-2026-11-06.md) | 三个兄弟分支（Revival / PianoEthan / cyq 1.3.0）与我们的功能增量对比、实现质量优化、不建议照搬清单与三批实施路线；分报告在 `review/forks/` | 排期移植 / 参考兄弟分支实现时；结论基于 2026-11-06 双方 HEAD |
 | [`superpowers/plans/2026-08-27-new-features-roadmap.md`](superpowers/plans/2026-08-27-new-features-roadmap.md) | 功能路线图 + 从各报告回迁的仍未落地项 | 排期 / 落地后 |
 | [`superpowers/specs/2026-10-20-menu-start-page.md`](superpowers/specs/2026-10-20-menu-start-page.md) | 菜单启动页与菜单设置说明改造：需求、验收标准、存储键与行结构设计 | 改菜单设置 / 启动流程时 |
 | [`superpowers/specs/2026-10-21-short-video-feed-protocol.md`](superpowers/specs/2026-10-21-short-video-feed-protocol.md) | 竖屏短视频取流协议修订：参数约定、会话级分页状态、横屏过滤、跨批去重、降级池与验收标准 | 改短视频取流 / 排查短视频页内容异常时 |
 | [`superpowers/specs/2026-10-22-disguise-mode.md`](superpowers/specs/2026-10-22-disguise-mode.md) | 伪装与安全：双击顶栏触发、两种样式与各自退出方式、三个存储键、手势层三个接线点、验收标准与已知取舍 | 改伪装页 / 顶栏双击手势时 |
-| [`superpowers/specs/2026-10-14-console-v2-design.md`](superpowers/specs/2026-10-14-console-v2-design.md) | 控制台 v2 改造方案：数据稳定性、定向回复、删除、单文件前端、共存版去重（`server/` + APK 侧匿名遥测链路）；只做方案设计 | 维护控制台 / 改遥测上报链路时 |
 | [`superpowers/specs/2026-10-25-dash-merge-single-file.md`](superpowers/specs/2026-10-25-dash-merge-single-file.md) | DASH 下载改合并单文件：合并时机、失败回退保留双文件、端到端待登录实测 | 改下载合并 / 排查双文件缓存时 |
 | [`superpowers/specs/2026-11-06-player-ui-custom-layout.md`](superpowers/specs/2026-11-06-player-ui-custom-layout.md) | 播放器界面设置（假播放器）与按钮自定义布局：槽位模型、七组设置、默认布局与验收标准；**已实施** | 改播放器按钮 / 播放器界面设置时 |
 | [`tutorial-system-redesign.md`](tutorial-system-redesign.md) | 教程系统重做（**已完成**：注册表驱动 + 旧链路已删；§五 记录迁移明细，剩余待办只有强制声明清单） | 动教程时 |

@@ -1349,7 +1349,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 5. **`NetWorkUtil.post` 非 2xx 现在会抛 `IOException`**（`util/NetWorkUtil.java:443-447`），调用点必须按失败处理；`get` 仍不 `followRedirects`，3xx 原样返回，下载链路要自己判 `code()`（`activity/DownloadActivity.kt`）。
 6. **DebugBridge 的 `http` 默认不带应用请求头**（`appheaders` 默认 false，`app/src/debug/.../debug/DebugBridge.kt:521` 附近）：要带登录态必须显式 `--ez appheaders true`，这是为了不再无脑把 Cookie 写进 `logs/`。
 7. **`X-Install-Id` 受隐私同意闸控制**（`api/TerminalApi.java:535-547` 的 `headers()`）；反馈链路另走 `feedbackHeaders()`（`:763-778`）在未同意时补回，否则反馈无归属。改这两处前先读注释。
-8. **CI 的 debug APK 路径已适配 flavor**：`.github/workflows/ci.yml:106-108` 是 `app/build/outputs/apk/*/debug/*.apk`；再写死 `apk/debug` 会每次 push 必红。
+8. **CI 的 debug APK 路径已适配 flavor**：`.github/workflows/ci.yml` 的「上传 Debug APK」一步里 `path:` 是 `app/build/outputs/apk/*/debug/*.apk`；再写死 `apk/debug` 会每次 push 必红。
 9. **minSdk 19 线上不要用 `String.strip()`**（API 33）：`util/PasswordEncryptUtil.java:18` 从 `strip()` 改回 `trim()`，否则 API 19–32 密码登录静默失败（`NoSuchMethodError` 是 `Error`，外层 `catch (Exception)` 兜不住）。同批把 6 处过时 minSdk 注释（写 21/24）统一到 `app/build.gradle:21` 的 19。
 
 ### 7.46 弹幕 XML 解析是**懒执行**的：交给 parser 的流不能在 `prepare` 返回后关掉（26.10.20）
@@ -1522,8 +1522,8 @@ setMenuClick()                               // 2. 仅 RefreshMainActivity 需�
 setOnRefreshListener { load(1) }             // 3. 不注册则 swipeRefresh 永远转圈（基类 onCreate 里是 isEnabled=false, isRefreshing=true）
 setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别再 ++
 ```
-**Fragment 版列表页要自带一条随列表滚动的工具条时**（26.11.07 首个：用户主页「TA 的投稿」的搜索栏，`res/layout/fragment_user_video.xml`）：覆写 `onCreateView` 换成 `CoordinatorLayout`，工具条放 `com.google.android.material.appbar.AppBarLayout` 里并标 `app:layout_scrollFlags="scroll|snap"`，列表区套一层 `app:layout_behavior="@string/appbar_scrolling_view_behavior"` 的 `FrameLayout` 再 `include fragment_simple_refresh`（基类按 id 仍找得到 `swipeRefreshLayout` / `recyclerView` / `emptyTip`）。AppBar 必须**透明底 + `elevation=0` + `liftOnScroll=false`**，否则会切断 DecorView 那层氛围背景、并在滚动时冒出一条阴影横条；`snap` 不能省——只写 `scroll` 时手指停在半途松手会长期停在「半收起」，卡片从半透明工具条底下透出来。程序性回到第一页（换关键词 / 换排序）时要 `appBar.setExpanded(true, false)`：列表滚回顶部不会产生嵌套滚动事件，工具条会一直停在收起态、用户点不到它。
 
+**Fragment 版列表页要自带一条随列表滚动的工具条时**（26.11.07 首个：用户主页「TA 的投稿」的搜索栏，`res/layout/fragment_user_video.xml`）：覆写 `onCreateView` 换成 `CoordinatorLayout`，工具条放 `com.google.android.material.appbar.AppBarLayout` 里并标 `app:layout_scrollFlags="scroll|snap"`，列表区套一层 `app:layout_behavior="@string/appbar_scrolling_view_behavior"` 的 `FrameLayout` 再 `include fragment_simple_refresh`（基类按 id 仍找得到 `swipeRefreshLayout` / `recyclerView` / `emptyTip`）。AppBar 必须**透明底 + `elevation=0` + `liftOnScroll=false`**，否则会切断 DecorView 那层氛围背景、并在滚动时冒出一条阴影横条；`snap` 不能省——只写 `scroll` 时手指停在半途松手会长期停在「半收起」，卡片从半透明工具条底下透出来。程序性回到第一页（换关键词 / 换排序）时要 `appBar.setExpanded(true, false)`：列表滚回顶部不会产生嵌套滚动事件，工具条会一直停在收起态、用户点不到它。
 
 加载完成**必须**调 `setRefreshing(false)`——它是 `isLoading`/`isRefreshing` 的唯一复位信号（只改 `swipeRefreshLayout.isRefreshing` 不算）。失败走 `loadFail(e)`（会 `page--` 并复位）。到底置 `bottom = true`。
 
@@ -1538,7 +1538,6 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 | 空视图 | 有 `showEmptyView/hideEmptyView` | 有（`emptyView` / `showEmptyView` / `hideEmptyView` / `setOnEmptyRetry`，26.10.10 已补） |
 | 底部状态条 | 共用 `util/view/LoadMoreTipController`（「正在加载…」保持到加载结束；「没有更多了」2 秒自动收起，不是常驻横幅） | 同上（显示策略在 `util/view/LoadMoreTipPolicy`，纯函数带单测） |
 | 性能 | `PerformanceManager` 动态缓存 + 独立 RecycledViewPool | 固定 cacheSize 10、pool max 20 |
-
 
 ### 8.3 Adapter 写法
 
@@ -2064,5 +2063,5 @@ TTF/OTF/TTC，应用把它**拷进私有目录**（`filesDir/custom_font/custom_
 2. 网络请求**必须**在 `CenterThreadPool.run {}` 里调，API 方法是阻塞的。
 3. 新增页面：选基类（第 3.2 节）→ 注册 Manifest → 如需菜单入口再改 `MenuActivity.btnNames` + `loadMenuEnabled` 默认值。
 4. 新增 API：加在 `api/` 下对应类里，用 `NetWorkUtil.getJson/post` + `FormData`，纯解析部分抽成 `static` 函数以便单测。
-5. 改动后跑 `./gradlew.bat :app:assembleDebug`（本地以编译通过 + 真机手测为准；CI 另跑 `assembleDebug` 与 `testStandardDebugUnitTest`，见 `.github/workflows/ci.yml`）；解析逻辑改动补 `app/src/test/` 单测。
+5. 改动后跑 `./gradlew.bat :app:assembleDebug`（本地以编译通过 + 真机手测为准；解析逻辑改动补 `app/src/test/` 单测）。CI 不只看这一条：`.github/workflows/ci.yml` 的 `build-and-test` job（push / PR 到 `main`、手工触发）依次跑 `:app:verifyVersionConsistency`、`:app:assembleDebug`、`:app:testStandardDebugUnitTest`、`:app:testCoexistDebugUnitTest`（两个 flavor 共用同一份 `app/src/test`，但构建配置不同，都得绿）、`:app:assembleRelease`（unsigned：CI 不写签名材料；R8 + `shrinkResources` + `keep.pro` 冒烟，两个 flavor × 3 ABI 分包 + 通用包）。发版链另在 `build-release.yml`：`verify-version`（tag ↔ versionName/versionCode/更新日志锚点硬校验）→ `build-and-release`（只跑 `testStandardDebugUnitTest` + 签名 `assembleRelease`）。
 6. 改完顺手看一眼 `docs/review/fix-progress.md` 的待办，如果修掉了其中的条目就更新它。

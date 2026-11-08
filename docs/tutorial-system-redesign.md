@@ -89,7 +89,8 @@ res/layout/activity_tutorial_pager.xml / item_tutorial_page.xml
 | ✅ 孤儿补接 | `tutorial_article` → `article`，target = `OpusInfoActivity`（旧实现从未被展示） |
 | ✅ 删除旧调用点 | Recommend / UserInfo / Search / Message / Dynamic / DynamicInfo / ShortVideo / VideoInfo 八处手写调用已移除，改由 `BaseActivity` 集中触发 |
 | ✅ 管理页改造（26.10.24） | 「重看」调 `TutorialPagerActivity.start`；通过/清除/一键通过/清除全部改走 `TutorialStore`，页面里不再拼 `tutorial_ver_*` 键 |
-| ✅ HINT 纳入注册表（26.11.07） | 5 条页面滑动提示改成 `TutorialKind.HINT` 条目（`Tutorials.hints`），`BaseActivity` 与全屏教程一起分流、`tutorial/TutorialHints.kt` 渲染；宿主页不再手写 `showPagerTutorial(activity, 页数)`，页数改读宿主 ViewPager / ViewPager2 的真实页数。`SearchActivity` 自己抄的那份显隐逻辑一并删除 |
+| ✅ HINT 纳入注册表（26.11.07） | 5 条页面滑动提示改成 `TutorialKind.HINT` 条目（`Tutorials.hints`），`BaseActivity` 与全屏教程一起分流、`tutorial/TutorialHints.kt` 渲染；宿主页不再手写 `showPagerTutorial(activity, 页数)`，页数改读宿主 ViewPager / ViewPager2 的真实页数——所以**视频详情页默认 3 页**（简介 / 评论 / 相关推荐），关掉「视频相关推荐」或看的是番剧详情才是 2 页（私有包给番剧详情多一页「角色」，那种包是 3 页），搜索页 = 当时启用的搜索类别数（默认 5），用户主页 4、专栏详情 2、动态详情 2。`SearchActivity` 自己抄的那份显隐逻辑一并删除 |
+| ✅ 记账时机统一（26.11.07，`034a037`） | 五条 HINT 一律「提示**一露出**就写已读」（`TutorialHints.tryShow` 里 `TutorialStore.markRead`），与其它四页的旧行为一致；**旧搜索页是「左右滑一次之后」才记**，这次跟着统一。用户可见的变化是：搜索页提示刚出现就退出、一次都没滑，下次也不再出现（`docs/review/manual-test-guide-261107-tutorial-hint.md` H01 已写明） |
 | ✅ 删除旧链路（26.11.07） | `helper/TutorialHelper.kt`、`activity/TutorialActivity.kt`、`model/Tutorial.java`、`model/CustomText.java`、`res/layout/activity_tutorial.xml`、`res/xml/tutorial_*.xml` ×12、`strings.xml` 里 10 个 `tutorial_*` 数组与 2 条只被 `TutorialHelper` 使用的文案、Manifest 里的旧教程页注册，全部删除 |
 
 **待办**

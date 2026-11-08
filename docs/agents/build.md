@@ -5,11 +5,13 @@
 ## 命令
 
 ```bash
-./gradlew.bat :app:assembleDebug                 # 编译验证（无 CI，以此为准；两个 flavor 都编）
+./gradlew.bat :app:assembleDebug                 # 编译验证（两个 flavor 都编）；CI 也跑它
 ./gradlew.bat :app:testStandardDebugUnitTest     # 纯 JVM 单测（普通版）
 ./gradlew.bat :app:testCoexistDebugUnitTest      # 纯 JVM 单测（共存版，同源码）
 ./gradlew.bat :app:assembleRelease               # 正式包（R8 + ABI 分包，两个 flavor 都出）
 ```
+
+**CI 实际跑什么**（`.github/workflows/ci.yml` 的 `build-and-test` job；push / PR 到 `main` 与手工触发都会跑）：依次是 `:app:verifyVersionConsistency` → `:app:assembleDebug` → `:app:testStandardDebugUnitTest` → `:app:testCoexistDebugUnitTest`（两个 flavor 共用同一份 `app/src/test`，但构建配置不同，都要绿——coexist 以前从没进过 CI）→ `:app:assembleRelease`（unsigned 冒烟：CI 不写签名材料；验 R8 + `shrinkResources` + `keep.pro`，两个 flavor × 3 ABI 分包 + 通用包）。发版链在 `build-release.yml`，只跑 `testStandardDebugUnitTest` + 签名 `assembleRelease`（前面还有 `verify-version` 硬校验 tag ↔ 版本号）。本地仍按下面这几条自己先过一遍。
 
 ## 单测任务名与产物
 
