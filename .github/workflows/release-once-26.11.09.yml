@@ -229,14 +229,21 @@ jobs:
             "repos/${GITHUB_REPOSITORY}/actions/workflows/build-release.yml/dispatches" \
             --input /tmp/dispatch.json
           echo "已请求触发 build-release.yml（tag=${TARGET_TAG}，ref=main）；dispatches 之前的 run 总数=$before"
-          # 确认真的排上了：不静默成功，排不上就红
-          sleep 20
-          after=$(curl -sS --max-time 20 -H "Authorization: Bearer ${GH_TOKEN}" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/build-release.yml/runs?per_page=1" \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin).get("total_count", -1))')
-          echo "dispatches 之后的 run 总数=$after"
+          # 确认真的排上了：不静默成功，排不上就红。
+          # 用轮询而不是「睡 20 秒看一眼」：runs 的 total_count 有最终一致延迟，
+          # 真排上了但恰好在 20 秒时还没体现出来，会打出一个假红（tag 已建、发版其实在跑）。
+          after="$before"
+          for i in $(seq 1 6); do
+            sleep 15
+            after=$(curl -sS --max-time 20 -H "Authorization: Bearer ${GH_TOKEN}" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/build-release.yml/runs?per_page=1" \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin).get("total_count", -1))')
+            echo "第 $i 次查询：run 总数=$after（dispatch 前 $before）"
+            [ "$after" -gt "$before" ] && break
+          done
           if [ "$after" -le "$before" ]; then
-            echo "::error::调用 dispatch 后没有出现新的 build-release run（$before -> $after），请到 Actions 页面手动触发并检查 actions:write 权限"
+            echo "::error::调用 dispatch 后 90 秒内没有出现新的 build-release run（$before -> $after）。"
+            echo "::error::tag ${TARGET_TAG} 已经建好了，手动兜底：Actions → 构建发行版并创建 Release → Run workflow → tag 填 ${TARGET_TAG}"
             exit 1
           fi
           echo "--- 最近的 build-release 运行 ---"
