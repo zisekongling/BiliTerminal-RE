@@ -3,6 +3,7 @@ package com.RobinNotBad.BiliClient.adapter.video
 import com.RobinNotBad.BiliClient.adapter.video.VideoCardMenu.Action
 import com.RobinNotBad.BiliClient.model.VideoCard
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -18,13 +19,17 @@ class VideoCardMenuTest {
         this.title = "标题"
         this.aid = 114514
         this.bvid = "BV1xx411c7mD"
+        this.cover = "http://i0.hdslb.com/bfs/archive/cover.jpg"
         this.type = type
     }
 
     @Test
-    fun actionsFor_普通视频_信息流里四项齐全() {
+    fun actionsFor_普通视频_信息流里五项齐全() {
         assertEquals(
-            listOf(Action.WATCH_LATER, Action.FAVORITE, Action.CACHE, Action.REDUCE_RECOMMEND),
+            listOf(
+                Action.WATCH_LATER, Action.FAVORITE, Action.CACHE,
+                Action.VIEW_COVER, Action.REDUCE_RECOMMEND
+            ),
             VideoCardMenu.actionsFor(card("video"), true)
         )
     }
@@ -32,16 +37,25 @@ class VideoCardMenuTest {
     @Test
     fun actionsFor_普通视频_非信息流不给减少推荐() {
         assertEquals(
-            listOf(Action.WATCH_LATER, Action.FAVORITE, Action.CACHE),
+            listOf(Action.WATCH_LATER, Action.FAVORITE, Action.CACHE, Action.VIEW_COVER),
             VideoCardMenu.actionsFor(card("video"), false)
         )
+    }
+
+    @Test
+    fun actionsFor_封面为空_不给看封面() {
+        // 个别接口不返回 pic，点「看封面」只会得到一张空白大图，索性不出现这一项。
+        val noCover = card("video").apply { cover = "" }
+        val actions = VideoCardMenu.actionsFor(noCover, false)
+        assertEquals(listOf(Action.WATCH_LATER, Action.FAVORITE, Action.CACHE), actions)
+        assertFalse(actions.contains(Action.VIEW_COVER))
     }
 
     @Test
     fun actionsFor_type为空串_仍当作普通视频() {
         // VideoCard.type 的默认值是 "video"，但服务端字段缺失时解析出来可能是空串；
         // 空串得当成普通视频，否则一圈卡片长按全哑。
-        assertEquals(3, VideoCardMenu.actionsFor(card(""), false).size)
+        assertEquals(4, VideoCardMenu.actionsFor(card(""), false).size)
     }
 
     @Test

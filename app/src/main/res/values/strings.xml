@@ -322,7 +322,7 @@
 
     <!-- 缓存设置 -->
     <string name="cache_quick_mode">启用长按快捷操作</string>
-    <string name="cache_quick_mode_desc">开启后，长按视频卡片弹出操作菜单（稍后再看 / 收藏 / 缓存 / 减少推荐），长按专栏卡片直接缓存；关闭后长按不再响应。缓存页面与短视频界面中无效</string>
+    <string name="cache_quick_mode_desc">开启后，长按视频卡片弹出操作菜单（稍后再看 / 收藏 / 缓存 / 看封面等），长按专栏卡片直接缓存；关闭后长按不再响应。缓存页面与短视频界面中无效</string>
     <string name="cache_default_quality">默认缓存画质</string>
     <string name="cache_default_quality_desc">快捷缓存（长按菜单里的「缓存到本地」）使用的默认视频画质选项</string>
     <string name="cache_quality_highest">最高画质</string>
@@ -2848,6 +2848,7 @@
     <string name="text_video_card_menu_watch_later">稍后再看</string>
     <string name="text_video_card_menu_favorite">收藏</string>
     <string name="text_video_card_menu_cache">缓存到本地</string>
+    <string name="text_video_card_menu_view_cover">看封面</string>
     <string name="text_video_card_menu_reduce_recommend">减少推荐</string>
     <string name="msg_video_card_menu_watch_later_ok">添加成功</string>
     <string name="msg_video_card_menu_watch_later_failed">添加失败，错误码：%1$s</string>

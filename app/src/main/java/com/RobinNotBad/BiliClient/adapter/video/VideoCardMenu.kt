@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import com.RobinNotBad.BiliClient.R
+import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
 import com.RobinNotBad.BiliClient.activity.video.info.AddFavoriteActivity
 import com.RobinNotBad.BiliClient.api.ApiErrorText
 import com.RobinNotBad.BiliClient.api.WatchLaterApi
@@ -46,6 +47,14 @@ object VideoCardMenu {
         CACHE,
 
         /**
+         * 全屏看封面大图（[ImageViewerActivity]）。
+         *
+         * 不需要登录、也不碰服务端，所以它是唯一一项「卡片没封面时静默不给」的动作
+         * （判据在 [actionsFor]，免得点进去是个空白页）。
+         */
+        VIEW_COVER,
+
+        /**
          * 减少推荐 / 不感兴趣。动作本体由列表页注入：它要拿到这条推荐在信息流里的位置与 track 信息，
          * 适配器拿不到这些，只能当二传手（见 [VideoCardAdapter.onReduceRecommend]）。
          */
@@ -63,10 +72,12 @@ object VideoCardMenu {
      */
     fun actionsFor(videoCard: VideoCard, reduceRecommendAvailable: Boolean): List<Action> {
         if (!isNormalVideo(videoCard)) return emptyList()
-        val actions = ArrayList<Action>(4)
+        val actions = ArrayList<Action>(5)
         actions.add(Action.WATCH_LATER)
         actions.add(Action.FAVORITE)
         actions.add(Action.CACHE)
+        // 没封面的卡片（个别接口不返回 pic）不给这一项，否则点进去是一张空白大图。
+        if (!videoCard.cover.isNullOrBlank()) actions.add(Action.VIEW_COVER)
         if (reduceRecommendAvailable) actions.add(Action.REDUCE_RECOMMEND)
         return actions
     }
@@ -99,6 +110,7 @@ object VideoCardMenu {
                 Action.WATCH_LATER -> addToWatchLater(context, videoCard)
                 Action.FAVORITE -> openFavoriteChooser(context, videoCard)
                 Action.CACHE -> VideoQuickCache.handle(context, videoCard)
+                Action.VIEW_COVER -> viewCover(context, videoCard)
                 Action.REDUCE_RECOMMEND -> onReduceRecommend?.invoke()
             }
         }.show()
@@ -109,6 +121,7 @@ object VideoCardMenu {
         Action.WATCH_LATER -> context.getString(R.string.text_video_card_menu_watch_later)
         Action.FAVORITE -> context.getString(R.string.text_video_card_menu_favorite)
         Action.CACHE -> context.getString(R.string.text_video_card_menu_cache)
+        Action.VIEW_COVER -> context.getString(R.string.text_video_card_menu_view_cover)
         Action.REDUCE_RECOMMEND -> context.getString(R.string.text_video_card_menu_reduce_recommend)
     }
 
@@ -148,8 +161,28 @@ object VideoCardMenu {
         }
         val intent = Intent(context, AddFavoriteActivity::class.java)
         intent.putExtra("aid", videoCard.aid)
-        // 适配器里的 context 未必是 Activity（列表可能挂在 application context 上），
-        // 非 Activity 起 Activity 必须带 NEW_TASK，否则直接抛 AndroidRuntimeException。
+        startActivity(context, intent)
+    }
+
+    /** 全屏看封面，与详情页长按封面走同一个页面（[ImageViewerActivity] 的 extra 是 `imageList`）。 */
+    private fun viewCover(context: Context, videoCard: VideoCard) {
+        val cover = videoCard.cover
+        if (cover.isNullOrBlank()) {
+            // 理论上 actionsFor 已经把这一项滤掉了，这里只是兜底。
+            return
+        }
+        val imageList = ArrayList<String>(1)
+        imageList.add(cover)
+        val intent = Intent(context, ImageViewerActivity::class.java)
+        intent.putExtra("imageList", imageList)
+        startActivity(context, intent)
+    }
+
+    /**
+     * 适配器里的 context 未必是 Activity（列表可能挂在 application context 上），
+     * 非 Activity 起 Activity 必须带 NEW_TASK，否则直接抛 AndroidRuntimeException。
+     */
+    private fun startActivity(context: Context, intent: Intent) {
         if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
     }
