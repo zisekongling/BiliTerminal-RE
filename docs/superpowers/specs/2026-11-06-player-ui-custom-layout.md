@@ -118,8 +118,8 @@ Layout = left: List<Slot>          // 上限 5
 - **改 XML 结构**：`activity_player.xml` 现有 17 个按钮全部保持原 id，但统一挪进一个隐藏的「按钮池」容器 `button_pool`（`visibility="gone"`）；三个真正渲染的位置改成空容器：
   - `left_control`（已存在，清空子元素）
   - `right_column_slots`（给现有那列无名 LinearLayout 加 id，清空子元素）
-  - `bottom_buttons` 内改成横向滚动容器：`bottom_left_slots` + `button_video`(固定) + `bottom_right_slots`
-- 进入播放页时按布局 **re-parent**（`removeView` + `addView`）池子里的按钮到目标容器，并统一设 `LayoutParams`（侧列 28dp、底部 32dp、间距 6dp）。**不 new 新按钮**，`setOnClickListener` 那些既有绑定逻辑全部照旧。
+  - `bottom_buttons` 内改成横向滚动容器：`bottom_scroll`（`HorizontalScrollView`，`fillViewport="true"`）里套 `bottom_row`（`wrap_content` + `gravity="center"`），行内是 `bottom_left_slots` + `button_video`(固定) + `bottom_right_slots`；按钮少时整行居中，多时整行横向滚动（26.11.08 回退：26.11.07 曾把两侧槽位改成 `weight="1"` 各占半屏，宽屏上按钮簇被摊开、看着像错位）
+- 进入播放页时按布局 **re-parent**（`removeView` + `addView`）池子里的按钮到目标容器，并统一设 `LayoutParams`（侧列 28dp、底部 32dp×37dp、间距 6dp；26.11.08 与 11.02 统一，不再按屏宽/可用高度分支）。**不 new 新按钮**，`setOnClickListener` 那些既有绑定逻辑全部照旧。
 - 组槽位：动态建 `HorizontalScrollView` + `LinearLayout`，把组内按钮挂进去；点组格切换展开/收起（图标 `morehide`/`moreshow`，行为同现在的 `menu_btn`）。
 - 场景不适用：`isUsable` 返回 false 的槽位整个不挂载，后面的自动往前补位。
 - 删掉 5 处 `getBoolean("player_ui_showXxxBtn")` 判据（`PlayerActivity.kt:4051`、`:6576`、`:6647`、`:6654`、`:1581`），改为「在布局里就在，不在就不在」。

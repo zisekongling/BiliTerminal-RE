@@ -200,14 +200,18 @@
             android:clipToPadding="false"
             android:orientation="vertical">
 
+            <!--
+                进度条保持 26.11.02 的 20dp 高：26.11.07 把热区放大到 48dp（@dimen/touch_min）+ 上下
+                各 14dp 内边距，波形本身没变，只是把底栏从 59dp 撑到 94dp —— 大屏上整条底栏看起来被
+                「拉粗」，与 11.02 差别明显。热区放大已在 26.11.08 整批回退（用户口径：全设备统一回
+                11.02 尺寸），要恢复请连字幕上下边距（PlayerActivity 的 subtitle 边距常量）一起改。
+            -->
             <com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
                 android:id="@+id/videoprogress"
                 style="@style/Widget.AppCompat.SeekBar"
                 android:layout_width="match_parent"
-                android:layout_height="@dimen/touch_min"
+                android:layout_height="20dp"
                 android:layout_marginTop="2dp"
-                android:paddingTop="14dp"
-                android:paddingBottom="14dp"
                 android:paddingStart="14dp"
                 android:paddingEnd="14dp"
                 android:progressTint="?attr/colorPrimary"
@@ -240,37 +244,33 @@
             </HorizontalScrollView>
 
             <!--
-                底部按钮行（26.11.06 起可自定义）：中间是播放/暂停（不可自定义），
-                两侧各一个槽位容器，各最多 3 格；容器本身是横向滚动条，装不下时横向滑。
+                底部按钮行（26.11.06 起可自定义）：左槽位 + 播放/暂停（不可自定义）+ 右槽位，各最多 3 格。
                 按钮本体都在最外层隐藏的 button_pool 里，运行时由 PlayerButtonSlots 搬进来。
+
+                **整行作为一个整体居中**（26.11.08 回退）：26.11.07 把两侧槽位改成 `weight="1"` +
+                `fillViewport="true"` 平分屏幕宽度，宽屏上两侧的不可见视口各占半屏（411dp 竖屏 →
+                每侧 178dp），按钮簇被推到离播放键很远的位置，看起来就是「按钮被摊开、底栏错位」。
+                现在按 11.02 的口径：整行 width=wrap_content，外面套一条 fillViewport 的滚动条 ——
+                按钮少时靠 `gravity="center"` 整体居中，按钮多到装不下时整行横向滚动，不会两头被裁。
             -->
             <RelativeLayout
                 android:id="@+id/bottom_buttons"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <!--
-                    底部按钮行：左侧 / 右侧各是一条可横向滚动的槽位条，中间是播放/暂停。
-                    26.11.07 起格子放大到 44dp（热区；5 个键都上 48dp 会超过 233dp 屏宽），
-                    两侧各用 weight 平分剩余宽度：按钮少时贴着播放键（左条 end、右条 start），
-                    按钮多时在自己的半屏内横向滚动，不会再出现「整行比屏幕宽、两头被裁掉」。
-                -->
-                <LinearLayout
-                    android:id="@+id/bottom_row"
+                <HorizontalScrollView
+                    android:id="@+id/bottom_scroll"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_centerInParent="true"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
+                    android:fillViewport="true"
+                    android:scrollbars="none">
 
-                    <HorizontalScrollView
-                        android:id="@+id/bottom_left_scroll"
-                        android:layout_width="0dp"
+                    <LinearLayout
+                        android:id="@+id/bottom_row"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginEnd="6dp"
-                        android:layout_weight="1"
-                        android:fillViewport="true"
-                        android:scrollbars="none">
+                        android:gravity="center"
+                        android:orientation="horizontal">
 
                         <LinearLayout
                             android:id="@+id/bottom_left_slots"
@@ -278,30 +278,23 @@
                             android:layout_height="wrap_content"
                             android:gravity="center_vertical|end"
                             android:orientation="horizontal" />
-                    </HorizontalScrollView>
 
-                    <ImageButton
-                        android:contentDescription="@string/setting_player_ui_label_play"
-                        android:id="@+id/button_video"
-                        android:layout_width="44dp"
-                        android:layout_height="44dp"
-                        android:adjustViewBounds="true"
-                        android:background="?android:attr/selectableItemBackground"
-                        android:paddingStart="6dp"
-                        android:paddingEnd="6dp"
-                        android:paddingTop="3dp"
-                        android:paddingBottom="3dp"
-                        android:scaleType="fitCenter"
-                        android:src="@drawable/btn_player_play" />
-
-                    <HorizontalScrollView
-                        android:id="@+id/bottom_right_scroll"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="6dp"
-                        android:layout_weight="1"
-                        android:fillViewport="true"
-                        android:scrollbars="none">
+                        <!-- 32dp × 37dp 与 26.11.02 一致；内边距 6/3 让图标本身保持原来的视觉大小 -->
+                        <ImageButton
+                            android:contentDescription="@string/setting_player_ui_label_play"
+                            android:id="@+id/button_video"
+                            android:layout_width="32dp"
+                            android:layout_height="37dp"
+                            android:layout_marginStart="3dp"
+                            android:layout_marginEnd="3dp"
+                            android:adjustViewBounds="true"
+                            android:background="?android:attr/selectableItemBackground"
+                            android:paddingStart="6dp"
+                            android:paddingEnd="6dp"
+                            android:paddingTop="3dp"
+                            android:paddingBottom="3dp"
+                            android:scaleType="fitCenter"
+                            android:src="@drawable/btn_player_play" />
 
                         <LinearLayout
                             android:id="@+id/bottom_right_slots"
@@ -309,8 +302,8 @@
                             android:layout_height="wrap_content"
                             android:gravity="center_vertical|start"
                             android:orientation="horizontal" />
-                    </HorizontalScrollView>
-                </LinearLayout>
+                    </LinearLayout>
+                </HorizontalScrollView>
 
             </RelativeLayout>
 
