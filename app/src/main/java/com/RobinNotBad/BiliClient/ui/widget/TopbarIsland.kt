@@ -29,15 +29,16 @@ import com.RobinNotBad.BiliClient.util.ToolsUtil
 import java.util.WeakHashMap
 
 /**
- * 顶栏灵动岛（26.11.07）。
+ * 顶栏灵动岛（26.11.07；26.11.08 与「圆屏适配」解耦成独立开关）。
  *
- * ## 只做「圆屏适配」打开时的 46 个活动页
- * 非圆屏顶栏保持原样（时钟右对齐）；播放器页与短视频页有自己的顶栏，不接。
+ * ## 只接管 46 个活动页的顶栏时钟位
+ * 方屏与圆屏都能单独打开（`SettingsKeys.TOPBAR_ISLAND`）；播放器页与短视频页有自己的顶栏，不接。
+ * 圆屏适配把时钟居中时胶囊满宽、标题下移 3dp；方屏时钟靠右时只按标题剩余空档加宽。
  *
  * ## 不新增 View、不改 49 份手抄布局
  * 直接装饰 `R.id.top` 里的 `@id/timeText`（`TextClock`）：
- * - 宽度固定 72dp（按屏幕宽度封顶），高度保持文字行高，不改变顶栏高度；
- * - 圆屏模式下标题再下移 3dp，避免实心胶囊压住标题顶；
+ * - 宽度上限 72dp（按屏幕宽度封顶），高度保持文字行高，不改变顶栏高度；
+ * - **只有时钟居中（圆屏适配）时**标题才下移 3dp，避免实心胶囊压住标题顶；
  * - 不装任何触摸监听器：点胶囊仍会冒泡到整条顶栏，单击/长按/双击三套手势全部保留。
  *
  * ## 线程与生命周期
@@ -117,8 +118,10 @@ object TopbarIsland {
             explicit,
             prefs.getBoolean(SettingsKeys.UI_ROUND, false)
         )
-        if (explicit == null && enabled) {
-            SharedPreferencesUtil.putBoolean(SettingsKeys.TOPBAR_ISLAND, true)
+        // 继承结果无论真假都落盘一次：只落 true 的话，圆屏关着的新用户这里永远没有显式值，
+        // 以后自己打开圆屏适配时会被「继承」逻辑顺手打开灵动岛，与「两个开关互不影响」矛盾。
+        if (explicit == null) {
+            SharedPreferencesUtil.putBoolean(SettingsKeys.TOPBAR_ISLAND, enabled)
         }
         return enabled
     }
@@ -197,7 +200,7 @@ object TopbarIsland {
             Logu.d(
                 TAG,
                 "灵动岛已挂载：${activity.javaClass.simpleName} " +
-                    "width=${islandWidth() ?: origWidth}px（等首帧实测后可能再调）"
+                    "width=${widthOverride ?: "待实测"}px（首帧布局后按标题空档定一次）"
             )
         }
 
@@ -265,14 +268,17 @@ object TopbarIsland {
          *   免得标题莫名缩字。
          */
         private fun computeWidth(): Int? {
-            val base = if (origWidth > 0) origWidth else ToolsUtil.dp2px(48f)
+            // 基准取时钟实测宽度：wrap_content 是 -2，拿布局参数当基准会低估方屏还能长多少。
+            // attach / resume 时 applyStyle 会先把宽度还原成 origWidth，布局后这里读到的才是
+            // 自然宽度；未布局（width <= 0）一律不接管宽度，applyStyle 继续用 origWidth。
+            val base = clock.width
+            if (base <= 0) return null
             val wanted = ToolsUtil.dp2px(WIDTH_DP)
             val byScreen = (activity.window_width * WIDTH_SCREEN_RATIO).toInt()
-            val desired = (if (byScreen > 0) minOf(wanted, byScreen) else wanted)
-                .coerceAtLeast(base)
-            val extra = desired - base
-            if (extra <= 0) return base
+            val desired = if (byScreen > 0) minOf(wanted, byScreen) else wanted
+            if (desired <= base) return null
             if (isClockCentered()) return desired
+            val extra = desired - base
             val usable = minOf(extra, titleSlack())
             return if (usable >= ToolsUtil.dp2px(MIN_GROW_DP)) base + usable else null
         }
@@ -341,6 +347,9 @@ object TopbarIsland {
 
         private fun nudgeTitle() {
             if (titleNudged) return
+            // 只有圆屏适配把时钟居中、胶囊与标题上下叠在一起时才需要避让；
+            // 方屏时钟靠右，标题与胶囊在同一行不重叠，别平白把顶栏抬高 3dp。
+            if (!SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROUND, false)) return
             val title = top.findViewById<TextView>(R.id.pageName) ?: return
             val params = title.layoutParams as? RelativeLayout.LayoutParams ?: return
             if (origTitleTopMargin == null) origTitleTopMargin = params.topMargin
