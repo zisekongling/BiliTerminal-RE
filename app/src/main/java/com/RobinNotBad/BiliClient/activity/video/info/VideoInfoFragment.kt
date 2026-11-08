@@ -54,6 +54,7 @@ import com.RobinNotBad.BiliClient.api.VideoInfoApi
 import com.RobinNotBad.BiliClient.api.WatchLaterApi
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.VideoInfo
+import com.RobinNotBad.BiliClient.player.CollectionResumeStore
 import com.RobinNotBad.BiliClient.ui.widget.RadiusBackgroundSpan
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -805,6 +806,15 @@ class VideoInfoFragment : BaseFragment() {
         val resumeIndex = MultiPageResumePolicy.resumePageIndex(
             videoInfo!!.cids, data.cidHistory, data.lastPlayTimeMs
         )
+
+        // 记下「这个合集上次看的是哪一集」，供合集详情页进入时自动定位（反馈 #105 / #108）。
+        // 位置选在这里：首播教程、数据未就绪等早退分支都已经 return 过了，没真起播就不该留记录；
+        // 三条起播分支（直起、续到上次那P、进分P 选择页）也都在下面，一次覆盖。
+        // seasonId 取 ugc_season.id（= Collection.id），不要拿 PlayerData.seasonId——那是番剧的季。
+        videoInfo!!.collection?.let { collection ->
+            if (collection.id > 0) CollectionResumeStore.save(collection.id.toLong(), videoInfo!!.aid)
+        }
+
         when {
             videoInfo!!.pagenames.size == 1 -> PlayerApi.startGettingUrl(data)
             resumeIndex > 0 -> {

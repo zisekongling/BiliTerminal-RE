@@ -21,6 +21,8 @@ import com.RobinNotBad.BiliClient.api.SubscriptionApi
 import com.RobinNotBad.BiliClient.model.Collection
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.model.VideoInfo
+import com.RobinNotBad.BiliClient.player.CollectionResumePolicy
+import com.RobinNotBad.BiliClient.player.CollectionResumeStore
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -56,23 +58,21 @@ class CollectionInfoActivity : RefreshListActivity() {
                     return@onSuccess
                 }
 
+                // 定位目标 = 「上次在这个合集里看的那一集」，没有记录/记录失效时回落到入口视频。
+                // 两个分支都要定位：以前只有 SectionAdapter 会滚，从「收藏的合集」那种
+                // 只有 cards 的形态进来时永远停在顶部（反馈 #105 / #108）。
+                val targetAid = resolveResumeAid(collection, fromAid)
+
                 val adapter: RecyclerView.Adapter<RecyclerView.ViewHolder>
+                val targetPosition: Int
                 if (collection.sections == null && collection.cards != null) {
-                    adapter = CardAdapter(this, collection)
+                    val cardAdapter = CardAdapter(this, collection)
+                    adapter = cardAdapter
+                    targetPosition = cardAdapter.findCardPosition(targetAid)
                 } else if (collection.sections != null) {
-                    adapter = SectionAdapter(this, collection, recyclerView)
-                    val sections = collection.sections!!
-                    var pos = 1
-                    for (section in sections) {
-                        pos++
-                        val episodes = section.episodes
-                        for (episode in episodes) {
-                            pos++
-                            if (episode.aid == fromAid) {
-                                recyclerView.layoutManager?.scrollToPosition(--pos)
-                            }
-                        }
-                    }
+                    val sectionAdapter = SectionAdapter(this, collection, recyclerView)
+                    adapter = sectionAdapter
+                    targetPosition = sectionAdapter.findEpisodePosition(targetAid)
                 } else {
                     finish()
                     return@onSuccess
@@ -80,6 +80,9 @@ class CollectionInfoActivity : RefreshListActivity() {
 
                 hideEmptyView()
                 setAdapter(adapter)
+                // 定位放在 setAdapter 之后：scrollToPosition 只是登记「下次布局时滚到哪」，
+                // 先于 setAdapter 调用虽然也能生效，但那就依赖布局时序了；数据就位再登记更稳。
+                if (targetPosition >= 0) recyclerView.layoutManager?.scrollToPosition(targetPosition)
                 setRefreshing(false)
                 setupSubscribeBar(collection)
             }.onFailure { error ->
@@ -91,6 +94,40 @@ class CollectionInfoActivity : RefreshListActivity() {
                 MsgUtil.err(error)
             }
         }
+    }
+
+    /**
+     * 进入合集页时该定位到哪一集。
+     *
+     * 判定逻辑全部在 [CollectionResumePolicy]（纯函数，有单测）：这里只负责把
+     * 「本地记录」和「本合集现有的 aid」两样现实数据喂进去。
+     */
+    private fun resolveResumeAid(collection: Collection, fromAid: Long): Long {
+        val seasonId = collection.id.toLong()
+        return CollectionResumePolicy.resolveTargetAid(
+            fromAid = fromAid,
+            seasonId = seasonId,
+            record = CollectionResumeStore.read(seasonId),
+            memberAids = displayedAids(collection)
+        )
+    }
+
+    /**
+     * 合集里**列表上真能看到**的全部 aid（按展示顺序）。
+     *
+     * 刻意不用 [Collection.toPlaylist]：它会剔掉 cid 缺失的条目（播放列表没有 cid 就没法取流），
+     * 但这里只关心「这一集在不在列表上」——那些条目列表照样会画出来，用播放列表的筛选结果
+     * 去判断会让它们上面的记录静默失效，功能看起来像没生效。
+     */
+    private fun displayedAids(collection: Collection): List<Long> {
+        val aids = ArrayList<Long>()
+        val sections = collection.sections
+        if (sections != null) {
+            for (section in sections) for (episode in section.episodes) aids.add(episode.aid)
+        } else {
+            collection.cards?.forEach { aids.add(it.aid) }
+        }
+        return aids
     }
 
     // ==================== 合集订阅 ====================
@@ -243,6 +280,16 @@ class CollectionInfoActivity : RefreshListActivity() {
             return data.size + 1
         }
 
+        /**
+         * 目标 aid 在 Adapter 里的 item 下标；-1 表示这集不在本合集里。
+         *
+         * position 0 是合集信息卡，数据从 1 开始——与 [onBindViewHolder] 里的 `position - 1` 对应。
+         */
+        fun findCardPosition(aid: Long): Int {
+            val index = data.indexOfFirst { it.aid == aid }
+            return if (index < 0) -1 else index + 1
+        }
+
         class CollectionInfoHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             val name: TextView = itemView.findViewById(R.id.name)
             val desc: TextView = itemView.findViewById(R.id.desc)
@@ -295,6 +342,25 @@ class CollectionInfoActivity : RefreshListActivity() {
                 episodePos++
             }
             return 1
+        }
+
+        /**
+         * 目标 aid 在 Adapter 里的 item 下标；-1 表示这集不在本合集里。
+         *
+         * 必须与 [getTypes] 的排布同构（每节先占一个标题位，再逐集占位；position 0 是合集信息卡），
+         * 所以 types 里的第 i 位对应 Adapter 的 `i + 1`。放在 Adapter 内部而不是调用侧手搓累加：
+         * 排布规则一改这里跟着改，否则会静默滚到别的集上。
+         */
+        fun findEpisodePosition(aid: Long): Int {
+            var index = 0
+            for (section in data) {
+                index++ // 节标题
+                for (episode in section.episodes) {
+                    if (episode.aid == aid) return index + 1
+                    index++
+                }
+            }
+            return -1
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
