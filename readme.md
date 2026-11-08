@@ -22,13 +22,20 @@
 ## 界面预览
 
 <div align="center">
-  <img src="png/推荐.png" width="32%" alt="推荐页" />
-  <img src="png/短视频.png" width="32%" alt="短视频" />
-  <img src="png/视频详情页.png" width="32%" alt="视频详情页" />
+  <img src="png/01-推荐.png" width="48%" alt="推荐页：抬腕就能刷 B 站" />
+  <img src="png/02-视频详情页.png" width="48%" alt="视频详情页：封面简介一眼看清" />
   <br/>
-  <img src="png/账密登录.png" width="32%" alt="账密登录" />
-  <img src="png/设置页面.png" width="32%" alt="设置页面" />
-  <img src="png/投票页.png" width="32%" alt="投票页" />
+  <img src="png/03-评论页.png" width="48%" alt="评论区：带图也能看" />
+  <img src="png/04-热搜榜.png" width="48%" alt="热搜榜：实时热搜随手一看" />
+  <br/>
+  <img src="png/05-外观设置.png" width="48%" alt="外观设置：7 套主题随心切换" />
+  <img src="png/06-亮色模式.png" width="48%" alt="亮色模式：白天抬腕也清爽" />
+  <br/>
+  <img src="png/07-搜索排序.png" width="48%" alt="搜索排序：结果排序一点就换" />
+  <img src="png/08-计算器伪装.png" width="48%" alt="伪装与安全：双击标题秒变计算器" />
+  <br/>
+  <img src="png/09-蓝牙伪装.png" width="48%" alt="伪装与安全：一键假装蓝牙断开" />
+  <img src="png/10-反馈与建议.png" width="48%" alt="反馈与建议：有问题直接说" />
 </div>
 
 ---
