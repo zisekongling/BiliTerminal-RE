@@ -2832,6 +2832,7 @@
     <string name="a11y_coin">投币</string>
     <string name="a11y_favorite">收藏</string>
     <string name="a11y_verified">已认证</string>
+
     <!-- 番剧分区页（推荐 / 追番 / 索引 + 动态筛选）。筛选走 TerminalDialog 的分组单选，
          不再把 9 组条件铺成 chip 行（手表一屏放不下，也会挤掉列表空间）。 -->
     <string name="pagename_bangumi">番剧</string>
@@ -2853,4 +2854,15 @@
     <string name="msg_bangumi_recommend_failed">番剧推荐加载失败，请下拉重试</string>
     <string name="msg_bangumi_following_failed">追番加载失败，请下拉重试</string>
     <string name="msg_bangumi_index_failed">索引加载失败，请重试</string>
+    <!-- 顶栏灵动岛（仅「圆屏适配」打开时显示在时钟位） -->
+    <string name="island_playing">播放中</string>
+    <string name="island_downloading">%1$d%%</string>
+    <string name="island_downloading_unknown">下载</string>
+    <string name="island_unread">%1$d</string>
+    <string name="island_unread_many">99+</string>
+    <string name="island_battery">%1$d%%</string>
+    <string name="island_battery_unknown">低电</string>
+    <string name="island_charging">充电</string>
+    <string name="island_announcement">公告</string>
+    <string name="island_update">更新</string>
 </resources>

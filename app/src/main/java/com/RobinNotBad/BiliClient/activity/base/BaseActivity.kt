@@ -38,6 +38,7 @@ import com.RobinNotBad.BiliClient.tutorial.TutorialPagerActivity
 import com.RobinNotBad.BiliClient.tutorial.TutorialStore
 import com.RobinNotBad.BiliClient.tutorial.Tutorials
 import com.RobinNotBad.BiliClient.ui.widget.RotaryEncoderSupport
+import com.RobinNotBad.BiliClient.ui.widget.TopbarIsland
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomGridManager
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.ui.appearance.AppearanceApplier
@@ -432,6 +433,8 @@ open class BaseActivity : AppCompatActivity() {
         super.onStart()
         if (this !is InstanceActivity) setTopbarExit()
         setRound()
+        // 圆屏适配下把顶栏时钟换成灵动岛；非圆屏开关关闭时内部立即 detach。
+        TopbarIsland.attach(this)
         if (eventBusEnabled() && !eventBusInit) {
             EventBus.getDefault().register(this)
             eventBusInit = true
@@ -439,6 +442,12 @@ open class BaseActivity : AppCompatActivity() {
         autoTriggerTutorial()
         setupTopbarLongPressToHome()
         setupTopbarDoubleTapDisguise()
+    }
+
+    override fun onStop() {
+        // 页面不可见后灵动岛定时器必须停：手表上不能留每秒唤醒。
+        TopbarIsland.detach(this)
+        super.onStop()
     }
 
     /**
@@ -593,6 +602,7 @@ open class BaseActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        TopbarIsland.detach(this)
         // 取消还没交付的异步 inflate：布局在线程池里已经跑起来时无法中断，
         // 但可以让它到达主线程后丢弃结果，避免 setContentView / finishInflate 打在已销毁的页面上。
         pendingAsyncInflater?.cancel()
@@ -671,6 +681,8 @@ open class BaseActivity : AppCompatActivity() {
             else setTopbarExit()
 
             setRound()
+            // asyncInflate 页面在 onStart 时还没有 R.id.top，这里补一次绑定。
+            TopbarIsland.attach(this)
             callBack.finishInflate(view, layoutId)
         }
     }

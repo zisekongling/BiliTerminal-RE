@@ -11,6 +11,7 @@ import com.RobinNotBad.BiliClient.model.Announcement;
 import com.RobinNotBad.BiliClient.model.ApiResult;
 import com.RobinNotBad.BiliClient.model.FeedbackItem;
 import com.RobinNotBad.BiliClient.model.FeedbackReply;
+import com.RobinNotBad.BiliClient.util.IslandStatus;
 import com.RobinNotBad.BiliClient.util.Logu;
 import com.RobinNotBad.BiliClient.util.MsgUtil;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
@@ -739,11 +740,17 @@ public class TerminalApi {
         requireOk(result);
 
         ArrayList<Announcement> list = parseAnnouncements(result.optJSONArray("data"));
+        boolean fresh = false;
         for (Announcement announcement : list) {
             if (SharedPreferencesUtil.getInt(SettingsKeys.TERMINAL_ANNOUNCEMENT_LAST, 0) < announcement.id) {
                 SharedPreferencesUtil.putInt(SettingsKeys.TERMINAL_ANNOUNCEMENT_LAST, announcement.id);
+                fresh = true;
             }
             MsgUtil.showText(announcement.title, announcement.content, announcement.isRelayed());
+        }
+        // 有新公告时给顶栏灵动岛留一个 10 秒的「公告」事件；启动线程只置标记，不碰 UI。
+        if (fresh) {
+            IslandStatus.markAnnouncement();
         }
     }
 

@@ -134,6 +134,18 @@ class PlaybackService : Service() {
                 Logu.e("PlaybackService.stop", e.message ?: "停止后台播放服务失败")
             }
         }
+
+        /**
+         * 是否正在后台播放（顶栏灵动岛用）。
+         *
+         * 只读内存字段：服务没进前台、播放页已销毁、或播放器实际没在播，都返回 false。
+         * 不做 JNI 调用（[PlayerActivity.serviceIsPlaying] 内部只读 `@Volatile` 字段）。
+         */
+        @JvmStatic
+        fun isBackgroundPlaying(): Boolean {
+            val player = playerRef?.get() ?: return false
+            return foregrounded && !player.serviceGone() && player.serviceIsPlaying()
+        }
     }
 
     private lateinit var notifyManager: NotificationManager
