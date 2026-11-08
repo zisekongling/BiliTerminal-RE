@@ -4,15 +4,15 @@
 > 什么时候写这里：修完一个 bug / 关掉一个待办 / 每轮真机验证后。**别再往下追加长流水**——超过一屏就并进 §4「历史章节索引」那一行（§3 是 26.11.06 之前就积下的旧流水，只读不追加）。
 > 架构与坑看 `docs/architecture-map.md`；功能清单看 `docs/FEATURES.md`；真机清单看 `docs/review/real-device-regression-checklist.md`（旧的 T/D 测试计划已归档为 `docs/archive/review/device-test-plan.md`，只在要查某条用例原文时翻）。
 
-**怎么读这份文件（26.11.08 实测：全文 ≈14.4 万 token / 1,781 行，别整份读）**：
+**怎么读这份文件（26.11.08 实测：全文 ≈14.9 万 token / 1,814 行，别整份读）**：
 
 | 章节 | 行 | token | 什么时候读 |
 | --- | --- | --- | --- |
-| §1 当前版本状态 | `19–138` | ≈14.2k | **每次改动前必读** |
-| §2 未完成待办 | `139–304` | ≈11.9k | 接线前扫一眼；按关键词 grep，别整节读 |
-| §3 状态快照 | `305–1637` | ≈9.2 万 | **纯流水**，只在要查「某轮改动到底怎么改的」时 grep 关键词 |
-| §4 历史章节索引 | `1638–1740` | ≈2.2 万 | 一般不用读 |
-| §5 待回迁长期结论 | `1741–1781` | ≈3.7k | 要查某个长期结论时 |
+| §1 当前版本状态 | `19–164` | ≈17.9k | **每次改动前必读** |
+| §2 未完成待办 | `165–338` | ≈12.7k | 接线前扫一眼；按关键词 grep，别整节读 |
+| §3 状态快照 | `339–1671` | ≈9.2 万 | **纯流水**，只在要查「某轮改动到底怎么改的」时 grep 关键词 |
+| §4 历史章节索引 | `1672–1774` | ≈2.2 万 | 一般不用读 |
+| §5 待回迁长期结论 | `1775–1814` | ≈3.7k | 要查某个长期结论时 |
 
 > 除 §1 外都不要通读：**先 `grep -n "关键词" docs/review/fix-progress.md` 拿到行号，再只读那一段**。行号随文件增长会漂移，对不上就用 `grep -n "^## [0-9]\."` 重新定位章节。
 
@@ -146,12 +146,32 @@
   - **测试版框架同日拔出（26.11.08）**：问题在真机确认修复后，按 `docs/archive/superpowers/specs/2026-11-07-test-build-framework.md` §5.2 把整套东西删干净——`util/TestBuild.kt`、`player/PlaybackDiag.kt`、`PlaybackDiagTest.kt`、`app/build.gradle` 的 `testBuildName` 段、详情页 `diag_play` 入口（布局里的按钮 + 两条 strings + `initView` 那段 + `onResume` 恢复）、`VideoInfoFragment.startPlay(diag)` 回退成 `playClick()`、`PlayerActivity` 里全部 `diag*` 字段与方法、`Logu` 的诊断期放大（`RING_MAX_CHARS_DIAG` / `setRingMaxCharsTemp` / `restoreRingMaxChars` / `ringMaxChars` / `trimRingLocked` / `ringSnapshot(int)`）、`ErrorCatch` 的带额度快照；**保留**的是修复本身（`DeviceProfile` 瘦身、`hardwareDecodeEnabled` 的默认硬解与「禁止再按档位软解」注释、`startupDefaultQn` 收敛）。配方留档在 `docs/archive/superpowers/specs/2026-11-07-test-build-framework.md`，文档挂点（`docs/agents/testing.md` §3.3、`docs/agents/build.md`、`docs/README.md`）改成「已拔出 + 去哪找配方」。
   - **真机验证（L2）**：26.11.08 用户装修复版测试包（`26.11.07-TEST-diag` + 本修复）后确认「问题修复了」，1GB 手表不再卡顿；「硬解会不会花屏」这个风险项没有出现。
 
+- **26.11.08 弹幕「时间戳空降」崩溃（线上 3 例 `ConcurrentModificationException`）**：`DanmakuFlameMaster/src/main/java/master/flame/danmaku/controller/DrawTask.java:202` 给 `getVisibleDanmakusOnTime(long)` 加 `synchronized`。它是**唯一从 UI 线程直接调用的读取入口**（`DanmakuView.getCurrentVisibleDanmakus()` → `DrawHandler` → 本方法），却要遍历 `danmakuList.subnew()` 返回的 `TreeSet` 子集视图；而弹幕列表的结构性修改全发生在持本对象锁的方法里（`addDanmaku` / `removeAllDanmakus` / `removeUnusedLiveDanmakusIn` / `draw`），不持锁就是**读写在同一个 `TreeSet` 上**。3 例都出现在弹幕量 > 5000 且点「弹幕时间戳空降」时。`CacheManagingDrawTask.prepareCaches()` 对同一调用的 try/catch 重试是缓存线程侧兜底，**不能替代**这里的互斥（那边是读读竞争，这边是读写）。
+- **26.11.08 详情页「点赞卡片描边」开关（反馈 #112）**：动作区「点赞 / 投币 / 收藏」卡片改成 surface 底 + 1dp 主色描边后，描边色 `?attr/actionCardStroke` 在 B站粉与经典终端两套主题下都是 `#FF6699`，有用户觉得那圈粉边扎眼。
+  - 新键 `SettingsKeys.DETAIL_LIKE_CARD_RING = "detail_like_card_ring"`，判据 `DetailEntryPrefs.isLikeCardRingEnabled()`（`DEFAULT_LIKE_CARD_RING = true`，默认开＝不改老用户观感）；设置项在「设置 → 内容与浏览 → 详情页设置」，同步收进 `SettingsIndex` 搜索索引；文案 `setting_detail_like_card_ring` / `desc_setting_detail_like_card_ring`。
+  - 调用点两处：`activity/video/info/VideoInfoFragment.kt`（`if (!DetailEntryPrefs.isLikeCardRingEnabled()) likeCoinFavCard.strokeWidth = 0`）与 `adapter/article/OpusContentAdapter.kt`（文章 / 动态末尾 `cell_article_end` 的 `R.id.like_coin_fav`）。**两处必须一起判断**，否则会出现「视频页关了、文章页还留一圈」。关掉只把 `strokeWidth` 归零，底色（`?attr/actionCardColor`）与文字色都不动。
+  - 顺带修掉 `util/DetailEntryPrefs.kt` 里未闭合的 KDoc（缺 `*/`）——原状态整文件编译不过，这是本批能落地的前提。
+- **26.11.08 表情页标题栏黑带（反馈 #113）**：`activity/EmoteActivity.kt` 删掉 `tabLayout.setBackgroundColor(ColorScheme.getPlayerBg(this))`。那是**播放器播放区**的底色，7 套主题里恒为 `0xFF000000`（亮色主题也照抄暗色表），于是知乎蓝这类浅底主题下标题栏成了一条黑带（默认主题看不出来，因为页面底色本身就是黑的）。改成不设背景、继承页面主题底色，与全工程另一个 `TabLayout`（`activity/UpdateHistoryActivity.kt`）一致。
+- **26.11.08 教程管理页左上角图标改正**：`res/layout/activity_tutorial_manager.xml` 的 `app:drawableStartCompat` 由 `@drawable/arrow_down` 改成 `@drawable/arrow_back`——那个位置的语义是「返回上一级」，此前画的是向下箭头。
+- **26.11.08 合集页进入时定位到上次观看的那一集（反馈 #105 / #108）**：
+  - 新增 `player/CollectionResumeStore.kt`：`CollectionResumePolicy.resolveTargetAid(fromAid, seasonId, record, memberAids)`（纯函数，判「有记录且在列表上 / 记录失效回落入口」）、`CollectionResumeCodec`（存档格式 `seasonId\taid\tupdatedAt`）、`CollectionResumeStore.save/read`，键前缀 `collection_resume_v1_`；单测 `app/src/test/java/com/RobinNotBad/BiliClient/player/CollectionResumeStoreTest.kt`（用共享 `FakeSharedPreferences`）。**seasonId 取 `ugc_season.id`（= `Collection.id`），不是 `PlayerData.seasonId`**——后者是番剧的季。
+  - `activity/video/collection/CollectionInfoActivity.kt`：定位目标改由 `resolveResumeAid()` 决定；`CardAdapter.findCardPosition` / `SectionAdapter.findEpisodePosition` 各自按 `getTypes` 的排布算下标（position 0 是合集信息卡），**两个分支都定位**——此前只有 `sections` 分支会滚，从「收藏的合集」那种只有 `cards` 的形态进来永远停在顶部。`scrollToPosition` 放在 `setAdapter` **之后**（数据就位再登记，不依赖布局时序）。`displayedAids()` 取列表上真实可见的条目，**不用 `Collection.toPlaylist()`**：后者会剔掉缺 cid 的条目，会让这些条目上的记录静默失效，功能看起来像没生效。
+  - `VideoInfoFragment` 在首播教程 / 数据未就绪等早退分支**之后**、三条起播分支之前 `CollectionResumeStore.save(collection.id, videoInfo!!.aid)`——没真起播就不留记录。
+- **26.11.08 顶栏灵动岛（新功能，仅在「圆屏适配」打开时生效）**：
+  - 分层：`util/IslandState.kt`（`IslandState` 枚举 TIME / PLAYING / DOWNLOADING / UNREAD / BATTERY / ANNOUNCEMENT + `IslandSnapshot`）、`util/IslandStatus.kt`（状态源：后台播放读 `PlaybackService.isBackgroundPlaying()`、下载读 `DownloadService` 已启动 + `activeDownloadsCount` + percent、未读、电量 15 秒一次、更新检查 60 秒一次；瞬时事件 `BURST_MS = 10_000` 并用 `xxxArmed` 保证同一件事只弹一次）、`ui/widget/IslandPolicy.kt`（纯函数 `ongoingState` / `decide`：瞬时事件优先，持续事件按 播放中 > 下载中 > 未读，每显示 30 秒让 5 秒给时间，没有事件恒显示时间；`EVENT_SLICE_MS = 30_000` / `TIME_SLICE_MS = 5_000`）、`ui/widget/TopbarIsland.kt`（只做绘制与绑定）。单测 `ui/widget/IslandPolicyTest.kt`。
+  - 挂点：`BaseActivity` 在 `onStart` 与 `asyncInflate` 回调里 `TopbarIsland.attach(this)`（后者页面此时才有 `R.id.top`），`onStop` / `onDestroy` 一律 `detach`——手表上不留每秒唤醒；`ui/widget/TextClock.kt` 新增 `@Volatile var externallyManaged`，`startTick()` 里直接 return，否则亮屏 / 重新可见会把事件文字覆盖回时间；`api/TerminalApi.java` 的 `checkAnnouncement` 在有新公告时 `IslandStatus.markAnnouncement()`（启动线程只置标记，不碰 UI）；`service/PlaybackService.kt` 暴露 `@JvmStatic fun isBackgroundPlaying()`。宽度 72dp 且按屏宽 0.31 封顶，1 秒 tick，绑定用 `WeakHashMap` 弱引用持 Activity，**只认顶栏里的 `@id/timeText`**（视频详情页发布时间、文章末尾时间戳也叫这个 id）。
+- **本轮 L0（26.11.08 实测，本机已注入 `private/`，HEAD 为提交后的 `main`）**：`:app:assembleDebug` BUILD SUCCESSFUL（两 flavor 各出 APK）；`testStandardDebugUnitTest` 与 `testCoexistDebugUnitTest` 各 **204 suites / 2211 tests / 0 失败 0 错误**。**未逐步重跑**：6 组改动按「文件 / 模块互不重叠」切分（弹幕库 → 详情页开关 → 表情页 → 布局 → 合集 → 灵动岛），只跑了最终态；逐步可编译性是推断而非实测。真机未验项见 §2.1 同名四条。
+
 ## 2. 未完成待办
 
 ### 2.1 真机未验证（无设备 / 无登录态）
 
 - [x] **26.11.08 播放器软解回退（§1「档位不该碰解码方式与清晰度」）已在真机确认修复**：用户 26.11.08 装 `26.11.07-TEST-diag` 修复版后反馈「问题修复了」，卡顿的那台 1GB 手表恢复正常；①诊断报告里的 `codec.videoDecoderId=MEDIACODEC(硬解)` / `video.fpsOutput ≥28` 这组对照未逐项抄回来（用户只确认了观感），②「硬解花屏/绿屏」风险项未出现。诊断包与测试版框架已同日拔出（见 §1 末两条），后续如需复测按 `docs/archive/superpowers/specs/2026-11-07-test-build-framework.md` §4 重建。
 
+- [ ] **26.11.08 顶栏灵动岛真机未验（L2，只能看画面 / 判观感，且只有圆屏手表有意义）**：本机无圆屏设备，只做了 L0（构建 + 单测）。需在手表上确认：①打开「圆屏适配」后顶栏时钟位在后台播放 / 下载中 / 有未读 / 低电（≤20%）/ 充电 / 有新公告 / 有更新时显示对应内容，某个事件连续显示满 30 秒会插 5 秒时间再切回事件，**一个事件都没有时恒显示时间**；②亮屏、切页、退后台再回前台之后，事件文字不被时钟覆盖回时间（`TextClock.externallyManaged` 生效），退到后台不再每秒闪（`detach` 生效）；③关掉「圆屏适配」后恢复成普通时钟，顶栏宽度不变形、不压住右侧图标；④长内容（「99+」「充电」「公告」「更新」）在顶栏那点宽度下不压住左侧图标、不挤出屏；⑤低电 / 公告这类瞬时事件只弹一次，不会一直压着播放状态不放。
+- [ ] **26.11.08 合集续播定位真机未验（L2）**：需在手表上确认：①在某合集里看到第 N 集后返回合集页，进的是同一个合集且自动滚到第 N 集——**分节合集与只有卡片的「收藏的合集」两种形态都要试**；②那一集被删 / 已不在本合集时回落到入口视频，而不是停在顶部；③`scrollToPosition` 在手表小列表上不出现「先闪一下顶部再跳」的观感问题；④同一合集第二次进入仍定位到最近一次那一集（记录被覆盖而不是累加）。
+- [ ] **26.11.08 点赞卡片描边开关真机未验（L2）**：①设置里关掉后，视频详情页动作区与文章 / 动态末尾的动作卡片都不再有描边，底色与文字色不变；②重启 App 后保持关闭；③浅底主题下关掉描边后卡片边界仍能分辨（对比度别掉太多）；④默认值确认为「开」，老用户升级后观感不变。
+- [ ] **26.11.08 表情页标题栏黑带真机未验（L2）**：切到知乎蓝等浅底主题进表情页，标题栏应跟主题底色、不再是一条纯黑带；默认暗色主题下观感与修复前一致（不能变成灰条）。
 - [ ] **26.11.07 关注/粉丝列表「特别关注」徽章真机未验（L2，只能看画面 / 需要登录态）**：本机模拟器没有登录态，关注列表打不开，只做了 L0（构建 + 单测）。需要在手表上确认：①自己的关注列表里，特别关注的人有金色「特别关注」、互关的人有粉色「互关」，两个都满足时两个徽章同时出现；自己的粉丝列表里，我特别关注过的粉丝也有金色徽章；②看别人的关注/粉丝列表时一个徽章都不出现；③暗色 / 亮色模式下金色都清楚可读（**亮色是重点**：默认主题亮色下金色仍是 `#FFB800`，浅底对比偏低，见交接单 H02），长昵称截断不压住徽章、两个徽章不重叠不出屏、列表滚动复用时不串行。交接单 [`review/manual-test-guide-261107-follow-special.md`](manual-test-guide-261107-follow-special.md)（2 条）。
 
 - [ ] **26.11.07 番剧分区页（§3.138）设备端整页未验（L1+L2；交接单 [`review/manual-test-guide-261108-bangumi.md`](manual-test-guide-261108-bangumi.md)，7 条）**：本轮没能起模拟器（见 §3.138 末条），需要在手表上确认：①菜单里出现「番剧」且点得开（老用户升级后应被自动回填，自己在菜单设置里关掉后不应再加回来）；②三个页签的选中态（主题色 + 加粗）与切换后列表是否保留；③推荐/追番/索引三个列表的下拉刷新与滑到底翻页，**尤其「追番」未登录时的空态与「点我去登录 → 回来自动加载」**；④索引页「筛选」弹窗的分组单选在 192–233dp 手表宽度上是否放得下、选项（风格 45 个）能否滚到底、选完是否立刻换列表且回显正确（26.11.08 起还会在上一轮请求收尾后按新条件重拉一次，转圈不中途停）；⑤失败态（断网/风控）应提示「点我重试」而不是显示成空列表；⑥圆屏模式下顶栏与页签不被圆盘切掉、表冠能在列表里滚动。

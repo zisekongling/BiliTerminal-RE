@@ -672,7 +672,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 
 ## 7. 改功能前必须知道的坑（按"会不会踩到"排序）
 
-> 本节共 58 个 `### 7.x` 小节（≈5.3 万 token）。**另有 `### 7.56`（收藏夹管理页）/ `### 7.57`（播放器内切 1080P）/ `### 7.59`（外置卷交给外部播放器）三节误放在 §9 末尾**，它们同样是坑点，按 §7 对待。
+> 本节共 61 个 `### 7.x` 小节（≈5.4 万 token）。**另有 `### 7.56`（收藏夹管理页）/ `### 7.57`（播放器内切 1080P）/ `### 7.59`（外置卷交给外部播放器）三节误放在 §9 末尾**，它们同样是坑点，按 §7 对待。
 
 ### 7.1 本轮已修复（26.09.08，已验证，别再当 bug 修一遍）
 
@@ -1495,6 +1495,34 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **批量动作共用单条实现**：`LocalListActivity` 把单条删除抽成 `deleteVideoFiles(video)`、更新弹幕抽成 `updateDanmakuFor(video)`，单条菜单与批量都调它们——保留了原口径：路径按「扫出这条时的根」算、只删真实存在的目录、**只有真删掉才 `FolderManager.removeVideoFromAllFolders`**。批量执行统一在 `CenterThreadPool.run { }` 里跑，结果回主线程提示；完成顺序是**退出多选 → 刷新列表 → 提示结果**。
 - **返回键先退多选**：`onBackPressed` 在多选态只 `exitSelectionMode()`、不走 `super`；在文件夹里点顶栏返回箭头同样先退多选再退回顶层（`exitFolder` 里也有一道 `if (selectionMode) exitSelectionMode()`）。
 - **下载列表页不加多选**：`activity/video/local/DownloadListActivity.kt` 的任务语义（暂停 / 继续 / 重试）与缓存条目完全不同，本轮只做缓存页。
+
+### 7.62 顶栏灵动岛接管时钟位（26.11.08 新增，仅「圆屏适配」打开时生效）
+
+- **调用点只在 `activity/base/BaseActivity.kt` 一处**：在 `onStart`（`setRound()` 之后）与 `asyncInflate` 回调里 `TopbarIsland.attach(this)`，`onStop` / `onDestroy` 调 `detach(this)`。页面自己**不要**再 attach——新增页只要继承 `BaseActivity` 就自动有。
+- **`asyncInflate` 那道回调不能省**：异步加载布局的页面在 `onStart` 时 `R.id.top` 还没 inflate 出来，只挂 `onStart` 会让这类页面一个都没有。`attach` 内部对「找不到 top / 找不到 timeText」是 `detach` 后静默返回，不报错。
+- **只认 `R.id.top` 里的 `R.id/timeText`**：`activity/video/info/VideoInfoFragment` 的发布时间、文章末尾时间戳也叫 `@id/timeText`，用 `activity.findViewById` 全局找会给它们也套上胶囊（`TopbarIsland.kt:77-79` 有注释）。`attach` 是幂等的：同一个 Activity 且 `clock` 没变就只 `resume()`，换布局（clock 变了）才 `existing?.detach()` 再重建。
+- **`ui/widget/TextClock.kt` 新增 `@Volatile var externallyManaged`**，`startTick()` 首行 `if (externallyManaged) return`。不加这道：亮屏 / 页面重新可见 → `onVisibilityChanged` → `startTick()` → 时钟自己开始刷时间文本，一秒后把事件文字冲掉。**改 TextClock 的人注意**：这个字段是「有人接管了文案」的唯一标记，接管方必须在 `detach` 时复位。
+- **状态源与决策分离**：`util/IslandState.kt`（枚举 + `IslandSnapshot`）、`util/IslandStatus.kt`（读 `PlaybackService.isBackgroundPlaying()` / `DownloadService` 的 `started` + `activeDownloadsCount` + percent / 未读数 / 电量，`BATTERY_POLL_MS = 15_000`、`UPDATE_POLL_MS = 60_000`、`BURST_MS = 10_000`）、`ui/widget/IslandPolicy.kt`（**纯函数** `ongoingState` / `decide`，`EVENT_SLICE_MS = 30_000` / `TIME_SLICE_MS = 5_000`，优先级 播放中 > 下载中 > 未读，没有持续事件时恒 TIME，瞬时事件打断一切）。纯函数那层有 `ui/widget/IslandPolicyTest.kt`，改优先级先改测试。
+- **瞬时事件「只弹一次」靠 armed 标记**（`batteryArmed` / `updateArmed`）：15 / 60 秒轮询下同一次低电会被读到几十次，不 armed 就会一直弹。
+- **公告走标记不碰 View**：`api/TerminalApi.java` 的 `checkAnnouncement` 在后台线程只调 `IslandStatus.markAnnouncement()`（置 `announcementPending`），由顶栏轮询消费——所以 App 启动时才可能看到公告闪现，进程里没有顶栏时不消费。
+- **验证状态**：L0 已过（构建 + 单测），**L2 未验**（需圆屏手表，见 `docs/review/fix-progress.md` §2.1）。
+
+### 7.63 合集页「上次看到哪一集」定位（26.11.08 新增）
+
+- **seasonId 是 `ugc_season.id`（= `Collection.id`），不是 `PlayerData.seasonId`**：后者是番剧的「季」，两者同名字段、不同来源，混用会让记录永远对不上。写记录在 `VideoInfoFragment` 起播前，读记录在 `CollectionInfoActivity`。
+- **存档格式与键**：`CollectionResumeCodec` 编成 `seasonId\taid\tupdatedAt` 一行，`CollectionResumeStore.key()` 前缀 `collection_resume_v1_`。纯函数（`CollectionResumePolicy.resolveTargetAid(fromAid, seasonId, record, memberAids)` / `CollectionResumeCodec`）有单测 `player/CollectionResumeStoreTest.kt`（用共享 `FakeSharedPreferences`），改格式**必须**同时改版本前缀，否则老存档被当新格式解出垃圾。
+- **`displayedAids()` 不能用 `Collection.toPlaylist()`**：后者会剔掉缺 cid 的条目，这些条目上的记录于是「不在列表里」→ 静默失效，表现为功能没生效。定位用的成员列表必须是页面上真正渲染出来的那批 aid。
+- **两种形态都要定位**：只有 `cards` 的「收藏的合集」与 `sections` 的分节合集走不同分支（`CardAdapter.findCardPosition` / `SectionAdapter.findEpisodePosition`）。position 0 是合集信息卡，`findCardPosition` 要 `index + 1`，`findEpisodePosition` 与 `getTypes()` 的排布同构——**两边漏一个就会「有的合集能定位、有的永远停顶部」**。
+- **`scrollToPosition` 放在 `setAdapter` 之后**：数据先到位再登记滚动，不依赖布局时序；记录失效（那一集被删 / 不在本合集）时由 `resolveTargetAid` 回落到入口 aid，不要自己再兜一层。
+- **验证状态**：L0 已过，**L2 未验**（需真机看两种合集形态，见 §2.1）。
+
+### 7.64 弹幕「可见列表」是锁外读、锁内写的 `TreeSet`（26.11.08 修）
+
+- **症状**：线上 3 例 `java.util.ConcurrentModificationException`，全在弹幕量 > 5000 且用户点「弹幕时间戳空降」时。堆栈落在 `DanmakuView.getCurrentVisibleDanmakus()` → `DrawHandler` → `DrawTask.getVisibleDanmakusOnTime(long)`。
+- **根因**：`DrawTask.getVisibleDanmakusOnTime` 遍历 `danmakuList.subnew(time)` 返回的 `TreeSet` **子集视图**，而所有结构性修改（`addDanmaku` / `removeAllDanmakus` / `removeUnusedLiveDanmakusIn` / `draw`）都在**持本对象锁**的方法里——这条读取路径原本不持锁，等于在别人的写锁外面读同一个 `TreeSet`。
+- **修法**：`DanmakuFlameMaster/src/main/java/master/flame/danmaku/controller/DrawTask.java:202` 改成 `public synchronized IDanmakus getVisibleDanmakusOnTime(long time)`。锁是重入的，`draw()` 内部再调不会自锁死。
+- **别把它当成「`CacheManagingDrawTask.prepareCaches()` 已经 try/catch 兜了」**：那边是缓存线程的读读竞争重试，这边是读写竞争，兜不住。
+- 改弹幕库时注意：`app/libs/` 里没有 FLAME 的预编译包，DanmakuFlameMaster 是**源码 module**，改完直接进 APK；`assembleDebug` 会一起编。
 
 ## 8. UI 基建速查（新增页面临摹用）
 
