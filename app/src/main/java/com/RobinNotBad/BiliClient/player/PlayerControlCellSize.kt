@@ -42,4 +42,31 @@ object PlayerControlCellSize {
         val raw = availableDp / slotCount
         return raw.coerceIn(MIN_DP, MAX_DP).toInt().toFloat()
     }
+
+    /**
+     * 竖列可用的纵向高度（px）。
+     *
+     * **左右两列的上限是同一个**：两列都贴屏幕左右边缘，纵向都被顶栏与底栏夹住。右列的容器
+     * （`activity_player.xml` 的 `right_control`，`layout_below=top` + `layout_above=bottom_control`）
+     * 在布局里就被约束在这两条栏之间，父容器高度就是上限；左列（`left_control`）在 root 层
+     * `centerVertical`，父容器量到的是**整个窗口高度**，不能直接拿它算格子 —— 按整窗算的话
+     * 3 格 × 48dp = 144dp 会压到进度条与底部按钮行上，还会抢走进度条的触摸
+     * （26.11.08 验收发现的回归）。所以左列借用右列量到的那个上限。
+     *
+     * 上限量不到（<=0，例如右列还没布局）就返回 0 = 不放大：宁可保持改造前的 28dp，
+     * 也不要把格子放大到压住别的控件。
+     *
+     * @param region 槽位区；底部两区不参与按高度放大，恒返回 0
+     * @param parentHeightPx 本列父容器高度
+     * @param boundedColumnHeightPx 已被上下栏夹住的竖列高度（右列父容器高度）
+     */
+    fun columnAvailableHeightPx(
+        region: PlayerUiLayout.Region,
+        parentHeightPx: Int,
+        boundedColumnHeightPx: Int,
+    ): Int = when (region) {
+        PlayerUiLayout.Region.LEFT -> boundedColumnHeightPx.coerceAtLeast(0)
+        PlayerUiLayout.Region.RIGHT -> parentHeightPx.coerceAtLeast(0)
+        else -> 0
+    }
 }

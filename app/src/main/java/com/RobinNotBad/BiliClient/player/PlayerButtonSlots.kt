@@ -135,16 +135,19 @@ class PlayerButtonSlots(
         val density = context.resources.displayMetrics.density
         if (density <= 0f) return
         var changed = false
+        // 右列的父容器（right_control）在布局里被顶栏与底栏夹住，它量到的高度就是两列共同的
+        // 可用上限；左列在 root 层居中，父容器量到的是整窗高度，只能借用这个上限，不能自己按
+        // 整窗算 —— 按整窗算会让 3 格 × 48dp 压住进度条和底部按钮行并抢走触摸（26.11.08 回归）。
+        val boundedColumnPx = (regions[PlayerUiLayout.Region.RIGHT]?.container?.parent as? View)?.height ?: 0
         for (regionKey in listOf(PlayerUiLayout.Region.LEFT, PlayerUiLayout.Region.RIGHT)) {
             val region = regions[regionKey] ?: continue
             val count = PlayerUiLayout.slots(layout, regionKey).size
             if (count <= 0) continue
-            // 右列被夹在顶栏与底栏之间，父容器的高度就是可用高度；
-            // 左列是根布局里的居中列，整个窗口高度都能用。
-            val availablePx = when (regionKey) {
-                PlayerUiLayout.Region.RIGHT -> (region.container.parent as? View)?.height ?: 0
-                else -> region.container.rootView?.height ?: 0
-            }
+            val availablePx = PlayerControlCellSize.columnAvailableHeightPx(
+                regionKey,
+                parentHeightPx = (region.container.parent as? View)?.height ?: 0,
+                boundedColumnHeightPx = boundedColumnPx,
+            )
             if (availablePx <= 0) continue
             val cell = PlayerControlCellSize.cellSizeDp(availablePx / density, count)
             if (cell > region.cellHeightDp + 0.5f) {
