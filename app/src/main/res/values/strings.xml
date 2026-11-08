@@ -944,8 +944,8 @@
     <string name="msg_settinggroupactivity_004">没有可用的文件管理器</string>
     <string name="msg_settinggroupactivity_005">当前已是系统字体</string>
     <string name="msg_settinggroupactivity_006">已恢复系统字体</string>
-    <string name="msg_settinggroupactivity_007">高性能模式已开启，部分优化将在下次启动应用时生效</string>
-    <string name="msg_settinggroupactivity_008">已切换到性能优先模式</string>
+    <string name="msg_settinggroupactivity_007">高性能模式已开启，列表与图片缓存会使用更高配置</string>
+    <string name="msg_settinggroupactivity_008">高性能模式已关闭，改用标准配置（列表与图片缓存更省内存）</string>
     <string name="pagename_settingprefactivity_001">偏好设置</string>
     <string name="pagename_settinginfoactivity_001">详情页设置</string>
     <string name="pagename_settingrepliesactivity_001">评论区设置</string>
@@ -2787,7 +2787,8 @@
     <string name="setting_player_danmaku_maxline">弹幕最大行数</string>
     <string name="setting_player_danmaku_size">弹幕字号大小</string>
     <string name="setting_player_danmaku_transparency">弹幕不透明度</string>
-    <string name="setting_player_danmaku_speed">弹幕速度</string>
+    <string name="setting_player_danmaku_speed">弹幕停留时长</string>
+    <string name="desc_player_danmaku_speed">数值越大弹幕走得越慢，1.0 为默认；改完下次进播放页生效</string>
 
     <!-- 字幕 -->
     <string name="setting_player_subtitle_autoshow">自动弹出字幕选择</string>

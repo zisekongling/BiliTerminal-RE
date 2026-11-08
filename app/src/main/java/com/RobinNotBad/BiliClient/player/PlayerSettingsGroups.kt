@@ -331,14 +331,19 @@ object PlayerSettingsGroups {
             LiveDanmakuFactorPolicy.displayNames,
             LiveDanmakuFactorPolicy.storedValues
         ),
+        // 行数默认值与 DanmakuManager.init() 里读设置的默认值（15）保持一致：
+        // 26.11.08 前这里是 10、引擎是 15，且引擎还会按设备档位再压到 6/10/15，
+        // 用户看到的值与实际生效值可以对不上。档位封顶已撤掉，两处统一为 15。
         SettingSection("input_int", context.getString(R.string.setting_player_danmaku_maxline),
-            SettingsKeys.PLAYER_DANMAKU_MAXLINE, "", "10"),
+            SettingsKeys.PLAYER_DANMAKU_MAXLINE, "", "15"),
         SettingSection("input_float", context.getString(R.string.setting_player_danmaku_size),
             SettingsKeys.PLAYER_DANMAKU_SIZE, "", "0.7"),
         SettingSection("input_float", context.getString(R.string.setting_player_danmaku_transparency),
             SettingsKeys.PLAYER_DANMAKU_TRANSPARENCY, "", "0.5"),
+        // 文案 26.11.08 由「弹幕速度」改成「弹幕停留时长」：这个值直接喂给 DFM 的 Duration 倍率，
+        // 越大停留越久（Duration.java: value = initial * factor），叫「速度」会让人越调越反。
         SettingSection("input_float", context.getString(R.string.setting_player_danmaku_speed),
-            SettingsKeys.PLAYER_DANMAKU_SPEED, "", "1.0"),
+            SettingsKeys.PLAYER_DANMAKU_SPEED, context.getString(R.string.desc_player_danmaku_speed), "1.0"),
         // 弹幕磁盘缓存上限（批次 2）：按 cid+360s 分段缓存弹幕，回看/重进视频不再重复请求。
         // LRU 淘汰与原子写在 util/DanmakuDiskCache；这里只落档位（存字符串 MB 数，与
         // LiveDanmakuFactorPolicy 等 list_choose 项同一套落盘格式）。

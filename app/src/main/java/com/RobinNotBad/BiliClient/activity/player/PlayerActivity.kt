@@ -4263,6 +4263,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             textClock.layoutParams = textClockParams
         }
 
+        // 顶部标题栏三件套开关（26.11.08 接线）：这三个键 26.11.06 就加进设置页了，
+        // 但一直没有读取方——拨上拨下都只是往存档里写了个布尔值，顶栏照旧全显示。
+        // 默认 true，与「补开关之前恒显示」的行为一致；这里只管用户不想看的那一半，
+        // 「取不到电量」导致的 GONE 在上面初始化时已经处理过，不在这里翻回 VISIBLE。
+        if (!SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_SHOW_TITLE, true))
+            text_title!!.visibility = View.GONE
+        if (!SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_SHOW_CLOCK, true))
+            findViewById<View>(R.id.clock_layout).visibility = View.GONE
+        if (!SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_SHOW_BATTERY, true))
+            batteryView.visibility = View.GONE
+
         if (!SharedPreferencesUtil.getBoolean("player_show_online", false) || aid == 0L || cid == 0L)
             text_online.visibility = View.GONE
 

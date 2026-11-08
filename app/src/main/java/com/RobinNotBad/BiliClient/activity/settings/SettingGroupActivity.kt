@@ -729,14 +729,18 @@ class SettingGroupActivity : RefreshListActivity() {
             "高性能模式",
             getString(R.string.desc_high_performance),
             PerformanceManager.KEY_HIGH_PERFORMANCE_MODE,
-            false
+            // 用户设过就显示他设的值，没设过才显示设备自动判定的结果。
+            // 26.11.08 前这里是写死的 false，而引擎侧却按「高档 || 开关」算，
+            // 于是高档设备上开关显示「关」、实际一直按高档跑，怎么关都没用。
+            PerformanceManager.isEffectiveHighPerf()
         ) { isChecked ->
             PerformanceManager.setHighPerformanceMode(isChecked)
-            if (isChecked && PerformanceManager.getCurrentPerfLevel() != PerformanceManager.PERF_LEVEL_HIGH) {
-                MsgUtil.showMsg(getString(R.string.msg_settinggroupactivity_007))
-            } else if (!isChecked) {
-                MsgUtil.showMsg(getString(R.string.msg_settinggroupactivity_008))
-            }
+            MsgUtil.showMsg(
+                getString(
+                    if (isChecked) R.string.msg_settinggroupactivity_007
+                    else R.string.msg_settinggroupactivity_008
+                )
+            )
         }
 
         title("推荐")

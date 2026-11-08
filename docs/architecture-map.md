@@ -928,7 +928,9 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **档位不要碰「解码方式」与「清晰度」**（26.11.08，26.11.07 卡顿回归的教训）：`util/DeviceProfile` 曾经用 `preferSoftwareDecode` 让低端档默认软解、用 `playQn` 给低端档封顶 360P，两个都错了——
   1. 软解是**性能灾难**而不是保护：真机诊断包实测 1GB 手表（`aqsh_watch A6-A66`）软解 720P 的 `video.fpsOutput` 只有 **14.2~17.5**（源 30fps），关掉弹幕仍是 14.2/17.5；同一台 360P 软解 33.3、vivo 硬解 720P 30.3。而「软解防花屏」在控制台全量反馈里没有任何证据（「花屏」「绿屏」各 0 条）。
   2. 清晰度封顶**在主入口走不到**：`activity/video/JumpToPlayerActivity.kt:114` 先用 `NetworkPlaybackQuality.defaultQn(this)` 定 `data.qn`，`api/PlayerApi.java:723` 又把它塞进 `currentQuality` extra，`PlayerActivity` 取 extra 时 `startupDefaultQn()` 只是兜底——所以 `device.playQnLimit=16` 的机器照样拿到 720P。
-  现在的口径：**解码默认恒为硬解**（`hardwareDecodeEnabled()` = `getBoolean(SettingsKeys.PLAYER_CODEC, true)`，只有用户显式选过软件解码才听用户的）；**清晰度只听用户配置**；档位只保留弹幕行数这一项（`capDanmakuMaxLines`）。想再加「按性能自动降级」时先证明它真的生效、且不覆盖用户显式设置。
+  现在的口径：**解码默认恒为硬解**（`hardwareDecodeEnabled()` = `getBoolean(SettingsKeys.PLAYER_CODEC, true)`，只有用户显式选过软件解码才听用户的）；**清晰度只听用户配置**；**弹幕行数也只听用户配置**（`player/DanmakuManager.kt` 直接 `getInt(SettingsKeys.PLAYER_DANMAKU_MAXLINE, 15)`）。`util/DeviceProfile`（三档 + `capDanmakuMaxLines` + `preferSoftwareDecode` + `playQn`）在 26.11.08 随封顶一起**整份删除**：档位概念只剩 `util/PerformanceManager` 自己的性能档，且它只影响**没有对应设置项**的东西（图片质量 / Glide 缓存 / 列表预取与页长 / 硬件位图）。想再加「按性能自动降级」时先证明它真的生效、且不覆盖用户显式设置。
+
+- **性能档不许覆盖用户显式设置，也不许替用户写开关**（26.11.08 二次普查的教训）：`isEffectiveHighPerf()` 拆成「用户设过就听用户的（`userSetHighPerf`）／没设过才用自动判定（`autoDetectedHighPerf`，落键 `KEY_PERFORMANCE_AUTO_DETECTED`）」，`detectAndApplyPerformanceLevel()` 不再往 `KEY_HIGH_PERFORMANCE_MODE` 里写值。**设置页开关的默认值必须与消费方读的默认值一致**——同一批还修了 `IMAGE_NO_LOAD_ONSCROLL`（界面 `"false"` vs 消费方 `true`）、`dev_jsonerr_detailed` / `dev_recyclererr_detailed`（界面 `isDebugBuild()` vs 消费方 `false`）、`PLAYER_DANMAKU_MAXLINE`（界面 10 vs 引擎 15）四处，以及顶栏 `player_ui_show_title/battery/clock` 三个「能拨但零读取方」的死开关（已在 `PlayerActivity.initUI()` 接线）。加设置项时**先写出消费方再写界面项**，并把两者的默认值写成同一个来源。
 
 ### 7.11 更新包校验：`util/ApkVerifier.kt`（26.10.04 批次 4 新增）
 

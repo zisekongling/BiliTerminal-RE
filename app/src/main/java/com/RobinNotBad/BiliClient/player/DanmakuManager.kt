@@ -6,7 +6,6 @@ import android.content.Context
 import android.graphics.Color
 import com.RobinNotBad.BiliClient.model.DmSegMobileReply
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
-import com.RobinNotBad.BiliClient.util.DeviceProfile
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
@@ -132,13 +131,11 @@ class DanmakuManager(
         val prefs = SharedPreferencesUtil.getSharedPreferences()
         _state.update {
             DanmakuState(
-                // 批次 2：弹幕行数按设备档位封顶。用户设置仍然生效，但不会超过档位上限
-                // （低端 6 行 / 中端 10 行 / 高端 15 行，依据见 util/DeviceProfile 的 KDoc）——
-                // 弱机上同屏行数过多会先掉帧、再出现弹幕互相压字，而这类设备正是反馈「播放卡」的主力。
-                maxLines = DeviceProfile.capDanmakuMaxLines(
-                    SharedPreferencesUtil.getInt(SettingsKeys.PLAYER_DANMAKU_MAXLINE, 15),
-                    DeviceProfile.current().danmakuMaxLines
-                ),
+                // 弹幕行数完全听用户设置（26.11.08 撤掉「按设备档位封顶」）：
+                // 旧实现对低端机把用户设的 15 行静默压到 6 行，设置页却仍显示用户填的值，
+                // 且没有任何提示——与 26.11.07 那个「低端机被静默切软解」是同一类 bug。
+                // 用户拍板：这类按性能偷偷改用户选择的行为一律去掉，弱机掉帧由用户自己权衡。
+                maxLines = SharedPreferencesUtil.getInt(SettingsKeys.PLAYER_DANMAKU_MAXLINE, 15),
                 speedFactor = SharedPreferencesUtil.getFloat("player_danmaku_speed", 1.0f),
                 textSizeScale = SharedPreferencesUtil.getFloat("player_danmaku_size", 0.7f),
                 transparency = SharedPreferencesUtil.getFloat("player_danmaku_transparency", 0.5f),

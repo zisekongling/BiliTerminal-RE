@@ -96,8 +96,10 @@ class SettingPrefActivity : RefreshListActivity() {
             add(SettingSection("switch", "禁止视频在相册中显示", SettingsKeys.SAVE_BAN_GALLERY, getString(R.string.desc_ban_gallery), "true"))
             add(SettingSection("switch", "请求JPG格式图片", SettingsKeys.IMAGE_REQUEST_JPG,
                 getString(R.string.desc_img_request_jpg), "false"))
+            // 默认值必须与消费方 ImageAutoLoadScrollListener 一致（那边是 getBoolean(..., true)）：
+            // 写 "false" 时界面显示「关」、实际却按「开」在省图，用户会以为图片加载不出来（26.11.08 修）。
             add(SettingSection("switch", "翻动时不加载图片", SettingsKeys.IMAGE_NO_LOAD_ONSCROLL,
-                getString(R.string.desc_img_no_load_onscroll), "false"))
+                getString(R.string.desc_img_no_load_onscroll), "true"))
             add(SettingSection("switch", "异步加载布局", SharedPreferencesUtil.ASYNC_INFLATE_ENABLE,
                 getString(R.string.desc_async_inflate_enable), "true"))
             add(SettingSection("switch", "新提示信息显示方式", SharedPreferencesUtil.SNACKBAR_ENABLE,
