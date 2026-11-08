@@ -134,4 +134,18 @@ class IslandPolicyTest {
         assertEquals(IslandState.TIME, d.state)
         assertTrue(d.showTime)
     }
+
+    @Test
+    fun islandSwitchFollowsUserOnceSet() {
+        // 用户在新开关上设过就完全听他的，与「圆屏适配」无关。
+        assertTrue(IslandPolicy.resolveEnabled(explicit = true, legacyRound = false))
+        assertFalse(IslandPolicy.resolveEnabled(explicit = false, legacyRound = true))
+    }
+
+    @Test
+    fun islandSwitchInheritsRoundWhenUserNeverTouchedIt() {
+        // 没设过（含新装用户）：继承旧行为，开着圆屏适配的老用户升级后不丢功能。
+        assertTrue(IslandPolicy.resolveEnabled(explicit = null, legacyRound = true))
+        assertFalse(IslandPolicy.resolveEnabled(explicit = null, legacyRound = false))
+    }
 }

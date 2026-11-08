@@ -329,6 +329,7 @@ class SettingGroupActivity : RefreshListActivity() {
             SharedPreferencesUtil.putFloat(SettingsKeys.DPI, 1.0f)
             SharedPreferencesUtil.putInt(SettingsKeys.DENSITY, -1)
             SharedPreferencesUtil.putBoolean(SettingsKeys.UI_ROUND, false)
+            SharedPreferencesUtil.putBoolean(SettingsKeys.TOPBAR_ISLAND, false)
             refresh()
             MsgUtil.showMsg(getString(R.string.msg_settinggroupactivity_002))
         }
@@ -342,6 +343,13 @@ class SettingGroupActivity : RefreshListActivity() {
             refresh()
             if (isChecked) MsgUtil.showMsg(getString(R.string.msg_settinggroupactivity_003))
         }
+        // 顶栏灵动岛跟「圆屏适配」是两个独立开关（26.11.08 解耦），方屏也能开。
+        switch(
+            getString(R.string.setting_topbar_island),
+            getString(R.string.desc_setting_topbar_island),
+            SettingsKeys.TOPBAR_ISLAND,
+            false
+        )
         input("界面大小", getString(R.string.desc_setting_ui), SettingsKeys.DPI, "input_float", "1.0") { value ->
             try {
                 val dpiScale = value.toFloat()

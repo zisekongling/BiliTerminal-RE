@@ -1498,7 +1498,10 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **返回键先退多选**：`onBackPressed` 在多选态只 `exitSelectionMode()`、不走 `super`；在文件夹里点顶栏返回箭头同样先退多选再退回顶层（`exitFolder` 里也有一道 `if (selectionMode) exitSelectionMode()`）。
 - **下载列表页不加多选**：`activity/video/local/DownloadListActivity.kt` 的任务语义（暂停 / 继续 / 重试）与缓存条目完全不同，本轮只做缓存页。
 
-### 7.62 顶栏灵动岛接管时钟位（26.11.08 新增，仅「圆屏适配」打开时生效）
+### 7.62 顶栏灵动岛接管时钟位（26.11.08 新增；独立开关，与「圆屏适配」解耦）
+
+- **开关是独立的 `SettingsKeys.TOPBAR_ISLAND = "topbar_island_enable"`（26.11.08 解耦）**：早先 `attach()` 直接判 `UI_ROUND`，方屏等于用不了——灵动岛只是顶栏时钟位的复用，跟圆屏没因果关系。现在走 `TopbarIsland.isEnabled()`，判据在纯函数 `IslandPolicy.resolveEnabled(explicit, legacyRound) = explicit ?: legacyRound`（用户设过就听用户的；没设过才继承圆屏适配并落盘一次，老用户升级不丢功能，新装默认关）。有单测 `islandSwitchFollowsUserOnceSet` / `islandSwitchInheritsRoundWhenUserNeverTouchedIt`。设置项在「界面与外观 → 布局适配」里紧挨「圆屏适配」下面，设置搜索索引也有一条。
+- **宽度自适应**：`islandWidth()` 返回 `Int?`，**null 表示不接管宽度**（`applyStyle()` 用回 `origWidth`）。期望宽度 = `min(72dp, screenWidth * 0.31)`，分两种形态：时钟**居中**（`isClockCentered()`，即圆屏适配把时钟挪到正中）时加宽左右对称、沿用满宽老口径；时钟**靠右**（方屏）时只往左长，按 `titleSlack()` 算标题还剩多少空档（`title.paint.measureText` 反推实际需要宽度），**抢不到 8dp（`MIN_GROW_DP`）就不加宽**，免得标题莫名缩字。首帧布局后 `settleWidth()` 实测一次并缓存进 `widthOverride`；**没有缓存会越量越窄**（加宽已经把标题挤窄了，再量一次空档更小）。
 
 - **调用点只在 `activity/base/BaseActivity.kt` 一处**：在 `onStart`（`setRound()` 之后）与 `asyncInflate` 回调里 `TopbarIsland.attach(this)`，`onStop` / `onDestroy` 调 `detach(this)`。页面自己**不要**再 attach——新增页只要继承 `BaseActivity` 就自动有。
 - **`asyncInflate` 那道回调不能省**：异步加载布局的页面在 `onStart` 时 `R.id.top` 还没 inflate 出来，只挂 `onStart` 会让这类页面一个都没有。`attach` 内部对「找不到 top / 找不到 timeText」是 `detach` 后静默返回，不报错。
@@ -1507,7 +1510,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **状态源与决策分离**：`util/IslandState.kt`（枚举 + `IslandSnapshot`）、`util/IslandStatus.kt`（读 `PlaybackService.isBackgroundPlaying()` / `DownloadService` 的 `started` + `activeDownloadsCount` + percent / 未读数 / 电量，`BATTERY_POLL_MS = 15_000`、`UPDATE_POLL_MS = 60_000`、`BURST_MS = 10_000`）、`ui/widget/IslandPolicy.kt`（**纯函数** `ongoingState` / `decide`，`EVENT_SLICE_MS = 30_000` / `TIME_SLICE_MS = 5_000`，优先级 播放中 > 下载中 > 未读，没有持续事件时恒 TIME，瞬时事件打断一切）。纯函数那层有 `ui/widget/IslandPolicyTest.kt`，改优先级先改测试。
 - **瞬时事件「只弹一次」靠 armed 标记**（`batteryArmed` / `updateArmed`）：15 / 60 秒轮询下同一次低电会被读到几十次，不 armed 就会一直弹。
 - **公告走标记不碰 View**：`api/TerminalApi.java` 的 `checkAnnouncement` 在后台线程只调 `IslandStatus.markAnnouncement()`（置 `announcementPending`），由顶栏轮询消费——所以 App 启动时才可能看到公告闪现，进程里没有顶栏时不消费。
-- **验证状态**：L0 已过（构建 + 单测），**L2 未验**（需圆屏手表，见 `docs/review/fix-progress.md` §2.1）。
+- **验证状态**：L0 已过（构建 + 单测），**L2 未验**（圆屏手表与方屏各看一次，见 `docs/review/fix-progress.md` §2.1）。
 
 ### 7.63 合集页「上次看到哪一集」定位（26.11.08 新增）
 

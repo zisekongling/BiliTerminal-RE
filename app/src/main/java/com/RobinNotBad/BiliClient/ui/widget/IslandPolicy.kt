@@ -56,6 +56,19 @@ object IslandPolicy {
     /** 时间插播时长。 */
     const val TIME_SLICE_MS = 5_000L
 
+    /**
+     * 灵动岛开关的迁移口径（26.11.08 与「圆屏适配」解耦）。
+     *
+     * 旧实现把灵动岛**硬绑在「圆屏适配」上**，没有自己的开关（`TopbarIsland.attach` 里判
+     * `SettingsKeys.UI_ROUND`）。独立成开关后要把老用户的现状继承过来，否则开着圆屏适配的人
+     * 升级后功能会凭空消失：
+     * - [explicit] 非 null（用户在新开关上设过）→ **完全听用户的**，与圆屏适配无关；
+     * - [explicit] 为 null（没设过，包含新装用户）→ 继承旧行为 [legacyRound]。
+     *
+     * 纯函数：读存档与落盘迁移都在 `TopbarIsland` 里做，这里只决定取哪个值。
+     */
+    fun resolveEnabled(explicit: Boolean?, legacyRound: Boolean): Boolean = explicit ?: legacyRound
+
     /** 当前持续事件的最高优先级；没有事件时为 null。 */
     fun ongoingState(playing: Boolean, downloading: Boolean, unread: Int): IslandState? = when {
         playing -> IslandState.PLAYING

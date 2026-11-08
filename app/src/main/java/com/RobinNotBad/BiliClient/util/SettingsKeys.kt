@@ -18,6 +18,14 @@ object SettingsKeys {
     const val DPI = "dpi"
     const val DENSITY = "density"
     const val UI_ROUND = "player_ui_round"
+    /**
+     * 顶栏灵动岛（26.11.08 新增，26.11.08 晚些时候与「圆屏适配」解耦）：把顶栏的时钟位改成
+     * 轮流显示播放中 / 下载中 / 未读 / 电量 / 公告的信息岛，空闲时显示时间。
+     *
+     * **它自己的开关**，与 [UI_ROUND] 互不影响（早先的实现硬绑在圆屏适配里，没有独立键；
+     * 老用户的迁移口径见 `ui/widget/IslandPolicy.resolveEnabled`）。
+     */
+    const val TOPBAR_ISLAND = "topbar_island_enable"
     const val THEME = "theme_selector"
     const val UI_LANDSCAPE = "ui_landscape"
     const val SPLASH_TEXT = "ui_splashtext"

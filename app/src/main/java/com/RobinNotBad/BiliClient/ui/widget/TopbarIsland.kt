@@ -59,13 +59,16 @@ object TopbarIsland {
     /** 圆屏下标题避让量。 */
     private const val TITLE_GAP_DP = 3f
 
+    /** 加宽至少要抢到这么多（dp），否则不如保持原时钟宽度——只多几个像素会让标题莫名缩字。 */
+    private const val MIN_GROW_DP = 8f
+
     private const val TICK_MS = 1_000L
 
     private val bindings = WeakHashMap<Activity, Binding>()
 
     /** 在 `BaseActivity.onStart` 的 `setRound()` 之后调用。 */
     fun attach(activity: BaseActivity) {
-        if (!SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROUND, false)) {
+        if (!isEnabled()) {
             detach(activity)
             return
         }
@@ -97,6 +100,29 @@ object TopbarIsland {
         bindings.remove(activity)?.detach()
     }
 
+    /**
+     * 灵动岛自己的开关口径（26.11.08 与「圆屏适配」解耦）。
+     *
+     * 自己的键设过就完全听用户的；没设过才继承旧行为（跟随圆屏适配），并把继承结果落盘一次——
+     * 之后关掉圆屏适配不会连带关掉灵动岛。判据本身在 `IslandPolicy.resolveEnabled`。
+     */
+    private fun isEnabled(): Boolean {
+        val prefs = SharedPreferencesUtil.getSharedPreferences()
+        val explicit = if (prefs.contains(SettingsKeys.TOPBAR_ISLAND)) {
+            prefs.getBoolean(SettingsKeys.TOPBAR_ISLAND, false)
+        } else {
+            null
+        }
+        val enabled = IslandPolicy.resolveEnabled(
+            explicit,
+            prefs.getBoolean(SettingsKeys.UI_ROUND, false)
+        )
+        if (explicit == null && enabled) {
+            SharedPreferencesUtil.putBoolean(SettingsKeys.TOPBAR_ISLAND, true)
+        }
+        return enabled
+    }
+
     private fun withAlpha(color: Int, alpha: Int): Int =
         (color and 0x00FFFFFF) or ((alpha and 0xFF) shl 24)
 
@@ -113,6 +139,9 @@ object TopbarIsland {
         private var showTime = false
         private var phaseStart = SystemClock.uptimeMillis()
         private var titleNudged = false
+        /** 实测后的胶囊宽度（px，null = 不接管）；首帧布局后由 [settleWidth] 定一次。 */
+        private var widthOverride: Int? = null
+        private var widthSettled = false
 
         private var originalsSaved = false
         private var origBackground: Drawable? = null
@@ -136,6 +165,7 @@ object TopbarIsland {
                     return
                 }
                 try {
+                    settleWidth()
                     render()
                 } catch (e: Throwable) {
                     Logu.e(TAG, "灵动岛渲染失败：${e.message}")
@@ -144,27 +174,45 @@ object TopbarIsland {
             }
         }
 
+        /** 首帧布局一完成就量一次宽度，别等 1 秒后那次 tick（否则会先窄一下再变宽）。 */
+        private val settleListener =
+            View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                if (running) settleWidth()
+            }
+
         fun attach() {
             saveOriginals()
             running = true
             titleNudged = false
+            widthSettled = false
+            widthOverride = null
             lastState = null
             lastDotColor = null
             applyStyle()
             nudgeTitle()
+            clock.removeOnLayoutChangeListener(settleListener)
+            clock.addOnLayoutChangeListener(settleListener)
             handler.removeCallbacks(tick)
             handler.post(tick)
-            Logu.d(TAG, "灵动岛已挂载：${activity.javaClass.simpleName} width=${islandWidth()}px")
+            Logu.d(
+                TAG,
+                "灵动岛已挂载：${activity.javaClass.simpleName} " +
+                    "width=${islandWidth() ?: origWidth}px（等首帧实测后可能再调）"
+            )
         }
 
         fun resume() {
             if (!originalsSaved) saveOriginals()
             running = true
             titleNudged = false
+            widthSettled = false
+            widthOverride = null
             lastState = null
             lastDotColor = null
             applyStyle()
             nudgeTitle()
+            clock.removeOnLayoutChangeListener(settleListener)
+            clock.addOnLayoutChangeListener(settleListener)
             handler.removeCallbacks(tick)
             handler.post(tick)
         }
@@ -172,6 +220,7 @@ object TopbarIsland {
         fun detach() {
             running = false
             handler.removeCallbacks(tick)
+            clock.removeOnLayoutChangeListener(settleListener)
             clock.animate().cancel()
             restoreClock()
             restoreTitle()
@@ -199,11 +248,67 @@ object TopbarIsland {
             if (titleParams != null) origTitleTopMargin = titleParams.topMargin
         }
 
-        private fun islandWidth(): Int {
+        /**
+         * 胶囊宽度（px）；返回 null 表示**不接管宽度**，直接用时钟原来的宽度。
+         *
+         * 首帧布局之后用 [settleWidth] 实测一次标题空档，结果缓存进 [widthOverride]，
+         * 之后的 `applyStyle()` 都用缓存值——否则加宽后标题已经被挤窄，再量一次会越量越小。
+         */
+        private fun islandWidth(): Int? = widthOverride ?: computeWidth()
+
+        /**
+         * 按「标题还剩多少没用上的空档」决定加宽多少（px；null = 不加宽，用回时钟原宽度）。
+         *
+         * 顶栏是「标题 match_parent + 时钟贴右（圆屏适配下贴中）」，**时钟一加宽就压标题**：
+         * - 时钟**居中**（圆屏适配把时钟挪到正中）：加宽是左右对称的，标题挤压是老口径，沿用满宽；
+         * - 时钟**靠右**（方屏 / 手机）：只往左长，抢到多少空档就长多少，抢不到 8dp 就不接管，
+         *   免得标题莫名缩字。
+         */
+        private fun computeWidth(): Int? {
+            val base = if (origWidth > 0) origWidth else ToolsUtil.dp2px(48f)
             val wanted = ToolsUtil.dp2px(WIDTH_DP)
             val byScreen = (activity.window_width * WIDTH_SCREEN_RATIO).toInt()
-            val width = if (byScreen > 0) minOf(wanted, byScreen) else wanted
-            return width.coerceAtLeast(ToolsUtil.dp2px(48f))
+            val desired = (if (byScreen > 0) minOf(wanted, byScreen) else wanted)
+                .coerceAtLeast(base)
+            val extra = desired - base
+            if (extra <= 0) return base
+            if (isClockCentered()) return desired
+            val usable = minOf(extra, titleSlack())
+            return if (usable >= ToolsUtil.dp2px(MIN_GROW_DP)) base + usable else null
+        }
+
+        /** 时钟是否被「圆屏适配」挪到了顶栏正中（这个形态下加宽是左右对称的）。 */
+        private fun isClockCentered(): Boolean {
+            if (clock.width <= 0 || top.width <= 0) return false
+            val centerGap = clock.left + clock.width / 2 - top.width / 2
+            return kotlin.math.abs(centerGap) <= ToolsUtil.dp2px(4f)
+        }
+
+        /**
+         * 标题框里还没用上的宽度（px），没法量（布局未算过）时返回 0。
+         *
+         * 用标题**文字实际需要的宽度**反推：宁可算宽也不冒把标题挤花的风险（算宽 = 少加宽）。
+         */
+        private fun titleSlack(): Int {
+            val title = top.findViewById<TextView>(R.id.pageName) ?: return 0
+            if (title.width <= 0) return 0
+            val textWidth = title.paint?.measureText(title.text?.toString().orEmpty()) ?: 0f
+            val needed = textWidth.toInt() +
+                title.paddingLeft + title.paddingRight +
+                (title.compoundDrawables.firstOrNull()?.intrinsicWidth ?: 0) +
+                title.compoundDrawablePadding
+            return title.width - needed
+        }
+
+        /** 首帧布局之后才知道标题还剩多少空档，按实测定一次宽度（只定一次）。 */
+        private fun settleWidth() {
+            if (widthSettled) return
+            val title = top.findViewById<TextView>(R.id.pageName) ?: return
+            if (clock.width <= 0 || title.width <= 0) return
+            widthSettled = true
+            clock.removeOnLayoutChangeListener(settleListener)
+            widthOverride = computeWidth()
+            applyStyle()
         }
 
         private fun pill(): GradientDrawable = GradientDrawable().apply {
@@ -220,10 +325,10 @@ object TopbarIsland {
             clock.externallyManaged = true
             clock.stopTick()
             val lp = clock.layoutParams ?: ViewGroup.LayoutParams(
-                islandWidth(),
+                ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
-            lp.width = islandWidth()
+            lp.width = islandWidth() ?: origWidth
             lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
             clock.layoutParams = lp
             clock.gravity = Gravity.CENTER

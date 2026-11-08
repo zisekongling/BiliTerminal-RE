@@ -25,6 +25,8 @@
     <string name="desc_setting_ui">有效范围为0.25~5.00（倍），建议每次仅进行轻微调节，调节后请预览页面，确认显示正常后完成修改，打开新页面后将会生效。\n注意：尽量不要调到两个最值处，否则你可能会后悔！若乱调此选项，导致应用无法正常使用的，请清除应用数据或卸载重装！</string>
     <string name="desc_setting_ui_density">最低72，建议每次仅进行轻微调节，调节后请预览页面，确认显示正常后完成修改，打开新页面后将会生效。\n若乱调此选项，导致应用无法正常使用的，请清除应用数据或卸载重装！\n注：此选项可能有其他问题，没有必要请不要修改。</string>
     <string name="desc_setting_ui_round">开启选项后，页面将会修改为圆屏布局。\n由于纯靠代码实现，有部分页面可能未适配，但这是目前最好且工作量最小的办法了。</string>
+    <string name="setting_topbar_island">顶栏灵动岛</string>
+    <string name="desc_setting_topbar_island">把顶栏的时钟位改成信息岛：轮流显示播放中 / 下载中 / 未读 / 电量 / 新公告，什么都没发生时显示时间。\n与「圆屏适配」是两个独立开关，方屏和圆屏都能用；顶栏放不下时不会硬撑，退回原来的时钟宽度。</string>
     <string name="desc_setting_color_mode">7 套主题都有暗色与亮色两个版本。亮色适合白天和室外强光；播放器始终保持暗色。</string>
     <string name="desc_setting_ambient_glow">在页面边缘铺一层随主题配色变化的柔和光晕（默认在顶部，可在下方「光晕位置」调整）。只用静态渐变绘制（无模糊、无动画），开销很小；低端设备如觉得卡顿可关闭。\n推荐同时开启下方的「玻璃质感」，光晕才能透过卡片。</string>
     <string name="text_setting_ambient_glow_source">光晕位置</string>
