@@ -10,6 +10,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.listener.OnItemLongClickListener
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 
 class VideoCardAdapter(
@@ -20,6 +21,17 @@ class VideoCardAdapter(
     var longClickListener: OnItemLongClickListener? = null
     /** 自定义点击监听器，如果设置了则覆盖默认的视频详情页跳转行为 */
     var onItemClickListener: ((Int, VideoCard) -> Unit)? = null
+
+    /**
+     * 「减少推荐」动作本体，由信息流页面注入（[VideoCardMenu.Action.REDUCE_RECOMMEND]）。
+     *
+     * 为什么不在这个适配器里实现：这个动作依赖「这条卡片在信息流里的位置」与 track 信息
+     * （同一条卡片在别的地方出现时带的 track 参数并不相同），适配器只拿得到 [VideoCard]，
+     * 拿不到那些上下文。目前只有 [com.RobinNotBad.BiliClient.activity.video.RecommendActivity]
+     * 的首页推荐流会注入；不设置（null）时菜单里不出现这一项——排行、搜索、UP 主空间
+     * 这类列表本来也没有推荐可减。
+     */
+    var onReduceRecommend: ((VideoCard) -> Unit)? = null
 
     /**
      * 多选模式：进入后列表项可以勾选/取消（收藏夹多选删除用）。
@@ -77,21 +89,22 @@ class VideoCardAdapter(
         holder.showVideoCard(videoCard, context)
         holder.bindClick(videoCard, context, position, object : View.OnLongClickListener {
             override fun onLongClick(v: View): Boolean {
-                // 页面显式注册的长按行为优先于「快速缓存」这个全局便利功能。
+                // 页面显式注册的长按行为优先于「长按快捷操作」这个全局便利功能。
                 // 稍后再看 / 收藏夹等页面的「长按两次删除」是原版终端就有的功能，之前被快速缓存顶掉，
                 // 表现为长按只会弹出缓存清晰度选择页、删除功能消失（issue #2）。
                 if (longClickListener != null) {
                     longClickListener!!.onItemLongClick(position)
                     return true
                 }
-                // 没有自定义长按的浏览类列表（推荐 / 排行 / 搜索等）才回落到快速缓存。
-                // 私有功能产出的卡片（没有 B 站 aid/cid）由门面判断跳过。
-                val quickMode = SharedPreferencesUtil.getBoolean("cache_quick_mode", true)
-                if (quickMode && videoCard.type != "live" && !OptionalFeatures.skipQuickCache(videoCard)) {
-                    VideoQuickCache.handle(context, videoCard)
-                    return true
+                // 没有自定义长按的浏览类列表（推荐 / 排行 / 搜索等）才回落到「操作菜单」。
+                // 26.11.08 起这条回落路径不再是「直接快速缓存」：长按先弹菜单，
+                // 缓存只是菜单里的一项（VideoCardMenu.Action.CACHE），旧链路本身没变。
+                // 私有功能产出的卡片（没有 B 站 aid/cid）由门面判断跳过；直播间卡片没有投稿 aid。
+                if (!SharedPreferencesUtil.getBoolean(SettingsKeys.CACHE_QUICK_MODE, true)) return false
+                if (videoCard.type == "live" || OptionalFeatures.skipQuickCache(videoCard)) return false
+                return VideoCardMenu.show(context, videoCard, onReduceRecommend != null) {
+                    onReduceRecommend?.invoke(videoCard)
                 }
-                return false
             }
         })
         // 如果设置了自定义点击监听器，覆盖默认行为

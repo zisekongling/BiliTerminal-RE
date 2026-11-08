@@ -8,6 +8,7 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.model.VideoCard
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TimeUtil
 import java.util.Locale
@@ -62,11 +63,11 @@ class HistoryVideoCardAdapter(
                 MotionEvent.ACTION_DOWN -> {
                     longPressRunnable = Runnable {
                         // 与 VideoCardAdapter 一致：页面显式注册的长按（历史记录的「长按两次删除」）
-                        // 优先于「快速缓存」，没有自定义长按的列表才回落到快速缓存
+                        // 优先于「长按快捷操作」，没有自定义长按的列表才回落到操作菜单
                         if (onLongClickListener != null) {
                             onLongClickListener!!.invoke(position)
-                        } else if (SharedPreferencesUtil.getBoolean("cache_quick_mode", true) && videoCard.type != "live") {
-                            VideoQuickCache.handle(context, videoCard)
+                        } else if (SharedPreferencesUtil.getBoolean(SettingsKeys.CACHE_QUICK_MODE, true) && videoCard.type != "live") {
+                            VideoCardMenu.show(context, videoCard)
                         }
                     }
                     v.postDelayed(longPressRunnable, LONG_PRESS_DELAY)

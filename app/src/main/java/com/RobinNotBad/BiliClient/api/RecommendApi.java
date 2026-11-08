@@ -93,7 +93,17 @@ public class RecommendApi {
             String title = card.getString("title");
             String upName = card.getJSONObject("owner").getString("name");
             String view = StringUtil.toWan(card.getJSONObject("stat").getInt("view")) + "观看";
-            videoCardList.add(new VideoCard(title, upName, view, cover, card.optLong("id", 0L), bvid));
+            // 「减少推荐（不感兴趣）」要的两个定位参数：track_id 是这一条推荐的追踪号（可空），
+            // mid 是 UP 主 mid（owner.mid，缺失/异常时按 0=未知处理，不能拿去当「不想看此 UP 主」的依据）。
+            // 两者都不参与下面的过滤判据，只是顺手带上，供 VideoCardMenu 的「减少推荐」用。
+            String trackId = card.optString("track_id", "");
+            long upMid = 0L;
+            JSONObject owner = card.optJSONObject("owner");
+            if (owner != null) upMid = owner.optLong("mid", 0L);
+            VideoCard videoCard = new VideoCard(title, upName, view, cover, card.optLong("id", 0L), bvid);
+            videoCard.trackId = trackId;
+            videoCard.upMid = upMid;
+            videoCardList.add(videoCard);
         }
     }
 

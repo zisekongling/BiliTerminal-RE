@@ -321,10 +321,10 @@
     <string name="aria2_split_desc">单个文件下载时使用的分片数量，默认5。提高分片数可加速下载但会增加服务器负载</string>
 
     <!-- 缓存设置 -->
-    <string name="cache_quick_mode">启用快捷缓存方式</string>
-    <string name="cache_quick_mode_desc">开启后，长按任意视频即可快速缓存到本地，在缓存页面和短视频界面中无效</string>
+    <string name="cache_quick_mode">启用长按快捷操作</string>
+    <string name="cache_quick_mode_desc">开启后，长按视频卡片弹出操作菜单（稍后再看 / 收藏 / 缓存 / 减少推荐），长按专栏卡片直接缓存；关闭后长按不再响应。缓存页面与短视频界面中无效</string>
     <string name="cache_default_quality">默认缓存画质</string>
-    <string name="cache_default_quality_desc">快捷缓存时使用的默认视频画质选项</string>
+    <string name="cache_default_quality_desc">快捷缓存（长按菜单里的「缓存到本地」）使用的默认视频画质选项</string>
     <string name="cache_quality_highest">最高画质</string>
     <string name="cache_quality_720p">720P</string>
     <string name="cache_quality_360p">360P</string>
@@ -2842,6 +2842,17 @@
     <string name="a11y_coin">投币</string>
     <string name="a11y_favorite">收藏</string>
     <string name="a11y_verified">已认证</string>
+
+    <!-- 视频卡片长按菜单（26.11.08 起：长按不再直接缓存，改为弹这个菜单）。
+         项的顺序见 adapter/video/VideoCardMenu.Action。 -->
+    <string name="text_video_card_menu_watch_later">稍后再看</string>
+    <string name="text_video_card_menu_favorite">收藏</string>
+    <string name="text_video_card_menu_cache">缓存到本地</string>
+    <string name="text_video_card_menu_reduce_recommend">减少推荐</string>
+    <string name="msg_video_card_menu_watch_later_ok">添加成功</string>
+    <string name="msg_video_card_menu_watch_later_failed">添加失败，错误码：%1$s</string>
+    <string name="msg_video_card_menu_reduce_ok">已减少推荐</string>
+    <string name="msg_video_card_menu_reduce_failed">操作失败，错误码：%1$s</string>
 
     <!-- 番剧分区页（推荐 / 追番 / 索引 + 动态筛选）。筛选走 TerminalDialog 的分组单选，
          不再把 9 组条件铺成 chip 行（手表一屏放不下，也会挤掉列表空间）。 -->

@@ -195,7 +195,7 @@ object SettingText {
         "启用表冠适配" to R.string.settingtext_settingprefactivity_025,
         "启用高速下载模式" to R.string.aria2_enable,
         "启用横屏显示" to R.string.settingtext_settingsindex_017,
-        "启用快捷缓存方式" to R.string.cache_quick_mode,
+        "启用长按快捷操作" to R.string.cache_quick_mode,
         "强制高分辨率选项" to R.string.settingtext_settinggroupactivity_055,
         "强制为滚动弹幕" to R.string.settingtext_settingsindex_067,
         "强制显示4K、1080P高码率等选项" to R.string.settingtext_settingsindex_030,

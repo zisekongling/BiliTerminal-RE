@@ -694,22 +694,22 @@ class SettingGroupActivity : RefreshListActivity() {
             rebuild("download")
         }
         input("并行下载视频数", getString(R.string.desc_parallel_download), SettingsKeys.PARALLEL_DOWNLOAD_VIDEOS, "input_int", Aria2Util.DEFAULT_PARALLEL_DOWNLOAD_VIDEOS.toString())
-        if (SharedPreferencesUtil.getBoolean(SettingsKeys.CACHE_QUICK_MODE, true)) {
-            listChoose(
-                getString(R.string.cache_default_quality),
-                getString(R.string.cache_default_quality_desc),
-                SettingsKeys.CACHE_DEFAULT_QUALITY,
-                "dialog",
-                listOf(
-                    getString(R.string.cache_quality_highest),
-                    getString(R.string.cache_quality_720p),
-                    getString(R.string.cache_quality_360p),
-                    getString(R.string.cache_quality_audio_only),
-                    getString(R.string.cache_quality_dialog)
-                ),
-                listOf("highest", "64", "16", "audio_only", "dialog")
-            )
-        }
+        // 26.11.08：这项不再跟着「启用长按快捷操作」开关隐藏——长按菜单里的「缓存到本地」
+        // 和收藏夹的批量下载（FavoriteAggregatePolicy）都读它，关掉长按快捷操作的人照样要设画质。
+        listChoose(
+            getString(R.string.cache_default_quality),
+            getString(R.string.cache_default_quality_desc),
+            SettingsKeys.CACHE_DEFAULT_QUALITY,
+            "dialog",
+            listOf(
+                getString(R.string.cache_quality_highest),
+                getString(R.string.cache_quality_720p),
+                getString(R.string.cache_quality_360p),
+                getString(R.string.cache_quality_audio_only),
+                getString(R.string.cache_quality_dialog)
+            ),
+            listOf("highest", "64", "16", "audio_only", "dialog")
+        )
         switch("强制高分辨率选项", getString(R.string.desc_force_high_quality), SettingsKeys.FORCE_HIGH_QUALITY, true)
 
         title("存储路径")

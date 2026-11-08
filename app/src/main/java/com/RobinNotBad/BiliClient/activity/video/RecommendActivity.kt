@@ -7,9 +7,11 @@ import android.os.Bundle
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.RefreshMainActivity
 import com.RobinNotBad.BiliClient.adapter.video.VideoCardAdapter
+import com.RobinNotBad.BiliClient.api.FeedbackApi
 import com.RobinNotBad.BiliClient.api.RecommendApi
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.PerformanceManager
 import com.RobinNotBad.BiliClient.util.RecommendPagePolicy
 import com.RobinNotBad.BiliClient.util.RecommendPagePolicy.FIRST_PAGE
@@ -124,6 +126,9 @@ class RecommendActivity : RefreshMainActivity() {
                     if (firstRefresh) {
                         firstRefresh = false
                         videoCardAdapter = VideoCardAdapter(this, videoCardList!!)
+                        // 长按菜单里的「减少推荐（不感兴趣）」：菜单只在回调非空时才显示该项，
+                        // 所以本页必须注册（其它页面不注册就没有这一项）
+                        videoCardAdapter!!.onReduceRecommend = { card -> reduceRecommend(card) }
                         setAdapter(videoCardAdapter!!)
                     } else {
                         videoCardAdapter!!.notifyItemRangeInserted(videoCardList!!.size - newItems.size, newItems.size)
@@ -139,6 +144,41 @@ class RecommendActivity : RefreshMainActivity() {
                     loading = false
                     loadFail(e)
                 }
+            }
+        }
+    }
+
+    /**
+     * 长按菜单里的「减少推荐（不感兴趣）」：调 [FeedbackApi.dislike]，成功后把这条从本页列表移除。
+     *
+     * <p>用 [FeedbackApi.REASON_CONTENT]（对内容不感兴趣）；「不想看此 UP 主」是 4，
+     * 本页暂时不提供该入口。参数里 aid 与 trackId/upMid 都来自 [RecommendApi] 填好的卡片。
+     *
+     * <p>服务端就算回了 code=0，卡片也可能已经被下拉刷新换掉了：所以移除前按「对象仍在列表里」
+     * 重新取下标（[MutableList.indexOf] 对同一实例生效），取不到（-1）就只提示成功、不动列表，
+     * 绝不按旧下标调 notifyItemRemoved 硬删。
+     */
+    private fun reduceRecommend(card: VideoCard) {
+        CenterThreadPool.run {
+            try {
+                val code = FeedbackApi.dislike(card.aid, card.upMid, card.trackId, FeedbackApi.REASON_CONTENT)
+                CenterThreadPool.runOnUiThread {
+                    if (code == 0) {
+                        val list = videoCardList
+                        if (list != null) {
+                            val index = list.indexOf(card)
+                            if (index in 0 until list.size) {
+                                list.removeAt(index)
+                                videoCardAdapter?.notifyItemRemoved(index)
+                            }
+                        }
+                        MsgUtil.showMsg(getString(R.string.msg_video_card_menu_reduce_ok))
+                    } else {
+                        MsgUtil.showMsg(getString(R.string.msg_video_card_menu_reduce_failed, code.toString()))
+                    }
+                }
+            } catch (e: Exception) {
+                CenterThreadPool.runOnUiThread { MsgUtil.err(e) }
             }
         }
     }

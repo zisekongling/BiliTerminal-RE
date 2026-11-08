@@ -194,11 +194,25 @@
   - **未验证（L2，需人拿手指判手感）**：①真的在「菜单顺序」里**长按拖拽**把「扫一扫」拖进未启用区（adb 的 `input draganddrop` 在这台机器上会被当成点击、拉不起 `ItemTouchHelper` 拖拽，所以 L1 那轮是用存档等价构造的）；②重新打开后它落在哪里、拖拽其它项改过的顺序在重启后是否保持。
 - **26.11.08 反馈 #118 的容器语义（给后来改 `MenuConfig` 的人）**：`optionalItems` 参数是**替换**而不是追加——传进去的列表必须包含真实私有 key，否则 `parse` 会把它当未知 key 过滤掉（单测里因此写成 `MenuConfig.OPTIONAL_ITEMS + fakeOptional`）。JVM 单测里 `OPTIONAL_ITEMS` 是否为空取决于本机有没有同步 `private/`，断言别写死。
 
+- **26.11.08 视频卡片长按改成「更多操作菜单」（新功能，用户需求：「长按视频卡片，可以弹出更多操作菜单，而不是直接弹出缓存下载」）**：
+  - **旧行为**：`VideoCardAdapter` / `HistoryVideoCardAdapter` / `UserVideoAdapter` 在「页面没有注册专属长按」时把长按**直接**交给 `VideoQuickCache.handle()`——手指一按住就跳出缓存清晰度选择页或直接起下载，列表里做不了别的事。
+  - **新行为**：回落路径改成弹菜单。新建 `app/src/main/java/com/RobinNotBad/BiliClient/adapter/video/VideoCardMenu.kt`：`object VideoCardMenu` + `enum class Action { WATCH_LATER, FAVORITE, CACHE, REDUCE_RECOMMEND }`（声明顺序＝显示顺序）、纯函数 `actionsFor(videoCard, reduceRecommendAvailable)`、渲染入口 `show(context, videoCard, reduceRecommendAvailable = false, onReduceRecommend = null)`（走 `TerminalDialog.menu`，无动作可给时返回 false 不弹）。四项：稍后再看（`WatchLaterApi.add`）/ 收藏（`AddFavoriteActivity`，只带 `aid` extra）/ 缓存到本地（沿用旧 `VideoQuickCache.handle`，链路不变）/ 减少推荐（仅推荐流出现）。
+  - **菜单判据**：只有普通投稿卡（`type` 为 null / 空串 / `"video"`）才给动作。番剧卡片的 `aid` 装的是 media_id、直播卡片是 room_id，拿它们调稍后再看/收藏只会得到 -400，所以 `actionsFor` 直接返回空、长按不弹任何东西（旧行为是弹一句「番剧暂不支持快速缓存」）。私有功能产出的卡片仍由 `OptionalFeatures.skipQuickCache` 在调用方挡掉。
+  - **页面专属长按仍然优先**（历史记录删除、稍后再看移除、收藏夹多选等一律不动）；没有专属长按的浏览列表（推荐 / 排行 / 搜索 / UP 主空间 / 缓存列表）统一走新菜单。
+  - **设置项改名与口径**：`cache_quick_mode` 文案「启用快捷缓存方式」→「启用长按快捷操作」（描述同步改写，点明菜单四项、专栏卡仍直接缓存、关闭后长按无响应）；`activity/settings/SettingText.kt` 的搜索索引用字面量键，跟着改。**`cache_default_quality`（默认缓存画质）不再跟着这个开关隐藏**——它还被收藏夹批量下载读（`util/FavoriteAggregatePolicy.kt`、`activity/user/favorite/FavoriteVideoListActivity.kt:966`），关掉长按快捷操作的人照样要设画质。
+  - **专栏卡片按用户拍板保持原样**：`adapter/article/ArticleCardAdapter.kt` 长按仍是直接缓存，只把写死的 `"cache_quick_mode"` 换成 `SettingsKeys.CACHE_QUICK_MODE`。
+  - **「减少推荐（不感兴趣）」**（参考 [bilibili-margin](https://github.com/jiuyang5354/bilibili-margin) 的做法，只对首页推荐流开放）：`model/VideoCard.java` 追加 `trackId`（`track_id`）与 `upMid`（`owner.mid`）两个字段，Parcel 读写**一律追加在最末尾**（:100-101 / :137-139）；`api/RecommendApi.java` 的推荐流解析补取这两个值（原有「goto≠av 或无 bvid 丢弃」逻辑不动）；新建 `api/FeedbackApi.java`——`POST https://api.bilibili.com/x/web-interface/feedback/dislike`，表单 10 字段（`goto=av`、`id=<aid>`、`mid=<upMid>`、`track_id`、`reason_id`、`app_id=100`、`platform=5`、`feedback_page=1`、`from_spmid=`、`spmid=333.1007.0.0`）+ 运行时追加 `csrf=NetWorkUtil.currentCsrf()`，**不签 WBI**（写了注释说明为什么）；`activity/video/RecommendActivity.kt` 给 adapter 注入 `onReduceRecommend`，`code==0` 时按 `list.indexOf(card)` 重算下标再 `removeAt` + `notifyItemRemoved`（卡片已被刷新换掉时 indexOf 返回 -1，只提示不动列表）。撤销接口 `FeedbackApi.cancelDislike` 已备好但暂无调用方。
+  - **单测**：`adapter/video/VideoCardMenuTest.kt` 6 例（普通视频四项 / 非信息流三项 / 空 type 当普通视频 / live 与 media_bangumi 与未知 type 一律空）；`api/FeedbackApiTest.java` 6 例（字段齐全且不含 csrf、id 传 aid、reason_id 用传入值、trackId null→空串、固定埋点常量、mid）。
+  - **L0（26.11.08 实测，本机已注入 `private/`，HEAD=`d90dc30`，`--rerun-tasks` 强制全量重跑而不是吃缓存）**：`:app:assembleDebug :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest` **BUILD SUCCESSFUL in 1m 57s**（135 actionable tasks 全部 executed，两 flavor 各 4 个 debug APK）；`testStandardDebugUnitTest` 与 `testCoexistDebugUnitTest` 各 **205 suites / 2217 tests / 0 失败 0 错误**。`docs/FEATURES.md`、本文件、`AGENTS.md` 全量 `npx --yes markdownlint-cli2` 0 错误。
+  - **未验证（L2，见 §2.1）**：菜单在 192–233dp 手表宽度上的排版与手感、长按后抬手是否仍不误跳详情页、「减少推荐」是否真的改变后续推荐（要登录态 + 真实推荐流）、未登录时两条登录拦截的提示。
+
 ## 2. 未完成待办
 
 ### 2.1 真机未验证（无设备 / 无登录态）
 
 > **本轮测试包（26.11.08，release 普通版 + debug 共存版）要测哪些**：整包口径、分组总表与时间预算见 [`test-plan-261108.md`](test-plan-261108.md)；下面每一条是该计划里的详细验收项来源。
+
+- [ ] **26.11.08 视频卡片长按菜单真机未验（L2，只能看画面 / 判手感，还要登录态）**：L0 已过（两 flavor 各 205 suites / 2217 tests / 0 失败 0 错误，`--rerun-tasks` 全量重跑）。需在手表上确认：①在推荐 / 排行 / 搜索 / UP 主空间这类列表里长按卡片，弹的是**四项菜单**（稍后再看 / 收藏 / 缓存到本地 / 减少推荐）而不是缓存画质页；**番剧卡与直播卡长按应毫无反应**（不弹空菜单）。②弹菜单后**抬手不能跳进视频详情页**（旧 `suppressClickAfterLongPress` 逻辑要确认没被菜单打断）；弹窗标题是卡片标题、长标题不撑破屏、四个条目在 192–233dp 宽度下放得下。③「稍后再看」加成功有提示、进稍后再看页能看到；未登录时提示「还没有登录喵~」而不是错误码。④「收藏」进的是收藏夹选择页且默认不选中任何夹子，选完提示成功。⑤「缓存到本地」与旧行为一致（按设置里的「默认缓存画质」走 dialog / 最高 / 720P / 360P / 仅音频）。⑥「减少推荐」只在**首页推荐流**出现，点了之后该卡片从列表消失、提示「已减少推荐」，下拉刷新后同类内容是否真的变少（这项只能用户自己看推荐结果）；网络异常时不崩、提示错误码。⑦设置里关掉「启用长按快捷操作」后，视频卡与专栏卡长按都没有反应；「默认缓存画质」这一项**不再跟着开关隐藏**（关掉开关后仍能进设置看到并修改）。⑧历史记录页 / 稍后再看页 / 收藏夹页的原有长按（删除、移除）没有被新菜单顶掉。
 
 - [x] **26.11.08 播放器软解回退（§1「档位不该碰解码方式与清晰度」）已在真机确认修复**：用户 26.11.08 装 `26.11.07-TEST-diag` 修复版后反馈「问题修复了」，卡顿的那台 1GB 手表恢复正常；①诊断报告里的 `codec.videoDecoderId=MEDIACODEC(硬解)` / `video.fpsOutput ≥28` 这组对照未逐项抄回来（用户只确认了观感），②「硬解花屏/绿屏」风险项未出现。诊断包与测试版框架已同日拔出（见 §1 末两条），后续如需复测按 `docs/archive/superpowers/specs/2026-11-07-test-build-framework.md` §4 重建。
 
