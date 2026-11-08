@@ -1,5 +1,7 @@
 package com.RobinNotBad.BiliClient.api;
 
+import android.util.Log;
+
 import com.RobinNotBad.BiliClient.R;
 
 import com.RobinNotBad.BiliClient.BiliTerminal;
@@ -19,6 +21,7 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -144,6 +147,7 @@ public class FollowApi {
         JSONArray data = callback.getJSONArray("data");
         if (data.length() == 0) return 1;
         else {
+            List<UserInfo> pageUsers = new ArrayList<>();
             for (int i = 0; i < data.length(); i++) {
                 JSONObject userInfo = data.getJSONObject(i);
                 String name = userInfo.getString("uname");
@@ -151,14 +155,98 @@ public class FollowApi {
                 String avatar = userInfo.getString("face");
                 String sign = userInfo.getString("sign");
                 UserInfo user = new UserInfo(uid, name, avatar, sign, 0, 0, 0, true, "", 0, "", 0);
-                // 分组列表只能查自己的（接口没有 vmid 参数），所以主体恒为当前账号
-                user.mutualFollow = isMutualFollow(true, userInfo.optInt("attribute", 0));
-                // 分组明细接口的 special 恒为 0（bilibili-API 字段表已注明），且「特别关注」本身就是一个
-                // 系统分组（tagid = -10），分组视图里再标一遍只是重复，故这里不设 specialFollow。
-                userList.add(user);
+                // 分组明细接口的 attribute **恒为 0**（bilibili-API docs/user/relation.md 已注明），
+                // special 同样恒为 0，所以这个接口问不出「谁和我互关」——当场按 attribute 判
+                // 会让分组视图永远不亮徽章。互关统一在下面用批量关系接口补（26.11.08 修）。
+                pageUsers.add(user);
             }
+            userList.addAll(pageUsers);
+            fillMutualFollow(pageUsers);
             return 0;
         }
+    }
+
+    // ==================== 分组视图的互关标记（26.11.08） ====================
+
+    /** 批量关系接口一次带多少个 mid（一页 20，留余量；接口本身对成员数量无限制） */
+    public static final int RELATION_BATCH_SIZE = 50;
+
+    /**
+     * 用批量关系接口给一批用户补「互关」标记。
+     *
+     * <p>`GET /x/relation/tag`（分组明细）返回的 `attribute` 恒为 0，所以分组视图里
+     * 「谁和我互关」只能回来问 `GET /x/relation/relations?fids=`（[关系列表对象] 之外的
+     * 那一份「批量查询用户与自己关系」）。一页 20 个 mid 一次请求解决。
+     *
+     * <p>**接口失败只是这批不标徽章，不抛异常**：徽章是装饰信息，不该让多出来的一个请求
+     * 把整个分组页打挂（分组页的主内容——成员列表——已经拿到了）。
+     *
+     * <p>只补 {@link UserInfo#mutualFollow}，不碰 {@link UserInfo#specialFollow}：
+     * 「特别关注」本身就是一个系统分组（tagid = -10），分组视图里再给每个成员标一遍是重复。
+     */
+    public static void fillMutualFollow(List<UserInfo> users) {
+        if (users == null || users.isEmpty()) return;
+        for (int from = 0; from < users.size(); from += RELATION_BATCH_SIZE) {
+            List<UserInfo> chunk = users.subList(from, Math.min(from + RELATION_BATCH_SIZE, users.size()));
+            try {
+                JSONObject callback = NetWorkUtil.getJson(relationBatchUrl(chunk));
+                if (callback.optInt("code", -1) != 0) continue;
+                applyRelationAttributes(chunk, callback.optJSONObject("data"));
+            } catch (Exception e) {
+                Log.w("FollowApi", "批量查询互关状态失败，本次分组不显示互关徽章", e);
+            }
+        }
+    }
+
+    /**
+     * 组装批量关系查询的 URL（纯函数，便于单测钉住 `fids` 的逗号拼法）。
+     *
+     * <p>跳过 mid <= 0 的项：占位行（如本地构造的 -1）不该被拼进请求。
+     */
+    public static String relationBatchUrl(List<UserInfo> users) {
+        List<Long> fids = new ArrayList<>();
+        if (users != null) {
+            for (UserInfo user : users) {
+                if (user != null && user.mid > 0) fids.add(user.mid);
+            }
+        }
+        return "https://api.bilibili.com/x/relation/relations?fids=" + joinMids(fids);
+    }
+
+    /**
+     * 把批量关系接口的 `data`（`{用户 mid: 关系属性对象}`）写进用户列表（纯函数，便于 JVM 单测）。
+     *
+     * <p>单看 `data` 里没有的那一条，一律保持 `mutualFollow = false`：批量接口不回它，
+     * 说明它不在「我关注的人」里，本来也不可能是互关。
+     *
+     * @return 实际命中（拿到 attribute 并写过）的条数
+     */
+    public static int applyRelationAttributes(List<UserInfo> users, JSONObject data) {
+        if (users == null || users.isEmpty() || data == null) return 0;
+
+        Map<Long, Integer> attributes = new HashMap<>();
+        Iterator<String> keys = data.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            JSONObject relation = data.optJSONObject(key);
+            if (relation == null) continue;
+            try {
+                attributes.put(Long.parseLong(key), relation.optInt("attribute", 0));
+            } catch (NumberFormatException ignored) {
+                // 键不是 mid（理论上不会发生）：跳过而不是让整个徽章功能失效
+            }
+        }
+
+        int applied = 0;
+        for (UserInfo user : users) {
+            if (user == null) continue;
+            Integer attribute = attributes.get(user.mid);
+            if (attribute == null) continue;
+            // 分组明细只能查自己的分组（接口没有 vmid 参数），所以列表主体恒为当前账号
+            user.mutualFollow = isMutualFollow(true, attribute);
+            applied++;
+        }
+        return applied;
     }
 
     // ==================== 分组增删改（26.10.04 批次 7 的 C21） ====================

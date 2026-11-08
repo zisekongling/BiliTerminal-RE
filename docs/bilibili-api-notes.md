@@ -255,6 +255,7 @@
 - **默认分组与特别关注不进「加入分组」菜单**：`tagid=0` 是默认分组（加入它等于没加），`-10` 是特别关注（有独立接口/入口）。弹窗只列 `tagid > 0` 的自建分组。
 - **新建分组后拿不到 tagid**：`POST /x/relation/tag/create` 的响应按文档 `data.tagid` 会回新 id，但当前实现只取 `code`；加入前按名字回查一次 `GET /x/relation/tags` 拿 tagid（服务端保证分组名唯一，重名会回 22106），比猜接口稳。
 - **列表项的关系字段（26.11.07 核实）**：`GET /x/relation/followings` 与 `/x/relation/followers` 的 `list[]` 里，`attribute == 6` 是互相关注、`special == 1` 是「**列表主体**特别关注了这一条」。两者都只对「看自己的列表」有意义（看别人的列表时主体是对方）；`attribute` 的 `128` 是**已拉黑**，不是特别关注（兄弟仓库 `cyq-Re-BiliTerminal` 的 `FollowApi` 注释写成「128=特别关注」是错的）。分组明细 `GET /x/relation/tag` 的 `special` 恒为 0。
+- **分组明细的 `attribute` 也恒为 0（26.11.08 核实，bug 修复）**：`GET /x/relation/tag` 的 `data[]` 里每条只有 `mid` / `uname` / `face` / `sign` 这类展示字段，`attribute` 恒 0、`special` 恒 0、`tag` 恒 null（bilibili-API `docs/user/relation.md` 的字段表已注明）。所以**不能**用它判断「谁和我互关」——按 `attribute == 6` 判会让分组视图的互关徽章永远不亮（而普通关注/粉丝列表是正常的，容易误判成偶发）。要用 `GET /x/relation/relations?fids=<逗号分隔 mid>` 批量补：`data` 是「mid → `{mid, attribute, mtime, tag, special}`」的对象，`attribute` 语义与关系列表一致（`6` 互关、`2` 单关、`0` 无关系、`128` 已拉黑）。一页 20 个成员一次请求即可（实现按 50 个一块，见 `api/FollowApi.fillMutualFollow` / `relationBatchUrl` / `applyRelationAttributes`，`FollowGroupMutualFollowTest` 8 例）。**接口失败只是不标徽章，不影响分组列表本身**。
 
 ## 12. `view_points` 的 `type` 是「分段类型」，不是「片头/片尾类型」（26.11.05，反馈 #99 / #34）
 
