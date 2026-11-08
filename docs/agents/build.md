@@ -13,6 +13,8 @@
 
 **CI 实际跑什么**（`.github/workflows/ci.yml` 的 `build-and-test` job；push / PR 到 `main` 与手工触发都会跑）：依次是 `:app:verifyVersionConsistency` → `:app:assembleDebug` → `:app:testStandardDebugUnitTest` → `:app:testCoexistDebugUnitTest`（两个 flavor 共用同一份 `app/src/test`，但构建配置不同，都要绿——coexist 以前从没进过 CI）→ `:app:assembleRelease`（unsigned 冒烟：CI 不写签名材料；验 R8 + `shrinkResources` + `keep.pro`，两个 flavor × 3 ABI 分包 + 通用包）。发版链在 `build-release.yml`，只跑 `testStandardDebugUnitTest` + 签名 `assembleRelease`（前面还有 `verify-version` 硬校验 tag ↔ 版本号）。本地仍按下面这几条自己先过一遍。
 
+**曾经的「测试版构建」属性已拔出**：`-PtestBuild=<name>` 那套（`BuildConfig.TEST_BUILD` / `util/TestBuild.kt` / `player/PlaybackDiag.kt` / `Logu` 的诊断期放大 / `ErrorCatch` 的带额度快照）在 2026-11-08 随「部分设备点播卡顿」专项收尾**整体删除**，`app/build.gradle` 里现在没有这个属性，传了也没有任何效果。要再出临时测试包，按 `docs/archive/superpowers/specs/2026-11-07-test-build-framework.md` §4 的清单重建。
+
 ## 单测任务名与产物
 
 - **单测任务名带 flavor 前缀**（26.10.11 起引入 `standard` / `coexist` 两个 product flavor，见 `docs/architecture-map.md` §7.37）：`testDebugUnitTest` **已不存在**，写成它 Gradle 直接报任务找不到。

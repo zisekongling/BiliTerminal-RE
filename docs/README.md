@@ -65,6 +65,7 @@
 | [`superpowers/specs/2026-10-22-disguise-mode.md`](superpowers/specs/2026-10-22-disguise-mode.md) | 伪装与安全：双击顶栏触发、两种样式与各自退出方式、三个存储键、手势层三个接线点、验收标准与已知取舍 | 改伪装页 / 顶栏双击手势时 |
 | [`superpowers/specs/2026-10-25-dash-merge-single-file.md`](superpowers/specs/2026-10-25-dash-merge-single-file.md) | DASH 下载改合并单文件：合并时机、失败回退保留双文件、端到端待登录实测 | 改下载合并 / 排查双文件缓存时 |
 | [`superpowers/specs/2026-11-06-player-ui-custom-layout.md`](superpowers/specs/2026-11-06-player-ui-custom-layout.md) | 播放器界面设置（假播放器）与按钮自定义布局：槽位模型、七组设置、默认布局与验收标准；**已实施** | 改播放器按钮 / 播放器界面设置时 |
+| [`archive/superpowers/specs/2026-11-07-test-build-framework.md`](archive/superpowers/specs/2026-11-07-test-build-framework.md) | **已拔出（26.11.08）留档配方**：测试版构建框架 —— `-PtestBuild=<name>` → `BuildConfig.TEST_BUILD`（编译期常量，普通包零影响）→ probe 会话（`begin/event/metric/finishAndUpload`）→ 复用崩溃通道「模拟崩溃」进管理台崩溃表；含加新测试版本的照抄清单、一键拔出三步、管理台认法与隐私红线 | 下次要给某个线上疑难问题出测试包抓真机现场时（按 §4 重建） |
 | [`tutorial-system-redesign.md`](tutorial-system-redesign.md) | 教程系统重做（**已完成**：注册表驱动 + 旧链路已删；§五 记录迁移明细，剩余待办只有强制声明清单） | 动教程时 |
 | [`copy-inventory/README.md`](copy-inventory/README.md) | 全仓文案清单总索引（7 份、1012 条：`A` 应用身份 / `L` 更新日志 / `T` 教程 / `S` 设置项 / `U` 页面静态文案 / `M` 运行时提示 / `E` 彩蛋） | 改文案时按需打开对应那一份，改完在「改写」栏回填 |
 | [`copy-inventory/GUIDE.md`](copy-inventory/GUIDE.md) | 文案改写指南：同一句话的多出处、四种改法、十条红线、手表字数常识、自查清单、FAQ、**怎么把新文案交给 agent** | **动手改文案前先读这一份**，比总索引更先看 |
