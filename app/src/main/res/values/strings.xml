@@ -852,7 +852,7 @@
     <string name="text_update_beta_desc">内测码：%1$s\n内测包下载完成后直接安装，不比较版本号。</string>
     <!-- ===== 三通道（稳定 / 测试 / 实验），口径见 docs/version-channels.md ===== -->
     <string name="setting_update_channel">更新通道</string>
-    <string name="desc_update_channel">决定「检查更新」能收到哪些版本：稳定版只收正式版，测试版还能收到 -beta 包，实验版连完全没测过的包一起收。切到更保守的通道不会降级已装版本。</string>
+    <string name="desc_update_channel">决定「检查更新」能收到哪些版本：稳定版只收正式版，测试版还能收到 -beta 包，实验版连完全没测过的包一起收。默认测试版；切到更保守的通道不会降级已装版本。</string>
     <string name="update_channel_stable">稳定版</string>
     <string name="update_channel_beta">测试版</string>
     <string name="update_channel_exp">实验版</string>

@@ -1,19 +1,32 @@
 package com.RobinNotBad.BiliClient.util
 
 import com.RobinNotBad.BiliClient.R
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 /**
  * 三通道选版规则的纯函数单测（口径见 `docs/version-channels.md`）。
  *
- * 这里守的是**最容易静默出错**的一条：装 beta 包的人能收到稳定版，装稳定版的人收不到 beta 包；
- * 以及不能依赖接口返回顺序（Gitee 升序、GitHub 降序，两个方向相反）。
+ * 这里守的是**最容易静默出错**的几条：装测试包的人能收到稳定版、装稳定版的人收不到测试包；
+ * 不能依赖接口返回顺序（Gitee 升序、GitHub 降序，两个方向相反）；以及**没选过时默认测试版**
+ * 但**选过之后必须听用户的**（后者错了就是「设置里显示稳定版、实际还在收测试包」）。
  */
 class UpdateChannelTest {
+
+    @Before
+    fun setUp() {
+        SharedPreferencesUtil.sharedPreferences = FakeSharedPreferences()
+    }
+
+    @After
+    fun tearDown() {
+        SharedPreferencesUtil.sharedPreferences = null
+    }
 
     // ---------- tag → 渠道 ----------
 
@@ -130,5 +143,36 @@ class UpdateChannelTest {
         assertEquals(R.string.update_channel_stable, UpdateChannel.nameRes(UpdateChannel.STABLE))
         assertEquals(R.string.update_channel_beta, UpdateChannel.nameRes(UpdateChannel.BETA))
         assertEquals(R.string.update_channel_exp, UpdateChannel.nameRes(UpdateChannel.EXP))
+    }
+
+    // ---------- 默认通道（26.11.08 用户拍板：默认测试版） ----------
+
+    @Test
+    fun current_defaultsToBetaWhenNeverChosen() {
+        // 用户要求：没选过通道的人默认收测试版，稳定版只给主动切过去的人。
+        // 单测里 BuildConfig.UPDATE_CHANNEL 是 stable（默认构建参数），正好覆盖「稳定包 + 没选过」。
+        assertEquals(UpdateChannel.BETA, UpdateChannel.current())
+    }
+
+    @Test
+    fun current_respectsExplicitChoice() {
+        UpdateChannel.save(UpdateChannel.STABLE)
+        assertEquals(
+            "显式选过稳定版就必须听用户的，默认值不得覆盖它",
+            UpdateChannel.STABLE,
+            UpdateChannel.current()
+        )
+        UpdateChannel.save(UpdateChannel.EXP)
+        assertEquals(UpdateChannel.EXP, UpdateChannel.current())
+    }
+
+    @Test
+    fun current_normalizesGarbageInStorage() {
+        SharedPreferencesUtil.putString(SharedPreferencesUtil.UPDATE_CHANNEL, "aloha")
+        assertEquals(
+            "存量脏值按最保守方向处理：当稳定版，而不是当默认的测试版",
+            UpdateChannel.STABLE,
+            UpdateChannel.current()
+        )
     }
 }

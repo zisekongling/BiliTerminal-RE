@@ -821,9 +821,11 @@ class SettingGroupActivity : RefreshListActivity() {
                 true
             }
         )
-        // 三通道（docs/version-channels.md §5）：包本身属于哪个通道只决定「默认值」，
-        // 用户随时可以改。选项就是渠道名的中文名，落盘存英文值（stable/beta/exp），
-        // 因为那三个字符串同时是 tag 后缀与后台上报字段，必须与 CI 保持一致。
+        // 三通道（docs/version-channels.md §5）：没选过的人默认测试版（26.11.08 用户拍板），
+        // 装实验包的人默认实验版，显式选过的值优先——默认规则全在 UpdateChannel.current() 里，
+        // 这里只把它的结果当 defaultValue 显示，别在这儿另写一份。
+        // 选项是渠道名的中文名，落盘存英文值（stable/beta/exp）——那三个字符串同时是 tag
+        // 后缀与后台上报字段，必须与 CI 保持一致。
         listChoose(
             getString(R.string.setting_update_channel),
             getString(R.string.desc_update_channel),

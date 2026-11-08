@@ -127,14 +127,22 @@ object UpdateChannel {
     }
 
     /**
-     * 更新检查用的渠道：用户在设置里选过的那个，没选过就跟着**当前这个包**走
-     * （装上 `-beta` 包的人本来就愿意收测试版）。
+     * 更新检查用的渠道。取值优先级：
+     *
+     * 1. **用户在设置里显式选过**的那个（`update_channel`）——尊重选择，默认值不得覆盖它；
+     * 2. 没选过时**默认测试版**（26.11.08 用户拍板）：这个项目绝大多数时间在发测试包，
+     *    默认收稳定版会让「愿意帮忙测的人」白等一个稳定版周期；
+     * 3. **例外：装着实验版包的人默认仍是实验版**。他已经装了实验包，默认若降到测试版，
+     *    实验版就再也送不到他手上，是反向的意外。
      *
      * 注意这与上报给后台的渠道不是一回事：上报报的是 [BuildConfig.UPDATE_CHANNEL]，
      * 即「这个包是什么通道」，不能因为用户把检查渠道改成 stable 就把一台 beta 包装设备报成稳定版。
      */
-    fun current(): String =
-        normalize(SharedPreferencesUtil.getString(SharedPreferencesUtil.UPDATE_CHANNEL, BuildConfig.UPDATE_CHANNEL))
+    fun current(): String {
+        val saved = SharedPreferencesUtil.getString(SharedPreferencesUtil.UPDATE_CHANNEL, null)
+        if (!saved.isNullOrBlank()) return normalize(saved)
+        return if (BuildConfig.UPDATE_CHANNEL == EXP) EXP else BETA
+    }
 
     /** 记住用户的选择（设置页 `list_choose` 回写时调用）。 */
     fun save(channel: String) {
