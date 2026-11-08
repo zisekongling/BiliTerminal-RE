@@ -1755,6 +1755,23 @@
 - **L0 验证（26.11.08）**：`:app:testStandardDebugUnitTest --rerun` 实际执行 → BUILD SUCCESSFUL，standard flavor **206 suites / 2229 tests / 0 失败 0 错误**；`assembleDebug` 走的是 UP-TO-DATE（本机另一会话在我改完之后已经用同一份源码构建过，Gradle 按输入哈希判定无需重编），但资源合并产物 `app/build/intermediates/packaged_res/standardDebug/packageStandardDebugResources/values/values.xml` 里已是新文案「关闭此选项…默认开启」，说明字符串改动确实进了包。`npx markdownlint-cli2` 56 个文件 0 错误。
 - **未验证（人测 / L2）**：真机进视频详情页动作区应直接有这一行、点进去能进分享页出二维码；在详情页设置里关掉后重进应消失；圆屏上多出这一行的排版观感。真机用例见 §2.1 用例 C。
 
+### 3.140 关于页加项目仓库地址（26.11.08，用户要求「链接指向 GitHub 仓库，并加上可以点击的超链接」）
+
+- **要求原文**：「在关于里加上仓库地址，链接指向 GitHub 仓库，并加上可以点击的超链接」。中途追加两条位置要求：「你放上面点啊」→「放在官网的上面」。最终位置：`debug_tip` 卡与 `cell_divider` 之后、**官网 + 交流群那张卡之前**（首屏滑一段就能看到）。
+- **改了四处**：
+  1. `app/src/main/res/values/strings.xml`：`pagename_opensource` 之后加 `about_repo_title`（项目仓库）、`about_repo_url`（`translatable="false"`，值 `https://github.com/zisekongling/BiliTerminal-RE`）、`about_repo_tip`（点击链接用浏览器打开，长按可复制地址）。地址只写在这一处，换仓库不用动代码。
+  2. `app/src/main/res/layout/activity_setting_about.xml`：新增 `MaterialCardView id=repo_entry`（内含竖排 LinearLayout：13sp 粗体标题 / `TextView id=repo_url` 11sp / 11sp alpha 0.8 提示，全部 `gravity="center"`）；同时给下面的官网卡补 `android:layout_marginTop="6dp"`——两张卡上下紧贴时底色连成一片，用户当场反馈「你看这都连起来了」。
+  3. `app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/AboutActivity.kt`：`SpannableStringBuilder(repoUrl)` 上挂 `StringUtil.LinkClickableSpan(repoUrl, LinkUrlUtil.TYPE_WEB_URL)`（`SPAN_EXCLUSIVE_EXCLUSIVE`），配 `StringUtil.ClickableSpanTouchListener.getInstance()`，再 `StringUtil.setCopy(repoView, repoUrl)` 保留长按复制。
+  4. `docs/FEATURES.md` §14.16 关于页条目补「项目仓库地址」子条。
+- **两条关键理由**：
+  1. **不用 `StringUtil.setLink(TextView...)`**：它整体受「识别链接」设置（`SharedPreferencesUtil.LINK_ENABLE`，默认 true）管，用户关掉后这条入口就点不动；仓库地址是关于页唯一的对外链接，要保证永远可点，所以自己挂 span。
+  2. **必须配 `ClickableSpanTouchListener`**：`ClickableSpan` 自己收不到触摸事件（需要 `MovementMethod`），而本工程的 `ClickableSpanTouchListener` 在 `ACTION_DOWN` 不消费事件、只在 `ACTION_UP` 命中同一链接时触发，所以长按复制不会被吞。
+- **跳转链路**：`LinkUrlUtil.handleWebURL` 只对 b23.tv / `*.bilibili.com` 做站内跳转，其它域名一律 `Intent.ACTION_VIEW` 交系统浏览器——工程内没有通用内置浏览器（只有极验用的 `CaptchaWebViewActivity`）。
+- **L0 验证（26.11.08）**：`:app:assembleDebug` BUILD SUCCESSFUL；`:app:testStandardDebugUnitTest --rerun` 实跑 → BUILD SUCCESSFUL，standard flavor **206 suites / 2229 tests / 0 失败 0 错误**；改完 6dp 间距后再跑 `:app:assembleDebug` 仍 BUILD SUCCESSFUL。
+- **L1 验证（26.11.08，`emulator-5554` / AVD `rebili_watch37`，384×384 @320dpi，Android 17）**：①`uiautomator dump` 读到 `项目仓库` 与 `https://github.com/zisekongling/BiliTerminal-RE` 两个节点，卡片顺序为「版本名/版本号 → 分隔线 → 项目仓库 → 官网」，与要求一致；②点地址文字后 `topResumedActivity` 变成 `com.android.chrome/org.chromium.chrome.browser.firstrun.FirstRunActivity`，即系统浏览器接管（链接确实可点）；③用 `adb shell wm size 384x900` 把视口临时拉高截图，确认仓库卡与官网卡之间有可见间距（修掉连成一片的问题），看完 `wm size reset` 复原。
+- **顺带记两条设备侧坑**（与本改动无关、但会挡住下次验证）：①About 页在 384×384 上触摸滑动**滑不动**，只有表冠 `adb shell input roll 0 -6` 能滚；②Debug 包的 UETool 悬浮窗是 `[0,10][384,118]` 的窗口，会把整条顶栏盖住导致长按顶栏打不开菜单，解法是写 `dev_agent_mode=true`（`SettingsKeys.DEV_AGENT_MODE`，Debug 专属）后重启应用。
+- **未验证（人测 / L2）**：真机（含圆屏）上仓库卡的排版与字号观感、长按复制地址是否弹复制页、点开后浏览器是否正常加载（模拟器上 Chrome 是首启流程，没真的把页面渲染出来）。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。

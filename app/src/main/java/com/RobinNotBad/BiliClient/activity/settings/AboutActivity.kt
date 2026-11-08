@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.os.Bundle
 import android.text.SpannableString
+import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.StyleSpan
 import android.util.Log
@@ -19,6 +20,7 @@ import com.RobinNotBad.BiliClient.activity.FeedbackActivity
 import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.util.GlideUtil
+import com.RobinNotBad.BiliClient.util.LinkUrlUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
@@ -126,6 +128,23 @@ class AboutActivity : BaseActivity() {
             findViewById<View>(R.id.opensource_entry).setOnClickListener {
                 startActivity(Intent(this, OpenSourceActivity::class.java))
             }
+
+            // 仓库地址（26.11.08）：地址文字本身就是可点的超链接。
+            // 直接挂 LinkClickableSpan、**不走** StringUtil.setLink(TextView...)：那条路径整体受
+            // 「识别链接」设置（LINK_ENABLE）管，用户关掉后这条入口就点不动了；而这里是关于页里
+            // 唯一的对外链接，要保证永远可点。点击最终交给 LinkUrlUtil.handleWebURL → 系统浏览器。
+            val repoUrl = getString(R.string.about_repo_url)
+            val repoText = SpannableStringBuilder(repoUrl)
+            repoText.setSpan(
+                StringUtil.LinkClickableSpan(repoUrl, LinkUrlUtil.TYPE_WEB_URL),
+                0, repoText.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            val repoView = findViewById<TextView>(R.id.repo_url)
+            repoView.text = repoText
+            // ClickableSpan 自己不会收到触摸事件：必须配 MovementMethod 或者本工程的
+            // ClickableSpanTouchListener（后者不吞长按，所以下面的长按复制照旧可用）
+            repoView.setOnTouchListener(StringUtil.ClickableSpanTouchListener.getInstance())
+            StringUtil.setCopy(repoView, repoUrl)
 
             // 赞赏：先弹免责声明，点「同意」才去看收款码（点「取消」什么都不发生）。
             // 收款码交给图片查看器（能双指放大，手表屏幕小，二维码得看得清）；

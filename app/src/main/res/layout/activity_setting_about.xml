@@ -146,7 +146,56 @@
 
             <include layout="@layout/cell_divider" />
 
+            <!-- 仓库地址（26.11.08）：用户要求放在「官网」上面（首屏就能看到并点开）。
+                 地址本身就是要点的超链接，代码里挂 LinkClickableSpan（见 AboutActivity），
+                 所以这里不做「整行入口 + 箭头」那套样式。
+                 地址写在 strings.xml 的 about_repo_url，换仓库只改那一处。 -->
             <com.google.android.material.card.MaterialCardView
+                android:id="@+id/repo_entry"
+                android:layout_marginTop="4dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingHorizontal="6dp"
+                    android:paddingVertical="6dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text="@string/about_repo_title"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/repo_url"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:gravity="center"
+                        android:text="@string/about_repo_url"
+                        android:textSize="11sp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:alpha="0.8"
+                        android:gravity="center"
+                        android:text="@string/about_repo_tip"
+                        android:textSize="11sp" />
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 官网 + 交流群。上面紧挨着仓库卡，必须留出间距，否则两张卡片的底色连成一片。 -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_marginTop="6dp"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 

@@ -12,6 +12,10 @@
     <string name="about_wearbili">注意：本软件仅使用了WearBili的旧版页面布局，与WearBili不存在其他关系！\n另：如果你使用的是手表且性能足够，欢迎前往使用Re:WearBili以获得更好的体验！</string>
     <string name="about_opensource">本程序完全开源，代码部分遵循GNU GPL-V3.0协议，布局（UI）部分遵循CC BY-NC-SA协议。\n你可以前往 https://gitee.com/RobinNotBad/BiliClient 获取源代码。</string>
     <string name="pagename_opensource">开源信息</string>
+    <!-- 关于页的仓库入口（26.11.08）：地址要能点开。换仓库只改 about_repo_url，AboutActivity 不写死地址。 -->
+    <string name="about_repo_title">项目仓库</string>
+    <string name="about_repo_url" translatable="false">https://github.com/zisekongling/BiliTerminal-RE</string>
+    <string name="about_repo_tip">点击链接用浏览器打开，长按可复制地址</string>
     <string name="title_opensource_license">开源协议</string>
     <string name="title_opensource_thanks">借鉴的项目与第三方库</string>
     <string name="title_opensource_icon">开源图标许可</string>
