@@ -925,6 +925,10 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **首次硬件检测不在主线程**：`init()` 无缓存时先置中档返回，检测在 `CenterThreadPool` 上跑完再 `applyPerformanceSettings()`。因此**冷启动最初几十毫秒内读到的是中档参数**，属于预期行为；单测 `PerformanceManagerTest.defaultsBeforeInit_areMedium` 锁住了这套默认值。
 - **列表图 / 高清图宽度再按屏幕封顶**（26.10.27）：`getImageMaxWidth()` / `getHqImageMaxWidth()` 会经过 `capWidthToScreen(tierWidth, 屏幕长边)` 处理，只会变小，按 320/480/640/720/1024 分档。图片查看器要放大看，所以走不封顶的 `getZoomImageMaxWidth()` / `GlideUtil.url_zoom()`。不要把查看器改回 `url_hq`。
 - **列表图片的 RequestManager 用 `GlideUtil.with(view)`**（26.10.27），**不要**写 `Glide.with(BiliTerminal.context!!)`，也不要写 companion 里的静态 RequestManager：Application 级请求不跟页面生命周期走，`ImageAutoLoadScrollListener` 的 `pauseRequests()` 也管不到。这个监听器只在 DRAGGING → SETTLING 时暂停，表冠的 IDLE → SETTLING 不暂停；装监听器统一用 `installIfEnabled()`。
+- **档位不要碰「解码方式」与「清晰度」**（26.11.08，26.11.07 卡顿回归的教训）：`util/DeviceProfile` 曾经用 `preferSoftwareDecode` 让低端档默认软解、用 `playQn` 给低端档封顶 360P，两个都错了——
+  1. 软解是**性能灾难**而不是保护：真机诊断包实测 1GB 手表（`aqsh_watch A6-A66`）软解 720P 的 `video.fpsOutput` 只有 **14.2~17.5**（源 30fps），关掉弹幕仍是 14.2/17.5；同一台 360P 软解 33.3、vivo 硬解 720P 30.3。而「软解防花屏」在控制台全量反馈里没有任何证据（「花屏」「绿屏」各 0 条）。
+  2. 清晰度封顶**在主入口走不到**：`activity/video/JumpToPlayerActivity.kt:114` 先用 `NetworkPlaybackQuality.defaultQn(this)` 定 `data.qn`，`api/PlayerApi.java:723` 又把它塞进 `currentQuality` extra，`PlayerActivity` 取 extra 时 `startupDefaultQn()` 只是兜底——所以 `device.playQnLimit=16` 的机器照样拿到 720P。
+  现在的口径：**解码默认恒为硬解**（`hardwareDecodeEnabled()` = `getBoolean(SettingsKeys.PLAYER_CODEC, true)`，只有用户显式选过软件解码才听用户的）；**清晰度只听用户配置**；档位只保留弹幕行数这一项（`capDanmakuMaxLines`）。想再加「按性能自动降级」时先证明它真的生效、且不覆盖用户显式设置。
 
 ### 7.11 更新包校验：`util/ApkVerifier.kt`（26.10.04 批次 4 新增）
 

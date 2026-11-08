@@ -109,7 +109,6 @@ import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.CookieDomainPolicy
 import com.RobinNotBad.BiliClient.util.DanmakuFileFetcher
-import com.RobinNotBad.BiliClient.util.DeviceProfile
 import com.RobinNotBad.BiliClient.util.DisguiseGesture
 import com.RobinNotBad.BiliClient.util.DisguisePrefs
 import com.RobinNotBad.BiliClient.util.LocalVideoProgress
@@ -1958,8 +1957,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_frame", 48)
             ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", 48)
         } else {
-            // 硬解默认值：用户显式设过 player_codec 就听用户的；没设过则按设备档位
-            // （低端机 DeviceProfile.preferSoftwareDecode=true → 默认软解，避免花屏/绿屏）
+            // 硬解默认值：用户显式设过 player_codec 就听用户的，没设过就是硬解。
+            // 26.11.07 曾按设备档位默认软解，真机实测低端机软解 720P 只有 14~17fps，是那一版
+            // 「有些设备放视频卡顿」的根因（详见 hardwareDecodeEnabled 的注释）。
             ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec",
                 if (hardwareDecodeEnabled()) 1 else 0)
             ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", 48)
@@ -5596,24 +5596,29 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         Logu.d("播放会话", "$reason → ${session.title} ${session.positionMs}ms")
     }
 
-    // ------------------------------------------------------------------ 设备档位（DeviceProfile）
+    // ------------------------------------------------------------------ 起播默认值（清晰度 / 解码）
 
     /**
-     * 起播默认清晰度：用户显式配过网络分档（PLAY_QN/PLAY_QN_WIFI/PLAY_QN_MOBILE 任一 >0）时
-     * 以网络分档为主、但不超过设备档位上限；都没配过时直接用设备档位（低端机默认 720P）。
+     * 起播默认清晰度：只听用户配置（`NetworkPlaybackQuality.defaultQn`）。
+     *
+     * 26.11.07 这里曾用 `DeviceProfile.playQn` 给低端机封顶 360P，26.11.08 撤掉——除了下面这个
+     * 兜底位，主链路根本走不到（详情页 `JumpToPlayerActivity` 先用 `NetworkPlaybackQuality`
+     * 定好 qn，经 `currentQuality` extra 传进来），等于「用户设的清晰度被静默改写」，而
+     * 低端机真正的卡顿原因不是清晰度，是解码方式（见 [hardwareDecodeEnabled]）。
      */
-    private fun startupDefaultQn(): Int {
-        val networkQn = NetworkPlaybackQuality.defaultQn(this)
-        val profile = DeviceProfile.resolve(this)
-        val userConfigured = SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN, -1) > 0 ||
-            SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN_WIFI, -1) > 0 ||
-            SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN_MOBILE, -1) > 0
-        return if (userConfigured) minOf(networkQn, profile.playQn) else profile.playQn
-    }
+    private fun startupDefaultQn(): Int = NetworkPlaybackQuality.defaultQn(this)
 
-    /** 硬解默认值：用户显式设过 `player_codec` 就听用户的，没设过按设备档位。 */
+    /**
+     * 硬解默认值：**默认恒为硬解**，用户显式设过 `player_codec` 就听用户的。
+     *
+     * 不要在这里加任何「按设备性能自动软解」的逻辑：26.11.07 曾让低端档
+     * （`DeviceProfile.preferSoftwareDecode`）默认软解，真机诊断实测同一台 1GB 手表软解 720P
+     * 只画得出 14~17fps（源 30fps，硬解同机 30fps），成了「有些设备放视频卡顿、上个版本没有」
+     * 的根因；而「软解防花屏」在控制台全量反馈里没有任何证据。软解只能由用户在
+     * 「渲染与解码 → 解码方式」里显式选择。
+     */
     private fun hardwareDecodeEnabled(): Boolean =
-        SharedPreferencesUtil.getBoolean("player_codec", !DeviceProfile.resolve(this).preferSoftwareDecode)
+        SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_CODEC, true)
 
     private fun hasMultiplePages(): Boolean = pagenames != null && pagenames!!.size > 1
 
@@ -6641,8 +6646,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     }
 
     private fun getTargetQuality(): Int {
-        // 默认清晰度按「当前网络」取：移动数据/Wi-Fi 可各配一档（NetworkPlaybackQuality），
-        // 再按设备档位封顶（DeviceProfile.playQn：低端机 720P、中端 1080P、高端不降）。
+        // 默认清晰度按「当前网络」取：移动数据/Wi-Fi 可各配一档（NetworkPlaybackQuality）。
+        // 26.11.08 起不再按设备档位封顶——那一层在主链路本来也不生效（见 startupDefaultQn）。
         val defaultQn = startupDefaultQn()
         if (qnValueList == null || qnValueList!!.isEmpty()) return if (currentQuality > 0) currentQuality else defaultQn
 

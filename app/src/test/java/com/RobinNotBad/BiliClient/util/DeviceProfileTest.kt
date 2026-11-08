@@ -1,7 +1,6 @@
 package com.RobinNotBad.BiliClient.util
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -67,33 +66,27 @@ class DeviceProfileTest {
 
     @Test
     fun `三档参数逐项正确`() {
+        // 26.11.08 起档位只剩「弹幕行数」一项差异：解码方式默认恒为硬解（用户拍板「一般都不要软解」），
+        // 清晰度交给用户配置。这里同时钉住「不要偷偷把解码/清晰度策略加回来」。
         val low = DeviceProfile.profileForTier(DeviceProfile.TIER_LOW)
         assertEquals(DeviceProfile.TIER_LOW, low.level)
-        assertEquals("低端 360P", 16, low.playQn)
         assertEquals("低端 6 行", 6, low.danmakuMaxLines)
-        assertTrue("低端优先软解（老 SoC 硬解 HEVC 花屏）", low.preferSoftwareDecode)
 
         val medium = DeviceProfile.profileForTier(DeviceProfile.TIER_MEDIUM)
         assertEquals(DeviceProfile.TIER_MEDIUM, medium.level)
-        assertEquals("中端 480P", 32, medium.playQn)
         assertEquals("中端 10 行（与设置页默认一致）", 10, medium.danmakuMaxLines)
-        assertFalse("中端硬解已稳，省电优先", medium.preferSoftwareDecode)
 
         val high = DeviceProfile.profileForTier(DeviceProfile.TIER_HIGH)
         assertEquals(DeviceProfile.TIER_HIGH, high.level)
-        assertEquals("高端 720P（手表端最高实用档）", 64, high.playQn)
         assertEquals("高端 15 行（不加码）", 15, high.danmakuMaxLines)
-        assertFalse("高端硬解最稳", high.preferSoftwareDecode)
     }
 
     @Test
-    fun `档位越高清晰度与行数不减`() {
+    fun `档位越高行数不减`() {
         // 防止以后调参时把某一档调成「更高档反而更差」的荒谬组合。
         val low = DeviceProfile.profileForTier(DeviceProfile.TIER_LOW)
         val medium = DeviceProfile.profileForTier(DeviceProfile.TIER_MEDIUM)
         val high = DeviceProfile.profileForTier(DeviceProfile.TIER_HIGH)
-        assertTrue(low.playQn < medium.playQn)
-        assertTrue(medium.playQn < high.playQn)
         assertTrue(low.danmakuMaxLines < medium.danmakuMaxLines)
         assertTrue(medium.danmakuMaxLines <= high.danmakuMaxLines)
     }
