@@ -26,6 +26,7 @@ import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.ui.appearance.AmbientGlow
 import com.RobinNotBad.BiliClient.ui.appearance.AppearanceManager
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
+import com.RobinNotBad.BiliClient.ui.widget.IslandPolicy
 import com.RobinNotBad.BiliClient.ui.appearance.CornerStyle
 import com.RobinNotBad.BiliClient.ui.appearance.FontStyle
 import com.RobinNotBad.BiliClient.ui.appearance.GlassStyle
@@ -343,13 +344,15 @@ class SettingGroupActivity : RefreshListActivity() {
             refresh()
             if (isChecked) MsgUtil.showMsg(getString(R.string.msg_settinggroupactivity_003))
         }
-        // 顶栏灵动岛跟「圆屏适配」是两个独立开关（26.11.08 解耦），方屏也能开。
-        switch(
-            getString(R.string.setting_topbar_island),
-            getString(R.string.desc_setting_topbar_island),
-            SettingsKeys.TOPBAR_ISLAND,
-            false
-        )
+        // 顶栏灵动岛 26.11.08 起暂时关闭并隐藏入口；恢复时把 IslandPolicy.FEATURE_ENABLED 改回 true。
+        if (IslandPolicy.FEATURE_ENABLED) {
+            switch(
+                getString(R.string.setting_topbar_island),
+                getString(R.string.desc_setting_topbar_island),
+                SettingsKeys.TOPBAR_ISLAND,
+                false
+            )
+        }
         input("界面大小", getString(R.string.desc_setting_ui), SettingsKeys.DPI, "input_float", "1.0") { value ->
             try {
                 val dpiScale = value.toFloat()

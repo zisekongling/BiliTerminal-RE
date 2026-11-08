@@ -9,6 +9,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.FeedbackActivity
 import com.RobinNotBad.BiliClient.activity.feedback.FeedbackListActivity
 import com.RobinNotBad.BiliClient.activity.settings.login.AccountSwitchActivity
+import com.RobinNotBad.BiliClient.ui.widget.IslandPolicy
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
 
 /**
@@ -191,10 +192,13 @@ object SettingsIndex {
             text(R.string.section_ui_round),
             text(R.string.settingtext_settingsindex_012)
         ) { a -> openGroup(a, "layout", groupLayout, text(R.string.section_ui_round)) }
-        list += Entry(
-            text(R.string.setting_topbar_island),
-            text(R.string.desc_setting_topbar_island)
-        ) { a -> openGroup(a, "layout", groupLayout, text(R.string.setting_topbar_island)) }
+        // 顶栏灵动岛 26.11.08 起暂时关闭并隐藏入口；恢复时把 IslandPolicy.FEATURE_ENABLED 改回 true。
+        if (IslandPolicy.FEATURE_ENABLED) {
+            list += Entry(
+                text(R.string.setting_topbar_island),
+                text(R.string.desc_setting_topbar_island)
+            ) { a -> openGroup(a, "layout", groupLayout, text(R.string.setting_topbar_island)) }
+        }
         list += Entry(
             text(R.string.section_ui_size),
             text(R.string.settingtext_settingsindex_013)

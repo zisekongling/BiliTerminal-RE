@@ -108,6 +108,11 @@ object TopbarIsland {
      * 之后关掉圆屏适配不会连带关掉灵动岛。判据本身在 `IslandPolicy.resolveEnabled`。
      */
     private fun isEnabled(): Boolean {
+        // 总闸关着时一律不挂载，并把残留的 true 落回 false，避免存档状态与界面不一致。
+        if (!IslandPolicy.FEATURE_ENABLED) {
+            SharedPreferencesUtil.putBoolean(SettingsKeys.TOPBAR_ISLAND, false)
+            return false
+        }
         val prefs = SharedPreferencesUtil.getSharedPreferences()
         val explicit = if (prefs.contains(SettingsKeys.TOPBAR_ISLAND)) {
             prefs.getBoolean(SettingsKeys.TOPBAR_ISLAND, false)
