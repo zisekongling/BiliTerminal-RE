@@ -49,6 +49,7 @@
 - **新增浅色图标**：跑 `python tools/appearance/gen_light_mode.py` 生成亮色版（`drawable-notnight/` 中性深灰 + `drawable-notnight-v21/` 按主题正文色着色）；压在主色 / 视频 / 通知上、两种模式都必须是白色的图标加进脚本的 `EXCLUDE`。
 - **压在视频 / 图片上的图标与文字**用 `*_overlay` 图标与 `@color/overlay_icon` / `overlay_text`（没有亮色覆盖，永远浅色）。
 - 代码设色用 `ColorScheme` 的 getter（已按模式切换）；**播放器里**（`PlayerActivity` 是 `forceDark` 上下文）用 `ColorScheme.darkColors()`。
+- **`?attr` 不能写进「颜色状态列表 / drawable XML」里**：两者都只在 **API 23+** 才解析主题属性，API 19–22 的机器上会静默退成框架哨兵红 `#FFFF0000`（`ColorStateList.DEFAULT_COLOR`，`android/content/res/ColorStateList.java:151`），表现是控件整块变纯红、文字与底色同色看不见（26.11.09 的弹窗按钮事故就是这么来的；`<shape>` 里的 `?attr` 在 API 19 上更直接抛 `UnsupportedOperationException`，见 `docs/review/fix-progress.md` §1）。要用主题色只有两条路：布局里直接写 `android:textColor="?attr/colorPrimary"`（属性位上的 `?attr` 各版本都能解析），或代码里 `theme.resolveAttribute` 取单色再 `setTextColor` / `backgroundTintList`。Material 文字按钮样式（M2 / M3 一样）自带的就是 attr 状态列表，老设备必须用这两条兜住，封装见 `util/view/TextButtonColors`。
 - 不要在 `values-notnight` 覆盖 `terminal_bgblack` / `bgblack`：冷启动窗口按**系统** uiMode 绘制，覆盖会让暗色用户在手表上闪白。
 - **只做手动切换，不做「跟随系统」**（产品决定）：手表系统几乎固定报非夜间，跟随系统在手表上等于永远亮色。别加 `MODE_NIGHT_FOLLOW_SYSTEM` 或按时间自动切换。
 - 切换模式只走设置页的「颜色模式」：`AppearanceManager.setColorMode` → 刷新 `BiliTerminal.context` → `ColorMode.applyGlobal()`（AppCompat 自动重建页面）。

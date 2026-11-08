@@ -26,6 +26,7 @@ import com.RobinNotBad.BiliClient.util.ImagePickerAlbums.Photo
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
+import com.RobinNotBad.BiliClient.util.view.TextButtonColors
 import com.bumptech.glide.load.DecodeFormat
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.google.android.material.button.MaterialButton
@@ -82,6 +83,8 @@ class ImagePickerActivity : BaseActivity() {
         albumBtn = findViewById(R.id.btn_album)
         findViewById<View>(R.id.btn_system).setOnClickListener { openSystemPicker() }
         albumBtn.setOnClickListener { showAlbumChooser() }
+        // TextButton 状态列表里的 ?attr 在 API 21/22 解析不了（会退成框架哨兵红），在这里统一兜住
+        TextButtonColors.apply(albumBtn, findViewById(R.id.btn_system))
 
         recyclerView.layoutManager = CustomGridManager(this, SPAN_COUNT)
         recyclerView.adapter = adapter

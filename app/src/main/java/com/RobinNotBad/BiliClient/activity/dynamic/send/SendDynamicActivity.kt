@@ -34,6 +34,7 @@ import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.TimeUtil
+import com.RobinNotBad.BiliClient.util.view.TextButtonColors
 import com.bumptech.glide.Glide
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
@@ -140,6 +141,8 @@ class SendDynamicActivity : BaseActivity() {
             voteOptionsList = findViewById(R.id.vote_options_list)
             addOptionBtn = findViewById(R.id.add_option_btn)
             removeVoteBtn = findViewById(R.id.remove_vote_btn)
+            // TextButton 状态列表里的 ?attr 在 API 21/22 解析不了（会退成框架哨兵红），在这里统一兜住
+            TextButtonColors.apply(addOptionBtn, removeVoteBtn)
 
             // 编辑模式：预填原正文，并且不理会 TerminalContext——它只在 onDestroy 清，
             // 里面可能残留上一次转发的内容，会把旧卡片画到编辑页上
