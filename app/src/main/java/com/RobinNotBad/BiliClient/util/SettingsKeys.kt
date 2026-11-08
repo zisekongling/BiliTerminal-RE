@@ -76,7 +76,7 @@ object SettingsKeys {
      */
     const val DETAIL_NOTE_ENTRY = "detail_note_entry"
     /**
-     * 详情页动作区是否插私有功能的「分享到其他设备」整行（默认关）。
+     * 详情页动作区是否插私有功能的「分享到其他设备」整行（默认开）。
      *
      * 键必须留在公共侧：私有构建只是被注入源码，读的是这同一个 SharedPreferences。
      * 判据在 `DetailEntryPrefs.isShareRowEnabled()`。

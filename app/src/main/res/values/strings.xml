@@ -160,7 +160,7 @@
     <string name="setting_detail_note_entry">视频笔记</string>
     <string name="desc_setting_detail_note_entry">打开此选项，视频详情页的动作区会显示「笔记」按钮（需要登录）；默认关闭</string>
     <string name="setting_detail_share_row_entry">分享到其他设备</string>
-    <string name="desc_setting_detail_share_row_entry">打开此选项，视频详情页的动作区会显示跨设备分享入口；默认关闭</string>
+    <string name="desc_setting_detail_share_row_entry">关闭此选项，视频详情页的动作区不再显示跨设备分享入口；默认开启</string>
     <string name="setting_detail_like_card_ring">点赞卡片描边</string>
     <string name="desc_setting_detail_like_card_ring">关闭后，视频详情页「点赞 / 投币 / 收藏」外面那一圈主题色描边不再显示；默认开启</string>
     <string name="setting_bangumi_group">番剧设置</string>

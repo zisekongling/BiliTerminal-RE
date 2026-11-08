@@ -625,8 +625,9 @@ class VideoInfoFragment : BaseFragment() {
         // 公共构建里 OptionalFeatures 是空操作，这里连按钮都不会出现；私有构建才插入。
         // 不跟下面的未登录隐藏逻辑走：这个入口不依赖登录态。
         //
-        // 26.11.07：用户要求默认藏起来 —— 只有设置里「分享到其他设备」开关打开时才挂，
+        // 26.11.07：做成开关（用户要求藏起来）——只有设置里「分享到其他设备」开关打开时才挂，
         // 否则连反射都不做（公开构建读到的这份配置永远不会被用到）。
+        // 26.11.08：默认值翻成开（用户要求改回默认显示），开关仍在，关掉即不显示。
         if (DetailEntryPrefs.isShareRowEnabled()) {
             OptionalFeatures.attachDetailActionRow(
                 rootview.findViewById(R.id.video_actions),

@@ -336,15 +336,15 @@
 
 - [ ] **短视频画面尺寸 state 驱动（§3.98）的边界形态待真机**：`videoWidth==0` 的真实流（容器无分辨率 / probe 窗过短）与旋转 90/270 的真实视频（`MEDIA_INFO_VIDEO_ROTATION_CHANGED`）模拟器上都构造不出来（B 站 9:16 合一 MP4 尺寸非 0、rotation 全 0），这两条靠 `ShortVideoLayoutMathTest` + 代码走查兜底。真机用例：①刷到「容器元数据不带分辨率」的短视频时画面应留黑边而不是铺满拉伸；②刷到带旋转元数据的竖屏视频时比例正确、不横向压扁；③播放中 Home → 回前台，`dumpsys window windows` 里该窗口的 `fl` 应重新含 `KEEP_SCREEN_ON`；④暂停/切后台时不得残留 `KEEP_SCREEN_ON`。
 
-- [ ] **三个入口默认藏起来（§3.137）的登录态 / 会话态未验证**。**复现前置**：Debug 包（本次模拟器装的是含 `private/` 注入的 `standardDebug` universal 包，故详情页设置里能看到「分享到其他设备」；公开包没有这一条，见用例 C 第 4 步）；一个**测试账号**登录（本组用例全是只读操作，不涉及删除/清空）。**回菜单页的通用手势**：在任意页面顶栏长按约 1 秒（`BaseActivity.setupTopbarLongPressToHome()`，受「顶栏长按」设置控制，默认全部页面）——`MenuActivity` 不导出，`am start` 会被拒。
+- [ ] **三个入口的隐藏开关（§3.137；其中私有分享行 26.11.08 起默认显示，见 §3.139）的登录态 / 会话态未验证**。**复现前置**：Debug 包（本次模拟器装的是含 `private/` 注入的 `standardDebug` universal 包，故详情页设置里能看到「分享到其他设备」；公开包没有这一条，见用例 C 第 4 步）；一个**测试账号**登录（本组用例全是只读操作，不涉及删除/清空）。**回菜单页的通用手势**：在任意页面顶栏长按约 1 秒（`BaseActivity.setupTopbarLongPressToHome()`，受「顶栏长按」设置控制，默认全部页面）——`MenuActivity` 不导出，`am start` 会被拒。
 
   - **用例 A｜有会话时「继续播放」才置顶**：①设置 → 内容与浏览 → 菜单设置，在「未启用」区末尾找到「继续播放」，点一次移到「已启用」区（可长按拖动排位置）；②长按顶栏回菜单页——**此时若从未播放过任何视频，最上方不应出现「继续播放」**（`PlayerApi.buildResumeIntent` 会把过期/过短的会话过滤掉，这是设计而非缺陷）；③播放任意视频超过约 30 秒后退出播放页，再回菜单页——最上方应出现「继续播放」并排在「推荐」之前，点它应直接回到刚才的视频与播放位置；④回菜单设置把它移回「未启用」——回菜单页后该项立即消失（无论有没有会话）。
   - **用例 B｜登录态下「视频笔记」**：①详情页设置里「视频笔记」默认应为关；②打开任意视频详情页，动作区（点赞 / 收藏 / 转发那一排）**不应有**「笔记」；③回设置打开该开关，重进同一视频——动作区出现「笔记」，点进去能打开笔记页并加载列表（若列表仍报「无法正常加载」，那是本文件更下方「笔记『无法正常加载』根因未确证」那条既有问题，不算本次引入）；④关掉开关重进详情页——「笔记」又消失。未登录时无论开关如何都恒隐藏（代码里 `else if (!isNoteEntryEnabled())` 分支之前先判登录态）。
-  - **用例 C｜私有分享行（仅带 `private/` 的构建有这条开关）**：①详情页设置里「分享到其他设备」默认应为关，详情页动作区没有该行；②打开后重进详情页——该行出现，点进去能进分享页并出二维码；③关掉后重进——该行消失，且默认状态下连反射都不做（`VideoInfoFragment.kt` 里 `if (DetailEntryPrefs.isShareRowEnabled())` 之外不触碰 `OptionalFeatures.attachDetailActionRow`）；④反向确认：用**不含** `private/` 的包（`build_tui.py` 不勾同步私有源码）打开详情页设置，只有「视频笔记」，**没有**「分享到其他设备」。
+  - **用例 C｜私有分享行（仅带 `private/` 的构建有这条开关）**：①详情页设置里「分享到其他设备」**默认应为开**（26.11.08 起按用户要求改回默认显示，见 §3.139），进视频详情页时动作区**应直接有**该行，点进去能进分享页并出二维码；②回设置关掉该开关，重进同一视频——该行消失，且关着的时候连反射都不做（`VideoInfoFragment.kt` 里 `if (DetailEntryPrefs.isShareRowEnabled())` 之外不触碰 `OptionalFeatures.attachDetailActionRow`）；③再打开重进——该行回来；④反向确认：用**不含** `private/` 的包（`build_tui.py` 不勾同步私有源码）打开详情页设置，只有「视频笔记」，**没有**「分享到其他设备」。
   - **用例 D｜设置页搜索能命中**：在设置首页顶部搜索框输入「笔记」——应出现「视频笔记」，点进去应滚到该开关并高亮（项名必须与 `SettingInfoActivity` 里的 `SettingSection.name` 逐字一致，改文案时两边要一起改）；输入「跨设备」——同上（仅带 `private/` 的构建）。命令行验证中文输入需先装 ADBKeyboard。
   - **用例 E｜466×466 圆屏排版**：圆屏机器（或装了 wear 系统镜像的 AVD）上打开视频详情页，确认动作区多出的那行没有被圆角裁掉、整块能滚到底、「笔记」与分享行的点击命中区正常。
 
-  模拟器（AVD `Medium_Phone_API_37.0`，Android 17、1080×2400；本机 `wear5` 的系统镜像缺失、起不来）上已实测：①默认配置下菜单页依次是「登录 / 推荐 / 短视频 / 热门 / 热搜 / 搜索 / 缓存 / 设置 / 扫一扫 / 退出」，**没有**「继续播放」；②「设置 → 内容与浏览 → 菜单设置」的「未启用」区末尾有「继续播放」，点回已启用后再点它提示「继续播放」不是页面、不能设为启动页（`adb logcat` 抓到 `MsgUtil>showMsg: 「继续播放」不是页面，不能设为启动页`）；③「设置 → 内容与浏览 → 详情页设置」在原 7 个开关之后多了「视频笔记」（默认关）与「分享到其他设备」（默认关；这条只在 `OptionalFeatures.available` 为真的构建里出现，本次模拟器装的是带 `private/` 注入的 standard debug 包）；④把「视频笔记」打开后设备上 `shared_prefs/default.xml` 多出 `<boolean name="detail_note_entry" value="true" />`，关掉后恢复，键名与 `SettingsKeys.DETAIL_NOTE_ENTRY` 一致。**仍未验的（都要登录态或真实播放会话）**：①有可续播会话时，把「继续播放」放到已启用区，菜单最上方应出现它、点进去回到上次视频与位置；再关掉开关应立刻消失；②登录态下「视频笔记」开 → 详情页动作区出现「笔记」且能进笔记页，关 → 不出现；③带 `private/` 的构建里「分享到其他设备」开 → 详情页出现该行并能进分享页，关 → 不出现且不做反射；④设置页搜索框搜「笔记」「跨设备」应命中这两条并滚到高亮；⑤466×466 圆屏上动作区多一行后的排版与滚动观感。**未验证**。
+  模拟器（AVD `Medium_Phone_API_37.0`，Android 17、1080×2400；本机 `wear5` 的系统镜像缺失、起不来）上已实测：①默认配置下菜单页依次是「登录 / 推荐 / 短视频 / 热门 / 热搜 / 搜索 / 缓存 / 设置 / 扫一扫 / 退出」，**没有**「继续播放」；②「设置 → 内容与浏览 → 菜单设置」的「未启用」区末尾有「继续播放」，点回已启用后再点它提示「继续播放」不是页面、不能设为启动页（`adb logcat` 抓到 `MsgUtil>showMsg: 「继续播放」不是页面，不能设为启动页`）；③「设置 → 内容与浏览 → 详情页设置」在原 7 个开关之后多了「视频笔记」（默认关）与「分享到其他设备」（默认关；这条只在 `OptionalFeatures.available` 为真的构建里出现，本次模拟器装的是带 `private/` 注入的 standard debug 包）；④把「视频笔记」打开后设备上 `shared_prefs/default.xml` 多出 `<boolean name="detail_note_entry" value="true" />`，关掉后恢复，键名与 `SettingsKeys.DETAIL_NOTE_ENTRY` 一致。**仍未验的（都要登录态或真实播放会话）**：①有可续播会话时，把「继续播放」放到已启用区，菜单最上方应出现它、点进去回到上次视频与位置；再关掉开关应立刻消失；②登录态下「视频笔记」开 → 详情页动作区出现「笔记」且能进笔记页，关 → 不出现；③带 `private/` 的构建里「分享到其他设备」开 → 详情页出现该行并能进分享页，关 → 不出现且不做反射；④设置页搜索框搜「笔记」「跨设备」应命中这两条并滚到高亮；⑤466×466 圆屏上动作区多一行后的排版与滚动观感。**未验证**。（**26.11.08 更新**：§3.139 已把私有分享行改回默认显示，上面 ③④ 里「默认关」的口径过期，只作当时的测量记录。）
 
 ### 2.2 功能与工程待办
 
@@ -1746,6 +1746,14 @@
 **L0 验证（26.11.07，隔离工作树、未同步 `private/`）**：`:app:assembleDebug`、`:app:testStandardDebugUnitTest` 均 BUILD SUCCESSFUL；standard flavor **178 suites / 1931 tests / 0 失败 0 错误**。接口侧另做了直连实测（见 `docs/bilibili-api-notes.md` §14：两个接口 `code=0`、`order=3` 的分页与字段、`condition` 的 5 项排序 + 9 组筛选）。
 
 **设备端没跑成（L1/L2 未验）**：本机 `system-images` 只剩 `android-37.0/google_apis_playstore/x86_64`，`wear5`（android-34 wear）镜像缺失。`rebili_watch37`（384×384 @320dpi）能 headless 起机、装包、拉起应用，但启动后的服务端公告 / 免责声明是一串 `ShowTextActivity` 页，headless 下按返回只能在这些页之间翻，到不了菜单；期间宿主重启三次，按「两轮上限」止损。改前 / 改后两个调试包已放到 `outputs/`（gitignore）供人工对照：`ReBiliClient-baseline-standard-debug.apk`（0a5900e）与 `ReBiliClient-bangumi-standard-debug.apk`（620a0e9，含本功能）。真机用例见 §2.1。
+
+### 3.139 私有分享行改回默认显示（26.11.08，用户要求撤回 §3.137 的默认藏）
+
+- **起因**：用户问「我分享到其他设备的按钮呢？？？」——§3.137 把这一行改成开关、默认关之后找不到了；用户拍板「改成默认显示吧」。
+- **改法**：`util/DetailEntryPrefs.kt` 的 `DEFAULT_SHARE_ROW_ENABLED` 由 `false` 改成 `true`。**开关本身保留**（仍在「设置 → 内容与浏览 → 详情页设置」，关掉后 `VideoInfoFragment` 连 `OptionalFeatures.attachDetailActionRow` 都不调）；设置项文案改口：`desc_setting_detail_share_row_entry` 由「打开此选项…默认关闭」改成「关闭此选项…默认开启」。**「视频笔记」不动，仍默认关**（`DEFAULT_NOTE_ENABLED = false`）。
+- **不需要迁移代码**：`SharedPreferencesUtil.getBoolean(key, def)` 只在键不存在时才用默认值——从没动过这个开关的老用户升级后自动变回显示，显式关过的人保持关（同 §5「改默认值天然满足『新装默认开 + 老用户尊重显式选择』」）。
+- **L0 验证（26.11.08）**：`:app:testStandardDebugUnitTest --rerun` 实际执行 → BUILD SUCCESSFUL，standard flavor **206 suites / 2229 tests / 0 失败 0 错误**；`assembleDebug` 走的是 UP-TO-DATE（本机另一会话在我改完之后已经用同一份源码构建过，Gradle 按输入哈希判定无需重编），但资源合并产物 `app/build/intermediates/packaged_res/standardDebug/packageStandardDebugResources/values/values.xml` 里已是新文案「关闭此选项…默认开启」，说明字符串改动确实进了包。`npx markdownlint-cli2` 56 个文件 0 错误。
+- **未验证（人测 / L2）**：真机进视频详情页动作区应直接有这一行、点进去能进分享页出二维码；在详情页设置里关掉后重进应消失；圆屏上多出这一行的排版观感。真机用例见 §2.1 用例 C。
 
 ## 4. 历史章节索引
 
