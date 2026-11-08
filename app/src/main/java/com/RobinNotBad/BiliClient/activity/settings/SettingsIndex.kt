@@ -371,7 +371,8 @@ object SettingsIndex {
             text(R.string.settingtext_settinginfoactivity_005),
             text(R.string.settingtext_settinginfoactivity_006),
             text(R.string.settingtext_settinginfoactivity_007),
-            text(R.string.setting_detail_note_entry)
+            text(R.string.setting_detail_note_entry),
+            text(R.string.setting_detail_like_card_ring)
         )
         // 「分享到其他设备」只在带私有功能的构建里存在（设置页那条也一样），
         // 公开构建不收录，否则搜索会把用户送进一个点了没反应的开关。

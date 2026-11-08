@@ -303,6 +303,11 @@ class VideoInfoFragment : BaseFragment() {
         val coinLabel = rootview.findViewById<TextView>(R.id.coin_label)
         val favLabel = rootview.findViewById<TextView>(R.id.fav_label)
         val collectionCard = rootview.findViewById<MaterialCardView>(R.id.collection)
+        val likeCoinFavCard = rootview.findViewById<MaterialCardView>(R.id.like_coin_fav)
+        // 反馈 #112：动作区卡片外面那圈 1dp 描边取 ?attr/actionCardStroke，B站粉与经典终端主题下
+        // 都是 #FF6699，有用户觉得扎眼。开关关掉时把描边宽度归零——底色与文字色都不动。
+        // 描边是 XML 属性，只能在运行时改，所以这里必须有引用。
+        if (!DetailEntryPrefs.isLikeCardRingEnabled()) likeCoinFavCard.strokeWidth = 0
 
         // 点赞/投币/收藏卡片改为「surface 底 + 主色 1dp 描边」：
         // 原布局用 ?attr/colorPrimary 亮粉打底，标签文字走主题近白色，对比度约 2.1:1（低于 AA 4.5:1）；

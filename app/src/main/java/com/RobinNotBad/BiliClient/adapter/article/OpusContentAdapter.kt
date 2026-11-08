@@ -26,6 +26,7 @@ import com.RobinNotBad.BiliClient.api.VoteApi
 import com.RobinNotBad.BiliClient.model.Opus
 import com.RobinNotBad.BiliClient.model.OpusParagraph
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.DetailEntryPrefs
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
@@ -213,6 +214,10 @@ class OpusContentAdapter(
                 val coinLabel = holder.itemView.findViewById<TextView>(R.id.coin_label)
                 val favLabel = holder.itemView.findViewById<TextView>(R.id.fav_label)
                 val fav = holder.itemView.findViewById<ImageButton>(R.id.btn_fav)
+                // 反馈 #112：文章/动态末尾用的是同款动作卡片（cell_article_end），必须跟详情页
+                // 那个开关一起走，否则会出现「视频页关掉描边、文章页还留一圈粉边」的不一致。
+                val likeCoinFavCard = holder.itemView.findViewById<MaterialCardView>(R.id.like_coin_fav)
+                if (!DetailEntryPrefs.isLikeCardRingEnabled()) likeCoinFavCard.strokeWidth = 0
 
                 likeLabel.text = StringUtil.toWan(article.stats.like.toLong())
                 coinLabel.text = StringUtil.toWan(article.stats.coin.toLong())

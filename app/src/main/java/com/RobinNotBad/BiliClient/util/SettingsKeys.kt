@@ -74,6 +74,13 @@ object SettingsKeys {
      * 判据在 `DetailEntryPrefs.isShareRowEnabled()`。
      */
     const val DETAIL_SHARE_ROW = "detail_share_row"
+    /**
+     * 详情页动作区「点赞 / 投币 / 收藏」卡片是否画那一圈主色描边（默认开）。
+     *
+     * 反馈 #112：描边色取 `?attr/actionCardStroke`，B站粉与经典终端两套主题下都是 #FF6699，
+     * 有用户觉得那圈粉边看着不舒服。判据在 `DetailEntryPrefs.isLikeCardRingEnabled()`。
+     */
+    const val DETAIL_LIKE_CARD_RING = "detail_like_card_ring"
 
     // ==================== 偏好设置 ====================
     const val COPY_ENABLE = "copy_enable"

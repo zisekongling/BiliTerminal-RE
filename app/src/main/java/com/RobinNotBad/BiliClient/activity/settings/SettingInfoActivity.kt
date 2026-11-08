@@ -27,6 +27,16 @@ class SettingInfoActivity : RefreshListActivity() {
             add(SettingSection("switch", "视频相关推荐", SettingsKeys.RELATED_ENABLE, getString(R.string.desc_related_enable), "true"))
             add(SettingSection("switch", "以游客方式观看直播", SettingsKeys.LIVE_BY_GUEST, getString(R.string.desc_live_by_guest), "false"))
             add(SettingSection("switch", "一键三连", SettingsKeys.LIKE_ONE_TRIPLE, getString(R.string.desc_one_triple), "true"))
+            // 反馈 #112：动作区卡片那一圈主色描边有人觉得扎眼，给一个能关掉的开关（默认开）。
+            add(
+                SettingSection(
+                    "switch",
+                    getString(R.string.setting_detail_like_card_ring),
+                    SettingsKeys.DETAIL_LIKE_CARD_RING,
+                    getString(R.string.desc_setting_detail_like_card_ring),
+                    DetailEntryPrefs.DEFAULT_LIKE_CARD_RING.toString()
+                )
+            )
 
             // 26.11.07：详情页动作区的两个可选入口，默认都关（= 默认不显示）。
             // 用户要求默认把「视频笔记」和「分享到其他设备」藏起来，想用再自己打开。

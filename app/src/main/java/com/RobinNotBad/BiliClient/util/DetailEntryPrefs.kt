@@ -35,4 +35,19 @@ object DetailEntryPrefs {
      */
     fun isShareRowEnabled(): Boolean =
         SharedPreferencesUtil.getBoolean(SettingsKeys.DETAIL_SHARE_ROW, DEFAULT_SHARE_ROW_ENABLED)
+
+    /** 「点赞 / 投币 / 收藏」卡片主色描边的默认值：开（= 保持既有观感，不改变老用户的界面）。 */
+    const val DEFAULT_LIKE_CARD_RING = true
+
+    /**
+     * 动作区卡片是否画那一圈主色描边。
+     *
+     * 反馈 #112：描边色是 `?attr/actionCardStroke`，B站粉与经典终端两套主题下都是 #FF6699。
+     * 关掉只是不画边框：卡片底色（`?attr/actionCardColor`）与文字色不变，可读性不受影响。
+     * 调用点有两处——视频详情页（`VideoInfoFragment`）与文章/动态末尾的动作卡片
+     * （`OpusContentAdapter`），同一个开关必须两边都生效，否则会出现「视频页关了、
+     * 文章页还留一圈」的不一致。
+     */
+    fun isLikeCardRingEnabled(): Boolean =
+        SharedPreferencesUtil.getBoolean(SettingsKeys.DETAIL_LIKE_CARD_RING, DEFAULT_LIKE_CARD_RING)
 }
