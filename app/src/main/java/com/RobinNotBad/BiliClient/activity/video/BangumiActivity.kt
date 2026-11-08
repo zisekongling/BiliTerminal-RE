@@ -88,7 +88,14 @@ class BangumiActivity : InstanceActivity() {
     private var indexAdapter: VideoCardAdapter? = null
     private var indexPage = 1
     private var indexEnd = false
-    private var indexLoading = false
+
+    /**
+     * 索引请求闸门：同一时刻只放行一轮，并把「在飞期间条件变了」记成待办。
+     *
+     * 旧实现用一个 `indexLoading` 布尔判断「在飞就丢弃这次调用」，于是用户在请求在飞时改筛选
+     * 会被整个丢掉：筛选行是新条件、列表还是旧条件（26.11.08 验收：筛选 loading 竞态）。
+     */
+    private val indexGate = BangumiIndexLoadGate()
     private var indexError = false
     private var indexGeneration = 0
 
@@ -424,17 +431,24 @@ class BangumiActivity : InstanceActivity() {
     @SuppressLint("NotifyDataSetChanged")
     private fun loadIndex(reset: Boolean) {
         if (isFinishing) return
-        if (indexLoading) {
-            refreshes[TAB_INDEX].isRefreshing = false
+        if (!indexGate.start(reload = reset)) {
+            if (reset) {
+                // 条件变了但还有一轮在飞：作废它的结果（别把旧条件的结果画到新条件的列表上），
+                // 它收尾时 gate.finish() 会告诉我们「该重拉了」（26.11.08 筛选 loading 竞态）
+                indexGeneration++
+            } else {
+                // 触底翻页在飞：丢掉这次触底就行，不用排重拉
+                refreshes[TAB_INDEX].isRefreshing = false
+            }
             return
         }
         if (reset) {
             indexPage = 1
             indexEnd = false
         } else if (indexEnd) {
+            indexGate.finish()
             return
         }
-        indexLoading = true
         // 代际：连点筛选项时只认最后一轮的结果
         val generation = ++indexGeneration
         val page = indexPage
@@ -454,9 +468,15 @@ class BangumiActivity : InstanceActivity() {
                 error = e
             }
             runOnUiThread {
-                if (isFinishing || generation != indexGeneration) return@runOnUiThread
-                indexLoading = false
+                if (isFinishing) return@runOnUiThread
+                // 先收闸门：无论这批结果是要丢弃还是上屏，请求都已结束
+                val reloadAgain = indexGate.finish()
                 refreshes[TAB_INDEX].isRefreshing = false
+                if (generation != indexGeneration) {
+                    // 这轮是过期条件的结果：不上屏，但把在飞期间记下的「条件变了」补上
+                    if (reloadAgain) loadIndex(true)
+                    return@runOnUiThread
+                }
                 val err = error
                 if (err != null) {
                     // 失败与「没有下一页」严格区分：不能把错误当成到底，否则翻页永久停在这一页
