@@ -22,6 +22,7 @@ import com.RobinNotBad.BiliClient.api.UserInfoApi
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.google.android.material.appbar.AppBarLayout
 
@@ -70,6 +71,14 @@ class UserVideoFragment : RefreshListFragment() {
             SpaceVideoSortOption(R.string.text_space_video_sort_stow, UserInfoApi.ORDER_STOW)
         )
 
+        /**
+         * 排序档位的视图状态键。
+         *
+         * 主题 / 密度变化会重建页面，`EditText` 的文字由视图状态自动恢复，字段不会；排序档位
+         * 不一起恢复的话，重建后会出现「排序按钮显示最新发布、列表还是按播放排序」。
+         */
+        private const val STATE_SORT_ORDER = "space_video_sort_order"
+
         fun newInstance(mid: Long): UserVideoFragment {
             val fragment = UserVideoFragment()
             val args = Bundle()
@@ -108,17 +117,28 @@ class UserVideoFragment : RefreshListFragment() {
         loadFirstPage()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(STATE_SORT_ORDER, sortOrder)
+    }
+
     override fun onViewStateRestored(savedInstanceState: Bundle?) {
         super.onViewStateRestored(savedInstanceState)
-        // 主题 / 密度变化会重建页面：EditText 的文字由视图状态自动恢复，keyword 字段不会。
-        // 不同步的话会出现「输入框里是关键词、列表却是全部投稿」。onViewCreated 那次首屏请求
-        // 已经发出，这里发现关键词不一致就按恢复后的关键词重拉一次——loadFirstPage 会自增代次，
-        // 旧请求的结果会被丢掉，不会覆盖新结果。
-        val restored = keywordInput?.text?.toString()?.trim().orEmpty()
-        if (restored != keyword) {
-            keyword = restored
-            loadFirstPage()
+        // 主题 / 密度变化会重建页面：EditText 的文字由视图状态自动恢复，`keyword` / `sortOrder`
+        // 这两个字段不会。不同步的话会出现「输入框里是关键词、列表却是全部投稿」，
+        // 或者「排序按钮回到最新发布、列表还是按播放排序」。
+        // onViewCreated 那次首屏请求已经发出，这里发现条件不一致就按恢复后的条件重拉一次——
+        // loadFirstPage 会自增代次，旧请求的结果会被丢掉，不会覆盖新结果。
+        val restoredKeyword = keywordInput?.text?.toString()?.trim().orEmpty()
+        val restoredOrder = UserInfoApi.normalizeOrder(savedInstanceState?.getString(STATE_SORT_ORDER))
+        val keywordChanged = restoredKeyword != keyword
+        val orderChanged = restoredOrder != sortOrder
+        keyword = restoredKeyword
+        if (orderChanged) {
+            sortOrder = restoredOrder
+            updateSortButton()
         }
+        if (keywordChanged || orderChanged) loadFirstPage()
     }
 
     // ==================== 搜索栏与排序入口 ====================
@@ -213,6 +233,19 @@ class UserVideoFragment : RefreshListFragment() {
                 runOnUiThread {
                     // 期间又换了关键词/排序：这批是过期数据，丢掉（新请求会自己收尾）
                     if (generation != loadGeneration) return@runOnUiThread
+                    if (result == -1) {
+                        // 业务失败（接口没给 data / 没有 vlist）：与网络异常同口径，**不能**像成功
+                        // 那样清空并重设列表——下拉刷新或换排序失败时上一批数据还在屏幕上，
+                        // 清掉等于「一次抖动整页消失」。页码也留在第 1 页（见下面异常分支的说明）。
+                        setRefreshing(false)
+                        page = 1
+                        if (videoList.isEmpty()) {
+                            showEmptyView(getString(R.string.text_space_video_empty_failed))
+                        } else {
+                            MsgUtil.showMsgLong(getString(R.string.text_load_failed))
+                        }
+                        return@runOnUiThread
+                    }
                     setRefreshing(false)
                     page = 1
                     videoList.clear()
@@ -233,6 +266,10 @@ class UserVideoFragment : RefreshListFragment() {
                     // 旧请求的异常不要弹给用户
                     if (generation != loadGeneration) return@runOnUiThread
                     loadFail(e)
+                    // 基类 loadFail 会 page--（它假设失败的是 goOnLoad 刚自增过的翻页请求）。
+                    // 这里是「重拉第一页」，列表里留着的仍是第 1 页的内容，所以页码必须回到 1：
+                    // 不然 page 变 0，之后触底时 goOnLoad 自增到 1，会把第 1 页整页**再追加一遍**。
+                    page = 1
                     // 只有「数据没上屏」时才能换成失败空态：下拉刷新 / 换排序失败时 videoList 里还留着
                     // 上一批数据，无条件 showEmptyView 会把 recyclerView 设成 GONE，一次网络抖动
                     // 就让整页投稿消失（参考实现同一位置同样以 videoList.isEmpty() 为守卫）。
