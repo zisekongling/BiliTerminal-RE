@@ -199,8 +199,23 @@ public class DrawTask implements IDrawTask {
         }
     }
 
+    /**
+     * 取某一时刻的可见弹幕。
+     *
+     * **必须 synchronized**：本方法会经 {@code danmakuList.subnew()} 遍历弹幕列表的
+     * {@code TreeSet} 子集视图（`Danmakus.subset()` 返回 `subSet` 视图，`new ArrayList<>()` 要遍历
+     * 它的 size/iterator）。而列表的结构性修改全在持本对象锁的方法里发生
+     * （{@link #addDanmaku}、{@link #removeAllDanmakus}、{@link #removeUnusedLiveDanmakusIn}、
+     * {@link #draw}）。它却是唯一从 UI 线程被直接调用的读取入口
+     * （`DanmakuView.getCurrentVisibleDanmakus()` → `DrawHandler` → 本方法），
+     * 不持锁就会与绘制/解析线程撞成 ConcurrentModificationException。
+     * 26.11.07 线上 3 例崩溃即此路径（弹幕量 > 5000 时点击「弹幕时间戳空降」必现概率显著升高）。
+     *
+     * 同文件 {@code CacheManagingDrawTask.prepareCaches()} 对同一调用的 try/catch 重试是缓存线程侧的
+     * 兜底，不能替代这里的互斥——那边读读竞争不致命，这边读写在同一个 TreeSet 上。
+     */
     @Override
-    public IDanmakus getVisibleDanmakusOnTime(long time) {
+    public synchronized IDanmakus getVisibleDanmakusOnTime(long time) {
         long beginMills = time - mContext.mDanmakuFactory.MAX_DANMAKU_DURATION - 100;
         long endMills = time + mContext.mDanmakuFactory.MAX_DANMAKU_DURATION;
         IDanmakus subDanmakus = danmakuList.subnew(beginMills, endMills);
