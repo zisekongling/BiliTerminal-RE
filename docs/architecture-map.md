@@ -247,6 +247,8 @@ SplashActivity（LAUNCHER，typewriter 动画）
 
 > **新增项对老用户默认不出现**——`MenuConfig.loadEnabled` 对已存的 `menu_enabled` 直接返回。若这个新入口是「内容区块」而不是工具页（典型：`bangumi` 番剧分区），希望老用户也能立刻用到，就在 `MenuConfig` 里照 `ensureExit` 的写法加一次回填（`ensureBangumi`）：缺项 + 对应的 `menu_*_state` 标记没写过 = 老数据 → 按规范顺序插进去并写回；标记写过 = 用户自己关的 → 保持隐藏。回填位置用 `insertAtCanonicalPosition` 算，别直接追加到末尾（末尾是「退出」这类动作项的位置）。
 
+> **可选私有菜单项**（`OPTIONAL_ITEMS`，当前只有扫一扫 `scan_qr`）走同一套规矩，实现是 `ensureOptionalItems`：每个可选 key 的标记键是 `menu_optional_state_<key>`（`saveEnabled` 写 `"1"`/`"0"`），标记为空才回填、回填同样按规范顺序插。**不要**在 `loadStoredEnabled` 的容错分支里无脑 `+ OPTIONAL_ITEMS`——那会让用户关掉的项每次读都被追回来（反馈 118）。`loadEnabled` / `saveEnabled` 都带 `optionalItems` 参数（默认 `OPTIONAL_ITEMS`，`@JvmOverloads` 保住 Java 侧旧调用），单测就是在 JVM 里注入「真实项 + 假 key」来测这条路。
+
 > 菜单 key 不一定是页面：动作项 `MenuConfig.EXIT = "exit"`（26.11.02，可排序可关闭的退出按钮）就没有对应的 Activity Class，它在 `MenuActivity` 的渲染循环里特判（`getString(R.string.btn_exit)` + `exitAppCompletely()`）、名字由 `SettingMenuActivity` 的 `titleOf` 特判，并且**不能当启动页**（`resolveStart` / `loadStart` / `MenuSettingAdapter` 三处都要挡住）。加这类 key 时 `ALL_ITEMS` 是唯一必改项，`btnNames` 反而不能加（加了会被当成要跳转的页面）。
 
 > `MenuConfig` 是纯 Kotlin 对象、无 Android 依赖，已有 `app/src/test/.../MenuConfigTest.kt`——改菜单逻辑时**优先在这里加测试**。

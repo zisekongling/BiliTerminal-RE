@@ -240,14 +240,14 @@ class MenuConfigTest {
     @Test
     fun saveEnabled_recordsExitStateMarker() {
         val written = HashMap<String, String>()
-        MenuConfig.saveEnabled(listOf("recommend", MenuConfig.EXIT)) { key, value ->
+        MenuConfig.saveEnabled(listOf("recommend", MenuConfig.EXIT), { key, value ->
             written[key] = value
-        }
+        })
         assertEquals("1", written[SharedPreferencesUtil.MENU_EXIT_STATE])
         written.clear()
-        MenuConfig.saveEnabled(listOf("recommend")) { key, value ->
+        MenuConfig.saveEnabled(listOf("recommend"), { key, value ->
             written[key] = value
-        }
+        })
         assertEquals("0", written[SharedPreferencesUtil.MENU_EXIT_STATE])
     }
 
@@ -302,14 +302,14 @@ class MenuConfigTest {
     @Test
     fun saveEnabled_recordsBangumiStateMarker() {
         val written = HashMap<String, String>()
-        MenuConfig.saveEnabled(listOf("recommend", MenuConfig.BANGUMI, MenuConfig.EXIT)) { key, value ->
+        MenuConfig.saveEnabled(listOf("recommend", MenuConfig.BANGUMI, MenuConfig.EXIT), { key, value ->
             written[key] = value
-        }
+        })
         assertEquals("1", written[SharedPreferencesUtil.MENU_BANGUMI_STATE])
         written.clear()
-        MenuConfig.saveEnabled(listOf("recommend", MenuConfig.EXIT)) { key, value ->
+        MenuConfig.saveEnabled(listOf("recommend", MenuConfig.EXIT), { key, value ->
             written[key] = value
-        }
+        })
         assertEquals("0", written[SharedPreferencesUtil.MENU_BANGUMI_STATE])
     }
 
@@ -523,6 +523,166 @@ class MenuConfigTest {
         )
         // 只剩动作项时退回默认启动页，不能返回 resume
         assertEquals("recommend", MenuConfig.resolveStart(listOf(MenuConfig.RESUME), null))
+    }
+
+    // ---- 可选私有项（如「扫一扫」）：用户关掉后不许再被加回来（反馈 118）----
+
+    /**
+     * 假的可选私有项 key。
+     *
+     * 本机同步了 `private/` 时 [MenuConfig.OPTIONAL_ITEMS] 就是真的 `scan_qr`，公共构建里它是空列表；
+     * 两种情况都要能测，所以假 key 与真实私有项并存、互不干扰。
+     */
+    private val fakeOptional = "mock_optional"
+
+    /** 假的「第二个可选私有项」，用来模拟私有构建以后再加新菜单项。 */
+    private val fakeOptionalNew = "mock_optional_new"
+
+    /** 传给 loadEnabled / saveEnabled 的可选项列表：真实私有项 + 假 key（与真实构建保持一致）。 */
+    private val optionalWithFake = MenuConfig.OPTIONAL_ITEMS + fakeOptional
+
+    /** 内存版 SharedPreferences：预置若干键，并收集写回。 */
+    private class FakeStore(base: List<String>? = null, markers: Map<String, String> = emptyMap()) {
+        val prefs = HashMap<String, String>()
+        val writes = mutableListOf<Pair<String, String>>()
+
+        init {
+            if (base != null) prefs[SharedPreferencesUtil.MENU_ENABLED] = MenuConfig.serialize(base)
+            prefs.putAll(markers)
+        }
+
+        val readString: (String) -> String? = { prefs[it] }
+        val writeString: (String, String) -> Unit = { key, value ->
+            prefs[key] = value
+            writes.add(key to value)
+        }
+    }
+
+    @Test
+    fun loadEnabled_userDisabledOptionalItem_doesNotAddItBack() {
+        // 用户在菜单设置里把可选项拖进未启用区：saveEnabled 写过 menu_optional_state_<key>，
+        // 于是"缺项"不再被当成老数据补回来
+        val store = FakeStore(
+            MenuConfig.DEFAULT_ENABLED,
+            mapOf(MenuConfig.optionalStateKey(fakeOptional) to "0")
+        )
+        val result = MenuConfig.loadEnabled(
+            store.readString,
+            { null },
+            store.writeString,
+            optionalWithFake
+        )
+        assertEquals(MenuConfig.DEFAULT_ENABLED, result)
+        assertEquals(false, fakeOptional in result)
+        assertEquals("缺项是用户自己关的，不该写回", emptyList<Pair<String, String>>(), store.writes)
+    }
+
+    @Test
+    fun loadEnabled_userDisabledRealOptionalItem_doesNotAddItBack() {
+        if (MenuConfig.OPTIONAL_ITEMS.isEmpty()) return // 公共构建没有可选私有项，跳过
+        // 私有项（如「扫一扫」）：这就是反馈 118 的场景本身
+        for (key in MenuConfig.OPTIONAL_ITEMS) {
+            val withoutKey = MenuConfig.DEFAULT_ENABLED - key
+            val store = FakeStore(withoutKey, mapOf(MenuConfig.optionalStateKey(key) to "0"))
+            val result = MenuConfig.loadEnabled(store.readString, { null }, store.writeString)
+            assertEquals(withoutKey, result)
+            assertEquals(false, key in result)
+            assertEquals(emptyList<Pair<String, String>>(), store.writes)
+        }
+    }
+
+    @Test
+    fun loadEnabled_oldDataWithoutOptionalItem_backfillsAtCanonicalPosition() {
+        // 装私有功能之前存下的 menu_enabled 里没有这个 key、也没有标记：补一次，
+        // 但要按规范位置插（「设置」之后），不是甩到菜单最底下
+        val store = FakeStore(MenuConfig.DEFAULT_ENABLED)
+        val result = MenuConfig.loadEnabled(
+            store.readString,
+            { null },
+            store.writeString,
+            optionalWithFake
+        )
+        // 除了新补进来的这一项，其余启用项与顺序都不该动
+        assertEquals(MenuConfig.DEFAULT_ENABLED, result - fakeOptional)
+        // 插在「设置」之后（规范位置），而不是被追到「退出」后面 —— 反馈 118 的症状
+        assertTrue(result.indexOf(fakeOptional) > result.indexOf("settings"))
+        assertEquals(MenuConfig.EXIT, result.last())
+        assertEquals(MenuConfig.serialize(result), store.prefs[SharedPreferencesUtil.MENU_ENABLED])
+    }
+
+    @Test
+    fun loadEnabled_userEnabledOptionalItem_isPreservedInPlace() {
+        // 用户在菜单设置里显式启用了它并挪到「搜索」之后：读回来的顺序不能动
+        val withOptional = MenuConfig.DEFAULT_ENABLED.toMutableList().also {
+            it.add(it.indexOf("search") + 1, fakeOptional)
+        }
+        val store = FakeStore(
+            withOptional,
+            mapOf(MenuConfig.optionalStateKey(fakeOptional) to "1")
+        )
+        val result = MenuConfig.loadEnabled(
+            store.readString,
+            { null },
+            store.writeString,
+            optionalWithFake
+        )
+        assertEquals(withOptional, result)
+        assertEquals(emptyList<Pair<String, String>>(), store.writes)
+    }
+
+    @Test
+    fun saveEnabled_thenLoad_disabledOptionalItemStaysHidden() {
+        // 端到端复现反馈 118：菜单设置里关掉它并保存，重进菜单不能又出现在最底下
+        val store = FakeStore()
+        val optional = optionalWithFake
+
+        // 1) 首次读取：没有任何旧数据 → 可选项被补进来一次
+        val first = MenuConfig.loadEnabled(store.readString, { null }, store.writeString, optional)
+        assertTrue("首次读取应补入可选私有项", fakeOptional in first)
+
+        // 2) 用户在菜单设置里把它拖进未启用区并保存
+        MenuConfig.saveEnabled(first - fakeOptional, store.writeString, optional)
+
+        // 3) 再读一次：必须保持隐藏（修复前这里会把它追加回末尾）
+        val second = MenuConfig.loadEnabled(store.readString, { null }, store.writeString, optional)
+        assertEquals(first - fakeOptional, second)
+        assertEquals(false, fakeOptional in second)
+    }
+
+    @Test
+    fun loadEnabled_newOptionalItemStillBackfilledAfterAnotherWasDisabled() {
+        // 私有构建以后再加可选菜单项时，新 key 没有标记、仍然要补一次；
+        // 已被用户关掉的老 key 不能因为「同批都有标记」被一起带进来
+        val store = FakeStore(
+            MenuConfig.DEFAULT_ENABLED,
+            mapOf(MenuConfig.optionalStateKey(fakeOptional) to "0")
+        )
+        val result = MenuConfig.loadEnabled(
+            store.readString,
+            { null },
+            store.writeString,
+            optionalWithFake + fakeOptionalNew
+        )
+        assertEquals(false, fakeOptional in result)
+        assertTrue("新可选项没有标记，应补入", fakeOptionalNew in result)
+        assertEquals(MenuConfig.EXIT, result.last())
+        assertEquals(MenuConfig.serialize(result), store.prefs[SharedPreferencesUtil.MENU_ENABLED])
+    }
+
+    @Test
+    fun saveEnabled_recordsOptionalItemStateMarkers() {
+        val written = HashMap<String, String>()
+        val optional = optionalWithFake
+        MenuConfig.saveEnabled(listOf("recommend", fakeOptional, MenuConfig.EXIT), { key, value ->
+            written[key] = value
+        }, optionalItems = optional)
+        assertEquals("1", written[MenuConfig.optionalStateKey(fakeOptional)])
+
+        written.clear()
+        MenuConfig.saveEnabled(listOf("recommend", MenuConfig.EXIT), { key, value ->
+            written[key] = value
+        }, optionalItems = optional)
+        assertEquals("0", written[MenuConfig.optionalStateKey(fakeOptional)])
     }
 
     @Test

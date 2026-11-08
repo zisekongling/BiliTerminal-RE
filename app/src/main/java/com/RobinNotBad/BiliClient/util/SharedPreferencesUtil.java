@@ -27,6 +27,14 @@ public class SharedPreferencesUtil {
      * @see com.RobinNotBad.BiliClient.util.MenuConfig
      */
     public static final String MENU_BANGUMI_STATE = "menu_bangumi_state";
+    /**
+     * 可选私有菜单项（如私有功能「扫一扫」）的显隐保存标记键**前缀**，完整键 = 前缀 + 菜单 key。
+     * 用户在「菜单设置」里保存过配置时逐项写入 "1"/"0"（缺省 = 没保存过）。
+     * 用来区分「menu_enabled 里没有这个可选 key」是新装了私有功能（要回填）还是用户自己关掉的（不要回填）。
+     *
+     * @see com.RobinNotBad.BiliClient.util.MenuConfig
+     */
+    public static final String MENU_OPTIONAL_STATE_PREFIX = "menu_optional_state_";
     public static final String SEARCH_CATEGORY_SORT = "search_category_sort";
     public static final String SEARCH_CATEGORY_ARTICLE_SHOW = "search_category_article_show";
     public static final String SEARCH_CATEGORY_USER_SHOW = "search_category_user_show";
@@ -58,6 +66,12 @@ public class SharedPreferencesUtil {
     public static final String PLAYER_MEDIA_SESSION_ENABLE = "player_media_session_enable";
     public static final String RECENT_UP_DISPLAY_ENABLE = "recent_up_display_enable";
     public static final String AUTO_UPDATE_CHECK_ENABLE = "auto_update_check_enable";
+    /**
+     * 更新检查的通道：`stable` / `beta` / `exp`（三通道方案，见 `docs/version-channels.md`）。
+     * 读写**统一走** `util/UpdateChannel.kt`（`current()` / `save()`），别在调用点手写默认值——
+     * 默认值是「没选过就跟着当前这个包的通道走」，写死成 `stable` 会让 beta 包收不到 beta。
+     */
+    public static final String UPDATE_CHANNEL = "update_channel";
     public static final String RECOMMEND_DEDUP_ENABLE = "recommend_dedup_enable";
     public static final String RECOMMEND_SOURCE = "recommend_source";
     public static final String RECOMMEND_SOURCE_WEB = "recommend_source_web";

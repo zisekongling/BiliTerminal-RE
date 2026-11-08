@@ -67,8 +67,15 @@ private/
 | 启动期静默预热 | `BiliTerminal.onCreate` 的 `if (context == null)` 块内（`CookieRefreshScheduler.start()` 之后）调一次 `OptionalFeatures.warmUpOptionalData()` | 空操作；有私有功能时只是「叫一声」就返回，预热什么、是否节流全由私有侧决定 |
 | 设置页「番剧设置」分组 | `activity/settings/SettingGroupActivity.kt` 的 `GROUP_BANGUMI` + `buildBangumiGroup()`、`SettingMainActivity.buildBangumiGroup()`、`SettingsIndex.build()` 里三条 `if (OptionalFeatures.thirdPartySettingsAvailable)` 条目 | 门面为 `false` → 主设置页不出这张卡片、分组页这一组没有行、全局搜索也搜不到这三条；`openThirdPartySourceSettings(...)` / `openThirdPartyDanmakuSettings(...)` 空操作 |
 
-老用户的 `menu_enabled` 里没有可选 key 时，`MenuConfig.loadEnabled` 会走一次迁移把它补进来
-（`resolveEnabledList` 对可选项的处理与固定项一致：缺失即补到末尾）。
+老用户的 `menu_enabled` 里没有可选 key 时，`MenuConfig.loadEnabled` 会走一次迁移把它补进来，
+但**只补「从没被保存过状态」的项**：`MenuConfig.saveEnabled` 会给每个可选 key 写一条
+`menu_optional_state_<key>`（`"1"` = 用户启用、`"0"` = 用户自己关掉了），`loadEnabled` 见到非空标记就不再回填。
+回填位置按 `DEFAULT_ENABLED` 的规范顺序插（`insertAtCanonicalPosition`），**不再追加到末尾**。
+
+> 反馈 118「扫一扫关不掉、永远在菜单最底下」就是旧实现导致的：`loadStoredEnabled` 的严格判据要求
+> `OPTIONAL_ITEMS.all { it in parsed }`，用户关掉私有项后存的串必然缺这一项 → 判非法 → 容错分支又把它
+> `+ OPTIONAL_ITEMS` 无条件追回末尾，于是每次读都被强制启用。现在容错分支只做「丢未知 key / 去重」，
+> 补项统一由 `ensureOptionalItems` 按标记决定，写法与 `ensureExit` / `ensureBangumi` 一致。
 
 ## 本地开发
 

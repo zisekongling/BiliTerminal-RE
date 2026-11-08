@@ -59,7 +59,11 @@ object MenuConfig {
 
     /** 全量菜单 key = 公共项 + 可选私有项 + 动作项（顺序即默认展示顺序）。 */
     val ALL_ITEMS: List<String>
-        get() = BASE_ITEMS + OPTIONAL_ITEMS + ACTION_ITEMS
+        get() = allItemsOf(OPTIONAL_ITEMS)
+
+    /** [optionalItems] 版本的全量菜单 key（参数可注入，单测里替换成假的私有项）。 */
+    private fun allItemsOf(optionalItems: List<String>): List<String> =
+        BASE_ITEMS + optionalItems + ACTION_ITEMS
 
     /** 固定不可隐藏的菜单项。 */
     val FIXED_ITEMS = setOf("recommend", "search", "local", "settings")
@@ -85,9 +89,13 @@ object MenuConfig {
      * [RESUME] 是**默认关闭**的动作项：它只在有未看完会话时才有意义，不该默认占着菜单
      * 第一项（26.11.07 用户要求默认隐藏，想要的话自己去菜单设置里打开）。
      */
-    val DEFAULT_ENABLED: List<String> = ALL_ITEMS.filter { key ->
-        key != RESUME && (key in FIXED_ITEMS || key !in SWITCHABLE_KEYS || SWITCH_DEFAULTS.getValue(key))
-    }
+    val DEFAULT_ENABLED: List<String> = defaultEnabledOf(OPTIONAL_ITEMS)
+
+    /** [optionalItems] 版本的 [DEFAULT_ENABLED]（参数可注入，单测用）。 */
+    private fun defaultEnabledOf(optionalItems: List<String>): List<String> =
+        allItemsOf(optionalItems).filter { key ->
+            key != RESUME && (key in FIXED_ITEMS || key !in SWITCHABLE_KEYS || SWITCH_DEFAULTS.getValue(key))
+        }
 
     fun serialize(enabled: List<String>): String = enabled.joinToString(";")
 
@@ -95,13 +103,16 @@ object MenuConfig {
      * 解析配置串。非法（空、含未知 key、重复）返回 null。
      * 注意：只做语法校验，不保证固定项齐全（是否齐全由调用方决定是否接受）。
      */
-    fun parse(raw: String?): List<String>? {
+    fun parse(raw: String?): List<String>? = parse(raw, ALL_ITEMS)
+
+    /** [items] 版本的 [parse]（参数可注入，单测用）。 */
+    private fun parse(raw: String?, items: Collection<String>): List<String>? {
         if (raw.isNullOrBlank()) return null
         val keys = raw.split(";").filter { it.isNotBlank() }
         if (keys.isEmpty()) return null
         val seen = HashSet<String>()
         for (key in keys) {
-            if (key !in ALL_ITEMS || !seen.add(key)) return null
+            if (key !in items || !seen.add(key)) return null
         }
         return keys
     }
@@ -117,12 +128,15 @@ object MenuConfig {
      *
      * @return 一个非空列表；若清理后什么都不剩（或输入为空）返回 null。
      */
-    fun parseLenient(raw: String?): List<String>? {
+    fun parseLenient(raw: String?): List<String>? = parseLenient(raw, ALL_ITEMS)
+
+    /** [items] 版本的 [parseLenient]（参数可注入，单测用）。 */
+    private fun parseLenient(raw: String?, items: Collection<String>): List<String>? {
         if (raw.isNullOrBlank()) return null
         val seen = HashSet<String>()
         val result = ArrayList<String>()
         for (key in raw.split(";")) {
-            if (key.isBlank() || key !in ALL_ITEMS) continue
+            if (key.isBlank() || key !in items) continue
             if (seen.add(key)) result.add(key)
         }
         return result.ifEmpty { null }
@@ -132,21 +146,31 @@ object MenuConfig {
      * 从旧数据解析出已启用列表：
      * 以旧排序为基准（非法则用默认顺序），按旧开关过滤，最后补全缺失的固定项。
      */
-    fun resolveEnabledList(oldSort: String?, oldSwitches: Map<String, Boolean>): List<String> {
+    fun resolveEnabledList(oldSort: String?, oldSwitches: Map<String, Boolean>): List<String> =
+        resolveEnabledList(oldSort, oldSwitches, OPTIONAL_ITEMS)
+
+    /** [optionalItems] 版本的 [resolveEnabledList]（参数可注入，单测用）。 */
+    private fun resolveEnabledList(
+        oldSort: String?,
+        oldSwitches: Map<String, Boolean>,
+        optionalItems: List<String>
+    ): List<String> {
         // 旧排序非法时退回「默认已启用列表」，而不是 [ALL_ITEMS]：后者含 [RESUME]，
         // 会顺着下面的 else 分支被当成「不在开关表里 → 默认启用」，让老用户菜单里
         // 莫名多出「继续播放」。
-        val base = parse(oldSort) ?: DEFAULT_ENABLED
+        val base = parse(oldSort, allItemsOf(optionalItems)) ?: defaultEnabledOf(optionalItems)
         val enabled = base.filter { key ->
             if (key in FIXED_ITEMS) true
             else if (key in SWITCHABLE_KEYS) oldSwitches[key] ?: SWITCH_DEFAULTS.getValue(key)
             else true
         }.toMutableList()
-        for (key in ALL_ITEMS) {
+        for (key in allItemsOf(optionalItems)) {
             // 固定项 / 可选私有项必须齐全；[EXIT] 是默认启用的动作项，旧排序里同样没有它，
             // 一并补在末尾（用户自己关掉它是另一回事：那时走的是 menu_enabled 直读路径）。
             // [RESUME] 故意**不补**：它默认就该是关的，老用户升级后菜单里不该突然多一项。
-            if ((key in FIXED_ITEMS || key in OPTIONAL_ITEMS || key == EXIT) && key !in enabled) {
+            // 这条路径只在「连 menu_enabled 都没有」时走，用户从没保存过配置，
+            // 所以补可选私有项是安全的（保存过一次以后由 ensureOptionalItems 按标记判）。
+            if ((key in FIXED_ITEMS || key in optionalItems || key == EXIT) && key !in enabled) {
                 enabled.add(key)
             }
         }
@@ -159,19 +183,66 @@ object MenuConfig {
 
     /**
      * 读取启用列表：合法且固定项齐全则直接用；否则从旧数据迁移并写回。
-     * 可选私有项（[OPTIONAL_ITEMS]）也要求齐全：老用户在带私有功能的版本之前存下的
-     * menu_enabled 里没有那些 key，必须走一次迁移把它们补进来，而不是当作配置合法直接返回。
+     *
+     * 可选私有项（[OPTIONAL_ITEMS]）的缺项不能一律当「老数据」处理 —— 用户可能在菜单设置里
+     * 主动关掉了它。判据是 [optionalStateKey] 标记（详见 [ensureOptionalItems]）。
+     *
+     * @param optionalItems 可选私有菜单项，正常调用取默认值 [OPTIONAL_ITEMS]；
+     *   单测里 JVM 环境反射拿不到私有功能，需要显式注入假的可选项。
      */
+    @JvmOverloads
     fun loadEnabled(
         readString: (String) -> String?,
         readBoolean: (String) -> Boolean?,
-        writeString: (String, String) -> Unit
-    ): List<String> =
-        ensureBangumi(
-            ensureExit(loadStoredEnabled(readString, readBoolean, writeString), readString, writeString),
+        writeString: (String, String) -> Unit,
+        optionalItems: List<String> = OPTIONAL_ITEMS
+    ): List<String> {
+        val stored = loadStoredEnabled(readString, readBoolean, writeString, optionalItems)
+        val withOptional = ensureOptionalItems(stored, optionalItems, readString, writeString)
+        return ensureBangumi(
+            ensureExit(withOptional, readString, writeString),
             readString,
             writeString
         )
+    }
+
+    /** 可选私有菜单项 [key] 的显隐保存标记键（"1"/"0"，缺省 = 没保存过）。 */
+    fun optionalStateKey(key: String): String =
+        SharedPreferencesUtil.MENU_OPTIONAL_STATE_PREFIX + key
+
+    /** 用户是否在菜单设置里保存过 [key] 的显隐（与 [ensureExit] / [ensureBangumi] 同一套判据）。 */
+    private fun savedOptionalState(key: String, readString: (String) -> String?): Boolean =
+        !readString(optionalStateKey(key)).isNullOrBlank()
+
+    /**
+     * 把缺失的可选私有项（[optionalItems]，如私有功能「扫一扫」）补进启用列表。
+     *
+     * 背景（反馈 #118）：带私有功能的构建第一次读到老用户的 `menu_enabled`（里面没有这些 key）
+     * 时要补一次，否则新装的私有功能在菜单里根本找不到。但「缺项」也可能意味着**用户自己把它关掉了**：
+     * 以前这里不分情况、每次读取都无条件追加到末尾并写回，于是「扫一扫」在菜单设置里怎么关都关不掉，
+     * 而且永远掉到菜单最底下（被追加在 [EXIT] 之后）。
+     *
+     * 现在与 [ensureExit] / [ensureBangumi] 同一套判据：[optionalStateKey] 被 [saveEnabled] 写过
+     * 就说明用户动过菜单配置，缺项即「他自己关的」，不再加回来；只有从没保存过才补，
+     * 且按规范顺序插位（见 [insertAtCanonicalPosition]）而不是追加到末尾。
+     */
+    private fun ensureOptionalItems(
+        enabled: List<String>,
+        optionalItems: List<String>,
+        readString: (String) -> String?,
+        writeString: (String, String) -> Unit
+    ): List<String> {
+        if (optionalItems.isEmpty()) return enabled
+        val missing = optionalItems.filter { item ->
+            item !in enabled && !savedOptionalState(item, readString)
+        }
+        if (missing.isEmpty()) return enabled
+        val canonical = defaultEnabledOf(optionalItems)
+        var result = enabled
+        for (item in missing) result = insertAtCanonicalPosition(result, item, canonical)
+        writeString(SharedPreferencesUtil.MENU_ENABLED, serialize(result))
+        return result
+    }
 
     /**
      * 把 [BANGUMI]（番剧分区）补进启用列表：它是 26.11.07 才出现的菜单项，
@@ -196,17 +267,22 @@ object MenuConfig {
     }
 
     /**
-     * 把 [key] 按 [DEFAULT_ENABLED] 的相对顺序插进 [enabled]：紧跟最后一个「规范顺序里排在它前面」的项。
+     * 把 [key] 按 [canonical]（缺省 [DEFAULT_ENABLED]）的相对顺序插进 [enabled]：
+     * 紧跟最后一个「规范顺序里排在它前面」的项。
      *
      * 例：用户顺序是 `settings;recommend;local;search` 时插入番剧 → 落在 `recommend` 之后，
      * 而不是被自己的顺序硬拖到 `settings` 前面。找不到可比较的邻居（列表里全是动作项 / 未知 key）
      * 就插在最前面——这只影响观感，不影响功能。
      */
-    private fun insertAtCanonicalPosition(enabled: List<String>, key: String): List<String> {
-        val canonicalIndex = DEFAULT_ENABLED.indexOf(key)
+    private fun insertAtCanonicalPosition(
+        enabled: List<String>,
+        key: String,
+        canonical: List<String> = DEFAULT_ENABLED
+    ): List<String> {
+        val canonicalIndex = canonical.indexOf(key)
         if (canonicalIndex < 0) return enabled + key
         val insertAfter = enabled.indexOfLast { existing ->
-            val index = DEFAULT_ENABLED.indexOf(existing)
+            val index = canonical.indexOf(existing)
             index in 0 until canonicalIndex
         }
         val result = enabled.toMutableList()
@@ -238,39 +314,63 @@ object MenuConfig {
     private fun loadStoredEnabled(
         readString: (String) -> String?,
         readBoolean: (String) -> Boolean?,
-        writeString: (String, String) -> Unit
+        writeString: (String, String) -> Unit,
+        optionalItems: List<String>
     ): List<String> {
+        val allItems = allItemsOf(optionalItems)
         val raw = readString(SharedPreferencesUtil.MENU_ENABLED)
-        val parsed = parse(raw)
-        if (parsed != null && FIXED_ITEMS.all { it in parsed } && OPTIONAL_ITEMS.all { it in parsed }) {
+        val parsed = parse(raw, allItems)
+        // 可选私有项缺项有两种含义，必须分开：老数据里本来就没有（要补一次）vs 用户自己在
+        // 菜单设置里关掉了（绝对不能补）。后者靠 saveEnabled 写的 menu_optional_state_<key>
+        // 判据 —— 以前这里不区分、一律走下面的容错分支，而容错分支又把缺项追加回末尾，
+        // 于是「扫一扫」关不掉且永远在最底下（反馈 #118）。
+        if (parsed != null && FIXED_ITEMS.all { it in parsed } &&
+            optionalItems.all { it in parsed || savedOptionalState(it, readString) }
+        ) {
             return parsed
         }
         // 配置里混进了本版本不认识的 key（更早/更晚的构建、或私有构建特有的菜单项）：
         // 严格 parse 会整份判死，以前这里就静默回退成默认值并写回，用户的排序与显隐被清空
         // （反馈 #81「菜单设置改了保存不住、会恢复默认」）。先容错清掉不认识的 key，
         // 只要固定项还齐全就沿用用户配置，并顺手把清理结果写回。
-        val lenient = parseLenient(raw)
+        // 注意：这里**不再**顺手补可选私有项 —— 补不补由 ensureOptionalItems 按标记决定。
+        val lenient = parseLenient(raw, allItems)
         if (lenient != null && FIXED_ITEMS.all { it in lenient }) {
-            val completed = lenient + OPTIONAL_ITEMS.filter { it !in lenient }
-            writeString(SharedPreferencesUtil.MENU_ENABLED, serialize(completed))
-            return completed
+            if (serialize(lenient) != raw) {
+                writeString(SharedPreferencesUtil.MENU_ENABLED, serialize(lenient))
+            }
+            return lenient
         }
         val oldSwitches = SWITCHABLE_KEYS.associateWith {
             readBoolean("menu_$it") ?: SWITCH_DEFAULTS.getValue(it)
         }
-        val resolved = resolveEnabledList(readString(SharedPreferencesUtil.MENU_SORT), oldSwitches)
+        val resolved = resolveEnabledList(readString(SharedPreferencesUtil.MENU_SORT), oldSwitches, optionalItems)
         writeString(SharedPreferencesUtil.MENU_ENABLED, serialize(resolved))
         return resolved
     }
 
-    /** 保存启用列表配置。 */
-    fun saveEnabled(enabled: List<String>, writeString: (String, String) -> Unit) {
+    /**
+     * 保存启用列表配置。
+     *
+     * @param optionalItems 可选私有菜单项，正常调用取默认值 [OPTIONAL_ITEMS]（单测用注入）。
+     */
+    @JvmOverloads
+    fun saveEnabled(
+        enabled: List<String>,
+        writeString: (String, String) -> Unit,
+        optionalItems: List<String> = OPTIONAL_ITEMS
+    ) {
         writeString(SharedPreferencesUtil.MENU_ENABLED, serialize(enabled))
         // 记下「用户动过退出项」：之后 menu_enabled 里没有 exit 就表示是他关掉的，
         // 不再当成老数据补回来（见 ensureExit）
         writeString(SharedPreferencesUtil.MENU_EXIT_STATE, if (EXIT in enabled) "1" else "0")
         // 同上，番剧分区的回填判据（见 ensureBangumi）
         writeString(SharedPreferencesUtil.MENU_BANGUMI_STATE, if (BANGUMI in enabled) "1" else "0")
+        // 同上，可选私有项的回填判据（见 ensureOptionalItems）。逐项记：私有构建以后可能
+        // 再加新的可选菜单项，那些 key 没有标记，仍然要补一次。
+        for (key in optionalItems) {
+            writeString(optionalStateKey(key), if (key in enabled) "1" else "0")
+        }
     }
 
     /** 默认启动页：推荐（固定项，正常情况下必然在已启用列表里）。 */
