@@ -42,7 +42,11 @@ class EmoteActivity : BaseActivity() {
         val loading = findViewById<ImageView>(R.id.loading)
         val tabLayout = findViewById<TabLayout>(R.id.tl_tab)
         val viewPager = findViewById<ViewPager>(R.id.viewPager)
-        tabLayout.setBackgroundColor(com.RobinNotBad.BiliClient.ui.appearance.ColorScheme.getPlayerBg(this))
+        // TabLayout 刻意不设背景色，让它继承页面主题底色（正例见 UpdateHistoryActivity 的 TabLayout：
+        // 全工程只有它另一个 TabLayout，也从不设背景，天然跟主题）。
+        // 原先这里用 ColorScheme.getPlayerBg() 刷底色，那是**播放器的纯黑播放区**颜色，
+        // 在全部 7 套主题里恒为 0xFF000000（亮色模式也照抄暗色表），于是知乎蓝这类浅底色主题下
+        // 表情标题栏成了一条突兀的黑带（反馈 #113）。默认主题看不出来，是因为页面底色本身就是黑。
         val onScrollListener = object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 super.onScrolled(recyclerView, dx, dy)
