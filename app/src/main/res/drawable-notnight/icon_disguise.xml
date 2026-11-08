@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 亮色模式版本（tools/appearance/gen_light_mode.py 生成）：浅色填充 → 深色 #3A3438。改图标时 drawable/ 与本目录两份一起改。 -->
+<!-- 「伪装与安全」分组图标（Tabler shadow-off，24 视口描边式）。
+     线与隔壁分组图标同色（#ebe0e2 = 暗色模式下的浅色填充），亮色版由
+     tools/appearance/gen_light_mode.py 生成到 drawable-notnight/ 与 drawable-notnight-v21/，
+     三份一起改。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M5.634 5.638a9 9 0 0 0 12.728 12.727m1.68 -2.32a9 9 0 0 0 -12.086 -12.088"
+        android:strokeColor="#3A3438"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="2" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M16 12h2M13 15h2M13 18h1M13 9h4M13 6h1M3 3l18 18"
+        android:strokeColor="#3A3438"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="2" />
+</vector>

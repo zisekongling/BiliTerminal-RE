@@ -192,7 +192,7 @@ class SettingMainActivity : InstanceActivity() {
      */
     private fun buildDisguiseGroup() {
         addGroup(
-            R.drawable.icon_person,
+            R.drawable.icon_disguise,
             getString(R.string.text_setting_disguise_group),
             getString(R.string.desc_setting_disguise_index),
             GROUP_DISGUISE

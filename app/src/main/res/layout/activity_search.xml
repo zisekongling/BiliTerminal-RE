@@ -84,8 +84,9 @@
              且已经搜过一次时才显示。它是搜索框的一部分（压在输入框左侧），不再单独占一行——
              26.10.24 那一版是搜索框下面一条全宽「排序：综合」按钮，26.10.26 改成本图标。
 
-             图标来自用户给的 .ico，重新着色成暖白 #ebe0e2 后存成 `drawable-nodpi/icon_sort_filter.png`
-             （搜索框底是 #80242424 半透明深色，原图标是纯黑，直接放上去几乎看不见）。
+             图标是 `drawable/icon_sort_filter.xml`（Material Symbols tune，26.11.08 由用户给的 SVG 换掉
+             原来的 `drawable-nodpi/icon_sort_filter.png`）；它靠 tint 取色，暗色 / 亮色共用一份，
+             所以两种模式下都看得见（早先那张 PNG 是写死暖白，亮色下几乎不可见）。
              左边留给它的内边距由 `SearchActivity.applySortIconVisible` 动态改输入框的 paddingStart，
              收起时输入框恢复 XML 里的 8dp。 -->
         <ImageView
