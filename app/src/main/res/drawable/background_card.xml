@@ -1,8 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  播放器 / 设置页里的卡片底：圆角 + 主题主色描边。
+
+  ⚠️ minSdk=19：本文件（drawable/，API<21 也取它）**不能**写 ?attr/ 颜色，
+  KitKat 的 GradientDrawable.inflate 遇到主题属性会抛
+  UnsupportedOperationException("Can't convert to color: type=0x2")，
+  再被包成 Resources$NotFoundException 直接崩（见 drawable/dialog_background.xml 注释）。
+  主题色版本在 drawable-v21/background_card.xml，**两边改动要同步**。
+  这里用默认（B站粉）主题的具体颜色兜底。
+-->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
     <corners android:radius="@dimen/card_round" />
-    <solid android:color="?attr/colorSurface" />
+    <solid android:color="@color/surface_dark" />
     <stroke
-        android:color="?attr/colorPrimary"
+        android:color="@color/pink_brand"
         android:width="1dp" />
 </shape>

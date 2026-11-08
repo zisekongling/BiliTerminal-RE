@@ -13,20 +13,25 @@
   会被框架贴到 window 里每一个内部视图上，ColorOS Watch 上连最顶层的 SwipeGlowOverlay
   也贴，于是整块面板盖住内容，只剩一个空方块。
 
-  颜色一律走 ?attr/（由各主题的 alertDialogTheme overlay 提供），
-  所以 7 套主题各有各的底色/描边，不需要为每套主题抄一个布局。
+  ⚠️ minSdk=19，本文件（drawable/ ，API<21 也取它）里的颜色**必须写具体颜色资源**，
+  不能写 ?attr/：KitKat 的 GradientDrawable.inflate → TypedArray.getColor 遇到
+  TYPE_ATTRIBUTE（type=0x2）直接抛 UnsupportedOperationException("Can't convert to color")，
+  再由 Resources.loadDrawable 包成 Resources$NotFoundException —— 26.11.07 有用户
+  在 Android 4.4 上就是这样一启动就崩（res/uU.xml = 本文件）。
+  主题色版本放在 drawable-v21/dialog_background.xml，7 套主题各有各的底色/描边。
+  下面用的 @color/surface_dark、@color/on_surface_bili 由 values-notnight 覆盖，暗/亮两种模式都对。
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
 
-    <solid android:color="?attr/colorSurface" />
+    <solid android:color="@color/surface_dark" />
 
     <!-- 描边取正文色的低透明度版本，而不是 colorPrimary：
          主色描边在深色底上非常抢眼，一圈荧光粉边正是「很奇怪」的来源。
          比照设计稿方案 B 的 rgba(254,254,254,.32)。 -->
     <stroke
         android:width="1dp"
-        android:color="?attr/colorOnSurface"
+        android:color="@color/on_surface_bili"
         android:alpha="0.32" />
 
     <corners android:radius="@dimen/card_round" />

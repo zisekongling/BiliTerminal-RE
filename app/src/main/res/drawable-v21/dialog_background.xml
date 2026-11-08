@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  dialog_background 的 API21+ 版本：颜色走 ?attr/（由各主题的 alertDialogTheme overlay 提供），
+  所以 7 套主题各有各的底色/描边。
+
+  ⚠️ 为什么必须分两版：minSdk=19，API<21 的 GradientDrawable.inflate 不支持在这里写主题属性，
+  写了会抛 UnsupportedOperationException("Can't convert to color: type=0x2") 并导致
+  Resources$NotFoundException（26.11.07 的 Android 4.4 崩溃就是这么来的）。
+  drawable/dialog_background.xml 是给 API<21 的具体颜色兜底版，**两边改布局要同步改**。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+
+    <solid android:color="?attr/colorSurface" />
+
+    <stroke
+        android:width="1dp"
+        android:color="?attr/colorOnSurface"
+        android:alpha="0.32" />
+
+    <corners android:radius="@dimen/card_round" />
+
+</shape>
