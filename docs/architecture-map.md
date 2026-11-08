@@ -1531,6 +1531,15 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **别把它当成「`CacheManagingDrawTask.prepareCaches()` 已经 try/catch 兜了」**：那边是缓存线程的读读竞争重试，这边是读写竞争，兜不住。
 - 改弹幕库时注意：`app/libs/` 里没有 FLAME 的预编译包，DanmakuFlameMaster 是**源码 module**，改完直接进 APK；`assembleDebug` 会一起编。
 
+### 7.65 版本号与更新检查：三通道（stable / beta / exp，26.11.08 新增）
+
+- **唯一手写项是 `app/build.gradle` 的 `appVersionDate`**：`versionCode` / `versionName` 全部派生——`versionCode = YYMMDD × 100 + 渠道码 × 10 + 当日序号`（stable=0 / beta=1 / exp=2），`versionName` = `26.11.08` / `26.11.08.1` / `26.11.08-beta.1` / `26.11.08-exp.1`。命令行覆盖用 `-Pchannel=` / `-Pseq=`，四项校验都在 build 配置阶段抛（非法值不前进）。口径全文见 `docs/version-channels.md`。
+- **三个 BuildConfig 常量**：`UPDATE_CHANNEL`（这个包的通道，用于上报）、`VERSION_NAME_BASE`（只有日期，用于更新日志锚点匹配与后台版本分布）、`BETA`（= 通道 != stable，`ToolsUtil.isBeta()` 语义未变）。
+- **客户端选版逻辑集中在 `util/UpdateChannel.kt`**（纯函数 + 两个 SP 读写，单测 `UpdateChannelTest`）：`channelOfTag` 只认 `beta.N` / `exp.N` 带点后缀（老 tag `26.09.24-BETA1` 一律不认）、`accepts` 决定某通道收哪些 tag、`bestOf` 按 `versionCode` 自己挑最大。**绝不能依赖接口返回顺序**——Gitee `/releases` 升序、GitHub 降序，两个方向相反。
+- **`util/UpdateManager.kt` 不再读 `/releases/latest`**：改成拉 `/releases?per_page=30` 列表筛本通道（stable 先试 `/latest`、发现不是稳定版再回落列表）。`/latest` 排除 prerelease 只是 GitHub 的行为，Gitee 没实测过，所以这条路只当快路径。
+- **「同一个 versionCode」不会自己变**：切通道不降级已装版本（严格 `>` 比较），切到更保守的通道时 `UpdateManager.onChannelChanged()` 会清 `cachedConfig`、`BiliTerminal.clearForceUpdate()` 与 `update_last_new_version`——否则上一条通道的强制更新会继续拦启动。
+- **发版侧**：`.github/workflows/build-release.yml` 从 tag 后缀解渠道与序号、`prerelease` 自动设成「非稳定通道」、构建后用 `aapt2 badging` 复核产物与 tag 一致（tag↔包不一致正是 26 年那次事故的形态），exp 允许没有更新日志。官网（站点仓库 `release.js` / `sync-release.py`）只认无后缀 tag，发预发布不会把首页版本号带跑。
+
 ## 8. UI 基建速查（新增页面临摹用）
 
 ### 8.1 完整继承体系
