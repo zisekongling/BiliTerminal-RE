@@ -1,0 +1,250 @@
+name: 一次性定时发版（26.11.09）
+
+# 目的：2026-11-09 00:00（北京时间）用**仓库当时 main 的源码**发一次正式版，tag = 26.11.09。
+#
+# 为什么不是「定时打个 tag 就完事」：
+#   `build-release.yml` 是由 tag 推送触发的，但 **GITHUB_TOKEN 触发的 push 事件不会创建新的
+#   workflow run**（GitHub 规定的例外只有 workflow_dispatch / repository_dispatch）。
+#   所以这里自己打 tag 之后，再显式用 workflow_dispatch 触发 `build-release.yml`，
+#   交给那套已经验证过的流程去做：tag↔版本号一致性校验 → 单测 → 签名构建 → 整理发行 APK →
+#   从 strings.xml 的 update_log_current 抽发布说明 → 建 GitHub Release → 通知中转同步 Gitee。
+#
+# 本工作流自己只做「发版前的账目」：
+#   1. `app/build.gradle` 的 `appVersionDate` 改成 26.11.09（tag 日期必须与它一致，否则 CI 直接红）；
+#   2. 校验 strings.xml 里有「【26.11.09 本次更新】」锚点 —— **这条是内容，工作流不代劳**，
+#      缺了就在这里明确报错并停手：宁可不发，也不发一个没有更新说明的 Release（发版技能 §4 硬要求）。
+#
+# 一次性：发完就把本文件删掉。不删的话每年 11-08 16:00 UTC 还会再跑一次 ——
+#   届时有「tag 已存在」门禁挡着，只会打 notice、不会重复发版（本仓库开着 release immutability，
+#   同一个 tag 本来也永久不能再发）。
+#
+# ⚠️ 两个已知事实：
+#   - GitHub 的 schedule 一律按 UTC 解释，且**经常延迟几分钟到几十分钟**才落地，
+#     实际发版时间可能是 00:0x～00:3x，不是精确的 00:00:00。
+#   - 定时任务只认默认分支（main）上的文件版本；本文件必须先提交到 main 才会生效。
+
+run-name: 一次性发版 26.11.09
+
+on:
+  schedule:
+    # 2026-11-09 00:00 +08:00 == 2026-11-08 16:00 UTC
+    #   分 时 日 月 周
+    - cron: '0 16 8 11 *'
+  # 手动补跑入口：00:00 那一跑如果红了（比如当时更新日志没写全），
+  # 修好之后可以在这里手动再跑一次；dry_run 只体检、不动手。
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '只体检并打印计划：不提交、不打 tag、不触发发版'
+        type: boolean
+        default: false
+
+# 要往 main 推提交、推 tag，还要 dispatch 另一个 workflow
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: release-once-26.11.09
+  cancel-in-progress: false
+
+env:
+  TARGET_TAG: '26.11.09'
+  TARGET_DATE: '26.11.09'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # 归一化成字符串比较：定时触发时 inputs.* 恒为空，不能直接当布尔用
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+
+    steps:
+      - name: 门禁：tag 是否已存在（存在就说明发过了，直接跳过）
+        id: guard
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # 这一步在任何 checkout 之前，只用 API 查，不依赖工作区是 git 仓库
+          code=$(curl -sS -o /tmp/tag.json -w '%{http_code}' --max-time 20 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/ref/tags/${TARGET_TAG}")
+          if [ "$code" = "200" ]; then
+            echo "::notice::远端已有 tag ${TARGET_TAG}，这一版已经发过；不再重复发版（release immutability 下同 tag 也发不了）"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [ "$code" = "404" ]; then
+            echo "远端还没有 tag ${TARGET_TAG}，继续"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::查询 tag 失败（HTTP $code）：$(cat /tmp/tag.json)"
+            exit 1
+          fi
+
+      - name: 检出 main
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          # 保留凭据：后面要用同一个 GITHUB_TOKEN 提交并推回 main
+          persist-credentials: true
+
+      - name: 记录本次发版基线
+        if: steps.guard.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha=$(git log -1 --format='%H')
+          subj=$(git log -1 --format='%s')
+          echo "main HEAD：${sha:0:10} ${subj}"
+          printf '### 发版基线\n\n- 提交：`%s`\n- 说明：%s\n\n' "$sha" "$subj" >> "$GITHUB_STEP_SUMMARY"
+
+      # ── 1. 版本号：tag 日期必须等于 appVersionDate；这一步纯机械改写、幂等 ──────────
+      - name: 校正 appVersionDate
+        if: steps.guard.outputs.skip != 'true'
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle=app/build.gradle
+          current=$(grep -oP 'appVersionDate\s*=\s*"\K[0-9]{2}\.[0-9]{2}\.[0-9]{2}' "$gradle" | head -1 || true)
+          if [ -z "$current" ]; then
+            echo "::error::无法从 $gradle 读出 appVersionDate，仓库结构与预期不符，停手"
+            exit 1
+          fi
+          echo "当前 appVersionDate=$current，目标=$TARGET_DATE"
+          if [ "$current" = "$TARGET_DATE" ]; then
+            echo "已是目标日期，无需改写"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # 只改这一行；渠道与序号不写在这里（由 build-release 按 tag 用 -Pchannel/-Pseq 传）
+          sed -i -E "s/^def appVersionDate = \".*\"$/def appVersionDate = \"${TARGET_DATE}\"/" "$gradle"
+          after=$(grep -oP 'appVersionDate\s*=\s*"\K[0-9]{2}\.[0-9]{2}\.[0-9]{2}' "$gradle" | head -1 || true)
+          if [ "$after" != "$TARGET_DATE" ]; then
+            echo "::error::改写 appVersionDate 失败（现在是「${after:-空}」），$gradle 的行格式可能变了，停手"
+            exit 1
+          fi
+          echo "已把 appVersionDate 从 $current 改成 $TARGET_DATE"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      # ── 2. 更新日志锚点：内容不代写，缺了就不发版 ─────────────────────────────────
+      # build-release 的 verify-version 会硬校验这条锚点（稳定版缺了直接 fail）。
+      # 这里提前查一轮，好在「动手之前」把原因说清楚，而不是等构建跑半小时才红。
+      - name: 校验更新日志锚点（缺了停手）
+        if: steps.guard.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          anchor="【${TARGET_DATE} 本次更新】"
+          if grep -qF "$anchor" app/src/main/res/values/strings.xml; then
+            echo "更新日志锚点「$anchor」已就位"
+            exit 0
+          fi
+          echo "::error::strings.xml 的 update_log_current 首项不是「$anchor」，拒绝发版"
+          echo "::error::请把 update_log_current 首项改成 <item>【${TARGET_DATE} 本次更新】</item>，并在其下写好本期条目"
+          echo "::error::同时按发版技能 §1 把上一版（26.11.07）那一组整块挪进 update_history_log 最前面，加 <item>## 2026-11-07</item> 日期头"
+          echo "::error::改完提交到 main，再到 Actions 页面手动重跑本工作流（可先勾 dry_run 体检）"
+          echo "--- update_log_current 附近现状 ---"
+          grep -A3 '<string-array name="update_log_current">' app/src/main/res/values/strings.xml || true
+          exit 1
+
+      - name: dry run：只打印计划（不做任何写操作）
+        if: steps.guard.outputs.skip != 'true' && env.DRY_RUN == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== DRY RUN：以下操作都不会执行 ==="
+          echo "--- 待提交的改动 ---"
+          git --no-pager diff --stat
+          echo "--- 计划 ---"
+          echo "1) 提交 app/build.gradle 并推回 main"
+          echo "2) 创建 tag ${TARGET_TAG} 并推到远端"
+          echo "3) workflow_dispatch 触发 build-release.yml（tag=${TARGET_TAG}, ref=main）"
+          printf '### DRY RUN\n\n- 版本号改动：`%s`\n- 计划 tag：`%s`\n- 计划触发：`build-release.yml`\n- **未做任何写操作**\n' \
+            "$(git diff --stat | tail -1 || echo 无)" "$TARGET_TAG" >> "$GITHUB_STEP_SUMMARY"
+
+      # ── 3. 把版本号改动提交回 main（build-release 校验的是 tag 指向的那个提交）──────
+      - name: 提交版本号并推回 main
+        if: steps.guard.outputs.skip != 'true' && env.DRY_RUN != 'true' && steps.version.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # 只加这一个文件：不能图省事用 git add -A（26.11.06 那次就栽在这条上）
+          git add app/build.gradle
+          git commit -m "chore(release): 版本号升到 ${TARGET_DATE}"
+          # main 可能刚好被推了新提交（用户当晚还在改）：rebase 后重试，最多 3 次
+          for i in 1 2 3; do
+            if git push origin HEAD:main; then
+              echo "已推送到 main"
+              break
+            fi
+            echo "第 $i 次 push 失败，rebase 到最新 main 后重试"
+            [ "$i" = 3 ] && { echo "::error::连续 3 次推送 main 失败，停手"; exit 1; }
+            git pull --rebase --autostash origin main
+          done
+          git --no-pager show --stat HEAD
+
+      # ── 4. 打 tag ────────────────────────────────────────────────────────────────
+      # 用 GITHUB_TOKEN 推的 tag **不会**触发 build-release.yml（见文件头说明），
+      # 所以下一步必须显式 dispatch，不能指望 push 事件。
+      - name: 创建并推送 tag
+        if: steps.guard.outputs.skip != 'true' && env.DRY_RUN != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags origin
+          if git rev-parse -q --verify "refs/tags/${TARGET_TAG}" >/dev/null; then
+            echo "本地已有 tag ${TARGET_TAG}，跳过创建"
+          else
+            git tag -a "${TARGET_TAG}" -m "RE:哔哩终端 ${TARGET_TAG}（正式版）"
+          fi
+          git push origin "refs/tags/${TARGET_TAG}"
+          echo "tag ${TARGET_TAG} -> $(git rev-list -n1 "refs/tags/${TARGET_TAG}")"
+
+      # ── 5. 触发既有发版流程 ─────────────────────────────────────────────────────
+      - name: 触发「构建发行版并创建 Release」
+        if: steps.guard.outputs.skip != 'true' && env.DRY_RUN != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # 为什么要 dispatch 而不是等 tag 推送触发：GITHUB_TOKEN 引起的事件不会创建 workflow run，
+          # workflow_dispatch 是明确例外。build-release.yml 收到 inputs.tag 后会检出 refs/tags/<tag>，
+          # 因 inputs.release_body 为空而自动从 strings.xml 的 update_log_current 抽更新日志。
+          # 请求体用 --input 传 JSON：gh 的 -f 不支持 inputs[tag] 这种嵌套键名。
+          printf '{"ref":"main","inputs":{"tag":"%s"}}' "$TARGET_TAG" > /tmp/dispatch.json
+          before=$(curl -sS --max-time 20 -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/build-release.yml/runs?per_page=1" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin).get("total_count", -1))')
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/build-release.yml/dispatches" \
+            --input /tmp/dispatch.json
+          echo "已请求触发 build-release.yml（tag=${TARGET_TAG}，ref=main）；dispatches 之前的 run 总数=$before"
+          # 确认真的排上了：不静默成功，排不上就红
+          sleep 20
+          after=$(curl -sS --max-time 20 -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/build-release.yml/runs?per_page=1" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin).get("total_count", -1))')
+          echo "dispatches 之后的 run 总数=$after"
+          if [ "$after" -le "$before" ]; then
+            echo "::error::调用 dispatch 后没有出现新的 build-release run（$before -> $after），请到 Actions 页面手动触发并检查 actions:write 权限"
+            exit 1
+          fi
+          echo "--- 最近的 build-release 运行 ---"
+          gh run list --workflow=build-release.yml --limit 3
+          printf '### 已触发发版\n\n- tag：`%s`\n- 工作流：`build-release.yml`（单测 → 签名构建 → GitHub Release → 中转同步 Gitee）\n- 该 run 结束后按发版技能 §5 回读 Release 正文与 Gitee 附件清单\n' \
+            "$TARGET_TAG" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 收尾提示
+        if: steps.guard.outputs.skip == 'true'
+        shell: bash
+        run: echo "::notice::${TARGET_TAG} 已发布过，本一次性工作流可以删除了：.github/workflows/release-once-26.11.09.yml"
