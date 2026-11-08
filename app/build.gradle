@@ -9,11 +9,11 @@ plugins {
 //   versionName = tag，两者完全相等
 //
 // 唯一手写项是下面的日期；渠道与序号走 Gradle 参数，不手算：
-//   ./gradlew :app:assembleRelease                         → 26.11.07 / 26110700
-//   ./gradlew :app:assembleRelease -Pseq=1                 → 26.11.07.1 / 26110701
-//   ./gradlew :app:assembleRelease -Pchannel=beta -Pseq=2  → 26.11.07-beta.2 / 26110712
-//   ./gradlew :app:assembleRelease -Pchannel=exp  -Pseq=1  → 26.11.07-exp.1 / 26110721
-def appVersionDate = "26.11.07"
+//   ./gradlew :app:assembleRelease                         → 26.11.09 / 26110900
+//   ./gradlew :app:assembleRelease -Pseq=1                 → 26.11.09.1 / 26110901
+//   ./gradlew :app:assembleRelease -Pchannel=beta -Pseq=2  → 26.11.09-beta.2 / 26110912
+//   ./gradlew :app:assembleRelease -Pchannel=exp  -Pseq=1  → 26.11.09-exp.1 / 26110921
+def appVersionDate = "26.11.09"
 def appChannel = (project.findProperty('channel') ?: 'stable').toString().trim()
 def appChannelCode = [stable: 0, beta: 1, exp: 2][appChannel]
 def appSeq = (project.findProperty('seq') ?: (appChannel == 'stable' ? '0' : '1')).toString().trim().toInteger()
