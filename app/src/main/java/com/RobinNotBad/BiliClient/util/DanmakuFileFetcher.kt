@@ -5,14 +5,15 @@ import java.io.File
 import java.io.IOException
 
 /**
- * 弹幕文件下载的**唯一落盘实现**：取 URL → 校验状态码 → 解压 → 写盘。
+ * 弹幕文件下载的**唯一落盘实现**：取 URL → 校验状态码 → 解压 → 判空 → 写盘。
  *
  * ## 为什么要收成一份
  *
- * 历史上「取 URL → 下载 → 解压 → 写盘」有 4 份逐字重复的副本
+ * 历史上「取 URL → 下载 → 解压 → 写盘」有 5 份逐字重复的副本
  * （`PlayerActivity.downdanmuOld`、`ShortVideoPlayerActivity.loadDanmakuFromXml`、
- * `LocalListActivity.downloadDanmakuFile`、`DownloadActivity.downdanmu`），
- * 其中两份漏判 HTTP 状态码：B 站 CDN 对失效弹幕地址会回 404/412 的 HTML 错误页，
+ * `LocalListActivity.downloadDanmakuFile`、`DownloadActivity.downdanmu`，
+ * 以及 `DownloadService.downDanmaku`——它是 26.11.07 收口时漏掉的第 5 份），
+ * 其中三份漏判 HTTP 状态码：B 站 CDN 对失效弹幕地址会回 404/412 的 HTML 错误页，
  * 旧代码照样 `decompress` 后写进 `danmaku.xml`，播放器解析出来是空弹幕，
  * 用户侧只看到「这个视频没弹幕」，且下载状态还是成功 —— 极难定位。
  *
@@ -22,7 +23,8 @@ import java.io.IOException
  *
  * 上层的错误处理各不相同（`DownloadService` 要返回错误码、`DownloadActivity` 要弹 Snackbar
  * 并结束页面、播放器只要把异常抛给 `MsgUtil.err`），所以这里只负责「非 2xx / 空正文一律
- * 抛 [IOException]」，提示与收尾仍留给调用方。
+ * 抛 [IOException]」，提示与收尾仍留给调用方。`DownloadService` 用 [fetch] 拿字节、自己
+ * `writeBytes` 落盘，只为把网络侧失败与写盘失败映射成两个不同的结果码。
  */
 object DanmakuFileFetcher {
 

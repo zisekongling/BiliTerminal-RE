@@ -32,6 +32,7 @@ import com.RobinNotBad.BiliClient.model.SubtitleLink
 import com.RobinNotBad.BiliClient.util.Aria2Util
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.DownloadWakeLock
+import com.RobinNotBad.BiliClient.util.DanmakuFileFetcher
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.Logu
@@ -40,10 +41,6 @@ import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import com.RobinNotBad.BiliClient.util.ToolsUtil
 import okhttp3.Response
-import okio.BufferedSink
-import okio.Sink
-import okio.buffer
-import okio.sink
 import org.json.JSONException
 import java.io.ByteArrayInputStream
 import java.io.File
@@ -1672,41 +1669,36 @@ class DownloadService : Service() {
         return n
     }
 
+    /**
+     * 下载弹幕并落盘。
+     *
+     * 取 URL → 校验状态码 → 解压 → 判空这一段**不再自己写一遍**，统一走
+     * [com.RobinNotBad.BiliClient.util.DanmakuFileFetcher]（26.11.08 验收：这里曾是第 5 份
+     * 逐字重复的落盘副本，还是没补空正文校验的那份）。这里只保留本服务需要的东西：
+     * 错误码映射（网络侧失败 → [DownloadPathSpec.ERR_NETWORK]，写盘失败 → [DownloadPathSpec.ERR_FILE]）。
+     *
+     * 写盘用 `writeBytes`（一次 truncate 后写完），不再像旧实现那样先 `resetFile()` 建一个空壳：
+     * 写失败时留下的空文件正是「下载成功但播放时没弹幕」的来源。
+     */
     @Throws(IOException::class)
     private fun downDanmaku(danmaku: String, danmakuFile: File, sectionId: Long = -1, baseProgress: Float = 0f): Int {
-        val response: Response
-        try {
-            response = NetWorkUtil.get(danmaku)
+        val decompressed = try {
+            DanmakuFileFetcher.fetch(danmaku)
         } catch (e: IOException) {
+            // 非 2xx / 空正文 / 网络失败 / 解压失败都归到「这份弹幕没拿到」——
+            // ERR_NETWORK 的语义就是「含 HTTP 非 2xx、下载不完整」
             return DownloadPathSpec.ERR_NETWORK
         }
-        var bufferedSink: BufferedSink? = null
-        try {
-            // 审计 M11-f：原实现不校验 HTTP 状态码，404/412 的错误页会被当成弹幕正文写进
-            // danmaku.xml，播放时表现为"弹幕全空"却又是成功状态。
-            if (!response.isSuccessful)
-                return DownloadPathSpec.ERR_NETWORK
-            if (!resetFile(danmakuFile))
-                return DownloadPathSpec.ERR_FILE
-
-            val sink: Sink = danmakuFile.sink()
-            val decompressBytes = NetWorkUtil.decompress(response.body!!.bytes())
-            bufferedSink = sink.buffer()
-            bufferedSink.write(decompressBytes)
-            bufferedSink.close()
-            
+        return try {
+            danmakuFile.writeBytes(decompressed)
             // 更新进度
             if (sectionId > 0) {
                 setDownloadProgress(sectionId, baseProgress + 0.05f, getString(R.string.text_download_danmaku))
             }
+            DownloadPathSpec.NORMAL
         } catch (e: IOException) {
-            return DownloadPathSpec.ERR_FILE
-        } finally {
-            bufferedSink?.close()
-            response.body?.close()
-            response.close()
+            DownloadPathSpec.ERR_FILE
         }
-        return DownloadPathSpec.NORMAL
     }
 
     override fun onDestroy() {
