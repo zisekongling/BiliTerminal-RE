@@ -52,6 +52,36 @@ jobs:
       - name: 赋予 gradlew 可执行权限
         run: chmod +x gradlew
 
+      # wrapper 发行版有 138 MB，而 services.gradle.org 只回 307，实体落在
+      # GitHub Release 资产上（release-assets.githubusercontent.com）。2026-11-08
+      # 那台 runner 读该资产稳定 read timeout，同一个 job 连挂 5 次（run 42468546938），
+      # 每次都是「Downloading … failed: timeout」，卡在第一步就红。
+      # 每个 CI 都现下 138 MB 本来就是纯浪费：缓存起来，命中后 ./gradlew 直接用现成发行版。
+      - name: 缓存 Gradle 发行版与依赖缓存
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/wrapper/dists
+            ~/.gradle/caches/modules-2
+          key: gradle-${{ runner.os }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      # 缓存未命中时仍要真下 138 MB，一次卡顿就整轮红。这里先单独把发行版拉下来，
+      # 失败退避重试 3 次；真正的编译/单测步骤再失败就是代码问题，不含下载噪音。
+      - name: 预热 Gradle 发行版（失败重试）
+        run: |
+          for attempt in 1 2 3; do
+            if ./gradlew --version --no-configuration-cache; then
+              echo "Gradle 发行版就绪（第 $attempt 次尝试）"
+              exit 0
+            fi
+            echo "::warning::第 $attempt 次下载/启动 Gradle 失败，$((attempt * 15)) 秒后重试"
+            sleep $((attempt * 15))
+          done
+          echo "::error::Gradle 发行版连续 3 次下载失败（services.gradle.org 重定向到 GitHub Release 资产），先确认 runner 网络再重跑"
+          exit 1
+
       # 与 build-release.yml 保持同一套清理逻辑：
       # gradle.properties 硬编码了本机 Windows JDK 路径与本地代理（Clash），
       # Linux CI 必须移除，否则会拿不存在的 JDK 路径启动 daemon、并通过本地代理拉依赖失败。
