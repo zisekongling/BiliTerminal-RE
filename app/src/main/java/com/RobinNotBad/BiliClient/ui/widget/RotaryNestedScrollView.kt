@@ -18,6 +18,11 @@ import com.RobinNotBad.BiliClient.util.SettingsKeys
  * 开关与灵敏度改成每次事件现读（26.10.17），理由同 [RotaryScrollView]。
  * 26.11.07.1 起总开关关闭时先让框架/子控件处理，谁都没动才由 App 补位，见
  * [RotaryEncoderSupport.handleSystemFirst]。
+ *
+ * 反馈 #132（详情页关掉表冠适配后转半天不动）就出在这个控件上：框架的
+ * `NestedScrollView.onGenericMotionEvent` 用主题属性 `android:listPreferredItemHeight`
+ * 换算滚动量（Material/AppCompat 默认 48dp），比 App 口径（64dp × 2）小得多，
+ * 26.11.09 起由 [RotaryEncoderSupport.handleSystemFirst] 按差额补足。
  */
 class RotaryNestedScrollView @JvmOverloads constructor(
     context: Context,

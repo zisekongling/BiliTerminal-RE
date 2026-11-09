@@ -2,6 +2,7 @@ package com.RobinNotBad.BiliClient.ui.widget
 
 import android.view.InputDevice
 import android.view.MotionEvent
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -76,15 +77,71 @@ object RotaryEventPolicy {
      *
      * 为什么必须吞：不吞的话事件会一路冒泡到 DecorView 的页面级兜底，兜底再把同一个容器
      * 滚一遍——这就是 issue #21 报的「软件和系统滚动效果叠加」。
+     *
+     * 注意「吞」不等于「什么都不做」：吞之前要按 [topUpDelta] 把框架滚不足的差额补上，
+     * 否则会把这个小基准当成用户该得的全部距离（反馈 #132）。
      */
     fun shouldConsumeAfterFramework(frameworkHandled: Boolean, frameworkMoved: Boolean): Boolean =
         frameworkHandled || frameworkMoved
 
     /**
-     * 「系统优先」路径：框架什么都没滚时，App 是否补位。
+     * 「系统优先」模式补位口径的缩放系数，见 [systemFirstTargetDelta]。
      *
-     * 框架已经滚过就绝不再补（见 [shouldConsumeAfterFramework]）；换算后没有位移也不补，
-     * 与 [shouldConsume] 同一条语义。
+     * 1.0 = 与「开启表冠适配 + 灵敏度 1.0」的距离完全一致，也是默认值。真机上觉得还不够快
+     * 就只改这一个数——注意系统优先模式下的灵敏度**不读**设置页那两个倍数（[RotaryEncoderSupport.sensitivityOf]
+     * 在总开关关闭时恒取默认值），所以这里是为数不多的整体调节点。
      */
-    fun shouldFillIn(frameworkMoved: Boolean, dy: Int): Boolean = !frameworkMoved && dy != 0
+    const val SYSTEM_FIRST_TARGET_SCALE = 1.0f
+
+    /**
+     * 「系统优先」模式下每一格表冠的**目标**位移（像素），口径与「开启表冠适配 + 灵敏度 1.0」
+     * 时的 [pixelDelta] 完全一致。
+     *
+     * 为什么要有这个独立入口：框架自己处理表冠时，各容器用的换算基准根本不是一个量——
+     * - `androidx.core.widget.NestedScrollView`（详情页）的 `getVerticalScrollFactorCompat()`
+     *   取的是**主题属性 `android:listPreferredItemHeight`**（Material/AppCompat 默认 48dp）；
+     * - `android.widget.ScrollView` 与 `RecyclerView` 取 `ViewConfiguration.getScaledVerticalScrollFactor()`
+     *   （AOSP `config_verticalScrollFactor` = 64dp）；
+     * - App 自己的 [pixelDelta] 又是后者的 **2 倍**。
+     *
+     * 于是「框架滚了一点就整段吞掉」等于让用户吃下最小的那个基准：同一格表冠，详情页只走
+     * 48dp 的量、列表页走 64dp、而开启适配时走 128dp——这正是反馈 #132 里「关闭表冠适配后
+     * 详情页转半天不动，别的页面还好」的来源（详情页是唯一吃 48dp 基准的容器）。
+     */
+    fun systemFirstTargetDelta(
+        ratio: Float,
+        scaledVerticalScrollFactor: Float,
+        multiple: Float
+    ): Int =
+        (pixelDelta(ratio, scaledVerticalScrollFactor, multiple) * SYSTEM_FIRST_TARGET_SCALE)
+            .roundToInt()
+
+    /**
+     * 「系统优先」路径：框架这一格已经滚了 [frameworkDelta] 像素之后，App 还要补多少像素。
+     *
+     * 语义是**补足差额，不是叠加**：
+     * - 框架一点没滚（`frameworkDelta == 0`）→ 整段 [targetDy] 由 App 给（1789a853 的补位）；
+     * - 框架滚了但不够 → 只补 `|targetDy| - |frameworkDelta|` 的差额；
+     * - 框架滚够了 → 返回 0，一丝不加；
+     * - 框架方向与目标相反（用户先反着转了一下就被框架吃掉）→ 按整段 [targetDy] 补，
+     *   否则这次手势会被「抵消」掉一半，手感上像是丢了一格。
+     *
+     * 为什么是差额而不是「框架滚过就绝不补」：框架的换算基准比 App 小（见
+     * [systemFirstTargetDelta] 的注释），旧逻辑把这个小基准当成用户该得的全部距离，
+     * 详情页因此只有开启适配时 37% 的速度。改成补差额后：
+     * 1. 框架给得够的机型（issue #21 那类，系统本身就滚得比 App 多）分毫不动，不会叠加；
+     * 2. 框架给得少的机型补到 App 口径，与「页面级兜底」「App 先接管」两条路径的距离一致；
+     * 3. 因为如实减掉了框架已滚的那部分，**同一次手势不会被算两次**。
+     *
+     * 也正因为是「如实抵扣」，这里不需要「框架滚了多少才算滚过」的阈值——任意小的框架位移
+     * 都会被抵扣掉，剩下的由 App 补齐，不必去猜各 ROM 的基准值。
+     */
+    fun topUpDelta(targetDy: Int, frameworkDelta: Int): Int {
+        if (targetDy == 0) return 0
+        if (frameworkDelta == 0) return targetDy
+        if ((frameworkDelta > 0) != (targetDy > 0)) return targetDy
+        val gap = abs(targetDy) - abs(frameworkDelta)
+        if (gap <= 0) return 0
+        return if (targetDy > 0) gap else -gap
+    }
 }

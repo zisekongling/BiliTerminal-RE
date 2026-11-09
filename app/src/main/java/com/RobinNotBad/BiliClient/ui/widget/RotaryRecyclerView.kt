@@ -29,7 +29,9 @@ class RotaryRecyclerView @JvmOverloads constructor(
                 this, event,
                 RotaryEncoderSupport.sensitivityOf(SettingsKeys.UI_ROTATORY_RECYCLER),
                 // 横竖两个方向都算「框架动过」：横向列表（直播、播放器分组条等）在框架路径里
-                // 走的是 canScrollHorizontally 分支，只看竖直偏移会把「已经滚过」误判成「没动」
+                // 走的是 canScrollHorizontally 分支，只看竖直偏移会把「已经滚过」误判成「没动」。
+                // 这个带符号差值是框架实际滚了多少像素，26.11.09 起还要拿来抵扣补位距离
+                // （框架滚不够时补足差额，修反馈 #132）。
                 { computeVerticalScrollOffset() + computeHorizontalScrollOffset() },
                 { super.onGenericMotionEvent(event) }
             ) { smoothScrollBy(0, it) }

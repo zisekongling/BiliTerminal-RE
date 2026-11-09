@@ -116,7 +116,7 @@ class RotaryEventPolicyTest {
         assertTrue(RotaryEventPolicy.shouldConsume(-3))
     }
 
-    // ---------- shouldConsumeAfterFramework / shouldFillIn（issue #21） ----------
+    // ---------- shouldConsumeAfterFramework（issue #21） ----------
 
     @Test
     fun 框架自己说处理了就吞事件() {
@@ -133,21 +133,89 @@ class RotaryEventPolicyTest {
     }
 
     @Test
-    fun 框架没动也不吞时交给补位判定() {
+    fun 框架没动才轮到补位() {
         assertFalse(RotaryEventPolicy.shouldConsumeAfterFramework(frameworkHandled = false, frameworkMoved = false))
-        // 框架一点没动、补位有位移 → 才轮得到 App 接管
-        assertTrue(RotaryEventPolicy.shouldFillIn(frameworkMoved = false, dy = 2))
+    }
+
+    // ---------- topUpDelta（反馈 #132：系统优先模式下补足差额，而不是整段吞掉） ----------
+
+    /** 反馈 #132 的实机参数：density 2.4（384dpi），64dp 的竖直滚动缩放值 = 153.6px。 */
+    private val scrollFactor = 153.6f
+
+    /** 反馈 #132 日志里的一格滚动量（`axisScroll=-0.0524`）。 */
+    private val oneNotchRatio = -0.0524f
+
+    @Test
+    fun 框架一点没滚时整段由App给() {
+        // 1789a853 的补位：AXIS_VSCROLL 的 ROM、或事件根本没沿焦点链到容器
+        assertEquals(16, RotaryEventPolicy.topUpDelta(targetDy = 16, frameworkDelta = 0))
+        assertEquals(-16, RotaryEventPolicy.topUpDelta(targetDy = -16, frameworkDelta = 0))
     }
 
     @Test
-    fun 框架动过就绝不补位() {
-        // 这条是「不叠加」的核心断言：框架只要滚过，哪怕补位能算出位移也不许再滚
-        assertFalse(RotaryEventPolicy.shouldFillIn(frameworkMoved = true, dy = 2))
-        assertFalse(RotaryEventPolicy.shouldFillIn(frameworkMoved = true, dy = -3))
+    fun 框架滚不够时只补差额() {
+        // 反馈 #132 的两个算例（target = 16px，见下面 systemFirstTargetDelta 的用例）：
+        // 详情页 NestedScrollView 用主题的 listPreferredItemHeight≈48dp → 框架只给 6px，补 10px；
+        // 列表页 ScrollView/RecyclerView 用 config_verticalScrollFactor=64dp → 框架给 8px，补 8px
+        assertEquals(10, RotaryEventPolicy.topUpDelta(targetDy = 16, frameworkDelta = 6))
+        assertEquals(8, RotaryEventPolicy.topUpDelta(targetDy = 16, frameworkDelta = 8))
+        assertEquals(-10, RotaryEventPolicy.topUpDelta(targetDy = -16, frameworkDelta = -6))
     }
 
     @Test
-    fun 框架没动且补位位移为零时不补() {
-        assertFalse(RotaryEventPolicy.shouldFillIn(frameworkMoved = false, dy = 0))
+    fun 框架滚够了一分都不补() {
+        // issue #21 那类「框架本来就滚得比 App 多」的机型：必须与改动前完全一致，绝不能叠加
+        assertEquals(0, RotaryEventPolicy.topUpDelta(targetDy = 16, frameworkDelta = 16))
+        assertEquals(0, RotaryEventPolicy.topUpDelta(targetDy = 16, frameworkDelta = 24))
+        assertEquals(0, RotaryEventPolicy.topUpDelta(targetDy = -16, frameworkDelta = -40))
+    }
+
+    @Test
+    fun 框架方向相反时按整段补() {
+        // 框架把这一格吃掉时方向是反的（正在回弹/惯性）：若照符号相减会互相抵消，
+        // 手感上等于丢了半格，所以按整段补
+        assertEquals(16, RotaryEventPolicy.topUpDelta(targetDy = 16, frameworkDelta = -4))
+        assertEquals(-16, RotaryEventPolicy.topUpDelta(targetDy = -16, frameworkDelta = 4))
+    }
+
+    @Test
+    fun 目标为零时不补() {
+        // 与 shouldConsume 同一语义：算出 0 就不该有动作
+        assertEquals(0, RotaryEventPolicy.topUpDelta(targetDy = 0, frameworkDelta = 0))
+        assertEquals(0, RotaryEventPolicy.topUpDelta(targetDy = 0, frameworkDelta = 8))
+    }
+
+    @Test
+    fun 框架位移加补位恒等于目标() {
+        // 「同一次手势不被算两次」的核心断言：框架滚的那份被如实抵扣掉
+        val target = 16
+        for (framework in listOf(0, 2, 6, 8, 16)) {
+            assertEquals(target, framework + RotaryEventPolicy.topUpDelta(target, framework))
+        }
+    }
+
+    // ---------- systemFirstTargetDelta（反馈 #132：目标口径 = 开启表冠适配时的距离） ----------
+
+    @Test
+    fun 系统优先的目标口径等于开启适配时的位移() {
+        assertEquals(
+            RotaryEventPolicy.pixelDelta(oneNotchRatio, scrollFactor, 1f),
+            RotaryEventPolicy.systemFirstTargetDelta(oneNotchRatio, scrollFactor, 1f)
+        )
+        // -(-0.0524) × 153.6 × 2 = 16.1 → 16px，正是「开启表冠适配 + 灵敏度 1.0」每格的距离
+        assertEquals(16, RotaryEventPolicy.systemFirstTargetDelta(oneNotchRatio, scrollFactor, 1f))
+    }
+
+    @Test
+    fun 系统优先的目标口径仍然吃灵敏度() {
+        // 目标只是「同一条换算 × 缩放系数」，倍率语义与 App 先接管一致
+        assertEquals(8, RotaryEventPolicy.systemFirstTargetDelta(oneNotchRatio, scrollFactor, 0.5f))
+        assertEquals(0, RotaryEventPolicy.systemFirstTargetDelta(oneNotchRatio, scrollFactor, 0f))
+    }
+
+    @Test
+    fun 目标缩放系数默认为一() {
+        // 真机微调的旋钮：1.0 = 与开启表冠适配一致。别在代码里随手改成手感猜测值
+        assertEquals(1.0f, RotaryEventPolicy.SYSTEM_FIRST_TARGET_SCALE, 0f)
     }
 }

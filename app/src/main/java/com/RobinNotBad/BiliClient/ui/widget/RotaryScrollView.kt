@@ -15,7 +15,8 @@ import com.RobinNotBad.BiliClient.util.SettingsKeys
  * 表现就是「设置改了不生效」。
  *
  * 26.11.07.1 起覆写 `onGenericMotionEvent`：「系统优先、App 补位」需要先跑 `super`，
- * 再用 `scrollY` 的变化判断框架到底动没动（详情见 [RotaryEncoderSupport.handleSystemFirst]）。
+ * 再用 `scrollY` 的变化量量出框架滚了多少（详情见 [RotaryEncoderSupport.handleSystemFirst]）。
+ * 26.11.09 起这个变化量还要用来抵扣补位距离（框架滚不够时补足差额，修反馈 #132）。
  */
 class RotaryScrollView @JvmOverloads constructor(
     context: Context,

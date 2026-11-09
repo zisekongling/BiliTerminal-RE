@@ -61,6 +61,17 @@ import java.util.concurrent.atomic.AtomicInteger
  * 「原版能用、这里转不动」。现在的顺序是：先让框架处理（[handleSystemFirst]），
  * 框架动了就**把事件吃掉**（防止冒泡到页面级兜底再滚一遍 = 「叠加」），框架没动才由 App
  * 按双轴补位。开关开启（[isEnabled]）仍是老的「App 先接管」，灵敏度可调的手感不变。
+ *
+ * **26.11.09 修反馈 #132（「关闭表冠适配后详情页滑动速率小，得一直转」）**：系统优先模式原先
+ * 是「框架一动就整段吞掉」，可框架各容器的换算基准并不相同，而且都小于 App 的
+ * [RotaryEventPolicy.pixelDelta] 口径——`NestedScrollView`（详情页）用主题的
+ * `listPreferredItemHeight`（Material/AppCompat 默认 48dp，见 androidx 的
+ * `getVerticalScrollFactorCompat()`），平台 `ScrollView` 与 `RecyclerView` 用
+ * `config_verticalScrollFactor`（64dp），而 App 口径是 64dp × 2。于是同一格表冠，详情页只走
+ * 约三分之一的距离、列表页约一半——**只有详情页慢**，与用户描述一致。现在吞之前先补足差额
+ * （[RotaryEventPolicy.topUpDelta]）：框架滚了多少就抵扣多少，不够的由 App 补到与「开启表冠
+ * 适配」一致的距离。框架本来就给得够的机型（issue #21 那一类）分毫不动，同一次手势也不会
+ * 被算两次。
  */
 internal object RotaryEncoderSupport {
 
@@ -139,20 +150,26 @@ internal object RotaryEncoderSupport {
     }
 
     /**
-     * 「系统优先、App 补位」的控件级入口（总开关关闭时走这条，见类注释最后一段）。
+     * 「系统优先、App 补位」的控件级入口（总开关关闭时走这条，见类注释最后两段）。
      *
      * 顺序是先让框架自己处理（`runFramework` 里就是 `super.onGenericMotionEvent` /
-     * `super.dispatchGenericMotionEvent`），再用**滚动位置有没有变化**判断框架到底动没动：
+     * `super.dispatchGenericMotionEvent`），再用**滚动位置的变化量**量出框架到底滚了多少：
      *
-     * - 动了（或框架自己说处理了）→ `return true` 把事件吃掉。这一步是「不叠加」的关键：
-     *   `RecyclerView.onGenericMotionEvent` 滚完仍然 `return false`，不吞就会一路冒泡到
-     *   DecorView 的页面级兜底，兜底再把同一个容器滚一遍。
-     * - 没动 → 按双轴换算位移补位（`AXIS_VSCROLL` 的 ROM 就是靠这一步才有反应）。
+     * - 框架动了（或框架自己说处理了）→ 按 [RotaryEventPolicy.topUpDelta] 补上差额，再
+     *   `return true` 把事件吃掉。吃掉是「不叠加」的关键：`RecyclerView.onGenericMotionEvent`
+     *   滚完仍然 `return false`，不吞就会一路冒泡到 DecorView 的页面级兜底，兜底再把同一个
+     *   容器滚一遍。补差额而不是「一动不动」是 26.11.09 修反馈 #132 的改动——框架的换算
+     *   基准比 App 口径小（详情页用 `listPreferredItemHeight`、列表用 `config_verticalScrollFactor`，
+     *   而 App 是后者 × 2），不补的话详情页每格只走三分之一的距离。
+     * - 没动 → 按双轴换算整段位移补位（`AXIS_VSCROLL` 的 ROM 就是靠这一步才有反应）。
+     *
+     * 用**带符号差值**而不是「有没有变」做判定：同一个读数既要回答「动没动」，又要拿来抵扣
+     * 补位量，一次读值两用，也就不会出现「前后读了两次偏移、两次之间框架又滚了一下」的偏差。
      *
      * @param multiple 补位倍率（开关关闭时用 [DEFAULT_MULTIPLE]，用户填 0 则不补位）
-     * @param scrollOffset 竖直滚动位置的读数，用来判断框架动没动
+     * @param scrollOffset 竖直滚动位置的读数，用来量框架滚了多少
      * @param runFramework 交给框架处理，返回框架自己的「是否已处理」
-     * @param smoothScrollBy 补位时的平滑滚动动作
+     * @param smoothScrollBy 补位 / 补差额时的平滑滚动动作
      */
     fun handleSystemFirst(
         view: View,
@@ -167,16 +184,38 @@ internal object RotaryEncoderSupport {
 
         val before = scrollOffset()
         val frameworkHandled = runFramework()
-        val moved = scrollOffset() != before
-        if (RotaryEventPolicy.shouldConsumeAfterFramework(frameworkHandled, moved)) {
-            if (moved && systemFirstProbed.compareAndSet(false, true)) {
-                probe("系统优先：框架已滚动，吞掉事件（本进程首次）", event, "view=${view.javaClass.simpleName}")
+        val frameworkDelta = scrollOffset() - before
+
+        if (RotaryEventPolicy.shouldConsumeAfterFramework(frameworkHandled, frameworkDelta != 0)) {
+            // 框架说自己处理了、偏移却没变：可能是异步滚动（惯性/动画还没落到 scrollY 上），
+            // 也可能已经到顶/到底。此时一律不补——补了会和随后到来的框架滚动叠加，
+            // 正是 1789a853 要防的「同一次手势被算两次」。
+            if (frameworkDelta == 0) return true
+
+            val target = systemFirstTargetDelta(view, event, multiple)
+            val topUp = RotaryEventPolicy.topUpDelta(target, frameworkDelta)
+            if (topUp == 0) {
+                if (systemFirstProbed.compareAndSet(false, true)) {
+                    probe(
+                        "系统优先：框架已滚够，吞掉事件（本进程首次）", event,
+                        "target=$target frameworkDelta=$frameworkDelta view=${view.javaClass.simpleName}"
+                    )
+                }
+                return true
+            }
+            smoothScrollBy(topUp)
+            if (topUpProbed.compareAndSet(false, true)) {
+                probe(
+                    "系统优先：框架滚得不够，补足差额（本进程首次）", event,
+                    "target=$target frameworkDelta=$frameworkDelta topUp=$topUp" +
+                            " view=${view.javaClass.simpleName}"
+                )
             }
             return true
         }
 
-        val dy = pixelDelta(view, event, multiple)
-        if (!RotaryEventPolicy.shouldFillIn(moved, dy)) {
+        val dy = systemFirstTargetDelta(view, event, multiple)
+        if (!RotaryEventPolicy.shouldConsume(dy)) {
             probe(
                 "系统优先：框架没动、补位位移为 0，不吞事件", event,
                 "view=${view.javaClass.simpleName} multiple=$multiple"
@@ -235,27 +274,49 @@ internal object RotaryEncoderSupport {
         return true
     }
 
+    /** 本次事件的滚动量：优先 `AXIS_SCROLL`，为 0 时回落 `AXIS_VSCROLL`。 */
+    private fun rawScrollRatio(event: MotionEvent): Float =
+        RotaryEventPolicy.rawScrollRatio(
+            event.getAxisValue(MotionEvent.AXIS_SCROLL),
+            event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+        )
+
+    /**
+     * 本机 `ViewConfiguration` 的竖直滚动缩放值（`config_verticalScrollFactor`，即 64dp × density）。
+     *
+     * 这是 **App 口径**的基准。框架各容器自己算表冠滚动量时未必用这个值（`NestedScrollView`
+     * 用的是主题的 `listPreferredItemHeight`），所以系统优先模式下的补位要按 App 口径重新算一遍
+     * 目标距离，见 [RotaryEventPolicy.systemFirstTargetDelta]。
+     */
+    private fun scaledVerticalScrollFactorOf(view: View): Float =
+        ViewConfigurationCompat.getScaledVerticalScrollFactor(
+            ViewConfiguration.get(view.context), view.context
+        )
+
     private fun pixelDelta(view: View, event: MotionEvent, multiple: Float): Int =
-        RotaryEventPolicy.pixelDelta(
-            RotaryEventPolicy.rawScrollRatio(
-                event.getAxisValue(MotionEvent.AXIS_SCROLL),
-                event.getAxisValue(MotionEvent.AXIS_VSCROLL)
-            ),
-            ViewConfigurationCompat.getScaledVerticalScrollFactor(
-                ViewConfiguration.get(view.context), view.context
-            ),
-            multiple
+        RotaryEventPolicy.pixelDelta(rawScrollRatio(event), scaledVerticalScrollFactorOf(view), multiple)
+
+    /** 系统优先模式下这一格「应该」走的距离（与开启表冠适配 + 灵敏度 1.0 一致）。 */
+    private fun systemFirstTargetDelta(view: View, event: MotionEvent, multiple: Float): Int =
+        RotaryEventPolicy.systemFirstTargetDelta(
+            rawScrollRatio(event), scaledVerticalScrollFactorOf(view), multiple
         )
 
     // ==================== 诊断 ====================
     //
-    // 只在「本该处理却没处理」和「本进程第一次真的滚动成功」时打日志，同一进程最多 PROBE_MAX 条。
-    // 用 W 级：Logu 的内存环形缓冲只记 W/E/F，反馈页勾「附带应用日志」带的就是它。
+    // 只在「本该处理却没处理」「本进程第一次真的滚动成功」「本进程第一次补差额」时打日志，
+    // 同一进程最多 PROBE_MAX 条。用 W 级：Logu 的内存环形缓冲只记 W/E/F，反馈页勾
+    // 「附带应用日志」带的就是它。
+    //
+    // 补差额那条特意带 target / frameworkDelta / topUp 三个数：反馈 #132 这类「手感偏慢」
+    // 的问题没有这三个数就只能靠猜（维护者手上没有表冠设备，density 与各容器的换算基准
+    // 都得从日志反推），下次再报慢时一眼就能算出框架给少了多少。
 
     private const val PROBE_MAX = 6
     private val probeCount = AtomicInteger(0)
     private val successProbed = AtomicBoolean(false)
     private val systemFirstProbed = AtomicBoolean(false)
+    private val topUpProbed = AtomicBoolean(false)
 
     private fun probe(reason: String, event: MotionEvent, extra: String = "") {
         if (probeCount.getAndIncrement() >= PROBE_MAX) return
