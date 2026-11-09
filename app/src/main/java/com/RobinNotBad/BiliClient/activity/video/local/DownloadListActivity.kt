@@ -3,7 +3,6 @@ package com.RobinNotBad.BiliClient.activity.video.local
 import com.RobinNotBad.BiliClient.util.UiText
 
 import android.annotation.SuppressLint
-import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
@@ -20,10 +19,11 @@ import com.RobinNotBad.BiliClient.listener.OnItemClickListener
 import com.RobinNotBad.BiliClient.listener.OnItemLongClickListener
 import com.RobinNotBad.BiliClient.model.DownloadSection
 import com.RobinNotBad.BiliClient.service.DownloadService
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
-import java.io.File
+import com.RobinNotBad.BiliClient.util.TerminalDialog
 import java.lang.ref.WeakReference
 import java.util.Locale
 import java.util.Timer
@@ -42,6 +42,13 @@ class DownloadListActivity : RefreshListActivity() {
     private var created: Boolean = false
     private var sections: ArrayList<DownloadSection>? = null
 
+    // 多选删除（26.11.09）：长按条目进入多选，勾选后走顶部 manageBar 的「删除(n)」。
+    private var selectionMode = false
+    private val selectedIds = LinkedHashSet<Long>()
+    private var manageToggle: TextView? = null
+    private var manageDelete: TextView? = null
+    private var unselectedColor = 0
+
     // 底栏视图
     private var bottomBar: LinearLayout? = null
     private var barTotalProgress: ProgressBar? = null
@@ -55,6 +62,7 @@ class DownloadListActivity : RefreshListActivity() {
         setPageName(UiText.of("下载列表"))
         setRefreshing(false)
         weakRef = WeakReference(this)
+        setupSelectionBar()
 
         // 添加底栏到根布局
         val rootLayout = findViewById<View>(R.id.swipeRefreshLayout).parent as? android.view.ViewGroup
@@ -132,6 +140,23 @@ class DownloadListActivity : RefreshListActivity() {
 
         sections = DownloadService.getAll()
 
+        // 刷新可能来自下载服务线程：选择集合与操作条都在 UI 线程上收拾。
+        // 已删除/已消失的任务不能继续留在勾选里，否则「删除(n)」会拿旧 id 去删一个不存在的项。
+        runOnUiThread {
+            if (selectionMode) {
+                val alive = sections?.mapTo(HashSet<Long>()) { it.id } ?: emptySet<Long>()
+                selectedIds.retainAll(alive)
+                // 列表空了就没得选；只是「勾选项没了」则留在多选里，让用户重新勾
+                if (alive.isEmpty()) exitSelectionMode()
+                else {
+                    adapter?.notifyDataSetChanged()
+                    updateSelectionBar()
+                }
+            } else {
+                updateSelectionBar()
+            }
+        }
+
         if (sections == null || sections!!.isEmpty()) {
             if (!emptyTipShown) {
                 runOnUiThread {
@@ -152,8 +177,14 @@ class DownloadListActivity : RefreshListActivity() {
 
             if (firstRefresh) {
                 adapter = DownloadAdapter(this, sections!!)
+                adapter!!.selectedIds = selectedIds
                 adapter!!.setOnClickListener(object : OnItemClickListener {
                     override fun onItemClick(position: Int) {
+                        // 多选态下点击 = 勾选/取消勾选，不再暂停/恢复任务
+                        if (selectionMode) {
+                            runOnUiThread { toggleSelected(position) }
+                            return
+                        }
                         CenterThreadPool.run {
                             Log.d("debug-download", "click:" + position)
                             if (sections == null || position < 0 || position >= sections!!.size)
@@ -184,24 +215,14 @@ class DownloadListActivity : RefreshListActivity() {
                 })
 
                 adapter!!.setOnLongClickListener(object : OnItemLongClickListener {
-                    private var longClickPosition = -1
-                    private var longClickTimestamp = 0L
-
                     override fun onItemLongClick(position: Int) {
-                        CenterThreadPool.run {
-                            if (sections == null || position < 0 || position >= sections!!.size)
-                                return@run
-
-                            val now = System.currentTimeMillis()
-                            if (longClickPosition == position && now - longClickTimestamp < 4000) {
-                                // 第二次长按：确认删除（支持删除正在下载的任务，不停止其他任务）
-                                longClickPosition = -1
-                                deleteSectionItem(sections!![position])
-                            } else {
-                                longClickPosition = position
-                                longClickTimestamp = now
-                                runOnUiThread { MsgUtil.showMsg(UiText.of("再次长按删除")) }
-                            }
+                        if (sections == null || position < 0 || position >= sections!!.size)
+                            return
+                        // 长按进入多选并勾中这一条（取代原来的「再长按一次删除」）；
+                        // 多选态下长按同样是勾选/取消勾选。
+                        runOnUiThread {
+                            if (selectionMode) toggleSelected(position)
+                            else enterSelectionMode(position)
                         }
                     }
                 })
@@ -216,32 +237,144 @@ class DownloadListActivity : RefreshListActivity() {
         }
     }
 
+    // ==================== 多选删除（26.11.09） ====================
+
     /**
-     * 删除下载项（需在后台线程调用）。
+     * 复用 activity_simple_refresh 的 manageBar：非多选态整条隐藏，长按条目进入多选后才出现
+     * 「退出多选 / 删除(n)」。下载列表底部另有一条常驻的下载总进度条，不抢它的位置。
+     */
+    private fun setupSelectionBar() {
+        manageToggle = findViewById(R.id.manageToggle)
+        manageDelete = findViewById(R.id.manageDelete)
+        if (unselectedColor == 0) unselectedColor = manageToggle?.currentTextColor ?: 0
+        manageToggle?.setOnClickListener { exitSelectionMode() }
+        manageDelete?.setOnClickListener { confirmDeleteSelected() }
+        updateSelectionBar()
+    }
+
+    private fun updateSelectionBar() {
+        val bar = findViewById<View>(R.id.manageBar) ?: return
+        if (!selectionMode) {
+            bar.visibility = View.GONE
+            return
+        }
+        bar.visibility = View.VISIBLE
+        manageToggle?.text = getString(R.string.uitext_favoritevideolistactivity_013)
+        manageToggle?.setTextColor(ColorScheme.PRIMARY)
+        manageDelete?.text =
+            if (selectedIds.isEmpty()) getString(R.string.accountswitch_delete_confirm)
+            else getString(R.string.uitext_favoritevideolistactivity_017, selectedIds.size)
+        manageDelete?.alpha = if (selectedIds.isEmpty()) 0.5f else 1f
+        manageDelete?.setTextColor(if (selectedIds.isEmpty()) unselectedColor else ColorScheme.PRIMARY)
+    }
+
+    private fun enterSelectionMode(initialPosition: Int) {
+        if (selectionMode) return
+        selectionMode = true
+        selectedIds.clear()
+        sections?.getOrNull(initialPosition)?.let { selectedIds.add(it.id) }
+        adapter?.let {
+            it.selectionMode = true
+            it.selectedIds = selectedIds
+            it.notifyDataSetChanged()
+        }
+        updateSelectionBar()
+        MsgUtil.showMsg(getString(R.string.text_download_select_hint))
+    }
+
+    private fun exitSelectionMode() {
+        if (!selectionMode) return
+        selectionMode = false
+        selectedIds.clear()
+        adapter?.let {
+            it.selectionMode = false
+            it.notifyDataSetChanged()
+        }
+        updateSelectionBar()
+    }
+
+    private fun toggleSelected(position: Int) {
+        val section = sections?.getOrNull(position) ?: return
+        if (!selectedIds.remove(section.id)) selectedIds.add(section.id)
+        adapter?.notifyItemChanged(position)
+        updateSelectionBar()
+    }
+
+    private fun selectedSections(): List<DownloadSection> {
+        val current = sections ?: return emptyList()
+        return current.filter { selectedIds.contains(it.id) }
+    }
+
+    private fun confirmDeleteSelected() {
+        val targets = selectedSections()
+        if (targets.isEmpty()) {
+            MsgUtil.showMsg(getString(R.string.uitext_favoritevideolistactivity_005))
+            return
+        }
+        TerminalDialog.confirm(
+            context = this,
+            title = getString(R.string.text_download_delete_title),
+            message = getString(R.string.text_download_delete_message, targets.size),
+            confirmText = getString(R.string.accountswitch_delete_confirm),
+            cancelText = getString(R.string.btn_cancel),
+            confirmIsDanger = true
+        ) {
+            CenterThreadPool.run { deleteSections(targets) }
+        }.show()
+    }
+
+    /**
+     * 批量删除（需在后台线程调用）。
      * 正在下载的任务先打暂停标记，让下载线程在下一轮 IO 循环退出，再删除记录与文件；
      * 不会停止整个下载服务，其他并行任务不受影响。
+     * 逐条删除成功与否只影响汇总提示，不中断整批。
      */
-    private fun deleteSectionItem(section: DownloadSection) {
-        try {
+    private fun deleteSections(targets: List<DownloadSection>) {
+        var deleted = 0
+        var failed = 0
+        var fileLeft = 0
+        for (section in targets) {
+            val result = deleteSectionData(section)
+            if (result.deleted) deleted++
+            else failed++
+            if (result.fileLeft) fileLeft++
+        }
+        runOnUiThread { exitSelectionMode() }
+        refreshList(false)
+        runOnUiThread {
+            val msg = when {
+                failed > 0 -> getString(R.string.uitext_locallistactivity_030, deleted, failed)
+                fileLeft > 0 -> getString(R.string.text_download_delete_file_left, deleted, fileLeft)
+                else -> getString(R.string.uitext_favoritevideolistactivity_019, deleted)
+            }
+            MsgUtil.showMsgLong(msg)
+        }
+    }
+
+    /** 删一条：先暂停，再删文件与记录；返回记录是否删掉、文件是否没删干净。 */
+    private fun deleteSectionData(section: DownloadSection): DeleteResult {
+        return try {
             if (section.state == "downloading" || DownloadService.getDownloadProgress(section.id) != null) {
                 DownloadService.pauseDownload(section.id)
             }
 
+            // getPath() 对不存在的视频目录会顺手 mkdirs，所以删除前先记下它原本在不在
             val folder = section.getPath()
-            if (folder != null && folder.exists()) {
-                FileUtil.deleteFolder(folder)
-            }
+            val fileGone = folder?.let {
+                if (!it.exists()) true else FileUtil.deleteFolderRecursively(it)
+            } ?: true
 
             DownloadService.deleteSection(section.id)
             DownloadService.pausedMap.remove(section.id)
             DownloadService.removeDownloadProgress(section.id)
-
-            refreshList(false)
-            runOnUiThread { MsgUtil.showMsg(UiText.of("删除成功")) }
+            DeleteResult(true, !fileGone)
         } catch (e: Exception) {
             MsgUtil.err(e)
+            DeleteResult(false, false)
         }
     }
+
+    private data class DeleteResult(val deleted: Boolean, val fileLeft: Boolean)
 
     private fun updateBottomBar() {
         if (bottomBar == null) return
@@ -346,6 +479,15 @@ class DownloadListActivity : RefreshListActivity() {
                 "${hour}时${min}分"
             }
         }
+    }
+
+    override fun onBackPressed() {
+        // 多选态下按返回只退出多选，不直接离开下载列表（与缓存页/收藏夹多选一致）
+        if (selectionMode) {
+            exitSelectionMode()
+            return
+        }
+        super.onBackPressed()
     }
 
     override fun onDestroy() {

@@ -4,12 +4,14 @@ import com.RobinNotBad.BiliClient.util.UiText
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.text.TextUtils
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import androidx.recyclerview.widget.SimpleItemAnimator
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.listener.OnItemClickListener
 import com.RobinNotBad.BiliClient.listener.OnItemLongClickListener
@@ -33,6 +35,29 @@ class DownloadAdapter(
     var clickListener: OnItemClickListener? = null
     var lastSpeedStr: String? = null
     var lastSpeedMode: Boolean = false
+
+    /** 多选模式：勾选/取消勾选由页面处理，这里只按下面的集合画样式。 */
+    var selectionMode: Boolean = false
+
+    /** 已勾选的下载任务 id，页面持有同一个集合引用。 */
+    var selectedIds: MutableSet<Long> = HashSet()
+
+    companion object {
+        /** 多选前缀：勾上用 ✓，未勾用全角空格占位（与收藏夹/缓存页多选同一套视觉）。 */
+        const val PREFIX_SELECTED = "✓ "
+        const val PREFIX_UNSELECTED = "　 "
+    }
+
+    /**
+     * 多选态的暗/亮靠 [DownloadHolder.applySelection] 直接写 `itemView.alpha`，
+     * 而勾选切换走 `notifyItemChanged(position)`。默认交叉淡入动画会在收尾把 alpha 改回 1，
+     * 表现为「取消勾选后条目不会重新压暗」（收藏夹/缓存页已踩过同一个坑）。
+     * 关掉内容变化动画，让 applySelection 写下的 alpha 留到下一帧。
+     */
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        (recyclerView.itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
+    }
 
     fun setOnLongClickListener(listener: OnItemLongClickListener) {
         this.longClickListener = listener
@@ -58,6 +83,7 @@ class DownloadAdapter(
 
         val section = downloadList[position]
         holder.show(section, context)
+        holder.applySelection(selectionMode, selectedIds.contains(section.id))
 
         // 通过进度映射表判断是否在下载中（比 DB 状态更实时）
         val progressInfo = DownloadService.getDownloadProgress(section.id)
@@ -145,6 +171,24 @@ class DownloadAdapter(
                             .override(320, 180)
                     )
                     .into(cover)
+        }
+
+        /**
+         * 画多选态：勾中项正常亮度 + 标题前「✓ 」，未勾项压暗 + 全角空格占位。
+         *
+         * [show] 每次绑定都会先把标题重置成原始名称，所以这里直接加前缀不会越叠越多；
+         * 退出多选后重新绑定也会自然去掉前缀。
+         */
+        fun applySelection(selectionMode: Boolean, selected: Boolean) {
+            if (!selectionMode) {
+                itemView.alpha = 1f
+                return
+            }
+            itemView.alpha = if (selected) 1f else 0.45f
+            title.text = TextUtils.concat(
+                if (selected) DownloadAdapter.PREFIX_SELECTED else DownloadAdapter.PREFIX_UNSELECTED,
+                title.text
+            )
         }
 
         @SuppressLint("SetTextI18n")

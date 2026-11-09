@@ -940,6 +940,11 @@
     <string name="text_download_end">下载结束</string>
     <string name="text_download_total_progress">总进度 %1$d%% · %2$s</string>
     <string name="text_download_service_exit">下载服务已退出</string>
+    <!-- 下载列表多选删除（26.11.09） -->
+    <string name="text_download_select_hint">点条目勾选，再点「删除」</string>
+    <string name="text_download_delete_title">删除下载</string>
+    <string name="text_download_delete_message">将删除已下载文件（%1$d 项），此操作无法恢复。</string>
+    <string name="text_download_delete_file_left">已删除 %1$d 项，%2$d 项文件未能删除</string>
     <string name="channel_download">哔哩终端下载服务</string>
     <string name="channel_media_control">音乐播放</string>
     <string name="channel_media_control_desc">播放时的系统媒体控件通知</string>

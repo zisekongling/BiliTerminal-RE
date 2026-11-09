@@ -1498,7 +1498,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **菜单按选中内容分四类**：全视频（未分类区）删除视频 / 更新弹幕 / 添加到文件夹；全视频（文件夹内）删除视频 / 更新弹幕 / 移出文件夹；全文件夹拆散文件夹；**文件夹与视频混选不弹菜单**，只提示「文件夹和视频不能一起操作，先取消一种」。菜单走 `TerminalDialog.menu`，标题「已选 N 项」；一条没勾时「操作」半透明 + 提示「先选几条吧~」。单条专属操作（重命名文件夹 / 切换清晰度 / 查看详情）不进批量菜单。
 - **批量动作共用单条实现**：`LocalListActivity` 把单条删除抽成 `deleteVideoFiles(video)`、更新弹幕抽成 `updateDanmakuFor(video)`，单条菜单与批量都调它们——保留了原口径：路径按「扫出这条时的根」算、只删真实存在的目录、**只有真删掉才 `FolderManager.removeVideoFromAllFolders`**。批量执行统一在 `CenterThreadPool.run { }` 里跑，结果回主线程提示；完成顺序是**退出多选 → 刷新列表 → 提示结果**。
 - **返回键先退多选**：`onBackPressed` 在多选态只 `exitSelectionMode()`、不走 `super`；在文件夹里点顶栏返回箭头同样先退多选再退回顶层（`exitFolder` 里也有一道 `if (selectionMode) exitSelectionMode()`）。
-- **下载列表页不加多选**：`activity/video/local/DownloadListActivity.kt` 的任务语义（暂停 / 继续 / 重试）与缓存条目完全不同，本轮只做缓存页。
+- **下载列表页的多选（26.11.09 新增）**：`activity/video/local/DownloadListActivity.kt` 复用 `activity_simple_refresh` 的 `manageBar`（非多选态整条隐藏），长按条目进入多选并勾中它；`DownloadAdapter` 用与缓存页同一套 `alpha` + 标题前缀视觉，并关掉 `supportsChangeAnimations`（理由同 §7.61）。多选态覆盖点按/长按为勾选；删除走 `TerminalDialog.confirm` 后逐条暂停、删文件与记录，完成顺序是退出多选 → 刷新列表 → 提示结果。任务语义（点按暂停 / 继续 / 重试）只在非多选态生效。
 
 ### 7.62 顶栏灵动岛接管时钟位（26.11.08 新增；独立开关，与「圆屏适配」解耦）
 
