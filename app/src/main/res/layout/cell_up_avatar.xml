@@ -10,11 +10,15 @@
     android:focusable="true"
     android:background="?android:attr/selectableItemBackground">
 
+    <!-- 这张卡片只负责把方头像裁成圆形。描边与 elevation 都会从 materialCardViewStyle 继承：
+         描边已归零，elevation 也必须归零——它的阴影会沿圆周投出一圈暗边，在自定义背景图上
+         看起来就是头像的「黑色边框」（其他页面的头像都是纯 ImageView + Glide 圆裁，没有这层阴影）。 -->
     <com.google.android.material.card.MaterialCardView
         android:layout_width="56dp"
         android:layout_height="56dp"
         android:layout_marginBottom="4dp"
         app:cardCornerRadius="28dp"
+        app:cardElevation="0dp"
         app:strokeWidth="0dp">
 
         <ImageView

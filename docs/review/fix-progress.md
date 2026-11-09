@@ -236,6 +236,8 @@
   - **触发面（按实际时序）**：切 P / 互动分支是 `bindDanmakuView() → setDisplay() → postDelayed 60ms → loadDanmakuWithGuard()`（`PlayerActivity.kt:6057/6059/6073`、`:6615/6617/6631`），播放器可能先于首窗口返回就绪，这是本缺陷的命中路径；首播是同一个后台块里先 `loadDanmakuWithGuard()`（`:1178`）再 `setDisplay()`（`:1208`），播放不会早于首窗口返回，但 `prepare` 期间同样不该放行 `ensureWindow`，本修复一并覆盖。pending 队列解决的是「DFM `prepare` 异步、追加早于 `prepared()`」，与播放器/弹幕谁先无关。
   - **本机无 Android SDK（`ANDROID_HOME` 未设置、无 `local.properties`）**：只做静态自查；编译与两 flavor 单测由 PR #23 的 CI `build-and-test` 覆盖。
 
+- **「关注的人」头像条出现黑色边框（26.11.09，用户报「自定义背景下关注界面的关注的人列表头像有黑色边框」）**：按现有 UI，关注相关页面里唯一一条「关注的人」横向头像条是动态页顶部的 `cell_recent_up_list`（portal 的 `up_list`，「最近更新的UP主」），每格用 `cell_up_avatar` 的圆形 `MaterialCardView` 包住头像。该卡片只负责把方图裁圆，却继承了主题 `materialCardViewStyle` 的 `cardElevation`（暗色主题 4dp、亮色 2dp）；阴影沿 56dp 圆周投出一圈暗边，在自定义背景图上看起来就是头像的「黑色边框」，而其他页面的头像都是纯 `ImageView` + Glide 圆裁，没有这层阴影。修法与玻璃质感「半透明卡片 elevation 必须为 0」的既有约定一致：`app:cardElevation="0dp"`（描边原本已是 `app:strokeWidth="0dp"`）。**未验证**：本机无 Android SDK（`ANDROID_HOME` 未设置、无 `local.properties`），未编译、未上真机；需在自定义背景 + 暗色主题下看这条头像条的暗边是否消失（L2，依据是画面）。
+
 ## 2. 未完成待办
 
 ### 2.1 真机未验证（无设备 / 无登录态）
