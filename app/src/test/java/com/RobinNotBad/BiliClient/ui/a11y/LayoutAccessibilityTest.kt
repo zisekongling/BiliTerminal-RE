@@ -34,14 +34,20 @@ class LayoutAccessibilityTest {
     private fun imageElements(file: File): List<Element> {
         val doc = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
             .newDocumentBuilder().parse(file)
-        val tags = listOf("ImageView", "ImageButton")
         val nodes = doc.getElementsByTagName("*")
         val result = ArrayList<Element>()
         for (i in 0 until nodes.length) {
             val el = nodes.item(i) as? Element ?: continue
-            if (el.tagName.substringAfter(':') in tags) result.add(el)
+            // 标签可能写成全限定类名（`VectorImageButton` 见 ui/widget/VectorImageView.kt），
+            // 所以按最后一段类名比对，别只认裸 `ImageView`。
+            if (el.tagName.substringAfterLast('.') in imageTags) result.add(el)
         }
         return result
+    }
+
+    private companion object {
+        /** 图片类控件：裸类名 + 仓库里自读 Compat 属性的那两个（见 `ui/widget/VectorImageView.kt`）。 */
+        val imageTags = setOf("ImageView", "ImageButton", "VectorImageView", "VectorImageButton")
     }
 
     private fun layoutFiles(): List<File> {
@@ -82,7 +88,7 @@ class LayoutAccessibilityTest {
         val problems = ArrayList<String>()
         for (file in layoutFiles()) {
             for (el in imageElements(file)) {
-                val interactive = el.tagName.substringAfter(':') == "ImageButton" ||
+                val interactive = el.tagName.substringAfterLast('.') in setOf("ImageButton", "VectorImageButton") ||
                     el.attr("clickable") == "true"
                 if (!interactive) continue
                 val cd = el.attr("contentDescription")
