@@ -255,6 +255,10 @@ class DanmakuManager(
         // 新一次 prepare 意味着一批全新的弹幕源（换视频 / 切 P / 回退 XML）：上一轮窗口加载
         // 还没灌进去的分段必须丢掉，否则会串到新视频的时间轴上（弹幕「提前出现」或重复）。
         synchronized(appendLock) { pendingSegments.clear() }
+        // 新一轮 prepare 开始：旧 parser 的数据即将被替换，在 `prepared()` 回来之前必须把
+        // `isPrepared` 复位。否则同一实例第二次加载失败时，复用该字段的 `appendSegments`
+        // 会把新分段直接灌进还挂着旧 parser 的 view（串台）；`release()` 之外没有别的地方复位。
+        _state.update { it.copy(isPrepared = false) }
 
         // 批次 3：刷新「本人弹幕边框」的判定快照（开关 / 本人 mid / 主题主色）。
         // 必须在这里（调用方的主线程）算好，`prepared()` 跑在渲染线程上只能读字段。
