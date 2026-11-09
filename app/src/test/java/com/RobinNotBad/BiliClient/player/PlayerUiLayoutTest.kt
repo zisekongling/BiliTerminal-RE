@@ -233,6 +233,24 @@ class PlayerUiLayoutTest {
     }
 
     @Test
+    fun `more slot survives round trip and can be duplicated`() {
+        // 「更多」＝自动收纳格：对布局格式而言就是一个普通 key，可单格、可多份
+        val twice = layout.add(layout.default(), PlayerUiLayout.Region.LEFT, PlayerUiLayout.Slot.Button(PlayerButtons.MORE))
+        val thrice = layout.add(twice, PlayerUiLayout.Region.RIGHT, PlayerUiLayout.Slot.Button(PlayerButtons.MORE))
+        assertEquals(2, thrice.left.count { it == PlayerUiLayout.Slot.Button(PlayerButtons.MORE) })
+        assertEquals(1, thrice.right.count { it == PlayerUiLayout.Slot.Button(PlayerButtons.MORE) })
+        assertEquals(thrice, layout.parse(layout.encode(thrice)))
+    }
+
+    @Test
+    fun `more inside a group survives parsing as a plain member`() {
+        // 设置页已把「更多」从加成员候选里滤掉，但手改脏数据/未来版本可能仍写出 {..+more}：
+        // 解析不能崩、也不能把它无声丢掉——怎么渲染是 PlayerButtonSlots 的事。
+        val parsed = layout.parse("1;{lock+more};;;")
+        assertEquals(listOf<PlayerUiLayout.Slot>(PlayerUiLayout.Slot.Group(listOf("lock", PlayerButtons.MORE))), parsed.left)
+    }
+
+    @Test
     fun `removeAt out of range returns same layout`() {
         val d = layout.default()
         assertSame(d, layout.removeAt(d, PlayerUiLayout.Region.LEFT, 5))

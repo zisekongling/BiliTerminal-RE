@@ -2723,6 +2723,7 @@
     <string name="setting_player_btn_sound_cut">音量减</string>
     <string name="setting_player_btn_sound_add">音量加</string>
     <string name="setting_player_btn_page_selector">分P</string>
+    <string name="setting_player_btn_more">更多</string>
     <!-- 没有可调设置的按钮，卡片里显示这一行说明 -->
     <string name="setting_player_btn_nosettings">这个按钮没有可单独调整的设置，播放时点了才有反应。</string>
     <!-- 播放页「组」槽位那个按钮的无障碍说明：点一下把组里的按钮横向展开 -->

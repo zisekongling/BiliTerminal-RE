@@ -3819,16 +3819,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     }
 
     /**
-     * 起「影子对齐」定时器；没有影子（[PlayerButtonSlots.hasMirrors] 为 false）就什么都不挂。
+     * 起「影子对齐 / 空组格刷新」定时器；没有影子也没有组格就什么都不挂。
      *
      * 从前是 onResume 无条件挂 400ms 轮询：只摆了一份按钮的机器上影子集合是空的，
-     * 每次唤醒都在空转。现在只在真有影子时才有定时器，布局变了（[applyPlayerButtonLayout]）
-     * 也会重新判断一次。
+     * 每次唤醒都在空转。现在只在真有影子或组格（空组格要动态显隐）时才有定时器，
+     * 布局变了（[applyPlayerButtonLayout]）也会重新判断一次。
      */
     private fun startMirrorSync() {
         mirrorSyncTimer?.let { mainHandler?.removeCallbacks(it) }
         mirrorSyncTimer = null
-        if (buttonSlots?.hasMirrors() != true) return
+        if (buttonSlots?.hasMirrors() != true && buttonSlots?.hasGroups() != true) return
         mirrorSyncTimer = object : Runnable {
             override fun run() {
                 buttonSlots?.syncMirrors()

@@ -282,10 +282,17 @@ class SettingPlayerUiActivity : BaseActivity() {
             PickMode.ReplaceSlot -> getString(R.string.setting_player_ui_pick_button_replace)
             PickMode.AddGroupMember -> getString(R.string.setting_player_ui_group_add_member)
         }
-        val rows = PlayerButtons.ALL.map { button ->
+        val rows = PlayerButtons.ALL
+            // 「更多」是自动收纳格：可以单独摆（可多份），但不能进组——收纳格套收纳没有意义。
+            .filterNot { mode == PickMode.AddGroupMember && it.key == PlayerButtons.MORE }
+            .map { button ->
             navRow(
                 getString(button.nameRes),
-                if (button.mayHide) getString(R.string.setting_player_ui_may_hide) else "",
+                when {
+                    button.key == PlayerButtons.MORE -> getString(R.string.setting_player_ui_more_desc)
+                    button.mayHide -> getString(R.string.setting_player_ui_may_hide)
+                    else -> ""
+                },
                 button.iconRes
             ) {
                 val picked = PlayerUiLayout.Slot.Button(button.key)

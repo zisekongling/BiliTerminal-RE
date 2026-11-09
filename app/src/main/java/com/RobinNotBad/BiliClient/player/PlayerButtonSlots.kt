@@ -67,6 +67,12 @@ class PlayerButtonSlots(
     /** key → 影子；真身在别处时用。 */
     private val mirrors = LinkedHashMap<String, MutableList<View>>()
 
+    /**
+     * 各区的组格（含「更多」收纳格）：槽位下标 → 展开内容的 keys。
+     * render 时重建；[refreshEmptyGroups] 靠它算「这一格里还有没有可见按钮」。
+     */
+    private val groupCells = LinkedHashMap<PlayerUiLayout.Region, LinkedHashMap<Int, List<String>>>()
+
     /** key → 真身（清场后重新摆时要能找回）。 */
     private val primariesByKey = LinkedHashMap<String, View>()
 
@@ -107,18 +113,51 @@ class PlayerButtonSlots(
      */
     fun render(layout: PlayerUiLayout.Layout) {
         clearAll()
+        groupCells.clear()
         for (regionKey in PlayerUiLayout.Region.values()) {
             val region = regions[regionKey] ?: continue
             val slots = PlayerUiLayout.slots(layout, regionKey)
             for (index in slots.indices) {
                 if (index >= regionKey.capacity) break
                 when (val slot = slots[index]) {
-                    is PlayerUiLayout.Slot.Button -> placeButton(region, regionKey, slot.key)
-                    is PlayerUiLayout.Slot.Group -> region.container.addView(moreButton(region, regionKey, index, slot.keys))
+                    is PlayerUiLayout.Slot.Button -> {
+                        if (slot.key == PlayerButtons.MORE) {
+                            // 「更多」＝自动收纳格：展开条里放的是当前没摆进布局的按钮。
+                            val keys = overflowKeys(layout)
+                            groupCells.getOrPut(regionKey) { LinkedHashMap() }[index] = keys
+                            region.container.addView(moreButton(region, regionKey, index, keys))
+                        } else {
+                            placeButton(region, regionKey, slot.key)
+                        }
+                    }
+                    is PlayerUiLayout.Slot.Group -> {
+                        groupCells.getOrPut(regionKey) { LinkedHashMap() }[index] = slot.keys
+                        region.container.addView(moreButton(region, regionKey, index, slot.keys))
+                    }
                 }
             }
         }
+        refreshEmptyGroups()
         syncMirrors()
+    }
+
+    /**
+     * 「自动收纳格」的内容：注册表里**没有出现在这份布局任何槽位（含组）**的 key，按候选
+     * 列表顺序排列。布局变了（增删按钮）收纳内容跟着变；多个「更多」各自展开的是同一份
+     * 清单（它们互相之间不算「已摆放」——收纳格是虚拟的，不占 [placedPrimaries]）。
+     */
+    private fun overflowKeys(layout: PlayerUiLayout.Layout): List<String> {
+        val placed = HashSet<String>()
+        for (regionKey in PlayerUiLayout.Region.values()) {
+            for (slot in PlayerUiLayout.slots(layout, regionKey)) {
+                when (slot) {
+                    is PlayerUiLayout.Slot.Button -> placed.add(slot.key)
+                    is PlayerUiLayout.Slot.Group -> placed.addAll(slot.keys)
+                }
+            }
+        }
+        placed.remove(PlayerButtons.MORE)
+        return PlayerButtons.ALL.map { it.key }.filter { it !in placed && primaryOf(it) != null }
     }
 
     /** 收起所有展开的组（控制栏自动隐藏时调用，跟原来「更多」收起的手感一致）。 */
@@ -127,13 +166,42 @@ class PlayerButtonSlots(
     }
 
     /**
-     * 把真身的图标/文字/显隐抄给影子。
+     * 空组格隐藏（26.11.09，需求②）：组里（或「更多」收纳格展开后）没有任何**可见**按钮时，
+     * 那个「更多」格本身也藏起来——留着它点开就是一条空条。
+     *
+     * 按钮显隐是动态的（看点按钮要等分段加载完、连播按钮要看队列），所以这个判定不能只在
+     * render 时做一次：[syncMirrors] 已经是播放页挂的 400ms 对齐定时器在跑，跟着它一起刷新
+     * 最省事（[hasMirrors] 因此扩成了「有影子或有组格」——没组格也没影子的机器上定时器
+     * 依旧一个不挂）。判定用的 keys 是 render 时记进 [groupCells] 的那份，展开内容也是它。
+     */
+    fun refreshEmptyGroups() {
+        if (groupCells.isEmpty()) return
+        for ((regionKey, cells) in groupCells) {
+            val region = regions[regionKey] ?: continue
+            val container = region.container
+            for (i in 0 until container.childCount) {
+                val child = container.getChildAt(i)
+                val index = child.tag
+                if (child !is ImageButton || index !is Int) continue
+                val keys = cells[index] ?: continue
+                val anyVisible = keys.any { primaryOf(it)?.visibility == View.VISIBLE }
+                child.visibility = if (anyVisible) View.VISIBLE else View.GONE
+            }
+        }
+    }
+
+    /** 当前有没有需要 400ms 定时器照看的东西：影子，或组格/收纳格（空组格刷新）。 */
+    fun hasGroups(): Boolean = groupCells.isNotEmpty()
+
+    /**
+     * 把真身的图标/文字/显隐抄给影子；顺手刷一遍空组格。
      *
      * 播放页里改按钮状态的地方很多（起播、点弹幕、切循环……），逐个接线容易漏；这里做成
      * 「定时抄一遍」，由播放页在 onResume 起、onPause 停。影子只在用户真的把同一个按钮放了
-     * 多份时才有，大多数机器上这里是空转。
+     * 多份时才有，大多数机器上这里只做组格的显隐刷新（也很便宜：几个格子各查一遍 keys）。
      */
     fun syncMirrors() {
+        refreshEmptyGroups()
         if (mirrors.isEmpty()) return
         for ((key, list) in mirrors) {
             val primary = primariesByKey[key] ?: continue

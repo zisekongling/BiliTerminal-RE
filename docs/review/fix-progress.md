@@ -1789,6 +1789,20 @@
 - **顺带记两条设备侧坑**（与本改动无关、但会挡住下次验证）：①About 页在 384×384 上触摸滑动**滑不动**，只有表冠 `adb shell input roll 0 -6` 能滚；②Debug 包的 UETool 悬浮窗是 `[0,10][384,118]` 的窗口，会把整条顶栏盖住导致长按顶栏打不开菜单，解法是写 `dev_agent_mode=true`（`SettingsKeys.DEV_AGENT_MODE`，Debug 专属）后重启应用。
 - **未验证（人测 / L2）**：真机（含圆屏）上仓库卡的排版与字号观感、长按复制地址是否弹复制页、点开后浏览器是否正常加载（模拟器上 Chrome 是首启流程，没真的把页面渲染出来）。
 
+### 3.141 播放器按钮自定义三件套：图标对齐播放器、空组格隐藏、「更多」可自摆（26.11.09，用户点名）
+
+- **要求原文**：「注意这个播放器设置的图标我想要求和播放器内显示的图标一样，另外要处理和考虑部分视频出现的图标隐藏问题以及更多按钮这个特殊的类型可以容纳其他按钮，但是可以放多个更多按钮以容纳更多的其他按钮」。
+- **①图标对齐**（`player/PlayerButtons.kt` 注册表改两处，设置页候选列表自动跟随）：LOCK 由 `icon_player_lock` 改 `icon_player_unlock`（播放器默认态就是解锁图标）；VIEWPOINT 由借用的 `icon_star` 改 `icon_folder`（真身 `activity_player.xml` 的 `viewpoint_btn` 用的是文件夹图标）。其余 15 个逐一核对过本来就一致；AUDIO_ONLY 真身 XML 里是 `icon_play_16` 但运行时 `updateAudioOnlyButton()` 会换成 `icon_audio_only_on/off`，注册表的 `icon_audio_only_off` 与运行态一致，不动；SPEED 真身是文字按钮（×1.0），注册表用 `ic_player_speed` 作示意图标，不动；VIDEO_INFO 真身是 TextView 无图标，`icon_info` 作示意，不动。
+- **②空组格隐藏**（`player/PlayerButtonSlots.kt`）：新增 `refreshEmptyGroups()`——按 render 时记进 `groupCells`（`区 → 槽位下标 → 展开内容 keys`）的清单，逐格判「keys 里有没有可见按钮」，全 GONE 时把那个「更多」格设 GONE。刷新挂在 `syncMirrors()` 开头，由既有的 400ms 定时器带着跑（显隐是动态的：看点要等分段加载、连播要看队列）；`startMirrorSync()` 的挂表条件由 `hasMirrors()` 扩成 `hasMirrors() || hasGroups()`，没组格没影子的机器依旧一个定时器不挂。**单个按钮槽位不改**——真身 GONE 时格子空着是既有行为（用户自己摆的按钮，位置留着等它出现），只有「点了没内容的组格」算缺陷。
+- **③「更多」可自摆**：
+  - 语义定为**自动收纳格**：`Slot.Button(key="more")` 在 `render()` 里走 `moreButton()` 组格路径，展开内容 = `overflowKeys(layout)` = 注册表里当前没摆进任何槽位/组的 key（`more` 自身排除）。放多个「更多」各自展开同一份清单；不对应 `button_pool` 真身（曾按「池里加 more_btn」实施过，发现单格点击语义无法定义后回滚）。
+  - `PlayerButtons.kt`：+`const val MORE = "more"` + ALL 末尾 `Button(MORE, setting_player_btn_more, R.mipmap.morehide)`（mayHide=false）。存档格式不变（对旧档而言 more 只是个新认识的 key）。
+  - 设置页 `SettingPlayerUiActivity.kt` `showPicker()`：**AddGroupMember 模式把 more 从候选里滤掉**（收纳格套收纳没有意义；AddSlot/ReplaceSlot 允许）；候选行给 more 配说明串 `setting_player_ui_more_desc`「自动收纳没摆进布局的按钮，可以放多个」。
+  - 手改脏数据写出 `{..+more}` 组不丢 key：`toggleGroup` 里 `primaryOf("more")` 返回 null 会 `continue`，渲染成组里少一格，不崩（单测钉住解析行为）。
+- **单测**（`PlayerUiLayoutTest.kt` +3）：`more slot survives round trip and can be duplicated`、`more inside a group survives parsing as a plain member`；既有 registry 用例（key 唯一 / 全 key round trip / 无分隔符）自动覆盖新 key。默认布局不含 more，`DEFAULT_SERIALIZED` 不变。
+- **验证 · L0**：`:app:assembleDebug` BUILD SUCCESSFUL in 51s（两 flavor 出包；中途一次 `compileStandardDebugKotlin` 因 Gradle 缓存打包失败报 `Could not get file mode for ...PlayerControlDelegate...class`，是本机文件被短暂锁住的临时故障，重跑即绿，非代码问题）；`:app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest` BUILD SUCCESSFUL in 37s。
+- **未验证（人测 / L2）**：①设置页候选列表里锁定/看点的新图标观感；②真机点「更多」收纳格展开的是没摆进布局的按钮、放两个「更多」各自能开；③直播页里组格（如默认布局右侧那个 9 格组）整个跟着藏掉的手感——直播把 loop/audio_only/quality 等全 GONE 后，那个组格只剩 danmaku_send/subtitle/video_info 等少数可见成员，不会消失但内容变少，属预期。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。
