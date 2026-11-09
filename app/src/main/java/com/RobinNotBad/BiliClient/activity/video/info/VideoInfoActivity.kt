@@ -8,7 +8,6 @@ import android.view.View
 import android.widget.ImageView
 import androidx.fragment.app.Fragment
 import androidx.viewpager.widget.ViewPager
-import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.activity.reply.ReplyFragment
@@ -23,7 +22,6 @@ import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TopbarLongPressPrefs
-import com.bumptech.glide.Glide
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
@@ -50,7 +48,18 @@ class VideoInfoActivity : BaseActivity() {
 
         setContentView(R.layout.activity_simple_viewpager)
 
-        Glide.get(BiliTerminal.context!!).clearMemory()
+        // 26.11.09：原来这里无条件 `Glide.get(BiliTerminal.context!!).clearMemory()`，进一次视频详情页
+        // 就整体清空一次 Glide 的内存缓存。已去掉，原因有三：
+        // 1) 清不动真正占内存的那部分：正在显示的位图在 `ActiveResources` / 请求里（acquired > 0），
+        //    不在 MemoryCache 里，清缓存根本碰不到它们（Glide 4.16 Engine 源码，见简报）；
+        // 2) 对 OOM 没有净收益：MemoryCache 的容量本身由 LruResourceCache 的上限卡住，不会无界增长；
+        //    系统内存紧张时 Glide 自己会走 LruResourceCache.trimMemory；
+        // 3) 它是线上崩溃 `Cannot recycle a resource while it is still acquired` 的放大器：
+        //    clearMemory → 每条缓存 onItemEvicted → Engine.onResourceRemoved →
+        //    `resourceRecycler.recycle(.., forceNextFrame = true)` 逐条 post 到主线程队列（就是崩溃
+        //    栈里的 ResourceRecyclerCallback.handleMessage），而紧接着本页就开始加载一批图片——回收
+        //    投递与加载恰好在同一时刻挤在主线程队列里。
+        // 「起播前腾内存」那一次 clearMemory 保留在 VideoInfoFragment / BangumiInfoFragment 的起播分支里。
         val intent = intent
         var type = intent.getStringExtra("type")
         if (type == null) type = "video"

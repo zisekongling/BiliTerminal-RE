@@ -82,6 +82,36 @@ internal object ImageViewerZoomPolicy {
         if (value.isNaN() || value.isInfinite() || value <= 0f) fallback else value
 }
 
+/**
+ * 「这一页的整图 [android.widget.ImageView] 现在该不该让 Glide 清掉」的判据
+ * （纯逻辑，JVM 单测见 `ImageViewerClearPolicyTest`）。
+ *
+ * 起因：线上崩溃 `IllegalStateException: Cannot recycle a resource while it is still acquired`
+ * （`ResourceRecycler$ResourceRecyclerCallback.handleMessage` → `EngineResource.recycle`）。
+ * 那条崩溃栈是**主线程消息队列里的延迟回收**，不是某次调用现场的异常；Glide 4.16 里
+ * `EngineResource.recycle()` 只在 `acquired > 0` 时抛，所以只能从「少制造回收流量」这一侧收敛。
+ *
+ * 这里能收敛的是：「对同一个 View 反复 clear」。`RequestManager.clear(View)` 清的是**当前挂在该
+ * View 上的那一次请求**，因此
+ * - 这一页其实没发起过整图加载（探测失败直接走了分块 / 从没轮到这一页）时，clear 是空转；
+ * - 已经清过一次之后再 clear，是又一次 `untrackOrDelegate` → `glide.removeFromManagers` 的空转
+ *   （`RequestManager.untrack` 在 target 没有 request 时直接返回，见 RequestManager.java:670-684）。
+ * 空转本身不致命，但它让「释放/淘汰/延迟回收」的节奏多跑了几遍，正好落在上面那条崩溃的概率窗口里。
+ */
+internal object ImageViewerClearPolicy {
+
+    /**
+     * 这一次是否真的要向 Glide 发起 clear。
+     *
+     * @param photoLoadStarted 这一页是否**真的**对整图 View 发起过加载（[ImageViewerActivity.attachPhoto]）
+     * @param photoCleared 那一整图请求是否已经被清过
+     * @return 只有「发起过、且还没清过」才返回 true，保证同一个请求最多 clear 一次
+     */
+    @JvmStatic
+    fun shouldClearPhoto(photoLoadStarted: Boolean, photoCleared: Boolean): Boolean =
+        photoLoadStarted && !photoCleared
+}
+
 /** 页状态：还没探测出这张图该走哪条路径。 */
 private const val PAGE_PENDING = 0
 
@@ -119,6 +149,12 @@ private class ImagePage(val container: FrameLayout, val photoView: PhotoView) {
 
     /** 进行中的尺寸探测请求，活动销毁时要取消（否则 Glide 会往已销毁的宿主里回调）。 */
     var probeRequest: FutureTarget<File>? = null
+
+    /** 是否真的对 [photoView] 发起过整图加载：探测失败 / 只走分块路径时它是 false。 */
+    var photoLoadStarted = false
+
+    /** 那次整图加载是否已经被 clear 过：同一个请求只清一次（判据见 [ImageViewerClearPolicy]）。 */
+    var photoCleared = false
 }
 
 /** 原图尺寸探测结果（`inJustDecodeBounds` 的解码结果，只读文件头）。 */
@@ -364,10 +400,16 @@ class ImageViewerActivity : BaseActivity() {
         }
         page.photoView.visibility = View.GONE
         // 底下那张整图不再需要：清掉它，别让「整图位图 + 分块位图」同时占内存（分块的初衷）。
-        try {
-            Glide.with(this).clear(page.photoView)
-        } catch (e: Exception) {
-            Logu.d("image-viewer", "clear photo view failed: ${e.message}")
+        // 26.11.09：改成「只清这一页真发起过的那次整图请求，且只清一次」——原来是无条件 clear，
+        // 而本方法在 ViewPager 来回翻时会被反复调用（注释已写明它必须幂等），于是同一个 photoView
+        // 会被反复 clear。判据与单测见 [ImageViewerClearPolicy]。
+        if (ImageViewerClearPolicy.shouldClearPhoto(page.photoLoadStarted, page.photoCleared)) {
+            page.photoCleared = true
+            try {
+                Glide.with(this).clear(page.photoView)
+            } catch (e: Exception) {
+                Logu.d("image-viewer", "clear photo view failed: ${e.message}")
+            }
         }
         if (!big.hasImage()) {
             big.setImageFile(
@@ -419,6 +461,9 @@ class ImageViewerActivity : BaseActivity() {
             page.bigView = null
         }
         page.photoView.visibility = View.VISIBLE
+        // 记下「这一页真发起过整图请求」，并复位 clear 标记：新一次请求可以（也才需要）被清一次。
+        page.photoLoadStarted = true
+        page.photoCleared = false
         try {
             val builder = Glide.with(this).asDrawable()
                 .load(GlideUtil.url_zoom(imageList[index]))

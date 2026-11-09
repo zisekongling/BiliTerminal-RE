@@ -33,11 +33,9 @@ import com.RobinNotBad.BiliClient.activity.video.RecommendActivity
 import com.RobinNotBad.BiliClient.activity.video.ShortVideoPlayerActivity
 import com.RobinNotBad.BiliClient.activity.video.TimelineActivity
 import com.RobinNotBad.BiliClient.activity.video.local.LocalListActivity
-import com.RobinNotBad.BiliClient.util.PerformanceManager
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.MenuConfig
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
-import com.bumptech.glide.Glide
 import com.google.android.material.button.MaterialButton
 import java.util.LinkedHashMap
 
@@ -225,10 +223,17 @@ class MenuActivity : BaseActivity() {
             intent.setClass(this@MenuActivity, btnNames[name]!!.second)
             intent.putExtra("from", name)
             startActivity(intent)
-            // 在低性能设备上更积极地清理Glide内存
-            if (PerformanceManager.isLowPerfDevice()) {
-                Glide.get(BiliTerminal.context!!).clearMemory()
-            }
+            // 26.11.09：这里原来在低性能设备上 `Glide.get(...).clearMemory()`（「更积极地清理Glide内存」）。
+            // 已去掉，与 VideoInfoActivity 那次是同一个理由：
+            // 1) 真正占内存的是正在显示 / 还在请求里的位图，它们在 ActiveResources 与请求里（acquired > 0），
+            //    MemoryCache 清不到；MemoryCache 本身也有 LruResourceCache 上限，不会无界增长；
+            // 2) 清空的时机最糟：紧接着 startActivity 开的这一页就要加载一批图片，缓存被清空只会让它们
+            //    重新下载解码，淘汰（onItemEvicted → Engine.onResourceRemoved → forceNextFrame 投递）
+            //    反而更密；
+            // 3) 这条分支只在低性能设备上走，而低性能手表正是崩溃
+            //    `Cannot recycle a resource while it is still acquired` 的集中人群。
+            // 旧页面已经在上面被 finish，它的位图会随请求清理自然释放；系统内存紧张时 Glide 自己会走
+            // LruResourceCache.trimMemory。
         } else {
             when (name) {
                 "login" -> {
