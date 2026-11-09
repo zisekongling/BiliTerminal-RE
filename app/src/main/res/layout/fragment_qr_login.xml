@@ -110,7 +110,7 @@
                         android:minHeight="@dimen/touch_min"
                         android:layout_marginStart="8dp"
                         android:padding="4dp"
-                        android:src="@drawable/icon_help"
+                        app:srcCompat="@drawable/icon_help"
                         android:clickable="true"
                         android:focusable="true" />
 

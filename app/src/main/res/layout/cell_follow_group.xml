@@ -40,7 +40,7 @@
             android:id="@+id/expandIcon"
             android:layout_width="20dp"
             android:layout_height="20dp"
-            android:src="@drawable/arrow_forward"
+            app:srcCompat="@drawable/arrow_forward"
             android:alpha="0.7"
             android:padding="4dp"
             android:contentDescription="@string/a11y_cellfollowgroup_01"

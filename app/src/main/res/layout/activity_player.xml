@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    本页由原生 Activity（android:Theme.Black）承载，布局走系统 inflater，AppCompat 的控件工厂
+    与 app:srcCompat 都不生效；矢量图必须用 VectorImageButton / VectorImageView 自读 app:srcCompat
+    （原因见 ui/widget/VectorImageView.kt 的类注释）。新增图标按钮请沿用这两个类。
+-->
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -160,7 +165,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginVertical="4dp"
                 android:layout_toStartOf="@+id/clock_layout"
-                android:drawableStart="@drawable/arrow_back"
+                app:drawableStartCompat="@drawable/arrow_back"
                 android:text="@string/pagename_player"
                 android:textColor="?android:attr/textColorPrimary"
                 android:textSize="12sp" />
@@ -216,7 +221,6 @@
                 android:paddingEnd="14dp"
                 android:progressTint="?attr/colorPrimary"
                 android:secondaryProgressTint="@color/player_progress_bg"
-                android:thumb="@drawable/player_selector_progress"
                 android:thumbOffset="8dp"
                 tools:targetApi="lollipop" />
 
@@ -285,7 +289,7 @@
                             保持原尺寸，26.11.08 回退格子尺寸却漏删了内边距 —— 图标只剩 20×31dp，
                             用户报「暂停按钮变小了」。**别再往里加内边距**，要放大热区就连格子一起改。
                         -->
-                        <ImageButton
+                        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
                             android:contentDescription="@string/setting_player_ui_label_play"
                             android:id="@+id/button_video"
                             android:layout_width="32dp"
@@ -295,7 +299,7 @@
                             android:adjustViewBounds="true"
                             android:background="?android:attr/selectableItemBackground"
                             android:scaleType="fitCenter"
-                            android:src="@drawable/btn_player_play" />
+                            app:srcCompat="@drawable/btn_player_play" />
 
                         <LinearLayout
                             android:id="@+id/bottom_right_slots"
@@ -357,7 +361,7 @@
 
         </LinearLayout>
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:contentDescription="@string/a11y_player_debug"
             android:id="@+id/btn_debug"
             android:layout_width="@dimen/touch_min"
@@ -373,7 +377,7 @@
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitCenter"
-            android:src="@drawable/icon_debug"
+            app:srcCompat="@drawable/icon_debug"
             android:visibility="gone" />
 
         <LinearLayout
@@ -387,7 +391,7 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent">
 
-            <ImageView
+            <com.RobinNotBad.BiliClient.ui.widget.VectorImageView
                 android:contentDescription="@null"
                 android:id="@+id/circle"
                 android:importantForAccessibility="no"
@@ -762,7 +766,7 @@
         android:orientation="vertical"
         android:visibility="gone">
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:contentDescription="@string/setting_player_btn_quality"
             android:id="@+id/button_quality"
             android:layout_width="@dimen/touch_min"
@@ -774,9 +778,9 @@
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitCenter"
-            android:src="@drawable/icon_menu" />
+            app:srcCompat="@drawable/icon_menu" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:contentDescription="@string/setting_player_btn_sound_cut"
             android:id="@+id/button_sound_cut"
             android:layout_width="@dimen/touch_min"
@@ -790,7 +794,7 @@
             android:scaleType="fitCenter"
             android:src="@mipmap/soundcut" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:contentDescription="@string/setting_player_btn_sound_add"
             android:id="@+id/button_sound_add"
             android:layout_width="@dimen/touch_min"
@@ -804,7 +808,7 @@
             android:scaleType="fitCenter"
             android:src="@mipmap/soundadd" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:contentDescription="@string/setting_player_btn_page_selector"
             android:id="@+id/button_page_selector"
             android:layout_width="@dimen/touch_min"
@@ -816,10 +820,10 @@
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitCenter"
-            android:src="@drawable/icon_folder"
+            app:srcCompat="@drawable/icon_folder"
             android:visibility="gone" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:contentDescription="@string/setting_player_btn_danmaku_send"
             android:id="@+id/danmaku_send_btn"
             android:layout_width="@dimen/touch_min"
@@ -831,9 +835,9 @@
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
-            android:src="@drawable/send" />
+            app:srcCompat="@drawable/send" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:contentDescription="@string/setting_player_btn_subtitle"
             android:id="@+id/subtitle_btn"
             android:layout_width="@dimen/touch_min"
@@ -847,7 +851,7 @@
             android:scaleType="fitXY"
             android:src="@mipmap/subtitle_off" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:contentDescription="@string/setting_player_btn_loop"
             android:id="@+id/loop_btn"
             android:layout_width="@dimen/touch_min"
@@ -861,7 +865,7 @@
             android:scaleType="fitXY"
             android:src="@mipmap/loopoff" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:contentDescription="@string/setting_player_btn_audio_only"
             android:id="@+id/audio_only_btn"
             android:layout_width="@dimen/touch_min"
@@ -873,10 +877,10 @@
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
-            android:src="@drawable/icon_play_16"
+            app:srcCompat="@drawable/icon_play_16"
             android:visibility="gone" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:contentDescription="@string/setting_player_btn_auto_next"
             android:id="@+id/auto_next_btn"
             android:layout_width="@dimen/touch_min"
@@ -888,10 +892,10 @@
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
-            android:src="@drawable/icon_auto_next_off"
+            app:srcCompat="@drawable/icon_auto_next_off"
             android:visibility="gone" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:contentDescription="@string/setting_player_btn_viewpoint"
             android:id="@+id/viewpoint_btn"
             android:layout_width="@dimen/touch_min"
@@ -903,7 +907,7 @@
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
-            android:src="@drawable/icon_folder"
+            app:srcCompat="@drawable/icon_folder"
             android:visibility="gone" />
 
         <TextView
@@ -924,7 +928,7 @@
             直播没有时间点概念，显隐由 onPrepared 的直播分支统一控制。
             26.11.06 起按钮画图标（lucide clock-fading），文字只留作无障碍描述与输入框标题。
         -->
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:id="@+id/jump_time_btn"
             android:layout_width="@dimen/touch_min"
             android:layout_height="@dimen/touch_min"
@@ -936,7 +940,7 @@
             android:background="?android:attr/selectableItemBackground"
             android:contentDescription="@string/text_player_jump_to_time"
             android:scaleType="fitXY"
-            android:src="@drawable/icon_player_clock_fading"
+            app:srcCompat="@drawable/icon_player_clock_fading"
             android:visibility="gone" />
 
         <!--
@@ -945,7 +949,7 @@
             显隐由 updateQueueModeButton() 统一算。
             26.11.06 起按钮画图标（lucide corner-down-right），当前模式写进 contentDescription。
         -->
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:id="@+id/queue_mode_btn"
             android:layout_width="@dimen/touch_min"
             android:layout_height="@dimen/touch_min"
@@ -957,10 +961,10 @@
             android:background="?android:attr/selectableItemBackground"
             android:contentDescription="@string/player_queue_btn_label"
             android:scaleType="fitXY"
-            android:src="@drawable/icon_player_corner_down_right"
+            app:srcCompat="@drawable/icon_player_corner_down_right"
             android:visibility="gone" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:contentDescription="@string/setting_player_btn_danmaku"
             android:id="@+id/danmaku_btn"
             android:layout_width="@dimen/touch_min"
@@ -974,7 +978,7 @@
             android:scaleType="fitXY"
             android:src="@mipmap/danmakuoff" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:contentDescription="@string/setting_player_btn_rotate"
             android:id="@+id/rotate_btn"
             android:layout_width="@dimen/touch_min"
@@ -988,7 +992,7 @@
             android:scaleType="fitXY"
             android:src="@mipmap/rotate" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:id="@+id/lock_btn"
             android:layout_width="@dimen/touch_min"
             android:layout_height="@dimen/touch_min"
@@ -1000,7 +1004,7 @@
             android:background="?android:attr/selectableItemBackground"
             android:contentDescription="@string/desc_player_lock_locked"
             android:scaleType="fitXY"
-            android:src="@drawable/icon_player_unlock" />
+            app:srcCompat="@drawable/icon_player_unlock" />
 
         <TextView
             android:id="@+id/text_speed"

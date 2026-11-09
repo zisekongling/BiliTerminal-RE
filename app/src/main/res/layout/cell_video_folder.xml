@@ -52,7 +52,7 @@
                 android:importantForAccessibility="no"
                 android:layout_width="24dp"
                 android:layout_height="24dp"
-                android:src="@drawable/arrow_forward"
+                app:srcCompat="@drawable/arrow_forward"
                 android:alpha="0.5"
                 android:scaleType="fitCenter" />
         </LinearLayout>

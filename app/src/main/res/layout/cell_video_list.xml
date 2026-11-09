@@ -63,7 +63,7 @@
                 android:id="@+id/text_viewcount"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:drawableStart="@drawable/icon_play_12"
+                app:drawableStartCompat="@drawable/icon_play_12"
                 android:singleLine="true"
                 android:text="@string/text_cellvideolist_01"
                 android:textSize="@dimen/text_caption" />
@@ -73,7 +73,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="4dp"
-                android:drawableStart="@drawable/icon_person"
+                app:drawableStartCompat="@drawable/icon_person"
                 android:singleLine="true"
                 android:text="@string/text_celluplist_01"
                 android:textSize="@dimen/text_caption" />

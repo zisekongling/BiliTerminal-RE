@@ -241,7 +241,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:drawableEnd="@drawable/arrow_forward"
+                        app:drawableEndCompat="@drawable/arrow_forward"
                         android:gravity="start|center_vertical"
                         android:text="@string/pagename_setting_player_ui"
                         android:textSize="13sp" />

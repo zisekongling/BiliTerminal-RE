@@ -14,7 +14,7 @@
         android:layout_marginStart="@dimen/activity_padding_horizontal"
         android:adjustViewBounds="true"
         android:alpha="0.5"
-        android:src="@drawable/icon_play_12"
+        app:srcCompat="@drawable/icon_play_12"
         app:layout_constraintBottom_toBottomOf="@+id/viewCount"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="@+id/viewCount" />
@@ -39,7 +39,7 @@
         android:layout_width="wrap_content"
         android:adjustViewBounds="true"
         android:layout_marginStart="@dimen/activity_padding_horizontal"
-        android:src="@drawable/icon_time"
+        app:srcCompat="@drawable/icon_time"
         android:alpha="0.5"
         app:layout_constraintTop_toBottomOf="@+id/timeText"
         app:layout_constraintStart_toStartOf="parent"
@@ -70,7 +70,7 @@
         android:layout_marginStart="8dp"
         android:adjustViewBounds="true"
         android:alpha="0.5"
-        android:src="@drawable/icon_cv"
+        app:srcCompat="@drawable/icon_cv"
         app:layout_constraintBottom_toBottomOf="@+id/cvidText"
         app:layout_constraintStart_toEndOf="@+id/viewCount"
         app:layout_constraintTop_toTopOf="@+id/cvidText" />
@@ -125,7 +125,7 @@
                     android:layout_width="30dp"
                     android:layout_height="30dp"
                     android:background="#0000"
-                    android:src="@drawable/icon_like_0" />
+                    app:srcCompat="@drawable/icon_like_0" />
 
                 <TextView
                     android:id="@+id/like_label"
@@ -149,7 +149,7 @@
                     android:layout_width="30dp"
                     android:layout_height="30dp"
                     android:background="#0000"
-                    android:src="@drawable/icon_coin_0" />
+                    app:srcCompat="@drawable/icon_coin_0" />
 
                 <TextView
                     android:id="@+id/coin_label"
@@ -174,7 +174,7 @@
                     android:layout_width="30dp"
                     android:layout_height="30dp"
                     android:background="#0000"
-                    android:src="@drawable/icon_fav_0" />
+                    app:srcCompat="@drawable/icon_fav_0" />
 
                 <TextView
                     android:id="@+id/fav_label"

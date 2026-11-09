@@ -78,7 +78,7 @@
                     android:textColor="?attr/colorPrimary"
                     android:textSize="@dimen/text_caption"
                     android:visibility="gone"
-                    android:drawableStart="@drawable/icon_download"
+                    app:drawableStartCompat="@drawable/icon_download"
                     android:drawablePadding="4dp" />
             </LinearLayout>
 

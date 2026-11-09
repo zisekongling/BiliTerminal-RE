@@ -84,7 +84,7 @@
                         android:importantForAccessibility="no"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:src="@drawable/arrow_forward" />
+                        app:srcCompat="@drawable/arrow_forward" />
 
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -107,7 +107,7 @@
                         android:importantForAccessibility="no"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:src="@drawable/icon_info" />
+                        app:srcCompat="@drawable/icon_info" />
 
                     <TextView
                         android:layout_width="0dp"
@@ -122,7 +122,7 @@
                         android:importantForAccessibility="no"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:src="@drawable/arrow_forward" />
+                        app:srcCompat="@drawable/arrow_forward" />
 
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -145,7 +145,7 @@
                         android:importantForAccessibility="no"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:src="@drawable/icon_info" />
+                        app:srcCompat="@drawable/icon_info" />
 
                     <TextView
                         android:layout_width="0dp"
@@ -160,7 +160,7 @@
                         android:importantForAccessibility="no"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:src="@drawable/arrow_forward" />
+                        app:srcCompat="@drawable/arrow_forward" />
 
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>

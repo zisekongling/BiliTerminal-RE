@@ -18,7 +18,7 @@
             android:layout_height="@dimen/icon_lg"
             android:layout_marginStart="8dp"
             android:adjustViewBounds="true"
-            android:src="@drawable/icon_player"
+            app:srcCompat="@drawable/icon_player"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent"
@@ -63,7 +63,7 @@
             android:layout_marginTop="16dp"
             android:layout_marginEnd="8dp"
             android:layout_marginBottom="16dp"
-            android:src="@drawable/arrow_forward"
+            app:srcCompat="@drawable/arrow_forward"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="parent" />

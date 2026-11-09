@@ -108,7 +108,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="35dp"
                 android:layout_marginHorizontal="8dp"
-                android:drawableEnd="@drawable/arrow_forward"
+                app:drawableEndCompat="@drawable/arrow_forward"
                 android:ellipsize="end"
                 android:gravity="center_vertical"
                 android:singleLine="true"
@@ -128,7 +128,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:alpha="0.7"
-                android:drawableStart="@drawable/icon_play_16"
+                app:drawableStartCompat="@drawable/icon_play_16"
                 android:drawablePadding="1dp"
                 android:text="114514"
                 android:textColor="?android:attr/textColorPrimary"
@@ -140,7 +140,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="4dp"
                 android:alpha="0.7"
-                android:drawableStart="@drawable/icon_danmaku"
+                app:drawableStartCompat="@drawable/icon_danmaku"
                 android:drawablePadding="1dp"
                 android:text="1919"
                 android:textSize="12sp" />
@@ -153,7 +153,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:alpha="0.7"
-            android:drawableStart="@drawable/icon_time"
+            app:drawableStartCompat="@drawable/icon_time"
             android:drawablePadding="1dp"
             android:text="9999-13-32 25:61"
             android:textSize="12sp" />
@@ -164,7 +164,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:alpha="0.7"
-            android:drawableStart="@drawable/icon_bv"
+            app:drawableStartCompat="@drawable/icon_bv"
             android:drawablePadding="1dp"
             android:text="BV114514"
             android:textSize="12sp" />
@@ -231,7 +231,7 @@
                         android:layout_width="30dp"
                         android:layout_height="30dp"
                         android:background="#0000"
-                        android:src="@drawable/icon_like_0" />
+                        app:srcCompat="@drawable/icon_like_0" />
 
                     <TextView
                         android:id="@+id/like_label"
@@ -256,7 +256,7 @@
                         android:layout_width="30dp"
                         android:layout_height="30dp"
                         android:background="#0000"
-                        android:src="@drawable/icon_coin_0" />
+                        app:srcCompat="@drawable/icon_coin_0" />
 
                     <TextView
                         android:id="@+id/coin_label"
@@ -282,7 +282,7 @@
                         android:layout_width="30dp"
                         android:layout_height="30dp"
                         android:background="#0000"
-                        android:src="@drawable/icon_fav_0" />
+                        app:srcCompat="@drawable/icon_fav_0" />
 
                     <TextView
                         android:id="@+id/fav_label"

@@ -82,7 +82,7 @@
             android:layout_width="@dimen/icon_sm"
             android:layout_height="@dimen/icon_sm"
             android:alpha="0.7"
-            android:src="@drawable/icon_folder"
+            app:srcCompat="@drawable/icon_folder"
             app:layout_constraintBottom_toBottomOf="@+id/text_itemcount"
             app:layout_constraintStart_toStartOf="@+id/text_title"
             app:layout_constraintTop_toTopOf="@+id/text_itemcount" />

@@ -85,7 +85,7 @@
             android:contentDescription="@string/social_emote_button_desc"
             android:padding="10dp"
             android:scaleType="fitCenter"
-            android:src="@drawable/icon_emote" />
+            app:srcCompat="@drawable/icon_emote" />
 
         <TextView
             android:id="@+id/image_btn"
@@ -107,7 +107,7 @@
             android:layout_width="38dp"
             android:layout_height="38dp"
             android:background="@drawable/background_privatemsg_send"
-            android:src="@drawable/send"
+            app:srcCompat="@drawable/send"
             android:layout_alignParentEnd="true" />
 
     </RelativeLayout>

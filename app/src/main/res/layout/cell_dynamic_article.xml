@@ -53,7 +53,7 @@
             app:layout_constraintStart_toStartOf="@+id/img_cover"
             app:layout_constraintTop_toTopOf="@+id/listReadTimes"
             app:layout_constraintVertical_bias="0.5"
-            android:src="@drawable/icon_cv" />
+            app:srcCompat="@drawable/icon_cv" />
 
         <ImageView
             android:contentDescription="@null"
@@ -69,7 +69,7 @@
             app:layout_constraintBottom_toBottomOf="@+id/text_upname"
             app:layout_constraintStart_toEndOf="@+id/listReadTimes"
             app:layout_constraintTop_toTopOf="@+id/text_upname"
-            android:src="@drawable/icon_person" />
+            app:srcCompat="@drawable/icon_person" />
 
         <TextView
             android:id="@+id/listReadTimes"

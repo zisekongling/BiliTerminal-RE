@@ -278,7 +278,7 @@
         android:layout_height="14dp"
         android:adjustViewBounds="true"
         android:alpha="0.5"
-        android:src="@drawable/icon_uid"
+        app:srcCompat="@drawable/icon_uid"
         app:layout_constraintBottom_toBottomOf="@id/uidText"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="@+id/uidText" />

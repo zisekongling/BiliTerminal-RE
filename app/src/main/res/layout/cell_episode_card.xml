@@ -3,6 +3,7 @@
      宽度固定 128dp：横向列表里靠固定宽度保持节奏一致，不随标题长短跳。
      选中态只改文字/图标颜色，卡片底色不动（底色随主题走，见 ColorScheme/CornersStyle）。 -->
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/episode_card"
     android:layout_width="128dp"
@@ -31,7 +32,7 @@
                 android:layout_width="12dp"
                 android:layout_height="12dp"
                 android:layout_marginEnd="4dp"
-                android:src="@drawable/ic_episode_playing"
+                app:srcCompat="@drawable/ic_episode_playing"
                 android:visibility="gone"
                 tools:visibility="visible" />
 

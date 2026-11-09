@@ -53,7 +53,7 @@
         android:paddingVertical="2dp"
         android:paddingHorizontal="8dp"
         android:background="@drawable/background_media_button"
-        android:src="@drawable/icon_download_overlay"
+        app:srcCompat="@drawable/icon_download_overlay"
         android:layout_alignParentBottom="true"
         android:layout_alignParentStart="true"
         android:layout_alignParentLeft="true"
