@@ -237,7 +237,8 @@ class PlayerUiLayoutTest {
         // 「更多」＝自动收纳格：对布局格式而言就是一个普通 key，可单格、可多份
         val twice = layout.add(layout.default(), PlayerUiLayout.Region.LEFT, PlayerUiLayout.Slot.Button(PlayerButtons.MORE))
         val thrice = layout.add(twice, PlayerUiLayout.Region.RIGHT, PlayerUiLayout.Slot.Button(PlayerButtons.MORE))
-        assertEquals(2, thrice.left.count { it == PlayerUiLayout.Slot.Button(PlayerButtons.MORE) })
+        assertEquals(1, twice.left.count { it == PlayerUiLayout.Slot.Button(PlayerButtons.MORE) })
+        assertEquals(1, thrice.left.count { it == PlayerUiLayout.Slot.Button(PlayerButtons.MORE) })
         assertEquals(1, thrice.right.count { it == PlayerUiLayout.Slot.Button(PlayerButtons.MORE) })
         assertEquals(thrice, layout.parse(layout.encode(thrice)))
     }
