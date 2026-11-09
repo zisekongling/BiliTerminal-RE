@@ -129,12 +129,21 @@ open class BaseActivity : AppCompatActivity() {
             )
         )
 
-        setRequestedOrientation(
-            if (SharedPreferencesUtil.getBoolean("ui_landscape", false))
-                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            else
-                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        )
+        // 「横屏模式」只是偏好：Android 8.0 起，窗口不是全屏（分屏 / 悬浮 / 部分手表 ROM 的
+        // 卡片式窗口）时调 setRequestedOrientation 会抛 IllegalStateException
+        // 「Only fullscreen activities can request orientation」，异常直接打在 onCreate，
+        // 页面连开都开不了（26.11.09 反馈：华为 LEO-DLXXU 打开收藏夹分 P 列表连崩 8 次）。
+        // 拿不到方向就按系统当前方向走，不能因此让页面打不开。
+        try {
+            setRequestedOrientation(
+                if (SharedPreferencesUtil.getBoolean("ui_landscape", false))
+                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                else
+                    ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            )
+        } catch (e: IllegalStateException) {
+            Logu.w("BaseActivity", "设置屏幕方向失败（窗口非全屏），按系统方向显示：${e.message}")
+        }
 
         super.onCreate(savedInstanceState)
 
