@@ -279,7 +279,12 @@
                             android:gravity="center_vertical|end"
                             android:orientation="horizontal" />
 
-                        <!-- 32dp × 37dp 与 26.11.02 一致；内边距 6/3 让图标本身保持原来的视觉大小 -->
+                        <!--
+                            32dp × 37dp、无内边距，与 26.11.02 完全一致（图标 fitCenter 铺满格子，
+                            圆形底盘直径 ≈ 32dp）。26.11.07 把格子放大到 44dp 时加了 6/3 内边距让图标
+                            保持原尺寸，26.11.08 回退格子尺寸却漏删了内边距 —— 图标只剩 20×31dp，
+                            用户报「暂停按钮变小了」。**别再往里加内边距**，要放大热区就连格子一起改。
+                        -->
                         <ImageButton
                             android:contentDescription="@string/setting_player_ui_label_play"
                             android:id="@+id/button_video"
@@ -289,10 +294,6 @@
                             android:layout_marginEnd="3dp"
                             android:adjustViewBounds="true"
                             android:background="?android:attr/selectableItemBackground"
-                            android:paddingStart="6dp"
-                            android:paddingEnd="6dp"
-                            android:paddingTop="3dp"
-                            android:paddingBottom="3dp"
                             android:scaleType="fitCenter"
                             android:src="@drawable/btn_player_play" />
 
