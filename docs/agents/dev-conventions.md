@@ -54,6 +54,16 @@
 - **只做手动切换，不做「跟随系统」**（产品决定）：手表系统几乎固定报非夜间，跟随系统在手表上等于永远亮色。别加 `MODE_NIGHT_FOLLOW_SYSTEM` 或按时间自动切换。
 - 切换模式只走设置页的「颜色模式」：`AppearanceManager.setColorMode` → 刷新 `BiliTerminal.context` → `ColorMode.applyGlobal()`（AppCompat 自动重建页面）。
 
+## 图标 / 矢量图（26.11.09 起，写界面必读）
+
+`app/build.gradle` 有 `vectorDrawables { useSupportLibrary true }`（`minSdk 19` 必须这样：关掉它就会因为 `drawable/` 与 `drawable-v21/` 同名双份撞 `Duplicate resources` 编不过），所以 AAPT **不生成** pre-21 的 PNG 兜底，`<vector>` 只能由 AppCompat 的 `VectorDrawableCompat` 解析。由此三条硬规矩：
+
+- **布局里引用矢量图只能用 Compat 属性**：`app:srcCompat`（`ImageView` / `ImageButton`）、`app:drawableStartCompat` / `drawableEndCompat` / `drawableLeftCompat` / …（`TextView` 家族）。**绝不能写** `android:src` / `android:drawableStart` / `android:background` / `android:thumb` / selector 里的 `android:drawable`——这些在 API<21 由控件构造函数原生加载，直接抛 `Resources$NotFoundException: … invalid drawable tag vector`（26.11.09 扫码登录页事故：`fragment_qr_login.xml` 的 `android:src="@drawable/icon_help"`，教程走完进登录页必崩）。
+- **半自定义控件的基类要选 AppCompat 的**（`AppCompatTextView` / `AppCompatImageView`…），否则 Compat 属性被控制器静默忽略、图标根本不显示（`ui/widget/MarqueeTextView` 26.11.09 就因此换了基类）。
+- **原生 `Activity` 没有 AppCompat 控件工厂**（`activity/player/PlayerActivity` 是 `Activity()` + `android:Theme.Black`）：Compat 属性被静默忽略、原生属性 pre-21 会崩 ⇒ 那里的图标控件用 `ui/widget/VectorImageView.kt` 的 `VectorImageView` / `VectorImageButton`（自己读 `app:srcCompat`，并把 `setImageResource` 覆写成走 `AppCompatResources`），新增图标按钮沿用它们。
+
+代码侧同理：加载图标用 `AppCompatResources.getDrawable`（统一入口是 `util/StringUtil.java` 的 `getDrawable`），**不要用** `ContextCompat.getDrawable` / `ResourcesCompat.getDrawable`（pre-21 走原生路径会抛）；给 TextView 设左右图标用 `TextViewCompat.setCompoundDrawables*WithIntrinsicBounds(view, drawable…)`，别传资源 id。守这条线的是单测 `app/src/test/java/com/RobinNotBad/BiliClient/ui/VectorDrawableCompatTest.kt`（白名单只剩 `drawable/player_selector_progress`，它只在 API≥21 才加载）。
+
 ## 弹窗
 
 **统一走 `util/TerminalDialog.kt`，禁止在业务代码里裸写 `AlertDialog.Builder`。**（26.10.05 起完成迁移，见 `docs/archive/review/dialog-redesign-progress.md`；技术结论已并进 `docs/architecture-map.md` §8.7.0）
