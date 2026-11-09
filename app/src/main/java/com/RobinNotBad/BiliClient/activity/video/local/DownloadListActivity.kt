@@ -73,6 +73,9 @@ class DownloadListActivity : RefreshListActivity() {
 
         CenterThreadPool.run {
             created = true
+            // 顺手收拾历史失败任务的目录残留（反馈 #136）：升级前失败的任务会留下
+            // `.DOWNLOADING`，视频详情页看到目录就只弹「已在下载队列」，于是永远点不进下载。
+            DownloadService.cleanupFailedResidues()
             refreshList(false)
 
             timer = Timer()

@@ -26,6 +26,7 @@ import com.RobinNotBad.BiliClient.player.PlaySession;
 import com.RobinNotBad.BiliClient.player.PlaySessionStore;
 import com.RobinNotBad.BiliClient.player.PlayUrlFallbackPolicy;
 import com.RobinNotBad.BiliClient.service.DownloadService;
+import com.RobinNotBad.BiliClient.service.download.DownloadUrlCandidates;
 import com.RobinNotBad.BiliClient.util.CenterThreadPool;
 import com.RobinNotBad.BiliClient.util.FileUtil;
 import com.RobinNotBad.BiliClient.util.LocalFileProvider;
@@ -47,6 +48,7 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class PlayerApi {
@@ -119,6 +121,39 @@ public class PlayerApi {
     }
 
     /**
+     * 记下这次取流拿到的候选线路（主线路 + playurl 的 `backup_url`），供下载器换线重试。
+     *
+     * <p>为什么需要它：upos 的某条 CDN 线会在下载途中把连接掐断——服务端声明的
+     * `Content-Length` 还没传完就 EOF，OkHttp 报 `unexpected end of stream`。反馈 #136
+     * （26.11.09，OPPO OW20W2）的日志里，分片下载与整文件下载两条链路都失败在同一偏移处，
+     * 说明不是偶发抖动而是这条线路/节点的问题；重试次数用尽后任务变 error，用户再点下载
+     * 走的还是同一条线，于是「一旦下载出错就再也下不动」。按这里的顺序换线即可绕开。
+     *
+     * <p>播放器不消费这份列表（它有自己的失败重连），所以只在成功取到地址后记一次。
+     */
+    private static void rememberUrlCandidates(PlayerData playerData, String videoPrimary,
+                                              List<String> videoBackups,
+                                              String audioPrimary, List<String> audioBackups) {
+        playerData.videoUrlCandidates = new ArrayList<>(
+                DownloadUrlCandidates.of(videoPrimary, videoBackups));
+        playerData.audioUrlCandidates = new ArrayList<>(
+                DownloadUrlCandidates.of(audioPrimary, audioBackups));
+    }
+
+    /** durl 单段里的 `backup_url`：老接口的合一 MP4 也可能带备用线路，同样交给下载器重试用。 */
+    private static List<String> readDurlBackups(JSONObject durlPart) {
+        List<String> backups = new ArrayList<>();
+        if (durlPart == null) return backups;
+        JSONArray array = durlPart.optJSONArray("backup_url");
+        if (array == null) return backups;
+        for (int i = 0; i < array.length(); i++) {
+            String url = array.optString(i);
+            if (url != null && !url.isEmpty()) backups.add(url);
+        }
+        return backups;
+    }
+
+    /**
      * 解析视频（DASH格式）
      *
      * @param playerData 传入aid、cid、qn等必要数据
@@ -155,6 +190,10 @@ public class PlayerApi {
             if (audioStream != null) {
                 playerData.audioUrl = audioStream.baseUrl;
             }
+            rememberUrlCandidates(playerData, playerData.videoUrl,
+                    videoStream == null ? null : videoStream.backupUrl,
+                    playerData.audioUrl,
+                    audioStream == null ? null : audioStream.backupUrl);
         } else {
             getVideo(playerData, true);
             return;
@@ -247,6 +286,10 @@ public class PlayerApi {
             if (audioStream != null) {
                 playerData.audioUrl = audioStream.baseUrl;
             }
+            rememberUrlCandidates(playerData, playerData.videoUrl,
+                    videoStream == null ? null : videoStream.backupUrl,
+                    playerData.audioUrl,
+                    audioStream == null ? null : audioStream.backupUrl);
 
             if (playerData.videoUrl != null && !playerData.videoUrl.isEmpty()) {
                 return true;
@@ -258,6 +301,8 @@ public class PlayerApi {
         if (durl != null && durl.length() > 0) {
             JSONObject videoUrlObj = durl.getJSONObject(0);
             playerData.videoUrl = videoUrlObj.getString("url");
+            playerData.videoUrlCandidates = new ArrayList<>(
+                    DownloadUrlCandidates.of(playerData.videoUrl, readDurlBackups(videoUrlObj)));
             if (playerData.videoUrl != null && !playerData.videoUrl.isEmpty()) {
                 return true;
             }
@@ -306,10 +351,13 @@ public class PlayerApi {
                     + " dataKeys=" + (data == null ? "null" : data.names().toString()));
             throw new NoPlayUrlException(detail);
         }
-        playerData.videoUrl = durl.getJSONObject(0).optString("url");
+        JSONObject firstDurl = durl.getJSONObject(0);
+        playerData.videoUrl = firstDurl.optString("url");
         if (playerData.videoUrl == null || playerData.videoUrl.isEmpty()) {
             throw new NoPlayUrlException("无法获取播放地址（该视频可能为付费/充电专属、地区限制或需要登录）");
         }
+        playerData.videoUrlCandidates = new ArrayList<>(
+                DownloadUrlCandidates.of(playerData.videoUrl, readDurlBackups(firstDurl)));
         // 只有成功拿到地址才记缓存时间：失败请求若也写时间戳，10 分钟内重试会被直接跳过，
         // 弱网/WBI 风控的偶发失败就变成「这个视频十分钟都打不开」。
         playerData.timeStamp = System.currentTimeMillis();
@@ -378,10 +426,13 @@ public class PlayerApi {
                     + " dataKeys=" + (data == null ? "null" : data.names().toString()));
             throw new NoPlayUrlException(detail);
         }
-        playerData.videoUrl = durl.getJSONObject(0).optString("url");
+        JSONObject firstBangumiDurl = durl.getJSONObject(0);
+        playerData.videoUrl = firstBangumiDurl.optString("url");
         if (playerData.videoUrl == null || playerData.videoUrl.isEmpty()) {
             throw new NoPlayUrlException("无法获取播放地址（该番剧可能为大会员专享、地区限制或需要登录）");
         }
+        playerData.videoUrlCandidates = new ArrayList<>(
+                DownloadUrlCandidates.of(playerData.videoUrl, readDurlBackups(firstBangumiDurl)));
 
         playerData.danmakuUrl = "https://comment.bilibili.com/" + playerData.cid + ".xml";
 

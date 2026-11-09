@@ -22,9 +22,11 @@ import com.RobinNotBad.BiliClient.service.download.DownloadNotifier
 import com.RobinNotBad.BiliClient.service.download.DownloadPathSpec
 import com.RobinNotBad.BiliClient.service.download.DownloadProgressMath
 import com.RobinNotBad.BiliClient.service.download.DownloadStreamTransfer
+import com.RobinNotBad.BiliClient.service.download.DownloadUrlCandidates
 import com.RobinNotBad.BiliClient.service.download.DownloadProgressStore
 import com.RobinNotBad.BiliClient.service.download.DownloadProgressInfo
 import com.RobinNotBad.BiliClient.service.download.DownloadRepository
+import com.RobinNotBad.BiliClient.service.download.DownloadResiduePolicy
 import com.RobinNotBad.BiliClient.service.download.SegmentDownloadPolicy
 import com.RobinNotBad.BiliClient.model.DownloadSection
 import com.RobinNotBad.BiliClient.model.PlayerData
@@ -212,8 +214,16 @@ class DownloadService : Service() {
                     cursor = database.rawQuery("select * from download where aid=? and cid=?",
                         arrayOf(aid.toString(), cid.toString()))
                     if (cursor != null && cursor.count > 0) {
-                        MsgUtil.showMsg(BiliTerminal.context!!.getString(R.string.text_download_already_queued))
-                        return@run
+                        // 失败过的任务不该再挡路（反馈 #136）：留着 state="error" 的旧行会让同一个视频
+                        // 永远弹「已在下载队列」，这里把失败行删掉、按新任务重新入队。
+                        val oldState = if (cursor.moveToFirst())
+                            cursor.getString(cursor.getColumnIndexOrThrow("state")) else ""
+                        if (oldState != "error") {
+                            MsgUtil.showMsg(BiliTerminal.context!!.getString(R.string.text_download_already_queued))
+                            return@run
+                        }
+                        database.execSQL("delete from download where aid=? and cid=?",
+                            arrayOf<Any>(aid, cid))
                     }
                     cursor?.close()
 
@@ -265,8 +275,15 @@ class DownloadService : Service() {
                     cursor = database.rawQuery("select * from download where aid=? and cid=?",
                         arrayOf(aid.toString(), cid.toString()))
                     if (cursor != null && cursor.count > 0) {
-                        MsgUtil.showMsg(BiliTerminal.context!!.getString(R.string.text_download_already_queued))
-                        return@run
+                        // 同单 P：失败行不再挡路，删掉旧行重新入队（反馈 #136）。
+                        val oldState = if (cursor.moveToFirst())
+                            cursor.getString(cursor.getColumnIndexOrThrow("state")) else ""
+                        if (oldState != "error") {
+                            MsgUtil.showMsg(BiliTerminal.context!!.getString(R.string.text_download_already_queued))
+                            return@run
+                        }
+                        database.execSQL("delete from download where aid=? and cid=?",
+                            arrayOf<Any>(aid, cid))
                     }
                     cursor?.close()
 
@@ -343,6 +360,47 @@ class DownloadService : Service() {
         @JvmStatic
         fun sampleSpeed() {
             DownloadProgressStore.sampleSpeed()
+        }
+
+        /**
+         * 收拾失败任务的目录残留，让同一个视频下次还能从零重下（反馈 #136）。
+         *
+         * 有成品（`video.mp4` / `audio.m4a`，或它们的 `.bak`）时只清临时产物，不碰成品：这是
+         * "已经下载好的视频重下另一个清晰度失败了"，删目录等于把用户已下好的视频弄没。
+         * 一个成品都没有时整目录删掉——里面只剩 `.DOWNLOADING` / `.quality` / `.video_meta.json` /
+         * `video_new.mp4` 这些本次下载自己生成的东西，重新入队会全部重写，因此删掉不丢数据。
+         */
+        private fun cleanFailedResidue(folder: File?) {
+            if (folder == null || !folder.isDirectory) return
+            val names = folder.list()?.toList()
+            when (DownloadResiduePolicy.disposition(names)) {
+                DownloadResiduePolicy.Disposition.NONE -> return
+                DownloadResiduePolicy.Disposition.CLEAN_TEMPS -> {
+                    FileUtil.cleanDownloadTempFiles(folder)
+                    Logu.i("DownloadService", "已清理失败任务 ${folder.name} 的临时产物（成品保留）")
+                }
+
+                DownloadResiduePolicy.Disposition.DELETE_FOLDER -> {
+                    FileUtil.deleteFolder(folder)
+                    Logu.i("DownloadService", "已删除失败任务 ${folder.name} 的残留目录（其中没有成品，重新下载会从零开始）")
+                }
+            }
+        }
+
+        /**
+         * 扫一遍数据库里所有失败任务，收拾它们的目录残留（反馈 #136）。
+         *
+         * 失败收尾现在会当场清残留，但**升级前就已经失败**的任务还留着 `.DOWNLOADING`：视频详情页的
+         * 下载入口只看「任务目录在不在」，看到就只弹一句「已在下载队列，长按可清空文件」，
+         * 于是同一个视频点多少次都进不了下载流程。进下载列表时扫一遍，让这些老任务重新可下。
+         */
+        @JvmStatic
+        fun cleanupFailedResidues() {
+            val all = DownloadRepository.getAll() ?: return
+            for (section in all) {
+                if (section.state != "error") continue
+                cleanFailedResidue(section.getPath())
+            }
         }
     }
 
@@ -601,11 +659,14 @@ class DownloadService : Service() {
             batchStats.recordFailure()
             removeDownloadProgress(downloadSection.id)
             DownloadRepository.setState(downloadSection.id, "error")
+            // 失败收尾必须收拾目录残留（反馈 #136）：留下来的 `.DOWNLOADING` 会让视频详情页
+            // 一直以为"已在下载队列"，同一个视频从此再也点不进来。
+            cleanFailedResidue(downloadSection.getPath())
         }
         return success
     }
 
-    /** 恢复上次会话遗留的"下载中"记录，并清理残留进度 */
+    /** 恢复上次会话遗留的"下载中"记录、清理残留进度，并收拾历史失败任务的目录残留 */
     private fun recoverStuckSections() {
         val all = DownloadRepository.getAll() ?: return
         for (s in all) {
@@ -617,6 +678,11 @@ class DownloadService : Service() {
             if (s.state == "downloading" && !DownloadProgressStore.hasProgress(s.id)) {
                 DownloadRepository.setState(s.id, "none")
                 removeDownloadProgress(s.id)
+            } else if (s.state == "error") {
+                // 历史失败任务（反馈 #136）：视频详情页只看「任务目录还在不在」，目录不清掉就
+                // 永远弹「已在下载队列」、再也进不了下载流程。这里趁批次启动把它们一并收拾了，
+                // 有成品时只清临时产物，不会动已经下好的视频。
+                cleanFailedResidue(s.getPath())
             }
         }
     }
@@ -629,6 +695,10 @@ class DownloadService : Service() {
         val url_danmaku: String
         val url_audio: String
         val useDash: Boolean // 是否使用DASH格式（需要合并音视频）
+        // 每条流的候选线路（主线路在前，备用线路在后）：主线路被 CDN 掐断时换线重试，
+        // 见 DownloadUrlCandidates 与 downFile(List)。
+        val videoUrls: List<String>
+        val audioUrls: List<String>
         try {
             val data = downloadSection.toPlayerData()
 
@@ -638,6 +708,12 @@ class DownloadService : Service() {
                     downloadSection.audioUrl!!
                 else
                     data.audioUrl
+                // 用户自选的音频地址没有备用线路可言；从取流接口拿到的那条才有
+                audioUrls = if (!downloadSection.audioUrl.isNullOrEmpty())
+                    listOf(downloadSection.audioUrl!!)
+                else
+                    data.audioUrlCandidates.ifEmpty { listOf(url_audio) }
+                videoUrls = emptyList()
                 url_video = ""
                 useDash = false // 纯音频不需要合并
             } else {
@@ -645,12 +721,16 @@ class DownloadService : Service() {
                 if (downloadSection.qn <= 64) {
                     PlayerApi.getVideo(data, true)
                     url_video = data.videoUrl
+                    videoUrls = data.videoUrlCandidates.ifEmpty { listOf(url_video) }
+                    audioUrls = emptyList()
                     url_audio = ""
                     useDash = false
                 } else {
                     PlayerApi.getVideoDash(data)
                     url_video = data.videoUrl
                     url_audio = data.audioUrl
+                    videoUrls = data.videoUrlCandidates.ifEmpty { listOf(url_video) }
+                    audioUrls = data.audioUrlCandidates.ifEmpty { listOf(url_audio) }
                     // DASH下载需要音视频流都存在；无音轨视频（audio=null）只下视频流，不走合并
                     useDash = url_video.isNotEmpty() && url_audio.isNotEmpty()
                 }
@@ -712,7 +792,7 @@ class DownloadService : Service() {
                         val audioTmp = File(path_single, DownloadPathSpec.FILE_AUDIO_TMP)
                         state = getString(R.string.text_download_audio)
                         setDownloadProgress(downloadSection.id, 0.2f, getString(R.string.text_download_audio))
-                        result = downFile(url_audio, audioTmp, downloadSection.id, 0.2f)
+                        result = downFile(audioUrls, audioTmp, downloadSection.id, 0.2f)
                         if (result != DownloadPathSpec.NORMAL) {
                             exitCode = result
                             return false
@@ -727,14 +807,14 @@ class DownloadService : Service() {
                         val audioTmp = File(path_single, DownloadPathSpec.FILE_AUDIO_TMP)
                         state = getString(R.string.text_download_video)
                         setDownloadProgress(downloadSection.id, DownloadProgressMath.DASH_ATTACH_END, getString(R.string.text_download_video))
-                        result = downFile(url_video, videoTmp, downloadSection.id, DownloadProgressMath.DASH_ATTACH_END, DownloadProgressMath.DASH_VIDEO_END)
+                        result = downFile(videoUrls, videoTmp, downloadSection.id, DownloadProgressMath.DASH_ATTACH_END, DownloadProgressMath.DASH_VIDEO_END)
                         if (result != DownloadPathSpec.NORMAL) {
                             exitCode = result
                             return false
                         }
                         state = getString(R.string.text_download_audio)
                         setDownloadProgress(downloadSection.id, DownloadProgressMath.DASH_VIDEO_END, getString(R.string.text_download_audio))
-                        result = downFile(url_audio, audioTmp, downloadSection.id, DownloadProgressMath.DASH_VIDEO_END, DownloadProgressMath.DASH_AUDIO_END)
+                        result = downFile(audioUrls, audioTmp, downloadSection.id, DownloadProgressMath.DASH_VIDEO_END, DownloadProgressMath.DASH_AUDIO_END)
                         if (result != DownloadPathSpec.NORMAL) {
                             exitCode = result
                             return false
@@ -752,7 +832,7 @@ class DownloadService : Service() {
                         val videoTmp = File(path_single, DownloadPathSpec.FILE_VIDEO_TMP)
                         state = getString(R.string.text_download_video)
                         setDownloadProgress(downloadSection.id, 0.2f, getString(R.string.text_download_video))
-                        result = downFile(url_video, videoTmp, downloadSection.id, 0.2f)
+                        result = downFile(videoUrls, videoTmp, downloadSection.id, 0.2f)
                         if (result != DownloadPathSpec.NORMAL) {
                             exitCode = result
                             return false
@@ -792,7 +872,7 @@ class DownloadService : Service() {
                         val audioTmp = File(path_page, DownloadPathSpec.FILE_AUDIO_TMP)
                         state = getString(R.string.text_download_audio)
                         setDownloadProgress(downloadSection.id, 0.2f, getString(R.string.text_download_audio))
-                        result = downFile(url_audio, audioTmp, downloadSection.id, 0.2f)
+                        result = downFile(audioUrls, audioTmp, downloadSection.id, 0.2f)
                         if (result != DownloadPathSpec.NORMAL) {
                             exitCode = result
                             return false
@@ -807,14 +887,14 @@ class DownloadService : Service() {
                         val audioTmp = File(path_page, DownloadPathSpec.FILE_AUDIO_TMP)
                         state = getString(R.string.text_download_video)
                         setDownloadProgress(downloadSection.id, DownloadProgressMath.DASH_ATTACH_END, getString(R.string.text_download_video))
-                        result = downFile(url_video, videoTmp, downloadSection.id, DownloadProgressMath.DASH_ATTACH_END, DownloadProgressMath.DASH_VIDEO_END)
+                        result = downFile(videoUrls, videoTmp, downloadSection.id, DownloadProgressMath.DASH_ATTACH_END, DownloadProgressMath.DASH_VIDEO_END)
                         if (result != DownloadPathSpec.NORMAL) {
                             exitCode = result
                             return false
                         }
                         state = getString(R.string.text_download_audio)
                         setDownloadProgress(downloadSection.id, DownloadProgressMath.DASH_VIDEO_END, getString(R.string.text_download_audio))
-                        result = downFile(url_audio, audioTmp, downloadSection.id, DownloadProgressMath.DASH_VIDEO_END, DownloadProgressMath.DASH_AUDIO_END)
+                        result = downFile(audioUrls, audioTmp, downloadSection.id, DownloadProgressMath.DASH_VIDEO_END, DownloadProgressMath.DASH_AUDIO_END)
                         if (result != DownloadPathSpec.NORMAL) {
                             exitCode = result
                             return false
@@ -832,7 +912,7 @@ class DownloadService : Service() {
                         val videoTmp = File(path_page, DownloadPathSpec.FILE_VIDEO_TMP)
                         state = getString(R.string.text_download_video)
                         setDownloadProgress(downloadSection.id, 0.2f, getString(R.string.text_download_video))
-                        result = downFile(url_video, videoTmp, downloadSection.id, 0.2f)
+                        result = downFile(videoUrls, videoTmp, downloadSection.id, 0.2f)
                         if (result != DownloadPathSpec.NORMAL) {
                             exitCode = result
                             return false
@@ -1110,7 +1190,38 @@ class DownloadService : Service() {
     }
 
     @Throws(IOException::class)
-    private fun downFile(url: String, file: File, sectionId: Long = -1, baseProgress: Float = 0f, endProgress: Float = 1.0f): Int {
+    private fun downFile(url: String, file: File, sectionId: Long = -1, baseProgress: Float = 0f, endProgress: Float = 1.0f): Int =
+        downFile(listOf(url), file, sectionId, baseProgress, endProgress)
+
+    /**
+     * 按候选线路顺序下载，一条线失败就换下一条。
+     *
+     * 背景见 [DownloadUrlCandidates]：upos 的某条线会在下载途中掐断连接（服务端声明的
+     * Content-Length 没传完就 EOF），而 playurl 早已把备用线路一起给了我们。原实现只用主线路、
+     * 重试也打同一条线，坏节点上就等于「这个视频永远下不完」（反馈 #136）。
+     *
+     * 只对网络类失败换线：本地写文件失败（ERR_FILE）、用户暂停、服务已停都不该再白打一遍。
+     * 每条线路内部仍走原来的分片重试与退化逻辑（[downFileOnce] 语义不变）。
+     */
+    @Throws(IOException::class)
+    private fun downFile(urls: List<String>, file: File, sectionId: Long = -1, baseProgress: Float = 0f, endProgress: Float = 1.0f): Int {
+        val candidates = urls.filter { it.isNotEmpty() }.ifEmpty { listOf("") }
+        var lastResult = DownloadPathSpec.ERR_NETWORK
+        for ((index, url) in candidates.withIndex()) {
+            // 换线前先看服务是否还活着、用户有没有暂停：这两件事换哪条线都救不回来
+            if (!started) return DownloadPathSpec.ERR_UNKNOWN
+            if (sectionId > 0 && isPaused(sectionId)) return DownloadPathSpec.ERR_PAUSED
+            if (index > 0) {
+                Logu.w("DownloadService", "下载失败，换备用线路重试（${index + 1}/${candidates.size}）：${file.name}")
+            }
+            lastResult = downFileOnce(url, file, sectionId, baseProgress, endProgress)
+            if (lastResult != DownloadPathSpec.ERR_NETWORK) return lastResult
+        }
+        return lastResult
+    }
+
+    @Throws(IOException::class)
+    private fun downFileOnce(url: String, file: File, sectionId: Long = -1, baseProgress: Float = 0f, endProgress: Float = 1.0f): Int {
         if (Aria2Util.isEnabled()) {
             isSpeedMode = true
             return downFileSpeed(url, file, sectionId, baseProgress, endProgress)

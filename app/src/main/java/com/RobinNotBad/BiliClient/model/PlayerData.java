@@ -83,6 +83,12 @@ public class PlayerData implements Parcelable {
     public int currentPageIndex = 0;
     public DashData dashData; // DASH格式数据
     public String audioUrl = ""; // 单独的音频URL（用于仅音频下载）
+    // 视频 / 音频流的候选线路（主线路在前，playurl 的 backup_url 备用线路按序去重追加）。
+    // 只给下载器用：主线路在某台设备/某个视频上持续掐断时换线重试（反馈 #136）。
+    // 和 dashData 一样不参与 Parcel —— 它是"这一次取流"的附属信息，跨 Intent / 存盘后本就过期，
+    // 需要的一方重新取流即可（见 PlayerApi#rememberUrlCandidates）。
+    public ArrayList<String> videoUrlCandidates = new ArrayList<>();
+    public ArrayList<String> audioUrlCandidates = new ArrayList<>();
     // 直播专用：进入播放器前已经把全部可选地址排好序（见 util/live/LiveStreamSelector）。
     // 直播流"连接还在、但长时间没有数据"时，播放器按这个顺序换 CDN / 换 HLS 重连，
     // 不必回头再请求一次取流接口（也就不会因为请求失败而彻底没得救）。
