@@ -22,7 +22,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.annotation.NonNull
-import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.load.DecodeFormat
 import com.bumptech.glide.load.engine.DiskCacheStrategy
@@ -85,7 +84,7 @@ class ReplyAdapter(
     var listener: OnItemClickListener? = null
 
     private val roundSmallPx = context.resources.getDimension(R.dimen.round_small).toInt()
-    private val likeDrawable0 = ContextCompat.getDrawable(context, R.drawable.icon_reply_like0)
+    private val likeDrawable0 = StringUtil.getDrawable(context, R.drawable.icon_reply_like0)
     // 已赞图标原写死 #fb6789；与同一行「已赞」数字（ColorScheme.LIKE_COLOR）同色
     private val likeDrawable1 = ThemeTint.tinted(context, R.drawable.icon_reply_like1, ColorScheme.LIKE_COLOR)
 

@@ -9,6 +9,7 @@ import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.widget.TextViewCompat
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.SplashActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
@@ -20,6 +21,7 @@ import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.bumptech.glide.Glide
 import com.bumptech.glide.RequestManager
@@ -277,7 +279,10 @@ class AccountSwitchActivity : BaseActivity() {
         text.text = getString(R.string.text_account_add_new)
         text.textAlignment = View.TEXT_ALIGNMENT_TEXT_START
         text.textSize = 13f
-        text.setCompoundDrawablesWithIntrinsicBounds(0, 0, R.drawable.arrow_forward, 0)
+        // 传资源 id 的重载是原生加载，API<21 遇到矢量箭头会崩，统一走 Compat
+        TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(
+            text, null, null, StringUtil.getDrawable(text.context, R.drawable.arrow_forward), null
+        )
         card.addView(text)
 
         card.setOnClickListener {
@@ -312,7 +317,9 @@ class AccountSwitchActivity : BaseActivity() {
         text.text = getString(R.string.text_account_import)
         text.textAlignment = View.TEXT_ALIGNMENT_TEXT_START
         text.textSize = 13f
-        text.setCompoundDrawablesWithIntrinsicBounds(0, 0, R.drawable.arrow_forward, 0)
+        TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(
+            text, null, null, StringUtil.getDrawable(text.context, R.drawable.arrow_forward), null
+        )
         card.addView(text)
 
         card.setOnClickListener {

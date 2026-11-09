@@ -35,7 +35,7 @@ import android.widget.TextView;
 
 import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
-import androidx.core.content.res.ResourcesCompat;
+import androidx.appcompat.content.res.AppCompatResources;
 
 import com.RobinNotBad.BiliClient.BiliTerminal;
 import com.RobinNotBad.BiliClient.R;
@@ -467,7 +467,10 @@ public class StringUtil {
     }
 
     public static Drawable getDrawable(Context context, @DrawableRes int res) {
-        Drawable drawable = ResourcesCompat.getDrawable(context.getResources(), res, context.getTheme());
+        // 必须走 AppCompatResources：本项目开了 vectorDrawables.useSupportLibrary，
+        // API<21 没有 PNG 兜底，ResourcesCompat 在那里拿到的仍是原生加载路径，遇到 <vector> 会抛
+        // Resources$NotFoundException（invalid drawable tag vector）。等级徽章等就是矢量。
+        Drawable drawable = AppCompatResources.getDrawable(context, res);
         if (drawable != null) return drawable;
         else return new BitmapDrawable();
     }

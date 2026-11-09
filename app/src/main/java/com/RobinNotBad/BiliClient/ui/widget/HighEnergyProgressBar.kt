@@ -4,8 +4,13 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.drawable.StateListDrawable
+import android.os.Build
 import android.util.AttributeSet
+import androidx.appcompat.content.res.AppCompatResources
 import androidx.appcompat.widget.AppCompatSeekBar
+import androidx.core.content.res.ResourcesCompat
+import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import kotlin.math.min
 import kotlin.math.pow
@@ -40,6 +45,23 @@ class HighEnergyProgressBar @JvmOverloads constructor(
         fillPaint.isAntiAlias = true
         fillPaint.color = 0x33000000 or accentRgb
         fillPaint.style = Paint.Style.FILL
+
+        // 滑块：原来写在布局的 android:thumb="@drawable/player_selector_progress" 里，而 ProgressBar
+        // 构造函数是用 Resources.getDrawable 原生加载 thumb 的，那个 selector 里指向矢量，API<21
+        // 解析不了 <vector> 会直接崩（Resources$NotFoundException: invalid drawable tag vector）。
+        // 所以布局不再声明 thumb，改在这里按 SDK 取：>=21 直接加载 selector；<21 手搭
+        // StateListDrawable——AppCompatResources 能解矢量，但解不了「含矢量的 selector」。
+        thumb = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            ResourcesCompat.getDrawable(
+                context.resources, R.drawable.player_selector_progress, context.theme
+            )
+        } else StateListDrawable().apply {
+            val pressed = AppCompatResources.getDrawable(context, R.drawable.player_tv_white)
+            val normal = AppCompatResources.getDrawable(context, R.drawable.player_tv_blue)
+            addState(intArrayOf(android.R.attr.state_pressed), pressed)
+            addState(intArrayOf(android.R.attr.state_focused), pressed)
+            addState(intArrayOf(), normal)
+        }
     }
 
     fun setHighEnergyData(data: FloatArray?, stepSec: Int) {

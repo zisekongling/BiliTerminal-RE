@@ -6,10 +6,12 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.annotation.NonNull
+import androidx.core.widget.TextViewCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.listener.OnItemClickListener
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
+import com.RobinNotBad.BiliClient.util.StringUtil
 import com.google.android.material.button.MaterialButton
 
 class QualitySelectorAdapter : RecyclerView.Adapter<QualitySelectorAdapter.QualityHolder>() {
@@ -99,7 +101,10 @@ class QualitySelectorAdapter : RecyclerView.Adapter<QualitySelectorAdapter.Quali
             if (locked) {
                 // 锁图标复用播放器锁屏按钮那张，整格再压暗一点：一眼能看出「有这个档但选不了」。
                 // 锁住的项永远不会是当前档（当前档一定是能播的），所以不用管选中配色冲突。
-                button.setCompoundDrawablesRelativeWithIntrinsicBounds(0, 0, R.drawable.icon_player_lock, 0)
+                // 锁图标是矢量，传资源 id 的重载在 API<21 是原生加载会崩，走 Compat
+                TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                    button, null, null, StringUtil.getDrawable(button.context, R.drawable.icon_player_lock), null
+                )
                 button.compoundDrawablePadding =
                     (6 * button.resources.displayMetrics.density).toInt()
                 button.alpha = 0.55f

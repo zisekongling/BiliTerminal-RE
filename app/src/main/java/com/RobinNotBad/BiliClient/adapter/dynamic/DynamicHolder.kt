@@ -17,7 +17,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.result.ActivityResultLauncher
-import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
@@ -958,7 +957,7 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
                 } else {
                     likeCount!!.setTextColor(ColorScheme.TEXT_PRIMARY)
                     likeCount!!.setCompoundDrawablesWithIntrinsicBounds(
-                        ContextCompat.getDrawable(context, R.drawable.icon_reply_like0), null, null, null
+                        StringUtil.getDrawable(context, R.drawable.icon_reply_like0), null, null, null
                     )
                 }
                 likeCount!!.text = StringUtil.toWan(dynamic.stats.like.toLong())
@@ -1002,7 +1001,7 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
                                         likeCount!!.text = StringUtil.toWan((--dynamic.stats.like).toLong())
                                         likeCount!!.setTextColor(ColorScheme.TEXT_PRIMARY)
                                         likeCount!!.setCompoundDrawablesWithIntrinsicBounds(
-                                            ContextCompat.getDrawable(context, R.drawable.icon_reply_like0), null, null,
+                                            StringUtil.getDrawable(context, R.drawable.icon_reply_like0), null, null,
                                             null
                                         )
                                     }
@@ -1033,7 +1032,7 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
             }
             // icon_reply 固有尺寸 24dp，比这一行的 20dp 高，直接当 compound drawable 会被裁；
             // 按 14dp 重设边界，与同行 icon_reply_like0（14dp）视觉一致（不新增 drawable）。
-            val icon = ContextCompat.getDrawable(context, R.drawable.icon_reply)
+            val icon = StringUtil.getDrawable(context, R.drawable.icon_reply)
             if (icon != null) {
                 val side = (context.resources.displayMetrics.density * 14f).toInt()
                 icon.setBounds(0, 0, side, side)

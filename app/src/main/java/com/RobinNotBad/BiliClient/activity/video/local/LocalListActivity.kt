@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.view.View
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.widget.TextViewCompat
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -34,6 +35,7 @@ import com.RobinNotBad.BiliClient.util.LocalListSort
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import com.RobinNotBad.BiliClient.util.PageOrderStore
+import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.VideoMetaManager
 import com.RobinNotBad.BiliClient.util.VirtualCollectionStart
@@ -524,7 +526,13 @@ class LocalListActivity : InstanceActivity() {
         val pageName = findViewById<TextView>(R.id.pageName)
         pageName?.text = folder.name
         // 进文件夹后顶栏那个箭头点下去是"退出文件夹"，用返回箭头表达。
-        pageName?.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.arrow_back, 0, 0, 0)
+        // 图标走 TextViewCompat + StringUtil.getDrawable：传资源 id 的重载是原生加载，
+        // API<21 遇到矢量箭头会崩
+        pageName?.let {
+            TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                it, StringUtil.getDrawable(it.context, R.drawable.arrow_back), null, null, null
+            )
+        }
         updateSelectionBar()
     }
 
@@ -535,7 +543,11 @@ class LocalListActivity : InstanceActivity() {
         val pageName = findViewById<TextView>(R.id.pageName)
         pageName?.text = UiText.of("缓存")
         // 回到顶层：箭头点下去打开菜单，恢复成朝下的箭头。
-        pageName?.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.arrow_down, 0, 0, 0)
+        pageName?.let {
+            TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                it, StringUtil.getDrawable(it.context, R.drawable.arrow_down), null, null, null
+            )
+        }
         updateSelectionBar()
     }
 

@@ -4,9 +4,11 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
 import android.widget.TextView
+import androidx.core.widget.TextViewCompat
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.MenuActivity
+import com.RobinNotBad.BiliClient.util.StringUtil
 
 open class InstanceActivity : BaseActivity() {
 
@@ -38,9 +40,13 @@ open class InstanceActivity : BaseActivity() {
      */
     fun setMenuClick() {
         findViewById<android.view.View>(R.id.top).setOnClickListener { menuClick.run() }
-        findViewById<TextView>(R.id.pageName)?.setCompoundDrawablesRelativeWithIntrinsicBounds(
-            R.drawable.arrow_down, 0, 0, 0
-        )
+        // 图标走 TextViewCompat + AppCompatResources（见 StringUtil.getDrawable）：传资源 id 的
+        // setCompoundDrawablesRelativeWithIntrinsicBounds 是原生加载，API<21 遇到矢量图会崩
+        findViewById<TextView>(R.id.pageName)?.let {
+            TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                it, StringUtil.getDrawable(it.context, R.drawable.arrow_down), null, null, null
+            )
+        }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {

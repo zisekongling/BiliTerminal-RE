@@ -20,6 +20,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.constraintlayout.widget.ConstraintSet
+import androidx.core.widget.TextViewCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
@@ -535,14 +536,17 @@ class UserDynamicAdapter(
                                 if (electric_expand) {
                                     this.electricUserList.visibility = View.VISIBLE
                                     this.electricPanelDivider.visibility = View.VISIBLE
-                                    this.electricPanelHeader.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                                        0, 0, R.drawable.arrow_up, 0
+                                    // 箭头是矢量，传资源 id 的重载在 API<21 是原生加载会崩，走 Compat
+                                    TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                                        this.electricPanelHeader, null, null,
+                                        StringUtil.getDrawable(context, R.drawable.arrow_up), null
                                     )
                                 } else {
                                     this.electricUserList.visibility = View.GONE
                                     this.electricPanelDivider.visibility = View.GONE
-                                    this.electricPanelHeader.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                                        0, 0, R.drawable.arrow_down, 0
+                                    TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                                        this.electricPanelHeader, null, null,
+                                        StringUtil.getDrawable(context, R.drawable.arrow_down), null
                                     )
                                 }
                             }
