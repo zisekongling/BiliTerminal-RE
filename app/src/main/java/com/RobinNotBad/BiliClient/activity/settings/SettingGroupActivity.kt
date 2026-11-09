@@ -346,7 +346,7 @@ class SettingGroupActivity : RefreshListActivity() {
             refresh()
             if (isChecked) MsgUtil.showMsg(getString(R.string.msg_settinggroupactivity_003))
         }
-        // 顶栏灵动岛 26.11.08 起暂时关闭并隐藏入口；恢复时把 IslandPolicy.FEATURE_ENABLED 改回 true。
+        // 顶栏灵动岛：26.11.08 曾暂时关闭并隐藏入口，26.11.09 已恢复（IslandPolicy.FEATURE_ENABLED = true）。
         if (IslandPolicy.FEATURE_ENABLED) {
             switch(
                 getString(R.string.setting_topbar_island),

@@ -93,12 +93,11 @@ object SettingsIndex {
         list += Entry(text(R.string.pagename_setting_player_choose), text(R.string.settingtext_settingsindex_002)) { a ->
             a.startActivity(Intent(a, SettingPlayerChooseActivity::class.java))
         }
-        // 「播放器界面」（自定义播放器按钮布局）入口：26.11.06 用户要求先藏起来。
-        // 页面本身保留（manifest 里仍有），入口只从「选择播放器」页的卡片进；那里也一起 gone 了，
-        // 这里不能再留可搜索条目，否则搜索会绕过界面把用户直接送进这个页面。恢复时整段还原。
-        // list += Entry("播放器界面", "调播放器上的按钮与它们的设置") { a ->
-        //     a.startActivity(Intent(a, SettingPlayerUiActivity::class.java))
-        // }
+        // 「播放器界面」（自定义播放器按钮布局）入口：26.11.06 曾藏起来，26.11.09 已恢复，
+        // 入口在「选择播放器」页的卡片；这里同样保留可搜索条目。
+        list += Entry(text(R.string.pagename_setting_player_ui), text(R.string.setting_player_ui_entry_desc)) { a ->
+            a.startActivity(Intent(a, SettingPlayerUiActivity::class.java))
+        }
         list += Entry(text(R.string.settingtext_settingsindex_003), text(R.string.settingtext_settingsindex_004)) { a ->
             a.startActivity(Intent(a, SettingQualityActivity::class.java))
         }
@@ -192,7 +191,7 @@ object SettingsIndex {
             text(R.string.section_ui_round),
             text(R.string.settingtext_settingsindex_012)
         ) { a -> openGroup(a, "layout", groupLayout, text(R.string.section_ui_round)) }
-        // 顶栏灵动岛 26.11.08 起暂时关闭并隐藏入口；恢复时把 IslandPolicy.FEATURE_ENABLED 改回 true。
+        // 顶栏灵动岛：26.11.08 曾暂时关闭并隐藏入口，26.11.09 已恢复（IslandPolicy.FEATURE_ENABLED = true）。
         if (IslandPolicy.FEATURE_ENABLED) {
             list += Entry(
                 text(R.string.setting_topbar_island),

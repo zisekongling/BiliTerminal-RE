@@ -51,11 +51,11 @@ data class IslandDecision(
 object IslandPolicy {
 
     /**
-     * 功能总闸：26.11.08 起暂时关闭并隐藏入口（代码保留，恢复时改回 true）。
+     * 功能总闸：26.11.08 曾暂时关闭并隐藏入口，26.11.09 用户要求恢复。
      *
      * 顶栏开关、设置项、搜索索引三处都读这个常量；关着时即使存档里残留 true 也不会挂载。
      */
-    const val FEATURE_ENABLED = false
+    const val FEATURE_ENABLED = true
 
     /** 持续事件连续显示多久后让位给时间。 */
     const val EVENT_SLICE_MS = 30_000L
