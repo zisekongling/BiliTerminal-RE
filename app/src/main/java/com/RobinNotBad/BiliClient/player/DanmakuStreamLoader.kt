@@ -53,6 +53,13 @@ import java.util.TreeSet
  * `DrawTask.drawDanmakus` 在发现「当前时间超出已加载区间」时会重取 `danmakuList.sub(...)`，
  * 所以后期追加的弹幕能被渲染到；但**已追加的分段不要再追加第二次**（`DanmakuManager` 不去重，
  * 重复追加会看到重影），本类用 `loadedSegments` 保证每段只喂一次。
+ *
+ * **`loadedSegments` 之外还有一道时序开关 [windowReady]**：[prepare] 是同步拉段（网络，几百
+ * 毫秒到几秒），而播放页的进度回调从 250ms 起就在调 [ensureWindow]。若这段期间放行
+ * `ensureWindow`，它会把「正在拉的首窗口」当成缺段再拉一遍：这一批走 `appendSegments` 进待灌
+ * 队列，`prepared()` 时与 parser 里的首窗口一起灌进 DFM —— 同一条弹幕被画两次。同理，
+ * [prepare] 失败（调用方回退整段接口 / 旧版 XML）时也必须保持关闭：调用方已经用别的路径灌了
+ * 全量，之后再走窗口追加只会把同一批弹幕再叠一遍。
  */
 class DanmakuStreamLoader(
     /** 窗口半径：当前位置的前后各几段。默认 2（窗口最多 5 段 = 30 分钟）。 */
@@ -85,6 +92,22 @@ class DanmakuStreamLoader(
 
     /** 用弱引用：加载器生命周期可能比 DanmakuManager 长（切 P 会重建 manager），不该把旧的钉死。 */
     private var managerRef: WeakReference<DanmakuManager>? = null
+
+    /**
+     * 首窗口是否已经交付给 DFM —— 也就是「现在允许 [ensureWindow] 补拉后续分段」的**唯一开关**。
+     *
+     * 不要拿 [managerRef] 是否为 null 兼任这个语义：它只是 worker 取 manager 的引用，表达不了
+     * 「窗口加载现在该不该跑」。单独一个 `@Volatile` 标志让状态显式、可读：
+     * - [prepare] 要同步拉首窗口（网络），这期间任何 `ensureWindow` 都必须返回，否则同一批分段
+     *   会被 parser 与 [DanmakuManager.appendSegments] 各灌一份 —— 同一条弹幕画两次（重影）；
+     * - [prepare] 失败后状态必须是明确的「窗口加载关闭」：调用方已经改用整段接口 / 旧版 XML
+     *   灌数据，之后再追加窗口只会重复；下一次 [attach] / [prepare] 会重新打开；
+     * - 同一实例第二次 `prepare` 失败时，旧的首窗口还挂在 parser 里，`isPrepared` 也可能仍为
+     *   true（只有 [DanmakuManager.release] 会复位），`windowReady == false` 能挡住
+     *   [ensureWindow]，不会把新视频的分段追加到旧 parser 上（串台）。
+     */
+    @Volatile
+    private var windowReady = false
 
     private var policy: DanmakuLoadPolicy? = null
 
@@ -138,6 +161,7 @@ class DanmakuStreamLoader(
         lastPositionMs = -1L
         retryAfterMs = 0L
         managerRef = null
+        windowReady = false
         cache = null
         synchronized(loadedSegments) { loadedSegments.clear() }
     }
@@ -161,12 +185,19 @@ class DanmakuStreamLoader(
      *
      * @return `true` 表示已成功交给 DFM；`false` 表示一段都没拿到（网络全失败 / 全部为空 /
      *   被数量保护抑制），调用方应按旧逻辑回退到 XML 弹幕
+     *
+     * **本方法全程把 [windowReady] 压住**（见它的注释）：`prepare` 期间 [ensureWindow] 不会把
+     * 同一批分段再拉一遍并追加成重影；只有首窗口真正交给 DFM 之后才打开。返回 `false` 时保持
+     * 关闭——调用方会用整段接口 / 旧版 XML 灌全量，之后追加窗口只会重复；下一次
+     * [attach] / [prepare] 会重新打开。状态是显式的，不依赖 [managerRef] 是否为空。
      */
     fun prepare(manager: DanmakuManager): Boolean {
         if (appContext == null) {
             Logu.e("弹幕窗口", "prepare 前没有 attach()，跳过窗口加载")
             return false
         }
+        // 先关窗口加载：首窗口交付前不允许 [ensureWindow] 追加（见 windowReady）。
+        windowReady = false
         managerRef = WeakReference(manager)
         generation++
         released = false
@@ -207,6 +238,8 @@ class DanmakuStreamLoader(
         }
 
         manager.loadFromProtobufSegments(replies)
+        // 首窗口已经进 parser，现在才允许 ensureWindow 补拉后续分段（见 windowReady）。
+        windowReady = true
         Logu.d(
             "弹幕窗口",
             "起始窗口已加载：segments=$wanted 非空=${replies.size}/${wanted.count()} 条数=" +
@@ -223,6 +256,8 @@ class DanmakuStreamLoader(
      */
     fun ensureWindow(positionMs: Long) {
         if (released) return
+        // 窗口加载的显式开关：首窗口交付前、prepare 失败后都是 false（见 windowReady）。
+        if (!windowReady) return
         if (managerRef?.get() == null) return
         lastPositionMs = positionMs
         val missing = DanmakuWindow.missing(snapshotLoaded(), windowAt(positionMs))
@@ -240,6 +275,7 @@ class DanmakuStreamLoader(
         generation++
         released = true
         managerRef = null
+        windowReady = false
         fetching = false
         retryAfterMs = 0L
         synchronized(loadedSegments) { loadedSegments.clear() }
