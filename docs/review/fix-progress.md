@@ -246,6 +246,7 @@
 ### 2.1 真机未验证（无设备 / 无登录态）
 
 > **本轮测试包（26.11.08，release 普通版 + debug 共存版）要测哪些**：整包口径、分组总表与时间预算见 [`test-plan-261108.md`](test-plan-261108.md)；下面每一条是该计划里的详细验收项来源。
+> **26.11.09 三条 L2 项（方向崩溃 / 下载重试 / 表冠速率）的验收步骤与判据见 [`manual-test-guide-261109.md`](manual-test-guide-261109.md)（H01~H04）。**
 
 - [ ] **26.11.09 BaseActivity 方向崩溃修复真机未验（L2，要 Android 8.0 + 非全屏窗口）**：L0 已过（两 flavor 各 209 suites / 2257 tests）。需一台 sdk26 手表在**非全屏**窗口状态（分屏 / 悬浮 / 自由窗口）下进任意子页（复现机型是 huawei LEO-DLXXU 进收藏夹页），确认①不再崩 `Only fullscreen activities can request orientation`；②`Logu.w` 里能读到「设置屏幕方向失败（窗口非全屏），按系统方向显示」这一行；③页面按系统方向正常显示、能正常退出。全屏状态下应完全无感。
 
