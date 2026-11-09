@@ -59,6 +59,11 @@
   - **修法**：删掉那四行 padding，保留 32×37dp 与 `layout_marginStart/End=3dp`、`fitCenter`；把上方注释改成「26.11.07 加、26.11.08 漏删，别再往里加内边距，要放大热区就连格子一起改」。
   - **L0（26.11.09 实测）**：`:app:assembleCoexistDebug` 与 `:app:assembleRelease` 均 BUILD SUCCESSFUL；共存 debug 包已装到用户测试机（vivo PD2229 / Android 16）。
   - **未验证**：真机看画面（L2）——需人确认底部播放 / 暂停键的圆形底盘恢复成与 11.02 一样大、按下仍有水波纹，且宽屏布局没有被这批内边距撑动。
+- **26.11.09 一批修复（控制台当日反馈 + 崩溃，逐条细节见 §3.142–§3.145）**：
+  - **崩溃 `Only fullscreen activities can request orientation`（26.11.09 新增形态，华为 LEO-DLXXU / Android 8.0 连崩 8 次）**：`BaseActivity.onCreate` 那句 `setRequestedOrientation` 没有任何 catch，Android 8.0 起非全屏窗口调用即抛 → 包 `try/catch (IllegalStateException)`，拿不到方向就按系统方向显示（§3.142）。
+  - **反馈 #136「下载错一次就再也下不动」**：失败任务留下的 `state="error"` 记录 + 残留 `.DOWNLOADING` 把重试入口堵死，且重试只会打同一条线路 → 三处一起改：按 playurl `backupUrl`/`backup_url` 逐条换线重试、`startDownload` 命中 error 记录时删掉重排、进下载列表时清理历史失败残留（§3.143）。
+  - **反馈 #132「关掉表冠适配后详情页只有 1/3 速」**：系统优先模式只吞事件不补差额，而 NestedScrollView 的滚动基准只有 48dp×2 → `topUpDelta` 补足差额，**supersede 26.11.07.1 表冠二次修复里的 `shouldFillIn`**（§3.144）。
+  - **Glide `Cannot recycle a resource while it is still acquired`（26.11.02 起累计 51 条）**：成因是 Glide 4.16 上游竞态，本仓库只能降噪——去掉三处「无条件 clearMemory / 反复 clear」，Debug 包开 Glide VERBOSE 日志便于取证；**修没修好只能看线上条数**（§3.145）。
 
 - **26.11.07.1 审查修复清单（第三批，纯去重，无用户可见变化）**：㉒订阅类错误码文案收口到 `util/SubscriptionErrorText.kt` 的 `Context.subscriptionErrorText(code)`——此前收藏夹页 / 合集页 / 订阅列表页 / 番剧详情页各抄一份**逐字相同**的 `when`，服务端加一个码就要改四处、漏一处就有一边显示「操作失败（xxxxx）」（为什么是 `Context` 扩展而不是纯函数：这几句必须走资源，而 JVM 单测拿不到 `Context`，取舍口径同 `api/ApiErrorText.kt`）；㉓合掉审查点名的 6 组重复文案：`text_subscription_type_folder` → `uitext_favoritevideolistactivity_011`（「收藏夹」）、`msg_sub_unsubscribed` → `msg_subscription_cancelled`（「已取消订阅」）、`text_sub_toggle_subscribed` → `msg_sub_subscribed`（「已订阅」，开关按钮与提示语用同一份）、`uitext_favoritevideolistactivity_025` → `uitext_locallistactivity_034`、`uitext_favoritevideolistactivity_023` → `uitext_locallistactivity_035`（「虚拟合集」两串以本地列表为源，`util/UiText.MAP` 的映射同步改指）、`social_history_cancel` → `btn_cancel`；㉔清掉第二批自己引入的 7 组重复：关于页开发者简介（Robin / moye / silent / dudu / 达达 / huanli / Jank）改为复用既有 `settingtext_aboutactivity_*`，只保留 Kuinone、紫色空灵、千awa 三条真正新增的描述键；本批净删死键 13 个。
 - **26.11.07 设置页新增「番剧设置」分组挂点（公开侧只有门面 + 挂点）**：`activity/settings/SettingGroupActivity.kt` 加文件级 `const val GROUP_BANGUMI = "bangumi"` 与 `buildBangumiGroup()`（两行 `nav`：管理源 / 管理弹幕），`SettingMainActivity.buildGroups()` 在「内容与浏览」之后插一张 `icon_bangumi` 卡片，`SettingsIndex.build()` 加三条带 `highlight` 的搜索条目（分组 + 两个子页），`strings.xml` 新增 6 条 `setting_bangumi_*`；门面 `util/OptionalFeatures.kt` 加 `thirdPartySettingsAvailable` / `openThirdPartySourceSettings(context)` / `openThirdPartyDanmakuSettings(context)`（反射 `FeatureHolder` 同名方法，异常只 `Logu.w`）。私有功能不在场时整组（主设置页卡片 + 分组页两行 + 三条搜索条目）都不出现，**公开构建行为不变**；两个设置页的实现与视觉重排、实测记录都在私有仓库 README，不进公开文档。
@@ -241,6 +246,12 @@
 ### 2.1 真机未验证（无设备 / 无登录态）
 
 > **本轮测试包（26.11.08，release 普通版 + debug 共存版）要测哪些**：整包口径、分组总表与时间预算见 [`test-plan-261108.md`](test-plan-261108.md)；下面每一条是该计划里的详细验收项来源。
+
+- [ ] **26.11.09 BaseActivity 方向崩溃修复真机未验（L2，要 Android 8.0 + 非全屏窗口）**：L0 已过（两 flavor 各 209 suites / 2257 tests）。需一台 sdk26 手表在**非全屏**窗口状态（分屏 / 悬浮 / 自由窗口）下进任意子页（复现机型是 huawei LEO-DLXXU 进收藏夹页），确认①不再崩 `Only fullscreen activities can request orientation`；②`Logu.w` 里能读到「设置屏幕方向失败（窗口非全屏），按系统方向显示」这一行；③页面按系统方向正常显示、能正常退出。全屏状态下应完全无感。
+
+- [ ] **26.11.09 下载失败后再也下不动（反馈 #136）真机未验（L2，要真机 + 登录态）**：L0 已过。需确认：①26.11.09 之前留下的失败任务（下载列表里 `state="error"` 那类），升级后打开下载列表页会被自动清理，回视频页点下载能重新进队列；②能下完一次；③若线上出现 `DownloadService>下载失败，换备用线路重试（2/N）`，说明换线路径真的被走到，且最终下完。④清空缓存 / 重启 App 后仍然可用（旧版本正是在这两步之后也救不回来）。
+
+- [ ] **26.11.09 关闭表冠适配后详情页滚动速率（反馈 #132）真机未验（L2，只能判手感）**：需小米 Watch 5（或任意一台走「系统优先」的手表）：①关闭表冠适配后，详情页每格距离应与**开启适配**时一致（改前只有 1/3）；②连续快速转动不打嗝；③内层列表与详情页外层交替滚动时不叠加。偏慢只调 `RotaryEventPolicy.SYSTEM_FIRST_TARGET_SCALE`（1.1~1.25），打嗝把 `RotaryEncoderSupport` 里的补位改成瞬时 `scrollBy`。
 
 - [ ] **26.11.08 弹幕去重修复真机未验（L2，只能看画面）**：`player/DanmakuStreamLoader` 的 `windowReady` 开关（反馈 #16）。需在手表上确认：①多 P 视频切 P、互动分支跳转时，首窗口网络返回前播放器已起播的情况下，同一批弹幕只出现一次；②普通首播视频弹幕正常、不重复；③播放中 seek 跨窗口后补拉的分段不重复、不漏；④被数量保护跳过弹幕的视频点弹幕按钮强制加载后只有一份，且后续分段能补上。
 
@@ -435,7 +446,8 @@
 - **#118 扫一扫关不掉、总在菜单最末尾**（26.11.07）：**根因已定位**——`util/MenuConfig.loadStoredEnabled` 的合法判据要求 `OPTIONAL_ITEMS.all { it in parsed }`，用户把可选私有项关掉后配置永远不合法，落进容错分支又被 `lenient + OPTIONAL_ITEMS.filter { it !in lenient }` **追加回末尾并写盘**，下次渲染照样出现。修法照 `ensureExit` / `ensureBangumi`：给可选项也记一个「用户动过」的键，动过就不再补回。**本轮未改**（改的是菜单存档语义，且只有注入私有源码的包能复现）。需要另行决定：选择项怎么回填。
 - **#120 私信相关五项（部分实现）**：换行 `(a)` 与「回首页」`(d)` 已有（`activity_private_msg.xml` 多行输入 / 顶栏长按关掉所有详情页），表冠缩放 `(b)`、私信显示时间 `(e)` 未做，电量百分比 `(c)` 只在顶栏灵动岛的「低电 / 充电」窗口里露出（该功能与圆屏适配已解耦，单独开也能看到），不是常显。
 - **#124 / #115 / #123 / #122 / #121 / #119**（功能请求，均未实现）：#124「开屏首页可自定义」`(a)` 与「断网直接进应用」`(b)` 已有，长按卡片的「稍后再看 / 不感兴趣 / 黑名单」`(c)` 未做（长按仍是快速缓存）；#115 推荐页长按「不感兴趣」未做（全库无此文案）；#123 只有单条长按删搜索记录，没有「清空全部」；#122 公开侧根本没有「用户协议」页可挂兜底入口；#121 私信页那句「私信有可能被拦截」是无条件 toast，既无开关也无一次性静音；#119 看图页没有自己的不透明底，`ui/appearance/ColorScheme.applyWindowTheme` 设的自定义背景图直接透出来。
-- **#90 / #87 缓存下载失败**（26.10.27 / 26.11.01）：DASH（1080P+ 音画分离）已支持并合并成单文件，但多段 `durl` 只取第 0 段（`api/PlayerApi` 无遍历拼接）、失败原因只落日志不告知用户（HTTP 非 2xx 只在 `service/DownloadService` 里 log）、没有断点续传、`backupUrl` 解析后无人使用。要用户日志里的 HTTP 码或复现机型 + 视频 + 清晰度才能定位。
+- **#90 / #87 缓存下载失败**（26.10.27 / 26.11.01）：DASH（1080P+ 音画分离）已支持并合并成单文件，但多段 `durl` 只取第 0 段（`api/PlayerApi` 无遍历拼接）、失败原因只落日志不告知用户（HTTP 非 2xx 只在 `service/DownloadService` 里 log）、没有断点续传。~~`backupUrl` 解析后无人使用~~ → **26.11.09 已接上**（反馈 #136，见 §3.143：playurl 的主 / 备线路贯通到下载器，网络类失败逐条换线重试，失败任务的 `state="error"` 记录与 `.DOWNLOADING` 残留不再堵死重新入队）。剩下这三项仍需用户日志里的 HTTP 码或复现机型 + 视频 + 清晰度才能定位。
+- **#135 侧边左滑退出视频（26.11.09，aqsh_watch 华强北手表）**：用户报「侧边左滑手势返回退不出视频」。开发者当天在控制台已回复「这是刻意设计（有些手表右滑就是退出视频，而放大后的视频又要靠拖动才能挪）」，并提议加一个「关闭此功能」的开关——**产品取舍尚未拍板，代码未动**。要做就得先定：开关放播放器设置还是全局设置、默认开还是关。
 
 ## 3. 最新状态快照（26.10.22 ~ 26.11.06，流水，按关键词 grep 不通读）
 
@@ -1809,6 +1821,68 @@
 - **单测**（`PlayerUiLayoutTest.kt` +3）：`more slot survives round trip and can be duplicated`、`more inside a group survives parsing as a plain member`；既有 registry 用例（key 唯一 / 全 key round trip / 无分隔符）自动覆盖新 key。默认布局不含 more，`DEFAULT_SERIALIZED` 不变。
 - **验证 · L0**：`:app:assembleDebug` BUILD SUCCESSFUL in 51s（两 flavor 出包；中途一次 `compileStandardDebugKotlin` 因 Gradle 缓存打包失败报 `Could not get file mode for ...PlayerControlDelegate...class`，是本机文件被短暂锁住的临时故障，重跑即绿，非代码问题）；`:app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest` BUILD SUCCESSFUL in 37s。
 - **未验证（人测 / L2）**：①设置页候选列表里锁定/看点的新图标观感；②真机点「更多」收纳格展开的是没摆进布局的按钮、放两个「更多」各自能开；③直播页里组格（如默认布局右侧那个 9 格组）整个跟着藏掉的手感——直播把 loop/audio_only/quality 等全 GONE 后，那个组格只剩 danmaku_send/subtitle/video_info 等少数可见成员，不会消失但内容变少，属预期。
+
+### 3.142 修 26.11.09 新增崩溃：Android 8.0 非全屏窗口下 `setRequestedOrientation` 抛异常（26.11.09，控制台待处理崩溃）
+
+- **现场**：crash 271 / 274–281，同一台 huawei sawshark `LEO-DLXXU`（sdk26 / Android 8.0，`coexist` 包，版本 26.11.09.2）15:17–15:18 连崩 8 次：`java.lang.RuntimeException: Unable to start activity ComponentInfo{...coexist/com.RobinNotBad.BiliClient.activity.user.favorite.FavoriteVideoListActivity}: java.lang.IllegalStateException: Only fullscreen activities can request orientation`，栈压 `BaseActivity.onCreate(BaseActivity.kt:132)` ← `RefreshListActivity.onCreate(RefreshListActivity.kt:88)` ← `FavoriteVideoListActivity.onCreate(FavoriteVideoListActivity.kt:105)`。同设备页面轨迹显示之前正常进出 VideoInfo / FavoriteVideoList / PrivateMsg 多页，属于「本来好好的，某个窗口状态下突然起不来」。
+- **根因**：Android 8.0（API 26）起，`Activity.setRequestedOrientation` 在窗口不是全屏（悬浮 / 分屏 / 系统判定为多窗口）时直接抛 `IllegalStateException`。全仓库只有 `activity/base/BaseActivity.kt` 一处调用它（`grep setRequestedOrientation` 唯一命中），**而且没有任何 catch** ⇒ 任何 `BaseActivity` 子页在那个窗口状态下都会「起不来」，崩在启动路径上。本项目历史上同一异常在 `PlayerActivity.onDestroy` 也崩过（26.10.19，4 例全是 sdk26），当时修法也是 try/catch，后来随 §3.90 一起被删掉了（见 §3 里 26.10.19 那条与 26.11.06 的回迁记录）。
+- **改法**（`app/src/main/java/com/RobinNotBad/BiliClient/activity/base/BaseActivity.kt`）：`onCreate` 里那句 `setRequestedOrientation(if (ui_landscape) SCREEN_ORIENTATION_SENSOR_LANDSCAPE else SCREEN_ORIENTATION_PORTRAIT)` 包进 `try { … } catch (e: IllegalStateException) { Logu.w("BaseActivity", "设置屏幕方向失败（窗口非全屏），按系统方向显示：${e.message}") }`，前面加中文注释说明「Android 8.0 起非全屏窗口抛、26.11.09 华为 LEO-DLXXU 连崩 8 次、拿不到方向就按系统方向走」。**不改语义**：能设照设，设不上就跟随系统方向，而不是让页面起不来。
+- **为什么不去改调用方**：`ui_landscape` 是全局设置（所有页面共用），不可能靠逐个页面加判断绕开；异常只可能在调用点抛，也只能在调用点兜。
+- **验证 · L0（26.11.09）**：`:app:assembleDebug`、`:app:testStandardDebugUnitTest`、`:app:testCoexistDebugUnitTest` 全 BUILD SUCCESSFUL，两 flavor 各 209 suites / 2257 tests、0 失败。
+- **未验证（人测 / L2）**：需一台 Android 8.0 手表在**非全屏**窗口状态（分屏 / 悬浮 / 自由窗口）下进入任意子页确认不再崩、页面按系统方向正常显示。本机模拟器是 Android 17 / 384×384 全屏，构造不出该异常的前置条件，所以这条只能真机验。
+
+### 3.143 反馈 #136：「有些视频一旦下载错误之后就再也无法下载」（26.11.09，控制台反馈）
+
+- **要求原文**：「有些视频一旦下载错误之后就再也无法下载。尝试过去删除缓存文件或者是删应用重启。都没有作用。」（OPPO OW20W2，sdk27，26.11.09.2，附日志 185 字符。）
+- **用户日志**：`E DownloadService>分片 0（0-2440726）3 次尝试均失败：unexpected end of stream` + `E DownloadService>下载未完成：video_new.mp4 524288/7322181`。
+- **日志解读**：`video_new.mp4` 是 `DownloadPathSpec.FILE_VIDEO_TMP`，即 **DASH（qn>64）视频的临时文件**；分片路径（64KiB 缓冲）与单连接路径（`DownloadStreamTransfer` 256KiB 缓冲）都断在 **524288 字节**同一个偏移上，`unexpected end of stream` 是 OkHttp 在 `Content-Length` 没传满就 EOF 时从 `FixedLengthSource` 抛的 ⇒ 判定为**服务端 / CDN 线路掐断，不是 App 写文件写坏**。`processDownloadSection` 每次尝试都重新取 playurl（不是复用过期 URL），所以也不是签名过期。
+- **App 侧真正的缺陷（这条反馈「再也下不动」的成因，三条叠加）**：
+  1. **重试永远打同一条线**：`DownloadService.downloadSegment` 的 3 次尝试复用同一个 `url`，`downFileSpeedSingle` 失败后直接返回，谁都没有去试 playurl 给的备用线路。而 `model/DashVideoStream.java:16/26/45-51`、`model/DashAudioStream.java:16/23/39-45` **早就把 `backupUrl` / `backup_url` 解析成 `List<String>` 了，全仓库一个消费点都没有**（§2.5 里 #90 / #87 那条记的就是这件事）。
+  2. **失败记录把重新入队堵死**：`DownloadService.startDownload(...)` 的两个重载先 `select * from download where aid=? and cid=?`，**命中任意一行就 `showMsg(R.string.text_download_already_queued)` 并 return**，不看 `state`。失败任务留下的是 `state="error"`（`runDownloadSection` 失败时 `DownloadRepository.setState(id, "error")`），于是用户在视频页再点下载，只会看到「已在下载队列中」，永远进不了队列。
+  3. **详情页的拦截判据是目录存在**：`activity/video/info/VideoInfoFragment.kt:851-882 startDownloadFlow()` 用 `FileUtil.getVideoDownloadPath(...).exists()` 判断，目录里还留着 `.DOWNLOADING` 标记时提示「已在下载队列\n如有异常，长按可清空文件」——**而这条提示是用户唯一能看到的出路，他删了缓存/重启 App 都不会让目录消失**。
+- **改法（四块）**：
+  1. **备用线路贯通到下载器**：新增 `app/src/main/java/com/RobinNotBad/BiliClient/service/download/DownloadUrlCandidates.kt`（`object` + `@JvmStatic fun of(primary, backups): List<String>`：主线路在前、去空、去重）；`model/PlayerData.java` 加 `public ArrayList<String> videoUrlCandidates / audioUrlCandidates`（**刻意不写进 Parcel**——与 `dashData` 同理，是一次取流的附属信息，跨 Intent 后本就过期）；`api/PlayerApi.java` 在 5 处取流点填候选（DASH 分支读 `videoStream.backupUrl` / `audioStream.backupUrl`，三处 durl 分支新增 `readDurlBackups(JSONObject)` 读 `backup_url` 数组；辅助方法 `rememberUrlCandidates(...)` / `readDurlBackups(...)` 在 `PlayerApi.java:134-154`）。
+  2. **`DownloadService` 逐条换线重试**：`processDownloadSection` 先算出 `val videoUrls: List<String>` / `val audioUrls: List<String>`（audioOnly / qn≤64 / DASH 三个分支各自赋值，均 `data.*UrlCandidates.ifEmpty { listOf(url_xx) }`，8 处取流调用点改成 `downFile(videoUrls, …)` / `downFile(audioUrls, …)`）；新增 `private fun downFile(urls: List<String>, file, sectionId, baseProgress, endProgress): Int` 逐条尝试，**只对 `DownloadPathSpec.ERR_NETWORK` 换线**（`ERR_FILE` / `ERR_PAUSED` / `ERR_UNKNOWN` 立即返回），换线时 `Logu.w("DownloadService", "下载失败，换备用线路重试（${index + 1}/${candidates.size}）：${file.name}")`；原实现体整体改名 `downFileOnce(...)`，`downFile(url: String, …)` 保留成一行委托（调用点语义不变）。
+  3. **error 记录不再堵门**：`startDownload` 两个重载命中 `state="error"` 的行时改成 `delete from download where aid=? and cid=?` 后继续入队（其余 state 仍维持原来的「已在下载队列中」提示）。
+  4. **历史失败残留会被清理**：新增 `app/src/main/java/com/RobinNotBad/BiliClient/service/download/DownloadResiduePolicy.kt`（`internal object`，`Disposition{NONE, CLEAN_TEMPS, DELETE_FOLDER}` + `hasFinishedArtifact(names)`：目录里有已完成成品时**一律不动**，`.bak` 也算成品；否则有 `.DOWNLOADING` / 临时文件就清临时，只剩自己人（`.quality` / 封面 / 弹幕 / 字幕目录 / `.video_meta.json`）才整目录删）；`DownloadService.cleanFailedResidue(folder)` 搬进 companion，与新增的 `cleanupFailedResidues()`（遍历 `DownloadRepository.getAll()` 里 `state == "error"` 的行逐个清）并列；`activity/video/local/DownloadListActivity.kt` 进页面时先调一次 `cleanupFailedResidues()` 再 `refreshList(false)`——这样升级前留下的失败任务，用户打开下载列表就自愈，详情页那个「已在下载队列」也就消失了。
+- **不改的地方（有意）**：没有实现真正的断点续传（分片级 `RandomAccessFile` 已有，但失败后仍是整文件重下）——那是另一个量级的改动，本轮只解决「下不动」；`backupUrl` 只用于下载，播放器取流没动。
+- **单测**：新增 `DownloadUrlCandidatesTest`（5 例：主线路排第一、无备用、主线路为空仍给备用、空串与重复剔除、全空返回空）与 `DownloadResiduePolicyTest`（9 例：清临时 / 删目录 / 有成品不动 / `.bak` 视为成品 / 目录为空时的边界等）。
+- **验证 · L0（26.11.09）**：`:app:assembleDebug`、`:app:testStandardDebugUnitTest`、`:app:testCoexistDebugUnitTest` 全 BUILD SUCCESSFUL，两 flavor 各 209 suites / 2257 tests、0 失败。
+- **未验证（人测 / L2）**：①换线本身要一条**真会被 CDN 掐断**的流才能触发，本机造不出来，只能靠线上日志里出现 `换备用线路重试` 反证；②真机跑「失败过的任务再点下载能重新入队并下完」；③`cleanupFailedResidues()` 在真机上对历史失败任务的效果（该机需存在 26.11.09 之前留下的 error 记录）。
+
+### 3.144 反馈 #132：关闭表冠适配后详情页滚动只有 1/3 速（26.11.09，控制台反馈）
+
+- **要求原文**：「小米watch5使用中关闭表冠适配后详情页滑动速率小，得一直转动的还慢，详情页正常。」（xiaomi `grasslte` / 小米 Watch 5，sdk34，26.11.09.2，附日志 355 字符。）
+- **用户日志**：
+  `W RotaryEncoderSupport>h | RotaryEncoder>兜底：滚动成功（本进程首次） action=8 src=0x400000 rotary=true axisScroll=-0.0917 axisVScroll=0.0 dy=28 target=RotaryRecyclerView`
+  `W RotaryEncoderSupport>h | RotaryEncoder>系统优先：框架已滚动，吞掉事件（本进程首次） action=8 src=0x400000 rotary=true axisScroll=-0.0524 axisVScroll=0.0 view=RotaryNestedScrollView`
+  两条恰好是两条路径（兜底 / 系统优先），且同一台机器同一格差 2.7 倍 —— 就是问题本身。
+- **根因**：系统优先模式（关闭表冠适配 ⇔ `RotaryEncoderSupport.isSystemFirstMode()` = `!isEnabled()`）的实现是「跑完框架的 `super`，再用 `scrollOffset()` 前后有没有变判断框架动没动，动过就整段 `return true` 吞掉」，**从不算差额**。但框架各容器的换算基准是三套、且都比 App 口径小：`NestedScrollView`（视频详情页 `fragment_video_info.xml` 的 `RotaryNestedScrollView`）取 `getVerticalScrollFactorCompat()` = 主题属性 `android:listPreferredItemHeight`（≈48dp × density）、平台 `ScrollView` / `RecyclerView` 取 `config_verticalScrollFactor`（64dp × density），而 App 自己的口径 `RotaryEventPolicy.pixelDelta` 是 64dp × 2。用日志反推（`dy=28`、`multiple=1.0` ⇒ 缩放值 ≈153.6px = 64dp × density 2.4），同一格 `axisScroll=-0.0524`：详情页框架只给 ≈6px、列表页 ≈8px，开启适配时是 16px ⇒ 详情页只到手感的 **37.5%**（慢 2.7 倍）。
+- **改法**（保留「框架动过就吞事件」的结构，吞之前补足差额）：
+  - `app/src/main/java/com/RobinNotBad/BiliClient/ui/widget/RotaryEventPolicy.kt`：新增 `const val SYSTEM_FIRST_TARGET_SCALE = 1.0f`、`systemFirstTargetDelta(ratio, scaledVerticalScrollFactor, multiple)`、`topUpDelta(targetDy, frameworkDelta)`；**删除已无意义的 `shouldFillIn`**。
+  - `app/src/main/java/com/RobinNotBad/BiliClient/ui/widget/RotaryEncoderSupport.kt`：`handleSystemFirst` 改为 `frameworkDelta = scrollOffset() - before` → `target = systemFirstTargetDelta(...)` → `topUp = topUpDelta(target, frameworkDelta)`，只有 `topUp != 0` 才 `smoothScrollBy(topUp)`；抽 `rawScrollRatio` / `scaledVerticalScrollFactorOf` / `systemFirstTargetDelta(view, …)`；新增 `topUpProbed` 诊断（W 级 probe，带 `target= frameworkDelta= topUp=`，`PROBE_MAX` 仍是 6）。
+  - 三个 `Rotary*` 控件（`RotaryNestedScrollView` / `RotaryScrollView` / `RotaryRecyclerView`）只改注释（`scrollOffset` lambda 本来就返回带符号差值）。
+  - `res/values/strings.xml:60 setting_lab_ui_rotatory` 文案改成「系统没滚够时自动补足差额」，并修正原文里「1.0 即系统原始滚动量」这处错误（1.0 是**应用内标准滚动量**，约为系统原始量的两倍）。
+- **为什么这样补不会重复计数**：框架滚过的那一份如实抵扣（`topUp = target - frameworkDelta`），同一次手势的总额恰好等于目标；框架给够 / 方向相反 / 到边界的机型 `topUp == 0`，行为与改前完全一致，也不需要「多少才算滚过」的阈值。
+- **单测**：`RotaryEventPolicyTest` 18 → 25 例，含「框架位移 + 补位 ≡ 目标」的防重复计数断言、以及用本机实参（16−6=10、16−8=8）的差额用例。
+- **已知局限（记录在案）**：①系统优先模式下 `sensitivityOf()` 仍忽略灵敏度倍数（26.11.07.1 既有语义，未改）；②内层是**原生** `RecyclerView`（不是 `RotaryRecyclerView`）时外层拿不到 `frameworkDelta`，仍是原速。
+- **验证 · L0（26.11.09）**：`:app:assembleDebug`、`:app:testStandardDebugUnitTest`、`:app:testCoexistDebugUnitTest` 全 BUILD SUCCESSFUL，两 flavor 各 209 suites / 2257 tests、0 失败（其中 `RotaryEventPolicyTest` 25 例）。
+- **未验证（人测 / L2）**：小米 Watch 5 关闭表冠适配后，详情页每格距离应与开启适配一致、连续快速转动不打嗝、内层列表与详情页外层交替滚动时不叠加。偏慢只调 `SYSTEM_FIRST_TARGET_SCALE`（1.1~1.25），打嗝把补位改成瞬时 `scrollBy(0, topUp)`（`RotaryEncoderSupport.kt` 里一行）。
+
+### 3.145 Glide `Cannot recycle a resource while it is still acquired` 降噪（26.11.09，控制台待处理崩溃第一名）
+
+- **现场**：`java.lang.IllegalStateException: Cannot recycle a resource while it is still acquired`，栈是 `at com.bumptech.glide.load.engine.EngineResource.recycle(EngineResource.java:68)` ← `ResourceRecycler$ResourceRecyclerCallback.handleMessage(ResourceRecycler.java:37)`（混淆栈 `F1.y.c(SourceFile:39)` / `A2.e.handleMessage(SourceFile:17)`）。自 26.11.02 起累计 51 条，涉及 OPPO / HUAWEI / samsung / XTC 等多款手表；26.11.09 最新一条 crash 282（HUAWEI NIK-AL00，sdk29，26.11.09.2）的页面轨迹是 VideoInfo / Search / UserInfo / OpusInfo / DynamicInfo / PrivateMsg / ImagePicker 反复进出，应用日志里没有异常行——典型的「主线程延迟回收撞上仍被持有的资源」。
+- **结论：本仓库代码里没有可确定的成因**。栈里这一层是**主线程消息队列的延迟回收**（`Engine.onResourceRemoved` → `resourceRecycler.recycle(.., forceNextFrame = true)` 投递），`EngineResource.recycle()` 只在 `acquired > 0` 时抛，而 `ResourceRecycler.handleMessage` 是**裸调用 recycle、不再复查 acquired**；`Engine.loadFromCache` 里 `cache.remove(key)` 与 `acquired.acquire()` 不在同一把锁内、`onResourceReleased` 也没 synchronized ⇒ 判定为 Glide 4.16 上游 `Engine` / `ActiveResources` / `MemoryCache` 三处加锁交错的竞态。**因此没升级/替换依赖，只做「减少回收流量、降低触发概率」的最小规避。**
+- **排查过的四个方向（都排除，记下来免得下次重复查）**：①同一 target 两次 clear —— `SingleRequest.clear()` 对 `status==CLEARED` 幂等、`RequestManager.untrack` 在无 request 时直接返回，重复 clear 只是空转，不会二次 `engine.release`；②页面级 / Application 级两个 manager 管同一 target —— `RequestManager.untrackOrDelegate` 会 `glide.removeFromManagers(target)` 跨 manager 兜底（上游注释点名 issue #2262），release 仍只有一次；③销毁 / 复用后仍有 in-flight 请求 —— `into(ImageView)` 只覆盖 tag，旧请求由自身 clear 或 manager `onDestroy` 释放；④`ActiveResources.cleanupActiveReference` 的 `isRecyclable=false` 包装 —— 只做无副作用回收，不是来源。
+- **改法（4 改 1 增）**：
+  1. `activity/ImageViewerActivity.kt`：新增纯策略 `internal object ImageViewerClearPolicy { @JvmStatic fun shouldClearPhoto(photoLoadStarted: Boolean, photoCleared: Boolean) = photoLoadStarted && !photoCleared }`，`ImagePage` 加 `photoLoadStarted` / `photoCleared` 两个标记，`attachTiled()` 里把**原来无条件**的 `Glide.with(this).clear(page.photoView)` 改成「只清这一页真发起过的那次整图请求、且只清一次」，`attachPhoto()` 发起加载时复位标记。理由：`attachTiled()` 的注释本来就写着它必须幂等（ViewPager 来回翻会反复调用），原来却在里面无条件 clear——这是全仓库唯一一处「同一 View 被反复 clear」的真实来源。
+  2. `activity/video/info/VideoInfoActivity.kt`：删掉 `onCreate` 里无条件的 `Glide.get(BiliTerminal.context!!).clearMemory()`（连带两个变成无用的 import）。三条理由写进注释：清不到真正占内存的位图（它们在 ActiveResources / 请求里，acquired > 0）；MemoryCache 容量本来由 `LruResourceCache` 卡住、系统压力时 Glide 自己走 `trimMemory`；它是**本崩溃最大的放大器**——clearMemory → 逐条 `onItemEvicted` → `Engine.onResourceRemoved` → `forceNextFrame = true` 逐条 post 主线程，而紧接着本页就开始加载一批图片（crash 282 的轨迹起点正是 VideoInfo）。
+  3. `activity/MenuActivity.kt`：删掉 `killAndJump` 里「低性能设备 `clearMemory()`」那段（同一机制，且**只在低性能设备走**，而低性能手表正是崩溃集中人群；清完紧接着 `startActivity` 的新页又要加载图片，只会让淘汰更密），连带删两个无用 import。
+  4. `helper/CustomGlideModule.kt`：`applyOptions` 里 `if (BuildConfig.DEBUG) builder.setLogLevel(Log.VERBOSE)`——这类崩溃现场无异常可抓，只能靠 Engine 日志看「命中 cache / 放回 cache / 被淘汰」的先后。用 `BuildConfig.DEBUG` 编译期常量，Release 被 R8 折叠、零开销不打日志。
+- **有意保留**：`activity/video/info/VideoInfoFragment.kt:801` 与 `activity/video/info/BangumiInfoFragment.kt:423` 的「起播前腾内存」`clearMemory()`（语义正当，起播即批量加载图片的情况很少）；`util/GlideUtil.java:166-175` 的 `with(View)` 在宿主销毁时回落 `applicationContext` 的行为（改掉会重新引入 `You cannot start a load for a destroyed activity`）。
+- **单测**：新增 `app/src/test/java/com/RobinNotBad/BiliClient/activity/ImageViewerClearPolicyTest.kt`（5 例：发起过且没清过 → true、同一次请求第二次 → false、从未发起 → false、两标记边界、「清过一次 → 重新加载 → 再清一次」）。
+- **验证 · L0（26.11.09）**：`:app:assembleDebug`、`:app:testStandardDebugUnitTest`、`:app:testCoexistDebugUnitTest` 全 BUILD SUCCESSFUL，两 flavor 各 209 suites / 2257 tests、0 失败。
+- **未验证 / 只能线上观察**：上游竞态本身修不掉，**不能保证零复现**。若下一版起该崩溃条数明显下降、且 crash 282 那类 VideoInfo→…→ImagePicker 轨迹不再出现，说明降噪有效；否则要回到 Glide 上游（升级或自建 Engine 补丁）才能根治。
 
 ## 4. 历史章节索引
 

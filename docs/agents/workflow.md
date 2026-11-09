@@ -43,3 +43,9 @@
 - **不要写 `git add -A <路径>`**：要么 `git add <路径>`（只加指定文件），要么干脆 `git add -A`（明确就要全仓）。两者混写是这次事故的直接成因，语义和直觉相反。
 - 合完 PR / 解完冲突之后尤其危险：`git merge` 自动合并成功的文件本来就躺在工作区里，此时任何一次「顺手全加」都会把它们裹进一个不相干的提交。合完 PR 应当**先独立提交一次 merge 结果**，再动别的。
 - 理由：提交历史是这个仓库唯一的追溯依据，`fix-progress.md` 与 `README` 都靠它反查「这版到底改了什么」。一条名不副实的提交，比一次构建失败更难发现。
+
+## 提交前检查行尾抖动（26.11.09）
+
+- **症状**：`git diff --stat` 显示某个 `.java` / `.kt` 文件几百行改动，而实际只加了几行——这是**工作区被转成 CRLF、索引里是 LF**（本仓库 `.java`、`.kt`、布局文件都是 LF；注意 `strings.xml` 是 CRLF，别一起归）。
+- **成因**：编辑器 / 自动化改写工具按平台默认换行整文件重写。26.11.09 这次一个 `edit` 操作就把 `api/PlayerApi.java`（2459 行）与 `model/PlayerData.java`（396 行）整份翻成 CRLF，`docs/copy-inventory/STRINGS-MIGRATION.md` 坑 17 也记过同一现象。
+- **判据与修法**：`git ls-files --eol -- <file>`（看 `w/crlf` 就是要修的那个）；`git diff --numstat` 与 `git diff -w --numstat` 数量差得远就是行尾抖动；用 `[System.IO.File]::ReadAllText` 读、`-replace "`r`n","`n"` 归一，再以 UTF-8 无 BOM 写回。
