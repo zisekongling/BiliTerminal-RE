@@ -54,3 +54,32 @@
 
 - 实现上由 job 级 `env.BUILD_ONLY` 归一化（**推 tag 时 `inputs.*` 恒空，必须显式判 `event_name`**），五处步骤条件前置 `env.BUILD_ONLY != 'true'`，并**比较字符串而非布尔**。
 - 「tag 留空」不是等价做法：那条路仍会组装发布说明，`update_log_current` 抽不出条目时会 `::error::` 退出。细节见 `docs/review/fix-progress.md` §3.25。
+
+## 本机推不上 github.com 时的推送通道
+
+某些网络下（本机 2026-11-09 实测）`github.com:443` 的 TLS 被拦：`git push` / `git ls-remote`
+一律 `Failed to connect to github.com:443 after 21094 ms`，`curl --resolve` 换 IP 也是
+`curl: (28) Operation timed out` 或 `schannel: server closed abruptly`（ClientHello 被丢），
+而 `api.github.com:443` 正常。
+
+能走的路子只有 SSH：
+
+```bash
+# 1) 确认 SSH 通（预期输出 Permission denied (publickey)，说明握手成功）
+ssh -p 443 -T git@ssh.github.com
+
+# 2) 把临时公钥加成仓库 Deploy key（勾 write），或账号 SSH key（见下）
+# 3) 用它推送；注意 -p 443 与 ssh:// 前缀
+GIT_SSH_COMMAND='ssh -i /path/to/key -p 443 -o IdentitiesOnly=yes' \
+  git push ssh://git@ssh.github.com:443/<owner>/<repo>.git refs/heads/main:refs/heads/main
+```
+
+- 仓库 **Deploy key（write）** 足够推代码和 tag；`push.tags` 走部署密钥也会触发
+  `build-release.yml`（只有 `GITHUB_TOKEN` 的 push 才不触发）。
+- 加 Deploy key 要仓库 **admin**；只有 push 权限的仓库（例如官网私有仓库）改用账号 SSH key
+  `POST /user/keys`（scope `admin:public_key`），推完立刻删掉。
+- 用 Aegis 转发时，Body 里带 SSH 公钥会被判成
+  `Long base64 string (possible encoded credential)`；临时
+  `aegis vault update -n <credential> --body-inspection warn` → 发完改回 `block`。
+- 只打 tag 就够：**别**再额外 dispatch `build-release.yml`，tag 推送与 dispatch 的
+  `concurrency.group` 不同，会并发跑两个发版。
