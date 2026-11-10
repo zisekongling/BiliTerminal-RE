@@ -252,12 +252,16 @@
 
 - **「关注的人」头像条出现黑色边框（26.11.09，用户报「自定义背景下关注界面的关注的人列表头像有黑色边框」，补充「只有滑动时出现，其他页面没有」）**：用户说的「关注界面」横条 = 动态页顶部「最近更新的UP主」（`cell_recent_up_list` 的 portal `up_list` → `RecentUpAdapter` → `cell_up_avatar`），每格用圆形 `MaterialCardView` 包住头像。这张卡不写背景也不写描边，全部继承主题 `materialCardViewStyle` → `CardStyle`：`cardElevation 4dp`、`strokeColor @color/divider_dark`、`strokeWidth 1dp`、`cardBackgroundColor @color/card_dark`（`CardStyleLight` 是 2dp / `@color/divider_color`），而 divider 色**每套主题一份**（`values/colors.xml` 的 `divider_color` / `divider_dark` 与 zhihu、iqiyi、purple_fantasy、rainbow、classic_gray 各一对）——用户「边框颜色推测由主题决定」在代码里有对应物。但**描边这条早有主**：`app:strokeWidth="0dp"` 自 `a7fb06be`（2026-10-30）起就写在这份布局里（`HEAD~15` 也有），即用户装的那版描边已归零、暗边仍在，剩下的源头只有 `cardElevation`（全仓无 `setStrokeColor` / `setStrokeWidth` / `setCardElevation` 调用，阴影是静态绘制的）。修法：`app:cardElevation="0dp"`。另有一条仍待真机确认：卡片从 style 继承 `clickable` / `focusable` = true，而点击挂在外层 `LinearLayout`（`RecentUpAdapter` 两处 `setOnClickListener`），按下态可能抬 `translationZ` —— 用户报的「只在滑动时出现」可能来自这里，若复验仍有残留就把这张卡换成 `FrameLayout` + `ImageView`（`updateIndicator` 保持 `layout_gravity="top|end"`）彻底消源。L0：本机 `:app:assembleDebug` BUILD SUCCESSFUL（26.11.09 实测，head `f843aa21`）。**未验证**：真机看画面——自定义背景 + 暗色/亮色主题下，横条静止与手指划过时都不再出现暗边（L2，依据是画面），验收步骤见 `docs/review/manual-test-guide-261109-avatar-shadow.md`。
 
+- **同一类阴影暗边的第二处：关注页列表项去掉 2dp 抬高（26.11.10，排查反馈 #17 时同案发现）**：`cell_user_list.xml`（关注 / 粉丝列表，另被搜索用户页 `SearchUserFragment`、充电鸣谢 `SponsorActivity` 复用）原写 `android:elevation="2dp"`，`cell_follow_group.xml`（关注分组标题行）原写 `app:cardElevation="2dp"` —— 全 App 只有关注页给列表项抬高（其它列表项一律 0），而 `cell_user_list` 又是全仓唯一手绘不透明卡底的列表项（`@drawable/bg_card_rounded` 是 `solid @color/card_dark` + 12dp 圆角，**没有 stroke**，全库仅它一个使用者），阴影沿卡片轮廓投在自定义背景的照片上就是一圈暗边；卡色随主题变（`card_dark` 暗色 `#2A2A35` / 亮色 `#FFFEF7F1`），所以「边框颜色随主题」也有对应物。**这与 `2026-11-09` 那条不是同一个落点**：那条改的是动态页顶部头像条的 `cell_up_avatar`，本条是关注页两处列表项；`GlassStyle.kt:146-154` 的既有注释（「elevation 一并置 0：半透明底下的阴影会从下面透出来形成沿轮廓一圈的脏边」）已写明同一约定，只是默认分支没压。改法：两处抬高归 0，卡色 / 圆角 / 内容 / 点击一律不动（`clipToOutline` 与 `outlineProvider="background"` 保留，裁圆角不依赖 elevation）。L0（26.11.10 本机实测，head `8b43d494` + 本改动）：`:app:assembleDebug` BUILD SUCCESSFUL、`:app:testStandardDebugUnitTest` **210 suites / 2259 tests / 0 失败 0 错误**。**未验证**：真机看画面（L2，依据是画面），步骤见 `docs/review/manual-test-guide-261109-avatar-shadow.md` 的 H06。
+
 ## 2. 未完成待办
 
 ### 2.1 真机未验证（无设备 / 无登录态）
 
 > **本轮测试包（26.11.08，release 普通版 + debug 共存版）要测哪些**：整包口径、分组总表与时间预算见 [`test-plan-261108.md`](test-plan-261108.md)；下面每一条是该计划里的详细验收项来源。
 > **26.11.09 三条 L2 项（方向崩溃 / 下载重试 / 表冠速率）的验收步骤与判据见 [`manual-test-guide-261109.md`](manual-test-guide-261109.md)（H01~H04）。**
+
+- [ ] **26.11.10 关注页列表项去抬高真机未验（L2，只能看画面）**：`cell_user_list` / `cell_follow_group` 的 2dp 抬高已归 0。需自定义背景（选带明暗细节的亮色照片）+ 暗 / 亮各一套主题，在关注列表的普通模式与分组模式看每行卡片外沿不再有暗边；并确认复用 `cell_user_list` 的另两个页面（搜索 → 用户、视频详情 → 充电鸣谢）卡片变平后头像 / 文字 / 徽章无位移。步骤见 [`manual-test-guide-261109-avatar-shadow.md`](manual-test-guide-261109-avatar-shadow.md) 的 H06。
 
 - [ ] **26.11.09 BaseActivity 方向崩溃修复真机未验（L2，要 Android 8.0 + 非全屏窗口）**：L0 已过（两 flavor 各 209 suites / 2257 tests）。需一台 sdk26 手表在**非全屏**窗口状态（分屏 / 悬浮 / 自由窗口）下进任意子页（复现机型是 huawei LEO-DLXXU 进收藏夹页），确认①不再崩 `Only fullscreen activities can request orientation`；②`Logu.w` 里能读到「设置屏幕方向失败（窗口非全屏），按系统方向显示」这一行；③页面按系统方向正常显示、能正常退出。全屏状态下应完全无感。
 

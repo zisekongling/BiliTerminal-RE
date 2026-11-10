@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 抬高保持 0dp：关注页是唯一给列表项加高度的页面，自定义背景（照片）时这圈阴影会从卡片
+     边缘透出来，被看成列表项/头像外面的一圈黑边；其它页面（推荐、动态、回复…）的列表项
+     都没有抬高。见 docs/architecture-map.md 里「半透明底的组件一律 elevation=0」的约定。 -->
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_height="wrap_content"
@@ -6,7 +9,7 @@
     android:layout_marginHorizontal="@dimen/activity_padding_horizontal"
     android:layout_marginVertical="@dimen/list_margin_vertical"
     app:cardCornerRadius="8dp"
-    app:cardElevation="2dp">
+    app:cardElevation="0dp">
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_height="wrap_content"
