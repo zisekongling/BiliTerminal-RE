@@ -281,6 +281,7 @@
     <string name="pagename_loading">加载中……</string>
     <string name="pagename_catch">哔哩终端崩溃了</string>
     <string name="pagename_live_info">直播详情</string>
+    <string name="pagename_localfolder">文件夹</string>
     <string name="pagename_copy">复制</string>
     <string name="pagename_creative_center">创作中心</string>
     <string name="pagename_dialog">提示</string>

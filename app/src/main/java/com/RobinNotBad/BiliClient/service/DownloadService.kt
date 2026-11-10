@@ -1157,7 +1157,7 @@ class DownloadService : Service() {
     private fun refreshLocalList() {
         val instance = BiliTerminal.getInstanceActivityOnTop()
         if (instance is LocalListActivity && !instance.isDestroyed)
-            (instance as LocalListActivity).refresh()
+            (instance as LocalListActivity).refreshAfterExternalChange()
     }
 
     private fun downSubtitles(aid: Long, cid: Long, folder: File): Int {

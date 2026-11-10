@@ -297,6 +297,11 @@
             android:label="@string/uitext_locallistactivity_018"
             android:screenOrientation="locked" />
         <activity
+            android:name=".activity.video.local.LocalFolderActivity"
+            android:exported="false"
+            android:label="@string/pagename_localfolder"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.DownloadActivity"
             android:exported="false"
             android:label="@string/label_activity_no_19"
