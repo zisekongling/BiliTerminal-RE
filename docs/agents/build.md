@@ -44,7 +44,9 @@
 ## 环境坑（gradle.properties 等）
 
 - `gradle.properties` **不再写死** `org.gradle.java.home`（26.10.20 起；旧版指向 `C:\Program Files\Java\jdk-17`，换台机器/换 JDK 发行版就报 `Value '...' given for org.gradle.java.home Gradle property is invalid`，整个构建起不来）——本机 JVM 不是 JDK 17 时在**用户级** `~/.gradle/gradle.properties` 里设，或让 `JAVA_HOME` 指向 17。
-- 代理配置在第 94-97 行**是注释状态**；`compileSdk 34` 需要 `platforms/android-34` + `build-tools/34.0.0`（缺了 AGP 自动下载，licenses 已接受时），`sdk.dir` 写在 gitignore 的 `local.properties`，release 签名也读它。
+- 代理配置在第 97-101 行**是注释状态**；`compileSdk 34` 需要 `platforms/android-34` + `build-tools/34.0.0`（缺了 AGP 自动下载，licenses 已接受时），`sdk.dir` 写在 gitignore 的 `local.properties`，release 签名也读它。
+- **堆配置按通用开发机取值，别照顶配工作站写**（26.11.10 起）：`org.gradle.jvmargs` 4 G、`kotlin.daemon.jvmargs` 2 G、`org.gradle.workers.max=4`。旧值是 8 G / 8 G / 8，两个 daemon 叠加出十几个 G 的虚拟内存——在 2 核 / 7941 MiB 的小机器上构建时 `java` 被内核 OOM killer 杀掉（total-vm 11.7 G、anon-rss 2.85 G），连带把宿主的 `dsh-web.service` 一起拖死、机器重启两次。**内存更小的机器不要改这个文件**，用用户级 `~/.gradle/gradle.properties` 或 `./gradlew -Dorg.gradle.jvmargs=-Xmx1500m` 覆盖。
+- **不要在 SSH 别名 `HK` 那台小服务器上编译本仓库**（2 核 / 7.9 G，常驻 2 个 Halo 容器 + 灵灵 + nginx，磁盘 29 G）：出包在本地开发机或 GitHub Actions 上做。确实要在这种小机器上验证时先 `free -m` 看余量，并加 `--max-workers=1 -Dorg.gradle.jvmargs=-Xmx1500m -Dkotlin.daemon.jvmargs=-Xmx1024m`；构建完顺手 `rm -rf ~/.gradle` 回收磁盘（一次全量构建的缓存就是 1 G 量级）。
 - 依赖仓库已在 `settings.gradle` 前置 aliyun 的 `google`/`public`/`gradle-plugin` 镜像；`copyApkToDesktop` 未挂在 `assembleRelease` 上，需手动跑。
 
 ## build cache 回放陈旧资源
