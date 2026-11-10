@@ -1518,7 +1518,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **状态源与决策分离**：`util/IslandState.kt`（枚举 + `IslandSnapshot`）、`util/IslandStatus.kt`（读 `PlaybackService.isBackgroundPlaying()` / `DownloadService` 的 `started` + `activeDownloadsCount` + percent / 未读数 / 电量，`BATTERY_POLL_MS = 15_000`、`UPDATE_POLL_MS = 60_000`、`BURST_MS = 10_000`）、`ui/widget/IslandPolicy.kt`（**纯函数** `ongoingState` / `decide`，`EVENT_SLICE_MS = 30_000` / `TIME_SLICE_MS = 5_000`，优先级 播放中 > 下载中 > 未读，没有持续事件时恒 TIME，瞬时事件打断一切）。纯函数那层有 `ui/widget/IslandPolicyTest.kt`，改优先级先改测试。
 - **瞬时事件「只弹一次」靠 armed 标记**（`batteryArmed` / `updateArmed`）：15 / 60 秒轮询下同一次低电会被读到几十次，不 armed 就会一直弹。
 - **公告走标记不碰 View**：`api/TerminalApi.java` 的 `checkAnnouncement` 在后台线程只调 `IslandStatus.markAnnouncement()`（置 `announcementPending`），由顶栏轮询消费——所以 App 启动时才可能看到公告闪现，进程里没有顶栏时不消费。
-- **验证状态**：L0 已过（构建 + 单测），**L2 未验**（圆屏手表与方屏各看一次，见 `docs/review/fix-progress.md` §2.1）。
+- **验证状态**：L0 已过（构建 + 单测）。26.11.10 宽度固定与状态图标改动后补了 L1（vivo V2229A / Android 16 / coexist debug）：`uiautomator dump` 读四个页面的 `@id/timeText` bounds 完全一致（216px = 72dp @density 3.0），截屏确认未读态「橙色信封 + 数字」、时间态无图标。**L2 未验**（圆屏手表与方屏各看一次、充电闪电的闪烁节奏只能人判，见 `docs/review/fix-progress.md` §2.1）。
 
 ### 7.63 合集页「上次看到哪一集」定位（26.11.08 新增）
 
