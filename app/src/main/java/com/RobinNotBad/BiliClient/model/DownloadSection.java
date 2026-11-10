@@ -74,14 +74,26 @@ public class DownloadSection {
 
     }
 
-    public File getPath() {
+    /**
+     * 只算出任务目录，<b>不创建目录</b>。
+     *
+     * <p>删除前要先判断「文件原本在不在」；{@link #getPath()} 会对视频任务顺手 mkdirs，
+     * 拿它的结果去 exists() 永远为真，判不出文件是否真的缺失。需要判断存在性时用本方法。
+     */
+    public File peekPath() {
         if (type.contains("video")) {
-            File path = FileUtil.getVideoDownloadPath(title, child);
-            if (!path.exists())
-                path.mkdirs();
-            return path;
-        } else
+            return FileUtil.getVideoDownloadPath(title, child);
+        } else {
             return FileUtil.getPicturePath();
+        }
+    }
+
+    public File getPath() {
+        File path = peekPath();
+        if (type.contains("video") && !path.exists()) {
+            path.mkdirs();
+        }
+        return path;
     }
 
     /**
