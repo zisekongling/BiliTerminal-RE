@@ -1109,15 +1109,15 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 | 文件 | 关注点 | 关键点 |
 | --- | --- | --- |
 | `service/download/DownloadPathSpec.kt`（84 行） | 文件名 / 下载类型 / 结果码常量（新增 `FILE_VIDEO_MERGING = "video_merging.tmp"`） | 纯常量，无 IO 无 Context；`DownloadPathSpecTest` 72 行 |
-| `service/download/DownloadProgressMath.kt`（99 行） | `progressForBytes` / `pseudoProgress` / 批次统计 / **DASH 阶段边界与 `dashMergeProgress`** | 纯函数；`DownloadProgressMathTest` 182 行 + `service/DownloadBatchStatsTest` 136 行 |
-| `service/download/DownloadProgressStore.kt`（143 行） | 进程级状态：进度映射、`pausedMap`、累计字节、速度采样 | `internal object`；顶层 `DownloadProgressInfo` 是 **public**（被 public 门面返回） |
+| `service/download/DownloadProgressMath.kt` | `progressForBytes` / `pseudoProgress` / **DASH 阶段边界（仅探测失败的兜底）** / `byteRatio` / `monotoneProgress` | 纯函数；`DownloadProgressMathTest` + `service/DownloadBatchStatsTest`。**进度的主算法自 26.11.10 起在 `DownloadSectionBytes`**（见 §7.27 末段），阶段常量只剩兜底作用 |
+| `service/download/DownloadProgressStore.kt` | 进程级状态：进度映射、`pausedMap`、每条任务的字节预算与速度采样器 | `internal object`；顶层 `DownloadProgressInfo` 是 **public**（被 public 门面返回） |
 | `service/download/DownloadRepository.kt`（157 行） | DB 访问（`DownloadSqlHelper` 的增删查改） | `firstDown` 与视频元信息写入一起搬入 |
 | `service/download/DownloadNotifier.kt`（122 行） | 通道、两个 Builder、每秒进度、`notifyExit` / `notifyCompletion` | **普通 class 持 Service 引用**，由 `onCreate` new 出来 |
 
 **改下载相关代码前必读的三条**：
 
 1. **锁：`start(Long)` 一行未搬**，仍是 `Companion` 的 `@JvmStatic @Synchronized`（`javap`：`DownloadService$Companion.start(long)` = `public final synchronized`、静态桥 = `public static synchronized`），`started` 的 check-then-act 全靠它；`batchRunning` 守卫（审计 S6）也在原位。**`speedLock`（`DownloadProgressStore` 内）与 Companion 监视器是两把独立的锁，不得互换或合并**——速度采样全程只认 `speedLock`。
-2. **刻意保留的现状，不要"顺手修"**：`speedStr` / `isSpeedMode` / `activeDownloadsCount` **不是** volatile（UI 线程读、下载线程写是既有数据竞争）；`totalBytesDownloaded` 允许被减（失败分片回滚）；死代码 `clear()` 与从未赋值的 `toastTimer` 原样保留。
+2. **26.11.10 起口径变了，别再按老账算**：`speedStr` / `totalBytesDownloaded` 已**删除**（速度改为每条任务一个 `SpeedSampler`，字节改为每条任务一个 `DownloadSectionBytes`，见 §7.27 末段）；`isSpeedMode` / `activeDownloadsCount` **仍不是** volatile（UI 线程读、下载线程写是既有数据竞争）；死代码 `clear()` 与从未赋值的 `toastTimer` 原样保留。
 3. **`pausedMap` 必须还是同一个实例**：`activity/video/local/DownloadListActivity.kt` 直接对它 add/remove，`Companion.pausedMap` 的 getter 直接返回 `DownloadProgressStore.pausedMap`，**不能复制**。同理 `notifyTimer` / `statusBuilder` / `completionBuilder` / `notifyManager` 仍声明在 Service 实例上（notifier 只读写、不另存），因此 `notifyTimer` 由 `private` 放宽为 `internal`。
 
 **行为契约不变的部分**：channel id `biliterminal_download`、前台通知 `1027`、`notifyExit` 的 `2`、`notifyCompletion` 的 `id % 100 + 100`、download 表 11 列 / version 4、SP 键（`aria2_enabled` / `aria2_split` / `parallel_download_videos`）。**已知的可见性变化**：`DownloadProgressInfo` 的 FQN 由 `DownloadService$Companion$DownloadProgressInfo` 变为 `com.RobinNotBad.BiliClient.service.download.DownloadProgressInfo`（全仓无显式引用，按旧 FQN 反射的代码会失配）。
@@ -1127,6 +1127,14 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 **26.10.25 分片看门狗与降级（`docs/review/fix-progress.md` §3.63）**：新增 `service/download/SegmentDownloadPolicy.kt`（73 行，`internal object` 纯逻辑，`SegmentDownloadPolicyTest` 8 例）——阈值 `STALL_TIMEOUT_MS = 12s` / `ABORT_JOIN_TIMEOUT_MS = 3s` / `FINISH_JOIN_TIMEOUT_MS = 30s`，判定 `hasStalled` / `isPartialContent` / `isRangeIgnored` / `parseContentRangeStart` / `isContentRangeMismatch` / `shouldDisableSegmentMode`。`downFileSpeedSeg` 的轮询循环**先判停滞再算进度**：超过 12s 没有任何分片收到新字节就 `Call.cancel()` 中止并回退整文件单连接（join 预算收紧到 3s，线程没退出直接报错，绝不并发重下）；`downloadSegment` 强制 `206` + `Content-Range` 起点校验、按分片边界限制写入量、每写一块喂一次看门狗；companion 的 `@Volatile segmentModeDisabled` 是**本次进程内**的降级记忆，命中后后续任务不再分片。下载专用 OkHttpClient 强制 `HTTP/1.1`（实测同一 CDN 直链：5 条 h1.1 连接聚合 ≈ 10.4MB/s vs 5 条 h2 流 ≈ 4.9MB/s），HEAD 额外加 15s `callTimeout`。**`pausedMap` / `speedLock` / companion 锁的三条约束不变**（见上）。
 
 **26.11.09 主 / 备线路换线 + 失败残留（反馈 #136，`docs/review/fix-progress.md` §3.143）**：playurl 的 `backupUrl` / `backup_url` 以前只被解析、没人用（`model/DashVideoStream.java:45-51`、`model/DashAudioStream.java:39-45`），现在贯通到下载器——`api/PlayerApi.java` 在 5 处取流点把候选线路写进 `PlayerData.videoUrlCandidates` / `audioUrlCandidates`（**不进 Parcel**，与 `dashData` 同理：一次取流的附属信息，跨 Intent 后本就过期），由 `service/download/DownloadUrlCandidates.kt`（`internal object`，主线路在前、去空去重）归一；`DownloadService.downFile(urls: List<String>, …)` 逐条尝试、**只对 `ERR_NETWORK` 换线**（`ERR_FILE`/`ERR_PAUSED`/`ERR_UNKNOWN` 立即返回），换线时打 `下载失败，换备用线路重试（n/N）`，原实现体改名 `downFileOnce(...)`，`downFile(url: String, …)` 保留成一行委托。同批还收了两处「堵死重试入口」的坑：`startDownload` 命中 `state="error"` 的记录时先删再入队（原来一律弹「已在下载队列中」），以及新增 `service/download/DownloadResiduePolicy.kt` + `DownloadService.cleanupFailedResidues()`（进 `DownloadListActivity` 时清历史失败任务的 `.DOWNLOADING` / 临时文件；**目录里有成品或 `.bak` 一律不动**，见 §7.51 的 `.bak` 口径）。**断点续传仍未做**，失败后依旧整文件重下。
+
+**26.11.10 速度与进度改成按真实字节算（用户报「速度和进度显示的都非常不准确」，`docs/review/fix-progress.md` §3.146）**：三个根因一起修——①进度按**人为阶段权重**摊派（附件 0→12%、视频 12→52%、音频 52→88%、合并 88→100%），与真实字节比例无关（4K 视频流可能是音频的 30 倍，权重却只给 40:36，于是视频下完只走到 52%、音频下完却冲到 88%）；②速度是**全局一个**采样器、由通知栏定时器每秒推一次，喂的是整个批次的累计字节，于是列表每一行显示的都是同一个总速度；③那个全局计数器允许被减（失败分片 `addDownloadedBytes(-written)` 回滚），采样点落在回滚瞬间就会被 `coerceAtLeast(0)` 掩盖成 0，速度因此忽高忽低。改法（与 Bili23-Downloader 的 `_calculate_speed` / `calc_downloaded_size` 同口径）：
+
+- 新增 `service/download/DownloadSectionBytes.kt`（`internal class`）：任务开始前 `probeSectionBytes` 探出视频流 + 音频流的 `Content-Length` 当**字节预算**，进度 = `(已完成文件字节 + 当前文件已下字节) / 预算`；`finishFile(actualBytes)` 用**实际**落盘字节（不是预算份额）、`finishAll()` 在合并前顶到 100%、`monotoneProgress` 保证回滚/重试时进度条不倒退、`growBudget` 处理"只探到一条流"的情况。`DownloadSectionBytesTest` 8 例。
+- 新增 `service/download/SpeedSampler.kt`（`internal class`）：**每条任务一个**采样器，分母用实测时间差（`SystemClock.elapsedRealtime()`）、最小窗口 500ms、0.4 权重的 EMA 平滑、超过 2.5s 没有新字节就归零。`SpeedSamplerTest` 7 例。
+- `DownloadService`：新增 `probeContentLength`（HEAD 取 `Content-Length`，失败再发 `Range: bytes=0-0` 从 `Content-Range` 抠总长，两者都失败返回 -1 并退回权重兜底）与 `probeSectionBytes`；`downFileNormal` / `downFileSpeedSingle` / `downFileSpeedSeg` / `downloadSegment` 全部改走 `reportFileProgress` / `finishFileProgress`；阶段标记（视频中 / 音频中）改 `setDownloadState`（只换文案不动数字）；封面 / 字幕 / 弹幕不再把字节算进任务分子（传 `sectionId = -1`）。
+- `DownloadBatchStats` 总进度改按字节：`(已完成任务字节 + 各活跃任务已下字节) / (已完成任务字节 + 各活跃任务总字节)`，排队任务用已完成任务的平均大小估分母；成功任务出队前由 `DownloadProgressStore.retireSection(id, true)` 把它的总字节记进 `batchStats`，否则总进度会在任务出队的瞬间往回掉。
+- UI：`DownloadAdapter` 每行读 `progressInfo.speedBps`（删掉 `lastSpeedStr` / `lastSpeedMode`）；`DownloadListActivity.updateBottomBar()` 用 `getTotalSpeedBps()`，ETA 直接用字节算（**删掉 `parseSpeedToBytes`**——原实现把「12.3 MB/s」正则解析回字节，格式一变就 ETA 消失）；`DownloadNotifier` 去掉每秒 `sampleSpeed()`。
 
 ### 7.28 顶部工具条滚动自动收回（26.10.05 批次 8 新增）
 
@@ -1445,7 +1453,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **实现**：`util/MediaMerger.kt`（`object MediaMerger`，259 行）。两个 `MediaExtractor` 各取第一条 `video/*` / `audio/*` 轨，**按 `sampleTime` 归并**写进 `MediaMuxer(MUXER_OUTPUT_MPEG_4)`（旧实现是「每轮一视频一音频」交替写，不等时间戳，已改掉）。输出非分片标准 MP4，moov 在文件尾；`setOrientationHint` 透传旋转。返回码 `RESULT_OK / NO_TRACK / NO_SPACE / STOPPED / FAILED`，**非 OK 一律删产物、调用方保留双文件**。
 - **为什么能直接读 B 站 m4s**：B 站 m4s 是分片 MP4（moov 里采样表为空、采样在 `moof/mdat`）。AOSP `MPEG4Extractor.cpp` 从 Android 4.4（API 19，正是本机 minSdk）起就含 `moof` / `firstMoofOffset` 解析，模拟器（Android 14 x86_64）实测两条轨采样数与源文件完全一致。`MediaMuxer` 写 AVC+AAC 自 API 18 起支持；HEVC 需 API 24+，但 `DashData` 选流优先 AVC，正常路径不碰；杜比 / FLAC 则根本写不进 `MediaMuxer`（选流已优先 `mp4a`）。
 - **接在哪**：`DownloadService.processDownloadSection` 两个 DASH 分支（单 P / 多 P），在 `replaceDashPairOrFail` **之后**调 `mergeDashPair`：此时双文件已是本代正式成品，合并只是原地 remux；成功 `safeReplaceTemp(video_merging.tmp, video.mp4)` 后删 `audio.m4a`，失败只记日志、下载照常算成功。
-- **进度**：附件 `0.00–0.12` → 视频 `0.12–0.52` → 音频 `0.52–0.88` → 合并 `0.88–1.00`；边界全在 `DownloadProgressMath`（`DASH_ATTACH_END` 等四个常量 + `dashMergeProgress(fraction)`），有单测钉死，别再写回字面量。
+- **进度**：数据部分（视频 + 音频流）按**真实字节**走，合并阶段不再单独占区间——音频下完 `finishAllProgress` 把进度顶到 100%，合并时只换状态文案（26.11.10 改造前的「附件 0.12 → 视频 0.52 → 音频 0.88 → 合并 1.00」权重摊派只剩兜底，见 §7.27 末段）。
 - **暂停语义**：合并开始前若已暂停就不合并（走 `runDownloadSection` 的暂停分支）；合并中**不响应暂停**（几秒内能完成，中途停手反而要处理半成品），只有 `started == false`（服务销毁）时中止并按未完成处理。`shouldStop = { !started }`。
 - **残留清理**：合并临时文件固定叫 `video_merging.tmp`（`DownloadPathSpec.FILE_VIDEO_MERGING`），**刻意不用 `.mp4` 后缀**——`LocalListActivity.scanVideos` 有对历史残留 `video_merged_temp.mp4` 的「改名成 video.mp4」兼容逻辑，复用那个名字会把半成品认成成品。中断残留由 `FileUtil.cleanDownloadTempFiles` 清（已加该文件名）。
 - **播放侧不用动**：合并成功后目录里只剩 `video.mp4`，`LocalListActivity` 天然走单文件路径；老的 DASH 双文件缓存仍然按「`audio.m4a` 当外部音轨」播放（`PlayerActivity.audioTrackUrl` / `LocalAudioTrackPolicy`，见 §7.4）。
