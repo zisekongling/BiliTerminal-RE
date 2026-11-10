@@ -80,9 +80,6 @@ internal class DownloadNotifier(private val service: DownloadService) {
         service.notifyTimer!!.schedule(object : TimerTask() {
             override fun run() {
                 try {
-                    // 周期性采样所有并行下载的聚合速度
-                    DownloadService.sampleSpeed()
-
                     if (DownloadService.section == null || service.notifyTimer == null)
                         return
 

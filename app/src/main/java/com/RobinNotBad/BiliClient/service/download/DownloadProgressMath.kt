@@ -7,6 +7,10 @@ package com.RobinNotBad.BiliClient.service.download
  * 分片划分 2 处）。抽成纯函数后可以脱离 Android 跑 JVM 单测，
  * 同时表达式保持与原实现逐字符一致，浮点结果不会因为改写顺序而变化。
  *
+ * 进度的主算法已经搬到 [DownloadSectionBytes]（按真实字节算，与 Bili23-Downloader 同口径）；
+ * 本文件里的 DASH_* 阶段常量现在只作**兜底**：流大小探测失败、拿不到字节预算时才退回
+ * "按阶段权重摊派"的老算法。
+ *
  * 无 Android 依赖。
  */
 internal object DownloadProgressMath {
@@ -20,21 +24,21 @@ internal object DownloadProgressMath {
     /** 未知总大小时伪进度的封顶值 */
     private const val PSEUDO_MAX = 0.9f
 
-    // ---------- DASH 下载各阶段在整条进度条上的边界 ----------
-    // 附件（封面/字幕/弹幕）0 → 0.12、视频 0.12 → 0.52、音频 0.52 → 0.88、合并 0.88 → 1.00。
-    // 合并阶段只做容器重封装（不重新编码），耗时通常远小于音频下载，所以权重给小一点。
+    // ---------- DASH 下载各阶段在整条进度条上的边界（仅探测失败时的兜底） ----------
+    // 视频 0.12 → 0.52、音频 0.52 → 0.88；音频下完即视为数据部分完成，进度直接顶到 100%
+    // （合并只换容器、不产生新字节，不再单独占一段区间）。
+    // 这组权重是"猜"的：真实比例取决于视频/音频码率（4K 视频可能比音频大 30 倍），
+    // 所以正常路径改由 [DownloadSectionBytes] 按探测到的真实字节数算；
+    // 只有流大小探测失败（拿不到字节预算）时才退回这套固定摊派。
 
-    /** DASH 附件阶段（封面/字幕/弹幕）的终点 */
+    /** DASH 视频流阶段的起点 */
     const val DASH_ATTACH_END = 0.12f
 
     /** DASH 视频流阶段的终点 */
     const val DASH_VIDEO_END = 0.52f
 
-    /** DASH 音频流阶段的终点，也是合并阶段的起点 */
+    /** DASH 音频流阶段的终点（也是数据部分的终点） */
     const val DASH_AUDIO_END = 0.88f
-
-    /** DASH 整条进度条的终点（合并完成） */
-    const val DASH_MERGE_END = 1.0f
 
     /**
      * 分片数：约每 2MB 一片，且不超过用户配置的分片数上限，最少 1 片。
@@ -87,13 +91,27 @@ internal object DownloadProgressMath {
     }
 
     /**
-     * 把合并阶段内部进度 [fraction]（0..1）映射到进度条的 `[DASH_AUDIO_END, DASH_MERGE_END]` 区间。
+     * 字节比率：`downloaded / total`，夹在 `0..1`。
      *
-     * 合并进度由 [com.RobinNotBad.BiliClient.util.MediaMerger] 的回调给出，已读字节比例为 0..1；
-     * 越界值 clamp 掉，避免进度条冲过 100%。
+     * 用 Double 中转再转 Float，1GB 级数字除以总长也不会因为 Float 只有 24 位有效位而抖动。
+     * `total <= 0`（大小未知）时返回 0，不返回 NaN。
      */
     @JvmStatic
-    fun dashMergeProgress(fraction: Float): Float {
-        return DASH_AUDIO_END + (DASH_MERGE_END - DASH_AUDIO_END) * fraction.coerceIn(0f, 1f)
+    fun byteRatio(downloaded: Long, total: Long): Float {
+        if (total <= 0) return 0f
+        val ratio = downloaded.coerceAtLeast(0).toDouble() / total.toDouble()
+        return ratio.coerceIn(0.0, 1.0).toFloat()
+    }
+
+    /**
+     * 单调护栏：进度条只许前进，不许后退。
+     *
+     * 一条任务的字节预算定下来之后，字节数只会越来越多；但下面几种情况会让算出来的进度变小——
+     * 分片失败回滚已计字节、重试从头再下一段、以及"预算已知但实际文件比预算大"时 total 变化。
+     * 后退的进度条比慢一点的进度条更让人以为出错了，所以这里统一夹住。
+     */
+    @JvmStatic
+    fun monotoneProgress(previous: Float, next: Float): Float {
+        return maxOf(previous, next).coerceIn(0f, 1f)
     }
 }

@@ -19,6 +19,7 @@ import com.RobinNotBad.BiliClient.listener.OnItemClickListener
 import com.RobinNotBad.BiliClient.listener.OnItemLongClickListener
 import com.RobinNotBad.BiliClient.model.DownloadSection
 import com.RobinNotBad.BiliClient.service.DownloadService
+import com.RobinNotBad.BiliClient.service.formatDownloadSpeed
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.FileUtil
@@ -91,10 +92,6 @@ class DownloadListActivity : RefreshListActivity() {
                 override fun run() {
                     if (adapter == null || !created || isDestroyed)
                         return
-
-                    // 同步全局速度和模式到适配器
-                    adapter!!.lastSpeedStr = DownloadService.speedStr
-                    adapter!!.lastSpeedMode = DownloadService.isSpeedMode
 
                     if (DownloadService.started) {
                         // 并行模式：找出所有正在下载的项目并刷新
@@ -389,8 +386,8 @@ class DownloadListActivity : RefreshListActivity() {
             return
         }
 
-        // 总体进度 = (已完成 + 失败 + 各下载中项目进度之和) / (已完成 + 失败 + 下载中 + 等待中)
-        // 由 DownloadService 依据批次统计与进度映射计算，中途新增任务也会被正确计入
+        // 总体进度按**字节**算：已下字节 / 全批次总字节。已完成的任务出队后由 batchStats
+        // 继续贡献字节，所以中途新增/结束任务都不会让进度条往回掉（见 DownloadSectionBytes）
         val overallProgress = DownloadService.computeOverallProgress(currentSections)
         val activeRemainingBytes = DownloadService.getActiveRemainingBytes(currentSections)
 
@@ -420,19 +417,15 @@ class DownloadListActivity : RefreshListActivity() {
         textTotalPercent?.text = String.format(Locale.CHINA, "%d/%d%s (%.1f%%)",
             doneUnits, totalUnits, parallelInfo, overallProgress * 100)
 
-        // 更新速度（所有并行下载的聚合速度）
-        val speedText = when {
-            DownloadService.speedStr.isNotEmpty() -> {
-                val prefix = if (DownloadService.isSpeedMode) UiText.of("高速 ") else ""
-                prefix + DownloadService.speedStr
-            }
+        // 更新总速度：各活跃任务速度之和（字节/秒），0 表示还没测出来（刚开下或都卡住了）
+        val speedBytes = DownloadService.getTotalSpeedBps()
+        textTotalSpeed?.text = when {
+            speedBytes > 0 -> formatDownloadSpeed(speedBytes)
             downloadingCount > 0 -> UiText.of("准备中...")
             else -> "--"
         }
-        textTotalSpeed?.text = speedText
 
-        // 更新预估剩余时间：用下载中项目的剩余字节数除以聚合速度
-        val speedBytes = parseSpeedToBytes(DownloadService.speedStr)
+        // 更新预估剩余时间：下载中项目的剩余字节数 / 总速度
         val etaStr = when {
             overallProgress >= 1f -> UiText.of("即将完成")
             speedBytes > 0 && activeRemainingBytes > 0 ->
@@ -442,29 +435,6 @@ class DownloadListActivity : RefreshListActivity() {
         textTotalEta?.text = etaStr
 
         bottomBar?.visibility = View.VISIBLE
-    }
-
-    /**
-     * 解析速度字符串为字节/秒
-     */
-    private fun parseSpeedToBytes(speedStr: String): Long {
-        if (speedStr.isEmpty()) return 0
-        try {
-            val pattern = Regex("([\\d.]+)\\s*(MB/s|KB/s|B/s)")
-            val match = pattern.find(speedStr)
-            if (match != null) {
-                val value = match.groupValues[1].toDouble()
-                val unit = match.groupValues[2]
-                return when (unit) {
-                    "MB/s" -> (value * 1024 * 1024).toLong()
-                    "KB/s" -> (value * 1024).toLong()
-                    else -> value.toLong()
-                }
-            }
-        } catch (e: Exception) {
-            // 解析失败
-        }
-        return 0
     }
 
     private fun formatDuration(ms: Long): String {

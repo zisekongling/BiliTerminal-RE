@@ -17,6 +17,7 @@ import com.RobinNotBad.BiliClient.listener.OnItemClickListener
 import com.RobinNotBad.BiliClient.listener.OnItemLongClickListener
 import com.RobinNotBad.BiliClient.model.DownloadSection
 import com.RobinNotBad.BiliClient.service.DownloadService
+import com.RobinNotBad.BiliClient.service.formatDownloadSpeed
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.bumptech.glide.load.DecodeFormat
@@ -33,8 +34,6 @@ class DownloadAdapter(
 
     var longClickListener: OnItemLongClickListener? = null
     var clickListener: OnItemClickListener? = null
-    var lastSpeedStr: String? = null
-    var lastSpeedMode: Boolean = false
 
     /** 多选模式：勾选/取消勾选由页面处理，这里只按下面的集合画样式。 */
     var selectionMode: Boolean = false
@@ -91,14 +90,12 @@ class DownloadAdapter(
         val progressInfo = DownloadService.getDownloadProgress(section.id)
         val isDownloading = progressInfo != null
 
-        // 显示每项速度（所有下载中的项目都显示全局速度）
-        if (isDownloading && lastSpeedStr != null && lastSpeedStr!!.isNotEmpty()) {
+        // 每项显示**自己**的速度（DownloadProgressInfo.speedBps 由该任务自己的采样器给出，
+        // 采样器喂的是这条任务的累计字节），不再所有行共用一份全局速度
+        val speedBps = progressInfo?.speedBps ?: 0L
+        if (isDownloading && speedBps > 0) {
             holder.speed.visibility = View.VISIBLE
-            if (lastSpeedMode) {
-                holder.speed.text = UiText.of("高速 ") + lastSpeedStr
-            } else {
-                holder.speed.text = lastSpeedStr
-            }
+            holder.speed.text = formatDownloadSpeed(speedBps)
         } else {
             holder.speed.visibility = View.GONE
         }

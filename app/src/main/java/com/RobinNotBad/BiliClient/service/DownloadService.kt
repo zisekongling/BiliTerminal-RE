@@ -82,16 +82,10 @@ class DownloadService : Service() {
         @JvmStatic @Volatile var percent: Float = -1f
         @JvmStatic @Volatile var state: String? = null
         @JvmStatic @Volatile var section: DownloadSection? = null
-        // 速度显示字符串与"是否高速模式"由 DownloadProgressStore 持有，这里只留 @JvmStatic 门面，
-        // Java/Kotlin 侧照旧写 DownloadService.speedStr / DownloadService.isSpeedMode。
+        // 速度不再是一个全局字符串：每条任务各自一份速度（DownloadProgressInfo.speedBps），
+        // 总速度由 DownloadProgressStore.getTotalSpeedBps() 现算。
+        // 这里只留"是否高速模式"的门面，Java/Kotlin 侧照旧写 DownloadService.isSpeedMode。
         // 刻意保持非 volatile：UI 线程直接读、下载线程直接写是既有数据竞争，加 volatile 属于行为变更。
-        @JvmStatic
-        var speedStr: String
-            get() = DownloadProgressStore.speedStr
-            set(value) {
-                DownloadProgressStore.speedStr = value
-            }
-
         @JvmStatic
         var isSpeedMode: Boolean
             get() = DownloadProgressStore.isSpeedMode
@@ -151,19 +145,42 @@ class DownloadService : Service() {
         fun removeDownloadProgress(id: Long) {
             DownloadProgressStore.removeDownloadProgress(id)
         }
-
+        /** 只换状态文案，进度与字节数不动（阶段切换：视频→音频→合并） */
         @JvmStatic
-        fun getDownloadedBytes(): Long = DownloadProgressStore.getDownloadedBytes()
-
-        @JvmStatic
-        fun addDownloadedBytes(bytes: Long) {
-            DownloadProgressStore.addDownloadedBytes(bytes)
+        fun setDownloadState(id: Long, state: String) {
+            DownloadProgressStore.setDownloadState(id, state)
         }
 
+        /** 给一条任务建立字节预算（视频流 + 音频流的大小）；<=0 表示探测失败、走阶段权重兜底 */
         @JvmStatic
-        fun resetDownloadedBytes() {
-            DownloadProgressStore.resetDownloadedBytes()
+        fun beginSectionBytes(id: Long, budgetBytes: Long) {
+            DownloadProgressStore.beginSectionBytes(id, budgetBytes)
         }
+
+        /** 上报当前文件已下字节数（进度与速度都由此推进，见 DownloadSectionBytes） */
+        @JvmStatic
+        fun reportFileProgress(id: Long, state: String, downloadedInFile: Long, fileTotal: Long,
+                               baseProgress: Float, endProgress: Float, pseudoProgress: Float) {
+            DownloadProgressStore.reportFileProgress(
+                id, state, downloadedInFile, fileTotal, baseProgress, endProgress, pseudoProgress
+            )
+        }
+
+        /** 一个文件下完了：把它实际的字节数并进该任务的累计量 */
+        @JvmStatic
+        fun finishFileProgress(id: Long, actualBytes: Long) {
+            DownloadProgressStore.finishFileProgress(id, actualBytes)
+        }
+
+        /** 数据部分全部下完（只剩合并）：进度顶到 100% */
+        @JvmStatic
+        fun finishAllProgress(id: Long, state: String) {
+            DownloadProgressStore.finishAllProgress(id, state)
+        }
+
+        /** 所有活跃任务的速度之和（字节/秒），0 表示暂时测不出来 */
+        @JvmStatic
+        fun getTotalSpeedBps(): Long = DownloadProgressStore.getTotalSpeedBps()
 
         /**
          * 根据当前数据库中的下载项与进度映射，计算本次批次的总体进度。
@@ -350,18 +367,6 @@ class DownloadService : Service() {
             }
         }
 
-        /** 在批次开始时重置速度采样，避免把上一批次的字节计入 */
-        @JvmStatic
-        fun resetSpeedSampling() {
-            DownloadProgressStore.resetSpeedSampling()
-        }
-
-        /** 周期性采样全局已下载字节数，得到所有并行下载的聚合速度 */
-        @JvmStatic
-        fun sampleSpeed() {
-            DownloadProgressStore.sampleSpeed()
-        }
-
         /**
          * 收拾失败任务的目录残留，让同一个视频下次还能从零重下（反馈 #136）。
          *
@@ -497,8 +502,7 @@ class DownloadService : Service() {
                     }
                     // 开始新批次，重置统计
                     batchStats.reset()
-                    resetDownloadedBytes()
-                    resetSpeedSampling()
+                    DownloadProgressStore.resetBatchState()
                     activeDownloadsCount = 0
 
                     // 反馈 #91：队列里确实有活要干，从这里开始持锁到本段 finally 释放。
@@ -649,14 +653,18 @@ class DownloadService : Service() {
         }
 
         if (success) {
-            batchStats.recordSuccess()
+            // 字节预算在这里交给批次统计：成功任务随后会被从数据库删掉，
+            // 不在这时记账的话总进度会在它出队的瞬间往回掉一格。
+            DownloadProgressStore.retireSection(downloadSection.id, true)
         } else {
             // 用户暂停的任务：不记为失败，状态保持"paused"，等待用户恢复
             if (isPaused(downloadSection.id)) {
+                DownloadProgressStore.retireSection(downloadSection.id, false)
                 removeDownloadProgress(downloadSection.id)
                 return true // 让串行/并行批次继续，不中断其他任务
             }
             batchStats.recordFailure()
+            DownloadProgressStore.retireSection(downloadSection.id, false)
             removeDownloadProgress(downloadSection.id)
             DownloadRepository.setState(downloadSection.id, "error")
             // 失败收尾必须收拾目录残留（反馈 #136）：留下来的 `.DOWNLOADING` 会让视频详情页
@@ -754,6 +762,14 @@ class DownloadService : Service() {
             return false
         }
 
+        // 给这条任务建"字节预算"：先把视频流/音频流的大小探出来，之后整条进度条就按
+        // 「已下字节 / 预算字节」走（见 DownloadSectionBytes）。探测失败（<=0）时不建预算，
+        // 进度退回按阶段权重摊派的老算法 —— 探测只影响进度显示，不影响能不能下载。
+        beginSectionBytes(
+            downloadSection.id,
+            probeSectionBytes(videoUrls, audioUrls, useDash, downloadSection.isAudioOnly)
+        )
+
         try {
             DownloadRepository.setState(downloadSection.id, "downloading")
 
@@ -791,7 +807,7 @@ class DownloadService : Service() {
                         // 音频下载：先写临时文件，成功后替换，避免失败破坏旧文件
                         val audioTmp = File(path_single, DownloadPathSpec.FILE_AUDIO_TMP)
                         state = getString(R.string.text_download_audio)
-                        setDownloadProgress(downloadSection.id, 0.2f, getString(R.string.text_download_audio))
+                        setDownloadState(downloadSection.id, getString(R.string.text_download_audio))
                         result = downFile(audioUrls, audioTmp, downloadSection.id, 0.2f)
                         if (result != DownloadPathSpec.NORMAL) {
                             exitCode = result
@@ -799,21 +815,22 @@ class DownloadService : Service() {
                         }
                         if (!replaceTempOrFail(audioTmp, File(path_single, DownloadPathSpec.FILE_AUDIO))) return false
                     } else if (useDash) {
-                        // DASH分段进度：视频 0.12–0.52 → 音频 0.52–0.88 → 合并 0.88–1.00，附件已占 0.00–0.12。
+                        // DASH：视频流与音频流依次下完，进度按「已下字节 / 预算字节」走，
+                        // 不再按阶段权重摊派（视频/音频大小在 processDownloadSection 开头探测）。
                         // 下载完成后把音视频重新封装成一个 MP4（同 720P 的单文件形态）；合并失败保留双文件，
-                        // 不判定下载失败。整条进度条单调前进（不再各自 0→100%）。
+                        // 不判定下载失败。合并阶段进度已到 100%，只把状态文案换成"合并中"。
                         // 先下载到临时文件，全部成功后再替换正式文件（重新下载/切换清晰度时不破坏旧视频）
                         val videoTmp = File(path_single, DownloadPathSpec.FILE_VIDEO_TMP)
                         val audioTmp = File(path_single, DownloadPathSpec.FILE_AUDIO_TMP)
                         state = getString(R.string.text_download_video)
-                        setDownloadProgress(downloadSection.id, DownloadProgressMath.DASH_ATTACH_END, getString(R.string.text_download_video))
+                        setDownloadState(downloadSection.id, getString(R.string.text_download_video))
                         result = downFile(videoUrls, videoTmp, downloadSection.id, DownloadProgressMath.DASH_ATTACH_END, DownloadProgressMath.DASH_VIDEO_END)
                         if (result != DownloadPathSpec.NORMAL) {
                             exitCode = result
                             return false
                         }
                         state = getString(R.string.text_download_audio)
-                        setDownloadProgress(downloadSection.id, DownloadProgressMath.DASH_VIDEO_END, getString(R.string.text_download_audio))
+                        setDownloadState(downloadSection.id, getString(R.string.text_download_audio))
                         result = downFile(audioUrls, audioTmp, downloadSection.id, DownloadProgressMath.DASH_VIDEO_END, DownloadProgressMath.DASH_AUDIO_END)
                         if (result != DownloadPathSpec.NORMAL) {
                             exitCode = result
@@ -826,12 +843,11 @@ class DownloadService : Service() {
                         // 合并失败/跳过时双文件仍可正常播放，下载照常算成功。
                         if (isPaused(downloadSection.id)) return false
                         if (mergeDashPair(downloadSection.id, videoFinal, audioFinal) == MediaMerger.RESULT_STOPPED) return false
-                        setDownloadProgress(downloadSection.id, DownloadProgressMath.DASH_MERGE_END, getString(R.string.text_update_download_complete))
                     } else {
                         // MP4格式或无音轨DASH：直接下载单个文件（音视频已合并/无音轨）
                         val videoTmp = File(path_single, DownloadPathSpec.FILE_VIDEO_TMP)
                         state = getString(R.string.text_download_video)
-                        setDownloadProgress(downloadSection.id, 0.2f, getString(R.string.text_download_video))
+                        setDownloadState(downloadSection.id, getString(R.string.text_download_video))
                         result = downFile(videoUrls, videoTmp, downloadSection.id, 0.2f)
                         if (result != DownloadPathSpec.NORMAL) {
                             exitCode = result
@@ -871,7 +887,7 @@ class DownloadService : Service() {
                         // 音频下载：先写临时文件，成功后替换，避免失败破坏旧文件
                         val audioTmp = File(path_page, DownloadPathSpec.FILE_AUDIO_TMP)
                         state = getString(R.string.text_download_audio)
-                        setDownloadProgress(downloadSection.id, 0.2f, getString(R.string.text_download_audio))
+                        setDownloadState(downloadSection.id, getString(R.string.text_download_audio))
                         result = downFile(audioUrls, audioTmp, downloadSection.id, 0.2f)
                         if (result != DownloadPathSpec.NORMAL) {
                             exitCode = result
@@ -879,21 +895,22 @@ class DownloadService : Service() {
                         }
                         if (!replaceTempOrFail(audioTmp, File(path_page, DownloadPathSpec.FILE_AUDIO))) return false
                     } else if (useDash) {
-                        // DASH分段进度：视频 0.12–0.52 → 音频 0.52–0.88 → 合并 0.88–1.00，附件已占 0.00–0.12。
+                        // DASH：视频流与音频流依次下完，进度按「已下字节 / 预算字节」走，
+                        // 不再按阶段权重摊派（视频/音频大小在 processDownloadSection 开头探测）。
                         // 下载完成后把音视频重新封装成一个 MP4（同 720P 的单文件形态）；合并失败保留双文件，
-                        // 不判定下载失败。整条进度条单调前进（不再各自 0→100%）。
+                        // 不判定下载失败。合并阶段进度已到 100%，只把状态文案换成"合并中"。
                         // 先下载到临时文件，全部成功后再替换正式文件（重新下载/切换清晰度时不破坏旧视频）
                         val videoTmp = File(path_page, DownloadPathSpec.FILE_VIDEO_TMP)
                         val audioTmp = File(path_page, DownloadPathSpec.FILE_AUDIO_TMP)
                         state = getString(R.string.text_download_video)
-                        setDownloadProgress(downloadSection.id, DownloadProgressMath.DASH_ATTACH_END, getString(R.string.text_download_video))
+                        setDownloadState(downloadSection.id, getString(R.string.text_download_video))
                         result = downFile(videoUrls, videoTmp, downloadSection.id, DownloadProgressMath.DASH_ATTACH_END, DownloadProgressMath.DASH_VIDEO_END)
                         if (result != DownloadPathSpec.NORMAL) {
                             exitCode = result
                             return false
                         }
                         state = getString(R.string.text_download_audio)
-                        setDownloadProgress(downloadSection.id, DownloadProgressMath.DASH_VIDEO_END, getString(R.string.text_download_audio))
+                        setDownloadState(downloadSection.id, getString(R.string.text_download_audio))
                         result = downFile(audioUrls, audioTmp, downloadSection.id, DownloadProgressMath.DASH_VIDEO_END, DownloadProgressMath.DASH_AUDIO_END)
                         if (result != DownloadPathSpec.NORMAL) {
                             exitCode = result
@@ -906,12 +923,11 @@ class DownloadService : Service() {
                         // 合并失败/跳过时双文件仍可正常播放，下载照常算成功。
                         if (isPaused(downloadSection.id)) return false
                         if (mergeDashPair(downloadSection.id, videoFinal, audioFinal) == MediaMerger.RESULT_STOPPED) return false
-                        setDownloadProgress(downloadSection.id, DownloadProgressMath.DASH_MERGE_END, getString(R.string.text_update_download_complete))
                     } else {
                         // MP4格式或无音轨DASH：直接下载单个文件（音视频已合并/无音轨）
                         val videoTmp = File(path_page, DownloadPathSpec.FILE_VIDEO_TMP)
                         state = getString(R.string.text_download_video)
-                        setDownloadProgress(downloadSection.id, 0.2f, getString(R.string.text_download_video))
+                        setDownloadState(downloadSection.id, getString(R.string.text_download_video))
                         result = downFile(videoUrls, videoTmp, downloadSection.id, 0.2f)
                         if (result != DownloadPathSpec.NORMAL) {
                             exitCode = result
@@ -925,6 +941,9 @@ class DownloadService : Service() {
                     }
                 }
             }
+
+            // 数据部分全部下完：进度顶到 100%（此后的合并/替换不再占进度区间）
+            finishAllProgress(downloadSection.id, getString(R.string.text_update_download_complete))
 
             notifier.notifyCompletion(getString(R.string.text_download_success, downloadSection.name_short), downloadSection.id.toInt())
 
@@ -1071,15 +1090,16 @@ class DownloadService : Service() {
         val mergedTmp = File(videoFile.parentFile, DownloadPathSpec.FILE_VIDEO_MERGING)
         val mergeState = getString(R.string.text_download_merging)
         state = mergeState
-        setDownloadProgress(sectionId, DownloadProgressMath.DASH_AUDIO_END, mergeState)
+        // 合并只换容器、不产生新字节：进合并就说明数据部分已下完，进度直接顶到 100%，
+        // 期间只把状态文案保持为"合并中"（用户看到的是"100% + 合并中"）
+        finishAllProgress(sectionId, mergeState)
         val mergeStartAt = System.currentTimeMillis()
         val result = MediaMerger.mergeAv(
             videoFile = videoFile,
             audioFile = audioFile,
             mergedFile = mergedTmp,
-            onProgress = { fraction ->
-                setDownloadProgress(sectionId, DownloadProgressMath.dashMergeProgress(fraction), mergeState)
-            },
+            // 进度已到 100%，合并阶段不再推进进度条
+            onProgress = { _ -> },
             // 合并只做容器重封装，不响应暂停；服务被销毁（started=false）时必须停手
             shouldStop = { !started }
         )
@@ -1099,10 +1119,9 @@ class DownloadService : Service() {
 
     /**
      * 附件阶段（封面 + 字幕 + 弹幕）统一处理。
-     * DASH 流程：附件属于视频的前置开销，只占进度条 0.00–0.12（封面 0-0.04，字幕 0.05，
-     * 弹幕 0.06-0.12），随后视频段 0.12–0.52、音频段 0.52–0.88、合并段 0.88–1.00，整条进度条**单调前进**。
-     * （旧实现让每段各自 0→100%，DASH 下载一次要走满三遍，用户看到的就是"进度条来回满三次"。）
-     * 其他流程（MP4 单文件/纯音频）：保持旧的比例区间（封面 0.05-0.1，字幕 0.1，弹幕 0.15）。
+     *
+     * 进度不再由附件占区间：整条任务的进度是「已下字节 / 预算字节」（见 [DownloadSectionBytes]），
+     * 附件不建预算，下载时进度基本不动、只换状态文案。真正的字节进度从视频流开始走。
      * @return 是否成功；false 时调用方应直接结束下载
      */
     private fun downloadAttachments(
@@ -1115,12 +1134,12 @@ class DownloadService : Service() {
     ): Boolean {
         // 封面
         state = getString(R.string.text_download_cover)
-        setDownloadProgress(downloadSection.id, if (useDash) 0f else 0.05f, getString(R.string.text_download_cover))
+        setDownloadState(downloadSection.id, getString(R.string.text_download_cover))
         if (!coverFile.exists() && downloadSection.url_cover.isNotEmpty()) {
-            val result = if (useDash)
-                downFile(downloadSection.url_cover, coverFile, downloadSection.id, 0f, 0.04f)
-            else
-                downFile(downloadSection.url_cover, coverFile, downloadSection.id, 0.05f, 0.1f)
+            // 附件不参与任务的字节预算（预算只算视频流 + 音频流），所以不传 sectionId：
+            // 传了的话封面/弹幕的字节会被算进进度分子，把进度条推过真实比例。
+            // 代价只是暂停要等到下一个真正下载的流才会生效，附件本身只有几十 KB～几 MB。
+            val result = downFile(downloadSection.url_cover, coverFile)
             if (result != DownloadPathSpec.NORMAL) {
                 exitCode = result
                 return false
@@ -1130,16 +1149,13 @@ class DownloadService : Service() {
         if (!downloadSection.isAudioOnly) {
             // 字幕
             state = getString(R.string.text_download_subtitle)
-            setDownloadProgress(downloadSection.id, if (useDash) 0.05f else 0.1f, getString(R.string.text_download_subtitle))
+            setDownloadState(downloadSection.id, getString(R.string.text_download_subtitle))
             downSubtitles(downloadSection.aid, downloadSection.cid, subtitleFolder)
 
-            // 弹幕：DASH 传 0.07 使完成后进度为 0.12（与视频段的 0.12 起点接上）
+            // 弹幕
             state = getString(R.string.text_download_danmaku)
-            setDownloadProgress(downloadSection.id, if (useDash) 0.06f else 0.15f, getString(R.string.text_download_danmaku))
-            val result = if (useDash)
-                downDanmaku(url_danmaku, danmakuFile, downloadSection.id, 0.07f)
-            else
-                downDanmaku(url_danmaku, danmakuFile, downloadSection.id, 0.15f)
+            setDownloadState(downloadSection.id, getString(R.string.text_download_danmaku))
+            val result = downDanmaku(url_danmaku, danmakuFile)
             if (result != DownloadPathSpec.NORMAL) {
                 exitCode = result
                 return false
@@ -1260,6 +1276,8 @@ class DownloadService : Service() {
         var fileOutputStream: FileOutputStream? = null
         var result = DownloadPathSpec.NORMAL
         var fileIncomplete = false
+        // 本文件实际写盘字节：成功时交给 DownloadProgressStore 并进整条任务的累计量
+        var totalDown = 0L
         try {
             if (!resetFile(file))
                 return DownloadPathSpec.ERR_FILE
@@ -1272,7 +1290,6 @@ class DownloadService : Service() {
             var len: Int
             val bytes = ByteArray(256 * 1024)
             val TotalFileSize = body.contentLength()
-            var totalDown: Long = 0
             var lastProgressUpdate = 0L
             // 未知总大小时按 512KB 节流推进伪进度（封顶 90%），避免进度条卡死不动
             val progressUpdateInterval = if (TotalFileSize > 0) Math.max(TotalFileSize / 1000, 65536) else 512 * 1024
@@ -1280,29 +1297,18 @@ class DownloadService : Service() {
             while ((inputStream.read(bytes).also { len = it }) != -1 && started && !isPaused(sectionId)) {
                 fileOutputStream.write(bytes, 0, len)
                 totalDown += len
-                addDownloadedBytes(len.toLong())
                 if (totalDown - lastProgressUpdate >= progressUpdateInterval) {
                     lastProgressUpdate = totalDown
-                    if (TotalFileSize > 0) {
-                        percent = DownloadProgressMath.progressForBytes(totalDown, TotalFileSize, baseProgress, endProgress)
-                    }
-
-                    // 更新进度到进度映射表
                     if (sectionId > 0) {
-                        val actualProgress = if (TotalFileSize > 0) {
-                            DownloadProgressMath.progressForBytes(totalDown, TotalFileSize, baseProgress, endProgress)
-                        } else {
+                        if (TotalFileSize <= 0) {
                             pseudoProgress = DownloadProgressMath.pseudoProgressStep(pseudoProgress)
-                            DownloadProgressMath.progressForPseudo(pseudoProgress, baseProgress, endProgress)
                         }
-                        setDownloadProgress(sectionId, actualProgress, state ?: getString(R.string.text_download_in_progress), totalDown, TotalFileSize)
+                        // 进度与速度都交给 store 按真实字节算（见 DownloadSectionBytes）
+                        reportFileProgress(sectionId, state ?: getString(R.string.text_download_in_progress),
+                            totalDown, TotalFileSize, baseProgress, endProgress, pseudoProgress)
+                        percent = getDownloadProgress(sectionId)?.progress ?: percent
                     }
                 }
-            }
-            if (TotalFileSize <= 0) {
-                percent = endProgress
-            } else {
-                percent = DownloadProgressMath.progressForBytes(totalDown, TotalFileSize, baseProgress, endProgress)
             }
             // 用户暂停：优先返回暂停信号（不视为错误，不清理半成品，恢复后重新下载覆盖）
             if (isPaused(sectionId)) {
@@ -1327,9 +1333,10 @@ class DownloadService : Service() {
         if (result != DownloadPathSpec.NORMAL && fileIncomplete) {
             try { if (file.exists()) file.delete() } catch (_: Exception) {}
         }
-        // 下载成功后把进度推进到阶段终点，保证阶段进度条走满（分段进度依赖）
+        // 下载成功后把这个文件的实际字节并进任务累计量（进而是进度条的分子）
         if (result == DownloadPathSpec.NORMAL && sectionId > 0) {
-            setDownloadProgress(sectionId, endProgress, state ?: getString(R.string.text_download_in_progress))
+            finishFileProgress(sectionId, totalDown)
+            percent = getDownloadProgress(sectionId)?.progress ?: endProgress
         }
         return result
     }
@@ -1354,6 +1361,73 @@ class DownloadService : Service() {
             .build()
         downloadOkHttpClient = built
         return built
+    }
+
+    /**
+     * 探测一条任务要下多少字节（视频流 + 音频流），作为整条进度条的分母。
+     *
+     * 探测只用于**显示**：失败返回 -1，进度退回按阶段权重摊派的老算法，不影响能不能下载。
+     * DASH 要求两条流都探到才相加 —— 只探到一条会让分母偏小，进度条先冲到 100% 再卡住。
+     */
+    private fun probeSectionBytes(videoUrls: List<String>, audioUrls: List<String>,
+                                  useDash: Boolean, isAudioOnly: Boolean): Long {
+        val videoUrl = videoUrls.firstOrNull().orEmpty()
+        val audioUrl = audioUrls.firstOrNull().orEmpty()
+        return when {
+            isAudioOnly -> probeContentLength(audioUrl)
+            useDash -> {
+                val videoSize = probeContentLength(videoUrl)
+                val audioSize = probeContentLength(audioUrl)
+                if (videoSize > 0 && audioSize > 0) videoSize + audioSize else -1L
+            }
+            else -> probeContentLength(videoUrl)
+        }
+    }
+
+    /**
+     * 探单个文件的总字节数：先发 HEAD（最省流量），HEAD 不给 Content-Length 时再发
+     * `Range: bytes=0-0`，从 `Content-Range: bytes 0-0/总长` 里读总长。都失败返回 -1。
+     */
+    private fun probeContentLength(url: String): Long {
+        if (url.isEmpty()) return -1L
+        val headers = NetWorkUtil.webHeaders
+        // 单独加 callTimeout：连上了却一直不给响应时，OkHttp 的 connect/read 超时管不住，
+        // 而这一步挡在"开始下载"前面，挂住就是用户点了下载后一直没反应。
+        val client = downloadClient().newBuilder()
+            .callTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+
+        fun buildRequest(isHead: Boolean): okhttp3.Request {
+            val builder = okhttp3.Request.Builder().url(url)
+            if (isHead) builder.head() else builder.get().header("Range", "bytes=0-0")
+            var i = 0
+            while (i < headers.size) {
+                builder.addHeader(headers[i], headers[i + 1])
+                i += 2
+            }
+            return builder.build()
+        }
+
+        try {
+            client.newCall(buildRequest(true)).execute().use { res ->
+                val len = if (res.isSuccessful) res.header("Content-Length") else null
+                val size = len?.toLongOrNull() ?: 0L
+                if (size > 0) return size
+            }
+        } catch (e: Exception) {
+            Logu.d("DownloadService", "HEAD 探测文件大小失败：${e.message}")
+        }
+        try {
+            client.newCall(buildRequest(false)).execute().use { res ->
+                if (res.code == 206) {
+                    val total = res.header("Content-Range")?.substringAfter('/', "")?.trim()?.toLongOrNull() ?: 0L
+                    if (total > 0) return total
+                }
+            }
+        } catch (e: Exception) {
+            Logu.e("DownloadService", "探测文件大小失败：${e.message}")
+        }
+        return -1L
     }
 
     @Throws(IOException::class)
@@ -1443,20 +1517,18 @@ class DownloadService : Service() {
                 body.byteStream().use { inputStream ->
                     FileOutputStream(file).use { fos ->
                         val transfer = DownloadStreamTransfer.copy(inputStream, fos, effectiveTotalSize,
-                            isRunning = { started }, isPaused = { isPaused(sectionId) }) { total, delta ->
+                            isRunning = { started }, isPaused = { isPaused(sectionId) }) { total, _ ->
                             downloaded = total
-                            addDownloadedBytes(delta.toLong())
                             if (total - lastProgressUpdate >= progressUpdateInterval) {
                                 lastProgressUpdate = total
-                                val actualProgress = if (effectiveTotalSize > 0) {
-                                    DownloadProgressMath.progressForBytes(total, effectiveTotalSize, baseProgress, endProgress)
-                                } else {
+                                if (effectiveTotalSize <= 0) {
                                     pseudoProgress = DownloadProgressMath.pseudoProgressStep(pseudoProgress)
-                                    DownloadProgressMath.progressForPseudo(pseudoProgress, baseProgress, endProgress)
                                 }
-                                percent = actualProgress
+                                // 进度与速度都由 store 按真实字节算（见 DownloadSectionBytes）
                                 if (sectionId > 0) {
-                                    setDownloadProgress(sectionId, actualProgress, state ?: getString(R.string.text_download_in_progress), total, effectiveTotalSize)
+                                    reportFileProgress(sectionId, state ?: getString(R.string.text_download_in_progress),
+                                        total, effectiveTotalSize, baseProgress, endProgress, pseudoProgress)
+                                    percent = getDownloadProgress(sectionId)?.progress ?: percent
                                 }
                             }
                         }
@@ -1485,11 +1557,13 @@ class DownloadService : Service() {
         if (singleResult == DownloadPathSpec.ERR_NETWORK) {
             Logu.e("DownloadService", "下载未完成：${file.name} $downloaded/$effectiveTotalSize")
         }
-        // 只有读到 EOF 且字节校验通过、文件关闭成功，才推进阶段终点并允许调用方替换成品。
+        // 只有读到 EOF 且字节校验通过、文件关闭成功，才把本文件字节并进任务累计量、允许调用方替换成品。
         if (singleResult == DownloadPathSpec.NORMAL) {
-            percent = endProgress
             if (sectionId > 0) {
-                setDownloadProgress(sectionId, endProgress, state ?: getString(R.string.text_download_in_progress), downloaded, effectiveTotalSize)
+                finishFileProgress(sectionId, downloaded)
+                percent = getDownloadProgress(sectionId)?.progress ?: endProgress
+            } else {
+                percent = endProgress
             }
         }
         return singleResult
@@ -1536,12 +1610,13 @@ class DownloadService : Service() {
                 Logu.e("DownloadService", "分片下载停滞 ${SegmentDownloadPolicy.STALL_TIMEOUT_MS}ms，改用单连接：${file.name}")
                 break
             }
-            val actualProgress = DownloadProgressMath.progressForBytes(shared.totalDownloaded.get(), totalSize, baseProgress, endProgress)
-            percent = actualProgress
-
-            // 更新进度到进度映射表
+            val downloadedNow = shared.totalDownloaded.get()
             if (sectionId > 0) {
-                setDownloadProgress(sectionId, actualProgress, state ?: getString(R.string.text_download_in_progress), shared.totalDownloaded.get(), totalSize)
+                reportFileProgress(sectionId, state ?: getString(R.string.text_download_in_progress),
+                    downloadedNow, totalSize, baseProgress, endProgress, 0f)
+                percent = getDownloadProgress(sectionId)?.progress ?: percent
+            } else {
+                percent = DownloadProgressMath.progressForBytes(downloadedNow, totalSize, baseProgress, endProgress)
             }
 
             try {
@@ -1595,24 +1670,17 @@ class DownloadService : Service() {
         if (stalled || shared.rangeUnsupported.get() || shared.anyFailed.get() ||
             shared.totalDownloaded.get() < totalSize || file.length() != totalSize
         ) {
-            // 回退前必须把分片阶段已经计入的字节从全局计数里扣掉（审计 S7）：
-            // downFileSpeedSingle 会用 FileOutputStream 截断重写整个文件，并再次
-            // addDownloadedBytes()，不回滚就让 totalBytesDownloaded 把同一批字节算两遍，
-            // sampleSpeed() 得出的速度与批次统计虚高。
-            val segBytes = shared.totalDownloaded.get()
-            if (segBytes > 0) addDownloadedBytes(-segBytes)
-            // 进度同步退回阶段起点：单线程重下会从 0 重新推进 percent，
-            // 若保留分片阶段的高位进度，进度条会先满后退。
-            if (sectionId > 0) {
-                setDownloadProgress(sectionId, baseProgress, state ?: getString(R.string.text_download_in_progress), 0L, totalSize)
-            }
+            // 回退前不需要回滚任何计数：分片阶段的字节只是"在飞量"，只有 finishFileProgress()
+            // 才会把它并进任务累计量（见 DownloadSectionBytes），所以单连接重下不会把同一批
+            // 字节算两遍。进度条走单调护栏，重下期间不会往回掉。
             return downFileSpeedSingle(url, file, client, headers, totalSize, sectionId, baseProgress, endProgress)
         }
 
         val segResult = if (started) DownloadPathSpec.NORMAL else DownloadPathSpec.ERR_UNKNOWN
-        // 下载成功后把进度推进到阶段终点，保证阶段进度条走满（分段进度依赖）
+        // 分片全部写完：把这个文件的实际字节并进任务累计量
         if (segResult == DownloadPathSpec.NORMAL && sectionId > 0) {
-            setDownloadProgress(sectionId, endProgress, state ?: getString(R.string.text_download_in_progress))
+            finishFileProgress(sectionId, totalSize)
+            percent = getDownloadProgress(sectionId)?.progress ?: endProgress
         }
         return segResult
     }
@@ -1730,7 +1798,6 @@ class DownloadService : Service() {
                                 // 2MB 一片时整片完成前进度纹丝不动，进度条就是 2MB 一跳，
                                 // 剩余时间也跟着虚高；失败重试时下面的回滚负责扣回。
                                 shared.totalDownloaded.addAndGet(toWrite.toLong())
-                                addDownloadedBytes(toWrite.toLong())
                                 shared.markByte(idx)
                             }
                         }
@@ -1751,12 +1818,10 @@ class DownloadService : Service() {
                 // 字节已在循环里逐块计入 totalDownloaded，这里不能再加一次
                 return
             }
-            // 本次尝试没拿到完整分片（EOF 早停 / 异常 / 被暂停）：把这段已计入全局计数器的字节扣回。
-            // 重试成功后会从分片起点整片重算，不扣就把同一段字节算成两次，sampleSpeed() 与批次统计虚高；
-            // 分片阶段最终失败时 downFileSpeedSeg 还会按 totalDownloaded 回滚成功分片，两者口径保持一致。
+            // 本次尝试没拿到完整分片（EOF 早停 / 异常 / 被暂停）：把这段在飞字节扣回。
+            // 重试成功后会从分片起点整片重算，不扣就把同一段字节算成两次，进度与速度都虚高。
             if (written > 0) {
                 shared.totalDownloaded.addAndGet(-written)
-                addDownloadedBytes(-written)
             }
             attempts++
             // Range 被判不可用或整体已中止时，重试没有任何意义
@@ -1792,7 +1857,7 @@ class DownloadService : Service() {
      * 写失败时留下的空文件正是「下载成功但播放时没弹幕」的来源。
      */
     @Throws(IOException::class)
-    private fun downDanmaku(danmaku: String, danmakuFile: File, sectionId: Long = -1, baseProgress: Float = 0f): Int {
+    private fun downDanmaku(danmaku: String, danmakuFile: File, sectionId: Long = -1): Int {
         val decompressed = try {
             DanmakuFileFetcher.fetch(danmaku)
         } catch (e: IOException) {
@@ -1802,9 +1867,9 @@ class DownloadService : Service() {
         }
         return try {
             danmakuFile.writeBytes(decompressed)
-            // 更新进度
+            // 只换状态文案：弹幕字节不进任务的字节预算（见 downloadAttachments）
             if (sectionId > 0) {
-                setDownloadProgress(sectionId, baseProgress + 0.05f, getString(R.string.text_download_danmaku))
+                setDownloadState(sectionId, getString(R.string.text_download_danmaku))
             }
             DownloadPathSpec.NORMAL
         } catch (e: IOException) {
@@ -1819,10 +1884,9 @@ class DownloadService : Service() {
         batchRunning = false
         percent = -1f
         state = null
-        speedStr = ""
         getDownloadProgressMap().let { it.clear() }
         batchStats.reset()
-        resetDownloadedBytes()
+        DownloadProgressStore.resetBatchState()
         activeDownloadsCount = 0
 
         toastTimer?.cancel()
