@@ -279,7 +279,7 @@ class DownloadListActivity : RefreshListActivity() {
             it.notifyDataSetChanged()
         }
         updateSelectionBar()
-        MsgUtil.showMsg(getString(R.string.text_download_select_hint))
+        MsgUtil.showMsg(getString(R.string.msg_download_select_hint))
     }
 
     private fun exitSelectionMode() {
@@ -343,8 +343,10 @@ class DownloadListActivity : RefreshListActivity() {
         refreshList(false)
         runOnUiThread {
             val msg = when {
+                failed > 0 && fileLeft > 0 ->
+                    getString(R.string.msg_download_delete_partial_all, deleted, failed, fileLeft)
                 failed > 0 -> getString(R.string.uitext_locallistactivity_030, deleted, failed)
-                fileLeft > 0 -> getString(R.string.text_download_delete_file_left, deleted, fileLeft)
+                fileLeft > 0 -> getString(R.string.msg_download_delete_file_left, deleted, fileLeft)
                 else -> getString(R.string.uitext_favoritevideolistactivity_019, deleted)
             }
             MsgUtil.showMsgLong(msg)
@@ -358,11 +360,10 @@ class DownloadListActivity : RefreshListActivity() {
                 DownloadService.pauseDownload(section.id)
             }
 
-            // getPath() 对不存在的视频目录会顺手 mkdirs，所以删除前先记下它原本在不在
-            val folder = section.getPath()
-            val fileGone = folder?.let {
-                if (!it.exists()) true else FileUtil.deleteFolderRecursively(it)
-            } ?: true
+            // 用 peekPath() 而不是 getPath()：后者会对不存在的视频目录顺手 mkdirs，
+            // 先建一个空目录再 exists() 必然为真，就判不出文件原本在不在、也报不出「文件未删干净」。
+            val folder = section.peekPath()
+            val fileGone = !folder.exists() || FileUtil.deleteFolderRecursively(folder)
 
             DownloadService.deleteSection(section.id)
             DownloadService.pausedMap.remove(section.id)

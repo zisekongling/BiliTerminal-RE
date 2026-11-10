@@ -75,6 +75,8 @@ class DownloadAdapter(
     override fun onBindViewHolder(holder: DownloadHolder, position: Int) {
         if (downloadList.isEmpty()) {
             holder.show(null, context)
+            // 复用到的 holder 可能是上一条被多选压暗的（alpha=0.45），占位行要显式复位
+            holder.itemView.alpha = 1f
             holder.showProgress(null, -1f, false)
             holder.itemView.setOnClickListener(null)
             holder.itemView.setOnLongClickListener(null)
