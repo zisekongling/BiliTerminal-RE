@@ -1,10 +1,13 @@
 package com.RobinNotBad.BiliClient.ui.widget
 
 import android.app.Activity
+import android.content.Context
 import android.graphics.Canvas
 import android.graphics.ColorFilter
-import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
@@ -15,6 +18,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.RelativeLayout
 import android.widget.TextView
+import androidx.annotation.ColorInt
+import androidx.annotation.DrawableRes
+import androidx.appcompat.content.res.AppCompatResources
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
@@ -33,11 +39,21 @@ import java.util.WeakHashMap
  *
  * ## 只接管 46 个活动页的顶栏时钟位
  * 方屏与圆屏都能单独打开（`SettingsKeys.TOPBAR_ISLAND`）；播放器页与短视频页有自己的顶栏，不接。
- * 圆屏适配把时钟居中时胶囊满宽、标题下移 3dp；方屏时钟靠右时只按标题剩余空档加宽。
+ *
+ * ## 宽度全局固定（26.11.10 用户拍板）
+ * 胶囊宽度恒为 72dp（小屏按屏宽 31% 封顶），**所有页面、所有状态一致**；
+ * 不再按「标题还剩多少空档」自适应——那样同一设备上不同页面宽度会不一样（26.11.10 用户报的 bug）。
+ * 方屏长标题由顶栏自己省略号截断（`BaseActivity.setRound()` 已把 `pageName` 设成单行 + END 省略）。
+ *
+ * ## 左侧状态图标（26.11.10 用户要求）
+ * 文字前加 12dp 矢量小图标，颜色取主题状态色；「1」「15%」这类裸数字/百分比靠图标说明含义
+ * （未读 / 下载进度 / 电量）。图标只做「复用现有 + 新画四个」的最小集合：
+ * 播放复用 `icon_play_12`，公告/更新复用 `icon_announcement` / `icon_update`，
+ * 新画下载 / 未读 / 电池 / 闪电四个。
  *
  * ## 不新增 View、不改 49 份手抄布局
  * 直接装饰 `R.id.top` 里的 `@id/timeText`（`TextClock`）：
- * - 宽度上限 72dp（按屏幕宽度封顶），高度保持文字行高，不改变顶栏高度；
+ * - 高度保持文字行高，不改变顶栏高度；
  * - **只有时钟居中（圆屏适配）时**标题才下移 3dp，避免实心胶囊压住标题顶；
  * - 不装任何触摸监听器：点胶囊仍会冒泡到整条顶栏，单击/长按/双击三套手势全部保留。
  *
@@ -45,23 +61,20 @@ import java.util.WeakHashMap
  * 每个 Activity 一份 [Binding]，`onStart` 里 attach、`onStop` 里 detach；
  * 定时器 1 秒一次，页面不可见时立即停，不留后台唤醒。
  *
- * 文案和颜色只在这里映射；状态机和轮换策略在 [IslandPolicy]，状态读取在 [IslandStatus]。
+ * 文案、颜色、图标只在这里映射；状态机和轮换策略在 [IslandPolicy]，状态读取在 [IslandStatus]。
  */
 object TopbarIsland {
 
     private const val TAG = "TopbarIsland"
 
-    /** 胶囊宽度上限（dp）。圆屏顶边可见弦宽约 76dp，72dp 留 4dp 余量。 */
+    /** 胶囊宽度（dp）。圆屏顶边可见弦宽约 76dp，72dp 留 4dp 余量。 */
     private const val WIDTH_DP = 72f
 
-    /** 按屏幕宽度封顶：233dp 屏的 31% ≈ 72dp，小屏表盘也不会被圆盘切角。 */
-    private const val WIDTH_SCREEN_RATIO = 0.31f
+    /** 状态图标边长（dp），与 12sp 文字同高。 */
+    private const val ICON_DP = 12f
 
     /** 圆屏下标题避让量。 */
     private const val TITLE_GAP_DP = 3f
-
-    /** 加宽至少要抢到这么多（dp），否则不如保持原时钟宽度——只多几个像素会让标题莫名缩字。 */
-    private const val MIN_GROW_DP = 8f
 
     private const val TICK_MS = 1_000L
 
@@ -143,13 +156,13 @@ object TopbarIsland {
 
         private var running = false
         private var lastState: IslandState? = null
-        private var lastDotColor: Int? = null
+        /** 当前图标的「资源 id:颜色」签名；换图标 / 换色才重建，避免每秒 new Drawable。 */
+        private var lastIconKey: String? = null
+        /** 充电闪电的闪烁相位：每秒在亮 / 暗之间切一次（像充电宝指示灯）。 */
+        private var iconBlinkOn = true
         private var showTime = false
         private var phaseStart = SystemClock.uptimeMillis()
         private var titleNudged = false
-        /** 实测后的胶囊宽度（px，null = 不接管）；首帧布局后由 [settleWidth] 定一次。 */
-        private var widthOverride: Int? = null
-        private var widthSettled = false
 
         private var originalsSaved = false
         private var origBackground: Drawable? = null
@@ -173,7 +186,6 @@ object TopbarIsland {
                     return
                 }
                 try {
-                    settleWidth()
                     render()
                 } catch (e: Throwable) {
                     Logu.e(TAG, "灵动岛渲染失败：${e.message}")
@@ -182,30 +194,20 @@ object TopbarIsland {
             }
         }
 
-        /** 首帧布局一完成就量一次宽度，别等 1 秒后那次 tick（否则会先窄一下再变宽）。 */
-        private val settleListener =
-            View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-                if (running) settleWidth()
-            }
-
         fun attach() {
             saveOriginals()
             running = true
             titleNudged = false
-            widthSettled = false
-            widthOverride = null
             lastState = null
-            lastDotColor = null
+            lastIconKey = null
+            iconBlinkOn = true
             applyStyle()
             nudgeTitle()
-            clock.removeOnLayoutChangeListener(settleListener)
-            clock.addOnLayoutChangeListener(settleListener)
             handler.removeCallbacks(tick)
             handler.post(tick)
             Logu.d(
                 TAG,
-                "灵动岛已挂载：${activity.javaClass.simpleName} " +
-                    "width=${widthOverride ?: "待实测"}px（首帧布局后按标题空档定一次）"
+                "灵动岛已挂载：${activity.javaClass.simpleName} width=${pillWidthPx()}px（全局固定）"
             )
         }
 
@@ -213,14 +215,11 @@ object TopbarIsland {
             if (!originalsSaved) saveOriginals()
             running = true
             titleNudged = false
-            widthSettled = false
-            widthOverride = null
             lastState = null
-            lastDotColor = null
+            lastIconKey = null
+            iconBlinkOn = true
             applyStyle()
             nudgeTitle()
-            clock.removeOnLayoutChangeListener(settleListener)
-            clock.addOnLayoutChangeListener(settleListener)
             handler.removeCallbacks(tick)
             handler.post(tick)
         }
@@ -228,12 +227,11 @@ object TopbarIsland {
         fun detach() {
             running = false
             handler.removeCallbacks(tick)
-            clock.removeOnLayoutChangeListener(settleListener)
             clock.animate().cancel()
             restoreClock()
             restoreTitle()
             lastState = null
-            lastDotColor = null
+            lastIconKey = null
         }
 
         private fun saveOriginals() {
@@ -256,71 +254,9 @@ object TopbarIsland {
             if (titleParams != null) origTitleTopMargin = titleParams.topMargin
         }
 
-        /**
-         * 胶囊宽度（px）；返回 null 表示**不接管宽度**，直接用时钟原来的宽度。
-         *
-         * 首帧布局之后用 [settleWidth] 实测一次标题空档，结果缓存进 [widthOverride]，
-         * 之后的 `applyStyle()` 都用缓存值——否则加宽后标题已经被挤窄，再量一次会越量越小。
-         */
-        private fun islandWidth(): Int? = widthOverride ?: computeWidth()
-
-        /**
-         * 按「标题还剩多少没用上的空档」决定加宽多少（px；null = 不加宽，用回时钟原宽度）。
-         *
-         * 顶栏是「标题 match_parent + 时钟贴右（圆屏适配下贴中）」，**时钟一加宽就压标题**：
-         * - 时钟**居中**（圆屏适配把时钟挪到正中）：加宽是左右对称的，标题挤压是老口径，沿用满宽；
-         * - 时钟**靠右**（方屏 / 手机）：只往左长，抢到多少空档就长多少，抢不到 8dp 就不接管，
-         *   免得标题莫名缩字。
-         */
-        private fun computeWidth(): Int? {
-            // 基准取时钟实测宽度：wrap_content 是 -2，拿布局参数当基准会低估方屏还能长多少。
-            // attach / resume 时 applyStyle 会先把宽度还原成 origWidth，布局后这里读到的才是
-            // 自然宽度；未布局（width <= 0）一律不接管宽度，applyStyle 继续用 origWidth。
-            val base = clock.width
-            if (base <= 0) return null
-            val wanted = ToolsUtil.dp2px(WIDTH_DP)
-            val byScreen = (activity.window_width * WIDTH_SCREEN_RATIO).toInt()
-            val desired = if (byScreen > 0) minOf(wanted, byScreen) else wanted
-            if (desired <= base) return null
-            if (isClockCentered()) return desired
-            val extra = desired - base
-            val usable = minOf(extra, titleSlack())
-            return if (usable >= ToolsUtil.dp2px(MIN_GROW_DP)) base + usable else null
-        }
-
-        /** 时钟是否被「圆屏适配」挪到了顶栏正中（这个形态下加宽是左右对称的）。 */
-        private fun isClockCentered(): Boolean {
-            if (clock.width <= 0 || top.width <= 0) return false
-            val centerGap = clock.left + clock.width / 2 - top.width / 2
-            return kotlin.math.abs(centerGap) <= ToolsUtil.dp2px(4f)
-        }
-
-        /**
-         * 标题框里还没用上的宽度（px），没法量（布局未算过）时返回 0。
-         *
-         * 用标题**文字实际需要的宽度**反推：宁可算宽也不冒把标题挤花的风险（算宽 = 少加宽）。
-         */
-        private fun titleSlack(): Int {
-            val title = top.findViewById<TextView>(R.id.pageName) ?: return 0
-            if (title.width <= 0) return 0
-            val textWidth = title.paint?.measureText(title.text?.toString().orEmpty()) ?: 0f
-            val needed = textWidth.toInt() +
-                title.paddingLeft + title.paddingRight +
-                (title.compoundDrawables.firstOrNull()?.intrinsicWidth ?: 0) +
-                title.compoundDrawablePadding
-            return title.width - needed
-        }
-
-        /** 首帧布局之后才知道标题还剩多少空档，按实测定一次宽度（只定一次）。 */
-        private fun settleWidth() {
-            if (widthSettled) return
-            val title = top.findViewById<TextView>(R.id.pageName) ?: return
-            if (clock.width <= 0 || title.width <= 0) return
-            widthSettled = true
-            clock.removeOnLayoutChangeListener(settleListener)
-            widthOverride = computeWidth()
-            applyStyle()
-        }
+        /** 胶囊宽度（px）：全局固定 72dp，小屏按屏宽 31% 封顶；与状态、页面、标题长短无关。 */
+        private fun pillWidthPx(): Int =
+            IslandPolicy.pillWidthPx(ToolsUtil.dp2px(WIDTH_DP), activity.window_width)
 
         private fun pill(): GradientDrawable = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
@@ -339,7 +275,7 @@ object TopbarIsland {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
-            lp.width = islandWidth() ?: origWidth
+            lp.width = pillWidthPx()
             lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
             clock.layoutParams = lp
             clock.gravity = Gravity.CENTER
@@ -413,18 +349,31 @@ object TopbarIsland {
 
         private fun applyState(state: IslandState, snapshot: IslandSnapshot) {
             val text = textFor(state, snapshot)
-            val dot = dotFor(state)
             if (clock.text?.toString() != text.toString()) clock.text = text
-            // 每秒 new 一个 DotDrawable 会白吃 GC、还会让 TextView 每秒重绘一次；只在换色时设。
-            if (dot != lastDotColor) {
+
+            val icon = iconFor(state, snapshot)
+            val key = icon?.let { "${it.resId}:${it.tint}" }
+            val iconChanged = key != lastIconKey
+            if (iconChanged) {
                 clock.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                    dot?.let { DotDrawable(it, ToolsUtil.dp2px(6f)) },
+                    icon?.let {
+                        IslandIconDrawable(activity, it.resId, it.tint, ToolsUtil.dp2px(ICON_DP))
+                    },
                     null,
                     null,
                     null
                 )
-                lastDotColor = dot
+                lastIconKey = key
+                // 新建的那一帧先亮着，下一帧再开始闪，避免刚切进充电就突然变暗。
+                iconBlinkOn = true
             }
+            // 充电时闪电像充电宝指示灯一样慢闪：亮 1 秒、暗 1 秒交替（只在有图标时）。
+            if (state == IslandState.BATTERY && snapshot.charging) {
+                if (!iconChanged) iconBlinkOn = !iconBlinkOn
+                clock.compoundDrawablesRelative.firstOrNull()?.alpha = if (iconBlinkOn) 255 else 110
+                clock.invalidate()
+            }
+
             if (state != lastState) {
                 clock.animate().cancel()
                 clock.alpha = 0.25f
@@ -448,9 +397,11 @@ object TopbarIsland {
                 activity.getString(R.string.island_unread, snapshot.unread)
             }
             IslandState.BATTERY -> when {
-                snapshot.charging -> activity.getString(R.string.island_charging)
+                // 26.11.10：电量提醒直接给百分比（"15%"），充电时由左侧闪电图标说明状态；
+                // 只有读不到电量时才退回「充电」「低电」两个字。
                 snapshot.batteryPercent >= 0 ->
                     activity.getString(R.string.island_battery, snapshot.batteryPercent)
+                snapshot.charging -> activity.getString(R.string.island_charging)
                 else -> activity.getString(R.string.island_battery_unknown)
             }
             IslandState.ANNOUNCEMENT -> if (snapshot.burstIsUpdate) {
@@ -460,24 +411,47 @@ object TopbarIsland {
             }
         }
 
-        private fun dotFor(state: IslandState): Int? = when (state) {
+        /** 状态图标：资源 + 颜色。文字左前方那枚 12dp 小图标，说明「这个数字/词是什么意思」。 */
+        private data class IslandIcon(@DrawableRes val resId: Int, @ColorInt val tint: Int)
+
+        private fun iconFor(state: IslandState, snapshot: IslandSnapshot): IslandIcon? = when (state) {
             IslandState.TIME -> null
-            IslandState.PLAYING -> ColorScheme.SUCCESS
-            IslandState.DOWNLOADING -> ColorScheme.INFO
-            IslandState.UNREAD -> ColorScheme.WARNING
-            IslandState.BATTERY -> ColorScheme.ERROR
-            IslandState.ANNOUNCEMENT -> ColorScheme.PRIMARY
+            IslandState.PLAYING -> IslandIcon(R.drawable.icon_play_12, ColorScheme.SUCCESS)
+            IslandState.DOWNLOADING -> IslandIcon(R.drawable.island_icon_download, ColorScheme.INFO)
+            IslandState.UNREAD -> IslandIcon(R.drawable.island_icon_unread, ColorScheme.WARNING)
+            IslandState.BATTERY -> if (snapshot.charging) {
+                IslandIcon(R.drawable.island_icon_charging, ColorScheme.SUCCESS)
+            } else {
+                IslandIcon(R.drawable.island_icon_battery, ColorScheme.ERROR)
+            }
+            IslandState.ANNOUNCEMENT -> if (snapshot.burstIsUpdate) {
+                IslandIcon(R.drawable.icon_update, ColorScheme.PRIMARY)
+            } else {
+                IslandIcon(R.drawable.icon_announcement, ColorScheme.PRIMARY)
+            }
         }
     }
 
-    /** 状态点：6dp 实心圆，按状态换色。 */
-    private class DotDrawable(
-        private val fillColor: Int,
+    /**
+     * 12dp 状态图标：包一层现有矢量资源，缩放到统一边长并按状态着色。
+     *
+     * 现有图标边长不统一（`icon_play_12` 是 12dp，`icon_announcement` / `icon_update` 是 24dp），
+     * 直接塞进 compound drawable 会一个高一个矮，所以这里统一成 12dp 再画。
+     * 颜色用 SRC_IN 覆盖资源自带的 tint / 写死色，不依赖 XML 里的主题色。
+     */
+    private class IslandIconDrawable(
+        context: Context,
+        @DrawableRes resId: Int,
+        @ColorInt tint: Int,
         private val sizePx: Int
     ) : Drawable() {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = fillColor
-            style = Paint.Style.FILL
+        private val inner: Drawable =
+            AppCompatResources.getDrawable(context, resId)?.mutate() ?: ColorDrawable(0x00000000)
+
+        init {
+            // 用 ColorFilter 而非已废弃的 setColorFilter(int, Mode)（API 29 起标记废弃）。
+            inner.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
+            inner.setBounds(0, 0, sizePx, sizePx)
         }
 
         override fun getIntrinsicWidth(): Int = sizePx
@@ -485,17 +459,16 @@ object TopbarIsland {
         override fun getIntrinsicHeight(): Int = sizePx
 
         override fun draw(canvas: Canvas) {
-            val radius = minOf(bounds.width(), bounds.height()) / 2f
-            if (radius <= 0f) return
-            canvas.drawCircle(bounds.exactCenterX(), bounds.exactCenterY(), radius, paint)
+            inner.setBounds(bounds)
+            inner.draw(canvas)
         }
 
         override fun setAlpha(alpha: Int) {
-            paint.alpha = alpha
+            inner.alpha = alpha
         }
 
         override fun setColorFilter(colorFilter: ColorFilter?) {
-            paint.colorFilter = colorFilter
+            inner.colorFilter = colorFilter
         }
 
         @Deprecated("Deprecated in Java")

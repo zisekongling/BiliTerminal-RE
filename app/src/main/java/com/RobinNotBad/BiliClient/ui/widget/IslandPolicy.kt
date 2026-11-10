@@ -63,6 +63,27 @@ object IslandPolicy {
     /** 时间插播时长。 */
     const val TIME_SLICE_MS = 5_000L
 
+    /** 胶囊宽度按屏幕宽度封顶的比例（26.11.08：233dp 屏的 31% ≈ 72dp）。 */
+    const val PILL_SCREEN_RATIO = 0.31f
+
+    /**
+     * 胶囊宽度（px）：**全局固定**，同一设备上所有页面、所有状态一致。
+     *
+     * 26.11.10 用户拍板的口径。此前宽度按「标题还剩多少空档」自适应，同一设备上不同页面
+     * 会得到不同宽度（用户报的 bug），这里改成只由「理想宽度」和「屏幕宽度」决定：
+     * - 宽度与当前状态、标题长短、是否圆屏都无关；
+     * - 小屏（如 233dp 圆表）按屏宽 [PILL_SCREEN_RATIO] 封顶，避免胶囊被圆盘切角；
+     * - 屏宽拿不到（<= 0）时退回理想宽度。
+     *
+     * 纯函数，JVM 单测直接跑（见 `IslandPolicyTest.islandWidthIsTheSameEverywhere`）。
+     */
+    fun pillWidthPx(wantedPx: Int, screenWidthPx: Int): Int {
+        if (wantedPx <= 0) return 0
+        if (screenWidthPx <= 0) return wantedPx
+        val byScreen = (screenWidthPx * PILL_SCREEN_RATIO).toInt().coerceAtLeast(1)
+        return minOf(wantedPx, byScreen)
+    }
+
     /**
      * 灵动岛开关的迁移口径（26.11.08 与「圆屏适配」解耦）。
      *

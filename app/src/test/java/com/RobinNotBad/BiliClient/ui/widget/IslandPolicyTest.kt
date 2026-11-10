@@ -148,4 +148,20 @@ class IslandPolicyTest {
         assertTrue(IslandPolicy.resolveEnabled(explicit = null, legacyRound = true))
         assertFalse(IslandPolicy.resolveEnabled(explicit = null, legacyRound = false))
     }
+
+    @Test
+    fun islandWidthIsTheSameEverywhere() {
+        // 26.11.10 口径：胶囊宽度全局固定，与状态 / 页面 / 标题长短无关。
+        val wanted = 216 // 72dp @ density 3
+        assertEquals(wanted, IslandPolicy.pillWidthPx(wanted, 1080))
+        assertEquals(wanted, IslandPolicy.pillWidthPx(wanted, 1080))
+    }
+
+    @Test
+    fun islandWidthIsCappedOnSmallScreens() {
+        // 小屏（233px 宽的表盘）按屏宽 31% 封顶，避免胶囊被圆盘切角。
+        assertEquals(72, IslandPolicy.pillWidthPx(216, 233))
+        // 屏宽拿不到时退回理想宽度。
+        assertEquals(216, IslandPolicy.pillWidthPx(216, 0))
+    }
 }
