@@ -208,6 +208,8 @@ class VideoInfoActivity : BaseActivity() {
 
     private fun setupLongPressToRoot() {
         val topBar = findViewById<View>(R.id.top)
+        // 吞手势时不能震动：震动开关由 BaseActivity.onStart 的 syncTopbarLongPressHaptic()
+        // 按本页 handlesTopbarLongPress() = true 走视频页判据同步，这里不用重复设置。
         topBar?.setOnLongClickListener {
             // 三模式：只有「不响应」模式才吞掉手势。这里同样必须返回 true 而不是 false——
             // 返回 false 时 Android 会在抬手时把长按回落成一次单击，而本页顶栏单击是「退出当前页」，

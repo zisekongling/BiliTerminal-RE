@@ -469,13 +469,18 @@ open class BaseActivity : AppCompatActivity() {
      * 手势本身受 `SettingsKeys.TOPBAR_LONG_PRESS_MODE`（`util/TopbarLongPressPrefs`）控制：
      * 只有「全部页面」模式下普通页面才打开菜单列表；其余模式监听器**仍然安装**，
      * 只是在按下的回调里返回 true 把手势吞掉。
+     *
+     * 吞手势同样不能让顶栏震一下（反馈 #153）：`View.performLongClick()` 只要监听器返回 true
+     * 就会 `performHapticFeedback(LONG_PRESS)`，框架不区分「真执行了动作」还是「只是把长按吃掉」。
+     * 所以震动开关必须提前按「本页是否响应」同步，见下方 [syncTopbarLongPressHaptic]。
      */
     private fun setupTopbarLongPressToHome() {
+        val topBar = findViewById<View>(R.id.top) ?: return
+        syncTopbarLongPressHaptic(topBar)
         // 子类自己接管顶栏长按（视频详情页的「关闭所有详情页」）时，基类不安装通用监听器。
         // 不能只靠 hasOnLongClickListeners() 探测：部分手表框架没有这个方法，探测失败（返回 null）
         // 时这里会覆盖掉子类刚装好的监听器，视频详情页的长按就会莫名变成「打开菜单」。
         if (handlesTopbarLongPress()) return
-        val topBar = findViewById<View>(R.id.top) ?: return
         // 同上：这个 hasOnLongClickListeners() 就是在手表上抛 NoSuchMethodError 的那个方法
         val installed = ViewCapabilityProbe.probeBoolean(topBar, "hasOnLongClickListeners") { name, e ->
             Logu.d("view-probe", "$name 在本机不可用，已降级：${e.javaClass.simpleName}")
@@ -494,6 +499,25 @@ open class BaseActivity : AppCompatActivity() {
             startActivity(intent)
             true
         }
+    }
+
+    /**
+     * 让顶栏的长按震动跟随「本页此刻是否响应这条手势」（反馈 #153）。
+     *
+     * **为什么必须由 App 关掉**：长按回调返回 true（吞手势正是靠这个返回值）时，
+     * `View.performLongClick()` 会无条件 `performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)`，
+     * 于是「模式不适用、什么动作都不执行」的页面照样震一下，用户以为操作生效了。
+     * 这个震动没有单独的开关，只能提前改 View 自己的 `isHapticFeedbackEnabled`。
+     *
+     * **为什么放在 onStart 而不是按下那一刻**：View 的震动开关只能在长按触发**之前**设，
+     * 回调里再改已经晚了（框架在回调返回后立刻发震动）。模式只会从别的页面（设置页）改回来，
+     * 回到本页必然重走一遍 `onStart` → 本函数，所以与「按下时读模式」等效。
+     * 按下时的动作判定仍走 [TopbarLongPressPrefs]，本函数只管震动。
+     */
+    private fun syncTopbarLongPressHaptic(topBar: View) {
+        topBar.isHapticFeedbackEnabled = if (handlesTopbarLongPress())
+            TopbarLongPressPrefs.isEnabledForVideoPages()
+        else TopbarLongPressPrefs.isEnabledForNormalPages()
     }
 
     /**

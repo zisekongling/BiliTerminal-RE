@@ -27,6 +27,11 @@ package com.RobinNotBad.BiliClient.util
  * <h3>调用时机</h3>
  * 调用点是**长按按下那一刻**，不是页面 onStart：用户可能在别的页面改完设置再回来，
  * 监听器不需要重装，这里读到的就是最新值。
+ *
+ * 唯一例外是顶栏的**长按震动开关**（`View.isHapticFeedbackEnabled`）：框架在长按回调返回 true 后
+ * 立刻发 `LONG_PRESS` 震动，而「吞掉手势」正是靠返回 true，所以「模式不适用」的页面也会震一下
+ * （反馈 #153）。震动开关只能在按下之前设，由 `BaseActivity.syncTopbarLongPressHaptic()`
+ * 在每次 onStart 同步一次；模式只能从别的页面改回来、回来必走 onStart，因此与按下时读值等效。
  */
 object TopbarLongPressPrefs {
 
