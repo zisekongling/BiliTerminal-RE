@@ -12,6 +12,7 @@ import androidx.core.widget.TextViewCompat
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.InputDialogActivity
 import com.RobinNotBad.BiliClient.activity.ListDialogActivity
@@ -40,8 +41,40 @@ import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.VideoMetaManager
 import com.RobinNotBad.BiliClient.util.VirtualCollectionStart
 import java.io.File
+import java.lang.ref.WeakReference
 
-class LocalListActivity : InstanceActivity() {
+open class LocalListActivity : InstanceActivity() {
+
+    companion object {
+        /**
+         * 当前存活的缓存顶层页。
+         *
+         * [InstanceActivity] 记的「最近创建的实例」会被文件夹页顶掉，而文件夹页一关就销毁了；
+         * 不还回去的话 `BiliTerminal.getInstanceActivityOnTop()` 会指向一个已销毁的页面——
+         * 长按顶栏切栏目时就不会再顺手关掉缓存页（旧主页留在返回栈里），下载完成也刷不到它。
+         * 所以文件夹页销毁时把「最近实例」还给下面这层缓存页。
+         */
+        private var cachePageRef: WeakReference<LocalListActivity>? = null
+
+        /**
+         * 结束「本地缓存」这一整条页面链（缓存页 → 文件夹页）。
+         *
+         * 菜单切换栏目（`MenuActivity.killAndJump`）只 finish 当时的顶层实例：顶层是文件夹页时，
+         * 下面的缓存页会留在返回栈里，从新栏目返回就掉回一张没人要的旧缓存页。父子关系只有这里知道，
+         * 所以判据放这里，调用方不必判断 `isFolderPage`。
+         *
+         * @return true = 顶层是文件夹页，已经连缓存页一起收掉；false = 不是这条链，调用方按原来的
+         *         单层 finish 处理。
+         */
+        @JvmStatic
+        fun finishLocalCacheChain(top: InstanceActivity?): Boolean {
+            if (top !is LocalFolderActivity) return false
+            val cachePage = cachePageRef?.get()
+            top.finish()
+            if (cachePage != null && cachePage !== top && !cachePage.isDestroyed) cachePage.finish()
+            return true
+        }
+    }
 
     private lateinit var swipeRefreshLayout: SwipeRefreshLayout
     private lateinit var recyclerView: RecyclerView
@@ -49,6 +82,28 @@ class LocalListActivity : InstanceActivity() {
     private val folderList = ArrayList<VideoFolder>()
     private val videoList = ArrayList<LocalVideo>()
     private var adapter: CacheListAdapter? = null
+
+    /**
+     * 本页展示的文件夹名；空串表示这是缓存顶层页。
+     *
+     * 缓存页与文件夹页共用这一份列表实现（文件夹页见 [LocalFolderActivity]）：顶层页画文件夹区 +
+     * 未分类视频，文件夹页只画该夹内的视频。以前文件夹是同一个 Activity 里可来回切的
+     * `adapter.currentFolderName` 状态，右滑 / 返回退出文件夹只能就地把整张表重建一遍，
+     * 大列表上会卡；改成独立页面后退出就是 `finish()`，不碰缓存页的列表。
+     */
+    private val folderPageName: String by lazy {
+        intent.getStringExtra(LocalFolderActivity.EXTRA_FOLDER_NAME).orEmpty()
+    }
+
+    private val isFolderPage: Boolean get() = folderPageName.isNotEmpty()
+
+    /**
+     * 文件夹页里发生过改动（删 / 移走视频、重扫到下载完成等），退回缓存页时要让它重扫。
+     *
+     * 缓存页保留着自己那份扫描结果，不重扫就会一直显示已经不存在的条目；反过来没改动就不重扫，
+     * 免得每次退回都把整表重绑一遍封面（那正是本反馈里「退出时卡住」的观感来源）。
+     */
+    private var folderPageDirty = false
 
     // 对话框回调存储
     private var pendingListCallback: ((Int) -> Unit)? = null
@@ -70,6 +125,16 @@ class LocalListActivity : InstanceActivity() {
             val text = result.data?.getStringExtra("input_text") ?: ""
             cb?.invoke(text)
         }
+    }
+
+    /**
+     * 打开文件夹页；它带着 [RESULT_OK] 回来才说明里面删过 / 移走过视频，缓存页才需要重扫。
+     *
+     * 不能无条件 `refresh()`：退出文件夹时缓存页要立刻可用，重扫会把整表重绑一遍封面，
+     * 用户看到的还是「退出时卡一下」。
+     */
+    private val folderLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) refresh()
     }
 
     private var started: Boolean = false
@@ -138,21 +203,30 @@ class LocalListActivity : InstanceActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_simple_main_refresh)
 
+        // 记下这层缓存页，文件夹页销毁时把「最近实例」还回来（见 companion 里的 cachePageRef）
+        if (!isFolderPage) cachePageRef = WeakReference(this)
+
         recyclerView = findViewById(R.id.recyclerView)
         swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout)
         swipeRefreshLayout.setOnRefreshListener { refresh() }
 
         val pageName = findViewById<TextView>(R.id.pageName)
-        pageName.text = UiText.of("缓存")
+        if (isFolderPage) {
+            pageName.text = folderPageName
+            // 文件夹页是二级页：顶栏箭头指向「退回缓存页」，点它就是 finish。
+            // 图标走 TextViewCompat + StringUtil.getDrawable：传资源 id 的重载是原生加载，
+            // API<21 遇到矢量箭头会崩
+            TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                pageName, StringUtil.getDrawable(pageName.context, R.drawable.arrow_back), null, null, null
+            )
+        } else {
+            pageName.text = UiText.of("缓存")
+        }
 
         setupSelectionBar()
 
         findViewById<View>(R.id.top).setOnClickListener {
-            if (adapter?.currentFolderName?.isNotEmpty() == true) {
-                exitFolder()
-            } else {
-                menuClick.run()
-            }
+            if (isFolderPage) finish() else menuClick.run()
         }
 
         // 判据是「真正写入时目录能不能写」，不是「有没有 MANAGE_EXTERNAL_STORAGE」：
@@ -350,10 +424,12 @@ class LocalListActivity : InstanceActivity() {
         adapter = CacheListAdapter(this)
 
         // 文件夹操作回调
-        adapter!!.onFolderClick = { idx -> enterFolder(idx) }
+        adapter!!.onFolderClick = { idx -> openFolder(idx) }
         adapter!!.onNewFolderClick = { showNewFolderDialog() }
         adapter!!.onFolderMenu = { idx -> showFolderMenu(idx) }
-        adapter!!.onBackFromFolder = { exitFolder() }
+        // 分区标题「返回」只在文件夹页出现（顶层没有）。文件夹页是独立页面，返回就是 finish，
+        // 不再在同一个 Activity 里把整张表换回顶层。
+        adapter!!.onBackFromFolder = { if (isFolderPage) finish() }
 
         adapter!!.onVideoMenu = { idx -> showVideoMenu(idx) }
         adapter!!.onVideoPlayInVirtualCollection = { folderName, videoIdx -> playVirtualCollection(folderName, videoIdx) }
@@ -367,7 +443,7 @@ class LocalListActivity : InstanceActivity() {
         adapter!!.onOrderDragFinished = { foldersChanged, videosChanged ->
             persistOrderChange(foldersChanged, videosChanged)
         }
-        adapter!!.setData(folderList, videoList)
+        adapter!!.setData(folderList, videoList, folderPageName)
 
         runOnUiThread {
             recyclerView.layoutManager = getLayoutManager()
@@ -514,41 +590,24 @@ class LocalListActivity : InstanceActivity() {
 
     // ===================== 文件夹操作 =====================
 
-    private fun enterFolder(folderIndex: Int) {
+    /**
+     * 打开文件夹：起一个独立的 [LocalFolderActivity]，不再在缓存页里就地换 scope。
+     *
+     * 以前是把当前 Activity 的适配器切到夹内，退出文件夹只能整表重建回顶层；右滑 / 返回时那一下
+     * 重建（含封面重读）就是反馈里的「退出卡住」。独立页面有自己的返回栈，退出 = finish。
+     * 需要带回什么：夹里删过 / 移走过视频，`folderLauncher` 收到 [RESULT_OK] 才重扫缓存页。
+     */
+    private fun openFolder(folderIndex: Int) {
         if (folderIndex < 0 || folderIndex >= folderList.size) return
         if (sortMode) exitSortMode()
         if (selectionMode) exitSelectionMode()
-        // 顶层搜索匹配的是「文件夹名」，把词带进夹内就变成按视频标题过滤，用户看到空列表会以为
-        // 文件夹是空的。想搜夹内视频，进来后再点「搜索」。
-        if (searchKeyword.isNotEmpty()) applySearchKeyword("")
         val folder = folderList[folderIndex]
-        adapter?.setData(folderList, videoList, folder.name)
-        val pageName = findViewById<TextView>(R.id.pageName)
-        pageName?.text = folder.name
-        // 进文件夹后顶栏那个箭头点下去是"退出文件夹"，用返回箭头表达。
-        // 图标走 TextViewCompat + StringUtil.getDrawable：传资源 id 的重载是原生加载，
-        // API<21 遇到矢量箭头会崩
-        pageName?.let {
-            TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                it, StringUtil.getDrawable(it.context, R.drawable.arrow_back), null, null, null
-            )
-        }
-        updateSelectionBar()
-    }
-
-    private fun exitFolder() {
-        if (sortMode) exitSortMode()
-        if (selectionMode) exitSelectionMode()
-        adapter?.setData(folderList, videoList, "")
-        val pageName = findViewById<TextView>(R.id.pageName)
-        pageName?.text = UiText.of("缓存")
-        // 回到顶层：箭头点下去打开菜单，恢复成朝下的箭头。
-        pageName?.let {
-            TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                it, StringUtil.getDrawable(it.context, R.drawable.arrow_down), null, null, null
-            )
-        }
-        updateSelectionBar()
+        val intent = Intent(this, LocalFolderActivity::class.java)
+            .putExtra(LocalFolderActivity.EXTRA_FOLDER_NAME, folder.name)
+        // 菜单页名靠这个 extra 决定（InstanceActivity.menuClick / MenuActivity）：不透传的话，
+        // 从文件夹页长按顶栏打开的菜单不再标「缓存」，killAndJump 里 name != from 也会恒真。
+        getIntent().getStringExtra("from")?.let { intent.putExtra("from", it) }
+        folderLauncher.launch(intent)
     }
 
     private fun showNewFolderDialog() {
@@ -604,10 +663,6 @@ class LocalListActivity : InstanceActivity() {
         val folder = folderList[folderIndex]
         CenterThreadPool.run {
             if (FolderManager.deleteFolder(folder.name)) {
-                // 如果正在查看该文件夹内部，退出
-                if (adapter?.currentFolderName == folder.name) {
-                    runOnUiThread { exitFolder() }
-                }
                 runOnUiThread {
                     MsgUtil.showMsg(UiText.of("文件夹已拆散"))
                     refresh()
@@ -866,6 +921,7 @@ class LocalListActivity : InstanceActivity() {
                     MsgUtil.showMsgLong(getString(R.string.msg_cache_delete_failed, failed.name))
                 }
                 // 不管成败都重扫：成功要让条目立刻消失，失败要让用户看到它确实还在（而不是骗他删掉了）
+                markFolderPageDirty()
                 refresh()
             }
         }
@@ -912,6 +968,7 @@ class LocalListActivity : InstanceActivity() {
                 if (FolderManager.addVideoToFolder(video.title, folders[which].name)) {
                     runOnUiThread {
                         MsgUtil.showMsg(UiText.fmt("已移动到「%1\$s」", folders[which].name))
+                        markFolderPageDirty()
                         refresh()
                     }
                 }
@@ -927,6 +984,7 @@ class LocalListActivity : InstanceActivity() {
             if (FolderManager.removeVideoFromFolder(video.title)) {
                 runOnUiThread {
                     MsgUtil.showMsg(UiText.of("已移出文件夹"))
+                    markFolderPageDirty()
                     refresh()
                 }
             }
@@ -1153,6 +1211,7 @@ class LocalListActivity : InstanceActivity() {
             }
             runOnUiThread {
                 exitSelectionMode()
+                markFolderPageDirty()
                 refresh()
                 if (failed == 0) {
                     MsgUtil.showMsg(UiText.fmt("已删除 %1\$d 条", ok))
@@ -1212,6 +1271,7 @@ class LocalListActivity : InstanceActivity() {
                 for (title in titles) FolderManager.addVideoToFolder(title, target.name)
                 runOnUiThread {
                     exitSelectionMode()
+                    markFolderPageDirty()
                     refresh()
                     MsgUtil.showMsg(UiText.fmt("已移动到「%1\$s」", target.name))
                 }
@@ -1226,6 +1286,7 @@ class LocalListActivity : InstanceActivity() {
             for (title in titles) FolderManager.removeVideoFromFolder(title)
             runOnUiThread {
                 exitSelectionMode()
+                markFolderPageDirty()
                 refresh()
                 MsgUtil.showMsg(UiText.of("已移出文件夹"))
             }
@@ -1293,7 +1354,8 @@ class LocalListActivity : InstanceActivity() {
     }
 
     fun refresh() {
-        if (!started) return
+        // 页面正在退出（例如切栏目时整条链被收掉）就不要再起后台扫描：结果只会打在一张要销毁的页面上
+        if (!started || isFinishing) return
         CenterThreadPool.run {
             runOnUiThread { swipeRefreshLayout.setRefreshing(true) }
             loadData()
@@ -1312,6 +1374,22 @@ class LocalListActivity : InstanceActivity() {
         }
     }
 
+    /**
+     * 外部入口（下载完成、分 P 页删除）改了缓存数据后调用：重扫本页，并记下「有改动」。
+     *
+     * 与 [refresh] 分开：[refresh] 本身不代表数据变了（下拉刷新、onResume 里换根目录都不是），
+     * 只有真正改过数据的路径才该让缓存页在退回时重扫，否则「有改动才重扫」的口径就失效了。
+     */
+    fun refreshAfterExternalChange() {
+        markFolderPageDirty()
+        refresh()
+    }
+
+    /** 文件夹页里真的改了数据（删 / 移走视频等）：退回缓存页时要让它重扫。顶层页不需要。 */
+    private fun markFolderPageDirty() {
+        if (isFolderPage) folderPageDirty = true
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         // 排序模式下按返回只退出排序模式（拖到一半误按返回不该直接离开缓存页）
@@ -1324,11 +1402,31 @@ class LocalListActivity : InstanceActivity() {
             exitSelectionMode()
             return
         }
-        if (adapter?.currentFolderName?.isNotEmpty() == true) {
-            exitFolder()
-        } else {
-            super.onBackPressed()
+        // 文件夹页与缓存顶层页都走这里：右滑 / 返回键就是离开本页，
+        // 不再需要在同一个 Activity 里把列表换回顶层（那正是反馈里「退出卡住」的来源）
+        super.onBackPressed()
+    }
+
+    /**
+     * 文件夹页带着「有没有改动」退回缓存页。
+     *
+     * 右滑返回、返回键、顶栏箭头、点分区标题最后都走 [finish]，所以结果在这里统一设置，
+     * 不用在每条退出路径上各写一遍：有改动才让缓存页重扫，没改动就直接显示它原来那张表。
+     */
+    override fun finish() {
+        if (isFolderPage && folderPageDirty) setResult(RESULT_OK)
+        super.finish()
+    }
+
+    override fun onDestroy() {
+        // 文件夹页关掉后，把「最近实例」还给下面那层缓存页：菜单切换、下载完成都靠
+        // BiliTerminal.getInstanceActivityOnTop() 找当前缓存页，留着已销毁的文件夹页会让它们全部落空。
+        // 必须确认「最近实例」还是自己：切栏目 / recreate() 时新页面会先登记自己，
+        // 这里再无条件写回缓存页就会把新页面的登记覆盖掉（DownloadService 会去刷那张不可见的页）。
+        if (isFolderPage && BiliTerminal.getInstanceActivityOnTop() === this) {
+            cachePageRef?.get()?.takeIf { !it.isDestroyed }?.let { BiliTerminal.setInstance(it) }
         }
+        super.onDestroy()
     }
 
     // ===================== 对话框辅助方法 =====================

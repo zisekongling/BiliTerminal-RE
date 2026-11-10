@@ -215,8 +215,11 @@ class MenuActivity : BaseActivity() {
             // 其余菜单项仍按既有语义当成主页切换：旧主页不再保留。
             if (name !in MenuConfig.OPTIONAL_ITEMS) {
                 val instance = BiliTerminal.getInstanceActivityOnTop()
-                if (instance != null && instance.lifecycle.currentState != Lifecycle.State.DESTROYED)
-                    instance.finish()
+                if (instance != null && instance.lifecycle.currentState != Lifecycle.State.DESTROYED) {
+                    // 缓存页 → 文件夹页是一条链，切栏目要把整条链收掉，否则文件夹页下面那张
+                    // 缓存页会留在返回栈里（父子关系与判据都在 LocalListActivity 内部）。
+                    if (!LocalListActivity.finishLocalCacheChain(instance)) instance.finish()
+                }
             }
 
             val intent = Intent()

@@ -153,7 +153,7 @@ class LocalPageChooseActivity : BaseActivity() {
                                 // 通知就漏了，缓存页会一直显示已经删掉的条目（与 #58 同一类现象）。
                                 val listPage = BiliTerminal.getInstanceActivityOnTop()
                                 if (listPage is LocalListActivity && !listPage.isDestroyed) {
-                                    listPage.refresh()
+                                    listPage.refreshAfterExternalChange()
                                     // 已经直接通知过上层了，onDestroy 里不必再刷一次
                                     deleted = false
                                 }
@@ -217,7 +217,7 @@ class LocalPageChooseActivity : BaseActivity() {
     override fun onDestroy() {
         val instance = BiliTerminal.getInstanceActivityOnTop()
         if (deleted && instance is LocalListActivity && !instance.isDestroyed)
-            instance.refresh()
+            instance.refreshAfterExternalChange()
         super.onDestroy()
     }
 }
