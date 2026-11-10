@@ -1446,6 +1446,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **延迟装载必须封顶**：`asyncInflate` 页面在 `onStart` 时 `findViewById(R.id.top)` 还是 null，需要重试；但**有 11 个页面布局里根本没有 `R.id.top`**（Download / Catch / Tutorial / TutorialPager / JumpToDialog / InputDialog / CaptchaWebView / QRLoginRegister / ConfirmDialog / Dialog / ListDialog），无上限 `post` 会在这些页面每帧投递一次、耗电到页面结束。现在封顶 20 次 × 50ms，并在放弃时打 `XXX 没有 R.id.top，本页不安装双击伪装`。
 - **`OnTouchListener` 里做长按计时，`ACTION_DOWN` 必须返回 `true`**（蓝牙伪装页的教训）：返回 `false` 时 View 没成为触摸目标，系统不再派发 `UP`/`CANCEL`，`removeCallbacks` 永远执行不到 → 轻点一下就会在 N 秒后自己触发退出。返回 `true` 时若要保留点击语义，得自己 `performClick()` 补发。
 - **别改成「在"单击监听器"里判断两次点击」**：第一次点击已经执行完了，那只会变成"退出两次"。
+- **长按「吞掉」也会震动，要静音只能提前改 View 自己的开关**（26.11.11，反馈 #153 / PR #27）：`View.performLongClickInternal` 是 `if (handled && shouldPerformHapticFeedback) performHapticFeedback(LONG_PRESS)`，`handled` 只由回调返回值决定；而抑制条件 `isPerformHapticFeedbackSuppressed` 里判的是 `!isHapticFeedbackEnabled()`（`performLongClick()` 传 flags=0）。于是 `util/TopbarLongPressPrefs` 三档里「不允许」的两档（`MODE_VIDEO_ONLY` 的普通页、`MODE_OFF` 全局）虽然靠 `return true` 吞掉了动作，仍会震一下。现在由 `BaseActivity.syncTopbarLongPressHaptic(topBar)` 在 `setupTopbarLongPressToHome()` 里每次 `onStart` 把 `topBar.isHapticFeedbackEnabled` 设成本页判据（`handlesTopbarLongPress()` 为 true → `isEnabledForVideoPages()`，否则 `isEnabledForNormalPages()`）：**同步点必须留在三个提前 return 之前**（视频页提前 return、`installed` 提前 return、`MenuActivity` 提前 return），否则改装监听器那条路径就没同步。全仓只此一处动 haptic，View 级开关不影响通知栏震动（`enableVibration(false)` 是另一回事）。
 
 ### 7.54 DASH 下载完成后合并成单文件：容器 remux，不重新编码（26.10.25，用户要求）
 
