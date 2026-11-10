@@ -2,7 +2,7 @@
 
 > 对应改动：`docs/review/fix-progress.md` §1「26.11.10 长按顶栏在『不适用』页面误震动（反馈 #153）」（PR #27，commit `941acb1a`，26.11.11 合并）。
 > L0 已过（26.11.11）：`outputs/wt-pr27`（`941acb1a`，未注入 `private/`）`:app:assembleDebug` BUILD SUCCESSFUL in 3m 56s（两 flavor 各 4 个 APK）+ `:app:testStandardDebugUnitTest` **191 suites / 2040 tests / 0 失败 0 错误**；合并提交 `a39cef97` 与 `941acb1a` 的 tree 完全相同；PR CI `build-and-test`（run 42852727267）9m5s 通过。
-> 前置：装 Debug 包（`app-standard-debug.apk`），登录本人账号（视频详情页要有内容）。设置路径 **设置 → 偏好设置 →「功能」段 →「长按顶部标题栏」**（或在设置页搜索框搜「长按顶部标题栏」直达），三档分别是「不响应 / 仅视频详情页 / 全部页面」。
+> 前置：装 Debug 包（`app-standard-debug.apk`，本机已留在 `outputs/pr27-apk/`：`app-standard-arm64-v8a-debug.apk` 与 `app-standard-universal-debug.apk`），登录本人账号（视频详情页要有内容）。设置路径 **设置 → 内容与浏览 → 通用偏好 →「功能」段 →「长按顶部标题栏」**（该页标题显示为「偏好设置」；也可在设置页搜索框直接搜「长按顶部标题栏」），三档分别是「不响应 / 仅视频详情页 / 全部页面」。
 > 预计 10 分钟。**震动有没有只能上手感受，模拟器没有震动马达** —— 这一整份都是 L2，别拿模拟器代替。
 > 这条手势在两类页面上的动作本来就不一样：**普通页面**长按 = 打开菜单列表；**视频详情页**长按 = 关闭所有详情页（回到上一层）。本次改的是「模式不允许时，长按既不该有动作、也不该震动」，动作判定本身没动。
 
