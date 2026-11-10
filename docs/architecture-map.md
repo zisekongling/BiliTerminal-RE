@@ -1867,8 +1867,19 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
   `background_searchhistory`）。`shape` 的 `<corners android:radius>` 读不到主题属性，
   也拿不到 Typeface 那样的运行时覆盖入口；要修得改控件（`ShapeableImageView` 等）或另做一次 drawable 遍历。
 - **不走 `BaseActivity` 的三个界面**（开屏/外链/播放器）不生效。
-- layout 级内联圆角（头像 28dp、投票按钮 18dp、三个 8dp cell、`item_account` 12dp）
-  属「尺寸派生圆角」，按设计豁免。
+- **`applyRadius` 没有任何「豁免」机制，layout 里显式写的 `cardCornerRadius` 一律会被覆盖**
+  （26.11.10 纠正：本节此前写着「layout 级内联圆角（头像 28dp、投票按钮 18dp、三个 8dp cell、
+  `item_account` 12dp）属尺寸派生圆角、按设计豁免」——**这是错的**，`AppearanceApplier.kt:108-117`
+  只看控件类型，不看 XML 里写了什么）。后果最典型的一例：`cell_up_avatar` 原来用
+  `MaterialCardView` + `app:cardCornerRadius="28dp"` 只为把方头像裁成圆，圆角档一切到「圆角」
+  28dp 就被改成 12dp，卡片变成**圆角方卡**，它的 `cardBackgroundColor` 在圆头像四角露出来，
+  就是用户报了三次的「动态页作者旁有灰边」。
+  **结论：别用 CardView 做圆形/特殊形状裁剪**。要圆就 `FrameLayout` + 全透明 oval drawable
+  （`@drawable/bg_avatar_circle`）+ `android:clipToOutline="true"`，参考
+  `app/src/main/res/layout/cell_up_avatar.xml`；防回归测试
+  `app/src/test/java/com/RobinNotBad/BiliClient/ui/AvatarCellLayoutTest.kt`。
+  另三个 8dp cell 与 `item_account` 的 12dp 目前仍走「被覆盖」这条路（圆角档下会变成 12dp），
+  属可接受的现状，改之前先想清楚要不要为此引入豁免标记。
 
 **「方角」的语义（已对上游实测核实）**：上游 BiliClient（gitee `develop`，HEAD `f2b1aca`）
 全项目唯一圆角是 `@dimen/card_round` = **6dp**，经主题 `materialCardViewStyle` 全局下发；

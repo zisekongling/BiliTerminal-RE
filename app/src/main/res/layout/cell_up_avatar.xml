@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     android:orientation="vertical"
@@ -10,18 +9,23 @@
     android:focusable="true"
     android:background="?android:attr/selectableItemBackground">
 
-    <!-- 这张卡片只负责把方头像裁成圆形。它不写背景也不写描边，全部继承主题 materialCardViewStyle
-         （CardStyle）：cardElevation 4dp、strokeColor 主题 divider 色、strokeWidth 1dp。
-         描边在本文件用 app:strokeWidth="0dp" 覆盖掉（a7fb06be 起），elevation 也必须在这里压到
-         0——阴影会沿 56dp 圆周投出一圈暗边，在自定义背景图上看着就是头像的「黑色边框」（用户报的
-         就是这条横条；其他页面的头像都是纯 ImageView + Glide 圆裁，没有这层阴影）。 -->
-    <com.google.android.material.card.MaterialCardView
+    <!-- 头像框**不能**用 MaterialCardView（26.11.10 第三次修这条灰边）：
+         卡片继承主题 materialCardViewStyle（CardStyle）的 cardBackgroundColor / stroke / elevation，
+         而 AppearanceApplier.applyRadius()（app/src/main/java/com/RobinNotBad/BiliClient/ui/appearance/
+         AppearanceApplier.kt:108-117）会在「圆角」档为 ROUNDED 时把**全树所有卡片**的 radius 统一
+         改成 card_round_large(12dp) / card_round(6dp)，把这里的 28dp 圆角覆盖成圆角方卡——于是
+         卡片自己的卡底色（@color/card_dark 或玻璃半透明色）就在圆头像四角露出，看着就是作者旁边
+         「有灰边 / 有黑框」。f843aa21 只压了 elevation、7bf18489 只动了别的列表，都没碰这层**填充色**，
+         所以一直没修好。
+         现在改成 FrameLayout + 圆轮廓裁剪（与 cell_user_list.xml 同一做法）：本层不着色、不抬高、
+         不描边，圆由 bg_avatar_circle 的 oval 轮廓 + clipToOutline 提供，头像本身再由 Glide 圆裁。 -->
+    <FrameLayout
         android:layout_width="56dp"
         android:layout_height="56dp"
         android:layout_marginBottom="4dp"
-        app:cardCornerRadius="28dp"
-        app:cardElevation="0dp"
-        app:strokeWidth="0dp">
+        android:background="@drawable/bg_avatar_circle"
+        android:clipToOutline="true"
+        android:outlineProvider="background">
 
         <ImageView
             android:contentDescription="@string/a11y_view_user"
@@ -40,7 +44,7 @@
             android:background="@drawable/ic_circle"
             android:visibility="gone" />
 
-    </com.google.android.material.card.MaterialCardView>
+    </FrameLayout>
 
     <TextView
         android:id="@+id/name"
