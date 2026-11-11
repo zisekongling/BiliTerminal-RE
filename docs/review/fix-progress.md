@@ -274,6 +274,9 @@
 
 > **本轮测试包（26.11.08，release 普通版 + debug 共存版）要测哪些**：整包口径、分组总表与时间预算见 [`test-plan-261108.md`](test-plan-261108.md)；下面每一条是该计划里的详细验收项来源。
 > **26.11.09 三条 L2 项（方向崩溃 / 下载重试 / 表冠速率）的验收步骤与判据见 [`manual-test-guide-261109.md`](manual-test-guide-261109.md)（H01~H04）。**
+> **26.11.11 消息页「私信列表」玻璃质感的验收步骤与判据见 [`handoff-261111-private-msg-glass.md`](handoff-261111-private-msg-glass.md)（H22~H24）。**
+
+- [ ] **26.11.11 消息页「私信列表」玻璃质感真机未验（L2，要登录态，只能看画面）**：L0 已过（两 flavor 各 220 suites / 2385 tests / 0 失败 0 错误）。需确认：①打开玻璃质感后「消息」页的私信会话卡变成半透明、与顶部四张入口卡同一种材质与圆角；②关掉后回到不透明深灰板且与修复前一模一样；③点卡能进会话、按住仍有水波纹、列表滚动/表冠正常；④转发时的「选好友」页复用同一适配器，一并看。本机无在线设备、私信列表又必须有登录态才有数据，故 L1 为空。交接单 [`handoff-261111-private-msg-glass.md`](handoff-261111-private-msg-glass.md)（H22~H24）。
 
 - [ ] **26.11.10 动态页头像条「作者旁灰边」三次修后真机未验（L2，只能看画面）**：`cell_up_avatar` 已不再是 `MaterialCardView`（圆由 `bg_avatar_circle` 的 oval 轮廓 + `clipToOutline` 提供，卡底色 / 描边 / 阴影 / 圆角覆盖四个源一次消掉）。需自定义背景（带明暗细节）+ 暗 / 亮各一套主题，在动态页顶部「最近更新的UP主」横条上看：①每格头像四角**不再有方块色**（改前是与卡色同色的圆角方块）；②头像仍是正圆、边缘没被裁掉，「有更新」粉点位置不变；③手指划过 / 按住时不冒暗边；④点头像与名字都能进用户空间，横条左右滑动流畅，超长名字仍是省略号；⑤**圆角档为「圆角」**（设置 → 界面与外观 → 圆角）时再看一遍——这一档正是原来触发覆盖的条件。步骤见 [`manual-test-guide-261109-avatar-shadow.md`](manual-test-guide-261109-avatar-shadow.md) 的 H05。
 
@@ -1935,6 +1938,18 @@
 - **单测**：`DownloadSectionBytesTest` 8 例（预算内 / 无预算兜底 / 接下一个文件 / 实际字节超预算 / 不回退 / `finishAll` 顶满 / `growBudget` / `snapshot` 只读）、`SpeedSamplerTest` 7 例（首次采样 / 窗口不足 / 实测间隔 / EMA 平滑 / 字节倒退 / 停更归零 / reset）、`DownloadBatchStatsTest` 改按字节 8 例、`DownloadProgressMathTest` 补 `byteRatio` 3 例与 `monotoneProgress` 1 例并删掉合并阶段断言。
 - **验证 · L0（26.11.10 本机实测）**：`:app:assembleDebug` BUILD SUCCESSFUL（两 flavor）；`:app:testStandardDebugUnitTest`、`:app:testCoexistDebugUnitTest` 各 **213 suites / 2280 tests / 0 失败 0 错误**。首轮跑出 3 个失败，全是**测试期望写错**（`snapshot()` 只读语义、被拒采样不更新 `prevBytes`、负数用例复用了已有完成量的 stats），已按实现语义修正并补上 `DownloadSectionBytes.lastDone`。
 - **未验证（人测 / L2）**：单任务进度是否与「已下 / 总大小」吻合、并行多任务时每行速度是否各不相同、总速度是否等于各行之和、ETA 是否收敛。本机无 Android 设备 / 模拟器，只能真机看；交接单见 [`manual-test-guide-261110-download-speed-progress.md`](manual-test-guide-261110-download-speed-progress.md)（H13~H17）。
+
+### 3.148 消息页「私信列表」的用户卡片补玻璃质感（26.11.11，用户报「补这个界面的用户列表无玻璃质感的bug」）
+
+- **现象**：外观设置打开「玻璃质感」后，消息页（`MessageActivity`）顶部四张入口卡（回复我的 / @我 / 收到的赞 / 消息设置）是半透明玻璃板，下面「私信列表」的用户会话卡仍是不透明深灰（`@color/card_dark`）。
+- **根因**：玻璃质感在两类卡片上走两条不同的路——`MaterialCardView` 靠主题 `materialCardViewStyle` 自己吃到色，再加上 `GlassStyle.applyTo(activity)` 在 `BaseActivity.onCreate` 之后叠的 `GlassOverlay.*`；**普通 `FrameLayout` 卡必须在代码里显式调 `GlassStyle.applyCardBackground(view)`**。`cell_user_list` 是单层 `FrameLayout` + 写死 `@drawable/bg_card_rounded`、不读 `materialCardViewStyle`，而 `PrivateMsgSessionsAdapter.onCreateViewHolder` 只 inflate 没有那一步 ⇒ 与 26.11 搜索「用户」页（§3.132）、关注分组同一类漏接。
+- **改动**：
+  1. `adapter/message/PrivateMsgSessionsAdapter.kt` 的 `onCreateViewHolder` 在 inflate 之后调 `GlassStyle.applyCardBackground(view)`（开关关着时它直接 `return false`，默认观感不变）。
+  2. `ui/appearance/GlassStyle.kt` 两处 KDoc 的调用点清单补上「消息页的私信列表」，免得下次又照旧清单判断「已全覆盖」。
+- **顺带覆盖**：`activity/message/ChooseFriendActivity.kt`（反馈 #133 的转发选好友页）复用同一适配器，自动一起修好，两处不必各改一遍。
+- **为什么不改布局**：`cell_user_list.xml` 同时被搜索结果「用户」页、关注分组、私信会话三处复用，改成 `MaterialCardView` 要连带改三个适配器的 ViewHolder 类型与点击 / 长按 / 水波纹路径；`applyCardBackground` 本来就是为这个用例准备的既有 API。
+- **验证 · L0（26.11.11 本机实测，工作区含上一批未提交改动）**：`:app:assembleDebug` BUILD SUCCESSFUL；`:app:testStandardDebugUnitTest` + `:app:testCoexistDebugUnitTest` 各 **220 suites / 2385 tests / 0 失败 0 错误**。
+- **未验证（人测 / L2）**：开关打开后私信会话卡是否与顶部四张卡一致的半透明观感、关掉是否回到不透明深灰、按住时的水波纹仍在（本机无在线设备，且私信列表要登录态才有数据）。交接单见 [`handoff-261111-private-msg-glass.md`](handoff-261111-private-msg-glass.md)（H22~H24）。
 
 ## 4. 历史章节索引
 
