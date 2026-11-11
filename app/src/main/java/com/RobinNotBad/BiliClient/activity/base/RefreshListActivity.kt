@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.RobinNotBad.BiliClient.R
+import com.RobinNotBad.BiliClient.adapter.SettingsAdapter
 import com.RobinNotBad.BiliClient.listener.OnLoadMoreListener
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.model.SettingSection
@@ -372,12 +373,20 @@ open class RefreshListActivity : BaseActivity() {
         runOnUiThread { swipeRefreshLayout.isRefreshing = bool }
     }
 
-    /** 全局搜索跳转时，滚动定位到名称为 [highlight] 的设置项。 */
+    /**
+     * 全局搜索跳转时，滚动定位到名称为 [highlight] 的设置项，并让目标行闪一次高亮。
+     *
+     * 高亮只在 [SettingsAdapter] 上有意义（别的列表没有「设置项」这个概念），所以拿不到
+     * 该类型适配器时只滚动、不标红，不报错。
+     */
     fun scrollToHighlight(list: List<SettingSection>, highlight: String?) {
         if (highlight.isNullOrEmpty()) return
         val index = list.indexOfFirst { it.name == highlight }
-        if (index >= 0) {
-            recyclerView.post { recyclerView.scrollToPosition(index) }
+        if (index < 0) return
+        // 子类都是「setAdapter 之后再调本方法」，post 里 recyclerView.adapter 一定已就位
+        recyclerView.post {
+            (recyclerView.adapter as? SettingsAdapter)?.highlight(index)
+            recyclerView.scrollToPosition(index)
         }
     }
 

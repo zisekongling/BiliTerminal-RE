@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        设置项行上的「原始样式」暂存键：SettingsHighlight 把高亮前的描边宽度/颜色、
+        卡片底色、背景 Drawable 存进 itemView 的这个 keyed tag 里，RecyclerView 复用
+        同一个 itemView 绑到别的行时，靠它把上一行的样子原样还回去。
+    -->
+    <item name="tag_setting_highlight" type="id" />
+</resources>

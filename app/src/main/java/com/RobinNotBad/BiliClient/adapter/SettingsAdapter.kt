@@ -24,6 +24,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ListChooseActivity
 import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import com.RobinNotBad.BiliClient.util.view.SettingsHighlight
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.switchmaterial.SwitchMaterial
 import java.io.Serializable
@@ -35,6 +36,22 @@ class SettingsAdapter(
 
     private var listChooseLauncher: ActivityResultLauncher<Intent>? = null
     var onSettingChanged: ((String, Boolean) -> Unit)? = null
+
+    /**
+     * 全局搜索命中的行（[RecyclerView.NO_POSITION] = 没有）。
+     *
+     * 只是「哪一行该高亮」的记号，绑到这一行时由 [SettingsHighlight] 播一次动画，
+     * 播完自动还原，不需要再回来清它。滚动定位在
+     * [com.RobinNotBad.BiliClient.activity.base.RefreshListActivity.scrollToHighlight]。
+     */
+    private var highlightPosition: Int = RecyclerView.NO_POSITION
+
+    /** 标出全局搜索命中的那一行；已经绑上去的 view 要立即重绑才看得到高亮。 */
+    fun highlight(position: Int) {
+        if (position < 0 || position >= list.size) return
+        highlightPosition = position
+        notifyItemChanged(position)
+    }
 
     fun setListChooseLauncher(launcher: ActivityResultLauncher<Intent>) {
         this.listChooseLauncher = launcher
@@ -124,6 +141,10 @@ class SettingsAdapter(
             }
             else -> {}
         }
+
+        // 搜索命中的目标行：绑定时播一次主色高亮。非目标行也要调——复用过来的 itemView
+        // 上可能还带着上一行的高亮样式，得在这里还回去。
+        SettingsHighlight.bind(holder.itemView, position == highlightPosition)
     }
 
     override fun getItemCount(): Int {
