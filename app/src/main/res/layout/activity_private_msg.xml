@@ -51,20 +51,29 @@
     </RelativeLayout>
 
 
-    <RelativeLayout
+    <!--
+      输入行刻意用横向 LinearLayout + 权重，而不是 RelativeLayout + layout_toStartOf：
+      RelativeLayout 里 match_parent 的子 View 仍按整行宽度量，layout_toStartOf 只改右边缘位置，
+      输入框并没有缩成「三个按钮左侧的剩余宽度」——文字区域和按钮重叠（按钮后声明、画在上层），
+      提示语与刚打的字被右侧那三个 38dp 图标压住看不见（反馈 #157）。权重方案的宽度就是「整行 − 三个按钮」，
+      输入框不再伸到按钮底下，换行也按真实可用宽度算。
+    -->
+    <LinearLayout
         android:id="@+id/layout_input"
         android:layout_alignParentBottom="true"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:baselineAligned="false"
+        android:orientation="horizontal"
         android:paddingHorizontal="4dp"
         android:paddingBottom="4dp">
 
         <EditText
             android:id="@+id/msg_input_et"
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
             android:layout_marginEnd="4dp"
-            android:layout_toStartOf="@id/emote_btn"
             android:background="@drawable/background_edittext_privatemsg"
             android:hint="@string/hint_private_message"
             android:maxHeight="128dp"
@@ -79,7 +88,6 @@
             android:id="@+id/emote_btn"
             android:layout_width="38dp"
             android:layout_height="38dp"
-            android:layout_toStartOf="@id/image_btn"
             android:layout_marginEnd="4dp"
             android:background="@drawable/background_privatemsg_send"
             android:contentDescription="@string/social_emote_button_desc"
@@ -91,7 +99,6 @@
             android:id="@+id/image_btn"
             android:layout_width="38dp"
             android:layout_height="38dp"
-            android:layout_toStartOf="@id/send_btn"
             android:layout_marginEnd="4dp"
             android:background="@drawable/background_privatemsg_send"
             android:clickable="true"
@@ -107,8 +114,7 @@
             android:layout_width="38dp"
             android:layout_height="38dp"
             android:background="@drawable/background_privatemsg_send"
-            app:srcCompat="@drawable/send"
-            android:layout_alignParentEnd="true" />
+            app:srcCompat="@drawable/send" />
 
-    </RelativeLayout>
+    </LinearLayout>
 </RelativeLayout>
