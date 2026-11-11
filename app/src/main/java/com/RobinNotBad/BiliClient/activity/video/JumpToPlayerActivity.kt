@@ -15,6 +15,7 @@ import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.api.HistoryApi
 import com.RobinNotBad.BiliClient.api.PlayerApi
 import com.RobinNotBad.BiliClient.model.PlayerData
+import com.RobinNotBad.BiliClient.player.CollectionResumeStore
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.AccountStateStore
@@ -132,6 +133,16 @@ class JumpToPlayerActivity : BaseActivity() {
                 // 只有明确带了该 extra 的入口才生效，其它入口行为不变。
                 val resumeMs = intent.getIntExtra(EXTRA_RESUME_PROGRESS_MS, 0)
                 if (resumeMs > 0) playerData!!.progress = resumeMs
+
+                // 合集续看：「上次看到这个合集的哪一集」原先只在详情页按播放时写，从分页 /
+                // 收藏夹 / 其它入口起播就漏记，合集页再进去会停在旧的一集。所有起播都要经过
+                // 本页取流，放在这里一次覆盖；下载不写（没真播）。
+                if (download == 0) {
+                    playerData!!.enterableInfo?.collection?.let { collection ->
+                        if (collection.id > 0)
+                            CollectionResumeStore.save(collection.id.toLong(), playerData!!.aid)
+                    }
+                }
 
                 Logu.d("history", playerData!!.progress.toString())
                 jump()

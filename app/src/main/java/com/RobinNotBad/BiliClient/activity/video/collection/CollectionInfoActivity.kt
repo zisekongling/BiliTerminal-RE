@@ -40,10 +40,15 @@ import com.bumptech.glide.request.RequestOptions
 
 class CollectionInfoActivity : RefreshListActivity() {
 
+    private var fromAid = -1L
+    private var loadedCollection: Collection? = null
+    private var cardAdapter: CardAdapter? = null
+    private var sectionAdapter: SectionAdapter? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val fromAid = intent.getLongExtra("fromVideo", -1)
+        fromAid = intent.getLongExtra("fromVideo", -1)
         setPageName(UiText.of("合集详情"))
         // 失败后可点空态重试（失败结果不入缓存，重建即重新请求）
         setOnEmptyRetry { recreate() }
@@ -58,31 +63,29 @@ class CollectionInfoActivity : RefreshListActivity() {
                     return@onSuccess
                 }
 
+                val adapter: RecyclerView.Adapter<RecyclerView.ViewHolder>
                 // 定位目标 = 「上次在这个合集里看的那一集」，没有记录/记录失效时回落到入口视频。
                 // 两个分支都要定位：以前只有 SectionAdapter 会滚，从「收藏的合集」那种
                 // 只有 cards 的形态进来时永远停在顶部（反馈 #105 / #108）。
-                val targetAid = resolveResumeAid(collection, fromAid)
-
-                val adapter: RecyclerView.Adapter<RecyclerView.ViewHolder>
-                val targetPosition: Int
                 if (collection.sections == null && collection.cards != null) {
-                    val cardAdapter = CardAdapter(this, collection)
-                    adapter = cardAdapter
-                    targetPosition = cardAdapter.findCardPosition(targetAid)
+                    cardAdapter = CardAdapter(this, collection)
+                    sectionAdapter = null
+                    adapter = cardAdapter!!
                 } else if (collection.sections != null) {
-                    val sectionAdapter = SectionAdapter(this, collection, recyclerView)
-                    adapter = sectionAdapter
-                    targetPosition = sectionAdapter.findEpisodePosition(targetAid)
+                    sectionAdapter = SectionAdapter(this, collection, recyclerView)
+                    cardAdapter = null
+                    adapter = sectionAdapter!!
                 } else {
                     finish()
                     return@onSuccess
                 }
 
+                loadedCollection = collection
                 hideEmptyView()
                 setAdapter(adapter)
                 // 定位放在 setAdapter 之后：scrollToPosition 只是登记「下次布局时滚到哪」，
                 // 先于 setAdapter 调用虽然也能生效，但那就依赖布局时序了；数据就位再登记更稳。
-                if (targetPosition >= 0) recyclerView.layoutManager?.scrollToPosition(targetPosition)
+                scrollToResumePosition()
                 setRefreshing(false)
                 setupSubscribeBar(collection)
             }.onFailure { error ->
@@ -94,6 +97,29 @@ class CollectionInfoActivity : RefreshListActivity() {
                 MsgUtil.err(error)
             }
         }
+    }
+
+    /**
+     * 回到合集页时按本地记录重新定位。
+     *
+     * <p>原来只在 [onCreate] 里定位一次：从合集页点进一集、看完再返回时，这个页面一直留在
+     * 返回栈里不会重建，列表就还停在离开时的位置，看起来像「续看没生效」。观看动作发生在
+     * 别的页面（详情页 / 分页 / 播放器内换集），所以每次回到前台都重新读一次记录。
+     * 首次进入时数据还没回来，这里是 no-op，等 observer 回调里再定位。
+     */
+    override fun onResume() {
+        super.onResume()
+        scrollToResumePosition()
+    }
+
+    /** 把列表滚到「上次看到的那一集」；没有数据 / 记录失效 / 不在本合集时不动。 */
+    private fun scrollToResumePosition() {
+        val collection = loadedCollection ?: return
+        val targetAid = resolveResumeAid(collection, fromAid)
+        val position = cardAdapter?.findCardPosition(targetAid)
+            ?: sectionAdapter?.findEpisodePosition(targetAid)
+            ?: -1
+        if (position >= 0) recyclerView.layoutManager?.scrollToPosition(position)
     }
 
     /**

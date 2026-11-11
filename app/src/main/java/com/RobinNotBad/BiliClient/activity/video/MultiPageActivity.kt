@@ -70,6 +70,9 @@ class MultiPageActivity : BaseActivity() {
                             val lastPlayTimeMs = playerData?.lastPlayTimeMs ?: 0L
                             val pageData = videoInfo.toPlayerData(position)
                             pageData.lastPlayTimeMs = lastPlayTimeMs
+                            // 分页起播同样要把 videoInfo 带进播放器：这一P 属于合集时，
+                            // 选集卡片上才有「进入合集」，跳转页也靠它记合集续看。
+                            if (videoInfo.collection != null) pageData.enterableInfo = videoInfo
                             // 归零：让 JumpToPlayerActivity 重拉 playurl，续播位置按这个分P 现算
                             pageData.timeStamp = 0
                             PlayerApi.startGettingUrl(pageData)
