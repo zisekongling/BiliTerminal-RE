@@ -38,6 +38,7 @@ import com.RobinNotBad.BiliClient.tutorial.TutorialPagerActivity
 import com.RobinNotBad.BiliClient.tutorial.TutorialStore
 import com.RobinNotBad.BiliClient.tutorial.Tutorials
 import com.RobinNotBad.BiliClient.ui.widget.RotaryEncoderSupport
+import com.RobinNotBad.BiliClient.ui.widget.TopbarHeightPolicy
 import com.RobinNotBad.BiliClient.ui.widget.TopbarIsland
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomGridManager
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
@@ -359,6 +360,63 @@ open class BaseActivity : AppCompatActivity() {
                     MsgUtil.err(UiText.of("圆屏适配执行错误："), e)
                 }
             }
+        }
+        // 顶栏高度是独立设置项（默认 0 = 跟随内容），开没开圆屏都要跑
+        applyTopbarHeight()
+    }
+
+    /**
+     * 「顶栏高度」设置项（`SettingsKeys.TOPBAR_HEIGHT`，26.11.11 新增）。
+     *
+     * <h3>为什么是最小高度</h3>
+     * 50 份布局里的 `R.id.top` 都是 `wrap_content`，内容也不都只有标题和时钟
+     * （`activity_setting_player_ui` 还多一个 btnFull）。写死高度会在小屏 / 大字号下压扁内容，
+     * 所以这里只设 `minimumHeight`：0 = 不干预（默认，与改动前像素级一致），大于 0 才补空白。
+     *
+     * <h3>为什么触摸范围不用额外代码</h3>
+     * 三套顶栏手势（单击 `setTopbarExit`、长按 `setupTopbarLongPressToHome`、双击伪装
+     * [DisguiseGesture]）都装在整条 `R.id.top` 上，top 一变高，可点区域自动跟着变。
+     *
+     * <h3>为什么放在 [setRound] 末尾</h3>
+     * 这是「top 一定已经 inflate 完」的两个落点之一：普通布局在 `onStart` 走一次，
+     * asyncInflate 的页面在 inflate 回调里补走一次（见 [asyncInflate]）。
+     */
+    private fun applyTopbarHeight() {
+        val topBar = findViewById<View>(R.id.top) ?: return
+        val rawDp = SharedPreferencesUtil.getInt(SettingsKeys.TOPBAR_HEIGHT, TopbarHeightPolicy.DEFAULT_DP)
+        val minHeightPx = TopbarHeightPolicy.resolveMinHeightPx(rawDp, resources.displayMetrics.density)
+        if (topBar.minimumHeight != minHeightPx) {
+            topBar.minimumHeight = minHeightPx
+            topBar.requestLayout()
+        }
+        val center = TopbarHeightPolicy.shouldCenterVertically(
+            minHeightPx,
+            SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROUND, false)
+        )
+        applyTopbarVerticalCenter(topBar, center)
+    }
+
+    /**
+     * 顶栏加高后把子 View（标题 / 时钟 / btnFull）竖直居中；关掉设置时再摘掉规则。
+     *
+     * **为什么圆屏模式不居中**：圆屏适配已经按「时钟在上、标题在下」排好版
+     * （[setRound] 给标题算了一个按屏高比例的 topMargin），再叠 `CENTER_VERTICAL`
+     * 会让两者重叠。顶栏高度在圆屏下只从下方补空白，不影响原有排版。
+     *
+     * 只在「当前状态与目标状态不一致」时才改 layoutParams：默认值下每页 `onStart`
+     * 都会走这里，无脑重设会白触发一次重布局。
+     */
+    private fun applyTopbarVerticalCenter(topBar: View, center: Boolean) {
+        if (topBar !is ViewGroup) return
+        for (i in 0 until topBar.childCount) {
+            val child = topBar.getChildAt(i)
+            // 只处理能加 RelativeLayout 规则的容器；其余父容器（理论上已不存在）原样不动
+            val params = child.layoutParams as? RelativeLayout.LayoutParams ?: continue
+            val centered = params.getRules()?.get(RelativeLayout.CENTER_VERTICAL) != null
+            if (centered == center) continue
+            if (center) params.addRule(RelativeLayout.CENTER_VERTICAL)
+            else params.removeRule(RelativeLayout.CENTER_VERTICAL)
+            child.layoutParams = params
         }
     }
 

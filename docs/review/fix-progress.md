@@ -1959,6 +1959,22 @@
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。
 > §一~§三十 的「收尾状态」按归档正文与 §五 / §十 的登记推断：批次类记「已闭环」，正文明确登记遗留的记「部分遗留」，总览 / 明细 / 建议 / 验证记录类记「纯历史」。
 
+### 3.147 新增「顶栏高度」设置：最小高度 + 触摸范围跟着变（26.11.11，用户需求）
+
+- **需求原话**：「先加一个设置可以调节顶栏的高度，同时影响触摸事件的生效范围，默认值就是现在的值」。
+- **定案（三项都问过用户，全选推荐项）**：① 语义 = **最小高度**（0 = 跟随内容 = 现状），因为 `R.id.top` 在 50 份布局里全是 `wrap_content`、内容也不都只有标题+时钟（`activity_setting_player_ui.xml` 多一个 `btnFull`），固定高度会压扁内容；② 触摸范围 = **跟随顶栏实际高度**；③ 加高后文字 = **垂直居中**。
+- **触摸范围为什么不用写代码**：单击 `setTopbarExit` / 长按 `setupTopbarLongPressToHome` / 双击 `DisguiseGesture` 三套手势本来就装在整条 `R.id.top` 上，top 变高可点区域自动跟着变，因此**没有引入 `TouchDelegate`**，三套手势语义一字未动（用户明确不选「改手势」那一项）。
+- **改动**：
+  1. 新增 `ui/widget/TopbarHeightPolicy.kt`：`DEFAULT_DP=0` / `MAX_DP=64`、`clampDp`、`resolveMinHeightPx(dp, density)`（`dp<=0 || density<=0f` → 0）、`shouldCenterVertically(px, roundMode)` = `px > 0 && !roundMode`。
+  2. `util/SettingsKeys.kt` 加 `TOPBAR_HEIGHT = "topbar_height"`；`util/UiScaleInput.kt` 加 `parseTopbarHeight`（只判可解析，范围交给 `clampDp`）。
+  3. `activity/base/BaseActivity.kt`：`setRound()` 末尾调 `applyTopbarHeight()`（普通布局走 `onStart`、asyncInflate 页走 inflate 回调，两条路都经过这里）；新增 `applyTopbarHeight()` 与 `applyTopbarVerticalCenter()`。
+  4. `activity/settings/SettingGroupActivity.kt`：布局适配页灵动岛开关之后加 `input_int` 项，「恢复默认」一起写回 0；`activity/settings/SettingsIndex.kt` 同步加搜索 `Entry`（两份平行清单）；`res/values/strings.xml` 加 `setting_topbar_height` / `desc_setting_topbar_height`。
+- **两个刻意为之的坑**（别退回）：
+  - **圆屏下不叠 `CENTER_VERTICAL`**：`setRound()` 圆屏分支已经把 timeText 排在上、pageName 按屏高比例下移（时钟在上、标题在下），再居中会重叠；圆屏只向下补空白。
+  - **只在状态不一致时改 `layoutParams`**：默认值 0 下每页 `onStart` 都会走一遍 `applyTopbarHeight()`，无脑重设会白触发一次重布局（默认值必须与改动前像素级一致）。
+- **验证 · L0**：`TopbarHeightPolicyTest`（clamp 合法/越界/负数/Int 极值、0 语义、density 换算 32dp@3.0=96 / 64dp@1.5=96 / 25dp@3.0=75、越界先钳后换、`shouldCenterVertically` 三态）跑 `:app:testStandardDebugUnitTest --tests "…TopbarHeightPolicyTest"` → BUILD SUCCESSFUL。
+- **未验证（人测 / L2）**：调 0 / 20 / 40 dp 后顶栏实际高度与预期一致、手势可点区域随高度变大、方屏文字垂直居中、圆屏不重叠且只向下补空白、`activity_setting_player_ui` 的 `btnFull` 没被挤、恢复默认后回到像素级一致。本机无 Android 设备，交真机。
+
 | §编号 | 标题 | 一句话内容 | 收尾状态 |
 | --- | --- | --- | --- |
 | 一 | 修复总览 | 286 条基线（Critical 23 / High 52 / Medium 105 / Low 106）+ 2026-09-24 深度审查新增 严重 10 / 中等 13 组 / 轻微 11 | 纯历史 |

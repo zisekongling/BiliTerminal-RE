@@ -29,4 +29,14 @@ object UiScaleInput {
     @JvmStatic
     fun parsePadding(text: CharSequence?): Int? =
         text?.toString()?.trim()?.toIntOrNull()?.takeIf { it <= PADDING_MAX }
+
+    /**
+     * 解析「顶栏高度」（dp）；非数字返回 `null`。
+     *
+     * 这里**只判能不能解析**，上下限交给 `ui/widget/TopbarHeightPolicy.clampDp`：
+     * 读侧（`BaseActivity`）本来就要再钳一次，上限只该有一个定义处，否则两处漂移。
+     */
+    @JvmStatic
+    fun parseTopbarHeight(text: CharSequence?): Int? =
+        text?.toString()?.trim()?.toIntOrNull()
 }

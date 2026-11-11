@@ -199,6 +199,10 @@ object SettingsIndex {
             ) { a -> openGroup(a, "layout", groupLayout, text(R.string.setting_topbar_island)) }
         }
         list += Entry(
+            text(R.string.setting_topbar_height),
+            text(R.string.desc_setting_topbar_height)
+        ) { a -> openGroup(a, "layout", groupLayout, text(R.string.setting_topbar_height)) }
+        list += Entry(
             text(R.string.section_ui_size),
             text(R.string.settingtext_settingsindex_013)
         ) { a -> openGroup(a, "layout", groupLayout, text(R.string.section_ui_size)) }

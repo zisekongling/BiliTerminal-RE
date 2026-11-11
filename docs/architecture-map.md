@@ -1555,6 +1555,17 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **「同一个 versionCode」不会自己变**：切通道不降级已装版本（严格 `>` 比较），切到更保守的通道时 `UpdateManager.onChannelChanged()` 会清 `cachedConfig`、`BiliTerminal.clearForceUpdate()` 与 `update_last_new_version`——否则上一条通道的强制更新会继续拦启动。
 - **发版侧**：`.github/workflows/build-release.yml` 从 tag 后缀解渠道与序号、`prerelease` 自动设成「非稳定通道」、构建后用 `aapt2 badging` 复核产物与 tag 一致（tag↔包不一致正是 26 年那次事故的形态），exp 允许没有更新日志。官网（站点仓库 `release.js` / `sync-release.py`）只认无后缀 tag，发预发布不会把首页版本号带跑。
 
+### 7.66 顶栏高度设置：最小高度语义 + 手势范围跟着变（26.11.11 新增）
+
+- **设置项** `SettingsKeys.TOPBAR_HEIGHT = "topbar_height"`，单位 dp，默认 `TopbarHeightPolicy.DEFAULT_DP = 0`，上限 `MAX_DP = 64`。**语义是 `minimumHeight` 而不是固定高度**：50 份布局里的 `R.id.top` 全是 `wrap_content`，内容也不都只有标题+时钟（`activity_setting_player_ui.xml` 还多一个 `btnFull`），写死高度会在小屏 / 大字号下压扁内容；0 = 完全不干预，与改动前像素级一致。
+- **纯逻辑集中在 `ui/widget/TopbarHeightPolicy.kt`**：`clampDp`（0..64）、`resolveMinHeightPx(dp, density)`（`dp<=0 || density<=0f` 返回 0，否则 `(dp*density).roundToInt()`）、`shouldCenterVertically(px, roundMode)`（`px > 0 && !roundMode`）。单测 `app/src/test/java/com/RobinNotBad/BiliClient/ui/widget/TopbarHeightPolicyTest.kt`。
+- **应用点**：`BaseActivity.setRound()` 末尾调 `applyTopbarHeight()`。这是「`R.id.top` 一定已经 inflate 完」的唯一公共落点——普通布局在 `onStart` 走一次，`asyncInflate` 的页面在 inflate 回调里补走一次（同一次调用里还挂着 `TopbarIsland.attach`）。只在 `minimumHeight` 真变了才赋值并 `requestLayout()`。
+- **手势范围不需要额外代码**：单击 `setTopbarExit`、长按 `setupTopbarLongPressToHome`、双击 `DisguiseGesture` 三套手势都装在**整条** `R.id.top` 上，top 一变高可点区域自动跟着变。**不要加 `TouchDelegate`，也不要改手势语义**（26.11.11 用户明确不选改手势）。
+- **圆屏模式不叠 `CENTER_VERTICAL`**：`setRound()` 在圆屏下已经把 timeText 排到上面、pageName 按屏高比例下移（「时钟在上、标题在下」），再居中会重叠。所以圆屏下顶栏高度只向下补空白；方屏加高时才给 top 的直接子 View 加 `RelativeLayout.CENTER_VERTICAL` ——且**只在当前状态与目标状态不一致时**才改 `layoutParams`，否则每页 `onStart` 都会白触发一次重布局。
+- **写入侧不钳制**：`adapter/SettingsAdapter.kt` 只校验输入能解析成 int，读侧统一走 `TopbarHeightPolicy.clampDp`（既有约定，手输越界值不得崩）。
+- **不覆盖两个自带顶栏的页面**：`activity_player.xml`（text_title/clock_layout/battery）与 `fragment_short_video_page.xml`（text_title）不继承 `BaseActivity`，本设置对它们无效，设置项文案里已写明。
+- **入口与索引**：设置 → 界面与外观 → 布局适配（`SettingGroupActivity.buildLayoutGroup()`，紧跟灵动岛开关）；`SettingsIndex.kt` 里同步加了一条 `Entry`（**两份平行清单，加一处漏一处就会搜不到**），点击带 `highlight` 定位；「恢复默认」把它一起写回 0。
+
 ## 8. UI 基建速查（新增页面临摹用）
 
 ### 8.1 完整继承体系

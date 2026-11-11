@@ -26,6 +26,14 @@ object SettingsKeys {
      * 老用户的迁移口径见 `ui/widget/IslandPolicy.resolveEnabled`）。
      */
     const val TOPBAR_ISLAND = "topbar_island_enable"
+    /**
+     * 顶栏最小高度（dp，0 = 跟随内容，与改动前完全一致）。
+     *
+     * 三套顶栏手势（单击 / 长按 / 双击）都装在整条 `R.id.top` 上，所以 top 一变高，
+     * 可点范围自动跟着变，不需要额外的 TouchDelegate。换算、上下限与「什么时候竖直居中」
+     * 统一在 `ui/widget/TopbarHeightPolicy`，不要在别处写死数值。
+     */
+    const val TOPBAR_HEIGHT = "topbar_height"
     const val THEME = "theme_selector"
     const val UI_LANDSCAPE = "ui_landscape"
     const val SPLASH_TEXT = "ui_splashtext"
