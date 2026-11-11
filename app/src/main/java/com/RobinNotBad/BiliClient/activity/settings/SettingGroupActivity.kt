@@ -352,6 +352,12 @@ class SettingGroupActivity : RefreshListActivity() {
         // 顶栏灵动岛：26.11.08 曾暂时关闭并隐藏入口，26.11.09 已恢复（IslandPolicy.FEATURE_ENABLED = true）。
         if (IslandPolicy.FEATURE_ENABLED) {
             switch(
+                getString(R.string.setting_topbar_island),
+                getString(R.string.desc_setting_topbar_island),
+                SettingsKeys.TOPBAR_ISLAND,
+                false
+            )
+        }
         // 顶栏高度（26.11.11）：最小高度语义，0 = 跟随内容（默认，与改动前一致）。
         // 手势都装在整条 top 上，所以可点范围会跟着高度一起变；播放器页 / 短视频页自带顶栏，不接。
         input(
@@ -364,12 +370,6 @@ class SettingGroupActivity : RefreshListActivity() {
             UiScaleInput.parseTopbarHeight(value)?.let {
                 SharedPreferencesUtil.putInt(SettingsKeys.TOPBAR_HEIGHT, TopbarHeightPolicy.clampDp(it))
             }
-        }
-                getString(R.string.setting_topbar_island),
-                getString(R.string.desc_setting_topbar_island),
-                SettingsKeys.TOPBAR_ISLAND,
-                false
-            )
         }
         input("界面大小", getString(R.string.desc_setting_ui), SettingsKeys.DPI, "input_float", "1.0") { value ->
             try {
