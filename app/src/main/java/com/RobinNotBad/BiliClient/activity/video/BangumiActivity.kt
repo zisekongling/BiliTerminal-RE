@@ -1,7 +1,6 @@
 package com.RobinNotBad.BiliClient.activity.video
 
 import android.annotation.SuppressLint
-import android.graphics.Typeface
 import android.os.Bundle
 import android.view.View
 import android.widget.TextView
@@ -16,6 +15,7 @@ import com.RobinNotBad.BiliClient.api.BangumiApi
 import com.RobinNotBad.BiliClient.api.BangumiIndexApi
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
+import com.RobinNotBad.BiliClient.ui.appearance.SegmentedBarStyle
 import com.RobinNotBad.BiliClient.ui.widget.RotaryRecyclerView
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -144,6 +144,8 @@ class BangumiActivity : InstanceActivity() {
             val tab = i
             tabs[i].setOnClickListener { switchTab(tab) }
         }
+        // 三个页签（推荐 / 追番 / 索引）：玻璃轨道 + 选中格子的主色胶囊（设计稿 E 方案）
+        SegmentedBarStyle.applyTrack(findViewById(R.id.tabBar))
 
         refreshes[TAB_RECOMMEND].setOnRefreshListener { loadRecommend(true) }
         refreshes[TAB_FOLLOWING].setOnRefreshListener { loadFollowing(true) }
@@ -198,10 +200,9 @@ class BangumiActivity : InstanceActivity() {
         hideEmptyState()
         for (i in 0 until TAB_COUNT) {
             val selected = i == tab
-            // 选中态：主题主色 + 加粗；未选中：正文次级灰。色值走 ColorScheme 而不是布局字面量，
-            // 切主题 / 亮暗模式时与全应用一致。
-            tabs[i].setTextColor(if (selected) ColorScheme.PRIMARY else ColorScheme.TEXT_SECONDARY)
-            tabs[i].setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
+            // 选中态 = 玻璃胶囊 + 主色竖条 + 亮文字，未选中 = 次级灰文字；
+            // 色值/材质全部交给 SegmentedBarStyle（走 ColorScheme，切主题与亮暗模式自动跟着变）
+            SegmentedBarStyle.applyItem(tabs[i], selected)
             refreshes[i].visibility = if (selected) View.VISIBLE else View.GONE
         }
         filterEntry.visibility = if (tab == TAB_INDEX) View.VISIBLE else View.GONE

@@ -52,20 +52,22 @@
         android:layout_below="@id/top"
         android:orientation="vertical">
 
-        <!-- 页签：三等分，触控下限 44dp（手表上 40dp 以下就很难点中） -->
+        <!-- 页签：三等分，格子 48dp（touch_min）——比原来的 44dp 更好点中，
+             也给玻璃胶囊留出上下各 4dp 的呼吸位 -->
         <LinearLayout
             android:id="@+id/tabBar"
             android:layout_width="match_parent"
-            android:layout_height="44dp"
+            android:layout_height="wrap_content"
             android:baselineAligned="false"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingHorizontal="@dimen/activity_padding_horizontal">
+            android:paddingHorizontal="@dimen/activity_padding_horizontal"
+            android:paddingVertical="2dp">
 
             <TextView
                 android:id="@+id/tabRecommend"
                 android:layout_width="0dp"
-                android:layout_height="match_parent"
+                android:layout_height="@dimen/touch_min"
                 android:layout_weight="1"
                 android:background="?attr/selectableItemBackground"
                 android:gravity="center"
@@ -76,7 +78,7 @@
             <TextView
                 android:id="@+id/tabFollowing"
                 android:layout_width="0dp"
-                android:layout_height="match_parent"
+                android:layout_height="@dimen/touch_min"
                 android:layout_weight="1"
                 android:background="?attr/selectableItemBackground"
                 android:gravity="center"
@@ -87,7 +89,7 @@
             <TextView
                 android:id="@+id/tabIndex"
                 android:layout_width="0dp"
-                android:layout_height="match_parent"
+                android:layout_height="@dimen/touch_min"
                 android:layout_weight="1"
                 android:background="?attr/selectableItemBackground"
                 android:gravity="center"

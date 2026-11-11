@@ -11,7 +11,7 @@ import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
 import com.RobinNotBad.BiliClient.adapter.video.VideoCardAdapter
 import com.RobinNotBad.BiliClient.api.WatchLaterApi
 import com.RobinNotBad.BiliClient.model.VideoCard
-import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
+import com.RobinNotBad.BiliClient.ui.appearance.SegmentedBarStyle
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
@@ -31,7 +31,6 @@ class WatchLaterActivity : RefreshListActivity() {
     private lateinit var filterAll: TextView
     private lateinit var filterUnfinished: TextView
     private var clearWatchedEntry: TextView? = null
-    private var unselectedColor = 0
 
     @SuppressLint("MissingInflatedId")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,12 +39,14 @@ class WatchLaterActivity : RefreshListActivity() {
         recyclerView.setHasFixedSize(true)
 
         // 筛选条：默认隐藏的分组，只有本页把它亮出来
-        findViewById<View>(R.id.filterBar).visibility = View.VISIBLE
+        val filterBar = findViewById<View>(R.id.filterBar)
+        filterBar.visibility = View.VISIBLE
+        // 玻璃轨道把「全部 / 未看完 / 清除已看完」框成一组（设计稿 E 方案）
+        SegmentedBarStyle.applyTrack(filterBar)
         // 列表一滚动就把这条收回去（手表屏小，收起来多露出一行视频）
-        setupAutoHideBars(findViewById(R.id.filterBar))
+        setupAutoHideBars(filterBar)
         filterAll = findViewById(R.id.filterAll)
         filterUnfinished = findViewById(R.id.filterUnfinished)
-        unselectedColor = filterAll.currentTextColor
         filterAll.setOnClickListener {
             if (showUnfinishedOnly) {
                 showUnfinishedOnly = false
@@ -61,8 +62,12 @@ class WatchLaterActivity : RefreshListActivity() {
         updateFilterColors()
 
         clearWatchedEntry = findViewById(R.id.clearWatched)
-        clearWatchedEntry?.visibility = View.VISIBLE
-        clearWatchedEntry?.setOnClickListener { confirmClearWatched() }
+        clearWatchedEntry?.let {
+            it.visibility = View.VISIBLE
+            // 「清除已看完」是动作不是筛选项：永远按未选中格子的样子画（保留按压反馈）
+            SegmentedBarStyle.applyItem(it, false)
+            it.setOnClickListener { confirmClearWatched() }
+        }
 
         loadWatchLater()
     }
@@ -160,8 +165,9 @@ class WatchLaterActivity : RefreshListActivity() {
     }
 
     private fun updateFilterColors() {
-        filterAll.setTextColor(if (showUnfinishedOnly) unselectedColor else ColorScheme.PRIMARY)
-        filterUnfinished.setTextColor(if (showUnfinishedOnly) ColorScheme.PRIMARY else unselectedColor)
+        // 选中态 = 玻璃胶囊 + 主色竖条 + 亮文字，未选中 = 次级灰文字（外观全部由 SegmentedBarStyle 决定）
+        SegmentedBarStyle.applyItem(filterAll, !showUnfinishedOnly)
+        SegmentedBarStyle.applyItem(filterUnfinished, showUnfinishedOnly)
     }
 
     /**

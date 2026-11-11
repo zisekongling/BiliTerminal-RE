@@ -24,6 +24,7 @@ import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.api.EmoteApi
 import com.RobinNotBad.BiliClient.model.Emote
 import com.RobinNotBad.BiliClient.model.EmotePackage
+import com.RobinNotBad.BiliClient.ui.appearance.SegmentedBarStyle
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomGridManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
@@ -88,6 +89,8 @@ class EmoteActivity : BaseActivity() {
                         }
                     })
                     tabLayout.tabIconTint = null
+                    // 表情分类页签：玻璃轨道 + 选中格子的主色胶囊（设计稿 E 方案）
+                    SegmentedBarStyle.styleTabs(tabLayout)
                     val count = tabLayout.tabCount
 
                     CenterThreadPool.run {

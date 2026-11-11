@@ -40,10 +40,12 @@
     <com.google.android.material.tabs.TabLayout
         android:id="@+id/version_tabs"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="@dimen/touch_min"
         android:layout_below="@id/top"
-        app:tabIndicatorFullWidth="false"
-        app:tabMode="scrollable" />
+        app:tabIndicatorHeight="0dp"
+        app:tabMode="scrollable"
+        app:tabPaddingEnd="10dp"
+        app:tabPaddingStart="10dp" />
 
     <com.RobinNotBad.BiliClient.ui.widget.RotaryScrollView
         android:id="@+id/scrollView"

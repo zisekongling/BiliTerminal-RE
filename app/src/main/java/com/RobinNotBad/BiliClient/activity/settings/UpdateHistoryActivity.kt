@@ -9,6 +9,7 @@ import android.widget.TextView
 import com.RobinNotBad.BiliClient.BuildConfig
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
+import com.RobinNotBad.BiliClient.ui.appearance.SegmentedBarStyle
 import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.google.android.material.tabs.TabLayout
 
@@ -143,6 +144,9 @@ class UpdateHistoryActivity : BaseActivity() {
             for (entry in versions) {
                 tabs.addTab(tabs.newTab().setText(entry.version))
             }
+            // 版本页签：玻璃轨道 + 选中格子的主色胶囊（设计稿 E 方案）。
+            // 必须在 addTab 之后调用，否则 tabCount 还是 0，一格胶囊都画不出来。
+            SegmentedBarStyle.styleTabs(tabs)
 
             if (versions.isEmpty()) {
                 // 数组为空时不加监听器，直接给兜底文案

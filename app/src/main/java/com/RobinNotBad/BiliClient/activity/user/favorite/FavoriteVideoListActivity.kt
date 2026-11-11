@@ -22,6 +22,7 @@ import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.model.VideoInfo
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
+import com.RobinNotBad.BiliClient.ui.appearance.SegmentedBarStyle
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.FavoriteAggregatePolicy
 import com.RobinNotBad.BiliClient.util.FavoriteBatchDownloadPolicy
@@ -228,6 +229,8 @@ class FavoriteVideoListActivity : RefreshListActivity() {
 
     private fun setupSortBar() {
         findViewById<View>(R.id.sortBar).visibility = View.VISIBLE
+        // 玻璃轨道：三格排序项框成一组，选中那格浮一块主色胶囊（设计稿 E 方案）
+        SegmentedBarStyle.applyTrack(findViewById(R.id.sortBar))
         // 列表一滚动就把排序行收回去（手表屏小，收起来多露出一行视频）。
         // 多选条（manageBar）故意不在这里：用户正勾着视频呢，条自己收走就没法点删除了。
         setupAutoHideBars(findViewById(R.id.sortBar))
@@ -258,9 +261,10 @@ class FavoriteVideoListActivity : RefreshListActivity() {
     }
 
     private fun updateSortColors() {
-        sortFavTime?.setTextColor(if (sortOrder == FavoriteApi.ORDER_FAV_TIME) ColorScheme.PRIMARY else unselectedColor)
-        sortView?.setTextColor(if (sortOrder == FavoriteApi.ORDER_VIEW) ColorScheme.PRIMARY else unselectedColor)
-        sortPubtime?.setTextColor(if (sortOrder == FavoriteApi.ORDER_PUBTIME) ColorScheme.PRIMARY else unselectedColor)
+        // 选中 = 玻璃胶囊 + 主色竖条 + 亮文字；未选中 = 次级灰文字（外观全交给 SegmentedBarStyle）
+        sortFavTime?.let { SegmentedBarStyle.applyItem(it, sortOrder == FavoriteApi.ORDER_FAV_TIME) }
+        sortView?.let { SegmentedBarStyle.applyItem(it, sortOrder == FavoriteApi.ORDER_VIEW) }
+        sortPubtime?.let { SegmentedBarStyle.applyItem(it, sortOrder == FavoriteApi.ORDER_PUBTIME) }
     }
 
     /**
@@ -789,6 +793,8 @@ class FavoriteVideoListActivity : RefreshListActivity() {
     private fun setupSearchBar() {
         val filterBar = findViewById<LinearLayout>(R.id.filterBar) ?: return
         filterBar.visibility = View.VISIBLE
+        // 这一行只有「搜索收藏夹」一个格子，铺上同一套玻璃轨道，看起来就是一条整行的玻璃搜索框
+        SegmentedBarStyle.applyTrack(filterBar)
         // filterBar 自带三项是「稍后再看」的筛选项，收藏夹页没有对应的数据含义，必须藏掉
         findViewById<View>(R.id.filterAll)?.visibility = View.GONE
         findViewById<View>(R.id.filterUnfinished)?.visibility = View.GONE
@@ -800,7 +806,8 @@ class FavoriteVideoListActivity : RefreshListActivity() {
             minHeight = resources.getDimensionPixelSize(R.dimen.touch_min)
             val padV = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 4f, resources.displayMetrics).toInt()
             setPadding(0, padV, 0, padV)
-            background = sortView?.background
+            // 和排序条同一套格子外观（会随「有没有关键词」在选中/未选中之间切）
+            background = SegmentedBarStyle.itemBackground(context, false)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             isSingleLine = true
             setOnClickListener { promptSearch() }
@@ -817,7 +824,8 @@ class FavoriteVideoListActivity : RefreshListActivity() {
         bar.text =
             if (searchKeyword.isEmpty()) getString(R.string.fav_port_search_entry)
             else getString(R.string.fav_port_search_active, searchKeyword)
-        bar.setTextColor(if (searchKeyword.isEmpty()) unselectedColor else ColorScheme.PRIMARY)
+        // 有关键词 = 正在生效的筛选，按选中格子的样子画（胶囊 + 亮文字）
+        SegmentedBarStyle.applyItem(bar, searchKeyword.isNotEmpty())
     }
 
     private fun promptSearch() {
