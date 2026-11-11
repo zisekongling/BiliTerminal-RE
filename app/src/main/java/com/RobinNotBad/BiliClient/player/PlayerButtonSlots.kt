@@ -1,9 +1,12 @@
 package com.RobinNotBad.BiliClient.player
 
 import android.content.Context
+import android.content.res.Resources
+import android.graphics.drawable.Drawable
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.RobinNotBad.BiliClient.R
@@ -66,6 +69,15 @@ class PlayerButtonSlots(
 
     /** key → 影子；真身在别处时用。 */
     private val mirrors = LinkedHashMap<String, MutableList<View>>()
+
+    /**
+     * 影子当前的图标是从真身**哪一份** `Drawable` 复制出来的。
+     *
+     * 影子不能和真身共用同一个 `Drawable` 实例（见 [cloneDrawable]），所以每次同步都得复制一份；
+     * 但 [syncMirrors] 是 400ms 定时器在跑，没有这张表就会每轮给每个影子再造一个 Drawable。
+     * 真身只在改图标时换实例（`setImageResource`），所以按实例比对足够。
+     */
+    private val mirrorDrawableSource = HashMap<View, Drawable?>()
 
     /**
      * 各区的组格（含「更多」收纳格）：槽位下标 → 展开内容的 keys。
@@ -220,11 +232,29 @@ class PlayerButtonSlots(
     private fun syncOne(primary: View, mirror: View) {
         mirror.visibility = primary.visibility
         if (primary is ImageButton && mirror is ImageButton) {
-            mirror.setImageDrawable(primary.drawable)
+            // 图标复制一份再给影子：共用同一个 Drawable 实例时，bounds 只由「最后布局 / 最后
+            // setImageDrawable 的那个」写一次，另一份就按别人的尺寸画。FIT_XY 直接按 bounds 落笔
+            // （没有矩阵居中），所以表现为「小一圈 + 贴左上角」。
+            if (mirrorDrawableSource[mirror] !== primary.drawable) {
+                mirror.setImageDrawable(cloneDrawable(primary.drawable, primary.resources))
+                mirrorDrawableSource[mirror] = primary.drawable
+            }
             mirror.contentDescription = primary.contentDescription
         } else if (primary is TextView && mirror is TextView) {
             mirror.text = primary.text
         }
+    }
+
+    /**
+     * 造一份独立的 `Drawable`（有 `ConstantState` 时走它，位图本身仍共享，不额外占内存）。
+     *
+     * **不能直接把真身的 drawable 交给影子**（26.11.11 用户报「新加进底部的按钮比同一行的按钮
+     * 小一圈、还往上偏」）：`Drawable` 只有一组 `bounds` 和一个 `callback`，两个 `ImageView`
+     * 共用实例就会互相覆盖 —— 实测底部 32×37 的格子里画出来的是右列 28×28 格子的 48×48 bounds。
+     */
+    private fun cloneDrawable(original: Drawable?, resources: Resources): Drawable? {
+        val copy = original?.constantState?.newDrawable(resources) ?: return original
+        return copy.mutate()
     }
 
     // ==================== 摆放 ====================
@@ -250,9 +280,10 @@ class PlayerButtonSlots(
         val mirror: View = if (primary is ImageButton) {
             ImageButton(context).apply {
                 scaleType = primary.scaleType
-                setImageDrawable(primary.drawable)
-                setBackgroundDrawable(primary.background?.constantState?.newDrawable()?.mutate())
-            }
+                // 图标与背景都得复制一份：共用实例会让真身和影子互相改写 bounds / callback
+                setImageDrawable(cloneDrawable(primary.drawable, primary.resources))
+                setBackgroundDrawable(cloneDrawable(primary.background, primary.resources))
+            }.also { mirrorDrawableSource[it] = primary.drawable }
         } else {
             val source = primary as? TextView
             TextView(context).apply {
@@ -285,16 +316,14 @@ class PlayerButtonSlots(
         keys: List<String>,
     ): View = ImageButton(context).apply {
         setImageResource(R.mipmap.morehide)
-        scaleType = android.widget.ImageView.ScaleType.FIT_XY
         val attr = android.util.TypedValue()
         if (context.theme.resolveAttribute(android.R.attr.selectableItemBackground, attr, true)) {
             setBackgroundResource(attr.resourceId)
         }
         // 显式清零内边距：selectableItemBackground 这类自带 padding/inset 的背景会被 View 转成
-        // 控件内边距，FIT_XY 就会把方形图标压成一条扁条（更多按钮「扁了」的根因）。
+        // 控件内边距，图标就会被挤小、跟同行其它按钮对不上。
         // **顺序不能反**：cellParams 会按「格子尺寸 - 图标尺寸」写回内边距（见 [:cellParams]），
-        // 先算 layoutParams 再清零，否则刚清掉的内边距又会被写回来，底部区 32×37 的格子里就会
-        // 出现一个 1.19 倍竖着拉长的方形图标（26.11.08 宽屏回归里唯一真被拉伸的控件）。
+        // 先算 layoutParams 再清零，否则刚清掉的内边距又会被写回来。
         contentDescription = context.getString(R.string.desc_player_group_expand)
         tag = index
         layoutParams = cellParams(this, region)
@@ -354,6 +383,7 @@ class PlayerButtonSlots(
                 pool.addView(child)
             } else {
                 mirrors.values.forEach { it.remove(child) }
+                mirrorDrawableSource.remove(child)
             }
         }
         setStripVisible(region, false)
@@ -409,6 +439,7 @@ class PlayerButtonSlots(
         placedPrimaries.clear()
         primariesByKey.clear()
         mirrors.clear()
+        mirrorDrawableSource.clear()
     }
 
     // ==================== 小工具 ====================
@@ -427,6 +458,12 @@ class PlayerButtonSlots(
             // 图标保持改造前的视觉尺寸，放大的那圈全算热区（26.11.07 调研清单第 11 条）：
             // 直接用 48dp 的 ImageButton 会把 28dp 的图标一起拉大，观感全变。
             if (view is ImageButton) {
+                // 图标一律等比居中（26.11.11）：按钮池里两批按钮的 scaleType 不一致（清晰度/音量/
+                // 分P 是 fitCenter，弹幕/字幕/循环/连播/旋转/锁定那一批是 fitXY），而底部格子是
+                // 32×37、图标是方的——fitXY 会把方图标竖向拉长到 1.19 倍，跟同一行的 fitCenter
+                // 按钮比起来就是「新加的按钮大小不一样」。统一在槽位里改成 fitCenter 后，谁被放进
+                // 哪一区都长同一个样。
+                view.scaleType = ImageView.ScaleType.FIT_CENTER
                 val iconW = ToolsUtil.dp2px(region.iconWidthDp)
                 val iconH = ToolsUtil.dp2px(region.iconHeightDp)
                 val padH = (w - iconW).coerceAtLeast(0)
