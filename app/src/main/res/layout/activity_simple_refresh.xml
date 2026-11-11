@@ -55,7 +55,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:paddingHorizontal="@dimen/activity_padding_horizontal"
-            android:paddingVertical="2dp"
+            android:paddingVertical="0dp"
             android:orientation="horizontal"
             android:visibility="gone"
             tools:visibility="visible">
@@ -66,11 +66,11 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/segmented_bar_min"
+                android:paddingVertical="0dp"
                 android:background="?attr/selectableItemBackground"
                 android:text="@string/uitext_dynamicadapter_001"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_body"
                 android:textColor="?android:attr/textColorSecondary" />
 
             <TextView
@@ -79,11 +79,11 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/segmented_bar_min"
+                android:paddingVertical="0dp"
                 android:background="?attr/selectableItemBackground"
                 android:text="@string/text_activitysimplerefresh_05"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_body"
                 android:textColor="?android:attr/textColorSecondary" />
 
             <!-- 「清除所有已看完」：只有「稍后再看」页会点亮（其它页面 findViewById 取到即为 gone）。
@@ -94,11 +94,11 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/segmented_bar_min"
+                android:paddingVertical="0dp"
                 android:background="?attr/selectableItemBackground"
                 android:text="@string/text_activitysimplerefresh_04"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_body"
                 android:textColor="?android:attr/textColorSecondary"
                 android:visibility="gone"
                 tools:visibility="visible" />
@@ -112,7 +112,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:paddingHorizontal="@dimen/activity_padding_horizontal"
-            android:paddingVertical="2dp"
+            android:paddingVertical="0dp"
             android:orientation="horizontal"
             android:visibility="gone"
             tools:visibility="visible">
@@ -123,11 +123,11 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/segmented_bar_min"
+                android:paddingVertical="0dp"
                 android:background="?attr/selectableItemBackground"
                 android:text="@string/text_activitysimplerefresh_03"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_body"
                 android:textColor="?android:attr/textColorSecondary" />
 
             <TextView
@@ -136,11 +136,11 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/segmented_bar_min"
+                android:paddingVertical="0dp"
                 android:background="?attr/selectableItemBackground"
                 android:text="@string/text_activitycreativecenter_08"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_body"
                 android:textColor="?android:attr/textColorSecondary" />
 
             <TextView
@@ -149,11 +149,11 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/segmented_bar_min"
+                android:paddingVertical="0dp"
                 android:background="?attr/selectableItemBackground"
                 android:text="@string/text_activitysimplerefresh_02"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_body"
                 android:textColor="?android:attr/textColorSecondary" />
 
         </LinearLayout>
@@ -182,6 +182,23 @@
                 android:text="@string/uitext_favoritevideolistactivity_009"
                 android:textSize="13sp"
                 android:textColor="?android:attr/textColorSecondary" />
+
+            <!-- 「全选(n/n)」（26.11.11，反馈 #94）：只有下载列表页会点亮它（其它页面 findViewById
+                 取到即为 gone）。一键勾中当前列表全部条目，全勾中后文字变「全不选」，再点取消全部。 -->
+            <TextView
+                android:id="@+id/manageSelectAll"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:minHeight="@dimen/touch_min"
+                android:paddingVertical="4dp"
+                android:background="?attr/selectableItemBackground"
+                android:text="@string/btn_select_all"
+                android:textSize="13sp"
+                android:textColor="?android:attr/textColorSecondary"
+                android:visibility="gone"
+                tools:visibility="visible" />
 
             <TextView
                 android:id="@+id/manageDelete"

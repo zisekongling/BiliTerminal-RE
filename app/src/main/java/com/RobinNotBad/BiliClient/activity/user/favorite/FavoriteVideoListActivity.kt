@@ -228,9 +228,12 @@ class FavoriteVideoListActivity : RefreshListActivity() {
     }
 
     private fun setupSortBar() {
-        findViewById<View>(R.id.sortBar).visibility = View.VISIBLE
+        val sortBar = findViewById<ViewGroup>(R.id.sortBar)
+        sortBar.visibility = View.VISIBLE
         // 玻璃轨道：三格排序项框成一组，选中那格浮一块主色胶囊（设计稿 E 方案）
-        SegmentedBarStyle.applyTrack(findViewById(R.id.sortBar))
+        SegmentedBarStyle.applyTrack(sortBar)
+        // 整条可以按住横向拖动切换排序（扫到哪格就选哪格）
+        SegmentedBarStyle.installDrag(sortBar)
         // 列表一滚动就把排序行收回去（手表屏小，收起来多露出一行视频）。
         // 多选条（manageBar）故意不在这里：用户正勾着视频呢，条自己收走就没法点删除了。
         setupAutoHideBars(findViewById(R.id.sortBar))

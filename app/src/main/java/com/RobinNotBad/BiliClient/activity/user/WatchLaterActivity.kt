@@ -5,6 +5,7 @@ import com.RobinNotBad.BiliClient.util.UiText
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
 import android.widget.TextView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
@@ -39,7 +40,7 @@ class WatchLaterActivity : RefreshListActivity() {
         recyclerView.setHasFixedSize(true)
 
         // 筛选条：默认隐藏的分组，只有本页把它亮出来
-        val filterBar = findViewById<View>(R.id.filterBar)
+        val filterBar = findViewById<ViewGroup>(R.id.filterBar)
         filterBar.visibility = View.VISIBLE
         // 玻璃轨道把「全部 / 未看完 / 清除已看完」框成一组（设计稿 E 方案）
         SegmentedBarStyle.applyTrack(filterBar)
@@ -68,6 +69,8 @@ class WatchLaterActivity : RefreshListActivity() {
             SegmentedBarStyle.applyItem(it, false)
             it.setOnClickListener { confirmClearWatched() }
         }
+        // 整条可以按住横向拖动切换选项；「清除已看完」是动作，排除在外（拖过去不该弹确认框）
+        SegmentedBarStyle.installDrag(filterBar, clearWatchedEntry)
 
         loadWatchLater()
     }

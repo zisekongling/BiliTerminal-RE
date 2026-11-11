@@ -52,8 +52,8 @@
         android:layout_below="@id/top"
         android:orientation="vertical">
 
-        <!-- 页签：三等分，格子 48dp（touch_min）——比原来的 44dp 更好点中，
-             也给玻璃胶囊留出上下各 4dp 的呼吸位 -->
+        <!-- 页签：三等分，行高 40dp（segmented_bar_min）。整条可以按住横向拖动切换，
+             所以每格不必各自撑到 48dp；轨道和胶囊都由 SegmentedBarStyle 画在格子内部 -->
         <LinearLayout
             android:id="@+id/tabBar"
             android:layout_width="match_parent"
@@ -62,40 +62,40 @@
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:paddingHorizontal="@dimen/activity_padding_horizontal"
-            android:paddingVertical="2dp">
+            android:paddingVertical="0dp">
 
             <TextView
                 android:id="@+id/tabRecommend"
                 android:layout_width="0dp"
-                android:layout_height="@dimen/touch_min"
+                android:layout_height="@dimen/segmented_bar_min"
                 android:layout_weight="1"
                 android:background="?attr/selectableItemBackground"
                 android:gravity="center"
                 android:text="@string/text_bangumi_tab_recommend"
                 android:textColor="?android:attr/textColorSecondary"
-                android:textSize="@dimen/text_subtitle" />
+                android:textSize="@dimen/text_body" />
 
             <TextView
                 android:id="@+id/tabFollowing"
                 android:layout_width="0dp"
-                android:layout_height="@dimen/touch_min"
+                android:layout_height="@dimen/segmented_bar_min"
                 android:layout_weight="1"
                 android:background="?attr/selectableItemBackground"
                 android:gravity="center"
                 android:text="@string/text_bangumi_tab_following"
                 android:textColor="?android:attr/textColorSecondary"
-                android:textSize="@dimen/text_subtitle" />
+                android:textSize="@dimen/text_body" />
 
             <TextView
                 android:id="@+id/tabIndex"
                 android:layout_width="0dp"
-                android:layout_height="@dimen/touch_min"
+                android:layout_height="@dimen/segmented_bar_min"
                 android:layout_weight="1"
                 android:background="?attr/selectableItemBackground"
                 android:gravity="center"
                 android:text="@string/text_bangumi_tab_index"
                 android:textColor="?android:attr/textColorSecondary"
-                android:textSize="@dimen/text_subtitle" />
+                android:textSize="@dimen/text_body" />
 
         </LinearLayout>
 

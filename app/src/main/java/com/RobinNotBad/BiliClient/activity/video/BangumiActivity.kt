@@ -3,6 +3,7 @@ package com.RobinNotBad.BiliClient.activity.video
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -145,7 +146,10 @@ class BangumiActivity : InstanceActivity() {
             tabs[i].setOnClickListener { switchTab(tab) }
         }
         // 三个页签（推荐 / 追番 / 索引）：玻璃轨道 + 选中格子的主色胶囊（设计稿 E 方案）
-        SegmentedBarStyle.applyTrack(findViewById(R.id.tabBar))
+        val tabBar = findViewById<ViewGroup>(R.id.tabBar)
+        SegmentedBarStyle.applyTrack(tabBar)
+        // 整条可以按住横向拖动切换（三格等宽，扫到哪格就选哪格）
+        SegmentedBarStyle.installDrag(tabBar)
 
         refreshes[TAB_RECOMMEND].setOnRefreshListener { loadRecommend(true) }
         refreshes[TAB_FOLLOWING].setOnRefreshListener { loadFollowing(true) }

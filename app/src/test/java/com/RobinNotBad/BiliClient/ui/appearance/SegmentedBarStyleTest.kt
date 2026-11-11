@@ -33,25 +33,25 @@ class SegmentedBarStyleTest {
     fun `轨道由文字主色派生，亮暗主题都能看见`() {
         val colors = colors()
         assertEquals(rgbOf(textPrimary), rgbOf(colors.trackFill))
-        assertEquals(0x12, alphaOf(colors.trackFill))
+        assertEquals(0x1C, alphaOf(colors.trackFill))
         assertEquals(rgbOf(textPrimary), rgbOf(colors.trackStroke))
-        assertEquals(0x21, alphaOf(colors.trackStroke))
+        assertEquals(0x2C, alphaOf(colors.trackStroke))
     }
 
     @Test
     fun `胶囊是主色到浅主色的水平渐变`() {
         val colors = colors()
         assertEquals(rgbOf(primary), rgbOf(colors.pillStart))
-        assertEquals(0x57, alphaOf(colors.pillStart))
+        assertEquals(0x4A, alphaOf(colors.pillStart))
         assertEquals(rgbOf(primaryLight), rgbOf(colors.pillEnd))
-        assertEquals(0x1A, alphaOf(colors.pillEnd))
+        assertEquals(0x14, alphaOf(colors.pillEnd))
     }
 
     @Test
     fun `胶囊描边用浅主色、光晕用主色`() {
         val colors = colors()
         assertEquals(rgbOf(primaryLight), rgbOf(colors.pillStroke))
-        assertEquals(0x6B, alphaOf(colors.pillStroke))
+        assertEquals(0x5A, alphaOf(colors.pillStroke))
         assertEquals(rgbOf(primary), rgbOf(colors.pillGlow))
         assertEquals(0x1A, alphaOf(colors.pillGlow))
     }
@@ -86,7 +86,7 @@ class SegmentedBarStyleTest {
             0xFF666666.toInt()
         )
         assertEquals(rgbOf(0xFF1A1A1A.toInt()), rgbOf(light.trackFill))
-        assertEquals(0x12, alphaOf(light.trackFill))
+        assertEquals(0x1C, alphaOf(light.trackFill))
         assertEquals(rgbOf(0xFF1A73E8.toInt()), rgbOf(light.pillStart))
         assertEquals(0xFF1A73E8.toInt(), light.accent)
     }
