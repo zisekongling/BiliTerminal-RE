@@ -88,6 +88,14 @@ class CopyTextActivity : BaseActivity() {
         beginEdit.addTextChangedListener(textWatcher)
         endEdit.addTextChangedListener(textWatcher)
 
+        // 直接点进下标框（不先长按正文）时也要按已有下标画出选中区间，
+        // 否则要等第一个字符敲进去才有高亮
+        val indexFocusListener = android.view.View.OnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) syncSelectionHighlight()
+        }
+        beginEdit.onFocusChangeListener = indexFocusListener
+        endEdit.onFocusChangeListener = indexFocusListener
+
         findViewById<android.view.View>(R.id.copy_all).setOnClickListener {
             StringUtil.copyText(this, content)
             MsgUtil.showMsg(UiText.of("已复制"))
@@ -162,5 +170,8 @@ class CopyTextActivity : BaseActivity() {
             endEdit.setText(edittext.text.length.toString())
             false
         }
+
+        // 首帧就按布局里既有的起止下标画一次（0~0 时自然什么都不画）
+        syncSelectionHighlight()
     }
 }
