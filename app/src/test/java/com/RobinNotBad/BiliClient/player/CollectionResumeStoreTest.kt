@@ -89,6 +89,39 @@ class CollectionResumeStoreTest {
         assertEquals("拿不到合集标识时记录不可信", 111L, target)
     }
 
+    // ---------- 纯函数：无 seasonId 时的降级定位 ----------
+
+    @Test
+    fun 降级槽命中本合集_定位到最近看的那一集() {
+        val target = CollectionResumePolicy.resolveFallbackAid(
+            fromAid = 111L,
+            lastPlayedAid = 222L,
+            memberAids = listOf(111L, 222L, 333L)
+        )
+        assertEquals(222L, target)
+    }
+
+    @Test
+    fun 降级槽指向别的合集的那一集_回落入口视频() {
+        // 全局槽不区分合集：上一次可能是在另一个无 id 合集里看的
+        val target = CollectionResumePolicy.resolveFallbackAid(
+            fromAid = 111L,
+            lastPlayedAid = 999L,
+            memberAids = listOf(111L, 222L, 333L)
+        )
+        assertEquals("那一集不在本合集里，滚过去只会定位到别处", 111L, target)
+    }
+
+    @Test
+    fun 降级槽为空_回落入口视频() {
+        val target = CollectionResumePolicy.resolveFallbackAid(
+            fromAid = 111L,
+            lastPlayedAid = 0L,
+            memberAids = listOf(111L, 222L)
+        )
+        assertEquals(111L, target)
+    }
+
     @Test
     fun 记录aid非法_回落入口视频() {
         val target = CollectionResumePolicy.resolveTargetAid(
@@ -149,14 +182,38 @@ class CollectionResumeStoreTest {
     }
 
     @Test
-    fun 非法参数不落盘_免得留下永远匹配不上的垃圾() {
-        CollectionResumeStore.save(0L, 222L)
+    fun 无seasonId时写降级槽_不再静默丢弃() {
+        // ugc_season 拿不到 id 时填 -1：按 seasonId 的键写不了，但这类合集最容易漏记，
+        // 必须退到「最近一次在无 id 合集里看到哪一集」的全局槽。
         CollectionResumeStore.save(-1L, 222L)
-        CollectionResumeStore.save(9001L, 0L)
+        CollectionResumeStore.save(0L, 333L)
 
-        assertNull(CollectionResumeStore.read(0L))
+        assertEquals("降级槽只保留最近一次", 333L, CollectionResumeStore.lastPlayed())
         assertNull(CollectionResumeStore.read(-1L))
-        assertNull("aid 非法时整条都不该写", CollectionResumeStore.read(9001L))
+        assertNull(CollectionResumeStore.read(0L))
+    }
+
+    @Test
+    fun 正常的seasonId写入不碰降级槽() {
+        CollectionResumeStore.saveLastPlayed(111L)
+        CollectionResumeStore.save(9001L, 222L)
+        assertEquals("有 id 的合集走自己的键，降级槽保持原值", 111L, CollectionResumeStore.lastPlayed())
+    }
+
+    @Test
+    fun 非法aid一律不落盘_免得留下永远匹配不上的垃圾() {
+        CollectionResumeStore.save(9001L, 0L)
+        CollectionResumeStore.save(0L, -5L)
+        CollectionResumeStore.saveLastPlayed(0L)
+
+        assertNull(CollectionResumeStore.read(9001L))
+        assertEquals("aid 非正时哪一格都不该写", 0L, CollectionResumeStore.lastPlayed())
+    }
+
+    @Test
+    fun 降级槽的坏数据当作没有记录() {
+        SharedPreferencesUtil.putString("collection_resume_last_played_v1", "坏掉的值")
+        assertEquals(0L, CollectionResumeStore.lastPlayed())
     }
 
     @Test

@@ -53,6 +53,19 @@ object CollectionResumePolicy {
         if (!memberAids.contains(record.aid)) return fromAid
         return record.aid
     }
+
+    /**
+     * `ugc_season` 拿不到 id（`seasonId <= 0`）时的降级定位。
+     *
+     * <p>这类合集没有可用的 key，只能退到全局的「最近一次在无 id 合集里看到哪一集」。
+     * 降级槽不区分合集，所以**必须**再用「这一集还在当前列表里」兜一次：上一次可能是在
+     * 另一个无 id 合集里看的，直接滚过去会定位到别的合集/不存在的下标。
+     */
+    fun resolveFallbackAid(fromAid: Long, lastPlayedAid: Long, memberAids: List<Long>): Long {
+        if (lastPlayedAid <= 0L) return fromAid
+        if (!memberAids.contains(lastPlayedAid)) return fromAid
+        return lastPlayedAid
+    }
 }
 
 /**
@@ -94,20 +107,49 @@ object CollectionResumeCodec {
 object CollectionResumeStore {
     private const val KEY_PREFIX = "collection_resume_v1_"
 
+    /**
+     * 拿不到 `ugc_season.id` 的合集的降级槽：全局只记「最近一次在无 id 合集里看到哪一集」。
+     *
+     * <p>为什么还要这一格：`id` 缺失的合集恰恰是最容易漏的一类（接口偶发不给 id），
+     * 按 seasonId 的键写不了，只能退到一条全局记录；读取侧见
+     * [CollectionResumePolicy.resolveFallbackAid]。
+     */
+    private const val KEY_LAST_PLAYED = "collection_resume_last_played_v1"
+
     fun key(seasonId: Long): String = KEY_PREFIX + seasonId
 
     /**
-     * 记下「这个合集停在 aid 这一集」。seasonId / aid 非法时直接不写：
-     * 这类数据只会写出一条永远匹配不上的垃圾记录，还要占着偏好文件。
+     * 记下「这个合集停在 aid 这一集」。
+     *
+     * - `aid <= 0`：垃圾数据，不写；
+     * - `seasonId <= 0`（合集拿不到 id）：写全局降级槽 [saveLastPlayed]；
+     * - 其余：按合集分开存。
      *
      * @param updatedAt 供单测注入固定值，正式路径用当前时刻。
      */
     fun save(seasonId: Long, aid: Long, updatedAt: Long = System.currentTimeMillis()) {
-        if (seasonId <= 0 || aid <= 0) return
+        if (aid <= 0) return
+        if (seasonId <= 0) {
+            saveLastPlayed(aid, updatedAt)
+            return
+        }
         SharedPreferencesUtil.putString(
             key(seasonId),
             CollectionResumeCodec.encode(CollectionResumeRecord(seasonId, aid, updatedAt))
         )
+    }
+
+    /** 写「最近一次在无 id 合集里看到 aid 这一集」的降级槽；aid 非法时不写。 */
+    fun saveLastPlayed(aid: Long, updatedAt: Long = System.currentTimeMillis()) {
+        if (aid <= 0) return
+        SharedPreferencesUtil.putString(KEY_LAST_PLAYED, "$aid\t$updatedAt")
+    }
+
+    /** 读降级槽；没写过 / 坏数据 / aid 非正时返回 0（调用方按「没有记录」处理）。 */
+    fun lastPlayed(): Long {
+        val text = SharedPreferencesUtil.getString(KEY_LAST_PLAYED, null)
+        if (text.isNullOrBlank()) return 0L
+        return text.substringBefore('\t').trim().toLongOrNull()?.takeIf { it > 0 } ?: 0L
     }
 
     /** 读不到 / 读出来是坏数据时返回 null，调用方按「没有记录」处理。 */

@@ -134,16 +134,6 @@ class JumpToPlayerActivity : BaseActivity() {
                 val resumeMs = intent.getIntExtra(EXTRA_RESUME_PROGRESS_MS, 0)
                 if (resumeMs > 0) playerData!!.progress = resumeMs
 
-                // 合集续看：「上次看到这个合集的哪一集」原先只在详情页按播放时写，从分页 /
-                // 收藏夹 / 其它入口起播就漏记，合集页再进去会停在旧的一集。所有起播都要经过
-                // 本页取流，放在这里一次覆盖；下载不写（没真播）。
-                if (download == 0) {
-                    playerData!!.enterableInfo?.collection?.let { collection ->
-                        if (collection.id > 0)
-                            CollectionResumeStore.save(collection.id.toLong(), playerData!!.aid)
-                    }
-                }
-
                 Logu.d("history", playerData!!.progress.toString())
                 jump()
             } catch (e: IOException) {
@@ -171,6 +161,12 @@ class JumpToPlayerActivity : BaseActivity() {
             intent.putExtra("seasonId", data.seasonId)
             intent.putExtra("seasonType", data.seasonType)
             launcher.launch(intent)
+            // 合集续看：「上次看到这个合集的哪一集」原先只在详情页按播放时写，从分页 /
+            // 收藏夹 / 其它入口起播就漏记。记在**真正交给播放器之后**，避免只取到流、
+            // 用户秒退也把记录挪到这一集；拿不到 ugc_season.id 的合集由 save 内部写降级槽。
+            data.enterableInfo?.collection?.let {
+                CollectionResumeStore.save(it.id.toLong(), data.aid)
+            }
             setClickExit(UiText.of("等待退出播放后上报进度\n（点击跳过）"))
         } else {
             val intent = Intent()
