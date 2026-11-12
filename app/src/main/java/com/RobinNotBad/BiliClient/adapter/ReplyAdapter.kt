@@ -285,17 +285,32 @@ class ReplyAdapter(
             }
 
             replyHolder.message.text = reply.message
+            val panelEnabled = LongPressPrefs.isEnabled()
             // 长按正文：开关打开时弹「操作面板」，「复制」就在面板里（见 [showManageMenu]），
             // 长按不再直接把用户丢进复制界面；开关关闭时才退回旧行为。
             // 之前这里是「可管理才挂监听、不可管理交给 setCopy」——两条路各弹各的，
             // 所以在自己的评论上长按，用户分不清到底会复制还是弹菜单。
-            if (LongPressPrefs.isEnabled()) {
+            if (panelEnabled) {
                 replyHolder.message.setOnLongClickListener {
                     showManageMenu(reply)
                     true
                 }
             } else {
+                // 先清掉复用 holder 上残留的面板监听：copy_enable 关着时 setCopy 不会覆盖它，
+                // 否则设置里关了面板，长按仍会弹旧的面板。
+                replyHolder.message.setOnLongClickListener(null)
                 StringUtil.setCopy(replyHolder.message)
+            }
+            // 整张卡片也要能长按。原来只有正文挂了长按，按在昵称/时间/留白上时事件落到
+            // itemView 的点击监听，抬手被当成「打开评论详情」——用户看到的就是
+            // 「长按自己的评论反而进了详情页」。这里与正文走同一个入口，避免两套行为。
+            if (panelEnabled && !isDetail) {
+                replyHolder.itemView.setOnLongClickListener {
+                    showManageMenu(reply)
+                    true
+                }
+            } else {
+                replyHolder.itemView.setOnLongClickListener(null)
             }
             replyHolder.message.setOnTouchListener(StringUtil.ClickableSpanTouchListener.getInstance())
 
@@ -374,6 +389,17 @@ class ReplyAdapter(
                             textView = newTextView
                         }
                         textView.text = childMsg
+                        // 楼中楼嵌在可点击的 childReplyCard 里，自身原先没有长按监听：
+                        // 长按抬手会被父卡片当成点击、直接进详情页。这里补上同一入口；
+                        // 开关关掉时清掉监听，恢复旧行为（长按不动作）。
+                        if (panelEnabled) {
+                            textView.setOnLongClickListener {
+                                showManageMenu(child)
+                                true
+                            }
+                        } else {
+                            textView.setOnLongClickListener(null)
+                        }
                         renderIndex++
                     }
 
@@ -420,6 +446,16 @@ class ReplyAdapter(
             }
 
             replyHolder.childReplyCard.setOnClickListener { startReplyInfoActivity(reply) }
+            // 楼中楼卡片本身也要拦长按：卡片只有 click，按在子回复之间的留白上抬手会被
+            // 当成点击、直接进评论详情页。与正文同一个入口；开关关闭时清掉监听。
+            if (panelEnabled) {
+                replyHolder.childReplyCard.setOnLongClickListener {
+                    showManageMenu(reply)
+                    true
+                }
+            } else {
+                replyHolder.childReplyCard.setOnLongClickListener(null)
+            }
             if (!isDetail) {
                 replyHolder.itemView.setOnClickListener { startReplyInfoActivity(reply) }
                 replyHolder.message.setOnClickListener {
@@ -627,10 +663,13 @@ class ReplyAdapter(
         // reply.message 在 Java 侧是 CharSequence，复制界面只收 String，这里统一转一次。
         val content = reply.message?.toString().orEmpty()
         if (LongPressPrefs.shouldOfferCopy(StringUtil.isCopyEnabled(), content))
-            actions.add(ManageAction(ManageAction.Kind.COPY, UiText.of("复制文字"), false) {
+            actions.add(ManageAction(ManageAction.Kind.COPY,
+                context.getString(R.string.uitext_dynamicholder_013), false) {
                 StringUtil.openCopyPage(context, content)
             })
-        if (isManager) {
+        // 置顶只对一级评论有意义：服务端对楼中楼置顶会回 12030。楼中楼现在也能长按进面板，
+        // 必须在这里挡住，否则会给出一个点了必然失败的入口。
+        if (isManager && reply.root == 0L) {
             actions.add(
                 if (reply.isTop)
                     ManageAction(ManageAction.Kind.UNTOP, UiText.of("取消置顶"), false) { setReplyTop(reply, false) }
