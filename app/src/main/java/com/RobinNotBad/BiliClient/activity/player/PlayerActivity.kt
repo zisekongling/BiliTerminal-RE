@@ -79,6 +79,7 @@ import com.RobinNotBad.BiliClient.player.DanmakuXmlCounter
 import com.RobinNotBad.BiliClient.player.DanmakuManager
 import com.RobinNotBad.BiliClient.player.DanmakuStreamLoader
 import com.RobinNotBad.BiliClient.player.BangumiProgressStore
+import com.RobinNotBad.BiliClient.player.CollectionResumeStore
 import com.RobinNotBad.BiliClient.player.PlayQueue
 import com.RobinNotBad.BiliClient.player.PlayQueueItem
 import com.RobinNotBad.BiliClient.player.PlayQueueMode
@@ -5767,6 +5768,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     playerData.cid = cidValue
                 }
 
+                // 合集续看：切到合集里的另一集同样算「看到了这一集」。原先只有详情页按播放
+                // 那一刻会写记录，播放器内换集 / 收藏夹连播一路看下去时记录一直停在旧的一集。
+                // 真实多P 换的是同一个 aid，不必写。
+                videoInfoForEnter?.collection?.let {
+                    // 拿不到 ugc_season.id 的合集由 save 内部写降级槽
+                    CollectionResumeStore.save(it.id.toLong(), playerData.aid)
+                }
+
                 playerData.title = newTitle
                 playerData.mid = mid
                 // 先按"当前作者"带过去；真正的作者在下面 runOnUiThread 里按新条目定稿
@@ -5795,8 +5804,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                         uploaderMid = settledUploaderMid
                         updateQueueModeButton()
                     }
-                    // 在 UI 线程落地"这条能不能进得去"，供选集卡片画那一行（见 enterableCollection）
-                    updateEnterable(videoInfoForEnter)
+                    // 在 UI 线程落地"这条能不能进得去"，供选集卡片画那一行（见 enterableCollection）。
+                    // 真实多P 换P 不会重新取 videoInfo（null），此时列表根本没变，要保留原来的
+                    // 「进入合集」判断；虚拟合集换条目则一定会重新取，拿不到时按普通条目清空。
+                    if (videoInfoForEnter != null || isVirtualCollectionMode)
+                        updateEnterable(videoInfoForEnter)
                     // 在线切 P 没有外挂音轨（26.10.27 架构下在线取流是合一 MP4），传空即可
                     doSwitchPage(newTitle, playerData.videoUrl, playerData.danmakuUrl, "", pageIndex)
                 }

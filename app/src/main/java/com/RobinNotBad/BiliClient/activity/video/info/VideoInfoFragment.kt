@@ -813,7 +813,11 @@ class VideoInfoFragment : BaseFragment() {
         // 三条起播分支（直起、续到上次那P、进分P 选择页）也都在下面，一次覆盖。
         // seasonId 取 ugc_season.id（= Collection.id），不要拿 PlayerData.seasonId——那是番剧的季。
         videoInfo!!.collection?.let { collection ->
-            if (collection.id > 0) CollectionResumeStore.save(collection.id.toLong(), videoInfo!!.aid)
+            // 拿不到 ugc_season.id 时 save 会写「最近一次」降级槽，不在这里拦掉
+            CollectionResumeStore.save(collection.id.toLong(), videoInfo!!.aid)
+            // 把 videoInfo 一起交给播放器：多P 时选集卡片靠它显示「进入合集」那一行，
+            // 跳转页也靠它写合集续看记录（只有一P 的一集同样属于合集）。
+            data.enterableInfo = videoInfo
         }
 
         when {
@@ -822,6 +826,8 @@ class VideoInfoFragment : BaseFragment() {
                 val resumeData = videoInfo!!.toPlayerData(resumeIndex)
                 // 带上"有没有上次记录"的原值：播放器之外还要用它（当前没有消费方，但别丢信息）
                 resumeData.lastPlayTimeMs = data.lastPlayTimeMs
+                // 与 direct 分支同理：属于合集的这一集要让播放器能「进入合集」
+                if (videoInfo!!.collection != null) resumeData.enterableInfo = videoInfo
                 // timeStamp 归零：让 JumpToPlayerActivity 真正重拉一次 playurl，
                 // 续播位置由服务端按这个分P 现算（缓存十分钟的旧进度不能用）
                 resumeData.timeStamp = 0

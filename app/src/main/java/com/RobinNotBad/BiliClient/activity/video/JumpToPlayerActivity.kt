@@ -15,6 +15,7 @@ import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.api.HistoryApi
 import com.RobinNotBad.BiliClient.api.PlayerApi
 import com.RobinNotBad.BiliClient.model.PlayerData
+import com.RobinNotBad.BiliClient.player.CollectionResumeStore
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.AccountStateStore
@@ -160,6 +161,12 @@ class JumpToPlayerActivity : BaseActivity() {
             intent.putExtra("seasonId", data.seasonId)
             intent.putExtra("seasonType", data.seasonType)
             launcher.launch(intent)
+            // 合集续看：「上次看到这个合集的哪一集」原先只在详情页按播放时写，从分页 /
+            // 收藏夹 / 其它入口起播就漏记。记在**真正交给播放器之后**，避免只取到流、
+            // 用户秒退也把记录挪到这一集；拿不到 ugc_season.id 的合集由 save 内部写降级槽。
+            data.enterableInfo?.collection?.let {
+                CollectionResumeStore.save(it.id.toLong(), data.aid)
+            }
             setClickExit(UiText.of("等待退出播放后上报进度\n（点击跳过）"))
         } else {
             val intent = Intent()

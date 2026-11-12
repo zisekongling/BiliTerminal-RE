@@ -1930,6 +1930,7 @@
     <string name="uitext_watchlateractivity_007">移除稍后再看</string>
     <string name="uitext_watchlateractivity_008">移除</string>
     <string name="uitext_collectioninfoactivity_003">这里没有简介哦</string>
+    <string name="uitext_collectioninfoactivity_004">[上次看到]</string>
     <string name="uitext_bangumiinfofragment_012">评分：%.1f (%d人)</string>
     <string name="uitext_bangumiinfofragment_013">播放：</string>
     <string name="uitext_bangumiinfofragment_014">收藏：</string>
