@@ -1989,6 +1989,9 @@
     <string name="msg_cache_sort_show_all">已显示全部缓存</string>
     <string name="btn_cache_search">搜索</string>
     <string name="btn_cache_search_clear">清除</string>
+    <!-- 下载列表多选的「全选」：activity_simple_refresh.xml 引用了它但字符串缺失，
+         公开构建在 processResources 阶段会直接报 resource string/btn_select_all not found。 -->
+    <string name="btn_select_all">全选</string>
     <string name="text_cache_search_title">搜索缓存</string>
     <string name="text_cache_search_hint">输入关键词，留空清除</string>
     <string name="text_cache_search_empty">没有匹配的缓存</string>
