@@ -259,6 +259,7 @@
     <string name="btn_login_refuse">但是我拒绝</string>
     <string name="btn_emote">表情</string>
     <string name="btn_image">图片</string>
+    <string name="btn_newline">换行</string>
     <string name="btn_send">发送</string>
     <string name="btn_setup_init">哔哩终端，启动！</string>
     <string name="btn_login_tip">你还木有登录哦！点击这里登录</string>
@@ -302,6 +303,7 @@
     <!-- 视频转发到私信（反馈 #133）：选好友页标题 -->
     <string name="pagename_choose_friend">选择好友</string>
     <string name="pagename_write_reply">写评论</string>
+    <string name="pagename_write_private">写私信</string>
     <string name="pagename_search">搜索</string>
     <string name="pagename_send_dynamic">发动态</string>
     <string name="pagename_about">关于</string>
@@ -877,6 +879,12 @@
     <string name="msg_menu_help_hide_hint">再长按一次即可隐藏说明</string>
     <string name="msg_menu_help_hidden">说明已隐藏，点上方「显示说明」可恢复</string>
     <string name="btn_menu_help_restore">显示说明</string>
+    <string name="desc_menu_more_button">菜单底部显示「更多」按钮</string>
+    <string name="desc_menu_more_button_detail">打开后菜单底部固定一个「更多」按钮，点按可展开或收起未启用的菜单项；未启用的项仍可在展开区里直接点进去</string>
+    <string name="desc_menu_unshown">已关闭</string>
+    <string name="desc_menu_hidden_group">未启用项（点按可直接进入）</string>
+    <string name="btn_menu_more">更多</string>
+    <string name="btn_menu_more_collapse">收起</string>
 
     <string name="desc_myspace_main">主列表</string>
     <string name="desc_myspace_more">更多列表</string>
@@ -1647,6 +1655,8 @@
     <string name="uitext_writereplyactivity_002">图片上传失败</string>
     <string name="uitext_writereplyactivity_004">最多只能添加9张图片喵~</string>
     <string name="uitext_writereplyactivity_005">发送成功&gt;w&lt;</string>
+    <string name="uitext_writereplyactivity_006">私信一次只能发一张图喵~</string>
+    <string name="uitext_writereplyactivity_007">私信发送失败：\n%1$s</string>
     <string name="uitext_searchactivity_001">还没输入内容喵~</string>
     <string name="uitext_searchactivity_002">特殊彩蛋</string>
     <string name="uitext_searchactivity_003">可点击标题栏返回详情页</string>

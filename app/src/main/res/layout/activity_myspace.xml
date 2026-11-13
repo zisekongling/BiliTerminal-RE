@@ -48,19 +48,22 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingHorizontal="@dimen/activity_padding_horizontal"
             android:paddingVertical="2dp">
 
-            <!-- 与下方功能列表的间隔。取值同 menuContainer 的项间距（showDividers 只管容器内
-                 的「项与项之间」，管不到容器外的这张卡，漏掉它两者就紧贴成一张卡）。
+            <!-- 26.11.13 视觉统一：本页改为和「菜单排序」页同一套行样式——左右 6dp 外边距
+                 由各行自己带（cell_myspace_item 的 marginHorizontal），容器不再加横向 padding，
+                 也不再用 showDividers 隔行（行自带 2dp 上下 margin，行间合计 4dp）。
+                 这张用户卡没有行样式，所以横向 6dp 与下方 2dp 由它自己给：
+                 2dp + 首行的 2dp = 4dp，和行间距一致。
                  挂在 myinfo 的 marginBottom 而非 menuContainer 的 marginTop：MySpaceMoreActivity
                  复用本布局并把 myinfo 置为 GONE，GONE 视图的 margin 不参与测量，
-                 「更多」页因此不会平白多出 4dp。详见 docs/review/fix-progress.md §3.22 -->
+                 「更多」页因此不会平白多出间距。详见 docs/review/fix-progress.md §3.22 -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/myinfo"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="@dimen/linearlayout_divider">
+                android:layout_marginHorizontal="@dimen/activity_padding_horizontal"
+                android:layout_marginBottom="2dp">
 
                 <androidx.constraintlayout.widget.ConstraintLayout
                     android:layout_width="match_parent"
@@ -128,9 +131,7 @@
                 android:id="@+id/menuContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:divider="@drawable/empty"
-                android:orientation="vertical"
-                android:showDividers="middle" />
+                android:orientation="vertical" />
 
         </LinearLayout>
     </com.RobinNotBad.BiliClient.ui.widget.RotaryScrollView>

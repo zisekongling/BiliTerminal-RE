@@ -26,11 +26,12 @@ class SettingMenuActivity : BaseActivity() {
         val helpHidden = SharedPreferencesUtil.getBoolean(
             SharedPreferencesUtil.MENU_HELP_HIDDEN, false
         )
+        val moreButtonShown = SharedPreferencesUtil.loadMenuMoreButton()
 
         val recyclerView = findViewById<RecyclerView>(R.id.recyclerView)
         recyclerView.layoutManager = LinearLayoutManager(this)
 
-        val adapter = MenuSettingAdapter(enabled, start, helpHidden) { key ->
+        val adapter = MenuSettingAdapter(enabled, start, helpHidden, moreButtonShown) { key ->
             when (key) {
                 // 「退出」「继续播放」不在 btnNames 里（它们是动作项不是页面），名字单独取
                 MenuConfig.EXIT -> getString(R.string.btn_exit)
@@ -49,6 +50,10 @@ class SettingMenuActivity : BaseActivity() {
 
             override fun onHelpHiddenChanged(hidden: Boolean) {
                 SharedPreferencesUtil.putBoolean(SharedPreferencesUtil.MENU_HELP_HIDDEN, hidden)
+            }
+
+            override fun onMoreButtonChanged(show: Boolean) {
+                SharedPreferencesUtil.saveMenuMoreButton(show)
             }
         }
         recyclerView.adapter = adapter

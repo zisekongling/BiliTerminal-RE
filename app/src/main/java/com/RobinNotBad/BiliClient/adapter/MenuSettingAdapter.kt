@@ -29,6 +29,7 @@ class MenuSettingAdapter(
     enabledList: List<String>,
     startKey: String,
     helpHidden: Boolean,
+    moreButtonShown: Boolean,
     private val titleOf: (String) -> String
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
@@ -41,6 +42,9 @@ class MenuSettingAdapter(
 
         /** 使用说明的显隐被用户切换，需要持久化。 */
         fun onHelpHiddenChanged(hidden: Boolean)
+
+        /** 主菜单底部「更多」按钮的显隐被用户切换，需要持久化。 */
+        fun onMoreButtonChanged(show: Boolean)
     }
 
     var listener: Listener? = null
@@ -54,6 +58,9 @@ class MenuSettingAdapter(
 
     /** 使用说明是否已被长按隐藏。 */
     private var helpHidden: Boolean = helpHidden
+
+    /** 主菜单底部「更多」按钮当前是否显示。 */
+    private var moreShown: Boolean = moreButtonShown
 
     /** 使用说明当前是否展开（纯界面状态，不持久化）。 */
     private var helpExpanded: Boolean = false
@@ -71,17 +78,19 @@ class MenuSettingAdapter(
         private const val TYPE_ITEM_ENABLED = 3
         private const val TYPE_HEADER_DISABLED = 4
         private const val TYPE_ITEM_DISABLED = 5
+        private const val TYPE_TOGGLE_MORE = 6
         private const val FIXED_HINT_INTERVAL_MS = 800L
         private const val HIDE_HINT_WINDOW_MS = 2000L
     }
 
     // ---- 行号 <-> 数据映射（说明行 + 两个分区标题始终渲染，行结构稳定）----
     // 0: 使用说明（或隐藏后的「显示说明」）；1: 已启用标题；2..n+1: 已启用项；
-    // n+2: 未启用标题；n+3 .. n+2+d: 未启用项。
+    // n+2: 未启用标题；n+3 .. n+2+d: 未启用项；n+3+d: 底部「更多」按钮开关。
+    // 开关排在最后一行，是为了不动已启用/未启用两段的常数偏移（拖拽的换算全依赖它们）。
     private fun enabledStart() = 2
     private fun disabledStart() = enabled.size + 3
 
-    override fun getItemCount(): Int = enabled.size + disabled.size + 3
+    override fun getItemCount(): Int = enabled.size + disabled.size + 4
 
     override fun getItemViewType(position: Int): Int {
         val n = enabled.size
@@ -92,6 +101,7 @@ class MenuSettingAdapter(
             in 2..n + 1 -> TYPE_ITEM_ENABLED
             n + 2 -> TYPE_HEADER_DISABLED
             in n + 3..n + 2 + d -> TYPE_ITEM_DISABLED
+            n + 3 + d -> TYPE_TOGGLE_MORE
             else -> TYPE_HEADER_DISABLED
         }
     }
@@ -105,7 +115,7 @@ class MenuSettingAdapter(
                 RestoreHolder(inflater.inflate(R.layout.item_menu_setting_help_restore, parent, false))
             TYPE_HEADER_ENABLED, TYPE_HEADER_DISABLED ->
                 HeaderHolder(inflater.inflate(R.layout.item_menu_setting_header, parent, false))
-            TYPE_ITEM_ENABLED, TYPE_ITEM_DISABLED ->
+            TYPE_ITEM_ENABLED, TYPE_ITEM_DISABLED, TYPE_TOGGLE_MORE ->
                 ItemHolder(inflater.inflate(R.layout.item_menu_setting, parent, false))
             else ->
                 HelpHolder(inflater.inflate(R.layout.item_menu_setting_help, parent, false))
@@ -121,8 +131,11 @@ class MenuSettingAdapter(
                 if (position == 1) R.string.desc_menu_enabled else R.string.desc_menu_disabled
             )
             is ItemHolder -> {
-                if (getItemViewType(position) == TYPE_ITEM_ENABLED) bindEnabled(holder, position)
-                else bindDisabled(holder, position)
+                when (getItemViewType(position)) {
+                    TYPE_ITEM_ENABLED -> bindEnabled(holder, position)
+                    TYPE_TOGGLE_MORE -> bindToggleMore(holder)
+                    else -> bindDisabled(holder, position)
+                }
             }
         }
     }
@@ -174,6 +187,8 @@ class MenuSettingAdapter(
         val key = enabled[position - enabledStart()]
         holder.name.text = titleOf(key)
         holder.fixed.visibility = if (key in MenuConfig.FIXED_ITEMS) View.VISIBLE else View.GONE
+        // 复用到的 holder 可能刚渲染过底部开关行（那里把 fixed 槽当「已关闭」标签用），文案要还原
+        holder.fixed.setText(R.string.desc_menu_fixed)
         holder.name.alpha = 1f
         holder.check.visibility = View.VISIBLE
         holder.check.isChecked = key == startKey
@@ -219,6 +234,27 @@ class MenuSettingAdapter(
             enabled.add(key)
             notifyDataSetChanged()
             listener?.onChanged(enabled)
+        }
+    }
+
+    /**
+     * 底部开关行：主菜单底部那个「更多」按钮要不要显示。
+     *
+     * <p>它只影响主菜单页，不参与排序与拖拽（[getMovementFlags] 对它返回 0），
+     * 所以固定排在列表最末一行，拖不到别的分区里去。
+     */
+    private fun bindToggleMore(holder: ItemHolder) {
+        holder.name.text = holder.itemView.context.getString(R.string.desc_menu_more_button)
+        holder.name.alpha = 1f
+        holder.fixed.visibility = if (moreShown) View.GONE else View.VISIBLE
+        holder.fixed.text = holder.itemView.context.getString(R.string.desc_menu_unshown)
+        holder.check.visibility = View.VISIBLE
+        holder.check.isChecked = moreShown
+        holder.itemView.setOnLongClickListener(null)
+        holder.itemView.setOnClickListener {
+            moreShown = !moreShown
+            notifyItemChanged(itemCount - 1)
+            listener?.onMoreButtonChanged(moreShown)
         }
     }
 

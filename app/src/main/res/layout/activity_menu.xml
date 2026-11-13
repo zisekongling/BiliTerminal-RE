@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:orientation="vertical"
     tools:context=".activity.MenuActivity">
 
     <RelativeLayout
         android:id="@+id/top"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_alignParentTop="true">
+        android:layout_height="wrap_content">
 
         <TextView
             android:id="@+id/pageName"
@@ -38,18 +38,54 @@
 
     </RelativeLayout>
 
+    <!-- 菜单按钮区：权重占满剩余高度，底部「更多」按钮（menu_footer）始终钉在屏幕最下方 -->
     <com.RobinNotBad.BiliClient.ui.widget.RotaryScrollView
+        android:id="@+id/menu_scroll"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:layout_below="@id/top">
+        android:layout_height="0dp"
+        android:layout_weight="1">
 
         <LinearLayout
-            android:layout_height="wrap_content"
-            android:layout_width="match_parent"
             android:id="@+id/menu_layout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingHorizontal="@dimen/activity_padding_horizontal" />
+            android:paddingHorizontal="@dimen/activity_padding_horizontal">
+
+            <!-- 被隐藏（未启用）的菜单项：默认折叠，由底部「更多」按钮展开/收起 -->
+            <LinearLayout
+                android:id="@+id/menu_hidden_group"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginVertical="4dp"
+                    android:gravity="center"
+                    android:text="@string/desc_menu_hidden_group"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="12sp" />
+
+                <LinearLayout
+                    android:id="@+id/menu_hidden_buttons"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+            </LinearLayout>
+
+        </LinearLayout>
     </com.RobinNotBad.BiliClient.ui.widget.RotaryScrollView>
 
+    <!-- 底部固定区：只放「更多」按钮，由 MenuActivity 按开关决定是否显示 -->
+    <LinearLayout
+        android:id="@+id/menu_footer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="@dimen/activity_padding_horizontal" />
 
-</RelativeLayout>
+</LinearLayout>

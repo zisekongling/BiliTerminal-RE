@@ -35,6 +35,12 @@ public class SharedPreferencesUtil {
      * @see com.RobinNotBad.BiliClient.util.MenuConfig
      */
     public static final String MENU_OPTIONAL_STATE_PREFIX = "menu_optional_state_";
+    /**
+     * 主菜单底部是否固定显示「更多」按钮（缺省 = 显示）。
+     * 这个按钮只负责展开/收起「未启用」的菜单项，与 {@link #MENU_ENABLED} 里的启用状态无关：
+     * 未启用的项不进主列表，只在展开区里出现。
+     */
+    public static final String MENU_MORE_BUTTON = "menu_more_button";
     public static final String SEARCH_CATEGORY_SORT = "search_category_sort";
     public static final String SEARCH_CATEGORY_ARTICLE_SHOW = "search_category_article_show";
     public static final String SEARCH_CATEGORY_USER_SHOW = "search_category_user_show";
@@ -215,6 +221,16 @@ public class SharedPreferencesUtil {
     /** 保存菜单启用列表。 */
     public static void saveMenuEnabled(java.util.List<String> enabled) {
         MenuConfig.INSTANCE.saveEnabled(enabled, (key, value) -> { SharedPreferencesUtil.putString(key, value); return kotlin.Unit.INSTANCE; });
+    }
+
+    /** 主菜单底部的「更多」按钮是否显示（缺省 = 显示）。 */
+    public static boolean loadMenuMoreButton() {
+        return getBoolean(MENU_MORE_BUTTON, true);
+    }
+
+    /** 保存主菜单底部「更多」按钮的显隐。 */
+    public static void saveMenuMoreButton(boolean show) {
+        putBoolean(MENU_MORE_BUTTON, show);
     }
 
     /** 读取启动页 key（缺省=推荐；已存值失效时立即改回默认并写回）。 */
