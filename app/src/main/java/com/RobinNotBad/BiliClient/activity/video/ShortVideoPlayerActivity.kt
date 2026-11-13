@@ -1191,7 +1191,10 @@ class ShortVideoPagerAdapter(
                     // 尺寸从 state 现取（含旋转角）：prepare 时容器元数据没带分辨率的话，
                     // 这里会先按退化比例摆好，等 setOnVideoSizeChanged 补上尺寸再纠正。
                     applyVideoSizeFromState(st)
-                    applySpeedToPlayers(currentSpeed)
+                    // 长按三倍速可能在本条 prepare 之前就按下了：这时直接下发 currentSpeed
+                    // 会把正在生效的 boost 压回 1x，按钮还停在 3.0x（假倍速）。所以按
+                    // speedBoosted 现状决定下发哪个值。
+                    applySpeedToPlayers(if (speedBoosted) boostSpeed else currentSpeed)
                     // 无极调音：新播放器要套用存档增益（换页/回收重建都走这里）
                     applyStoredVolumeGain()
 
@@ -1579,6 +1582,13 @@ class ShortVideoPagerAdapter(
             IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 1),
             IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1),
             IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "opensles", 0),
+            // 倍速必须开 soundtouch：ijk 的变速是靠 soundtouch 拉伸音轨、让音轨时钟加速，
+            // 视频再跟着音轨时钟走；不开时 setSpeed 只改了 pf_playback_rate 这个属性，
+            // 实际播放仍是 1x（长按三倍速失效、按钮却显示 3.0x 就是它）。stock ijkplayer
+            // 里 `soundtouch` 默认 0（bilibili/ijkplayer `ff_ffplay_options.h`：
+            // `{ "soundtouch", "SoundTouch: enable", OPTION_INT(0, 0, 1) }`），长视频
+            // PlayerActivity 一直是显式设 1 的，短视频这份选项列表此前漏了。
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "soundtouch", 1),
             IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 5),
             IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 0),
             IjkOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "analyzeduration", 1),
