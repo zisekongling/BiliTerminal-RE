@@ -1655,8 +1655,6 @@
     <string name="uitext_writereplyactivity_002">图片上传失败</string>
     <string name="uitext_writereplyactivity_004">最多只能添加9张图片喵~</string>
     <string name="uitext_writereplyactivity_005">发送成功&gt;w&lt;</string>
-    <string name="uitext_writereplyactivity_006">私信一次只能发一张图喵~</string>
-    <string name="uitext_writereplyactivity_007">私信发送失败：\n%1$s</string>
     <string name="uitext_searchactivity_001">还没输入内容喵~</string>
     <string name="uitext_searchactivity_002">特殊彩蛋</string>
     <string name="uitext_searchactivity_003">可点击标题栏返回详情页</string>
@@ -2776,6 +2774,8 @@
     <!-- 服务端回了 code=0，但评论区（按时间排序、seek 到新评论）查不到这条评论：
          多半是进了审核。不能报「发送成功」，否则用户刷新后评论消失，看起来像发不出去。 -->
     <string name="uitext_writereplyactivity_022">评论已提交，但评论区暂时查不到（可能正在审核）。稍后刷新看看，先别重复发送</string>
+    <!-- 写评论页兼作「写私信」入口（EXTRA_PRIVATE_UID）：私信没有 pictures 参数，失败文案不该带评论语境。 -->
+    <string name="uitext_writereplyactivity_024">私信发送失败：\n%1$s</string>
 
     <!-- ==================== 内置播放器设置：分组标题 ==================== -->
     <!-- 「完整设置」页与假播放器的按钮设置卡片共用这七个组名（见 player/PlayerSettingsGroups.kt）。 -->

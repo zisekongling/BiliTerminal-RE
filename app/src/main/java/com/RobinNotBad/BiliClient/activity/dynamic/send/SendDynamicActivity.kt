@@ -35,6 +35,7 @@ import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.TimeUtil
 import com.RobinNotBad.BiliClient.util.view.TextButtonColors
+import com.RobinNotBad.BiliClient.util.view.TextInsertion
 import com.bumptech.glide.Glide
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
@@ -134,6 +135,11 @@ class SendDynamicActivity : BaseActivity() {
             addPicText = findViewById(R.id.add_pic_text)
             addTimerText = findViewById(R.id.add_timer_text)
             picsPreview = findViewById(R.id.pics_preview)
+
+            // 手表输入法把回车当「完成 / 下一项」，打不出换行，只能靠这张卡往光标处插一个
+            findViewById<View>(R.id.newline).setOnClickListener {
+                TextInsertion.insertNewline(editText)
+            }
 
             // 投票编辑区
             voteEditArea = findViewById(R.id.vote_edit_area)
