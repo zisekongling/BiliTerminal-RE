@@ -35,6 +35,11 @@
 - **`TerminalDialog.singleChoice()` 不会自己 `show()`**（26.10.24 踩到）：它只负责拼装 `AlertDialog` 并 `prepareLayout()`，调用方必须 `.show()`——漏了就是「点按钮只有水波纹、弹窗根本不出现」。另外它的回调**不会自动关闭弹窗**（选集场景要在回调里做越界校验），要自己 `sheet.dialog.dismiss()`。
 - **空态浮层必须 `layout_below="@id/top"`，不能盖住顶栏**（26.11.02 用户点名「我的反馈点顶栏不退出、改成刷新」）：`activity_simple_refresh.xml` / `activity_simple_main_refresh.xml` 的 `emptyTip` 是半透明整页浮层，原先 `match_parent` 且排在 `top` 之后——RelativeLayout 后声明的兄弟节点画在上层、触摸也从后往前派发，于是它盖住整条顶栏。**只是在空态时不可点**（没装监听器时点击会穿透回 `top`，所以问题不明显）；一旦页面调了 `RefreshListActivity.setOnEmptyRetry()`（「我的反馈」、公告、收藏、历史、推荐、动态、热搜、直播等），`emptyTip.isClickable=true` 就把顶栏点击全吃掉，退化成「点顶栏重拉列表」。新增同类空态浮层照这两个布局抄，**别写 `match_parent` 顶到 0**；也不要把重试监听装在盖住顶栏的 View 上。§3.103
 
+## 界面与弹窗
+
+- **弹窗（`TerminalDialog`）的按钮必须一个按钮占一整行，别横排两个窄按钮**（26.11.13，控制台反馈 #161，同族 #125 / #54）：老写法是「按钮行 `gravity=end` + 两个 `wrap_content` TextView」，在 466×466 手表屏上实测按钮只覆盖 `x167..301` 与 `302..411`，**按钮行左侧 144px、右侧 30px 是死区**（点上去前后截图逐字节相同）。这类手表 ROM（HUAWEI HWARC、hesc sl8541e 等）存在输入坐标整体右移约半个按钮宽的偏移（#54 原话「点击屏幕上的按钮时触控会判定到旁边的位置」），于是「点取消」落到删除、「点移除」落到右侧死区毫无反应。改成整行宽的纵向堆叠后，点该行**任意 x** 都命中同一个按钮，偏移不再有害。**新增弹窗别手拼横排按钮**；`app/src/main/res/layout/activity_input_dialog.xml:50-72` 是整页输入页的同款横排（`FollowUsersActivity` / `LocalListActivity` / `PlayerActivity:1985` 在用），尚未改，动它前先读 `docs/architecture-map.md` §8.7.0。
+- **别再用「量一遍再改尺寸」的办法适配弹窗按钮**（26.11.13 已整段删除）：`fitButtonBars()` / `fitButtonBar()` / `barDesiredWidth()` / `shareBarWidth()` 那套逐轮改 padding、缩字号、改 `weight` 的兜底，本身就是「窗口尺寸与内容尺寸两份账」的可疑来源，也是 #125 长期误判成「测量时序」的根源。按钮行交给普通 `MATCH_PARENT` 布局，放不下就由 `DialogSizing.plan()` 压滚动区高度。要看按钮真实几何时调 `Sheet.logButtonGeometry()`（走 `Logu.w("dialog", …)`，会随用户反馈附带的日志送上）。
+
 ## 崩溃页 / 通知 / 下载
 
 - **崩溃页跑在 `:error_activity` 独立进程**（26.10.04 起）：`CatchActivity` 不经过 `PerformanceManager.init` / `ErrorCatch.init` / 未读轮询 / 更新检查，加依赖前先确认它不需要这些初始化；判进程用 `BiliTerminal.currentProcessName()`（读 `/proc/self/cmdline`，`minSdk 19` 用不了 API 28 的 `Application.getProcessName()`）。
