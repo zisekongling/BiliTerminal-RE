@@ -14,7 +14,8 @@ class VideoPreloadManager(private val preloadCount: Int = 2) {
     // 页面销毁、管理器被替换时一并丢弃，避免旧实现里 object 上的静态页码跨页面泄漏。
     private val pager = StoryFeedPager()
 
-    // 后台线程写入、主线程读取，用写时复制列表避免并发读写的数据竞争
+    // 只在主线程写（见 loadInitial/loadMore/loadRelated 里那个 mainHandler.post），
+    // 但 preloadVideoUrl 会在 CenterThreadPool 线程按索引读，用写时复制列表避免并发读写竞争
     private val allItems = java.util.concurrent.CopyOnWriteArrayList<ShortVideoItem>()
     // 注意：不能用 ConcurrentHashMap.newKeySet()——它和它返回的 KeySetView 都是 API 24 才有的，
     // minSdk 21 上类初始化就 NoSuchMethodError。newSetFromMap 是 API 9，并发语义等价。
@@ -53,9 +54,18 @@ class VideoPreloadManager(private val preloadCount: Int = 2) {
                 val items = pager.fetchPage()
                 if (released) return@run
                 if (items.isNotEmpty()) {
-                    allItems.addAll(items)
-                    mainHandler.post { onItemsLoaded?.invoke(items) }
-                    preloadNext()
+                    // 追加数据、通知 UI、预加载必须在同一个主线程 turn 里按这个顺序做完。
+                    // adapter.getItemCount() 直接返回 allItems.size：原来在后台线程先 addAll、
+                    // 主线程的通知后到，RecyclerView 拿到的 itemCount 与已通知的插入量对不上；
+                    // 两批请求交错时「count - items.size」还会算出同一个 start，两次通知都指向同一段，
+                    // 最终在 ViewPager2.onLayout 里炸成
+                    // "Inconsistency detected. Invalid view holder adapter position"。
+                    mainHandler.post {
+                        if (released) return@post
+                        allItems.addAll(items)
+                        onItemsLoaded?.invoke(items)
+                        preloadNext()
+                    }
                 } else {
                     mainHandler.post { onLoadError?.invoke(UiText.of("获取视频列表失败")) }
                 }
@@ -74,8 +84,13 @@ class VideoPreloadManager(private val preloadCount: Int = 2) {
                 val items = pager.fetchPage()
                 if (released) return@run
                 if (items.isNotEmpty()) {
-                    allItems.addAll(items)
-                    mainHandler.post { onItemsLoaded?.invoke(items) }
+                    // 与 loadInitial 同理：追加与通知同一主线程 turn，
+                    // 保证 adapter 读到的 itemCount 与已通知的插入量始终一致
+                    mainHandler.post {
+                        if (released) return@post
+                        allItems.addAll(items)
+                        onItemsLoaded?.invoke(items)
+                    }
                 }
             } finally {
                 isLoading = false
@@ -103,9 +118,21 @@ class VideoPreloadManager(private val preloadCount: Int = 2) {
                 val items = pager.fetchRelated(anchorAid)
                 if (released) return@run
                 if (items.isNotEmpty()) {
-                    allItems.addAll(items)
+                    // 相关推荐也走主线程追加，且与 onRelatedLoaded 同一 turn：
+                    // adapter.getItemCount() 直接读 allItems.size，后台先加会让下一次 layout
+                    // 看到「数量已涨、插入还没通知」的中间态
+                    mainHandler.post {
+                        if (released) return@post
+                        allItems.addAll(items)
+                        onRelatedLoaded?.invoke(items)
+                    }
+                } else {
+                    // 没续接上：只回调，不动列表
+                    mainHandler.post {
+                        if (released) return@post
+                        onRelatedLoaded?.invoke(items)
+                    }
                 }
-                mainHandler.post { onRelatedLoaded?.invoke(items) }
             } finally {
                 isLoadingRelated = false
             }

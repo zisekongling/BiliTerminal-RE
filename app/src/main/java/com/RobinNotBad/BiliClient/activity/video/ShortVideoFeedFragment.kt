@@ -135,6 +135,9 @@ class ShortVideoFeedFragment : Fragment() {
                 loadingLayout.visibility = View.GONE
                 errorLayout.visibility = View.GONE
 
+                // adapter 的 count 与本次插入通知必须落在同一个主线程 turn、同一个实例上：
+                // manager 已在同一 turn 里把 items 追加进列表后才回调，所以此刻
+                // getItemCount() 已经包含本批数据，start 就是本批的起点。
                 val adapter = feedAdapter
                 if (adapter == null) {
                     viewPager.adapter = ShortVideoPagerAdapter(host, preloadManager, audioManager)
@@ -166,8 +169,13 @@ class ShortVideoFeedFragment : Fragment() {
                 pendingAdvanceAfterRelated = false
                 MsgUtil.showMsg(getString(R.string.text_shortvideoplayer_no_more))
             } else {
+                // 先取 adapter 再算 start，并用同一个实例通知：原来直接用 feedAdapter?.xxx，
+                // 取实例与通知之间若 adapter 被换过（如视图重建），插入通知会打到已废弃的旧 adapter 上，
+                // 留下来的新 adapter 数量涨了却没收到通知，ViewPager2 下一次 layout 就会判不一致。
+                // start 用「当前总数 - 本批条数」反推，因为 manager 已在同一 turn 里追加完。
+                val adapter = feedAdapter
                 val start = preloadManager.getItemCount() - items.size
-                if (start >= 0) feedAdapter?.notifyItemRangeInserted(start, items.size)
+                if (adapter != null && start >= 0) adapter.notifyItemRangeInserted(start, items.size)
                 if (pendingAdvanceAfterRelated) {
                     pendingAdvanceAfterRelated = false
                     val next = currentPageIndex + 1
