@@ -18,6 +18,7 @@
 
 ## 1. 当前版本状态
 
+- **26.11.13 本地编 exp 包（`26.11.13-exp.1` / `26111321`）并写「26.11.09.2 起」总验收单**：按要求把 `app/build.gradle` 的 `appVersionDate` 落到 `26.11.13`（文件头四条渠道示例一起更新），并把 26.11.09 的 30 条日志整组归档进 `update_history_log`（新插 `<item>## 2026-11-09</item>` 组，去掉「【26.11.09 本次更新】」首行），`update_log_current` 换成 26.11.13 的 28 条（首行锚点「【26.11.13 本次更新】」，`:app:verifyVersionConsistency` 靠它）。**只在本机编译，不 push、不打 tag、不跑 CI、不同步官网**（用户口径「仅本地编译」）。**L0（26.11.13 本机实测）**：`./gradlew.bat :app:assembleRelease -Pchannel=exp -Pseq=1` BUILD SUCCESSFUL（2m49s，两个 flavor 都出包，`private/` 已注入、`CN=BiliClient` 签名通过 `apksigner verify`），`:app:verifyVersionConsistency` 输出「版本号一致 versionName=26.11.13 versionCode=26111300」。产物：`app/build/outputs/apk/{standard,coexist}/release/` 各 4 支（universal 12.9 / 13.0 MB，arm64-v8a 7.3 / 7.4 MB）。总验收单 [`manual-test-guide-261113-total.md`](manual-test-guide-261113-total.md)（T01~T08，覆盖 `acf0c975` → `965e9781` 的 77 个提交，逐条细化做法仍看三份批次单）。**未验证**：T01~T08 全部只能真机看画面 / 判手感 / 听声音（L2），本机无 adb 设备。
 - **26.11.12 同步 origin/main（`5ccb7973` → `96ecb735`，14 个提交）并修掉合并后的重复字符串**：本地未提交的 26.11.11 反馈批次与远端 4 条功能修复（私信输入框 #157 / 复制文本选区 #158 / 评论长按面板 / 合集续看补齐）在 5 个文件上冲突。合集续看是**同一功能的两套实现**，择一留 main 那套（`resolveFallbackAid` + 全局降级槽 `collection_resume_last_played_v1`，带 6 例单测、已进 fix-progress/FEATURES），丢弃本地草稿（`resolveTargetAid` / `CollectionResumeCodec.decodeLastPlayed` / `putStringSync` 同步落盘 + adapter 重构）——草稿留在 `git stash`（备份分支 `wip/stash-261112`）可随时回退。合并后 `res/values/strings.xml` 出现两条 `btn_select_all`（远端 `f6d731dc`/`7e139505` 补的断链字符串 + 本地反馈 #94 多选各加一条），AAPT 直接报 `Found item String/btn_select_all more than one time`、`:app:packageCoexistDebugResources` 失败；删掉本地那条、保留上游带注释的那条。**L0（26.11.12 本机实测）**：`:app:assembleCoexistDebug :app:testCoexistDebugUnitTest` BUILD SUCCESSFUL（含 `private/` 注入），`223 suites / 2414 tests / 0 失败 0 错误`。**未验证**：本轮新同步的四条修复的画面/手感项见交接单 [`manual-test-guide-261112-sync-batch.md`](manual-test-guide-261112-sync-batch.md)（H01~H08）；另注意合集续看落盘由本地草稿的 `putStringSync` 变成 main 的 `putString`（异步 apply），播完立刻划掉 App 有极小概率丢记录，记作已知差异、不算回归。
 - **26.11.12 合集续看补齐「[上次看到]」标记与无 id 降级记录（控制台 App 反馈 #152，PR #31）**：合集续看此前只做到「起播写记录 + 进合集页定位」两件，本轮补齐拍板口径的第三件，并修掉审查指出的三处漏洞。
   - **标记**：`CollectionInfoActivity` 的两个 adapter 在 `showVideoCard` 之后，给目标那一集的标题前置 `[上次看到]`（`uitext_collectioninfoactivity_004`，`TextUtils.concat` 保留标题原有 span）；目标变化时 `notifyDataSetChanged()` 重画。
@@ -2040,6 +2041,46 @@
   - **`highlightPosition` 播完不清空**：清空就得再 `notifyItemChanged` 一次，不如让 `bind(false)` 在复用/重绑时负责还原（所以非目标行也要调 `bind`，回收来的 itemView 可能还带着上一行的高亮）。
 - **验证 · L0（26.11.11 本机实测）**：`./gradlew.bat :app:compileStandardDebugKotlin :app:testStandardDebugUnitTest "-Pkotlin.incremental=false"` → BUILD SUCCESSFUL；新增 `SettingsHighlightTest` **7 tests / 0 失败 0 错误**（hold 期内恒 1、末尾归 0、hold 后单调下降、`lerpColor` 端点精确、比例越界钳位、四通道含 alpha 都插值、`blend` 等价于 `lerpColor`）；`./gradlew.bat :app:assembleDebug` → BUILD SUCCESSFUL。
 - **未验证（人测 / L2）**：高亮观感本身——描边加粗是否足够明显、主色淡底会不会盖掉卡片的玻璃质感、标题 / 按钮行的淡色底板块好不好看（标题行原本没有卡片外壳）、`1.5s + 0.45s` 的节奏是否太快或太慢。本机无在线设备，需真机。
+
+### 3.150 02 版崩溃清一：Glide「destroyed activity」两处调用点（26.11.13，控制台待处理崩溃）
+
+- **触发**：用户「仅通过 MCP 查看最近的崩溃，修复他们」，随后收窄为「仅修复最新的 02 版本的」（= `version_code 26110902`，tag `26.11.09.2`）。
+- **线上条目**：#310（sdk36 Samsung SM-R9450）、#309（sdk27 hesc XH011）、#295（sdk27 某 S03），异常 `java.lang.IllegalArgumentException: You cannot start a load for a destroyed activity`。
+- **retrace 后的两处落点**（MCP `crash_detail` 已解混淆，`retrace_state=1`）：
+  1. `Glide.with(Glide.java:574)` ← `LiveInfoActivity.onCreate$lambda$22$lambda$21$lambda$17(LiveInfoActivity.kt:90)` ← `Result.onSuccess` ← LiveData observer `onChanged` ← `LiveData$1.run(LiveData.java:93)`；
+  2. `Glide.with(Glide.java:545)` ← `BangumiInfoFragment.initView(BangumiInfoFragment.kt:201)` ← `onViewCreated$lambda$3$lambda$1(:171)` ← `Result.onSuccess` ← `onViewCreated$lambda$3(:169)` ← 同一条 LiveData 回调。
+- **根因**：两处都在 `CenterThreadPool.supplyAsyncWithLiveData { }` 的回包里加载封面。`postValue` 派发的 Runnable 回主线程时用户可能已经退出页面，此时 `Glide.with(activity)` / `Glide.with(requireContext())` 取 RequestManager 就校验宿主，`isDestroyed()` 为真直接抛。
+- **改动**（两处，链式调用其余部分一字未动）：
+  - `LiveInfoActivity.kt:90` `Glide.with(this)` → `GlideUtil.with(cover)`；
+  - `BangumiInfoFragment.kt:201` `Glide.with(requireContext())` → `GlideUtil.with(imageMediaCover)`（顺带避开 detached fragment 上 `requireContext()` 抛 `not attached to a context`）；
+  - 两个文件各删掉已无引用的 `import com.bumptech.glide.Glide`。
+- `GlideUtil.with(View)`（`util/GlideUtil.java:166-175`）在主线程 + 宿主 Activity 健在时返回**同一个** Activity 级 manager（页面暂停/恢复、`ImageAutoLoadScrollListener` 的「翻动不加载」语义不变），已 finish/销毁或非主线程才回落 Application 级 manager，不做销毁校验 → 不再抛。
+
+### 3.151 02 版崩溃清二：Glide「Cannot recycle a resource while it is still acquired」收尾（26.11.13，控制台待处理崩溃第一名）
+
+- **线上条目（02 版共 15 条）**：#269 / #273 / #282 / #287 / #288 / #290 / #291 / #292 / #293 / #297 / #302 / #303 / #304 / #305 / #308，栈恒为 `EngineResource.recycle(EngineResource.java:68)` ← `ResourceRecycler$ResourceRecyclerCallback.handleMessage` ← `Handler.dispatchMessage`，线程 main。
+- **新证据（这次才拿到）**：#282 的页面轨迹是 30 秒内 5 次「`VideoInfoActivity` ↔ `SearchActivity`」反复（18:14:56–18:15:30），**根本没进播放器**；#291 也是以 `VideoInfoActivity` 收尾。也就是说崩溃不集中在「起播那一刻」，而集中在**反复进出视频详情页**。
+- **对上了**：02 版里「进页面就无条件清缓存」的 `Glide.get(...).clearMemory()` 共有 4 处——`VideoInfoActivity.onCreate`、`MenuActivity.killAndJump`、`VideoInfoFragment.playClick`（起播前）、`BangumiInfoFragment.playOnBili`（起播前）。强制的 `clearMemory()` 会把「仍被 target 占用」的资源也排队回收，延迟 `EngineResource.recycle` 随后抛异常；而 `460736b0`（26.11.09，**晚于 02 版**）只删掉了前两处，`VideoInfoActivity.onCreate` 那行恰是 02 版每次进详情页都执行的。
+- **改动**：删掉剩下两处（`app/src/main/java/com/RobinNotBad/BiliClient/activity/video/info/VideoInfoFragment.kt:884` 与 `app/src/main/java/com/RobinNotBad/BiliClient/activity/video/info/BangumiInfoFragment.kt:421` 的 `Glide.get(...).clearMemory()`），原地留一句中文注释说明为什么删。改完全仓 `clearMemory|trimMemory|onTrimMemory` **只剩注释**，Java 侧也没有——应用不再主动喂这条回收路径（磁盘缓存清理 `AppStorageManager.clearGlideDiskCache` 不受影响）。
+- **理由边界（必须照抄，别写成已根除）**：清空是**放大器**，不是竞态本身。Glide 4.16 的 `Engine`/`ActiveResources`/`MemoryCache` 加锁交错仍可能在正常逐出时撞上（§3.145 的历史结论不变），真根治要等升级 Glide。本次只是把「应用自己强制造出的回收流量」清零。
+
+### 3.152 02 版崩溃清三：短视频信息流 `Inconsistency detected`（26.11.13，控制台待处理崩溃）
+
+- **线上条目**：#300（02 版，OPPO OWW251 / sdk30），`IndexOutOfBoundsException: Inconsistency detected. Invalid view holder adapter position position=18, oldPos=15`，`RecyclerView$Recycler.validateViewHolderForOffsetPosition` ← `ViewPager2.onLayout` ← 外层 `ViewPager.onLayout`。
+- **根因**：`ShortVideoPagerAdapter.getItemCount()` 直接返回 `preloadManager.getItemCount()`（= `allItems.size`），而 `VideoPreloadManager` 的 `loadInitial/loadMore/loadRelated` 在 `CenterThreadPool` 线程就 `allItems.addAll(items)`，通知 `onItemsLoaded/onRelatedLoaded` 才 post 回主线程 → `getItemCount()` 抢在通知之前涨；两批请求交错时两批又都按 `count - items.size` 算出同一个 `start`，插入通知重复覆盖同一段，视图与数据永久错位。
+- **改动**：
+  1. `util/VideoPreloadManager.kt`：三处 `allItems.addAll(items)` 搬进各自的 `mainHandler.post { if (released) return@post; allItems.addAll(items); onItemsLoaded?.invoke(items) }`（`loadInitial` 里连 `preloadNext()` 一起；`loadRelated` 的空列表分支单独一个只回调的 post），`allItems` 注释改成「主线程写、`preloadVideoUrl` 在后台线程按索引读」；
+  2. `activity/video/ShortVideoFeedFragment.kt`：`onRelatedLoaded` 改成先取 `val adapter = feedAdapter` 再用**同一实例**通知（原来 `feedAdapter?.notifyItemRangeInserted(...)` 取值与通知之间可能换成另一个实例）；`onItemsLoaded` 补注释说明「count 与插入通知必须同 turn、同实例」。
+- **未动的部分**：`isLoading`/`released` 的 volatile 与 check-then-act、`pendingAdvanceAfterRelated` 的切页顺序、`release()` 的 `allItems.clear()`（主线程调用、且此前已 `viewPager.adapter = null`）。
+- **遗留（未改，登记备查）**：`onDestroyView` 之后到 `onDetach` 之间 `isAdded` 仍为 true，`onItemsLoaded` 会走 `adapter == null` 分支给已置空 adapter 的旧 ViewPager2 新建一个；`moveToIndex()` 是无调用方的死代码且不校验线程。二者都不是这条崩溃的成因。
+
+### 3.153 同批复核：屏幕方向崩溃 02 版之后已修，本次未再改（26.11.13）
+
+- 02 版 #306（`KazumiPlayActivity`）、#271/#274~#281（`FavoriteVideoListActivity`）都是 `Only fullscreen activities can request orientation`，落点 `BaseActivity.kt:132` 的 `setRequestedOrientation(...)`。
+- `2e504e72`（26.11.09 19:22）已把它包进 `try/catch (IllegalStateException)` 并降级为 `Logu.w`，`git merge-base --is-ancestor 2e504e72 HEAD` 为真，§3.142 已登记。02 版这几条的 `ctime` 早于该提交，属修复前产物 —— **本次不改代码**。
+
+- **验证 · L0（26.11.13 本机实测）**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest` → BUILD SUCCESSFUL；单测按 `app/build/test-results/testStandardDebugUnitTest/*.xml` 的 `<testcase>` 计数为 **223 suites / 2414 tests / 0 failures / 0 errors / 0 skipped**。
+- **未验证（人测 / L2）**：番剧页与直播页的封面在「退出页面后才回包」时是否照常不加载、短视频信息流连续下滑翻页与相关推荐续接是否还会 Layout 抖动 —— 需要真机按崩溃日志里的路径复现。
 
 ## 4. 历史章节索引
 
