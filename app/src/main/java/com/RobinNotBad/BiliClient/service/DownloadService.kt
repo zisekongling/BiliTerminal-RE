@@ -23,12 +23,15 @@ import com.RobinNotBad.BiliClient.service.download.DownloadPathSpec
 import com.RobinNotBad.BiliClient.service.download.DownloadProgressMath
 import com.RobinNotBad.BiliClient.service.download.DownloadStreamTransfer
 import com.RobinNotBad.BiliClient.service.download.DownloadUrlCandidates
+import com.RobinNotBad.BiliClient.service.download.DownloadSegmentMerger
+import com.RobinNotBad.BiliClient.service.download.DownloadSegmentPlan
 import com.RobinNotBad.BiliClient.service.download.DownloadProgressStore
 import com.RobinNotBad.BiliClient.service.download.DownloadProgressInfo
 import com.RobinNotBad.BiliClient.service.download.DownloadRepository
 import com.RobinNotBad.BiliClient.service.download.DownloadResiduePolicy
 import com.RobinNotBad.BiliClient.service.download.SegmentDownloadPolicy
 import com.RobinNotBad.BiliClient.model.DownloadSection
+import com.RobinNotBad.BiliClient.model.DownloadSegment
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.SubtitleLink
 import com.RobinNotBad.BiliClient.util.Aria2Util
@@ -54,6 +57,10 @@ import java.util.Timer
 class DownloadService : Service() {
 
     companion object {
+        // 合一 MP4/flv 下载的进度起点：附件（封面/字幕/弹幕）已经占掉前 20%，
+        // 与原来单文件分支里 `downFile(..., 0.2f)` 的写法一致（反馈 #87/#90 的分段下载沿用同一口径）。
+        private const val START_BYTES_BASE = 0.2f
+
         // 这几个字段会被下载协程与主线程同时读写，必须 @Volatile 保证可见性：
         // started 决定调度循环是否继续，exitCode/percent/state 决定通知与退出时的清理动作。
         @JvmStatic @Volatile var started: Boolean = false
@@ -157,12 +164,17 @@ class DownloadService : Service() {
             DownloadProgressStore.beginSectionBytes(id, budgetBytes)
         }
 
-        /** 上报当前文件已下字节数（进度与速度都由此推进，见 DownloadSectionBytes） */
+        /**
+         * 上报当前文件已下字节数（进度与速度都由此推进，见 DownloadSectionBytes）。
+         *
+         * [fallbackState] 只在这条任务还没有进度记录时兜底：状态文案以 setDownloadState 写进去的为准，
+         * 别再传全局 state，否则并行下载时会把别的任务的文案显示到这一行。
+         */
         @JvmStatic
-        fun reportFileProgress(id: Long, state: String, downloadedInFile: Long, fileTotal: Long,
+        fun reportFileProgress(id: Long, fallbackState: String, downloadedInFile: Long, fileTotal: Long,
                                baseProgress: Float, endProgress: Float, pseudoProgress: Float) {
             DownloadProgressStore.reportFileProgress(
-                id, state, downloadedInFile, fileTotal, baseProgress, endProgress, pseudoProgress
+                id, fallbackState, downloadedInFile, fileTotal, baseProgress, endProgress, pseudoProgress
             )
         }
 
@@ -382,6 +394,9 @@ class DownloadService : Service() {
                 DownloadResiduePolicy.Disposition.NONE -> return
                 DownloadResiduePolicy.Disposition.CLEAN_TEMPS -> {
                     FileUtil.cleanDownloadTempFiles(folder)
+                    // 多段 durl 的临时分片不在 FileUtil 的清单里（它只认固定文件名），单独清：
+                    // 留着旧分片会让下一次下载误以为"这段已经下好了"（反馈 #87/#90）
+                    DownloadSegmentPlan.clearTempParts(folder)
                     Logu.i("DownloadService", "已清理失败任务 ${folder.name} 的临时产物（成品保留）")
                 }
 
@@ -427,6 +442,27 @@ class DownloadService : Service() {
 
     // 由 DownloadNotifier 读写（进度通知的幂等守卫），故不再是 private
     internal var notifyTimer: Timer? = null
+
+    /**
+     * 每个任务这次失败的**可读原因**（反馈 #87/#90：「下载出错」旁边要写清为什么）。
+     *
+     * 为什么按 id 存而不是一个字段：并行下载（[parallelDownload]）时多个任务在同一个 Service
+     * 实例里同时跑，单个 `lastFailReason` 会让 A 的失败原因被 B 覆盖。由
+     * [processDownloadSection] 的失败点写入，[runDownloadSection] 落库后取走并移除。
+     */
+    private val failReasons: java.util.concurrent.ConcurrentHashMap<Long, String> =
+        java.util.concurrent.ConcurrentHashMap()
+
+    /** 记下这次失败的原因（同时打日志），列表里会直接显示它。 */
+    private fun recordFailReason(sectionId: Long, reason: String) {
+        if (sectionId <= 0) return
+        failReasons[sectionId] = reason
+        Logu.e("DownloadService", "任务 $sectionId 失败：$reason")
+    }
+
+    /** 取走这个任务的失败原因（取一次就没了，避免下次失败还显示旧原因）。 */
+    private fun takeFailReason(sectionId: Long): String =
+        failReasons.remove(sectionId) ?: getString(R.string.text_download_failed_unknown)
 
     override fun onCreate() {
         super.onCreate()
@@ -667,6 +703,10 @@ class DownloadService : Service() {
             DownloadProgressStore.retireSection(downloadSection.id, false)
             removeDownloadProgress(downloadSection.id)
             DownloadRepository.setState(downloadSection.id, "error")
+            // 顺手把"为什么失败"落库（#87/#90）：列表不再只显示一句「下载出错」。
+            // 原因由 processDownloadSection 的各个失败点写入（HTTP 码 / 第几段失败 / 校验不过）；
+            // 没写过的回落到通用文案，与改动前的显示完全一致。
+            DownloadRepository.setFailReason(downloadSection.id, takeFailReason(downloadSection.id))
             // 失败收尾必须收拾目录残留（反馈 #136）：留下来的 `.DOWNLOADING` 会让视频详情页
             // 一直以为"已在下载队列"，同一个视频从此再也点不进来。
             cleanFailedResidue(downloadSection.getPath())
@@ -707,6 +747,9 @@ class DownloadService : Service() {
         // 见 DownloadUrlCandidates 与 downFile(List)。
         val videoUrls: List<String>
         val audioUrls: List<String>
+        // 老接口（合一 MP4/flv）的多段 durl **完整分段清单**（反馈 #87/#90）。
+        // 只有 qn<=64 的老接口链路会填；DASH / 纯音频链路恒为空。
+        val videoSegments: List<DownloadSegment>
         try {
             val data = downloadSection.toPlayerData()
 
@@ -722,6 +765,7 @@ class DownloadService : Service() {
                 else
                     data.audioUrlCandidates.ifEmpty { listOf(url_audio) }
                 videoUrls = emptyList()
+                videoSegments = emptyList()
                 url_video = ""
                 useDash = false // 纯音频不需要合并
             } else {
@@ -730,6 +774,8 @@ class DownloadService : Service() {
                     PlayerApi.getVideo(data, true)
                     url_video = data.videoUrl
                     videoUrls = data.videoUrlCandidates.ifEmpty { listOf(url_video) }
+                    // #87/#90：服务端可能把这一份文件切成多段，清单照收，下载器逐段下再拼
+                    videoSegments = data.videoSegments.orEmpty()
                     audioUrls = emptyList()
                     url_audio = ""
                     useDash = false
@@ -739,6 +785,7 @@ class DownloadService : Service() {
                     url_audio = data.audioUrl
                     videoUrls = data.videoUrlCandidates.ifEmpty { listOf(url_video) }
                     audioUrls = data.audioUrlCandidates.ifEmpty { listOf(url_audio) }
+                    videoSegments = emptyList()
                     // DASH下载需要音视频流都存在；无音轨视频（audio=null）只下视频流，不走合并
                     useDash = url_video.isNotEmpty() && url_audio.isNotEmpty()
                 }
@@ -751,27 +798,39 @@ class DownloadService : Service() {
                 DownloadRepository.updateVideoMetaQualityLists(downloadPath, data.qnStrList, data.qnValueList)
             }
         } catch (e: JSONException) {
+            recordFailReason(downloadSection.id, getString(R.string.text_download_fail_fetch_url))
             DownloadRepository.setState(downloadSection.id, "error")
             notifier.notifyCompletion(getString(R.string.text_download_link_failed, downloadSection.name_short), downloadSection.id.toInt())
             section = null
             refreshDownloadList()
             return false
         } catch (e: IOException) {
+            // 取流阶段的网络失败也置 "error"（以前置 "none"，而调用方 runDownloadSection 紧接着
+            // 又置 "error"，两个口径打架：列表一会儿是"等待下载"一会儿是"下载出错"）。
+            // 统一成 "error"：这条任务这次失败了，需要用户/调度器重新排队才会再试。
             exitCode = DownloadPathSpec.ERR_NETWORK
-            DownloadRepository.setState(downloadSection.id, "none")
+            recordFailReason(downloadSection.id, getString(R.string.text_download_fail_network))
+            DownloadRepository.setState(downloadSection.id, "error")
             return false
         }
 
         // 给这条任务建"字节预算"：先把视频流/音频流的大小探出来，之后整条进度条就按
         // 「已下字节 / 预算字节」走（见 DownloadSectionBytes）。探测失败（<=0）时不建预算，
         // 进度退回按阶段权重摊派的老算法 —— 探测只影响进度显示，不影响能不能下载。
+        // 多段 durl 时清单自己就带总字节（各段 size 之和），比"只探第一段"准得多；
+        // 服务端没给 size 才退回探测。
+        val planTotalBytes = if (!useDash && !downloadSection.isAudioOnly)
+            DownloadSegmentPlan.totalBytes(videoSegments) else -1L
         beginSectionBytes(
             downloadSection.id,
-            probeSectionBytes(videoUrls, audioUrls, useDash, downloadSection.isAudioOnly)
+            if (planTotalBytes > 0) planTotalBytes
+            else probeSectionBytes(videoUrls, audioUrls, useDash, downloadSection.isAudioOnly)
         )
 
         try {
             DownloadRepository.setState(downloadSection.id, "downloading")
+            // 重新开始下载就清掉上一次的失败原因，否则这一轮还在下、列表却挂着旧原因（#87/#90）
+            DownloadRepository.setFailReason(downloadSection.id, "")
 
             // 更新进度追踪
             setDownloadProgress(downloadSection.id, 0f, getString(R.string.text_download_start))
@@ -845,10 +904,11 @@ class DownloadService : Service() {
                         if (mergeDashPair(downloadSection.id, videoFinal, audioFinal) == MediaMerger.RESULT_STOPPED) return false
                     } else {
                         // MP4格式或无音轨DASH：直接下载单个文件（音视频已合并/无音轨）
+                        // 多段 durl 时由 downFileOrSegments 逐段下载再拼接（#87/#90）
                         val videoTmp = File(path_single, DownloadPathSpec.FILE_VIDEO_TMP)
                         state = getString(R.string.text_download_video)
                         setDownloadState(downloadSection.id, getString(R.string.text_download_video))
-                        result = downFile(videoUrls, videoTmp, downloadSection.id, 0.2f)
+                        result = downFileOrSegments(downloadSection, videoSegments, videoUrls, videoTmp)
                         if (result != DownloadPathSpec.NORMAL) {
                             exitCode = result
                             return false
@@ -925,10 +985,11 @@ class DownloadService : Service() {
                         if (mergeDashPair(downloadSection.id, videoFinal, audioFinal) == MediaMerger.RESULT_STOPPED) return false
                     } else {
                         // MP4格式或无音轨DASH：直接下载单个文件（音视频已合并/无音轨）
+                        // 多段 durl 时由 downFileOrSegments 逐段下载再拼接（#87/#90）
                         val videoTmp = File(path_page, DownloadPathSpec.FILE_VIDEO_TMP)
                         state = getString(R.string.text_download_video)
                         setDownloadState(downloadSection.id, getString(R.string.text_download_video))
-                        result = downFile(videoUrls, videoTmp, downloadSection.id, 0.2f)
+                        result = downFileOrSegments(downloadSection, videoSegments, videoUrls, videoTmp)
                         if (result != DownloadPathSpec.NORMAL) {
                             exitCode = result
                             return false
@@ -1236,6 +1297,89 @@ class DownloadService : Service() {
         return lastResult
     }
 
+    /**
+     * 下载一条"合一 MP4/flv"的视频流：服务端把文件切成多段时**逐段下载再拼接**（反馈 #87/#90）。
+     *
+     * 背景：老接口（qn<=64）在文件较大时会在 `durl` 里回多段，以前只下第 0 段，落盘就是一个
+     * 能打开、但只有开头的残片。现在按清单顺序逐段落到临时分片（[DownloadSegmentPlan.partFileName]），
+     * 全部下完再交给 [DownloadSegmentMerger] 拼成整片。
+     *
+     * 单段/没有清单时**完全走原来的**[downFile] 路径，行为一个字不变。
+     *
+     * 分片复用的前提是"这次清单和上次一样"（[DownloadSegmentPlan.isSamePlan]）：服务端换了切法
+     * 或地址后，旧分片一律作废——拿两套不同切法的字节拼起来只会得到一堆错位数据。
+     *
+     * @return [DownloadPathSpec.NORMAL] 或错误码（失败原因已由 [recordFailReason] 写好）
+     */
+    @Throws(IOException::class)
+    private fun downFileOrSegments(
+        downloadSection: DownloadSection,
+        segments: List<DownloadSegment>,
+        urls: List<String>,
+        videoTmp: File
+    ): Int {
+        val sectionId = downloadSection.id
+        if (segments.size <= 1) return downFile(urls, videoTmp, sectionId, START_BYTES_BASE)
+
+        val folder = videoTmp.parentFile ?: return DownloadPathSpec.ERR_FILE
+        val stored = DownloadSegmentPlan.fromJson(DownloadRepository.getSegments(sectionId))
+        if (!DownloadSegmentPlan.isSamePlan(stored, segments)) {
+            DownloadSegmentPlan.clearTempParts(folder)
+        }
+        // 清单先落库：进程被系统杀掉后重启，才能确认"磁盘上这些分片还算不算数"
+        DownloadRepository.setSegments(sectionId, DownloadSegmentPlan.toJson(segments))
+
+        val parts = ArrayList<File>(segments.size)
+        val span = 1.0f - START_BYTES_BASE
+        segments.forEachIndexed { index, segment ->
+            val partFile = File(folder, DownloadSegmentPlan.partFileName(index))
+            val doneFile = File(folder, DownloadSegmentPlan.partDoneFileName(index))
+            parts.add(partFile)
+            if (DownloadSegmentPlan.isReusablePart(partFile, doneFile, segment)) {
+                Logu.i("DownloadService", "第 ${index + 1}/${segments.size} 段上次已下完，跳过：${partFile.name}")
+                return@forEachIndexed
+            }
+            if (doneFile.exists()) doneFile.delete()
+            val segmentState = getString(R.string.text_download_segment, index + 1, segments.size)
+            state = segmentState
+            setDownloadState(sectionId, segmentState)
+            val candidates = DownloadUrlCandidates.of(segment.url, segment.backupUrls)
+            val result = downFile(
+                candidates, partFile, sectionId,
+                START_BYTES_BASE + span * index / segments.size,
+                START_BYTES_BASE + span * (index + 1) / segments.size
+            )
+            if (result != DownloadPathSpec.NORMAL) {
+                // 具体原因（HTTP 码等）可能已被 downFileNormal/downFileSpeedSingle 写得更细；
+                // 这里只在没有更细原因时补一句"第几段失败"，不覆盖它。
+                if (!failReasons.containsKey(sectionId)) {
+                    recordFailReason(
+                        sectionId,
+                        getString(R.string.text_download_fail_segment, index + 1, segments.size)
+                    )
+                }
+                return result
+            }
+            // 写完才落"完成标记"：Aria2 分片模式会先把文件 setLength 预分配满长度，
+            // 只看文件长度会把"刚开头"误判成"已经下完"（见 DownloadSegmentPlan.isReusablePart）
+            doneFile.createNewFile()
+        }
+
+        val joinState = getString(R.string.text_download_join_segments)
+        state = joinState
+        setDownloadState(sectionId, joinState)
+        return try {
+            DownloadSegmentMerger.merge(parts, videoTmp)
+            DownloadSegmentPlan.clearTempParts(folder)
+            // 清单用完即清：下次重新下载时这些地址/切法都已过期，留着只会误导"能不能复用分片"
+            DownloadRepository.setSegments(sectionId, "")
+            DownloadPathSpec.NORMAL
+        } catch (e: IOException) {
+            recordFailReason(sectionId, getString(R.string.text_download_fail_join, e.message ?: ""))
+            DownloadPathSpec.ERR_FILE
+        }
+    }
+
     @Throws(IOException::class)
     private fun downFileOnce(url: String, file: File, sectionId: Long = -1, baseProgress: Float = 0f, endProgress: Float = 1.0f): Int {
         if (Aria2Util.isEnabled()) {
@@ -1269,6 +1413,9 @@ class DownloadService : Service() {
         // 校验响应码：防盗链失败(403)或URL过期时会返回非2xx，错误页不能当文件写入
         if (!response.isSuccessful) {
             Logu.e("DownloadService", "下载失败，HTTP ${response.code}: ${file.name}")
+            // 原因要能让用户看到（#87/#90）：403 防盗链/地址过期 与"网络错误"是两回事，
+            // 只显示「下载出错」的话用户既不知道能不能重试、也报不出有效信息。
+            recordFailReason(sectionId, getString(R.string.text_download_fail_http, response.code))
             response.close()
             return DownloadPathSpec.ERR_NETWORK
         }
@@ -1304,7 +1451,7 @@ class DownloadService : Service() {
                             pseudoProgress = DownloadProgressMath.pseudoProgressStep(pseudoProgress)
                         }
                         // 进度与速度都交给 store 按真实字节算（见 DownloadSectionBytes）
-                        reportFileProgress(sectionId, state ?: getString(R.string.text_download_in_progress),
+                        reportFileProgress(sectionId, getString(R.string.text_download_in_progress),
                             totalDown, TotalFileSize, baseProgress, endProgress, pseudoProgress)
                         percent = getDownloadProgress(sectionId)?.progress ?: percent
                     }
@@ -1316,6 +1463,11 @@ class DownloadService : Service() {
             } else if (TotalFileSize > 0 && totalDown < TotalFileSize) {
                 fileIncomplete = true
                 Logu.e("DownloadService", "下载不完整：${file.name} ${totalDown}/${TotalFileSize}")
+                // 这就是用户看到的"下着下着就断了"的残片来源（#87/#90）：把收到/应得字节数显式报出来
+                recordFailReason(
+                    sectionId,
+                    getString(R.string.text_download_fail_incomplete, totalDown, TotalFileSize)
+                )
                 result = DownloadPathSpec.ERR_NETWORK
             } else if (!started) {
                 result = DownloadPathSpec.ERR_UNKNOWN
@@ -1504,6 +1656,7 @@ class DownloadService : Service() {
             response.use {
                 if (!response.isSuccessful || response.body == null) {
                     Logu.e("DownloadService", "下载失败，HTTP ${response.code}：${file.name}")
+                    recordFailReason(sectionId, getString(R.string.text_download_fail_http, response.code))
                     singleResult = DownloadStreamTransfer.failureCode(started, isPaused(sectionId), DownloadPathSpec.ERR_NETWORK)
                     return singleResult
                 }
@@ -1526,7 +1679,7 @@ class DownloadService : Service() {
                                 }
                                 // 进度与速度都由 store 按真实字节算（见 DownloadSectionBytes）
                                 if (sectionId > 0) {
-                                    reportFileProgress(sectionId, state ?: getString(R.string.text_download_in_progress),
+                                    reportFileProgress(sectionId, getString(R.string.text_download_in_progress),
                                         total, effectiveTotalSize, baseProgress, endProgress, pseudoProgress)
                                     percent = getDownloadProgress(sectionId)?.progress ?: percent
                                 }
@@ -1612,7 +1765,7 @@ class DownloadService : Service() {
             }
             val downloadedNow = shared.totalDownloaded.get()
             if (sectionId > 0) {
-                reportFileProgress(sectionId, state ?: getString(R.string.text_download_in_progress),
+                reportFileProgress(sectionId, getString(R.string.text_download_in_progress),
                     downloadedNow, totalSize, baseProgress, endProgress, 0f)
                 percent = getDownloadProgress(sectionId)?.progress ?: percent
             } else {
@@ -1913,6 +2066,9 @@ class DownloadService : Service() {
                     // 属于真实数据丢失。批次非正常结束（服务被回收、用户停止、中途出错）时只清理本次下载的
                     // 临时文件与 .DOWNLOADING 标记，成品一律保留。
                     FileUtil.cleanDownloadTempFiles(folder)
+                    // 多段 durl 的临时分片同理：批次非正常结束时也一并清掉，
+                    // 免得下次被当成"已经下完的分段"复用（反馈 #87/#90）
+                    DownloadSegmentPlan.clearTempParts(folder)
                 }
                 refreshDownloadList()
             }

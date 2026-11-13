@@ -4,7 +4,10 @@ import com.RobinNotBad.BiliClient.util.UiText
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.text.TextUtils
+import android.graphics.Color
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -18,6 +21,7 @@ import com.RobinNotBad.BiliClient.listener.OnItemLongClickListener
 import com.RobinNotBad.BiliClient.model.DownloadSection
 import com.RobinNotBad.BiliClient.service.DownloadService
 import com.RobinNotBad.BiliClient.service.formatDownloadSpeed
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.bumptech.glide.load.DecodeFormat
@@ -42,16 +46,19 @@ class DownloadAdapter(
     var selectedIds: MutableSet<Long> = HashSet()
 
     companion object {
-        /** 多选前缀：勾上用 ✓，未勾用全角空格占位（与收藏夹/缓存页多选同一套视觉）。 */
-        const val PREFIX_SELECTED = "✓ "
-        const val PREFIX_UNSELECTED = "　 "
+        /**
+         * 多选态标题前的引导符，与 `TerminalDialog` 的 `GLYPH_ACTIVE` / `GLYPH_IDLE`、
+         * `VideoCardHolder` 的多选样式同一套（反馈 #140）。1 个字符 + 1 个半角空格 = 2 个字符宽，
+         * 剥前缀时直接 `subSequence(2, …)`。
+         */
+        private const val GLYPH_SELECTED = "▸"
+        private const val GLYPH_UNSELECTED = "›"
     }
 
     /**
-     * 多选态的暗/亮靠 [DownloadHolder.applySelection] 直接写 `itemView.alpha`，
-     * 而勾选切换走 `notifyItemChanged(position)`。默认交叉淡入动画会在收尾把 alpha 改回 1，
-     * 表现为「取消勾选后条目不会重新压暗」（收藏夹/缓存页已踩过同一个坑）。
-     * 关掉内容变化动画，让 applySelection 写下的 alpha 留到下一帧。
+     * 多选态的样式靠 [DownloadHolder.applySelection] 直接改标题文字（引导符 + 主色），
+     * 勾选切换走 `notifyItemChanged(position)`。默认交叉淡入动画会让新旧两句标题叠着淡入淡出，
+     * 手表屏小、条目又高，看上去就是拖影。关掉内容变化动画，让样式当帧生效。
      */
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         super.onAttachedToRecyclerView(recyclerView)
@@ -74,7 +81,7 @@ class DownloadAdapter(
     override fun onBindViewHolder(holder: DownloadHolder, position: Int) {
         if (downloadList.isEmpty()) {
             holder.show(null, context)
-            // 复用到的 holder 可能是上一条被多选压暗的（alpha=0.45），占位行要显式复位
+            // 复用到的 holder 可能停在多选态（标题主色已由 show(null) 复位），整卡透明度也显式复位
             holder.itemView.alpha = 1f
             holder.showProgress(null, -1f, false)
             holder.itemView.setOnClickListener(null)
@@ -132,9 +139,19 @@ class DownloadAdapter(
         val progress: View = itemView.findViewById(R.id.progress)
         val speed: TextView = itemView.findViewById(R.id.text_speed)
 
+        /**
+         * 标题的「常态颜色」，进多选时标题会被改成主色，退出多选要还原，所以这里先存一份。
+         *
+         * 必须在构造时读一次：`applySelection` 里现读 `currentTextColor` 会把上一次多选
+         * 留下的主色当成常态色，一路污染下去（同 `VideoCardHolder`）。
+         */
+        private val normalTitleColor: Int = title.currentTextColor
+
         fun show(section: DownloadSection?, context: Context) {
             if (section == null) {
                 title.text = UiText.of("没有下载中的项")
+                // 复用到的 holder 可能停在多选态，占位行要把标题色也复位
+                title.setTextColor(normalTitleColor)
                 extra.text = UiText.of("点击下面继续下载喵？")
                 cover.setImageResource(R.mipmap.placeholder)
                 speed.visibility = View.GONE
@@ -147,7 +164,14 @@ class DownloadAdapter(
             val displayState = progressInfo?.state ?: section.state
 
             when (displayState) {
-                "error" -> extra.text = UiText.of("下载出错")
+                "error" -> {
+                    // 失败要说清原因（反馈 #87/#90）：HTTP 403 / 第 2/3 段下载失败 / 拼接校验不过，
+                    // 只显示一句「下载出错」用户既不知道能不能重试、也报不出有效信息。
+                    // 原因由 DownloadService 落库到 download.fail_reason，这里只负责显示。
+                    val reason = section.failReason
+                    extra.text = if (reason.isEmpty()) UiText.of("下载出错")
+                    else context.getString(R.string.text_download_fail_prefix, reason)
+                }
                 "none" -> extra.text = UiText.of("等待下载")
                 "paused" -> extra.text = UiText.of("已暂停（点击恢复）")
                 "downloading" -> if (DownloadService.started)
@@ -173,21 +197,42 @@ class DownloadAdapter(
         }
 
         /**
-         * 画多选态：勾中项正常亮度 + 标题前「✓ 」，未勾项压暗 + 全角空格占位。
+         * 画多选态：与 `TerminalDialog` 单/多选列表同一套视觉——标题前一个引导符，
+         * 选中是 `▸` 且标题走主色，未选中是 `›` 且标题保持常态色（反馈 #140）。
          *
-         * [show] 每次绑定都会先把标题重置成原始名称，所以这里直接加前缀不会越叠越多；
-         * 退出多选后重新绑定也会自然去掉前缀。
+         * 不再用 `itemView.alpha` 压暗整卡：那会把封面和进度一起弄灰，
+         * 与缓存页 / 视频列表的多选观感对不上。
+         *
+         * [show] 每次绑定都会先把标题重置成原始名称，所以这里直接加引导符不会越叠越多；
+         * 仍然先剥一次前缀，防止列表局部刷新时复用 holder 而没重绑。
          */
         fun applySelection(selectionMode: Boolean, selected: Boolean) {
+            if (title.text?.startsWith(GLYPH_SELECTED) == true || title.text?.startsWith(GLYPH_UNSELECTED) == true) {
+                title.text = title.text.subSequence(2, title.text.length)
+            }
+            // 兜底清掉旧样式可能留下的整卡压暗
+            itemView.alpha = 1f
             if (!selectionMode) {
-                itemView.alpha = 1f
+                title.setTextColor(normalTitleColor)
                 return
             }
-            itemView.alpha = if (selected) 1f else 0.45f
-            title.text = TextUtils.concat(
-                if (selected) DownloadAdapter.PREFIX_SELECTED else DownloadAdapter.PREFIX_UNSELECTED,
-                title.text
+
+            val glyph = if (selected) GLYPH_SELECTED else GLYPH_UNSELECTED
+            // 未选中引导符按常态色压到 70% 不透明度，等价于 TerminalDialog 的 secondaryColor()
+            val glyphColor = if (selected) {
+                ColorScheme.PRIMARY
+            } else {
+                Color.argb(179, Color.red(normalTitleColor), Color.green(normalTitleColor), Color.blue(normalTitleColor))
+            }
+            val builder = SpannableStringBuilder(glyph).append(' ').append(title.text ?: "")
+            builder.setSpan(
+                ForegroundColorSpan(glyphColor),
+                0,
+                glyph.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
             )
+            title.text = builder
+            title.setTextColor(if (selected) ColorScheme.PRIMARY else normalTitleColor)
         }
 
         @SuppressLint("SetTextI18n")

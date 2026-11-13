@@ -16,6 +16,7 @@ import com.RobinNotBad.BiliClient.activity.video.JumpToPlayerActivity;
 import com.RobinNotBad.BiliClient.model.DashAudioStream;
 import com.RobinNotBad.BiliClient.model.DashData;
 import com.RobinNotBad.BiliClient.model.DashVideoStream;
+import com.RobinNotBad.BiliClient.model.DownloadSegment;
 import com.RobinNotBad.BiliClient.model.HighEnergyData;
 import com.RobinNotBad.BiliClient.model.PlayerData;
 import com.RobinNotBad.BiliClient.model.Subtitle;
@@ -151,6 +152,38 @@ public class PlayerApi {
             if (url != null && !url.isEmpty()) backups.add(url);
         }
         return backups;
+    }
+
+    /**
+     * 把 playurl 的 `durl` 数组解析成**完整分段清单**（反馈 #87/#90）。
+     *
+     * <p>为什么要有这一步：老接口（`fnval=1`，720P 及以下的合一 MP4/flv）在文件较大时会把
+     * 同一份文件切成多段，`durl` 里每段一个地址。以前下载链路只取 `durl.getJSONObject(0)`，
+     * 于是服务端给几段就只下第一段，落盘是一个能打开、但只有开头的残片。
+     *
+     * <p>顺序以**数组下标**为准（`order` 重排成 0..n-1 连续），拼接顺序就是它；
+     * 段内没有 `url` 的项直接跳过（跳过之后 order 仍然连续，不留空洞）。
+     * `size` / `length` 缺失时记 -1 = 未知，不要当成 0。
+     *
+     * <p>纯函数：只读 JSON，不碰网络也不碰 Android，可直接单测。
+     */
+    public static List<DownloadSegment> parseDurlSegments(JSONArray durl) {
+        List<DownloadSegment> segments = new ArrayList<>();
+        if (durl == null) return segments;
+        for (int i = 0; i < durl.length(); i++) {
+            JSONObject part = durl.optJSONObject(i);
+            if (part == null) continue;
+            String url = part.optString("url");
+            if (url == null || url.isEmpty()) continue;
+            DownloadSegment segment = new DownloadSegment();
+            segment.order = segments.size();
+            segment.url = url;
+            segment.backupUrls = new ArrayList<>(readDurlBackups(part));
+            segment.sizeBytes = part.optLong("size", -1L);
+            segment.lengthMs = part.optLong("length", -1L);
+            segments.add(segment);
+        }
+        return segments;
     }
 
     /**
@@ -297,12 +330,14 @@ public class PlayerApi {
         }
 
         // 回退：尝试MP4格式
-        JSONArray durl = data.optJSONArray("durl");
-        if (durl != null && durl.length() > 0) {
-            JSONObject videoUrlObj = durl.getJSONObject(0);
-            playerData.videoUrl = videoUrlObj.getString("url");
+        List<DownloadSegment> segments = parseDurlSegments(data.optJSONArray("durl"));
+        if (!segments.isEmpty()) {
+            DownloadSegment videoUrlObj = segments.get(0);
+            // 完整清单交给下载器（#87/#90）：多段 durl 只下第一段就是残片
+            playerData.videoSegments = new ArrayList<>(segments);
+            playerData.videoUrl = videoUrlObj.url;
             playerData.videoUrlCandidates = new ArrayList<>(
-                    DownloadUrlCandidates.of(playerData.videoUrl, readDurlBackups(videoUrlObj)));
+                    DownloadUrlCandidates.of(playerData.videoUrl, videoUrlObj.backupUrls));
             if (playerData.videoUrl != null && !playerData.videoUrl.isEmpty()) {
                 return true;
             }
@@ -351,13 +386,20 @@ public class PlayerApi {
                     + " dataKeys=" + (data == null ? "null" : data.names().toString()));
             throw new NoPlayUrlException(detail);
         }
-        JSONObject firstDurl = durl.getJSONObject(0);
-        playerData.videoUrl = firstDurl.optString("url");
+        // #87/#90：老接口会把一份较大的文件切成多段 durl，以前只取第 0 段，于是下载落盘的是残片。
+        // 这里把完整清单挂到 playerData 上，下载器按清单逐段下再拼接；播放器仍用第 0 段起播。
+        List<DownloadSegment> segments = parseDurlSegments(durl);
+        if (segments.isEmpty()) {
+            throw new NoPlayUrlException("无法获取播放地址（该视频可能为付费/充电专属、地区限制或需要登录）");
+        }
+        DownloadSegment firstDurl = segments.get(0);
+        playerData.videoSegments = new ArrayList<>(segments);
+        playerData.videoUrl = firstDurl.url;
         if (playerData.videoUrl == null || playerData.videoUrl.isEmpty()) {
             throw new NoPlayUrlException("无法获取播放地址（该视频可能为付费/充电专属、地区限制或需要登录）");
         }
         playerData.videoUrlCandidates = new ArrayList<>(
-                DownloadUrlCandidates.of(playerData.videoUrl, readDurlBackups(firstDurl)));
+                DownloadUrlCandidates.of(playerData.videoUrl, firstDurl.backupUrls));
         // 只有成功拿到地址才记缓存时间：失败请求若也写时间戳，10 分钟内重试会被直接跳过，
         // 弱网/WBI 风控的偶发失败就变成「这个视频十分钟都打不开」。
         playerData.timeStamp = System.currentTimeMillis();
@@ -426,13 +468,19 @@ public class PlayerApi {
                     + " dataKeys=" + (data == null ? "null" : data.names().toString()));
             throw new NoPlayUrlException(detail);
         }
-        JSONObject firstBangumiDurl = durl.getJSONObject(0);
-        playerData.videoUrl = firstBangumiDurl.optString("url");
+        // 番剧的 durl 同样可能分多段（#87/#90），清单完整交出去，下载器才能拼成整片
+        List<DownloadSegment> bangumiSegments = parseDurlSegments(durl);
+        if (bangumiSegments.isEmpty()) {
+            throw new NoPlayUrlException("无法获取播放地址（该番剧可能为大会员专享、地区限制或需要登录）");
+        }
+        DownloadSegment firstBangumiDurl = bangumiSegments.get(0);
+        playerData.videoSegments = new ArrayList<>(bangumiSegments);
+        playerData.videoUrl = firstBangumiDurl.url;
         if (playerData.videoUrl == null || playerData.videoUrl.isEmpty()) {
             throw new NoPlayUrlException("无法获取播放地址（该番剧可能为大会员专享、地区限制或需要登录）");
         }
         playerData.videoUrlCandidates = new ArrayList<>(
-                DownloadUrlCandidates.of(playerData.videoUrl, readDurlBackups(firstBangumiDurl)));
+                DownloadUrlCandidates.of(playerData.videoUrl, firstBangumiDurl.backupUrls));
 
         playerData.danmakuUrl = "https://comment.bilibili.com/" + playerData.cid + ".xml";
 
@@ -749,6 +797,11 @@ public class PlayerApi {
         // 作者 mid 必须单独带进去：mid 是登录账号（直播弹幕 uid），连播要的是视频作者，
         // 两者混用会让「按 UP 主投稿续播」拉到登录账号自己的投稿（见 PlayerData#uploaderMid）
         intent.putExtra("uploader_mid", playerData.uploaderMid);
+        // BVID 也必须带进去：SponsorBlock 用 BVID 查广告片段（播放接口只给 aid/cid），
+        // 顺带让播放器的高能进度条不必再按 aid 反查。空串时播放器自己兜底查。
+        if (playerData.bvid != null && !playerData.bvid.isEmpty()) {
+            intent.putExtra("bvid", playerData.bvid);
+        }
         intent.putExtra("progress", playerData.progress);
         intent.putExtra("live_mode", playerData.isLive());
         // 直播的候选地址表随 Intent 一起进播放器：弱网/线路故障时播放器要能在不改请求的前提下换线路。

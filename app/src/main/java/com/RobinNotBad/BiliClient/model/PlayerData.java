@@ -22,6 +22,17 @@ public class PlayerData implements Parcelable {
     public long aid;
     public long cid;
     /**
+     * 这条视频的 BV 号（{@code BV1xxxxxxxxx}），空串表示入口不知道。
+     *
+     * <p>**为什么要有它**：SponsorBlock 的查询键是 BVID（哈希接口也是对它做 SHA-256），
+     * 而 B 站播放接口只给 aid/cid。以前播放器里的 {@code bvid} 只能从
+     * {@code enterable_info} 里抠（还只在多P 时才带），UGC 视频基本拿不到
+     * （见 {@code PlayerActivity#loadHighEnergyData} 的同名局部变量）。
+     *
+     * <p>由 {@code VideoInfo.toPlayerData} 填，随 Intent 进播放器；为空时播放器按 aid 现查一次。
+     */
+    public String bvid = "";
+    /**
      * **当前登录账号**的 mid，不是视频作者。
      *
      * <p>它只用来回答「我是谁」：直播弹幕握手包的 {@code uid}、以及各入口
@@ -89,6 +100,10 @@ public class PlayerData implements Parcelable {
     // 需要的一方重新取流即可（见 PlayerApi#rememberUrlCandidates）。
     public ArrayList<String> videoUrlCandidates = new ArrayList<>();
     public ArrayList<String> audioUrlCandidates = new ArrayList<>();
+    // 老接口（合一的 MP4/flv）的**完整分段清单**（反馈 #87/#90）：服务端会把一份较大的文件切成
+    // 多段 durl，下载器要按 order 逐段下载再拼接，只下第 0 段就是一个能打开但短了的残片。
+    // 与 videoUrlCandidates 同样是"这一次取流"的附属信息，不参与 Parcel。
+    public ArrayList<DownloadSegment> videoSegments = new ArrayList<>();
     // 直播专用：进入播放器前已经把全部可选地址排好序（见 util/live/LiveStreamSelector）。
     // 直播流"连接还在、但长时间没有数据"时，播放器按这个顺序换 CDN / 换 HLS 重连，
     // 不必回头再请求一次取流接口（也就不会因为请求失败而彻底没得救）。
@@ -132,6 +147,8 @@ public class PlayerData implements Parcelable {
         enterableInfo = in.readParcelable(VideoInfo.class.getClassLoader());
         // 新字段一律追加在末尾：read/write 顺序必须严格一致，插在中间会把后面所有字段读错位
         uploaderMid = in.readLong();
+        bvid = in.readString();
+        if (bvid == null) bvid = "";
         // dashData不序列化，下载时会重新获取
     }
 
@@ -180,6 +197,7 @@ public class PlayerData implements Parcelable {
         dest.writeParcelable(enterableInfo, flags);
         // 新字段一律追加在末尾（见构造函数里的同一处注释）
         dest.writeLong(uploaderMid);
+        dest.writeString(bvid);
         // dashData不序列化，下载时会重新获取
     }
 

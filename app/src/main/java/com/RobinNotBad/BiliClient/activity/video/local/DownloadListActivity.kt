@@ -47,6 +47,7 @@ class DownloadListActivity : RefreshListActivity() {
     private var selectionMode = false
     private val selectedIds = LinkedHashSet<Long>()
     private var manageToggle: TextView? = null
+    private var manageSelectAll: TextView? = null
     private var manageDelete: TextView? = null
     private var unselectedColor = 0
 
@@ -241,13 +242,15 @@ class DownloadListActivity : RefreshListActivity() {
 
     /**
      * 复用 activity_simple_refresh 的 manageBar：非多选态整条隐藏，长按条目进入多选后才出现
-     * 「退出多选 / 删除(n)」。下载列表底部另有一条常驻的下载总进度条，不抢它的位置。
+     * 「退出多选 / 全选 / 删除(n)」。下载列表底部另有一条常驻的下载总进度条，不抢它的位置。
      */
     private fun setupSelectionBar() {
         manageToggle = findViewById(R.id.manageToggle)
+        manageSelectAll = findViewById(R.id.manageSelectAll)
         manageDelete = findViewById(R.id.manageDelete)
         if (unselectedColor == 0) unselectedColor = manageToggle?.currentTextColor ?: 0
         manageToggle?.setOnClickListener { exitSelectionMode() }
+        manageSelectAll?.setOnClickListener { toggleSelectAll() }
         manageDelete?.setOnClickListener { confirmDeleteSelected() }
         updateSelectionBar()
     }
@@ -261,6 +264,13 @@ class DownloadListActivity : RefreshListActivity() {
         bar.visibility = View.VISIBLE
         manageToggle?.text = getString(R.string.uitext_favoritevideolistactivity_013)
         manageToggle?.setTextColor(ColorScheme.PRIMARY)
+        // 全选 / 全不选（反馈 #94）：已经全勾中时文字变「全不选」，再点一次取消全部
+        val total = sections?.size ?: 0
+        val allSelected = total > 0 && selectedIds.size >= total
+        manageSelectAll?.visibility = View.VISIBLE
+        manageSelectAll?.text =
+            if (allSelected) getString(R.string.btn_unselect_all) else getString(R.string.btn_select_all)
+        manageSelectAll?.setTextColor(ColorScheme.PRIMARY)
         manageDelete?.text =
             if (selectedIds.isEmpty()) getString(R.string.accountswitch_delete_confirm)
             else getString(R.string.uitext_favoritevideolistactivity_017, selectedIds.size)
@@ -297,6 +307,26 @@ class DownloadListActivity : RefreshListActivity() {
         val section = sections?.getOrNull(position) ?: return
         if (!selectedIds.remove(section.id)) selectedIds.add(section.id)
         adapter?.notifyItemChanged(position)
+        updateSelectionBar()
+    }
+
+    /**
+     * 全选 / 全不选（反馈 #94）：一键勾中当前下载列表的全部任务；已经全勾中时再点一次取消全部。
+     *
+     * 只动内存里的勾选集，不碰任何任务状态（暂停 / 恢复仍走条目的点击）；列表刷新时
+     * [refreshList] 会自己把已经失效的 id 摘掉，所以这里不需要校验 id 是否还活着。
+     */
+    private fun toggleSelectAll() {
+        if (!selectionMode) return
+        val all = sections ?: return
+        if (all.isEmpty()) {
+            MsgUtil.showMsg(getString(R.string.uitext_downloadlistactivity_003))
+            return
+        }
+        val allSelected = selectedIds.size >= all.size
+        selectedIds.clear()
+        if (!allSelected) for (section in all) selectedIds.add(section.id)
+        adapter?.notifyDataSetChanged()
         updateSelectionBar()
     }
 

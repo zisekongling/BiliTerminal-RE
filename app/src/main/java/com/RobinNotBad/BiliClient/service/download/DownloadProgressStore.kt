@@ -102,13 +102,21 @@ internal object DownloadProgressStore {
      * 有字节预算时进度 = (已完成文件字节 + 当前文件字节) / 预算；没有预算时退回改造前的
      * "阶段区间 + 文件内比例"（[baseProgress]、[endProgress]），文件总大小未知时再用伪进度。
      *
+     * 状态文案只取**这条任务自己**的：阶段切换由 [setDownloadState] 写进本节任务的进度记录，
+     * 本方法不覆盖它。调用方传进来的 [fallbackState] 只在这条任务还没有进度记录时兜底。
+     * 早先的写法是直接把 [com.RobinNotBad.BiliClient.service.DownloadService.state] 这个
+     * 进程级共享字段传进来，并行下两条时会出现「一条在合并，另一条正在下视频的行也显示
+     * 合并音视频：33.2%」这种串台（26.11.10 真机验收发现）。
+     *
      * @param fileTotal 当前文件的总字节数；<=0 表示未知
+     * @param fallbackState 这条任务还没有进度记录时用的状态文案
      */
     @JvmStatic
-    fun reportFileProgress(id: Long, state: String, downloadedInFile: Long, fileTotal: Long,
+    fun reportFileProgress(id: Long, fallbackState: String, downloadedInFile: Long, fileTotal: Long,
                            baseProgress: Float, endProgress: Float, pseudoProgress: Float) {
         val bytes = sectionBytes.computeIfAbsent(id) { DownloadSectionBytes() }
         val report = bytes.report(downloadedInFile)
+        val state = downloadProgressMap[id]?.state ?: fallbackState
 
         val progress: Float
         val shownDownloaded: Long

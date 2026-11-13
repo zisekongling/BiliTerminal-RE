@@ -22,7 +22,10 @@ import java.io.File
  * - 每次调用都新建 `DownloadSqlHelper` 再 close，没有连接复用/缓存——照搬。
  * - [getAll] 在"查不到数据"时返回 null，在"抛异常"时返回**空列表**：这两个分支不一样，
  *   调用方靠它区分，不要统一成一种。
- * - 表结构（download 表 11 列）与 SQL 文本原样照抄，不新增/删除/改名任何一列。
+ * - 表结构（download 表 13 列）与 SQL 文本原样照抄，不新增/删除/改名任何一列。
+ *   26.11.11 例外：为反馈 #87/#90（多段 durl 只下第一段）新增 `segments`（分段清单 JSON）
+ *   与 `fail_reason`（失败原因）两列，升级路径见 [DownloadSqlHelper.onUpgrade]（升版本 + ALTER，
+ *   老记录这两列为 NULL，读出来就是"没有清单/没有原因"）。
  * - 旧代码里 `database.close()` 已经调过一次，`finally` 里还会再调一次，是幂等的冗余；
  *   原样保留（重复关闭 SQLiteDatabase 不抛异常）。
  */
@@ -124,6 +127,68 @@ internal object DownloadRepository {
             val helper = DownloadSqlHelper(BiliTerminal.context)
             database = helper.writableDatabase
             database.execSQL("update download set state=? where id=?", arrayOf<Any>(state, id))
+            database.close()
+        } catch (e: Exception) {
+            MsgUtil.err(e)
+        } finally {
+            database?.close()
+        }
+    }
+
+    /**
+     * 记下这个任务的分段清单（JSON，格式见 [DownloadSegmentPlan.toJson]）。
+     *
+     * 为什么要落库：清单只在取流那一刻拿得到，而下载可能被暂停/被系统杀掉进程，重启后
+     * 若重新取流，服务端给的切法/地址可能已经变了——拿旧分片拼新清单就是一堆错位字节。
+     */
+    fun setSegments(id: Long, segmentsJson: String) {
+        var database: SQLiteDatabase? = null
+        try {
+            val helper = DownloadSqlHelper(BiliTerminal.context)
+            database = helper.writableDatabase
+            database.execSQL("update download set segments=? where id=?",
+                arrayOf<Any>(segmentsJson, id))
+            database.close()
+        } catch (e: Exception) {
+            MsgUtil.err(e)
+        } finally {
+            database?.close()
+        }
+    }
+
+    /** 读这个任务的分段清单 JSON；从没写过（老记录）时返回 null。 */
+    fun getSegments(id: Long): String? {
+        var cursor: Cursor? = null
+        var database: SQLiteDatabase? = null
+        return try {
+            val helper = DownloadSqlHelper(BiliTerminal.context)
+            database = helper.readableDatabase
+            cursor = database.rawQuery("select segments from download where id=? limit 1",
+                arrayOf(id.toString()))
+            if (cursor == null || cursor.count == 0) return null
+            cursor.moveToFirst()
+            cursor.getString(0)
+        } catch (e: Exception) {
+            MsgUtil.err(e)
+            null
+        } finally {
+            cursor?.close()
+            database?.close()
+        }
+    }
+
+    /**
+     * 记下失败原因（已本地化的可读文字，如"服务器返回 HTTP 403"），列表直接显示。
+     *
+     * 传空串 = 清掉上次的原因（重新开始下载时调用）。原因本身是动态文案，不进 strings.xml。
+     */
+    fun setFailReason(id: Long, reason: String) {
+        var database: SQLiteDatabase? = null
+        try {
+            val helper = DownloadSqlHelper(BiliTerminal.context)
+            database = helper.writableDatabase
+            database.execSQL("update download set fail_reason=? where id=?",
+                arrayOf<Any>(reason, id))
             database.close()
         } catch (e: Exception) {
             MsgUtil.err(e)

@@ -20,6 +20,13 @@ public class DownloadSection {
     public String state;
     public String downloadType; // 下载类型：video, audio_only
     public String audioUrl; // 音频流URL
+    // 分段下载清单的 JSON（反馈 #87/#90，格式见 service/download/DownloadSegmentPlan）。
+    // 空串 = 没有清单（老记录 / 单段文件），下载器按"重新取流"处理。
+    public String segmentsJson;
+    // 上次失败的可读原因（"服务器返回 HTTP 403" / "第 2/3 段下载失败"），列表直接显示；
+    // 空串 = 没有原因可显示。两列都是 26.11.11 新增，老库 ALTER 之前读不到，故沿用
+    // download_type / audio_url 的"列不存在就回落默认值"写法。
+    public String failReason;
     
     // 并行下载进度追踪
     public volatile float progress = 0f;
@@ -53,6 +60,18 @@ public class DownloadSection {
         }
         if (audioUrl == null) {
             audioUrl = "";
+        }
+
+        int segmentsIndex = cursor.getColumnIndex("segments");
+        segmentsJson = segmentsIndex != -1 ? cursor.getString(segmentsIndex) : null;
+        if (segmentsJson == null) {
+            segmentsJson = "";
+        }
+
+        int failReasonIndex = cursor.getColumnIndex("fail_reason");
+        failReason = failReasonIndex != -1 ? cursor.getString(failReasonIndex) : null;
+        if (failReason == null) {
+            failReason = "";
         }
 
         StringBuilder sBuilder = new StringBuilder();
