@@ -145,6 +145,8 @@ public class VideoInfo implements Parcelable, Serializable { // 自定义类需�
         // 连播就会去拉登录账号自己的投稿，连播层标题也变成自己的昵称。
         data.mid = SharedPreferencesUtil.getLong("mid", 0);
         data.uploaderMid = uploaderMid();
+        // SponsorBlock 只认 BVID：详情页拿得到就随数据带进播放器，省掉播放器再按 aid 查一次
+        data.bvid = bvid == null ? "" : bvid;
         // 起播清晰度按当前网络类型决定（Wi-Fi / 移动数据可分别配置，判定统一在 NetworkPlaybackQuality）。
         // BiliTerminal.context 在极早期/单测环境可能为 null，此时退回「只读默认清晰度」的老行为，不崩。
         android.content.Context context = BiliTerminal.context;
