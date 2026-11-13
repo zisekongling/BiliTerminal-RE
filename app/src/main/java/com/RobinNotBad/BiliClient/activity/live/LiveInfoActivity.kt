@@ -35,7 +35,6 @@ import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.RobinNotBad.BiliClient.util.live.LiveStreamSelector
-import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
 import com.bumptech.glide.request.RequestOptions
@@ -87,7 +86,9 @@ class LiveInfoActivity : BaseActivity() {
                     val userInfo = liveInfo.userInfo
                     playInfo = liveInfo.livePlayInfo
 
-                    Glide.with(this).asDrawable().load(GlideUtil.url_hq(room!!.user_cover)).placeholder(R.mipmap.placeholder)
+                    // 走 GlideUtil 门面：结果回来时 Activity 可能已销毁，此时回落 Application 级 manager，
+                    // 不会在已销毁的 Activity 上起加载而抛 "destroyed activity"
+                    GlideUtil.with(cover).asDrawable().load(GlideUtil.url_hq(room!!.user_cover)).placeholder(R.mipmap.placeholder)
                         .transition(GlideUtil.getTransitionOptions())
                         .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(4f))).sizeMultiplier(0.85f).skipMemoryCache(true).dontAnimate())
                         .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)

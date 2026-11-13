@@ -31,7 +31,6 @@ import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
-import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 
 class BangumiInfoFragment : Fragment() {
@@ -198,7 +197,9 @@ class BangumiInfoFragment : Fragment() {
 
         rootView!!.visibility = View.GONE
 
-        Glide.with(requireContext())
+        // 走 GlideUtil 门面：宿主 Activity 已销毁/非主线程时回落 Application 级 manager，
+        // 不再因 requireContext() 追到已销毁的 Activity 而抛 "destroyed activity"
+        GlideUtil.with(imageMediaCover)
             .load(GlideUtil.url_hq(bangumi!!.info.cover_horizontal))
             .transition(GlideUtil.getTransitionOptions())
             .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
