@@ -645,6 +645,56 @@
 
         </LinearLayout>
 
+        <!--
+            「跳到指定时间」的页内输入卡片（26.11.14）。
+            结构与「发送弹幕」一模一样：遮罩 card_bg + 居中卡片 + 单行输入框 + 整行按钮。
+            这么做的原因：以前这里另开 InputDialogActivity，播放页被盖住 → Surface 销毁，
+            回来要重新挂载才可能出画；手表上那条恢复路径不一定成，用户看到的是「跳完了视频流没了」。
+            留在本页就没有这个来回。
+        -->
+        <LinearLayout
+            android:id="@+id/jump_time_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:layout_marginHorizontal="6dp"
+            android:background="@drawable/background_card"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="4dp"
+                android:layout_marginTop="4dp"
+                android:paddingHorizontal="3dp"
+                android:text="@string/text_player_jump_to_time"
+                android:textSize="14sp" />
+
+            <EditText
+                android:id="@+id/jump_time_edit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="4dp"
+                android:hint="@string/hint_player_jump_to_time"
+                android:maxLength="10"
+                android:maxLines="1"
+                android:singleLine="true"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textColorHint="#88ffffff" />
+
+            <Button
+                android:id="@+id/jump_time_confirm"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/touch_min"
+                android:layout_marginHorizontal="6dp"
+                android:layout_marginBottom="6dp"
+                android:background="@drawable/background_card_borderless"
+                android:gravity="center"
+                android:text="@string/btn_player_jump_time" />
+
+        </LinearLayout>
+
         <LinearLayout
             android:id="@+id/page_selector_card"
             android:layout_width="match_parent"

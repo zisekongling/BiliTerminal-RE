@@ -214,6 +214,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private var buttonSlots: PlayerButtonSlots? = null
     private lateinit var card_subtitle: LinearLayout
     private lateinit var card_danmaku_send: LinearLayout
+    /** 「跳到指定时间」的页内输入卡片（QQ#9；26.11.14 从独立 Activity 改成与发弹幕同构的卡片）。 */
+    private lateinit var card_jump_time: LinearLayout
+    private lateinit var jump_time_edit: EditText
     private lateinit var card_page_selector: LinearLayout
     private lateinit var card_quality_selector: LinearLayout
     private lateinit var card_viewpoint_selector: LinearLayout
@@ -513,14 +516,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
 
         /** 媒体控件通知的渠道 ID；渠道名取 strings.xml 的 channel_media_control（「音乐播放」）。 */
         private const val CHANNEL_MEDIA_CONTROL = "channel_media_control"
-
-        /**
-         * 「跳到指定时间」输入框的请求码（QQ#9）。
-         *
-         * 本页继承的是原生 `Activity`（不是 ComponentActivity），拿不到 Activity Result API，
-         * 只能用 `startActivityForResult` + [onActivityResult]；与 [InputDialogActivity] 的旧调用方一致。
-         */
-        private const val REQUEST_CODE_JUMP_TO_TIME = 1002
 
         /**
          * 播放会话哨兵的周期落盘间隔（毫秒）。
@@ -1350,6 +1345,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         layout_card_bg = findViewById(R.id.card_bg)
         card_subtitle = findViewById(R.id.subtitle_card)
         card_danmaku_send = findViewById(R.id.danmaku_send_card)
+        card_jump_time = findViewById(R.id.jump_time_card)
+        jump_time_edit = findViewById(R.id.jump_time_edit)
         card_page_selector = findViewById(R.id.page_selector_card)
         card_quality_selector = findViewById(R.id.quality_selector_card)
         card_viewpoint_selector = findViewById(R.id.viewpoint_selector_card)
@@ -2014,24 +2011,79 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     // ==================== 精确空降（QQ 反馈 #9） ====================
 
     /**
-     * 接线「跳到指定时间」：点开输入框，回来由 [onActivityResult] 解析并 seek。
+     * 接线「跳到指定时间」：点开的是**页内输入卡片**（与「发送弹幕」同一套逻辑），确认后直接 seek。
+     *
+     * 为什么不再是另开 Activity（26.11.14 改）：以前这里 `startActivityForResult` 打开
+     * [InputDialogActivity]，播放页被盖住时 Surface 会被销毁，回来必须重新挂载并 seek 才可能出画；
+     * 手表上这条恢复路径不一定成功，用户看到的就是「时间输完了、跳过去了，视频流没了」——
+     * 和「离开播放器再回来画面消失」的既有毛病叠在一起，这个功能就完全没法用。
+     * 卡片留在本页，Surface 不销毁，也就没有恢复问题。
      *
      * 显隐不在这里定：直播没有「时间点」概念，等 onPrepared 拿到 duration 后再按 [isLiveMode] 决定。
      */
     private fun initJumpToTimeButton() {
-        jump_time_btn.setOnClickListener {
-            val intent = Intent(this, InputDialogActivity::class.java)
-            intent.putExtra("title", getString(R.string.text_player_jump_to_time))
-            intent.putExtra("hint", getString(R.string.hint_player_jump_to_time))
-            // 预填当前播放位置：手表上从头敲一串时间太费劲，给个「当前位置」当底稿再改更省事。
-            // 位置取 video_now 而不是 ijkPlayer.currentPosition —— 后者在 seek 落地前仍返回旧值
-            // （见 seekToVideo 的注释），而 video_now 是已经对齐过的媒体时钟。
-            // 0 位置（未 prepare / 直播）不预填，保持空框 + 提示语。
-            // 光标按 InputDialogActivity 的既有行为落在末尾（不整串选中），方便接着往后补位。
-            val prefill = PlayerJumpTimePolicy.prefillText(video_now.toLong())
-            if (prefill != null) intent.putExtra("initial_text", prefill)
-            startActivityForResult(intent, REQUEST_CODE_JUMP_TO_TIME)
+        jump_time_btn.setOnClickListener { showJumpTimeCard() }
+        findViewById<View>(R.id.jump_time_confirm).setOnClickListener { confirmJumpTime() }
+    }
+
+    /**
+     * 打开「跳到指定时间」卡片：遮罩 + 卡片，并预填当前播放位置。
+     *
+     * 预填的意义：手表上从头敲一串时间太费劲，给个「当前位置」当底稿再改更省事
+     * （见 [PlayerJumpTimePolicy.prefillText]）。位置取 `video_now` 而不是 `ijkPlayer.currentPosition`
+     * ——后者在 seek 落地前仍返回旧值（见 [seekToVideo] 的注释），而 `video_now` 是已对齐的媒体时钟。
+     * 0 位置（未 prepare / 直播）不预填，保持空框 + 提示语。
+     */
+    private fun showJumpTimeCard() {
+        // 同一时刻只留一张卡片：与「发送弹幕」互斥，否则两张卡片会叠在屏幕正中
+        card_danmaku_send.visibility = View.GONE
+        layout_card_bg.visibility = View.VISIBLE
+        card_jump_time.visibility = View.VISIBLE
+        jump_time_edit.setText(PlayerJumpTimePolicy.prefillText(video_now.toLong()).orEmpty())
+        // 光标落在末尾（不整串选中），方便接着往后补位，与旧 InputDialogActivity 的行为一致
+        jump_time_edit.setSelection(jump_time_edit.text.length)
+        autohideReset()
+    }
+
+    /**
+     * 确认「跳到指定时间」。
+     *
+     * 校验规则与旧的 [InputDialogActivity] 路径保持一致：非法输入提示后**卡片留在原地**（方便改错），
+     * 合法但越界钳到末尾并明确告知，免得用户输入 99:99 却停在结尾、看起来像没生效。
+     */
+    private fun confirmJumpTime() {
+        // 直播/未 prepare 时 duration<=0，没有「时间点」概念；菜单虽然已隐藏，这里再兜一次时序缝隙
+        val durationMs = ijkPlayer?.duration ?: 0L
+        if (durationMs <= 0L) {
+            hideAllCards()
+            return
         }
+        val seconds = PlayerJumpTimePolicy.parseToSeconds(jump_time_edit.text.toString())
+        if (seconds == null) {
+            MsgUtil.showMsg(getString(R.string.msg_player_jump_invalid))
+            return
+        }
+        val targetMs = PlayerJumpTimePolicy.clampMs(seconds * 1000L, durationMs) ?: return
+        if (seconds * 1000L > durationMs) MsgUtil.showMsg(getString(R.string.msg_player_jump_out_of_range))
+        hideAllCards()
+        seekToPosition(targetMs)
+        autohideReset()
+    }
+
+    /**
+     * 收起遮罩与所有页内卡片（字幕 / 发弹幕 / 跳转时间 / 分P / 清晰度 / 看点）。
+     *
+     * 点遮罩、以及任何一张卡片确认之后都走这里，避免以后再加卡片时漏掉一处隐藏（漏了就会
+     * 留下半透明的卡片压着画面）。
+     */
+    private fun hideAllCards() {
+        layout_card_bg.visibility = View.GONE
+        card_subtitle.visibility = View.GONE
+        card_danmaku_send.visibility = View.GONE
+        card_jump_time.visibility = View.GONE
+        card_page_selector.visibility = View.GONE
+        card_quality_selector.visibility = View.GONE
+        card_viewpoint_selector.visibility = View.GONE
     }
 
     /**
@@ -2075,30 +2127,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         if (target == video_now.toLong()) return
         seekToPosition(target, true)
         Logu.d("±N秒", (if (deltaSeconds < 0) "快退 " else "快进 ") + deltaSeconds + "s → " + target + "ms")
-    }
-
-    /**
-     * 接「跳到指定时间」的输入。
-     *
-     * 校验放在这里而不是 [InputDialogActivity] 里：那个弹窗是通用输入框（新建文件夹等也在用），
-     * 不该认识「时间格式」这件事。非法输入提示后原地不动；合法但越界钳到末尾并明确告知，
-     * 免得用户输入 99:99 却停在结尾、看起来像没生效。
-     */
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_CODE_JUMP_TO_TIME || resultCode != RESULT_OK) return
-        // 直播/未 prepare 时 duration<=0，没有「时间点」概念；菜单虽然已隐藏，这里再兜一次时序缝隙
-        val durationMs = ijkPlayer?.duration ?: 0L
-        if (durationMs <= 0L) return
-        val seconds = PlayerJumpTimePolicy.parseToSeconds(data?.getStringExtra("input_text"))
-        if (seconds == null) {
-            MsgUtil.showMsg(getString(R.string.msg_player_jump_invalid))
-            return
-        }
-        val targetMs = PlayerJumpTimePolicy.clampMs(seconds * 1000L, durationMs) ?: return
-        if (seconds * 1000L > durationMs) MsgUtil.showMsg(getString(R.string.msg_player_jump_out_of_range))
-        seekToPosition(targetMs)
-        autohideReset()
     }
 
     /**
@@ -4571,15 +4599,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             true
         }
 
-        layout_card_bg.setOnClickListener {
-            layout_card_bg.visibility = View.GONE
-            card_subtitle.visibility = View.GONE
-            card_danmaku_send.visibility = View.GONE
-            card_page_selector.visibility = View.GONE
-            card_quality_selector.visibility = View.GONE
-            card_viewpoint_selector.visibility = View.GONE
-        }
+        layout_card_bg.setOnClickListener { hideAllCards() }
         btn_danmaku_send.setOnClickListener {
+            // 两张输出型卡片（发弹幕 / 跳转时间）互斥：同时可见会叠在屏幕正中
+            card_jump_time.visibility = View.GONE
             layout_card_bg.visibility = View.VISIBLE
             card_danmaku_send.visibility = View.VISIBLE
         }
@@ -4757,9 +4780,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      * 兜住平台「回车推进焦点」自己抛的 ISE（线上崩溃 #66，成因见 [EditorEnterKeyGuard]）。
      *
      * 播放页**不继承 BaseActivity**（直接 extends Activity，见类声明），所以基类那层
-     * dispatchKeyEvent 兜底覆盖不到它；而播放页恰好有单行输入框 `danmaku_send_edit`
-     * （`activity_player.xml`，singleLine + 无 OnEditorActionListener），正是平台那条
-     * `shouldAdvanceFocusOnEnter()` 为真的形态，必须单独兜一次。
+     * dispatchKeyEvent 兜底覆盖不到它；而播放页恰好有单行输入框 `danmaku_send_edit` 与
+     * `jump_time_edit`（`activity_player.xml`，都是 singleLine + 无 OnEditorActionListener），
+     * 正是平台那条 `shouldAdvanceFocusOnEnter()` 为真的形态，必须单独兜一次。
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         return try {

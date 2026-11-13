@@ -2751,6 +2751,8 @@
     <string name="hint_player_jump_to_time">秒数 / mm:ss / hh:mm:ss</string>
     <string name="msg_player_jump_invalid">时间格式不对，可输入 90、1:30 或 1:02:03</string>
     <string name="msg_player_jump_out_of_range">已跳到视频末尾</string>
+    <!-- 页内输入卡片的确认按钮（与「发送弹幕」卡片的「发送」同构） -->
+    <string name="btn_player_jump_time">跳转</string>
 
     <!-- ==================== 用户详情页：长按「已关注」加入分组（反馈 #88） ==================== -->
     <!-- 弹窗标题 -->
