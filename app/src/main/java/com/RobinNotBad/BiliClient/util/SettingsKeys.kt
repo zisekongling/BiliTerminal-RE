@@ -146,6 +146,13 @@ object SettingsKeys {
      */
     const val PRIVATE_MSG_NOTIFY_ENABLE = "private_msg_notify_enable"
     /**
+     * 进私信页时那句「私信有可能被拦截」的提示开关（反馈 #121，默认**开**＝仍然提示）。
+     *
+     * 这句提示是给首次用终端发私信的人看的，老用户每次进会话都被弹一次就成了噪音；
+     * 关掉只影响这句提示，私信收发本身不受影响。读取点见 `activity/message/PrivateMsgActivity`。
+     */
+    const val PRIVATE_MSG_INTERCEPT_TIP_ENABLE = "private_msg_intercept_tip_enable"
+    /**
      * 追番更新提醒开关。打开应用时对比追番列表的最新集快照，有变化才提醒一次；
      * 纯逻辑见 `util/BangumiUpdateChecker.findUpdated`，项目不做后台定时检查。
      */
@@ -191,6 +198,15 @@ object SettingsKeys {
     const val PLAYER_DOUBLETAP_SEEK = "player_doubletap_seek"
     const val PLAYER_SWIPE_SEEK = "player_swipe_seek"
     /**
+     * 播放页的返回键（外部返回 / 侧键 / 表冠返回）直接退出，**默认开**。
+     *
+     * 反馈 #117 / #135 / #139②：此前只要开了 [PLAYER_SWIPE_SEEK]，`PlayerActivity.onBackPressed`
+     * 就把返回键吞掉，[BACK_DISABLE] 再吞一次，用户在播放页里退不出去、看起来就是卡死。
+     * 开着时这两道拦都不生效（锁定态仍单独拦截）；关掉时回到旧语义。
+     * 见 `PlayerActivity.onBackPressed` / `PlayerActivity.onCreate` 的 noSwipe 取值。
+     */
+    const val PLAYER_BACK_KEY_EXIT = "player_back_key_exit"
+    /**
      * 左右滑动调进度的灵敏度倍率（存字符串档位，如 "1.0"）。
      *
      * 反馈 #94a：手表 dpi 降低后，横滑一点点就会快进很多。换算与档位表统一在
@@ -232,6 +248,19 @@ object SettingsKeys {
      * 旧键 [PLAYER_SKIP_OP_ED] 只在迁移时读（true → 3），判据与迁移见 `player/SkipOpEdPolicy.kt`。
      */
     const val PLAYER_SKIP_OP_ED_MODE = "player_skip_op_ed_mode"
+    /**
+     * SponsorBlock（第三方社区标注的广告/推广片段）跳过的档位：
+     * 0=关、1=仅广告、2=+自我推广、3=推荐、4=全部类别、5=自定义（逐类别勾选）。
+     * 默认关闭（第三方数据 + 半数是主观类别），判据见 `player/SponsorSkipPolicy.kt`。
+     */
+    const val PLAYER_SPONSOR_BLOCK_MODE = "player_sponsor_block_mode"
+    /**
+     * SponsorBlock 自定义档的逐类别勾选键前缀，完整键是「前缀 + 类别 id」（如
+     * `player_sponsor_block_cat_sponsor`），一类别一个布尔值。
+     * 默认勾选 = 「推荐」档的五个类别；`poi_highlight` 永远不可勾（跳转点不是广告）。
+     * 读写见 `player/SponsorSkipPrefs.kt`。
+     */
+    const val PLAYER_SPONSOR_BLOCK_CAT_PREFIX = "player_sponsor_block_cat_"
     /**
      * 长按后上下划切换上一条/下一条视频，默认开。判据见 `player/LongPressSwitchPolicy.kt`。
      */

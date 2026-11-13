@@ -86,6 +86,10 @@ class SettingPrefActivity : RefreshListActivity() {
                 getString(R.string.desc_recent_up_display_enable), "true"))
             add(SettingSection("switch", "私信自动已读", SharedPreferencesUtil.PRIVATE_MSG_AUTO_READ_ENABLE,
                 getString(R.string.desc_private_msg_auto_read_enable), "true"))
+            // 反馈 #121：进私信页那句「私信有可能被拦截」的提示，默认仍然显示
+            add(SettingSection("switch", getString(R.string.settingtext_settingprefactivity_033),
+                SettingsKeys.PRIVATE_MSG_INTERCEPT_TIP_ENABLE,
+                getString(R.string.desc_private_msg_intercept_tip), "true"))
             add(SettingSection("switch", "夜深了", SharedPreferencesUtil.NIGHT_REMINDER_ENABLE,
                 getString(R.string.desc_night_reminder), "true"))
             add(SettingSection("switch", "后台自动检查更新", SharedPreferencesUtil.AUTO_UPDATE_CHECK_ENABLE,

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SponsorBlock（第三方广告片段标注）相关文案。
+
+  与 player_s_port_strings.xml 同样的约定：只放本批新增的字符串，`strings.xml` 由主线维护，
+  本批不碰，避免和并发改动冲突。命名统一 player_sb_ 前缀（sb = SponsorBlock）。
+-->
+<resources>
+    <!-- 设置项：跳过档位（0=关 / 1=仅广告 / 2=+自我推广 / 3=推荐 / 4=全部 / 5=自定义） -->
+    <string name="player_sb_mode_name">跳过广告片段（SponsorBlock）</string>
+    <string name="player_sb_mode_desc">由观众标注的广告/推广片段，播放时自动跳过。数据来自第三方服务 BilibiliSponsorBlock，不是 B 站官方数据；跳过后面板会给出「撤回」</string>
+    <string name="player_sb_mode_off">关闭</string>
+    <string name="player_sb_mode_ad">仅恰饭广告</string>
+    <string name="player_sb_mode_promo">广告+自我推广</string>
+    <string name="player_sb_mode_recommended">推荐</string>
+    <string name="player_sb_mode_all">全部类别</string>
+    <string name="player_sb_mode_custom">自定义</string>
+
+    <!-- 设置分组标题：把「番剧片头片尾」和「投稿广告」两条跳过放在一组 -->
+    <string name="setting_player_group_skip">自动跳过</string>
+
+    <!-- 自定义档的类别勾选页 -->
+    <string name="player_sb_cat_page_name">要跳的类别</string>
+    <string name="player_sb_cat_page_desc">逐项勾选要自动跳过的类别；勾选后档位会自动切到「自定义」</string>
+    <string name="player_sb_cat_page_note">精彩时刻是跳转点（不是一段广告），任何档位都不会跳；静音型与整段视频标签本版也不处理。</string>
+    <string name="player_sb_cat_filler_desc">离题闲聊属主观判断，建议自己看过再决定</string>
+    <string name="player_sb_cat_music_offtopic_desc">MV / 翻唱里的谈话段</string>
+
+    <!-- 类别中文名（与 SponsorSkipPolicy 里的 category id 一一对应） -->
+    <string name="player_sb_cat_sponsor">广告</string>
+    <string name="player_sb_cat_selfpromo">自我推广</string>
+    <string name="player_sb_cat_interaction">三连提醒</string>
+    <string name="player_sb_cat_intro">片头</string>
+    <string name="player_sb_cat_outro">片尾</string>
+    <string name="player_sb_cat_preview">前情回顾</string>
+    <string name="player_sb_cat_filler">离题闲聊</string>
+    <string name="player_sb_cat_music_offtopic">非音乐段</string>
+    <string name="player_sb_cat_exclusive_access">抢先看</string>
+    <string name="player_sb_cat_chapter">章节</string>
+    <string name="player_sb_cat_poi_highlight">精彩时刻</string>
+    <!-- 上游以后新增了类别、而我们还没翻译时用这个兜底 -->
+    <string name="player_sb_cat_unknown">广告片段</string>
+
+    <!-- 跳过提示 -->
+    <string name="player_sb_skipped">已跳过%1$s</string>
+    <string name="player_sb_back">已回到%1$s</string>
+    <string name="player_sb_undo">撤回</string>
+</resources>

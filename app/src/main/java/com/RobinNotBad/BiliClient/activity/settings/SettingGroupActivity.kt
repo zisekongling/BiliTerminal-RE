@@ -162,14 +162,8 @@ class SettingGroupActivity : RefreshListActivity() {
         setAdapter(adapter!!)
         setRefreshing(false)
 
-        // 从全局搜索跳转进来时，滚动定位到目标设置项
-        val highlight = intent.getStringExtra("highlight")
-        if (!highlight.isNullOrEmpty()) {
-            val index = sections.indexOfFirst { it.name == highlight }
-            if (index >= 0) {
-                recyclerView.post { recyclerView.scrollToPosition(index) }
-            }
-        }
+        // 从全局搜索跳转进来时，滚动定位到目标设置项并高亮（与另外 4 个设置页共用基类实现）
+        scrollToHighlight(sections, intent.getStringExtra("highlight"))
     }
 
     private fun buildContent(groupType: String) {
@@ -329,13 +323,13 @@ class SettingGroupActivity : RefreshListActivity() {
      */
     private fun buildLayoutGroup() {
         button("恢复默认") {
-            SharedPreferencesUtil.putInt(SettingsKeys.TOPBAR_HEIGHT, TopbarHeightPolicy.DEFAULT_DP)
             SharedPreferencesUtil.putInt(SettingsKeys.PADDING_H, 0)
             SharedPreferencesUtil.putInt(SettingsKeys.PADDING_V, 0)
             SharedPreferencesUtil.putFloat(SettingsKeys.DPI, 1.0f)
             SharedPreferencesUtil.putInt(SettingsKeys.DENSITY, -1)
             SharedPreferencesUtil.putBoolean(SettingsKeys.UI_ROUND, false)
             SharedPreferencesUtil.putBoolean(SettingsKeys.TOPBAR_ISLAND, false)
+            SharedPreferencesUtil.putInt(SettingsKeys.TOPBAR_HEIGHT, TopbarHeightPolicy.DEFAULT_DP)
             refresh()
             MsgUtil.showMsg(getString(R.string.msg_settinggroupactivity_002))
         }

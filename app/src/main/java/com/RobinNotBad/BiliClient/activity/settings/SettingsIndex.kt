@@ -435,8 +435,9 @@ object SettingsIndex {
         ) { a -> openGroup(a, GROUP_NOTIFY, groupNotify, text(R.string.settingtext_settinggroupactivity_050)) }
 
         addLeafItems(list, text(R.string.pagename_settingterminalplayeractivity_001), SettingTerminalPlayerActivity::class.java, listOf(
-            // 组标题（页内按七组带标题展开，点组名直接滚到那一组开头）
+            // 组标题（页内按八组带标题展开，点组名直接滚到那一组开头）
             text(R.string.setting_player_group_gesture),
+            text(R.string.setting_player_group_skip),
             text(R.string.setting_player_group_display),
             text(R.string.setting_player_group_decode),
             text(R.string.setting_player_group_toolbar),
@@ -469,6 +470,10 @@ object SettingsIndex {
             // 关键词必须与页内 SettingSection.name 严格一致，否则搜索命中定位不到。
             text(R.string.settingtext_settingsindex_064),
             text(R.string.player_s_skip_mode_name),
+            // SponsorBlock 广告片段跳过（26.11.11 新增）：名字必须与页内 SettingSection.name 严格一致
+            text(R.string.player_sb_mode_name),
+            // 自定义档的逐类别勾选页入口（页内那一行 nav 的名字）
+            text(R.string.player_sb_cat_page_name),
             text(R.string.settingtext_settingsindex_065),
             text(R.string.settingtext_settingsindex_066),
             text(R.string.settingtext_settingsindex_067),
