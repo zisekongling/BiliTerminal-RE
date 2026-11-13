@@ -201,12 +201,16 @@
 
 ### #125 手表选择窗口「取消/确定」点击错位
 
+> **26.11.13 已落地，本节的行号与方案作废，只留作历史。** 后来的实测（控制台 #161 同族报障，AVD `wm size 466x466`）证明真因不是测量时序，而是**按钮只占按钮行右端、左侧 144px + 右侧 30px 是死区**，OEM 输入层一旦横向偏移就会「点左执行右」。最终修法是构造性的：每个按钮独占一整行（`MATCH_PARENT` 宽、居中、上下堆叠），`fitButtonBars/fitButtonBar/barDesiredWidth/shareBarWidth` 与 `Sheet` 的 `bottomButtonBar` 参数**全部删除**。详见 `docs/review/fix-progress.md` §1 首条与 `docs/architecture-map.md` §8.7.0。
+>
+> 下面保留 26.11.11 当时的核实记录：
+
 - 来源：HUAWEI `HWARC` 26.11.07。开发者已答「马上修复」。
 - 代码核实：确定/取消只出自 `util/TerminalDialog.kt`（confirm `156-181`、choice `202-219 bottomButtonBar`、addButton `700-739`）；窗口宽度 `prepareLayout 428-448` → `applyPlan 464 setLayout(winW, WRAP_CONTENT)`；`show` 后 `fitButtonBars 492-500` / `fitButtonBar 502-521` 再缩字号与 `minimumWidth`。全仓 `TouchDelegate` 0 命中，`translationX` 只在 `SwipePageLayout`/`PlayerActivity` → **静态找不到确定偏移源**，推测是 `fitButtonBar` 事后改尺寸与窗口宽度测量的时序问题。
 - 本批决定：做。
-- 实现要点：按钮尺寸确定后再测量一次窗口（或 `fitButtonBar` 内改为 `requestLayout` + 重测量），避免「先按旧宽度算点击区、再缩字号」。须 L2 真机核验点击位置。
+- 实现要点（**已作废**）：按钮尺寸确定后再测量一次窗口（或 `fitButtonBar` 内改为 `requestLayout` + 重测量），避免「先按旧宽度算点击区、再缩字号」。须 L2 真机核验点击位置。
 - 验收：L2——手表上点按钮中心/边缘都能触发；不同字号档下都不偏。
-- 影响文件：`util/TerminalDialog.kt`（`428-521`）、`ui/widget/view/DialogSizing.kt`（`19-40`、`174`）。
+- 影响文件（**已作废**）：`util/TerminalDialog.kt`（`428-521`）、`ui/widget/view/DialogSizing.kt`（`19-40`、`174`）。
 
 ### #140 推荐页长按阈值偏短 + 多选菜单样式不一致
 
@@ -376,7 +380,7 @@
 
 ### 9.5 UI 小修（#125 / #140 / #121 / #129 / #94）
 
-- **#125 弹窗按钮错位**：`util/TerminalDialog.kt:450` 在算 `DialogSizing.plan(...)` **之前**先 `fitButtonBars(box.width)`；`:455-492 applyPlan()` 重排成「所有改尺寸的事做完 → 最后一次 `content.requestLayout()` + `window.setLayout(winW, WRAP_CONTENT)`」。**这是按 spec 授权的防御性修法，不是实测定位**：静态排查已排除 `TouchDelegate`（0 命中）、`translationX`（只在 SwipePageLayout / PlayerActivity）、`dialog_background` inset（两版本都是纯 `<shape>`），剩下唯一可疑点是测量时序 → 必须 L2 真机核验，若仍偏说明偏移源不在时序，下一步要在 `fitButtonBar` 里 dump 按钮 bounds 与 `getHitRect` 对比。
+- **#125 弹窗按钮错位**（**26.11.13 已被取代，下面只作历史记录**）：`util/TerminalDialog.kt:450` 在算 `DialogSizing.plan(...)` **之前**先 `fitButtonBars(box.width)`；`:455-492 applyPlan()` 重排成「所有改尺寸的事做完 → 最后一次 `content.requestLayout()` + `window.setLayout(winW, WRAP_CONTENT)`」。**这是按 spec 授权的防御性修法，不是实测定位**：静态排查已排除 `TouchDelegate`（0 命中）、`translationX`（只在 SwipePageLayout / PlayerActivity）、`dialog_background` inset（两版本都是纯 `<shape>`），剩下唯一可疑点是测量时序 → 必须 L2 真机核验，若仍偏说明偏移源不在时序，下一步要在 `fitButtonBar` 里 dump 按钮 bounds 与 `getHitRect` 对比。**结论（26.11.13）**：实测证明偏移源不在时序——老布局的按钮只占按钮行右端、左 144px / 右 30px 是死区，OEM 输入层一偏就点左执行右。最终改成「每个按钮独占一整行」，`fitButtonBars` 那一套连同 `Sheet.bottomButtonBar` 全部删除。
 - **#140 长按阈值 + 多选样式**：新增 `util/view/LongPressDelay.kt`（`CARD_MS = 600L`，200→600 的理由写在注释里：手表滑列表误触、落在 500–700 中部、略长于系统 500ms）；`adapter/video/VideoCardHolder.kt:146`、`HistoryVideoCardAdapter.kt:70`、`UserVideoAdapter.kt:71`、`adapter/article/ArticleCardAdapter.kt:65` 全部改用它。多选视觉由「整卡 `alpha=0.45f`」改成 TerminalDialog 那套 glyph：选中 `▸` + 标题主色、未选中 `›`（引导符压到 70%）+ 常态色 —— `VideoCardHolder.kt:61/:184/:299-300`、`VideoCardAdapter.kt:50-68`（关动画的理由改成「glyph+主色交叉淡入会叠字」）；补齐另两处同屏页面：`adapter/video/DownloadAdapter.kt:48-56/:148/:154/:209-216` 与 `adapter/video/CacheListAdapter.kt:70-72/:568-578/:580-600`（缓存页文件夹行与视频行是两个不同 TextView，按 view 各记一份常态色，用 `WeakHashMap` 当键）。
 - **#121 私信拦截提示可关**：`util/SettingsKeys.kt:146 PRIVATE_MSG_INTERCEPT_TIP_ENABLE`、`activity/settings/SettingPrefActivity.kt:91` 开关、`activity/message/PrivateMsgActivity.kt:117` 判开关再 `showMsg`、文案 `strings.xml:1255 / :219`。
 - **#129 短视频双指缩放 + 拖动**：`activity/video/ShortVideoPlayerActivity.kt:590/596` 新增 `translateX/translateY/lastFocusX/lastFocusY/panning`，`:984 handleTwoFingerPan()`（≥2 指且已放大时先 `requestDisallowInterceptTouchEvent(true)`，少一根手指立刻 `panning=false` 把手势还给「上下滑切视频」），`:1014 focusOf()` / `:1021 resetScale()` / `:1036 applyScale()`（`Matrix.setScale` + `postTranslate`，位移按 `(scale-1)*尺寸/2` 双向夹住，缩回 1 倍归零，holder 复用时 `bind()` 重置）。退出热区按 spec **不做**，双击仍是切播放暂停。

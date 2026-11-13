@@ -1807,13 +1807,18 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 > **`Sheet.init` 里 `dialog.window?.setBackgroundDrawable(ColorDrawable(TRANSPARENT))` 不能删**：
 > 不做的话 AppCompat 会在面板底下垫一层方角底衬，圆角白做——这正是「像安卓原生的一样」的直接原因。
 
-> **`Sheet` 的固定底栏（`bottomButtonBar`，26.10.09 加，改 `TerminalDialog` 前必读）**：
-> `Sheet.addButton` 原来把按钮加进 `terminal_dialog_list`（**在 ScrollView 内部**），而当时的
-> `capScrollHeight()` 把滚动区高度**钉死在屏高 45%**、滚动条又是 `scrollbars="none"`；长正文会把按钮顶到看不见，
-> 配上必要的 `setCancelable(false)` 就是**用户彻底卡在闪屏上**。修法：`Sheet` 加构造参数
-> `bottomButtonBar: Boolean = false`（默认 false = 原行为，既有 12 处 `confirm/alert/menu` 零影响），
-> 只有 `choice()` 用 `true`，按钮改挂 `layout_dialog_terminal.xml` 的固定底栏 `@id/terminal_dialog_buttons`。
-> **为什么必须新增 `choice()` 而不是复用 `confirm()`**：`confirm()` 的取消按钮写死 `dismiss()`（无回调），
+> **按钮区：永远在滚动区之外，每个按钮独占一整行（26.11.13 改，改 `TerminalDialog` 前必读）**：
+> 26.10.09 之前 `Sheet.addButton` 把按钮加进 `terminal_dialog_list`（**在 ScrollView 内部**），而当时的
+> `capScrollHeight()` 把滚动区高度**钉死在屏高 45%**；长正文会把按钮顶到看不见，配上必要的
+> `setCancelable(false)` 就是**用户彻底卡在闪屏上**。当时的修法是加构造参数 `bottomButtonBar`、只有
+> `choice()` 传 `true`。**26.11.13 起这个参数已经删掉**：所有弹窗的按钮都挂
+> `layout_dialog_terminal.xml` 的 `@id/terminal_dialog_buttons`（该容器由 horizontal 改成 **vertical**），
+> 每个按钮是 `MATCH_PARENT` 宽的一整行、文字居中，行间一条 1dp 分割线。
+> **为什么改成整行**：控制台 #161 / #125 / #54 都是「点左边那一格、执行的是右边那一格」——老布局两个按钮
+> 只占按钮行右端（实测面板 419px 宽，按钮只在 `167..301` 与 `302..411`，左 144px / 右 30px 是死区），
+> 这些 OEM 输入层存在横向命中偏移时，点「取消」会落到「确定」、点「确定」会落到右侧空档（等于没反应）。
+> 整行宽之后行内任意位置都是同一个动作，横向偏移在结构上不再有害，也顺手消掉了右侧死区。
+> **为什么必须保留独立的 `choice()`**：`confirm()` 的取消按钮写死 `dismiss()`（无回调），
 > 且内部是**先 `dismiss()` 再 `onConfirm()`**，`setOnDismissListener` 触发时还拿不到「用户点的其实是确定」，
 > 两条路都会走一遍。
 
@@ -1841,10 +1846,14 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
 >    底栏 / 提示行」的真实高度（都随「界面大小」缩放，不能写死 dp），`滚动区 = 预算 − 其它部分`；
 >    放不下时**先舍提示行、再舍标题（连分割线）**，滚动区兜底「一行」的最小高度。
 >    `naturalScrollHeight()` 让正文短时按内容收着，不为凑预算把弹窗撑高。
->    **按钮行还有一层兜底**：1.8 倍界面下两个三字按钮合计 468px > 窗口 342px，右对齐的「同意」会被
->    整个挤出屏幕（`choice()` 是 `setCancelable(false)`，等于用户卡死在闪屏）——`Sheet.fitButtonBars()`
->    逐级缩字号（下限 9sp，同时松内边距与 44dp 最小宽度），仍放不下就改成均分宽度。
->    实测 380×380@1.8、320×320@1.5 两个按钮都在屏内。
+>    **按钮区不再需要兜底**：26.11.13 起每个按钮独占一整行（`MATCH_PARENT` 宽），1.8 倍界面下也只是
+>    行高变大、挤占滚动区，不会再出现「两个三字按钮合计 468px > 窗口 342px、右对齐的『同意』被挤出屏幕」
+>    那种情况（`choice()` 是 `setCancelable(false)`，当时等于用户卡死在闪屏）。原来做兜底的
+>    `Sheet.fitButtonBars()` / `fitButtonBar()` / `barDesiredWidth()` / `shareBarWidth()`（逐级缩字号到 9sp、
+>    松内边距与 44dp 最小宽度、再不行改均分权重）**已整段删除**——它每轮都改字号、`measure(UNSPECIFIED)`
+>    再 `requestLayout()`，本身就是「窗口尺寸与内容尺寸两份账」的可疑来源。
+>    顺带：`Sheet.logButtonGeometry()` 在 `onShow` 后把每个按钮的 `getHitRect` / `getLocationInWindow`
+>    打进 `Logu.w("dialog", …)`，下次报「点不中」时反馈里直接带几何。
 
 > **教训（判断「某属性全工程缺失」的正确姿势）**：必须**同时 grep 相邻属性做对照组**。
 > 本次最初的错误结论是「弹窗层从未接入主题系统」——被「7 族主题都声明了 `colorSurface`」

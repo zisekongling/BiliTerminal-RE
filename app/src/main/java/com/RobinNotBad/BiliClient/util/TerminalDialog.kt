@@ -4,17 +4,18 @@ import com.RobinNotBad.BiliClient.util.UiText
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.text.InputFilter
 import android.text.InputType
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.util.TypedValue
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -209,7 +210,7 @@ object TerminalDialog {
         onPrimary: () -> Unit,
         onSecondary: () -> Unit
     ): AlertDialog {
-        val sheet = Sheet(context, title, bottomButtonBar = true)
+        val sheet = Sheet(context, title)
         sheet.addMessage(message)
         sheet.addButton(secondaryText, sheet.secondaryColor()) {
             sheet.dialog.dismiss()
@@ -233,7 +234,7 @@ object TerminalDialog {
      * `AlertDialog.Builder(...).setView(EditText(...))` —— 那样又要各自处理主题色、键盘弹出、
      * 按钮位置这三件重复的事，正是本文件存在的意义（见类注释）。
      *
-     * **按钮必须走固定底栏**（[Sheet] 的 `bottomButtonBar = true`）：输入框会随内容长高，
+     * **按钮永远在滚动区外面**（26.11.13 起所有弹窗都这样）：输入框会随内容长高，
      * 按钮跟在正文后面会被顶出可视区，而这时用户正打着字。
      *
      * @param maxLength 0 表示不限
@@ -251,7 +252,7 @@ object TerminalDialog {
         cancelText: String = UiText.of("取消"),
         onConfirm: (String) -> Unit
     ): AlertDialog {
-        val sheet = Sheet(context, title, bottomButtonBar = true)
+        val sheet = Sheet(context, title)
         val edit = sheet.addInput(hint, initialText, maxLength)
 
         if (digitsOnly) {
@@ -312,16 +313,7 @@ object TerminalDialog {
      */
     class Sheet internal constructor(
         context: Context,
-        title: String?,
-        /**
-         * 按钮是否放到滚动区**外面**的固定底栏。
-         *
-         * <p>默认 false = 老行为：按钮跟在正文末尾、随正文一起滚。菜单/单选/确认框的正文
-         * 都很短，用不着改。true 给 [TerminalDialog.choice] 这类「正文很长 + 按钮必须能点到」
-         * 的场景用——长正文会把按钮顶到看不见的地方，而这类弹窗又不允许返回键关掉，
-         * 点不到按钮就是用户彻底卡住。
-         */
-        private val bottomButtonBar: Boolean = false
+        title: String?
     ) {
 
         val dialog: AlertDialog = AlertDialog.Builder(context).create()
@@ -359,7 +351,8 @@ object TerminalDialog {
             // 这句有意义的前提是**窗口真的比屏幕窄**——宽度由 prepareLayout() 负责收窄。
             // （26.10.20 加了这句，可当时窗口仍是整屏宽，提示行「点空白处取消」成了空话。）
             dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH)
-            buttonBar.visibility = if (bottomButtonBar) View.VISIBLE else View.GONE
+            // 按钮区默认 GONE（XML 里就是 gone），**由 addButton 打开**：
+            // 菜单/单选型没有按钮，留一个隐形底栏会白占预算（它那条分割线也算高度）。
 
             if (title.isNullOrEmpty()) {
                 titleView.visibility = View.GONE
@@ -388,7 +381,12 @@ object TerminalDialog {
                 }
                 // 等第一帧的窗口层次齐了再清：ROM 有时在 show 之后才往 DecorView 里挂
                 // SwipeGlowOverlay 这类层（见 stripForeignBackgrounds 的说明）。
-                dialog.window?.decorView?.post { stripForeignBackgrounds() }
+                dialog.window?.decorView?.post {
+                    stripForeignBackgrounds()
+                    // 同一帧里把按钮几何记一条：万一还有设备「点不着」，日志就能直接对上
+                    // 窗口宽 / 内容宽 / 命中矩形，不用再让用户描述。（见 logButtonGeometry）
+                    logButtonGeometry()
+                }
             }
         }
 
@@ -441,13 +439,10 @@ object TerminalDialog {
                 DialogSizing.Box(DialogSizing.width(frame), DialogSizing.heightBudget(frame))
             // 高度只给预算（可用高度 × 94%），上下各留一点能「点外面取消」的空白。
             val budget = DialogSizing.Frame(box.width, box.heightBudget)
-            // 按钮行的尺寸**先定稿**再算方案（反馈 #125）：`fitButtonBars` 会缩字号、把放不下的
-            // 按钮改成均分宽度，都是「事后改尺寸」。旧顺序是先按旧宽度算方案并落窗口尺寸、再缩按钮，
-            // 于是按钮的最终几何与窗口/滚动区的测量来自两次不同时机；只要某一轮测量的宽度被复用
-            // （父级没被重新标脏、只标了子树），视觉上的按钮位置就和它的点击命中区差出半格，
-            // 表现正是「取消 / 确定点不中」。现在固定行高度、滚动区自然高度、
-            // 按钮行宽度三者都基于同一份定稿尺寸。
-            fitButtonBars(box.width)
+            // 26.11.13 起按钮是**整行宽的纵向堆叠行**，宽度天然等于窗口宽，不会再「放不下」
+            // ——先前那套 `fitButtonBar`（事后缩字号 / 把并排按钮改成均分宽度）整段删掉了。
+            // 它本身就是 #125 里「按钮的最终几何与窗口测量来自两次不同时机」的嫌疑源：
+            // 现在固定行高度、滚动区自然高度、按钮行高度三者都来自同一份尺寸，没有事后改动。
             applyPlan(
                 box.width,
                 DialogSizing.plan(budget, naturalScrollHeight(box.width), measureParts(box.width), box.width)
@@ -482,10 +477,6 @@ object TerminalDialog {
             }
             scroll.layoutParams = scroll.layoutParams.apply { height = target }
 
-            // 兜底再缩一次：打字模式下调用方可能中途又加过按钮（见 prepareForTyping）。
-            // 已经装得下时 `fitButtonBar` 第一句就返回，不会重复缩字号。
-            fitButtonBars(winW)
-
             // 尺寸全部定稿，统一重排一次并把窗口尺寸落下去。show() 之后 `setLayout()` 是有效的，
             // 窗口不会再被撑成整屏宽。
             content.requestLayout()
@@ -493,89 +484,41 @@ object TerminalDialog {
         }
 
         /**
-         * 按钮行的兜底：放不下就把按钮缩回去。
+         * 把按钮的**布局几何与命中矩形**打一条日志（反馈 #161 的取证口）。
          *
-         * 这不是「难看」问题而是「点不到」问题——每个按钮都带 15dp 左右内边距与 44dp 的
-         * `minimumWidth`，把「界面大小」调到 1.8 倍后单个三字按钮就 234px 宽，两个「不同意 /
-         * 同意」合计 468px > 窗口 342px，右对齐的那个会被整个挤出屏幕。隐私说明弹窗
-         * `setCancelable(false)`，主按钮点不到 = 用户在闪屏彻底卡死（26.10.20 实测）。
+         * <p>26.11.13 起按钮是整行宽的纵向堆叠行，横向命中偏移不再会选错动作——#54 实测的
+         * 「点按钮判定到旁边的位置」这类 ROM/输入层偏移对整行按钮无害。但万一还有设备「点不着」，
+         * 光靠静态读代码已经查不动了（`TouchDelegate` / `translationX` / drawable inset 全部排除过），
+         * 必须拿到实测数字：窗口宽 vs 内容宽、按钮的 `getHitRect`（= 真的会被点到的矩形）vs
+         * 它在窗口里的绘制位置。
          *
-         * 只对**按钮行**生效，不动列表项与正文：那两处的字号是排版的一部分，缩了就难读。
+         * <p>用 `Logu.w` 而不是 `Logu.d`：`w/e/wtf` 恒执行且进内存环形缓冲，用户提交反馈时
+         * 会自动随附（`util/Logu.java` 的 `ringSnapshot()`）；`d` 在 release 包里根本不执行。
+         * 只在 `onShow` 第一帧后跑一次，正常路径开销可以忽略。
          */
-        private fun fitButtonBars(winW: Int) {
-            val bars = ArrayList<LinearLayout>(2)
-            if (bottomButtonBar) bars.add(buttonBar)
-            for (i in 0 until container.childCount) {
-                val child = container.getChildAt(i)
-                if (child is LinearLayout && child.tag == BUTTON_BAR_TAG) bars.add(child)
+        private fun logButtonGeometry() {
+            val sb = StringBuilder()
+            // 屏幕坐标系：窗口宽应该略小于它（DialogSizing 给 90%）。两者差一个数量级就说明
+            // 窗口被撑成整屏或没落到 setLayout 的宽度上。
+            val metrics = dialog.context.resources.displayMetrics
+            sb.append("screen=").append(metrics.widthPixels).append('x').append(metrics.heightPixels)
+            dialog.window?.decorView?.let { decor ->
+                sb.append(" decor=").append(decor.width).append('x').append(decor.height)
             }
-            for (bar in bars) fitButtonBar(bar, winW)
-        }
-
-        private fun fitButtonBar(bar: LinearLayout, winW: Int) {
-            if (bar.childCount == 0) return
-            // 两条按钮行的横向内边距都是 `dialog_item_padding_h`（底栏在 XML 里、滚动区内的行在
-            // 代码里）。**不能读 `paddingLeft`**：`onShowListener` 跑在第一次测量之前，XML 里的
-            // `paddingStart` 还没解析到 `paddingLeft` 上，读到 0 就会少算 30dp、按钮缩不到位。
-            val inner = winW - dimen(R.dimen.dialog_item_padding_h) * 2
-            if (inner <= 0) return
-            // 下限 9sp：再小就点不准了（按钮高度仍是 44dp 级，触控区不受影响）。
-            val floor = 9f * dialog.context.resources.displayMetrics.scaledDensity
-            var relaxed = false
-            repeat(6) {
-                if (barDesiredWidth(bar) <= inner) return
-                var shrunk = false
-                for (i in 0 until bar.childCount) {
-                    val label = bar.getChildAt(i) as? TextView ?: continue
-                    if (!relaxed) {
-                        // 内边距与 44dp 最小宽度也得一起松：只缩字号的话，这两项还把宽度钉在原地。
-                        val pad = dimen(R.dimen.dialog_item_padding_h) / 2
-                        label.setPadding(pad, 0, pad, 0)
-                        label.minimumWidth = 0
-                    }
-                    // 注意 `TextView.textSize` 的 setter 走的是 **sp**（`setTextSize(float)` 的隐藏语义），
-                    // 而 getter 返回 **px** —— 想按像素缩必须显式指定 COMPLEX_UNIT_PX。
-                    if (label.textSize > floor) {
-                        label.setTextSize(TypedValue.COMPLEX_UNIT_PX, label.textSize * 0.9f)
-                        shrunk = true
-                    }
-                }
-                relaxed = true
-                if (!shrunk) {
-                    // 字号到了 9sp 还放不下（1.8 倍界面 + 两个三字按钮就是这种）：改成均分宽度。
-                    // 比继续压字号好读，也不会像「把内边距清零」那样让两个按钮贴在一起。
-                    shareBarWidth(bar)
-                    return
-                }
+            sb.append(" content=").append(content.width).append('x').append(content.height)
+            val rect = Rect()
+            val loc = IntArray(2)
+            for (i in 0 until buttonBar.childCount) {
+                val label = buttonBar.getChildAt(i) as? TextView ?: continue
+                // getHitRect = 父容器按下时真正用来判定的矩形（含 margins/translation 结果）；
+                // getLocationInWindow = 它画在哪。
+                label.getHitRect(rect)
+                label.getLocationInWindow(loc)
+                sb.append(" | \"").append(label.text).append("\" hit=").append(rect.toShortString())
+                    .append(" at=").append(loc[0]).append(',').append(loc[1])
+                    .append(' ').append(label.width).append('x').append(label.height)
             }
-            shareBarWidth(bar)
-        }
-
-        /** 按钮行里所有按钮按单行排开需要的宽度之和（px）。 */
-        private fun barDesiredWidth(bar: LinearLayout): Int {
-            var total = 0
-            for (i in 0 until bar.childCount) {
-                val child = bar.getChildAt(i)
-                child.measure(
-                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
-                )
-                total += child.measuredWidth
-            }
-            return total
-        }
-
-        /** 放不下时的最终兜底：按钮均分整行宽度，内边距清零（否则半个格子的宽度还不够三个字）。 */
-        private fun shareBarWidth(bar: LinearLayout) {
-            for (i in 0 until bar.childCount) {
-                val child = bar.getChildAt(i)
-                val lp = child.layoutParams as? LinearLayout.LayoutParams ?: continue
-                if (lp.width == 0 && lp.weight == 1f) continue
-                lp.width = 0
-                lp.weight = 1f
-                (child as? TextView)?.setPadding(0, 0, 0, 0)
-            }
-            bar.requestLayout()
+            Logu.w("dialog", sb.toString())
         }
 
         /** 滚动区内容按最终宽度量出来的自然高度（px）。 */
@@ -709,45 +652,54 @@ object TerminalDialog {
             // show() 之后的那次再补一遍焦点，在 init 的 onShowListener 里统一处理（见那里）。
         }
 
-        /** 加一个右对齐的文字按钮（确认型用）。 */
+        /**
+         * 加一个**整行宽**的按钮（确认型用），落在滚动区外的按钮区。
+         *
+         * <p>26.11.13 之前是「一行横向 `LinearLayout` + 两个右对齐的窄 `TextView`」，每个按钮
+         * 只有三四个字宽。用户反馈里「点取消却执行删除」（#161，hesc sl8541e）、「得点稍微往左
+         * 一点才能点」（#125，HUAWEI HWARC）、「点按钮触控会判定到旁边的位置，界面边距 > 0 时
+         * 才有」（#54，同机型）说的是同一件事：**这类设备的命中区与视觉整体有偏移**。
+         *
+         * <p>窗口内部能造成「视觉 ≠ 命中」的写法已经逐条排除过（`TouchDelegate` 全仓 0 命中、
+         * `translationX` 只在 `SwipePageLayout`/`PlayerActivity`、`dialog_background` 是纯
+         * `<shape>` 无 inset、`setPadding`/`setLayout` 的算术必然绘制与命中同源），剩下只能是
+         * 窗口/输入层（ROM 兼容层），我们改不动。那就让布局本身对偏移免疫：**每个按钮占满整行、
+         * 纵向堆叠**，横向偏移再大也落不到隔壁动作上，只会落到同一行的边缘（还是同一个动作）。
+         *
+         * <p>顺带消灭了两个老问题：右对齐留下的左半行是死区（点上去没反应）、以及按钮行原来
+         * 在 ScrollView 内部会被滚动抢走触摸。
+         *
+         * <p>行高用 `dialog_item_min_height`（44dp，与列表项同一个触控下限），文字居中。颜色由
+         * 调用方给：`colorError` = 破坏性，`colorPrimary` / `secondaryColor` = 其它。
+         */
         internal fun addButton(label: String, color: Int, onClick: () -> Unit) {
-            val target = if (bottomButtonBar) {
-                // 固定底栏：滚动区外面，永远可见（见构造参数 bottomButtonBar 的说明）
-                buttonBar
-            } else {
-                val bar = container.getChildAt(container.childCount - 1) as? LinearLayout
-                if (bar?.tag == BUTTON_BAR_TAG) {
-                    bar
-                } else {
-                    LinearLayout(dialog.context).apply {
-                        tag = BUTTON_BAR_TAG
-                        orientation = LinearLayout.HORIZONTAL
-                        gravity = Gravity.END
-                        setPadding(
-                            dimen(R.dimen.dialog_item_padding_h), 0,
-                            dimen(R.dimen.dialog_item_padding_h), 0
-                        )
-                    }.also { container.addView(it) }
-                }
-            }
-
-            target.addView(
+            // 按钮区默认 GONE（菜单/单选型没有按钮，不留一条空分割线白占高度预算）。
+            buttonBar.visibility = View.VISIBLE
+            buttonBar.addView(
                 TextView(dialog.context).apply {
                     text = label
                     setTextColor(color)
-                    textSize = 12.5f
+                    // 与 item_dialog_terminal 的条目同号：整行宽之后不再需要为了塞进半行而缩到 12.5sp。
+                    textSize = 13f
                     gravity = Gravity.CENTER
                     minHeight = dimen(R.dimen.dialog_item_min_height)
-                    minimumWidth = dimen(R.dimen.dialog_item_min_height)
                     setPadding(
                         dimen(R.dimen.dialog_item_padding_h), 0,
                         dimen(R.dimen.dialog_item_padding_h), 0
                     )
+                    // 允许折成两行：三字按钮在 1.8 倍界面下整行仍放得下，折行只是极端字号的余地；
+                    // 真到两行还放不下才截断（截断总比把按钮挤出行外、点不到要好）。
+                    maxLines = 2
+                    ellipsize = TextUtils.TruncateAt.END
                     isClickable = true
                     isFocusable = true
                     background = selectableItemBackground()
                     setOnClickListener { onClick() }
-                }
+                },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
             )
         }
 
@@ -815,9 +767,6 @@ object TerminalDialog {
             return color
         }
 
-        private companion object {
-            const val BUTTON_BAR_TAG = "terminal_dialog_button_bar"
-        }
     }
 
     /** 一个条目的三个可变部位。 */

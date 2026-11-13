@@ -74,7 +74,12 @@ object DialogSizing {
         val title: Int,
         /** 标题下的分隔线。 */
         val divider: Int,
-        /** 固定底栏（只有 `bottomButtonBar = true` 的弹窗才有）。 */
+        /**
+         * 按钮区（26.11.13 起所有弹窗都有、且**永远在滚动区外**；没有按钮的菜单 / 单选型传 0）。
+         *
+         * 每个按钮独占一行（`TerminalDialog.Sheet.addButton` 里是整行宽 TextView），所以这里要按
+         * 「按钮个数 × 行高」算，别当成一条固定高度。
+         */
         val buttonBar: Int,
         /** 底部提示行。 */
         val hint: Int,

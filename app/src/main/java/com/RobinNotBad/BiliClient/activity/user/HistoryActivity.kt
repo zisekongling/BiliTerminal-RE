@@ -271,9 +271,9 @@ class HistoryActivity : RefreshListActivity() {
         val initialAid = if (initialPosition >= 0 && initialPosition < videoList.size) videoList[initialPosition].aid else 0
         val checked = BooleanArray(snapshot.size) { index -> snapshot[index].aid == initialAid }
 
-        // 第三个参数 bottomButtonBar：勾选列表可能很长（最多 100 条），按钮必须钉在滚动区外面，
-        // 否则用户要一路划到底才能看到「删除已选」，等于没有按钮
-        val sheet = TerminalDialog.Sheet(this, getString(R.string.social_history_delete_title), true)
+        // 勾选列表可能很长（最多 100 条），按钮钉在滚动区外面，否则用户要一路划到底才能
+        // 看到「删除已选」，等于没有按钮。26.11.13 起所有弹窗的按钮都在滚动区外（无参数可传）。
+        val sheet = TerminalDialog.Sheet(this, getString(R.string.social_history_delete_title))
 
         val countRow = sheet.addItem(
             getString(R.string.social_history_selected_count, HistoryApi.countChecked(checked)), onClick = {}
