@@ -296,21 +296,19 @@ class ReplyAdapter(
                     true
                 }
             } else {
-                // 先清掉复用 holder 上残留的面板监听：copy_enable 关着时 setCopy 不会覆盖它，
-                // 否则设置里关了面板，长按仍会弹旧的面板。
-                replyHolder.message.setOnLongClickListener(null)
-                StringUtil.setCopy(replyHolder.message)
+                bindLegacyCopyLongPress(replyHolder.message, reply.message)
             }
-            // 整张卡片也要能长按。原来只有正文挂了长按，按在昵称/时间/留白上时事件落到
-            // itemView 的点击监听，抬手被当成「打开评论详情」——用户看到的就是
-            // 「长按自己的评论反而进了详情页」。这里与正文走同一个入口，避免两套行为。
-            if (panelEnabled && !isDetail) {
+            // 整张卡片也要能长按，且**详情页同样要挂**。原来只有正文挂了长按，按在昵称/时间/留白
+            // 上时事件落到 itemView 的点击监听，抬手被当成「打开评论详情」——用户看到的就是
+            // 「长按自己的评论反而进了详情页」。26.11.12 补了整卡长按，但条件写成「非详情页」，
+            // 于是评论详情页里同一手势在正文上弹面板、在昵称/时间/留白上毫无反应，仍是两套行为。
+            if (panelEnabled) {
                 replyHolder.itemView.setOnLongClickListener {
                     showManageMenu(reply)
                     true
                 }
             } else {
-                replyHolder.itemView.setOnLongClickListener(null)
+                bindLegacyCopyLongPress(replyHolder.itemView, reply.message)
             }
             replyHolder.message.setOnTouchListener(StringUtil.ClickableSpanTouchListener.getInstance())
 
@@ -398,7 +396,7 @@ class ReplyAdapter(
                                 true
                             }
                         } else {
-                            textView.setOnLongClickListener(null)
+                            bindLegacyCopyLongPress(textView, child.message)
                         }
                         renderIndex++
                     }
@@ -447,14 +445,15 @@ class ReplyAdapter(
 
             replyHolder.childReplyCard.setOnClickListener { startReplyInfoActivity(reply) }
             // 楼中楼卡片本身也要拦长按：卡片只有 click，按在子回复之间的留白上抬手会被
-            // 当成点击、直接进评论详情页。与正文同一个入口；开关关闭时清掉监听。
+            // 当成点击、直接进评论详情页。与正文同一个入口；开关关闭时也要挂复制/吞掉，
+            // 不能置 null，否则又回到「长按变成点击」的老毛病。
             if (panelEnabled) {
                 replyHolder.childReplyCard.setOnLongClickListener {
                     showManageMenu(reply)
                     true
                 }
             } else {
-                replyHolder.childReplyCard.setOnLongClickListener(null)
+                bindLegacyCopyLongPress(replyHolder.childReplyCard, reply.message)
             }
             if (!isDetail) {
                 replyHolder.itemView.setOnClickListener { startReplyInfoActivity(reply) }
@@ -621,6 +620,28 @@ class ReplyAdapter(
      */
     private fun canManage(reply: Reply): Boolean {
         return isManager || reply.sender?.mid == SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0)
+    }
+
+    /**
+     * 「长按打开操作面板」开关关闭时的长按：退回旧行为，直接打开复制界面。
+     *
+     * <p>**无论复制功能开没开，都必须挂上监听、并且始终返回 true。** 评论卡片（`itemView`）
+     * 与楼中楼卡片（`childReplyCard`）本身只有点击监听，长按没人接时抬手会被当成一次点击、
+     * 直接进评论详情页——`StringUtil.setCopy` 在 `copy_enable` 关闭时根本不挂监听，
+     * 于是「面板开关关 + 复制开关关」时长按必然变成「进详情页」，而同一行末尾的删除键
+     * 长按照样能弹面板，两种表现自相矛盾（这就是用户反馈的那条症状的复现路径）。
+     *
+     * <p>正文、整条卡片、楼中楼卡片、每条楼中楼文字全部走这一个入口，
+     * 长按落在哪里结果都一样，不会出现「按正文出面板、按留白进详情页」。
+     */
+    private fun bindLegacyCopyLongPress(view: View, content: CharSequence?) {
+        val text = content?.toString().orEmpty()
+        view.setOnLongClickListener {
+            if (StringUtil.isCopyEnabled() && text.isNotEmpty())
+                StringUtil.openCopyPage(context, text)
+            // 复制关掉 / 正文为空时什么都不做，但仍要消费掉这次长按，别让它变成一次点击
+            true
+        }
     }
 
     /**
