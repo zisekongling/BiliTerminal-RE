@@ -441,6 +441,13 @@ object TerminalDialog {
                 DialogSizing.Box(DialogSizing.width(frame), DialogSizing.heightBudget(frame))
             // 高度只给预算（可用高度 × 94%），上下各留一点能「点外面取消」的空白。
             val budget = DialogSizing.Frame(box.width, box.heightBudget)
+            // 按钮行的尺寸**先定稿**再算方案（反馈 #125）：`fitButtonBars` 会缩字号、把放不下的
+            // 按钮改成均分宽度，都是「事后改尺寸」。旧顺序是先按旧宽度算方案并落窗口尺寸、再缩按钮，
+            // 于是按钮的最终几何与窗口/滚动区的测量来自两次不同时机；只要某一轮测量的宽度被复用
+            // （父级没被重新标脏、只标了子树），视觉上的按钮位置就和它的点击命中区差出半格，
+            // 表现正是「取消 / 确定点不中」。现在固定行高度、滚动区自然高度、
+            // 按钮行宽度三者都基于同一份定稿尺寸。
+            fitButtonBars(box.width)
             applyPlan(
                 box.width,
                 DialogSizing.plan(budget, naturalScrollHeight(box.width), measureParts(box.width), box.width)
@@ -448,9 +455,11 @@ object TerminalDialog {
         }
 
         private fun applyPlan(winW: Int, plan: DialogSizing.Plan) {
+            // 顺序是有意的（反馈 #125）：先把所有会改尺寸的事全做完——窗口宽度、该舍哪几行、
+            // 滚动区高度、按钮行的字号与权重——最后才 `requestLayout()` + `window.setLayout()`
+            // 一次落定，让视觉与命中区来自同一个测量结果。
             // 宽度**必须**落在 content 自己的 layoutParams 上：窗口是 WRAP_CONTENT，会跟着收窄。
-            // 光调 `window.setLayout()` 不够 —— appcompat 会把它重置回 wrap×wrap（见 init 里的说明），
-            // 所以 init 里落一次、`onShowListener` 里再落一次，两次都是同一个宽度。
+            // 光调 `window.setLayout()` 不够 —— appcompat 会把它重置回 wrap×wrap（见 init 里的说明）。
             val current = content.layoutParams
             if (current is FrameLayout.LayoutParams) {
                 current.width = winW
@@ -459,9 +468,6 @@ object TerminalDialog {
                 content.layoutParams =
                     FrameLayout.LayoutParams(winW, ViewGroup.LayoutParams.WRAP_CONTENT)
             }
-            content.requestLayout()
-            // 双保险：show() 之后 `setLayout()` 是有效的，窗口不会再被撑成整屏宽。
-            dialog.window?.setLayout(winW, ViewGroup.LayoutParams.WRAP_CONTENT)
 
             if (plan.hideHint) hintView.visibility = View.GONE
             if (plan.hideTitle) {
@@ -475,8 +481,15 @@ object TerminalDialog {
                 plan.scrollHeight ?: ViewGroup.LayoutParams.WRAP_CONTENT
             }
             scroll.layoutParams = scroll.layoutParams.apply { height = target }
-            scroll.requestLayout()
+
+            // 兜底再缩一次：打字模式下调用方可能中途又加过按钮（见 prepareForTyping）。
+            // 已经装得下时 `fitButtonBar` 第一句就返回，不会重复缩字号。
             fitButtonBars(winW)
+
+            // 尺寸全部定稿，统一重排一次并把窗口尺寸落下去。show() 之后 `setLayout()` 是有效的，
+            // 窗口不会再被撑成整屏宽。
+            content.requestLayout()
+            dialog.window?.setLayout(winW, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
 
         /**
