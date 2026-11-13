@@ -62,6 +62,20 @@ public class NetWorkUtil {
     private static volatile long accountGeneration = 0L;
 
     /**
+     * Set-Cookie 里的鉴权键（SESSDATA / bili_jct / DedeUserID / ac_time_value…）是否允许**改写**本地值。
+     *
+     * <p>取 true 而不是「一律拦下」，是因为 B 站会在**任意响应**里通过 Set-Cookie 轮换
+     * {@code bili_jct}（见 {@link #currentCsrf()} 与 {@code saveCookiesLocked} 末尾的 csrf 同步），
+     * 拦掉更新会让本地 bili_jct 与服务端对不上，所有 POST 开始静默报 -111。
+     *
+     * <p>「不许删」与「不许改」是两件事：删除 / 清空（{@code Max-Age=0}、空值）由
+     * {@link CookieMerge} 一律拦下并记日志，这一条与 26.11.06「升级后掉登录」的返工结论一致
+     * （凭据只能由登录 / 切号 / 退出登录这些显式动作清除）。若将来要收紧成「连改写一起拦」，
+     * 把这个常量改成 false 即可，合并逻辑本身不用动。
+     */
+    private static final boolean ALLOW_AUTH_COOKIE_UPDATES = true;
+
+    /**
      * HTTP 追踪总开关（26.10.14，由 [com.RobinNotBad.BiliClient.BiliTerminal.applyLogSwitches] 写入）。
      *
      * <p>原实现只在 `get()` / `post()` 里记 URL 和 POST 正文，**不记状态码、不记响应体、不记耗时**：
@@ -713,14 +727,18 @@ public class NetWorkUtil {
             acceptedHeaders.add(newCookie);
         }
 
-        // 解析与合并交给纯策略 CookieJarPolicy（有 JVM 单测）：
-        // · 属性按 ';' 切（不再只认 "; "），不会被 `Domain=` 之类属性污染值；
-        // · SESSDATA / bili_jct / DedeUserID 等**登录凭据不接受删除或清空**——Cookie 刷新接口
-        //   成功后会下发新 SESSDATA，确认接口才让旧 Cookie 失效；若这里把凭据按空值覆盖，
-        //   本地就变成「没有 SESSDATA」，下次启动直接判登录过期（掉登录）；
-        // · 空值写入一律忽略，非凭据键的 Max-Age=0 / Expires 过期正常删除。
-        CookieJarPolicy.MergeResult merged =
-                CookieJarPolicy.merge(cookiesStr, CookieJarPolicy.parseAll(acceptedHeaders));
+        // 解析与合并交给纯策略（都有 JVM 单测）：
+        // · CookieMerge 负责「鉴权键白名单」这一层：键名**大小写不敏感**比对（响应里来一条小写
+        //   `sessdata=` 也认得出是凭据，不会照删；大小写不同的同一个键归一成本地已有拼写，
+        //   本地串里不会出现 SESSDATA / sessdata 两份），并把 `ac_time_value`（Cookie 刷新接口
+        //   的入场券）也补进受保护的鉴权键 —— CookieJarPolicy 的清单里没有它；
+        // · 它再把剩下的规则交给 CookieJarPolicy：属性按 ';' 切（不再只认 "; "），不会被
+        //   `Domain=` 之类属性污染值；空值写入一律忽略；非凭据键的 Max-Age=0 / Expires 过期正常删除；
+        // · 鉴权键**不接受删除或清空**——Cookie 刷新接口成功后会下发新 SESSDATA，确认接口才让
+        //   旧 Cookie 失效；若这里把凭据按空值覆盖，本地就变成「没有 SESSDATA」，下次启动直接
+        //   判登录过期（掉登录）。
+        CookieMerge.Result merged =
+                CookieMerge.mergeHeaders(cookiesStr, acceptedHeaders, ALLOW_AUTH_COOKIE_UPDATES);
         if (!merged.getProtectedKeys().isEmpty()) {
             // 只记键名，不记值（这些就是凭据本身，审计 S2）
             Logu.d("newCookie", "拒绝删除/清空登录凭据：" + merged.getProtectedKeys());

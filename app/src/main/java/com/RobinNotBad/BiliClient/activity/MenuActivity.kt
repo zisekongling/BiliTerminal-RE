@@ -35,6 +35,8 @@ import com.RobinNotBad.BiliClient.activity.video.TimelineActivity
 import com.RobinNotBad.BiliClient.activity.video.local.LocalListActivity
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.MenuConfig
+import com.RobinNotBad.BiliClient.util.MessageUnreadRefresh
+import com.RobinNotBad.BiliClient.util.MessageUnreadRefresher
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.google.android.material.button.MaterialButton
 import java.util.LinkedHashMap
@@ -44,6 +46,15 @@ class MenuActivity : BaseActivity() {
     private var from: String? = null
     private var dynamicButton: MaterialButton? = null
     private var messageButton: MaterialButton? = null
+
+    /**
+     * 未读刷新回到主线程后的回调。
+     *
+     * <p>必须是**稳定的同一个对象**：它既是回调也可能是观察者表里的键，
+     * `MessageUnreadRefresher.unobserve` 按标识移除它。写成字段而不是每次现造 lambda，
+     * 就是为了 onPause 里能撤干净（否则静态表会留住已销毁的 Activity）。
+     */
+    private val unreadObserver: (Int) -> Unit = { total -> applyMessageButtonText(total) }
 
     companion object {
         val btnNames: Map<String, Pair<String, Class<out InstanceActivity>>> = LinkedHashMap<String, Pair<String, Class<out InstanceActivity>>>().apply {
@@ -152,13 +163,9 @@ class MenuActivity : BaseActivity() {
                     materialButton.text = btnText
                 }
                 "message" -> {
-                    var messageBtnText = btnNames[btn]!!.first
                     messageButton = materialButton
-                    val messageUpdateNum = SharedPreferencesUtil.getInt(SharedPreferencesUtil.MESSAGE_UPDATE_NUM, 0)
-                    if (messageUpdateNum > 0) {
-                        messageBtnText = "$messageBtnText ($messageUpdateNum)"
-                    }
-                    materialButton.text = messageBtnText
+                    materialButton.text =
+                        messageLabel(SharedPreferencesUtil.getInt(SharedPreferencesUtil.MESSAGE_UPDATE_NUM, 0))
                 }
                 else -> materialButton.text = btnNames[btn]!!.first
             }
@@ -197,13 +204,36 @@ class MenuActivity : BaseActivity() {
             dynamicButton!!.text = btnText
         }
         if (messageButton != null) {
-            var messageBtnText = btnNames["message"]!!.first
-            val messageUpdateNum = SharedPreferencesUtil.getInt(SharedPreferencesUtil.MESSAGE_UPDATE_NUM, 0)
-            if (messageUpdateNum > 0) {
-                messageBtnText = "$messageBtnText ($messageUpdateNum)"
-            }
-            messageButton!!.text = messageBtnText
+            updateMessageButtonText()
         }
+        // 未读提示（E）：回到菜单时做一次性的增量刷新——先把 SP 里的值画上（同步、无闪烁），
+        // 再让刷新器决定这次要不要真的发请求（最小间隔 5 秒 + 单飞，判据在 MessageUnreadRefresh 里）。
+        // 未登录 / 关了「消息数量检查」时刷新器内部直接返回；全程没有后台定时器。
+        MessageUnreadRefresher.refreshOnMenuResume(unreadObserver)
+    }
+
+    override fun onPause() {
+        // 刷新是异步回来的，本页不再前台就撤掉回调，别让静态观察者表留住已销毁的 Activity
+        MessageUnreadRefresher.unobserve(unreadObserver)
+        super.onPause()
+    }
+
+    /** 「消息」按钮的文案：无未读时是按钮名，有未读时是「消息 (3)」。 */
+    private fun messageLabel(count: Int): String = MessageUnreadRefresh.formatCountLabel(
+        btnNames["message"]!!.first,
+        count,
+        getString(R.string.social_menu_unread_label)
+    )
+
+    /** 把未读数画到按钮上。异步回调进来时页面可能已经在收尾，先判活再写 View。 */
+    private fun applyMessageButtonText(count: Int) {
+        if (isFinishing || isDestroyed) return
+        messageButton?.text = messageLabel(count)
+    }
+
+    /** 按 SP 里当前的未读数刷新按钮文案（进消息页会清零，所以返回菜单要重读）。 */
+    private fun updateMessageButtonText() {
+        applyMessageButtonText(SharedPreferencesUtil.getInt(SharedPreferencesUtil.MESSAGE_UPDATE_NUM, 0))
     }
 
     private fun killAndJump(name: String) {

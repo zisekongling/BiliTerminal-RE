@@ -9,6 +9,8 @@ import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.CrashReporter
 import com.RobinNotBad.BiliClient.util.CrashTrail
 import com.RobinNotBad.BiliClient.util.Logu
+import com.RobinNotBad.BiliClient.util.SettingsKeys
+import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import tv.danmaku.ijk.media.player.IjkMediaPlayer
 import java.io.File
 
@@ -37,6 +39,21 @@ import java.io.File
  * 崩溃报告与反馈都会附带），并在用户开着「崩溃自动上报」时上传一条崩溃报告——
  * 「Bad file descriptor」这类问题的根因在用户设备上（安装残留、存储异常、共享 uid 分包路径），
  * 本地复现不了，只能靠线上数据判断。
+ *
+ * ## 设备兼容性默认值（O6）
+ *
+ * 这里是「起播前一定会走到」的位置（[com.RobinNotBad.BiliClient.activity.player.PlayerActivity]、
+ * `IjkPlayerBridge`、`VideoPlayerCore` 都先调 [ensureLoaded]），所以两件与设备相关的事都放这里做：
+ *
+ * 1. **华为 / 鸿蒙默认软解**：首次加载时把 `player_codec` 播种成 `false`（判据见
+ *    [PlayerCompatPolicy.prefersSoftwareCodec]，取值为 `Build.MANUFACTURER/BRAND/MODEL`）。
+ *    只写**用户没设过**的键（`prefs.contains` 为真就跳过），所以用户手动改过硬解后不会被反复改回去。
+ *    解码方式的唯一读取点仍是 `PlayerActivity.hardwareDecodeEnabled()`，本类不参与播放决策。
+ * 2. **ABI 覆盖不到时不硬试**：`app/libs/` 只发布了 `arm64-v8a` / `armeabi-v7a` / `x86` 三套 .so，
+ *    其它 ABI（x86_64 模拟器、被裁剪的国产 ROM）上 `loadLibrariesOnce` 必然抛
+ *    [UnsatisfiedLinkError]，再走一遍失败诊断只会在用户眼里变成一句「播放器组件加载失败」。
+ *    判据见 [PlayerCompatPolicy.shouldUsePlatformMediaPlayer]，命中时直接不加载并置
+ *    [isPlatformPlayerRequired]（供上层将来改走系统播放器）。
  */
 object IjkNativeLibs {
 
@@ -64,6 +81,14 @@ object IjkNativeLibs {
     @Volatile
     private var reported = false
 
+    /** 兼容性默认值是否已经处理过（只处理一次；没拿到 prefs 时不锁存，见 [seedCompatDefaults]）。 */
+    @Volatile
+    private var compatSeeded = false
+
+    /** 设备 ABI 覆盖不到随包 .so，本进程应当改用系统播放器。 */
+    @Volatile
+    private var platformPlayerRequired = false
+
     /**
      * 确保原生库已加载；可在主线程调用（正常路径只是一次 volatile 读）。
      *
@@ -73,6 +98,14 @@ object IjkNativeLibs {
      * @param context 仅用于失败时采集 `nativeLibraryDir` 等诊断信息与上报，可以传 null。
      */
     fun ensureLoaded(context: Context?): Boolean {
+        // 设备兼容性默认值：必须在播放器读 player_codec 之前落地，所以放在最前面（只跑一次的轻量操作）
+        seedCompatDefaults()
+        // ABI 一个都覆盖不到时连 dlopen 都不用试：必然 UnsatisfiedLinkError，
+        // 只会给用户留一句「加载失败」并白刷一屏诊断
+        if (PlayerCompatPolicy.shouldUsePlatformMediaPlayer(supportedAbis())) {
+            markUnsupportedAbi()
+            return false
+        }
         // 快路径：加载成功后这就是一次 volatile 读，不进入同步块
         if (loadState == STATE_LOADED) return true
         if (loadState == STATE_FAILED) return false
@@ -101,6 +134,14 @@ object IjkNativeLibs {
     fun isLoadFailed(): Boolean = loadState == STATE_FAILED
 
     /**
+     * 本进程是否应该改用系统（平台）播放器：设备 ABI 覆盖不到随包的 .so。
+     *
+     * 目前只有 [ensureLoaded] 会置位（返回 false 同时置位）；真正的「换播放器」动作在调用方，
+     * 播放页尚未接这条分支（见交接说明），所以这里只提供判据。
+     */
+    fun isPlatformPlayerRequired(): Boolean = platformPlayerRequired
+
+    /**
      * 给用户看的失败提示（已进 [R.string.msg_ijk_native_load_failed]）。
      * 取不到 Context 时退回一句等价的硬编码文本，保证任何路径都不会因为拿不到资源再崩一次。
      */
@@ -115,6 +156,45 @@ object IjkNativeLibs {
      */
     fun reportCreateFailure(context: Context?, t: Throwable) {
         markFailed(context, t)
+    }
+
+    /**
+     * 首次起播前把「设备兼容性默认值」写进设置（目前只有一条：华为/鸿蒙默认软解）。
+     *
+     * 三条纪律：
+     * - **只写没人写过的键**：`player_codec` 已经存在（用户改过、或上一版播种过）就直接返回，
+     *   绝不覆盖用户的选择——否则用户在设置里手动改回硬解，下次进播放器又会被改走。
+     * - **拿不到 prefs 就不锁存**：Application 还没起来时 [SharedPreferencesUtil.sharedPreferences]
+     *   还是 null，这时直接 return，下次调用再试（否则这一整进程都不会播种）。
+     * - **不抛异常**：写设置失败只记一行日志，不能因为一个默认值把起播搞崩。
+     */
+    private fun seedCompatDefaults() {
+        if (compatSeeded) return
+        val prefs = SharedPreferencesUtil.sharedPreferences ?: return
+        compatSeeded = true
+        try {
+            if (prefs.contains(SettingsKeys.PLAYER_CODEC)) return
+            if (!PlayerCompatPolicy.prefersSoftwareCodec(Build.MANUFACTURER, Build.BRAND, Build.MODEL)) return
+            SharedPreferencesUtil.putBoolean(SettingsKeys.PLAYER_CODEC, false)
+            Logu.i(TAG, "华为/鸿蒙设备（${Build.MANUFACTURER}/${Build.BRAND}）默认解码方式播种为软解")
+        } catch (e: Throwable) {
+            Logu.w(TAG, "写入默认解码方式失败: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    /**
+     * 设备 ABI 覆盖不到随包 .so：不加载、不再重试，并记住「应该走系统播放器」。
+     *
+     * 这里**不走** [markFailed]：那条路径要采集库目录、上传崩溃报告，而 ABI 不匹配是
+     * 出厂就定死的兼容性事实，不是故障，报上去只会污染崩溃统计。
+     */
+    private fun markUnsupportedAbi() {
+        val first = !platformPlayerRequired
+        platformPlayerRequired = true
+        if (loadState == STATE_UNLOADED) loadState = STATE_FAILED
+        if (first) {
+            Logu.w(TAG, "设备 ABI（${abiSummary()}）没有随包 .so 覆盖，跳过 ijk，改走系统播放器")
+        }
     }
 
     private fun markFailed(context: Context?, t: Throwable) {
@@ -216,17 +296,23 @@ object IjkNativeLibs {
         }
     }
 
-    /** `Build.SUPPORTED_ABIS` 是 API 21 字段，minSdk 19 下必须先判 SDK_INT 再读。 */
-    private fun abiSummary(): String {
+    /**
+     * 设备声明的 ABI 列表。
+     *
+     * `Build.SUPPORTED_ABIS` 是 API 21 字段，minSdk 19 下必须先判 SDK_INT 再读；21 以前退回
+     * `CPU_ABI` + `CPU_ABI2`（后者在部分 64 位设备上是 null，先滤掉再拼）。
+     */
+    private fun supportedAbis(): List<String> {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            return Build.SUPPORTED_ABIS?.joinToString(", ") ?: "-"
+            return Build.SUPPORTED_ABIS?.filter { it.isNotEmpty() } ?: emptyList()
         }
-        // CPU_ABI2 在部分 64 位设备上为 null，先滤掉再拼
         return listOf(Build.CPU_ABI, Build.CPU_ABI2)
             .filterNotNull()
             .filter { it.isNotEmpty() }
-            .joinToString(", ")
     }
+
+    /** 诊断用的一行 ABI 摘要；取不到时给 `-`。 */
+    private fun abiSummary(): String = supportedAbis().joinToString(", ").ifEmpty { "-" }
 
     private const val DEFAULT_FAILURE_TEXT = "播放器组件加载失败，无法播放视频"
 }

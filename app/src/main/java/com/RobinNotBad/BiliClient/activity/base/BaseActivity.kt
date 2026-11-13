@@ -52,6 +52,7 @@ import com.RobinNotBad.BiliClient.util.DisguiseGesture
 import com.RobinNotBad.BiliClient.util.DisguisePrefs
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.PageMotion
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.ToolsUtil
@@ -201,6 +202,10 @@ open class BaseActivity : AppCompatActivity() {
         // 圆屏列表效果（实验性）：开关关闭时内部直接 return，零开销。
         // 设置在 onCreate 读取，改开关后重新进入页面生效。
         RoundListEffect.install(this)
+
+        // 全局转场动画开关（O7）：关闭时压掉窗口动画并改写 overridePendingTransition。
+        // 开关默认关闭，此时 PageMotion.apply 什么都不做，既有行为不变。
+        PageMotion.apply(this)
     }
 
     /**
@@ -676,6 +681,8 @@ open class BaseActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // 转场动画开关：窗口属性在回前台时可能被系统重置，这里再按一次开关状态（默认关闭时零开销）。
+        PageMotion.apply(this)
         // 外观（配色/圆角/字体任一项）在别处被修改后，返回本页时即时重建以应用新外观。
         // 只比一个 Int：三个模块共用一个版本号，详见 AppearanceManager。
         if (appliedAppearanceVersion >= 0 && appliedAppearanceVersion != AppearanceManager.version()) {
@@ -693,6 +700,8 @@ open class BaseActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // 释放转场动画记录（windowAnimations 是每个窗口各自的属性，记录随页面一起丢）
+        PageMotion.forget(this)
         TopbarIsland.detach(this)
         // 取消还没交付的异步 inflate：布局在线程池里已经跑起来时无法中断，
         // 但可以让它到达主线程后丢弃结果，避免 setContentView / finishInflate 打在已销毁的页面上。

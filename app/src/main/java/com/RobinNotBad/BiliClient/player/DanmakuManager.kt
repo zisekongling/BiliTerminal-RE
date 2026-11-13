@@ -96,6 +96,27 @@ class DanmakuManager(
     private var selfBorderOwnMid = 0L
     private var selfBorderColor = 0
 
+    /**
+     * G01「弹幕屏蔽词」的判定快照。
+     *
+     * 与 [selfBorderEnabled] 同一套理由：判定发生在 DFM 渲染线程与逐条追加路径上，
+     * 那里不能读 SharedPreferences。快照在 [configureAndPrepare] 里刷新一次，
+     * 于是设置项的生效粒度就是「下一次加载弹幕」（换视频 / 切 P / 重进播放页）。
+     */
+    private var blockWords: DanmakuBlockWordPolicy.Snapshot = DanmakuBlockWordPolicy.Snapshot.NONE
+
+    /**
+     * 已加载弹幕的时间点（毫秒），G07「高能进度条本地兜底」用。
+     *
+     * 官方 pbp 接口拿不到数据时，播放页用这批时间点自己算一条密度曲线
+     * （见 [DanmakuDensityHighEnergy]）。只在内存里留时间戳，不留文本，
+     * 5000 条弹幕约 40KB，与弹幕本身的开销相比可以忽略。
+     *
+     * 两条装载路径都要记：首窗口在 [prepared] 里从 parser 遍历一次，
+     * 后续窗口的 [appendSegmentInternal] 逐条追加时补记。`prepare` 新一版时清空。
+     */
+    private val loadedTimes = ArrayList<Long>()
+
     private val _state = MutableStateFlow(DanmakuState())
     val state: StateFlow<DanmakuState> = _state.asStateFlow()
 
@@ -255,6 +276,8 @@ class DanmakuManager(
         // 新一次 prepare 意味着一批全新的弹幕源（换视频 / 切 P / 回退 XML）：上一轮窗口加载
         // 还没灌进去的分段必须丢掉，否则会串到新视频的时间轴上（弹幕「提前出现」或重复）。
         synchronized(appendLock) { pendingSegments.clear() }
+        // G07：高能条兜底用的时间点也要跟着换代，否则换视频后会拿到上一条视频的密度曲线。
+        synchronized(loadedTimes) { loadedTimes.clear() }
         // 新一轮 prepare 开始：旧 parser 的数据即将被替换，在 `prepared()` 回来之前必须把
         // `isPrepared` 复位。否则同一实例第二次加载失败时，复用该字段的 `appendSegments`
         // 会把新分段直接灌进还挂着旧 parser 的 view（串台）；`release()` 之外没有别的地方复位。
@@ -264,10 +287,17 @@ class DanmakuManager(
         // 必须在这里（调用方的主线程）算好，`prepared()` 跑在渲染线程上只能读字段。
         refreshSelfBorderSpec()
 
+        // G01：刷新弹幕屏蔽词快照（同样只能在主线程做一次 IO）。
+        blockWords = DanmakuBlockWordPolicy.load()
+
         val st = _state.value
         // E2：强制为滚动弹幕开启时，解析结果里的顶部/底部弹幕要换成滚动弹幕
         // （DFM 的类型由具体子类决定，必须换实例，见 [ForceScrollParser]）。
-        val activeParser: BaseDanmakuParser = if (st.forceScroll) ForceScrollParser(parser) else parser
+        val baseParser: BaseDanmakuParser = if (st.forceScroll) ForceScrollParser(parser) else parser
+        // G01：屏蔽词非空时再包一层，命中词的弹幕在解析阶段就被丢掉（见 [DanmakuBlockWordParser]）。
+        // 顺序固定为「先强制滚动、再屏蔽词」：反过来会让即将被丢弃的条目白重建一次。
+        val activeParser: BaseDanmakuParser =
+            if (blockWords.isEmpty) baseParser else DanmakuBlockWordParser(baseParser, blockWords)
         danmakuParser = activeParser
 
         val maxLinesPair = hashMapOf(BaseDanmaku.TYPE_SCROLL_RL to st.maxLines)
@@ -296,6 +326,10 @@ class DanmakuManager(
                 // 一旦异常逸出会打断该线程，表现就是"弹幕一条都不显示"且没有任何上层报错。
                 try {
                     _state.update { it.copy(isPrepared = true) }
+                    // G07：先把首窗口（parser 解析结果）的时间点记下来，供「高能进度条兜底」用。
+                    // 必须放在 flushPendingSegments() 之前：补灌的分段在 appendSegmentInternal
+                    // 里自己会记，先记 parser 才不会漏掉首窗口这一批。
+                    recordLoadedTimes()
                     // 窗口加载（批次 2）：`prepare()` 之前/期间到达的后续分段此时补灌。
                     // 必须放在这里 —— `DrawHandler.addDanmaku` 在 drawTask 就绪前会静默丢弃，
                     // 那正是「弹幕只出前几分钟」这类问题的根因。
@@ -468,8 +502,7 @@ class DanmakuManager(
      *   不进渲染循环、不产生额外对象分配（`normalize` 最多生成短字符串）。
      * - 覆盖范围：首窗口与「prepare 期间补灌的分段」都在解析结果里，见 [flushPendingSegments]。
      */
-    private fun markSelfDanmakuBorders() {
-        if (!selfBorderEnabled || selfBorderOwnMid <= 0L) return
+    private fun markSelfDanmakuBorders() {        if (!selfBorderEnabled || selfBorderOwnMid <= 0L) return
         val items = danmakuParser?.danmakus ?: return
         val iterator = items.iterator()
         var marked = 0
@@ -482,6 +515,32 @@ class DanmakuManager(
         }
         if (marked > 0) Logu.d("弹幕", "本人弹幕边框：已标记 $marked 条")
     }
+
+    /**
+     * G07：把首窗口（parser 解析结果）的时间点记进 [loadedTimes]。
+     *
+     * 在 `prepared()` 回调里调用——此时 `DrawTask` 已 `getDanmakus()` 拿到缓存集合，
+     * 遍历不会触发第二次解析（与 [markSelfDanmakuBorders] 同一时机、同一批数据）。
+     * 后续窗口走 [appendSegmentInternal] 逐条补记；两条路径加起来正好覆盖全部已加载弹幕。
+     */
+    private fun recordLoadedTimes() {
+        val items = danmakuParser?.danmakus ?: return
+        synchronized(loadedTimes) {
+            val iterator = items.iterator()
+            while (iterator.hasNext()) {
+                val item = iterator.next() ?: continue
+                loadedTimes.add(item.time)
+            }
+        }
+    }
+
+    /**
+     * 已加载弹幕的时间点快照（毫秒），供「高能进度条本地兜底」算密度曲线。
+     *
+     * 返回副本：调用方（播放页后台线程）遍历时不能与渲染线程的追加互相干扰。
+     * 未加载任何弹幕时返回空数组，调用方据此放弃兜底（见 [DanmakuDensityHighEnergy.build]）。
+     */
+    fun loadedDanmakuTimes(): LongArray = synchronized(loadedTimes) { loadedTimes.toLongArray() }
 
     /**
      * 单个分段 → 逐条 `addDanmaku`。
@@ -502,6 +561,9 @@ class DanmakuManager(
                 if (elem.mode == 7 || elem.mode == 8) continue
                 val content = elem.content
                 if (content.isNullOrEmpty()) continue
+                // G01：窗口追加的分段不经过 parser（这里逐条建实例），屏蔽词必须单独拦一次，
+                // 否则「视频后半段的弹幕不受屏蔽词约束」。
+                if (blockWords.isBlocked(content)) continue
                 val type = DanmakuStylePolicy.effectiveType(st.forceScroll, elem.mode)
                 val item = context.mDanmakuFactory.createDanmaku(type, context) ?: continue
                 item.time = elem.progress.toLong()
@@ -523,6 +585,8 @@ class DanmakuManager(
                 // `item.flags = mGlobalFlagValues` 与 `item.setTimer(timer)`，
                 // 我们拿不到渲染线程的 timer（也没有稳定句柄），重复设置反而会打乱计时基准。
                 danmakuView.addDanmaku(item)
+                // G07：后续窗口的时间点在这里补记（首窗口由 recordLoadedTimes 记过）。
+                synchronized(loadedTimes) { loadedTimes.add(item.time) }
                 added++
             } catch (e: Exception) {
                 Logu.e("弹幕", "追加弹幕失败: ${e.message}")

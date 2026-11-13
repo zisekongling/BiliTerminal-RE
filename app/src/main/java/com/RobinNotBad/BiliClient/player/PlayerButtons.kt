@@ -42,6 +42,15 @@ object PlayerButtons {
     const val PAGE_SELECTOR = "page_selector"
 
     /**
+     * ±N 秒快退 / 快进（26.11.13 新增，来自兄弟分支 cyq 的 `player_seek_buttons`）。
+     *
+     * **文字按钮**：槽位里不画图标，直接显示当前步长（`«10s` / `10s»`）——步长可配置，
+     * 画死图标就和配置对不上了；「倍速」按钮本来就是文字，渲染器已支持这一形态。
+     */
+    const val SEEK_BACK = "seek_back"
+    const val SEEK_FORWARD = "seek_forward"
+
+    /**
      * 「更多」按钮：**自动收纳格**。26.11.09 起注册为可放置的按钮类型——摆进哪个区，
      * 就在那个区挂一个「更多」格；点开时展开的是**当前没有摆进任何槽位的按钮**
      * （即「这里没放的东西」），所以可以放多个「更多」来分摊，收纳内容会随布局自动变化。
@@ -94,6 +103,9 @@ object PlayerButtons {
         Button(JUMP_TIME, R.string.setting_player_btn_jump_time, R.drawable.icon_player_clock_fading, mayHide = true),
         Button(QUEUE_MODE, R.string.setting_player_btn_queue_mode, R.drawable.icon_player_corner_down_right, mayHide = true),
         Button(QUALITY, R.string.setting_player_btn_quality, R.drawable.icon_menu, action = Action.OPEN_QUALITY, mayHide = true),
+        // ±N 秒：文字按钮，步长在「播放设置 → 默认行为」里调；图标只是设置页的示意
+        Button(SEEK_BACK, R.string.setting_player_btn_seek_back, R.drawable.icon_player_clock_fading, PlayerSettingsGroups.DEFAULTS, textOnly = true),
+        Button(SEEK_FORWARD, R.string.setting_player_btn_seek_forward, R.drawable.icon_player_clock_fading, PlayerSettingsGroups.DEFAULTS, textOnly = true),
         Button(SOUND_CUT, R.string.setting_player_btn_sound_cut, R.mipmap.soundcut),
         Button(SOUND_ADD, R.string.setting_player_btn_sound_add, R.mipmap.soundadd),
         Button(PAGE_SELECTOR, R.string.setting_player_btn_page_selector, R.drawable.icon_folder, mayHide = true),
@@ -101,10 +113,15 @@ object PlayerButtons {
         Button(MORE, R.string.setting_player_btn_more, R.mipmap.morehide)
     )
 
-    /** 默认布局里右侧那个「组」的内容——即改造前 `right_second` 那一排，顺序与原 XML 一致。 */
+    /**
+     * 默认布局里右侧那个「组」的内容——即改造前 `right_second` 那一排，顺序与原 XML 一致。
+     *
+     * 26.11.13 起追加了 ±N 秒两个文字按钮：它们默认收在「更多」格子里，
+     * 不占默认可见槽位（老用户升级后不会突然多出两个格子）。
+     */
     val DEFAULT_RIGHT_GROUP: List<String> = listOf(
         DANMAKU_SEND, SUBTITLE, LOOP, AUDIO_ONLY, AUTO_NEXT,
-        VIEWPOINT, VIDEO_INFO, JUMP_TIME, QUEUE_MODE
+        VIEWPOINT, VIDEO_INFO, JUMP_TIME, QUEUE_MODE, SEEK_BACK, SEEK_FORWARD
     )
 
     private val BY_KEY: Map<String, Button> = ALL.associateBy { it.key }

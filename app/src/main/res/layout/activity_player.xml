@@ -1021,6 +1021,42 @@
             android:textSize="14sp"
             android:visibility="gone" />
 
+        <!--
+            G02 ±N 秒快退 / 快进（26.11.13，对应兄弟分支 cyq 的 player_seek_buttons）：
+            文字按钮，步长可配置（见 PlayerSeekStepPolicy），文字由 PlayerActivity 按设置写进
+            text（如 «10s / 10s»）。与倍速一样算「文字类」槽位：宽度交给文字自己、高度用格子高。
+            默认不摆进可见槽位，收在右侧「更多」组里，老用户升级后布局不变。
+        -->
+        <TextView
+            android:id="@+id/text_seek_back"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/setting_player_btn_seek_back"
+            android:paddingVertical="5dp"
+            android:shadowColor="#000000"
+            android:shadowDx="2.0"
+            android:shadowDy="0.0"
+            android:shadowRadius="3.0"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/text_seek_forward"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/setting_player_btn_seek_forward"
+            android:paddingVertical="5dp"
+            android:shadowColor="#000000"
+            android:shadowDx="2.0"
+            android:shadowDy="0.0"
+            android:shadowRadius="3.0"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
     </LinearLayout>
 
     <!--

@@ -20,7 +20,6 @@ import com.RobinNotBad.BiliClient.activity.base.InstanceActivity
 import com.RobinNotBad.BiliClient.activity.settings.UpdateActivity
 import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.api.DynamicApi
-import com.RobinNotBad.BiliClient.api.MessageApi
 import com.RobinNotBad.BiliClient.model.UpdateConfig
 import com.RobinNotBad.BiliClient.tutorial.TutorialStore
 import com.RobinNotBad.BiliClient.util.BangumiUpdateChecker
@@ -28,7 +27,8 @@ import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.CookieRefreshScheduler
 import com.RobinNotBad.BiliClient.util.CrashTrail
 import com.RobinNotBad.BiliClient.util.Logu
-import com.RobinNotBad.BiliClient.util.MsgNotifier
+import com.RobinNotBad.BiliClient.util.MessageUnreadRefresh
+import com.RobinNotBad.BiliClient.util.MessageUnreadRefresher
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
@@ -483,30 +483,16 @@ class BiliTerminal : Application() {
                 }
             }
 
-            if (SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.MESSAGE_UPDATE_CHECK_ENABLE, true)
-                && SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) != 0L
+            // 未读检查（E）：判据（登录态 / 开关 / 最小间隔 / 单飞）全在 MessageUnreadRefresh 里，
+            // 这里只在冷启动踢一脚；回到菜单时的增量刷新由 MenuActivity.onResume 触发。
+            // 仍然**不起后台定时器**——手表上后台唤醒的耗电代价远大于「晚几秒看到角标」。
+            // 检查失败保留旧值不清零的语义也搬进了 MessageUnreadRefresher.fetch（理由同上）。
+            if (MessageUnreadRefresh.shouldCheck(
+                    SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.MESSAGE_UPDATE_CHECK_ENABLE, true),
+                    SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0)
+                )
             ) {
-                CenterThreadPool.run {
-                    try {
-                        // 先记下上次的未读数：只有"变多了"才弹通知（见 MsgNotifier.shouldNotify）
-                        val previousUnread = SharedPreferencesUtil.getInt(SharedPreferencesUtil.MESSAGE_UPDATE_NUM, 0)
-                        val messageUnread = MessageApi.checkMessageUnread()
-                        val privateMsgUnread = MessageApi.checkPrivateMsgUnread()
-                        val totalUnread = messageUnread + privateMsgUnread
-                        SharedPreferencesUtil.putInt(SharedPreferencesUtil.MESSAGE_UPDATE_NUM, totalUnread)
-
-                        val notifyEnabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PRIVATE_MSG_NOTIFY_ENABLE, true)
-                        if (MsgNotifier.shouldNotify(previousUnread, totalUnread, notifyEnabled)) {
-                            context?.let { MsgNotifier.notifyNewMessages(it, privateMsgUnread, messageUnread) }
-                        }
-                    } catch (e: IOException) {
-                        // 检查失败不再把未读数清零：清零会让下一次成功检查把"老未读"当成新增未读，
-                        // 网络抖一次就重复弹通知。保留上次已知值，既不误报也不丢提示。
-                        Logu.w("BiliTerminal", "未读检查失败: ${e.message}")
-                    } catch (e: JSONException) {
-                        Logu.w("BiliTerminal", "未读检查失败: ${e.message}")
-                    }
-                }
+                CenterThreadPool.run { MessageUnreadRefresher.checkOnStartup() }
             }
 
             // C16：追番更新提醒。只在这里检查（用户拍板不做后台定时），失败保持旧快照不清空。

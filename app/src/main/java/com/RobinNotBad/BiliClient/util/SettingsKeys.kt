@@ -67,6 +67,13 @@ object SettingsKeys {
      * 非法值由 `BackgroundImage.coerceScrimPercent` 兜回默认。
      */
     const val UI_BACKGROUND_SCRIM = "appearance_background_scrim"
+    /**
+     * 是否关闭全局页面转场动画（默认 false = 保留动画）。
+     *
+     * 手表小屏上转场那 200ms 什么都不能做，所以给一个总开关。执行层在 `util/PageMotion`：
+     * 命中时压掉窗口动画（`windowAnimations`）与 `overridePendingTransition`。
+     */
+    const val UI_DISABLE_PAGE_TRANSITIONS = "ui_disable_page_transitions"
 
     // ==================== 详情页设置 ====================
     const val FAV_SINGLE = "fav_single"
@@ -219,6 +226,14 @@ object SettingsKeys {
     /** 双击有缩放时优先复位；保留旧键兼容已保存的开关，不再还原屏幕方向。 */
     const val PLAYER_DOUBLETAP_RESTORE_SCREEN = "player_doubletap_restore_screen"
     const val PLAYER_DOUBLETAP_SEEK_SECONDS = "player_doubletap_seek_seconds"
+    /**
+     * ±N 秒快退/快进按钮的步长（秒，26.11.13）。
+     *
+     * 与双击快进用的 [PLAYER_DOUBLETAP_SEEK_SECONDS] 分开：那个是手势、默认 10 秒且用户可能
+     * 已经调过，按钮步长要能独立设（想「轻点 5 秒、双击 10 秒」）。取值范围见
+     * `player/PlayerSeekStepPolicy.kt`。
+     */
+    const val PLAYER_SEEK_STEP_SECONDS = "player_seek_step_seconds"
     /** 旧「洗脑循环」开关；已被 [PLAYER_DEFAULT_LOOP] 取代，仅用于迁移默认模式。 */
     const val PLAYER_LOOP = "player_loop"
     const val PLAYER_BACKGROUND = "player_background"
@@ -288,6 +303,12 @@ object SettingsKeys {
      * 别在业务类里另起同义键名。
      */
     const val PLAYER_DANMAKU_CACHE_MAX_MB = "player_danmaku_cache_max_mb"
+    /**
+     * 弹幕屏蔽词（G01，26.11.13）：一段自由文本，逗号/顿号/分号/空白分隔，命中的弹幕不显示。
+     *
+     * 解析与判定在 player/DanmakuBlockWordPolicy，登记在这里只为「设置键集中一处」。
+     */
+    const val PLAYER_DANMAKU_BLOCK_WORDS = "player_danmaku_block_words"
     const val PLAYER_SUBTITLE_AUTOSHOW = "player_subtitle_autoshow"
     const val PLAYER_SUBTITLE_AI_ALLOWED = "player_subtitle_ai_allowed"
     const val PLAYER_SUBTITLE_DELTA = "player_subtitle_delta"

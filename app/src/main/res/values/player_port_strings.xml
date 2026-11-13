@@ -20,4 +20,15 @@
     <!-- 短视频无极调音 -->
     <string name="player_port_volume_percent">音量：%1$d%%</string>
 
+    <!-- G01 弹幕屏蔽词 -->
+    <string name="player_port_danmaku_block_words_name">弹幕屏蔽词</string>
+    <string name="player_port_danmaku_block_words_desc">多个词用逗号、顿号或空格分隔，含这些词的弹幕不显示；改完在下次加载弹幕时生效</string>
+
+    <!-- G02 ±N 秒快退/快进 -->
+    <string name="player_port_seek_step_name">快退/快进步长</string>
+    <string name="player_port_seek_step_desc">±按钮每点一次跳几秒（3–120）；按钮上显示的就是这个值</string>
+    <!-- 按钮文字：‹«10s»›。秒数由设置决定，格子里放不下「秒」字，用 s -->
+    <string name="player_port_seek_label_back">«%1$ds</string>
+    <string name="player_port_seek_label_forward">%1$ds»</string>
+
 </resources>

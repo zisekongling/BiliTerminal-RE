@@ -26,7 +26,7 @@ class PlayerUiLayoutTest {
         /** 默认布局的规范编码串（改格式或改默认布局都必须同步这里）。 */
         const val DEFAULT_SERIALIZED =
             "1;lock,speed;danmaku,rotate," +
-                "{danmaku_send+subtitle+loop+audio_only+auto_next+viewpoint+video_info+jump_time+queue_mode};" +
+                "{danmaku_send+subtitle+loop+audio_only+auto_next+viewpoint+video_info+jump_time+queue_mode+seek_back+seek_forward};" +
                 "quality,sound_cut;sound_add,page_selector"
     }
 
@@ -76,7 +76,9 @@ class PlayerUiLayoutTest {
         assertEquals(
             listOf(
                 "danmaku_send", "subtitle", "loop", "audio_only", "auto_next",
-                "viewpoint", "video_info", "jump_time", "queue_mode"
+                "viewpoint", "video_info", "jump_time", "queue_mode",
+                // 26.11.13：±N 秒两个文字按钮默认收在组里，不占可见槽位
+                "seek_back", "seek_forward"
             ),
             group.keys
         )

@@ -13,9 +13,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.drawable.AnimationDrawable
+import android.graphics.drawable.Drawable
 import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaSession
@@ -48,6 +50,9 @@ import android.widget.SeekBar
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.Glide
+import com.bumptech.glide.request.target.CustomTarget
+import com.bumptech.glide.request.transition.Transition
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.InputDialogActivity
@@ -76,7 +81,10 @@ import com.RobinNotBad.BiliClient.model.VideoInfo
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.model.ViewPoint
 import com.RobinNotBad.BiliClient.player.AudioFocusPolicy
+import com.RobinNotBad.BiliClient.player.CoverTintPolicy
 import com.RobinNotBad.BiliClient.player.DanmakuLoadPolicy
+import com.RobinNotBad.BiliClient.player.DanmakuDensityHighEnergy
+import com.RobinNotBad.BiliClient.player.PlayerSeekStepPolicy
 import com.RobinNotBad.BiliClient.player.DanmakuXmlCounter
 import com.RobinNotBad.BiliClient.player.DanmakuManager
 import com.RobinNotBad.BiliClient.player.DanmakuStreamLoader
@@ -236,6 +244,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private lateinit var text_progress: TextView
     /** 连播队列按钮：图标按钮，当前模式写在 contentDescription 里（见 [updateQueueModeButton]）。 */
     private lateinit var queue_mode_btn: ImageButton
+    /**
+     * G02 ±N 秒快退 / 快进按钮（26.11.13）。
+     *
+     * 文字按钮：格子里的文字是「«10s / 10s»」，步长来自设置 [SettingsKeys.PLAYER_SEEK_STEP_SECONDS]，
+     * 每次 [refreshSeekButtons] 重算。直播没有时间点，onPrepared 的直播分支统一置 GONE。
+     */
+    private lateinit var seek_back_btn: TextView
+    private lateinit var seek_forward_btn: TextView
     private lateinit var text_online: TextView
     private lateinit var text_volume: TextView
     private lateinit var loading_text0: TextView
@@ -426,6 +442,22 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
          * 而不限频时，媒体时钟真没接上会变成每 250ms（一个采样周期）一条。
          */
         private const val DANMAKU_DRIFT_LOG_INTERVAL_MS = 5_000L
+
+        /**
+         * G07「高能条本地兜底」等弹幕装载的时间（毫秒）。
+         *
+         * 高能数据在页面初始化早期就请求，而弹幕要等播放器 prepare、DFM 再 prepare 之后才装载完；
+         * 取太早只会拿到空快照。一次性延迟，不做轮询——没有数据的视频也不该被反复吵。
+         */
+        private const val DENSITY_FALLBACK_DELAY_MS = 6_000L
+
+        /**
+         * G06「封面取色」的采样边长（像素）。
+         *
+         * 只为了取一个颜色，解 48×48 就够了：投票算法对分辨率不敏感，
+         * 而封面原图动辄 1080p，解全尺寸再多缩一遍纯属浪费手表的内存和电。
+         */
+        private const val COVER_TINT_SAMPLE_PX = 48
 
         /**
          * 「点弹幕空降」允许的最大按压时长（毫秒）。
@@ -1196,6 +1228,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         initLockUi()
         // QQ#9：菜单里的「跳到指定时间」只接线，显隐等 onPrepared 拿到时长后再定（直播不显示）
         initJumpToTimeButton()
+        // G02：±N 秒快退/快进（文字按钮，步长来自设置；显隐同样等 onPrepared）
+        initSeekButtons()
         autohideReset()
 
         initSeekbars()
@@ -1300,6 +1334,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         btn_quality = findViewById(R.id.button_quality)
         btn_viewpoint = findViewById(R.id.viewpoint_btn)
         seekbar_progress = findViewById(R.id.videoprogress)
+        applyCoverTint()
         swipe_seek_overlay = findViewById(R.id.swipe_seek_overlay)
         swipe_seek_text = findViewById(R.id.swipe_seek_text)
         loading_text0 = findViewById(R.id.loading_text0)
@@ -1332,6 +1367,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         btn_video_info = findViewById(R.id.video_info_btn)
         jump_time_btn = findViewById(R.id.jump_time_btn)
         queue_mode_btn = findViewById(R.id.queue_mode_btn)
+        seek_back_btn = findViewById(R.id.text_seek_back)
+        seek_forward_btn = findViewById(R.id.text_seek_forward)
 
         button_pool = findViewById(R.id.button_pool)
         left_column_slots = findViewById(R.id.left_column_slots)
@@ -1472,6 +1509,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         PlayerButtons.JUMP_TIME -> jump_time_btn
         PlayerButtons.QUEUE_MODE -> queue_mode_btn
         PlayerButtons.QUALITY -> btn_quality
+        PlayerButtons.SEEK_BACK -> seek_back_btn
+        PlayerButtons.SEEK_FORWARD -> seek_forward_btn
         PlayerButtons.SOUND_CUT -> findViewById(R.id.button_sound_cut)
         PlayerButtons.SOUND_ADD -> findViewById(R.id.button_sound_add)
         PlayerButtons.PAGE_SELECTOR -> btn_page_selector
@@ -1955,6 +1994,49 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             if (prefill != null) intent.putExtra("initial_text", prefill)
             startActivityForResult(intent, REQUEST_CODE_JUMP_TO_TIME)
         }
+    }
+
+    /**
+     * G02：接线「±N 秒快退 / 快进」两个文字按钮（兄弟分支 cyq 的 `player_seek_buttons`）。
+     *
+     * 为什么单独做按钮而不是只靠手势：手表屏幕小，双击左右半边找不准；按住左右半边又是长按倍速。
+     * 步长跟设置走（[SettingsKeys.PLAYER_SEEK_STEP_SECONDS]），点击时不弹提示——快进快退的手感
+     * 就该是「按了就走」，位置由进度条与时间文字自己更新。
+     *
+     * 显隐不在这里定：直播没有时间点，由 onPrepared 与「跳到指定时间」一起置 GONE/可见。
+     */
+    private fun initSeekButtons() {
+        seek_back_btn.setOnClickListener { seekByStep(-PlayerSeekStepPolicy.load()) }
+        seek_forward_btn.setOnClickListener { seekByStep(PlayerSeekStepPolicy.load()) }
+        refreshSeekButtons()
+    }
+
+    /** 按设置刷新两个按钮上的文字与无障碍描述（设置页改完步长回来要重算）。 */
+    private fun refreshSeekButtons() {
+        if (!::seek_back_btn.isInitialized || !::seek_forward_btn.isInitialized) return
+        val step = PlayerSeekStepPolicy.load()
+        seek_back_btn.text = PlayerSeekStepPolicy.label(getString(R.string.player_port_seek_label_back), step)
+        seek_forward_btn.text = PlayerSeekStepPolicy.label(getString(R.string.player_port_seek_label_forward), step)
+        seek_back_btn.contentDescription =
+            getString(R.string.setting_player_btn_seek_back) + " " + step + "s"
+        seek_forward_btn.contentDescription =
+            getString(R.string.setting_player_btn_seek_forward) + " " + step + "s"
+    }
+
+    /**
+     * 相对当前位置跳 [deltaSeconds] 秒（负数=快退），自动夹进 `[0, duration]`。
+     *
+     * 时长未知（直播 / 未 prepare）直接不动：夹到 0 或末尾会看起来像「点了没反应」或「莫名跳走」。
+     */
+    private fun seekByStep(deltaSeconds: Int) {
+        val durationMs = ijkPlayer?.duration ?: 0L
+        val target = PlayerJumpTimePolicy.clampMs(
+            PlayerSeekStepPolicy.offsetMs(video_now.toLong(), deltaSeconds),
+            durationMs
+        ) ?: return
+        if (target == video_now.toLong()) return
+        seekToPosition(target, true)
+        Logu.d("±N秒", (if (deltaSeconds < 0) "快退 " else "快进 ") + deltaSeconds + "s → " + target + "ms")
     }
 
     /**
@@ -3951,6 +4033,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         if (::text_subtitle.isInitialized) applySubtitleTextSize()
         // 设置页里改完按钮布局返回播放页立即生效（不这样就得重启播放页）
         if (::button_pool.isInitialized) applyPlayerButtonLayout()
+        // 设置页里改完「快退/快进步长」返回播放页立即生效：按钮上的文字就是步长
+        if (::seek_back_btn.isInitialized) refreshSeekButtons()
         // 同一个按钮放多份时，影子要跟真身的状态走；回到前台就开始定时对齐（没有影子就不挂）
         startMirrorSync()
         // #31：回前台重新应用画面尺寸/比例/旋转。载入中切后台再回来时，Surface 重建、
@@ -5564,6 +5648,42 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         return SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.SNACKBAR_ENABLE, true)
     }
 
+    /**
+     * G06：封面取色，把视频封面里最有代表性的颜色染到高能曲线 / 进度条上。
+     *
+     * 封面地址来自 `intent` 的 `cover`（由 `PlayerApi.jumpToPlayer` 塞入），取不到就什么都不做——
+     * 直播、本地视频、第三方源都没有这个 extra，此时保持主题主色，行为与以前完全一致。
+     *
+     * 为什么用 Glide 解一张 48×48 的小图：取色算法对分辨率不敏感，而封面原图常常是 1080p，
+     * 为了一个颜色去解全尺寸纯属浪费手表的内存。解析失败（无网 / 图挂了）也只是静默保持原色。
+     */
+    private fun applyCoverTint() {
+        val cover = intent?.getStringExtra("cover")
+        if (cover.isNullOrEmpty()) return
+
+        Glide.with(applicationContext)
+            .asBitmap()
+            .load(cover)
+            .override(COVER_TINT_SAMPLE_PX, COVER_TINT_SAMPLE_PX)
+            .centerCrop()
+            .into(object : CustomTarget<Bitmap>() {
+                override fun onResourceReady(resource: Bitmap, transition: Transition<in Bitmap>?) {
+                    if (destroyed) return
+                    val width = resource.width
+                    val height = resource.height
+                    if (width <= 0 || height <= 0) return
+                    val pixels = IntArray(width * height)
+                    resource.getPixels(pixels, 0, width, 0, 0, width, height)
+                    val color = CoverTintPolicy.fromPixels(pixels) ?: return
+                    seekbar_progress.setAccentColor(color)
+                }
+
+                override fun onLoadCleared(placeholder: Drawable?) {
+                    // 页面销毁时 Glide 会回调这里，不需要收尾动作
+                }
+            })
+    }
+
     private fun loadHighEnergyData() {
         if (!SharedPreferencesUtil.getBoolean("player_high_energy", false)) {
             Logu.d("高能进度条", "功能已禁用")
@@ -5587,12 +5707,53 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     }
                 } else {
                     Logu.w("高能进度条", "未获取到有效数据")
+                    // G07（26.11.13）：官方接口拿不到数据时不再让曲线整片空白，
+                    // 改用本地已加载弹幕的密度兜底（见 applyDensityHighEnergyFallback）。
+                    applyDensityHighEnergyFallback()
                 }
             } catch (e: Exception) {
                 Logu.e("高能进度条", "加载失败: " + e.message)
                 e.printStackTrace()
+                applyDensityHighEnergyFallback()
             }
         }
+    }
+
+    /**
+     * G07：高能曲线的**本地兜底**（弹幕密度）。
+     *
+     * 官方 `pbp/data` 对不少视频返回空/失败，旧实现只是打日志，进度条上那条曲线就没了。
+     * 这里用已经加载进内存的弹幕时间点自己算一条密度曲线——弹幕密集的段落基本就是高能片段。
+     *
+     * **时序**：高能数据在 `:1249` 就请求了，而弹幕要等 prepare 之后才陆续装载，
+     * 所以这里延迟 [DENSITY_FALLBACK_DELAY_MS] 再取快照（一次性，不轮询、不重试）。
+     * 样本不够（弹幕太少 / 时长未知）就直接放弃：画一条噪声曲线比空白更误导。
+     */
+    private fun applyDensityHighEnergyFallback() {
+        mainHandler?.postDelayed({
+            if (destroyed) return@postDelayed
+            try {
+                val times = danmakuManager?.loadedDanmakuTimes() ?: LongArray(0)
+                val durationSec = video_all / 1000
+                val curve = DanmakuDensityHighEnergy.build(
+                    times.toList(), durationSec, DanmakuDensityHighEnergy.STEP_SEC
+                )
+                if (curve == null) {
+                    Logu.d(
+                        "高能进度条",
+                        "本地兜底跳过：弹幕 " + times.size + " 条 / 时长 " + durationSec + "s 不满足条件"
+                    )
+                    return@postDelayed
+                }
+                seekbar_progress.setHighEnergyData(curve, DanmakuDensityHighEnergy.STEP_SEC)
+                Logu.d(
+                    "高能进度条",
+                    "本地兜底生效：弹幕 " + times.size + " 条，曲线 " + curve.size + " 个桶"
+                )
+            } catch (e: Exception) {
+                Logu.e("高能进度条", "本地兜底失败: " + e.message)
+            }
+        }, DENSITY_FALLBACK_DELAY_MS)
     }
 
     // ------------------------------------------------------------------ 连播队列
@@ -7151,6 +7312,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         isPrepared = true
         video_all = ijkPlayer!!.duration.toInt()
 
+        // G03（26.11.13）：真实时长到这一刻才知道，立刻回填给弹幕窗口加载器。
+        // downdanmuNew() 是在 prepare 之前跑的，那时 ijkPlayer.duration 还是 0，
+        // 只能退回 3600s 的估计值；而总分段数 = ceil(时长/360)，估计值偏小会让
+        // 1 小时以上视频的后半段永远落在窗口之外（表现为「后半段一条弹幕都没有」）。
+        // 这里只管回填，已加载的分段不会重拉（见 DanmakuStreamLoader.updateDuration）。
+        if (video_all > 0) danmakuStreamLoader?.updateDuration(video_all / 1000)
+
         // 起播即申请音频焦点（幂等：切清晰度/重试会重建播放器再走一次本回调）。
         requestAudioFocusForPlayback()
 
@@ -7240,6 +7408,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
 
             // QQ#9：非直播才有「跳到指定时间」；直播在下面的 else 分支统一隐藏
             jump_time_btn.visibility = View.VISIBLE
+            // G02：±N 秒同理——直播没有可跳的时间轴
+            seek_back_btn.visibility = View.VISIBLE
+            seek_forward_btn.visibility = View.VISIBLE
         } else {
             btn_loop.visibility = View.GONE
             btn_audio_only.visibility = View.GONE
@@ -7247,6 +7418,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             btn_auto_next.visibility = View.GONE
             btn_quality.visibility = View.GONE
             jump_time_btn.visibility = View.GONE
+            seek_back_btn.visibility = View.GONE
+            seek_forward_btn.visibility = View.GONE
         }
         // 连播按钮：有队列时显示当前模式（顺序/倒序/随机/单曲），没有队列但有 UP 主时显示「连播」，
         // 点一下懒加载 UP 主投稿当队列。显隐与文案都在 updateQueueModeButton 里统一算。

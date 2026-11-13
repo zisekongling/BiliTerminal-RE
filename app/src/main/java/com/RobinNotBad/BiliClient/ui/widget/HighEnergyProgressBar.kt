@@ -7,6 +7,7 @@ import android.graphics.Path
 import android.graphics.drawable.StateListDrawable
 import android.os.Build
 import android.util.AttributeSet
+import androidx.annotation.ColorInt
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.appcompat.widget.AppCompatSeekBar
 import androidx.core.content.res.ResourcesCompat
@@ -67,6 +68,19 @@ class HighEnergyProgressBar @JvmOverloads constructor(
     fun setHighEnergyData(data: FloatArray?, stepSec: Int) {
         this.highEnergyData = data
         this.stepSec = stepSec
+        invalidate()
+    }
+
+    /**
+     * 换强调色（26.11.13：封面取色）。
+     *
+     * 只改高能曲线 / 填充的色调，保留原来写死的不透明度（线条 A8=66%、填充 33=20%）——
+     * 波形叠在进度条上，透明度一变就会盖住底下的进度与文字。
+     */
+    fun setAccentColor(@ColorInt color: Int) {
+        val accentRgb = color and 0x00FFFFFF
+        linePaint.color = 0xA8000000.toInt() or accentRgb
+        fillPaint.color = 0x33000000 or accentRgb
         invalidate()
     }
 

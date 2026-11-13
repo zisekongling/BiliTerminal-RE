@@ -184,6 +184,48 @@ class DanmakuStreamLoader(
     }
 
     /**
+     * 播放器拿到真实时长后回填（G03，26.11.13）。
+     *
+     * ## 为什么必须有这个入口
+     *
+     * [attach] 那一刻播放器多半还没 prepare，`ijkPlayer.duration` 是 0，播放页只能退回一个
+     * 写死的估计值（3600 秒，见 `PlayerActivity.downdanmuNew`）。而总分段数
+     * [segmentCount] 是用 `ceil(时长 / 360)` 算的——估计值对 1 小时以上的视频**必然偏小**，
+     * 于是后半段的 `segment_index` 永远不在任何窗口里，用户看到的就是「后半段一条弹幕都没有」。
+     * 时长一旦得知就回填，窗口随之扩大到覆盖全片。
+     *
+     * ## 语义
+     *
+     * - 只接受正整数，`<= 0` 视为未知、直接忽略（保留原值，不要用未知去覆盖已知）；
+     * - 相同值不重复处理；
+     * - **不清空 [loadedSegments]**：已拉到的分段仍然有效，新时长只是让 `segmentCount` 变大，
+     *   下一次 [ensureWindow] 的 `missing()` 自然会把新出现的分段补上；
+     * - 只在**变大**时打日志，变小（少数接口给的是片段时长）也接受但不重拉已加载段。
+     *
+     * 线程：与 [attach] 一样用 `@Synchronized`；调用方可以是主线程（onPrepared 回调）。
+     */
+    @Synchronized
+    fun updateDuration(maxDurationSec: Int) {
+        if (maxDurationSec <= 0) return
+        val old = this.maxDurationSec
+        if (maxDurationSec == old) return
+        this.maxDurationSec = maxDurationSec
+        if (maxDurationSec > old) {
+            Logu.d(
+                "弹幕窗口",
+                "时长回填：${old}s → ${maxDurationSec}s，总分段数 " +
+                    "${DanmakuApi.segmentCountFor(old)} → ${DanmakuApi.segmentCountFor(maxDurationSec)}"
+            )
+            // 时长变长意味着「当前位置之后的段数」变了，之前记的失败冷却区间可能已经无效，
+            // 清掉让下一轮 ensureWindow 立刻重新尝试，不必等 RETRY_DELAY_MS。
+            retryAfterMs = 0L
+            failedRange = null
+        } else {
+            Logu.d("弹幕窗口", "时长回填（变短）：${old}s → ${maxDurationSec}s")
+        }
+    }
+
+    /**
      * 注入弹幕数量保护（可空 = 不保护）。
      *
      * 窗口加载必须在**拉段之前**问一次：大视频被保护时连首段都不该请求，

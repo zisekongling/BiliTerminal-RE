@@ -39,6 +39,7 @@ import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
+import com.RobinNotBad.BiliClient.util.PageMotion
 import com.RobinNotBad.BiliClient.util.PerformanceManager
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
@@ -541,6 +542,20 @@ class SettingGroupActivity : RefreshListActivity() {
         ) { _, value ->
             AppearanceManager.setBackgroundScrim(BackgroundImage.coerceScrimPercent(value))
             recreate()
+        }
+
+        // 全局转场动画开关（O7）：手表小屏上转场那 200ms 什么都做不了，给一个总开关。
+        // 回调里立刻 apply 一次，让「打开这个开关」当下的这一页也马上生效（其余页面由
+        // BaseActivity 的 onCreate/onResume 统一处理，见 util/PageMotion）。
+        title(getString(R.string.appearance_page_motion_title))
+        switch(
+            getString(R.string.appearance_page_motion_name),
+            getString(R.string.appearance_page_motion_desc),
+            SettingsKeys.UI_DISABLE_PAGE_TRANSITIONS,
+            false
+        ) { _ ->
+            // SettingsAdapter 是先写 prefs 再回调，所以这里读到的已经是新值
+            PageMotion.apply(this)
         }
     }
 

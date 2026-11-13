@@ -25,4 +25,8 @@
     <string name="appearance_background_scrim_75">75%</string>
     <!-- 播放器设置页的「分辨率」摘要：配了 Wi-Fi / 移动数据分档时，标注这是按当前网络取的档 -->
     <string name="appearance_net_quality_effective">当前网络：%1$s</string>
+    <!-- 全局转场动画开关（O7）：手表小屏上转场那一下什么都做不了，给一个总开关 -->
+    <string name="appearance_page_motion_title">转场动画</string>
+    <string name="appearance_page_motion_name">关闭页面转场动画</string>
+    <string name="appearance_page_motion_desc">页面切换时不再播放淡入/滑动动画，手表上切换更快</string>
 </resources>

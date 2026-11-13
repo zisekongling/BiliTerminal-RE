@@ -194,6 +194,10 @@ object PlayerSettingsGroups {
             context.getString(R.string.desc_player_doubletap_restore_scale), "false"),
         SettingSection("input_int", context.getString(R.string.setting_player_doubletap_seek_seconds),
             SettingsKeys.PLAYER_DOUBLETAP_SEEK_SECONDS, "", "10"),
+        // G02：±N 秒快退/快进按钮的步长（3–120 秒，越界由 PlayerSeekStepPolicy 兜回来）
+        SettingSection("input_int", context.getString(R.string.player_port_seek_step_name),
+            SettingsKeys.PLAYER_SEEK_STEP_SECONDS,
+            context.getString(R.string.player_port_seek_step_desc), "10"),
         SettingSection("switch", context.getString(R.string.setting_player_background),
             SettingsKeys.PLAYER_BACKGROUND, context.getString(R.string.desc_setting_player_background), "false")
     )
@@ -390,6 +394,13 @@ object PlayerSettingsGroups {
         SettingSection("switch", context.getString(R.string.setting_player_danmaku_force_r2l),
             SettingsKeys.PLAYER_DANMAKU_FORCE_R2L,
             context.getString(R.string.desc_danmaku_force_r2l), "false"),
+        // G01 弹幕屏蔽词：一段自由文本，命中的弹幕不显示。
+        // 解析与判定在 player/DanmakuBlockWordPolicy，生效粒度是「下一次加载弹幕」
+        // （与「本人弹幕边框」一致：快照在 configureAndPrepare 里拍一次）。
+        SettingSection("input_string",
+            context.getString(R.string.player_port_danmaku_block_words_name),
+            SettingsKeys.PLAYER_DANMAKU_BLOCK_WORDS,
+            context.getString(R.string.player_port_danmaku_block_words_desc), ""),
         SettingSection("switch", context.getString(R.string.setting_player_danmaku_show_sender),
             SettingsKeys.PLAYER_DANMAKU_SHOW_SENDER,
             context.getString(R.string.desc_danmaku_showsender), "true"),
