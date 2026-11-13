@@ -74,6 +74,8 @@ import com.RobinNotBad.BiliClient.event.SnackEvent
 import com.RobinNotBad.BiliClient.model.HighEnergyData
 import com.RobinNotBad.BiliClient.model.InteractionVideoData
 import com.RobinNotBad.BiliClient.model.Collection
+import com.RobinNotBad.BiliClient.model.LocalPageMedia
+import com.RobinNotBad.BiliClient.model.LocalPlaylistEntry
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.Subtitle
 import com.RobinNotBad.BiliClient.model.SubtitleLink
@@ -809,6 +811,27 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private var enterableMultiPage: VideoInfo? = null
 
     /**
+     * 本地缓存文件夹连播的**根层条目表**（见 [LocalPlaylistEntry]）；null = 不是文件夹连播。
+     *
+     * <p>本地这条链与在线收藏夹是**同构的两层**，区别只是本地没有服务端可查：
+     * 根层一项 = 夹里的一个缓存视频（[pagenames] 就是各条标题），某一项本身是多P 时，
+     * 选集卡片上多一行「进入分P（N）」，点进去才换成它的 P1..Pn。
+     *
+     * <p>26.11.13 之前没有这一层：根层每条只有「一个标题 + 一个文件」，
+     * `LocalVideo.pageList` 完全没用上，于是文件夹里的多P 缓存只能播 P1。
+     */
+    private var localPlaylist: ArrayList<LocalPlaylistEntry>? = null
+
+    /** 正在看某一项的分P 层时 = 该项在 [localPlaylist] 里的下标；-1 = 当前在根层 */
+    private var localLayerIndex = -1
+
+    /** 从分P 层返回根层时要回到的根层下标（自动连播时 = 它的下一项） */
+    private var localRootResumeIndex = -1
+
+    /** 根层当前这条能不能"进入分P"（页数 > 1）；null = 进不去 */
+    private var enterableLocalEntry: LocalPlaylistEntry? = null
+
+    /**
      * 重算"当前这条能不能进得去"。**必须在主线程调用**（选集卡片直接读这两个字段）。
      *
      * <p>合集优先于分P：合集是外层"一系列视频"，分P 是内层"一个视频的段落"。
@@ -1075,6 +1098,21 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             // 合集层 / 分P层由选集卡片上的「进入…」在播放器内部建立，不由 Intent 预置
             @Suppress("DEPRECATION")
             updateEnterable(intent.getParcelableExtra("enterable_info"))
+        }
+
+        // 本地缓存文件夹连播（LocalListActivity.playVirtualCollection）：根层条目表随 Intent 进来。
+        // 上面那段 pagenames 只是"各条标题"，这里多出来的是「每条自己的 P1..Pn 各读哪个文件」——
+        // 本地文件没法像在线那样按 aid/cid 现取，只能构建合集时一起带进来。
+        @Suppress("DEPRECATION", "UNCHECKED_CAST")
+        val localEntries = intent.getSerializableExtra(LocalPlaylistEntry.EXTRA_LOCAL_PLAYLIST)
+            as? ArrayList<LocalPlaylistEntry>
+        if (localEntries != null) {
+            localPlaylist = localEntries
+            // 根层标题：playerData.title 带「合集」后缀，只适合播放页标题，卡片上要纯文件夹名
+            rootTitle = intent.getStringExtra(LocalPlaylistEntry.EXTRA_LOCAL_PLAYLIST_TITLE)
+                ?: videoTitle
+            enterableLocalEntry = localEntries.getOrNull(currentPageIndex)
+                ?.takeIf { it.pageCount() > 1 }
         }
 
         initialEdgeId = intent.getLongExtra("edgeId", 0)
@@ -2365,6 +2403,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 ijkPlayer!!.start()
             } else if (auto_next_enabled && hasMultiplePages() && currentPageIndex < pagenames!!.size - 1) {
                 switchToPage(currentPageIndex + 1)
+            } else if (auto_next_enabled && localPlaylist != null && localLayerIndex >= 0) {
+                // 本地文件夹连播：某一项的分P 全放完了 → 弹回根层接着放下一条。
+                // 和在线「合集放完弹回收藏夹」是同一件事，所以同样受自动连播开关管。
+                returnToLocalRoot(advance = true)
             } else if (auto_next_enabled && returnPlaylist != null) {
                 // 合集放完了 → 弹回收藏夹接着放。跟"自动下一P"一样属于自动前进，所以同样受
                 // auto_next_enabled 管；关掉自动播放的用户不该被这里偷偷换掉播放列表。
@@ -6056,6 +6098,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         multiPageTitle = null
         enterableCollection = null
         enterableMultiPage = null
+        clearLocalPlaylistLayer()
         val uploaderName = cards.firstOrNull { !it.upName.isNullOrEmpty() }?.upName
         if (!uploaderName.isNullOrEmpty()) rootTitle = uploaderName
         pagenames = ArrayList(items.map { it.title })
@@ -6071,16 +6114,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         // 用户明确点了「连播」：本次会话自动前进，即使用户全局关了「自动连播」（不改全局设置）
         auto_next_enabled = true
         updateAutoNextButton()
-        // 列表换了，选集按钮/自动下一P 按钮要重新可见（与 onPrepared 里那段显隐逻辑一致）
-        if (hasMultiplePages()) {
-            btn_page_selector.visibility = View.VISIBLE
-            btn_page_selector.setOnClickListener { showPageSelectorCard() }
-            btn_auto_next.visibility = View.VISIBLE
-            // 可见就必须可点：本函数把按钮点亮后不会走 onPrepared 里那段绑定，
-            // 漏了这行按钮就是「看得见、点不动」。
-            updateAutoNextButton()
-            btn_auto_next.setOnClickListener { toggleAutoNext() }
-        }
+        // 列表换了，选集按钮/自动下一P 按钮要重新可见。规则集中在 refreshPageNavButtons
+        // （onPrepared、本函数、本地文件夹连播进出分P 层共用同一套；漏绑监听就是「看得见、点不动」）
+        refreshPageNavButtons()
         updateQueueModeButton()
         persistQueueToken()
         MsgUtil.showMsg(getString(R.string.player_queue_loaded, items.size.toString(), queueModeLabel(playQueue!!.mode)))
@@ -6168,8 +6204,42 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
 
     private fun hasMultiplePages(): Boolean = pagenames != null && pagenames!!.size > 1
 
+    /**
+     * 选集按钮要不要露出来：有分页，**或者有能进入/返回的层**（本地文件夹连播）。
+     *
+     * 只看 [hasMultiplePages] 不够：只装了一个多P 视频的文件夹，根层只有 1 条，
+     * 按钮不露出来就永远进不到这个视频的 P2..Pn——正是用户报的"文件夹里的多P只能看P1"那个场景。
+     */
+    private fun canOpenPageSelector(): Boolean =
+        hasMultiplePages() ||
+            (localPlaylist != null && (localLayerIndex >= 0 || enterableLocalEntry != null))
+
+    /**
+     * 同步「选集 / 自动下一P」两个按钮（onPrepared、UP 主投稿队列、本地文件夹连播进出层共用）。
+     *
+     * 本地文件夹连播进出分P 层会整份换掉 [pagenames]，按钮显隐必须跟着重算，
+     * 否则从"根层只有 1 条视频的文件夹"进入分P 后会看不到选集按钮。
+     */
+    private fun refreshPageNavButtons() {
+        if (canOpenPageSelector()) {
+            btn_page_selector.visibility = View.VISIBLE
+            btn_page_selector.setOnClickListener { showPageSelectorCard() }
+        } else {
+            btn_page_selector.visibility = View.GONE
+        }
+        // 「自动下一P」只在真有分页时才有意义（进入/返回层时它的含义随层变化）
+        if (hasMultiplePages()) {
+            btn_auto_next.visibility = View.VISIBLE
+            updateAutoNextButton()
+            btn_auto_next.setOnClickListener { toggleAutoNext() }
+        } else {
+            btn_auto_next.visibility = View.GONE
+        }
+    }
+
     private fun showPageSelectorCard() {
-        if (!hasMultiplePages()) return
+        // 只有 1 条、但那条能进入分P 时也要能打开（见 canOpenPageSelector）
+        if (!canOpenPageSelector()) return
 
         runOnUiThread {
             val pageSelectorRecycler = findViewById<RecyclerView>(R.id.page_selector_list)
@@ -6194,6 +6264,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     UiText.fmt(UiText.of("合集 · %s"), collectionTitle ?: "") + pagePosition
                 multiPageAid != 0L ->
                     getString(R.string.text_player_multi_page_prefix, multiPageTitle ?: "") + pagePosition
+                // 本地文件夹连播的两层（与在线收藏夹同构）：
+                // 分P 层标题写"这一项的名字"，根层标题写文件夹名
+                localPlaylist != null && localLayerIndex >= 0 ->
+                    getString(
+                        R.string.text_player_multi_page_prefix,
+                        localPlaylist!![localLayerIndex].title
+                    ) + pagePosition
+                localPlaylist != null ->
+                    "${rootTitle ?: videoTitle ?: UiText.of("文件夹连播")}" + pagePosition
                 isVirtualCollectionMode ->
                     "${rootTitle ?: videoTitle ?: UiText.of("收藏夹连播")}" + pagePosition
                 else -> UiText.of("选择分P")
@@ -6204,6 +6283,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             //  · 在根目录层、且当前这条是"文件夹"（多P / 属于合集）→「进入分P / 进入合集」
             // **进入必须由用户点这里**，不自动（见 enterableCollection 的注释）。
             val nestEntry = findViewById<TextView>(R.id.page_selector_nest)
+            // 本地文件夹连播正在某一项的分P 层里：这一层没有"再往里"的东西，只留返回
+            val inLocalLayer = localPlaylist != null && localLayerIndex >= 0
             val enterable = when {
                 returnPlaylist != null -> null
                 enterableCollection != null -> getString(
@@ -6213,15 +6294,26 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 )
                 enterableMultiPage != null ->
                     getString(R.string.text_player_enter_multi_page, enterableMultiPage!!.cids.size)
+                localPlaylist != null && enterableLocalEntry != null ->
+                    getString(R.string.text_player_enter_multi_page, enterableLocalEntry!!.pageCount())
                 else -> null
             }
-            nestEntry.visibility = if (returnPlaylist != null || enterable != null) View.VISIBLE else View.GONE
-            nestEntry.text = if (returnPlaylist != null) getString(R.string.text_player_back_to_root) else enterable
+            nestEntry.visibility =
+                if (returnPlaylist != null || inLocalLayer || enterable != null) View.VISIBLE else View.GONE
+            nestEntry.text = when {
+                returnPlaylist != null -> getString(R.string.text_player_back_to_root)
+                inLocalLayer -> getString(R.string.text_player_back_to_root)
+                else -> enterable
+            }
             nestEntry.setOnClickListener {
                 layout_card_bg.visibility = View.GONE
                 card_page_selector.visibility = View.GONE
                 if (returnPlaylist != null) {
                     returnToCallerPlaylist(advance = false)
+                } else if (inLocalLayer) {
+                    returnToLocalRoot(advance = false)
+                } else if (localPlaylist != null && enterableLocalEntry != null) {
+                    enterLocalLayer(localPlaylist!!.indexOf(enterableLocalEntry!!))
                 } else {
                     enterCurrentNestLayer()
                 }
@@ -6247,7 +6339,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         currentPageIndex = pageIndex
         val newTitle = pagenames!![pageIndex]
 
-        MsgUtil.showMsg(UiText.fmt(UiText.of("切换到 P%1\$s"), pageIndex + 1))
+        // 本地文件夹连播的根层切的是"下一条视频"，说「切换到 P2」会让人以为在切分P
+        if (localPlaylist != null && localLayerIndex < 0) {
+            MsgUtil.showMsg(newTitle)
+        } else {
+            MsgUtil.showMsg(UiText.fmt(UiText.of("切换到 P%1\$s"), pageIndex + 1))
+        }
 
         if (isOnlineVideo) {
             switchToOnlinePage(pageIndex, newTitle)
@@ -6392,6 +6489,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         // 已经进层了，选集卡片那一行该换成「← 返回主合集」
         enterableCollection = null
         enterableMultiPage = null
+        clearLocalPlaylistLayer()
         pagenames = ArrayList(items.map { it.title })
         cids = ArrayList(items.map { it.aid })
         isVirtualCollectionMode = true
@@ -6449,6 +6547,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         // 已经进层了，选集卡片那一行该换成「← 返回主合集」
         enterableCollection = null
         enterableMultiPage = null
+        clearLocalPlaylistLayer()
         pagenames = ArrayList(videoInfo.pagenames)
         cids = ArrayList(videoInfo.cids)
         isVirtualCollectionMode = false
@@ -6518,25 +6617,119 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     }
 
     /**
-     * 切换到本地虚拟合集的指定分页
+     * 切换到本地播放的指定分页。
+     *
+     * 两种来源共用这里：
+     * 1. **本地文件夹连播**（[localPlaylist] 非空）：`pageIndex` 在当前这一层（根层 = 各条，
+     *    分P 层 = 某一项的 P1..Pn）的 pagenames 里，文件组由 [LocalPlaylistEntry.mediaAt] 给出；
+     * 2. 老入口（单条多P 由 `LocalPageChooseActivity` 起播，或只有三条扁平列表的旧调用）：
+     *    仍按 intent 里 `videoFileList` / `danmakuFileList` / `audioFileList` 的同下标取。
      */
     private fun switchToLocalPage(pageIndex: Int, newTitle: String) {
-        // 从 intent 中获取视频文件和弹幕文件列表
-        val videoFileList = intent.getStringArrayListExtra("videoFileList") ?: return
+        val media = resolveLocalPageMedia(pageIndex) ?: return
+        // 换条/换页都重算一次"这条能不能进入分P"：自动连播切到下一条时若不重算，
+        // 选集卡片上会留着上一条的「进入分P」，点进去播的是错的视频
+        if (localPlaylist != null) {
+            enterableLocalEntry = if (localLayerIndex >= 0) {
+                null
+            } else {
+                localPlaylist!!.getOrNull(pageIndex)?.takeIf { it.pageCount() > 1 }
+            }
+        }
+        runOnUiThread {
+            doSwitchPage(newTitle, media.videoFile, media.danmakuFile, media.audioFile, pageIndex)
+        }
+    }
+
+    /**
+     * 按**当前所在的层**算出 [pageIndex] 这一页该读哪几个文件；取不到返回 null（调用方直接不动）。
+     *
+     * 根层与分P 层的下标语义不同：根层 `pageIndex` 数的是"夹里第几条"，分P 层数的是"这条的第几个P"。
+     * 混用会把 P3 播成第 3 条视频——这正是多P 只能看 P1 那类问题的近亲，所以下标语义集中在这里判。
+     */
+    private fun resolveLocalPageMedia(pageIndex: Int): LocalPageMedia? {
+        val playlist = localPlaylist
+        if (playlist != null) {
+            val entry = if (localLayerIndex >= 0) {
+                playlist.getOrNull(localLayerIndex)
+            } else {
+                playlist.getOrNull(pageIndex)
+            } ?: return null
+            return entry.mediaAt(if (localLayerIndex >= 0) pageIndex else 0)
+        }
+
+        // 老路径：三条扁平列表按同下标取（DASH 双文件页在这一层就是一页一条，见 LocalPageChooseActivity）
+        val videoFileList = intent.getStringArrayListExtra("videoFileList") ?: return null
+        if (pageIndex < 0 || pageIndex >= videoFileList.size) return null
         val danmakuFileList = intent.getStringArrayListExtra("danmakuFileList")
         // 双文件（合并失败/未合并的 DASH）缓存还会带一份与外挂音轨对齐的列表：
         // 切 P 时必须跟着换，否则新一 P 只剩视频轨、直接没声音（反馈 #51 的另一半）
         val audioFileList = intent.getStringArrayListExtra("audioFileList")
+        return LocalPageMedia(
+            videoFile = videoFileList[pageIndex],
+            audioFile = audioFileList?.getOrElse(pageIndex) { "" } ?: "",
+            danmakuFile = danmakuFileList?.getOrElse(pageIndex) { "" } ?: ""
+        )
+    }
 
-        if (pageIndex < 0 || pageIndex >= videoFileList.size) return
+    /**
+     * 丢掉"本地文件夹连播"这条会话的全部第二层状态。
+     *
+     * 一旦换到在线会话（进合集 / 进分P / 按 UP 主连播），[localPlaylist] 那套条目就失效了：
+     * 留着的话选集卡片的 nestEntry 会照旧显示「进入分P」，点下去把本地文件塞进在线会话。
+     * 今天这几条路对本地播放都进不去（`canLoadUploaderQueue` 对 `!isOnline` 返回 false），
+     * 属于防御性清理，代价为零。
+     */
+    private fun clearLocalPlaylistLayer() {
+        localPlaylist = null
+        localLayerIndex = -1
+        localRootResumeIndex = -1
+        enterableLocalEntry = null
+    }
 
-        val videoUrl = videoFileList[pageIndex]
-        val danmakuUrl = danmakuFileList?.getOrElse(pageIndex) { "" } ?: ""
-        val audioUrl = audioFileList?.getOrElse(pageIndex) { "" } ?: ""
+    /**
+     * 进入本地文件夹连播里某一项的**分P 层**（用户点选集卡片的「进入分P（N）」）。
+     *
+     * 与在线 [enterMultiPageLayer] 对称：根层位置记进 [localRootResumeIndex]，这一项播完再弹回根层。
+     * 进入仍然**必须用户点**，不自动——理由同 [enterableCollection] 的注释。
+     */
+    private fun enterLocalLayer(entryIndex: Int) {
+        val playlist = localPlaylist ?: return
+        val entry = playlist.getOrNull(entryIndex) ?: return
+        if (!entry.isPlayable()) return
 
-        runOnUiThread {
-            doSwitchPage(newTitle, videoUrl, danmakuUrl, audioUrl, pageIndex)
-        }
+        reportProgressNow(true, UiText.of("进入分P前"))
+        localRootResumeIndex = currentPageIndex.coerceIn(0, playlist.size - 1)
+        localLayerIndex = entryIndex
+        enterableLocalEntry = null
+        // 分P 层播的是这一项自己的 P1..Pn；根层标题留在 rootTitle 里给返回后显示
+        pagenames = ArrayList(entry.pageNames.subList(0, entry.pageCount()))
+        currentPageIndex = 0
+        refreshPageNavButtons()
+        MsgUtil.showMsg(getString(R.string.msg_player_entered_multi_page, entry.title))
+        switchToLocalPage(0, pagenames!![0])
+    }
+
+    /**
+     * 从分P 层弹回本地文件夹连播的根层。
+     *
+     * @param advance true = 这一项播完了自动前进到下一条（受自动连播开关管）；
+     *                false = 用户点「← 返回主合集」，原地回到进来时那一条
+     */
+    private fun returnToLocalRoot(advance: Boolean) {
+        val playlist = localPlaylist ?: return
+        if (localLayerIndex < 0) return
+
+        val resumeIndex = (localRootResumeIndex + if (advance) 1 else 0)
+            .coerceIn(0, playlist.size - 1)
+        reportProgressNow(true, UiText.of("返回根层前"))
+        localLayerIndex = -1
+        localRootResumeIndex = -1
+        pagenames = playlist.mapTo(ArrayList()) { it.title }
+        currentPageIndex = resumeIndex
+        enterableLocalEntry = playlist.getOrNull(resumeIndex)?.takeIf { it.pageCount() > 1 }
+        refreshPageNavButtons()
+        switchToLocalPage(resumeIndex, pagenames!![resumeIndex])
     }
 
     /**
@@ -7388,16 +7581,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 btn_audio_only.visibility = View.VISIBLE
             }
 
-            if (hasMultiplePages()) {
-                btn_page_selector.visibility = View.VISIBLE
-                btn_page_selector.setOnClickListener { showPageSelectorCard() }
-                btn_auto_next.visibility = View.VISIBLE
-                updateAutoNextButton()
-                btn_auto_next.setOnClickListener { toggleAutoNext() }
-            } else {
-                btn_page_selector.visibility = View.GONE
-                btn_auto_next.visibility = View.GONE
-            }
+            // 有分页才显示「选集 / 自动下一P」（规则与切换分P 层时共用 refreshPageNavButtons）
+            refreshPageNavButtons()
 
             if (isOnlineVideo) {
                 btn_quality.visibility = View.VISIBLE

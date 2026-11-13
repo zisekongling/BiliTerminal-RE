@@ -21,6 +21,7 @@ import com.RobinNotBad.BiliClient.activity.video.info.VideoInfoActivity
 import com.RobinNotBad.BiliClient.activity.base.InstanceActivity
 import com.RobinNotBad.BiliClient.adapter.video.CacheListAdapter
 import com.RobinNotBad.BiliClient.api.PlayerApi
+import com.RobinNotBad.BiliClient.model.LocalPlaylistEntry
 import com.RobinNotBad.BiliClient.model.LocalVideo
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.VideoMeta
@@ -792,59 +793,47 @@ open class LocalListActivity : InstanceActivity() {
     }
 
     /**
-     * 虚拟合集播放：将文件夹内所有视频组成为合集，传入播放器实现连续播放
+     * 虚拟合集播放：把文件夹内的缓存视频组成**两层嵌套**的连播，与在线收藏夹的虚拟合集同构。
+     *
+     * ```
+     * 根层   [视频A] [视频B(3个P)] [视频C]
+     *                       └─ 选集卡片「进入分P（3）」→ [P1] [P2] [P3]，播完/返回回根层
+     * ```
+     *
+     * 根层一项 = 夹里的一个缓存视频（[LocalPlaylistEntry]），多P 的那一项才能"进得去"。
+     * 播放器按 [LocalPlaylistEntry.EXTRA_LOCAL_PLAYLIST] 里的文件组换页/换条。
+     *
+     * 26.11.13 之前根层每条只塞了一个文件（`pagenames.add(v.title)` + 取第一个 mp4），
+     * `LocalVideo.pageList` 完全没用上，于是文件夹里的多P 缓存只能播 P1（用户报的问题）。
+     *
      * @param folderName 文件夹名称
      * @param startVideoIdx 点击的视频在 videoList 中的索引（作为合集的起始播放位置）
      */
     private fun playVirtualCollection(folderName: String, startVideoIdx: Int) {
-        // 构建合集的分页数据
-        val pagenames = ArrayList<String>()
-        val videoUrlList = ArrayList<String>()
-        val danmakuUrlList = ArrayList<String>()
-        // 与 videoUrlList 一一对应的外部音轨（DASH 双文件的 audio.m4a；单文件为空串）。
-        // 原先只取 mp4 主文件，没合并过的 DASH 缓存在文件夹里播放就没有声音（反馈 #51）。
-        val audioUrlList = ArrayList<String>()
-        // 合集各条在 videoList（全量列表）里的下标，顺序即合集顺序
+        // 根层条目表（顺序即合集顺序）与各条在 videoList（全量列表）里的下标
+        val entries = ArrayList<LocalPlaylistEntry>()
         val collectionIndices = ArrayList<Int>()
         var folderCount = 0
 
-        // 一次遍历同时决定"合集有哪些条"与"四条列表的第几项"：
-        // 没有文件的条目整条不进合集。原先只跳过 videoUrlList、pagenames 照加，
-        // 四条列表长度就不一致了，起播下标会指到别的视频上（反馈 #104）。
+        // 一次遍历同时决定"合集有哪些条"与"按钮下标换算表"：
+        // 没有文件的条目整条不进合集，否则下标会指到别的视频上（反馈 #104）。
         for ((i, v) in videoList.withIndex()) {
             if (v.folderName != folderName) continue
             folderCount++
 
-            val files = v.videoFileList
-            if (files.isNullOrEmpty()) continue
-
+            // 归一逻辑（扁平文件表 → 每页一组）在模型里做成纯函数，单测盖得到
+            val entry = LocalPlaylistEntry.build(
+                v.title, v.pageList, v.videoFileList, v.danmakuFileList, v.cover
+            ) ?: continue
+            entries.add(entry)
             collectionIndices.add(i)
-            pagenames.add(v.title)
-
-            // 单文件或 DASH 双文件
-            if (files.size == 1) {
-                videoUrlList.add(files[0])
-                audioUrlList.add("")
-            } else {
-                // 取第一个 mp4 作为主文件，同目录的 m4a 作为外部音轨
-                videoUrlList.add(files.firstOrNull { it.endsWith(".mp4") } ?: files[0])
-                audioUrlList.add(files.firstOrNull { it.endsWith(".m4a") } ?: "")
-            }
-
-            // 弹幕文件
-            val danmakuFiles = v.danmakuFileList
-            if (!danmakuFiles.isNullOrEmpty()) {
-                danmakuUrlList.add(danmakuFiles[0])
-            } else {
-                danmakuUrlList.add("")
-            }
         }
 
         if (folderCount == 0) {
             MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_004))
             return
         }
-        if (collectionIndices.isEmpty()) {
+        if (entries.isEmpty()) {
             MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_033))
             return
         }
@@ -857,28 +846,37 @@ open class LocalListActivity : InstanceActivity() {
             return
         }
 
-        // 构建 PlayerData，传入所有分页信息
+        // 根层每一条都有至少一页（LocalPlaylistEntry.build 已过滤），起播取它的第一页
+        val startMedia = entries[startPageIndex].mediaAt(0)
+        if (startMedia == null) {
+            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_033))
+            return
+        }
+
+        // 构建 PlayerData。根层的 pagenames 是各条标题（= 选集卡片与自动连播用的"集"），
+        // 换条时读哪个文件由 local_playlist 里那条自己的 mediaAt 决定。
         val playerData = PlayerData(PlayerData.TYPE_LOCAL)
         playerData.title = getString(R.string.uitext_locallistactivity_035, folderName)
         // 起播地址必须跟 currentPageIndex 走同一个下标（反馈 #51）：原先固定取 [0]，
-        // 点 P2 时选集高亮在 P2、实际播的却是 P1
-        playerData.videoUrl = videoUrlList[startPageIndex]
-        playerData.danmakuUrl = danmakuUrlList[startPageIndex]
-        playerData.pagenames = pagenames
+        // 点第 2 条时选集高亮在第 2 条、实际播的却是第 1 条
+        playerData.videoUrl = startMedia.videoFile
+        playerData.danmakuUrl = startMedia.danmakuFile
+        playerData.pagenames = entries.mapTo(ArrayList()) { it.title }
         playerData.cids = ArrayList() // 本地视频不需要cid
         playerData.currentPageIndex = startPageIndex
 
         try {
             val player = PlayerApi.jumpToPlayer(playerData)
-            // 额外传入视频 / 弹幕 / 外部音轨列表，用于本地分页切换
-            player.putExtra("videoFileList", videoUrlList)
-            player.putExtra("danmakuFileList", danmakuUrlList)
-            player.putExtra("audioFileList", audioUrlList)
-            if (audioUrlList[startPageIndex].isNotEmpty()) {
-                player.putExtra("audio_track_url", audioUrlList[startPageIndex])
+            // 根层条目表：播放器靠它判断「这条有几个P / 能否进入分P 层」并换到正确的文件
+            player.putExtra(LocalPlaylistEntry.EXTRA_LOCAL_PLAYLIST, entries)
+            // 合集标题另传一份纯文件夹名：playerData.title 带「合集」后缀，只适合播放页标题
+            player.putExtra(LocalPlaylistEntry.EXTRA_LOCAL_PLAYLIST_TITLE, folderName)
+            // DASH 未合并的缓存：主文件只有视频轨，起播这一页的声音在这条外部音轨里
+            if (startMedia.audioFile.isNotEmpty()) {
+                player.putExtra("audio_track_url", startMedia.audioFile)
             }
             startActivity(player)
-            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_032, folderName, collectionIndices.size))
+            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_032, folderName, entries.size))
         } catch (e: Exception) {
             MsgUtil.err(e)
         }
