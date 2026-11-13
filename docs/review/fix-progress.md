@@ -2088,6 +2088,22 @@
 - **验证 · L0（26.11.13 本机实测）**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest` → BUILD SUCCESSFUL；单测按 `app/build/test-results/testStandardDebugUnitTest/*.xml` 的 `<testcase>` 计数为 **223 suites / 2414 tests / 0 failures / 0 errors / 0 skipped**。
 - **未验证（人测 / L2）**：番剧页与直播页的封面在「退出页面后才回包」时是否照常不加载、短视频信息流连续下滑翻页与相关推荐续接是否还会 Layout 抖动 —— 需要真机按崩溃日志里的路径复现。
 
+### 3.154 兄弟分支功能移植·第一批（26.11.13，三仓对比选题后落地）
+
+- **背景**：按 `docs/review/fork-comparison-2026-11-13.md` 的差距表，用户从 A/B/D/E 四组里勾了 8 项实现、1 项出设计稿（听歌模式）。
+- **本期落地**（逐项）：
+  1. **G01 弹幕屏蔽词**：新增 `player/DanmakuBlockWordPolicy.kt`（纯解析 + 命中判据，逗号/顿号/分号/空白分隔、转小写、去重保序、单词 ≤32 字、≤200 词）与 `player/DanmakuBlockWordParser.kt`（包装 `BaseDanmakuParser`，照 `ForceScrollParser` 的范式转发四个 setter 后重写 `parse()`）；`player/DanmakuManager.kt` 在 `configureAndPrepare` 里拍一次快照并把 parser 包成「先强制滚动、再屏蔽词」，窗口追加路径 `appendSegmentInternal` 单独判一次（那条路不经 parser）；设置项 `player_danmaku_block_words`（`input_string`）挂在弹幕组，文案进 `player_port_strings.xml`。
+  2. **G02 ±N 秒快退/快进**：`player/PlayerSeekStepPolicy.kt`（步长 `3..120`，默认 10，与双击快进秒数**分开**存 `player_seek_step_seconds`）；`PlayerButtons` 新增 `SEEK_BACK`/`SEEK_FORWARD` 两个 **textOnly** 按钮并默认放进 `DEFAULT_RIGHT_GROUP`；`activity_player.xml` 的按钮池里加两个 `TextView`（`text_seek_back`/`text_seek_forward`），`PlayerActivity` 接线 `initSeekButtons/refreshSeekButtons/seekByStep`，跳转沿用 `PlayerJumpTimePolicy.clampMs` 钳边界。
+  3. **G03 长视频弹幕时长**：`DanmakuStreamLoader` 新增 `updateDuration(sec)`（只增不清已载段、清失败标记），`PlayerActivity.onPrepared` 拿到真实 `duration` 后回填；`DanmakuApi.segmentCountFor` 公式与兄弟分支一致，差距只在时长来源。
+  4. **G06 封面取色**：新增 `player/CoverTintPolicy.kt`（12 色相×4 明度×4 饱和度加权投票 + 深色 UI 调色，HSV 换算手写以保持纯 JVM 可测）；`ui/widget/HighEnergyProgressBar.kt` 加 `setAccentColor(@ColorInt)`（保留原 A8/33 不透明度）；`PlayerActivity.applyCoverTint()` 用 Glide 解 48×48 小图投票染色，没有 `cover` extra（直播/本地/第三方源）或取不到色时静默保持主题主色。
+  5. **G07 高能曲线弹幕密度兜底**：新增 `player/DanmakuDensityHighEnergy.kt`（10 秒分桶、<30 条或 <60 秒不画、非零桶 95 分位定标 + sqrt 抬低段）；`DanmakuManager` 记 `loadedTimes`（两条装载路径）并暴露 `loadedDanmakuTimes()`；`PlayerActivity.loadHighEnergyData()` 的两个失败分支改为延迟 6 秒一次性用本地密度兜底（不轮询不重试）。
+  6. **O5 Cookie 合并白名单**：新增 `util/CookieMerge.kt`（鉴权键 6 个大小写不敏感、键名归一成本地拼写、空值即删但 `ac_time_value` 空值不清），`util/NetWorkUtil.java` 的 `saveCookiesLocked` 改走它。**刻意偏离兄弟分支**：`ALLOW_AUTH_COOKIE_UPDATES = true`——B 站会在任意响应里轮换 `bili_jct`，全拦会让 POST 静默 -111；「不删/不清空」由合并引擎兜住。
+  7. **O6 华为/鸿蒙默认软解 + ABI 闸**：新增 `player/PlayerCompatPolicy.kt`（纯判据），`player/IjkNativeLibs.kt` 在 `ensureLoaded` 最前播种（**只写 `player_codec` 不存在的存档**，用户手动值永不被覆盖）+ ABI 闸（不匹配置 `STATE_FAILED` 但**不** `markFailed`、不上报）。兄弟分支的「换系统播放器」分支**不移植**：本项目只有 ijk 一个内核（见 `bailOnNativeFailure` 注释），要做回落等于引入第二个播放引擎，已在对比报告 §4 判为不建议。
+  8. **O7 全局转场动画开关**：新增 `util/PageMotion.kt`（`windowAnimationsFor`/`shouldSuppressTransition` 纯判据 + `apply`/`forget`），`activity/base/BaseActivity.kt` 三处接线，设置项 `ui_disable_page_transitions` 挂在「外观设置」组末尾，文案进 `appearance_port_strings.xml`。覆盖 109 个走 `BaseActivity` 的页面；`PlayerActivity`/`SplashActivity`/`GetIntentActivity`/两个伪装页不在此列。
+  9. **E 未读角标回菜单刷新**：新增 `util/MessageUnreadRefresh.kt`（`MessageUnreadRefresh` 纯状态机：account/revision/sequence 三元组丢过期响应、单飞、5 秒最小间隔、失败保留旧值 + `MessageUnreadRefresher` 胶水），`BiliTerminal` 启动块与 `activity/MenuActivity.kt`（onResume 触发 / onPause 撤观察者）接线。**不做后台轮询**。
+- **验证 · L0（26.11.13 本机实测）**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest` → BUILD SUCCESSFUL，2486 条单测 0 失败（新增 5 份测试：`DanmakuBlockWordPolicyTest` 8、`DanmakuDensityHighEnergyTest` 7、`PlayerSeekStepPolicyTest` 7、`CoverTintPolicyTest` 8、以及 steady 侧 `CookieMergeTest` 18 / `PageMotionTest` 7 / `PlayerCompatPolicyTest` 16 / unread 侧 `MessageUnreadRefreshTest` 14）。首轮曾 6 条失败，全是测试自身口径问题（朴素包含把 `script` 判成命中 `sc`、定长编号被前缀误命中、默认布局规范串未同步新按钮、单飞测试没跨过 5 秒间隔），已逐条修正。
+- **未验证（人测 / L2）**：屏蔽词是否真的不显示（含拖动跨段补拉的弹幕）、±按钮的落点与「更多」格里的取放、长视频（>60 分钟）后半段是否补出弹幕、封面色在深/浅两套主题下是否看得清、缺 PBP 数据时曲线是否像话、华为机首次是否软解且手改后不被改回、转场开关关掉后 109 个页面是否都立刻切换、回主菜单角标是否在 1 秒内更新且读掉后归零。见 `docs/review/manual-test-guide-261113-fork-port.md`。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。
