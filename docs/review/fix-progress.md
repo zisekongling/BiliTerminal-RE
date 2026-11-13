@@ -18,6 +18,17 @@
 
 ## 1. 当前版本状态
 
+- **26.11.14 播放器「跳到指定时间」从另开 Activity 改成页内卡片（用户报「离开播放器回来视频流会消失 + 跳转是新活动 = 没法用」）**：
+  - **症状**：用户原话——「本来离开自带播放器再回来视频流会消失不算啥，结果结合了跳转指定时间是新活动就导致没法用了」。即：跳转本身能用，但跳完回来画面没了。
+  - **根因**：`PlayerActivity` 的「跳到指定时间」原来是 `startActivityForResult(InputDialogActivity)`（`REQUEST_CODE_JUMP_TO_TIME = 1002`），播放页被输入页整页盖住 → Surface 被销毁 → 返回时靠 `PlayerSurfaceBinder` 的 `onSurfaceReattached` 重新 attach + `seekTo(video_now)` + 重设视频几何来恢复，这条路在手表上并不总成功，于是「跳完黑屏」。而这个交互压根不需要离开播放页。
+  - **修法（照「发送弹幕」的样板做页内卡片）**：`app/src/main/res/layout/activity_player.xml:648-696` 新增 `jump_time_card`（与 `danmaku_send_card` 同构：`layout_centerInParent` + `marginHorizontal=6dp` + `@drawable/background_card`，默认 gone）——标题（`text_player_jump_to_time`）+ `jump_time_edit`（`hint_player_jump_to_time`、`maxLength=10`、`singleLine`、`textColor=?android:attr/textColorPrimary`、`textColorHint=#88ffffff`）+ 整行确认按钮 `jump_time_confirm`（`@dimen/touch_min` 高、`background_card_borderless`、文案新增 `btn_player_jump_time`＝「跳转」）。
+  - **`PlayerActivity.kt` 侧**：`initJumpToTimeButton()`（约 `:2024`）只做两件接线——`jump_time_btn` 点开 `showJumpTimeCard()`、`jump_time_confirm` 点 `confirmJumpTime()`；`showJumpTimeCard()`（约 `:2037`）先 GONE 掉弹幕卡（两张卡互斥）、显 `layout_card_bg` + 本卡、用 `PlayerJumpTimePolicy.prefillText(video_now.toLong())` 预填并把光标挪到末尾；`confirmJumpTime()`（约 `:2054`）`durationMs = ijkPlayer?.duration ?: 0L`（<=0 直接收卡返回）→ `parseToSeconds` 失败提示 `msg_player_jump_invalid`（**卡片不关**，用户能改）→ `clampMs` 越界提示 `msg_player_jump_out_of_range` → 收卡 + `seekToPosition` + `autohideReset()`。新增 `hideAllCards()`（约 `:2079`）把遮罩与六张卡一次收掉，`card_bg` 点击改调它；`btn_danmaku_send` 点开时先 GONE 跳转卡。
+  - **删掉的**：`REQUEST_CODE_JUMP_TO_TIME` 常量、`onActivityResult` override（全仓只这一处用 1002）。`parseToSeconds` / `prefillText` / `clampMs` 三个纯函数与单测 `PlayerJumpTimePolicyTest` **一行没改**——只是输入面板换了宿主。
+  - **口径保持不变**：直播没有「时间点」概念，`jump_time_btn` 的显隐仍由 `onPrepared` 的 `isLiveMode` 决定；输入法 / `EditorEnterKeyGuard`（`dispatchKeyEvent` 里兜 singleLine EditText 的 `focusSearch` ISE，线上崩溃 #66）照旧生效，KDoc 里补了 `jump_time_edit` 的名字。
+  - **L0（26.11.14 本机实测）**：`./gradlew.bat :app:assembleDebug --no-parallel --max-workers=2` BUILD SUCCESSFUL（双 flavor 全出）；`:app:testStandardDebugUnitTest` BUILD SUCCESSFUL。**注意**：不带 `--no-parallel` 时 `:app:compileCoexistDebugKotlin` 会报「Compilation error. See log for more details」，真因是两 flavor 的 Kotlin 编译并行抢内存（`e: Daemon compilation failed: Not enough memory to run compilation`），不是代码错——见 `docs/agents/build.md`「环境坑」。
+  - **L1 已尝试并止损**：两个在线模拟器（`emulator-5554` / `emulator-5556`）都没登录态，启动即被 `SetupUIActivity` 初始化向导盖住（`SplashActivity` 在 `mid == 0` 时必弹），且该 AVD 的 Surface 渲染本身就是花屏残帧——判不了画面，按 `docs/agents/testing.md` 不上模拟器硬试。
+  - **未验证（L2，只能真机看画面 / 判手感）**：①「更多」里点「跳到指定时间」后卡片是否居中弹出、预填是否是当前进度；②输入后点「跳转」是否真的跳过去**且画面还在**（本次要修的就是这个）；③输入非法/越界时提示是否出现且卡片留在原地能继续改；④卡片开着时点遮罩是否收回；⑤手表小屏上卡片高度与输入法弹出后是否挡住确认按钮。
+
 - **26.11.14 短视频长按三倍速失效（一直 1x）：播放器选项漏了 `soundtouch`（反馈 #82）**：
   - **症状**：短视频页长按，底部倍速按钮与提示都会变成 `3.0x`，松手回 `1.0x`，但画面与声音的播放速度自始至终是 1x。
   - **根因（不是手势、也不是应用层没下发）**：`app/src/main/java/com/RobinNotBad/BiliClient/activity/video/ShortVideoPlayerActivity.kt` 的 `shortVideoOptions` 是**独立一份**播放器选项列表（`util` 层的 `IjkPlayerBridge.createPlayer(options)` 在 options 非空时只用调用方给的项、**不套默认项**），里面没有 `soundtouch`。ijk 的变速靠 soundtouch 拉伸音轨、让音轨时钟加速，视频再跟随音轨时钟；stock ijkplayer 的 `soundtouch` 默认 **0**（`bilibili/ijkplayer` 的 `ff_ffplay_options.h`：`{ "soundtouch", "SoundTouch: enable", OPTION_INT(0, 0, 1) }`），不开时 `setSpeed` 只改了 `pf_playback_rate` 这个属性，播放不变。长视频 `app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:2202` 一直显式设 `soundtouch 1`（此前全仓唯一一处），短视频这条链路漏了。
