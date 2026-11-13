@@ -30,6 +30,8 @@ replay_pid*.log
 # 本机构建日志（gradlew 重定向产物，不许进库；先例：PR #20 误提交 16 个 build-*.log）
 /build_*.txt
 build-*.log
+/release.log
+/test_log.txt
 
 # 临时克隆参考仓库
 /BiliTerminal_clone/
