@@ -586,6 +586,15 @@ class ShortVideoPagerAdapter(
 
         private var isScaling = false
 
+        /** 双指拖动后的画面位移（px）。只有放大到 1 倍以上才有意义（反馈 #129）。 */
+        private var translateX = 0f
+        private var translateY = 0f
+
+        /** 双指拖动时上一帧的手指重心；[panning] 为 false 表示当前没在拖。 */
+        private var lastFocusX = 0f
+        private var lastFocusY = 0f
+        private var panning = false
+
         var isInitialized = false
             private set
 
@@ -614,6 +623,8 @@ class ShortVideoPagerAdapter(
 
         fun bind(item: ShortVideoItem, position: Int) {
             // bind 只保留与条目数据相关的内容：监听器、手势检测器已在 init 里随 holder 只建一次
+            // holder 被复用到另一条视频时，把上一条的缩放 / 位移一起还原（反馈 #129）
+            if (currentItem !== item) resetScale()
             currentItem = item
 
             if (item.cover.isNotEmpty()) {
@@ -730,6 +741,13 @@ class ShortVideoPagerAdapter(
 
                 override fun onScaleEnd(detector: ScaleGestureDetector) {
                     isScaling = false
+                    // 缩回原始比例时位移一起归零，否则画面会偏在一角；否则再按边界收一次，
+                    // 免得松手时停在「画面被拖出边缘」的位置上（反馈 #129）
+                    if (currentScale <= minScale) {
+                        translateX = 0f
+                        translateY = 0f
+                    }
+                    applyScale()
                     itemView.parent?.requestDisallowInterceptTouchEvent(false)
                 }
             })
@@ -741,6 +759,9 @@ class ShortVideoPagerAdapter(
 
                 scaleGestureDetector?.onTouchEvent(event)
                 gestureDetector?.onTouchEvent(event)
+                // 双指拖动平移（反馈 #129）：放大后用两根手指搓动画面看边角。
+                // 只认 ≥2 根手指，单指上下滑照旧交给竖向 pager 翻视频，两者不抢手势。
+                handleTwoFingerPan(event)
                 // 长按加速是「按住生效」：抬手、被父容器打断（CANCEL）、或第二根手指按下
                 // （开始捏合缩放）都要立刻还原倍速，否则会一直停在 3 倍速上。
                 when (event.actionMasked) {
@@ -779,6 +800,8 @@ class ShortVideoPagerAdapter(
             itemView.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
                 if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
                     adjustVideoSize()
+                    // 画面尺寸变了，缩放/位移的可拖范围跟着变，按新尺寸重新夹一次（反馈 #129）
+                    applyScale()
                 }
             }
 
@@ -951,12 +974,79 @@ class ShortVideoPagerAdapter(
             applyVolumeGain(volumeGainPercent)
         }
 
+        /**
+         * 双指拖动平移（反馈 #129）。
+         *
+         * 直接把「两根手指重心」的位移累加到画面上：捏合改比例、这里改位移，两条路互不干扰。
+         * 单指一律不参与——竖向 pager 的「上下滑切视频」必须保持原样，
+         * 所以只在第二根手指按下的那一刻起接管，手指一少就立刻放手。
+         */
+        private fun handleTwoFingerPan(event: MotionEvent) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    lastFocusX = focusOf(event) { i -> event.getX(i) }
+                    lastFocusY = focusOf(event) { i -> event.getY(i) }
+                    // 先认下「两根手指」这件事；能不能真的平移看当前的缩放倍数，
+                    // 缩放往往在按下之后才发生，所以这里不能只在捏合前放行
+                    panning = true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    val fx = focusOf(event) { i -> event.getX(i) }
+                    val fy = focusOf(event) { i -> event.getY(i) }
+                    if (panning && event.pointerCount >= 2 && currentScale > minScale) {
+                        // 先抢在 pager 之前吃掉这次拖动，否则画面没动、视频先翻页了
+                        itemView.parent?.requestDisallowInterceptTouchEvent(true)
+                        translateX += fx - lastFocusX
+                        translateY += fy - lastFocusY
+                        applyScale()
+                    }
+                    lastFocusX = fx
+                    lastFocusY = fy
+                }
+
+                // 少一根手指就不再平移：剩下的那根要还给「上下滑切视频」
+                MotionEvent.ACTION_POINTER_UP -> panning = false
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> panning = false
+            }
+        }
+
+        private inline fun focusOf(event: MotionEvent, axis: (Int) -> Float): Float {
+            var sum = 0f
+            for (i in 0 until event.pointerCount) sum += axis(i)
+            return sum / event.pointerCount.coerceAtLeast(1)
+        }
+
+        /** 画面回到原始比例、居中（holder 复用换条目时调用）。 */
+        private fun resetScale() {
+            currentScale = minScale
+            translateX = 0f
+            translateY = 0f
+            panning = false
+            applyScale()
+        }
+
+        /**
+         * 把缩放与位移写进 TextureView 的变换矩阵。
+         *
+         * 缩放绕画面中心做，位移是屏幕像素；放大后内容比可视区多出来的那一半
+         * （[(currentScale] - 1) × 尺寸 / 2）就是能拖动的上限，越界直接夹住，
+         * 保证拖到头时画面边缘不会离开表盘（反馈 #129）。
+         */
         private fun applyScale() {
             textureView?.let { view ->
+                val w = view.width.toFloat()
+                val h = view.height.toFloat()
+                if (w <= 0f || h <= 0f) return@let
+                // coerceAtLeast 兜底：currentScale 理论上不小于 1，真缩到 1 以下时上限会是负数，
+                // 而 coerceIn(min, max) 在 min > max 时会直接抛 IllegalArgumentException
+                val maxTx = (currentScale - 1f).coerceAtLeast(0f) * w / 2f
+                val maxTy = (currentScale - 1f).coerceAtLeast(0f) * h / 2f
+                translateX = translateX.coerceIn(-maxTx, maxTx)
+                translateY = translateY.coerceIn(-maxTy, maxTy)
                 val matrix = Matrix()
-                val pivotX = view.width / 2f
-                val pivotY = view.height / 2f
-                matrix.setScale(currentScale, currentScale, pivotX, pivotY)
+                matrix.setScale(currentScale, currentScale, w / 2f, h / 2f)
+                matrix.postTranslate(translateX, translateY)
                 view.setTransform(matrix)
             }
         }
