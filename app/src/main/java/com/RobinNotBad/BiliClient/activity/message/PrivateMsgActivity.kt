@@ -35,6 +35,7 @@ import com.RobinNotBad.BiliClient.model.PrivateMessage
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 
 import org.json.JSONArray
@@ -112,7 +113,10 @@ class PrivateMsgActivity : BaseActivity() {
         uid = intent.getLongExtra("uid", 114514)
         Log.e("", uid.toString())
 
-        MsgUtil.showMsg(UiText.of("私信有可能被拦截\n尽量不要用终端发私信喵"))
+        // 反馈 #121：这句提示可以关（设置 → 私信拦截提示，默认开）。老用户每次进会话都被弹一次太吵
+        if (SharedPreferencesUtil.getBoolean(SettingsKeys.PRIVATE_MSG_INTERCEPT_TIP_ENABLE, true)) {
+            MsgUtil.showMsg(UiText.of("私信有可能被拦截\n尽量不要用终端发私信喵"))
+        }
 
         CenterThreadPool.run {
             try {

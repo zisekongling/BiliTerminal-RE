@@ -269,6 +269,64 @@ public class PrivateMsgApi {
         return result;
     }
 
+    /** 视频链接前缀：拼私信正文与「失败回退复制」共用，避免两处各写一遍拼出不同链接。 */
+    public static final String VIDEO_LINK_PREFIX = "https://www.bilibili.com/video/";
+
+    /** 私信正文里标题最多保留的字符数（超出截断加省略号），防止长标题把 2000 字节上限顶穿。 */
+    public static final int VIDEO_SHARE_TITLE_MAX = 60;
+
+    /**
+     * 拼视频完整链接（纯函数）。
+     *
+     * <p>私信正文和「发送失败时复制链接」走同一个函数，免得两处各拼一次、拼出两种链接。
+     * bvid 为空时返回空串，调用方据此跳过「复制链接」这一步。
+     */
+    public static String buildVideoLink(String bvid) {
+        return (bvid == null || bvid.isEmpty()) ? "" : VIDEO_LINK_PREFIX + bvid;
+    }
+
+    /**
+     * 组装「把视频发给好友」的私信正文（纯函数，见 PrivateMsgApiTest）。
+     *
+     * <p>为什么发文本而不是分享卡片：发送私信的文档
+     * （{@code bilibili-API/docs/message/private_msg.md}「发送私信（web端）」）明确写着
+     * 「仅支持发送 msg[msg_type] 为 1、2 或 5 的私信」；卡片是 {@code msg_type=7}
+     * （{@code private_msg_content.md}「分享消息」），不在支持范围内，硬发只会拿到
+     * 21035「该类消息暂时无法发送」。所以这里退一步用 {@code msg_type=1} 发
+     * 「标题 + 完整链接」——对方点链接照样能打开视频，也不至于静默失败。
+     *
+     * <p>正文里只有标题和链接，不带任何中文前缀：本方法要能被 JVM 单测直接调用，
+     * 而纯函数读不到 strings.xml（见 docs/agents/dev-conventions.md）。
+     *
+     * @param title 视频标题，可为 null
+     * @param bvid  BV 号；为空时只发标题，避免拼出半截链接
+     */
+    public static String buildVideoShareText(String title, String bvid) {
+        String safeTitle = title == null ? "" : title.trim();
+        if (safeTitle.length() > VIDEO_SHARE_TITLE_MAX)
+            safeTitle = safeTitle.substring(0, VIDEO_SHARE_TITLE_MAX) + "…";
+        String link = buildVideoLink(bvid);
+        if (link.isEmpty()) return safeTitle;
+        if (safeTitle.isEmpty()) return link;
+        return safeTitle + "\n" + link;
+    }
+
+    /**
+     * 组装 {@code msg_type=1} 的 content：接口只认 {@code {"content":"..."}} 这一种结构
+     * （{@code private_msg_content.md}「文字消息」）。
+     *
+     * <p>用 JSONObject 序列化而不是手拼字符串，标题里带引号/换行也不会拼出非法 JSON。
+     */
+    public static String buildTextContent(String text) {
+        JSONObject content = new JSONObject();
+        try {
+            content.put("content", text == null ? "" : text);
+        } catch (JSONException ignored) {
+            // put 一个 String 不会失败，这里只是满足受检异常签名
+        }
+        return content.toString();
+    }
+
     /** 撤回有效期：B 站只允许撤回 120 秒内发出的私信（private_msg_content.md「撤回消息」）。 */
     public static final long RECALL_WINDOW_SECONDS = 120;
 

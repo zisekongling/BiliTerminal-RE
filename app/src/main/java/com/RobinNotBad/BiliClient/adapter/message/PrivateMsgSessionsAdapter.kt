@@ -38,6 +38,15 @@ class PrivateMsgSessionsAdapter(
     val context: Context,
     val sessionsList: ArrayList<PrivateMsgSession>,
     val userMap: HashMap<Long, UserInfo>?,
+    /**
+     * 选中回调（反馈 #133「把视频发给好友」）。
+     *
+     * 非 null 时这是「选好友」模式：点条目把选中结果交给调用方，而不是进会话页，
+     * 长按菜单也一并关掉（这里只是挑个人，置顶/删除会话都没意义）。
+     * 必须放在 [onSessionsChanged] 之前——它是尾随 lambda 的绑定位，挪到后面会让
+     * 现有的 `PrivateMsgSessionsAdapter(ctx, list, map) { … }` 调用点静默绑错参数。
+     */
+    private val onSessionClick: ((PrivateMsgSession) -> Unit)? = null,
     private val onSessionsChanged: (() -> Unit)? = null
 ) : RecyclerView.Adapter<PrivateMsgSessionsAdapter.PrivateMsgSessionsHolder>() {
 
@@ -115,13 +124,24 @@ class PrivateMsgSessionsAdapter(
             }
 
             holder.itemView.setOnClickListener {
-                val intent = Intent(context, PrivateMsgActivity::class.java)
-                intent.putExtra("uid", msgContent.talkerUid)
-                context.startActivity(intent)
+                // 选好友模式：只把结果交回调用方，不进会话页（反馈 #133）
+                val pick = onSessionClick
+                if (pick != null) {
+                    pick(msgContent)
+                } else {
+                    val intent = Intent(context, PrivateMsgActivity::class.java)
+                    intent.putExtra("uid", msgContent.talkerUid)
+                    context.startActivity(intent)
+                }
             }
             holder.itemView.setOnLongClickListener {
-                showSessionMenu(msgContent)
-                true
+                // 选好友模式下不给长按菜单：置顶/删除会话对「挑个人发消息」没有意义
+                if (onSessionClick != null) {
+                    false
+                } else {
+                    showSessionMenu(msgContent)
+                    true
+                }
             }
         } catch (err: JSONException) {
             Log.e("PrivateMsgUserAdapter", err.toString())

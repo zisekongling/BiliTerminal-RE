@@ -202,4 +202,64 @@ class PrivateMsgApiTest {
         assertEquals(0.0, PrivateMsgApi.buildImageContentOfKb("u", 1, 1, 0.0, "jpeg").getDouble("size"), 0.0)
         assertEquals(0.0, PrivateMsgApi.buildImageContentOfKb("u", 1, 1, -5.0, "jpeg").getDouble("size"), 0.0)
     }
+
+    // ---------- 视频转发到私信（反馈 #133）：消息体组装与降级 ----------
+
+    @Test
+    fun buildVideoShareText_标题加完整链接() {
+        assertEquals(
+            "测试视频\nhttps://www.bilibili.com/video/BV1xx411c7mD",
+            PrivateMsgApi.buildVideoShareText("测试视频", "BV1xx411c7mD")
+        )
+    }
+
+    @Test
+    fun buildVideoShareText_超长标题截断到60字加省略号() {
+        // 私信正文有 2000 字节上限，长标题必须截断，否则整条发不出去
+        val firstLine = PrivateMsgApi.buildVideoShareText("视".repeat(61), "BV1xx411c7mD").substringBefore("\n")
+        assertEquals("视".repeat(PrivateMsgApi.VIDEO_SHARE_TITLE_MAX) + "…", firstLine)
+    }
+
+    @Test
+    fun buildVideoShareText_正好60字不截断() {
+        val title = "字".repeat(PrivateMsgApi.VIDEO_SHARE_TITLE_MAX)
+        assertEquals(title, PrivateMsgApi.buildVideoShareText(title, ""))
+    }
+
+    @Test
+    fun buildVideoShareText_没有bvid时只发标题() {
+        // 拿不到 bvid 时不能拼出半截链接（.../video/）
+        assertEquals("测试视频", PrivateMsgApi.buildVideoShareText("测试视频", ""))
+        assertEquals("测试视频", PrivateMsgApi.buildVideoShareText("测试视频", null))
+    }
+
+    @Test
+    fun buildVideoShareText_没有标题时只发链接() {
+        assertEquals(
+            "https://www.bilibili.com/video/BV1xx411c7mD",
+            PrivateMsgApi.buildVideoShareText("   ", "BV1xx411c7mD")
+        )
+    }
+
+    @Test
+    fun buildVideoLink_没有bvid就返回空串() {
+        // 发送失败时的兜底是「复制链接」：没有 bvid 就没得复制，不能复制出 .../video/null
+        assertEquals("", PrivateMsgApi.buildVideoLink(null))
+        assertEquals("", PrivateMsgApi.buildVideoLink(""))
+        assertEquals(
+            "https://www.bilibili.com/video/BV1xx411c7mD",
+            PrivateMsgApi.buildVideoLink("BV1xx411c7mD")
+        )
+    }
+
+    @Test
+    fun buildTextContent_引号与换行被转义后仍可解析回原文() {
+        val raw = "标题\"带引号\"\n第二行"
+        assertEquals(raw, JSONObject(PrivateMsgApi.buildTextContent(raw)).getString("content"))
+    }
+
+    @Test
+    fun buildTextContent_null按空串发出() {
+        assertEquals("", JSONObject(PrivateMsgApi.buildTextContent(null)).getString("content"))
+    }
 }

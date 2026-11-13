@@ -327,6 +327,11 @@
             android:label="@string/pagename_settingterminalplayeractivity_001"
             android:screenOrientation="locked" />
         <activity
+            android:name=".activity.settings.SettingSponsorCategoryActivity"
+            android:exported="false"
+            android:label="@string/player_sb_cat_page_name"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.settings.UIPreviewActivity"
             android:exported="false"
             android:label="@string/label_activity_no_18"
@@ -689,6 +694,12 @@
             android:name=".activity.message.PrivateMsgActivity"
             android:exported="false"
             android:label="@string/pagename_private_message"
+            android:screenOrientation="locked" />
+        <!-- 选好友页（反馈 #133）：只能由详情页的「发给好友」拉起，不导出 -->
+        <activity
+            android:name=".activity.message.ChooseFriendActivity"
+            android:exported="false"
+            android:label="@string/pagename_choose_friend"
             android:screenOrientation="locked" />
         <activity
             android:name=".activity.user.favorite.FavouriteOpusListActivity"
