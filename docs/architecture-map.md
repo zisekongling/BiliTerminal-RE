@@ -1317,7 +1317,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 
 - **必须显式标记，禁止靠 `aid != cids[i]` 猜**（26.10.15 修的就是这个）：真实多P 下 av 号与 cid 永不相等，判据恒真 → 把 cid 当 aid 查 → `62002 稿件不可见` → cid 落 0 → 取流 `-400` → **切P 失败、播放器卡死**。标记走 `PlayerData.virtualCollection` → `jumpToPlayer` 的 `virtual_collection` extra → 播放器 `isVirtualCollectionMode`。新增任何"把一串视频当分P 播"的功能，都要顺手打这个标记。
 - **切页后 `aid` 与 `cid` 必须一起同步**（`switchToOnlinePage` 的 `runOnUiThread` 块）。只同步 `cid` 会让虚拟合集的进度上报变成 `reportHistory(第一个视频的 aid, 第 N 个视频的 cid)`——**把 N 的进度写进 1 的记录**。
-- 本地缓存文件夹的"虚拟合集"走的是另一条路（`switchToLocalPage`，`videoUrlList` 从 Intent 拿），不碰这两个字段，所以不需要标记。
+- 本地缓存文件夹的"虚拟合集"走的是另一条路（`switchToLocalPage`，媒体从 Intent 的 `local_playlist` 取），不碰这两个字段，所以不需要标记；它现在也有「根层 / 多 P 层」两层，见 §7.67。
 - 真机复现/验证手法与日志见 `docs/review/fix-progress.md` §3.17。
 
 ### 7.43 虚拟合集的嵌套层：合集 / 分P（26.10.15 起，26.10.16 改为手动进入）
@@ -1346,6 +1346,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - 根目录层的卡片标题用 `rootTitle`，**不要用 `videoTitle`**：后者会被 `doSwitchPage` 改成当前条目名，从嵌套层返回后会显示成「某条目名（1/20）」，看着像文件夹名其实是列表里的某一条。
 - 展平逻辑是纯函数 `model/Collection.toPlaylist`（有单测）：跨节按节顺序、节内按集顺序；`sections` 为空时退回 `cards`。
 - 台账与真机记录见 `docs/review/fix-progress.md` §3.18 / §3.24；接口侧结论见 `docs/bilibili-api-notes.md` §5。
+- **本地缓存文件夹也走这套（26.11.14 起）**：根目录层 = 夹内视频，多 P 视频是可进入的第二层，状态在 `localPlaylist` / `localLayerIndex` / `localRootResumeIndex` / `enterableLocalEntry`（细节与坑见 §7.67）。`Collection.toPlaylist` 是线上合集专用的，别拿它折本地文件。
 - **26.11.01 起拆成两个独立开关**（用户要求）：`util/VirtualCollectionPrefs.kt` 统一默认值与判定——`virtual_collection_enable` 只负责"组不组合集"（默认开）；新增 `virtual_collection_click_play` 负责"收藏夹里点卡片是不是直接播"（**默认关**，点卡片回到视频详情页）。收藏夹点击判定是纯函数 `favoriteClickAction`（多选 > 点击即播 > 合集连播 / 单条 > 详情页），且**开关在点击时读**——旧实现是在绑定适配器时读一次缓存住，本页开着去设置里改完回来不生效。功能一开、功能二关时，长按菜单补「以虚拟合集连播」（`shouldOfferCollectionPlay`）。缓存页（本地文件）**不受功能二控制**：`cacheClickAction` 固定"点了就播"，功能一只决定单条还是整夹。两个判定都有 JVM 单测 `VirtualCollectionPrefsTest`。
 
 ### 7.44 线程边界上必须兜住的两类东西：销毁后的 UI 回调 + `Error` 型失败（26.10.19 定稿，崩溃版本 26.10.16，#43–#49）
@@ -1565,6 +1566,14 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **写入侧不钳制**：`adapter/SettingsAdapter.kt` 只校验输入能解析成 int，读侧统一走 `TopbarHeightPolicy.clampDp`（既有约定，手输越界值不得崩）。
 - **不覆盖两个自带顶栏的页面**：`activity_player.xml`（text_title/clock_layout/battery）与 `fragment_short_video_page.xml`（text_title）不继承 `BaseActivity`，本设置对它们无效，设置项文案里已写明。
 - **入口与索引**：设置 → 界面与外观 → 布局适配（`SettingGroupActivity.buildLayoutGroup()`，紧跟灵动岛开关）；`SettingsIndex.kt` 里同步加了一条 `Entry`（**两份平行清单，加一处漏一处就会搜不到**），点击带 `highlight` 定位；「恢复默认」把它一起写回 0。
+
+### 7.67 缓存文件夹：虚拟合集里的多 P 是第二层 + 「文件夹」独立页开关（26.11.14 新增）
+
+- **`LocalVideo.videoFileList` 是扁平的，不是一页一项**：`LocalListActivity.scanVideos` 给多 P 缓存往 `pageList` 每页加一项，同时往 `videoFileList` 加**每一项媒体文件**——DASH 页会连 `audio.m4a` 一起再加一项，所以「页」与「下标」不是 1:1。反查一页对应哪些文件只走 `util/LocalPageFileIndexPolicy.indicesOfPage(files, pageName)`（按「父目录名 == 页名」匹配），别自己按下标猜。
+- **归一留给纯函数**：`model/LocalPlaylistEntry.build(title, pageList, videoFileList, danmakuFileList, cover)` 把扁平列表折成「一页一媒体」（`LocalPageMedia(videoFile, audioFile, danmakuFile)`，主文件优先 `.mp4`、音轨取 `.m4a` 且不与主文件同一条；目录名对不上时退化成按目录分组）。单测 `app/src/test/java/com/RobinNotBad/BiliClient/model/LocalPlaylistEntryTest.kt`（8 例）。**26.11.14 修的 bug 就是没做这一步**：旧 `playVirtualCollection` 每个夹内条目只塞 `files.firstOrNull { it.endsWith(".mp4") }` 一条，多 P 在夹内合集里退化成「只有 P1 的视频」。
+- **两层结构照在线合集那套，不另起状态机**：播放器侧 `localPlaylist` / `localLayerIndex`（-1 = 根层，≥0 = 正在某条视频的分 P 层）/ `localRootResumeIndex` / `enterableLocalEntry`，与 `returnPlaylist`（在线合集/UP 投稿）共用「`enterable*` 提示可进入、用户点了才进、`returnTo*` 回上一层的 `advance` 语义」。根层 `pagenames` = 各视频标题，层内 = 该视频的分 P 名；`switchToLocalPage` 的媒体解析收口到 `resolveLocalPageMedia`（层内取该条目第 i 页、根层取第 i 个条目第 0 页），**intent 三列表同下标的老路径仍在**，给 `LocalPageChooseActivity` 起的播放器（单个多 P 视频直接播）用。
+- **选集按钮的守卫要认「可进入的层」**：`showPageSelectorCard()` 用 `canOpenPageSelector()`（`hasMultiplePages() || 有 localPlaylist 且（在层内或当前条目可分 P）`），不是 `hasMultiplePages()`——夹里只有一个多 P 视频时根层只有一页，用老守卫会把按钮藏掉，正是这个 bug 的场景。按钮显隐统一走 `refreshPageNavButtons()`，别再在别处手写 `btn_page_selector.visibility`。
+- **「文件夹」独立页（实验性开关，默认关）**：开关 `util/FolderPagePrefs.kt`（`cache_folder_page_enable`，键留在门面里、默认 `false`，与 `VirtualCollectionPrefs` 同口径）。唯一判断点在 `CacheListAdapter.rebuildFlatList()` 顶层分支：开 = 顶部一行 `TYPE_GOTO_FOLDERS`（`cell_goto` + `FolderEntryHolder`，「文件夹 N」）+ 文件夹分区与「新建文件夹」整段跳过；关 = 逐行等价原实现。独立页 `activity/video/local/LocalFolderListActivity.kt`（`RefreshListActivity` 子类）+ `adapter/video/LocalFolderAdapter.kt` + `res/layout/cell_local_folder_list.xml`，交互照「我的 → 收藏夹」列表页（封面 / 「N 个视频」/ 多选 / 拖动排序），数据仍是 `.folders_info.json`。**返回刷新要接两处**：`LocalListActivity.folderListLauncher`（`RESULT_OK` → `refreshAfterExternalChange()`，否则入口上的文件夹数停在旧值）+ `folderPageEnabledAtLoad` 比较（开关改完回页面要重排整表）；适配器侧的 `onFolderListClick` 不接就自己 `startActivity`，接了才由 Activity 管启动与回跳。
 
 ## 8. UI 基建速查（新增页面临摹用）
 
