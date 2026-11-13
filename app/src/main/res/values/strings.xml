@@ -218,6 +218,7 @@
     <string name="desc_bangumi_update_notify_enable">追的番剧有新一集时在通知栏提醒\n只在打开应用时对比追番列表，发现最新一集变了才提醒一次，不做后台定时检查；点通知直接进追番列表</string>
     <string name="desc_private_msg_unread_badge_enable">在私信会话列表中为未读消息显示红色"未读"标记并置顶显示\n注意：开启后打开消息页面可能会加剧卡顿问题。</string>
     <string name="desc_private_msg_auto_read_enable">打开私信会话时自动将会话标记为已读</string>
+    <string name="desc_private_msg_intercept_tip">进入私信页时提示「私信有可能被拦截」。嫌烦可以关掉，私信功能本身不受影响</string>
     <string name="desc_follow_group_mode">以分组形式展示关注列表</string>
     <string name="desc_night_reminder">在23:00-03:00期间打开应用时显示休息提醒</string>
     <string name="section_ui_size">界面大小</string>
@@ -945,6 +946,16 @@
     <string name="text_download_end">下载结束</string>
     <string name="text_download_total_progress">总进度 %1$d%% · %2$s</string>
     <string name="text_download_service_exit">下载服务已退出</string>
+    <!-- 分段下载与失败原因（26.11.11，反馈 #87/#90：多段 durl 只下了第一段，落盘是残片） -->
+    <string name="text_download_segment">正在下载第 %1$d/%2$d 段</string>
+    <string name="text_download_join_segments">正在拼接分段</string>
+    <string name="text_download_fail_prefix">下载出错：%1$s</string>
+    <string name="text_download_fail_http">服务器返回 HTTP %1$d</string>
+    <string name="text_download_fail_segment">第 %1$d/%2$d 段下载失败</string>
+    <string name="text_download_fail_incomplete">文件没下完（收到 %1$d/%2$d 字节）</string>
+    <string name="text_download_fail_join">分段拼接失败：%1$s</string>
+    <string name="text_download_fail_fetch_url">获取播放地址失败</string>
+    <string name="text_download_fail_network">网络错误</string>
     <!-- 下载列表多选删除（26.11.09） -->
     <string name="msg_download_select_hint">点条目勾选，再点「删除」</string>
     <string name="text_download_delete_title">删除下载</string>
@@ -1242,6 +1253,7 @@
     <string name="settingtext_settingprefactivity_030">不响应</string>
     <string name="settingtext_settingprefactivity_031">仅视频详情页</string>
     <string name="settingtext_settingprefactivity_032">全部页面</string>
+    <string name="settingtext_settingprefactivity_033">私信拦截提示</string>
     <string name="settingtext_settingrepliesactivity_001">众生平等</string>
     <string name="settingtext_settingrepliesactivity_002">粉丝铭牌消失术</string>
     <string name="settingtext_settingrepliesactivity_003">昵称不换行显示</string>
@@ -2814,6 +2826,18 @@
     <string name="setting_player_doubletap_seek">双击快进快退</string>
     <string name="setting_player_swipe_seek">左右滑动控制进度</string>
     <string name="desc_setting_player_swipe_seek">在视频区域左右滑动快进/快退（未缩放视频时生效）</string>
+    <string name="setting_player_back_key_exit">播放页返回键直接退出</string>
+    <string name="desc_player_back_key_exit">开启后：播放页的返回键、侧键、表冠返回直接退出，不再被「左右滑动控制进度」或「禁用返回键」挡住。\n关闭后：开着「左右滑动控制进度」时返回键仍会被吞掉（旧行为），只适合特殊手表。</string>
+    <string name="msg_player_locked_exit_hint">画面已锁定，点画面上的锁图标解锁</string>
+    <string name="msg_player_danmaku_empty">不能发送空弹幕喵</string>
+    <string name="msg_live_danmaku_sent">弹幕已发送</string>
+    <string name="msg_live_danmaku_too_long">直播弹幕最多 %1$d 个字</string>
+    <string name="msg_live_danmaku_throttled">刚发过啦，等 %1$d 秒再发</string>
+    <string name="msg_live_danmaku_not_logged_in">请先登录再发弹幕</string>
+    <string name="msg_live_danmaku_csrf_invalid">登录状态异常，请重新登录后再发</string>
+    <string name="msg_live_danmaku_rate_limited">发得太频繁了，等一会儿再试</string>
+    <string name="msg_live_danmaku_risk_control">发送被风控拦截了，稍后再试</string>
+    <string name="msg_live_danmaku_failed">发送失败：%1$s</string>
     <string name="setting_player_doubletap_restore_scale">有缩放时，双击优先恢复缩放</string>
     <string name="setting_player_doubletap_seek_seconds">快进快退秒数</string>
     <string name="setting_player_background">后台/熄屏继续播放</string>
