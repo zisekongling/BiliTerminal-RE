@@ -320,3 +320,35 @@
 **实测（26.11.07 本机脚本按仓库 `signWBI` 的算法直连接口）**：`a~b` 用 `a%7Eb` 签 → `-352`「风控校验失败」；用 `a~b`（原样，`~` 在 `Uri.encode` 保留集合里）签 → 签名通过（返回业务码）。中文先编码成 `%E4%B8%AD%E6%96%87` 签 → 签名通过。**`-352` 是签名 / 风控失败，`-403`「访问权限不足」是登录态问题**——两者要分清，别把 `-403` 当成签名错。对策写在 `UserInfoApi.encodeKeyword`（把表单编码的差异项掰回 `encodeURIComponent` 口径），`UserInfoApiTest` 5 例钉住。
 
 **探测环境说明**：上述探测无登录 Cookie、未带 `dm_img_*` 参数，所以只比较「是不是 `-352`」这一层；App 内（有登录态与 Cookie）这条接口正常返回列表，已由 384×384 手表模拟器截图与 `assembleDebug` 验证。
+
+## 16. `durl` 分段与「已下线」自相矛盾；`msgfeed/like` 无文档可比（26.11.11）
+
+**`durl` 是数组、可能是分段清单，但官方文档对「还在不在」自相矛盾。** `bilibili-API/docs/video/videostream_url.md` 里 `:157` / `:258-264` / `:339-480` 明确给出 `durl` 是数组、多段时每段各有 `order` / `length` / `size`，甚至给了 4 段的实例响应；但同一份文档 `:1915` 又写「FLV 多段已下线，现在都是单段」。本机**没有抓到真实响应体**（无可用登录态做 `playurl`，也无可复现的目标视频），所以这条只到「代码侧原来只取 `durl[0]`、全仓无分段遍历」这一步：
+
+- 现状：`PlayerApi` 起播仍只用 `durl[0]`（`videoUrl`），但**完整清单已解析进 `PlayerData.videoSegments`**（`api/PlayerApi.java:170 parseDurlSegments`，三处取 URL 的调用点都走它），下载链路按清单分段下载 + 拼接，播放链路不用。
+- 口径：遇到「下完只有第一段长」这类反馈时，**先让用户提供失败任务的失败原因文案**（本批已把 HTTP 码 / 收到 x/y 字节 / 段号显示到列表），再判是不是分段问题——也可能是 CDN 403 或传输截断，别一口咬定多段。
+
+**`x/msgfeed/like`（收到的赞）没有被 `bilibili-API/` 收录，实测也拿不到真身。** 无登录 Cookie 直接请求返回 `-101`（账号未登录），而该接口的字段位置在仓库代码里三处互相矛盾：
+
+- `getLikeMsg` 从 `data.total.items` 取列表（`:113-115`），游标却按 `data.cursor` 取（`:204-207`）；
+- 分页参数照抄了「回复我的」的 `reply_time`（`:107-108`），而点赞页自己用的是 `like_time`；
+- `checkMessageUnread()`（`:68-74`）只累加 at + reply，不含 like。
+
+本批按「`data.total.*` 优先、`data.*` 回落」的**双形态**实现（`parseLikeItems` / `parseLikeCursor` / `likePageQuery` + `like_time`），好处是**推错也不弄坏本来正常的那条路径**。下次有登录态时请抓一次真实响应体补进本节：确认 items 与 cursor 到底在哪一层、`like_time` 是不是游标键。
+
+**搜索风控回退（legacy `x/web-interface/search/type`）也要带 `seid`**：`SearchApi` 的风控回退分支原先没带 `seid`，容易继续被判定为可疑请求；本批抽了 `appendSeid` 统一拼（首页空串、翻页带上一页返回值）。
+
+## 17. 直播发弹幕 `msg/send` 的参数口径；私信只收 `msg_type` 1/2/5（26.11.11）
+
+**直播发弹幕（`POST https://api.live.bilibili.com/msg/send`，`bilibili-API/docs/live/danmaku.md:1701-1828`）**：必要参数 `csrf` / `roomid` / `msg` / `rnd` / `fontsize` / `color`，非必要 `mode` / `bubble` / `room_type` / `jumpfrom` / `reply_*` / `statistics` / `csrf_token`；`w_rid` 与 `wts` 文档标非必要，只要求 `csrf` 与 `bili_jct` 相同。返回码：`0` 成功、`-101` 未登录、`-111` csrf 失效、`-400` 参数错、`1003212` 超长、`10031` 频率过快；再叠加 `docs/bilibili-api-notes.md` §3 的 `-352` / `-412` 风控。实现（`api/LiveDanmakuApi.java`）按此拼固定顺序 body、`csrf` 与 `csrf_token` 同值都给、Referer 用 `https://live.bilibili.com/`。
+
+- **签名口径改以 PiliPlus 实测为准（26.11.11 用户指定参考）**：`PiliPlus/lib/http/live.dart:36-78` 的 `LiveHttp.sendLiveMsg` 在 **query 上带 `web_location=444.8` 并走 wbi 签名**（`WbiSign.makSign`），body 还固定带 `room_type=0` / `jumpfrom=0` / `reply_mid=0` / `reply_attr=0` / `replay_dmid=''` / `reply_type=0` / `reply_uname=''` / `statistics={"appId":100,"platform":5}`。所以「文档说 w_rid 非必要」只说明不签名不会被**直接**判错，不代表 web 端就是这么发的；本仓库据此改成签名 + 补齐上述字段（`signedSendUrl()` 调 `ConfInfoApi.signWBI`，取密钥失败退回未签名 URL 照发）。`statistics` 里 `appId:100` / `platform:5` = web 端。
+- **`@某人` 走 reply 参数而不是明文**：PiliPlus 把编辑器里的 `at` 片段单独抽成 `reply_mid`（被 @ 的 uid）+ `replay_dmid`（对方那条弹幕 id），正文里不含 `@名字`。本 App 没有 @ 入口，故这两个字段恒为 `0` / 空串；将来加 @ 功能要照这个形状传。
+- **未验证**：本机无登录 Cookie，没有实发过一条；`20` 字上限是从产品口径写死的（文档只给「获取可发弹幕配置」的颜色与模式，不给字数），真实阈值靠 `1003212` 兜底。
+- **风控口径仍是推测**：若真机报 `-352` / `-412`，第一优先把 Referer 从 `https://live.bilibili.com/` 回退成 `NetWorkUtil.webHeaders` 原样；再看 `web_location` 与 `statistics` 是否反而要换成 App 端口径（PiliPlus 能过不等于本 App 一定过）。
+- **成功后给轻提示**（`strings.xml` 的 `msg_live_danmaku_sent`，措辞「弹幕已发送」）：PiliPlus 走 `SmartDialog.showToast('发送成功')`。原先打算完全静默（理由是「直播间会把本人的 `DANMU_MSG` 推回来」），但那条推送在弱网下可能延迟甚至丢，静默会让用户不知道到底发没发出去，故改为一行 toast。
+
+**私信发送（`POST /web_im/v1/web_im/send_msg`，`bilibili-API/docs/message/private_msg.md:1811-1852`）只支持 `msg[msg_type]` 为 1 / 2 / 5**（文字 / 图片 / 撤回），文档原文如此；分享卡片是 `msg_type=7`（`private_msg_content.md:81-111`，字段 `author/headline/id/source/thumb/title/bvid/url`，`source=5` 为视频），因此**发视频卡片这条路在文档层面就不通**，错误码 `21035`「该类消息暂时无法发送」是预期。本批 (#133) 因此把「转发给好友」实现成 **文字消息** `{"content":"标题\nhttps://www.bilibili.com/video/BV…"}`（`PrivateMsgApi.buildTextContent` 用 `JSONObject` 组装防引号注入）。
+
+- **未验证**：本机无登录态，没能实测 `msg_type=7` 究竟是不是必被 `21035` 拒；下次有登录态请抓一次真实响应体——若竟然能发成卡片，可把降级顺序翻过来。
+- 其他错误码备忘：`21007` 太长、`21015` 未绑手机、`21026` 不能发自己、`21047` 对方未关注时最多 1 条、`25003` 隐私设置、`25005` 拉黑。

@@ -60,6 +60,7 @@
 | [`review/manual-test-guide-261108-opus-danmaku.md`](review/manual-test-guide-261108-opus-danmaku.md) | 26.11.08 专栏段落富文本与弹幕下载失败语义的验收单（6 条，约 15 分钟）：段落里的 @ 与链接能不能点、点得准不准、跳得对不对；弹幕地址失效时应报失败而不是「成功但没弹幕」 | 验收专栏富文本 / 弹幕下载 / 判点击命中时 |
 | [`review/manual-test-guide-261108-bangumi.md`](review/manual-test-guide-261108-bangumi.md) | 26.11.08 番剧分区页的验收单（7 条，约 18 分钟）：菜单入口与老用户回填、推荐/追番/索引三个页签、筛选弹窗与条件生效、翻到底与失败态、圆屏排版 | 验收番剧分区页 / 改该页筛选或翻页时 |
 | [`review/manual-test-guide-261108-player-wide-layout.md`](review/manual-test-guide-261108-player-wide-layout.md) | 26.11.08 播放器宽屏布局回退的验收单（6 条，约 10 分钟）：宽屏底栏厚度与整体居中、左右列紧凑贴边、底栏放满时整行横向滚动、「更多」图标不再 1.19× 拉长、横屏 / 分屏 / 平板、字幕与底栏间隙；每条带 `AI 半自动` 断言 dp 数字 | 验收宽屏播放器布局 / 复现「按钮被拉开」时 |
+| [`review/manual-test-guide-261111-feedback-batch.md`](review/manual-test-guide-261111-feedback-batch.md) | 26.11.11 反馈批次（17 条）的验收单（P01~P31，五组）：播放器退出链 / 弹幕 / 横屏、下载分段与失败原因、消息与搜索、专栏正文与合集续看、UI 小修五连；每条给「步骤 / 期望 / 打勾」，末尾列「本批不做、别当回归报」 | 验收这批反馈 / 判「退不出去」「下载只有一截」这类报障是否真的好了时 |
 | [`review/test-plan-261108.md`](review/test-plan-261108.md) | **26.11.08 测试包总计划**：release 普通版 + debug 共存版两个包的构成与装法、`tag 26.11.07.1..HEAD` 67 个提交的范围口径、**≈70 条人测项的分组总表（域 / 来源提交 / 条数 / 时长 / 优先级 / 详细交接单）**、P0 冒烟 10 条、快修回归与文案走查、明确不测的存量老账 | 拿到这两个测试包时 / 想知道「这轮到底要测哪些」时 |
 | [`review/compare-with-re-biliterminal-261024.md`](review/compare-with-re-biliterminal-261024.md) | 与同源分支 `cyq114514/Re-BiliTerminal`（1.2.3fix）的六维对比审计：91 条问题（P0×2 / P1×20 / P2×69）、定量总表、P0–P2 路线图、四轮核验；**按目标设备口径（旧版安卓手表）评分** | 再次对比 / 排期取建议时；结论基于 2026-10-24 双方 HEAD |
 | [`review/fork-comparison-2026-11-06.md`](review/fork-comparison-2026-11-06.md) | 三个兄弟分支（Revival / PianoEthan / cyq 1.3.0）与我们的功能增量对比、实现质量优化、不建议照搬清单与三批实施路线；分报告在 `review/forks/` | 排期移植 / 参考兄弟分支实现时；结论基于 2026-11-06 双方 HEAD |
@@ -69,6 +70,7 @@
 | [`superpowers/specs/2026-10-22-disguise-mode.md`](superpowers/specs/2026-10-22-disguise-mode.md) | 伪装与安全：双击顶栏触发、两种样式与各自退出方式、三个存储键、手势层三个接线点、验收标准与已知取舍 | 改伪装页 / 顶栏双击手势时 |
 | [`superpowers/specs/2026-10-25-dash-merge-single-file.md`](superpowers/specs/2026-10-25-dash-merge-single-file.md) | DASH 下载改合并单文件：合并时机、失败回退保留双文件、端到端待登录实测 | 改下载合并 / 排查双文件缓存时 |
 | [`superpowers/specs/2026-11-06-player-ui-custom-layout.md`](superpowers/specs/2026-11-06-player-ui-custom-layout.md) | 播放器界面设置（假播放器）与按钮自定义布局：槽位模型、七组设置、默认布局与验收标准；**已实施** | 改播放器按钮 / 播放器界面设置时 |
+| [`specs/feedback-261111.md`](specs/feedback-261111.md) | **26.11.11 未处理反馈需求整理**：控制台 36 条待处理反馈逐条核实到 `file:line`、附开发者拍板结论（做 / 不做 / 暂缓 / 待验证）、实现要点与验收口径；接手反馈排期时先读这份 | 接手反馈修复 / 想知道某条反馈查到了哪一步时 |
 | [`archive/superpowers/specs/2026-11-07-test-build-framework.md`](archive/superpowers/specs/2026-11-07-test-build-framework.md) | **已拔出（26.11.08）留档配方**：测试版构建框架 —— `-PtestBuild=<name>` → `BuildConfig.TEST_BUILD`（编译期常量，普通包零影响）→ probe 会话（`begin/event/metric/finishAndUpload`）→ 复用崩溃通道「模拟崩溃」进管理台崩溃表；含加新测试版本的照抄清单、一键拔出三步、管理台认法与隐私红线 | 下次要给某个线上疑难问题出测试包抓真机现场时（按 §4 重建） |
 | [`tutorial-system-redesign.md`](tutorial-system-redesign.md) | 教程系统重做（**已完成**：注册表驱动 + 旧链路已删；§五 记录迁移明细，剩余待办只有强制声明清单） | 动教程时 |
 | [`copy-inventory/README.md`](copy-inventory/README.md) | 全仓文案清单总索引（7 份、1012 条：`A` 应用身份 / `L` 更新日志 / `T` 教程 / `S` 设置项 / `U` 页面静态文案 / `M` 运行时提示 / `E` 彩蛋） | 改文案时按需打开对应那一份，改完在「改写」栏回填 |

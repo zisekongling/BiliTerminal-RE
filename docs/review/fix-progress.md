@@ -18,6 +18,7 @@
 
 ## 1. 当前版本状态
 
+- **26.11.12 同步 origin/main（`5ccb7973` → `96ecb735`，14 个提交）并修掉合并后的重复字符串**：本地未提交的 26.11.11 反馈批次与远端 4 条功能修复（私信输入框 #157 / 复制文本选区 #158 / 评论长按面板 / 合集续看补齐）在 5 个文件上冲突。合集续看是**同一功能的两套实现**，择一留 main 那套（`resolveFallbackAid` + 全局降级槽 `collection_resume_last_played_v1`，带 6 例单测、已进 fix-progress/FEATURES），丢弃本地草稿（`resolveTargetAid` / `CollectionResumeCodec.decodeLastPlayed` / `putStringSync` 同步落盘 + adapter 重构）——草稿留在 `git stash`（备份分支 `wip/stash-261112`）可随时回退。合并后 `res/values/strings.xml` 出现两条 `btn_select_all`（远端 `f6d731dc`/`7e139505` 补的断链字符串 + 本地反馈 #94 多选各加一条），AAPT 直接报 `Found item String/btn_select_all more than one time`、`:app:packageCoexistDebugResources` 失败；删掉本地那条、保留上游带注释的那条。**L0（26.11.12 本机实测）**：`:app:assembleCoexistDebug :app:testCoexistDebugUnitTest` BUILD SUCCESSFUL（含 `private/` 注入），`223 suites / 2414 tests / 0 失败 0 错误`。**未验证**：本轮新同步的四条修复的画面/手感项见交接单 [`manual-test-guide-261112-sync-batch.md`](manual-test-guide-261112-sync-batch.md)（H01~H08）；另注意合集续看落盘由本地草稿的 `putStringSync` 变成 main 的 `putString`（异步 apply），播完立刻划掉 App 有极小概率丢记录，记作已知差异、不算回归。
 - **26.11.12 合集续看补齐「[上次看到]」标记与无 id 降级记录（控制台 App 反馈 #152，PR #31）**：合集续看此前只做到「起播写记录 + 进合集页定位」两件，本轮补齐拍板口径的第三件，并修掉审查指出的三处漏洞。
   - **标记**：`CollectionInfoActivity` 的两个 adapter 在 `showVideoCard` 之后，给目标那一集的标题前置 `[上次看到]`（`uitext_collectioninfoactivity_004`，`TextUtils.concat` 保留标题原有 span）；目标变化时 `notifyDataSetChanged()` 重画。
   - **无 id 降级**：`CollectionResumeStore.save` 在 `ugc_season.id` 缺失（`seasonId<=0`）时不再静默丢弃，改写全局槽 `collection_resume_last_played_v1`（`saveLastPlayed` / `lastPlayed`）；读取侧新增纯函数 `CollectionResumePolicy.resolveFallbackAid`，只在「那一集仍在本合集里」时采用（降级槽不区分合集，上一次可能来自另一个无 id 合集）。
@@ -29,6 +30,14 @@
 - **版本号**：`26.11.07`（按新的三通道编码为 `versionCode 26110700`，tag `26.11.07`）——**编码规则已于 26.11.08 改成三通道派生**（见下条），`app/build.gradle` 里只手写 `appVersionDate`；CI 的 `verify-version` 拿 tag 的日期段去比 `appVersionDate`，再经 `-Pchannel`/`-Pseq` 传给 Gradle，构建后用 `aapt2 badging` 复核产物；`strings.xml` 的 `update_log_current` 锚点是「【26.11.07 本次更新】」，`:app:verifyVersionConsistency` 以该锚点校验。tag `26.10.31`、`26.10.31.1`、`26.11.01`、`26.11.02`、`26.11.06`、`26.11.06.1`、`26.11.07` 均已占用（发版记录见 §4）；补丁版 `26.11.07.1` **沿用** `versionName 26.11.07` / `versionCode 2611071`（旧编码；按新编码是 `26110701`，尾号 1 必须等于 tag 的 `.1`），只多带两处修复（§3.135 / §3.136）。
 - **26.11.11 私信输入框的内容被右侧图标盖住（控制台反馈 #157「私信表情图片发送图标太大，内容看不见了」）**：根因在 `res/layout/activity_private_msg.xml` 的 `layout_input`——它是 `RelativeLayout`，输入框 `match_parent` 宽 + `layout_toStartOf="@id/emote_btn"`，而 RelativeLayout 里 `match_parent` 的子 View 仍按**整行**宽度测量，`layout_toStartOf` 只改右边缘位置：输入框并没有缩成「三个按钮左侧的剩余宽度」，而是仍按整行宽度排版、文字区域与按钮重叠（按钮后声明、画在上层），26.11.06 加表情按钮后又多叠住 42dp，于是输入内容看不见（提示语与刚打的字都被右侧图标压住）。修法只动这一个容器：`layout_input` 改成横向 `LinearLayout`，输入框 `layout_width=0dp` + `layout_weight=1`，宽度就是「整行 − 三个按钮」，换行也按真实可用宽度算；按钮顺序 / id / 点击 / 表情 / 发图逻辑与上滑隐藏动画全不变（`layout_input` 仍是 `View`，`getViewAnimation` 不依赖容器类型）。**未编译验证（按项目约定不在本机编译）**：只做静态自查——`git diff` 通读、XML 解析通过、`PrivateMsgActivity.kt` 里对 `msg_input_et` / `layout_input` 的引用逐处核对（无 `RelativeLayout.LayoutParams` 假设）。未验证：真机上提示语与输入文字是否完整可见（L2，只能看画面）。
 - **26.11.11 复制文本页精确调整时看不见选中区间（控制台反馈 #158，OPPO / OWW212）**：`CopyTextActivity` 的正文是个 `EditText`，选区高亮与手柄**只在它自己拿到焦点时**才由系统绘制；而「精确调整」要往下面的起止下标输入框里打字，手指一落到 `begin_index` 上焦点就离开正文，`setSelection` 只是在 `Editable` 里挪了选区位置，画面上什么都不剩。修法：该页自己按下标给选中区间铺一层 `BackgroundColorSpan`，取的是主题里同一个选区底色 `@color/text_selection_highlight`（`themes.xml` 的 `android:textColorHighlight` 用的就是它，观感与系统选区一致）——`syncSelectionHighlight()` 在下标 TextWatcher、两个下标框获得焦点时、`onCreate` 末尾各调一次（直接点进下标框也能马上看到选中区间），每处都重设并夹紧边界（下标解析失败 / 起止相等 / 越界只清不高亮），正文重新拿到焦点时撤掉自绘底色、交还系统原生选区（避免两层叠色），正文仍持有焦点时（点 `<` / `>` 按钮，触摸模式下按钮不抢焦点）不叠自绘。本特性只动 `CopyTextActivity.kt`（不改布局、不改文案）；构建修复另见本 PR 的两条 `fix(settings)` / `fix(build)` 提交（把 main 上 `6501c3f4` 误插进 `switch(...)` 参数表的「顶栏高度」`input(...)` 挪回同级语句；补上 `activity_simple_refresh.xml` 引用却缺失的 `btn_select_all` 字符串，`5ccb7973` 起公开构建在 `processResources` 就失败），都是 main 上的既有断链，与本特性无关。**未编译验证（按项目约定不在本机编译）**：静态自查 `git diff` 通读，`ContextCompat.getColor` / `BackgroundColorSpan` 在仓库里均有既有用法（`GlassStyle.kt` / `NoteActivity.kt:176`）。**未验证**：高亮在真机上的观感（选中区间是否一眼可见、与原生选区色是否一致），只能看画面（L2）。
+- **26.11.11 接入 BilibiliSponsorBlock 自动跳过广告片段（默认关闭，五档）**：数据来自第三方志愿者标注服务（`bsbsb.top`），**复用**已有的片头片尾跳过链路（`SkipDecider` + `ViewPointSkip.Segment` + `seekToPosition` + Snack 撤回），没有另写一套跳过逻辑。落点：新增 `api/SponsorBlockApi.kt`（独立 `OkHttpClient`，4s 连接 / 6s 读、`followRedirects=false`、**不带 Cookie 与任何拦截器**，绝不走 `NetWorkUtil` 主客户端——那边的 `CookieSaveInterceptor` 会把登录态泄露给第三方）、`player/SponsorSkipPolicy.kt`（纯函数：档位→类别集、区间过滤）、`player/SponsorSkipPrefs.kt`、`res/values/player_sb_strings.xml`；`PlayerActivity.kt` 加 `sponsorDecider` 字段与 `maybeAutoSkipSponsor` / `ensureSponsorSegments` / `loadSponsorSegments` / `applySponsorLevel` / `resolveBvid` / `showSponsorUndoSnack` / `sponsorCategoryLabel` 七个方法（250ms 定时器里懒加载；`SkipDecider` 的 generation 丢弃换集后的过期响应；与片头片尾共用 `skipQuietUntilMs` 静默期；失败静默 + 60 秒冷却）。设置项落在「播放器 → 自动跳过」，设置搜索索引同步。
+  - **隐私**：只发 BVID 的 SHA-256 前 8 位，不发明文 BVID；代价是同一前缀会带回别的视频，因此按 `videoID` + `cid` 双重过滤，并用标注里的 `videoDuration` 与当前视频总时长做 ±2 秒校验（换源前的旧标注秒数已错位，直接丢）。
+  - **范围**：只跳 `actionType=skip`（静音型 `mute`、整段标签 `full` 后续再做）；`poi_highlight` 任何档位都不跳（它是跳转点，不是广告段）；直播 / 本地 / 番剧（`isPgcPlayback()`）一律不查；档位「关闭」时**一个请求都不发**。
+  - **顺带修**：播放器此前拿不到 BVID（`PlayerData` 没有该字段、`buildTerminalPlayerIntent` 也不传），所以高能进度条从历史 / 缓存入口进来时是空的——现在 `PlayerData.bvid` 贯通到播放页，既是 SponsorBlock 的主数据源，也让高能进度条恢复正常；缺 BVID 的老入口按 aid 现查一次兜底。
+  - **同日晚些时候按用户要求收口设置**（原话「把番剧跳过和广告/恰饭跳过一起放到设置里」）：新增「自动跳过」分组（`PlayerSettingsGroups.SKIP`，排在「播放默认值」之后、「画面与显示」之前），把「自动跳过片头片尾」与「跳过广告片段（SponsorBlock）」两条从「画面与显示」整块搬过来，条目名不动；分组标题走 `player_sb_strings.xml` 的 `setting_player_group_skip`，设置搜索索引同步加了组标题与子页名。
+  - **自定义档（第 6 档）与逐类别勾选页**：`SponsorSkipPolicy` 增 `LEVEL_CUSTOM` / `resolveCategories(level, custom)` / `sanitizeCategories()`（剔掉 `poi_highlight` 与未知 id），`buildSegments` 主签名改成吃「允许的类别集合」而不是档位数字（旧重载留给固定档）；`SponsorSkipPrefs` 增 `categoryKey()` / `categoryDefaultEnabled()` / `customCategories()` / `effectiveCategories()`，一个类别一个布尔键；新增 `SettingSponsorCategoryActivity`（10 个开关 + 一行说明，进页记快照、离开时勾选有变化就把档位切成「自定义」）与 `player/SponsorCategoryLabels.kt`（类别 id → 中文名的唯一映射，播放页 Snack 与设置页共用）。播放页的片段表签名从「档位数字」改成「类别集合排序后的字符串」，自定义档下改勾选播放中即时生效。
+  - **L0（26.11.11 本机实测）**：`:app:assembleDebug` BUILD SUCCESSFUL（18:20，另一批补上 `tabTextSize` 的 `TextAppearance` 之后跑的整包），`:app:testStandardDebugUnitTest` 全量无失败；新增 `SponsorSkipPolicyTest`（17 例：档位逐级包含、任何档位不跳 `poi_highlight`、非法存档回落关闭、只跳 skip、别的一集不跳、上游没给 cid 放行、换源时长对不上就丢、脏区间丢弃、窄档不放行 `filler`、自定义档按勾选算集合 / 一个没勾就不跳 / 勾选里混进的精彩时刻与未知类别被清洗 / 存档里的自定义档能读回）与 `SponsorBlockApiTest`（9 例：`hashPrefix("BV1GJ411x7h7") == "d5c2bf68"`、同前缀别的 videoID 整条滤掉、大小写不敏感、按 cid 过滤分 P、缺字段片段跳过、空数组 / 非 JSON / HTML 都返回空表等），`tests="17"/"9" failures="0" errors="0"` 全绿。
+  - **未验证**：真机上的跳过观感、Snack 文案与撤回手感、跳完弹幕是否跟着走属 L2；本机无设备。验收单见 [`manual-test-guide-261111-sponsorblock.md`](manual-test-guide-261111-sponsorblock.md)（S01～S05）。
 - **26.11.11 分段条 / 页签统一换成「玻璃胶囊」行（用户报「这些按钮和横条巨丑无比且和背景融合度很差」；后又追加「实线不要贯穿整条轨道」「看起来像能拖动滑动的样子，尽量压缩点空间」）**：
   - **新增** `ui/appearance/SegmentedBarStyle.kt`（`object SegmentedBarStyle`）——一套「轨道 + 选中胶囊」的画法，两个私有 `Drawable`：`TrackDrawable` 是 1dp 描边圆角矩形（`TEXT_PRIMARY` 加 α`0x1C` 填充 / α`0x2C` 描边，**不写死色值** ⇒ 亮色 / 暗色主题各自成立），`PillDrawable` 是水平渐变 `PRIMARY` α`0x4A` → `PRIMARY_LIGHT` α`0x14`、内描边 α`0x5A`，**不做外发光**（试过 3dp α`0x1A` 光晕，手表小屏上只会糊边，已删）；选中项文字 `TEXT_PRIMARY` + `Paint.isFakeBoldText`（**不换 typeface**，否则会顶掉 `FontStyle`）。轨道与胶囊共用同一条高度公式 `min(BAR_HEIGHT_DP, bounds.height() - 2 * edge)` ⇒ 任意容器高度都不会出现「胶囊比轨道高」的错位。
   - **主色竖条只在一侧、且不贯穿轨道**：`PillDrawable` 把竖条画在胶囊**内缘**（`ACCENT_INSET_DP=3dp` 起、2dp 宽、18dp 高、圆角收边），左右各一个 `RectF`；`accentSidesOf(item)` 按「可见兄弟里的序号」判定——**首格画左、末格画右、夹在中间不画**（中间画会变成格子之间的分隔线）、单格（收藏夹页程序化加的搜索框）也不画；`refreshTabs` 用同逻辑的纯索引版 `accentSidesAt(i, tabs.tabCount)`。`itemBackground(context, selected, accentSides)` 走 `@JvmOverloads`，默认 `ACCENT_NONE`。
@@ -299,17 +308,35 @@
 
 > **本轮测试包（26.11.08，release 普通版 + debug 共存版）要测哪些**：整包口径、分组总表与时间预算见 [`test-plan-261108.md`](test-plan-261108.md)；下面每一条是该计划里的详细验收项来源。
 > **26.11.09 三条 L2 项（方向崩溃 / 下载重试 / 表冠速率）的验收步骤与判据见 [`manual-test-guide-261109.md`](manual-test-guide-261109.md)（H01~H04）。**
+> **26.11.11 五组反馈批次（播放器 / 下载分段 / 消息搜索 / 专栏合集 / UI 小修）的验收步骤与判据见 [`manual-test-guide-261111-feedback-batch.md`](manual-test-guide-261111-feedback-batch.md)（P01~P42）。**
 > **26.11.11 消息页「私信列表」玻璃质感的验收步骤与判据见 [`handoff-261111-private-msg-glass.md`](handoff-261111-private-msg-glass.md)（H22~H24）。**
 > **26.11.11 播放器底部按钮行「新加按钮与同行不一致」的验收步骤与判据见 [`manual-test-guide-261111-player-slot-icon.md`](manual-test-guide-261111-player-slot-icon.md)（H25~H26）。**
+> **26.11.11 自动跳过广告片段（SponsorBlock）的验收步骤与判据见 [`manual-test-guide-261111-sponsorblock.md`](manual-test-guide-261111-sponsorblock.md)（S01~S06）。**
+
+- [ ] **26.11.11 自动跳过广告片段（SponsorBlock）真机未验（L2，只能看画面 / 判手感，且要设备能出网）**：L0 已过（两套单测 26 例全绿 + 整包 `assembleDebug` 通过）。需确认：①档位「关闭」下播任一视频全程无请求、无提示；设置搜索能搜到「自动跳过」组与两项设置；②档位「仅恰饭广告」下 `BV1KLgkzzEb1` 播到 5:17 自动跳到 6:27、提示「已跳过广告」、点「撤回」回到 5:17 且不会被立刻弹走、同一段只跳一次、跳完弹幕不是空白；③档位「推荐」下 `BV11Kc2zZEDK` 开头 0~21 秒被跳过且文案是「已跳过片头」（类别名必须是中文）；④档位「全部类别」下 `BV1Pb3uzyEmT` 的相邻重叠标注不会连跳 / 乱跳；⑤番剧、直播、本地视频一律不查不跳；⑥断网时静默降级（不弹错），恢复网络后一分钟内自愈；⑦换 P / 换集后上一集片段不串到新一集；⑧从历史 / 缓存入口进播放时广告照跳、且高能进度条曲线能显示（顺带修的老问题）；⑨「自动跳过」组里点「要跳的类别」，列表**没有**「精彩时刻」，勾一类返回后档位自动变「自定义」，回播放页该类别照跳、取消勾选后不再跳。步骤见 [`manual-test-guide-261111-sponsorblock.md`](manual-test-guide-261111-sponsorblock.md)（S01~S06）。
 
 - [ ] **26.11.11 播放器底部按钮行的图标一致性真机未验（L2，只能看画面）**：L0 已过（220 suites / 2385 tests / 0 失败 0 错误）。需确认：①设置 → 视频播放器 → 界面里把「弹幕开关」放进底部左区 / 右区，**同时把它留在右列**（同一个按钮放两处，正是用户截图的状态），回播放页看底部那一格：图标大小与同行的清晰度 / 音量- / 音量+ / 分P 一致、且落在同一条水平中线上；②停留 10 秒以上（影子同步定时器 400ms 一轮）再截一张，两处图标仍各自正常，没有一处变小或缩到格子左上角；③点底部那一格能正常开关弹幕、点右列那一格也生效（影子转真身点击）；④把按钮从底部删掉 / 再挪回右列 / 组内展开收起各操作一轮，图标与格子尺寸都不飘；⑤「更多」收纳格（morehide / moreshow）仍是方形、没被拉成扁条。步骤见 [`manual-test-guide-261111-player-slot-icon.md`](manual-test-guide-261111-player-slot-icon.md)（H25~H26）。
+
 - [ ] **26.11.11 消息页「私信列表」玻璃质感真机未验（L2，要登录态，只能看画面）**：L0 已过（两 flavor 各 220 suites / 2385 tests / 0 失败 0 错误）。需确认：①打开玻璃质感后「消息」页的私信会话卡变成半透明、与顶部四张入口卡同一种材质与圆角；②关掉后回到不透明深灰板且与修复前一模一样；③点卡能进会话、按住仍有水波纹、列表滚动/表冠正常；④转发时的「选好友」页复用同一适配器，一并看。本机无在线设备、私信列表又必须有登录态才有数据，故 L1 为空。交接单 [`handoff-261111-private-msg-glass.md`](handoff-261111-private-msg-glass.md)（H22~H24）。
+
+- [ ] **26.11.11 播放器退出链 + 弹幕 + 横屏真机未验（L2，反馈 #117/#135/#139②/#143）**：L0 已过（本机 assembleDebug + 单测 217 suites / 2343 tests / 0 失败）。需确认：①播放中按返回键直接退出播放页（新开关「返回键退出」默认开），返回首页 / 退到详情页都正常；②把开关关掉后恢复旧行为（横滑调进度时按返回不退出、窗口右滑也不退出）——这是有意的隔离，不是回归；③锁定态下按返回 / 右滑有提示且解锁按钮**压暗常驻**（不再是 3 秒后消失、分不清锁了还是卡死）；④缓冲中（打转）按返回能退出且不 ANR；⑤暂停后再退出，播放页「继续播放」的进度等于退出那一刻的位置（不再读到 0）；⑥跳转后 / 倍速切回 1× 后弹幕仍在、密度正常；⑦断网时弹幕请求快速失败，不再挂 4 轮 × 15 秒；⑧设置里打开「横屏模式」后进播放器是横屏、关掉是竖屏，与播放器设置里的「默认方向」一致。
+
+- [ ] **26.11.11 下载分段（反馈 #87/#90）真机未验（L2，要真机 + 能下完的片子）**：L0 已过。需确认：①找一条明确分多段 durl 的视频（老接口 / 部分番剧），下完后**能完整播到尾**（改前只有第一段长度）；②下到一半强杀 App 再进下载列表重试，已完成的段被复用、不从头重下；③失败时列表显示具体原因（HTTP 码 / 「文件没下完（收到 x/y 字节）」/ 段号），不再是笼统的「下载出错」；④单段视频、DASH 视频、纯音频、Aria2 分片模式四种老路径都还能下完；⑤升级前已存在的下载记录仍能打开、重试、删除（db 4→5 只加列）。
+
+- [ ] **26.11.11 消息与搜索（反馈 #150/#148/#123）真机未验（L2，要登录态）**：L0 已过。需确认：①「收到的赞」页首屏有内容、下拉下拉能继续翻页且**不重复**（改前首屏报错后底部锁死、再也不翻页）；②断网进这一页→恢复网络→下拉能正常加载（不再留死锁）；③消息角标数值含点赞未读；④搜索结果下拉刷新 + 上滑翻页无重复卡片（整页重复时干净停下、不鬼打墙）且底部不再提前消失；⑤搜索历史区右上「清空」能点、弹二次确认、清完历史立刻为空且重启后仍为空。
+
+- [ ] **26.11.11 专栏正文与合集续看（反馈 #142/#151/#152）真机未验（L2）**：L0 已过。需确认：①打开一篇老 cv 号专栏，正文能读（改前只要整页抓不到就整条失败）；②风控 / 空文章两种情况提示文案**分得开**（「被拦截」vs「没有正文」），不再统一「可能被风控拦截」；③代码块显示为单行文本、公式不再露 `[无法识别段落：N]` 这类方括号英文；④合集详情页在「上次看到」那条前有 「[上次看到] 」 标记，进合集自动停在那一条；⑤从任意入口起播（详情页 / 搜索 / 动态）后在合集里换了几集，退出再进合集详情页，标记停在新看的那一集；⑥划掉 App 后重进，标记仍在；⑦收藏夹虚拟合集与 UP 主投稿队列切集不崩。
+
+- [ ] **26.11.11 UI 小修五连（反馈 #125/#140/#121/#129/#94）真机未验（L2，多半只能看画面 / 判手感）**：L0 已过。需确认：①「新建文件夹」等弹窗按钮：点按钮中心与按钮内侧边缘都命中，改字号后再试一次仍准（#125 是防御性修法，若仍偏需按 `docs/specs/feedback-261111.md` §9.5 继续定位）；②首页卡片长按 600ms 稳定弹出菜单、正常上下滑列表不误触（#140），多选态视觉改成 `▸` 引导符 + 标题主色（视频卡 / 历史 / 用户投稿 / 文章 / 下载 / 缓存六处一致，不再整卡发灰）；③私信拦截提示的开关关掉后不再弹（#121）；④短视频双指放大后能双指拖动平移、少一根手指立刻恢复「上下滑切视频」、双击仍切播放暂停、缩回 1 倍不残留偏移（#129）；⑤缓存页与下载列表页的「全选」：只勾当前可见项、搜索过滤后只勾命中项、空列表给提示、缓存页顶层优先未分类视频（#94）。
 
 - [ ] **26.11.10 动态页头像条「作者旁灰边」三次修后真机未验（L2，只能看画面）**：`cell_up_avatar` 已不再是 `MaterialCardView`（圆由 `bg_avatar_circle` 的 oval 轮廓 + `clipToOutline` 提供，卡底色 / 描边 / 阴影 / 圆角覆盖四个源一次消掉）。需自定义背景（带明暗细节）+ 暗 / 亮各一套主题，在动态页顶部「最近更新的UP主」横条上看：①每格头像四角**不再有方块色**（改前是与卡色同色的圆角方块）；②头像仍是正圆、边缘没被裁掉，「有更新」粉点位置不变；③手指划过 / 按住时不冒暗边；④点头像与名字都能进用户空间，横条左右滑动流畅，超长名字仍是省略号；⑤**圆角档为「圆角」**（设置 → 界面与外观 → 圆角）时再看一遍——这一档正是原来触发覆盖的条件。步骤见 [`manual-test-guide-261109-avatar-shadow.md`](manual-test-guide-261109-avatar-shadow.md) 的 H05。
 
 - [ ] **26.11.10 关注页列表项去抬高真机未验（L2，只能看画面）**：`cell_user_list` / `cell_follow_group` 的 2dp 抬高已归 0。需自定义背景（选带明暗细节的亮色照片）+ 暗 / 亮各一套主题，在关注列表的普通模式与分组模式看每行卡片外沿不再有暗边；并确认复用 `cell_user_list` 的另两个页面（搜索 → 用户、视频详情 → 充电鸣谢）卡片变平后头像 / 文字 / 徽章无位移。步骤见 [`manual-test-guide-261109-avatar-shadow.md`](manual-test-guide-261109-avatar-shadow.md) 的 H06。
 
 - [ ] **26.11.09 BaseActivity 方向崩溃修复真机未验（L2，要 Android 8.0 + 非全屏窗口）**：L0 已过（两 flavor 各 209 suites / 2257 tests）。需一台 sdk26 手表在**非全屏**窗口状态（分屏 / 悬浮 / 自由窗口）下进任意子页（复现机型是 huawei LEO-DLXXU 进收藏夹页），确认①不再崩 `Only fullscreen activities can request orientation`；②`Logu.w` 里能读到「设置屏幕方向失败（窗口非全屏），按系统方向显示」这一行；③页面按系统方向正常显示、能正常退出。全屏状态下应完全无感。
+
+- [ ] **26.11.11 直播弹幕发送（反馈 #156）真机未验（L2，要登录态 + 真直播间）**：L0 已过（218 suites / 2371 tests / 0 失败，`LiveDanmakuApiTest` 20 例）。需确认：①登录后在某直播间发一条 20 字以内文本，输入框清空 + 出现「弹幕已发送」提示，且直播间画面里出现**1 条且只有 1 条**——若提示成功后直播间始终看不到自己那条，说明服务端没真正收下（不是本地位移问题）；②连点两下，第二次本地提示「刚发过啦，等 N 秒再发」且没有网络请求；③21 字本地拦下、不清输入框；④游客模式提示先登录；⑤录播发弹幕与改动前完全一致（回归）；⑥绕过本地节流直到服务端拒绝时，提示「发得太频繁了」而不是笼统失败。**没验证的还有**：接口是否真能发出去（本机无登录 Cookie；参数与签名已逐项对齐 PiliPlus `PiliPlus/lib/http/live.dart:36-78`，含 `web_location=444.8` + wbi 签名 + `statistics`，但服务端是否认账只能实发才知道）、20 字是否为当前直播间真实阈值（无查询接口，靠 `1003212` 兜底）、`web_location`/`statistics` 是否真降低风控、Referer 换成 `https://live.bilibili.com/` 属风控口径推测（报 `-352`/`-412` 就先回退成全局 webHeaders）。
+- [ ] **26.11.11 视频转发到私信（反馈 #133）真机未验（L2，要登录态 + 两个账号）**：L0 已过。需确认：①转发面板出现「转发到动态」「发给好友」两项，选第一项仍进原动态页（回归）、长按「复制链接」照旧；②选好友页能列会话、下拉刷新、点人返回；③对方会话里收到「标题 + https://www.bilibili.com/video/BV…」文本，自己侧提示「已发送给 XX」；④断网 / 隐私限制 / 未关注时提示「发送失败，已复制视频链接」且剪贴板正确；⑤无会话账号进选好友页有空态且能重试。**遗留**：卡片私信做不了（服务端只收 `msg_type` 1/2/5，卡片是 7 → 21035，需真实登录实测才能翻案）；会话列表取 50 条且无翻页参数（`PrivateMsgApi.getSessionsList`），会话更多的人选不到更早的。
 
 - [ ] **26.11.09 下载失败后再也下不动（反馈 #136）真机未验（L2，要真机 + 登录态）**：L0 已过。需确认：①26.11.09 之前留下的失败任务（下载列表里 `state="error"` 那类），升级后打开下载列表页会被自动清理，回视频页点下载能重新进队列；②能下完一次；③若线上出现 `DownloadService>下载失败，换备用线路重试（2/N）`，说明换线路径真的被走到，且最终下完。④清空缓存 / 重启 App 后仍然可用（旧版本正是在这两步之后也救不回来）。
 
@@ -1966,23 +1993,6 @@
 - **验证 · L0（26.11.10 本机实测）**：`:app:assembleDebug` BUILD SUCCESSFUL（两 flavor）；`:app:testStandardDebugUnitTest`、`:app:testCoexistDebugUnitTest` 各 **213 suites / 2280 tests / 0 失败 0 错误**。首轮跑出 3 个失败，全是**测试期望写错**（`snapshot()` 只读语义、被拒采样不更新 `prevBytes`、负数用例复用了已有完成量的 stats），已按实现语义修正并补上 `DownloadSectionBytes.lastDone`。
 - **未验证（人测 / L2）**：单任务进度是否与「已下 / 总大小」吻合、并行多任务时每行速度是否各不相同、总速度是否等于各行之和、ETA 是否收敛。本机无 Android 设备 / 模拟器，只能真机看；交接单见 [`manual-test-guide-261110-download-speed-progress.md`](manual-test-guide-261110-download-speed-progress.md)（H13~H17）。
 
-### 3.148 消息页「私信列表」的用户卡片补玻璃质感（26.11.11，用户报「补这个界面的用户列表无玻璃质感的bug」）
-
-- **现象**：外观设置打开「玻璃质感」后，消息页（`MessageActivity`）顶部四张入口卡（回复我的 / @我 / 收到的赞 / 消息设置）是半透明玻璃板，下面「私信列表」的用户会话卡仍是不透明深灰（`@color/card_dark`）。
-- **根因**：玻璃质感在两类卡片上走两条不同的路——`MaterialCardView` 靠主题 `materialCardViewStyle` 自己吃到色，再加上 `GlassStyle.applyTo(activity)` 在 `BaseActivity.onCreate` 之后叠的 `GlassOverlay.*`；**普通 `FrameLayout` 卡必须在代码里显式调 `GlassStyle.applyCardBackground(view)`**。`cell_user_list` 是单层 `FrameLayout` + 写死 `@drawable/bg_card_rounded`、不读 `materialCardViewStyle`，而 `PrivateMsgSessionsAdapter.onCreateViewHolder` 只 inflate 没有那一步 ⇒ 与 26.11 搜索「用户」页（§3.132）、关注分组同一类漏接。
-- **改动**：
-  1. `adapter/message/PrivateMsgSessionsAdapter.kt` 的 `onCreateViewHolder` 在 inflate 之后调 `GlassStyle.applyCardBackground(view)`（开关关着时它直接 `return false`，默认观感不变）。
-  2. `ui/appearance/GlassStyle.kt` 两处 KDoc 的调用点清单补上「消息页的私信列表」，免得下次又照旧清单判断「已全覆盖」。
-- **顺带覆盖**：`activity/message/ChooseFriendActivity.kt`（反馈 #133 的转发选好友页）复用同一适配器，自动一起修好，两处不必各改一遍。
-- **为什么不改布局**：`cell_user_list.xml` 同时被搜索结果「用户」页、关注分组、私信会话三处复用，改成 `MaterialCardView` 要连带改三个适配器的 ViewHolder 类型与点击 / 长按 / 水波纹路径；`applyCardBackground` 本来就是为这个用例准备的既有 API。
-- **验证 · L0（26.11.11 本机实测，工作区含上一批未提交改动）**：`:app:assembleDebug` BUILD SUCCESSFUL；`:app:testStandardDebugUnitTest` + `:app:testCoexistDebugUnitTest` 各 **220 suites / 2385 tests / 0 失败 0 错误**。
-- **未验证（人测 / L2）**：开关打开后私信会话卡是否与顶部四张卡一致的半透明观感、关掉是否回到不透明深灰、按住时的水波纹仍在（本机无在线设备，且私信列表要登录态才有数据）。交接单见 [`handoff-261111-private-msg-glass.md`](handoff-261111-private-msg-glass.md)（H22~H24）。
-
-## 4. 历史章节索引
-
-> 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。
-> §一~§三十 的「收尾状态」按归档正文与 §五 / §十 的登记推断：批次类记「已闭环」，正文明确登记遗留的记「部分遗留」，总览 / 明细 / 建议 / 验证记录类记「纯历史」。
-
 ### 3.147 新增「顶栏高度」设置：最小高度 + 触摸范围跟着变（26.11.11，用户需求）
 
 - **需求原话**：「先加一个设置可以调节顶栏的高度，同时影响触摸事件的生效范围，默认值就是现在的值」。
@@ -1998,6 +2008,43 @@
   - **只在状态不一致时改 `layoutParams`**：默认值 0 下每页 `onStart` 都会走一遍 `applyTopbarHeight()`，无脑重设会白触发一次重布局（默认值必须与改动前像素级一致）。
 - **验证 · L0**：`TopbarHeightPolicyTest`（clamp 合法/越界/负数/Int 极值、0 语义、density 换算 32dp@3.0=96 / 64dp@1.5=96 / 25dp@3.0=75、越界先钳后换、`shouldCenterVertically` 三态）跑 `:app:testStandardDebugUnitTest --tests "…TopbarHeightPolicyTest"` → BUILD SUCCESSFUL。
 - **未验证（人测 / L2）**：调 0 / 20 / 40 dp 后顶栏实际高度与预期一致、手势可点区域随高度变大、方屏文字垂直居中、圆屏不重叠且只向下补空白、`activity_setting_player_ui` 的 `btnFull` 没被挤、恢复默认后回到像素级一致。本机无 Android 设备，交真机。
+
+### 3.148 消息页「私信列表」的用户卡片补玻璃质感（26.11.11，用户报「补这个界面的用户列表无玻璃质感的bug」）
+
+- **现象**：外观设置打开「玻璃质感」后，消息页（`MessageActivity`）顶部四张入口卡（回复我的 / @我 / 收到的赞 / 消息设置）是半透明玻璃板，下面「私信列表」的用户会话卡仍是不透明深灰（`@color/card_dark`）。
+- **根因**：玻璃质感在两类卡片上走两条不同的路——`MaterialCardView` 靠主题 `materialCardViewStyle` 自己吃到色，再加上 `GlassStyle.applyTo(activity)` 在 `BaseActivity.onCreate` 之后叠的 `GlassOverlay.*`；**普通 `FrameLayout` 卡必须在代码里显式调 `GlassStyle.applyCardBackground(view)`**。`cell_user_list` 是单层 `FrameLayout` + 写死 `@drawable/bg_card_rounded`、不读 `materialCardViewStyle`，而 `PrivateMsgSessionsAdapter.onCreateViewHolder` 只 inflate 没有那一步 ⇒ 与 26.11 搜索「用户」页（§3.132）、关注分组同一类漏接。
+- **改动**：
+  1. `adapter/message/PrivateMsgSessionsAdapter.kt` 的 `onCreateViewHolder` 在 inflate 之后调 `GlassStyle.applyCardBackground(view)`（开关关着时它直接 `return false`，默认观感不变）。
+  2. `ui/appearance/GlassStyle.kt` 两处 KDoc 的调用点清单补上「消息页的私信列表」，免得下次又照旧清单判断「已全覆盖」。
+- **顺带覆盖**：`activity/message/ChooseFriendActivity.kt`（反馈 #133 的转发选好友页）复用同一适配器，自动一起修好，两处不必各改一遍。
+- **为什么不改布局**：`cell_user_list.xml` 同时被搜索结果「用户」页、关注分组、私信会话三处复用，改成 `MaterialCardView` 要连带改三个适配器的 ViewHolder 类型与点击 / 长按 / 水波纹路径；`applyCardBackground` 本来就是为这个用例准备的既有 API。
+- **验证 · L0（26.11.11 本机实测，工作区含上一批未提交改动）**：`:app:assembleDebug` BUILD SUCCESSFUL；`:app:testStandardDebugUnitTest` + `:app:testCoexistDebugUnitTest` 各 **220 suites / 2385 tests / 0 失败 0 错误**。
+- **未验证（人测 / L2）**：开关打开后私信会话卡是否与顶部四张卡一致的半透明观感、关掉是否回到不透明深灰、按住时的水波纹仍在（本机无在线设备，且私信列表要登录态才有数据）。交接单见 [`handoff-261111-private-msg-glass.md`](handoff-261111-private-msg-glass.md)（H22~H24）。
+
+### 3.149 设置搜索跳转后目标行短暂高亮（26.11.11，用户要求「搜索到某个设置项，就跳转到对应位置并高亮显示」）
+
+- **需求原话**：「我想增强一下设置的搜索，如果搜索到某个设置项，就直接跳转到对应位置并高亮显示（高亮显示未做，补一下）」。
+- **缺口**：跳转早就通了——搜索命中后 `SettingsIndex.Entry.open` 把目标行名塞进 intent 的 `highlight`，五个页面再各自滚到同名行。但 `RefreshListActivity.scrollToHighlight` 只 `scrollToPosition`，滚过去没有任何视觉提示，手表小屏上尤其容易「不知道跳到了哪一行」。
+- **定案（四项都问过用户，全选推荐项）**：① 形态 = 主色描边 + 主色淡底，约 1.5 秒后自己淡掉（不常驻，免得用户以为那是选中态）；② 范围 = **所有**接收 `highlight` 的 5 个页面（分组页 + 通用设置页 + 关于页 + 回复设置页 + 播放器设置页）；③ 分组标题（`title` 行）与按钮（`button` 行）被搜到时同样要亮；④ 滚动位置**不改**（仍是 `scrollToPosition`，目标顶到最上方可见位，不做居中）。
+- **三种行根，三种画法**（`util/view/SettingsHighlight.kt`）：`cell_setting_*` 五行布局的根都是 `MaterialCardView` ⇒ 描边加粗 1dp→2dp + `strokeColor` 一次性插值到 `ColorScheme.PRIMARY`、`cardBackgroundColor` 向主色插 18%；button 行的 itemView 就是代码 new 的 `MaterialButton` 本体（没有卡片外壳）⇒ 改 `backgroundTintList` 向主色插 55%；`cell_setting_title.xml` 的根是 `LinearLayout` ⇒ 塞一块圆角 `GradientDrawable` 淡色底板（主色 alpha 0x3D）。纯几何量走 `fadeFactor(fraction)` / `lerpColor(from,to,t)` 两个纯函数，其余交给 `ValueAnimator`（`HOLD_MS=1500` + `FADE_MS=450`，线性）。
+- **改动**：
+  1. 新建 `util/view/SettingsHighlight.kt`（`object SettingsHighlight`，`bind(itemView, highlighted)` 入口，内部 `CardSkin` / `ButtonSkin` / `PlateSkin` 三个皮肤，原始样式存进 `itemView` 的 keyed tag）；
+  2. 新建 `res/values/ids.xml`（只放 `tag_setting_highlight`），存皮肤用的 tag key；
+  3. `adapter/SettingsAdapter.kt`：加 `highlightPosition`（默认 `RecyclerView.NO_POSITION`）与 `fun highlight(position)`（越界直接 return），`onBindViewHolder` 末尾统一调 `SettingsHighlight.bind(holder.itemView, position == highlightPosition)`；
+  4. `activity/base/RefreshListActivity.kt`：`scrollToHighlight` 找到行号后先让 `SettingsAdapter` 记下标红位置，再 `scrollToPosition`（适配器不是 `SettingsAdapter` 时只滚不标红）；
+  5. `activity/settings/SettingGroupActivity.kt`：删掉自己内联写的那份滚动定位，改用基类的 `scrollToHighlight`（与另外 4 页共用一条路）。
+- **四个刻意为之的坑**（别退回）：
+  - **不用 `View.setForeground`**：任意 View 的前景层是 API 23+，本项目 `minSdk 19`，只能按行根类型分别改真实属性；
+  - **描边原始值存 `strokeColorStateList`**：`MaterialCardView.getStrokeColor()` 返回的是 `int`，用合成属性 `card.strokeColor` 会吃 `'var strokeColor: Int' is deprecated` 告警，还原时也要走 `setStrokeColor(ColorStateList)`；
+  - **`PlateSkin` 只在构造时换一次 `background`**：动画里只调 `GradientDrawable.setColor`，否则每帧改背景都会触发一次 `requestLayout`，滚动时掉帧；
+  - **`highlightPosition` 播完不清空**：清空就得再 `notifyItemChanged` 一次，不如让 `bind(false)` 在复用/重绑时负责还原（所以非目标行也要调 `bind`，回收来的 itemView 可能还带着上一行的高亮）。
+- **验证 · L0（26.11.11 本机实测）**：`./gradlew.bat :app:compileStandardDebugKotlin :app:testStandardDebugUnitTest "-Pkotlin.incremental=false"` → BUILD SUCCESSFUL；新增 `SettingsHighlightTest` **7 tests / 0 失败 0 错误**（hold 期内恒 1、末尾归 0、hold 后单调下降、`lerpColor` 端点精确、比例越界钳位、四通道含 alpha 都插值、`blend` 等价于 `lerpColor`）；`./gradlew.bat :app:assembleDebug` → BUILD SUCCESSFUL。
+- **未验证（人测 / L2）**：高亮观感本身——描边加粗是否足够明显、主色淡底会不会盖掉卡片的玻璃质感、标题 / 按钮行的淡色底板块好不好看（标题行原本没有卡片外壳）、`1.5s + 0.45s` 的节奏是否太快或太慢。本机无在线设备，需真机。
+
+## 4. 历史章节索引
+
+> 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。
+> §一~§三十 的「收尾状态」按归档正文与 §五 / §十 的登记推断：批次类记「已闭环」，正文明确登记遗留的记「部分遗留」，总览 / 明细 / 建议 / 验证记录类记「纯历史」。
 
 | §编号 | 标题 | 一句话内容 | 收尾状态 |
 | --- | --- | --- | --- |
