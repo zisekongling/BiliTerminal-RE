@@ -7,6 +7,7 @@
 
 - 安装包：`app/build/outputs/apk/coexist/debug/app-coexist-universal-debug.apk`（共存版，包名 `com.RobinNotBad.BiliClient.coexist`，可与普通版并存）
 - 版本：`versionName 26.11.09` / `versionCode 26110900` / 基线 commit `96ecb735`
+- 构建来源：本机 26.11.13 10:24 的共存 debug 包，代码基线 `bb773720`（`96ecb735` 之上叠加 26.11.11 反馈批次的 11 条提交，版本号未变）
 - 前置：**需要登录**（H01、H03、H04、H05、H06、H07）；H02 需一条有 emoji 或链接的评论；不需要耳机 / 特殊网络
 - 回结果：通过写 `- [x]`；不通过留空，并在旁边写一句「看到的是什么」
 - 全局已知差异：合集续看的落盘走 `SharedPreferencesUtil.putString`（**异步 apply**），播完立刻从最近任务划掉 App 有极小概率丢一条记录。看到「划掉后标记回到旧位置」先按已知差异记，不算回归
