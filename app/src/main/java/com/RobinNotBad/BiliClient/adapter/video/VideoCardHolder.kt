@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.text.SpannableString
+import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.view.MotionEvent
@@ -26,6 +27,7 @@ import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.ToolsUtil
+import com.RobinNotBad.BiliClient.util.view.LongPressDelay
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.DecodeFormat
 import com.bumptech.glide.load.engine.DiskCacheStrategy
@@ -43,11 +45,20 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
     private var boundVideoCard: VideoCard? = null
     private var boundContext: Context? = null
 
+    /**
+     * 标题的「常态颜色」，进多选时标题会被改成主色，退出多选要还原，所以在这里先存一份。
+     *
+     * 必须在 init 里读一次：`applySelection` 里现读 `currentTextColor` 会把上一次多选
+     * 留下的主色当成常态色，一路污染下去。
+     */
+    private val normalTitleColor: Int
+
     init {
         title = itemView.findViewById(R.id.text_title)
         upName = itemView.findViewById(R.id.text_upname)
         viewCount = itemView.findViewById(R.id.text_viewcount)
         cover = itemView.findViewById(R.id.img_cover)
+        normalTitleColor = title.currentTextColor
     }
 
     private var longPressRunnable: Runnable? = null
@@ -59,7 +70,8 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
      * <h3>为什么需要它</h3>
      * 下面那个 `setOnTouchListener` 对 `ACTION_DOWN` 返回 `false`——不吞事件，是为了让条目
      * 自己继续处理滚动/点击。代价是 `View.onTouchEvent` 照样会在 `ACTION_UP` 上补发一次
-     * `performClick()`。于是同一次长按会走两条路：「200ms 后的长按回调」和「抬手时的点击」。
+     * `performClick()`。于是同一次长按会走两条路：「按住 [LongPressDelay.CARD_MS] 后的长按回调」
+     * 和「抬手时的点击」。
      *
      * 在多选态里这两条路都是 `toggleSelected(position)`：长按先把它选上，抬手立刻又取消，
      * 净效果是**长按选不中任何条目**。不在多选态时则是「长按弹了菜单，抬手又跳进了视频详情页」。
@@ -131,7 +143,7 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
                             suppressClickAfterLongPress = true
                             longClickListener.onLongClick(v)
                         }
-                        v.postDelayed(longPressRunnable, 200)
+                        v.postDelayed(longPressRunnable, LongPressDelay.CARD_MS)
                         false
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -160,22 +172,44 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
     }
 
     /**
-     * 多选模式下的选中样式：未选中的条目整体压暗，选中的条目标题前加一个 ✓ 前缀。
+     * 多选模式下的选中样式：与 `TerminalDialog` 单/多选列表（`GLYPH_IDLE` / `GLYPH_ACTIVE`）
+     * 同一套视觉——标题前一个引导符，选中时是 `▸` 且标题走主色，未选中时是 `›` 且标题保持常态色。
+     *
      * 不做新控件、也不动 `cell_video_list.xml` 的 id——那些 id 是跨包事实协议
      * （见 `docs/architecture-map.md` 第 7 节），为多选再引入一个 id 不值得。
+     *
+     * 不再用 `itemView.alpha` 压暗未选中卡片（反馈 #140）：整卡压暗会把封面和 UP 名一起弄灰，
+     * 和弹窗里的多选观感对不上，暗色主题下更是糊成一片。
      */
     fun applySelection(selectionMode: Boolean, selected: Boolean) {
-        // 前缀先无条件剥掉：退出多选后标题上的「✓ 」不能留在列表里，
+        // 前缀先无条件剥掉：退出多选后标题上的引导符不能留在列表里，
         // 而一旦留下，下次进入多选时 `startsWith` 只能剥掉一层、越叠越多。
-        if (title.text?.startsWith(PREFIX_SELECTED) == true || title.text?.startsWith(PREFIX_UNSELECTED) == true) {
+        if (title.text?.startsWith(GLYPH_SELECTED) == true || title.text?.startsWith(GLYPH_UNSELECTED) == true) {
             title.text = title.text.subSequence(2, title.text.length)
         }
+        // 兜底清掉旧样式可能留下的整卡压暗，避免复用 holder 时一直灰着
+        itemView.alpha = 1f
         if (!selectionMode) {
-            itemView.alpha = 1f
+            title.setTextColor(normalTitleColor)
             return
         }
-        itemView.alpha = if (selected) 1f else 0.45f
-        title.text = android.text.TextUtils.concat(if (selected) PREFIX_SELECTED else PREFIX_UNSELECTED, title.text)
+
+        val glyph = if (selected) GLYPH_SELECTED else GLYPH_UNSELECTED
+        // 未选中引导符按常态色压到 70% 不透明度，等价于 TerminalDialog 的 secondaryColor()
+        val glyphColor = if (selected) {
+            ColorScheme.PRIMARY
+        } else {
+            Color.argb(179, Color.red(normalTitleColor), Color.green(normalTitleColor), Color.blue(normalTitleColor))
+        }
+        val builder = SpannableStringBuilder(glyph).append(' ').append(title.text ?: "")
+        builder.setSpan(
+            ForegroundColorSpan(glyphColor),
+            0,
+            glyph.length,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        title.text = builder
+        title.setTextColor(if (selected) ColorScheme.PRIMARY else normalTitleColor)
     }
 
     @SuppressLint("SetTextI18n")
@@ -258,9 +292,12 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
     companion object {
         private val TITLE_COLOR_SPAN = ForegroundColorSpan(ColorScheme.PRIMARY)
 
-        /** 多选模式下标题前缀，两者都是 2 个字符宽（后者是全角空格，用来保持对齐） */
-        private const val PREFIX_SELECTED = "✓ "
-        private const val PREFIX_UNSELECTED = "　 "
+        /**
+         * 多选态标题前的引导符，与 `TerminalDialog` 的 `GLYPH_ACTIVE` / `GLYPH_IDLE` 同一套
+         * （反馈 #140）。两者都是 1 个字符 + 1 个半角空格 = 2 个字符宽，剥前缀时直接 `subSequence(2, …)`。
+         */
+        private const val GLYPH_SELECTED = "▸"
+        private const val GLYPH_UNSELECTED = "›"
 
         @JvmStatic
         fun getRequestOptions(): RequestOptions = REQUEST_OPTIONS

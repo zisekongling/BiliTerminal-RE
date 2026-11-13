@@ -2008,6 +2008,10 @@
     <string name="text_cache_search_title">搜索缓存</string>
     <string name="text_cache_search_hint">输入关键词，留空清除</string>
     <string name="text_cache_search_empty">没有匹配的缓存</string>
+
+    <!-- 多选「全不选」（26.11.11，反馈 #94）：缓存页与下载列表页的多选条共用；
+         「全选」复用上面那条 btn_select_all，别在这里重复定义（重复会被 AAPT 判重复资源）。 -->
+    <string name="btn_unselect_all">全不选</string>
     <string name="uitext_seriesinfoactivity_001">系列详情</string>
     <string name="uitext_multipageactivity_001">已在下载队列</string>
     <string name="uitext_qualitychooseractivity_004">4K 超清</string>

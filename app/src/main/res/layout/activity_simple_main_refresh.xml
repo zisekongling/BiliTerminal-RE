@@ -116,6 +116,22 @@
                 android:textColor="?android:attr/textColorSecondary"
                 android:textSize="13sp" />
 
+            <!-- 「全选 / 全不选」（26.11.11，反馈 #94）：只在缓存页多选态点亮，全勾中后文字变「全不选」。
+                 和其它按钮一样默认 gone——这个布局是多个一级页共用的。 -->
+            <TextView
+                android:id="@+id/btnMultiSelectAll"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:minHeight="@dimen/touch_min"
+                android:paddingHorizontal="@dimen/space_md"
+                android:paddingVertical="4dp"
+                android:text="@string/btn_select_all"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
             <TextView
                 android:id="@+id/btnMultiOperate"
                 android:layout_width="wrap_content"

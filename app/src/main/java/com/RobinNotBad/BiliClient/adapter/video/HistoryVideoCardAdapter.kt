@@ -11,16 +11,13 @@ import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TimeUtil
+import com.RobinNotBad.BiliClient.util.view.LongPressDelay
 import java.util.Locale
 
 class HistoryVideoCardAdapter(
     private val context: Context,
     private val videoCardList: List<VideoCard>
 ) : RecyclerView.Adapter<VideoCardHolder>() {
-
-    companion object {
-        private const val LONG_PRESS_DELAY = 200L
-    }
 
     private var videoList: List<VideoCard> = videoCardList
     private var onLongClickListener: ((Int) -> Unit)? = null
@@ -70,7 +67,7 @@ class HistoryVideoCardAdapter(
                             VideoCardMenu.show(context, videoCard)
                         }
                     }
-                    v.postDelayed(longPressRunnable, LONG_PRESS_DELAY)
+                    v.postDelayed(longPressRunnable, LongPressDelay.CARD_MS)
                     false
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {

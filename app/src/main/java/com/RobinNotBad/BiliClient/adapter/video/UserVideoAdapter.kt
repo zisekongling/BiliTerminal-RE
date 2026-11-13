@@ -18,6 +18,7 @@ import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
+import com.RobinNotBad.BiliClient.util.view.LongPressDelay
 
 class UserVideoAdapter(
     val context: Context,
@@ -67,7 +68,7 @@ class UserVideoAdapter(
                                 VideoCardMenu.show(context, videoCard)
                             }
                         }
-                        v.postDelayed(longPressRunnable, 200)
+                        v.postDelayed(longPressRunnable, LongPressDelay.CARD_MS)
                         false
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {

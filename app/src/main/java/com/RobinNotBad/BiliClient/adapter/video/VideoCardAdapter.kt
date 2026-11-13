@@ -50,17 +50,19 @@ class VideoCardAdapter(
      * 关掉「同一项内容变化」的动画。
      *
      * <h3>为什么必须关</h3>
-     * 多选态的暗/亮是靠 [VideoCardHolder.applySelection] 直接写 `itemView.alpha` 实现的
-     * （选中 1f、未选中 0.45f），而勾选/取消勾选走的是 `notifyItemChanged(position)`。
-     * `RecyclerView` 默认挂 `DefaultItemAnimator`，它处理 `notifyItemChanged` 的方式是
-     * **另建一个 ViewHolder 做交叉淡入**（`canReuseUpdatedViewHolder` 在
-     * `supportsChangeAnimations = true` 时返回 false），并在动画收尾把新布局的 alpha 设成 1。
-     * 于是：勾选（目标本来就是 1f）看不出问题，**取消勾选（目标是 0.45f）会被静默改回 1f**——
-     * 表现出来正是真机上反馈的「取消选择后条目不会再次暗下去」。
+     * 多选态的样式靠 [VideoCardHolder.applySelection] 直接改标题文字（引导符 + 主色），
+     * 勾选/取消勾选走的是 `notifyItemChanged(position)`。`RecyclerView` 默认挂
+     * `DefaultItemAnimator`，它处理 `notifyItemChanged` 的方式是**另建一个 ViewHolder 做交叉淡入**
+     * （`canReuseUpdatedViewHolder` 在 `supportsChangeAnimations = true` 时返回 false）。
+     * 于是每次勾选都是一次「旧样式渐隐 + 新样式渐显」：手表屏小、条目又高，淡入期间能明显看到
+     * 两句标题叠在一起，快速连点几下更是拖影；而弹窗里的多选是点击即变，两边观感对不上。
      *
      * `supportsChangeAnimations = false` 让 `RecyclerView` 复用原 ViewHolder、不做交叉淡入，
-     * `applySelection` 写下的 alpha 才能留到下一帧。只影响「内容变化」这一类动画，
+     * `applySelection` 写下的样式直接落到这一帧。只影响「内容变化」这一类动画，
      * 增删/移动动画不受影响。
+     *
+     * （26.11.11 反馈 #140 之前这里是 `itemView.alpha` 压暗，会被动画收尾改回 1f；
+     * 改成 glyph + 主色之后 alpha 这条因果没了，但「交叉淡入导致样式滞后」的理由仍然成立。）
      */
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         super.onAttachedToRecyclerView(recyclerView)

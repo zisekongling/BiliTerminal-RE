@@ -175,6 +175,9 @@ open class LocalListActivity : InstanceActivity() {
     private lateinit var multiSelectBar: View
     private lateinit var textSelectedCount: TextView
     private lateinit var btnMultiSelect: TextView
+
+    /** 多选态的「全选 / 全不选」（26.11.11，反馈 #94）。 */
+    private lateinit var btnMultiSelectAll: TextView
     private lateinit var btnMultiOperate: TextView
     private lateinit var btnMultiExit: TextView
 
@@ -1002,6 +1005,7 @@ open class LocalListActivity : InstanceActivity() {
         multiSelectBar = findViewById(R.id.multiSelectBar)
         textSelectedCount = findViewById(R.id.textSelectedCount)
         btnMultiSelect = findViewById(R.id.btnMultiSelect)
+        btnMultiSelectAll = findViewById(R.id.btnMultiSelectAll)
         btnMultiOperate = findViewById(R.id.btnMultiOperate)
         btnMultiExit = findViewById(R.id.btnMultiExit)
         btnSort = findViewById(R.id.btnSort)
@@ -1009,6 +1013,7 @@ open class LocalListActivity : InstanceActivity() {
         btnSearchClear = findViewById(R.id.btnSearchClear)
 
         btnMultiSelect.setOnClickListener { enterSelectionMode() }
+        btnMultiSelectAll.setOnClickListener { toggleSelectAllVisible() }
         btnMultiExit.setOnClickListener { exitSelectionMode() }
         btnMultiOperate.setOnClickListener { showBatchMenu() }
         btnSort.setOnClickListener { if (sortMode) exitSortMode() else enterSortMode() }
@@ -1047,6 +1052,7 @@ open class LocalListActivity : InstanceActivity() {
             textSelectedCount.visibility = View.VISIBLE
             textSelectedCount.text = getString(R.string.text_cache_sort_hint)
             btnMultiSelect.visibility = View.GONE
+            btnMultiSelectAll.visibility = View.GONE
             btnMultiOperate.visibility = View.GONE
             btnMultiExit.visibility = View.GONE
             btnSort.visibility = View.VISIBLE
@@ -1062,6 +1068,7 @@ open class LocalListActivity : InstanceActivity() {
             btnMultiOperate.visibility = View.GONE
             btnMultiExit.visibility = View.GONE
             btnMultiSelect.visibility = if (canSelect) View.VISIBLE else View.GONE
+            btnMultiSelectAll.visibility = View.GONE
             btnSort.visibility = if (canSelect) View.VISIBLE else View.GONE
             btnSearch.visibility = if (canSelect) View.VISIBLE else View.GONE
             btnSearchClear.visibility = if (searchKeyword.isNotEmpty()) View.VISIBLE else View.GONE
@@ -1072,6 +1079,13 @@ open class LocalListActivity : InstanceActivity() {
         textSelectedCount.visibility = View.VISIBLE
         textSelectedCount.text = UiText.fmt("已选 %1\$d 项", count)
         btnMultiSelect.visibility = View.GONE
+        // 全选 / 全不选（反馈 #94）：只作用于「当前看得见」的条目——搜索过滤后就是过滤结果那几条
+        btnMultiSelectAll.visibility = View.VISIBLE
+        btnMultiSelectAll.text = if (isAllVisibleSelected()) {
+            getString(R.string.btn_unselect_all)
+        } else {
+            getString(R.string.btn_select_all)
+        }
         btnMultiOperate.visibility = View.VISIBLE
         btnMultiExit.visibility = View.VISIBLE
         btnSort.visibility = View.GONE
@@ -1088,6 +1102,61 @@ open class LocalListActivity : InstanceActivity() {
         } else {
             videoList.any { it.folderName == inFolder }
         }
+    }
+
+    // ---------- 全选 / 全不选（26.11.11，反馈 #94） ----------
+
+    /**
+     * 当前列表里「看得见、能勾」的条目：顶层是未分类视频（一条都没有时退化成全部文件夹），
+     * 文件夹内是夹内视频；搜索中只算匹配关键词的那几条（与适配器 `LocalListSort.matches` 同一口径）。
+     *
+     * 顶层为什么不同时勾文件夹和视频：批量操作一次只做同类（[showBatchMenu] 遇到混选直接
+     * 提示「先取消一种」），一次勾满两类会让用户点「操作」先吃一句拒绝。所以视频优先，
+     * 一条未分类视频都没有时才勾文件夹。
+     */
+    private fun visibleSelectableItems(): Pair<Set<String>, Set<String>> {
+        val inFolder = adapter?.currentFolderName ?: ""
+        val folders = LinkedHashSet<String>()
+        val videos = LinkedHashSet<String>()
+        if (inFolder.isEmpty()) {
+            for (video in videoList) {
+                if (!video.folderName.isNullOrEmpty()) continue
+                if (LocalListSort.matches(video.title, searchKeyword)) videos.add(video.title)
+            }
+            if (videos.isEmpty()) {
+                for (folder in folderList) {
+                    if (LocalListSort.matches(folder.name, searchKeyword)) folders.add(folder.name)
+                }
+            }
+        } else {
+            for (video in videoList) {
+                if (video.folderName != inFolder) continue
+                if (LocalListSort.matches(video.title, searchKeyword)) videos.add(video.title)
+            }
+        }
+        return folders to videos
+    }
+
+    private fun isAllVisibleSelected(): Boolean {
+        val (folders, videos) = visibleSelectableItems()
+        if (folders.isEmpty() && videos.isEmpty()) return false
+        return selectedFolderNames.containsAll(folders) && selectedVideoTitles.containsAll(videos)
+    }
+
+    /** 全选 / 全不选：已经全勾中时清空勾选，否则把看得见的条目一次勾上。 */
+    private fun toggleSelectAllVisible() {
+        if (!selectionMode) return
+        val (folders, videos) = visibleSelectableItems()
+        if (folders.isEmpty() && videos.isEmpty()) return
+        if (selectedFolderNames.containsAll(folders) && selectedVideoTitles.containsAll(videos)) {
+            selectedFolderNames.clear()
+            selectedVideoTitles.clear()
+        } else {
+            selectedFolderNames.addAll(folders)
+            selectedVideoTitles.addAll(videos)
+        }
+        adapter?.notifyDataSetChanged()
+        updateSelectionBar()
     }
 
     private fun enterSelectionMode() {

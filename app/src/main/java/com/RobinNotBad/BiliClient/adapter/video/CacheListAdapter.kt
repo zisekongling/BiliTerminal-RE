@@ -6,7 +6,10 @@ import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.text.TextUtils
+import android.graphics.Color
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -22,6 +25,7 @@ import com.RobinNotBad.BiliClient.api.PlayerApi
 import com.RobinNotBad.BiliClient.model.LocalVideo
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.VideoFolder
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.LocalListSort
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -63,9 +67,9 @@ class CacheListAdapter(
         private const val TYPE_VIDEO_ITEM = 5
         private const val TYPE_EMPTY_TIP = 6
 
-        /** 多选前缀：勾上用 ✓，未勾用全角空格占位（与收藏夹多选同一套视觉，见 VideoCardHolder）。 */
-        private const val PREFIX_SELECTED = "✓ "
-        private const val PREFIX_UNSELECTED = "　 "
+        /** 多选态标题前的引导符，与 `TerminalDialog` / `VideoCardHolder` / `DownloadAdapter` 同一套（反馈 #140）。 */
+        private const val GLYPH_SELECTED = "▸"
+        private const val GLYPH_UNSELECTED = "›"
     }
 
     // 数据
@@ -562,21 +566,56 @@ class CacheListAdapter(
     }
 
     /**
-     * 画勾选态：勾中项正常亮度 + 前缀「✓ 」，未勾项压暗 + 全角空格占位。
+     * 每个标题 / 文件夹名 TextView 的「常态文字色」。
+     *
+     * 多选时会被改成主色，退出多选要还原；不能现读 `currentTextColor`（会读到上一次留下的主色），
+     * 而这两类行各用各的 TextView（文件夹行、视频行），所以按 view 各记一份。
+     * 用弱引用键：holder 被回收后条目自然消失，不会把 View 一直吊着。
+     */
+    private val normalLabelColors = java.util.WeakHashMap<TextView, Int>()
+
+    private fun normalColorOf(label: TextView): Int =
+        normalLabelColors.getOrPut(label) { label.currentTextColor }
+
+    /**
+     * 画勾选态：与 `TerminalDialog` 单/多选列表同一套视觉——标题前一个引导符，
+     * 选中是 `▸` 且标题走主色，未选中是 `›` 且标题保持常态色（反馈 #140）。
      *
      * 不用复选框：`cell_video_local.xml` 里那个 `checkbox_select` 会把内容整体右移，
-     * 而收藏夹多选是「压暗 + 勾号」这一套，两个页面用同一种视觉更不容易看懵。
+     * 而视频列表多选是「引导符 + 主色」这一套，几个页面用同一种视觉更不容易看懵。
      *
-     * 前缀不需要剥离：每次绑定都先 setText 原始标题（[VideoItemHolder.showVideo] / 上面文件夹那行），
-     * 再进来加前缀，holder 复用不会把前缀叠起来。
+     * 也不再整卡压暗：那会把封面和时长一起弄灰，暗色主题下更是糊成一片。
+     *
+     * 前缀通常不需要剥离（每次绑定都先 setText 原始标题：`VideoItemHolder.showVideo` / 文件夹那行），
+     * 但列表局部刷新时可能复用 holder 而没重绑，这里先剥一次兜底。
      */
     private fun applySelection(holder: RecyclerView.ViewHolder, label: TextView, selected: Boolean) {
+        val normal = normalColorOf(label)
+        if (label.text?.startsWith(GLYPH_SELECTED) == true || label.text?.startsWith(GLYPH_UNSELECTED) == true) {
+            label.text = label.text.subSequence(2, label.text.length)
+        }
+        holder.itemView.alpha = 1f
         if (!selectionMode) {
-            holder.itemView.alpha = 1f
+            label.setTextColor(normal)
             return
         }
-        holder.itemView.alpha = if (selected) 1f else 0.5f
-        label.text = TextUtils.concat(if (selected) PREFIX_SELECTED else PREFIX_UNSELECTED, label.text)
+
+        val glyph = if (selected) GLYPH_SELECTED else GLYPH_UNSELECTED
+        // 未选中引导符按常态色压到 70% 不透明度，等价于 TerminalDialog 的 secondaryColor()
+        val glyphColor = if (selected) {
+            ColorScheme.PRIMARY
+        } else {
+            Color.argb(179, Color.red(normal), Color.green(normal), Color.blue(normal))
+        }
+        val builder = SpannableStringBuilder(glyph).append(' ').append(label.text ?: "")
+        builder.setSpan(
+            ForegroundColorSpan(glyphColor),
+            0,
+            glyph.length,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        label.text = builder
+        label.setTextColor(if (selected) ColorScheme.PRIMARY else normal)
     }
 
     private fun playVideo(video: LocalVideo) {

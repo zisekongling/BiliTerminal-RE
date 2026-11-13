@@ -18,6 +18,7 @@ import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
+import com.RobinNotBad.BiliClient.util.view.LongPressDelay
 import org.json.JSONObject
 import java.io.File
 
@@ -61,7 +62,7 @@ class ArticleCardAdapter(
                             longClickListener?.onItemLongClick(position)
                         }
                     }
-                    v.postDelayed(longPressRunnable, 200)
+                    v.postDelayed(longPressRunnable, LongPressDelay.CARD_MS)
                     false
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
