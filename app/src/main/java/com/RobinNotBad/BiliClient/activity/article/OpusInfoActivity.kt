@@ -13,6 +13,7 @@ import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.activity.dynamic.DynamicInfoActivity
 import com.RobinNotBad.BiliClient.activity.reply.ReplyFragment
 import com.RobinNotBad.BiliClient.adapter.viewpager.ViewPagerFragmentAdapter
+import com.RobinNotBad.BiliClient.api.OpusApi
 import com.RobinNotBad.BiliClient.event.ReplyEvent
 import com.RobinNotBad.BiliClient.model.Opus
 import com.RobinNotBad.BiliClient.model.Stats
@@ -77,7 +78,17 @@ class OpusInfoActivity : BaseActivity() {
                     AnimationUtils.crossFade(loadingView, oiFragment.view)
                 }.onFailure { error ->
                     loadingView.setImageResource(R.mipmap.loading_2233_error)
-                    MsgUtil.err(error)
+                    // #142：「被风控拦截」和「这篇确实没有正文」要分开说——前者稍后重试有意义，
+                    // 后者重试多少次都还是这样，给同一句话只会让人反复点重试。
+                    when (error) {
+                        is OpusApi.ArticleBlockedException ->
+                            MsgUtil.showMsg(getString(R.string.msg_opus_article_blocked))
+
+                        is OpusApi.ArticleEmptyException ->
+                            MsgUtil.showMsg(getString(R.string.msg_opus_article_empty))
+
+                        else -> MsgUtil.err(error)
+                    }
                 }
             }
     }

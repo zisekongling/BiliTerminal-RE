@@ -28,6 +28,7 @@ public class OpusParagraph {
     public static final int TYPE_TEXT_BLOCKQUOTE = 4;
     public static final int TYPE_LIST = 5;
     public static final int TYPE_LINK_CARD = 6;   // 链接卡片（可能为投票）
+    public static final int TYPE_CODE = 7;        // 代码块（可能是一张高亮截图，见 analyzeCode）
     public static final int TYPE_HEADING = 8;
 
     //这几个是自定义的
@@ -78,9 +79,71 @@ public class OpusParagraph {
                 this.voteId = analyzeLinkCard(para.optJSONObject("link_card"));
                 this.content = (voteId != 0) ? "[投票]" : "";
                 break;
+            case TYPE_CODE:
+                this.content = analyzeCode(para.optJSONObject("code"));
+                break;
             default:
-                this.content = "[无法识别段落：" + type + "]";
+                // 以前这里直接塞 "[无法识别段落：N]" 给用户看——既不可读也不含内容。
+                // B站新增段落类型时通常仍带 text/heading/list 之类已知子对象，先尽量把内容救出来；
+                // 实在救不出来就返回空串（OpusApi.analyzeParagraphs 会把空段落丢掉，正文不会多出空行）。
+                this.content = analyzeUnknownParagraph(para);
         }
+    }
+
+    /**
+     * 解析代码块段落（para_type=7）。
+     *
+     * <p>B站专栏里的代码块有两种形态：正文文字（`code.text`）与「语法高亮截图」（`code.pic.url`）。
+     * 截图形态在这里把段落类型改成 {@link #TYPE_PIC} 并返回图片数组，否则段落适配器没有可渲染的内容，
+     * 用户只会看到一块空白。字段名以 bilibili-API/docs/opus/features.md 的 para_type=7 为准；
+     * 缺字段时返回空串交给上层丢掉，不抛异常（一段代码块认不出来不该让整篇专栏报错）。
+     */
+    public Object analyzeCode(JSONObject code) {
+        if (code == null) return "";
+        JSONObject pic = code.optJSONObject("pic");
+        if (pic != null) {
+            String url = pic.optString("url", "");
+            if (!url.isEmpty()) {
+                this.type = TYPE_PIC;
+                return new String[]{url.startsWith("http") ? url : "http:" + url};
+            }
+        }
+        String text = code.optString("text", "");
+        if (text.isEmpty()) text = code.optString("words", "");
+        if (text.isEmpty()) text = code.optString("content", "");
+        return text;
+    }
+
+    /**
+     * 未知段落类型的兜底解析：按常见子对象顺序找文字，找不到返回空串。
+     *
+     * <p>返回空串而不是「[无法识别段落：N]」——占位符对用户没有任何意义，
+     * 而丢一段认不出来的段落，比整篇正文被一行方括号英文打断要好。
+     */
+    public CharSequence analyzeUnknownParagraph(JSONObject para) throws JSONException {
+        if (para == null) return "";
+        CharSequence text = analyzeText(para.optJSONObject("text"));
+        if (text.length() > 0) return text;
+        text = analyzeText(para.optJSONObject("heading"));
+        if (text.length() > 0) return text;
+        text = analyzeBlockQuote(para.optJSONObject("blockquote"));
+        if (text.length() > 0) return text;
+        // 部分新段落类型把 nodes 直接挂在段落上（或挂在 content 里），analyzeText 都能读
+        text = analyzeText(para);
+        if (text.length() > 0) return text;
+        text = analyzeText(para.optJSONObject("content"));
+        if (text.length() > 0) return text;
+        String words = para.optString("words", para.optString("word", ""));
+        if (!words.isEmpty()) return words;
+        CharSequence list = analyzeList(para.optJSONObject("list"));
+        if (list.length() > 0) return list;
+        JSONObject code = para.optJSONObject("code");
+        if (code != null) {
+            String codeText = code.optString("text", "");
+            if (codeText.isEmpty()) codeText = code.optString("words", "");
+            if (!codeText.isEmpty()) return codeText;
+        }
+        return "";
     }
 
     public CharSequence analyzeBlockQuote(JSONObject blockquote) throws JSONException {
@@ -212,12 +275,37 @@ public class OpusParagraph {
                         appendRichSegments(stringBuilder, java.util.Collections.singletonList(segment));
                     }
                     break;
+                case "TEXT_NODE_TYPE_FORMULA":
+                    // 公式节点（features.md: para_type 文本节点的 formula.latex_content）。
+                    // 手表上没法渲染 LaTeX，把源码原样显示——总比正文里留下 "[TEXT_NODE_TYPE_FORMULA]" 强。
+                    JSONObject formula = node.optJSONObject("formula");
+                    if (formula != null) stringBuilder.append(formula.optString("latex_content", ""));
+                    break;
                 default:
-                    stringBuilder.append("[").append(node.optString("type")).append("]");
+                    appendUnknownNode(stringBuilder, node);
             }
         }
 
         return stringBuilder;
+    }
+
+    /**
+     * 未识别文本节点的兜底：能取到文字就取，取不到就跳过。
+     *
+     * <p>旧实现在这里 append 节点类型名（`[TEXT_NODE_TYPE_XXX]`），用户看到的是方括号英文，
+     * 而节点里其实往往还带着现成的文字（word.words / rich.text）。
+     */
+    private static void appendUnknownNode(SpannableStringBuilder stringBuilder, JSONObject node) {
+        if (node == null) return;
+        JSONObject word = node.optJSONObject("word");
+        if (word != null) {
+            stringBuilder.append(word.optString("words", ""));
+            return;
+        }
+        JSONObject rich = node.optJSONObject("rich");
+        if (rich != null) {
+            stringBuilder.append(rich.optString("text", ""));
+        }
     }
 
     public String[] analyzePic(JSONObject allJson) throws JSONException {
