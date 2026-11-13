@@ -49,6 +49,9 @@ class SearchActivity : InstanceActivity() {
     private var lastKeyword = "≠~`"
     private lateinit var historyRecyclerview: RecyclerView
     private lateinit var suggestionsRecyclerview: RecyclerView
+
+    /** 历史浮层右上角的「清空」入口（26.11.11 反馈 #123：只有长按删单条，没有一键清空）。 */
+    private lateinit var historyClearButton: TextView
     lateinit var searchHistoryAdapter: SearchHistoryAdapter
     lateinit var searchSuggestionsAdapter: SearchSuggestionsAdapter
     lateinit var viewPager: ViewPager2
@@ -130,6 +133,8 @@ class SearchActivity : InstanceActivity() {
             searchBar = findViewById(R.id.searchbar)
             historyRecyclerview = findViewById(R.id.history_recyclerview)
             suggestionsRecyclerview = findViewById(R.id.suggestions_recyclerview)
+            historyClearButton = findViewById(R.id.history_clear_button)
+            historyClearButton.setOnClickListener { showClearHistoryConfirm() }
 
             viewPager.offscreenPageLimit = maxOf(1, categoryList.size - 1)
             viewPager.isUserInputEnabled = true
@@ -237,6 +242,8 @@ class SearchActivity : InstanceActivity() {
                 searchHistoryAdapter.notifyItemRangeChanged(position, searchHistory.size - position)
                 SharedPreferencesUtil.putString(SharedPreferencesUtil.search_history,
                     JSONArray(searchHistory).toString())
+                // 删空了就把「清空」入口一起收掉
+                refreshHistoryClearButton()
             }
             historyRecyclerview.layoutManager = CustomLinearManager(this)
             historyRecyclerview.adapter = searchHistoryAdapter
@@ -245,6 +252,7 @@ class SearchActivity : InstanceActivity() {
                 historyRecyclerview.isFocusableInTouchMode = true
                 historyRecyclerview.requestFocus()
             }
+            refreshHistoryClearButton()
 
             searchSuggestions = ArrayList()
             searchSuggestionsAdapter = SearchSuggestionsAdapter(this, searchSuggestions)
@@ -520,6 +528,8 @@ class SearchActivity : InstanceActivity() {
                             searchHistoryAdapter.notifyItemInserted(0)
                             searchHistoryAdapter.notifyItemRangeChanged(0, searchHistory.size)
                             historyRecyclerview.scrollToPosition(0)
+                            // 第一次搜索后历史才从空变非空，「清空」入口要跟着出现
+                            refreshHistoryClearButton()
                         }
                     } catch (e: Exception) {
                         runOnUiThread { MsgUtil.err(e) }
@@ -535,6 +545,7 @@ class SearchActivity : InstanceActivity() {
                             searchHistoryAdapter.notifyItemMoved(pos, 0)
                             searchHistoryAdapter.notifyItemRangeChanged(0, searchHistory.size)
                             historyRecyclerview.scrollToPosition(0)
+                            refreshHistoryClearButton()
                         }
                     } catch (e: Exception) {
                         runOnUiThread { MsgUtil.err(e) }
@@ -638,16 +649,60 @@ class SearchActivity : InstanceActivity() {
     private fun showHistoryDropdown() {
         historyRecyclerview.visibility = View.VISIBLE
         suggestionsRecyclerview.visibility = View.GONE
+        refreshHistoryClearButton()
     }
 
     private fun showSuggestionsDropdown() {
         historyRecyclerview.visibility = View.GONE
         suggestionsRecyclerview.visibility = View.VISIBLE
+        refreshHistoryClearButton()
     }
 
     private fun hideDropdowns() {
         historyRecyclerview.visibility = View.GONE
         suggestionsRecyclerview.visibility = View.GONE
+        refreshHistoryClearButton()
+    }
+
+    /**
+     * 「清空」入口跟着历史浮层与记录条数走：只有历史浮层在显示、且确实有记录时才露出来。
+     *
+     * 早于历史加载（`searchHistory` 还没初始化）或控件还没 inflate 时直接跳过——
+     * `showHistoryDropdown()` 在 `asyncInflate` 里比历史读取更早被调用。
+     */
+    private fun refreshHistoryClearButton() {
+        if (!::historyClearButton.isInitialized || !::searchHistory.isInitialized) return
+        val show = historyRecyclerview.visibility == View.VISIBLE && searchHistory.isNotEmpty()
+        historyClearButton.visibility = if (show) View.VISIBLE else View.GONE
+    }
+
+    /** 清空全部搜索记录前的二次确认（26.11.11 反馈 #123：一键清空，多选不在本批范围）。 */
+    private fun showClearHistoryConfirm() {
+        // TerminalDialog 只负责拼装，**不会自己 show**，这里必须调 .show()
+        TerminalDialog.confirm(
+            context = this,
+            title = getString(R.string.uitext_searchactivity_010),
+            message = getString(R.string.uitext_searchactivity_011),
+            confirmText = getString(R.string.uitext_searchactivity_009),
+            cancelText = getString(R.string.btn_cancel),
+            confirmIsDanger = true
+        ) {
+            clearSearchHistory()
+        }.show()
+    }
+
+    /** 清空搜索历史：内存列表、本地存储、列表 UI 三处一起清，清完立刻刷新入口显隐。 */
+    private fun clearSearchHistory() {
+        if (!::searchHistory.isInitialized) return
+        val oldSize = searchHistory.size
+        searchHistory.clear()
+        SharedPreferencesUtil.putString(SharedPreferencesUtil.search_history,
+            JSONArray(searchHistory).toString())
+        // 用 range-removed 而不是 notifyDataSetChanged：本类的 @SuppressLint 只覆盖 onCreate，
+        // 这里再引一次会多一条 lint 告警
+        if (oldSize > 0) searchHistoryAdapter.notifyItemRangeRemoved(0, oldSize)
+        refreshHistoryClearButton()
+        MsgUtil.showMsg(getString(R.string.uitext_searchactivity_012))
     }
 
     /**
