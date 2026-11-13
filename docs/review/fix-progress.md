@@ -18,6 +18,17 @@
 
 ## 1. 当前版本状态
 
+- **26.11.13 设置搜索跳转定位：目标行由「贴屏幕底部」改成「贴屏幕顶部」（用户报「修复设置搜索跳转跳转至对应按钮的跳转位置，由屏幕底部改为屏幕顶部」）**：
+  - **根因**：五个设置页（`SettingInfoActivity` / `SettingGroupActivity` / `SettingTerminalPlayerActivity` / `SettingRepliesActivity` / `SettingPrefActivity`）在 `onCreate` 末尾都调 `RefreshListActivity.scrollToHighlight(list, intent.getStringExtra("highlight"))`，旧实现只调 `recyclerView.scrollToPosition(index)`——它**只保证目标行「刚好看得见」**；而跳转进来时列表停在顶端，目标行必然在下方 ⇒ 每次贴**屏幕底部**。旧记录里「目标顶到最上方可见位」那句与真实行为不符（`scrollToPosition` 是「最小滚动到可见」，不是顶对齐）。
+  - **修法**（只动 `app/src/main/java/com/RobinNotBad/BiliClient/activity/base/RefreshListActivity.kt:389-403`）：`recyclerView.post {}` 里把定位改成 `(layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(index, 0)`——`offset = 0` 即「目标行顶边贴列表顶边」；万一布局管理器不是 `LinearLayoutManager` 就退回 `scrollToPosition` 保底。前提都已核实：五个页面用的是 `CustomLinearManager` / `CustomGridManager`（都继承 `LinearLayoutManager`），`SettingsAdapter` 的 adapter position 与 `sections` 下标 1:1（没有 header）。高亮（`SettingsHighlight` 1.5s 常亮 + 450ms 淡出）**没动**。
+  - **L0（26.11.13 本机实测）**：当时仓库里有别的会话在跑 `gradlew`，会 `--stop` 掐 daemon、与我互踩 `app/build`（表现为 `Failed to store cache entry … Could not get file mode`、`程序包 com.RobinNotBad.BiliClient.activity.live不存在`、`R.jar` 缺失导致几千行 `Unresolved reference 'R'` 等假失败），因此整仓 `robocopy` 到 `D:\Users\ASUS\AppData\Local\Temp\rebili-iso` 隔离构建：`:app:assembleCoexistDebug` BUILD SUCCESSFUL（1m48s，四个 ABI 包齐），`:app:testCoexistDebugUnitTest` BUILD SUCCESSFUL（`231 suites / 2494 tests / 0 失败 0 错误`）。
+  - **L1（26.11.13 手表模拟器 `rebili_watch37`，466×466 / Android 17）**：共存 Debug 包装机后，用 debug 调试桥（`com.RobinNotBad.BiliClient.coexist/com.RobinNotBad.BiliClient.debug.DebugBridge`，`--es token rebili-agent-bridge`）`start --es activity SettingPrefActivity --es extras "highlight=…"` 直达页面，`uiautomator dump` 读 bounds。同一目标行（第 21 项「翻动时不加载图片」，`recyclerView` bounds `[0,54][466,466]`）**前后对照**：
+    - 旧实现 `recyclerView.scrollToPosition(index)`：目标行 `[12,281][454,462]`，行底 462 ≈ 列表底 466 ⇒ **贴屏幕底部**（用户报的现象复现）。
+    - 新实现 `scrollToPositionWithOffset(index, 0)`：目标行 `[12,58][454,239]`，行顶 58 ≈ 列表顶 54（差 4px 是 CardView 的上边距）⇒ **贴屏幕顶部**。
+    - 边界：目标选末行「表冠适配灵敏度（Scroll）」时滚到能滚的最大位置停住（`[12,321][454,462]`，上一行仍留在视野顶上），与「后面内容不足一屏就滚不到顶」的口径一致。
+    - 旁证（记一笔，省下次踩坑）：**华为真机 `GTJ0220A17004229`（Android 12）拦该调试桥广播**（`am broadcast` 只回 `result=0` 无 data，logcat `W BroadcastQueue: enter shouldPreventSendBroadcast`），`SYSTEM_ALERT_WINDOW` appops 豁免也不管用，所以这条链路只能在模拟器上验；模拟器上中文 extras 经 Windows `adb` 正常传递（不依赖 ADBKeyboard）。
+  - **未验证（L2）**：①闪一次的红色高亮观感与手感；②目标行靠近列表末尾时「停在能滚的最大位置」是否符合用户直觉（若希望它居中或贴底，需要另外定口径），只能人看画面。
+
 - **26.11.13 主菜单底部加「更多」折叠按钮（带开关）+ 菜单编排回到菜单后不刷新**：用户提「增加一个新的更多按钮可以折叠被隐藏的按钮 / 固定显示在底部 / 有开关可调节是否显示 / 就像调节我的页面的编排一样」，顺带报「改变编排不能用的 bug」并要求统一「我的页面」与「菜单排序」页的视觉风格（以菜单排序为准）。
   - **「更多」按钮**：`activity_menu.xml` 的根从 `RelativeLayout` 换成垂直 `LinearLayout`——`top` / `RotaryScrollView(id=menu_scroll, layout_weight=1)` / `LinearLayout(id=menu_footer)` 三行。**footer 在滚动容器之外**，所以按钮真正钉在屏幕最底部（旧结构里 `menu_layout` 在 `ScrollView` 内，钉不住）。折叠区 `id=menu_hidden_group`（含标题「未启用项（点按可直接进入）」+ `id=menu_hidden_buttons`）与主按钮放在**同一个 ScrollView** 里，紧跟在主列表之后：手表只有 466px 高，另开一个滚动区会把主列表挤没，而且在 `ScrollView` 里算高度容易出错。`MenuActivity.buildMenu()` 每次重建整套按钮（主列表 → 折叠区 → footer），`toggleHidden()` 翻转显隐并把 footer 按钮文案在「更多 / 收起」之间切换，展开时 `menuScroll.smoothScrollTo(0, hiddenGroup.top)` 直接把折叠区滚进视野。
   - **折叠区收哪些项**：`MenuConfig.disabledFrom(enabledMenu)` 按「当前真的能渲染」过滤——`exit` 恒可；`resume` 只在 `PlayerApi.buildResumeIntent` 有会话时；`dynamic/message/myspace` 只在已登录时；其余要求 `MenuActivity.btnNames` 里有对应页面。口径与主列表一致，所以在折叠区里点一项和它被启用时点一项走的是同一个 `killAndJump`（`createButton(btn, hiddenItem = true)` 只是**不接管** `dynamicButton/messageButton`——未读文案只能有一个实例）。
@@ -462,6 +473,7 @@
   - 逐项静态结论与依赖下限见 `docs/architecture-map.md` §1.1。
 
 - [ ] **调试桥（§3.14）未真机验证**：`DebugBridge` 的 `am broadcast` 能否回显结果、`appops set <包名> SYSTEM_ALERT_WINDOW allow` 后 `start` 能否真的拉起 `exported=false` 的页面、`http` 命令在风控下是否可用、日志落盘路径是否可 `adb pull` / `run-as` 取到——全部只过了编译与静态核实。逐条验证清单见 `docs/review/agent-test-guide.md` §2 与 §6。
+  - **26.11.13 部分实测（补在这条下面）**：模拟器（AVD `rebili_watch37` / Android 17 / 466×466）上 `result data 回显`、`agent --ez on true`（回 `logDir=…`）、`notutorials`、`start --es activity … --es extras "中文值"`、`top` 复核**五项全部通过**，中文 extras 也不需要 ADBKeyboard。**但华为真机 `GTJ0220A17004229`（NOP-AN00 / Android 12 / sdk31）拦这条广播**：`am broadcast` 只回 `Broadcast completed: result=0`、无 data，logcat 有 `W BroadcastQueue: enter shouldPreventSendBroadcast second BroadcastRecord{…}`，`cmd appops set <包名> SYSTEM_ALERT_WINDOW allow` 也救不回来（结果文件 `logs/bridge-last.txt` 同样不生成）。⇒ 「能不能回显结果」根本不是包的问题，**取决于 ROM 允不允许 shell 发这条显式广播**；AI 做 L1 时要先把这一条当环境前提验一次，不通就换模拟器（或按 `agent-test-guide.md` §6 的兜底 `run-as <包名> am broadcast`）。
   - 风险最高的一条：个别精简 ROM 的 `adb shell` 可能不持有 `DUMP` 权限，那样导出组件会被 AMS 拒绝，调试桥整体不可用。兜底方案见手册 §6（`adb root`，或 `run-as <包名> am broadcast`——同 uid 不受导出限制）。
 
 - [ ] **番剧界面补齐（§3.8）未真机验证**：季切 tab、两行选集卡片、追番按钮、全量选集弹窗、历史卡片一键续播、番剧心跳 5 秒 + 看完上报 -1 全部只过了编译 + JVM 单测。真机要看的：① 多季番能切到第二季/剧场版并出集；② 从别的季切回来回到这一季上次看的那一集；③ 一集播完后重进/从历史进来是接下一集而不是停在本集末尾；④ 历史里的番剧卡片点一下直接起播且位置对；⑤ 未登录点追番要提示，不能静默失败。

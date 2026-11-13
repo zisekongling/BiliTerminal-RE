@@ -376,6 +376,13 @@ open class RefreshListActivity : BaseActivity() {
     /**
      * 全局搜索跳转时，滚动定位到名称为 [highlight] 的设置项，并让目标行闪一次高亮。
      *
+     * **定位口径：目标行顶到列表顶端**（紧贴顶栏下沿）。不能直接用
+     * [RecyclerView.scrollToPosition]：它只保证目标行「刚好看得见」，而跳转进来时列表都在
+     * 最顶上，目标行永远在下方，于是每次都贴在**屏幕底部**，用户还得自己再往上找。
+     * 这里改用 [LinearLayoutManager.scrollToPositionWithOffset]（offset = 0），让目标行的
+     * 顶边对齐列表顶边。目标行后面剩余的内容不足一屏时滚不到那么远，会停在能滚的最大位置
+     * （目标行尽可能靠上）——这是 RecyclerView 的固有边界，不是没生效。
+     *
      * 高亮只在 [SettingsAdapter] 上有意义（别的列表没有「设置项」这个概念），所以拿不到
      * 该类型适配器时只滚动、不标红，不报错。
      */
@@ -386,7 +393,12 @@ open class RefreshListActivity : BaseActivity() {
         // 子类都是「setAdapter 之后再调本方法」，post 里 recyclerView.adapter 一定已就位
         recyclerView.post {
             (recyclerView.adapter as? SettingsAdapter)?.highlight(index)
-            recyclerView.scrollToPosition(index)
+            // 设置页在竖屏/Landscape 下都是 LinearLayoutManager 子类（CustomLinearManager /
+            // CustomGridManager），offset 0 = 目标行顶边贴着列表顶边；万一换了别的布局管理器
+            // 就退回「刚好看得见」，至少还能定位到。
+            val manager = recyclerView.layoutManager as? LinearLayoutManager
+            if (manager != null) manager.scrollToPositionWithOffset(index, 0)
+            else recyclerView.scrollToPosition(index)
         }
     }
 
