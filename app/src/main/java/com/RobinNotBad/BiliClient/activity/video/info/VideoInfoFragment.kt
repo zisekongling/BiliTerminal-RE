@@ -34,6 +34,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseFragment
 import com.RobinNotBad.BiliClient.activity.dynamic.send.SendDynamicActivity
+import com.RobinNotBad.BiliClient.activity.message.ChooseFriendActivity
 import com.RobinNotBad.BiliClient.activity.note.NoteActivity
 import com.RobinNotBad.BiliClient.activity.search.SearchActivity
 import com.RobinNotBad.BiliClient.activity.settings.SettingPlayerChooseActivity
@@ -50,9 +51,11 @@ import com.RobinNotBad.BiliClient.api.EmoteApi
 import com.RobinNotBad.BiliClient.api.HistoryApi
 import com.RobinNotBad.BiliClient.api.LikeCoinFavApi
 import com.RobinNotBad.BiliClient.api.PlayerApi
+import com.RobinNotBad.BiliClient.api.PrivateMsgApi
 import com.RobinNotBad.BiliClient.api.VideoInfoApi
 import com.RobinNotBad.BiliClient.api.WatchLaterApi
 import com.RobinNotBad.BiliClient.model.PlayerData
+import com.RobinNotBad.BiliClient.model.PrivateMessage
 import com.RobinNotBad.BiliClient.model.VideoInfo
 import com.RobinNotBad.BiliClient.player.CollectionResumeStore
 import com.RobinNotBad.BiliClient.ui.widget.RadiusBackgroundSpan
@@ -68,6 +71,7 @@ import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
+import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
@@ -138,6 +142,81 @@ class VideoInfoFragment : BaseFragment() {
                 }
             }
         }
+    }
+
+    /**
+     * 选好友页的回传（反馈 #133）：拿到 uid 就把视频当文本私信发出去。
+     *
+     * 只认 RESULT_OK + data，用户直接返回就当没选，不弹任何提示。
+     */
+    private val chooseFriendLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@registerForActivityResult
+        val data = result.data ?: return@registerForActivityResult
+        val uid = data.getLongExtra(ChooseFriendActivity.EXTRA_UID, 0L)
+        if (uid <= 0L) return@registerForActivityResult
+        // 昵称只用于「已发送给 xxx」，拿不到时留空也不影响发送
+        sendVideoToFriend(uid, data.getStringExtra(ChooseFriendActivity.EXTRA_NAME).orEmpty())
+    }
+
+    /**
+     * 转发到动态：让发送页知道这是一次「转发视频」——显示视频预览卡、隐藏「添加图片」入口，
+     * 否则 normalPublish 会判定为普通动态，用户选的图会被静默丢弃。
+     * SendDynamicActivity.onDestroy 会把该上下文清回 null。
+     */
+    private fun relayToDynamic() {
+        val info = videoInfo ?: return
+        TerminalContext.getInstance().setForwardContent(info)
+        val intent = Intent()
+        intent.setClass(requireContext(), SendDynamicActivity::class.java)
+        writeDynamicLauncher.launch(intent)
+    }
+
+    /** 转发到好友：先选人，选完由 [chooseFriendLauncher] 回传 uid 再发。 */
+    private fun relayToFriend() {
+        val intent = Intent()
+        intent.setClass(requireContext(), ChooseFriendActivity::class.java)
+        chooseFriendLauncher.launch(intent)
+    }
+
+    /**
+     * 把视频以「标题 + 链接」文本私信发给好友（反馈 #133）。
+     *
+     * 发文本而不是分享卡片：接口只接受 `msg_type` 1/2/5，卡片是 7（会被回 21035），
+     * 见 [PrivateMsgApi.buildVideoShareText]。失败不静默——能拼出链接就先复制，
+     * 用户至少还有一条能把视频发出去的路。
+     */
+    private fun sendVideoToFriend(uid: Long, name: String) {
+        val info = videoInfo ?: return
+        CenterThreadPool.run {
+            try {
+                val result = PrivateMsgApi.sendMsg(
+                    SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 114514),
+                    uid,
+                    PrivateMessage.TYPE_TEXT,
+                    System.currentTimeMillis() / 1000,
+                    PrivateMsgApi.buildTextContent(
+                        PrivateMsgApi.buildVideoShareText(info.title, info.bvid)
+                    )
+                )
+                CenterThreadPool.runOnUiThread {
+                    if (result.optInt("code", -1) == 0) {
+                        MsgUtil.showMsg(UiText.of(getString(R.string.msg_video_relay_to_friend_success, name)))
+                    } else {
+                        copyVideoLinkAndHint(info.bvid)
+                    }
+                }
+            } catch (e: Exception) {
+                CenterThreadPool.runOnUiThread { copyVideoLinkAndHint(info.bvid) }
+                MsgUtil.err(e)
+            }
+        }
+    }
+
+    /** 发送失败的回退：复制视频链接 + 提示（链接拼不出来就只提示）。 */
+    private fun copyVideoLinkAndHint(bvid: String?) {
+        val link = PrivateMsgApi.buildVideoLink(bvid)
+        if (link.isNotEmpty()) StringUtil.copyText(requireContext(), link)
+        MsgUtil.showMsg(UiText.of(getString(R.string.msg_video_relay_to_friend_failed_copied)))
     }
 
     private val notificationPermissionLauncher = registerForActivityResult(
@@ -582,13 +661,17 @@ class VideoInfoFragment : BaseFragment() {
         }
 
         relay.setOnClickListener {
-            // 让发送页知道这是一次"转发视频"：显示视频预览卡、隐藏"添加图片"入口，
-            // 否则 normalPublish 会判定为普通动态，用户选的图会被静默丢弃。
-            // SendDynamicActivity.onDestroy 会把该上下文清回 null。
-            TerminalContext.getInstance().setForwardContent(videoInfo)
-            val intent = Intent()
-            intent.setClass(requireContext(), SendDynamicActivity::class.java)
-            writeDynamicLauncher.launch(intent)
+            // 反馈 #133：转发有两个去处，先问一句再办事（原先点一下直接进动态发送页）
+            TerminalDialog.menu(
+                requireContext(),
+                title = getString(R.string.text_video_relay_title),
+                items = listOf(
+                    getString(R.string.text_video_relay_to_dynamic),
+                    getString(R.string.text_video_relay_to_friend)
+                )
+            ) { index ->
+                if (index == 0) relayToDynamic() else relayToFriend()
+            }
         }
         relay.setOnLongClickListener {
             StringUtil.copyText(requireContext(), "https://www.bilibili.com/" + videoInfo!!.bvid)

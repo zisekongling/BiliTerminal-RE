@@ -298,6 +298,8 @@
     <string name="pagename_myspace">我的</string>
     <string name="pagename_player">原小电视播放器</string>
     <string name="pagename_private_message">私信</string>
+    <!-- 视频转发到私信（反馈 #133）：选好友页标题 -->
+    <string name="pagename_choose_friend">选择好友</string>
     <string name="pagename_write_reply">写评论</string>
     <string name="pagename_search">搜索</string>
     <string name="pagename_send_dynamic">发动态</string>
@@ -1715,6 +1717,12 @@
     <string name="uitext_videoinfofragment_011">视频详情页：数据为空</string>
     <string name="uitext_videoinfofragment_012">需要通知权限才能进行下载，请前往设置授予权限</string>
     <string name="uitext_videoinfofragment_013">视频转发不支持带图，请去掉图片后重试</string>
+    <!-- 转发面板（反馈 #133）：点转发按钮后先选去处，再决定发动态还是私下发给好友 -->
+    <string name="text_video_relay_title">转发</string>
+    <string name="text_video_relay_to_dynamic">转发到动态</string>
+    <string name="text_video_relay_to_friend">发给好友</string>
+    <string name="msg_video_relay_to_friend_success">已发送给 %1$s</string>
+    <string name="msg_video_relay_to_friend_failed_copied">发送失败，已复制视频链接</string>
     <string name="uitext_downloadlistactivity_001">已恢复下载</string>
     <string name="uitext_downloadlistactivity_002">已暂停下载</string>
     <string name="uitext_downloadlistactivity_003">下载列表为空</string>
