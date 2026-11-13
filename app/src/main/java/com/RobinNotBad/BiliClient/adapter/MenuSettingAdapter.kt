@@ -246,8 +246,8 @@ class MenuSettingAdapter(
     private fun bindToggleMore(holder: ItemHolder) {
         holder.name.text = holder.itemView.context.getString(R.string.desc_menu_more_button)
         holder.name.alpha = 1f
-        holder.fixed.visibility = if (moreShown) View.GONE else View.VISIBLE
-        holder.fixed.text = holder.itemView.context.getString(R.string.desc_menu_unshown)
+        // 勾选框本身就能看出开/关，这里不占位写「已关闭」字样，否则 466px 宽的手表上标题会被挤成两行
+        holder.fixed.visibility = View.GONE
         holder.check.visibility = View.VISIBLE
         holder.check.isChecked = moreShown
         holder.itemView.setOnLongClickListener(null)

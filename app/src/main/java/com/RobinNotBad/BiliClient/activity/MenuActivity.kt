@@ -141,9 +141,6 @@ class MenuActivity : BaseActivity() {
     private lateinit var hiddenButtons: LinearLayout
     private lateinit var menuFooter: LinearLayout
 
-    /** 上次构建用的「配置指纹」。onResume 时指纹变了才重建，避免无谓的闪烁与动画。 */
-    private var builtSignature: String? = null
-
     /** 本轮的「继续播放」意图（构建按钮与点击回调共用一份，避免每次点都重算）。 */
     private var resumeIntent: Intent? = null
 
@@ -182,8 +179,6 @@ class MenuActivity : BaseActivity() {
 
         val showMore = SharedPreferencesUtil.loadMenuMoreButton()
         val hidden = hiddenCandidates(enabledMenu, loggedIn)
-
-        builtSignature = signature(enabledMenu, showMore, loggedIn, resumeIntent != null)
 
         val params = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -231,9 +226,6 @@ class MenuActivity : BaseActivity() {
                 else -> btnNames.containsKey(key)
             }
         }
-
-    private fun signature(enabled: List<String>, showMore: Boolean, loggedIn: Boolean, hasResume: Boolean): String =
-        enabled.joinToString(";") + "|" + showMore + "|" + loggedIn + "|" + hasResume
 
     /** 展开 / 收起未启用项。展开后滚到折叠区顶部，否则手表上一屏只四个按钮，用户看不到变化。 */
     private fun toggleHidden() {
@@ -298,8 +290,11 @@ class MenuActivity : BaseActivity() {
     override fun onResume() {
         super.onResume()
         Log.e("debug", "MenuActivity onResume in: ${System.currentTimeMillis() - time}")
-        // 从「菜单设置」改完编排回来：实例还活着就别拿旧按钮糊弄人，配置变了就整页重建
-        if (configChanged()) buildMenu()
+        // 从「菜单设置」改完编排回来：这个实例可能压根没重建过（长按顶栏回菜单走
+        // CLEAR_TOP|SINGLE_TOP，栈里有实例就直接复用），留着旧的按钮顺序就是用户报的
+        // 「拖完回到菜单顺序没变」。所以每次回到前台都无条件按存档重排一次——
+        // 按钮总共十几枚 MaterialButton，重排的开销可以忽略，胜过任何「指纹比对」的判据缺口。
+        buildMenu()
         if (dynamicButton != null) {
             var btnText = btnNames["dynamic"]!!.first
             val updateNum = SharedPreferencesUtil.getInt(SharedPreferencesUtil.DYNAMIC_UPDATE_NUM, 0)
@@ -321,18 +316,6 @@ class MenuActivity : BaseActivity() {
         // 刷新是异步回来的，本页不再前台就撤掉回调，别让静态观察者表留住已销毁的 Activity
         MessageUnreadRefresher.unobserve(unreadObserver)
         super.onPause()
-    }
-
-    /** 当前配置算出来的指纹与本页已构建的那份是否不同（同 onResume 的重建判据）。 */
-    private fun configChanged(): Boolean {
-        if (builtSignature == null) return true
-        val current = signature(
-            SharedPreferencesUtil.loadMenuEnabled(),
-            SharedPreferencesUtil.loadMenuMoreButton(),
-            SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) != 0L,
-            PlayerApi.buildResumeIntent(this) != null
-        )
-        return current != builtSignature
     }
 
     /** 「消息」按钮的文案：无未读时是按钮名，有未读时是「消息 (3)」。 */
