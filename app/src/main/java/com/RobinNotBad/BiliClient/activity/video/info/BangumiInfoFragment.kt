@@ -420,7 +420,7 @@ class BangumiInfoFragment : Fragment() {
 
     /** 原 B 站播放链路（保持既有的进度/上报语义不变）。 */
     private fun playOnBili(episode: Bangumi.Episode) {
-        Glide.get(requireContext()).clearMemory()
+        // 起播前不再无条件 clearMemory()：Glide 延迟回收时会抛 "Cannot recycle a resource while it is still acquired"
         val intent = Intent(requireContext(), JumpToPlayerActivity::class.java)
         // 必须带上 season_id 与季类型：番剧的观看进度要走心跳接口上报，
         // 只有 epid 而没有 sid/sub_type 时服务端不会把它记成番剧记录。

@@ -881,7 +881,11 @@ class VideoInfoFragment : BaseFragment() {
             return
         }
 
-        Glide.get(getAppContext()).clearMemory()
+        // 26.11.13：删掉原先这一行无条件的 `Glide.get(getAppContext()).clearMemory()`（起播前腾内存）。
+        // 清空内存缓存会让 Glide 把「仍被请求占用」的资源也排队回收，线上 02 版（26110902）
+        // 「Cannot recycle a resource while it is still acquired」占了崩溃的大头；
+        // 26.11.09 之后的 460736b0 已按同样理由删掉另外三处，这是同类里最后两处之一。
+        // Glide 内存缓存本身容量有限（按设备档位算，几 MB 量级），腾出来的那点内存不抵这条触发路径的风险。
         // #83：多P 视频「续到上次那个P」——服务端 last_play_cid 指向本稿件的某个分P、
         // 且 last_play_time > 0 时，直接把那一P 交给播放器起播：进度由 PlayerApi 按
         // last_play_cid 采纳（见 adoptLastPlayTime），不再让用户每次都重选一遍。
