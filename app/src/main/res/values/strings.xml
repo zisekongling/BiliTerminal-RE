@@ -3024,4 +3024,14 @@
          「被风控拦截」是临时的，稍后重试有意义；「没有正文」是文章本身如此，重试也没用。 -->
     <string name="msg_opus_article_blocked">正文加载失败，可能被风控拦截，请稍后重试</string>
     <string name="msg_opus_article_empty">这篇文章没有正文内容</string>
+    <!-- 缓存页「文件夹」入口 + 独立文件夹列表页（26.11.13）。
+         开关见 util/FolderPagePrefs.kt，默认关闭；关闭时缓存页与加开关之前一行都不变，
+         打开后才把文件夹分区换成顶部这一行入口 text_cache_folder_entry。 -->
+    <string name="setting_cache_folder_page">缓存页文件夹入口</string>
+    <string name="desc_cache_folder_page">缓存页顶部多一行「文件夹 N」入口，点它进独立的文件夹列表页，不再把文件夹铺在缓存列表里。默认关闭。</string>
+    <string name="pagename_localfolderlist">文件夹</string>
+    <string name="text_cache_folder_entry">文件夹 %1$d</string>
+    <string name="text_local_folder_video_count">%1$d 个视频</string>
+    <string name="text_local_folder_empty">还没有文件夹</string>
+    <string name="text_local_folder_sort_need_two">至少要有两个文件夹才能排序</string>
 </resources>

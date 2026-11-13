@@ -885,6 +885,10 @@ object UiText {
         "用户主页引导" to R.string.tutorial_hint_user_info,
         "专栏详情页引导" to R.string.tutorial_hint_opus_info,
         "动态详情页引导" to R.string.tutorial_hint_dynamic_info,
+        // 缓存页文件夹入口 + 独立文件夹列表页（26.11.13，开关 FolderPagePrefs.ENABLE）
+        "缓存页文件夹入口" to R.string.setting_cache_folder_page,
+        "还没有文件夹" to R.string.text_local_folder_empty,
+        "至少要有两个文件夹才能排序" to R.string.text_local_folder_sort_need_two,
 // @INSERT
     )
 

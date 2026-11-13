@@ -33,6 +33,7 @@ import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.DanmakuFileFetcher
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.FolderManager
+import com.RobinNotBad.BiliClient.util.FolderPagePrefs
 import com.RobinNotBad.BiliClient.util.LocalListSort
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
@@ -138,6 +139,16 @@ open class LocalListActivity : InstanceActivity() {
         if (result.resultCode == RESULT_OK) refresh()
     }
 
+    /**
+     * 顶部「文件夹 N」入口 → 独立文件夹页（设置里打开 `FolderPagePrefs.ENABLE` 后才有这一行）。
+     *
+     * 那页改的是同一份 `.folders_info.json`（改名 / 拆散 / 排序 / 新建），所以带 [RESULT_OK] 回来时
+     * 本页必须重扫：入口上写着文件夹数量，不重扫就一直显示旧数字。
+     */
+    private val folderListLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) refreshAfterExternalChange()
+    }
+
     private var started: Boolean = false
 
     /** 进页面时用的目录是否处于降级状态；onResume 据此判断「用户刚授完权回来，要换回正式目录」。 */
@@ -152,6 +163,14 @@ open class LocalListActivity : InstanceActivity() {
      * 所以根目录路径本身也要参与「要不要重扫」的判定。
      */
     private var rootAtLoad: String? = null
+
+    /**
+     * 进页面时「缓存页文件夹入口」开关（[FolderPagePrefs]）的状态。
+     *
+     * 这个开关决定本页是「文件夹平铺在缓存页」还是「顶部一行文件夹入口 + 独立文件夹页」，
+     * 用户从设置回来时它可能已经变了，onResume 据此决定要不要重排整张表。
+     */
+    private var folderPageEnabledAtLoad: Boolean = false
 
     /**
      * 最近一次扫描用的根目录对象。
@@ -241,6 +260,7 @@ open class LocalListActivity : InstanceActivity() {
             MsgUtil.showMsg(UiText.of("存储目录当前不可写，下载会失败"))
         }
         fallbackAtLoad = FileUtil.isVideoFallbackActive()
+        folderPageEnabledAtLoad = FolderPagePrefs.enabled()
 
         CenterThreadPool.run {
             runOnUiThread { swipeRefreshLayout.setRefreshing(true) }
@@ -261,6 +281,14 @@ open class LocalListActivity : InstanceActivity() {
         if (fallback != fallbackAtLoad || rootNow != rootAtLoad) {
             fallbackAtLoad = fallback
             rootAtLoad = rootNow
+            refresh()
+            return
+        }
+        // 用户可能刚从「设置 → 高级与实验」把「缓存页文件夹入口」拨过：它决定本页有没有顶部
+        // 「文件夹 N」入口、文件夹分区还铺不铺在本页，所以必须重排整张表才看得到（不必重启）
+        val folderPageEnabled = FolderPagePrefs.enabled()
+        if (folderPageEnabled != folderPageEnabledAtLoad) {
+            folderPageEnabledAtLoad = folderPageEnabled
             refresh()
         }
     }
@@ -430,6 +458,10 @@ open class LocalListActivity : InstanceActivity() {
         // 文件夹操作回调
         adapter!!.onFolderClick = { idx -> openFolder(idx) }
         adapter!!.onNewFolderClick = { showNewFolderDialog() }
+        // 顶部「文件夹 N」入口（仅开关打开时存在）：用 launcher 起独立页，回来能重扫
+        adapter!!.onFolderListClick = {
+            folderListLauncher.launch(Intent(this, LocalFolderListActivity::class.java))
+        }
         adapter!!.onFolderMenu = { idx -> showFolderMenu(idx) }
         // 分区标题「返回」只在文件夹页出现（顶层没有）。文件夹页是独立页面，返回就是 finish，
         // 不再在同一个 Activity 里把整张表换回顶层。

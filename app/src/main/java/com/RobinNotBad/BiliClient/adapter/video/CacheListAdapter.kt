@@ -20,12 +20,14 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.SimpleItemAnimator
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.video.local.DownloadListActivity
+import com.RobinNotBad.BiliClient.activity.video.local.LocalFolderListActivity
 import com.RobinNotBad.BiliClient.activity.video.local.LocalPageChooseActivity
 import com.RobinNotBad.BiliClient.api.PlayerApi
 import com.RobinNotBad.BiliClient.model.LocalVideo
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.VideoFolder
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
+import com.RobinNotBad.BiliClient.util.FolderPagePrefs
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.LocalListSort
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -38,6 +40,7 @@ import java.util.Locale
 
 /**
  * 统一缓存列表适配器，管理以下项目类型：
+ * - 「文件夹 N」入口（仅设置里打开 `FolderPagePrefs.ENABLE` 时出现，点它进独立文件夹页）
  * - 下载列表入口
  * - 文件夹区域标题
  * - 文件夹项（点击进入、长按弹功能菜单）
@@ -66,6 +69,13 @@ class CacheListAdapter(
         private const val TYPE_SECTION_VIDEO_HEADER = 4
         private const val TYPE_VIDEO_ITEM = 5
         private const val TYPE_EMPTY_TIP = 6
+
+        /**
+         * 「文件夹 N」入口行（26.11.13，设置里打开 `FolderPagePrefs.ENABLE` 后才出现）。
+         *
+         * 加在末尾而不是插在中间：中间那些 0~6 的类型序是历史约定，别动。
+         */
+        private const val TYPE_GOTO_FOLDERS = 7
 
         /** 多选态标题前的引导符，与 `TerminalDialog` / `VideoCardHolder` / `DownloadAdapter` 同一套（反馈 #140）。 */
         private const val GLYPH_SELECTED = "▸"
@@ -128,6 +138,14 @@ class CacheListAdapter(
 
     var onFolderClick: ((Int) -> Unit)? = null
     var onNewFolderClick: (() -> Unit)? = null
+
+    /**
+     * 点「文件夹 N」入口行（仅 [FolderPagePrefs] 开关打开时有这一行）。
+     *
+     * 不接的话（默认 null）适配器自己 `startActivity` 去独立文件夹页；接了就完全交给 Activity，
+     * 由它用 `registerForActivityResult` 起页并在回来时重扫——缓存页的未分类分区也可能被改到。
+     */
+    var onFolderListClick: (() -> Unit)? = null
     var onBackFromFolder: (() -> Unit)? = null
     var onVideoPlayInVirtualCollection: ((String, Int) -> Unit)? = null
 
@@ -263,15 +281,24 @@ class CacheListAdapter(
         visibleVideoCount = visibleVideos.size
 
         if (currentFolderName.isEmpty()) {
+            // 「缓存页文件夹入口」开关（默认关）：开 = 顶部只留一行「文件夹 N」，文件夹分区与
+            // 「新建文件夹」全搬到独立文件夹页去；关 = 下面这堆一行都不变，与改动前完全一致。
+            // 每次重建都现读开关，改完设置回来（重扫时）就生效，不需要重启。
+            val folderPageEnabled = FolderPagePrefs.enabled()
+            if (folderPageEnabled) {
+                flatItems.add(FlatItem(TYPE_GOTO_FOLDERS))
+            }
             flatItems.add(FlatItem(TYPE_GOTO_DOWNLOAD))
 
-            // 文件夹区域：标题只在这一区至少有一条命中时才画
-            if (visibleFolders.isNotEmpty()) {
-                flatItems.add(FlatItem(TYPE_SECTION_FOLDER_HEADER))
-                for (i in visibleFolders) flatItems.add(FlatItem(TYPE_FOLDER_ITEM, folderIndex = i))
-            }
+            if (!folderPageEnabled) {
+                // 文件夹区域：标题只在这一区至少有一条命中时才画
+                if (visibleFolders.isNotEmpty()) {
+                    flatItems.add(FlatItem(TYPE_SECTION_FOLDER_HEADER))
+                    for (i in visibleFolders) flatItems.add(FlatItem(TYPE_FOLDER_ITEM, folderIndex = i))
+                }
 
-            flatItems.add(FlatItem(TYPE_ACTION_NEW_FOLDER))
+                flatItems.add(FlatItem(TYPE_ACTION_NEW_FOLDER))
+            }
 
             // 「未分类视频」：不搜索时保持原样（标题 + 标题下的空态行，空态放这里是因为浮层
             // 会和「新建文件夹」按钮重合，且不参与滚动，见 26.10.20 用户反馈）；
@@ -283,7 +310,14 @@ class CacheListAdapter(
                 flatItems.add(FlatItem(TYPE_SECTION_VIDEO_HEADER))
                 flatItems.add(FlatItem(TYPE_EMPTY_TIP))
             }
-            if (searchKeyword.isNotEmpty() && visibleFolders.isEmpty() && visibleVideos.isEmpty()) {
+            // 开关打开时文件夹不在本页画，搜索是否命中文件夹也就跟本页无关了：
+            // 只看视频有没有命中，免得「只命中文件夹」时补一句误导人的「没有匹配的缓存」。
+            val nothingMatched = if (folderPageEnabled) {
+                visibleVideos.isEmpty()
+            } else {
+                visibleFolders.isEmpty() && visibleVideos.isEmpty()
+            }
+            if (searchKeyword.isNotEmpty() && nothingMatched) {
                 flatItems.add(FlatItem(TYPE_EMPTY_TIP))
             }
         } else {
@@ -438,6 +472,10 @@ class CacheListAdapter(
                 val view = LayoutInflater.from(context).inflate(R.layout.cell_video_folder, parent, false)
                 FolderItemHolder(view)
             }
+            TYPE_GOTO_FOLDERS -> {
+                val view = LayoutInflater.from(context).inflate(R.layout.cell_goto, parent, false)
+                FolderEntryHolder(view)
+            }
             TYPE_ACTION_NEW_FOLDER -> {
                 val view = LayoutInflater.from(context).inflate(R.layout.cell_action_button, parent, false)
                 ActionButtonHolder(view)
@@ -461,6 +499,23 @@ class CacheListAdapter(
             TYPE_GOTO_DOWNLOAD -> {
                 // 排序模式是「专心的整理态」：入口类点击先不响应，免得拖到一半跳去下载列表
                 (holder as GotoHolder).show(context) { !sortMode }
+            }
+            TYPE_GOTO_FOLDERS -> {
+                // 文件夹数量取的是「全部文件夹」，不是搜索命中数：这一行是进独立页的入口，
+                // 搜索的是视频/夹名，入口上的总数不该跟着过滤变。
+                val entry = holder as FolderEntryHolder
+                entry.show(context.getString(R.string.text_cache_folder_entry, folderList.size))
+                entry.itemView.setOnClickListener {
+                    // 排序模式里入口先不响应（与「下载列表」入口同一口径），免得拖到一半跳页
+                    if (sortMode) return@setOnClickListener
+                    val callback = onFolderListClick
+                    if (callback != null) {
+                        // 接了回调就完全交给 Activity：它用 launcher 起页并在回来时重扫
+                        callback.invoke()
+                    } else {
+                        context.startActivity(Intent(context, LocalFolderListActivity::class.java))
+                    }
+                }
             }
             TYPE_SECTION_FOLDER_HEADER -> {
                 (holder as SectionHeaderHolder).apply {
@@ -692,6 +747,20 @@ class CacheListAdapter(
             itemView.setOnClickListener {
                 if (clickEnabled()) context.startActivity(Intent(context, DownloadListActivity::class.java))
             }
+        }
+    }
+
+    /**
+     * 「文件夹 N」入口行（设置里打开 [FolderPagePrefs.ENABLE] 才有）。
+     *
+     * 复用 `cell_goto` 的样式：与下面那条「下载列表」入口同一行观感，只换文案；
+     * 点它进独立文件夹页，本页就不再铺文件夹分区。
+     */
+    class FolderEntryHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        private val textView: TextView = itemView.findViewById(R.id.text)
+
+        fun show(label: String) {
+            textView.text = label
         }
     }
 

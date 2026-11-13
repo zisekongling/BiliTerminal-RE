@@ -36,6 +36,7 @@ import com.RobinNotBad.BiliClient.util.BetaUpdate
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.DisguisePrefs
 import com.RobinNotBad.BiliClient.util.FileUtil
+import com.RobinNotBad.BiliClient.util.FolderPagePrefs
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
@@ -815,6 +816,14 @@ class SettingGroupActivity : RefreshListActivity() {
             VirtualCollectionPrefs.DEFAULT_CLICK_PLAY
         )
         switch(getString(R.string.setting_index_round_list), getString(R.string.desc_ui_round_list_effect), SettingsKeys.UI_ROUND_LIST_EFFECT, false)
+        // 缓存页的文件夹从列表里搬到独立页（26.11.13）：关着是原来的样子，
+        // 开着缓存页顶部只多一行「文件夹 N」，点它进独立文件夹页
+        switch(
+            "缓存页文件夹入口",
+            getString(R.string.desc_cache_folder_page),
+            FolderPagePrefs.ENABLE,
+            FolderPagePrefs.DEFAULT_ENABLE
+        )
 
         title("播放器兼容")
         switch("播放器旋屏兼容方案", getString(R.string.desc_player_rotate_software), SettingsKeys.DEV_PLAYER_ROTATE_SOFTWARE, false)
