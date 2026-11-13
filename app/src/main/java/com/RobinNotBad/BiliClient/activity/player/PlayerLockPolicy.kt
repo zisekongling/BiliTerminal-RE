@@ -8,19 +8,26 @@ package com.RobinNotBad.BiliClient.activity.player
  *
  * 三个状态：
  * - [Phase.UNLOCKED]：正常播放，控制栏与手势都可用，锁定按钮随控制栏显示（闭锁图标，点它=锁定）；
- * - [Phase.LOCKED_HIDDEN]：已锁定，只有画面，锁定按钮隐藏；
+ * - [Phase.LOCKED_HIDDEN]：已锁定，锁定按钮**半透明常驻**（这点 26.11.11 改过，见下）；
  * - [Phase.LOCKED_ICON_VISIBLE]：已锁定，锁定按钮浮现中（开锁图标，点它=解锁）。
+ *
+ * 反馈 #139②：以前 [Phase.LOCKED_HIDDEN] 把锁定按钮彻底 `GONE`，锁定后整块画面既不响应手势、
+ * 又看不到任何按钮，用户以为播放器卡死了。现在 HIDDEN 态按钮仍然常驻，只是压暗（[IDLE_ICON_ALPHA]），
+ * 浮现态回到全不透明——「有一点点图标在」比「什么都没有」更容易让人意识到是锁、而不是卡死。
  *
  * 这里只放状态转移和判据，不碰 View/Handler——计时与显隐由 PlayerActivity 按
  * [ICON_VISIBLE_MS] / [EXIT_HINT_MS] 落地，这样才能用普通 JVM 单测覆盖（见 PlayerLockPolicyTest）。
  */
 object PlayerLockPolicy {
 
-    /** 锁定按钮浮现后，无操作多久自动隐去。 */
-    const val ICON_VISIBLE_MS = 3000L
+    /** 锁定按钮浮现后，无操作多久转回常驻（压暗）形态。 */
+    const val ICON_VISIBLE_MS = 8000L
 
     /** 锁定期间尝试退出（返回键/右滑/finish）被拦下时，按钮浮现多久作为反馈。 */
     const val EXIT_HINT_MS = 1500L
+
+    /** [Phase.LOCKED_HIDDEN] 下常驻锁定按钮的不透明度：看得见、又不至于挡住画面。 */
+    const val IDLE_ICON_ALPHA = 0.35f
 
     enum class Phase {
         UNLOCKED,
@@ -33,8 +40,8 @@ object PlayerLockPolicy {
 
     /**
      * 锁定按钮被点击：未锁定时进入锁定；按钮浮现中点击则解锁。
-     * 隐藏状态下按钮不可点（`View.GONE`），所以这里把 [Phase.LOCKED_HIDDEN] 也当解锁处理，
-     * 避免出现「点了没反应」的死状态。
+     * 压暗常驻状态下按钮同样可点（反馈 #139② 之后 HIDDEN 态不再 `GONE`），
+     * 所以这里把 [Phase.LOCKED_HIDDEN] 也当解锁处理，避免出现「点了没反应」的死状态。
      */
     fun phaseAfterLockButtonClick(phase: Phase): Phase = when (phase) {
         Phase.UNLOCKED -> Phase.LOCKED_HIDDEN
@@ -47,7 +54,7 @@ object PlayerLockPolicy {
         Phase.UNLOCKED, Phase.LOCKED_ICON_VISIBLE -> phase
     }
 
-    /** 浮现计时到点：按钮自动隐去，只剩画面。 */
+    /** 浮现计时到点：按钮转回压暗常驻形态（不再彻底隐藏）。 */
     fun phaseAfterTimeout(phase: Phase): Phase = when (phase) {
         Phase.LOCKED_ICON_VISIBLE -> Phase.LOCKED_HIDDEN
         Phase.UNLOCKED, Phase.LOCKED_HIDDEN -> phase

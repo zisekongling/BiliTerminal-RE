@@ -75,11 +75,18 @@ class DanmakuStreamLoader(
         /** 默认分段时长（秒），与 `DanmakuApi.SEGMENT_SECONDS` 保持一致。 */
         const val DEFAULT_SEGMENT_SECONDS = 360
 
-        /** 失败重试间隔：15 秒（与对方分支的窗口加载器一致）。 */
-        const val RETRY_DELAY_MS = 15_000L
+        /**
+         * 失败后的冷却时间。**快速失败**，不再反复重试（反馈 #143）。
+         *
+         * 旧实现是「单次最多 4 轮 + 每轮失败再等 15 秒」：网络差或撞风控时表现为
+         * 「跳过去之后弹幕没了，十几分钟后才零星回来」，用户只能反复重进播放页。
+         * 现在一遍扫不到就算这一轮失败，失败后冷却一会儿；而且冷却只对**同一个窗口**
+         * 生效——跳转 / 倍速重建换了要拉的段就立刻重试（见 [ensureWindow]、[rebuildWindow]）。
+         */
+        const val RETRY_DELAY_MS = 20_000L
 
-        /** 单次补窗口最多跑几轮（播放推进快时可能要连续补两三个窗口）。 */
-        private const val MAX_FETCH_ROUNDS = 4
+        /** 单次补窗口最多扫几遍缺段：1 = 扫一遍就停，不再自我重试。 */
+        private const val MAX_FETCH_ROUNDS = 1
     }
 
     private var appContext: Context? = null
@@ -130,6 +137,15 @@ class DanmakuStreamLoader(
     private var retryAfterMs: Long = 0L
 
     /**
+     * 上一次失败对应的窗口区间（`null` = 没有失败记录）。
+     *
+     * 冷却只对**同一个窗口**生效：跳到别的位置意味着要拉的是另外几段，必须立刻重试，
+     * 否则用户看到的就是「跳过来之后一直没有弹幕」（反馈 #143）。
+     */
+    @Volatile
+    private var failedRange: IntRange? = null
+
+    /**
      * 「这一轮」的代号，[attach] / [prepare] / [release] 各 +1。
      *
      * 补窗口 worker 在后台跑，切 P / 换视频时它可能还在拉**上一条视频**的分段。光靠 [released]
@@ -160,6 +176,7 @@ class DanmakuStreamLoader(
         fetching = false
         lastPositionMs = -1L
         retryAfterMs = 0L
+        failedRange = null
         managerRef = null
         windowReady = false
         cache = null
@@ -260,13 +277,53 @@ class DanmakuStreamLoader(
         if (!windowReady) return
         if (managerRef?.get() == null) return
         lastPositionMs = positionMs
-        val missing = DanmakuWindow.missing(snapshotLoaded(), windowAt(positionMs))
+        val wanted = windowAt(positionMs)
+        val missing = DanmakuWindow.missing(snapshotLoaded(), wanted)
         if (missing.isEmpty()) return
         if (fetching) return
-        if (System.currentTimeMillis() < retryAfterMs) return
+        // 冷却只压「同一个窗口」：位置变了就是要拉另外几段，必须立刻重试（反馈 #143）。
+        if (System.currentTimeMillis() < retryAfterMs && failedRange == wanted) return
         fetching = true
         val gen = generation
         CenterThreadPool.run { fetchWindowLoop(gen) }
+    }
+
+    /**
+     * 现在能不能按新时间窗重建（供调用方在**清屏之前**判断：清完没人补就等于把弹幕清没了）。
+     */
+    fun canRebuildWindow(): Boolean =
+        !released && windowReady && managerRef?.get() != null
+
+    /**
+     * 按**新时间窗重建**弹幕时间轴（反馈 #143）。
+     *
+     * 为什么不能只补缺段：DFM 的绘制子集与缓存窗口都还停在旧位置
+     * （`DrawTask.drawDanmakus` 的 `mLastBeginMills/mLastEndMills`、`CacheManagingDrawTask` 的
+     * `mCacheTimer`），远跳之后补进来的新段进不了当前窗口，用户看到的就是「跳过去弹幕明显变少」。
+     *
+     * 分工：**视图侧的清空由调用方做**（`clearDanmakusOnScreen()` + `removeAllDanmakus(true)`，
+     * 见 `PlayerActivity.rebuildDanmakuTimeline`），这里只负责窗口记账——作废在飞的取数、
+     * 清掉「已加载」与冷却、按新位置重开一次补窗口（命中磁盘缓存的段是同步读，不额外发请求）。
+     *
+     * @return true = 已经接管这次位置同步，调用方不必再调 [ensureWindow]
+     */
+    fun rebuildWindow(positionMs: Long): Boolean {
+        if (released) return false
+        if (!windowReady) return false
+        if (managerRef?.get() == null) return false
+        // 在飞的 worker 属于旧时间窗，作废它：它 append 之前会核对 generation，见 fetchWindowLoop。
+        generation++
+        val gen = generation
+        fetching = false
+        retryAfterMs = 0L
+        failedRange = null
+        lastPositionMs = positionMs
+        synchronized(loadedSegments) { loadedSegments.clear() }
+        val wanted = windowAt(positionMs)
+        fetching = true
+        CenterThreadPool.run { fetchWindowLoop(gen) }
+        Logu.d("弹幕窗口", "按新时间窗重建：position=${positionMs}ms window=$wanted")
+        return true
     }
 
     /** 释放：停止后续补窗口（已经在跑的 worker 会在下一段前自行退出）。 */
@@ -278,6 +335,7 @@ class DanmakuStreamLoader(
         windowReady = false
         fetching = false
         retryAfterMs = 0L
+        failedRange = null
         synchronized(loadedSegments) { loadedSegments.clear() }
     }
 
@@ -325,6 +383,7 @@ class DanmakuStreamLoader(
                 val missing = DanmakuWindow.missing(snapshotLoaded(), windowAt(lastPositionMs))
                 if (missing.isEmpty()) {
                     retryAfterMs = 0L
+                    failedRange = null
                     return
                 }
                 val replies = ArrayList<DmSegMobileReply>(missing.size)
@@ -341,6 +400,7 @@ class DanmakuStreamLoader(
                 }
                 if (replies.isNotEmpty()) {
                     retryAfterMs = 0L
+                    failedRange = null
                     // 追加必须回主线程：DanmakuView.addDanmaku 会直接改 DFM 的 handler 状态，
                     // 且 DanmakuManager 的 pending 队列按「主线程 / 渲染线程」假设写的。
                     CenterThreadPool.runOnUiThread {
@@ -353,9 +413,11 @@ class DanmakuStreamLoader(
                     )
                 }
                 if (failed > 0 && replies.isEmpty()) {
-                    // 一段都没成功：留 15 秒冷却再试，避免进度回调每次刷都打一轮请求。
+                    // 一段都没成功：快速失败收手，只压同一窗口的冷却（见 ensureWindow）。
+                    // 不再「等 15 秒再自己重试一轮」——旧实现在网络差时会让弹幕消失十几分钟。
                     retryAfterMs = System.currentTimeMillis() + RETRY_DELAY_MS
-                    Logu.w("弹幕窗口", "补窗口失败（$failed/${missing.size} 段），${RETRY_DELAY_MS}ms 后重试")
+                    failedRange = windowAt(lastPositionMs)
+                    Logu.w("弹幕窗口", "补窗口失败（$failed/${missing.size} 段），本窗口 ${RETRY_DELAY_MS}ms 内不再重试")
                     return
                 }
             }
@@ -447,4 +509,22 @@ object DanmakuWindow {
     @JvmStatic
     fun missing(loaded: Set<Int>, wanted: IntRange): List<Int> =
         wanted.filter { it !in loaded }
+
+    /**
+     * seek 之后该不该按新时间窗**重建**时间轴（而不是只增量补窗口）。
+     *
+     * 判据是「有没有跨过分段边界」：
+     * - 同一段内的小幅拖动（双击快进 10 秒、拖一点点）旧窗口的段落仍然有效，
+     *   增量补窗口就够，重建反而会清屏闪一下；
+     * - 一旦跨段（片头 → 片尾、拖到十几分钟后），旧窗口的段落基本用不上，
+     *   而 DFM 的绘制子集/缓存窗口还钉在旧位置，只补段会表现为「弹幕明显变少」（反馈 #143）。
+     *
+     * @param previousMs 跳转前的位置（负值/未知按 0 处理）
+     */
+    @JvmStatic
+    fun needsTimelineRebuild(
+        previousMs: Long,
+        targetMs: Long,
+        segmentSeconds: Int = SEGMENT_SECONDS
+    ): Boolean = segmentIndexAt(previousMs, segmentSeconds) != segmentIndexAt(targetMs, segmentSeconds)
 }

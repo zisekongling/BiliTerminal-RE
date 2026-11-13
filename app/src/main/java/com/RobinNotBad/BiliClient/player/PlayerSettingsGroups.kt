@@ -1,10 +1,12 @@
 package com.RobinNotBad.BiliClient.player
 
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.player.PlayerLongPressPolicy
 import com.RobinNotBad.BiliClient.activity.player.PlayerSwipeSeekScalePolicy
+import com.RobinNotBad.BiliClient.activity.settings.SettingSponsorCategoryActivity
 import com.RobinNotBad.BiliClient.adapter.SettingsAdapter
 import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.util.DanmakuDiskCache
@@ -29,6 +31,9 @@ object PlayerSettingsGroups {
 
     /** 播放默认值：开播时自动应用的一组初值。 */
     const val DEFAULTS = "defaults"
+
+    /** 自动跳过：片头片尾与 SponsorBlock 广告片段（26.11.11 从「画面与显示」拆出）。 */
+    const val SKIP = "skip"
 
     /** 画面与显示：进度条、人数、缩放。 */
     const val DISPLAY = "display"
@@ -86,7 +91,7 @@ object PlayerSettingsGroups {
         SettingsAdapter.ListChooseHolder.ListChooseExtra(displayNames, actualValues)
     )
 
-    /** 全部七组，顺序即「完整设置」页的顺序。每次调用都重新生成（含读存档的默认值迁移）。 */
+    /** 全部八组，顺序即「完整设置」页的顺序。每次调用都重新生成（含读存档的默认值迁移）。 */
     fun build(context: Context): List<Group> {
         // 「播放默认值」各项的默认模式统一由**旧开关**迁移而来，保证升级后行为不变：
         // 旧开关为 true → 默认「开」，否则「关」。（旧键仍在 SettingsKeys 里，标了 legacy）
@@ -94,13 +99,23 @@ object PlayerSettingsGroups {
             SettingsKeys.PLAYER_DEFAULT_MODE_ON else SettingsKeys.PLAYER_DEFAULT_MODE_OFF
         val audioOnlyDefault = if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_AUDIO_ONLY, false))
             SettingsKeys.PLAYER_DEFAULT_MODE_ON else SettingsKeys.PLAYER_DEFAULT_MODE_OFF
-        val orientationDefault = if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_AUTOLANDSCAPE, false))
-            SettingsKeys.PLAYER_DEFAULT_ORIENTATION_LANDSCAPE else SettingsKeys.PLAYER_DEFAULT_ORIENTATION_PORTRAIT
+        // 反馈 #117：口径必须与 PlayerActivity.defaultOrientationMode() 完全一致，否则设置页
+        // 「默认值」标签显示竖屏、实际播放却横屏（或反过来）。两个旧开关都算：
+        // - player_autolandscape：旧「默认横屏」，本来就是为它准备的迁移来源；
+        // - ui_landscape（设置页「横屏模式」）：旧实现里它会把播放器一起强制横屏，26.11.x 播放器
+        //   方向自成一套后这条被丢掉了，迁移回来才不会让老用户升级后一律竖屏。
+        // 这里只是「用户还没显式选过播放方向时」的默认值，选过就以存档为准。
+        val orientationDefault =
+            if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_AUTOLANDSCAPE, false) ||
+                SharedPreferencesUtil.getBoolean(SettingsKeys.UI_LANDSCAPE, false)
+            ) SettingsKeys.PLAYER_DEFAULT_ORIENTATION_LANDSCAPE
+            else SettingsKeys.PLAYER_DEFAULT_ORIENTATION_PORTRAIT
 
         return listOf(
             Group(GESTURE, context.getString(R.string.setting_player_group_gesture), gesture(context)),
             Group(DEFAULTS, context.getString(R.string.setting_player_group_defaults),
                 defaults(context, loopDefault, audioOnlyDefault, orientationDefault)),
+            Group(SKIP, context.getString(R.string.setting_player_group_skip), skip(context)),
             Group(DISPLAY, context.getString(R.string.setting_player_group_display), display(context)),
             Group(DECODE, context.getString(R.string.setting_player_group_decode), decode(context)),
             Group(DANMAKU, context.getString(R.string.setting_player_group_danmaku), danmaku(context)),
@@ -159,6 +174,11 @@ object PlayerSettingsGroups {
         ),
         SettingSection("switch", context.getString(R.string.setting_player_swipe_seek),
             SettingsKeys.PLAYER_SWIPE_SEEK, context.getString(R.string.desc_setting_player_swipe_seek), "false"),
+        // 反馈 #117 / #135 / #139②：播放页退不出去的根治开关，默认开。
+        // 放在「左右滑动控制进度」下面是有意的：两者互相影响（开着滑动调进度时返回键曾被吞掉），
+        // 用户改完上面那项、发现退不出去，一眼就能看到这一项。关掉即回到旧语义（含 noSwipe 主题）。
+        SettingSection("switch", context.getString(R.string.setting_player_back_key_exit),
+            SettingsKeys.PLAYER_BACK_KEY_EXIT, context.getString(R.string.desc_player_back_key_exit), "true"),
         // 反馈 #94a：手表 dpi 低时横滑一点点就跨过很长一段，倍率交给用户自己调。
         // 档位/默认值/换算都在 PlayerSwipeSeekScalePolicy 里，播放页每次横滑重读存档。
         listChoose(
@@ -255,6 +275,21 @@ object PlayerSettingsGroups {
             "true"))
         out.add(SettingSection("switch", context.getString(R.string.setting_player_high_energy),
             SettingsKeys.PLAYER_HIGH_ENERGY, context.getString(R.string.desc_player_high_energy), "false"))
+        return out
+    }
+
+    /**
+     * 「自动跳过」：片头片尾与 SponsorBlock 广告片段两条跳过设置。
+     *
+     * 26.11.11 从「画面与显示」分出来单独成组：两条设置管的都是"播放时自动往前跳"，
+     * 混在画面项里既难找、也容易让人以为它们跟进度条样式是一类东西。
+     * 条目名保持原文不动（用户已经认得这两个名字），只改了所在分组。
+     *
+     * 注意两条的生效范围并不相同：片头片尾那条受 `isPgcPlayback()` 闸门只管番剧/影视，
+     * SponsorBlock 只管普通投稿的社区标注——所以不能合并成一条设置。
+     */
+    private fun skip(context: Context): List<SettingSection> {
+        val out = ArrayList<SettingSection>(4)
         // 「自动跳过片头片尾」26.10.10 紧急撤回、26.10.22 恢复；task-14 起由布尔开关改成五档
         // （关/仅头/仅尾/都跳/询问），旧布尔键只在迁移时读，判据见 player/SkipOpEdPolicy。
         if (SkipOpEdPrefs.FEATURE_ENABLED) {
@@ -277,6 +312,48 @@ object PlayerSettingsGroups {
                     SkipOpEdPolicy.MODE_BOTH.toString(),
                     SkipOpEdPolicy.MODE_ASK.toString()
                 )
+            ))
+        }
+        // SponsorBlock：第三方社区标注的广告/推广片段。默认关闭，档位越多跳得越激进
+        // （「全部类别」里 filler/music_offtopic 都是主观类别，见 player/SponsorSkipPolicy）。
+        // 第 6 档「自定义」的集合不在这条设置里选，而是由下面那个子页逐项勾选。
+        if (SponsorSkipPrefs.FEATURE_ENABLED) {
+            out.add(listChoose(
+                context.getString(R.string.player_sb_mode_name),
+                SettingsKeys.PLAYER_SPONSOR_BLOCK_MODE,
+                context.getString(R.string.player_sb_mode_desc),
+                SponsorSkipPrefs.currentLevel().toString(),
+                listOf(
+                    context.getString(R.string.player_sb_mode_off),
+                    context.getString(R.string.player_sb_mode_ad),
+                    context.getString(R.string.player_sb_mode_promo),
+                    context.getString(R.string.player_sb_mode_recommended),
+                    context.getString(R.string.player_sb_mode_all),
+                    context.getString(R.string.player_sb_mode_custom)
+                ),
+                listOf(
+                    SponsorSkipPolicy.LEVEL_OFF.toString(),
+                    SponsorSkipPolicy.LEVEL_AD.toString(),
+                    SponsorSkipPolicy.LEVEL_PROMO.toString(),
+                    SponsorSkipPolicy.LEVEL_RECOMMENDED.toString(),
+                    SponsorSkipPolicy.LEVEL_ALL.toString(),
+                    SponsorSkipPolicy.LEVEL_CUSTOM.toString()
+                )
+            ))
+            // 逐类别勾选：进入时按下标去看勾了什么，返回时若有变化就把档位切成「自定义」，
+            // 否则用户勾完发现还在「仅恰饭广告」档、白勾一场。
+            // 注意 NavExtra 的第三个参数是 onLongClick（长按），这里要显式传 lambda 给 onClick。
+            out.add(SettingSection(
+                "nav",
+                context.getString(R.string.player_sb_cat_page_name),
+                "",
+                context.getString(R.string.player_sb_cat_page_desc),
+                "",
+                SettingsAdapter.NavExtra(R.drawable.icon_menu, { view ->
+                    view.context.startActivity(
+                        Intent(view.context, SettingSponsorCategoryActivity::class.java)
+                    )
+                })
             ))
         }
         return out
