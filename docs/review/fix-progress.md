@@ -2234,7 +2234,7 @@
   8. 顺手修 `loadAggregate()` 的 `catch`：原来在后台线程直接调 `loadFail(e)`（会碰 `SwipeRefreshLayout` 与 Toast），改成 `runOnUiThread { if (!isFinishing && !isDestroyed) loadFail(e) }`，与另两处一致。
 - **文档**：`docs/agents/pitfalls.md` 新增两条 —— 「整份替换必须换 list + 换 adapter」「整份重拉要带代次守卫」（并把本页作为 Activity 侧范例，与 `SearchFragment.loadGeneration`、`VideoPreloadManager` 同族）。
 - **同批盘点（只静态审计，本次未改）**：同根因还存在于 `NoticeActivity`、`SponsorActivity`、`FavouriteOpusListActivity`、`DynamicTopicActivity`（`clear()` 还没通知，比本页更狠）、`LocalPageChooseActivity`（删某一 P）；`DownloadListActivity`、`LocalListActivity` 属「换整份内容」的条件复现。**26.11.13 已拍板：本轮只修本页，其余按清单记账待办**（真出现线上崩溃再按同一套路改）。
-- **验证 · L0（26.11.13 本机实测）**：*待补 —— 26.11.13 23:1x 三次构建均失败，原因是同一工作区里另一路会话在并发改文件并跑 Gradle（`strings.xml`/布局/`TerminalDialog`/版本号），其构建在我编译窗口内重写 `R.jar`，导致 5349 条报错里 4960 条是 `Unresolved reference 'R'`（非本页源码问题）；待对方收工后重跑 `:app:assembleDebug` + `:app:testStandardDebugUnitTest` 再回填。*
+- **验证 · L0（26.11.14 10:19 补测）**：`:app:assembleDebug --no-parallel --max-workers=2` **BUILD SUCCESSFUL**（standard / coexist 双 flavor 全出）；`:app:testStandardDebugUnitTest --rerun` **BUILD SUCCESSFUL**，按 XML 计 **233 suites / 2515 tests / 0 失败 0 错误 0 跳过**；markdownlint 77 文件 0 问题。26.11.13 23:1x 那三次失败确系并发构建重写 `R.jar`（4960 条 `Unresolved reference 'R'` 与源码无关），对方收工后重跑即绿；代码随 `ffc2984b` 提交并推 `main`。
 - **未验证（人测 / L2）**：真机滚动到第二屏触发翻页、翻页途中切排序 / 换关键词、空收藏夹与搜索无结果的空态、多选态下切排序后勾选框是否还在 —— 需要真机按崩溃路径复现。
 
 ## 4. 历史章节索引
