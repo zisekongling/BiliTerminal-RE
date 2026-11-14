@@ -36,6 +36,7 @@
   - **L0（26.11.14 本机）**：`:app:assembleDebug` + `:app:testStandardDebugUnitTest` BUILD SUCCESSFUL。
   - **L1（`emulator-5554` / standardDebug，判据是日志原文）**：装包后起 `ShortVideoPlayerActivity`，`adb logcat` 出现 `I/IJKMEDIA: player-opts : soundtouch = 1`，随后 `FFP_MSG_PREPARED` / `Playback rate: 1.000000` / `FFP_MSG_AUDIO_RENDERING_START` / `FFP_MSG_VIDEO_RENDERING_START` 全部正常，没有「完全播放不了」这类回归（对照 §3.88 补丁版 `.so` 的教训）。定位阶段同时已证明应用层到 native 是通的：长按时 `I/IJKMEDIA: Playback rate: 3.000000` 与 `E/J4A: J4AC_android_media_AudioTrack__setSpeed 3.000000` 都出现，松手回到 1.0——即「属性下发了、播放却没变」，正好指向 soundtouch 缺失。
   - **未验证（L2，只能真机看画面 / 听声音判）**：①手表上长按约 1.5s 后画面与声音是否真的约 3 倍速（模拟器软解掉帧到秒级，`Davey! duration=1192~4962ms`，速率无法判定）；②3x 下弹幕是否跟得上（#82 原文提到「弹幕抽搐」，本次没动弹幕侧，`DanmakuManager.setSpeed` 与 `MediaClockSync` 的步进补偿未改）；③松手是否立即回 1x（#146 报过「还继续倍速一小段时间」）。
+  - **已知未处理（26.11.14 用户决定先放着、不排期）**：`app/libs` 里随包的 ijk `.so` 是上游 stock（`15d6a53e` 回退上游），没有纯视频流 `compute_target_delay` 补丁，DASH 纯视频流（1080P+）的倍速可能仍无效；本次修的是带音轨的合一 MP4 路径（soundtouch 生效），两件事互不影响。
 
 - **26.11.14 缓存文件夹里的多 P 视频只能看 P1：合集嵌套化（用户报「缓存里文件夹内的多P视频只能看P1（倒不如说文件夹就是个虚拟视频）」）**：
   - **根因**（`app/src/main/java/com/RobinNotBad/BiliClient/activity/video/local/LocalListActivity.kt` 的 `playVirtualCollection()`）：文件夹被当成虚拟合集时，每个夹内条目只往合集里塞**一条**——`pagenames.add(v.title)`、`videoUrlList.add(files.firstOrNull { it.endsWith(".mp4") } ?: files[0])`，而 `LocalVideo.videoFileList` 是**扁平**的（多 P 的每一页各占一项，DASH 页还会连 `audio.m4a` 一起再占一项），`pageList` 完全没被读。于是「一个多 P 缓存」在合集里退化成「只有一个 P 的视频」，P2..Pn 连入口都没有。
