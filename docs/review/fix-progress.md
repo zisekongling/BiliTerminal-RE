@@ -18,6 +18,15 @@
 
 ## 1. 当前版本状态
 
+- **26.11.14 顶栏灵动岛改成三层优先级 + 新增「灵动岛设置」二级页（用户要求「有媒体播放或下载时灵动岛不轮换，一直显示播放状态」+「未读与新公告属突发通知，短暂弹出 3–5 秒后自动恢复」+「平时显示时间，电量像手机一样并排在旁边」+「外观设置里加一个专门的灵动岛设置分区」）**：
+  - **来路**：26.11.07 引入、26.11.10 定宽之后，灵动岛的决策仍是「有持续事件就一直占着 + 30 秒事件 / 5 秒时间硬轮换」，把未读当成常驻事件，新消息会顶掉播放状态一整天；电量只能和时钟互相挤；五个状态一个开关都关不掉，用户没法只留时间与电量。
+  - **修法 1（纯函数状态机）**：`app/src/main/java/com/RobinNotBad/BiliClient/ui/widget/IslandPolicy.kt` 重写——新增 `IslandFilters`（播放/下载/未读/电量/公告五个开关）、`ROTATE_OPTIONS_MS = listOf(0L, 3_000L, 5_000L, 10_000L)` 与 `rotateMsOf(raw)`，`decide()` 从高到低判 burst → unreadBurst → 常驻（播放 > 下载）→ TIME；`rotateMs <= 0` 时事件一直占着，选了 3/5/10 秒才与基础态对称轮换（事件 N 秒 ↔ 基础态 N 秒）。`ongoingState()` 去掉 unread 参数。宽度口径 `pillWidthPx()` / `PILL_SCREEN_RATIO = 0.31f` 未动。
+  - **修法 2（状态源做差分）**：`util/IslandStatus.kt` 的 `BURST_MS` 10 秒 → 5 秒，新增 `trackUnread(now, unread)`：记 `lastUnread` 做差分，**只有未读数增加**才置 `unreadBurstUntil`，首次采样只记基线；`util/IslandState.kt` 的 `IslandSnapshot` 补 `unreadBurst: Boolean = false`。未读因此从「常驻事件」变成「短播」。
+  - **修法 3（渲染）**：`ui/widget/TopbarIsland.kt` —— `TIME` 状态右侧挂 `batteryBadge()`（充电闪电/低电红/其余灰），事件态不挂电量；播放 + 下载同时进行时右侧改挂下载小图标；播放时图标 1 秒呼吸（`ValueAnimator` 0.55↔1.0，`detach` / 状态切走 / 页面不可见立刻 `stopRhythm()`）；时钟加 `maxLines = 1` + `ellipsize = END` 防换行撑高；`render()` 首行判 `decorView.isShown`，锁屏与全屏被盖住时不渲染不跑动画。
+  - **修法 4（设置页只挂一处）**：`activity/settings/SettingGroupActivity.kt` 新增 `GROUP_ISLAND = "island"` 与 `buildIslandGroup()`（总开关 + 五个筛选开关 + 轮换间隔四档），外观页末尾加入口 `nav(...)`；**「布局适配」页那段老 switch 与其「恢复默认」里的 `TOPBAR_ISLAND = false` 一并删除**；`activity/settings/SettingsIndex.kt` 的搜索结果改指 `GROUP_ISLAND`，并补齐 7 条（入口 + 五个开关 + 轮换）；`strings.xml` 新增 20 个 key 并改写 `desc_setting_topbar_island`。
+  - **L0（26.11.14 本机实测）**：`./gradlew.bat :app:assembleDebug --no-parallel --max-workers=2` → BUILD SUCCESSFUL（121 tasks）；`./gradlew.bat :app:testStandardDebugUnitTest --rerun` → 单测全绿，其中 `IslandPolicyTest` 重写为 19 例（含「不轮换 + 未读短播 + 播放中」组合、轮换对称、五个开关逐条过滤）。
+  - **未验证（L2，只能真机看画面与手感）**：见 `docs/review/l2-pending.md` §M 的 13 条（逐页面宽度是否仍一致、播放呼吸幅度与流畅度、短播 5 秒够不够看清、播放+下载双图标挤不挤、清零后再来新消息能否再弹、锁屏与全屏是否真的停止刷新、圆屏 31% 封顶与长标题省略）。
+
 - **26.11.14 SponsorBlock 再接两样：精彩时刻（`poi` 跳转点）与「赞助/恰饭」顶栏胶囊（用户原话「功能二实现标记和跳转精彩片段（注意这个片段没听过才给跳转按钮）」+「功能三实现赞助/恰饭的标注，复用互动视频/联合投稿的图标」）**：
   - **来路**：上一批只消费 `actionType == skip`；上游还有两种对观众有用却被丢掉的数据——跳转点 `poi`（`poi_highlight`，一个**点**不是一个区间）与整片标签 `full`（区间固定 `[0,0]`，上一批只弹过一句 Snack）。用户要的观感对齐 B 站播放页：进度条上的蓝色小三角 + 「看点」里的「01:15 精彩时刻」，以及详情页那种「互动视频 / 联合投稿」胶囊。
   - **修法 1（跳转点提炼）**：`app/src/main/java/com/RobinNotBad/BiliClient/player/SponsorSkipPolicy.kt` 新增 `const val ACTION_POI = "poi"`、`data class Highlight(posSec: Double, category: String)`、`highlights(raw, cid, currentDurationSec)`——只认 `poi`，cid 与 `isSameVersion` 同口径过滤，`fromSec <= 0` 时退回 `toSec`，按时间排序并按 `位置|类别` 去重，**总时长未知（`<= 0`）时跳过越界判断**（否则时长还没拿到的第一帧会把所有点都丢掉），**不看档位**（这里没有「替你跳走」的风险，关掉自动跳过的人也该能用）。
