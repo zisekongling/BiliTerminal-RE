@@ -813,6 +813,15 @@ class ShortVideoPagerAdapter(
                 controlVideo()
             }
 
+            // 画面正中的三角也能按（用户反馈「这个可以加个按那个三角播放」）。
+            // 三角只在暂停/播完时可见，此时点它就是「继续播」；[resume] 里已经处理了
+            // 「播到结尾」的情形（先 seekTo(0) 再 start），所以直接复用 togglePlayPause。
+            // 注意只给这个 56dp 图标装监听：页面级 GestureDetector 那条链（单击切底栏、
+            // 双击播放暂停、长按三倍速、双指缩放）一律不动。
+            playIcon.setOnClickListener {
+                togglePlayPause()
+            }
+
             buttonDanmaku.setImageResource(if (isDanmakuVisible) R.mipmap.danmakuon else R.mipmap.danmakuoff)
             buttonDanmaku.setOnClickListener {
                 toggleDanmaku()
