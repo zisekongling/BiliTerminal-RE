@@ -18,6 +18,15 @@
 
 ## 1. 当前版本状态
 
+- **26.11.14 全局隐藏状态栏与导航栏（用户原话「能不能试着适配一下导航栏」，来电是手表实拍里播放页底部那条三键导航栏黑边；用户拍板「所有页面都隐藏状态栏和导航栏」）**：
+  - **来路**：主题里一直只有 `android:windowFullscreen`（只压掉状态栏），导航栏从来没处理过，于是手表底部那条三键导航栏在播放页单独占一条黑边。26.11.02 修主题 bug 时又把旧实现里的 `SYSTEM_UI_FLAG_HIDE_NAVIGATION` / `IMMERSIVE` / `IMMERSIVE_STICKY` 一并去掉（`ui/appearance/ColorScheme.kt` 的注释里写着），全工程再无一处隐藏系统栏的代码。
+  - **修法 1（统一落窗）**：新增 `app/src/main/java/com/RobinNotBad/BiliClient/ui/appearance/ImmersiveMode.kt` —— `isEnabled()` 读 `SettingsKeys.UI_IMMERSIVE_FULLSCREEN`（默认 true），`apply()` 按开关调 `hideSystemBars()` / `showSystemBars()`；隐藏走官方 API `WindowInsetsControllerCompat.hide(WindowInsetsCompat.Type.systemBars())` 配 `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`，装饰窗口的 `WindowCompat.setDecorFitsSystemWindows(window, false)` 早就在 `ColorScheme.applyWindowTheme` 里设过，这里不重复设成一个相反的值。`activity/base/BaseActivity.kt` 在 `onCreate`（`applySystemBarInsets()` 之后）与 `onResume` 各调一次：回前台时系统可能已经把栏放回来（弹过系统对话框、从别的页回来），这一处也负责开关刚被关掉时把栏放回去。
+  - **修法 2（inset 同步消费）**：`BaseActivity.applySystemBarInsets()` 原先无条件拿 `systemBars() or displayCutout()` 叠到窗口根 padding 上。栏隐藏后按语义 `systemBars()` 就是 0，但个别 ROM（含 HarmonyOS 兼容层）仍会报回栏高，照它加就等于在底部多留一条空白 —— 改成按开关取型：开着只取 `displayCutout()`（横屏 / 挖孔仍要避让），关掉恢复原来的 `systemBars() or displayCutout()`。用户的「界面边距」加在内容容器上（`applyUserPadding()`），两条链路互不覆盖。
+  - **修法 3（播放页单独接）**：`PlayerActivity` 不是 `BaseActivity`（`class PlayerActivity : Activity()`，主题 `Theme.NoSwipe`，也不调 `applyWindowTheme`），在 `setContentView(R.layout.activity_player)` 之后与 `onResume` 各调一次 `ImmersiveMode.apply(this)`。控制栏显隐（`clickUI()` / `showcon()` / `hidecon` / `autohideReset()`）一行未改。
+  - **修法 4（回退开关）**：新增 `SettingsKeys.UI_IMMERSIVE_FULLSCREEN = "ui_immersive_fullscreen"`；「设置 → 界面与外观 → 布局适配」加 switch「沉浸式全屏」，默认开，`onChange` 立即 `ImmersiveMode.apply(this)`（存取仍由 `SettingsAdapter` 负责）；同页「恢复默认」把它置回 true 并把栏放回来；`activity/settings/SettingsIndex.kt` 同步加一条搜索项（`highlight` 与设置页那行的 name 字面一致）。
+  - **L0（26.11.14 本机实测，隔离工作树 `outputs/wt-immersive`，HEAD `47bcfb41` + 本次改动）**：`./gradlew.bat :app:assembleDebug --no-parallel --max-workers=2` → BUILD SUCCESSFUL（121 tasks，双 flavor 出 APK）；`./gradlew.bat :app:testStandardDebugUnitTest --rerun` → BUILD SUCCESSFUL，214 个测试类 / 2304 例，失败 0 / 错误 0 / 跳过 0。
+  - **未验证（L2，只能真机看画面与手感）**：见 `docs/review/l2-pending.md` §L 的 8 条。其中「全屏后从屏幕左缘内滑几次才返回」只能人拿着表试，代码层面无法断言。
+
 - **26.11.14 顶栏灵动岛改成三层优先级 + 新增「灵动岛设置」二级页（用户要求「有媒体播放或下载时灵动岛不轮换，一直显示播放状态」+「未读与新公告属突发通知，短暂弹出 3–5 秒后自动恢复」+「平时显示时间，电量像手机一样并排在旁边」+「外观设置里加一个专门的灵动岛设置分区」）**：
   - **来路**：26.11.07 引入、26.11.10 定宽之后，灵动岛的决策仍是「有持续事件就一直占着 + 30 秒事件 / 5 秒时间硬轮换」，把未读当成常驻事件，新消息会顶掉播放状态一整天；电量只能和时钟互相挤；五个状态一个开关都关不掉，用户没法只留时间与电量。
   - **修法 1（纯函数状态机）**：`app/src/main/java/com/RobinNotBad/BiliClient/ui/widget/IslandPolicy.kt` 重写——新增 `IslandFilters`（播放/下载/未读/电量/公告五个开关）、`ROTATE_OPTIONS_MS = listOf(0L, 3_000L, 5_000L, 10_000L)` 与 `rotateMsOf(raw)`，`decide()` 从高到低判 burst → unreadBurst → 常驻（播放 > 下载）→ TIME；`rotateMs <= 0` 时事件一直占着，选了 3/5/10 秒才与基础态对称轮换（事件 N 秒 ↔ 基础态 N 秒）。`ongoingState()` 去掉 unread 参数。宽度口径 `pillWidthPx()` / `PILL_SCREEN_RATIO = 0.31f` 未动。

@@ -31,6 +31,8 @@
     <string name="desc_setting_ui_round">开启选项后，页面将会修改为圆屏布局。\n由于纯靠代码实现，有部分页面可能未适配，但这是目前最好且工作量最小的办法了。</string>
     <string name="setting_topbar_island">顶栏灵动岛</string>
     <string name="desc_setting_topbar_island">把顶栏的时钟位改成信息岛：播放 / 下载时常驻显示，新未读与新公告短暂弹出约 5 秒，平时显示时间（电量并排在右侧）。\n与「圆屏适配」是两个独立开关，方屏和圆屏都能用；宽度全局固定，不随页面和状态变化。</string>
+    <string name="setting_immersive_fullscreen">沉浸式全屏</string>
+    <string name="desc_setting_immersive_fullscreen">隐藏状态栏和导航栏，页面和播放画面铺满整块屏幕（导航栏不再单独占一条黑边）。\n注意：手表底部导航栏是返回的主要手段，全屏后从屏幕边缘滑动可能需要划两次才有反应（第一次是把导航栏唤出来）。觉得别扭就关掉这个开关，恢复原来的样子。</string>
     <string name="setting_topbar_height">顶栏高度</string>
     <string name="desc_setting_topbar_height">单位 dp，0 为跟随内容（默认，与改动前完全一致）。\n调大后顶栏变高，顶栏的点击 / 长按 / 双击范围也一起变大；内容不够高时补空白，不会压扁标题。\n圆屏模式下只向下补空白（时钟在上、标题在下那套排版不动）；播放器页与短视频页自带顶栏，不接这个设置。</string>
     <string name="desc_setting_color_mode">7 套主题都有暗色与亮色两个版本。亮色适合白天和室外强光；播放器始终保持暗色。</string>

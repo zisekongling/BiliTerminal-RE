@@ -138,6 +138,7 @@ import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import com.RobinNotBad.BiliClient.util.NetworkPlaybackQuality
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
+import com.RobinNotBad.BiliClient.ui.appearance.ImmersiveMode
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
@@ -1230,6 +1231,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         }
 
         setContentView(R.layout.activity_player)
+        // 沉浸式全屏（26.11.14）：播放页不是 BaseActivity，得在这一页单独接一次。
+        // 只压掉状态栏是不够的——手表底部的三键导航栏原来单独占一条黑边，隐藏后画面才铺到屏幕底边。
+        // 开关关着时内部会把系统栏放回来，与改造前一致；控制栏单点击唤出 / 长按倍速 / 拖动进度条
+        // 都走各自的触摸事件，不受系统栏显隐影响。
+        ImmersiveMode.apply(this)
         findview()
         if (!getExtras()) {
             finish()
@@ -4148,6 +4154,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     override fun onResume() {
         super.onResume()
         Logu.v("onResume")
+        // 沉浸式全屏：从设置页 /「关于」等页面回来时系统栏可能已经重新出现，这里按开关状态再压一次；
+        // 开关刚被关掉时这一步也负责把导航栏放回来。
+        ImmersiveMode.apply(this)
         // 回到前台后通知栏遥控没有存在意义，服务持有的弱引用也不再需要
         PlaybackService.stop(this)
         // 设置页里改完「字幕字号大小」返回播放页立即生效。

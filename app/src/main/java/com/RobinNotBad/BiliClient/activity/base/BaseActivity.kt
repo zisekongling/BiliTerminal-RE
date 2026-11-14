@@ -47,6 +47,7 @@ import com.RobinNotBad.BiliClient.ui.appearance.AppearanceManager
 import com.RobinNotBad.BiliClient.ui.appearance.RoundListEffect
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.ui.appearance.GlassStyle
+import com.RobinNotBad.BiliClient.ui.appearance.ImmersiveMode
 import com.RobinNotBad.BiliClient.util.AsyncLayoutInflaterX
 import com.RobinNotBad.BiliClient.util.DisguiseGesture
 import com.RobinNotBad.BiliClient.util.DisguisePrefs
@@ -192,6 +193,10 @@ open class BaseActivity : AppCompatActivity() {
 
         applySystemBarInsets()
 
+        // 沉浸式全屏（26.11.14）：隐藏状态栏与导航栏。开关关着时这里把系统栏放回来，
+        // 与改造前完全一致，所以不需要在外面判开关。
+        ImmersiveMode.apply(this)
+
         val density = SharedPreferencesUtil.getInt("density", -1)
         if (density >= 72) {
             setDensity(density)
@@ -249,6 +254,9 @@ open class BaseActivity : AppCompatActivity() {
      * 系统栏（状态栏/导航栏/刘海）下方。此前全工程没有任何 insets 处理，结果是贴底控件与列表
      * 最后一项被导航栏压住。这里把系统栏 inset 叠加到**窗口根**已有的 padding 上；用户自定义的
      * 「界面边距」自 26.11.02 起加在内容容器上（见 [applyUserPadding]），两者互不覆盖。
+     *
+     * 26.11.14 起系统栏默认被 [ImmersiveMode] 隐藏，此时 systemBars() 的 inset 应为 0，
+     * 内容不该再被顶一截——判据见方法内注释。
      */
     private fun applySystemBarInsets() {
         val root = window.decorView.rootView
@@ -257,10 +265,14 @@ open class BaseActivity : AppCompatActivity() {
         val baseRight = root.paddingRight
         val baseBottom = root.paddingBottom
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
-            // 同时消费 displayCutout：横屏/挖孔机型上系统可能把内容排进刘海区域
-            val bars = insets.getInsets(
+            // 沉浸式全屏开着时系统栏是隐藏的，按语义 systemBars() 的 inset 就是 0；但个别 ROM
+            // （含 HarmonyOS 兼容层）在栏隐藏后仍会报回栏高，真照它加 padding 就等于在底部
+            // 留一条空白——所以这里按开关显式只取 displayCutout（横屏/挖孔仍要避让）。
+            val types = if (ImmersiveMode.isEnabled())
+                WindowInsetsCompat.Type.displayCutout()
+            else
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
-            )
+            val bars = insets.getInsets(types)
             view.setPadding(
                 baseLeft + bars.left,
                 baseTop + bars.top,
@@ -683,6 +695,9 @@ open class BaseActivity : AppCompatActivity() {
         super.onResume()
         // 转场动画开关：窗口属性在回前台时可能被系统重置，这里再按一次开关状态（默认关闭时零开销）。
         PageMotion.apply(this)
+        // 沉浸式全屏：系统栏可能已经被系统重新显示出来（弹过系统对话框、从别的页面回来），
+        // 回前台按当前开关状态再压一次；开关刚被关掉时这一步也负责把系统栏放回去。
+        ImmersiveMode.apply(this)
         // 外观（配色/圆角/字体任一项）在别处被修改后，返回本页时即时重建以应用新外观。
         // 只比一个 Int：三个模块共用一个版本号，详见 AppearanceManager。
         if (appliedAppearanceVersion >= 0 && appliedAppearanceVersion != AppearanceManager.version()) {
