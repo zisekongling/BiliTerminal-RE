@@ -55,6 +55,7 @@ import com.RobinNotBad.BiliClient.player.IjkOption
 import com.RobinNotBad.BiliClient.player.IjkPlayerBridge
 import com.RobinNotBad.BiliClient.player.PlayerState
 import com.RobinNotBad.BiliClient.player.PlayerVolumePolicy
+import com.RobinNotBad.BiliClient.player.ShortVideoDanmakuPolicy
 import com.bumptech.glide.Glide
 import master.flame.danmaku.ui.widget.DanmakuView
 import kotlinx.coroutines.CoroutineScope
@@ -1173,7 +1174,9 @@ class ShortVideoPagerAdapter(
                         { isPrepared && isPlaying }
                     )
                 }
-                danmakuManager?.init()
+                // 短视频弹幕默认不跟长视频共用「15 行 + 允许重叠」，改用独立的一份保守档
+                // （开关与取值都在 player/ShortVideoDanmakuPolicy；关掉开关这里就是 null = 照旧）
+                danmakuManager?.init(ShortVideoDanmakuPolicy.overrideOrNull())
                 // 每条视频都会新建 DanmakuManager（默认可见），要把当前开关带过去；
                 // prepare 前的 hide() 只记状态，真正隐藏由 DanmakuManager.prepared() 补上
                 if (!isDanmakuVisible) danmakuManager?.hide()

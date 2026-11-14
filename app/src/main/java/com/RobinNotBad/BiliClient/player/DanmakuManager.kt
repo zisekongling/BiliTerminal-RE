@@ -45,6 +45,23 @@ data class DanmakuState(
     val liveDurationFactor: Float = LiveDanmakuFactorPolicy.DEFAULT
 )
 
+/**
+ * 弹幕配置覆盖（26.11.14）：只覆盖 [DanmakuState] 里与「排版拥挤程度」相关的两项。
+ *
+ * 只有短视频页会传它（见 `player/ShortVideoDanmakuPolicy`）：手表屏只有 400~466px，
+ * 短视频又偏偏是弹幕极密的场景，用长视频那套「15 行 + 允许重叠」会糊成一团（反馈原话「鬼畜弹幕」）。
+ * **这不是「按性能偷偷压行数」**——那份值本身也来自用户自己的设置项
+ * （「短视频弹幕单独配置」），长视频那两项一个字节都不动。
+ *
+ * 其余项（字号 / 不透明度 / 停留时长 …）继续读全局存档，短视频与长视频共用。
+ */
+data class DanmakuConfigOverride(
+    /** 覆盖弹幕最大行数；null = 沿用 [SettingsKeys.PLAYER_DANMAKU_MAXLINE]。 */
+    val maxLines: Int? = null,
+    /** 覆盖「弹幕允许重叠」；null = 沿用 `player_danmaku_allowoverlap`。 */
+    val allowOverlap: Boolean? = null
+)
+
 class DanmakuManager(
     private val danmakuView: IDanmakuView,
     /** 直播模式：滚动弹幕用 [LiveDanmakuFactorPolicy] 的独立倍率，而不是录播的弹幕速度。 */
@@ -148,7 +165,13 @@ class DanmakuManager(
         })
     }
 
-    fun init() {
+    /**
+     * 读档初始化。
+     *
+     * [config] 非空时只覆盖「最大行数」与「允许重叠」两项（短视频页用，见 [DanmakuConfigOverride]）；
+     * 传 null 就是原来那种全量读档，长视频页走这条。
+     */
+    fun init(config: DanmakuConfigOverride? = null) {
         val prefs = SharedPreferencesUtil.getSharedPreferences()
         _state.update {
             DanmakuState(
@@ -156,12 +179,14 @@ class DanmakuManager(
                 // 旧实现对低端机把用户设的 15 行静默压到 6 行，设置页却仍显示用户填的值，
                 // 且没有任何提示——与 26.11.07 那个「低端机被静默切软解」是同一类 bug。
                 // 用户拍板：这类按性能偷偷改用户选择的行为一律去掉，弱机掉帧由用户自己权衡。
-                maxLines = SharedPreferencesUtil.getInt(SettingsKeys.PLAYER_DANMAKU_MAXLINE, 15),
+                maxLines = config?.maxLines
+                    ?: SharedPreferencesUtil.getInt(SettingsKeys.PLAYER_DANMAKU_MAXLINE, 15),
                 speedFactor = SharedPreferencesUtil.getFloat("player_danmaku_speed", 1.0f),
                 textSizeScale = SharedPreferencesUtil.getFloat("player_danmaku_size", 0.7f),
                 transparency = SharedPreferencesUtil.getFloat("player_danmaku_transparency", 0.5f),
                 mergeDuplicate = SharedPreferencesUtil.getBoolean("player_danmaku_mergeduplicate", false),
-                allowOverlap = SharedPreferencesUtil.getBoolean("player_danmaku_allowoverlap", true),
+                allowOverlap = config?.allowOverlap
+                    ?: SharedPreferencesUtil.getBoolean("player_danmaku_allowoverlap", true),
                 // E2：设置项一直存在（SettingTerminalPlayerActivity「强制为滚动弹幕」），这里接上消费方。
                 forceScroll = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_DANMAKU_FORCE_R2L, false),
                 // D5：直播倍率存档是 list_choose 的字符串，解析与钳制统一走策略类。

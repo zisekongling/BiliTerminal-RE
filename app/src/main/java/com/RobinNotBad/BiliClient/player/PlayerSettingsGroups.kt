@@ -451,6 +451,23 @@ object PlayerSettingsGroups {
         // 用户看到的值与实际生效值可以对不上。档位封顶已撤掉，两处统一为 15。
         SettingSection("input_int", context.getString(R.string.setting_player_danmaku_maxline),
             SettingsKeys.PLAYER_DANMAKU_MAXLINE, "", "15"),
+        // 短视频弹幕单独配置（26.11.14）：短视频页默认不再沿用上面的「行数 / 允许重叠」。
+        // 手表屏只有 400~466px、短视频弹幕又特别密，默认档给 6 行且不重叠；关掉开关就
+        // 完全回到长视频那一套。取值与钳制在 player/ShortVideoDanmakuPolicy，这里只落三项存档。
+        // **这不是按性能偷偷压行数**——值是用户自己填的，长视频那两项不受影响。
+        SettingSection("switch",
+            context.getString(R.string.setting_player_danmaku_shortvideo_separate),
+            SettingsKeys.SHORTVIDEO_DANMAKU_SEPARATE,
+            context.getString(R.string.desc_player_danmaku_shortvideo_separate), "true"),
+        SettingSection("input_int",
+            context.getString(R.string.setting_player_danmaku_shortvideo_maxline),
+            SettingsKeys.SHORTVIDEO_DANMAKU_MAXLINE,
+            context.getString(R.string.desc_player_danmaku_shortvideo_items),
+            ShortVideoDanmakuPolicy.DEFAULT_MAX_LINES.toString()),
+        SettingSection("switch",
+            context.getString(R.string.setting_player_danmaku_shortvideo_allow_overlap),
+            SettingsKeys.SHORTVIDEO_DANMAKU_ALLOW_OVERLAP,
+            "", ShortVideoDanmakuPolicy.DEFAULT_ALLOW_OVERLAP.toString()),
         SettingSection("input_float", context.getString(R.string.setting_player_danmaku_size),
             SettingsKeys.PLAYER_DANMAKU_SIZE, "", "0.7"),
         SettingSection("input_float", context.getString(R.string.setting_player_danmaku_transparency),

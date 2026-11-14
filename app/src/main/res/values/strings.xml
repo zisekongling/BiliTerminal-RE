@@ -2934,6 +2934,13 @@
     <string name="setting_player_danmaku_speed">弹幕停留时长</string>
     <string name="desc_player_danmaku_speed">数值越大弹幕走得越慢，1.0 为默认；改完下次进播放页生效</string>
 
+    <!-- 短视频弹幕单独配置（26.11.14）：手表小屏不跟长视频共用 15 行 + 重叠 -->
+    <string name="setting_player_danmaku_shortvideo_separate">短视频弹幕单独配置</string>
+    <string name="desc_player_danmaku_shortvideo_separate">手表屏幕小，短视频的弹幕又特别密：打开后短视频页不再沿用上面的「弹幕最大行数」与「弹幕允许重叠」，改用下面两项（默认 6 行、不重叠）。关掉就回到与长视频完全一致。</string>
+    <string name="setting_player_danmaku_shortvideo_maxline">短视频弹幕最大行数</string>
+    <string name="setting_player_danmaku_shortvideo_allow_overlap">短视频弹幕允许重叠</string>
+    <string name="desc_player_danmaku_shortvideo_items">需先打开上面的「短视频弹幕单独配置」才生效；改完下次进短视频页生效。</string>
+
     <!-- 字幕 -->
     <string name="setting_player_subtitle_autoshow">自动弹出字幕选择</string>
     <string name="setting_player_subtitle_ai_allowed">允许仅AI字幕</string>
