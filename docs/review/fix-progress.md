@@ -39,7 +39,7 @@
   - **修复后仿真**：10 / 20 / 60fps 与 1x / 3x 全部吸附 0 次，且最大瞬时偏差仍 < 500ms。
   - **提交**：`048efa31`。
   - **未验证（L2，只能真机看）**：见 `docs/review/l2-pending.md` §N 的后两条（真机上还抖不抖、低端手表上是否反而更「追」得生硬）。
-  - **播放页（长视频）回归**：这套时钟播放页与短视频页各持一份 `DanmakuManager` 实例，但共用同一份 `MediaClockSync` / `DrawHandler`。按帧间隔取上限后，高帧率下与旧行为**等价**——60fps 时 `帧间隔 16.7ms × 1.25 ≈ 20.8ms < 40ms`，`max()` 取到的仍是原来的 40ms（3x 仍是 `max(120, 62.6) = 120`），只有帧率掉到 30fps 以下才放大（30fps ≈ 41.7ms），而放大正是要修的那件事。L0（26.11.14，隔离工作树 `outputs/wt-rebase`，rebase 到 `49069e35` 之后）：`assembleDebug` → BUILD SUCCESSFUL（2m27s，双 flavor）；`testStandardDebugUnitTest --rerun` → BUILD SUCCESSFUL，215 个测试类 / 2312 例，失败 0 / 错误 0 / 跳过 0（`MediaClockSyncTest` 原有 12 例与新增仿真 8 例全在里面）。**播放页本身未上真机实测**，已列 `docs/review/l2-pending.md` §N 末条。
+  - **播放页（长视频）回归**：这套时钟播放页与短视频页各持一份 `DanmakuManager` 实例，但共用同一份 `MediaClockSync` / `DrawHandler`。按帧间隔取上限后，高帧率下与旧行为**等价**——60fps 时 `帧间隔 16.7ms × 1.25 ≈ 20.8ms < 40ms`，`max()` 取到的仍是原来的 40ms（3x 仍是 `max(120, 62.6) = 120`），只有帧率掉到 30fps 以下才放大（30fps ≈ 41.7ms），而放大正是要修的那件事。L0（26.11.14，隔离工作树 `outputs/wt-rebase`，rebase 到 `49069e35` 之后）：`assembleDebug` → BUILD SUCCESSFUL（2m27s，双 flavor）；`testStandardDebugUnitTest --rerun` → BUILD SUCCESSFUL，215 个测试类 / 2312 例，失败 0 / 错误 0 / 跳过 0（`MediaClockSyncTest` 原有 14 例与新增仿真 8 例全在里面）。**播放页本身未上真机实测**，已列 `docs/review/l2-pending.md` §N 末条。
 
 - **26.11.14 全局隐藏状态栏与导航栏（用户原话「能不能试着适配一下导航栏」，来电是手表实拍里播放页底部那条三键导航栏黑边；用户拍板「所有页面都隐藏状态栏和导航栏」）**：
   - **来路**：主题里一直只有 `android:windowFullscreen`（只压掉状态栏），导航栏从来没处理过，于是手表底部那条三键导航栏在播放页单独占一条黑边。26.11.02 修主题 bug 时又把旧实现里的 `SYSTEM_UI_FLAG_HIDE_NAVIGATION` / `IMMERSIVE` / `IMMERSIVE_STICKY` 一并去掉（`ui/appearance/ColorScheme.kt` 的注释里写着），全工程再无一处隐藏系统栏的代码。
