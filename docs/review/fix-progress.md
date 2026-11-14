@@ -18,6 +18,13 @@
 
 ## 1. 当前版本状态
 
+- **26.11.14 视频详情页标题前加「广告」胶囊，顺带定责「进度条看不到条子」（用户原话「广告标记应该放在视频详情页，你看好了」）**：
+  - **来路**：上一批把整片标签做成播放页顶栏胶囊，用户要求把这个「广告」标记挪到**视频详情页**（与截图里「联合投稿」同一位置、同一套 `RadiusBackgroundSpan`）。经确认：详情页与播放页两边都保留；整片 → 「广告」，只有部分片段 → 「含广告」；文案用「广告」。
+  - **修法**：① `player/SponsorSkipPolicy.kt` 新增 `BADGE_NONE/BADGE_FULL/BADGE_PARTIAL` 与纯函数 `adBadge(raw, cid, currentDurationSec): Int`——只在恰饭口径两类（`sponsor` / `selfpromo`）里判，片头、三连提醒、离题闲聊都不算广告；整片优先，其次部分，其余 NONE。② `activity/video/info/VideoInfoFragment.kt` 新增字段 `sponsorBadge` / `titleView`，新增 `loadSponsorBadge()`（**只有 `SponsorSkipPrefs.isEnabled()` 为真才发请求**，cid 传 0、总时长传 0 表示「整条视频有没有广告」；失败/空表静默，只写一行 `Logu.w("SponsorBlock", …)`），在 `initView` 的 `title.text = getTitleSpan()` 之后调用；`getTitleSpan()` 改成广告胶囊优先、其余四颗（充电专属/互动视频/全景视频/联合投稿）依次兜底，一颗位只放一颗。③ `res/values/player_sb_strings.xml` 新增 `player_sb_badge_full`「广告」、`player_sb_badge_partial`「含广告」。④ 播放页顶栏那颗不动。
+  - **同时定责「进度条看不到条子」**：无真机（`android_devices` 恒为 0），改用**真实上游数据**走完 `parseSegments` → `buildSegments`/`adBadge` 全链（临时单测跑完即删，未进仓库）：`BV1PXWr6HEgZ`（sponsor 2150.133~2264.1，dur 2454.378）在「仅恰饭广告」档 `kept=1`，错 cid → 0，总时长 2454 或 0 → 1；`BV11Kc2zZEDK`（intro 0~20.934，dur 231）在「仅恰饭广告」「广告+自我推广」档 `kept=0`、在「推荐」「全部」档 `kept=1`。**结论：过滤口径没有 bug**，条子为空最可能是「档位只认恰饭 × 这条片子只有 `intro` 标注或根本没标注」（上游热门 30 条仅 5 条有标注）。上游 8 位前缀方案有效，`HASH_PREFIX_LENGTH` 不要改。用户已定：**不加运行期提示，只留日志**。
+  - **L0（26.11.14 本机实测）**：`:app:compileStandardDebugKotlin :app:compileCoexistDebugKotlin` → BUILD SUCCESSFUL（1m1s）；`:app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest --no-build-cache` → BUILD SUCCESSFUL，standard 侧 **2566 tests / 0 failures**（新增 `player/SponsorAdBadgeTest.kt` 9 例）；`:app:assembleDebug` → exit 0。
+  - **未验证（L2，只能真机看画面）**：详情页标题前的「广告」/「含广告」胶囊是否正常渲染、与「联合投稿」冲突时广告优先的观感、长标题是否被挤没；见 `docs/review/l2-pending.md` §G 与 `docs/review/manual-test-guide-261111-sponsorblock.md` S11。
+
 - **26.11.14 「进度条上看不到琥珀色条子」复核（用户报 26.11.14-exp.1 现场看不到标记）**：
   - **结论**：**静态复核未发现绘制或链路缺陷**——`maybeAutoSkipSponsor`(`PlayerActivity.kt:5113`) → `ensureSponsorSegments` → `loadSponsorSegments` → `applySponsorLevel` → `updateSponsorMarks` → `setMarks` 全链存在，`drawMarks` 在 `super.onDraw` 之后画（压得住底轨与进度填充），`isSameVersion` 在总时长未知时放过（所以「请求早于 `video_all` 就绪」不会把所有片段滤空）。最可能是三道门里的一道：档位**默认关闭**（关闭时零请求）、该视频没有被标注过、或放的是番剧/直播/本地文件——这三类都不查。
   - **顺手补的两处**（都不改观感，只为下一次能一眼判定）：① `updateSponsorMarks()` 增加一行 `进度条标记 段=… 点=… max=…`；`loadSponsorSegments` 的既有日志补上白名单类别数与总时长，合成 `原始标注 N 条，可跳 M 段，白名单 K 类，总时长 …s`。② `seekbar_progress.max = video_all` 之后补一次 `updateSponsorMarks()`：250ms 定时器可能比 prepare 更早开始跑，标注先到、`max` 还是 0，落一次兜底，保证时长一就绪就画得出来。
