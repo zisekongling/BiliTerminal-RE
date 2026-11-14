@@ -954,6 +954,22 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     /** 本 P 还没点过的高能跳转点（[SponsorSkipPolicy.highlights] 的结果减去 [sponsorPoiSeen]）。 */
     private var sponsorPoiHighlights: List<SponsorSkipPolicy.Highlight> = emptyList()
 
+    /**
+     * 「询问我」档的片段表（26.11.14 起逐类别三档）。
+     *
+     * 与 [sponsorDecider] 里那张区分开：那些是「自动跳转」的类别，到点直接跳；这张只是
+     * 到点问一句，用户不点就继续播，所以不交给 decider（否则会被记成已处理）。
+     */
+    private var sponsorAskSegments: List<ViewPointSkip.Segment> = emptyList()
+
+    /**
+     * 本次播放里已经问过的片段（键见 [sponsorSegmentKey]）。
+     *
+     * 「询问」档不点就继续播，这一集合保证同一段只弹一次提示，不会 250ms 弹一条。
+     * 与片头片尾的 `askedSkipKeys` 分开：两套片段的键空间不同，混在一起会互相顶掉。
+     */
+    private val sponsorAskedKeys = HashSet<String>()
+
     /** 已经为哪个 cid 生成过整片标签胶囊（0 = 还没生成），每 P 只算一次。 */
     private var sponsorFullBadgeCid: Long = 0L
 
@@ -5112,28 +5128,55 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      * 自动跳过 SponsorBlock 标注的广告/推广片段（第三方社区数据，见 [SponsorSkipPolicy]）。
      *
      * 判定链路与 [maybeAutoSkipOpEd] 完全平行，但**数据源、档位、去重集合都是另一套**：
-     * - 片段从 bsbsb.top 按 BVID 查（[loadSponsorSegments]），懒加载：档位为「关闭」时一次请求都不发；
-     * - 只跳 `actionType == "skip"` 且类别在当前档位里的片段（`SponsorSkipPolicy.buildSegments` 过滤）；
+     * - 片段从 bsbsb.top 按 BVID 查（[loadSponsorSegments]），懒加载：全部类别都是「关闭」时一次请求都不发；
+     * - 只处理 `actionType == "skip"` 的片段：类别为「自动跳转」的直接跳（`SponsorSkipPolicy.buildSegments`），
+     *   类别为「询问我」的单独成表，到点只弹一次提示（26.11.14 起的逐类别三档）；
      * - 跳过的片段记在自己的 [sponsorDecider] 里，不与片头片尾互相干扰。
      *
      * 与片头片尾共用 [skipQuietUntilMs] 静默期：刚跳过一次就等 IJK 的异步 seek 落地，
      * 否则 `video_now` 回弹到旧位置会被再判一次（「跳完又跳回去」）。
      */
     private fun maybeAutoSkipSponsor(positionSec: Double) {
-        val level = SponsorSkipPrefs.currentLevel()
-        if (!SponsorSkipPolicy.isEnabled(level)) return
+        if (!SponsorSkipPrefs.isEnabled()) return
         ensureSponsorSegments()
-        if (sponsorDecider.segments.isEmpty()) return
         if (android.os.SystemClock.elapsedRealtime() < skipQuietUntilMs) return
-        val decided = sponsorDecider.decide(positionSec) ?: return
-        Logu.d("SponsorBlock", "跳过 " + decided.content + " " + decided.fromSec + "s -> " + decided.toSec + "s")
-        // 落点在右端点之外，不会再被自己判定（与片头片尾同一口径）
-        seekToPosition((decided.toSec * 1000.0).toLong(), userInitiated = false)
-        showSponsorUndoSnack(decided)
+        // 「自动跳转」的类别：直接跳走
+        if (ViewPointSkip.segmentAt(positionSec, sponsorDecider.segments) != null) {
+            val decided = sponsorDecider.decide(positionSec) ?: return
+            Logu.d("SponsorBlock", "跳过 " + decided.content + " " + decided.fromSec + "s -> " + decided.toSec + "s")
+            // 落点在右端点之外，不会再被自己判定（与片头片尾同一口径）
+            seekToPosition((decided.toSec * 1000.0).toLong(), userInitiated = false)
+            showSponsorUndoSnack(decided)
+            return
+        }
+        // 「询问我」的类别：问一句，不点就继续播（26.11.14 起的逐类别三档）
+        val askSegment = ViewPointSkip.segmentAt(positionSec, sponsorAskSegments) ?: return
+        // 同一段只问一次：不点也不再弹，免得 250ms 一条
+        if (sponsorAskedKeys.add(sponsorSegmentKey(askSegment))) showSponsorAskSnack(askSegment)
     }
 
     /**
-     * 保证「当前这一P 的片段表」已经就绪：没查过就查，档位或勾选变了就用缓存的原始数据重建。
+     * 「询问我」档的提示：检测到这类片段，问用户跳不跳。
+     *
+     * 与片头片尾那套同一个形态（下方一条提示 + 一个「跳过」按钮），刻意不记进
+     * [sponsorDecider] 的已处理集合：用户不点就继续播，点了才 seek 到片段末尾。
+     */
+    private fun showSponsorAskSnack(segment: ViewPointSkip.Segment) {
+        val label = sponsorCategoryLabel(segment.content)
+        val action = MsgUtil.Action(UiText.of(getString(R.string.player_s_skip_action)), View.OnClickListener {
+            seekToPosition((segment.toSec * 1000.0).toLong(), userInitiated = false)
+        })
+        val anchor = findViewById<View>(android.R.id.content) ?: return
+        MsgUtil.createSnack(
+            anchor,
+            UiText.of(getString(R.string.player_sb_ask_skip, label)),
+            Snackbar.LENGTH_LONG,
+            action
+        ).show()
+    }
+
+    /**
+     * 保证「当前这一P 的片段表」已经就绪：没查过就查，三档改了就用缓存的原始数据重建。
      *
      * 两个分支都会先做一次廉价比较，250ms 调一次也不会有额外开销；也正因为是懒加载，
      * 用户不开这个功能时播放器不会为它发出任何第三方请求。
@@ -5197,29 +5240,39 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     }
 
     /**
-     * 用缓存的原始标注按**当前档位 + 勾选**重新生成片段表；类别集合没变时直接返回。
+     * 用缓存的原始标注按**当前逐类别三档**重新生成片段表（自动一张、询问一张）；签名没变时直接返回。
      *
      * 先过滤出「是否真的有过可跳片段」再交给 [SkipDecider]：`applyLoaded` 只在片段内容
      * 真的变了时才清已处理集合，所以「播放中把档位调宽」不会把刚跳过的广告重新跳一遍。
      *
-     * 比较用的是**类别集合的签名**而不是档位数字：自定义档下用户可能在同一个档位里
-     * 反复改勾选，只比档位会漏掉这些改动。
+     * 比较用的是**类别集合的签名**而不是任何"当前档位"数字：同一档位里反复改类别、点「不准」、
+     * 点掉一个精彩时刻，都只体现为集合变化，比数字会漏。
      */
     private fun applySponsorLevel() {
-        val allowed = SponsorSkipPrefs.effectiveCategories()
+        val autoCats = SponsorSkipPrefs.autoCategories()
+        val askCats = SponsorSkipPrefs.askCategories()
         val ignored = sponsorIgnoreSet()
-        // 签名 = 类别集合 + 忽略集 + 已点过的精彩时刻：忽略集变了（用户刚点「不准」）、
-        // 或某个精彩时刻刚被点过（要从列表里消失），都要重建；只比类别集合会漏掉这两类改动
-        val key = allowed.sorted().joinToString(",") + "|" +
+        // 签名 = 自动集合 + 询问集合 + 忽略集 + 已点过的精彩时刻：任何一项变了都要重建
+        // （改档位、点「不准」、点掉一个精彩时刻都会走到这里）
+        val key = autoCats.sorted().joinToString(",") + "|" +
+            askCats.sorted().joinToString(",") + "|" +
             ignored.sorted().joinToString(",") + "|" +
             sponsorPoiSeen.sorted().joinToString(",")
         if (key == sponsorSegmentsKey) return
         sponsorSegmentsKey = key
+        val duration = video_all / 1000.0
         val segments = SponsorSkipPolicy.buildSegments(
             sponsorRawSegments,
-            allowed,
+            autoCats,
             cid,
-            video_all / 1000.0,
+            duration,
+            ignored,
+        ).filterNot { sponsorSegmentKey(it) in ignored }
+        sponsorAskSegments = SponsorSkipPolicy.buildSegments(
+            sponsorRawSegments,
+            askCats,
+            cid,
+            duration,
             ignored,
         ).filterNot { sponsorSegmentKey(it) in ignored }
         sponsorDecider.applyLoaded(segments)
@@ -7105,6 +7158,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         sponsorFullBadgeText = ""
         sponsorPoiSeen.clear()
         sponsorPoiHighlights = emptyList()
+        sponsorAskSegments = emptyList()
+        sponsorAskedKeys.clear()
         sponsorSavedMs = 0L
         sponsorLoadCid = 0L
         sponsorSegmentsKey = ""

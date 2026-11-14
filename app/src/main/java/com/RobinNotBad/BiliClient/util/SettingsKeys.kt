@@ -294,11 +294,22 @@ object SettingsKeys {
      */
     const val PLAYER_SKIP_OP_ED_MODE = "player_skip_op_ed_mode"
     /**
-     * SponsorBlock（第三方社区标注的广告/推广片段）跳过的档位：
-     * 0=关、1=仅广告、2=+自我推广、3=推荐、4=全部类别、5=自定义（逐类别勾选）。
-     * 默认关闭（第三方数据 + 半数是主观类别），判据见 `player/SponsorSkipPolicy.kt`。
+     * 老版的 SponsorBlock 总档位（0=关 … 5=自定义）。
+     *
+     * 26.11.14 起被逐类别三档取代，**只在迁移时读一次**（见 `player/SponsorSkipPrefs.kt` 的
+     * `modes()`），之后不再写。别删这个键：留着才能让从老版本升上来的存档折算对。
      */
     const val PLAYER_SPONSOR_BLOCK_MODE = "player_sponsor_block_mode"
+    /**
+     * SponsorBlock 逐类别三档的键前缀，完整键是「前缀 + 类别 id」（如
+     * `player_sponsor_block_skip_mode_sponsor`），值为 0=关闭、1=询问我、2=自动跳转。
+     * 读写与默认值见 `player/SponsorSkipPrefs.kt`，判据见 `player/SponsorSkipPolicy.kt`。
+     */
+    const val PLAYER_SPONSOR_BLOCK_SKIP_MODE_PREFIX = "player_sponsor_block_skip_mode_"
+    /**
+     * 「老总档位已经折算成逐类别三档」的标记。没有它就说明是老存档，读一遍旧档位折算后写回。
+     */
+    const val PLAYER_SPONSOR_BLOCK_SKIP_MODE_MIGRATED = "player_sponsor_block_skip_mode_migrated"
     /**
      * SponsorBlock 自定义档的逐类别勾选键前缀，完整键是「前缀 + 类别 id」（如
      * `player_sponsor_block_cat_sponsor`），一类别一个布尔值。

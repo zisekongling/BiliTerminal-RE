@@ -160,6 +160,71 @@ object SponsorSkipPolicy {
     /** 该档位是否真的会跳过东西（`LEVEL_OFF` 以外都算开着）。 */
     fun isEnabled(level: Int): Boolean = level != LEVEL_OFF && level in LEVEL_OFF..LEVEL_MAX
 
+    // ---- 逐类别三档（26.11.14 起，取代上面那套六档） ----
+    //
+    // 换掉六档的来由（用户 26.11.14 原话：「对于除了番剧以外的其他类别的跳转功能都分三档，
+    // 关闭，询问我，自动跳转」）：六档把一个决定塞进了两件事——「跳不跳」和「跳哪几类」，
+    // 于是「广告自动跳、片头先问一句」这种最常见的组合根本表达不出来；而「自定义」档与
+    // 逐类别勾选是两套存档，档位一改、勾选就形同虚设，用户看到的就是「自定义好像失效了」。
+    //
+    // 现在每个类别各自三档，存 `player_sponsor_block_skip_mode_<类别>`（值见下面三个常量）。
+    // 老的六档存档由 `SponsorSkipPrefs` 一次性折算过来（[migrateLevel]），六档常量只为
+    // 迁移与「详情页广告胶囊」的类别预设保留，不再出现在设置界面上。
+
+    /** 这一类的片段完全不管（连请求结论都不用）。 */
+    const val MODE_OFF = 0
+
+    /** 这一类的片段到了就跑出来问一句，用户点「跳过」才跳。 */
+    const val MODE_ASK = 1
+
+    /** 这一类的片段到了直接跳走。 */
+    const val MODE_AUTO = 2
+
+    /** 三档个数（设置页选项数）。 */
+    const val MODE_COUNT = 3
+
+    /**
+     * 能设三档的类别：全部类别去掉 `poi_highlight`。
+     *
+     * 与 `SponsorCategoryLabels.selectable` 同一口径——设置页一行一个类别，
+     * `poi_highlight` 是跳转点（区间为空），给它是「关闭/询问/自动」都没有意义。
+     */
+    val MODE_CATEGORIES: List<String> = ALL_CATEGORIES.filter { it != CAT_POI_HIGHLIGHT }
+
+    /**
+     * 存档原文 → 三档。空、非数字、越界（老版本的六档数字、手改存档）一律回落 [MODE_OFF]，
+     * 绝不把非法值 coerce 成「自动跳转」——那会让一个写坏的存档变成满地乱跳。
+     */
+    fun fromStoredMode(raw: String?): Int {
+        val mode = raw?.trim()?.toIntOrNull() ?: return MODE_OFF
+        return if (mode in MODE_OFF..MODE_AUTO) mode else MODE_OFF
+    }
+
+    /** 某类别的三档；[modes] 里没有这个键就是 [MODE_OFF]。 */
+    fun modeOf(modes: Map<String, Int>, category: String): Int =
+        (modes[category] ?: MODE_OFF).coerceIn(MODE_OFF, MODE_AUTO)
+
+    /** 取某一档的全部类别（按 [MODE_CATEGORIES] 的顺序，供片段表过滤用）。 */
+    fun categoriesWithMode(modes: Map<String, Int>, mode: Int): Set<String> =
+        MODE_CATEGORIES.filterTo(LinkedHashSet()) { modeOf(modes, it) == mode }
+
+    /** 有没有任何一个类别不是「关闭」——播放页据此决定要不要发请求。 */
+    fun isAnyModeEnabled(modes: Map<String, Int>): Boolean =
+        MODE_CATEGORIES.any { modeOf(modes, it) != MODE_OFF }
+
+    /**
+     * 老六档 → 逐类别三档（一次性迁移用）。
+     *
+     * 口径：关闭档 → 全关；「自定义」→ 当时勾上的算自动、其余关闭；其余固定档 → 该档预设的
+     * 类别算自动、其余关闭。**老用户不会因为这次改版少跳一类，也不会多跳一类。**
+     */
+    fun migrateLevel(level: Int, custom: Set<String>): Map<String, Int> {
+        val auto = if (level == LEVEL_CUSTOM) sanitizeCategories(custom) else categoriesFor(level)
+        return MODE_CATEGORIES.associateWithTo(LinkedHashMap()) {
+            if (it in auto) MODE_AUTO else MODE_OFF
+        }
+    }
+
     /**
      * 存档原文 → 档位。空、非数字、超范围的（老版本/手改存档）一律回落 [LEVEL_OFF]，
      * 绝不让一个非法值被 `coerce` 成"全部类别"。

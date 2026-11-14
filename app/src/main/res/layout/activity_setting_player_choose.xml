@@ -255,6 +255,37 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
+            <!-- 「跳过设置」入口（26.11.14）：片头片尾 + 广告片段逐类别三档。
+                 位置按用户要求放在「播放器界面」与「清晰度」之间。 -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/skip_choose"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="6dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:drawableEndCompat="@drawable/arrow_forward"
+                        android:gravity="start|center_vertical"
+                        android:text="@string/player_skip_page_name"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="@string/player_skip_page_desc"
+                        android:textSize="11sp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/qn_choose"
                 android:layout_width="match_parent"

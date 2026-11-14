@@ -332,9 +332,9 @@
             android:label="@string/pagename_settingterminalplayeractivity_001"
             android:screenOrientation="locked" />
         <activity
-            android:name=".activity.settings.SettingSponsorCategoryActivity"
+            android:name=".activity.settings.SettingSkipActivity"
             android:exported="false"
-            android:label="@string/player_sb_cat_page_name"
+            android:label="@string/player_skip_page_name"
             android:screenOrientation="locked" />
         <activity
             android:name=".activity.settings.UIPreviewActivity"

@@ -7,22 +7,15 @@
 -->
 <resources>
     <!-- 设置项：跳过档位（0=关 / 1=仅广告 / 2=+自我推广 / 3=推荐 / 4=全部 / 5=自定义） -->
-    <string name="player_sb_mode_name">跳过广告片段（SponsorBlock）</string>
-    <string name="player_sb_mode_desc">由观众标注的广告/推广片段，播放时自动跳过。数据来自第三方服务 BilibiliSponsorBlock，不是 B 站官方数据；跳过后面板会给出「撤回」</string>
     <string name="player_sb_mode_off">关闭</string>
-    <string name="player_sb_mode_ad">仅恰饭广告</string>
-    <string name="player_sb_mode_promo">广告+自我推广</string>
-    <string name="player_sb_mode_recommended">推荐</string>
-    <string name="player_sb_mode_all">全部类别</string>
-    <string name="player_sb_mode_custom">自定义</string>
+    <!-- 26.11.14 起逐类别三档：关闭 / 询问我 / 自动跳转 -->
+    <string name="player_sb_mode_ask">询问我</string>
+    <string name="player_sb_mode_auto">自动跳转</string>
 
     <!-- 设置分组标题：把「番剧片头片尾」和「投稿广告」两条跳过放在一组 -->
     <string name="setting_player_group_skip">自动跳过</string>
 
     <!-- 自定义档的类别勾选页 -->
-    <string name="player_sb_cat_page_name">要跳的类别</string>
-    <string name="player_sb_cat_page_desc">逐项勾选要自动跳过的类别；勾选后档位会自动切到「自定义」</string>
-    <string name="player_sb_cat_page_note">精彩时刻是跳转点（不是一段广告），不进这个页面、任何档位都不会跳——播放页的「看点」里能直接跳过去；静音型本版不处理。整段视频标签（整片都是广告这类）没有可跳的区间，只会在播放页顶栏标题前挂一个标记。</string>
     <string name="player_sb_cat_filler_desc">离题闲聊属主观判断，建议自己看过再决定</string>
     <string name="player_sb_cat_music_offtopic_desc">MV / 翻唱里的谈话段</string>
 
@@ -60,4 +53,14 @@
     <string name="player_sb_clear_ignored_confirm">已记录 %1$d 条「不准」。清空后这些片段会重新参与自动跳过，记录无法找回。</string>
     <string name="player_sb_clear_ignored_done">已清除全部「不准」记录</string>
     <string name="player_sb_clear_ignored_empty">还没有「不准」记录</string>
+
+    <!-- 「询问我」档的提示（26.11.14 逐类别三档） -->
+    <string name="player_sb_ask_skip">这里有%1$s，要跳过去吗？</string>
+
+    <!-- 「跳过设置」二级页（26.11.14 起；入口在「选择播放器」页） -->
+    <string name="player_skip_page_name">跳过设置</string>
+    <string name="player_skip_page_desc">片头片尾与广告片段：关闭、询问我、自动跳转</string>
+    <string name="player_skip_section_op_ed">片头片尾</string>
+    <string name="player_skip_section_sponsor">广告片段（社区标注）</string>
+    <string name="player_skip_page_note">「询问我」是在片段开始处弹一条提示，几秒内不理就按不跳处理、继续播；点「跳过」才跳过去。自动跳转的片段会画成进度条上的琥珀色细条，只有本次播放里真会跳的片段才会画。精彩时刻（跳转点）不在这一页，它在播放页的「看点」里；静音型标注本版不处理。番剧没有社区标注，这一页只作用于普通投稿的播放。</string>
 </resources>

@@ -6,14 +6,12 @@ import android.os.Build
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.player.PlayerLongPressPolicy
 import com.RobinNotBad.BiliClient.activity.player.PlayerSwipeSeekScalePolicy
-import com.RobinNotBad.BiliClient.activity.settings.SettingSponsorCategoryActivity
+import com.RobinNotBad.BiliClient.activity.settings.SettingSkipActivity
 import com.RobinNotBad.BiliClient.adapter.SettingsAdapter
 import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.util.DanmakuDiskCache
-import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
-import com.RobinNotBad.BiliClient.util.TerminalDialog
 
 /**
  * 内置播放器的设置项分组表。
@@ -287,109 +285,30 @@ object PlayerSettingsGroups {
     }
 
     /**
-     * 「自动跳过」：片头片尾与 SponsorBlock 广告片段两条跳过设置。
+     * 「自动跳过」：片头片尾与广告片段这两个数据源的跳过设置，26.11.14 起整体搬进二级页
+     * [com.RobinNotBad.BiliClient.activity.settings.SettingSkipActivity]。
      *
-     * 26.11.11 从「画面与显示」分出来单独成组：两条设置管的都是"播放时自动往前跳"，
-     * 混在画面项里既难找、也容易让人以为它们跟进度条样式是一类东西。
-     * 条目名保持原文不动（用户已经认得这两个名字），只改了所在分组。
+     * 搬走的理由有两层：一是 SponsorBlock 从「六档 + 自定义勾选」改成**逐类别三档**后，
+     * 光类别就有十行，塞在播放器长列表里会淹没其它设置；二是片头片尾与广告片段本来就是
+     * 同一种事（到点跳走）的两个数据源，放同一页才看得出「番剧走片头片尾、普通投稿走社区
+     * 标注」的区别。入口在「选择播放器」页的「播放器界面」与「清晰度」之间。
      *
-     * 注意两条的生效范围并不相同：片头片尾那条受 `isPgcPlayback()` 闸门只管番剧/影视，
-     * SponsorBlock 只管普通投稿的社区标注——所以不能合并成一条设置。
+     * 这里留一行指向它，免得从「完整设置」进来的人找不到（老用户记得这个分组在这）。
      */
-    private fun skip(context: Context): List<SettingSection> {
-        val out = ArrayList<SettingSection>(4)
-        // 「自动跳过片头片尾」26.10.10 紧急撤回、26.10.22 恢复；task-14 起由布尔开关改成五档
-        // （关/仅头/仅尾/都跳/询问），旧布尔键只在迁移时读，判据见 player/SkipOpEdPolicy。
-        if (SkipOpEdPrefs.FEATURE_ENABLED) {
-            out.add(listChoose(
-                context.getString(R.string.player_s_skip_mode_name),
-                SettingsKeys.PLAYER_SKIP_OP_ED_MODE,
-                context.getString(R.string.player_s_skip_mode_desc),
-                SkipOpEdPrefs.currentMode().toString(),
-                listOf(
-                    context.getString(R.string.player_s_skip_mode_off),
-                    context.getString(R.string.player_s_skip_mode_op),
-                    context.getString(R.string.player_s_skip_mode_ed),
-                    context.getString(R.string.player_s_skip_mode_both),
-                    context.getString(R.string.player_s_skip_mode_ask)
-                ),
-                listOf(
-                    SkipOpEdPolicy.MODE_OFF.toString(),
-                    SkipOpEdPolicy.MODE_OP.toString(),
-                    SkipOpEdPolicy.MODE_ED.toString(),
-                    SkipOpEdPolicy.MODE_BOTH.toString(),
-                    SkipOpEdPolicy.MODE_ASK.toString()
+    private fun skip(context: Context): List<SettingSection> = listOf(
+        SettingSection(
+            "nav",
+            context.getString(R.string.player_skip_page_name),
+            "",
+            context.getString(R.string.player_skip_page_desc),
+            "",
+            SettingsAdapter.NavExtra(R.drawable.icon_menu, { view ->
+                view.context.startActivity(
+                    Intent(view.context, SettingSkipActivity::class.java)
                 )
-            ))
-        }
-        // SponsorBlock：第三方社区标注的广告/推广片段。默认关闭，档位越多跳得越激进
-        // （「全部类别」里 filler/music_offtopic 都是主观类别，见 player/SponsorSkipPolicy）。
-        // 第 6 档「自定义」的集合不在这条设置里选，而是由下面那个子页逐项勾选。
-        if (SponsorSkipPrefs.FEATURE_ENABLED) {
-            out.add(listChoose(
-                context.getString(R.string.player_sb_mode_name),
-                SettingsKeys.PLAYER_SPONSOR_BLOCK_MODE,
-                context.getString(R.string.player_sb_mode_desc),
-                SponsorSkipPrefs.currentLevel().toString(),
-                listOf(
-                    context.getString(R.string.player_sb_mode_off),
-                    context.getString(R.string.player_sb_mode_ad),
-                    context.getString(R.string.player_sb_mode_promo),
-                    context.getString(R.string.player_sb_mode_recommended),
-                    context.getString(R.string.player_sb_mode_all),
-                    context.getString(R.string.player_sb_mode_custom)
-                ),
-                listOf(
-                    SponsorSkipPolicy.LEVEL_OFF.toString(),
-                    SponsorSkipPolicy.LEVEL_AD.toString(),
-                    SponsorSkipPolicy.LEVEL_PROMO.toString(),
-                    SponsorSkipPolicy.LEVEL_RECOMMENDED.toString(),
-                    SponsorSkipPolicy.LEVEL_ALL.toString(),
-                    SponsorSkipPolicy.LEVEL_CUSTOM.toString()
-                )
-            ))
-            // 逐类别勾选：进入时按下标去看勾了什么，返回时若有变化就把档位切成「自定义」，
-            // 否则用户勾完发现还在「仅恰饭广告」档、白勾一场。
-            // 注意 NavExtra 的第三个参数是 onLongClick（长按），这里要显式传 lambda 给 onClick。
-            out.add(SettingSection(
-                "nav",
-                context.getString(R.string.player_sb_cat_page_name),
-                "",
-                context.getString(R.string.player_sb_cat_page_desc),
-                "",
-                SettingsAdapter.NavExtra(R.drawable.icon_menu, { view ->
-                    view.context.startActivity(
-                        Intent(view.context, SettingSponsorCategoryActivity::class.java)
-                    )
-                })
-            ))
-            // 「不准」记录（26.11.14）：本地忽略表，条数在播放页一条条攒出来的，界面上看不到明细，
-            // 误按了也没有单条撤销入口——所以给一个整表清空。清空是即时生效的（下次进播放页重算），
-            // 不可恢复，所以要过一道确认框。
-            out.add(SettingSection(
-                "button",
-                context.getString(R.string.player_sb_clear_ignored_name),
-                "", "", "",
-                SettingsAdapter.ButtonExtra { view ->
-                    val count = SponsorSkipPrefs.ignoredVideoCount()
-                    if (count <= 0) {
-                        MsgUtil.showMsg(context.getString(R.string.player_sb_clear_ignored_empty))
-                        return@ButtonExtra
-                    }
-                    TerminalDialog.confirm(
-                        view.context,
-                        context.getString(R.string.player_sb_clear_ignored_name),
-                        context.getString(R.string.player_sb_clear_ignored_confirm, count)
-                    ) {
-                        SponsorSkipPrefs.clearAllIgnored()
-                        MsgUtil.showMsg(context.getString(R.string.player_sb_clear_ignored_done))
-                    }.show()
-                }
-            ))
-        }
-        return out
-    }
-
+            })
+        )
+    )
     private fun decode(context: Context) = listOf(
         SettingSection("choose", context.getString(R.string.setting_player_display_mode),
             SettingsKeys.PLAYER_DISPLAY, context.getString(R.string.desc_display),

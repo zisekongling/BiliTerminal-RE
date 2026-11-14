@@ -9,6 +9,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.FeedbackActivity
 import com.RobinNotBad.BiliClient.activity.feedback.FeedbackListActivity
 import com.RobinNotBad.BiliClient.activity.settings.login.AccountSwitchActivity
+import com.RobinNotBad.BiliClient.player.SponsorCategoryLabels
 import com.RobinNotBad.BiliClient.ui.widget.IslandPolicy
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
 
@@ -502,12 +503,7 @@ object SettingsIndex {
             // 关键词必须与页内 SettingSection.name 严格一致，否则搜索命中定位不到。
             text(R.string.settingtext_settingsindex_064),
             text(R.string.player_s_skip_mode_name),
-            // SponsorBlock 广告片段跳过（26.11.11 新增）：名字必须与页内 SettingSection.name 严格一致
-            text(R.string.player_sb_mode_name),
-            // 自定义档的逐类别勾选页入口（页内那一行 nav 的名字）
-            text(R.string.player_sb_cat_page_name),
-            // 「不准」记录整表清空（26.11.14，页内那行 button 的名字）
-            text(R.string.player_sb_clear_ignored_name),
+
             text(R.string.settingtext_settingsindex_065),
             text(R.string.settingtext_settingsindex_066),
             text(R.string.settingtext_settingsindex_067),
@@ -534,6 +530,20 @@ object SettingsIndex {
             text(R.string.setting_player_ui_show_battery),
             text(R.string.setting_player_ui_show_clock)
         ))
+        // 「跳过设置」二级页（26.11.14）：片头片尾 + 广告片段逐类别三档 + 「不准」记录。
+        // 名字必须与页内 SettingSection.name 严格一致（类别名直接取 SponsorCategoryLabels）。
+        val skipLeaves = ArrayList<String>(14)
+        skipLeaves.add(text(R.string.player_skip_page_name))
+        skipLeaves.add(text(R.string.player_s_skip_mode_name))
+        skipLeaves.add(text(R.string.player_sb_clear_ignored_name))
+        for (category in SponsorCategoryLabels.selectable) {
+            skipLeaves.add(text(SponsorCategoryLabels.nameRes(category)))
+        }
+        addLeafItems(list, text(R.string.player_skip_page_name), SettingSkipActivity::class.java, skipLeaves)
+        list += Entry(
+            text(R.string.player_skip_page_name),
+            text(R.string.player_skip_page_desc)
+        ) { a -> a.startActivity(Intent(a, SettingSkipActivity::class.java)) }
         // 注：原来「显示旋转/弹幕/清晰度/分P/锁定按钮」五个开关已在 26.11.06 删除，
         // 按钮显不显示改由「播放界面布局」决定（放没放进槽位就是开关），所以这里不再收录。
 

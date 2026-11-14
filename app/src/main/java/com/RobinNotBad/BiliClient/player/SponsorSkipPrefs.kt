@@ -10,8 +10,8 @@ import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
  * 免得改个默认值要四处同步（漏一处就是"设置页开着、播放器不跳"这种不报错的错位）。
  *
  * **默认关闭**：这是第三方社区数据，且半数类别带主观性（`filler` / `preview` 等），
- * 不该让没主动开启的人被动跳内容；开启入口在「播放器 → 自动跳过」分组里（26.11.11 起
- * 与「片头片尾」同组，之前混在「画面与显示」里）。
+ * 不该让没主动开启的人被动跳内容；设置入口是「选择播放器」页里的**跳过设置**二级页
+ * （26.11.14 起与「片头片尾」同页，之前是播放器设置里的六档；更早混在「画面与显示」里）。
  *
  * 与片头片尾的区别：那边是 14 天不活跃就自动关的"锦上添花"，这里没有自动关逻辑，
  * 用户选了什么就一直是什么。
@@ -26,20 +26,72 @@ object SponsorSkipPrefs {
      */
     const val FEATURE_ENABLED = true
 
-    /** 默认档位：关闭（见类注释）。 */
+    /** 默认档位：关闭（见类注释）。**老档位**，26.11.14 起只在迁移时参考。 */
     const val DEFAULT_LEVEL = SponsorSkipPolicy.LEVEL_OFF
 
-    /** 用户存档里的档位（不看 [FEATURE_ENABLED]）。 */
+    /** 用户存档里的**老**总档位（不看 [FEATURE_ENABLED]）；26.11.14 起只用于迁移。 */
     fun currentLevel(): Int =
         SponsorSkipPolicy.fromStored(SharedPreferencesUtil.getString(SettingsKeys.PLAYER_SPONSOR_BLOCK_MODE, null))
 
-    /** 写入档位（设置页选完走这里）。 */
+    /** 写入老总档位。26.11.14 起设置页已不再调用，留着给迁移与回滚用。 */
     fun storeLevel(level: Int) {
         SharedPreferencesUtil.putString(SettingsKeys.PLAYER_SPONSOR_BLOCK_MODE, level.toString())
     }
 
-    /** 自动跳过当前是否生效：总开关 **与** 用户档位（非「关闭」）。 */
-    fun isEnabled(): Boolean = FEATURE_ENABLED && SponsorSkipPolicy.isEnabled(currentLevel())
+    // ---- 逐类别三档（26.11.14 起，取代上面那个总档位） ----
+    //
+    // 一个类别一个键（`player_sponsor_block_skip_mode_<类别>`），值 0=关闭 / 1=询问我 /
+    // 2=自动跳转。**新装用户全部关闭**——这和老的「默认关闭」口径一致，不会因为改版让
+    // 没主动开过的人突然开始被跳内容。
+
+    /** 某个类别的三档存档键。 */
+    fun modeKey(category: String): String =
+        SettingsKeys.PLAYER_SPONSOR_BLOCK_SKIP_MODE_PREFIX + category
+
+    /** 某个类别的三档（默认关闭）。 */
+    fun storedMode(category: String): Int =
+        SponsorSkipPolicy.fromStoredMode(SharedPreferencesUtil.getString(modeKey(category), null))
+
+    /** 写入某个类别的三档（设置页选完走这里）。 */
+    fun storeMode(category: String, mode: Int) {
+        val safe = mode.coerceIn(SponsorSkipPolicy.MODE_OFF, SponsorSkipPolicy.MODE_AUTO)
+        SharedPreferencesUtil.putString(modeKey(category), safe.toString())
+    }
+
+    /**
+     * 全部类别的三档；**第一次读**时把老的六档存档折算过来并写回（只折算一次，见
+     * [SettingsKeys.PLAYER_SPONSOR_BLOCK_SKIP_MODE_MIGRATED]）。
+     *
+     * 折算口径在 [SponsorSkipPolicy.migrateLevel]：老用户升级后跳的类别与升级前完全一致。
+     */
+    fun modes(): Map<String, Int> {
+        val migrated = SharedPreferencesUtil.getBoolean(
+            SettingsKeys.PLAYER_SPONSOR_BLOCK_SKIP_MODE_MIGRATED, false
+        )
+        if (!migrated) {
+            val legacy = SponsorSkipPolicy.migrateLevel(currentLevel(), customCategories())
+            for ((category, mode) in legacy) {
+                SharedPreferencesUtil.putString(modeKey(category), mode.toString())
+            }
+            SharedPreferencesUtil.putBoolean(SettingsKeys.PLAYER_SPONSOR_BLOCK_SKIP_MODE_MIGRATED, true)
+            return legacy
+        }
+        return SponsorSkipPolicy.MODE_CATEGORIES.associateWith { storedMode(it) }
+    }
+
+    /** 「自动跳转」的类别集合（播放页据此直接跳）。 */
+    fun autoCategories(): Set<String> =
+        SponsorSkipPolicy.categoriesWithMode(modes(), SponsorSkipPolicy.MODE_AUTO)
+
+    /** 「询问我」的类别集合（播放页据此弹提示）。 */
+    fun askCategories(): Set<String> =
+        SponsorSkipPolicy.categoriesWithMode(modes(), SponsorSkipPolicy.MODE_ASK)
+
+    /** 会把片段交给播放页的类别集合（自动 + 询问）；判断"要不要发请求"也用它。 */
+    fun effectiveCategories(): Set<String> = autoCategories() + askCategories()
+
+    /** 功能是否生效：总开关 **与** 至少有一个类别不是「关闭」。 */
+    fun isEnabled(): Boolean = FEATURE_ENABLED && SponsorSkipPolicy.isAnyModeEnabled(modes())
 
     // ---- 自定义档的逐类别勾选 ----
     //
@@ -62,13 +114,6 @@ object SponsorSkipPrefs {
         }
     )
 
-    /**
-     * 当前「档位 + 勾选」实际生效的类别集合。
-     *
-     * 播放页每次应用片段表都从这里取，避免"档位改了但勾选没跟着算"这类错位。
-     */
-    fun effectiveCategories(): Set<String> =
-        SponsorSkipPolicy.resolveCategories(currentLevel(), customCategories())
 
     // ---- 「不准」的本地忽略集（26.11.14） ----
     //
