@@ -138,7 +138,9 @@
 
 ## M. 顶栏灵动岛三层优先级 + 「灵动岛设置」二级页（26.11.14）
 
-状态机（`ui/widget/IslandPolicy.kt`）改三层：播放/下载常驻不轮换、未读/公告/更新/低电/充电短播 5 秒、平时时间 + 电量并排；渲染层加了播放呼吸、充电慢闪、状态切换淡入放大，`IslandStatus` 改成未读**增量**触发。设置项从「布局适配」搬进「外观设置 → 灵动岛」（总开关 + 5 个筛选开关 + 轮换间隔）。代码层面只有 `IslandPolicyTest` 的 17 例与编译证据。出处 `fix-progress.md` §1 里「顶栏灵动岛三层优先级重构」。
+状态机（`ui/widget/IslandPolicy.kt`）改三层：播放/下载常驻不轮换、未读/公告/更新/低电/充电短播 5 秒、平时时间 + 电量并排；渲染层加了播放呼吸、充电慢闪、状态切换淡入放大，`IslandStatus` 改成未读**增量**触发。设置项从「布局适配」搬进「外观设置 → 灵动岛」（总开关 + 5 个筛选开关 + 轮换间隔）。代码层面只有 `IslandPolicyTest` 的 19 例与编译证据。出处 `fix-progress.md` §1 里「顶栏灵动岛三层优先级重构」。
+
+> L1 尝试记录（26.11.14）：想在 `rebili_watch37` AVD（384x384 / density 320）上读设置页与 `timeText` bounds，但 coexist universal 包装上去后一启动就 `ClassNotFoundException: com.RobinNotBad.BiliClient.BiliTerminal`（`Unable to instantiate application`），崩溃发生在 Application 实例化阶段、早于任何灵动岛代码，**与本轮改动无关**，未继续排查；因此本轮没有 L1 结论，下面全部靠真机人判。
 
 - [ ] 打开灵动岛后**逐个页面**看一眼胶囊位置与宽度（首页 / 设置页 / 搜索页 / 消息页 / 详情页）——宽度应完全一致，不被标题挤压。
 - [ ] 播放音频后切到别的页面 —— 一直显示「播放中」不跳回时间；图标呼吸**看得出是活的但不晃眼**、不卡顿。
