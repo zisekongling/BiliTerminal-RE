@@ -1,5 +1,6 @@
 package com.RobinNotBad.BiliClient.activity.settings
 
+import android.content.Intent
 import android.os.Bundle
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
@@ -30,13 +31,33 @@ import com.RobinNotBad.BiliClient.util.TerminalDialog
  */
 class SettingSkipActivity : RefreshListActivity() {
 
+    /** 设置项全表。列表位置与它一一对应，`list_choose` 回写时靠 position 反查（见 [applyListChooseResult]）。 */
+    private val sections = ArrayList<SettingSection>()
+
+    private var settingsAdapter: SettingsAdapter? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setPageName(getString(R.string.player_skip_page_name))
 
         recyclerView.setHasFixedSize(true)
-        setAdapter(SettingsAdapter(this, buildSections()))
+        sections.addAll(buildSections())
+        val adapter = SettingsAdapter(this, sections)
+        settingsAdapter = adapter
+        setAdapter(adapter)
         setRefreshing(false)
+    }
+
+    /**
+     * 承接 `list_choose` 的选择结果。**不写这个回调就是「点了没反应」**——值不会被存下来，
+     * 行上的当前值又会按存档重新算，于是看起来永远停在「关闭」。
+     * 回写逻辑与分组页 / 播放器设置页共用 [applyListChooseResult]。
+     */
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        applyListChooseResult(requestCode, resultCode, data, sections) {
+            settingsAdapter?.notifyItemChanged(it)
+        }
     }
 
     private fun buildSections(): List<SettingSection> {
@@ -72,6 +93,9 @@ class SettingSkipActivity : RefreshListActivity() {
         // ---- 广告片段：逐类别三档，仅普通投稿（番剧没有 bvid，链路根本不发请求）----
         out.add(SettingSection("title", getString(R.string.player_skip_section_sponsor), "", "", ""))
         if (SponsorSkipPrefs.FEATURE_ENABLED) {
+            // 先整表读一次：老用户第一次进来时 `modes()` 会把六档存档折算成三档并写回，
+            // 否则逐类 `storedMode()` 读到的还是空键，页面上会显示成全部「关闭」。
+            val modes = SponsorSkipPrefs.modes()
             for (category in SponsorCategoryLabels.selectable) {
                 val descRes = SponsorCategoryLabels.descRes(category)
                 out.add(
@@ -79,7 +103,7 @@ class SettingSkipActivity : RefreshListActivity() {
                         getString(SponsorCategoryLabels.nameRes(category)),
                         SponsorSkipPrefs.modeKey(category),
                         if (descRes == 0) "" else getString(descRes),
-                        SponsorSkipPrefs.storedMode(category).toString(),
+                        (modes[category] ?: SponsorSkipPolicy.MODE_OFF).toString(),
                         listOf(
                             getString(R.string.player_sb_mode_off),
                             getString(R.string.player_sb_mode_ask),

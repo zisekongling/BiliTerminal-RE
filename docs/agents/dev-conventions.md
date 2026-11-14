@@ -26,6 +26,7 @@
 - 新增设置子页面有两种形态，**先想清楚用哪种**：
   1. **独立 Activity**（如「菜单设置」「我的页面设置」）——有自定义交互/独立布局时用，改三处：`SettingGroupActivity` 对应分组加 `nav`、`SettingsIndex` 加可搜索条目、`AndroidManifest.xml` 注册。
   2. **本页的另一个 `group_type` 分组**——只是若干列表项、无自定义交互时用（如 `GROUP_APPEARANCE`「外观设置」），只需：`buildContent` 加分支 + 写一个 `buildXxxGroup()` + 在上级分组加 `nav` + `SettingsIndex` 加条目。**不需要新 Activity、manifest、布局**。对用户同样是独立一屏。
+- **页面里出现 `list_choose`（点进去选一项）时，必须覆写 `onActivityResult` 并调 `applyListChooseResult(requestCode, resultCode, data, sections) { adapter?.notifyItemChanged(it) }`**：值由那个函数写回存档，不写这个回调就是「点了没反应」，而且行上的当前值是按存档重算的，看起来会永远停在旧值（26.11.14 的「跳过设置」就是这么坏的）。`sections` 要当字段持有，位置与列表一一对应。
 
 ## 按钮文字与行内对齐（26.11.02 起，写按钮必读）
 
