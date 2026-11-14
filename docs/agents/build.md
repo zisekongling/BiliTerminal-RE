@@ -70,6 +70,21 @@
 
 - 报 `org.jetbrains.kotlin.util.FileAnalysisException … FileNotFoundException: app\build\tmp\kotlin-classes\debug\…\Xxx.class`（某个 class 被删了但增量状态没更新）：`clean` 后重建解决。
 - **同一个坏状态的第二种长相（26.10.21 实测，更坑）**：某个 flavor 的 Kotlin 模块元数据被写成空文件，单测编译报一堆 `Unresolved reference`（顶层函数 / DSL / 扩展函数全解析不到，**类却能正常解析**），看着像主源码真的删了符号。判据是 `app/build/tmp/kotlin-classes/<flavor>Debug/META-INF/app_<flavor>Debug.kotlin_module` 的大小——正常 233 字节左右，坏的时候只有 24 字节。只删该 flavor 的 `kotlin-classes/<flavor>Debug` 与 `build/kotlin/compile<Flavor>DebugKotlin` 后重编即可恢复，不必整包 clean。
+- **同一个坏状态的第三种长相（26.11.14 实测，最隐蔽：类丢了但构建全绿）**：`:app:dexBuilderStandardDebug` 报 `UP-TO-DATE`，可它的产物目录 `app/build/intermediates/project_dex_archive/<variant>/dexBuilder<Variant>/out/` 里少了某些类（本次是 `com/RobinNotBad/BiliClient/BiliTerminal.dex`），于是 APK 能装上、一启动就崩：
+
+  ```text
+  java.lang.RuntimeException: Unable to instantiate application com.RobinNotBad.BiliClient.BiliTerminal
+  Caused by: java.lang.ClassNotFoundException: Didn't find class "com.RobinNotBad.BiliClient.BiliTerminal" on path: DexPathList[[zip file ".../base.apk"], ...]
+  ```
+
+  而 `assembleDebug` / 单测**依旧全部 BUILD SUCCESSFUL**，源码侧也查不出问题（`BiliTerminal.kt` 在、被 git 跟踪、`AndroidManifest.xml` 里 `android:name=".BiliTerminal"`、`build.gradle` 没有对它的 exclude，`kotlin-classes/standardDebug/` 下 `BiliTerminal.class` 还是刚编出来的）。
+
+  **判据（两步都做，缺一会误判）**：
+
+  1. `dexdump -f classes.dex`（dexdump 在 `%ANDROID_HOME%\build-tools\<ver>\dexdump.exe`，不在 PATH）里搜 `Class descriptor  : 'Lcom/RobinNotBad/BiliClient/BiliTerminal;` —— 坏的时候零命中；同时对照搜 `Lcom/RobinNotBad/BiliClient/activity/SplashActivity;`，它有命中才说明检索方法本身没问题。
+  2. `Get-ChildItem app\build\intermediates -Recurse -Filter 'BiliTerminal*.dex'` 零命中，但同样的过滤在 `app\build\tmp\kotlin-classes\<variant>\com\RobinNotBad\BiliClient\` 下能找到 `BiliTerminal.class`（16645 字节、魔数 `CA FE BA BE`，说明编译环节正常）——丢在「编译之后、dex 化之时」。
+
+  **修法**：`./gradlew.bat :app:dexBuilderStandardDebug --rerun-tasks` 后重跑 `:app:assembleStandardDebug` 即可，不必整包 clean，也不必删 `kotlin-classes`（删了也不会好，因为毛病在 dexBuilder 的产物里）。修好后 archive 里出现 `BiliTerminal*.dex`、`classes.dex` 里出现该类定义，`adb install -r` 后启动正常。
 
 ## 改主类构造参数后单测 `NoSuchMethodError`
 
