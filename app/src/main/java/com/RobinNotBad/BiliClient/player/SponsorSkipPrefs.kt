@@ -93,6 +93,48 @@ object SponsorSkipPrefs {
     /** 功能是否生效：总开关 **与** 至少有一个类别不是「关闭」。 */
     fun isEnabled(): Boolean = FEATURE_ENABLED && SponsorSkipPolicy.isAnyModeEnabled(modes())
 
+    // ---- 进度条标记（26.11.14 起与跳过策略解耦） ----
+    //
+    // 用户 26.11.14 原话：「这个进度条标记显示单独开一个设置，别跟跳过策略绑在一起，能只显示
+    // 条子不跳、或者反过来」。所以条子的开关、条子的类别集合、三角的开关各自独立存档：
+    // 三个都跟 `PLAYER_SPONSOR_BLOCK_SKIP_MODE_PREFIX` 无关，改三档不会动它们，反之亦然。
+
+    /** 进度条上画不画「待会儿要跳的片段」的条子（默认画）。 */
+    fun isMarksEnabled(): Boolean = SharedPreferencesUtil.getBoolean(
+        SettingsKeys.PLAYER_SPONSOR_BLOCK_MARKS_ENABLED, true
+    )
+
+    /** 进度条上画不画「精彩时刻」的三角（默认画）；与条子那个开关互不影响。 */
+    fun isPoiMarksEnabled(): Boolean = SharedPreferencesUtil.getBoolean(
+        SettingsKeys.PLAYER_SPONSOR_BLOCK_MARKS_POI_ENABLED, true
+    )
+
+    /**
+     * 「标记」要不要去拉数据：任一项要画就得拉。
+     *
+     * 播放页的 `ensureSponsorSegments()` 用这个而不是 [isEnabled]——否则「三档全关、只开标记」
+     * 这种组合会连请求都不发，条子自然永远不出现（那正是用户想避免的「看不出来有没有标注」）。
+     */
+    fun needsSegments(): Boolean =
+        FEATURE_ENABLED && (isEnabled() || isMarksEnabled() || isPoiMarksEnabled())
+
+    /** 某个类别的「标记」存档键。 */
+    fun markCategoryKey(category: String): String =
+        SettingsKeys.PLAYER_SPONSOR_BLOCK_MARK_CAT_PREFIX + category
+
+    /** 某个类别在「标记」里的勾选状态，默认全勾（条子本来就只在有标注的片段上出现，不会吵）。 */
+    fun isCategoryMarked(category: String): Boolean =
+        SharedPreferencesUtil.getBoolean(markCategoryKey(category), true)
+
+    /** 进度条条子要标出的类别集合（与三档无关，永远不含 `poi_highlight`）。 */
+    fun markCategories(): Set<String> = SponsorSkipPolicy.MODE_CATEGORIES
+        .filterTo(LinkedHashSet()) { isCategoryMarked(it) }
+
+    /** 直接写某个类别的标记勾选（设置页的开关用它，见 `SettingMarkCategoryActivity`）。 */
+    fun storeCategoryMarked(category: String, marked: Boolean) {
+        SharedPreferencesUtil.putBoolean(markCategoryKey(category), marked)
+    }
+
     // ---- 自定义档的逐类别勾选 ----
     //
     // 一个类别一个布尔键（`player_sponsor_block_cat_<id>`），由「要跳的类别」页里的

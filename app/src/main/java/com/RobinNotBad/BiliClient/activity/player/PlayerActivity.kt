@@ -963,6 +963,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private var sponsorAskSegments: List<ViewPointSkip.Segment> = emptyList()
 
     /**
+     * 进度条上要画的条子（26.11.14 起与跳过策略解耦）。
+     *
+     * 数据源是**标记自己的类别集合**（[SponsorSkipPrefs.markCategories]），不是上面那两张跳转表：
+     * 三档全关时这张表照样有内容（只显示不跳），标记全不勾时这张表为空但照样跳（只跳不显示）。
+     * 每条带自己的颜色，见 [SponsorSkipPolicy.markColor]。
+     */
+    private var sponsorMarkSegments: List<SponsorSkipPolicy.MarkedSegment> = emptyList()
+
+    /**
      * 本次播放里已经问过的片段（键见 [sponsorSegmentKey]）。
      *
      * 「询问」档不点就继续播，这一集合保证同一段只弹一次提示，不会 250ms 弹一条。
@@ -5137,8 +5146,29 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      * 否则 `video_now` 回弹到旧位置会被再判一次（「跳完又跳回去」）。
      */
     private fun maybeAutoSkipSponsor(positionSec: Double) {
-        if (!SponsorSkipPrefs.isEnabled()) return
+        // 26.11.14 起标记与跳过解耦：只要「标记」还开着就得拉数据，否则关掉三档的人
+        // 连进度条上的条子都看不到（[SponsorSkipPrefs.needsSegments] 已含总开关判断）
+        if (!SponsorSkipPrefs.needsSegments()) {
+            // 三个开关全关了：把已经画上去的条子和三角擦掉。否则播放途中关掉它们，
+            // 旧色块会一直留在进度条上（这里只清派生出来的展示数据，原始标注 [sponsorRawSegments]
+            // 留着——重新打开开关时 applySponsorLevel 会按新签名重建，不必再发一次请求）
+            if (sponsorMarkSegments.isNotEmpty() || sponsorPoiHighlights.isNotEmpty() ||
+                sponsorDecider.segments.isNotEmpty() || sponsorAskSegments.isNotEmpty()
+            ) {
+                sponsorMarkSegments = emptyList()
+                sponsorPoiHighlights = emptyList()
+                sponsorAskSegments = emptyList()
+                sponsorDecider.applyLoaded(emptyList())
+                sponsorSavedMs = 0L
+                updateSponsorMarks()
+                refreshViewPointButton()
+                refreshProgressText()
+            }
+            return
+        }
         ensureSponsorSegments()
+        // 三档全关但标记开着：数据够画条子，没有任何段可跳
+        if (!SponsorSkipPrefs.isEnabled()) return
         if (android.os.SystemClock.elapsedRealtime() < skipQuietUntilMs) return
         // 「自动跳转」的类别：直接跳走
         if (ViewPointSkip.segmentAt(positionSec, sponsorDecider.segments) != null) {
@@ -5251,13 +5281,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private fun applySponsorLevel() {
         val autoCats = SponsorSkipPrefs.autoCategories()
         val askCats = SponsorSkipPrefs.askCategories()
+        val markCats = SponsorSkipPrefs.markCategories()
+        val marksOn = SponsorSkipPrefs.isMarksEnabled()
+        val poiOn = SponsorSkipPrefs.isPoiMarksEnabled()
         val ignored = sponsorIgnoreSet()
-        // 签名 = 自动集合 + 询问集合 + 忽略集 + 已点过的精彩时刻：任何一项变了都要重建
-        // （改档位、点「不准」、点掉一个精彩时刻都会走到这里）
+        // 签名 = 自动集合 + 询问集合 + 忽略集 + 已点过的精彩时刻 + 标记那一套（开关与类别）：
+        // 任何一项变了都要重建（改三档、点「不准」、点掉精彩时刻、改标记设置都会走到这里）
         val key = autoCats.sorted().joinToString(",") + "|" +
             askCats.sorted().joinToString(",") + "|" +
             ignored.sorted().joinToString(",") + "|" +
-            sponsorPoiSeen.sorted().joinToString(",")
+            sponsorPoiSeen.sorted().joinToString(",") + "|" +
+            marksOn + "|" + poiOn + "|" + markCats.sorted().joinToString(",")
         if (key == sponsorSegmentsKey) return
         sponsorSegmentsKey = key
         val duration = video_all / 1000.0
@@ -5276,10 +5310,23 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             ignored,
         ).filterNot { sponsorSegmentKey(it) in ignored }
         sponsorDecider.applyLoaded(segments)
-        sponsorSavedMs = SponsorSkipPolicy.savedSeconds(segments) * 1000L
-        sponsorPoiHighlights = SponsorSkipPolicy
-            .highlights(sponsorRawSegments, cid, video_all / 1000.0)
-            .filterNot { sponsorPoiKey(it) in sponsorPoiSeen }
+        // 括号算「自动跳转 + 询问我」两类的总和：两类互斥（同一个类别只有一个档位），
+        // 而「询问我」的片段点了跳过同样是省掉的时间，与条子画什么保持一致
+        sponsorSavedMs = (SponsorSkipPolicy.savedSeconds(segments) +
+            SponsorSkipPolicy.savedSeconds(sponsorAskSegments)) * 1000L
+        // 条子用的是「标记」自己的类别集合，与上面两张跳转表无关——这正是"只显示不跳"的实现
+        sponsorMarkSegments = if (marksOn) {
+            SponsorSkipPolicy.markSegments(sponsorRawSegments, markCats, cid, duration, ignored)
+        } else {
+            emptyList()
+        }
+        sponsorPoiHighlights = if (poiOn) {
+            SponsorSkipPolicy
+                .highlights(sponsorRawSegments, cid, duration)
+                .filterNot { sponsorPoiKey(it) in sponsorPoiSeen }
+        } else {
+            emptyList()
+        }
         updateSponsorMarks()
         refreshViewPointButton()
         refreshProgressText()
@@ -5307,42 +5354,45 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     /**
      * 把「这一 P 会被自动跳过的片段」标到进度条上（26.11.14）。
      *
-     * 数据源直接用 [sponsorDecider] 里**已经过全部过滤**的片段表（类别白名单 / cid / 时长版本 /
-     * 本地忽略集），所以画出来的就是「待会儿真会跳的那几段」——单独再算一遍只会两套口径对不上。
+     * 数据源是 [sponsorMarkSegments]（按**标记自己的类别集合**过滤出来、每条自带颜色），
+     * 与「跳不跳」的那两张表无关：三档全关、标记开着时，进度条上照样有条子但不跳；
+     * 反过来标记关着、三档开着时，什么也不画（条子和三角各有独立开关）。
      *
      * 片头片尾（[skipDecider]）不画：番剧的片头片尾本来就是全片都有，标上去等于给每条进度条
      * 加两条固定色块，反而看不出重点。
      */
     private fun updateSponsorMarks() {
-        val segments = sponsorDecider.segments
+        val marks = sponsorMarkSegments
         val points = sponsorPoiHighlights
-        // 这一条是"进度条上为什么什么都没有"唯一的判据：档位开着、标注也拿到了，
+        // 这一条是"进度条上为什么什么都没有"唯一的判据：三档或标记开着、标注也拿到了，
         // 但标出来的段数为 0，看一眼日志就知道是白名单没覆盖还是进度条那一层没画
         Logu.d(
             "SponsorBlock",
-            "进度条标记 段=" + segments.size + " 点=" + points.size +
+            "进度条标记 段=" + marks.size + " 点=" + points.size +
+                " 标记开=" + SponsorSkipPrefs.isMarksEnabled() +
+                " 三角开=" + SponsorSkipPrefs.isPoiMarksEnabled() +
+                " 标记类别=" + SponsorSkipPrefs.markCategories().size +
                 " max=" + (if (::seekbar_progress.isInitialized) seekbar_progress.max else -1)
         )
-        if (segments.isEmpty()) {
+        if (marks.isEmpty()) {
             seekbar_progress.clearMarks()
         } else {
-            val color = ColorScheme.WARNING
             seekbar_progress.setMarks(
-                segments.map {
+                marks.map { marked ->
                     HighEnergyProgressBar.Mark(
-                        (it.fromSec * 1000.0).toInt(),
-                        (it.toSec * 1000.0).toInt(),
-                        color,
+                        (marked.segment.fromSec * 1000.0).toInt(),
+                        (marked.segment.toSec * 1000.0).toInt(),
+                        marked.color,
                     )
                 }
             )
         }
-        // 精彩时刻用主色小三角：与警告色的"要跳走的区间"区分开——一个是"别看这里"，
-        // 一个是"这里值得看"，同色会让人以为这些点也会被自动跳掉
+        // 精彩时刻用「点」的色（亮蓝）：与条子区分开——一个是"别看这里"，一个是"这里值得看"，
+        // 同色会让人以为这些点也会被自动跳掉
         if (points.isEmpty()) {
             seekbar_progress.clearPointMarks()
         } else {
-            val pointColor = ColorScheme.PRIMARY
+            val pointColor = SponsorSkipPolicy.markColor(SponsorSkipPolicy.CAT_POI_HIGHLIGHT)
             seekbar_progress.setPointMarks(
                 points.map { HighEnergyProgressBar.PointMark((it.posSec * 1000.0).toInt(), pointColor) }
             )
@@ -7159,6 +7209,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         sponsorPoiSeen.clear()
         sponsorPoiHighlights = emptyList()
         sponsorAskSegments = emptyList()
+        sponsorMarkSegments = emptyList()
         sponsorAskedKeys.clear()
         sponsorSavedMs = 0L
         sponsorLoadCid = 0L

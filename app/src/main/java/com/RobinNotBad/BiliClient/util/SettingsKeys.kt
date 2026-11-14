@@ -311,6 +311,20 @@ object SettingsKeys {
      */
     const val PLAYER_SPONSOR_BLOCK_SKIP_MODE_MIGRATED = "player_sponsor_block_skip_mode_migrated"
     /**
+     * 进度条上画不画「待会儿要跳的片段」（琥珀色/按类别配色的条子），默认 true。
+     *
+     * 与三档**无关**：关掉它照样按三档跳，只是不画；三档全关但这里开着，条子照画（只显示不跳）。
+     */
+    const val PLAYER_SPONSOR_BLOCK_MARKS_ENABLED = "player_sponsor_block_marks_enabled"
+    /** 进度条上画不画「精彩时刻」的蓝色小三角，默认 true，与上一条各自独立。 */
+    const val PLAYER_SPONSOR_BLOCK_MARKS_POI_ENABLED = "player_sponsor_block_marks_poi_enabled"
+    /**
+     * 进度条条子要标出哪些类别，完整键是「前缀 + 类别 id」，一类别一个布尔值，默认全开。
+     *
+     * 这是「标记」自己的类别集合，不跟 `PLAYER_SPONSOR_BLOCK_SKIP_MODE_PREFIX` 联动。
+     */
+    const val PLAYER_SPONSOR_BLOCK_MARK_CAT_PREFIX = "player_sponsor_block_mark_cat_"
+    /**
      * SponsorBlock 自定义档的逐类别勾选键前缀，完整键是「前缀 + 类别 id」（如
      * `player_sponsor_block_cat_sponsor`），一类别一个布尔值。
      * 默认勾选 = 「推荐」档的五个类别；`poi_highlight` 永远不可勾（跳转点不是广告）。

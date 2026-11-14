@@ -14,6 +14,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import android.graphics.drawable.GradientDrawable
 import android.widget.ImageView
 import android.widget.RadioButton
 import android.widget.TextView
@@ -371,11 +372,19 @@ class SettingsAdapter(
         val name: TextView = itemView.findViewById(R.id.setting_list_choose_name)
         val value: TextView = itemView.findViewById(R.id.setting_list_choose_value)
         val desc: TextView = itemView.findViewById(R.id.setting_list_choose_desc)
+        val swatch: ImageView = itemView.findViewById(R.id.setting_list_choose_swatch)
 
         class ListChooseExtra(
             var displayNames: List<String>,
             var actualValues: List<String>,
-            var onSelect: ((String, String) -> Unit)? = null
+            var onSelect: ((String, String) -> Unit)? = null,
+            /**
+             * 名字左边的参考色（26.11.14）：非 0 才显示一个小色块。
+             *
+             * 用在「按类别配色」的设置行——色块就是这一项在进度条上的颜色，与
+             * `SponsorSkipPolicy.markColor()` 同一个值，改配色只要改那一处。
+             */
+            var swatchColor: Int = 0
         ) : Serializable {
             companion object {
                 private const val serialVersionUID = 1L
@@ -393,6 +402,7 @@ class SettingsAdapter(
             name.text = SettingText.resolve(itemView.context, settingSection.name)
 
             val extra = settingSection.extra as ListChooseExtra
+            bindSwatch(extra.swatchColor)
             if (extra.displayNames != null && extra.actualValues != null) {
                 val currentValue = SharedPreferencesUtil.getString(settingSection.id, settingSection.defaultValue)
                 val currentIndex = extra.actualValues.indexOf(currentValue)
@@ -414,6 +424,28 @@ class SettingsAdapter(
                     }
                 }
             }
+        }
+
+        /**
+         * 画名字左边那颗参考色方块：圆角小方，颜色就是这一项在播放页进度条上的颜色。
+         *
+         * `color == 0` 时整块 `GONE`——绝大多数 list_choose 行没有颜色概念，不能凭空多出个空位。
+         */
+        private fun bindSwatch(color: Int) {
+            if (color == 0) {
+                swatch.visibility = View.GONE
+                return
+            }
+            val size = (10 * itemView.resources.displayMetrics.density).toInt()
+            swatch.layoutParams = swatch.layoutParams.apply {
+                width = size
+                height = size
+            }
+            swatch.background = GradientDrawable().apply {
+                setColor(color)
+                cornerRadius = size / 3f
+            }
+            swatch.visibility = View.VISIBLE
         }
     }
 }

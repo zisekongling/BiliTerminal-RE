@@ -60,6 +60,17 @@ class SettingSkipActivity : RefreshListActivity() {
         }
     }
 
+    /**
+     * 每次回到本页都重建一遍：从「标记哪些类别」回来时，那一行的副标题要变成新的「已选 N 类」；
+     * 开关也可能刚在别处被改过。列表很短（十来行），重建比逐个跟踪状态便宜也更不容易漏。
+     */
+    override fun onResume() {
+        super.onResume()
+        sections.clear()
+        sections.addAll(buildSections())
+        settingsAdapter?.notifyDataSetChanged()
+    }
+
     private fun buildSections(): List<SettingSection> {
         val out = ArrayList<SettingSection>(SponsorCategoryLabels.selectable.size + 5)
 
@@ -113,10 +124,53 @@ class SettingSkipActivity : RefreshListActivity() {
                             SponsorSkipPolicy.MODE_OFF.toString(),
                             SponsorSkipPolicy.MODE_ASK.toString(),
                             SponsorSkipPolicy.MODE_AUTO.toString()
-                        )
+                        ),
+                        // 这一项在进度条上的颜色：与上面三档无关，纯粹是"这条画成什么色"
+                        SponsorSkipPolicy.markColor(category)
                     )
                 )
             }
+
+            // ---- 进度条标记：与上面的"跳不跳"完全解耦（26.11.14 用户要求）----
+            out.add(SettingSection("title", getString(R.string.player_skip_section_marks), "", "", ""))
+            out.add(
+                SettingSection(
+                    "switch",
+                    getString(R.string.player_skip_marks_body_name),
+                    SettingsKeys.PLAYER_SPONSOR_BLOCK_MARKS_ENABLED,
+                    getString(R.string.player_skip_marks_body_desc),
+                    "true"
+                )
+            )
+            out.add(
+                SettingSection(
+                    "nav",
+                    getString(R.string.player_skip_marks_cats_name),
+                    "",
+                    getString(
+                        R.string.player_skip_marks_cats_desc,
+                        SponsorSkipPrefs.markCategories().size,
+                        SponsorSkipPolicy.MODE_CATEGORIES.size
+                    ),
+                    "",
+                    SettingsAdapter.NavExtra(R.drawable.icon_menu, { view ->
+                        view.context.startActivity(
+                            Intent(view.context, SettingMarkCategoryActivity::class.java)
+                        )
+                    })
+                )
+            )
+            out.add(
+                SettingSection(
+                    "switch",
+                    getString(R.string.player_skip_marks_poi_name),
+                    SettingsKeys.PLAYER_SPONSOR_BLOCK_MARKS_POI_ENABLED,
+                    getString(R.string.player_skip_marks_poi_desc),
+                    "true"
+                )
+            )
+            out.add(SettingSection("title", getString(R.string.player_skip_marks_color_note), "", "", ""))
+
             // 「不准」记录：本地忽略表，条数是一条条攒出来的、界面上看不到明细，误按也没有
             // 单条撤销入口——所以给一个整表清空。即时生效且不可恢复，要过一道确认框。
             out.add(
@@ -154,9 +208,11 @@ class SettingSkipActivity : RefreshListActivity() {
         desc: String,
         default: String,
         displayNames: List<String>,
-        actualValues: List<String>
+        actualValues: List<String>,
+        swatchColor: Int = 0
     ) = SettingSection(
         "list_choose", name, key, desc, default,
         SettingsAdapter.ListChooseHolder.ListChooseExtra(displayNames, actualValues)
+            .apply { this.swatchColor = swatchColor }
     )
 }

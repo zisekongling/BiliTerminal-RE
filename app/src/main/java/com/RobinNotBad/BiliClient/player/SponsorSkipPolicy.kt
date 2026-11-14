@@ -339,6 +339,81 @@ object SponsorSkipPolicy {
         return out.values.toList()
     }
 
+    // ---- 进度条标记（26.11.14 起与跳过策略解耦） ----
+    //
+    // 用户 26.11.14 原话：「这个进度条标记显示单独开一个设置，别跟跳过策略绑在一起，
+    // 能只显示条子不跳、或者反过来」。所以「画不画条子 / 画哪些类别 / 画不画三角」是独立的
+    // 一套设置（见 SponsorSkipPrefs 的 isMarksEnabled / isPoiMarksEnabled / markCategories），
+    // 下面两个函数只回答「某个类别的颜色是什么」「按这套设置该画哪些区间」。
+
+    /** 兜底色：类别不在表里（上游以后新增）时用琥珀色，与 26.11.14 之前的条子同色。 */
+    private const val MARK_COLOR_FALLBACK = 0xFFFAAD14.toInt()
+
+    /**
+     * 类别 → 进度条上的颜色。
+     *
+     * 只求「相邻两类一眼能分开」，不是语义色（上游也没给配色规范）。设置页每一行的色块
+     * 与进度条上的条子用同一个值，所以两处永远一致。
+     *
+     * 为什么固定色而不是跟主题走：条子画在播放页，主题会变；标记本身是"这是哪一类"的
+     * 信息，跟着主题变色反而认不出来。
+     */
+    fun markColor(category: String): Int = when (category) {
+        CAT_SPONSOR -> 0xFFE5484D.toInt()
+        CAT_SELFPROMO -> 0xFFF76B15.toInt()
+        CAT_INTERACTION -> 0xFF8E4EC6.toInt()
+        CAT_INTRO -> 0xFF12A594.toInt()
+        CAT_OUTRO -> 0xFF0F766E.toInt()
+        CAT_PREVIEW -> 0xFFF5A524.toInt()
+        CAT_FILLER -> 0xFF6B7280.toInt()
+        CAT_MUSIC_OFFTOPIC -> 0xFF6366F1.toInt()
+        CAT_EXCLUSIVE_ACCESS -> 0xFFD6409F.toInt()
+        CAT_CHAPTER -> 0xFF3E63DD.toInt()
+        CAT_POI_HIGHLIGHT -> 0xFF0A84FF.toInt()
+        else -> MARK_COLOR_FALLBACK
+    }
+
+    /** 进度条上的一条标记（区间 + 它自己的颜色）。 */
+    data class MarkedSegment(val segment: ViewPointSkip.Segment, val category: String, val color: Int)
+
+    /**
+     * 原始标注 → 本 P 要画在进度条上的片段。
+     *
+     * 与 [buildSegments] 的区别只有一处，但正是解耦的关键：**类别集合来自「标记」设置，
+     * 而不是跳过三档**。所以「全部类别关闭 + 标记里勾着广告」= 只显示条子不跳；
+     * 「标记里一个都不勾」= 只跳不显示。
+     *
+     * 其余口径与 [buildSegments] 一致（只认 `skip`、cid、`to > from`、单段上限、换源校验），
+     * 另外多滤掉 `hidden`：上游把一条标注藏了，说明它本身就有争议，不该再画出来。
+     */
+    fun markSegments(
+        raw: List<SponsorBlockApi.RawSegment>,
+        categories: Set<String>,
+        cid: Long,
+        currentDurationSec: Double,
+        ignoredUuids: Set<String> = emptySet(),
+    ): List<MarkedSegment> {
+        if (categories.isEmpty()) return emptyList()
+        return raw.asSequence()
+            .filter { it.actionType == ACTION_SKIP }
+            .filter { !it.hidden }
+            .filter { it.category in categories }
+            .filter { it.uuid.isEmpty() || it.uuid !in ignoredUuids }
+            .filter { it.cid <= 0L || cid <= 0L || it.cid == cid }
+            .filter { it.toSec > it.fromSec }
+            .filter { it.toSec - it.fromSec <= ViewPointSkip.MAX_SEGMENT_SECONDS }
+            .filter { isSameVersion(it, currentDurationSec) }
+            .map {
+                MarkedSegment(
+                    ViewPointSkip.Segment(TYPE_SPONSOR, it.fromSec, it.toSec, it.category),
+                    it.category,
+                    markColor(it.category),
+                )
+            }
+            .sortedBy { it.segment.fromSec }
+            .toList()
+    }
+
     /**
      * 这批片段一共会省掉多少秒（四舍五入到整秒），0 表示"没有可跳的东西"。
      *

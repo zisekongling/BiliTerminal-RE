@@ -864,8 +864,9 @@ class VideoInfoFragment : BaseFragment() {
     /**
      * 查一次这条视频的广告标注，给标题前补「广告」/「含广告」胶囊。
      *
-     * 只在用户开着自动跳过（[SponsorSkipPrefs.isEnabled]）时才请求：这个胶囊是跳过功能的
-     * 延伸，关掉它的人不该因为打开详情页就被发一次第三方请求。
+     * 只在用户还想要这个功能时才请求（[SponsorSkipPrefs.needsSegments]：三档、条子、三角
+     * 任一项开着）。26.11.14 起标记与跳过解耦，所以判据从「开着自动跳过」放宽成「还开着
+     * 任何一项」——只显示条子不跳的人，详情页也该看到这颗胶囊。
      *
      * 失败、没标注、上游返回空——一律静默：详情页的首要任务是让人读到简介，不该为一个
      * 装饰性标记弹错。
@@ -877,7 +878,7 @@ class VideoInfoFragment : BaseFragment() {
         val info = videoInfo ?: return
         val bvidOfVideo = info.bvid ?: ""
         if (bvidOfVideo.isEmpty()) return
-        if (!SponsorSkipPrefs.isEnabled()) return
+        if (!SponsorSkipPrefs.needsSegments()) return
         CenterThreadPool.run {
             val badge = try {
                 SponsorSkipPolicy.adBadge(SponsorBlockApi.fetchSegments(bvidOfVideo), 0L, 0.0)

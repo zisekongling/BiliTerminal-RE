@@ -337,6 +337,11 @@
             android:label="@string/player_skip_page_name"
             android:screenOrientation="locked" />
         <activity
+            android:name=".activity.settings.SettingMarkCategoryActivity"
+            android:exported="false"
+            android:label="@string/player_mark_page_name"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.settings.UIPreviewActivity"
             android:exported="false"
             android:label="@string/label_activity_no_18"

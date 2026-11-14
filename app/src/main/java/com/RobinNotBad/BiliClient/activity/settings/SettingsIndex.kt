@@ -530,12 +530,14 @@ object SettingsIndex {
             text(R.string.setting_player_ui_show_battery),
             text(R.string.setting_player_ui_show_clock)
         ))
-        // 「跳过设置」二级页（26.11.14）：片头片尾 + 广告片段逐类别三档 + 「不准」记录。
+        // 「跳过设置」二级页（26.11.14）：片头片尾 + 广告片段逐类别三档 + 进度条标记 + 「不准」记录。
         // 名字必须与页内 SettingSection.name 严格一致（类别名直接取 SponsorCategoryLabels）。
-        val skipLeaves = ArrayList<String>(14)
+        val skipLeaves = ArrayList<String>(18)
         skipLeaves.add(text(R.string.player_skip_page_name))
         skipLeaves.add(text(R.string.player_s_skip_mode_name))
         skipLeaves.add(text(R.string.player_sb_clear_ignored_name))
+        skipLeaves.add(text(R.string.player_skip_marks_body_name))
+        skipLeaves.add(text(R.string.player_skip_marks_poi_name))
         for (category in SponsorCategoryLabels.selectable) {
             skipLeaves.add(text(SponsorCategoryLabels.nameRes(category)))
         }
@@ -544,6 +546,22 @@ object SettingsIndex {
             text(R.string.player_skip_page_name),
             text(R.string.player_skip_page_desc)
         ) { a -> a.startActivity(Intent(a, SettingSkipActivity::class.java)) }
+        // 「标记哪些类别」：进度条条子的独立勾选页（与三档无关），从「跳过设置」进去。
+        val markLeaves = ArrayList<String>(11)
+        markLeaves.add(text(R.string.player_mark_page_name))
+        for (category in SponsorCategoryLabels.selectable) {
+            markLeaves.add(text(SponsorCategoryLabels.nameRes(category)))
+        }
+        addLeafItems(
+            list,
+            text(R.string.player_mark_page_name),
+            SettingMarkCategoryActivity::class.java,
+            markLeaves
+        )
+        list += Entry(
+            text(R.string.player_mark_page_name),
+            text(R.string.player_skip_marks_cats_name)
+        ) { a -> a.startActivity(Intent(a, SettingMarkCategoryActivity::class.java)) }
         // 注：原来「显示旋转/弹幕/清晰度/分P/锁定按钮」五个开关已在 26.11.06 删除，
         // 按钮显不显示改由「播放界面布局」决定（放没放进槽位就是开关），所以这里不再收录。
 
