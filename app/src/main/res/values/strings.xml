@@ -30,7 +30,7 @@
     <string name="desc_setting_ui_density">最低72，建议每次仅进行轻微调节，调节后请预览页面，确认显示正常后完成修改，打开新页面后将会生效。\n若乱调此选项，导致应用无法正常使用的，请清除应用数据或卸载重装！\n注：此选项可能有其他问题，没有必要请不要修改。</string>
     <string name="desc_setting_ui_round">开启选项后，页面将会修改为圆屏布局。\n由于纯靠代码实现，有部分页面可能未适配，但这是目前最好且工作量最小的办法了。</string>
     <string name="setting_topbar_island">顶栏灵动岛</string>
-    <string name="desc_setting_topbar_island">把顶栏的时钟位改成信息岛：轮流显示播放中 / 下载中 / 未读 / 电量 / 新公告，什么都没发生时显示时间。\n与「圆屏适配」是两个独立开关，方屏和圆屏都能用；顶栏放不下时不会硬撑，退回原来的时钟宽度。</string>
+    <string name="desc_setting_topbar_island">把顶栏的时钟位改成信息岛：播放 / 下载时常驻显示，新未读与新公告短暂弹出约 5 秒，平时显示时间（电量并排在右侧）。\n与「圆屏适配」是两个独立开关，方屏和圆屏都能用；宽度全局固定，不随页面和状态变化。</string>
     <string name="setting_topbar_height">顶栏高度</string>
     <string name="desc_setting_topbar_height">单位 dp，0 为跟随内容（默认，与改动前完全一致）。\n调大后顶栏变高，顶栏的点击 / 长按 / 双击范围也一起变大；内容不够高时补空白，不会压扁标题。\n圆屏模式下只向下补空白（时钟在上、标题在下那套排版不动）；播放器页与短视频页自带顶栏，不接这个设置。</string>
     <string name="desc_setting_color_mode">7 套主题都有暗色与亮色两个版本。亮色适合白天和室外强光；播放器始终保持暗色。</string>
@@ -3022,6 +3022,27 @@
     <string name="island_charging">充电</string>
     <string name="island_announcement">公告</string>
     <string name="island_update">更新</string>
+    <!-- 「外观 → 灵动岛设置」二级页（26.11.14） -->
+    <string name="island_setting_entrance_desc">常驻状态、未读短播、轮换间隔与电量显示</string>
+    <string name="island_setting_section_switch">总开关</string>
+    <string name="island_setting_section_filter">显示哪些信息</string>
+    <string name="island_setting_section_rotate">轮换间隔</string>
+    <string name="island_setting_playing">播放状态</string>
+    <string name="island_setting_playing_desc">有音频在后台播放时一直显示「播放中」，图标随节奏呼吸</string>
+    <string name="island_setting_downloading">下载进度</string>
+    <string name="island_setting_downloading_desc">下载时显示百分比；播放与下载同时进行时，下载图标挂在右侧</string>
+    <string name="island_setting_unread">未读消息</string>
+    <string name="island_setting_unread_desc">收到新消息时短暂弹出未读数（约 5 秒），之后自动恢复；不会一直占着</string>
+    <string name="island_setting_battery">电量</string>
+    <string name="island_setting_battery_desc">显示时间时在右侧并排电量图标；低电变红、充电变闪电</string>
+    <string name="island_setting_announcement">公告与更新</string>
+    <string name="island_setting_announcement_desc">有新公告或新版本时短暂弹出（约 5 秒），之后自动恢复</string>
+    <string name="island_setting_rotate_name">轮换间隔</string>
+    <string name="island_setting_rotate_desc">常驻状态与时间交替显示的间隔；选「不轮换」则一直显示事件</string>
+    <string name="island_setting_rotate_off">不轮换</string>
+    <string name="island_setting_rotate_3s">3 秒</string>
+    <string name="island_setting_rotate_5s">5 秒</string>
+    <string name="island_setting_rotate_10s">10 秒</string>
     <!-- 专栏（cv）正文：两条失败文案必须分开。
          「被风控拦截」是临时的，稍后重试有意义；「没有正文」是文章本身如此，重试也没用。 -->
     <string name="msg_opus_article_blocked">正文加载失败，可能被风控拦截，请稍后重试</string>

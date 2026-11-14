@@ -191,12 +191,44 @@ object SettingsIndex {
             text(R.string.section_ui_round),
             text(R.string.settingtext_settingsindex_012)
         ) { a -> openGroup(a, "layout", groupLayout, text(R.string.section_ui_round)) }
-        // 顶栏灵动岛：26.11.08 曾暂时关闭并隐藏入口，26.11.09 已恢复（IslandPolicy.FEATURE_ENABLED = true）。
+        // 沉浸式全屏（26.11.14）：highlight 按 SettingSection.name 逐字定位，这里的 name 必须与
+        // 「布局适配」分组里那一行的 name（同一个 string 资源）完全一致。
+        list += Entry(
+            text(R.string.setting_immersive_fullscreen),
+            text(R.string.desc_setting_immersive_fullscreen)
+        ) { a -> openGroup(a, "layout", groupLayout, text(R.string.setting_immersive_fullscreen)) }
+        // 顶栏灵动岛：26.11.08 曾暂时关闭并隐藏入口，26.11.09 恢复。
+        // 26.11.14 起设置项搬到「外观 → 灵动岛设置」，索引这里同步指过去（含 5 个筛选开关与轮换间隔）。
         if (IslandPolicy.FEATURE_ENABLED) {
+            val islandTitle = text(R.string.setting_topbar_island)
             list += Entry(
-                text(R.string.setting_topbar_island),
-                text(R.string.desc_setting_topbar_island)
-            ) { a -> openGroup(a, "layout", groupLayout, text(R.string.setting_topbar_island)) }
+                islandTitle,
+                text(R.string.island_setting_entrance_desc)
+            ) { a -> openGroup(a, GROUP_ISLAND, islandTitle) }
+            list += Entry(
+                text(R.string.island_setting_playing),
+                text(R.string.island_setting_playing_desc)
+            ) { a -> openGroup(a, GROUP_ISLAND, islandTitle, text(R.string.island_setting_playing)) }
+            list += Entry(
+                text(R.string.island_setting_downloading),
+                text(R.string.island_setting_downloading_desc)
+            ) { a -> openGroup(a, GROUP_ISLAND, islandTitle, text(R.string.island_setting_downloading)) }
+            list += Entry(
+                text(R.string.island_setting_unread),
+                text(R.string.island_setting_unread_desc)
+            ) { a -> openGroup(a, GROUP_ISLAND, islandTitle, text(R.string.island_setting_unread)) }
+            list += Entry(
+                text(R.string.island_setting_battery),
+                text(R.string.island_setting_battery_desc)
+            ) { a -> openGroup(a, GROUP_ISLAND, islandTitle, text(R.string.island_setting_battery)) }
+            list += Entry(
+                text(R.string.island_setting_announcement),
+                text(R.string.island_setting_announcement_desc)
+            ) { a -> openGroup(a, GROUP_ISLAND, islandTitle, text(R.string.island_setting_announcement)) }
+            list += Entry(
+                text(R.string.island_setting_rotate_name),
+                text(R.string.island_setting_rotate_desc)
+            ) { a -> openGroup(a, GROUP_ISLAND, islandTitle, text(R.string.island_setting_rotate_name)) }
         }
         list += Entry(
             text(R.string.setting_topbar_height),

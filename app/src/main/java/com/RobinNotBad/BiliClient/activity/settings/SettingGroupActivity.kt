@@ -31,6 +31,7 @@ import com.RobinNotBad.BiliClient.ui.widget.TopbarHeightPolicy
 import com.RobinNotBad.BiliClient.ui.appearance.CornerStyle
 import com.RobinNotBad.BiliClient.ui.appearance.FontStyle
 import com.RobinNotBad.BiliClient.ui.appearance.GlassStyle
+import com.RobinNotBad.BiliClient.ui.appearance.ImmersiveMode
 import com.RobinNotBad.BiliClient.util.Aria2Util
 import com.RobinNotBad.BiliClient.util.BetaUpdate
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -53,6 +54,14 @@ import com.RobinNotBad.BiliClient.util.VirtualCollectionPrefs
 
 /** 「外观设置」分组的 group_type 取值。`SettingsIndex` 里跳转该分组时也用这个常量。 */
 const val GROUP_APPEARANCE = "appearance"
+
+/**
+ * 「灵动岛设置」分组的 group_type 取值（26.11.14）。
+ *
+ * <p>用户要求 5 个信息筛选开关 + 轮换间隔收进一个独立分区，并且老的总开关
+ * `TOPBAR_ISLAND` 也搬进来——**同一设置项只挂一处**，所以它不再出现在「布局适配」页。
+ */
+const val GROUP_ISLAND = "island"
 
 /**
  * 「反馈与统计」分组的 group_type 取值。`SettingsIndex` 里跳转该分组时也用这个常量。
@@ -174,6 +183,7 @@ class SettingGroupActivity : RefreshListActivity() {
             "ui" -> buildUIGroup()
             "layout" -> buildLayoutGroup()
             GROUP_APPEARANCE -> buildAppearanceGroup()
+            GROUP_ISLAND -> buildIslandGroup()
             GROUP_NOTIFY -> buildNotifyGroup()
             GROUP_DISGUISE -> buildDisguiseGroup()
             GROUP_FEEDBACK -> buildFeedbackGroup()
@@ -330,14 +340,27 @@ class SettingGroupActivity : RefreshListActivity() {
             SharedPreferencesUtil.putFloat(SettingsKeys.DPI, 1.0f)
             SharedPreferencesUtil.putInt(SettingsKeys.DENSITY, -1)
             SharedPreferencesUtil.putBoolean(SettingsKeys.UI_ROUND, false)
-            SharedPreferencesUtil.putBoolean(SettingsKeys.TOPBAR_ISLAND, false)
+            // 灵动岛已迁到「外观 → 灵动岛设置」，这个按钮不再顺手把它关掉。
             SharedPreferencesUtil.putInt(SettingsKeys.TOPBAR_HEIGHT, TopbarHeightPolicy.DEFAULT_DP)
+            SharedPreferencesUtil.putBoolean(SettingsKeys.UI_IMMERSIVE_FULLSCREEN, true)
             refresh()
+            ImmersiveMode.apply(this)
             MsgUtil.showMsg(getString(R.string.msg_settinggroupactivity_002))
         }
         button("查看预览") {
             startActivity(Intent(this, UIPreviewActivity::class.java))
         }
+
+        // 沉浸式全屏（26.11.14）：隐藏状态栏与导航栏。默认开（用户拍板「所有页面都隐藏」），
+        // 关掉即恢复「导航栏可见」的旧行为。手表上导航栏是主要返回手段，全屏后边缘手势可能要多划
+        // 一次，这个开关就是那条回退路径；改完立即作用到当前这页（存取由 SettingsAdapter 负责，
+        // 这里只做联动）。
+        switch(
+            getString(R.string.setting_immersive_fullscreen),
+            getString(R.string.desc_setting_immersive_fullscreen),
+            SettingsKeys.UI_IMMERSIVE_FULLSCREEN,
+            true
+        ) { ImmersiveMode.apply(this) }
 
         switch("圆屏适配", getString(R.string.desc_setting_ui_round), SettingsKeys.UI_ROUND, false) { isChecked ->
             SharedPreferencesUtil.putInt(SettingsKeys.PADDING_H, if (isChecked) 5 else 0)
@@ -345,15 +368,9 @@ class SettingGroupActivity : RefreshListActivity() {
             refresh()
             if (isChecked) MsgUtil.showMsg(getString(R.string.msg_settinggroupactivity_003))
         }
-        // 顶栏灵动岛：26.11.08 曾暂时关闭并隐藏入口，26.11.09 已恢复（IslandPolicy.FEATURE_ENABLED = true）。
-        if (IslandPolicy.FEATURE_ENABLED) {
-            switch(
-                getString(R.string.setting_topbar_island),
-                getString(R.string.desc_setting_topbar_island),
-                SettingsKeys.TOPBAR_ISLAND,
-                false
-            )
-        }
+        // 顶栏灵动岛（26.11.08 曾暂时关闭并隐藏入口，26.11.09 恢复）：
+        // 26.11.14 起连同 5 个筛选开关、轮换间隔一起搬进「外观 → 灵动岛设置」，
+        // 这里不再挂第二份（同一设置项两处各挂一份会互相覆盖）。
         // 顶栏高度（26.11.11）：最小高度语义，0 = 跟随内容（默认，与改动前一致）。
         // 手势都装在整条 top 上，所以可点范围会跟着高度一起变；播放器页 / 短视频页自带顶栏，不接。
         input(
@@ -558,6 +575,85 @@ class SettingGroupActivity : RefreshListActivity() {
             // SettingsAdapter 是先写 prefs 再回调，所以这里读到的已经是新值
             PageMotion.apply(this)
         }
+
+        // 「灵动岛设置」入口（26.11.14）：总开关 + 5 个信息筛选开关 + 轮换间隔独立成一屏。
+        // 老的总开关原在「布局适配」页，已整体搬过来，两处不再各挂一份。
+        if (IslandPolicy.FEATURE_ENABLED) {
+            title(getString(R.string.setting_topbar_island))
+            nav(
+                R.drawable.icon_announcement,
+                getString(R.string.setting_topbar_island),
+                getString(R.string.island_setting_entrance_desc)
+            ) {
+                startActivity(Intent(this, SettingGroupActivity::class.java).apply {
+                    putExtra("group_type", GROUP_ISLAND)
+                    putExtra("group_title", getString(R.string.setting_topbar_island))
+                })
+            }
+        }
+    }
+
+    /**
+     * 「灵动岛设置」二级页（26.11.14，入口在「外观设置」页末尾）。
+     *
+     * 三层优先级由 `IslandPolicy` 管：播放/下载常驻，未读/公告/低电短播，平时时间 + 电量并排。
+     * 这里只管「显示哪几类」与「轮换多少秒」，状态机规则一律不进设置页。
+     */
+    private fun buildIslandGroup() {
+        title(getString(R.string.island_setting_section_switch))
+        switch(
+            getString(R.string.setting_topbar_island),
+            getString(R.string.desc_setting_topbar_island),
+            SettingsKeys.TOPBAR_ISLAND,
+            false
+        )
+
+        title(getString(R.string.island_setting_section_filter))
+        switch(
+            getString(R.string.island_setting_playing),
+            getString(R.string.island_setting_playing_desc),
+            SettingsKeys.ISLAND_PLAYING,
+            true
+        )
+        switch(
+            getString(R.string.island_setting_downloading),
+            getString(R.string.island_setting_downloading_desc),
+            SettingsKeys.ISLAND_DOWNLOADING,
+            true
+        )
+        switch(
+            getString(R.string.island_setting_unread),
+            getString(R.string.island_setting_unread_desc),
+            SettingsKeys.ISLAND_UNREAD,
+            true
+        )
+        switch(
+            getString(R.string.island_setting_battery),
+            getString(R.string.island_setting_battery_desc),
+            SettingsKeys.ISLAND_BATTERY,
+            true
+        )
+        switch(
+            getString(R.string.island_setting_announcement),
+            getString(R.string.island_setting_announcement_desc),
+            SettingsKeys.ISLAND_ANNOUNCEMENT,
+            true
+        )
+
+        title(getString(R.string.island_setting_section_rotate))
+        listChoose(
+            getString(R.string.island_setting_rotate_name),
+            getString(R.string.island_setting_rotate_desc),
+            SettingsKeys.ISLAND_ROTATE,
+            IslandPolicy.ROTATE_DEFAULT_MS.toString(),
+            listOf(
+                getString(R.string.island_setting_rotate_off),
+                getString(R.string.island_setting_rotate_3s),
+                getString(R.string.island_setting_rotate_5s),
+                getString(R.string.island_setting_rotate_10s)
+            ),
+            IslandPolicy.ROTATE_OPTIONS_MS.map { it.toString() }
+        )
     }
 
     /** 打开文件管理器挑选字体文件。 */
