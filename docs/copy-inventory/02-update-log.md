@@ -21,7 +21,7 @@
 | 载体 | 实现 | 用户看到的样子 |
 | --- | --- | --- |
 | 关于页「本次更新」区块 | `activity/settings/AboutActivity.kt:78-86` | 把 `update_log_current` 全部条目用 `\n` 拼成一大段，塞进一个可长按复制的 TextView；上面标题是「本次更新 (版本名)」 |
-| 更新日志页（历史） | `activity/settings/UpdateHistoryActivity.kt` | 顶部一排**版本号选项卡**（`26.10.16`、`26.10.14`…），下面渲染「Re：哔哩终端 26.10.16」+ 该版本所有行。**没有预览、没有分页，一屏滚动** |
+| 更新日志页（历史） | `activity/settings/UpdateHistoryActivity.kt` | 顶部一排**版本号选项卡**（`26.10.16`、`26.10.14`…），下面渲染「RE 26.10.16」+ 该版本所有行。**没有预览、没有分页，一屏滚动** |
 | 检查更新页 | `activity/settings/UpdateActivity.kt` + `res/layout/activity_update.xml` | 标题「发现新版本」、版本行、新版本说明卡片、底部两个按钮；下载时换成进度条 + 取消/重试 |
 | 强制更新 | `BiliTerminal.kt:404-420` 拦截所有 Activity | 任何页面被强行拉起检查更新页，且底部按钮变成「退出应用」 |
 | 启动时的更新提示 | `BiliTerminal.kt:507-565`（检查更新）、`AppInfoApi.java:84-94` | 非强制更新**自动跳到更新页**「发现新版本 X」（26.10.25 起；页面拉不起来才退回 Toast）；升级后启动还会顺手删掉旧安装包 |
@@ -172,14 +172,14 @@
 
 ### L-014 版本标题行前缀
 
-- **位置**：`app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/UpdateHistoryActivity.kt:189`（`text = "Re：哔哩终端 " + entry.version`，**硬编码**）
-- **出现在哪**：更新日志页每个版本正文的第一行（加粗 14sp），如「Re：哔哩终端 26.10.16」
-- **用途**：把版本号和品牌绑在一起。**这里跟 `R.string.app_name`（「RE：哔哩终端」）的写法不一致：这里用「Re：」，应用名用「RE：」**
+- **位置**：`app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/UpdateHistoryActivity.kt:195`（`text = "RE " + entry.version`，**硬编码**）
+- **出现在哪**：更新日志页每个版本正文的第一行（加粗 14sp），如「RE 26.10.16」
+- **用途**：把版本号和品牌绑在一起。品牌只用全大写缩写「RE」，不再带「：哔哩终端」后缀
 - **原文**：
 
-> Re：哔哩终端
+> RE
 
-- **改写**：Re：哔哩终端
+- **改写**：RE
 
 ### L-015 空态文案
 
