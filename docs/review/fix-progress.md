@@ -523,6 +523,7 @@
 - [ ] **评论带图 12066**：`img_size` 小数截断是已确证的确定性缺陷，但**与 12066 的因果关系未建立**。
   - 12066 在本地快照与上游 collector 均无文档（`bilibili-API/docs/comment/action.md` 错误码表只到 12001-12052）。
   - 验证方法：真机在 `ReplyApi.sendReply` 失败分支打印**完整响应体**取回 `message` 原文。§二十九(第二处) / §36.5
+  - **26.11.14 用户定案（楼中楼图片入口）：保持现状、不改代码。** 复核依据：`activity/reply/WriteReplyActivity.kt` 用 `rpid == 0` 判定图片入口显隐，楼中楼分支走 `GONE`，这是 `e9cd46ac`（26.11.06）有意为之；上游 RE:BiliTerminal 同样只按一级评论放行；`docs/review/compare-with-re-biliterminal-261024.md:563` 记「服务端不收楼中楼 `pictures`」但**从未实测**。以后「楼中楼写评论发不了图」按已知设计处理，别再当新 bug 重查；若哪天官方客户端放出该入口，改动点只有三处（`WriteReplyActivity` 的可见性判断、`activity_write_reply.xml` 里 `image`/`imageText` 的默认可见性、`docs/FEATURES.md` 的口径）。
 - [ ] **笔记「无法正常加载」根因未确证**：已排除 csrf、`note_id_str` 精度设计、UI 层。
   - 仍存假设：H1「服务端按 `num` 解析 17 位 `note_id` 丢精度 → 79502」、H2「空 `csrf` 被当参数错误」。**头等未验证项**。
   - 验证方法：同一 id 分别按字符串 / 按 num 各发一次对比。§29.1 / §29.5 / §36.5
