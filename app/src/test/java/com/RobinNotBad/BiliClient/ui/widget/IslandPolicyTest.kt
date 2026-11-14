@@ -3,17 +3,18 @@ package com.RobinNotBad.BiliClient.ui.widget
 import com.RobinNotBad.BiliClient.util.IslandState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 顶栏灵动岛状态机（26.11.07）。
+ * 顶栏灵动岛状态机（26.11.14 三层优先级改版）。
  *
- * 锁住用户拍板的四条口径：
- * 1. 优先级：瞬时事件 > 播放 > 下载 > 未读 > 时间；
- * 2. 持续事件每 30 秒让 5 秒给时间，然后回到事件；
- * 3. 没有事件时一直显示时间；
- * 4. 瞬时事件可以打断时间插播，结束后由状态源自己撤掉。
+ * 锁住用户拍板的口径：
+ * 1. 瞬时事件（低电 / 充电 / 公告 / 更新 / 新未读）短播 5 秒，不参与轮换；
+ * 2. 常驻事件（播放 > 下载）默认一直显示，开了轮换间隔才对称地让位给「时间 + 电量」；
+ * 3. 基础状态兜底显示时间，电量并排而不是互相轮换；
+ * 4. 5 个分类开关只影响「显示」，不影响采集。
  */
 class IslandPolicyTest {
 
@@ -21,118 +22,197 @@ class IslandPolicyTest {
         now: Long,
         playing: Boolean = false,
         downloading: Boolean = false,
-        unread: Int = 0,
+        unreadBurst: Boolean = false,
         burst: IslandState? = null,
-        showTime: Boolean = false,
-        start: Long = 0L
-    ) = IslandInput(now, playing, downloading, unread, burst, showTime, start)
+        filters: IslandFilters = IslandFilters(),
+        showBase: Boolean = false,
+        start: Long = 0L,
+        rotateMs: Long = 0L
+    ) = IslandInput(now, playing, downloading, unreadBurst, burst, filters, showBase, start, rotateMs)
 
     @Test
-    fun idleShowsTime() {
+    fun idleShowsBaseTime() {
         val d = IslandPolicy.decide(input(1_000L))
         assertEquals(IslandState.TIME, d.state)
-        assertFalse(d.showTime)
+        assertFalse(d.showBase)
     }
 
     @Test
-    fun playingWinsOverDownloadAndUnread() {
+    fun playingIsTheTopOngoingEvent() {
+        assertEquals(IslandState.PLAYING, IslandPolicy.ongoingState(playing = true, downloading = true))
+        assertEquals(IslandState.DOWNLOADING, IslandPolicy.ongoingState(playing = false, downloading = true))
+        assertNull(IslandPolicy.ongoingState(playing = false, downloading = false))
+    }
+
+    @Test
+    fun unreadIsNoLongerAnOngoingEvent() {
+        // 未读改成「增加时短播」，不再常驻占着胶囊：没有播放/下载时就是时间。
+        val d = IslandPolicy.decide(input(1_000L, unreadBurst = false))
+        assertEquals(IslandState.TIME, d.state)
+    }
+
+    @Test
+    fun noRotationKeepsTheEventForever() {
+        // 默认「不轮换」：播放中一分钟、一小时都还是播放中，不会自己跳回时间。
+        assertEquals(IslandState.PLAYING, IslandPolicy.decide(input(60_000L, playing = true)).state)
         assertEquals(
             IslandState.PLAYING,
-            IslandPolicy.ongoingState(playing = true, downloading = true, unread = 5)
+            IslandPolicy.decide(input(3_600_000L, playing = true)).state
         )
     }
 
     @Test
-    fun downloadWinsOverUnread() {
-        assertEquals(
-            IslandState.DOWNLOADING,
-            IslandPolicy.ongoingState(playing = false, downloading = true, unread = 5)
+    fun rotationIsSymmetric() {
+        // 3 秒轮换：事件 3 秒 → 时间 3 秒 → 事件 3 秒……
+        val inEvent = IslandPolicy.decide(input(2_999L, playing = true, rotateMs = 3_000L))
+        assertEquals(IslandState.PLAYING, inEvent.state)
+        assertFalse(inEvent.showBase)
+
+        val toBase = IslandPolicy.decide(input(3_000L, playing = true, rotateMs = 3_000L))
+        assertEquals(IslandState.TIME, toBase.state)
+        assertTrue(toBase.showBase)
+        assertEquals(3_000L, toBase.phaseStartMs)
+
+        val stillBase = IslandPolicy.decide(
+            input(5_999L, playing = true, rotateMs = 3_000L, showBase = true, start = 3_000L)
         )
+        assertEquals(IslandState.TIME, stillBase.state)
+        assertTrue(stillBase.showBase)
+
+        val backToEvent = IslandPolicy.decide(
+            input(6_000L, playing = true, rotateMs = 3_000L, showBase = true, start = 3_000L)
+        )
+        assertEquals(IslandState.PLAYING, backToEvent.state)
+        assertFalse(backToEvent.showBase)
+        assertEquals(6_000L, backToEvent.phaseStartMs)
     }
 
     @Test
-    fun unreadIsTheLowestOngoingEvent() {
-        assertEquals(
-            IslandState.UNREAD,
-            IslandPolicy.ongoingState(playing = false, downloading = false, unread = 1)
+    fun unreadBurstInterruptsNothingButBriefly() {
+        // 「不轮换 + 未读短播 + 播放中」：短播期间压过播放，短播结束后立刻回到播放。
+        val duringBurst = IslandPolicy.decide(
+            input(1_000L, playing = true, unreadBurst = true, rotateMs = 0L)
         )
+        assertEquals(IslandState.UNREAD, duringBurst.state)
+
+        val afterBurst = IslandPolicy.decide(
+            input(6_000L, playing = true, unreadBurst = false, rotateMs = 0L)
+        )
+        assertEquals(IslandState.PLAYING, afterBurst.state)
     }
 
     @Test
-    fun eventShowsForThirtySecondsThenTimeForFive() {
-        val at29 = IslandPolicy.decide(input(29_999L, playing = true))
-        assertEquals(IslandState.PLAYING, at29.state)
-        assertFalse(at29.showTime)
-
-        val at30 = IslandPolicy.decide(input(30_000L, playing = true))
-        assertEquals(IslandState.TIME, at30.state)
-        assertTrue(at30.showTime)
-        assertEquals(30_000L, at30.phaseStartMs)
-    }
-
-    @Test
-    fun timeSliceEndsAfterFiveSeconds() {
-        val inSlice = IslandPolicy.decide(
-            input(34_999L, playing = true, showTime = true, start = 30_000L)
-        )
-        assertEquals(IslandState.TIME, inSlice.state)
-        assertTrue(inSlice.showTime)
-
-        val afterSlice = IslandPolicy.decide(
-            input(35_000L, playing = true, showTime = true, start = 30_000L)
-        )
-        assertEquals(IslandState.PLAYING, afterSlice.state)
-        assertFalse(afterSlice.showTime)
-        assertEquals(35_000L, afterSlice.phaseStartMs)
-    }
-
-    @Test
-    fun burstPreemptsOngoingEvent() {
+    fun unreadBurstDoesNotResetTheRotationPhase() {
+        // 短播只是插播：不该把常驻事件的轮换窗口清零。
         val d = IslandPolicy.decide(
-            input(1_000L, playing = true, burst = IslandState.BATTERY)
+            input(
+                4_000L,
+                playing = true,
+                unreadBurst = true,
+                showBase = false,
+                start = 1_000L,
+                rotateMs = 3_000L
+            )
         )
-        assertEquals(IslandState.BATTERY, d.state)
-        assertFalse(d.showTime)
+        assertEquals(IslandState.UNREAD, d.state)
+        assertEquals(1_000L, d.phaseStartMs)
     }
 
     @Test
-    fun burstCanInterruptTimeSlice() {
+    fun burstPreemptsEverything() {
+        val d = IslandPolicy.decide(input(1_000L, playing = true, burst = IslandState.BATTERY))
+        assertEquals(IslandState.BATTERY, d.state)
+        assertFalse(d.showBase)
+    }
+
+    @Test
+    fun burstCanInterruptTheBaseWindow() {
         val d = IslandPolicy.decide(
             input(
                 1_000L,
                 playing = true,
                 burst = IslandState.ANNOUNCEMENT,
-                showTime = true,
-                start = 0L
+                showBase = true,
+                start = 0L,
+                rotateMs = 3_000L
             )
         )
         assertEquals(IslandState.ANNOUNCEMENT, d.state)
-        assertTrue(d.showTime)
+        assertTrue(d.showBase)
     }
 
     @Test
-    fun everythingStopsBackToTime() {
-        val d = IslandPolicy.decide(input(100_000L))
-        assertEquals(IslandState.TIME, d.state)
-        assertFalse(d.showTime)
-    }
-
-    @Test
-    fun zeroUnreadDoesNotCountAsEvent() {
-        assertEquals(
-            null,
-            IslandPolicy.ongoingState(playing = false, downloading = false, unread = 0)
-        )
-    }
-
-    @Test
-    fun timeSliceUsesStoredPhaseStartNotCurrentTime() {
-        // 状态机只认调用方存回来的起点：即使 now 很大，只要还在 5 秒窗口内就继续显示时间。
+    fun batteryFilterSilencesTheBatteryBurst() {
         val d = IslandPolicy.decide(
-            input(103_000L, unread = 2, showTime = true, start = 100_000L)
+            input(
+                1_000L,
+                playing = true,
+                burst = IslandState.BATTERY,
+                filters = IslandFilters(battery = false)
+            )
+        )
+        assertEquals(IslandState.PLAYING, d.state)
+    }
+
+    @Test
+    fun unreadFilterSilencesTheUnreadBurst() {
+        val d = IslandPolicy.decide(
+            input(
+                1_000L,
+                unreadBurst = true,
+                filters = IslandFilters(unread = false)
+            )
         )
         assertEquals(IslandState.TIME, d.state)
-        assertTrue(d.showTime)
+    }
+
+    @Test
+    fun announcementFilterSilencesTheAnnouncementBurst() {
+        val d = IslandPolicy.decide(
+            input(
+                1_000L,
+                burst = IslandState.ANNOUNCEMENT,
+                filters = IslandFilters(announcement = false)
+            )
+        )
+        assertEquals(IslandState.TIME, d.state)
+    }
+
+    @Test
+    fun playingFilterFallsBackToDownloading() {
+        val d = IslandPolicy.decide(
+            input(
+                1_000L,
+                playing = true,
+                downloading = true,
+                filters = IslandFilters(playing = false)
+            )
+        )
+        assertEquals(IslandState.DOWNLOADING, d.state)
+    }
+
+    @Test
+    fun allOngoingFiltersOffShowsTime() {
+        val d = IslandPolicy.decide(
+            input(
+                1_000L,
+                playing = true,
+                downloading = true,
+                filters = IslandFilters(playing = false, downloading = false)
+            )
+        )
+        assertEquals(IslandState.TIME, d.state)
+    }
+
+    @Test
+    fun rotateMsOfAcceptsOnlyOfferedValues() {
+        assertEquals(0L, IslandPolicy.rotateMsOf(null))
+        assertEquals(0L, IslandPolicy.rotateMsOf(""))
+        assertEquals(0L, IslandPolicy.rotateMsOf("abc"))
+        assertEquals(0L, IslandPolicy.rotateMsOf("7000"))
+        assertEquals(3_000L, IslandPolicy.rotateMsOf("3000"))
+        assertEquals(5_000L, IslandPolicy.rotateMsOf(" 5000 "))
+        assertEquals(10_000L, IslandPolicy.rotateMsOf("10000"))
     }
 
     @Test

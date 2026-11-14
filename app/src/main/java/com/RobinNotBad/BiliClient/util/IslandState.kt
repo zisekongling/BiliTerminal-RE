@@ -16,13 +16,13 @@ enum class IslandState {
     /** 下载中，显示总进度百分比。 */
     DOWNLOADING,
 
-    /** 有未读消息。 */
+    /** 有未读消息。26.11.14 起只作「收到新消息」的短播，不再常驻。 */
     UNREAD,
 
-    /** 低电量 / 充电（瞬时事件，10 秒后自动让位）。 */
+    /** 低电量 / 充电（瞬时事件，5 秒后自动让位）。 */
     BATTERY,
 
-    /** 新公告 / 新版本（瞬时事件，10 秒后自动让位）。 */
+    /** 新公告 / 新版本（瞬时事件，5 秒后自动让位）。 */
     ANNOUNCEMENT
 }
 
@@ -41,5 +41,11 @@ data class IslandSnapshot(
     val charging: Boolean = false,
     val burst: IslandState? = null,
     /** 当前这条瞬时事件是「新版本」而不是「公告」。 */
-    val burstIsUpdate: Boolean = false
+    val burstIsUpdate: Boolean = false,
+    /**
+     * 刚收到新未读消息（未读数增加），需要短播一次。
+     *
+     * 26.11.14 起未读不再是常驻状态：常态 99+ 但没有新消息时不占胶囊。
+     */
+    val unreadBurst: Boolean = false
 )

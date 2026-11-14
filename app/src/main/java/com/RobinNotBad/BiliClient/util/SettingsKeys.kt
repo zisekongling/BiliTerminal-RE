@@ -26,6 +26,26 @@ object SettingsKeys {
      * 老用户的迁移口径见 `ui/widget/IslandPolicy.resolveEnabled`）。
      */
     const val TOPBAR_ISLAND = "topbar_island_enable"
+    // ---- 灵动岛信息筛选与轮换（26.11.14，设置页「灵动岛设置」二级页）----
+    // 五个分类开关：关掉哪一类，那一类就不再占用胶囊（它自己的数据照常采集，只是不显示）。
+    // 默认全开——默认行为与 26.11.11 之前一致，用户不需要先去设置里"启用"任何东西。
+    /** 后台播放中一直显示（常驻，不轮换）。 */
+    const val ISLAND_PLAYING = "topbar_island_playing"
+    /** 下载中一直显示进度（常驻，不轮换）。 */
+    const val ISLAND_DOWNLOADING = "topbar_island_downloading"
+    /** 收到新消息时短暂弹出（短播，不参与轮换池）。 */
+    const val ISLAND_UNREAD = "topbar_island_unread"
+    /** 在时间右侧并排显示电量图标（基础状态）。 */
+    const val ISLAND_BATTERY = "topbar_island_battery"
+    /** 新公告 / 新版本时短暂弹出（短播，不参与轮换池）。 */
+    const val ISLAND_ANNOUNCEMENT = "topbar_island_announcement"
+    /**
+     * 轮换间隔（毫秒，**以字符串存**：设置页的 listChoose 统一按字符串存值）。
+     *
+     * `"0"` = 不轮换（默认：常驻事件一直占着胶囊，与「播放中一直显示」的口径一致）；
+     * 其余为常驻事件与「时间 + 电量」交替显示的间隔。非法值由 [IslandPolicy.rotateMsOf] 兜回 0。
+     */
+    const val ISLAND_ROTATE = "topbar_island_rotate"
     /**
      * 顶栏最小高度（dp，0 = 跟随内容，与改动前完全一致）。
      *
@@ -34,6 +54,16 @@ object SettingsKeys {
      * 统一在 `ui/widget/TopbarHeightPolicy`，不要在别处写死数值。
      */
     const val TOPBAR_HEIGHT = "topbar_height"
+    /**
+     * 沉浸式全屏（26.11.14）：隐藏状态栏与导航栏，页面 / 画面铺满整块屏幕。
+     *
+     * 默认**开**——用户 26.11.14 拍板「所有页面都隐藏状态栏和导航栏」（起因是播放页底部那条
+     * 手表三键导航栏黑边）。手表上导航栏是主要返回手段，全屏后边缘手势可能要多划一次，
+     * 所以这个开关就是回退路径：关掉即恢复「导航栏可见」的旧行为。
+     *
+     * 落窗逻辑统一在 `ui/appearance/ImmersiveMode`，不要在页面里各写一份。
+     */
+    const val UI_IMMERSIVE_FULLSCREEN = "ui_immersive_fullscreen"
     const val THEME = "theme_selector"
     const val UI_LANDSCAPE = "ui_landscape"
     const val SPLASH_TEXT = "ui_splashtext"
@@ -305,6 +335,17 @@ object SettingsKeys {
     const val PLAYER_DANMAKU_SIZE = "player_danmaku_size"
     const val PLAYER_DANMAKU_TRANSPARENCY = "player_danmaku_transparency"
     const val PLAYER_DANMAKU_SPEED = "player_danmaku_speed"
+    /**
+     * 短视频弹幕单独配置（26.11.14）：短视频页默认不再沿用长视频那套弹幕档位。
+     *
+     * 手表屏 400~466px，而上面的默认档是「15 行 + 允许重叠」，短视频偏偏又是弹幕极密的场景
+     * （用户反馈原话「鬼畜弹幕」）。这里给短视频一份独立存档，默认值取更保守的 6 行 / 不重叠。
+     * **它不覆盖也不改动长视频那几项**：开关关掉时短视频照旧走 [PLAYER_DANMAKU_MAXLINE] /
+     * [PLAYER_DANMAKU_ALLOW_OVERLAP]，读档与取值都在 `player/ShortVideoDanmakuPolicy.kt`。
+     */
+    const val SHORTVIDEO_DANMAKU_SEPARATE = "shortvideo_danmaku_separate"
+    const val SHORTVIDEO_DANMAKU_MAXLINE = "shortvideo_danmaku_maxline"
+    const val SHORTVIDEO_DANMAKU_ALLOW_OVERLAP = "shortvideo_danmaku_allowoverlap"
     /**
      * 弹幕磁盘缓存上限（list_choose 存字符串，单位 MB）。
      *

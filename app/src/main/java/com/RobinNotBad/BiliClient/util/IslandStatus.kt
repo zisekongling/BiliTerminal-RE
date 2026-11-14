@@ -16,10 +16,13 @@ import kotlin.math.roundToInt
  * 只负责「从各模块读一个瞬时快照」，不做 UI、不做调度；所有字段都是进程级状态，
  * 不持有 Activity（电量用传入的应用 Context 读，读不到就跳过）。
  *
- * ## 瞬时事件为什么要自己记 armed
+ * ## 瞬时事件为什么要自己记 armed / 差分
  * 低电量、充电、新公告、新版本如果每次 tick 都返回 `BATTERY` / `ANNOUNCEMENT`，
- * 会永远压住播放/下载/未读。这里用 `xxxArmed` 保证同一件事只弹一次 10 秒：
+ * 会永远压住播放/下载。这里用 `xxxArmed` 保证同一件事只弹一次：
  * 条件触发一次后置 false，等条件恢复正常才重新武装。
+ *
+ * **未读**同理（26.11.14）：未读数常驻 99+ 不代表「刚收到新消息」，所以不再看
+ * 「unread > 0」，而是记上一次的值做差分，**只有增加时**才短播一次（[unreadBurst]）。
  *
  * ## 线程
  * `PlaybackService` / `DownloadService` 的读取都是 `@Volatile` 字段，可以从主线程直接读；
@@ -29,8 +32,8 @@ object IslandStatus {
 
     private const val TAG = "IslandStatus"
 
-    /** 瞬时事件显示时长。 */
-    const val BURST_MS = 10_000L
+    /** 瞬时事件显示时长（26.11.14：10 秒 → 5 秒，用户要求「短播 3–5 秒」）。 */
+    const val BURST_MS = 5_000L
 
     /** 低于等于这个电量算低电量。 */
     private const val BATTERY_LOW_PERCENT = 20
@@ -54,9 +57,13 @@ object IslandStatus {
     @Volatile private var announcementBurstUntil = 0L
     @Volatile private var announcementPending = false
 
+    /** 上一次采样到的未读数；`-1` = 还没有基线。 */
+    @Volatile private var lastUnread = -1
+    @Volatile private var unreadBurstUntil = 0L
+
     /**
      * 启动时拉到新公告（`TerminalApi.checkAnnouncement`）后调一次；
-     * 第一页顶栏挂上灵动岛时消费，显示 10 秒「公告」。
+     * 第一页顶栏挂上灵动岛时消费，短播 [BURST_MS] 的「公告」。
      */
     @JvmStatic
     fun markAnnouncement() {
@@ -83,17 +90,33 @@ object IslandStatus {
             else -> null
         }
 
+        val unread = readUnread()
+
         return IslandSnapshot(
             playing = readPlaying(),
             downloading = readDownloading(),
             downloadPercent = readDownloadPercent(),
-            unread = readUnread(),
+            unread = unread,
             batteryPercent = batteryPercent,
             charging = charging,
             burst = burst,
             // 公告与新版本共用 ANNOUNCEMENT 状态，文案在绑定层区分。
-            burstIsUpdate = burst == IslandState.ANNOUNCEMENT && updateBurst
+            burstIsUpdate = burst == IslandState.ANNOUNCEMENT && updateBurst,
+            unreadBurst = trackUnread(now, unread)
         )
+    }
+
+    /**
+     * 未读数的差分：**只有数量增加**才算「收到新消息」，短播一次 [BURST_MS]。
+     *
+     * 第一次采样只记基线（App 启动前就堆着的未读不弹）；未读数被清零后，下次增加同样会弹。
+     */
+    private fun trackUnread(now: Long, unread: Int): Boolean {
+        val previous = lastUnread
+        lastUnread = unread
+        if (previous < 0) return false
+        if (unread > previous) unreadBurstUntil = now + BURST_MS
+        return now < unreadBurstUntil
     }
 
     private fun readPlaying(): Boolean = try {
