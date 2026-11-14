@@ -126,7 +126,6 @@ class MenuActivity : BaseActivity() {
         menuScroll = findViewById(R.id.menu_scroll)
         hiddenGroup = findViewById(R.id.menu_hidden_group)
         hiddenButtons = findViewById(R.id.menu_hidden_buttons)
-        menuFooter = findViewById(R.id.menu_footer)
 
         buildMenu()
 
@@ -139,21 +138,24 @@ class MenuActivity : BaseActivity() {
     private lateinit var menuScroll: com.RobinNotBad.BiliClient.ui.widget.RotaryScrollView
     private lateinit var hiddenGroup: LinearLayout
     private lateinit var hiddenButtons: LinearLayout
-    private lateinit var menuFooter: LinearLayout
+
+    /** 列表末尾那个「更多 / 收起」按钮（由 [buildMenu] 现造，没有可折叠项时是 null）。 */
+    private var moreButton: MaterialButton? = null
 
     /** 本轮的「继续播放」意图（构建按钮与点击回调共用一份，避免每次点都重算）。 */
     private var resumeIntent: Intent? = null
 
-    /** 底部「更多」展开区当前是否展开（纯界面状态，不持久化；重建按钮时保留）。 */
+    /** 折叠区当前是否展开（纯界面状态，不持久化；重建按钮时保留）。 */
     private var hiddenExpanded = false
 
     /**
-     * 按当前配置重建整套按钮：主列表 + 底部「更多」+ 折叠的未启用项。
+     * 按当前配置重建整套按钮：主列表 → 折叠区 → 末尾的「更多」。
      *
      * <p>为什么要重建而不是只在 onCreate 建一次：菜单排序页保存后回到菜单，若栈里这个
      * MenuActivity 实例还活着（长按顶栏回菜单用的是 CLEAR_TOP|SINGLE_TOP，不会重建），
      * 页面上留着的还是旧顺序/旧显隐——用户改完编排回来一看「没变」，就是反馈 #86 那种现象。
-     * 所以 onResume 里比一次指纹（已启用列表 + 更多开关 + 登录态 + 会话），变了就重建。
+     * 所以 onResume 里干脆无条件重建一次：十几枚 MaterialButton 的重排开销可以忽略，
+     * 比对指纹那种判据反而容易留缝。
      */
     private fun buildMenu() {
         val enabledMenu = SharedPreferencesUtil.loadMenuEnabled()
@@ -187,27 +189,26 @@ class MenuActivity : BaseActivity() {
 
         dynamicButton = null
         messageButton = null
+        moreButton = null
 
         menuLayout.removeAllViews()
         for (key in btnList) menuLayout.addView(createButton(key, hiddenItem = false), params)
 
-        // 折叠区放在主列表后面（同一滚动区里），展开时滚到它
+        // 折叠区排在主列表之后（同一滚动区里），展开时滚到它
         if (hidden.isEmpty()) hiddenExpanded = false
         hiddenButtons.removeAllViews()
         for (key in hidden) hiddenButtons.addView(createButton(key, hiddenItem = true), params)
         hiddenGroup.visibility = if (hiddenExpanded) View.VISIBLE else View.GONE
         menuLayout.addView(hiddenGroup)
 
-        // 底部固定区：只有一个「更多」按钮，按开关与「有没有东西可折叠」决定显示
-        menuFooter.removeAllViews()
+        // 「更多」就是列表里的最后一个普通按钮：尺寸、行高、滚动行为都跟上面那些完全一样，
+        // 只是落在列表末尾（要翻到底才看得见），不是浮在屏幕上的悬浮条。
         if (showMore && hidden.isNotEmpty()) {
             val more = MaterialButton(this)
             more.text = getString(if (hiddenExpanded) R.string.btn_menu_more_collapse else R.string.btn_menu_more)
             more.setOnClickListener { toggleHidden() }
-            menuFooter.addView(more, params)
-            menuFooter.visibility = View.VISIBLE
-        } else {
-            menuFooter.visibility = View.GONE
+            menuLayout.addView(more, params)
+            moreButton = more
         }
     }
 
@@ -227,12 +228,16 @@ class MenuActivity : BaseActivity() {
             }
         }
 
-    /** 展开 / 收起未启用项。展开后滚到折叠区顶部，否则手表上一屏只四个按钮，用户看不到变化。 */
+    /**
+     * 展开 / 收起未启用项。
+     *
+     * <p>折叠区插在主列表末尾那个「更多」按钮之前，展开后列表变长、按钮被顶到更下面，
+     * 所以顺手滚到折叠区顶部——否则手表一屏只有四个按钮，用户点了「更多」看不到任何变化。
+     */
     private fun toggleHidden() {
         hiddenExpanded = !hiddenExpanded
         hiddenGroup.visibility = if (hiddenExpanded) View.VISIBLE else View.GONE
-        (menuFooter.getChildAt(0) as? MaterialButton)?.text =
-            getString(if (hiddenExpanded) R.string.btn_menu_more_collapse else R.string.btn_menu_more)
+        moreButton?.text = getString(if (hiddenExpanded) R.string.btn_menu_more_collapse else R.string.btn_menu_more)
         if (hiddenExpanded) {
             hiddenGroup.post {
                 if (!isFinishing && !isDestroyed) menuScroll.smoothScrollTo(0, hiddenGroup.top)
