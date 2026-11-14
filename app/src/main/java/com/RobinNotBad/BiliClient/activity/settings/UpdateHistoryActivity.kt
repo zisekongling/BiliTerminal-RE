@@ -192,7 +192,7 @@ class UpdateHistoryActivity : BaseActivity() {
         // 版本标题
         container.addView(
             TextView(this).apply {
-                text = "RE " + entry.version
+                text = "RE：哔哩终端 " + entry.version
                 textSize = 14f
                 setTypeface(typeface, Typeface.BOLD)
                 setPadding(0, ToolsUtil.dp2px(8f), 0, ToolsUtil.dp2px(2f))
