@@ -18,6 +18,14 @@
 
 ## 1. 当前版本状态
 
+- **26.11.14 长图分片加载收敛：修「上面分片加载完一会儿自己消失、随后无限加载」（用户原话「长图的上面分片加载完成后一段时间消失导致无限加载图片」）**：
+  - **来路**：`ui/widget/BigImageView.kt` 的 `ensureTiles()` 兜底层序列**方向写反**——原代码 `var sample = allowed; while (...) { ...; sample = max(MIN, sample / 2) }`，采样率越除越小等于一路解**越来越细**的层（每块盖的源像素更少、块数成倍涨），与注释「由细到粗…再加一层更糊的兜底」正好相反。
+  - **算出来的病**：1024×20000 长图放 400×400 表屏（`fitScale=0.02`、`allowed` 采样率 32），六层要的块数是 32→3、16→5、8→10、4→20、2→80、1→316，**一轮共 434 块**，而块缓存上限 `MAX_TILE_COUNT=24`（6MB / 256KB）→ 解一块淘汰一块；屏上那 3 块（sample 32）最旧、最先被挤掉，随即重解 → 永远收敛不了。`drawCachedTiles` 用「按倍率算的 allowed」判定该画哪层、`trimCacheLocked` 又是纯 LRU，两处都在放大这个振荡。
+  - **修法（四条，缺一不成）**：①层序列改由 `ImageTilePolicy.fallbackSamples(allowed)` 生成，只往更糊（采样率 ×2）走，绝不解比 allowed 更细的层；②新增 `ImageTilePolicy.sampleWithinTileBudget(...)`，预取区在该采样率下要的块数超过 `MAX_TILE_COUNT` 就继续退粗，保证「一轮要解的块装得下」；③新增字段 `activeSample` 让**绘制与解码共用同一档位**（原先绘制另算一遍，退粗后解出来的层会被判成「不该画」）；④`trimCacheLocked` 不淘汰落在当前可见区里的块（`currentVisibleRect()` + 新增 `tileSpan()`），另设硬上限 `PROTECTED_TILE_CEILING = MAX_TILE_COUNT + 8` 防无上限涨。
+  - **为什么不去动 `ImageViewerActivity`**：它只在「一块都还没解出来」时显示 `image_viewer_port_tile_loading` 文案，没有跟着分片进度转的菊花；观感「无限加载」就是 BigImageView 自己在重复解码，改这一层才对症。
+  - **提交**：`abc13dea`；单测 `ImageTilePolicyTest` 新增 5 例（该类共 34 例，本地 `:app:testStandardDebugUnitTest` 全绿，`assembleDebug` 通过）：层序列方向与去重、块数口径对齐 `tileRects`、对齐桶计数、容量退档不动更细的档位，以及**回归例「1024×20000 长图整图适配一轮只铺三块」**（修好前此处是 434 块）。
+  - **未验证（L2，只能真机看画面）**：见 `docs/review/l2-pending.md` §O。
+
 - **26.11.14 短视频画面正中的三角可点即播放/暂停（用户原话「这个可以加个按那个三角播放」）**：
   - **来路**：中心那颗 `playIcon` 一直是纯展示——`fragment_short_video_page.xml:36-45`（56dp、`@android:drawable/ic_media_play`、`alpha=0.7`、默认 `gone`），Activity 里只有四处 visibility 赋值，**一个点击监听都没有**；用户看着三角当然会去按。
   - **修法**：`activity/video/ShortVideoPlayerActivity.kt` 的 `initBottomButtons()` 里给它加 `playIcon.setOnClickListener { togglePlayPause() }`。没复用底部按钮那份 `controlVideo()`：`resume()`（`:1482-1495`）自己已经处理「播到结尾」，会先 `playerBridge.seekTo(0)` + `danmakuManager?.seekTo(0)` 再 `start()`，所以 `togglePlayPause()` 等价且更短。
