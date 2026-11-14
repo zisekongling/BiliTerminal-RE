@@ -2870,7 +2870,7 @@
     <string name="setting_player_swipe_seek">左右滑动控制进度</string>
     <string name="desc_setting_player_swipe_seek">在视频区域左右滑动快进/快退（未缩放视频时生效）</string>
     <string name="setting_player_back_key_exit">播放页返回键直接退出</string>
-    <string name="desc_player_back_key_exit">开启后：播放页的返回键、侧键、表冠返回直接退出，不再被「左右滑动控制进度」或「禁用返回键」挡住。\n关闭后：开着「左右滑动控制进度」时返回键仍会被吞掉（旧行为），只适合特殊手表。</string>
+    <string name="desc_player_back_key_exit">开启后：播放页的返回键、侧键、表冠返回直接退出，不再被「左右滑动控制进度」或「禁用返回键」挡住。\n关闭后（默认）：恢复旧语义，开着「左右滑动控制进度」时返回键仍会被吞掉，窗口右滑也不退出。</string>
     <string name="msg_player_locked_exit_hint">画面已锁定，点画面上的锁图标解锁</string>
     <string name="msg_player_danmaku_empty">不能发送空弹幕喵</string>
     <string name="msg_live_danmaku_sent">弹幕已发送</string>

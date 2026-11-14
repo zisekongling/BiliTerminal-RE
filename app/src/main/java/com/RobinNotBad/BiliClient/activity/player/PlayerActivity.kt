@@ -942,9 +942,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private var okHttpClient: OkHttpClient? = null
     private var subtitle_selected = -1
 
-    /** 「播放页返回键直接退出」是否开启（默认开，见 [SettingsKeys.PLAYER_BACK_KEY_EXIT]）。 */
+    /**
+     * 「播放页返回键直接退出」是否开启（**默认关**，见 [SettingsKeys.PLAYER_BACK_KEY_EXIT]）。
+     *
+     * 26.11.14 按用户要求把默认值从开改成关：默认回到「旧语义」——开着「左右滑动控制进度」时
+     * 返回键仍会被吞掉、窗口右滑也不退出（见 [onBackPressed] 与 [onCreate] 里的 noSwipe 注释）。
+     * 这个默认值必须与 [com.RobinNotBad.BiliClient.player.PlayerSettingsGroups] 里那条
+     * SettingSection 的 defaultValue 保持一致（设置页开关的初值读的是那一份）。
+     */
     private fun backKeyExitEnabled(): Boolean =
-        SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_BACK_KEY_EXIT, true)
+        SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_BACK_KEY_EXIT, false)
 
     override fun onBackPressed() {
         // 触摸锁定期间不允许离开播放页：先把锁定按钮点出来作为反馈（再点它才解锁）
@@ -1147,8 +1154,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         // - 关着它（noSwipe = true）时横滑全归播放页自己用，代价是「右滑退出」这条退路消失。
         //
         // 26.10.22 起曾**无条件**关掉它，于是两个开关都关着的用户连右滑都退不出去（#117/#135/#139②）。
-        // 现在按「播放页返回键直接退出」开关取值：
-        // - 开关关着 → 与 26.10.22 之后一致：noSwipe = true（放大后可拖动、右滑不退出）；
+        // 现在按「播放页返回键直接退出」开关取值（该开关 26.11.14 起默认关，所以默认就是下面第一条）：
+        // - 开关关着（默认）→ 与 26.10.22 之后一致：noSwipe = true（放大后可拖动、右滑不退出）；
         // - 开关开着 且 开了「左右滑动控制进度」→ 仍然 noSwipe = true：横滑得留给滑动调进度（issue #1），
         //   这时退出走返回键（见 onBackPressed），不会被困住；
         // - 开关开着 且 没开滑动调进度 → 不再关窗口右滑返回，给手表「右滑退出」这条退路。

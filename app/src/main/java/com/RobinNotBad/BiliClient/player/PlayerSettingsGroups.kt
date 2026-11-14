@@ -174,11 +174,13 @@ object PlayerSettingsGroups {
         ),
         SettingSection("switch", context.getString(R.string.setting_player_swipe_seek),
             SettingsKeys.PLAYER_SWIPE_SEEK, context.getString(R.string.desc_setting_player_swipe_seek), "false"),
-        // 反馈 #117 / #135 / #139②：播放页退不出去的根治开关，默认开。
+        // 反馈 #117 / #135 / #139②：播放页退不出去的根治开关。
+        // **默认关**（26.11.14 按用户要求从默认开改成默认关；[PlayerActivity.backKeyExitEnabled]
+        // 的兜底值必须同步改成 false，两处不一致会表现为「设置页显示关、实际按开走」）。
         // 放在「左右滑动控制进度」下面是有意的：两者互相影响（开着滑动调进度时返回键曾被吞掉），
         // 用户改完上面那项、发现退不出去，一眼就能看到这一项。关掉即回到旧语义（含 noSwipe 主题）。
         SettingSection("switch", context.getString(R.string.setting_player_back_key_exit),
-            SettingsKeys.PLAYER_BACK_KEY_EXIT, context.getString(R.string.desc_player_back_key_exit), "true"),
+            SettingsKeys.PLAYER_BACK_KEY_EXIT, context.getString(R.string.desc_player_back_key_exit), "false"),
         // 反馈 #94a：手表 dpi 低时横滑一点点就跨过很长一段，倍率交给用户自己调。
         // 档位/默认值/换算都在 PlayerSwipeSeekScalePolicy 里，播放页每次横滑重读存档。
         listChoose(
