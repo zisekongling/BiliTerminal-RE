@@ -71,6 +71,30 @@
 - 报 `org.jetbrains.kotlin.util.FileAnalysisException … FileNotFoundException: app\build\tmp\kotlin-classes\debug\…\Xxx.class`（某个 class 被删了但增量状态没更新）：`clean` 后重建解决。
 - **同一个坏状态的第二种长相（26.10.21 实测，更坑）**：某个 flavor 的 Kotlin 模块元数据被写成空文件，单测编译报一堆 `Unresolved reference`（顶层函数 / DSL / 扩展函数全解析不到，**类却能正常解析**），看着像主源码真的删了符号。判据是 `app/build/tmp/kotlin-classes/<flavor>Debug/META-INF/app_<flavor>Debug.kotlin_module` 的大小——正常 233 字节左右，坏的时候只有 24 字节。只删该 flavor 的 `kotlin-classes/<flavor>Debug` 与 `build/kotlin/compile<Flavor>DebugKotlin` 后重编即可恢复，不必整包 clean。
 
+## 改主类构造参数后单测 `NoSuchMethodError`
+
+改了某个主源码类（尤其是 `data class`）的**构造参数个数 / 类型**后，单测可能整批炸在同一条构造调用上，例如 26.11.14 改 `SponsorBlockApi.RawSegment`（7 参 → 10 参，尾部带默认值）后，`SponsorSkipPolicyTest.kt:30` 的 14 个用例全报：
+
+```text
+java.lang.NoSuchMethodError: 'void com.RobinNotBad.BiliClient.api.SponsorBlockApi$RawSegment.<init>(...)'
+  at com.RobinNotBad.BiliClient.player.SponsorSkipPolicyTest.<init-or-test>(SponsorSkipPolicyTest.kt:30)
+```
+
+这不是源码错，是**两份产物不同步 + build cache 回放**叠加：
+
+1. 两个 flavor 各有自己的 `app/build/tmp/kotlin-classes/<flavor>Debug/`。只编了 `standardDebug` 时，`coexistDebug` 那份还是上一次（旧 ABI）的 class；单测编译任务的 classpath 能同时看到两份，于是按**旧 ABI** 生成了直调构造的字节码，运行时找不到方法。
+2. `:app:compileStandardDebugUnitTestKotlin` 若命中缓存会 `FROM-CACHE`（日志里 `> Task :app:compileStandardDebugUnitTestKotlin FROM-CACHE`），把**改 ABI 之前**的旧测试字节码原样吐回来，表现为「明明改了源码，跑的还是老测试」。
+
+**判断**：`javap -p app/build/tmp/kotlin-classes/standardDebug/<包路径>/SponsorBlockApi\$RawSegment.class` 看构造签名，与 `coexistDebug` 那份对比——新的那侧会带 `int mask` + `DefaultConstructorMarker` 合成构造。
+
+**修法（两步缺一不可）**：
+
+```bash
+./gradlew.bat :app:compileCoexistDebugKotlin                 # 让两个 flavor 的 class 一致
+rm -rf app/build/tmp/kotlin-classes/standardDebugUnitTest     # 丢掉按旧 ABI 编出来的测试产物
+./gradlew.bat :app:testStandardDebugUnitTest --no-build-cache
+```
+
 ## VS Code 的 Java 语言服务器（不是编译问题）
 
 - 症状：任意 `.java` 文件首行报 **`X.java is not on the classpath of project app, only syntax errors are reported`**，多个文件一起报，`Project Settings` 里对应项目的 `Sources` 显示 **「No source paths are configured」**。
