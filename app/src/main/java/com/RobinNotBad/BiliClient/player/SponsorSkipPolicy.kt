@@ -274,6 +274,19 @@ object SponsorSkipPolicy {
         return out.values.toList()
     }
 
+    /**
+     * 这批片段一共会省掉多少秒（四舍五入到整秒），0 表示"没有可跳的东西"。
+     *
+     * 播放页进度条旁边那个括号（`01:43 (1:34)`）就是拿它算出来的：1:43 是原片长，
+     * 括号里是扣掉广告之后的时长。片段表本身就是**已经过档位与类别过滤**的结果，
+     * 所以用户改档位、点「不准」之后这个数会跟着变——这正是想要的：括号说的是
+     * 「按你现在的设置，这片的有效时长是多少」。
+     */
+    fun savedSeconds(segments: List<ViewPointSkip.Segment>): Int {
+        val sum = segments.sumOf { (it.toSec - it.fromSec).coerceAtLeast(0.0) }
+        return kotlin.math.round(sum).toInt()
+    }
+
     /** 详情页胶囊的三种结论：没广告 / 整片都是 / 只有部分片段。 */
     const val BADGE_NONE = 0
     const val BADGE_FULL = 1

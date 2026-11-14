@@ -961,6 +961,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private var sponsorFullBadgeText: String = ""
 
     /**
+     * 本 P 会被跳掉的片段总时长（毫秒），0 = 没有可跳的片段。
+     *
+     * 数据源就是 [sponsorDecider] 里那张**已按档位过滤**的表，所以用户改档位、点「不准」
+     * 之后这个数会跟着变。进度条右侧的括号 `01:43 (1:34)` 用它算「扣掉广告后的时长」。
+     */
+    private var sponsorSavedMs: Long = 0L
+
+    /**
      * 顶栏标题的**原始文本**（不含 SponsorBlock 整片胶囊）。
      *
      * [text_title] 显示的是「胶囊 + 原标题」，而别处会把标题当数据读走（分享、会话恢复、
@@ -4784,7 +4792,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             @SuppressLint("SetTextI18n")
             override fun onProgressChanged(seekBar: SeekBar, position: Int, fromUser: Boolean) {
                 // SeekBar 回调本身就在主线程，无需再 runOnUiThread
-                if (!isLiveMode) text_progress.text = StringUtil.toTime(position / 1000) + "/" + progress_str
+                // 有可跳片段时格式是 `00:31 / 01:43 (1:34)`，见 formatProgressText
+                if (!isLiveMode) text_progress.text = formatProgressText(position)
             }
 
             override fun onStartTrackingTouch(seekBar: SeekBar) {
@@ -5214,11 +5223,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             ignored,
         ).filterNot { sponsorSegmentKey(it) in ignored }
         sponsorDecider.applyLoaded(segments)
+        sponsorSavedMs = SponsorSkipPolicy.savedSeconds(segments) * 1000L
         sponsorPoiHighlights = SponsorSkipPolicy
             .highlights(sponsorRawSegments, cid, video_all / 1000.0)
             .filterNot { sponsorPoiKey(it) in sponsorPoiSeen }
         updateSponsorMarks()
         refreshViewPointButton()
+        refreshProgressText()
     }
 
     /**
@@ -5283,6 +5294,32 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 points.map { HighEnergyProgressBar.PointMark((it.posSec * 1000.0).toInt(), pointColor) }
             )
         }
+    }
+
+    /**
+     * 进度条时间文案：`00:31 / 01:43`，有可跳片段时补一个括号 `00:31 / 01:43 (1:34)`。
+     *
+     * 括号里是**扣掉本 P 广告之后的时长**（[sponsorSavedMs]），不是"还剩多久"：用户在进度条
+     * 上看的是"这片刻完广告实际多长"，跳完之后自己看到的片子就是括号里那个数。
+     */
+    private fun formatProgressText(positionMs: Int): String {
+        val current = StringUtil.toTime(positionMs / 1000)
+        val saved = sponsorSavedMs
+        val totalMs = video_all.toLong()
+        if (saved <= 0L || totalMs <= saved) return current + "/" + progress_str
+        return getString(
+            R.string.player_sb_progress_saved,
+            current,
+            progress_str,
+            StringUtil.toTime(((totalMs - saved) / 1000L).toInt()),
+        )
+    }
+
+    /** 片段表变了就重画一次时间文案（暂停时没有 250ms tick，不主动刷会停在旧的括号上）。 */
+    private fun refreshProgressText() {
+        if (!::text_progress.isInitialized) return
+        if (isLiveMode) return
+        text_progress.text = formatProgressText(seekbar_progress.progress)
     }
 
     /** 一个精彩时刻点的内存键：`类别@秒`。只活一次播放，不做跨会话落盘。 */
@@ -7068,6 +7105,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         sponsorFullBadgeText = ""
         sponsorPoiSeen.clear()
         sponsorPoiHighlights = emptyList()
+        sponsorSavedMs = 0L
         sponsorLoadCid = 0L
         sponsorSegmentsKey = ""
         sponsorRetryAfterMs = 0L
@@ -7956,6 +7994,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         // 标注可能在起播前就到了（250ms 定时器比 prepare 更早开始跑），那时进度条的 max 还是 0，
         // 记下的标记要等 max 变成真实时长才画得出来；这里再落一次，保证时长一就绪就能看见
         updateSponsorMarks()
+        // 同理，括号里的"有效时长"也要等总时长就绪才算得出来
+        refreshProgressText()
 
         if (isAudioOnlyMode) updateAudioOnlyUI()
 
