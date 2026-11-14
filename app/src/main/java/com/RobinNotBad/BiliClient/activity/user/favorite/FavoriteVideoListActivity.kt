@@ -58,6 +58,17 @@ class FavoriteVideoListActivity : RefreshListActivity() {
     private var videoCardAdapter: VideoCardAdapter? = null
 
     /**
+     * 列表代数：每次「整份重拉」（首屏 / 切排序 / 换关键词 / 聚合）都 +1。
+     *
+     * <p>后台回包必须带上**发起时**的代数，回主线程时对不上就丢弃。否则「切了排序再切回来」
+     * 这种操作里，先发出的那一页可能后到，把新口径的列表整份盖掉 / 追加进去，
+     * 排序条与列表内容从此永久错位。
+     *
+     * <p>只在主线程读写（发起请求时取、回包时比），不需要 volatile。
+     */
+    private var listGeneration = 0
+
+    /**
      * 跨夹「全部收藏」聚合模式。
      *
      * <p>从收藏夹列表页的「全部收藏」入口进来：只读、不排序、不分页，内容由
@@ -258,8 +269,10 @@ class FavoriteVideoListActivity : RefreshListActivity() {
         expandAutoHideBars()
         page = 1
         bottom = false
-        videoList.clear()
-        videoCardAdapter?.notifyDataSetChanged()
+        // 这里既不 clear 也不 notify：整份内容由 loadFirstPage 回包时换成**新的** list + 新的 adapter。
+        // 原地 clear 有两个坑：①「切排序时还在飞的那一页」回来时会把旧排序的结果追加进新列表，
+        // 而它握的是同一个 list 实例，代数守卫拦不住；② clear 与 notifyDataSetChanged 之间
+        // getItemCount() 会短暂变 0，stable id 的 holder 正好在这时候对表就崩 Inconsistency。
         loadFirstPage()
     }
 
@@ -401,35 +414,64 @@ class FavoriteVideoListActivity : RefreshListActivity() {
         if (videoList.isEmpty()) showEmptyView()
     }
 
-    /** 按当前排序（+服务端关键词）拉一页（v3 接口只认 media_id，没有 media_id 就没法取内容） */
-    private fun fetch(page: Int): Int =
+    /**
+     * 按当前排序（+服务端关键词）把一页结果拉进 [out]。
+     *
+     * <p>**只写调用方给的临时 list，绝不碰 [videoList]**：`VideoCardAdapter.getItemCount()` 就是
+     * [videoList] 的 size，在后台线程往里 add/clear 会让 `getItemCount()` 抢在
+     * `notifyItemRangeInserted` / `notifyDataSetChanged` 之前变化，主线程下一趟 layout 就抛
+     * `IndexOutOfBoundsException: Inconsistency detected. Invalid view holder adapter position`
+     * （线上崩溃；收藏夹管理页 #160、短视频信息流 #300 同源）。
+     *
+     * <p>v3 接口只认 media_id，没有 media_id 就没法取内容。
+     */
+    private fun fetchPage(page: Int, out: ArrayList<VideoCard>): Int =
         if (mediaId > 0) {
             FavoriteApi.getFolderVideosNew(
                 mediaId,
                 page,
-                videoList,
+                out,
                 sortOrder,
                 searchKeyword.takeIf { it.isNotEmpty() }
             )
         } else -1
 
+    /**
+     * 主线程：把整份内容换成**新的 list + 新的 adapter**。
+     *
+     * <p>「换 list 要换 adapter」是硬要求（见 docs/architecture-map.md 收藏夹列表页那条坑）：
+     * adapter 构造时就攥着那份 list 的引用，而且开了 stable id（`getItemId` 直接按下标取卡片）。
+     * 在旧实例上 clear/addAll 再 notifyDataSetChanged，等于让已有的 view holder 拿着旧位置
+     * 去对一份已经被改过的数据，口径一错就是 Inconsistency。
+     */
+    private fun showList(items: List<VideoCard>) {
+        videoList = ArrayList(items)
+        videoCardAdapter = VideoCardAdapter(this, videoList).also {
+            // 整份换 adapter 时把多选态带过去，否则 manageBar 还亮着、勾选框却没了
+            it.selectionMode = selectionMode
+            bindAdapter(it)
+        }
+        setAdapter(videoCardAdapter!!)
+    }
+
     private fun loadFirstPage() {
+        // 代数在**发起时**自增：回包时对不上，说明中途又重拉过一次，这份结果已经过期
+        val generation = ++listGeneration
         CenterThreadPool.run {
             try {
-                val result = fetch(page)
-                if (result == -1) {
-                    loadFail()
-                    return@run
-                }
-                if (result == 1) bottom = true
+                val loaded = ArrayList<VideoCard>()
+                val result = fetchPage(page, loaded)
                 runOnUiThread {
-                    if (videoCardAdapter == null) {
-                        videoCardAdapter = VideoCardAdapter(this@FavoriteVideoListActivity, videoList).also { bindAdapter(it) }
-                        setAdapter(videoCardAdapter!!)
-                    } else {
-                        videoCardAdapter!!.notifyDataSetChanged()
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (generation != listGeneration) return@runOnUiThread
+                    if (result == -1) {
+                        loadFail()
+                        return@runOnUiThread
                     }
-                    if (videoList.isEmpty()) {
+                    if (result == 1) bottom = true
+                    // 整份替换：新 list + 新 adapter（绝不在旧 list 上原地改）
+                    showList(loaded)
+                    if (loaded.isEmpty()) {
                         // 「搜索无结果」和「收藏夹本来就是空的」是两种状态，别让用户以为内容被清空了
                         emptyView?.text =
                             if (searchKeyword.isNotEmpty()) getString(R.string.fav_port_search_empty)
@@ -442,12 +484,12 @@ class FavoriteVideoListActivity : RefreshListActivity() {
                     // 标记在这里就清掉（无论是否真的进了多选），排序切换重拉第一页时才不会再次自动进多选。
                     if (pendingSelectMode) {
                         pendingSelectMode = false
-                        if (writable && videoList.isNotEmpty()) enterSelectionMode()
+                        if (writable && loaded.isNotEmpty()) enterSelectionMode()
                     }
                     setRefreshing(false)
                 }
             } catch (e: Exception) {
-                loadFail(e)
+                runOnUiThread { if (!isFinishing && !isDestroyed) loadFail(e) }
             }
         }
     }
@@ -638,23 +680,36 @@ class FavoriteVideoListActivity : RefreshListActivity() {
         if (videoList.isEmpty()) showEmptyView()
     }
 
-    @SuppressLint("NotifyDataSetChanged")
     private fun continueLoading(page: Int) {
+        // 发起时的代数：请求期间整份重拉过（切排序 / 换关键词 / 重新拉首屏）就说明这一页属于旧口径
+        val generation = listGeneration
         CenterThreadPool.run {
             try {
-                val lastSize = videoList.size
-                val result = fetch(page)
-                if (result != -1) {
-                    Log.e("debug", "下一页")
-                    runOnUiThread { videoCardAdapter!!.notifyItemRangeInserted(lastSize, videoList.size - lastSize) }
-                    if (result == 1) {
-                        Log.e("debug", "到底了")
-                        bottom = true
+                val loaded = ArrayList<VideoCard>()
+                val result = fetchPage(page, loaded)
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (generation != listGeneration) {
+                        // 整份内容已经换过（showList 换的是新 list），这一页丢掉；顺手复位翻页占用
+                        setRefreshing(false)
+                        return@runOnUiThread
                     }
+                    if (result != -1) {
+                        Log.e("debug", "下一页")
+                        // 追加与通知必须在同一个主线程 turn 里做完：中间留一个 layout 的空档，
+                        // getItemCount() 就领先于 adapter 的可见条数了（见 docs/agents/pitfalls.md）
+                        val lastSize = videoList.size
+                        videoList.addAll(loaded)
+                        videoCardAdapter?.notifyItemRangeInserted(lastSize, loaded.size)
+                        if (result == 1) {
+                            Log.e("debug", "到底了")
+                            bottom = true
+                        }
+                    }
+                    setRefreshing(false)
                 }
-                setRefreshing(false)
             } catch (e: Exception) {
-                loadFail(e)
+                runOnUiThread { if (!isFinishing && !isDestroyed) loadFail(e) }
             }
         }
     }
@@ -704,6 +759,10 @@ class FavoriteVideoListActivity : RefreshListActivity() {
             return
         }
 
+        // 后台线程只读快照：主线程翻页 / 换排序会改这份 list，直接迭代它可能踩
+        // ConcurrentModificationException，也拿不到一份前后一致的列表
+        val snapshot = ArrayList(videoList)
+
         // 在后台线程获取起始视频的cid
         CenterThreadPool.run {
             try {
@@ -712,7 +771,7 @@ class FavoriteVideoListActivity : RefreshListActivity() {
                 val cids = ArrayList<Long>()
                 var firstCid: Long = 0
 
-                for (v in videoList) {
+                for (v in snapshot) {
                     pagenames.add(v.title)
                     cids.add(v.aid) // 使用aid作为标识，实际播放时会重新获取cid
                 }
@@ -730,7 +789,7 @@ class FavoriteVideoListActivity : RefreshListActivity() {
 
                 // 起播这条的 aid 必须与 startPageIndex 取自同一处，
                 // 否则会"选集高亮在第 3 条、实际播的是第 1 条"
-                val firstAid = videoList[startPageIndex].aid
+                val firstAid = snapshot[startPageIndex].aid
                 val videoInfo = VideoInfoApi.getVideoInfo(firstAid)
                 if (videoInfo != null && videoInfo.cids.isNotEmpty()) {
                     firstCid = videoInfo.cids[0]
@@ -874,8 +933,7 @@ class FavoriteVideoListActivity : RefreshListActivity() {
         expandAutoHideBars()
         page = 1
         bottom = false
-        videoList.clear()
-        videoCardAdapter?.notifyDataSetChanged()
+        // 同 switchSort：不原地 clear，整份内容由 loadFirstPage 回包时换新 list + 新 adapter
         loadFirstPage()
     }
 
@@ -928,15 +986,11 @@ class FavoriteVideoListActivity : RefreshListActivity() {
                 val merged = FavoriteAggregatePolicy.merge(pages)
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
-                    videoList.clear()
-                    merged.items.forEach { videoList.add(it.card) }
-                    if (videoCardAdapter == null) {
-                        videoCardAdapter = VideoCardAdapter(this@FavoriteVideoListActivity, videoList).also { bindAdapter(it) }
-                        setAdapter(videoCardAdapter!!)
-                    } else {
-                        videoCardAdapter!!.notifyDataSetChanged()
-                    }
-                    if (videoList.isEmpty()) {
+                    // 聚合也是「整份替换」：换新 list + 新 adapter，并让之前排队的请求一律作废
+                    listGeneration++
+                    val cards = merged.items.map { it.card }
+                    showList(cards)
+                    if (cards.isEmpty()) {
                         emptyView?.text = getString(R.string.fav_port_aggregate_empty)
                         showEmptyView()
                     } else {
@@ -955,7 +1009,8 @@ class FavoriteVideoListActivity : RefreshListActivity() {
                     setRefreshing(false)
                 }
             } catch (e: Exception) {
-                loadFail(e)
+                // 这里还在后台线程：loadFail 会碰 SwipeRefreshLayout 和 Toast，必须回主线程再调
+                runOnUiThread { if (!isFinishing && !isDestroyed) loadFail(e) }
             }
         }
     }

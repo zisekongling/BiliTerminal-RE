@@ -18,6 +18,17 @@
 
 ## 1. 当前版本状态
 
+- **26.11.14 收藏夹视频列表 `Inconsistency detected` 收口（从工作区救回的未提交改动）**：
+  - **来路**：`app/src/main/java/com/RobinNotBad/BiliClient/activity/user/favorite/FavoriteVideoListActivity.kt` 有 143 行改动**一直躺在工作树里没提交**（线上崩溃 #160 那条的修法），`docs/agents/pitfalls.md:28` / `:29` 与 `docs/architecture-map.md:1497` 早就按它写好了规矩 —— 也就是文档描述的行为在 main 上其实不存在。26.11.14 用户定「跑 L0 后直接提交」，本轮补上。
+  - **根因**：`VideoCardAdapter.getItemCount()` 就是 `videoList.size`（`adapter/video/VideoCardAdapter.kt:103`），而原来 `fetch()` 在 `CenterThreadPool` 线程直接往这份活 list 里 `add` / `clear`，回主线程才 `notifyDataSetChanged` / `notifyItemRangeInserted`。`getItemCount()` 抢先变化、通知还没落地，主线程下一趟 layout 就抛 `IndexOutOfBoundsException: Inconsistency detected. Invalid view holder adapter position`。切排序 / 换关键词时还有第二重坑：`clear()` 之后仍在飞的旧页回包会把旧口径结果追加进新列表（握的是同一个 list 实例，光靠代次拦不住）。
+  - **修法（三件套）**：
+    1. `fetchPage(page, out)`（`:428`）只写调用方给的**临时 list**，绝不碰 `videoList`；
+    2. `showList(items)`（`:447`）整份替换 = 新的 `ArrayList` + 新的 `VideoCardAdapter` + `setAdapter`，并带过 `selectionMode`；首屏 / 切排序 / 换关键词 / 聚合四条路一律走它，`switchSort` 等处的原地 `clear()` + `notifyDataSetChanged()` 全删；
+    3. `listGeneration`（`:69`）代数守卫：`loadFirstPage()`（`:457`）发起时 `++` 并捕获，`continueLoading()`（`:683`）只捕获不增，回主线程**先判代数、后落数据**，对不上就丢弃（翻页那条顺手 `setRefreshing(false)` 复位翻页占用，否则 `goOnLoad` 再也进不来）；`loadAggregate()` 换数据时也 `++`，让在飞的翻页一并作废。
+  - **顺手的**：`continueLoading` 的 `addAll` 与 `notifyItemRangeInserted` 收进同一个 `runOnUiThread`；`loadFail(e)` 从后台线程调用改成先回主线程（它碰 `SwipeRefreshLayout` 与 Toast）；连播起播前对 `videoList` 取快照（`:764`），免得后台线程迭代时被主线程改出 `ConcurrentModificationException`。
+  - **L0（26.11.14 本机实测）**：`./gradlew.bat :app:assembleDebug --no-parallel --max-workers=2` → BUILD SUCCESSFUL（双 flavor）；`:app:testStandardDebugUnitTest --rerun` → BUILD SUCCESSFUL，**233 suites / 2515 tests / 0 失败 0 错误**。
+  - **未验证（L2）**：见 `docs/review/l2-pending.md` §F（切排序 / 换关键词 / 翻页到底 / 聚合模式 / 多选态是否带过去）。
+
 - **26.11.14 「播放页返回键直接退出」默认值改为关（用户要求「这个按钮改默认关闭」）**：
   - **两处必须同时改**：`app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:947`（`backKeyExitEnabled()` 的 `getBoolean` 兜底值 `true → false`）与 `app/src/main/java/com/RobinNotBad/BiliClient/player/PlayerSettingsGroups.kt:181`（那条 `SettingSection("switch", …, "true") → "false"`，设置页开关初值读的是这一份）。只改一处会表现为「设置页显示关、播放页按开走」。
   - **行为影响（有意）**：默认回到 26.10.22 旧语义——`onBackPressed` 里「开着『左右滑动控制进度』就吞返回键」重新生效；`onCreate` 的 `noSwipe = swipeSeekEnabled || !backKeyExitEnabled()` 默认就是 `true`，即窗口层右滑返回默认关闭（放大后可拖动画面）。**默认值下（滑动调进度也默认关）按返回仍然能退出**，不会被困在播放页；只有用户同时打开「左右滑动控制进度」才会撞上旧语义。
