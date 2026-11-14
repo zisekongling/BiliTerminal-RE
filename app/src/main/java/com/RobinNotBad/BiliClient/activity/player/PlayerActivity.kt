@@ -27,6 +27,8 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.SpannableString
+import android.text.Spanned
 import android.util.DisplayMetrics
 import android.util.TypedValue
 import android.view.GestureDetector
@@ -122,6 +124,7 @@ import com.RobinNotBad.BiliClient.player.SurfaceTarget
 import com.RobinNotBad.BiliClient.service.PlaybackService
 import com.RobinNotBad.BiliClient.ui.widget.BatteryView
 import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
+import com.RobinNotBad.BiliClient.ui.widget.RadiusBackgroundSpan
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.CookieDomainPolicy
@@ -404,6 +407,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     companion object {
         /** `onSaveInstanceState` 保存的播放位置（毫秒），用于系统重建本页后回到原位 */
         private const val STATE_POSITION = "player_state_position"
+
+        /**
+         * 看点卡片里「SponsorBlock 精彩时刻点」这一行的 [ViewPoint.type]。
+         *
+         * 取负数是刻意的：B 站自己的 `view_points` 用 1（片头）/2（片尾）等正数，
+         * 负数不会再撞上以后新增的类型，也不会被 [ViewPointSkip.buildSegments] 的
+         * `type` 判断误当成片头片尾。
+         */
+        private const val VIEWPOINT_TYPE_POI = -1
 
         /**
          * 「先跳播放页、再解析备用片源」的 Intent 标记（由私有侧设置）。
@@ -930,6 +942,31 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      */
     private val sponsorSessionIgnores = HashSet<String>()
 
+    /**
+     * 本次播放内存里已经点过的「精彩时刻」点（26.11.14）。
+     *
+     * 键见 [sponsorPoiKey]。按用户要求只记在**本次播放**里：跳过/点过一次，这个点就不再出现在
+     * 看点列表与进度条上，退出重进则重新出现（不做跨会话落盘，避免"看过的视频永远没有精彩时刻"）。
+     */
+    private val sponsorPoiSeen = HashSet<String>()
+
+    /** 本 P 还没点过的高能跳转点（[SponsorSkipPolicy.highlights] 的结果减去 [sponsorPoiSeen]）。 */
+    private var sponsorPoiHighlights: List<SponsorSkipPolicy.Highlight> = emptyList()
+
+    /** 已经为哪个 cid 生成过整片标签胶囊（0 = 还没生成），每 P 只算一次。 */
+    private var sponsorFullBadgeCid: Long = 0L
+
+    /** 整片标签胶囊的文字（已本地化、已去重）；空串 = 顶栏不挂胶囊。 */
+    private var sponsorFullBadgeText: String = ""
+
+    /**
+     * 顶栏标题的**原始文本**（不含 SponsorBlock 整片胶囊）。
+     *
+     * [text_title] 显示的是「胶囊 + 原标题」，而别处会把标题当数据读走（分享、会话恢复、
+     * 听视频模式的窗口标题）——都读这个字段，免得「广告」两个字混进标题串里。
+     */
+    private var playerTitleRaw: String = ""
+
     /** 已经为哪个 cid 发起过查询（0 = 还没发起）。用于「每P 只查一次」，失败时归零以便重试。 */
     private var sponsorLoadCid: Long = 0L
 
@@ -943,9 +980,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
 
     /** 上次查询失败的冷却截止时刻（`SystemClock.elapsedRealtime()`），避免对方挂掉时每 250ms 重试一次。 */
     private var sponsorRetryAfterMs: Long = 0L
-
-    /** 已经提示过「整片标注」的 cid（0 = 没提示过），每 P 只提示一次。 */
-    private var sponsorFullNoticeCid: Long = 0L
 
     private var eventBusInit = false
 
@@ -1007,7 +1041,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         if (danmaku_url.isNotEmpty()) Logu.v("弹幕", danmaku_url)
         Logu.v("视频", video_url)
         Logu.v("标题", title)
-        text_title!!.text = title
+        setPlayerTitle(title)
         videoTitle = title
         // 从根目录层起播时，Intent 的 title 就是收藏夹名（见 FavoriteVideoListActivity
         // 的 "$folderName（虚拟合集）"）；返回嵌套层时会被覆盖成返回栈里的 title
@@ -5125,7 +5159,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     }
                     sponsorRawSegments = raw
                     applySponsorLevel()
-                    noticeFullVideoCoverage(requestCid)
+                    applySponsorFullBadge(requestCid)
                     Logu.d(
                         "SponsorBlock",
                         "cid=" + requestCid + " 原始标注 " + raw.size + " 条，可跳 " + sponsorDecider.segments.size + " 段"
@@ -5154,9 +5188,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private fun applySponsorLevel() {
         val allowed = SponsorSkipPrefs.effectiveCategories()
         val ignored = sponsorIgnoreSet()
-        // 签名 = 类别集合 + 忽略集：忽略集变了（用户刚点「不准」）也要重建，
-        // 只比类别集合的话点了「不准」片段表不会变，那条会继续跳
-        val key = allowed.sorted().joinToString(",") + "|" + ignored.sorted().joinToString(",")
+        // 签名 = 类别集合 + 忽略集 + 已点过的精彩时刻：忽略集变了（用户刚点「不准」）、
+        // 或某个精彩时刻刚被点过（要从列表里消失），都要重建；只比类别集合会漏掉这两类改动
+        val key = allowed.sorted().joinToString(",") + "|" +
+            ignored.sorted().joinToString(",") + "|" +
+            sponsorPoiSeen.sorted().joinToString(",")
         if (key == sponsorSegmentsKey) return
         sponsorSegmentsKey = key
         val segments = SponsorSkipPolicy.buildSegments(
@@ -5167,7 +5203,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             ignored,
         ).filterNot { sponsorSegmentKey(it) in ignored }
         sponsorDecider.applyLoaded(segments)
+        sponsorPoiHighlights = SponsorSkipPolicy
+            .highlights(sponsorRawSegments, cid, video_all / 1000.0)
+            .filterNot { sponsorPoiKey(it) in sponsorPoiSeen }
         updateSponsorMarks()
+        refreshViewPointButton()
     }
 
     /**
@@ -5200,20 +5240,45 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      */
     private fun updateSponsorMarks() {
         val segments = sponsorDecider.segments
+        val points = sponsorPoiHighlights
         if (segments.isEmpty()) {
             seekbar_progress.clearMarks()
-            return
+        } else {
+            val color = ColorScheme.WARNING
+            seekbar_progress.setMarks(
+                segments.map {
+                    HighEnergyProgressBar.Mark(
+                        (it.fromSec * 1000.0).toInt(),
+                        (it.toSec * 1000.0).toInt(),
+                        color,
+                    )
+                }
+            )
         }
-        val color = ColorScheme.WARNING
-        seekbar_progress.setMarks(
-            segments.map {
-                HighEnergyProgressBar.Mark(
-                    (it.fromSec * 1000.0).toInt(),
-                    (it.toSec * 1000.0).toInt(),
-                    color,
-                )
-            }
-        )
+        // 精彩时刻用主色小三角：与警告色的"要跳走的区间"区分开——一个是"别看这里"，
+        // 一个是"这里值得看"，同色会让人以为这些点也会被自动跳掉
+        if (points.isEmpty()) {
+            seekbar_progress.clearPointMarks()
+        } else {
+            val pointColor = ColorScheme.PRIMARY
+            seekbar_progress.setPointMarks(
+                points.map { HighEnergyProgressBar.PointMark((it.posSec * 1000.0).toInt(), pointColor) }
+            )
+        }
+    }
+
+    /** 一个精彩时刻点的内存键：`类别@秒`。只活一次播放，不做跨会话落盘。 */
+    private fun sponsorPoiKey(highlight: SponsorSkipPolicy.Highlight): String =
+        highlight.category + "@" + highlight.posSec
+
+    /**
+     * 记下「这个精彩时刻点过了」，并立刻把列表与进度条上的三角刷掉。
+     *
+     * 续走 [applySponsorLevel]（已点集合进了它的签名），不重新发请求——原始标注还在内存里。
+     */
+    private fun markSponsorPoiSeen(highlight: SponsorSkipPolicy.Highlight) {
+        sponsorPoiSeen.add(sponsorPoiKey(highlight))
+        applySponsorLevel()
     }
 
     /** 当前视频的 BVID：Intent 带了就用，没带就按 aid 现查一次（结果缓存到 [bvid]）。 */
@@ -5232,27 +5297,68 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     }
 
     /**
-     * 整片标注提示。
+     * 整片标注 → 顶栏标题前的胶囊（26.11.14 第二轮）。
      *
      * `actionType == full` 表示「整片都是恰饭」之类的整体标签，上游给的区间固定是 `[0,0]`——
-     * 不是一个能跳的区间，所以它**不进片段表、不改变任何跳过行为**，只在片段表刚加载好时
-     * 提示一次，让人知道这片的性质。每 P 只提示一次（`sponsorFullNoticeCid` 换了就不算重复）。
+     * 不是一个能跳的区间，所以它**不进片段表、不改变任何跳过行为**，只在顶栏挂一枚胶囊，
+     * 让人一眼知道这片的性质（原先是一闪而过的 Snack，看过就没了）。
      *
-     * 不看档位：这类标注只在「全部类别」以外的档位也会照实提示——它描述的是片子本身，
-     * 与用户选了哪档要跳哪些类别无关。
+     * 不看档位：这类标注描述的是片子本身，与用户选了哪档要跳哪些类别无关。
+     * 每 P 只算一次（`sponsorFullBadgeCid` 换了才重算）。
      */
-    private fun noticeFullVideoCoverage(requestCid: Long) {
-        if (requestCid == sponsorFullNoticeCid) return
+    private fun applySponsorFullBadge(requestCid: Long) {
+        if (requestCid == sponsorFullBadgeCid) return
+        sponsorFullBadgeCid = requestCid
         val labels = SponsorSkipPolicy.fullVideoCategories(
             sponsorRawSegments,
             requestCid,
             video_all / 1000.0,
         )
-        if (labels.isEmpty()) return
-        sponsorFullNoticeCid = requestCid
-        val anchor = findViewById<View>(android.R.id.content) ?: return
-        val names = labels.joinToString("、") { sponsorCategoryLabel(it) }
-        MsgUtil.snackTextLong(anchor, getString(R.string.player_sb_full_notice, names))
+        val text = labels.joinToString("/") { sponsorCategoryLabel(it) }
+        if (text == sponsorFullBadgeText) return
+        sponsorFullBadgeText = text
+        renderPlayerTitle()
+    }
+
+    /** 设置顶栏标题（原始文本），胶囊状态由 [sponsorFullBadgeText] 决定，见 [renderPlayerTitle]。 */
+    private fun setPlayerTitle(raw: String?) {
+        playerTitleRaw = raw.orEmpty()
+        renderPlayerTitle()
+    }
+
+    /**
+     * 把「整片标签胶囊 + 原标题」画进顶栏 [text_title]。
+     *
+     * 样式直接复用视频详情页标题前那枚胶囊（`VideoInfoFragment.getTitleSpan`）：同样的
+     * [RadiusBackgroundSpan]（白字 + 主题色底），只是这里囊的是「广告/自我推广」这类整片标注。
+     * 全仓并没有「互动视频/联合投稿」的独立图标，那枚胶囊就是它们的视觉形态。
+     *
+     * 注意 [text_title] 的 `drawableStartCompat` 是返回箭头，所以胶囊要留一个前导空格，
+     * span 从 0 开始才盖得住底色。
+     */
+    private fun renderPlayerTitle() {
+        // text_title 是 @JvmField 可空字段（不是 lateinit），没初始化完就什么都别画
+        val view = text_title ?: return
+        val title = playerTitleRaw
+        val badge = sponsorFullBadgeText
+        if (badge.isEmpty() || title.isEmpty()) {
+            view.text = title
+            return
+        }
+        val raw = " $badge $title"
+        val span = SpannableString(UiText.of(raw))
+        span.setSpan(
+            RadiusBackgroundSpan(
+                0,
+                resources.getDimension(R.dimen.card_round).toInt(),
+                Color.WHITE,
+                ColorScheme.PRIMARY,
+            ),
+            0,
+            badge.length + 2,
+            Spanned.SPAN_INCLUSIVE_EXCLUSIVE,
+        )
+        view.text = span
     }
 
     /**
@@ -5783,7 +5889,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 layout_audio_only.visibility = View.VISIBLE
                 mDanmakuView?.setVisibility(View.GONE)
                 if (text_audio_title != null) {
-                    val title = text_title!!.text.toString()
+                    val title = playerTitleRaw
                     text_audio_title.text = if (title.isEmpty()) UiText.of("听视频模式") else title
                 }
             } else {
@@ -6907,7 +7013,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         // 沿用上一P 的目录会把这一P 的位置写进别人的文件
         localMediaDir = if (newVideoUrl.contains("http")) null else File(newVideoUrl).absoluteFile.parentFile
         lastSavedLocalProgressMs = -1L
-        text_title!!.text = newTitle
+        setPlayerTitle(newTitle)
         videoTitle = newTitle
 
         loading_info.visibility = View.VISIBLE
@@ -6940,12 +7046,18 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         sponsorDecider.reset()
         sponsorRawSegments = emptyList()
         sponsorSessionIgnores.clear()
-        sponsorFullNoticeCid = 0L
+        sponsorFullBadgeCid = 0L
+        sponsorFullBadgeText = ""
+        sponsorPoiSeen.clear()
+        sponsorPoiHighlights = emptyList()
         sponsorLoadCid = 0L
         sponsorSegmentsKey = ""
         sponsorRetryAfterMs = 0L
         // 进度条上的片段标记也是按 cid 画的，跟着一起清（否则新一P 会带着上一P 的色块起播）
-        if (::seekbar_progress.isInitialized) seekbar_progress.clearMarks()
+        if (::seekbar_progress.isInitialized) {
+            seekbar_progress.clearMarks()
+            seekbar_progress.clearPointMarks()
+        }
 
         interactionData = null
         currentEdgeId = 0
@@ -7040,7 +7152,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 val playerData = PlayerData()
                 playerData.aid = aid
                 playerData.cid = cid
-                playerData.title = text_title!!.text.toString()
+                playerData.title = playerTitleRaw
                 playerData.mid = mid
                 playerData.uploaderMid = uploaderMid
                 playerData.qn = newQuality
@@ -7140,11 +7252,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     skipDecider.applyLoaded(segments)
 
                     if (viewPoints != null && viewPoints!!.isNotEmpty()) {
-                        // 只开了自动跳过的用户不需要这个按钮
-                        if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SHOW_VIEWPOINTS, true)) {
-                            btn_viewpoint.visibility = View.VISIBLE
-                            btn_viewpoint.setOnClickListener { showViewPointSelectorCard() }
-                        }
+                        // 按钮显隐统一由 refreshViewPointButton 决定：内容来源除了 B站分段
+                        // 还有 SponsorBlock 精彩时刻，两处各判一次早晚会漂
+                        refreshViewPointButton()
                         Logu.d("视频分段", "成功加载 " + viewPoints!!.size + " 个分段")
                         // 引导只在 PGC 上弹：UGC 的分段不是片头片尾，在这里引导「自动跳过」
                         // 等于邀请用户去踩反馈 #99 那个坑
@@ -7161,25 +7271,37 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     }
 
     private fun showViewPointSelectorCard() {
-        if (viewPoints == null || viewPoints!!.isEmpty()) return
+        val list = buildViewPointDisplayList()
+        if (list.isEmpty()) return
 
         runOnUiThread {
             val viewPointRecycler = findViewById<RecyclerView>(R.id.viewpoint_selector_list)
             if (viewPointAdapter == null) {
                 viewPointAdapter = ViewPointAdapter()
-                viewPointAdapter!!.setData(viewPoints!!)
                 viewPointAdapter!!.setOnItemClickListener { index ->
                     layout_card_bg.visibility = View.GONE
                     card_viewpoint_selector.visibility = View.GONE
-                    if (index >= 0 && index < viewPoints!!.size) {
-                        val vp = viewPoints!![index]
+                    // 点击回调给的是"当时那一行"，而精彩时刻会在点过之后从列表里消失、
+                    // 让后面的行整体前移，所以在回调里重新取一次当前列表再按下标访问
+                    val current = buildViewPointDisplayList()
+                    if (index >= 0 && index < current.size) {
+                        val vp = current[index]
                         seekToPosition(vp.from * 1000L)
                         MsgUtil.showMsg(UiText.of("跳转到: ") + vp.content)
+                        if (isPoiViewPoint(vp)) {
+                            // 点过的精彩时刻本次播放不再出现，进度条上那个小三角一起消失
+                            sponsorPoiHighlights
+                                .firstOrNull { it.posSec.toInt() == vp.from }
+                                ?.let { markSponsorPoiSeen(it) }
+                        }
                     }
                 }
                 viewPointRecycler.layoutManager = CustomLinearManager(this, LinearLayoutManager.HORIZONTAL, false)
                 viewPointRecycler.adapter = viewPointAdapter
             }
+            // 每次打开都重灌一次数据：B站的分段是异步到的、精彩时刻还会随点击减少，
+            // 只在首次 setData 会让卡片停在旧列表上（改了 B站分段也看不到）
+            viewPointAdapter!!.setData(list)
             if (isPrepared) {
                 // 看点列表只需要"当前第几秒"这种整秒粒度，直接用 video_now，不必摸 native 锁
                 val currentPos = video_now / 1000
@@ -7188,6 +7310,53 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             layout_card_bg.visibility = View.VISIBLE
             card_viewpoint_selector.visibility = View.VISIBLE
         }
+    }
+
+    /** 这一行是不是 SponsorBlock 的精彩时刻点（而不是 B 站自己的分段/片头片尾）。 */
+    private fun isPoiViewPoint(point: ViewPoint): Boolean = point.type == VIEWPOINT_TYPE_POI
+
+    /**
+     * 看点卡片要显示的合并列表 = B站分段（`view_points`）+ 还没点过的精彩时刻。
+     *
+     * 为什么不把精彩时刻直接塞进 [viewPoints]：那批数据同时喂给 [ViewPointSkip.buildSegments]
+     * 判断片头片尾，混进"区间为空"的点会让片头片尾判定多出一堆无用片段（`to > from` 一滤虽然
+     * 能挡住，但那是在靠下游兜底）。这里只在**展示**时合并，数据源各归各。
+     *
+     * 精彩时刻排在最后：它是"额外发现"，不该把用户看惯的章节顺序打乱。
+     */
+    private fun buildViewPointDisplayList(): List<ViewPoint> {
+        val base = viewPoints.orEmpty()
+        if (sponsorPoiHighlights.isEmpty()) return base
+        val pois = sponsorPoiHighlights.map {
+            ViewPoint(
+                sponsorCategoryLabel(it.category),
+                it.posSec.toInt(),
+                it.posSec.toInt(),
+                VIEWPOINT_TYPE_POI,
+                "",
+                "",
+            )
+        }
+        return base + pois
+    }
+
+    /**
+     * 按「有没有可列的内容」决定看点按钮显隐。
+     *
+     * 26.11.14：内容来源从"只有 B站分段"变成"分段 **或** 精彩时刻"，所以不能再用
+     * `loadViewPoints` 里那句一次性判断——只查 SponsorBlock 的场景（UGC、没有章节的投稿）
+     * 也要能点开这个按钮。
+     */
+    private fun refreshViewPointButton() {
+        if (!::btn_viewpoint.isInitialized) return
+        if (!SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SHOW_VIEWPOINTS, true)) {
+            // 只开了自动跳过的用户不需要这个按钮
+            btn_viewpoint.visibility = View.GONE
+            return
+        }
+        val hasContent = !viewPoints.isNullOrEmpty() || sponsorPoiHighlights.isNotEmpty()
+        btn_viewpoint.visibility = if (hasContent) View.VISIBLE else View.GONE
+        if (hasContent) btn_viewpoint.setOnClickListener { showViewPointSelectorCard() }
     }
 
     private fun loadInteractionVideo() {
@@ -7483,7 +7652,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     cid = targetCid
                     video_url = playerData.videoUrl
                     danmaku_url = playerData.danmakuUrl
-                    text_title!!.text = newData.title
+                    setPlayerTitle(newData.title)
                     videoTitle = newData.title
                     currentEdgeId = newData.edgeId
 

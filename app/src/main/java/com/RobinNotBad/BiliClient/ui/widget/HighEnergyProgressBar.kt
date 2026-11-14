@@ -31,6 +31,14 @@ class HighEnergyProgressBar @JvmOverloads constructor(
      */
     data class Mark(val startMs: Int, val endMs: Int, @ColorInt val color: Int)
 
+    /**
+     * 进度条上的一个**点**标记（26.11.14）：精彩时刻这类「跳转点」只有时刻、没有区间。
+     *
+     * 与 [Mark] 分开是因为画法不同：区间是一条带（看得出"要跳多长"），点是一个小三角
+     * （只表示"这里值得看"）。单位同样是与 [AppCompatSeekBar.getMax] 对齐的毫秒。
+     */
+    data class PointMark(val posMs: Int, @ColorInt val color: Int)
+
     private var highEnergyData: FloatArray? = null
     private var linePaint: Paint
     private var fillPaint: Paint
@@ -40,6 +48,10 @@ class HighEnergyProgressBar @JvmOverloads constructor(
     /** 片段标记（可为空）。改动只走 [setMarks] / [clearMarks]，两者都会 invalidate。 */
     private var marks: List<Mark> = emptyList()
     private val markPaint = Paint().apply { isAntiAlias = true; style = Paint.Style.FILL }
+
+    /** 点标记（可为空）。改动只走 [setPointMarks] / [clearPointMarks]，两者都会 invalidate。 */
+    private var pointMarks: List<PointMark> = emptyList()
+    private val pointMarkPaint = Paint().apply { isAntiAlias = true; style = Paint.Style.FILL }
 
     init {
         // 高能进度条此前写死旧版 B站粉（#FB7299），切主题不跟着变；
@@ -121,6 +133,18 @@ class HighEnergyProgressBar @JvmOverloads constructor(
 
     fun clearMarks() = setMarks(null)
 
+    /**
+     * 设置进度条上的点标记（精彩时刻这类跳转点）。传空表等于 [clearPointMarks]。
+     *
+     * 与 [setMarks] 互不影响：同一 P 既可能有"会跳的广告区间"，也可能有"值得看的精彩点"。
+     */
+    fun setPointMarks(newMarks: List<PointMark>?) {
+        pointMarks = newMarks ?: emptyList()
+        invalidate()
+    }
+
+    fun clearPointMarks() = setPointMarks(null)
+
     @Synchronized
     override fun onDraw(canvas: Canvas) {
         if (showHighEnergy && highEnergyData != null && highEnergyData!!.isNotEmpty()) {
@@ -131,6 +155,9 @@ class HighEnergyProgressBar @JvmOverloads constructor(
 
         if (marks.isNotEmpty()) {
             drawMarks(canvas)
+        }
+        if (pointMarks.isNotEmpty()) {
+            drawPointMarks(canvas)
         }
     }
 
@@ -174,6 +201,43 @@ class HighEnergyProgressBar @JvmOverloads constructor(
 
             markPaint.color = withAlpha(mark.color, 0xE6)
             canvas.drawRoundRect(x1, bottom - stripHeight, x2, bottom, radius, radius, markPaint)
+        }
+    }
+
+    /**
+     * 画点标记：贴底一个小三角，尖朝下。
+     *
+     * 用三角而不是竖线：进度条只有 20dp 高，竖线在浅色主题下与底轨混在一起；三角有方向感，
+     * 而且压在进度填充上也认得出。左右各留半个三角宽，避免首个/末个点被裁掉一半。
+     */
+    private fun drawPointMarks(canvas: Canvas) {
+        val total = max
+        if (total <= 0) return
+
+        val usableWidth = width - paddingLeft - paddingRight
+        val usableHeight = height - paddingTop - paddingBottom
+        if (usableWidth <= 0 || usableHeight <= 0) return
+
+        val density = resources.displayMetrics.density
+        val halfWidth = 4f * density
+        val tipHeight = 5f * density
+        val startX = paddingLeft.toFloat()
+        val bottom = (paddingTop + usableHeight).toFloat()
+        val path = Path()
+
+        for (point in pointMarks) {
+            val posMs = point.posMs.coerceIn(0, total)
+            val centerX = (startX + posMs.toFloat() / total * usableWidth)
+                .coerceIn(startX + halfWidth, startX + usableWidth - halfWidth)
+
+            path.reset()
+            path.moveTo(centerX, bottom)
+            path.lineTo(centerX - halfWidth, bottom - tipHeight)
+            path.lineTo(centerX + halfWidth, bottom - tipHeight)
+            path.close()
+
+            pointMarkPaint.color = point.color
+            canvas.drawPath(path, pointMarkPaint)
         }
     }
 

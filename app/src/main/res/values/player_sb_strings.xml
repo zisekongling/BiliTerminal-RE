@@ -22,7 +22,7 @@
     <!-- 自定义档的类别勾选页 -->
     <string name="player_sb_cat_page_name">要跳的类别</string>
     <string name="player_sb_cat_page_desc">逐项勾选要自动跳过的类别；勾选后档位会自动切到「自定义」</string>
-    <string name="player_sb_cat_page_note">精彩时刻是跳转点（不是一段广告），任何档位都不会跳；静音型本版不处理。整段视频标签（整片都是广告这类）没有可跳的区间，只会在播放时提示一次。</string>
+    <string name="player_sb_cat_page_note">精彩时刻是跳转点（不是一段广告），不进这个页面、任何档位都不会跳——播放页的「看点」里能直接跳过去；静音型本版不处理。整段视频标签（整片都是广告这类）没有可跳的区间，只会在播放页顶栏标题前挂一个标记。</string>
     <string name="player_sb_cat_filler_desc">离题闲聊属主观判断，建议自己看过再决定</string>
     <string name="player_sb_cat_music_offtopic_desc">MV / 翻唱里的谈话段</string>
 
@@ -46,8 +46,7 @@
     <!-- 提示按钮：既回原位，又把这一条记进本地忽略集（26.11.14） -->
     <string name="player_sb_wrong">不准</string>
     <string name="player_sb_wrong_done">已回到%1$s，这条以后不再跳过</string>
-    <!-- 整片标注（actionType=full）：不是能跳的区间，只提示一次 -->
-    <string name="player_sb_full_notice">本片整片都是%1$s，没有可跳的片段</string>
+    <!-- 整片标注（actionType=full）：26.11.14 起不再弹提示，改为顶栏标题前的胶囊，文案复用类别名 -->
 
     <!-- 设置项：清除「不准」的本地忽略记录 -->
     <string name="player_sb_clear_ignored_name">清除「不准」记录</string>

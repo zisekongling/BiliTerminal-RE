@@ -102,6 +102,15 @@ object SponsorSkipPolicy {
      */
     const val ACTION_FULL = "full"
 
+    /**
+     * 「高能/精彩片段」跳转点（`actionType == poi`）。
+     *
+     * 它是**点**不是区间：上游给的 `from`/`to` 通常相等，含义是"从这里往后值得看"，跳到那一刻
+     * 就行。所以它既不进 [buildSegments]（那里要求 `to > from`，进去了也会被滤掉），
+     * 也不进 [fullVideoCategories]，而是单独被 [highlights] 提炼成跳转点。
+     */
+    const val ACTION_POI = "poi"
+
     /** 片段在 [ViewPointSkip.Segment.type] 里的取值，与片头(1)/片尾(2)区分开，只用于去重 key 与诊断。 */
     const val TYPE_SPONSOR = 3
 
@@ -225,6 +234,44 @@ object SponsorSkipPolicy {
             .toHashSet()
         if (hit.isEmpty()) return emptyList()
         return ALL_CATEGORIES.filter { it in hit }
+    }
+
+    /**
+     * 一个跳转点（精彩时刻）。
+     *
+     * @param posSec 跳过去的那一秒
+     * @param category 上游类别（目前只有 `poi_highlight`，留着是为了以后别的"点"型类别能复用）
+     */
+    data class Highlight(val posSec: Double, val category: String)
+
+    /**
+     * 原始标注 → 本 P 的跳转点（`actionType == poi`），按时间排序、按「起点 + 类别」去重。
+     *
+     * **不看档位**：这是一个导航入口而不是跳过动作，关掉自动跳过的人照样能点着看。
+     * cid 与版本校验与 [buildSegments] 同一口径（别的分 P、换源前的旧标注都要丢）。
+     *
+     * 起点取 `fromSec`，只有在它非正时才退回 `toSec`——上游个别标注把点写在 `to` 上。
+     * 越过总末尾超过容差的也丢：那是换源前的残留，点过去会直接停住。
+     */
+    fun highlights(
+        raw: List<SponsorBlockApi.RawSegment>,
+        cid: Long,
+        currentDurationSec: Double,
+    ): List<Highlight> {
+        val out = LinkedHashMap<String, Highlight>()
+        for (item in raw.asSequence()
+            .filter { it.actionType == ACTION_POI }
+            .filter { it.cid <= 0L || cid <= 0L || it.cid == cid }
+            .filter { isSameVersion(it, currentDurationSec) }
+            .sortedBy { it.fromSec }
+        ) {
+            val pos = if (item.fromSec > 0.0) item.fromSec else item.toSec
+            if (pos < 0.0) continue
+            // 总时长未知（<=0）时不做越界判断——此时任何一个点都没法验证，宁可全留
+            if (currentDurationSec > 0.0 && pos > currentDurationSec + DURATION_TOLERANCE_SEC) continue
+            out.putIfAbsent(pos.toString() + "|" + item.category, Highlight(pos, item.category))
+        }
+        return out.values.toList()
     }
 
     /**
