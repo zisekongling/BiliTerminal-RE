@@ -448,6 +448,16 @@ public class DrawHandler extends Handler {
     private long mClockSampleAt;
 
     /**
+     * 上一帧的墙钟时刻（`syncTimer` 传入的 nowMs），用于算出**真实帧间隔**。
+     *
+     * 媒体时钟模式下步进上限必须跟着帧间隔走：帧率掉到 25fps 以下时固定 40ms/帧追不上
+     * 媒体时间流逝，误差会周期性撞上 SNAP_ERROR_MS 变成肉眼可见的「一跳一跳」
+     * （见 MediaClockSync.stepFor(float, long)）。-1 表示还没有基准（首帧 / 刚硬对齐过），
+     * 此时按原行为处理。
+     */
+    private long mLastClockFrameAt = -1;
+
+    /**
      * 通过 `start(position)` 指定的起播位置；`-1` 表示没指定（从头）。
      *
      * 必须单独存：`prepare()` 的 ready 回调是**异步**的（`CacheManagingDrawTask` 在后台解析完
@@ -528,6 +538,7 @@ public class DrawHandler extends Handler {
     private long syncTimerByMediaClock(long nowMs) {
         long pos = mMediaClock.positionMs();
         if (pos < 0) {
+            mLastClockFrameAt = -1;
             return -1; // 位置不可信（未就绪/已销毁），退回原生逻辑
         }
         boolean playing = mMediaClock.isPlaying();
@@ -535,6 +546,7 @@ public class DrawHandler extends Handler {
             // 首次采样 / seek / 换源 / 恢复进度：位置不连续，直接对齐，别慢慢蠕动
             mClockSamplePos = pos;
             mClockSampleAt = nowMs;
+            mLastClockFrameAt = -1; // 硬对齐后重新起算帧间隔，别把对齐前的空档算进去
             timer.update(pos);
             mRemainingTime = 0;
             if (mCallback != null) {
@@ -546,11 +558,18 @@ public class DrawHandler extends Handler {
             mClockSamplePos = pos;
             mClockSampleAt = nowMs;
         }
+        // 真实帧间隔：上一帧到现在过去了多久。过长（卡顿、后台唤醒）或回拨就不当作基准，
+        // 退回固定步进——那种情况下该由下面的吸附分支处理，而不是让蠕动一帧跨半秒。
+        long frameInterval = mLastClockFrameAt < 0 ? 0L : nowMs - mLastClockFrameAt;
+        mLastClockFrameAt = nowMs;
+        if (frameInterval < 0 || frameInterval > MediaClockSync.SNAP_ERROR_MS) {
+            frameInterval = 0L;
+        }
         // 暂停时目标就是当前位置（冻结）；播放中按倍速外推，避免每 250ms 才推进一次
         long ideal = playing
                 ? MediaClockSync.project(pos, mClockSampleAt, nowMs, mSpeed)
                 : pos;
-        timer.update(MediaClockSync.nextTimerValue(timer.currMillisecond, ideal, mSpeed));
+        timer.update(MediaClockSync.nextTimerValue(timer.currMillisecond, ideal, mSpeed, frameInterval));
         mRemainingTime = 0;
         if (mCallback != null) {
             mCallback.updateTimer(timer);

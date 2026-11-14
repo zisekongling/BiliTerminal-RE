@@ -51,10 +51,39 @@ public final class MediaClockSync {
      */
     public static final long DISCONTINUITY_MS = 1000L;
 
+    /**
+     * 保守下限之外的余量：按真实帧间隔给步进时留 25%，让误差逐步收敛而不是贴着 0 卡住。
+     */
+    private static final float FRAME_INTERVAL_MARGIN = 1.25f;
+
     /** 当前倍速下每帧允许的最大步进（1.0x 为 {@link #MAX_STEP_MS}，倍速越高按比例放大）。 */
     public static long stepFor(float speed) {
         if (speed <= 1.0f) return MAX_STEP_MS;
         return (long) (MAX_STEP_MS * speed);
+    }
+
+    /**
+     * 按**真实帧间隔**给出的每帧步进上限（26.11.14）。
+     *
+     * 为什么需要它：[stepFor(float)] 的 40ms/帧是「60fps 下」的基准值。弹幕渲染帧率一旦
+     * 掉到 25fps 以下（手表上叠加 15 行弹幕很常见，短视频页还要同时解视频帧），每帧真实过去的
+     * 媒体时间就超过 40ms，而蠕动上限还卡在 40ms —— 时钟每帧必然落后一截，误差线性累积，
+     * 攒到 {@link #SNAP_ERROR_MS} 就硬吸一次。表现就是：**弹幕整体每 1~2 秒「跳」一下**
+     * （用户反馈原话「弹幕依旧会一跳一跳的」）。
+     *
+     * 这一版把上限抬到「本帧真实过去的媒体时间」（`帧间隔 × 倍速`）以上，蠕动就只用来抹平
+     * 采样抖动，不再承担「限制追赶速度」的职责——后者本来就是错的：媒体时间过去多少，
+     * 弹幕时钟就该走多少，DFM 原生（墙钟）分支里的 `timer.add(d)` 也是这个口径。
+     *
+     * @param speed            播放倍速
+     * @param frameIntervalMs  距上一帧的真实墙钟间隔；≤0 或未知时退回 [stepFor(float)]
+     */
+    public static long stepFor(float speed, long frameIntervalMs) {
+        long speedStep = stepFor(speed);
+        if (frameIntervalMs <= 0) return speedStep;
+        float rate = speed < 1.0f ? 1.0f : speed;
+        long minStep = (long) (frameIntervalMs * rate * FRAME_INTERVAL_MARGIN);
+        return Math.max(speedStep, minStep);
     }
 
     private MediaClockSync() {
@@ -97,9 +126,22 @@ public final class MediaClockSync {
      * @param speed     播放倍速；步进上限随它放大（3x 下媒体时间每秒推进 3000ms，40ms/帧追不上）
      */
     public static long nextTimerValue(long currentMs, long idealMs, float speed) {
+        return nextTimerValue(currentMs, idealMs, speed, 0L);
+    }
+
+    /**
+     * 同 [nextTimerValue(long, long, float)]，但步进上限按**真实帧间隔**推算。
+     *
+     * 调用方（`DrawHandler.syncTimerByMediaClock`）应当传入「距上一帧的墙钟间隔」：
+     * 帧率掉到 25fps 以下时，固定 40ms/帧追不上媒体时间流逝，误差会周期性撞上
+     * {@link #SNAP_ERROR_MS} 变成肉眼可见的「一跳一跳」（见 [stepFor(float, long)]）。
+     *
+     * @param frameIntervalMs 距上一帧的墙钟间隔；≤0 或未知时按原行为处理
+     */
+    public static long nextTimerValue(long currentMs, long idealMs, float speed, long frameIntervalMs) {
         long err = idealMs - currentMs;
         if (err > SNAP_ERROR_MS || err < -SNAP_ERROR_MS) return idealMs;
-        long step = stepFor(speed);
+        long step = stepFor(speed, frameIntervalMs);
         if (err > step) err = step;
         else if (err < -step) err = -step;
         return currentMs + err;
