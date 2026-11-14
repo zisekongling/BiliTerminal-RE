@@ -70,7 +70,7 @@
     <string name="player_skip_marks_cats_desc">已勾 %1$d / %2$d 类。与「跳不跳」无关：三档全关、这里勾着，就是只显示条子不跳</string>
     <string name="player_skip_marks_poi_name">标出精彩时刻</string>
     <string name="player_skip_marks_poi_desc">进度条上一个蓝色小三角；与上面那条条子各自独立开关</string>
-    <string name="player_skip_marks_color_note">上面每个类别左边的色块，就是它在进度条上的颜色。</string>
+    <string name="player_skip_marks_color_note">下面每个类别左边的色块，就是它在进度条上的颜色。</string>
     <string name="player_mark_page_name">标记哪些类别</string>
     <string name="player_mark_page_note">勾上的类别会画在进度条上。这一页与「跳不跳」完全无关：三档全关、只勾这里 = 只显示条子不跳；三档开着、这里全不勾 = 只跳不显示。改完回播放页立刻生效，不用重进。</string>
 </resources>

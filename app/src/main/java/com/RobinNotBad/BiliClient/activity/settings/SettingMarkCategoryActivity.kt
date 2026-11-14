@@ -6,6 +6,7 @@ import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
 import com.RobinNotBad.BiliClient.adapter.SettingsAdapter
 import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.player.SponsorCategoryLabels
+import com.RobinNotBad.BiliClient.player.SponsorSkipPolicy
 import com.RobinNotBad.BiliClient.player.SponsorSkipPrefs
 
 /**
@@ -34,7 +35,10 @@ class SettingMarkCategoryActivity : RefreshListActivity() {
     }
 
     private fun buildSections(): List<SettingSection> {
-        val out = ArrayList<SettingSection>(SponsorCategoryLabels.selectable.size + 1)
+        val out = ArrayList<SettingSection>(SponsorCategoryLabels.selectable.size + 2)
+        // 每一行的色块就是这一类在进度条上的颜色（与 SponsorSkipPolicy.markColor 同值），
+        // 所以配色只要改那一处，这里和播放页自动一致。
+        out.add(SettingSection("title", getString(R.string.player_skip_marks_color_note), "", "", ""))
         for (category in SponsorCategoryLabels.selectable) {
             val descRes = SponsorCategoryLabels.descRes(category)
             out.add(
@@ -43,7 +47,8 @@ class SettingMarkCategoryActivity : RefreshListActivity() {
                     getString(SponsorCategoryLabels.nameRes(category)),
                     SponsorSkipPrefs.markCategoryKey(category),
                     if (descRes == 0) "" else getString(descRes),
-                    "true"
+                    "true",
+                    SettingsAdapter.SwitchExtra(swatchColor = SponsorSkipPolicy.markColor(category))
                 )
             )
         }

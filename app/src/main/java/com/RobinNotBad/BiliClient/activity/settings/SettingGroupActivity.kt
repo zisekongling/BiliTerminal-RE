@@ -224,7 +224,7 @@ class SettingGroupActivity : RefreshListActivity() {
     }
 
     private fun switch(name: String, desc: String?, key: String, default: Boolean, onChange: ((Boolean) -> Unit)? = null) {
-        val extra = if (onChange != null) SettingsAdapter.SwitchExtra(onChange) else null
+        val extra = if (onChange != null) SettingsAdapter.SwitchExtra(onChange = onChange) else null
         sections.add(SettingSection("switch", name, key, desc ?: "", default.toString(), extra))
     }
 

@@ -67,7 +67,20 @@ class SettingsAdapter(
 
     class ButtonExtra(val onClick: (View) -> Unit)
 
-    class SwitchExtra(val onChange: (Boolean) -> Unit)
+    /**
+     * switch 行的附加参数。
+     *
+     * 参数顺序刻意把 [onChange] 放最后：全仓既有调用都是尾随 lambda 写法
+     * `SwitchExtra { … }`，lambda 绑定到最后一个参数，顺序一动就全部编译不过。
+     *
+     * [swatchColor]：名字左边的参考色（26.11.14）。非 0 才在开关文字左边画一颗圆角小方块，
+     * 颜色就是这一项在播放页进度条上的颜色（与 `SponsorSkipPolicy.markColor()` 同值）。
+     * 目前只有「标记哪些类别」页用到——那一页每一行就是一个类别，色块说明这条会画成什么色。
+     */
+    class SwitchExtra(
+        val swatchColor: Int = 0,
+        val onChange: (Boolean) -> Unit = { _ -> }
+    )
 
     class InputExtra(val save: (String) -> Unit)
 
@@ -223,6 +236,7 @@ class SettingsAdapter(
                 desc.visibility = View.VISIBLE
             }
             switchMaterial.text = SettingText.resolve(itemView.context, settingSection.name)
+            bindSwatch((settingSection.extra as? SwitchExtra)?.swatchColor ?: 0)
             switchMaterial.setOnCheckedChangeListener(null)
             switchMaterial.isChecked = SharedPreferencesUtil.getBoolean(
                 settingSection.id,
@@ -236,6 +250,31 @@ class SettingsAdapter(
                 adapter?.onSettingChanged?.invoke(settingSection.id, isChecked)
                 (settingSection.extra as? SwitchExtra)?.onChange?.invoke(isChecked)
             }
+        }
+
+        /**
+         * 画开关文字左边那颗参考色方块：圆角小方，颜色就是这一项在播放页进度条上的颜色。
+         *
+         * 用 [SwitchMaterial] 自己的 compound drawable 实现，不动布局——开关文字本来就是
+         * `switchMaterial.text`，色块只要贴在它左边即可。`color == 0` 时清掉 drawable 与内边距，
+         * 免得绝大多数没有颜色概念的 switch 行凭空多出一段缩进。
+         */
+        private fun bindSwatch(color: Int) {
+            val density = itemView.resources.displayMetrics.density
+            if (color == 0) {
+                switchMaterial.setCompoundDrawablesRelativeWithIntrinsicBounds(0, 0, 0, 0)
+                switchMaterial.compoundDrawablePadding = 0
+                return
+            }
+            val size = (10 * density).toInt()
+            val drawable = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(color)
+                cornerRadius = size / 3f
+                setSize(size, size)
+            }
+            switchMaterial.setCompoundDrawablesRelativeWithIntrinsicBounds(drawable, null, null, null)
+            switchMaterial.compoundDrawablePadding = (6 * density).toInt()
         }
     }
 
@@ -372,19 +411,11 @@ class SettingsAdapter(
         val name: TextView = itemView.findViewById(R.id.setting_list_choose_name)
         val value: TextView = itemView.findViewById(R.id.setting_list_choose_value)
         val desc: TextView = itemView.findViewById(R.id.setting_list_choose_desc)
-        val swatch: ImageView = itemView.findViewById(R.id.setting_list_choose_swatch)
 
         class ListChooseExtra(
             var displayNames: List<String>,
             var actualValues: List<String>,
-            var onSelect: ((String, String) -> Unit)? = null,
-            /**
-             * 名字左边的参考色（26.11.14）：非 0 才显示一个小色块。
-             *
-             * 用在「按类别配色」的设置行——色块就是这一项在进度条上的颜色，与
-             * `SponsorSkipPolicy.markColor()` 同一个值，改配色只要改那一处。
-             */
-            var swatchColor: Int = 0
+            var onSelect: ((String, String) -> Unit)? = null
         ) : Serializable {
             companion object {
                 private const val serialVersionUID = 1L
@@ -402,7 +433,6 @@ class SettingsAdapter(
             name.text = SettingText.resolve(itemView.context, settingSection.name)
 
             val extra = settingSection.extra as ListChooseExtra
-            bindSwatch(extra.swatchColor)
             if (extra.displayNames != null && extra.actualValues != null) {
                 val currentValue = SharedPreferencesUtil.getString(settingSection.id, settingSection.defaultValue)
                 val currentIndex = extra.actualValues.indexOf(currentValue)
@@ -424,28 +454,6 @@ class SettingsAdapter(
                     }
                 }
             }
-        }
-
-        /**
-         * 画名字左边那颗参考色方块：圆角小方，颜色就是这一项在播放页进度条上的颜色。
-         *
-         * `color == 0` 时整块 `GONE`——绝大多数 list_choose 行没有颜色概念，不能凭空多出个空位。
-         */
-        private fun bindSwatch(color: Int) {
-            if (color == 0) {
-                swatch.visibility = View.GONE
-                return
-            }
-            val size = (10 * itemView.resources.displayMetrics.density).toInt()
-            swatch.layoutParams = swatch.layoutParams.apply {
-                width = size
-                height = size
-            }
-            swatch.background = GradientDrawable().apply {
-                setColor(color)
-                cornerRadius = size / 3f
-            }
-            swatch.visibility = View.VISIBLE
         }
     }
 }

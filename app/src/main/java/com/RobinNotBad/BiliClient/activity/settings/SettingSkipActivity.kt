@@ -124,9 +124,7 @@ class SettingSkipActivity : RefreshListActivity() {
                             SponsorSkipPolicy.MODE_OFF.toString(),
                             SponsorSkipPolicy.MODE_ASK.toString(),
                             SponsorSkipPolicy.MODE_AUTO.toString()
-                        ),
-                        // 这一项在进度条上的颜色：与上面三档无关，纯粹是"这条画成什么色"
-                        SponsorSkipPolicy.markColor(category)
+                        )
                     )
                 )
             }
@@ -169,7 +167,6 @@ class SettingSkipActivity : RefreshListActivity() {
                     "true"
                 )
             )
-            out.add(SettingSection("title", getString(R.string.player_skip_marks_color_note), "", "", ""))
 
             // 「不准」记录：本地忽略表，条数是一条条攒出来的、界面上看不到明细，误按也没有
             // 单条撤销入口——所以给一个整表清空。即时生效且不可恢复，要过一道确认框。
@@ -208,11 +205,9 @@ class SettingSkipActivity : RefreshListActivity() {
         desc: String,
         default: String,
         displayNames: List<String>,
-        actualValues: List<String>,
-        swatchColor: Int = 0
+        actualValues: List<String>
     ) = SettingSection(
         "list_choose", name, key, desc, default,
         SettingsAdapter.ListChooseHolder.ListChooseExtra(displayNames, actualValues)
-            .apply { this.swatchColor = swatchColor }
     )
 }
