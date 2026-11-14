@@ -18,6 +18,13 @@
 
 ## 1. 当前版本状态
 
+- **26.11.14 进度条时间加「扣掉广告后的时长」括号（用户原话「进度条的时间括号和广告片段标记没有生效」）**：
+  - **来路**：用户第一张参考截图（浏览器插件）里进度条时间是 `01:43 (1:34)`，括号指的是「跳完广告后的有效时长」；我们一直只显示 `当前 / 总长`，用户因此报「时间括号没生效」。
+  - **修法**：① `player/SponsorSkipPolicy.kt` 新增纯函数 `savedSeconds(segments): Int`（先把各段时长求和再四舍五入到整秒，脏数据 `to <= from` 按 0）；② `activity/player/PlayerActivity.kt` 新增字段 `sponsorSavedMs`（在 `applySponsorLevel()` 里由**已按档位过滤**的片段表算出，改档位/点「不准」自动跟着变）与 `formatProgressText(positionMs)` / `refreshProgressText()`，`initSeekbars()` 的 `onProgressChanged` 改调 `formatProgressText`，`progress_str` 与 `sponsorDecider.applyLoaded` 之后各刷一次；③ `res/values/player_sb_strings.xml` 新增 `player_sb_progress_saved` = `%1$s / %2$s (%3$s)`；④ 换 P 时随 reset 清成 0。
+  - **口径**：括号只在**有可跳片段**时出现，没有就退回 `当前 / 总长`；这只影响文案，不改任何跳过行为。
+  - **L0（26.11.14 本机实测）**：两 flavor `compile` → BUILD SUCCESSFUL（1m5s）；`:app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest --no-build-cache` → BUILD SUCCESSFUL（新增 `player/SponsorTimeSavedTest.kt` 7 例，含 `BV13yW16VEGT` 的真实上游样本：仅恰饭档 1 段、省 13 秒、档位关闭为 0、别的分 P 不算）；`:app:assembleDebug` → BUILD SUCCESSFUL。
+  - **未验证（L2，只能真机看）**：括号是否出现在进度条右侧、`107` 秒的 `BV13yW16VEGT` 是否显示 `(01:34)`；见 `docs/review/l2-pending.md` §G。
+
 - **26.11.14 视频详情页标题前加「广告」胶囊，顺带定责「进度条看不到条子」（用户原话「广告标记应该放在视频详情页，你看好了」）**：
   - **来路**：上一批把整片标签做成播放页顶栏胶囊，用户要求把这个「广告」标记挪到**视频详情页**（与截图里「联合投稿」同一位置、同一套 `RadiusBackgroundSpan`）。经确认：详情页与播放页两边都保留；整片 → 「广告」，只有部分片段 → 「含广告」；文案用「广告」。
   - **修法**：① `player/SponsorSkipPolicy.kt` 新增 `BADGE_NONE/BADGE_FULL/BADGE_PARTIAL` 与纯函数 `adBadge(raw, cid, currentDurationSec): Int`——只在恰饭口径两类（`sponsor` / `selfpromo`）里判，片头、三连提醒、离题闲聊都不算广告；整片优先，其次部分，其余 NONE。② `activity/video/info/VideoInfoFragment.kt` 新增字段 `sponsorBadge` / `titleView`，新增 `loadSponsorBadge()`（**只有 `SponsorSkipPrefs.isEnabled()` 为真才发请求**，cid 传 0、总时长传 0 表示「整条视频有没有广告」；失败/空表静默，只写一行 `Logu.w("SponsorBlock", …)`），在 `initView` 的 `title.text = getTitleSpan()` 之后调用；`getTitleSpan()` 改成广告胶囊优先、其余四颗（充电专属/互动视频/全景视频/联合投稿）依次兜底，一颗位只放一颗。③ `res/values/player_sb_strings.xml` 新增 `player_sb_badge_full`「广告」、`player_sb_badge_partial`「含广告」。④ 播放页顶栏那颗不动。
