@@ -48,6 +48,10 @@
     <string name="player_sb_wrong_done">已回到%1$s，这条以后不再跳过</string>
     <!-- 整片标注（actionType=full）：26.11.14 起不再弹提示，改为顶栏标题前的胶囊，文案复用类别名 -->
 
+    <!-- 视频详情页标题前的广告胶囊（26.11.14）：整条视频都是广告 / 只是部分片段是广告 -->
+    <string name="player_sb_badge_full">广告</string>
+    <string name="player_sb_badge_partial">含广告</string>
+
     <!-- 设置项：清除「不准」的本地忽略记录 -->
     <string name="player_sb_clear_ignored_name">清除「不准」记录</string>
     <string name="player_sb_clear_ignored_confirm">已记录 %1$d 条「不准」。清空后这些片段会重新参与自动跳过，记录无法找回。</string>

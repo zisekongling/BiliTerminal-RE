@@ -52,12 +52,15 @@ import com.RobinNotBad.BiliClient.api.HistoryApi
 import com.RobinNotBad.BiliClient.api.LikeCoinFavApi
 import com.RobinNotBad.BiliClient.api.PlayerApi
 import com.RobinNotBad.BiliClient.api.PrivateMsgApi
+import com.RobinNotBad.BiliClient.api.SponsorBlockApi
 import com.RobinNotBad.BiliClient.api.VideoInfoApi
 import com.RobinNotBad.BiliClient.api.WatchLaterApi
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.PrivateMessage
 import com.RobinNotBad.BiliClient.model.VideoInfo
 import com.RobinNotBad.BiliClient.player.CollectionResumeStore
+import com.RobinNotBad.BiliClient.player.SponsorSkipPolicy
+import com.RobinNotBad.BiliClient.player.SponsorSkipPrefs
 import com.RobinNotBad.BiliClient.ui.widget.RadiusBackgroundSpan
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -256,6 +259,17 @@ class VideoInfoFragment : BaseFragment() {
     private lateinit var like: ImageView
     private lateinit var coin: ImageView
     private lateinit var fav: ImageView
+    /**
+     * 标题前那个「广告」胶囊的文字；null 表示这条视频没有广告标注（或还没查出来）。
+     *
+     * 详情页的标注是**后到**的（要额外发一次 SponsorBlock 请求），所以不能在
+     * `getTitleSpan()` 里现算，只能先渲染原样标题、拿到结果再重渲染一次。
+     */
+    private var sponsorBadge: String? = null
+
+    /** 标题 TextView 的字段引用：`getTitleSpan()` 的第一次渲染在 `initView` 里，之后胶囊到货还要再渲染一次。 */
+    private var titleView: TextView? = null
+
     private var coinAdd = 0
     private var descExpand = false
     private var tagsExpand = false
@@ -359,6 +373,7 @@ class VideoInfoFragment : BaseFragment() {
 
         val cover = rootview.findViewById<ImageView>(R.id.img_cover)
         val title = rootview.findViewById<TextView>(R.id.text_title)
+        titleView = title
         description = rootview.findViewById(R.id.description)
         tagsText = rootview.findViewById(R.id.tags)
         val exclusiveTip = rootview.findViewById<MaterialCardView>(R.id.exclusiveTip)
@@ -487,6 +502,7 @@ class VideoInfoFragment : BaseFragment() {
 
         title.text = getTitleSpan()
         StringUtil.setCopy(title, videoInfo!!.title)
+        loadSponsorBadge()
 
         if (videoInfo!!.argueMsg.isNotEmpty()) {
             exclusiveTipLabel.text = videoInfo!!.argueMsg
@@ -822,13 +838,20 @@ class VideoInfoFragment : BaseFragment() {
         }
     }
 
+    /**
+     * 标题前那个胶囊：**只放一个**。
+     *
+     * 「广告」优先于「充电专属 / 互动视频 / 全景视频 / 联合投稿」——它回答的是"进去会不会
+     * 被喂广告"，比那四个都更影响"点不点播放"这个决定；手表屏一行也塞不下两个胶囊。
+     * 文字由 [loadSponsorBadge] 异步填进来，没查到就是 null，走原来的那四个。
+     */
     private fun getTitleSpan(): SpannableString {
-        var string: String? = null
+        var string: String? = sponsorBadge
 
-        if (videoInfo!!.upowerExclusive) string = UiText.of("充电专属")
-        else if (videoInfo!!.isSteinGate) string = UiText.of("互动视频")
-        else if (videoInfo!!.is360) string = UiText.of("全景视频")
-        else if (videoInfo!!.isCooperation) string = UiText.of("联合投稿")
+        if (string == null && videoInfo!!.upowerExclusive) string = UiText.of("充电专属")
+        else if (string == null && videoInfo!!.isSteinGate) string = UiText.of("互动视频")
+        else if (string == null && videoInfo!!.is360) string = UiText.of("全景视频")
+        else if (string == null && videoInfo!!.isCooperation) string = UiText.of("联合投稿")
 
         if (string == null) return SpannableString(videoInfo!!.title)
 
@@ -836,6 +859,42 @@ class VideoInfoFragment : BaseFragment() {
         val badgeBG = RadiusBackgroundSpan(0, resources.getDimension(R.dimen.card_round).toInt(), Color.WHITE, ColorScheme.PRIMARY)
         titleStr.setSpan(badgeBG, 0, string.length + 2, Spanned.SPAN_INCLUSIVE_EXCLUSIVE)
         return titleStr
+    }
+
+    /**
+     * 查一次这条视频的广告标注，给标题前补「广告」/「含广告」胶囊。
+     *
+     * 只在用户开着自动跳过（[SponsorSkipPrefs.isEnabled]）时才请求：这个胶囊是跳过功能的
+     * 延伸，关掉它的人不该因为打开详情页就被发一次第三方请求。
+     *
+     * 失败、没标注、上游返回空——一律静默：详情页的首要任务是让人读到简介，不该为一个
+     * 装饰性标记弹错。
+     *
+     * cid 传 0（任意分 P 的标注都算数）、总时长传 0（不校验版本）：这里回答的是"这条视频
+     * 有没有广告"，而不是"这个 P 从第几秒跳到第几秒"。
+     */
+    private fun loadSponsorBadge() {
+        val info = videoInfo ?: return
+        val bvidOfVideo = info.bvid ?: ""
+        if (bvidOfVideo.isEmpty()) return
+        if (!SponsorSkipPrefs.isEnabled()) return
+        CenterThreadPool.run {
+            val badge = try {
+                SponsorSkipPolicy.adBadge(SponsorBlockApi.fetchSegments(bvidOfVideo), 0L, 0.0)
+            } catch (e: Exception) {
+                Logu.w("SponsorBlock", "详情页广告标注查询失败: " + e.message)
+                SponsorSkipPolicy.BADGE_NONE
+            }
+            if (badge == SponsorSkipPolicy.BADGE_NONE) return@run
+            CenterThreadPool.runOnUiThread {
+                if (!isAdded) return@runOnUiThread
+                sponsorBadge = when (badge) {
+                    SponsorSkipPolicy.BADGE_FULL -> getString(R.string.player_sb_badge_full)
+                    else -> getString(R.string.player_sb_badge_partial)
+                }
+                titleView?.text = getTitleSpan()
+            }
+        }
     }
 
     private fun getDescSpan(tags: String): SpannableStringBuilder {

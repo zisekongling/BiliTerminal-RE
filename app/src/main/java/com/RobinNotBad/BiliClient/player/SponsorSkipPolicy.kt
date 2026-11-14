@@ -274,6 +274,33 @@ object SponsorSkipPolicy {
         return out.values.toList()
     }
 
+    /** 详情页胶囊的三种结论：没广告 / 整片都是 / 只有部分片段。 */
+    const val BADGE_NONE = 0
+    const val BADGE_FULL = 1
+    const val BADGE_PARTIAL = 2
+
+    /**
+     * 详情页（还没开始播）用的一句话结论：这条视频和「广告」有什么关系。
+     *
+     * 只看恰饭口径的两类（[CAT_SPONSOR] / [CAT_SELFPROMO]），片头、预告、三连提示这些都不算
+     * 广告——详情页上那句话是给"要不要点播放、进去会不会被喂广告"做判断用的，标成
+     * 「含广告」却只是有个片头，会把这个标记本身变成噪音。
+     *
+     * **不看档位**：与 [fullVideoCategories] 同理，这是提示而非跳过动作。
+     *
+     * @param currentDurationSec 当前总时长，详情页拿不到准确秒数时传 0（跳过版本校验）
+     */
+    fun adBadge(
+        raw: List<SponsorBlockApi.RawSegment>,
+        cid: Long,
+        currentDurationSec: Double,
+    ): Int {
+        val full = fullVideoCategories(raw, cid, currentDurationSec)
+        if (full.any { it == CAT_SPONSOR || it == CAT_SELFPROMO }) return BADGE_FULL
+        val adSegments = buildSegments(raw, categoriesFor(LEVEL_PROMO), cid, currentDurationSec)
+        return if (adSegments.isEmpty()) BADGE_NONE else BADGE_PARTIAL
+    }
+
     /**
      * 这条标注是否属于"当前这个版本的视频"。
      *
