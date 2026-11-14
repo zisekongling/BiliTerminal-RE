@@ -76,6 +76,10 @@ object SponsorBlockApi {
      * @param toSec 终点（秒）；`full` 类型固定是 `[0,0]`
      * @param videoDuration 提交者当时看到的总时长（秒），用来判断"这条标注还是不是同一个版本"
      * @param votes 社区票数（正数=赞，负数=踩）
+     * @param uuid 这条标注的**全局唯一 id**（上游 40 位十六进制）。投票、记录跳过、单条详情
+     *   全要它，本地「这条不准」的忽略集也按它记——按区间记会在换源后错位。上游缺字段时为空串。
+     * @param locked 是否被 VIP 锁定（锁定后普通用户不能投票/改动它自己的类别）
+     * @param hidden 是否已被隐藏（票数太差被折叠，`GET /searchSegments` 之外拿不到，留作诊断）
      */
     data class RawSegment(
         val cid: Long,
@@ -85,6 +89,9 @@ object SponsorBlockApi {
         val toSec: Double,
         val videoDuration: Double,
         val votes: Int,
+        val uuid: String = "",
+        val locked: Boolean = false,
+        val hidden: Boolean = false,
     )
 
     /**
@@ -188,6 +195,15 @@ object SponsorBlockApi {
             toSec = to,
             videoDuration = obj.optDouble("videoDuration", 0.0),
             votes = obj.optInt("votes", 0),
+            // 上游这三种字段的大小写不统一（`UUID` 全大写、`locked`/`hidden` 小写），
+            // 且 `optString` 对 null 会返回 "null" 字符串，所以都只在真给了的时候才取
+            uuid = obj.optString("UUID").takeIf { it.isNotEmpty() && it != "null" }.orEmpty(),
+            locked = flagOf(obj, "locked"),
+            hidden = flagOf(obj, "hidden"),
         )
     }
+
+    /** 上游的布尔位是 0/1 数字，个别版本给的是 `true`/`false`，两种都认。 */
+    private fun flagOf(obj: JSONObject, key: String): Boolean =
+        obj.optBoolean(key, false) || obj.optInt(key, 0) == 1
 }

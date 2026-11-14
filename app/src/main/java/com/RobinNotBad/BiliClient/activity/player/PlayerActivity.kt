@@ -922,6 +922,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     /** SponsorBlock 原始标注（未按档位过滤）。档位中途改变时用它重新生成片段表，不必再发一次请求。 */
     private var sponsorRawSegments: List<SponsorBlockApi.RawSegment> = emptyList()
 
+    /**
+     * 本次播放内存里的「不准」记录（26.11.14）。
+     *
+     * 正常数据会落存档（`SponsorSkipPrefs.ignoreSegment`，按 UUID）；这里装的是**上游没给 UUID**
+     * 的老标注的兜底，键见 [sponsorSegmentKey]。换P 时随 [sponsorDecider] 一起清空。
+     */
+    private val sponsorSessionIgnores = HashSet<String>()
+
     /** 已经为哪个 cid 发起过查询（0 = 还没发起）。用于「每P 只查一次」，失败时归零以便重试。 */
     private var sponsorLoadCid: Long = 0L
 
@@ -935,6 +943,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
 
     /** 上次查询失败的冷却截止时刻（`SystemClock.elapsedRealtime()`），避免对方挂掉时每 250ms 重试一次。 */
     private var sponsorRetryAfterMs: Long = 0L
+
+    /** 已经提示过「整片标注」的 cid（0 = 没提示过），每 P 只提示一次。 */
+    private var sponsorFullNoticeCid: Long = 0L
 
     private var eventBusInit = false
 
@@ -5114,6 +5125,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     }
                     sponsorRawSegments = raw
                     applySponsorLevel()
+                    noticeFullVideoCoverage(requestCid)
                     Logu.d(
                         "SponsorBlock",
                         "cid=" + requestCid + " 原始标注 " + raw.size + " 条，可跳 " + sponsorDecider.segments.size + " 段"
@@ -5141,7 +5153,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      */
     private fun applySponsorLevel() {
         val allowed = SponsorSkipPrefs.effectiveCategories()
-        val key = allowed.sorted().joinToString(",")
+        val ignored = sponsorIgnoreSet()
+        // 签名 = 类别集合 + 忽略集：忽略集变了（用户刚点「不准」）也要重建，
+        // 只比类别集合的话点了「不准」片段表不会变，那条会继续跳
+        val key = allowed.sorted().joinToString(",") + "|" + ignored.sorted().joinToString(",")
         if (key == sponsorSegmentsKey) return
         sponsorSegmentsKey = key
         val segments = SponsorSkipPolicy.buildSegments(
@@ -5149,8 +5164,56 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             allowed,
             cid,
             video_all / 1000.0,
-        )
+            ignored,
+        ).filterNot { sponsorSegmentKey(it) in ignored }
         sponsorDecider.applyLoaded(segments)
+        updateSponsorMarks()
+    }
+
+    /**
+     * 当前的忽略集 = 存档里的（按 UUID，跨次播放有效）+ 本次播放内存里的（见 [sponsorSessionIgnores]）。
+     */
+    private fun sponsorIgnoreSet(): Set<String> =
+        if (sponsorSessionIgnores.isEmpty()) {
+            SponsorSkipPrefs.ignoredUuids(cid)
+        } else {
+            SponsorSkipPrefs.ignoredUuids(cid) + sponsorSessionIgnores
+        }
+
+    /**
+     * 片段的内存忽略键：`类别|起点|终点`。
+     *
+     * 只有上游**没给 UUID** 的老标注才用得上——那种片段没法落存档（下次播放还是同一串数字，
+     * 但没有 id 可认），就只在本次播放里不跳。正常数据一律按 UUID 记，见 [markSponsorWrong]。
+     */
+    private fun sponsorSegmentKey(segment: ViewPointSkip.Segment): String =
+        segment.content + "|" + segment.fromSec + "|" + segment.toSec
+
+    /**
+     * 把「这一 P 会被自动跳过的片段」标到进度条上（26.11.14）。
+     *
+     * 数据源直接用 [sponsorDecider] 里**已经过全部过滤**的片段表（类别白名单 / cid / 时长版本 /
+     * 本地忽略集），所以画出来的就是「待会儿真会跳的那几段」——单独再算一遍只会两套口径对不上。
+     *
+     * 片头片尾（[skipDecider]）不画：番剧的片头片尾本来就是全片都有，标上去等于给每条进度条
+     * 加两条固定色块，反而看不出重点。
+     */
+    private fun updateSponsorMarks() {
+        val segments = sponsorDecider.segments
+        if (segments.isEmpty()) {
+            seekbar_progress.clearMarks()
+            return
+        }
+        val color = ColorScheme.WARNING
+        seekbar_progress.setMarks(
+            segments.map {
+                HighEnergyProgressBar.Mark(
+                    (it.fromSec * 1000.0).toInt(),
+                    (it.toSec * 1000.0).toInt(),
+                    color,
+                )
+            }
+        )
     }
 
     /** 当前视频的 BVID：Intent 带了就用，没带就按 aid 现查一次（结果缓存到 [bvid]）。 */
@@ -5168,15 +5231,49 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         }
     }
 
-    /** 跳过后给一次反悔机会，文案带上被跳过的类别（广告/自我推广/三连提醒……）。 */
+    /**
+     * 整片标注提示。
+     *
+     * `actionType == full` 表示「整片都是恰饭」之类的整体标签，上游给的区间固定是 `[0,0]`——
+     * 不是一个能跳的区间，所以它**不进片段表、不改变任何跳过行为**，只在片段表刚加载好时
+     * 提示一次，让人知道这片的性质。每 P 只提示一次（`sponsorFullNoticeCid` 换了就不算重复）。
+     *
+     * 不看档位：这类标注只在「全部类别」以外的档位也会照实提示——它描述的是片子本身，
+     * 与用户选了哪档要跳哪些类别无关。
+     */
+    private fun noticeFullVideoCoverage(requestCid: Long) {
+        if (requestCid == sponsorFullNoticeCid) return
+        val labels = SponsorSkipPolicy.fullVideoCategories(
+            sponsorRawSegments,
+            requestCid,
+            video_all / 1000.0,
+        )
+        if (labels.isEmpty()) return
+        sponsorFullNoticeCid = requestCid
+        val anchor = findViewById<View>(android.R.id.content) ?: return
+        val names = labels.joinToString("、") { sponsorCategoryLabel(it) }
+        MsgUtil.snackTextLong(anchor, getString(R.string.player_sb_full_notice, names))
+    }
+
+    /**
+     * 跳过后给一次反悔机会，文案带上被跳过的类别（广告/自我推广/三连提醒……）。
+     *
+     * 26.11.14 起按钮从「撤回」改成「不准」：**一次动作同时做两件事**——把人送回被跳过的地方，
+     * 并把这一条记进本地忽略集（这一 P 以后不再跳它）。
+     *
+     * 为什么合成一个动作而不是并排两个：Snackbar 只有一个 action 位，手表屏也放不下第二个按钮；
+     * 而"点撤回"这件事的真实意图九成就是"这条不该跳"。只想看一遍、下次仍要跳的场景，
+     * 用户直接拖进度条也能看（拖进去的片段会被记为已处理，本次不会再弹走）。
+     */
     private fun showSponsorUndoSnack(segment: ViewPointSkip.Segment) {
         val label = sponsorCategoryLabel(segment.content)
-        val action = MsgUtil.Action(UiText.of(getString(R.string.player_sb_undo)), View.OnClickListener {
-            // 期间又跳过别的片段、或用户自己拖过进度，这条「撤回」就过期了
+        val action = MsgUtil.Action(UiText.of(getString(R.string.player_sb_wrong)), View.OnClickListener {
+            // 期间又跳过别的片段、或用户自己拖过进度，这条记录就过期了
             if (!sponsorDecider.isUndoValid(segment)) return@OnClickListener
             sponsorDecider.clearUndo()
+            markSponsorWrong(segment)
             seekToPosition((segment.fromSec * 1000.0).toLong())
-            MsgUtil.showMsg(UiText.of(getString(R.string.player_sb_back, label)))
+            MsgUtil.showMsg(UiText.of(getString(R.string.player_sb_wrong_done, label)))
         })
         val anchor = findViewById<View>(android.R.id.content) ?: return
         MsgUtil.createSnack(
@@ -5186,6 +5283,29 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             action
         ).show()
     }
+
+    /**
+     * 记录「这条不准」：落存档（有 UUID 时）+ 立刻重建片段表，让这条从可跳列表里消失。
+     *
+     * 重建走 [applySponsorLevel]（忽略集进了它的签名），不重新发请求——原始标注还在内存里。
+     */
+    private fun markSponsorWrong(segment: ViewPointSkip.Segment) {
+        val uuid = sponsorUuidOf(segment)
+        if (uuid.isEmpty()) {
+            // 上游没给 UUID 的老标注：只能本次播放内存忽略，落不了存档
+            sponsorSessionIgnores.add(sponsorSegmentKey(segment))
+            Logu.d("SponsorBlock", "标注没有 UUID，只在本次播放内忽略")
+        } else {
+            SponsorSkipPrefs.ignoreSegment(cid, uuid)
+        }
+        applySponsorLevel()
+    }
+
+    /** 片段表里的一条 → 上游原始标注的 UUID（找不到或上游没给时为空串）。 */
+    private fun sponsorUuidOf(segment: ViewPointSkip.Segment): String =
+        sponsorRawSegments.firstOrNull {
+            it.category == segment.content && it.fromSec == segment.fromSec && it.toSec == segment.toSec
+        }?.uuid.orEmpty()
 
     /** 类别 id → 中文名（映射在 [SponsorCategoryLabels] 里，与设置页的勾选列表共一份）。 */
     private fun sponsorCategoryLabel(category: String): String =
@@ -6819,9 +6939,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         // （`sponsorLoadCid = 0` 同时让下一次定时器 tick 重新去查新的一P）。
         sponsorDecider.reset()
         sponsorRawSegments = emptyList()
+        sponsorSessionIgnores.clear()
+        sponsorFullNoticeCid = 0L
         sponsorLoadCid = 0L
         sponsorSegmentsKey = ""
         sponsorRetryAfterMs = 0L
+        // 进度条上的片段标记也是按 cid 画的，跟着一起清（否则新一P 会带着上一P 的色块起播）
+        if (::seekbar_progress.isInitialized) seekbar_progress.clearMarks()
 
         interactionData = null
         currentEdgeId = 0

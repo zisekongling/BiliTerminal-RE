@@ -22,11 +22,24 @@ class HighEnergyProgressBar @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : AppCompatSeekBar(context, attrs, defStyleAttr) {
 
+    /**
+     * 进度条上的一段标记：`[startMs, endMs]` 用 [color] 画一条带（26.11.14）。
+     *
+     * 用途是「把会被自动跳过的片段标出来」（SponsorBlock 广告片段）：观众能一眼看出
+     * 这一 P 哪几段会被跳、跳多长，而不是进度条莫名其妙往前窜。区间单位是**毫秒**，
+     * 与 [AppCompatSeekBar.getMax] 同一口径（播放页把 max 设成视频总时长毫秒）。
+     */
+    data class Mark(val startMs: Int, val endMs: Int, @ColorInt val color: Int)
+
     private var highEnergyData: FloatArray? = null
     private var linePaint: Paint
     private var fillPaint: Paint
     private var stepSec = 10
     private var showHighEnergy = true
+
+    /** 片段标记（可为空）。改动只走 [setMarks] / [clearMarks]，两者都会 invalidate。 */
+    private var marks: List<Mark> = emptyList()
+    private val markPaint = Paint().apply { isAntiAlias = true; style = Paint.Style.FILL }
 
     init {
         // 高能进度条此前写死旧版 B站粉（#FB7299），切主题不跟着变；
@@ -94,6 +107,20 @@ class HighEnergyProgressBar @JvmOverloads constructor(
         invalidate()
     }
 
+    /**
+     * 设置进度条上的片段标记（会被自动跳过的广告片段等）。传空表等于 [clearMarks]。
+     *
+     * 标记画在**最上层**（super.onDraw 之后）：进度条的底轨是 drawable、进度填充也在 super 里画，
+     * 画在之前会被整条盖住。代价是标记的半透明底会把经过的滑块稍微蒙一层——上游插件也是这么画，
+     * 而且底部还有一条不透明的实心条，位置始终看得清。
+     */
+    fun setMarks(newMarks: List<Mark>?) {
+        marks = newMarks ?: emptyList()
+        invalidate()
+    }
+
+    fun clearMarks() = setMarks(null)
+
     @Synchronized
     override fun onDraw(canvas: Canvas) {
         if (showHighEnergy && highEnergyData != null && highEnergyData!!.isNotEmpty()) {
@@ -101,7 +128,57 @@ class HighEnergyProgressBar @JvmOverloads constructor(
         }
 
         super.onDraw(canvas)
+
+        if (marks.isNotEmpty()) {
+            drawMarks(canvas)
+        }
     }
+
+    /**
+     * 画片段标记：一段半透明铺底 + 一条贴底的实心条。
+     *
+     * 只铺底不贴条时，浅色主题下与底轨几乎分不开；只贴条又太细看不清。两者叠加在 20dp 高的
+     * 进度条上都还留得住高能波形（见类注释里的尺寸约束）。
+     *
+     * 起点/终点都按 [getMax] 归一化并钳到 `[0, max]`：上游偶尔给出超过总长的秒数（换源前的旧标注），
+     * 不钳会画到控件外面去。
+     */
+    private fun drawMarks(canvas: Canvas) {
+        val total = max
+        if (total <= 0) return
+
+        val usableWidth = width - paddingLeft - paddingRight
+        val usableHeight = height - paddingTop - paddingBottom
+        if (usableWidth <= 0 || usableHeight <= 0) return
+
+        val startX = paddingLeft.toFloat()
+        val top = paddingTop.toFloat()
+        val bottom = top + usableHeight
+        val density = resources.displayMetrics.density
+        val minWidth = 2f * density
+        val stripHeight = 3f * density
+        val radius = stripHeight / 2f
+
+        for (mark in marks) {
+            val fromMs = mark.startMs.coerceIn(0, total)
+            val toMs = mark.endMs.coerceIn(0, total)
+            if (toMs <= fromMs) continue
+
+            val x1 = startX + fromMs.toFloat() / total * usableWidth
+            val rawRight = startX + toMs.toFloat() / total * usableWidth
+            // 极短的片段（1 秒的片头在 1 小时的视频里不到 1 像素）至少给一条看得见的宽度
+            val x2 = if (rawRight - x1 < minWidth) x1 + minWidth else rawRight
+
+            markPaint.color = withAlpha(mark.color, 0x26)
+            canvas.drawRect(x1, top, x2, bottom, markPaint)
+
+            markPaint.color = withAlpha(mark.color, 0xE6)
+            canvas.drawRoundRect(x1, bottom - stripHeight, x2, bottom, radius, radius, markPaint)
+        }
+    }
+
+    /** 保留颜色 RGB、只换透明度（0~0xFF）。 */
+    private fun withAlpha(color: Int, alpha: Int): Int = (alpha shl 24) or (color and 0x00FFFFFF)
 
     private fun drawHighEnergy(canvas: Canvas) {
         val data = highEnergyData ?: return

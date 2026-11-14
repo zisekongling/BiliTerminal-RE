@@ -69,4 +69,105 @@ object SponsorSkipPrefs {
      */
     fun effectiveCategories(): Set<String> =
         SponsorSkipPolicy.resolveCategories(currentLevel(), customCategories())
+
+    // ---- 「不准」的本地忽略集（26.11.14） ----
+    //
+    // 播放页跳错时用户点「不准」，除了把人送回原位，还要让**这一条**以后不再跳。存的是
+    // 上游的 UUID（不是区间）：重新提交过的标注区间会变、投票会让 votes 变，只有 UUID 是它的身份。
+    //
+    // 分两层存：一个 cid 一个键（`player_sponsor_block_ignore_<cid>`，值 = 逗号分隔的 UUID），
+    // 外加一个索引键（存出现过忽略记录的 cid 列表，最近用的排最后）——索引只为了两件事：
+    // 「清除全部」要知道删哪些键，以及给 cid 数封顶（SharedPreferences 不是数据库，不能无限长）。
+    // 同一视频的不同分 P 各存各的：一 P 里忽略的广告不该影响另一 P。
+
+    /** 单个分 P 最多记多少条忽略（超出丢最早的）。一方 P 上百条广告标注基本不可能，够用。 */
+    const val IGNORE_MAX_PER_VIDEO = 100
+
+    /** 最多给多少个分 P 留忽略记录（超出丢最久没碰过的那个 cid）。 */
+    const val IGNORE_MAX_VIDEOS = 50
+
+    /** 某个 cid 的忽略集存档键。 */
+    fun ignoreKey(cid: Long): String = SettingsKeys.PLAYER_SPONSOR_BLOCK_IGNORE_PREFIX + cid
+
+    /** 读过忽略集的 cid 索引键（最近使用的排在最后）。 */
+    private val ignoreIndexKey = SettingsKeys.PLAYER_SPONSOR_BLOCK_IGNORE_INDEX
+
+    /** 这个分 P 被用户按过「不准」的标注 id。 */
+    fun ignoredUuids(cid: Long): Set<String> {
+        if (cid <= 0L) return emptySet()
+        return parseIgnored(SharedPreferencesUtil.getString(ignoreKey(cid), null))
+    }
+
+    /** 记一条「不准」：该标注以后不再参与自动跳过（下一次 [SponsorSkipPolicy.buildSegments] 生效）。 */
+    fun ignoreSegment(cid: Long, uuid: String) {
+        if (cid <= 0L || uuid.isEmpty()) return
+        val merged = addIgnored(
+            SharedPreferencesUtil.getString(ignoreKey(cid), null),
+            uuid,
+            IGNORE_MAX_PER_VIDEO
+        )
+        SharedPreferencesUtil.putString(ignoreKey(cid), merged)
+        touchIgnoreIndex(cid)
+    }
+
+    /** 清掉某个分 P 的全部忽略记录（回到"该跳的还跳"）。 */
+    fun clearIgnored(cid: Long) {
+        if (cid <= 0L) return
+        SharedPreferencesUtil.removeValue(ignoreKey(cid))
+        val rest = parseIgnored(SharedPreferencesUtil.getString(ignoreIndexKey, null)) - cid.toString()
+        SharedPreferencesUtil.putString(ignoreIndexKey, rest.joinToString(","))
+    }
+
+    /** 清掉**所有**分 P 的忽略记录（设置页那个「清除已忽略的广告片段」）。 */
+    fun clearAllIgnored() {
+        val cids = parseIgnored(SharedPreferencesUtil.getString(ignoreIndexKey, null))
+        for (cid in cids) {
+            val value = cid.toLongOrNull() ?: continue
+            SharedPreferencesUtil.removeValue(ignoreKey(value))
+        }
+        SharedPreferencesUtil.putString(ignoreIndexKey, "")
+    }
+
+    /** 有忽略记录的分 P 数（设置页显示"已忽略 N 个视频里的 M 条"时用，与索引一致）。 */
+    fun ignoredVideoCount(): Int =
+        parseIgnored(SharedPreferencesUtil.getString(ignoreIndexKey, null)).size
+
+    /**
+     * 逗号分隔的存档原文 → 忽略集（**纯函数**，可直接 JVM 单测）。
+     *
+     * 脏值（空串、多余逗号、`null` 字符串）一律当没有：这是本地存档，被手改或写坏都不该让
+     * 整个跳过功能崩掉。
+     */
+    fun parseIgnored(raw: String?): Set<String> =
+        raw.orEmpty()
+            .split(',')
+            .map { it.trim() }
+            .filterTo(LinkedHashSet()) { it.isNotEmpty() && it != "null" }
+
+    /**
+     * 把 [uuid] 追加进存档原文并保留最多 [max] 条（**纯函数**，可直接 JVM 单测）。
+     *
+     * 已存在就不重复加、也不改顺序（避免反复点「不准」把老记录挤出去）。
+     * 超限时从最前面删——最早记的那条最可能是"当时的错判"，先放弃它。
+     */
+    fun addIgnored(raw: String?, uuid: String, max: Int): String {
+        if (uuid.isEmpty()) return raw.orEmpty()
+        val list = ArrayList(parseIgnored(raw))
+        if (uuid in list) return list.joinToString(",")
+        list.add(uuid)
+        while (list.size > max.coerceAtLeast(1)) list.removeAt(0)
+        return list.joinToString(",")
+    }
+
+    /** 把 [cid] 记为最近使用，并给 cid 数封顶（超限时连同那个 cid 的忽略集一起删）。 */
+    private fun touchIgnoreIndex(cid: Long) {
+        val cids = ArrayList(parseIgnored(SharedPreferencesUtil.getString(ignoreIndexKey, null)))
+        cids.remove(cid.toString())
+        cids.add(cid.toString())
+        while (cids.size > IGNORE_MAX_VIDEOS) {
+            val evicted = cids.removeAt(0).toLongOrNull()
+            if (evicted != null) SharedPreferencesUtil.removeValue(ignoreKey(evicted))
+        }
+        SharedPreferencesUtil.putString(ignoreIndexKey, cids.joinToString(","))
+    }
 }

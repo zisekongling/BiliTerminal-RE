@@ -474,6 +474,8 @@ object SettingsIndex {
             text(R.string.player_sb_mode_name),
             // 自定义档的逐类别勾选页入口（页内那一行 nav 的名字）
             text(R.string.player_sb_cat_page_name),
+            // 「不准」记录整表清空（26.11.14，页内那行 button 的名字）
+            text(R.string.player_sb_clear_ignored_name),
             text(R.string.settingtext_settingsindex_065),
             text(R.string.settingtext_settingsindex_066),
             text(R.string.settingtext_settingsindex_067),

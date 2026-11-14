@@ -10,8 +10,10 @@ import com.RobinNotBad.BiliClient.activity.settings.SettingSponsorCategoryActivi
 import com.RobinNotBad.BiliClient.adapter.SettingsAdapter
 import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.util.DanmakuDiskCache
+import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import com.RobinNotBad.BiliClient.util.TerminalDialog
 
 /**
  * 内置播放器的设置项分组表。
@@ -360,6 +362,29 @@ object PlayerSettingsGroups {
                         Intent(view.context, SettingSponsorCategoryActivity::class.java)
                     )
                 })
+            ))
+            // 「不准」记录（26.11.14）：本地忽略表，条数在播放页一条条攒出来的，界面上看不到明细，
+            // 误按了也没有单条撤销入口——所以给一个整表清空。清空是即时生效的（下次进播放页重算），
+            // 不可恢复，所以要过一道确认框。
+            out.add(SettingSection(
+                "button",
+                context.getString(R.string.player_sb_clear_ignored_name),
+                "", "", "",
+                SettingsAdapter.ButtonExtra { view ->
+                    val count = SponsorSkipPrefs.ignoredVideoCount()
+                    if (count <= 0) {
+                        MsgUtil.showMsg(context.getString(R.string.player_sb_clear_ignored_empty))
+                        return@ButtonExtra
+                    }
+                    TerminalDialog.confirm(
+                        view.context,
+                        context.getString(R.string.player_sb_clear_ignored_name),
+                        context.getString(R.string.player_sb_clear_ignored_confirm, count)
+                    ) {
+                        SponsorSkipPrefs.clearAllIgnored()
+                        MsgUtil.showMsg(context.getString(R.string.player_sb_clear_ignored_done))
+                    }.show()
+                }
             ))
         }
         return out

@@ -94,6 +94,14 @@ object SponsorSkipPolicy {
     /** 唯一会执行的动作类型：跳过。`mute` / `full` / `poi` / `chapter` 都不在 v1 范围。 */
     const val ACTION_SKIP = "skip"
 
+    /**
+     * 「整段视频都属于这个类别」的标签（区间固定 `[0,0]`）。
+     *
+     * 它不是一段可跳的区间，而是观众对**整片**的定性（比如整期都是恰饭）。跳过它毫无意义，
+     * 只能在起播时提示一句「本视频被标记为整片广告」。
+     */
+    const val ACTION_FULL = "full"
+
     /** 片段在 [ViewPointSkip.Segment.type] 里的取值，与片头(1)/片尾(2)区分开，只用于去重 key 与诊断。 */
     const val TYPE_SPONSOR = 3
 
@@ -159,17 +167,22 @@ object SponsorSkipPolicy {
      * @param allowed 允许跳的类别集合，调用方用 [resolveCategories] 从「档位 + 勾选」算出来
      * @param cid 当前分 P 的 cid；原始片段 cid 为 0（上游没给）时**放行**——总比整条丢掉好
      * @param currentDurationSec 当前视频总时长（秒），<=0 表示还没拿到，此时跳过时长校验
+     * @param ignoredUuids 用户在播放页按过「不准」的标注 id（本地忽略集，见 `SponsorSkipPrefs`）。
+     *   **按 UUID 而不是按区间记**：同一段广告被重新提交后区间可能变、`votes` 会变，只有 UUID 是
+     *   那一条标注的身份；上游没给 UUID 的老数据只能放行（宁可跳错也不把整条表清空）。
      */
     fun buildSegments(
         raw: List<SponsorBlockApi.RawSegment>,
         allowed: Set<String>,
         cid: Long,
         currentDurationSec: Double,
+        ignoredUuids: Set<String> = emptySet(),
     ): List<ViewPointSkip.Segment> {
         if (allowed.isEmpty()) return emptyList()
         return raw.asSequence()
             .filter { it.actionType == ACTION_SKIP }
             .filter { it.category in allowed }
+            .filter { it.uuid.isEmpty() || it.uuid !in ignoredUuids }
             .filter { it.cid <= 0L || cid <= 0L || it.cid == cid }
             .filter { it.toSec > it.fromSec }
             .filter { it.toSec - it.fromSec <= ViewPointSkip.MAX_SEGMENT_SECONDS }
@@ -187,8 +200,32 @@ object SponsorSkipPolicy {
         level: Int,
         cid: Long,
         currentDurationSec: Double,
+        ignoredUuids: Set<String> = emptySet(),
     ): List<ViewPointSkip.Segment> =
-        buildSegments(raw, categoriesFor(level), cid, currentDurationSec)
+        buildSegments(raw, categoriesFor(level), cid, currentDurationSec, ignoredUuids)
+
+    /**
+     * 当前视频的「整片标签」类别（`actionType == full`），按类别去重、按 [ALL_CATEGORIES] 顺序。
+     *
+     * 没有任何整片标签时返回空表。**不看档位**：这是个提示，不是跳过动作——档位关着也该提示
+     * 「这期整期都是广告」，那正是用户最想知道的事。
+     *
+     * cid 与版本校验与 [buildSegments] 同一口径：别的分 P、换源前的标签一样要丢掉。
+     */
+    fun fullVideoCategories(
+        raw: List<SponsorBlockApi.RawSegment>,
+        cid: Long,
+        currentDurationSec: Double,
+    ): List<String> {
+        val hit = raw.asSequence()
+            .filter { it.actionType == ACTION_FULL }
+            .filter { it.cid <= 0L || cid <= 0L || it.cid == cid }
+            .filter { isSameVersion(it, currentDurationSec) }
+            .map { it.category }
+            .toHashSet()
+        if (hit.isEmpty()) return emptyList()
+        return ALL_CATEGORIES.filter { it in hit }
+    }
 
     /**
      * 这条标注是否属于"当前这个版本的视频"。

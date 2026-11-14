@@ -277,6 +277,15 @@ object SettingsKeys {
      */
     const val PLAYER_SPONSOR_BLOCK_CAT_PREFIX = "player_sponsor_block_cat_"
     /**
+     * 本地「不准」忽略集的键前缀，完整键是「前缀 + cid」，值是逗号分隔的上游标注 UUID。
+     * 用户在播放页按「不准」时记一条，这一条以后不再自动跳过；读写见 `player/SponsorSkipPrefs.kt`。
+     */
+    const val PLAYER_SPONSOR_BLOCK_IGNORE_PREFIX = "player_sponsor_block_ignore_"
+    /**
+     * 上面那些忽略键的 cid 索引（逗号分隔，最近使用的在最后）。只用于「清除全部」与 cid 数封顶。
+     */
+    const val PLAYER_SPONSOR_BLOCK_IGNORE_INDEX = "player_sponsor_block_ignore_index"
+    /**
      * 长按后上下划切换上一条/下一条视频，默认开。判据见 `player/LongPressSwitchPolicy.kt`。
      */
     const val PLAYER_LONGPRESS_SWITCH = "player_longpress_switch"
