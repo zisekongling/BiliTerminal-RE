@@ -246,4 +246,73 @@ object ImageTilePolicy {
         val base = currentSampleSize.coerceAtLeast(MIN_SAMPLE_SIZE)
         return minOf(base.toLong() * 2, MAX_SAMPLE_SIZE.toLong()).toInt()
     }
+
+    /**
+     * [area] 在块边长 [tileSourcePx] 下会被切成多少块（与 [tileRects] 同一口径，但不建列表）。
+     *
+     * 用途：解码前先算「这一屏要多少块」。块数超过块缓存上限就说明当前采样率**根本留不住**，
+     * 必须往粗的档位退（见 [sampleWithinTileBudget]）——否则会「解一块、淘汰一块」，
+     * 屏上的块被后来者挤掉又被重解，永远收敛不了（长图无限加载就是这么来的）。
+     */
+    fun tileCount(area: TileRect, imageWidth: Int, imageHeight: Int, tileSourcePx: Int): Int {
+        if (area.isEmpty || !isValidDimensions(imageWidth, imageHeight)) return 0
+        val tile = tileSourcePx.coerceAtLeast(1)
+        val target = area.clampTo(imageWidth, imageHeight)
+        if (target.isEmpty) return 0
+        // tileRects 的块起点对齐到 tile 的整数倍，所以要按「桶」数，不能简单按宽高相除：
+        // 可见区从 300 起、tile=256 时块从 256 起，实际跨 2 个桶（256~512、512~768）。
+        val cols = (target.right - 1) / tile - target.left / tile + 1
+        val rows = (target.bottom - 1) / tile - target.top / tile + 1
+        return cols * rows
+    }
+
+    /**
+     * 从 [allowedSampleSize] 开始往**粗**退，直到 [area] 在这个采样率下需要的块数不超过 [maxTiles]。
+     *
+     * 为什么要退：采样率比「几何需要」更细时，块数只增不减（每块盖的源像素变少），一旦超过
+     * 块缓存容量，就变成无限的重解—淘汰循环。退到 [MAX_SAMPLE_SIZE] 仍装不下时返回
+     * [MAX_SAMPLE_SIZE]（更粗就没法看了，由调用方决定是否回退整图）。
+     *
+     * 返回值绝不会比 [allowedSampleSize] 更细：比它更细的块屏幕根本显示不出那些细节。
+     */
+    fun sampleWithinTileBudget(
+        area: TileRect,
+        imageWidth: Int,
+        imageHeight: Int,
+        allowedSampleSize: Int,
+        maxTiles: Int,
+        tileBitmapPx: Int = DEFAULT_TILE_BITMAP_PX
+    ): Int {
+        var sample = allowedSampleSize.coerceIn(MIN_SAMPLE_SIZE, MAX_SAMPLE_SIZE)
+        if (maxTiles <= 0) return sample
+        while (sample < MAX_SAMPLE_SIZE &&
+            tileCount(area, imageWidth, imageHeight, tileSourcePx(sample, tileBitmapPx)) > maxTiles
+        ) {
+            sample = degradedSample(sample)
+        }
+        return sample
+    }
+
+    /**
+     * 一轮铺块要用的「层」序列：先是最清晰的一层（= 当前倍率该有的采样率 [allowed]），
+     * 再逐级加**更糊**的兜底层，让用户在大倍率下先看到东西。
+     *
+     * 方向必须是「越来越糊」（采样率 ×2）：采样率比 [allowed] **更小**意味着每块只盖更少的源
+     * 像素、块数成倍增长，而那些细节屏幕根本显示不出来——纯属白烧 CPU 与缓存。
+     * 26.11.14 的「长图上半部分加载完一会儿自己消失、随后无限加载」就是这里走反了方向：
+     * 1024×20000 的长图在整图适配倍率下会一路解到采样率 1，一轮要铺 434 块，而块缓存只有
+     * 24 块——解一块淘汰一块，屏上的块被挤掉又被重解，永远收敛不了。
+     *
+     * [allowed] 非法时夹进 `MIN_SAMPLE_SIZE`～`MAX_SAMPLE_SIZE`；返回值至少含一项、严格递增。
+     */
+    fun fallbackSamples(allowed: Int): List<Int> {
+        var sample = allowed.coerceIn(MIN_SAMPLE_SIZE, MAX_SAMPLE_SIZE)
+        val result = ArrayList<Int>()
+        while (true) {
+            result.add(sample)
+            if (sample >= MAX_SAMPLE_SIZE) break
+            sample = degradedSample(sample)
+        }
+        return result
+    }
 }

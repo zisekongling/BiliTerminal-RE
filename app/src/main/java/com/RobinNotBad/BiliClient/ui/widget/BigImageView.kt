@@ -56,6 +56,12 @@ import kotlin.math.min
  *    OOM → [onTilesUnavailable]（[REASON_OOM]）回退整图；
  * 3. 解码线程解失败单块（不常见）→ 记下来不再重试；连续失败且一块都没解出来时按第 1 条回退。
  *
+ * <h3>收敛性（别让它无限加载）</h3>
+ * 采样率只往「更糊」的方向退（[ImageTilePolicy.fallbackSamples]），且预取区要的块数被夹在块缓存
+ * 容量之内（[ImageTilePolicy.sampleWithinTileBudget]）。这两条缺一不可：一旦某一轮要解的块数
+ * 超过缓存容量，就会「解一块、淘汰一块」，屏上的块被挤掉又被重解，永远收敛不了——26.11.14
+ * 反馈的「长图上半部分加载完一会儿自己消失、随后无限加载」正是这个死循环。
+ *
  * 生命周期：活动切页/销毁时**必须**调 [releaseImage]/[destroy]——它们会让 [generation] 自增，
  * 在途解码结果直接丢弃，关流任务排在同一条解码线程后面（不会和解码并发），并回收全部块位图。
  */
@@ -80,6 +86,13 @@ class BigImageView @JvmOverloads constructor(
         private const val TILE_BITMAP_BYTES =
             ImageTilePolicy.DEFAULT_TILE_BITMAP_PX * ImageTilePolicy.DEFAULT_TILE_BITMAP_PX * 4
         private const val MAX_TILE_COUNT = TILE_CACHE_BYTES / TILE_BITMAP_BYTES
+
+        /**
+         * 块缓存允许的**硬上限**（块数）：[MAX_TILE_COUNT] 之外再给「屏上的块」留一点回旋余量。
+         * 屏上的块不许淘汰（见 [trimCacheLocked]），而一屏 + 几层兜底块可能略超计划值；
+         * 超过这个硬上限就恢复普通 LRU，宁可重解也不让缓存无上限涨。
+         */
+        private const val PROTECTED_TILE_CEILING = MAX_TILE_COUNT + 8
 
         /** 每次重算最多补提交多少个块解码任务（避免一屏几十个任务排队导致滑动迟滞）。 */
         private const val MAX_DECODE_TASKS_PER_FRAME = 4
@@ -157,6 +170,12 @@ class BigImageView @JvmOverloads constructor(
 
     /** OOM 后强制的最低采样率（越大越糊越省内存）。 */
     private var sampleFloor = ImageTilePolicy.MIN_SAMPLE_SIZE
+
+    /**
+     * 本轮该用的采样率：**绘制与解码共用同一个值**（[ensureTiles] 刷新，见 [refreshActiveSample]）。
+     * 两边用不同的档位时，解出来的层会不被承认，观感就是「解了也不显示」。
+     */
+    private var activeSample = ImageTilePolicy.MIN_SAMPLE_SIZE
 
     private var hasImageFlag = false
     private var destroyed = false
@@ -395,26 +414,38 @@ class BigImageView @JvmOverloads constructor(
             if (tileCache.isEmpty()) return false
             ArrayList(tileCache.entries)
         }
-        val allowed = allowedSampleSize(scale)
         var drawn = false
         for (entry in entries.sortedByDescending { it.key.sample }) {
             val key = entry.key
-            if (key.sample > allowed) continue
+            if (key.sample > activeSample) continue
             val bitmap = entry.value
-            if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) continue
-            // 一块实际覆盖的源像素宽度：位图宽 × 采样率，再被图片右/下边界裁掉。
-            val spanX = min(bitmap.width.toLong() * key.sample, (imageWidth - key.left).toLong())
-            val spanY = min(bitmap.height.toLong() * key.sample, (imageHeight - key.top).toLong())
-            if (spanX <= 0L || spanY <= 0L) continue
-            val left = offsetX + key.left * scale
-            val top = offsetY + key.top * scale
-            val right = offsetX + (key.left + spanX) * scale
-            val bottom = offsetY + (key.top + spanY) * scale
+            val span = tileSpan(key, bitmap) ?: continue
+            val left = offsetX + span.left * scale
+            val top = offsetY + span.top * scale
+            val right = offsetX + span.right * scale
+            val bottom = offsetY + span.bottom * scale
             if (right < 0f || bottom < 0f || left > width.toFloat() || top > height.toFloat()) continue
             canvas.drawBitmap(bitmap, null, RectF(left, top, right + 0.5f, bottom + 0.5f), tilePaint)
             drawn = true
         }
         return drawn
+    }
+
+    /**
+     * 一块位图在**源图**上真正覆盖的区域：位图边长 × 采样率，右/下再被图片边界裁掉。
+     * 位图已回收（LRU 淘汰过）或尺寸无效时返回 null，调用方跳过它。
+     */
+    private fun tileSpan(key: TileKey, bitmap: Bitmap): ImageTilePolicy.TileRect? {
+        if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) return null
+        val spanX = min(bitmap.width.toLong() * key.sample, (imageWidth - key.left).toLong())
+        val spanY = min(bitmap.height.toLong() * key.sample, (imageHeight - key.top).toLong())
+        if (spanX <= 0L || spanY <= 0L) return null
+        return ImageTilePolicy.TileRect(
+            key.left,
+            key.top,
+            (key.left + spanX).toInt(),
+            (key.top + spanY).toInt()
+        )
     }
 
     /** 还没有任何块时画一行居中提示（可空）。 */
@@ -447,12 +478,15 @@ class BigImageView @JvmOverloads constructor(
         )
         if (visible.isEmpty) return
         val prefetch = ImageTilePolicy.prefetchRect(visible, imageWidth, imageHeight)
-        val allowed = allowedSampleSize(scale)
+        val sampleChanged = refreshActiveSample(scale, prefetch)
+        val allowed = activeSample
 
         var submitted = 0
-        var sample = allowed
         // 由细到粗：先保证当前倍率该有的清晰度，不够再加一层更糊的兜底，让用户先看到东西。
-        while (sample >= ImageTilePolicy.MIN_SAMPLE_SIZE && submitted < MAX_DECODE_TASKS_PER_FRAME) {
+        // 序列只会往「更糊」（采样率变大）走，绝不解比 [allowed] 更细的层——那既显示不出来，
+        // 又会把块数撑到缓存装不下（见 [ImageTilePolicy.fallbackSamples]）。
+        for (sample in ImageTilePolicy.fallbackSamples(allowed)) {
+            if (submitted >= MAX_DECODE_TASKS_PER_FRAME) break
             // 最清晰的那一层铺「预取区」，更粗的层只铺可见区（省内存）。
             val target = if (sample == allowed) prefetch else visible
             val tileSourcePx = ImageTilePolicy.tileSourcePx(sample)
@@ -467,10 +501,31 @@ class BigImageView @JvmOverloads constructor(
                 submitTile(rect, sample)
                 submitted++
             }
-            if (sample == ImageTilePolicy.MIN_SAMPLE_SIZE) break
-            sample = max(ImageTilePolicy.MIN_SAMPLE_SIZE, sample / 2)
         }
-        if (submitted > 0) invalidate()
+        if (submitted > 0 || sampleChanged) invalidate()
+    }
+
+    /**
+     * 刷新本轮该用的采样率 [activeSample]，返回它是否变了（变了要重画一帧）。
+     *
+     * 三条约束按顺序收敛：
+     * 1. 几何：当前倍率需要的清晰度（[ImageTilePolicy.sampleSizeFor] 与 OOM 降级下限
+     *    [sampleFloor]）——比这更细的细节屏幕显示不出来；
+     * 2. 缓存容量：预取区在该采样率下需要的块数超过块缓存上限时继续往粗退
+     *    （[ImageTilePolicy.sampleWithinTileBudget]），否则就会「解一块、淘汰一块」，
+     *    屏上的块被挤掉又被重解，永远收敛不了——长图无限加载就是这么来的。
+     */
+    private fun refreshActiveSample(scale: Float, prefetch: ImageTilePolicy.TileRect): Boolean {
+        val sample = ImageTilePolicy.sampleWithinTileBudget(
+            prefetch,
+            imageWidth,
+            imageHeight,
+            allowedSampleSize(scale),
+            MAX_TILE_COUNT
+        )
+        val changed = sample != activeSample
+        activeSample = sample
+        return changed
     }
 
     private fun tileCacheContains(key: TileKey): Boolean = synchronized(cacheLock) {
@@ -594,16 +649,43 @@ class BigImageView @JvmOverloads constructor(
         }
     }
 
-    /** LRU 淘汰：accessOrder=true 的迭代器先给最久没访问的块，淘汰即 recycle。 */
+    /**
+     * LRU 淘汰：accessOrder=true 的迭代器先给最久没访问的块，淘汰即 recycle。
+     *
+     * **正在屏上的块一律不淘汰**——淘汰它等于用户眼前的图「自己消失」，而重解出来的那份
+     * 又会被下一批块挤掉，观感就是一张永远加载不完的图（26.11.14 反馈的长图 bug）。
+     * 极端情况（一屏的块就超过缓存上限）下会暂时超出上限，由 [refreshActiveSample]
+     * 把采样率退粗来收口，不会无限增长。
+     */
     private fun trimCacheLocked() {
-        while (tileCache.size > MAX_TILE_COUNT) {
-            val iterator = tileCache.entries.iterator()
-            if (!iterator.hasNext()) break
+        if (tileCache.size <= MAX_TILE_COUNT) return
+        val visible = currentVisibleRect()
+        val iterator = tileCache.entries.iterator()
+        while (tileCache.size > MAX_TILE_COUNT && iterator.hasNext()) {
             val eldest = iterator.next()
+            val span = tileSpan(eldest.key, eldest.value)
+            // 超出硬上限（缓存计划值 + 屏上块的回旋余量）时不再保护：宁可重解，也不让缓存无上限涨。
+            if (tileCache.size <= PROTECTED_TILE_CEILING &&
+                !visible.isEmpty && span != null && span.intersects(visible)
+            ) {
+                continue
+            }
             eldest.value.recycle()
             iterator.remove()
         }
     }
+
+    /** 当前可见区对应的源图矩形（绘制按倍率、淘汰按它保护屏上的块）。 */
+    private fun currentVisibleRect(): ImageTilePolicy.TileRect =
+        ImageTilePolicy.visibleRect(
+            imageWidth,
+            imageHeight,
+            width,
+            height,
+            renderScale,
+            offsetX,
+            offsetY
+        )
 
     private fun clearCache() {
         synchronized(cacheLock) {
