@@ -5237,10 +5237,18 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             try {
                 val bv = resolveBvid()
                 if (bv.isEmpty()) {
-                    Logu.d("SponsorBlock", "拿不到 bvid，跳过查询 aid=" + requestAid)
+                    // 拿不到 bvid 是**可重试**的失败（按 aid 查一次详情，网络一抖就空）：
+                    // 必须把 sponsorLoadCid 放回去，否则这一 P 会被当成"已经查过"，之后永远不再试
+                    Logu.w("SponsorBlock", "拿不到 bvid，稍后重试 aid=" + requestAid)
+                    runOnUiThread {
+                        sponsorLoadCid = 0L
+                        sponsorRetryAfterMs = android.os.SystemClock.elapsedRealtime() + 3_000L
+                    }
                     return@run
                 }
-                val raw = SponsorBlockApi.fetchSegments(bv, requestCid)
+                // 用会抛异常的版本：真正的网络失败要能走到下面的 catch 去安排重试，
+                // 而 404（这个视频没有标注）依然返回空表、不重试
+                val raw = SponsorBlockApi.fetchSegmentsOrThrow(bv, requestCid)
                 runOnUiThread {
                     if (destroyed) return@runOnUiThread
                     // 换P/换集期间到的响应直接丢（与片头片尾同一个代次判据）
@@ -5249,7 +5257,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                         return@runOnUiThread
                     }
                     sponsorRawSegments = raw
-                    applySponsorLevel()
+                    // force：签名只看「设置」不看数据，光换 raw 不会让签名变化。不强制重建的话，
+                    // 250ms 定时器在响应回来之前已经用空表算过一次签名，这里会直接早退，
+                    // 结果是「条子不画、也不跳」——这就是「有的时候能跳过」那个偶发问题的根因。
+                    applySponsorLevel(force = true)
                     applySponsorFullBadge(requestCid)
                     Logu.d(
                         "SponsorBlock",
@@ -5259,11 +5270,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     )
                 }
             } catch (e: Exception) {
-                Logu.w("SponsorBlock", "查询失败: " + e.message)
+                Logu.w("SponsorBlock", "查询失败: " + e.javaClass.simpleName + " " + e.message)
                 runOnUiThread {
-                    // 失败不打扰用户（这是第三方锦上添花的数据），只记一分钟冷却免得每 250ms 重试
+                    // 失败不打扰用户（这是第三方锦上添花的数据），但冷却别设太长：
+                    // 一次超时就让整片在接下来一分钟都查不到，用户看到的就是「第一次加载不出来」
                     sponsorLoadCid = 0L
-                    sponsorRetryAfterMs = android.os.SystemClock.elapsedRealtime() + 60_000L
+                    sponsorRetryAfterMs = android.os.SystemClock.elapsedRealtime() + 15_000L
                 }
             }
         }
@@ -5278,21 +5290,26 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      * 比较用的是**类别集合的签名**而不是任何"当前档位"数字：同一档位里反复改类别、点「不准」、
      * 点掉一个精彩时刻，都只体现为集合变化，比数字会漏。
      */
-    private fun applySponsorLevel() {
+    /**
+     * @param force 强制重建。标注刚拉到（[sponsorRawSegments] 从空变成有）时必须为 true：
+     *   签名只覆盖「设置」不覆盖数据，否则会拿空表算出的旧签名直接早退，条子不画、也不跳。
+     */
+    private fun applySponsorLevel(force: Boolean = false) {
         val autoCats = SponsorSkipPrefs.autoCategories()
         val askCats = SponsorSkipPrefs.askCategories()
         val markCats = SponsorSkipPrefs.markCategories()
         val marksOn = SponsorSkipPrefs.isMarksEnabled()
         val poiOn = SponsorSkipPrefs.isPoiMarksEnabled()
         val ignored = sponsorIgnoreSet()
-        // 签名 = 自动集合 + 询问集合 + 忽略集 + 已点过的精彩时刻 + 标记那一套（开关与类别）：
-        // 任何一项变了都要重建（改三档、点「不准」、点掉精彩时刻、改标记设置都会走到这里）
+        // 签名 = 自动集合 + 询问集合 + 忽略集 + 已点过的精彩时刻 + 标记那一套（开关与类别）+ 原始标注条数：
+        // 任何一项变了都要重建（改三档、点「不准」、点掉精彩时刻、改标记设置、标注到位都会走到这里）
         val key = autoCats.sorted().joinToString(",") + "|" +
             askCats.sorted().joinToString(",") + "|" +
             ignored.sorted().joinToString(",") + "|" +
             sponsorPoiSeen.sorted().joinToString(",") + "|" +
-            marksOn + "|" + poiOn + "|" + markCats.sorted().joinToString(",")
-        if (key == sponsorSegmentsKey) return
+            marksOn + "|" + poiOn + "|" + markCats.sorted().joinToString(",") +
+            "|raw=" + sponsorRawSegments.size
+        if (!force && key == sponsorSegmentsKey) return
         sponsorSegmentsKey = key
         val duration = video_all / 1000.0
         val segments = SponsorSkipPolicy.buildSegments(

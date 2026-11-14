@@ -58,8 +58,9 @@ object SponsorBlockApi {
 
     private val CLIENT by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(4, TimeUnit.SECONDS)
-            .readTimeout(6, TimeUnit.SECONDS)
+            // 手机网络下首次 DNS + TLS 握手经常要 4s 以上，原来的 4s 连接超时会把首查直接掐掉
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(12, TimeUnit.SECONDS)
             .followRedirects(false)
             .followSslRedirects(false)
             .build()
@@ -114,13 +115,33 @@ object SponsorBlockApi {
     /**
      * 查一个视频的片段表（**阻塞**，必须在后台线程调用）。
      *
-     * 失败（网络错误、非 2xx、JSON 坏掉）一律返回空表：对播放器来说「没有标注」和「查不到」
-     * 应当是同一种结果——不跳过、不打扰。
+     * 失败（网络错误、非 2xx、JSON 坏掉）一律返回空表：对详情页胶囊这类「锦上添花」的调用方来说，
+     * 「没有标注」和「查不到」应当是同一种结果——不标、不打扰。
+     *
+     * 播放页不要用这个：它需要区分「404 没有标注」与「网络没查到」，好安排重试，
+     * 那边请用 [fetchSegmentsOrThrow] 并自己 catch。
      *
      * @param bvid B 站视频号，为空直接返回空表
      * @param cid 可选，用来在 [parseSegments] 之外再挡一层；传 0 表示不过滤
      */
-    fun fetchSegments(bvid: String, cid: Long = 0L): List<RawSegment> {
+    fun fetchSegments(bvid: String, cid: Long = 0L): List<RawSegment> = try {
+        fetchSegmentsOrThrow(bvid, cid)
+    } catch (e: Exception) {
+        // 第三方服务，任何异常都不该影响播放（超时、证书、JSON 格式变更……）
+        Logu.w(TAG, "查询异常: " + e.javaClass.simpleName + " " + e.message)
+        emptyList()
+    }
+
+    /**
+     * 与 [fetchSegments] 相同，但**把失败抛出来**，让调用方自己决定重试。
+     *
+     * 口径（26.11.14 修「第一次进视频查不到、重进才行」时定的）：
+     * - `404` → 返回**空表**：这个视频确实没有标注，重试也没用；
+     * - 其余非 2xx、网络异常、body 为空 → 抛异常：都是「这次没查到」，隔几秒重试有意义。
+     *
+     * @throws Exception 网络错误、非 2xx（除 404）、空响应体
+     */
+    fun fetchSegmentsOrThrow(bvid: String, cid: Long = 0L): List<RawSegment> {
         if (bvid.isEmpty()) return emptyList()
         val url = "$BASE_URL/skipSegments/" + hashPrefix(bvid)
         val request = Request.Builder()
@@ -129,21 +150,12 @@ object SponsorBlockApi {
             .header("x-ext-version", EXT_VERSION)
             .get()
             .build()
-        return try {
-            CLIENT.newCall(request).execute().use { resp ->
-                if (!resp.isSuccessful) {
-                    Logu.w(TAG, "查询失败 HTTP " + resp.code)
-                    emptyList()
-                } else {
-                    val body = resp.body?.string()
-                    if (body.isNullOrBlank()) emptyList()
-                    else parseSegments(body, bvid, cid)
-                }
-            }
-        } catch (e: Exception) {
-            // 第三方服务，任何异常都不该影响播放（超时、证书、JSON 格式变更……）
-            Logu.w(TAG, "查询异常: " + e.message)
-            emptyList()
+        CLIENT.newCall(request).execute().use { resp ->
+            if (resp.code == 404) return emptyList()
+            if (!resp.isSuccessful) throw IllegalStateException("HTTP " + resp.code)
+            val body = resp.body?.string()
+            if (body.isNullOrBlank()) throw IllegalStateException("响应体为空")
+            return parseSegments(body, bvid, cid)
         }
     }
 

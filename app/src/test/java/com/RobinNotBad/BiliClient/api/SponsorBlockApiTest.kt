@@ -145,5 +145,7 @@ class SponsorBlockApiTest {
     @Test
     fun `空 bvid 直接返回空表`() {
         assertTrue(SponsorBlockApi.fetchSegments("", 1L).isEmpty())
+        // 会抛异常的版本也一样：bvid 为空不是「没查到」，不该让调用方去重试
+        assertTrue(SponsorBlockApi.fetchSegmentsOrThrow("", 1L).isEmpty())
     }
 }
