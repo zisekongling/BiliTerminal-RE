@@ -18,6 +18,13 @@
 
 ## 1. 当前版本状态
 
+- **26.11.14 「进度条上看不到琥珀色条子」复核（用户报 26.11.14-exp.1 现场看不到标记）**：
+  - **结论**：**静态复核未发现绘制或链路缺陷**——`maybeAutoSkipSponsor`(`PlayerActivity.kt:5113`) → `ensureSponsorSegments` → `loadSponsorSegments` → `applySponsorLevel` → `updateSponsorMarks` → `setMarks` 全链存在，`drawMarks` 在 `super.onDraw` 之后画（压得住底轨与进度填充），`isSameVersion` 在总时长未知时放过（所以「请求早于 `video_all` 就绪」不会把所有片段滤空）。最可能是三道门里的一道：档位**默认关闭**（关闭时零请求）、该视频没有被标注过、或放的是番剧/直播/本地文件——这三类都不查。
+  - **顺手补的两处**（都不改观感，只为下一次能一眼判定）：① `updateSponsorMarks()` 增加一行 `进度条标记 段=… 点=… max=…`；`loadSponsorSegments` 的既有日志补上白名单类别数与总时长，合成 `原始标注 N 条，可跳 M 段，白名单 K 类，总时长 …s`。② `seekbar_progress.max = video_all` 之后补一次 `updateSponsorMarks()`：250ms 定时器可能比 prepare 更早开始跑，标注先到、`max` 还是 0，落一次兜底，保证时长一就绪就画得出来。
+  - **L0（26.11.14 本机实测）**：`:app:compileStandardDebugKotlin :app:compileCoexistDebugKotlin` → BUILD SUCCESSFUL；`:app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest --no-build-cache` → 2537 tests / 0 failures；`:app:assembleDebug` → BUILD SUCCESSFUL（双 flavor）。
+  - **未验证（L2）**：真机上确认「档位开着 + N>0 + M>0」时条子确实出现——**需要用户提供视频 BV 号与档位**，或在应用日志页搜 `SponsorBlock` 把那两行发过来。
+  - 复核口径记进了 `docs/review/manual-test-guide-261114.md` §3.4 开头的「三道门」提示。
+
 - **26.11.14 长图分片加载收敛：修「上面分片加载完一会儿自己消失、随后无限加载」（用户原话「长图的上面分片加载完成后一段时间消失导致无限加载图片」）**：
   - **来路**：`ui/widget/BigImageView.kt` 的 `ensureTiles()` 兜底层序列**方向写反**——原代码 `var sample = allowed; while (...) { ...; sample = max(MIN, sample / 2) }`，采样率越除越小等于一路解**越来越细**的层（每块盖的源像素更少、块数成倍涨），与注释「由细到粗…再加一层更糊的兜底」正好相反。
   - **算出来的病**：1024×20000 长图放 400×400 表屏（`fitScale=0.02`、`allowed` 采样率 32），六层要的块数是 32→3、16→5、8→10、4→20、2→80、1→316，**一轮共 434 块**，而块缓存上限 `MAX_TILE_COUNT=24`（6MB / 256KB）→ 解一块淘汰一块；屏上那 3 块（sample 32）最旧、最先被挤掉，随即重解 → 永远收敛不了。`drawCachedTiles` 用「按倍率算的 allowed」判定该画哪层、`trimCacheLocked` 又是纯 LRU，两处都在放大这个振荡。

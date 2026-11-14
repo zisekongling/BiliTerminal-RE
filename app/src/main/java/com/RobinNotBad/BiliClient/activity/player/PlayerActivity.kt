@@ -5171,7 +5171,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     applySponsorFullBadge(requestCid)
                     Logu.d(
                         "SponsorBlock",
-                        "cid=" + requestCid + " 原始标注 " + raw.size + " 条，可跳 " + sponsorDecider.segments.size + " 段"
+                        "cid=" + requestCid + " 原始标注 " + raw.size + " 条，可跳 " + sponsorDecider.segments.size +
+                            " 段，白名单 " + SponsorSkipPrefs.effectiveCategories().size + " 类" +
+                            "，总时长 " + (video_all / 1000) + "s"
                     )
                 }
             } catch (e: Exception) {
@@ -5250,6 +5252,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private fun updateSponsorMarks() {
         val segments = sponsorDecider.segments
         val points = sponsorPoiHighlights
+        // 这一条是"进度条上为什么什么都没有"唯一的判据：档位开着、标注也拿到了，
+        // 但标出来的段数为 0，看一眼日志就知道是白名单没覆盖还是进度条那一层没画
+        Logu.d(
+            "SponsorBlock",
+            "进度条标记 段=" + segments.size + " 点=" + points.size +
+                " max=" + (if (::seekbar_progress.isInitialized) seekbar_progress.max else -1)
+        )
         if (segments.isEmpty()) {
             seekbar_progress.clearMarks()
         } else {
@@ -7944,6 +7953,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
 
         seekbar_progress.max = video_all
         progress_str = StringUtil.toTime(video_all / 1000)
+        // 标注可能在起播前就到了（250ms 定时器比 prepare 更早开始跑），那时进度条的 max 还是 0，
+        // 记下的标记要等 max 变成真实时长才画得出来；这里再落一次，保证时长一就绪就能看见
+        updateSponsorMarks()
 
         if (isAudioOnlyMode) updateAudioOnlyUI()
 
