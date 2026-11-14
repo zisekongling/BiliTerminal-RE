@@ -18,6 +18,29 @@
 
 ## 1. 当前版本状态
 
+- **26.11.14 短视频画面正中的三角可点即播放/暂停（用户原话「这个可以加个按那个三角播放」）**：
+  - **来路**：中心那颗 `playIcon` 一直是纯展示——`fragment_short_video_page.xml:36-45`（56dp、`@android:drawable/ic_media_play`、`alpha=0.7`、默认 `gone`），Activity 里只有四处 visibility 赋值，**一个点击监听都没有**；用户看着三角当然会去按。
+  - **修法**：`activity/video/ShortVideoPlayerActivity.kt` 的 `initBottomButtons()` 里给它加 `playIcon.setOnClickListener { togglePlayPause() }`。没复用底部按钮那份 `controlVideo()`：`resume()`（`:1482-1495`）自己已经处理「播到结尾」，会先 `playerBridge.seekTo(0)` + `danmakuManager?.seekTo(0)` 再 `start()`，所以 `togglePlayPause()` 等价且更短。
+  - **刻意没动**：页面级 `GestureDetector` 那条链（单击切底栏 / 双击播放暂停 / 长按三倍速 / 双指缩放平移）一行未改。`:755-778` 的 `OnTouchListener` 恒 `return true` 是当年「点一下、滑一下也会在 500ms 后误触发长按跳详情页」的修法，碰它风险不成比例。图标也按用户拍板保持系统三角，没换 B 站素材。
+  - **提交**：`2ec3597a`。
+  - **未验证（L2，只能真机按）**：见 `docs/review/l2-pending.md` §N 的前两条（56dp 命中区在 466px 表上够不够、点它是不是真的续播而不是从头播）。
+
+- **26.11.14 短视频弹幕改用独立档位（默认 6 行、不重叠），修「鬼畜弹幕」（用户原话「鬼畜弹幕」）**：
+  - **来路**：短视频页与长视频共用同一份弹幕档位——`DanmakuManager.init()` 直接读全局存档 `PLAYER_DANMAKU_MAXLINE`（默认 15）与 `player_danmaku_allowoverlap`（默认 true）。短视频恰恰是弹幕最密的场景，屏幕只有 400~466px，15 行 + 允许重叠必然糊成一团，而短视频页本身没有任何可调的地方。
+  - **修法**：新增 `player/ShortVideoDanmakuPolicy.kt`——开关 `shortvideo_danmaku_separate`（默认开）、行数 `shortvideo_danmaku_maxline`（默认 6）、重叠 `shortvideo_danmaku_allowoverlap`（默认关），钳制区间 1~30；`DanmakuManager.init(config: DanmakuConfigOverride? = null)` 只覆盖「最大行数 / 允许重叠」两项，传 null 就是原来的全量读档（长视频走这条）；短视频页 init 时传 `ShortVideoDanmakuPolicy.overrideOrNull()`（关掉开关即 null）；设置页「弹幕」分组新增三项，key 进 `util/SettingsKeys.kt:346-348`。
+  - **红线**：26.11.08 用户拍板「不许按设备档位偷偷压行数」，这里一个字都没违反——改的两项都是用户自己看得见、可以填的设置，长视频那两项一个字节没动。
+  - **提交**：`ee8bfba7`；单测 `ShortVideoDanmakuPolicyTest` 3 例（合法值 / 越界钳制 / 默认档保守）。
+  - **未验证（L2，只能真机看画面）**：见 `docs/review/l2-pending.md` §N（6 行在真机观感是否合适、关掉开关是否真的回到 15 行 + 允许重叠）。
+
+- **26.11.14 弹幕「一跳一跳」：蠕动步进改为按真实帧间隔放宽（用户原话「弹幕依旧会一跳一跳的」）**：
+  - **来路**：媒体时钟模式下 `DrawHandler.syncTimerByMediaClock` 每帧把 timer 朝「采样位置 + 墙钟外推」的理想值蠕动，步进上限固定 `MediaClockSync.stepFor(speed)` = 40ms（3x 时 120ms），而这一分支**完全绕过了原生墙钟分支的 `averageTime` / `mFrameUpdateRate` 自适应**。40ms 是「60fps」的基准值：帧率一旦掉到 25fps 以下（手表叠加 15 行弹幕、短视频页还要同时解视频帧，很常见），每帧真实过去的媒体时间就超过 40ms，时钟每帧必然落后，误差线性累积，撞到 `SNAP_ERROR_MS` = 500ms 就硬吸一次——肉眼就是「跳」一下。
+  - **诊断（纯数值仿真，不依赖设备）**：新增 `app/src/test/java/com/RobinNotBad/BiliClient/player/DanmakuClockDriftSimulationTest.kt`，按 DFM 渲染循环一帧一帧算，10 秒窗口内旧行为 10fps 吸附 **12 次**（约每 0.83s 一次）、20fps **4 次**（每 2.5s 一次）、30fps 0 次、60fps 0 次——与「一跳一跳」「只在某些视频上抖」对得上。没拿模拟器当判据：它是 yuv 软解 + 秒级卡顿，量出来的 fps 代表不了手表。
+  - **修法**：蠕动只负责抹平 250ms 采样抖动，不再承担「限制追赶速度」——后者本就错了，媒体时间过去多少，弹幕时钟就该走多少（原生分支的 `timer.add(d)` 就是这个口径）。`MediaClockSync` 新增 `stepFor(float speed, long frameIntervalMs)`：上限取 `max(40ms×倍速, 帧间隔×倍速×1.25)`；`nextTimerValue` 加 4 参重载（3 参版委托 `frameInterval=0`，旧行为一字不变）；`DrawHandler` 记 `mLastClockFrameAt`（硬对齐时重置），帧间隔未知 / 为负 / 超过 500ms（卡顿、后台唤醒）时传 0 退回原行为。
+  - **修复后仿真**：10 / 20 / 60fps 与 1x / 3x 全部吸附 0 次，且最大瞬时偏差仍 < 500ms。
+  - **提交**：`048efa31`。
+  - **未验证（L2，只能真机看）**：见 `docs/review/l2-pending.md` §N 的后两条（真机上还抖不抖、低端手表上是否反而更「追」得生硬）。
+  - **播放页（长视频）回归**：这套时钟播放页与短视频页各持一份 `DanmakuManager` 实例，但共用同一份 `MediaClockSync` / `DrawHandler`。按帧间隔取上限后，高帧率下与旧行为**等价**——60fps 时 `帧间隔 16.7ms × 1.25 ≈ 20.8ms < 40ms`，`max()` 取到的仍是原来的 40ms（3x 仍是 `max(120, 62.6) = 120`），只有帧率掉到 30fps 以下才放大（30fps ≈ 41.7ms），而放大正是要修的那件事。L0（26.11.14，隔离工作树 `outputs/wt-rebase`，rebase 到 `49069e35` 之后）：`assembleDebug` → BUILD SUCCESSFUL（2m27s，双 flavor）；`testStandardDebugUnitTest --rerun` → BUILD SUCCESSFUL，215 个测试类 / 2312 例，失败 0 / 错误 0 / 跳过 0（`MediaClockSyncTest` 原有 12 例与新增仿真 8 例全在里面）。**播放页本身未上真机实测**，已列 `docs/review/l2-pending.md` §N 末条。
+
 - **26.11.14 全局隐藏状态栏与导航栏（用户原话「能不能试着适配一下导航栏」，来电是手表实拍里播放页底部那条三键导航栏黑边；用户拍板「所有页面都隐藏状态栏和导航栏」）**：
   - **来路**：主题里一直只有 `android:windowFullscreen`（只压掉状态栏），导航栏从来没处理过，于是手表底部那条三键导航栏在播放页单独占一条黑边。26.11.02 修主题 bug 时又把旧实现里的 `SYSTEM_UI_FLAG_HIDE_NAVIGATION` / `IMMERSIVE` / `IMMERSIVE_STICKY` 一并去掉（`ui/appearance/ColorScheme.kt` 的注释里写着），全工程再无一处隐藏系统栏的代码。
   - **修法 1（统一落窗）**：新增 `app/src/main/java/com/RobinNotBad/BiliClient/ui/appearance/ImmersiveMode.kt` —— `isEnabled()` 读 `SettingsKeys.UI_IMMERSIVE_FULLSCREEN`（默认 true），`apply()` 按开关调 `hideSystemBars()` / `showSystemBars()`；隐藏走官方 API `WindowInsetsControllerCompat.hide(WindowInsetsCompat.Type.systemBars())` 配 `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`，装饰窗口的 `WindowCompat.setDecorFitsSystemWindows(window, false)` 早就在 `ColorScheme.applyWindowTheme` 里设过，这里不重复设成一个相反的值。`activity/base/BaseActivity.kt` 在 `onCreate`（`applySystemBarInsets()` 之后）与 `onResume` 各调一次：回前台时系统可能已经把栏放回来（弹过系统对话框、从别的页回来），这一处也负责开关刚被关掉时把栏放回去。
