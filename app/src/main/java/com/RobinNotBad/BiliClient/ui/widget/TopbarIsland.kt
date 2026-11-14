@@ -1,5 +1,6 @@
 package com.RobinNotBad.BiliClient.ui.widget
 
+import android.animation.ValueAnimator
 import android.app.Activity
 import android.content.Context
 import android.graphics.Canvas
@@ -13,9 +14,11 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.DecelerateInterpolator
 import android.widget.RelativeLayout
 import android.widget.TextView
 import androidx.annotation.ColorInt
@@ -36,6 +39,15 @@ import java.util.WeakHashMap
 
 /**
  * 顶栏灵动岛（26.11.07；26.11.08 与「圆屏适配」解耦成独立开关）。
+ *
+ * ## 三层优先级（26.11.14 用户拍板）
+ * 1. **瞬时事件**（新未读 / 低电 / 充电 / 公告 / 更新）：短播 5 秒（`IslandStatus.BURST_MS`），
+ *    到点自动恢复之前的状态；带淡入动效与短促放大。
+ * 2. **常驻事件**（播放中 > 下载中）：有就**一直显示**，不轮换；播放图标做 1 秒周期呼吸。
+ * 3. **基础状态**：时间，开了电量开关时时间右侧并排一枚电量图标（低电变红、充电变闪电）。
+ *
+ * 轮换间隔（设置页可调 3 / 5 / 10 秒或「不轮换」）只作用于「常驻事件 ↔ 基础状态」之间，
+ * 默认不轮换；关掉某一类开关只是不显示那一类，不改变其它类的行为。
  *
  * ## 只接管 46 个活动页的顶栏时钟位
  * 方屏与圆屏都能单独打开（`SettingsKeys.TOPBAR_ISLAND`）；播放器页与短视频页有自己的顶栏，不接。
@@ -77,6 +89,9 @@ object TopbarIsland {
     private const val TITLE_GAP_DP = 3f
 
     private const val TICK_MS = 1_000L
+
+    /** 低电阈值（%），与 `IslandStatus.BATTERY_LOW_PERCENT` 保持一致。 */
+    private const val LOW_BATTERY_PERCENT = 20
 
     private val bindings = WeakHashMap<Activity, Binding>()
 
@@ -160,7 +175,11 @@ object TopbarIsland {
         private var lastIconKey: String? = null
         /** 充电闪电的闪烁相位：每秒在亮 / 暗之间切一次（像充电宝指示灯）。 */
         private var iconBlinkOn = true
-        private var showTime = false
+        /** 播放图标的呼吸动画；只在 PLAYING 状态下活着。 */
+        private var breath: ValueAnimator? = null
+        /** 本次 tick 生效的分类开关（心跳里从存档读，设置页改完回来立刻生效）。 */
+        private var filters = IslandFilters()
+        private var showBase = false
         private var phaseStart = SystemClock.uptimeMillis()
         private var titleNudged = false
 
@@ -176,6 +195,8 @@ object TopbarIsland {
         private var origPadB = 0
         private var origCompoundPadding = 0
         private var origAlpha = 1f
+        private var origEllipsize: TextUtils.TruncateAt? = null
+        private var origMaxLines = -1
         private var origTitleTopMargin: Int? = null
 
         private val tick = object : Runnable {
@@ -227,6 +248,7 @@ object TopbarIsland {
         fun detach() {
             running = false
             handler.removeCallbacks(tick)
+            stopRhythm()
             clock.animate().cancel()
             restoreClock()
             restoreTitle()
@@ -249,6 +271,8 @@ object TopbarIsland {
             origPadB = clock.paddingBottom
             origCompoundPadding = clock.compoundDrawablePadding
             origAlpha = clock.alpha
+            origEllipsize = clock.ellipsize
+            origMaxLines = clock.maxLines
             val title = top.findViewById<TextView>(R.id.pageName)
             val titleParams = title?.layoutParams as? RelativeLayout.LayoutParams
             if (titleParams != null) origTitleTopMargin = titleParams.topMargin
@@ -283,6 +307,10 @@ object TopbarIsland {
             clock.background = pill()
             clock.setPadding(0, 0, 0, 0)
             clock.compoundDrawablePadding = ToolsUtil.dp2px(4f)
+            // 固定宽度后内容可能超宽（播放中 + 下载小图标）：强制单行 + 省略号，
+            // 否则 TextView 会换行把胶囊撑成两行高。
+            clock.maxLines = 1
+            clock.ellipsize = TextUtils.TruncateAt.END
             clock.alpha = 1f
         }
 
@@ -320,6 +348,8 @@ object TopbarIsland {
             clock.setTextColor(origTextColor)
             clock.setPadding(origPadL, origPadT, origPadR, origPadB)
             clock.compoundDrawablePadding = origCompoundPadding
+            clock.maxLines = origMaxLines
+            clock.ellipsize = origEllipsize
             clock.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, null, null)
             clock.alpha = origAlpha
             clock.externallyManaged = false
@@ -329,43 +359,78 @@ object TopbarIsland {
         }
 
         private fun render() {
+            // 屏幕不可见（锁屏 / 被全屏页盖住）时不渲染：省电，也避免在看不见的地方跑动画。
+            // 页面级不可见（onStop）由 BaseActivity 直接 detach，比这里更彻底。
+            if (!activity.window.decorView.isShown) {
+                stopRhythm()
+                // 恢复可见时强制重建图标并重启呼吸（applyState 只在图标变化时调 applyRhythm）。
+                lastIconKey = null
+                return
+            }
+
             val now = SystemClock.uptimeMillis()
             val snapshot = IslandStatus.read(activity)
+            filters = readFilters()
             val decision = IslandPolicy.decide(
                 IslandInput(
                     nowMs = now,
                     playing = snapshot.playing,
                     downloading = snapshot.downloading,
-                    unread = snapshot.unread,
+                    unreadBurst = snapshot.unreadBurst,
                     burst = snapshot.burst,
-                    showTime = showTime,
-                    phaseStartMs = phaseStart
+                    filters = filters,
+                    showBase = showBase,
+                    phaseStartMs = phaseStart,
+                    rotateMs = IslandPolicy.rotateMsOf(
+                        SharedPreferencesUtil.getString(SettingsKeys.ISLAND_ROTATE, "0")
+                    )
                 )
             )
-            showTime = decision.showTime
+            showBase = decision.showBase
             phaseStart = decision.phaseStartMs
             applyState(decision.state, snapshot)
         }
+
+        /**
+         * 每次 tick 从存档读一次分类开关。
+         *
+         * 六个 boolean 读的是 SharedPreferences 的内存缓存，每秒一次的开销可以忽略；
+         * 好处是用户在「灵动岛设置」里改完返回，不用等重建页面就生效。
+         */
+        private fun readFilters(): IslandFilters = IslandFilters(
+            playing = SharedPreferencesUtil.getBoolean(SettingsKeys.ISLAND_PLAYING, true),
+            downloading = SharedPreferencesUtil.getBoolean(SettingsKeys.ISLAND_DOWNLOADING, true),
+            unread = SharedPreferencesUtil.getBoolean(SettingsKeys.ISLAND_UNREAD, true),
+            battery = SharedPreferencesUtil.getBoolean(SettingsKeys.ISLAND_BATTERY, true),
+            announcement = SharedPreferencesUtil.getBoolean(SettingsKeys.ISLAND_ANNOUNCEMENT, true)
+        )
 
         private fun applyState(state: IslandState, snapshot: IslandSnapshot) {
             val text = textFor(state, snapshot)
             if (clock.text?.toString() != text.toString()) clock.text = text
 
-            val icon = iconFor(state, snapshot)
-            val key = icon?.let { "${it.resId}:${it.tint}" }
+            // 左侧图标说明「这个数字是什么」；基础状态（时间）时电量图标并排到右侧。
+            // 播放 + 下载同时进行时，右侧挂下载小图标且不参与轮换（26.11.14 用户口径）。
+            val left = iconFor(state, snapshot)
+            val right = when {
+                state == IslandState.TIME -> batteryBadge(snapshot)
+                state == IslandState.PLAYING && snapshot.downloading && filters.downloading ->
+                    IslandIcon(R.drawable.island_icon_download, ColorScheme.INFO)
+                else -> null
+            }
+            val key = "${left?.resId}:${left?.tint}|${right?.resId}:${right?.tint}"
             val iconChanged = key != lastIconKey
             if (iconChanged) {
                 clock.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                    icon?.let {
-                        IslandIconDrawable(activity, it.resId, it.tint, ToolsUtil.dp2px(ICON_DP))
-                    },
+                    left?.let { IslandIconDrawable(activity, it.resId, it.tint, ToolsUtil.dp2px(ICON_DP)) },
                     null,
-                    null,
+                    right?.let { IslandIconDrawable(activity, it.resId, it.tint, ToolsUtil.dp2px(ICON_DP)) },
                     null
                 )
                 lastIconKey = key
                 // 新建的那一帧先亮着，下一帧再开始闪，避免刚切进充电就突然变暗。
                 iconBlinkOn = true
+                applyRhythm(state)
             }
             // 充电时闪电像充电宝指示灯一样慢闪：亮 1 秒、暗 1 秒交替（只在有图标时）。
             if (state == IslandState.BATTERY && snapshot.charging) {
@@ -375,12 +440,65 @@ object TopbarIsland {
             }
 
             if (state != lastState) {
+                // 状态切换的微动效：淡入 + 轻微放大，短播「弹出来」的观感靠这一段。
                 clock.animate().cancel()
-                clock.alpha = 0.25f
-                clock.animate().alpha(1f).setDuration(150L).start()
+                clock.alpha = 0.2f
+                clock.scaleX = 0.92f
+                clock.scaleY = 0.92f
+                clock.animate()
+                    .alpha(1f)
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(160L)
+                    .setInterpolator(DecelerateInterpolator())
+                    .start()
                 Logu.d(TAG, "灵动岛 → $state (${activity.javaClass.simpleName})")
                 lastState = state
             }
+        }
+
+        /**
+         * 基础状态右侧的电量徽标（26.11.14 用户要求「像手机一样在时间旁放个小电量图标」）。
+         *
+         * 只有在开了「电量」开关、且读得到电量时才出现；颜色语义与电池状态一致：
+         * 充电 → 闪电 + 成功色，低电 → 电池 + 错误色，正常 → 电池 + 次要文字色。
+         */
+        private fun batteryBadge(snapshot: IslandSnapshot): IslandIcon? {
+            if (!filters.battery) return null
+            if (snapshot.batteryPercent < 0) return null
+            return when {
+                snapshot.charging -> IslandIcon(R.drawable.island_icon_charging, ColorScheme.SUCCESS)
+                snapshot.batteryPercent <= LOW_BATTERY_PERCENT ->
+                    IslandIcon(R.drawable.island_icon_battery, ColorScheme.ERROR)
+                else -> IslandIcon(R.drawable.island_icon_battery, ColorScheme.TEXT_SECONDARY)
+            }
+        }
+
+        /**
+         * 播放中的呼吸动画（26.11.14 用户要求「最好带简易动态小图标」）。
+         *
+         * 只在 PLAYING 状态启动：图标 alpha 在 0.55 ~ 1.0 之间以 900ms 往返。
+         * 充电闪烁仍走每秒 tick（它是「指示灯」语义，节奏要慢而稳），两者不会同时出现。
+         */
+        private fun applyRhythm(state: IslandState) {
+            stopRhythm()
+            if (state != IslandState.PLAYING) return
+            val icon = clock.compoundDrawablesRelative.firstOrNull() ?: return
+            breath = ValueAnimator.ofFloat(0.55f, 1f).apply {
+                duration = 900L
+                repeatMode = ValueAnimator.REVERSE
+                repeatCount = ValueAnimator.INFINITE
+                addUpdateListener {
+                    icon.alpha = ((it.animatedValue as Float) * 255).toInt()
+                    clock.invalidate()
+                }
+                start()
+            }
+        }
+
+        private fun stopRhythm() {
+            breath?.cancel()
+            breath = null
         }
 
         private fun textFor(state: IslandState, snapshot: IslandSnapshot): CharSequence = when (state) {
