@@ -18,6 +18,13 @@
 
 ## 1. 当前版本状态
 
+- **26.11.14 「播放页返回键直接退出」默认值改为关（用户要求「这个按钮改默认关闭」）**：
+  - **两处必须同时改**：`app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:947`（`backKeyExitEnabled()` 的 `getBoolean` 兜底值 `true → false`）与 `app/src/main/java/com/RobinNotBad/BiliClient/player/PlayerSettingsGroups.kt:181`（那条 `SettingSection("switch", …, "true") → "false"`，设置页开关初值读的是这一份）。只改一处会表现为「设置页显示关、播放页按开走」。
+  - **行为影响（有意）**：默认回到 26.10.22 旧语义——`onBackPressed` 里「开着『左右滑动控制进度』就吞返回键」重新生效；`onCreate` 的 `noSwipe = swipeSeekEnabled || !backKeyExitEnabled()` 默认就是 `true`，即窗口层右滑返回默认关闭（放大后可拖动画面）。**默认值下（滑动调进度也默认关）按返回仍然能退出**，不会被困在播放页；只有用户同时打开「左右滑动控制进度」才会撞上旧语义。
+  - **文案已同步改中性**（`res/values/strings.xml:2873` 的 `desc_player_back_key_exit`）：第二段由「关闭后：开着『左右滑动控制进度』时返回键仍会被吞掉（旧行为），只适合特殊手表。」改成「关闭后（默认）：恢复旧语义，开着『左右滑动控制进度』时返回键仍会被吞掉，窗口右滑也不退出。」——不再把「关闭」说成只有特殊手表才该选，并点明它是默认值。
+  - **文档已同步**：`docs/FEATURES.md:215` / `:218` 的「默认开」全部改成「26.11.14 起默认关」。
+  - **未验证（L2）**：手表上默认值下按返回键 / 侧键 / 表冠是否能直接退出播放页；打开开关后同一操作是否仍退出（回归）。
+
 - **26.11.14 播放器「跳到指定时间」从另开 Activity 改成页内卡片（用户报「离开播放器回来视频流会消失 + 跳转是新活动 = 没法用」）**：
   - **症状**：用户原话——「本来离开自带播放器再回来视频流会消失不算啥，结果结合了跳转指定时间是新活动就导致没法用了」。即：跳转本身能用，但跳完回来画面没了。
   - **根因**：`PlayerActivity` 的「跳到指定时间」原来是 `startActivityForResult(InputDialogActivity)`（`REQUEST_CODE_JUMP_TO_TIME = 1002`），播放页被输入页整页盖住 → Surface 被销毁 → 返回时靠 `PlayerSurfaceBinder` 的 `onSurfaceReattached` 重新 attach + `seekTo(video_now)` + 重设视频几何来恢复，这条路在手表上并不总成功，于是「跳完黑屏」。而这个交互压根不需要离开播放页。
