@@ -57,14 +57,14 @@ public class FileUtil {
     private static final int DELETE_MAX_DEPTH = 32;
 
     /**
-     * 递归删除目录/文件，兼容旧调用点、**忽略删除结果**。
+     * 递归删除目录/文件，**返回是否真的删干净**（语义与 [deleteFolderRecursively] 一致）。
      *
-     * 新代码（尤其"用户点了删除要立刻知道成不成"的地方）请用 [deleteFolderRecursively]：
-     * 本方法存在只是为了让旧调用点（视频详情页清缓存 / 下载列表 / 分 P 选择页等）不改签名，
-     * 语义已换成同一套可靠实现。
+     * 反馈 #162：签名原来是 void，删没删掉的结果就丢在这一层，于是视频详情页长按清缓存无论成败
+     * 都提示「已清除」——用户看到提示成功、回缓存页条目还在。现在把真实结果交出去；
+     * 新代码请直接用 [deleteFolderRecursively]，本方法保留只是为了不改旧调用点的写法。
      */
-    public static void deleteFolder(File folder) {
-        deleteFolderRecursively(folder);
+    public static boolean deleteFolder(File folder) {
+        return deleteFolderRecursively(folder);
     }
 
     /**

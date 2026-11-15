@@ -63,9 +63,12 @@ import com.RobinNotBad.BiliClient.player.SponsorSkipPolicy
 import com.RobinNotBad.BiliClient.player.SponsorSkipPrefs
 import com.RobinNotBad.BiliClient.ui.widget.RadiusBackgroundSpan
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
+import com.RobinNotBad.BiliClient.util.CacheChangeSignal
+import com.RobinNotBad.BiliClient.util.CacheDeletePlan
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.DetailEntryPrefs
 import com.RobinNotBad.BiliClient.util.FileUtil
+import com.RobinNotBad.BiliClient.util.FolderManager
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -667,11 +670,29 @@ class VideoInfoFragment : BaseFragment() {
         }
 
         download.setOnClickListener { downloadClick() }
+        // 反馈 #162：这条路径真的会删用户的缓存文件，结果必须按「删没删掉」分级提示。
+        // 旧写法按「根目录 + 标题」硬拼路径、`deleteFolder` 又吞掉返回值，
+        // 于是删的是一个不存在的目录也报「已清除」，缓存页的条目 / 计数 / 封面全是旧的。
         download.setOnLongClickListener {
+            val ctx = context ?: return@setOnLongClickListener true
+            val title = videoInfo?.title
+            if (title.isNullOrEmpty()) return@setOnLongClickListener true
             CenterThreadPool.run {
-                val downPath = FileUtil.getVideoDownloadPath(videoInfo!!.title, null)
-                FileUtil.deleteFolder(downPath)
-                MsgUtil.showMsg(UiText.of("已清除此视频的缓存文件夹"))
+                // 详情页拿不到落盘文件名，没有 mediaFilePath 可用：多 P 合集靠
+                // CachePathResolver 的「根/标题」候选命中合集根目录，删掉整部合集
+                val result = CacheDeletePlan.execute(FileUtil.getVideoDownloadPath().path, title)
+
+                // 文件真的没了才摘文件夹记录：失败时视频还在磁盘上，顺手移出文件夹等于又加一次意外
+                if (result.ok) FolderManager.removeVideoFromAllFolders(title)
+                // 缓存页压在返回栈下面、onResume 不会因为文件变了而重扫，靠这个信号让它回去时重扫，
+                // 否则就是「文件删了条目还在、计数虚高、封面一块黑」
+                if (result.outcome != CacheDeletePlan.Outcome.NOT_FOUND) CacheChangeSignal.markChanged()
+
+                val message = CacheDeletePlan.messageOf(result)
+                val text = if (message.arg == null) ctx.getString(message.resId)
+                else ctx.getString(message.resId, message.arg)
+                // 失败 / 部分失败的文案带原因，手表屏窄，用长提示（与缓存列表页的删除一致）
+                if (result.ok) MsgUtil.showMsg(text) else MsgUtil.showMsgLong(text)
             }
             true
         }

@@ -1033,6 +1033,11 @@
     <string name="msg_picture_download_failed">图片下载失败，请检查网络或存储空间后重试</string>
     <!-- 缓存视频删除失败（反馈 #58）：删除结果必须如实反馈，不能再一律提示「删除成功」 -->
     <string name="msg_cache_delete_failed">删除失败：%1$s\n文件可能被占用，或当前没有该目录的写入权限，请用文件管理器删除</string>
+    <!-- 详情页长按清缓存的三档提示（反馈 #162）：定位目录改走 CachePathResolver 候选集合后，
+         成功 / 部分失败 / 没找到目录必须分开说，见 util/CacheDeletePlan.kt -->
+    <string name="msg_cache_delete_success">已清除此视频的缓存文件夹</string>
+    <string name="msg_cache_delete_partial_failed">有缓存目录没删干净：%1$s\n文件可能被占用，或当前没有该目录的写入权限，请用文件管理器删除</string>
+    <string name="msg_cache_delete_not_found">没有找到这个视频的缓存目录</string>
     <string name="text_danmaku_download_failed">弹幕下载失败！</string>
     <string name="text_load_failed">加载失败</string>
     <!-- ===== 敏感操作前的 Cookie 检查提示（12.4 文案迁移：五批） ===== -->
