@@ -701,6 +701,9 @@ class VideoInfoFragment : BaseFragment() {
 
         relay.setOnClickListener {
             // 反馈 #133：转发有两个去处，先问一句再办事（原先点一下直接进动态发送页）
+            // 26.11.15：`TerminalDialog.menu` 只负责搭好弹窗，**显示要调用方自己 show()**
+            // （其它 20 多处调用点都是 `}.show()`）。这里当初漏了，`create()` 出来的对话框
+            // 一直没 attach 到窗口，于是「点转发什么都不发生」，看着就是按钮点不动。
             TerminalDialog.menu(
                 requireContext(),
                 title = getString(R.string.text_video_relay_title),
@@ -710,7 +713,7 @@ class VideoInfoFragment : BaseFragment() {
                 )
             ) { index ->
                 if (index == 0) relayToDynamic() else relayToFriend()
-            }
+            }.show()
         }
         relay.setOnLongClickListener {
             StringUtil.copyText(requireContext(), "https://www.bilibili.com/" + videoInfo!!.bvid)

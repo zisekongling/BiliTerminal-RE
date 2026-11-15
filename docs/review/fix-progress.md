@@ -18,6 +18,14 @@
 
 ## 1. 当前版本状态
 
+- **26.11.15 详情页「转发」按钮点了没反应（用户原话「转发按钮不能点的bug修复下」）**：
+  - **来路**：用户直接报告。
+  - **根因**：`activity/video/info/VideoInfoFragment.kt` 的 `relay.setOnClickListener` 里只调了 `TerminalDialog.menu(...)`，**没接 `.show()`**。`TerminalDialog.menu()` 只做 `AlertDialog.Builder(context).create()` + 往 `Sheet` 里填条目，**显示由调用方负责**（其余二十多个调用点都写成 `}.show()`）。反馈 #133 把「点一下直接进发送页」改成「先弹两项菜单」时漏了这一步，于是对话框建出来却从未 attach 到窗口——点击等于空转，看起来就是按钮点不动。长按复制链接那条分支一直正常，所以更像「按钮半坏」。
+  - **修法**：补 `}.show()`，并在调用处留一行注释说明这个约定（下次再有人加调用点不会踩同一个坑）。
+  - **口径**：顺手用脚本把全仓 `TerminalDialog.menu/confirm/singleChoice` 的调用点扫了一遍（按括号 + 尾随 lambda 配对，检查闭合后是否跟 `.show()`），**只有这一处漏**；`BangumiInfoFragment.kt:790` 的 `singleChoice` 是把 dialog 当工厂返回值交给调用方 show，属正常写法，未改。
+  - **L0（26.11.15 本机实测）**：`:app:assembleDebug :app:testStandardDebugUnitTest` → **BUILD SUCCESSFUL**，`testStandardDebugUnitTest` **252 套件 / 2726 用例 / 0 失败 / 0 错误 / 0 跳过**（本次纯 UI 接线，无新增用例）。
+  - **未验证（L2）**：手表上点「转发」弹出「转发到动态 / 发给好友」两项；分别进发送页与选人页；点空白处能取消；长按仍复制完整链接。
+
 - **26.11.15 设置搜索补收录 25 条 + 灵动岛永久关闭 + 两项标注「（实验性）」（用户一次提三件）**：
   - **来路**：用户原话「设置中的搜索设置选项没有包含部分设置项目，请将其加入，另外-灵动岛相关设置帮我隐藏并永久关闭下（这个及其子项无法搜索到），以及播放器按钮设置和跳广告设置上面标注（实验性），并补充对应关键词以保证搜索能命中」。四问答复：「只补可调项」/「按 false 处理」/「标题后缀，卡片和页内标题同步」/「加 keywords 字段」。
   - **补收录口径**：开关 / 输入框 / 下拉 / 能点进去的条目进索引；分组小标题（配色、性能、调试日志…）与「恢复默认 / 查看预览」这类按钮不进。按此口径用脚本比对各设置页的 `SettingSection.name`（`switch/nav/input/listChoose/title/button` 首个参数 + `PlayerSettingsGroups.kt` 的 `getString(R.string.X)`）与索引已收集合，差集 25 条全部补进 `activity/settings/SettingsIndex.kt`：登录凭证状态；选择字体文件 / 恢复系统字体 / 关闭页面转场动画 / 清除背景图；伪装三连（双击顶栏伪装 / 伪装样式 / 退出暗号）；默认缓存画质 / 存储权限授权；缓存页文件夹入口（页内是字面量，索引也用同一字面量当匹配键）；更新通道；私信拦截提示；内置播放器七项（返回键直接退出 / 快退步长 / 弹幕屏蔽词 / 短视频弹幕三项 / 弹幕停留时长）；开发者工具七项（三个 `允许Logu.*`、Agent 测试模式、日志落盘、两种详细报错）。新增描述串 `settingtext_settingsindex_083`…`_100`。
