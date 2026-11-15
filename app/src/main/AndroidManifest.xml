@@ -362,6 +362,11 @@
             android:label="@string/pagename_login_special"
             android:screenOrientation="locked" />
         <activity
+            android:name=".activity.settings.login.ExportAllAccountsActivity"
+            android:exported="false"
+            android:label="@string/pagename_export_all_accounts"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.user.FollowUsersActivity"
             android:exported="false"
             android:label="@string/uitext_myspacemenu_001"

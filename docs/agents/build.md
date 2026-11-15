@@ -50,6 +50,15 @@
 - **两 flavor 并行编译会伪装成「语法错」**（26.11.14 实测）：`assembleDebug` 报 `> Task :app:compileCoexistDebugKotlin` + `Compilation error. See log for more details`，报告里**没有一行 `e:` 错误**——真因是 Kotlin daemon 拿不到内存（单独跑 `:app:compileStandardDebugKotlin` 才看到 `e: Daemon compilation failed: Not enough memory to run compilation. Try to increase it via 'gradle.properties'`）。`org.gradle.parallel=true` 下两个 flavor 的编译同时抢 4 G daemon + 2 G kotlin daemon，本机 31 G 内存但只剩 5.5 G 可用时必挂。**判据**：报编译错但输出里找不到 `^e: .*\.kt:` 行，就先怀疑内存；**解法**：加 `--no-parallel --max-workers=2` 重跑（同族历史记录见 `docs/review/fix-progress.md` 里「`--max-workers=1` 绕开两 flavor 并行 OOM」那条）。
 - 依赖仓库已在 `settings.gradle` 前置 aliyun 的 `google`/`public`/`gradle-plugin` 镜像；`copyApkToDesktop` 未挂在 `assembleRelease` 上，需手动跑。
 
+## 同工作区并发构建（多个会话同时改这个仓库）
+
+26.11.15 实测：两个 agent 会话在**同一个工作区**同时跑 gradle（各一条 `assembleDebug`），会撞两类错误，**都不是代码问题**，改代码只会白跑：
+
+- `:app:processStandardDebugResources` 失败：`…\compile_and_runtime_not_namespaced_r_class_jar\standardDebug\processStandardDebugResources\R.jar: 另一个程序正在使用此文件，进程无法访问。`——两个构建同时写同一份 R jar。
+- `:app:compileStandardDebugKotlin` 失败：`java.lang.OutOfMemoryError: Java heap space`，或退化成 `Not enough memory to run compilation`——`kotlin.daemon.jvmargs` 的 2 G 被两个 daemon 摊薄。
+
+**判据**：报错路径落在 `app/build/` 里、且 `Get-Process java` 能看到不止一组 gradle wrapper + daemon。**解法**：串行。先确认没有别的构建在跑——`Get-ChildItem app/build -Recurse -File | Sort-Object LastWriteTime -Descending | Select-Object -First 3` 看最近一两分钟还有没有新产物——再单独跑一次。多个会话共用一个工作树时**显式约定「谁先跑、跑完回一句」**，别凭感觉并发。顺带：并发会话还会互相 `git stash` / `git add -A` 卷走对方在制品，见 `docs/agents/workflow.md`「同一个工作树上有多个会话」。
+
 ## build cache 回放陈旧资源
 
 `gradle.properties` 开着 `org.gradle.configuration-cache` 与 build cache。只要你改动 `res/` 的**文件集合**（新增/删除/移动资源文件），`:app:mergeDebugResources` 可能 `FROM-CACHE` 回放一份旧结果，症状是编译报莫名其妙的 `Unresolved reference 'R.layout.xxx'` 或新的 string/color 找不到，而源文件明明存在。此时必须：

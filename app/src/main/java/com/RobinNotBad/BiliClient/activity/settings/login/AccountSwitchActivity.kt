@@ -126,6 +126,7 @@ class AccountSwitchActivity : BaseActivity() {
 
         addNewAccountCard()
         addImportCard()
+        addExportAllCard()
     }
 
     private fun addEmptyHint() {
@@ -150,6 +151,7 @@ class AccountSwitchActivity : BaseActivity() {
         accountList.addView(card)
         addNewAccountCard()
         addImportCard()
+        addExportAllCard()
     }
 
     private fun createAccountCard(account: AccountManager.AccountInfo): View {
@@ -324,6 +326,41 @@ class AccountSwitchActivity : BaseActivity() {
 
         card.setOnClickListener {
             startActivity(Intent(this, SpecialLoginActivity::class.java))
+        }
+
+        accountList.addView(card)
+    }
+
+    /**
+     * 「导出全部账号数据」入口。
+     *
+     * <p>与上面的「导入账号数据」对称：搬家用的是一个文件来回，只给导入不给导出等于单行道。
+     * 点进去是独立的 [ExportAllAccountsActivity]——特殊登录页那套单条导出保持不变。
+     */
+    private fun addExportAllCard() {
+        val card = MaterialCardView(this)
+        card.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+
+        val text = TextView(this)
+        text.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            (35 * resources.displayMetrics.density).toInt()
+        )
+        text.setPadding(16, 0, 16, 0)
+        text.gravity = Gravity.CENTER_VERTICAL
+        text.text = getString(R.string.text_account_export_all)
+        text.textAlignment = View.TEXT_ALIGNMENT_TEXT_START
+        text.textSize = 13f
+        TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(
+            text, null, null, StringUtil.getDrawable(text.context, R.drawable.arrow_forward), null
+        )
+        card.addView(text)
+
+        card.setOnClickListener {
+            startActivity(Intent(this, ExportAllAccountsActivity::class.java))
         }
 
         accountList.addView(card)

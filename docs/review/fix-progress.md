@@ -2506,7 +2506,8 @@
   5. `activity/settings/login/AccountSwitchActivity.kt` 新增 `addExportAllCard()`（样式与 `addImportCard()` 一致），在 `refreshAccountList()` 与空态 `addEmptyHint()` 两处、紧跟「导入账号数据」之后挂上——入口只此一处，与导入对称。
 - **刻意没做**：设置 →「查看登录信息」那条入口原样保留（它进的就是特殊登录页导出模式，现在导单条）；导入页说明里的「多账号」段落保留（导入能力没变）。
 - **单测**（`app/src/test/…/util/AccountManagerTest.kt`，+3 例）：未登录返回 `""`；已登录时 JSON 键集合精确等于 `{cookies, refresh_token, access_key}`、字段值正确、且 `parseAny` 回环成 `Single`；列表里有第二个账号时仍只导出当前账号。
-- **验证 · L0**：见下方「验证结果」。
+- **验证 · L0（26.11.15 23:22）**：`.\gradlew.bat :app:testStandardDebugUnitTest :app:assembleDebug --console=plain` → **BUILD SUCCESSFUL in 2m 41s**（128 tasks: 17 executed / 111 up-to-date），standard 与 coexist 两个 flavor 的 `assembleDebug` 均出包；`app/build/test-results/testStandardDebugUnitTest/TEST-com.RobinNotBad.BiliClient.util.AccountManagerTest.xml` 记 **tests=26 / failures=0 / errors=0**，三个新用例 `exportCurrentAccount_notLoggedIn_returnsEmptyString`、`exportCurrentAccount_isExactlyThreeFieldSingleAccountJson`、`exportCurrentAccount_onlyExportsCurrentAccount` 全部执行且通过（同文件原有的 3 个 `exportAllAccounts_*` 用例仍在跑，说明多账号信封侧没被带坏）。
+  - **踩过的坑（不是代码问题）**：①构建前 `Unresolved reference 'text_account_export_all'` 是因为三条新字符串被连同别的会话 WIP 一起 `git stash` 走了，字符串回来后自愈；②同工作区两个会话并发跑 gradle 会争同一个 `app/build/intermediates/…/R.jar`（报「另一个程序正在使用此文件」）并让 Kotlin daemon `Java heap space`，**必须串行构建**。见 `docs/agents/build.md`「同工作区并发构建」。
 - **未验证（人测 / L2）**：真手表上「账号切换页底部多出一行、点进去能看到整份 JSON、复制粘贴到另一台设备能导入全部账号」这一整条链路。
 
 ## 4. 历史章节索引

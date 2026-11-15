@@ -44,6 +44,18 @@
 - 合完 PR / 解完冲突之后尤其危险：`git merge` 自动合并成功的文件本来就躺在工作区里，此时任何一次「顺手全加」都会把它们裹进一个不相干的提交。合完 PR 应当**先独立提交一次 merge 结果**，再动别的。
 - 理由：提交历史是这个仓库唯一的追溯依据，`fix-progress.md` 与 `README` 都靠它反查「这版到底改了什么」。一条名不副实的提交，比一次构建失败更难发现。
 
+## 同一个工作树上有多个会话（26.11.15 实测）
+
+本机同时开多个 agent 会话改同一个仓库时，所有人共用一个工作树（同一份 index、同一份 `app/build`）。26.11.15 一次真实事故：会话 A 为「隔离对方未提交的 WIP」跑 `git stash push -m ... -- <4 个路径>`，把同一文件里**自己刚加的字符串**一起存走了；会话 B 随后 `git add -A` 提交，把 A 的 `AccountManager.java` 卷进 B 的提交；A 的构建报 `Unresolved reference 'text_account_export_all'`，追了半天以为是资源链路问题。
+
+规矩：
+
+- **不要对整树或跨会话路径 `git stash` / `git checkout --` / `git reset`**。确需暂存只 `git stash push -- <自己的具体路径>`，并且当场用完就 pop/drop。
+- **提交一律 `git add <显式路径>...`**，永远不要 `git add -A`（理由见上一节 26.11.06 事故）。
+- 两个会话都可能改的同一份文件（`strings.xml`、`docs/FEATURES.md`、`docs/review/fix-progress.md` 是重灾区），提交前先 `git status` 看一眼是不是 `MM`，并**口头约定由谁提交**——一个人提交、另一个人事后增量补，别各交一半。
+- 构建**串行**：共用 `app/build`，两个 gradle 同时跑会锁 `R.jar` 并让 Kotlin daemon OOM，判据与解法见 `docs/agents/build.md`「同工作区并发构建」。
+- 收尾时各自 `git show --stat <sha>` 核对：卷进别人文件不可怕，**没人发现才可怕**。
+
 ## 提交前检查行尾抖动（26.11.09）
 
 - **症状**：`git diff --stat` 显示某个 `.java` / `.kt` 文件几百行改动，而实际只加了几行——这是**工作区被转成 CRLF、索引里是 LF**（本仓库 `.java`、`.kt`、布局文件都是 LF；注意 `strings.xml` 是 CRLF，别一起归）。
