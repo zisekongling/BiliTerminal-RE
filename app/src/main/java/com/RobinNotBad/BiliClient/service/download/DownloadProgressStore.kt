@@ -204,9 +204,19 @@ internal object DownloadProgressStore {
         downloadProgressMap[id] = info.copy(state = state)
     }
 
+    /**
+     * 丢弃一条任务的全部进程级状态。
+     *
+     * 修复内存累积（26.11.15 排查"越用越卡"的次要泄露点）：原来只清进度映射与采样器，
+     * [sectionBytes] 与 [pausedMap] 不跟——sectionBytes 只在 retireSection 清，
+     * 于是「删除一条已暂停的任务」这类不 retire 的路径会让两张表只增不减；
+     * 长期用下来 object 单例里的 entry 越攒越多。
+     */
     fun removeDownloadProgress(id: Long) {
         downloadProgressMap.remove(id)
         samplers.remove(id)
+        sectionBytes.remove(id)
+        pausedMap.remove(id)
     }
 
     /** 该任务是否还有下载中的进度记录（调度器判"遗留记录"用，等同于原来直接 containsKey） */
