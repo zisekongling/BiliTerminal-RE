@@ -26,6 +26,80 @@
   - **修法（次）**：`removeDownloadProgress(id)` 四表全清（+ `sectionBytes.remove` + `pausedMap.remove`）。
   - **L0（26.11.15 本机实测）**：`:app:testStandardDebugUnitTest` → BUILD SUCCESSFUL，**2611 tests / 0 failures**（新增 `util/VideoPreloadTrimTest.kt` 5 例：大字段清空、幂等、未预加载条目不动、元数据壳保持原样、部分字段存在也算；`service/download/DownloadProgressStoreCleanupTest.kt` 2 例：删除即四表全清、未知 id 无害）；`:app:assembleDebug` → exit 0（双 flavor）。注：单测不走 `pauseDownload()`（它连带 `DownloadRepository.setState` 写 SQLite，纯 JVM 下 android.jar not-mocked 会假失败），直接写 `pausedMap` 等价覆盖。
   - **未验证（L1/L2）**：真机连续刷 10+ 分钟内存曲线是否走平（`dumpsys meminfo` 轮询）；回滑到已瘦身页是否正常重取并起播（多等一次取址，无崩溃）。
+
+> 本轮（26.11.15）九条记录共用一次 L0：集成分支 `integrate/feedback-batch-261115`（rebase 到 `origin/main` 的 `5081afcf`，其上有 15 笔提交）上 `:app:assembleDebug :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest --no-parallel --max-workers=2` → **BUILD SUCCESSFUL**（APK 双 flavor 各 4 个 ABI 包），standard / coexist 各 **2486 用例 / 0 失败 / 0 错误 / 0 跳过**（230 个测试套件；本轮新提交带进来 27 例）。各条只写自己那份新增用例数与人工干预痕迹。
+
+- **26.11.15 反馈 #167 短视频下滑再上滑整页纯黑、「划过的视频无法观看」（用户原话「短视频下滑之后再上滑视频就黑了，划过的视频无法观看」）**：
+  - **来路**：BiDeZhi `uws6152_1h10_go`（sdk28，26.11.09.02）交的反馈；日志三条 `E f>e | ShortVideoApi>API error code=-400: 请求错误`。
+  - **根因**：页滑出屏幕时 RecyclerView 把 TextureView 摘下来，`onSurfaceTextureDestroyed` 里 `setSurface(null)`——播放器对象还活着、只是暂停；滑回来挂上的是**新** SurfaceTexture，代码只 `setSurface(st)` 而不重绘上一帧，页底又是不透明的黑，于是整页纯黑（封面在 prepare 时已被 `GONE`）。`-400` 那三行出自 `ShortVideoFeedApi.requestBatch` 的分页请求（`VideoPreloadManager.loadMore()` 空结果静默返回），与本 bug 无关。
+  - **修法**：新增纯策略 `player/ShortVideoSurfaceRebindPolicy.kt`（`ShortVideoSurfaceAction { NONE, ATTACH_ONLY, ATTACH_REPAINT, ATTACH_REPAINT_AND_START }` + `decide(hasTexture, needsRepaint, isPrepared, isActive, feedVisible)`）；`activity/video/ShortVideoPlayerActivity.kt` 里补 `textureSurface` / `needsRepaint` 状态与 `bindTextureSurface()` / 幂等 `ensureSurfaceReady()` / `repaintAfterSurfaceRebind(startAfter)` / `releaseTextureSurface()`，`play`、`resume`、`setActive(true)` 三个入口都先过 `ensureSurfaceReady()`；顺手补了裸 `Surface` 泄漏与「prepare 完成时没有 surface 就不补帧」。
+  - **口径**：横滑进详情页时 `feedVisible = activity.currentShellPage() == 0` 为假，**不放背景音**；滑回来接着播而不是从头；不用「调大 `offscreenPageLimit`」掩盖（会把内存压力换成崩溃）。
+  - **L0（26.11.15 集成分支实测）**：见上方统一 L0；本项新增 `ShortVideoSurfaceRebindPolicyTest` 6 例。
+  - **未验证（L2）**：连续下滑 5 条以上再逐条上滑是否每页 ≤1s 出画、是否还有纯黑页、「有声音没画面」、横滑详情页无背景音、播完自动下一条与相关推荐续接、KEEP_SCREEN_ON。清单见 `docs/review/l2-pending.md` §P 的「#167」。
+- **26.11.15 反馈 #166 私信会话列表只能显示前十几条、发完消息返回后排不到最上（用户原话「消息页面给用户发完消息退出后应默认重新排序在最上；为什么加载了十几个私信列表之后就不加载了」）**：
+  - **来路**：xiaomi `grasslte`（sdk34）反馈；日志多条 `W RotaryEncoderSupport>h | RotaryEncoder>兜底：本页找不到可滚容器 action=8`。
+  - **根因**：两件事叠在一起。① `api/PrivateMsgApi.java` 的 `getSessionsList(size)` 只拼 `session_type=1&size=`，`MessageActivity.loadSessions()` 固定调一次 `getSessionsList(20)` 就整表替换 adapter，**从不读 `data.has_more`**，也没有上拉加载；而接口本来就支持翻页（`bilibili-API/docs/message/private_msg.md:258-260` 的 `end_ts` 微秒游标、`size` 上限 100，`:280-281` 的 `has_more`）。② 发完私信返回时不刷新，列表仍是服务端原始顺序。③ 顺带查出真 bug：`ui/widget/RotaryEncoderSupport.kt` 的 `isScrollable` 对 `NestedScrollView` 调 `canScrollVertically()`——该方法在 `NestedScrollView` 上未被覆写、恒 false，于是「本页找不到可滚容器」、表冠滚不动。
+  - **修法**：`get_sessions` 支持 `end_ts` 游标（新提交一）；`adapter/message/PrivateMsgSessionsAdapter.kt` 支持追加一页 + 自定义 `onOpenSession`（二）；`MessageActivity.kt` 滚动到底加载更多、并用**结果回调**重排（三，`WriteReplyActivity` 只在发送成功时 `RESULT_OK`，`PrivateMsgActivity.kt:65` 转发、`MessageActivity.kt:83` 的 `sessionLauncher` 收到才 `loadSessions(scrollToListTop = true)`）；`RotaryEncoderSupport` 新增 `canScrollNestedVertically(view)`（比内容高 vs 视口高）。
+  - **口径**：**不做无条件 `onResume` 整表替换**——进去看一眼就返回时列表不许跳；只有「真的发出去了消息」（`RESULT_OK`）才重排并滚回顶部。防重入用 `isLoadingMore` + `loadGeneration` + `endTipShown`；顶部「回复我的 / 收到的赞 / @我 / 系统」四个入口与置顶规则不动。
+  - **L0（26.11.15 集成分支实测）**：见上方统一 L0（`SessionSorter` 既有用例未改，新增翻页与重排相关的纯逻辑用例随本项三笔进来）。
+  - **未验证（L2）**：滚到底能否翻出第 21 条以后、断网翻页是否卡死、发完私信返回是否排最上并滚回顶部、表冠/触屏能否滚动且 `action=8` 告警消失、置顶仍在最上。见 `docs/review/l2-pending.md` §P 的「#166」。
+- **26.11.15 反馈 #164 多 P 缓存后第 2、3 集在缓存里找不到，重下又提示「已下载」（用户原话「在某个视频中缓存了第一集后，之后再缓存的第二集第三集等之后的几集缓存好后在缓存中找不到.想重新缓存但又显示该视频已下载」）**：
+  - **来路**：OPPO `OWW211` 反馈「缓存的视频找不到了」，追问里补了多 P 场景。
+  - **根因**：`adapter/video/CacheListAdapter.kt` 的 `playVideo` **按扁平文件数猜布局**（1 = 单文件、2 = DASH 双文件、>2 = 进选页）。「两个已缓存分 P 各一个合并好的 mp4」正好 2 个文件 → 被当成「第 1 集的视频轨 + 音轨」，第 2 集永远点不到。另一半是「已下载」判据（`activity/video/MultiPageActivity.kt` 与 `activity/video/info/VideoInfoFragment.kt` 都用 `downPath.exists()`）比缓存列表宽，**空壳目录也算已下载**，于是重下被挡。
+  - **修法**：新增纯策略 `util/CacheMediaPolicy.kt`（`pickMediaName(names)` 优先级 `video.mp4` > `video_merged_temp.mp4` > `audio.m4a`；`isDownloading` 认 `.DOWNLOADING`；`isCachedFolder`；`pagesWithMedia(pageNames, namesOf)`）；`playVideo` 改用既有的 `model/LocalPlaylistEntry.build(...)` 按页目录名折叠，`pageCount() > 1` 进 `LocalPageChooseActivity`；卡片副标题补「共NP」；`MultiPageActivity` / `VideoInfoFragment` 的已下载判据改走 `CacheMediaPolicy`。
+  - **口径**：**有意不动 `FileUtil.isVideoCached`**——`VideoQuickCache` 只缓存第 0 页，放宽判据会制造新 bug（缓存提示与实际落盘不一致）。
+  - **L0（26.11.15 集成分支实测）**：见上方统一 L0；本项新增 `CacheMediaPolicyTest` 13 例。
+  - **未验证（L2）**：见 `docs/review/l2-pending.md` §P 的「#164」（多 P 副标题/选页/第 2、3 集出声画、单集仍直接起播、DASH 未合并页有声音、仅音频条目显示「[仅音频]」、删掉 `video.mp4` 只留封面后应进清晰度选择、删除/分区/排序/搜索/虚拟合集连播回归、老格式一级目录仍可播）。
+- **26.11.15 反馈 #162 详情页长按「清除缓存」不严谨：列表不刷新、音量键计数不对、清完封面变黑图**：
+  - **来路**：#162 反馈「缓存的视频找不到了」一族的另一半（开发者自查 + 用户反馈叠加）。
+  - **根因**：`util/FileUtil.java:66-68` 的 `deleteFolder()` 丢掉了 `deleteFolderRecursively()` 的返回值（删失败也报成功）；调用方按标题猜目录（多 P / 标题被清洗 / 根目录变更时目录名 ≠ 标题），删错了对象；删完既不从虚拟合集里摘（`FolderManager.removeFromAllFolders`）、也不通知缓存页刷新，封面 `cover.png` 已随目录删掉 → 缓存页那张图变黑。
+  - **修法**：`FileUtil.deleteFolder(File)` 由 `void` 改 `boolean`；新增 `util/CacheDeletePlan.kt`（`execute(rootPath, title, mediaFilePath?)` 走 `CachePathResolver.videoDirCandidates`，`Outcome { SUCCESS, PARTIAL_FAILED, NOT_FOUND }`，`messageOf()` 给文案、`judge(...)` 是纯函数）+ `util/CacheChangeSignal.kt`（缓存版本号）；`activity/video/info/VideoInfoFragment.kt` 改走它；`activity/video/local/LocalListActivity.kt` 用 `cacheVersionAtLoad` 在 `onResume` 比对快照，不一致就 `refresh()`。
+  - **口径**：四层通知各管一段——成功才从虚拟合集摘除、非 `NOT_FOUND` 才递增版本号、`onResume` 比对版本号兜住「从别处删的」、列表页自身删除仍走 `markFolderPageDirty()` + `refresh()`。已知两处小隐患：详情页拿不到落盘文件名，多 P 靠「根/标题」候选，老数据目录名差异大时会给 `NOT_FOUND`；`onResume` 新分支直接 `return`，本次跳过「文件夹入口开关变化」的检查，下次进页自愈。
+  - **L0（26.11.15 集成分支实测）**：见上方统一 L0；本项新增 `CacheDeletePlanTest` 12 例，并改写了 `FileUtilDeleteFolderTest` 的断言（`deleteFolder` 现在返回布尔）。
+  - **未验证（L2）**：见 `docs/review/l2-pending.md` §P 的「#162」（只删自己目录、多 P 整目录消失、回缓存页条目与计数、无黑图、没缓存过时的提示、只读/占用时的「没删干净」提示、缓存页自身删除回归）。
+- **26.11.15 反馈 #127 视频 AI 摘要失败一律说「获取视频摘要失败」，分不清是没摘要、被风控还是没登录**：
+  - **来路**：#127 反馈（内容摘要不显示）。
+  - **根因**：`api/VideoInfoApi.java` 的 `getVideoConclusion` **完全忽略顶层 `code`**，把「接口失败 / `code != 0` / `result_type < 1` / `summary` 为空」压成同一个 `return null`；而风控 `-352`/`-412`、未登录 `-101` 都在顶层且常常没有 `data`，于是全被当成「这个视频没有摘要」。
+  - **修法**：新增 `enum ConclusionKind { OK, NO_SUMMARY, REJECTED, FAILED }` + `ConclusionResult(kind, code, text, message)` + 纯函数 `parseConclusion(JSONObject)`（`opt*` 全程不抛）；`activity/video/info/VideoInfoFragment.kt` 按 kind 四分支，`-352`/`-412` 复用「当前请求触发B站风控」、`-101` 复用「还没有登录喵~」，其它拒绝带错误码与服务端原因。
+  - **口径**：四类结果各有各的话术，不再一律「获取视频摘要失败」；文案进 `strings.xml`（`msg_video_conclusion_empty` / `_rejected` / `_rejected_reason`）+ `util/UiText.kt`。
+  - **L0（26.11.15 集成分支实测）**：见上方统一 L0；本项新增 `VideoInfoConclusionTest` 21 例。
+  - **未验证（L2）**：见 `docs/review/l2-pending.md` §P 的「#127」（有摘要的视频、无摘要的老视频、被风控的号、其它拒绝、断网、手表窄屏长文案）。
+- **26.11.15 反馈 #163 掉登录后「我的」页永久停在「正在加载」**：
+  - **来路**：#163 掉登录一族（周期刷新与自动恢复已在 26.10 修完，剩下这个失败态的尾巴）。
+  - **根因**：`activity/user/MySpaceActivity.kt:192-194` 只有 `catch { report(e) }`——请求失败（含掉登录后取不到账号数据）时界面永远是加载态，重试、跳登录都没有入口；`mid <= 0` 的占位对象也被当成成功。
+  - **修法**：`loadUserInfo()` 拆加载/成功/失败三态 + `userInfoLoading` 重入保护；`mid <= 0` 也进失败态；新增 `util/MySpaceLoadErrorText.kt`（`reasonOf(e)` 归类 → `enum class TapAction { LOGIN, RETRY }`、`tapActionOf(reason)`、`titleOf(action)`），失败态点击按原因分派：`NO_DATA`（典型是掉登录）→ `jumpToLogin()`，网络/解析/其它 → `loadUserInfo()`。
+  - **口径**：**别让用户卡在重试不出来的一页**——掉登录时点击直接进登录页（改动前点卡片本来就能跳，这条恢复路径不能丢），其余异常才是重试；新文案 `text_myspace_load_failed_login` 进 `strings.xml` + `UiText.kt`。
+  - **L0（26.11.15 集成分支实测）**：见上方统一 L0；本项新增 `MySpaceLoadErrorTextTest` 7 例 + 点击动作映射的分支覆盖。
+  - **未验证（L2）**：见 `docs/review/l2-pending.md` §P 的「#163」（飞行模式 3~8 秒内变失败态、恢复网络重试、真掉登录直接进登录页、加载中连点、12sp 小字）。
+- **26.11.15 崩溃：下载列表在后台把新 list 直接塞给 adapter，RecyclerView 报 `Inconsistency detected`**：
+  - **来路**：崩溃上报（下载列表页，多条同栈）。
+  - **根因**：`activity/video/local/DownloadListActivity.kt:142` 在后台线程取数、`:234` 在**后台**把新 list 直接赋给 `adapter.downloadList`、`:235` 才回主线程 `notifyDataSetChanged()`——通知到达时 adapter 里的数据已经被换过一次，RecyclerView 计算布局时前后不自洽（与 `docs/agents/pitfalls.md:27-28` 同形）。
+  - **修法**：取数留后台，`runOnUiThread { render(fetched) }` 里一次做完换表 + 通知 + 勾选集 + 空态 + 底栏；进度改主线程 `refreshProgressRows()`（按 adapter 现挂的 list 现算位置）；新增 `util/DownloadListDiff.kt`（`sameStructure(previous, current)` 比条数与 id 顺序、`changedPositions(...)` 只挑状态变了的行，能原地 `notifyItemChanged` 就不整表重刷）；`adapter`/`created`/`sections` 加 `@Volatile`，首次建 adapter 也回主线程；单条点击回调里先取 `val snapshot = sections ?: return@run`。
+  - **口径**：数据只在主线程换、通知紧跟换表；能只刷变动行就不整表刷，避免每次进度回调都重绘列表。
+  - **L0（26.11.15 集成分支实测）**：见上方统一 L0；本项新增 `DownloadListDiffTest`（结构相同/不同、变动行挑选）。
+  - **未验证（L2）**：多个任务同时下载时反复进出下载列表与切页是否还闪退、进度是否仍在动、勾选状态是否保住、空态与底栏是否正常。见 `docs/review/l2-pending.md` §P 的「下载列表崩溃」。
+- **26.11.15 崩溃：`Canvas: trying to draw too large` 与建行 OOM——列表缩略图没有按控件尺寸降采样**：
+  - **来路**：#160 米兔4c 等低内存机型的一批崩溃。`uws6152_1h10_go` 报 `Canvas: trying to draw too large(116761824 bytes)`（栈在 `TransitionDrawable.draw`，Glide crossfade 把 5400×5400 ≈ 116MB 的位图直接拿去画）；HONOR `PLK-CL00`（sdk23，进程只剩 209KB）报 `OutOfMemoryError` @ `RecyclerView.onTouchEvent` → `onCreateViewHolder` → `ImageView.<init>` → `Resources.loadDrawable`（行布局里那张 256px 占位头像每建一行重解一次）。
+  - **根因**：`util/GlideUtil.java` 全无 `override()` / `DownsampleStrategy` / `thumbnail()`——解码尺寸完全交给 Glide 的 target 解析：控件未布局且布局参数是 `wrap_content` 时按原图解，于是大图直接进内存。`SIZE_ORIGINAL` 全仓只有 `activity/ImageViewerActivity.kt` 大图查看那一处，本来就不该动。
+  - **修法**：新增纯策略 `util/ThumbSizePolicy.kt`（`targetPixels(measuredWidth, measuredHeight, layoutWidth, layoutHeight, boxWidth, boxHeight, minEdge = MIN_EDGE_PX)`；实测 → 布局固定 px → 屏幕对应边兜底，夹在 [`MIN_EDGE_PX`=64, 屏幕] 之间；**两个维度都定不下来返回 `[0,0]` 表示不要 override**）+ `GlideUtil` 的 `thumbOptions(View)`（`CENTER_INSIDE`）/ `thumbOptionsCover(View)`（`CENTER_OUTSIDE`，给 `circleCrop` 头像与既有 centerCrop 封面）/ `targetPixels(View)`（扣 padding 后调用，返回 0 就不 override）；27 处适配器直连 `GlideUtil.with(...)` 按既有裁剪口径接入（`VideoCardHolder.kt:239` 附近封面用 cover、`ReplyAdapter.kt:230` 头像 cover、`:423` 图片卡片 inside）。
+  - **口径**：**只约束列表缩略图**——大图查看（`ImageViewerActivity`）保持原图；不升 Glide 版本（`Cannot recycle a resource while it is still acquired` 那条是 Glide 4.16 内部问题，等升级）。
+  - **合并时的修正（26.11.15，集成分支上的单独修正）**：`ThumbSizePolicy.targetPixels` 初版**没有**落实「两维都定不下来就不 override」——`resolve()` 会一路兜到屏幕边，于是 `(0,0,-1,-1)` 也返回 `[466,466]`，与类注释和 `ThumbSizePolicyTest` 的「未测量且布局是匹配父或包裹内容时不override」直接冲突（并行代理各自跑绿是因为当时没跑到这一条，合起来第一次全量就红）。修法是补一个早退：`measuredWidth <= 0 && layoutWidth <= 0 && measuredHeight <= 0 && layoutHeight <= 0` 时 `return intArrayOf(0, 0)`，只定下一个维度时才用屏幕边兜底。
+  - **L0（26.11.15 集成分支实测）**：见上方统一 L0（补早退后重跑全绿）；本项新增 `ThumbSizePolicyTest`（含上面那条冲突用例）。
+  - **未验证（L2）**：首页/动态/搜索/收藏/评论各列表封面与头像观感是否变糊、圆头像与封面裁剪是否变形、大图查看是否仍清晰、低内存机型翻长列表是否还崩。见 `docs/review/l2-pending.md` §P 的「列表缩略图降采样」。
+- **26.11.15 设置里的「显示方式」（TextureView / SurfaceView）从来没生效过**：
+  - **来路**：查 #128/#102「视频缩放有时失效」时顺手发现的（`zoomdiag` 代理推测，我已核实）。
+  - **根因**：写读两端类型不一致。`activity/settings/SettingChooseResult.kt:35` 用 `putString(section.id, value)` 存的是 `"TextureView"` / `"SurfaceView"`，`activity/player/PlayerActivity.kt` 两处却用 `getBoolean("player_display", sdk < 26)` 读；`util/SharedPreferencesUtil.java:175-181` 的 `getBoolean` 把 `ClassCastException` 吞掉返回默认值 → 用户怎么切都回到默认。`player/PlayerSettingsGroups.kt:353-356` 的默认值又写成 `(sdk < 26).toString()`，与选项是两套字符串，本身也不自洽。
+  - **修法**：新增 `player/PlayerDisplayModePolicy.kt`（`defaultFor(sdkInt)` → `"TextureView"`/`"SurfaceView"`；`useTextureView(raw, sdkInt)` 认规范字符串也认历史遗留的 `"true"/"false"`，认不出或从未设置时回落 `sdk < 26`；`valueOf(boolean)` 回写规范字符串）；`PlayerSettingsGroups` 默认值改用它；`PlayerActivity` 两处读取改走 `usesTextureView()`。
+  - **口径**：以字符串为唯一真源，**兼容老用户已存的 `"true"/"false"`**，不迁移、不弹窗；Android 8 以下默认 SurfaceView、8 及以上默认 TextureView 的既有口味不变。
+  - **L0（26.11.15 集成分支实测）**：见上方统一 L0；本项新增 `PlayerDisplayModePolicyTest`。
+  - **未验证（L2）**：切成 SurfaceView 后返回播放页是否真的变了、退出重进与换视频是否记住、两种模式下画面/弹幕层级/缩放是否正常（SurfaceView 的弹幕层级是重点）、全新安装默认值是否不变。
+- **26.11.15 给「视频缩放有时失效」（#128 / #102）加诊断日志与一键取证（只观测，不改行为）**：
+  - **来路**：#128/#102 反馈里缩放偶发失效，但缺信息定位（需要用户侧的具体手势序列与缩放状态）。
+  - **修法**：新增 `activity/player/PlayerZoomDiagnostics.kt`（240 行）+ 19 例单测；`PlayerActivity.kt` 只加观测点（原来 `!handleSwipeSeekTouch(event) && …` 改成先存 `val seekHandled` 再判断，纯为记录）；`ViewScaleGestureListener.kt` 加四个计数；`player/PlayerSettingsGroups.kt` 加「复制播放器诊断信息」一行（40 行）。开关沿用 `SettingsKeys.PLAYER_INTERACTION_DEBUG`（「互动视频调试」）：关闭时零日志、设置里连那一行都不出现。
+  - **口径**：**只观测不改行为**，不替用户猜缩放该不该生效；日志 tag 是 `类名>方法名`，过滤用 `adb logcat -v time | findstr "zoom_diag>"`。
+  - **L0（26.11.15 集成分支实测）**：见上方统一 L0（本项 19 例）。
+  - **未验证（L2）**：开关关掉是否确实零日志且设置里不多那行、真机捏合能否打出 `[zoom] DOWN` / `[zoom] END` 两行、抓到的文本能否解释失效那次、剪贴板内容字段是否齐全。
+
 - **26.11.14 第一次进视频有概率加载不出标注，重进才行（用户原话「片头实测没有加载显示BV1oFxX6VEJP视频」「有的时候能跳过，可能是没加载出来吧」「大部分时间都加载不出来」「更正:第一次加载不出来，重进视频后可以加载出来」「总之就是有概率加载不出来」）**：
   - **来路**：exp.5 上播 `BV1oFxX6VEJP`（上游确有 1 段 `intro` 0~18.133s），第一次进入看不到条子、也不跳；退出重进就能加载。
   - **根因**：`applySponsorLevel()` 的签名键只覆盖「设置」（自动/询问/忽略集/已点精彩时刻/条子与三角开关），**不覆盖数据本身**。250ms 定时器在响应回来之前先用空表算过一次签名并写进 `sponsorSegmentsKey`；响应回来时签名一模一样 → 早退，两张跳转表与条子表永远是空的。另外两处把「偶发」放大成「大概率」：拿不到 bvid 时 `sponsorLoadCid` 已被置成当前 cid，这一 P 之后**永远不再重试**；`fetchSegments()` 把所有失败折成空表，播放页分不清「没有标注」与「没查到」，失败也不重试；4s 连接超时在手机网络下首次 DNS+TLS 常被掐掉。
