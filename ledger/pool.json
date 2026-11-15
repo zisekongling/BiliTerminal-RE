@@ -1,0 +1,6 @@
+{
+  "tasks": {
+    "20261115-1506-fdf6-补齐-sponsorblock-广告标注功能": {"category": "功能开发", "created": "2026-11-15 15:06:04", "creator": "49dea48b-b67a-45fb-88ef-e6afc75898f5", "creator_name": "紫色空灵", "finished": null, "owner": null, "owner_name": null, "started": null, "status": "open", "tags": ["SponsorBlock", "播放器", "设置", "验收单"], "title": "补齐 SponsorBlock 广告标注功能", "updated": "2026-11-15 15:06:04", "worklog": "worklog/202611/15-1506-fdf6-补齐-sponsorblock-广告标注功能.md"}
+  },
+  "version": "20261022000000"
+}
