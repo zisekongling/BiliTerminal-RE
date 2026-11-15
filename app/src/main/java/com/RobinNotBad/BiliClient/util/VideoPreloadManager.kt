@@ -1,12 +1,11 @@
 package com.RobinNotBad.BiliClient.util
 
-import com.RobinNotBad.BiliClient.util.UiText
-
 import android.os.Handler
 import android.os.Looper
 import com.RobinNotBad.BiliClient.api.ShortVideoFeedApi
 import com.RobinNotBad.BiliClient.api.StoryFeedPager
 import com.RobinNotBad.BiliClient.model.ShortVideoItem
+import com.RobinNotBad.BiliClient.util.UiText
 
 class VideoPreloadManager(private val preloadCount: Int = 2) {
 
@@ -23,6 +22,9 @@ class VideoPreloadManager(private val preloadCount: Int = 2) {
         java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Int, Boolean>())
     private val mainHandler = Handler(Looper.getMainLooper())
     private var currentIndex = 0
+
+    // 已瘦身的最高下标（高水位）：trimPlayedWindow 只处理它之后的新增已播条目
+    private var trimHighWater = 0
 
     // 后台线程写、主线程读，必须 volatile，否则 loadMore() 可能重复拉取
     @Volatile
@@ -174,6 +176,7 @@ class VideoPreloadManager(private val preloadCount: Int = 2) {
 
     fun onSwipeToIndex(index: Int) {
         currentIndex = index
+        trimPlayedWindow()
         preloadNext()
 
         if (index >= allItems.size - 3) {
@@ -181,9 +184,70 @@ class VideoPreloadManager(private val preloadCount: Int = 2) {
         }
     }
 
+    /**
+     * 给「已经播过、且离开回滑窗口」的条目瘦身：清掉 [ShortVideoItem] 里的大字符串字段
+     * （[ShortVideoItem.videoUrl] 播放地址、[ShortVideoItem.danmakuUrl] 弹幕地址、
+     * 清晰度名/值两张表——每条合计数 KB），只留几百字节的元数据壳。
+     *
+     * 为什么是"瘦身"而不是"裁掉列表头部"：整条索引链（ViewPager2 的 position、
+     * Fragment 的 currentPageIndex、PagerAdapter 的 holders map）用的都是**绝对下标**，
+     * 裁头部就得把所有调用方一起平移，改动面和风险都不成比例；而 COW 列表每次 addAll
+     * 复制的只是引用（千条级也就几 KB），真正的内存大头在条目内部的字符串里。
+     *
+     * 安全性：用户回滑到被瘦身的条目时，[com.RobinNotBad.BiliClient.activity.video.ShortVideoPlayerActivity]
+     * 的 `setupPlayer()` 走 `videoUrl.isEmpty()` 分支会重新 `fetchVideoUrl`，
+     * 行为与"还没预加载过"完全一致——瘦掉的只是可重取的缓存，不是数据。
+     *
+     * 窗口取 [KEEP_BEHIND]：覆盖 ViewPager2 相邻页预绑定（前后各 1 页）加一点余量；
+     * 只往前看不回滑的用法里这个窗口永远够用，回滑多远的用户也只付出"重取一次播放地址"
+     * 的代价，换来长时间刷视频时列表内存不随条数线性膨胀（用户反馈"越用越卡、重进恢复"的主因）。
+     */
+    private fun trimPlayedWindow() {
+        val trimBefore = currentIndex - KEEP_BEHIND
+        // 记高水位：上一轮已经瘦过的区间不再重复扫描，长列表上每滑一次只处理新增的几条
+        if (trimBefore <= trimHighWater) return
+        var trimmed = 0
+        for (i in trimHighWater until trimBefore) {
+            if (i < allItems.size && trimPlayedItemFields(allItems[i])) trimmed++
+        }
+        trimHighWater = trimBefore.coerceAtMost(allItems.size)
+        if (trimmed > 0) {
+            Logu.d("PreloadManager", "Trimmed heavy fields of $trimmed played items (size=${allItems.size})")
+        }
+    }
+
     fun release() {
         released = true
         allItems.clear()
         inFlightPreloads.clear()
+        trimHighWater = 0
+    }
+
+    companion object {
+        /**
+         * 已播条目保留在"可回滑不重取"窗口内的条数（见 [trimPlayedWindow]）。
+         *
+         * 取 2 而不是 0：ViewPager2 翻页时会预绑定相邻页，正在播放页前一条的
+         * `setupPlayer()` 可能已经开始跑，把它瘦掉会让这一页白付一次重取。
+         */
+        const val KEEP_BEHIND = 2
+
+        /**
+         * 单条已播条目的字段瘦身（纯函数，便于单测）：清空可由
+         * `ShortVideoFeedApi.fetchVideoUrl` 重新获取的大字段。
+         *
+         * @return 该条目是否真的被改动过（原本就没有大字段时返回 false，调用方据此决定要不要记日志）
+         */
+        @JvmStatic
+        fun trimPlayedItemFields(item: ShortVideoItem): Boolean {
+            if (item.videoUrl.isEmpty() && item.danmakuUrl.isEmpty() && item.qnStrList == null && item.qnValueList == null) {
+                return false
+            }
+            item.videoUrl = ""
+            item.danmakuUrl = ""
+            item.qnStrList = null
+            item.qnValueList = null
+            return true
+        }
     }
 }
