@@ -53,6 +53,15 @@ internal object DownloadPathSpec {
     /** download_type：仅下载音频 */
     const val TYPE_AUDIO_ONLY = "audio_only"
 
+    /**
+     * download_type：番剧（pgc）剧集。
+     *
+     * 落盘结构与多 P 视频完全一致（季名当父目录、集名当子目录，成品是单个 video.mp4），
+     * 这个类型只用于「取流走番剧接口」这一件事——真正的开关是下载表里的 epid 列
+     * （见 [com.RobinNotBad.BiliClient.model.DownloadSection.isBangumi]）。
+     */
+    const val TYPE_VIDEO_PGC = "video_pgc"
+
     /** 下载表 type 列：单 P 视频 */
     const val TASK_VIDEO_SINGLE = "video_single"
 

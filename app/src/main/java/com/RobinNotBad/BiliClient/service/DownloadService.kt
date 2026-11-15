@@ -30,6 +30,7 @@ import com.RobinNotBad.BiliClient.service.download.DownloadProgressInfo
 import com.RobinNotBad.BiliClient.service.download.DownloadRepository
 import com.RobinNotBad.BiliClient.service.download.DownloadResiduePolicy
 import com.RobinNotBad.BiliClient.service.download.SegmentDownloadPolicy
+import com.RobinNotBad.BiliClient.model.Bangumi
 import com.RobinNotBad.BiliClient.model.DownloadSection
 import com.RobinNotBad.BiliClient.model.DownloadSegment
 import com.RobinNotBad.BiliClient.model.PlayerData
@@ -340,6 +341,113 @@ class DownloadService : Service() {
                     MsgUtil.showMsg(msg)
 
                     start(-1)
+                } catch (e: Exception) {
+                    MsgUtil.err(e)
+                } finally {
+                    cursor?.close()
+                    database?.close()
+                }
+            }
+        }
+
+        /**
+         * 番剧整季缓存入队：一次把用户勾选的那些集写进下载队列。
+         *
+         * <p>为什么不像投稿视频那样一集一个入口：番剧侧是「选季 → 选集」一次勾一批，
+         * 逐集调用会让每一集都弹一条「已在下载队列」的提示，勾十集就是十条提示；
+         * 这里在同一个后台线程里做完去重与插入，最后只给一条汇总提示。
+         *
+         * <p>落盘结构与多 P 视频完全一致（季名当父目录、集名当子目录），所以
+         * 缓存页/播放器/删除逻辑一行都不用改；区别只有 download_type 与
+         * epid / season_id / season_type 三列 —— 下载时靠它们走番剧取流接口，
+         * 见 [processDownloadSection] 与 [DownloadSection.isBangumi]。
+         *
+         * @param seasonTitle 季名（落库的 title，也就是父目录名）
+         * @param seasonCover 季封面；某集自己没有封面时兜底用它
+         * @param qn          统一清晰度：整季只问一次，所有集用同一个值
+         */
+        @JvmStatic
+        fun startDownloadBangumi(
+            seasonTitle: String,
+            seasonCover: String,
+            seasonId: Long,
+            seasonType: Int,
+            qn: Int,
+            episodes: List<Bangumi.Episode>
+        ) {
+            if (episodes.isEmpty()) return
+            CenterThreadPool.run {
+                var database: SQLiteDatabase? = null
+                var cursor: Cursor? = null
+                try {
+                    // 同投稿视频：目录不可写就一条都别入队，否则只会留下一堆注定的失败任务
+                    if (FileUtil.resolveVideoDownloadDir(BiliTerminal.context) == null) return@run
+                    val context = BiliTerminal.context!!
+                    database = DownloadSqlHelper(context).writableDatabase
+
+                    var added = 0
+                    var skipped = 0
+                    for (episode in episodes) {
+                        val child = episode.title.orEmpty().ifEmpty {
+                            episode.title_long.orEmpty().ifEmpty {
+                                context.getString(R.string.text_download_bangumi_episode_unknown)
+                            }
+                        }
+                        cursor = database.rawQuery(
+                            "select state from download where aid=? and cid=?",
+                            arrayOf(episode.aid.toString(), episode.cid.toString())
+                        )
+                        if (cursor != null && cursor.count > 0) {
+                            // 与投稿视频同口径：失败过的行不挡路（反馈 #136），删掉按新任务重排
+                            val oldState = if (cursor.moveToFirst()) cursor.getString(0) else ""
+                            cursor.close()
+                            cursor = null
+                            if (oldState != "error") {
+                                skipped++
+                                continue
+                            }
+                            database.execSQL(
+                                "delete from download where aid=? and cid=?",
+                                arrayOf<Any>(episode.aid, episode.cid)
+                            )
+                        }
+                        cursor?.close()
+                        cursor = null
+
+                        database.execSQL(
+                            "insert into download(type,state,aid,cid,qn,title,child,cover,download_type,audio_url," +
+                                    "epid,season_id,season_type) values(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            arrayOf<Any>(
+                                DownloadPathSpec.TASK_VIDEO_MULTI, "none", episode.aid, episode.cid, qn,
+                                seasonTitle, child,
+                                GlideUtil.url(episode.cover?.takeIf { it.isNotEmpty() } ?: seasonCover),
+                                DownloadPathSpec.TYPE_VIDEO_PGC, "",
+                                episode.id, seasonId, seasonType
+                            )
+                        )
+
+                        val path_page = FileUtil.getVideoDownloadPath(seasonTitle, child)
+                        path_page.mkdirs()
+
+                        val file_sign = File(path_page, DownloadPathSpec.FILE_DOWNLOADING)
+                        if (!file_sign.exists()) file_sign.createNewFile()
+
+                        // 番剧只有 durl（音视频合一的 mp4）一条链路，画质标记就是 qn 本身
+                        File(path_page, DownloadPathSpec.FILE_QUALITY).writeText(qn.toString())
+                        DownloadRepository.saveVideoMeta(
+                            path_page, child, episode.aid, episode.cid, qn,
+                            DownloadPathSpec.TYPE_VIDEO_PGC
+                        )
+                        added++
+                    }
+
+                    val msg = when {
+                        added == 0 -> context.getString(R.string.text_download_bangumi_all_queued)
+                        skipped == 0 -> context.getString(R.string.text_download_bangumi_added, added)
+                        else -> context.getString(R.string.text_download_bangumi_added_partial, added, skipped)
+                    }
+                    MsgUtil.showMsg(msg)
+                    if (added > 0) start(-1)
                 } catch (e: Exception) {
                     MsgUtil.err(e)
                 } finally {
@@ -768,6 +876,17 @@ class DownloadService : Service() {
                 videoSegments = emptyList()
                 url_video = ""
                 useDash = false // 纯音频不需要合并
+            } else if (downloadSection.isBangumi()) {
+                // 番剧（pgc）：走 pgc/player/web/v2/playurl，且 fnval 只申请 durl ——
+                // 拿到的是音视频合一的 mp4（服务端可能切成多段），没有 DASH、没有独立音轨，
+                // 所以下面这一支和投稿视频 qn<=64 的老接口链路完全同构，落盘也复用同一段代码。
+                PlayerApi.getBangumi(data)
+                url_video = data.videoUrl
+                videoUrls = data.videoUrlCandidates.ifEmpty { listOf(url_video) }
+                videoSegments = data.videoSegments.orEmpty()
+                audioUrls = emptyList()
+                url_audio = ""
+                useDash = false
             } else {
                 // 720P及以下用旧方法(MP4单文件)，1080P及以上用DASH新方法
                 if (downloadSection.qn <= 64) {
@@ -798,7 +917,11 @@ class DownloadService : Service() {
                 DownloadRepository.updateVideoMetaQualityLists(downloadPath, data.qnStrList, data.qnValueList)
             }
         } catch (e: JSONException) {
-            recordFailReason(downloadSection.id, getString(R.string.text_download_fail_fetch_url))
+            // NoPlayUrlException 的消息本身就点明了原因（大会员专享 / 地区限制 / 需要登录），
+            // 直接把它写进失败原因，比笼统的"取流失败"有用得多——番剧会员集就靠它说清楚为什么下不动
+            val reason = (e as? PlayerApi.NoPlayUrlException)?.message?.takeIf { it.isNotEmpty() }
+                ?: getString(R.string.text_download_fail_fetch_url)
+            recordFailReason(downloadSection.id, reason)
             DownloadRepository.setState(downloadSection.id, "error")
             notifier.notifyCompletion(getString(R.string.text_download_link_failed, downloadSection.name_short), downloadSection.id.toInt())
             section = null

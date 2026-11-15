@@ -27,6 +27,14 @@ public class DownloadSection {
     // 空串 = 没有原因可显示。两列都是 26.11.11 新增，老库 ALTER 之前读不到，故沿用
     // download_type / audio_url 的"列不存在就回落默认值"写法。
     public String failReason;
+
+    // ---------- 番剧（pgc）任务专用（DB v6 新增，非番剧任务恒为 0） ----------
+    /** 剧集 id（epid）。番剧取流接口要它，投稿视频没有这个概念，恒为 0 */
+    public long epid;
+    /** 所属季的 season_id */
+    public long seasonId;
+    /** 所属季的类型（心跳上报的 sub_type） */
+    public int seasonType;
     
     // 并行下载进度追踪
     public volatile float progress = 0f;
@@ -73,6 +81,14 @@ public class DownloadSection {
         if (failReason == null) {
             failReason = "";
         }
+
+        // 番剧三列同理：DB v6 之前的老库没有这三列，读不到就按"不是番剧"（0）处理
+        int epidIndex = cursor.getColumnIndex("epid");
+        epid = epidIndex != -1 ? cursor.getLong(epidIndex) : 0;
+        int seasonIdIndex = cursor.getColumnIndex("season_id");
+        seasonId = seasonIdIndex != -1 ? cursor.getLong(seasonIdIndex) : 0;
+        int seasonTypeIndex = cursor.getColumnIndex("season_type");
+        seasonType = seasonTypeIndex != -1 ? cursor.getInt(seasonTypeIndex) : 0;
 
         StringBuilder sBuilder = new StringBuilder();
         sBuilder.append(title.substring(0, Math.min(8, title.length())));
@@ -122,13 +138,28 @@ public class DownloadSection {
         return "audio_only".equals(downloadType);
     }
 
+    /**
+     * 是否是番剧（pgc）下载。
+     *
+     * <p>判据用 epid&gt;0 而不是 download_type：类型列是字符串，老库/手改库都可能写得不一致，
+     * 而 epid 只有番剧任务才非 0（投稿视频根本没有 epid），取流分支据此决定走
+     * {@link com.RobinNotBad.BiliClient.api.PlayerApi#getBangumi} 还是投稿视频接口。
+     */
+    public boolean isBangumi() {
+        return epid > 0;
+    }
+
     public PlayerData toPlayerData() {
-        PlayerData data = new PlayerData();
+        // 番剧必须带 TYPE_BANGUMI + 季信息：取流接口按类型分流，续播/心跳也靠 epid/season 维度
+        PlayerData data = isBangumi() ? new PlayerData(PlayerData.TYPE_BANGUMI) : new PlayerData();
         data.aid = aid;
         data.cid = cid;
         data.title = title;
         data.qn = qn;
         data.mid = SharedPreferencesUtil.getLong("mid", 0);
+        data.epid = epid;
+        data.seasonId = seasonId;
+        data.seasonType = seasonType;
         return data;
     }
 }
