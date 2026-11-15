@@ -47,6 +47,13 @@ class PrivateMsgSessionsAdapter(
      * 现有的 `PrivateMsgSessionsAdapter(ctx, list, map) { … }` 调用点静默绑错参数。
      */
     private val onSessionClick: ((PrivateMsgSession) -> Unit)? = null,
+    /**
+     * 打开会话页的回调（反馈 #166）。为 null 时退回 `context.startActivity`。
+     * 消息页传进来是为了拿到「发过私信」的结果，好把刚聊过的会话刷到最上面。
+     * 必须放在 [onSessionsChanged] 之前——尾随 lambda 绑的是最后一个参数，插到后面会让
+     * 现有 `PrivateMsgSessionsAdapter(ctx, list, map) { … }` 调用点静默绑错。
+     */
+    private val onOpenSession: ((Long) -> Unit)? = null,
     private val onSessionsChanged: (() -> Unit)? = null
 ) : RecyclerView.Adapter<PrivateMsgSessionsAdapter.PrivateMsgSessionsHolder>() {
 
@@ -129,9 +136,13 @@ class PrivateMsgSessionsAdapter(
                 if (pick != null) {
                     pick(msgContent)
                 } else {
-                    val intent = Intent(context, PrivateMsgActivity::class.java)
-                    intent.putExtra("uid", msgContent.talkerUid)
-                    context.startActivity(intent)
+                    val open = onOpenSession
+                    if (open != null) open(msgContent.talkerUid)
+                    else {
+                        val intent = Intent(context, PrivateMsgActivity::class.java)
+                        intent.putExtra("uid", msgContent.talkerUid)
+                        context.startActivity(intent)
+                    }
                 }
             }
             holder.itemView.setOnLongClickListener {
@@ -232,6 +243,19 @@ class PrivateMsgSessionsAdapter(
 
     override fun getItemCount(): Int {
         return sessionsList.size
+    }
+
+    /**
+     * 追加一页会话（反馈 #166 上拉加载更多）。
+     *
+     * 只往后加、不重排已有条目：整表替换会把已显示的项全部重绑一次，滚动位置和图片都要重来一遍。
+     * 排序交给调用方先对新页单独做完再调这里，跨页的全局顺序不会因此变化。
+     */
+    fun appendSessions(more: List<PrivateMsgSession>) {
+        if (more.isEmpty()) return
+        val start = sessionsList.size
+        sessionsList.addAll(more)
+        notifyItemRangeInserted(start, more.size)
     }
 
     class PrivateMsgSessionsHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
