@@ -93,4 +93,60 @@ class MySpaceLoadErrorTextTest {
             text
         )
     }
+
+    @Test
+    fun tapActionOf_noData_goesToLogin() {
+        // 反馈 #163 的场景：真掉登录时重试永远不会成功，点卡片必须直接给登录页
+        assertEquals(
+            MySpaceLoadErrorText.TapAction.LOGIN,
+            MySpaceLoadErrorText.tapActionOf(MySpaceLoadErrorText.Reason.NO_DATA)
+        )
+    }
+
+    @Test
+    fun tapActionOf_whenRequestDidNotThrow_goesToLogin() {
+        // 实际调用方就是这么串起来的：e == null → NO_DATA → 登录页
+        assertEquals(
+            MySpaceLoadErrorText.TapAction.LOGIN,
+            MySpaceLoadErrorText.tapActionOf(MySpaceLoadErrorText.reasonOf(null))
+        )
+    }
+
+    @Test
+    fun tapActionOf_exceptions_retry() {
+        val exceptions = listOf(
+            IOException("io"),
+            SocketTimeoutException("timeout"),
+            JSONException("unexpected token"),
+            IllegalStateException("boom")
+        )
+        exceptions.forEach { e ->
+            assertEquals(
+                "「${e::class.java.simpleName}」只是这一次没成，应该给重试",
+                MySpaceLoadErrorText.TapAction.RETRY,
+                MySpaceLoadErrorText.tapActionOf(MySpaceLoadErrorText.reasonOf(e))
+            )
+        }
+    }
+
+    @Test
+    fun tapActionOf_coversEveryReason() {
+        val actions = MySpaceLoadErrorText.Reason.entries.map { MySpaceLoadErrorText.tapActionOf(it) }
+        assertEquals("每个原因都要有动作，不能漏", MySpaceLoadErrorText.Reason.entries.size, actions.size)
+        assertEquals(
+            "只有「没拿到账号数据」该跳登录，其余三类都该重试",
+            1,
+            actions.count { it == MySpaceLoadErrorText.TapAction.LOGIN }
+        )
+    }
+
+    @Test
+    fun titleOf_matchesTapAction() {
+        // 文案和点击行为必须成对：写着「重试」却跳登录页，用户会以为重试没用
+        val loginTitle = MySpaceLoadErrorText.titleOf(MySpaceLoadErrorText.TapAction.LOGIN)
+        val retryTitle = MySpaceLoadErrorText.titleOf(MySpaceLoadErrorText.TapAction.RETRY)
+        assertTrue("跳登录那档必须说「登录」，实际是：$loginTitle", loginTitle.contains("登录"))
+        assertTrue("重试那档必须说「重试」，实际是：$retryTitle", retryTitle.contains("重试"))
+        assertNotEquals("两档说法不能一样", loginTitle, retryTitle)
+    }
 }

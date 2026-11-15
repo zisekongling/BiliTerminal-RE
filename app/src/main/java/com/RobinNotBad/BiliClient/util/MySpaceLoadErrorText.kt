@@ -60,4 +60,36 @@ object MySpaceLoadErrorText {
         Reason.NO_DATA -> "登录可能已失效"
         Reason.UNKNOWN -> "未知错误"
     }
+
+    /** 失败态下点卡片该做什么。 */
+    enum class TapAction {
+        /** 跳登录页。 */
+        LOGIN,
+
+        /** 重新请求一次。 */
+        RETRY
+    }
+
+    /**
+     * 失败原因 → 点卡片的动作。
+     *
+     * 不能一律「点我重试」：真掉登录时（[Reason.NO_DATA]）重试永远不会成功，用户会一直卡在失败页；
+     * 而改动前点卡片本来能跳登录页，这条恢复路径不能丢。反过来，网络/解析/其它异常只是「这一次
+     * 没成」，重试才有意义。动作与文案必须成对（见 [titleOf]），否则卡片会写着「重试」却跳登录页。
+     */
+    @JvmStatic
+    fun tapActionOf(reason: Reason): TapAction = when (reason) {
+        Reason.NO_DATA -> TapAction.LOGIN
+        Reason.NETWORK, Reason.PARSE, Reason.UNKNOWN -> TapAction.RETRY
+    }
+
+    /**
+     * 失败态首行那句动作提示（`UiText.of()` 的字面量键，值在 `strings.xml` 的
+     * `text_myspace_load_failed_*`）。与 [tapActionOf] 一一对应，别各写各的。
+     */
+    @JvmStatic
+    fun titleOf(action: TapAction): String = when (action) {
+        TapAction.LOGIN -> "加载失败，点我重新登录"
+        TapAction.RETRY -> "加载失败，点我重试"
+    }
 }

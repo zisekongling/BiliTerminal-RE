@@ -235,13 +235,23 @@ class MySpaceActivity : InstanceActivity() {
      */
     private fun renderUserInfoFailure(e: Exception?) {
         if (isDestroyed) return
-        val reasonText = MySpaceLoadErrorText.textOf(MySpaceLoadErrorText.reasonOf(e))
+        val reason = MySpaceLoadErrorText.reasonOf(e)
+        val reasonText = MySpaceLoadErrorText.textOf(reason)
+        // 掉登录（NO_DATA）时重试永远成功不了，直接给登录页；其余原因给重试。文案跟着动作走，
+        // 免得卡片写着「重试」却跳登录页。
+        val tapAction = MySpaceLoadErrorText.tapActionOf(reason)
+        val titleText = MySpaceLoadErrorText.titleOf(tapAction)
         runOnUiThread {
             userInfoLoading = false
-            userName.text = UiText.of("加载失败，点我重试")
+            userName.text = UiText.of(titleText)
             userFans.text = UiText.of(reasonText)
             userExp.text = ""
-            myInfo.setOnClickListener { loadUserInfo() }
+            myInfo.setOnClickListener {
+                when (tapAction) {
+                    MySpaceLoadErrorText.TapAction.LOGIN -> jumpToLogin()
+                    MySpaceLoadErrorText.TapAction.RETRY -> loadUserInfo()
+                }
+            }
         }
     }
 }
