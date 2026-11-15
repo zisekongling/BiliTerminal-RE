@@ -54,10 +54,17 @@ class PrivateMsgActivity : BaseActivity() {
      *
      * 发送本身整条复用写评论页的私信模式（[WriteReplyActivity] + EXTRA_PRIVATE_UID），
      * 这个页面只负责打开入口和收结果——输入框、表情、图片、换行都在那边。
+     *
+     * 反馈 #166：这里还要把 RESULT_OK 往上传一层，消息页才知道「真的发过消息」，
+     * 据此重拉会话列表、把刚聊过的人排到最上面。只有这一条路径会置结果——
+     * 单纯点进会话看一眼再返回不会，所以消息页不会每次返回都整表刷新。
      */
     private val writeMsgLauncher: ActivityResultLauncher<Intent> =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK) refresh()
+            if (result.resultCode == RESULT_OK) {
+                setResult(RESULT_OK)
+                refresh()
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {

@@ -387,6 +387,7 @@ object UiText {
         "直播·" to R.string.uitext_liveinfoactivity_014,
         "路线" to R.string.uitext_liveinfoactivity_015,
         "未读)" to R.string.uitext_messageactivity_004,
+        "没有更多会话了" to R.string.uitext_messageactivity_005,
         "消息提醒" to R.string.uitext_messagesettingsactivity_006,
         "是否接收消息提醒" to R.string.uitext_messagesettingsactivity_007,
         "收起未关注人消息" to R.string.uitext_messagesettingsactivity_008,
