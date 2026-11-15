@@ -15,6 +15,7 @@ import com.RobinNotBad.BiliClient.adapter.LogListAdapter
 import com.RobinNotBad.BiliClient.api.CoinLogApi
 import com.RobinNotBad.BiliClient.model.CoinLog
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.CoinLogDelta
 import com.RobinNotBad.BiliClient.util.MsgUtil
 
 class CoinLogActivity : BaseActivity() {
@@ -49,10 +50,11 @@ class CoinLogActivity : BaseActivity() {
                         MsgUtil.showMsg(UiText.of("暂无硬币变化记录"))
                         findViewById<View>(R.id.emptyTip).visibility = View.VISIBLE
                     } else {
-                        // 硬币流水：收支为负时直接显示负号，不再前置 "+"
+                        // 变化量的文本（符号、小数、支出的小数按 0.1 硬币单位还原）都在
+                        // CoinLogDelta 里，那里是纯函数、有单测
                         adapter = LogListAdapter(this, logList) { log ->
                             LogListAdapter.Row(
-                                if (log.delta > 0) "+" + log.delta else log.delta.toString(),
+                                CoinLogDelta.text(log.delta),
                                 log.reason,
                                 log.time
                             )
