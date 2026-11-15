@@ -161,11 +161,56 @@ public class PrivateMsgApi {
         return userMap;
     }
 
+    /** 会话列表默认页大小。接口 size 上限是 100（见 bilibili-API/docs/message/private_msg.md:260）。 */
+    public static final int SESSIONS_PAGE_SIZE = 20;
+
+    /** 一页会话：服务端给的会话 + 还有没有下一页（`data.has_more`）。 */
+    public static class SessionsPage {
+        public final ArrayList<PrivateMsgSession> sessions;
+        public final boolean hasMore;
+
+        public SessionsPage(ArrayList<PrivateMsgSession> sessions, boolean hasMore) {
+            this.sessions = sessions;
+            this.hasMore = hasMore;
+        }
+    }
+
     public static ArrayList<PrivateMsgSession> getSessionsList(int size)
             throws IOException, JSONException {
-        String url =
-                "https://api.vc.bilibili.com/session_svr/v1/session_svr/get_sessions?session_type=1&size=" + size;
-        return parseSessionsList(NetWorkUtil.getJson(url));
+        return getSessionsPage(size, 0).sessions;
+    }
+
+    /**
+     * 拉一页会话（反馈 #166：只加载十几个就不加载了）。
+     *
+     * <p>接口事实（bilibili-API/docs/message/private_msg.md:258-260、280-281）：`get_sessions`
+     * 用 `end_ts`（**微秒级**时间戳）当游标往前翻，`size` 默认 20、上限 100，响应里
+     * `data.has_more` 表示还有没有下一页。原来客户端只调一次 size=20、也从来不看 has_more，
+     * 所以永远只有二十来条。
+     *
+     * @param size  本页条数
+     * @param endTs 游标：上一页里最老的会话 `session_ts`（微秒）。传 0 表示拉第一页。
+     */
+    public static SessionsPage getSessionsPage(int size, long endTs)
+            throws IOException, JSONException {
+        JSONObject root = NetWorkUtil.getJson(buildSessionsUrl(size, endTs));
+        return new SessionsPage(parseSessionsList(root), parseSessionsHasMore(root));
+    }
+
+    /** 拼会话列表 URL（纯函数，便于单测）；endTs 才决定带不带翻页游标。 */
+    static String buildSessionsUrl(int size, long endTs) {
+        StringBuilder url = new StringBuilder(
+                "https://api.vc.bilibili.com/session_svr/v1/session_svr/get_sessions?session_type=")
+                .append(SESSION_TYPE_USER).append("&size=").append(size);
+        if (endTs > 0) url.append("&end_ts=").append(endTs);
+        return url.toString();
+    }
+
+    /** 响应里的 `data.has_more`（纯解析，便于 JVM 单测）。缺字段视为没有更多。 */
+    public static boolean parseSessionsHasMore(JSONObject root) {
+        if (root == null || root.isNull("data")) return false;
+        JSONObject data = root.optJSONObject("data");
+        return data != null && data.optInt("has_more", 0) == 1;
     }
 
     /**
@@ -180,7 +225,13 @@ public class PrivateMsgApi {
         if (root == null || root.isNull("data")) {
             return sessionList;
         }
-        JSONArray sessions = root.getJSONObject("data").getJSONArray("session_list");
+        // 用 opt 系列而不是 get：没有会话时服务端会把 session_list 直接给 null
+        // （bilibili-API/docs/message/private_msg.md:280），getJSONArray 会抛 JSONException，
+        // 翻到最后一页时正好会撞上。
+        JSONObject data = root.optJSONObject("data");
+        if (data == null) return sessionList;
+        JSONArray sessions = data.optJSONArray("session_list");
+        if (sessions == null) return sessionList;
         for (int i = 0; i < sessions.length(); ++i) {
             PrivateMsgSession session = new PrivateMsgSession();
             JSONObject sessionJson = sessions.getJSONObject(i);
@@ -196,6 +247,8 @@ public class PrivateMsgApi {
 
             session.unread = sessionJson.getInt("unread_count");
             session.topTs = sessionJson.optLong("top_ts", 0);
+            // 微秒级的会话时间戳，翻页时当 end_ts 游标用（#166）
+            session.sessionTs = sessionJson.optLong("session_ts", 0);
 
             if (sessionJson.isNull("account_info"))
                 sessionList.add(session);
