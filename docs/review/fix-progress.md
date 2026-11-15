@@ -660,7 +660,7 @@
 
 - [ ] **26.11.11 播放器底部按钮行的图标一致性真机未验（L2，只能看画面）**：L0 已过（220 suites / 2385 tests / 0 失败 0 错误）。需确认：①设置 → 视频播放器 → 界面里把「弹幕开关」放进底部左区 / 右区，**同时把它留在右列**（同一个按钮放两处，正是用户截图的状态），回播放页看底部那一格：图标大小与同行的清晰度 / 音量- / 音量+ / 分P 一致、且落在同一条水平中线上；②停留 10 秒以上（影子同步定时器 400ms 一轮）再截一张，两处图标仍各自正常，没有一处变小或缩到格子左上角；③点底部那一格能正常开关弹幕、点右列那一格也生效（影子转真身点击）；④把按钮从底部删掉 / 再挪回右列 / 组内展开收起各操作一轮，图标与格子尺寸都不飘；⑤「更多」收纳格（morehide / moreshow）仍是方形、没被拉成扁条。步骤见 [`manual-test-guide-261111-player-slot-icon.md`](manual-test-guide-261111-player-slot-icon.md)（H25~H26）。
 
-- [ ] **26.11.15 播放器界面设置（「更多」收纳格 + 卡片限高）真机未验（L2，只能看画面 / 判手感）**：L0 已过（`assembleDebug` 双 flavor 通过、`testStandardDebugUnitTest` 2611 tests / 0 失败）。需确认：①「＋ 加一个按钮」的候选列表里**已经没有「更多」**，每个没满的区下面多出一行「＋ 加一个收纳格」；②加一个收纳格后回播放页，该格是 morehide 图标、点开列出的是「没摆进布局的按钮」，把其中某个按钮再摆进某个槽位后它就从收纳格里消失；**所有按钮都已摆进槽位时该格自动隐藏**（区首说明写了这一点，属于预期）；③底部两区的标题已是「中间暂停键左侧 / 右侧」，区首那句「排在屏幕正中那个播放/暂停键的左边 / 右边」在小屏上能完整读到、不被裁成一行省略；④设置页那个底部滑出卡片：长列表时高度不超过屏高的 60%（不再顶到状态栏），右上角「关闭」能点、点遮罩能关、返回键也能关，三条退路任一都关得掉；⑤对着已有的「更多」格点开菜单，**没有「这格改成一组按钮」**这一项（老存档里若真存了 `{more}`，加载时应被丢掉、不再出现死格子）。
+- [ ] **26.11.15 播放器界面设置（收纳格＝一组按钮统一 + 卡片限高）真机未验（L2，只能看画面 / 判手感）**：L0 已过（`assembleDebug` 双 flavor 通过 + `testStandardDebugUnitTest` 全绿，见 §3.157）。需确认：①每个没满的区下面**只有一行**「＋ 加一组按钮」，点开第一行是「先不放按钮（就是一格收纳格）」，下面才是按钮候选；不再有「＋ 加一个按钮」「＋ 加一个收纳格」两条入口；②点「先不放按钮」加的格子，列表里显示「一组按钮（0 个 = 收纳格）」；回播放页该格是 morehide 图标、点开列出的是「没摆进布局的按钮」，把其中某个按钮再摆进某个槽位后它就从收纳格里消失；**所有按钮都已摆进槽位时该格自动隐藏**（属于预期）；③组里只有 1 个按钮时仍按一组渲染（点开展开那 1 个），**不被拆成单按钮**；把组里最后一个按钮移除后这一格**还在**、变成收纳格（不是被删掉），要删得回上一张卡点「移除这一格」；④「更多」格的点菜单里只剩「换按钮 / 挪位置 / 移除」，「这格改成一组按钮」只在普通按钮格上出现；⑤底部两区的标题已是「中间暂停键左侧 / 右侧」，区首说明在小屏上能完整读到；⑥设置页那个底部滑出卡片：长列表时高度不超过屏高的 60%，右上角「关闭」、点遮罩、返回键三条退路都能关掉。
 - [ ] **26.11.15 播放器七个新按钮真机未验（L2，投币 / 收藏 / 下载要登录态且会产生真实操作）**：L0 已过（同上）。需确认：①七个新按钮在设置页候选里都在，加进竖列（28dp）/ 底部格（32×37dp）/ 收纳格后图标都不变形、不糊；②点赞点一次变实心、再点变回空心，未登录会给「这个操作需要登录账号」而不是静默失败；③投币卡片选 1 枚 / 2 枚后真的投出去（硬币数会变），重复投到上限时有提示；④收藏卡片列出「我的收藏夹」并正确标出已收录的那个，点一下进去、再点一下退出，退出后列表状态跟着变；⑤下载点一下后通知栏出现下载任务、下载列表里能看到，多 P / 合集下载的父标题正确，单 P 视频能下完并播到尾；⑥上一个 / 下一个：连接播队列时切队列里的下一个、单 P 时切分 P，到头提示「没有下一个了 / 已经是第一个了」；⑦睡眠定时选 15 分钟后按钮换成走时图标，到点自动暂停并提示；中途退出播放页回来定时已被撤掉（不会在别的页面突然暂停）；⑧三张动作卡片与字幕 / 发弹幕 / 跳转 / 分P 卡片互斥（同一时刻只开一张），点遮罩都能关；⑨切 P / 换集后点赞图标回到未赞态（不会把上一集的「已赞」用到这一集上）。
 
 - [ ] **26.11.11 消息页「私信列表」玻璃质感真机未验（L2，要登录态，只能看画面）**：L0 已过（两 flavor 各 220 suites / 2385 tests / 0 失败 0 错误）。需确认：①打开玻璃质感后「消息」页的私信会话卡变成半透明、与顶部四张入口卡同一种材质与圆角；②关掉后回到不透明深灰板且与修复前一模一样；③点卡能进会话、按住仍有水波纹、列表滚动/表冠正常；④转发时的「选好友」页复用同一适配器，一并看。本机无在线设备、私信列表又必须有登录态才有数据，故 L1 为空。交接单 [`handoff-261111-private-msg-glass.md`](handoff-261111-private-msg-glass.md)（H22~H24）。
@@ -2479,6 +2479,35 @@
 - **两处必须收口的细节**：①下载**没有**沿用「跳 `DownloadActivity`」那条路——`api/PlayerApi.java` 的 `jumpToPlayer` 只塞 title/aid/cid/mid/progress，**不塞 cover**，而 `DownloadActivity` 对 cover / danmaku 都是 `!!` 强解，会直接 NPE；改成走 `service/DownloadService` 的后台队列（`startDownload(parent, child, aid, cid, cover, qn, downloadType, audioUrl)` 或单集重载），按 aid/cid 自己取流、能续传、通知栏可见，也不再受 `video_url` 那条带时效签名的链接限制；②`onDestroy()` 里 `cancelSleepTimer()`、`switchToPage()` 里 `liked = null` + 刷新图标（番剧 / 合集每集 aid 不同，否则会拿上一集的「已赞」去取消这一集）。
 - **验证 · L0**：`.\gradlew.bat :app:assembleDebug` BUILD SUCCESSFUL（双 flavor）；`:app:testStandardDebugUnitTest --rerun` 233 suites / **2611 tests / 0 失败**。全量首跑时 `DownloadProgressStoreCleanupTest.removeDownloadProgress清掉字节预算与暂停标志` 偶发失败（`Method isEmpty in android.text.TextUtils not mocked`，栈在 `DownloadProgressStore.pauseDownload:71` → `DownloadRepository.setState:132` → `MsgUtil.err`），单文件跑绿，属另一会话未提交的下载进度表改动的顺序依赖 flake，与本次无关。
 - **未验证（人测 / L2）**：见 §2.1 的两条 26.11.15 清单（收纳格真机表现、卡片三条退路、七个新按钮的真实点赞 / 投币 / 收藏 / 下载 / 到点暂停）。
+
+### 3.157 播放器界面：收纳格与「一组按钮」合并成同一个东西（空组＝收纳格，26.11.15 第二轮，用户点名）
+
+- **用户口径**（paraphrased，m00001 原文）：「播放器界面编辑的更多按钮和一组按钮不同步，加收纳格就是加一组按钮，请这么改，一组按钮的逻辑不变，同时可以允许一组按钮里有0或1个按钮不被拆散」。
+- **为什么原来不同步**：收纳格（`PlayerButtons.MORE`）是注册表里的一个**按钮 key**，渲染时被 `PlayerButtonSlots.render` 特判成「展开没摆进布局的按钮」；而「一组按钮」是 `Slot.Group`，走另一条渲染 / 编辑路径。于是设置页有两条入口（「＋ 加一个按钮」「＋ 加一个收纳格」）、两套卡片、两段说明，行为自然对不上。
+- **改法：一个类型两种状态**——`Slot.Group(keys)`：`keys` 非空＝固定组（渲染 / 展开 / 编辑逻辑一行未改）；`keys` 为空＝**收纳格**（展开内容＝`PlayerUiLayout.unplacedKeys(layout)`）。`PlayerButtons.MORE = "more"` 不再进 `ALL`，只当**旧存档标记**用。
+  1. `player/PlayerUiLayout.kt`：新增 `placedKeys(layout): Set<String>` / `unplacedKeys(layout): List<String>`（后者＝`ALL` 里没被摆放的 key，按候选顺序）；`parseSection` 重写——独立 `more` 单格 → 空组（迁移老存档），`{}` 或含 `more` 的整组 → 空组，只有未知 key 的 `{nosuch}` 仍丢弃，`{a+more}` 里的 `more` 仍被清掉；组内仍 `.distinct()`。
+  2. `player/PlayerButtons.kt`：`ALL` 去掉 `Button(MORE, …)`（19 项），`MORE` 保留成迁移用的字符串常量。
+  3. `player/PlayerButtonSlots.kt`：`render` 里 `Slot.Group` 空 keys → `overflowKeys(layout)`，有 keys → 原样用；`overflowKeys` 改为 `PlayerUiLayout.unplacedKeys(layout).filter { primaryOf(it) != null }`（后者过滤掉本播放器里没有真身的按钮，直播 / 本地视频场景要用）。
+  4. `activity/settings/SettingPlayerUiActivity.kt`：每区末尾只剩一行「＋ 加一组按钮」（`PickMode.AddGroup`）——点开先是一条「先不放按钮（就是一格收纳格）」，下面仍是按钮候选（选一个就当这组的头一个成员）；`showGroupCard()` 对空组改显示收纳说明且不给「移除组里的按钮」；`showGroupRemoveCard()` 移掉最后一个成员时**保留这一格并置空组**（原来直接 `removeAt` 删格子）；`showSlotMenu()` / `slotDesc()` 里的 `MORE` 特判整段删除。
+  5. `res/values/strings.xml`：新增 `setting_player_ui_group_empty`（一组按钮（0 个 = 收纳格））、`add_group`、`add_group_desc`、`add_group_empty`，重写 `more_desc`、`region_empty`；删掉不再有引用的 `setting_player_btn_more`、`setting_player_ui_more_tag`、`add_more`、`add_button`、`region_capacity`。
+- **单测**（`app/src/test/…/player/PlayerUiLayoutTest.kt`）：新增 `empty group is the collector and survives round trip`（`{}` 编解码往返、可多份）、`empty group token parses as collector`、`legacy more slot migrates to empty group`（`1;more;;;` → 空组）、`unplaced keys are what the collector would show`（默认布局下 `like` / `sleep_timer` 在清单里，加空组不改变清单）；改写 `group made only of more disappears` → `group made only of more becomes the collector`（`{more}` → 空组，不再整组消失）。
+- **验证 · L0**：`.\gradlew.bat :app:assembleDebug` + `:app:testStandardDebugUnitTest`，结果见 §2.1 的 26.11.15 条目。
+- **未验证（人测 / L2）**：见 §2.1 的「26.11.15 播放器界面设置」一条（已按新口径重写）。
+
+### 3.158 特殊登录导出回退到 11.02 单条格式 + 「导出全部账号」拆成独立页（26.11.15，用户点名）
+
+- **用户口径**（paraphrased，m00001 原文）：「将特殊登录给的json回退为11.02的版本，同时将这个版本的导出全部账户功能单独做一个页面导出，其他页面和入口保持不变，不要影响现有功能」。
+- **两个版本的事实**：`81e9ffcf`（release 26.11.02）的特殊登录导出是**单条三字段** `{"cookies":…,"refresh_token":…,"access_key":…}`，只含当前账号、直接读 SharedPreferences；`1a1536ef`（§3.112 账号切换/特殊登录凭证隔离）把它换成多账号信封 `{"format":"rebili.accounts","version":1,"exported_at":…,"accounts":[…]}`。所以「回退」= 导出侧改回三字段单条，而多账号信封本身要保留（换机搬家靠它），只是**换一个页面出口**。
+- **改法**：
+  1. `util/AccountManager.java` 新增 `exportCurrentAccount()`（放在 `exportAllAccounts()` 前）：cookies 空返回 `""`，否则只写 cookies / refresh_token / access_key 三个键，值全部取 SP 实时值；类头「多账号导入导出」注释同步成三条（单条 / 多账号 / 导入）。
+  2. `activity/settings/login/SpecialLoginActivity.kt` 导出模式两处（初始填充、复制按钮）由 `exportAllAccounts()` 改调 `exportCurrentAccount()`；导入侧 `SpecialLoginParser.parseAny` **一字未动**，裸数组 / 信封 / 单条三种形态照旧全认，所以老的多账号 JSON 仍能导入。
+  3. `res/values/strings.xml`：`special_login_export` 逐字恢复 11.02 原文（「以下是你的登录信息…点击最下面的按钮可以复制…」），新增 `special_login_export_all_desc`（把原多账号说明挪走）、`pagename_export_all_accounts`、`text_account_export_all`。
+  4. 新建 `activity/settings/login/ExportAllAccountsActivity.kt` + `res/layout/activity_login_export_all.xml`（顶栏 pageName + 时钟、说明、只读文本框、复制按钮；顶栏点击退出），清单注册 `exported="false"` + `screenOrientation="locked"`。账号为空时说明栏提示 `msg_specialloginactivity_009`、文本框留空（提示不会被当成导出数据贴走）；复制按钮**重新导出一份**再进剪贴板，不用框里可能被改过的文本。
+  5. `activity/settings/login/AccountSwitchActivity.kt` 新增 `addExportAllCard()`（样式与 `addImportCard()` 一致），在 `refreshAccountList()` 与空态 `addEmptyHint()` 两处、紧跟「导入账号数据」之后挂上——入口只此一处，与导入对称。
+- **刻意没做**：设置 →「查看登录信息」那条入口原样保留（它进的就是特殊登录页导出模式，现在导单条）；导入页说明里的「多账号」段落保留（导入能力没变）。
+- **单测**（`app/src/test/…/util/AccountManagerTest.kt`，+3 例）：未登录返回 `""`；已登录时 JSON 键集合精确等于 `{cookies, refresh_token, access_key}`、字段值正确、且 `parseAny` 回环成 `Single`；列表里有第二个账号时仍只导出当前账号。
+- **验证 · L0**：见下方「验证结果」。
+- **未验证（人测 / L2）**：真手表上「账号切换页底部多出一行、点进去能看到整份 JSON、复制粘贴到另一台设备能导入全部账号」这一整条链路。
 
 ## 4. 历史章节索引
 

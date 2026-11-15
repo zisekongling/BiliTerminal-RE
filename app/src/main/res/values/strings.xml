@@ -58,6 +58,7 @@
     <string name="egg_robin_nahida">Robin喜欢纳西妲。\n也许不只是由于外表的可爱，还有对遭遇的同情。\n\n我们都被囚禁——\n纳西妲是物理上的，\n屏幕前后的你我则是心灵上的。\n\n纳西妲已经遇到了她的旅行者，\n但我们，又会有谁来关心呢……？\n\n*纳西妲：\n不要这样说哦。\n能够拯救你们的，正是你们自己。\n请用自己的行动，来努力改变这个不美好的世界。\n无论结果如何。\n\n此彩蛋的触发方式：搜索关键词中同时包含"Robin"和"纳西妲"</string>
 
     <string name="special_login_desc">该功能是为安卓版本过低导致二维码生成组件无法工作的设备准备的，你需要手动在此页面导入登录信息来完成登录操作。\n该功能也适用于快速登录原有账号。\n\n方法教学：\n你需要在另外一台至少为安卓4.4的设备上安装哔哩终端并扫码登录，然后在那台设备上点击设置中的“查看登录信息”，将显示出来的登录信息复制到下方的文本框中，检查无误后点击“登录”按钮即可。\n提示：可以将登录信息复制到一个txt中，用电脑usb传给这台设备。若提示输入有误，请检查是否有多余或缺失字符。\n\n多账号：如果粘贴的是另一台设备「查看登录信息」页里导出的全部账号数据，会一次性导入所有账号。导入多账号不会切换当前账号，导入后请到「账号切换」里选择要用的账号。\n\n注意：登录数据录入完成后，请在另一台设备上直接【清除APP数据】或【卸载】，不要点击【退出登录】！</string>
+    <string name="special_login_export_all_desc">以下是本机所有已保存账号的登录信息（多账号格式），可用于在其他设备上一次性导入全部账号。\n导入多账号数据不会切换当前账号，导入后请到「账号切换」里选择要用的账号。\n登录信息具有一定的时效性，请即取即用，导入完成请将此设备的哔哩终端清除数据。（不要点退出登录！）\n请勿将此页面的信息传给别人，以防盗号！</string>
     <string name="special_login_export">以下是你的登录信息，可用于在其他设备上特殊登录，点击最下面的按钮可以复制。\n登录信息具有一定的时效性，请即取即用，导入完成请将此设备的哔哩终端清除数据。（不要点退出登录！）\n请勿将此页面的信息传给别人，以防盗号！</string>
 
     <string name="setting_lab_ui_landscape">！此功能将不再继续进行改进，除非开发者有时间！\n开启选项后，软件将会变为横屏，部分列表会变为三列，更适合平板等默认横屏的设备\n*注意：部分页面仍为单列式，可能有一些页面适配不佳，电视请移步官方电视版本或使用其他第三方软件。</string>
@@ -294,6 +295,7 @@
     <string name="pagename_emote">表情</string>
     <string name="pagename_image_viewer">图片查看</string>
     <string name="pagename_login_special">特殊登录</string>
+    <string name="pagename_export_all_accounts">导出全部账号</string>
     <string name="pagename_account_switch">账号切换</string>
     <string name="pagename_subscription">我的订阅</string>
     <string name="pagename_subscription_season">合集详情</string>
@@ -1546,6 +1548,7 @@
     <string name="text_tutorial_history_done">历史记录：已完成过（版本 %1$d）</string>
     <string name="text_account_empty">暂无已保存的账号\n登录后会自动保存账号凭证</string>
     <string name="text_account_add_new">添加新账号</string>
+    <string name="text_account_export_all">导出全部账号数据（一份 JSON，含所有已登录账号）</string>
     <string name="text_account_import">导入账号数据（支持一次性导入多个账号）</string>
     <!-- 关于页「本次更新」折叠：条目超过 15 条时默认只显示前 15 条 -->
     <string name="about_updatelog_expand">展开全部（共 %1$d 条）</string>
@@ -2910,15 +2913,10 @@
     <string name="setting_player_btn_download">下载</string>
     <string name="setting_player_btn_prev_video">上一个</string>
     <string name="setting_player_btn_next_video">下一个</string>
-    <string name="setting_player_btn_more">更多</string>
-    <!-- 收纳格（更多）：不是按钮，是容器。只在有按钮没摆进槽位时才显示，可以放多个。 -->
-    <string name="setting_player_ui_more_desc">收纳格：收的是没摆进布局的按钮，一个都没空着时这一格不显示</string>
-    <!-- 槽位行副标题里对收纳格的短标注 -->
-    <string name="setting_player_ui_more_tag">自动收纳格</string>
-    <!-- 没有可调设置的按钮，卡片里显示这一行说明 -->
-    <string name="setting_player_btn_nosettings">这个按钮没有可单独调整的设置，播放时点了才有反应。</string>
     <!-- 播放页「组」槽位那个按钮的无障碍说明：点一下把组里的按钮横向展开 -->
     <string name="desc_player_group_expand">展开这组按钮</string>
+    <!-- 没有可调设置的按钮，卡片里显示这一行说明 -->
+    <string name="setting_player_btn_nosettings">这个按钮没有可单独调整的设置，播放时点了才有反应。</string>
 
     <!-- 设置 → 播放与播放器 → 播放器界面（26.11.06） -->
     <!-- 26.11.15 按用户要求标注「实验性」：按钮排布与跳广告都还在反复改，先明确标出来。 -->
@@ -2962,11 +2960,14 @@
     <string name="setting_player_ui_region_note_bottom_left">底部这一行整体居中：这几格排在屏幕正中那个播放/暂停键的左边，紧挨着它。</string>
     <string name="setting_player_ui_region_note_bottom_right">底部这一行整体居中：这几格排在屏幕正中那个播放/暂停键的右边，紧挨着它。</string>
     <string name="setting_player_ui_region_desc">%1$s · 第 %2$d 格</string>
-    <string name="setting_player_ui_region_capacity">最多放 %1$d 格</string>
-    <string name="setting_player_ui_region_empty">这一列还空着，点下面加一个</string>
+    <string name="setting_player_ui_region_empty">这一列还空着，点下面加一组</string>
     <string name="setting_player_ui_group_count">一组按钮（%1$d 个）</string>
-    <string name="setting_player_ui_add_button">＋ 加一个按钮</string>
-    <string name="setting_player_ui_add_more">＋ 加一个收纳格</string>
+    <!-- 26.11.15 统一：收纳格就是一个没加成员的组，行标题与说明都按「一组按钮」来写 -->
+    <string name="setting_player_ui_group_empty">一组按钮（0 个 = 收纳格）</string>
+    <string name="setting_player_ui_more_desc">没加成员的一组按钮就是收纳格：收的是没摆进布局的按钮，一个都没空着时这一格不显示</string>
+    <string name="setting_player_ui_add_group">＋ 加一组按钮</string>
+    <string name="setting_player_ui_add_group_desc">不放按钮就是个收纳格，自动收没摆进布局的按钮</string>
+    <string name="setting_player_ui_add_group_empty">先不放按钮（就是一格收纳格）</string>
     <string name="setting_player_ui_may_hide">注意：有些视频里不显示</string>
     <string name="setting_player_ui_region_title">%1$s · %2$d 格</string>
     <!-- 设置页底部卡片（上滑弹出面板）标题栏的关闭按钮 -->
