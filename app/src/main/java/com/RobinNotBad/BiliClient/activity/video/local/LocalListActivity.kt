@@ -27,6 +27,8 @@ import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.VideoMeta
 import com.RobinNotBad.BiliClient.model.VideoFolder
 import com.RobinNotBad.BiliClient.service.download.DownloadPathSpec
+import com.RobinNotBad.BiliClient.util.CacheChangeSignal
+import com.RobinNotBad.BiliClient.util.CacheDeletePlan
 import com.RobinNotBad.BiliClient.util.CacheListOrderStore
 import com.RobinNotBad.BiliClient.util.CachePathResolver
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -181,6 +183,16 @@ open class LocalListActivity : InstanceActivity() {
      */
     private var scannedRoot: File? = null
 
+    /**
+     * 上一次重扫时 [CacheChangeSignal] 的版本号（反馈 #162）。
+     *
+     * 详情页「长按清缓存」删的是磁盘文件，那时最上层是详情页，本页的 [refreshAfterExternalChange]
+     * 够不着；而 [onResume] 只认降级状态 / 根目录 / 文件夹入口开关，文件变了它不会重扫。于是条目
+     * 赖着不走、计数（`VideoFolder.getVideoCount()`）虚高、封面文件已删显示成黑块。记下扫描时的版本号，
+     * 回来时对不上就重扫。
+     */
+    private var cacheVersionAtLoad: Long = 0L
+
     // ===================== 多选（26.11.02） =====================
 
     /** 是否处于多选模式。打开后列表点击/长按都变成勾选，底部条换成「已选 N 项 / 操作 / 退出」。 */
@@ -284,6 +296,11 @@ open class LocalListActivity : InstanceActivity() {
             refresh()
             return
         }
+        // 详情页长按清过缓存、或别处改过磁盘文件（反馈 #162）：条目 / 计数 / 封面都得重扫才对得上
+        if (CacheChangeSignal.snapshot() != cacheVersionAtLoad) {
+            refresh()
+            return
+        }
         // 用户可能刚从「设置 → 高级与实验」把「缓存页文件夹入口」拨过：它决定本页有没有顶部
         // 「文件夹 N」入口、文件夹分区还铺不铺在本页，所以必须重排整张表才看得到（不必重启）
         val folderPageEnabled = FolderPagePrefs.enabled()
@@ -303,6 +320,8 @@ open class LocalListActivity : InstanceActivity() {
         // 记下这次真正扫描的是哪个根，onResume 才能判断「根目录换了要重扫」
         rootAtLoad = root.path
         scannedRoot = root
+        // 记下扫描开始时的缓存改动版本：扫描期间 / 之后别处改了文件，回来时好重扫（反馈 #162）
+        cacheVersionAtLoad = CacheChangeSignal.snapshot()
         videoList.clear()
         scanVideos(root)
 
@@ -969,17 +988,18 @@ open class LocalListActivity : InstanceActivity() {
      */
     private fun deleteVideoFiles(video: LocalVideo): File? {
         val root = scannedRoot ?: FileUtil.getVideoDownloadPath()
-        val existingDirs = videoDirCandidates(root, video).filter { it.isDirectory }
-        var remaining: File? = null
-        for (dir in existingDirs) {
-            // 一个删不掉也继续删其它候选（同一部视频可能同时存在清洗前/后的两份目录）
-            if (!FileUtil.deleteFolderRecursively(dir) && remaining == null) remaining = dir
-        }
+        // 删除计划与详情页共用一份（反馈 #162）：候选目录怎么定位、真实结果怎么分级都收在
+        // CacheDeletePlan 里，这里只做「摘文件夹记录 + 返回第一个失败目录」这两件本页的事
+        val result = CacheDeletePlan.execute(root.path, video.title, video.videoFileList?.firstOrNull())
 
         // 用 removeVideoFromAllFolders 而不是 removeVideoFromFolder——文件夹里存的标题可能是
         // 早期版本写入的原始标题，与磁盘目录名（清洗过）只差几个全角符号，按原文匹配会漏。
-        if (remaining == null) FolderManager.removeVideoFromAllFolders(video.title)
-        return remaining
+        // 判据与原来一致：没有「删不掉的候选目录」就算这条删掉了（含一个候选都没找到的情况，
+        // 那条本来就已经不在磁盘上，正好顺手摘掉记录）。
+        if (result.outcome != CacheDeletePlan.Outcome.PARTIAL_FAILED) {
+            FolderManager.removeVideoFromAllFolders(video.title)
+        }
+        return result.firstFailedDir
     }
 
     private fun showMoveToFolderDialog(videoIndex: Int) {

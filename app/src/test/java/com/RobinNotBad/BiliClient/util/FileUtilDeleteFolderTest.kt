@@ -112,13 +112,13 @@ class FileUtilDeleteFolderTest {
     }
 
     @Test
-    fun `旧签名 deleteFolder 也修好了空子目录`() {
-        // 旧调用点（分 P 选择页 / 下载列表 / 视频详情页清缓存）仍然调 void 版，
-        // 它们必须同样受益，否则同一个缓存从别的入口删依然删不干净
+    fun `deleteFolder 也修好了空子目录并返回真实结果`() {
+        // 旧调用点（分 P 选择页 / 下载列表 / 视频详情页清缓存）仍然调这个方法，它们必须同样受益，
+        // 否则同一个缓存从别的入口删依然删不干净。反馈 #162 起它不再吞掉返回值。
         val dir = newCacheDir("某个视频")
         assertTrue(File(dir, "subtitles").mkdirs())
 
-        FileUtil.deleteFolder(dir)
+        assertTrue(FileUtil.deleteFolder(dir))
 
         assertFalse(dir.exists())
     }
