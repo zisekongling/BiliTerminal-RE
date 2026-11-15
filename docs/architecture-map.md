@@ -2165,6 +2165,14 @@ TTF/OTF/TTC，应用把它**拷进私有目录**（`filesDir/custom_font/custom_
 - **一个容易写错的地方**：URI 里把整条绝对路径当成**一个** pathSegment —— 先 `Uri.encode(路径)`（`/` 会被编成 `%2F`）再 `appendEncodedPath()`，解析端 `uri.pathSegments` 才恰好是 `["f", 原路径]`（`resolveFile` 的 `segments.size != 2` 校验依赖它）。`appendPath(canonical)` 是等价写法（它内部同样会 `Uri.encode`，`/` 同样变 `%2F`）；**别用 `path()` / `encodedPath()`**，那两个设置的是整条 path、不是追加段。中文 / 空格 / 《》/ `%` 的编码往返在 API 19~34 上一致（`%` 不在 `Uri.encode` 的保留集合里，会编成 `%25`，不会被当成已有转义）。
 - **验证口径**：设备侧 logcat 应出现 `文件不在 FileProvider 配置根内（多为外置卷），改走 LocalFileProvider：<路径>`，外部播放器进程能 `openInputStream` 读到字节；回归项是主卷默认目录仍然走 `content://<包名>.FileProvider/...`（外部播放器照旧能播）。
 
+### 7.60 播放器界面按钮：注册表 → 布局存档 → 槽位渲染三层，以及「收纳格默认恒空」的坑（26.11.15）
+
+- **三层各管一件事，改按钮只动第一层**：`player/PlayerButtons.kt` 是唯一注册表（`Button(key, nameRes, iconRes, settingsGroup, action, textOnly, mayHide)` + `ALL`）；`player/PlayerUiLayout.kt` 是**纯 Kotlin** 的存档编解码（`Region.LEFT(5)/RIGHT(5)/BOTTOM_LEFT(3)/BOTTOM_RIGHT(3)`、`Slot.Button` / `Slot.Group`，序列化串 `1;lock,speed;danmaku,rotate,{a+b};…`，非法结构整体回退 `DEFAULT`）；`player/PlayerButtonSlots.kt` 负责把 `activity_player.xml` 里 `button_pool` 的真身搬进四个区，同一个按钮摆在两处时**后摆的那处是影子**（点击转发 `primary.performClick()`）。
+- **坑 1：默认布局已经把 19 个按钮全摆满了**。`DEFAULT_RIGHT_GROUP` 含 11 项（含 seek_back / seek_forward），加上左 2 + 右 2 + 底 4 正好等于注册表里除 `more` 以外的**全部**按钮 → `PlayerButtonSlots.overflowKeys()`（只收「没摆进布局的按钮」）恒为空 → 新加的「更多」收纳格被 `refreshEmptyGroups()` 直接 `GONE`，表现是「设置页能加、播放页看不见」。**新增角色类按钮时故意不放进 `DEFAULT`**，收纳格才有内容；设置页的说明文案也把这条写明了。
+- **坑 2：收纳格不是按钮**。它没有真身（`buttonViewById("more")` 返回 null），所以：`Slot.Group` 里不许出现 `more`（`parseSection` 已 `.filterNot { it == MORE }`，老存档 `{more}` 整组丢掉），设置页的「加一个按钮」候选和「这格改成一组」入口都把它排除，否则会得到点不动的死格子；影子同步按 `drawable` 引用比对（`mirrorDrawableSource`），真身 `setImageResource` 换图后 400ms 内影子自动跟着换（点赞实心 / 空心就靠这条）。
+- **坑 3：播放页内的卡片必须登记进 `hideAllCards()`**。`layout_card_bg` 是全屏遮罩，点它调 `hideAllCards()` 把已知卡片逐个置 `GONE`；漏加一张，切到别的卡片后那张会以半透明状态压在画面上。26.11.15 新增的 `action_card`（睡眠定时 / 投币 / 收藏共用一张壳子，行内容运行时填）已加进去。
+- **坑 4：`DownloadActivity` 对 `cover` / `danmaku` 是 `!!` 强解**。播放页想「下载当前视频」时**不要**跳它——`api/PlayerApi.jumpToPlayer` 并不塞 `cover`，那条路必然 NPE（且 `video_url` 是带时效签名的地址，用户没等起播就点也会空）。正确做法是 `service/DownloadService` 的后台队列（自己按 aid/cid 取流、能续传、通知栏可见），封面缺失时按 aid 补查一次 `VideoInfoApi.getVideoInfo`。
+
 ---
 
 ## 10. 动手前的检查清单
