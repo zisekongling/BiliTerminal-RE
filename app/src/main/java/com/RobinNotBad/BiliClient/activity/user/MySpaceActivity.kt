@@ -23,6 +23,7 @@ import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.MySpaceConfig
+import com.RobinNotBad.BiliClient.util.MySpaceLoadErrorText
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
@@ -42,6 +43,9 @@ class MySpaceActivity : InstanceActivity() {
 
     private var confirmLogout = false
     private var currentUserInfo: UserInfo? = null
+
+    /** 账号信息是否正在加载。只在主线程读写：失败后卡片可点重试，这里挡住重复请求。 */
+    private var userInfoLoading = false
 
     @SuppressLint("SetTextI18n", "InflateParams")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -166,32 +170,78 @@ class MySpaceActivity : InstanceActivity() {
         val mid = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0)
         if (mid == 0L) {
             // 未登录引导
+            userInfoLoading = false
             userName.text = UiText.of("点击登录")
             userFans.text = ""
             userExp.text = ""
             myInfo.setOnClickListener { jumpToLogin() }
             return
         }
+        if (userInfoLoading) return
+        userInfoLoading = true
+        renderUserInfoLoading()
         CenterThreadPool.run {
             try {
                 val userInfo = UserInfoApi.getCurrentUserInfo()
                 val userCoin = UserInfoApi.getCurrentUserCoin()
-                currentUserInfo = userInfo
-                if (!this.isDestroyed) runOnUiThread {
-                    Glide.with(this@MySpaceActivity).load(GlideUtil.url(userInfo.avatar))
-                        .transition(GlideUtil.getTransitionOptions())
-                        .placeholder(R.mipmap.akari).apply(RequestOptions.circleCropTransform())
-                        .error(R.mipmap.akari).apply(RequestOptions.circleCropTransform())
-                        .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
-                        .into(userAvatar)
-                    userName.text = userInfo.name
-                    userFans.text = StringUtil.toWan(userInfo.fans.toLong()) + UiText.of("粉丝 ") + userCoin + UiText.of("硬币")
-                    userExp.text = "EXP:" + userInfo.current_exp + (if (userInfo.level >= 6) "" else "/" + userInfo.next_exp)
-                    myInfo.setOnClickListener { openMyInfo() }
+                if (userInfo.mid <= 0) {
+                    // 接口没给账号数据（未登录 / code≠0 / 风控降级）时 UserInfoApi 返回 mid=0 的占位对象、
+                    // 并不抛异常。以前这种响应被当成成功画了上去：昵称显示「加载失败」、点卡片还跳登录页，
+                    // 用户看到的仍是一张没内容可点的卡片。现在和异常一样落到失败态，给出重试入口。
+                    renderUserInfoFailure(null)
+                } else {
+                    currentUserInfo = userInfo
+                    renderUserInfo(userInfo, userCoin)
                 }
             } catch (e: Exception) {
                 report(e)
+                renderUserInfoFailure(e)
             }
+        }
+    }
+
+    /** 加载态：卡片回到布局默认的「加载中...」，顺手摘掉点击，避免连点叠出多个请求。 */
+    private fun renderUserInfoLoading() {
+        userName.text = getString(R.string.text_activitymyspace_01)
+        userFans.text = ""
+        userExp.text = ""
+        myInfo.setOnClickListener(null)
+    }
+
+    private fun renderUserInfo(userInfo: UserInfo, userCoin: Int) {
+        if (isDestroyed) return
+        runOnUiThread {
+            userInfoLoading = false
+            Glide.with(this@MySpaceActivity).load(GlideUtil.url(userInfo.avatar))
+                .transition(GlideUtil.getTransitionOptions())
+                .placeholder(R.mipmap.akari).apply(RequestOptions.circleCropTransform())
+                .error(R.mipmap.akari).apply(RequestOptions.circleCropTransform())
+                .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
+                .into(userAvatar)
+            userName.text = userInfo.name
+            userFans.text = StringUtil.toWan(userInfo.fans.toLong()) + UiText.of("粉丝 ") + userCoin + UiText.of("硬币")
+            userExp.text = "EXP:" + userInfo.current_exp + (if (userInfo.level >= 6) "" else "/" + userInfo.next_exp)
+            myInfo.setOnClickListener { openMyInfo() }
+        }
+    }
+
+    /**
+     * 失败态（反馈 #163）：结束加载，把可读原因写在卡片上，卡片本身变成重试入口。
+     *
+     * 原来这里只有 `report(e)`——那个只是瞬时提示 + 打日志，卡片会一直停在「加载中...」，
+     * 用户看到的就是「点我的显示正在加载」。
+     *
+     * @param e 加载异常；`null` 表示接口没给账号数据（见 [MySpaceLoadErrorText.reasonOf]）
+     */
+    private fun renderUserInfoFailure(e: Exception?) {
+        if (isDestroyed) return
+        val reasonText = MySpaceLoadErrorText.textOf(MySpaceLoadErrorText.reasonOf(e))
+        runOnUiThread {
+            userInfoLoading = false
+            userName.text = UiText.of("加载失败，点我重试")
+            userFans.text = UiText.of(reasonText)
+            userExp.text = ""
+            myInfo.setOnClickListener { loadUserInfo() }
         }
     }
 }

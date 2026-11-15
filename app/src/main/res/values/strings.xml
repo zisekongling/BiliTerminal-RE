@@ -3105,4 +3105,11 @@
          「已下载」判定与缓存列表同口径，找不到却不让重下的情况不再出现。 -->
     <string name="text_cache_list_pages">共%1$sP</string>
     <string name="msg_cache_no_playable_file">没有可播放的缓存文件</string>
+    <!-- 「我的」页账号信息加载失败的失败态与重试入口（反馈 #163：登录一段时间后自动掉登录，
+         再点「我的」只看到一直转圈）。原因分类与文案映射见 util/MySpaceLoadErrorText.kt。 -->
+    <string name="text_myspace_load_failed_retry">加载失败，点我重试</string>
+    <string name="text_myspace_load_reason_network">网络异常</string>
+    <string name="text_myspace_load_reason_parse">数据解析失败</string>
+    <string name="text_myspace_load_reason_no_data">登录可能已失效</string>
+    <string name="text_myspace_load_reason_unknown">未知错误</string>
 </resources>

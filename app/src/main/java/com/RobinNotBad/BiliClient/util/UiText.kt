@@ -897,6 +897,12 @@ object UiText {
         // 反馈 #164：多 P 缓存卡片的页数标签 + 点开却一个成品都没有时的提示
         "共%1\$sP" to R.string.text_cache_list_pages,
         "没有可播放的缓存文件" to R.string.msg_cache_no_playable_file,
+        // 「我的」页账号信息加载失败（反馈 #163）：失败文案与原因分类见 util/MySpaceLoadErrorText.kt
+        "加载失败，点我重试" to R.string.text_myspace_load_failed_retry,
+        "网络异常" to R.string.text_myspace_load_reason_network,
+        "数据解析失败" to R.string.text_myspace_load_reason_parse,
+        "登录可能已失效" to R.string.text_myspace_load_reason_no_data,
+        "未知错误" to R.string.text_myspace_load_reason_unknown,
 // @INSERT
     )
 
