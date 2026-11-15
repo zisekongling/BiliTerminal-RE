@@ -290,21 +290,113 @@ public class VideoInfoApi {
         return "";
     }
 
-    public static String getVideoConclusion(long aid, String bvid, long cid, long upMid) throws IOException, JSONException {
-        String url = "https://api.bilibili.com/x/web-interface/view/conclusion/get?aid=" + aid + "&bvid=" + bvid + "&cid=" + cid + "&up_mid=" + upMid;
-        JSONObject result = NetWorkUtil.getJson(ConfInfoApi.signWBI(url), NetWorkUtil.webHeaders);
-        if (result.has("data") && !result.isNull("data")) {
-            JSONObject data = result.getJSONObject("data");
-            int code = data.optInt("code", -1);
-            if (code == 0 && data.has("model_result") && !data.isNull("model_result")) {
-                JSONObject modelResult = data.getJSONObject("model_result");
-                int resultType = modelResult.optInt("result_type", 0);
-                if (resultType >= 1) {
-                    return modelResult.optString("summary", null);
-                }
-            }
+    /**
+     * 视频 AI 摘要的结果类别（反馈 #127）。
+     *
+     * <p>原先 {@code getVideoConclusion} 把四种互不相同的情况（HTTP/解析失败、{@code code != 0}、
+     * 该视频本来就没有摘要、摘要是空串）压成同一个 {@code return null}，界面只能统一弹
+     * 「获取视频摘要失败」——用户既分不清是账号被风控、这个视频不支持，还是网络出了问题，
+     * 报障时也说不清。这里把类别单独拿出来，文案交给界面按类别决定。
+     */
+    public enum ConclusionKind {
+        /** 成功，{@link ConclusionResult#text} 里有摘要正文。 */
+        OK,
+        /** 接口正常（code=0），但这个视频没有 AI 摘要：没有 model_result / result_type &lt; 1 / summary 为空。 */
+        NO_SUMMARY,
+        /** 接口拒绝：code 非 0（风控 -352/-412、未登录 -101、无权限、接口未开放等），原始码在 {@link ConclusionResult#code}。 */
+        REJECTED,
+        /** 拿到了响应但不是这个接口该有的形状（没有 code、code=0 却没有 data、data 不是对象）。 */
+        FAILED
+    }
+
+    /**
+     * 结构化返回：类别 + 原始 code + 摘要正文 + 服务端原话。
+     *
+     * <p>刻意不在这里放「给人看的文案」：API 层是纯函数，跟随 {@code app/src/test} 的 JVM 单测量跑，
+     * 那个环境没有 Context（同 {@code ApiErrorText} 的说明）。文案统一在界面侧走
+     * {@code UiText.of(...)} → {@code strings.xml}。
+     */
+    public static final class ConclusionResult {
+        public final ConclusionKind kind;
+        /** 服务端原始 code；{@link ConclusionKind#OK} / {@link ConclusionKind#NO_SUMMARY} 时为 0，{@link ConclusionKind#FAILED} 时为 -1。 */
+        public final int code;
+        /** 摘要正文，仅 {@link ConclusionKind#OK} 非空。 */
+        public final String text;
+        /** 服务端 message 原话（可能为空串，服务端多半不给中文原因）。 */
+        public final String message;
+
+        public ConclusionResult(ConclusionKind kind, int code, String text, String message) {
+            this.kind = kind;
+            this.code = code;
+            this.text = text == null ? "" : text;
+            this.message = message == null ? "" : message;
         }
-        return null;
+
+        public boolean isSuccess() {
+            return kind == ConclusionKind.OK;
+        }
+
+        @Override
+        public String toString() {
+            return "ConclusionResult{kind=" + kind + ", code=" + code + ", message=" + message + "}";
+        }
+    }
+
+    /**
+     * 纯解析：接口 JSON → 结果类别。不碰网络、不碰 Android，可直接跑 JVM 单测。
+     *
+     * <p>全程 {@code opt*}：字段缺失 / 类型不对只降级、不抛 {@code JSONException}——
+     * 旧实现里 {@code getJSONObject("model_result")} 遇到非对象会直接抛出去，整次点击只剩一个错误弹窗。
+     *
+     * @param result 接口原始响应；{@code null} 与「不是本接口形状」的响应都算 {@link ConclusionKind#FAILED}
+     */
+    public static ConclusionResult parseConclusion(JSONObject result) {
+        if (result == null || !result.has("code") || result.isNull("code")) {
+            return new ConclusionResult(ConclusionKind.FAILED, -1, "", "");
+        }
+        // 顶层 code 才是「请求本身」的结果：风控（-352/-412）、未登录（-101）都在这一层，
+        // 且这时往往连 data 都没有。旧实现完全忽略它，于是这些情况都被误当成「没有摘要」。
+        int code = result.optInt("code", -1);
+        String message = result.optString("message", "");
+        if (code != 0) {
+            return new ConclusionResult(ConclusionKind.REJECTED, code, "", message);
+        }
+
+        JSONObject data = result.optJSONObject("data");
+        if (data == null) {
+            // code=0 却说没有 data（或 data 不是对象）：响应形状不对，不是「这个视频没摘要」
+            return new ConclusionResult(ConclusionKind.FAILED, 0, "", message);
+        }
+
+        int dataCode = data.optInt("code", 0);
+        if (dataCode != 0) {
+            String detail = data.optString("message", "");
+            return new ConclusionResult(ConclusionKind.REJECTED, dataCode, "", detail.isEmpty() ? message : detail);
+        }
+
+        JSONObject modelResult = data.optJSONObject("model_result");
+        if (modelResult == null) {
+            return new ConclusionResult(ConclusionKind.NO_SUMMARY, 0, "", message);
+        }
+        int resultType = modelResult.optInt("result_type", 0);
+        String summary = modelResult.optString("summary", "");
+        if (resultType < 1 || summary.trim().isEmpty()) {
+            return new ConclusionResult(ConclusionKind.NO_SUMMARY, 0, "", message);
+        }
+        return new ConclusionResult(ConclusionKind.OK, 0, summary, message);
+    }
+
+    /**
+     * 取视频 AI 摘要。
+     *
+     * <p>网络层异常（{@link IOException}）与真正的 JSON 解析异常仍然往外抛，交给界面的
+     * {@code MsgUtil.err(...)} 按「网络错误 / 数据解析错误」分别提示（那里还能带上堆栈与证书时间提示）；
+     * 拿到了响应但内容不是预期的形状，则由 {@link #parseConclusion(JSONObject)} 归到
+     * {@link ConclusionKind#FAILED}。
+     */
+    public static ConclusionResult getVideoConclusion(long aid, String bvid, long cid, long upMid) throws IOException, JSONException {
+        String url = "https://api.bilibili.com/x/web-interface/view/conclusion/get?aid=" + aid + "&bvid=" + bvid + "&cid=" + cid + "&up_mid=" + upMid;
+        return parseConclusion(NetWorkUtil.getJson(ConfInfoApi.signWBI(url), NetWorkUtil.webHeaders));
     }
 
 }

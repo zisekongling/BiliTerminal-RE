@@ -700,13 +700,25 @@ class VideoInfoFragment : BaseFragment() {
                 try {
                     val cid = if (videoInfo!!.cids != null && videoInfo!!.cids!!.isNotEmpty()) videoInfo!!.cids!![0] else 0L
                     val upMid = if (videoInfo!!.staff != null && videoInfo!!.staff!!.isNotEmpty()) videoInfo!!.staff!![0].mid else 0L
-                    val conclusion = VideoInfoApi.getVideoConclusion(videoInfo!!.aid, videoInfo!!.bvid, cid, upMid)
-                    if (conclusion != null) {
-                        MsgUtil.showText(UiText.of("视频摘要 - ") + videoInfo!!.title, conclusion)
-                    } else {
-                        MsgUtil.showMsg(UiText.of("获取视频摘要失败"))
+                    // 反馈 #127：以前不管哪种情况都只弹「获取视频摘要失败」，用户分不清是被风控、
+                    // 这个视频没有摘要，还是网络出了问题。现在按结果分别给文案。
+                    val result = VideoInfoApi.getVideoConclusion(videoInfo!!.aid, videoInfo!!.bvid, cid, upMid)
+                    when (result.kind) {
+                        VideoInfoApi.ConclusionKind.OK ->
+                            MsgUtil.showText(UiText.of("视频摘要 - ") + videoInfo!!.title, result.text)
+
+                        VideoInfoApi.ConclusionKind.NO_SUMMARY ->
+                            MsgUtil.showMsg(UiText.of("这个视频还没有 AI 摘要"))
+
+                        VideoInfoApi.ConclusionKind.REJECTED ->
+                            MsgUtil.showMsg(conclusionRejectedText(result))
+
+                        VideoInfoApi.ConclusionKind.FAILED ->
+                            MsgUtil.showMsg(UiText.of("获取视频摘要失败"))
                     }
                 } catch (e: Exception) {
+                    // 网络异常 / 响应根本解析不出来：MsgUtil.err 已按 IOException / JSONException
+                    // 分别给「网络错误」「数据解析错误」，比统一一句「获取摘要失败」更能说明问题。
                     MsgUtil.err(e)
                 }
             }
@@ -836,6 +848,24 @@ class VideoInfoFragment : BaseFragment() {
             coin.clearAnimation()
             fav.clearAnimation()
         }
+    }
+
+    /**
+     * 「AI 摘要被接口拒绝」的文案（反馈 #127）。
+     *
+     * 风控（-352/-412）沿用本页点赞/投币那两句同款提示，用户认得；其余情况把服务端原始码带上，
+     * 否则用户报障时说不清是哪一种拒绝。服务端偶尔会给一句中文原因（message），有就一起显示。
+     */
+    private fun conclusionRejectedText(result: VideoInfoApi.ConclusionResult): String = when {
+        result.code == -352 || result.code == -412 -> UiText.of("当前请求触发B站风控")
+        result.code == -101 -> UiText.of("还没有登录喵~")
+        result.message.isNotEmpty() -> UiText.fmt(
+            UiText.of("获取视频摘要被拒绝：%1\$s（错误码 %2\$s）"),
+            result.message,
+            result.code
+        )
+
+        else -> UiText.fmt(UiText.of("获取视频摘要被拒绝（错误码 %1\$s）"), result.code)
     }
 
     /**
