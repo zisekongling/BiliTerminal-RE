@@ -893,6 +893,9 @@ object UiText {
         "这个视频还没有 AI 摘要" to R.string.msg_video_conclusion_empty,
         "获取视频摘要被拒绝（错误码 %1\$s）" to R.string.msg_video_conclusion_rejected,
         "获取视频摘要被拒绝：%1\$s（错误码 %2\$s）" to R.string.msg_video_conclusion_rejected_reason,
+        // 反馈 #164：多 P 缓存卡片的页数标签 + 点开却一个成品都没有时的提示
+        "共%1\$sP" to R.string.text_cache_list_pages,
+        "没有可播放的缓存文件" to R.string.msg_cache_no_playable_file,
 // @INSERT
     )
 

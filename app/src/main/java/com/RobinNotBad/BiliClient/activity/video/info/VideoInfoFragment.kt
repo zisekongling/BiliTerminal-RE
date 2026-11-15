@@ -65,6 +65,7 @@ import com.RobinNotBad.BiliClient.ui.widget.RadiusBackgroundSpan
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CacheChangeSignal
 import com.RobinNotBad.BiliClient.util.CacheDeletePlan
+import com.RobinNotBad.BiliClient.util.CacheMediaPolicy
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.DetailEntryPrefs
 import com.RobinNotBad.BiliClient.util.FileUtil
@@ -1055,10 +1056,15 @@ class VideoInfoFragment : BaseFragment() {
     private fun startDownloadFlow() {
         val downPath = FileUtil.getVideoDownloadPath(videoInfo!!.title, null)
 
-        if (downPath.exists() && videoInfo!!.pagenames.size == 1) {
-            val fileSign = File(downPath, ".DOWNLOADING")
+        // 反馈 #164：单 P 这里以前判「目录存不存在」。目录里只剩封面/一次失败的残留时也会说
+        // 「已下载完成」，缓存页里却看不到这个视频——和 MultiPageActivity 的分 P 判定一起改成
+        // 与缓存列表同一套判据（有成品才算已下载，正在下载才算排队，其余放行重下）。
+        val downNames = downPath.list()?.toList()
+        if (videoInfo!!.pagenames.size == 1 &&
+            (CacheMediaPolicy.isDownloading(downNames) || CacheMediaPolicy.isCachedFolder(downNames))
+        ) {
             MsgUtil.showMsg(
-                if (fileSign.exists()) UiText.of("已在下载队列\n如有异常，长按可清空文件")
+                if (CacheMediaPolicy.isDownloading(downNames)) UiText.of("已在下载队列\n如有异常，长按可清空文件")
                 else UiText.of("已下载完成")
             )
         } else {

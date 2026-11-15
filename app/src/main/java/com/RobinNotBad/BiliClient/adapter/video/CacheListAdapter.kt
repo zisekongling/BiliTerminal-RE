@@ -23,6 +23,7 @@ import com.RobinNotBad.BiliClient.activity.video.local.DownloadListActivity
 import com.RobinNotBad.BiliClient.activity.video.local.LocalFolderListActivity
 import com.RobinNotBad.BiliClient.activity.video.local.LocalPageChooseActivity
 import com.RobinNotBad.BiliClient.api.PlayerApi
+import com.RobinNotBad.BiliClient.model.LocalPlaylistEntry
 import com.RobinNotBad.BiliClient.model.LocalVideo
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.VideoFolder
@@ -686,48 +687,48 @@ class CacheListAdapter(
             return
         }
 
-        if (video.videoFileList != null && video.videoFileList!!.size == 1) {
-            val playerData = PlayerData(PlayerData.TYPE_LOCAL)
-            playerData.videoUrl = video.videoFileList!![0]
-            if (video.danmakuFileList != null && video.danmakuFileList!!.isNotEmpty()) {
-                playerData.danmakuUrl = video.danmakuFileList!![0]
-            }
-            playerData.title = video.title
-            try {
-                val player = PlayerApi.jumpToPlayer(playerData)
-                if (playerData.videoUrl.endsWith("audio.m4a")) {
-                    player.putExtra("audio_only", true)
-                }
-                context.startActivity(player)
-            } catch (e: ActivityNotFoundException) {
-                MsgUtil.showMsg(UiText.of("跳转失败"))
-            }
-        } else if (video.videoFileList != null && video.videoFileList!!.size == 2) {
-            // DASH双文件：video.mp4 + audio.m4a
-            val videoUrl = video.videoFileList!!.firstOrNull { it.endsWith(".mp4") } ?: video.videoFileList!![0]
-            val audioUrl = video.videoFileList!!.firstOrNull { it.endsWith(".m4a") } ?: ""
-            val playerData = PlayerData(PlayerData.TYPE_LOCAL)
-            playerData.videoUrl = videoUrl
-            if (video.danmakuFileList != null && video.danmakuFileList!!.isNotEmpty()) {
-                playerData.danmakuUrl = video.danmakuFileList!![0]
-            }
-            playerData.title = video.title
-            try {
-                val player = PlayerApi.jumpToPlayer(playerData)
-                if (audioUrl.isNotEmpty()) {
-                    player.putExtra("audio_track_url", audioUrl)
-                }
-                context.startActivity(player)
-            } catch (e: ActivityNotFoundException) {
-                MsgUtil.showMsg(UiText.of("跳转失败"))
-            }
-        } else if (video.videoFileList != null && video.videoFileList!!.size > 2) {
+        // 反馈 #164：以前这里按**扁平文件数**猜布局——1 个当单文件、2 个当 DASH 双文件、
+        // 更多才开选页。问题在于「两个已缓存的分 P、每页各一个合并好的 mp4」也正好是 2 个文件，
+        // 于是被当成一页的 video+audio：第 2 集永远点不到，还会被当音轨塞给第 1 集配音。
+        // 现在先用 LocalPlaylistEntry 按**页目录名**折叠出「页」，页数 >1 一律进选页。
+        val entry = LocalPlaylistEntry.build(
+            video.title,
+            video.pageList,
+            video.videoFileList,
+            video.danmakuFileList,
+            video.cover
+        )
+        if (entry == null) {
+            MsgUtil.showMsg(UiText.of("没有可播放的缓存文件"))
+            return
+        }
+
+        if (entry.pageCount() > 1) {
             val intent = Intent(context, LocalPageChooseActivity::class.java)
-            intent.putExtra("pageList", video.pageList)
+            intent.putExtra("pageList", entry.pageNames)
             intent.putExtra("videoFileList", video.videoFileList)
             intent.putExtra("danmakuFileList", video.danmakuFileList)
             intent.putExtra("title", video.title)
             context.startActivity(intent)
+            return
+        }
+
+        // 单页：直接起播这一页的主文件；DASH 未合并时把外部音轨一起带上
+        val media = entry.mediaAt(0) ?: return
+        val playerData = PlayerData(PlayerData.TYPE_LOCAL)
+        playerData.videoUrl = media.videoFile
+        if (media.danmakuFile.isNotEmpty()) playerData.danmakuUrl = media.danmakuFile
+        playerData.title = video.title
+        try {
+            val player = PlayerApi.jumpToPlayer(playerData)
+            if (media.audioFile.isNotEmpty()) {
+                player.putExtra("audio_track_url", media.audioFile)
+            } else if (media.videoFile.endsWith("audio.m4a")) {
+                player.putExtra("audio_only", true)
+            }
+            context.startActivity(player)
+        } catch (e: ActivityNotFoundException) {
+            MsgUtil.showMsg(UiText.of("跳转失败"))
         }
     }
 
@@ -798,7 +799,11 @@ class CacheListAdapter(
             val size = String.format(Locale.CHINA, "%.1f", video.size / 1000000f) + "MB"
             val qualityTag = if (video.qualityList != null && video.qualityList!!.isNotEmpty())
                 " [" + video.qualityList!![0] + "]" else ""
-            extra.text = size + qualityTag
+            // 反馈 #164：合集在列表里只有一条，不标页数用户会以为后面几集没缓存上。
+            // 页数以磁盘上真扫到的 pageList 为准（下载中/没成品的那页不算）。
+            val pageTag = if (video.pageList != null && video.pageList!!.size > 1)
+                " · " + UiText.fmt("共%1\$sP", video.pageList!!.size) else ""
+            extra.text = size + qualityTag + pageTag
             try {
                 GlideUtil.with(cover).asDrawable().load(video.cover)
                     .transition(GlideUtil.getTransitionOptions())
