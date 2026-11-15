@@ -18,6 +18,17 @@
 
 ## 1. 当前版本状态
 
+- **26.11.16 手表端「老是掉登录」：启动页不按 `access_key` 分流 + 三处响应不关（用户原话「排查一下我这边容易掉登录的问题，问题出在cookie轮换上，可以对比截图项目的实现方法」）**：
+  - **来路**：用户直接报告，并指定对照截图里的兄弟仓库 `cyq114514/Re-BiliTerminal`（同源分支，1.3.9）。
+  - **对照结论（不是流程差异）**：两边轮换链路与错误码口径完全一致——`cookie/info` → `correspond/1/<path>` 取 `refresh_csrf` → `cookie/refresh`（旧 csrf + 旧口令）→ 落新凭据 → `confirm/refresh`（**新** `bili_jct` + **旧** `refresh_token`），且只有 `-101` 清登录态。兄弟仓库比我们多的只有三处健壮性细节：三个响应 `try-with-resources` 关闭、confirm 失败回滚 Cookie、`-111` 单列一档（我们已归 `RETRY`，等价）。回滚我们不需要：先落新 `refresh_token`、新 Cookie 由拦截器落盘，confirm 失败时新旧两侧都有效。
+  - **根因 1（主，APP/TV 登录用户）**：`util/CookieRefreshScheduler.refreshNow()` 按 `access_key` 分流，但 `activity/SplashActivity.kt` 的 `checkCookieRefresh()` 没有这条分流。`refresh_token` 在 `SharedPreferencesUtil` 里只有一个键：扫码登录写 Web 口令（`QRLoginFragment.kt:470/637`），短信/密码登录写 APP 口令（`SMSLoginFragment.kt:280-285`、`PasswordLoginFragment.kt:231-237`）。于是 APP/TV 登录的用户**每次冷启动**都可能把 APP 口令喂给 `web/cookie/refresh`，服务端回 `-101` 时走 `resetLogin()` → `AccountManager.clearCurrentLogin()`，**连仍然有效的 `access_key` 一起清掉**——明明还登着却要求重新登录。手表端主打账户密码/短信登录，命中率高。
+  - **根因 2**：同文件 `hasLocalSession()` 只认 Cookie 里的 `SESSDATA`。APP/TV 登录的账号 Cookie 里没有 `SESSDATA`（或已过期）时会被判成「未登录」，`checkCookieRefresh()` 结尾那条 `if (!hasLocalSession()) resetLogin(...)` 同样清整套。
+  - **根因 3**：`api/CookieRefreshApi.java` 的 `getRefreshCsrf()` / `cookie/refresh` / `confirm/refresh` 三处响应都只读 body、从不 `close()`。这条路径每次冷启动 + 每 30 分钟跑一次，漏掉的连接一直挂在 OkHttp 池里，累积到耗尽后**所有**请求一起失败，用户侧表现与「掉登录」分不清。兄弟仓库同一位置就有「此前响应从不关闭，登录检测高频路径会泄漏连接」的注释与改法。
+  - **改法**：`checkCookieRefresh()` 开头加 `access_key` 分流（日志「当前是 APP/TV 登录（有 access_key），跳过 Web Cookie 刷新」）；`hasLocalSession()` 先判 `access_key` 非空即算已登录；三处响应改 `try-with-resources`。
+  - **未改（建议另开）**：`util/CookieRefreshPolicy.kt:119-132` 的 `checkRefreshedCredentials()` 注释写的是「确认前必须核对**新**凭据已落本地」，实现只判 `sessData` 非空 + `cookieMid == expectedMid`——**刷新前的旧 SESSDATA 也满足**。若某次刷新的 `Set-Cookie` 没落盘（`saveCookiesLocked()` 在 SP 未就绪 / 代际判旧时会整条丢弃），仍返回 `READY`，接着 confirm 作废旧会话 = 必掉登录。真要堵需要加 `sessionCookieOld` 参数与新档 `SESSION_NOT_UPDATED`（连带改单测与调用方），本次不动。
+  - **L0**：见下条真机前的构建结果（`:app:assembleDebug` + 两个 flavor 的单测）。
+  - **未验证（L2）**：短信/密码登录 → 反复冷启动十几次不应被登出、日志里应出现「跳过 Web Cookie 刷新」；扫码登录的账号冷启动后仍能正常刷新出「Cookies已刷新」。
+
 - **26.11.15 私信正文复用评论区的链接识别（用户原话「消息页面发送的消息，能否复用评论区的超链接蓝色显示呢」）**：
   - **来路**：用户直接提的功能请求。
   - **改法**：`adapter/message/PrivateMsgAdapter.kt` 的 `PrivateMessage.TYPE_TEXT` 分支改走评论区同一个入口 `StringUtil.setLink(SpannableStringBuilder)`（评论区在 `model/Reply.java:174` 调的也是它）：裸链接 / `av` / `BV` / `cv` 都标记，颜色取 `ColorScheme.LINK`、点击走 `LinkClickableSpan`，整体受 `SharedPreferencesUtil.LINK_ENABLE`（偏好设置 → 功能 →「识别链接」，默认 true）管。`msg_text_content` 挂 `StringUtil.ClickableSpanTouchListener`——它自己在 ACTION_UP 里调 `onClick`，不依赖 `LinkMovementMethod`。

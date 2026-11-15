@@ -281,6 +281,12 @@
 
 实现侧对应 `api/CookieRefreshApi.refreshCookie()` 返回的 `RefreshResult{OK, RETRY, NEED_LOGIN}`：只有刷新接口返回 `-101` 才算 `NEED_LOGIN`；`86095`（refresh_csrf 错 / 口令与 Cookie 不匹配）之类只算 `RETRY`，**不得**清本地凭证。
 
+**26.11.16 补充（对照兄弟仓库 cyq114514/Re-BiliTerminal 同一文件后核实）**：
+
+4. **这套 Web 刷新只适用于 Web（扫码）登录**。`refresh_token` 在 `SharedPreferencesUtil` 里只有一个键，但它是**两套不通用**的口令：扫码登录写的是 Web 口令，`oauth2/refresh_token`（APP/TV 登录，见 `api/AppTokenRefreshApi`）写的是 APP 口令。拿 APP 口令去调 `web/cookie/refresh` 只会拿到 `86095`，最坏情况还会拿到 `-101` —— 而 `-101` 是会清登录态的那一档。所以**有 `access_key` 的账号一律走 `AppTokenRefreshApi`，不要进 Web 刷新**（`util/CookieRefreshScheduler.refreshNow()` 早已按 `access_key` 分流，启动页 `SplashActivity.checkCookieRefresh()` 26.11.16 才补上同一条分流）。
+5. **三个响应都必须关闭**：`getRefreshCsrf()`、`cookie/refresh`、`confirm/refresh` 都是高频路径（每次冷启动 + `CookieRefreshScheduler` 每 30 分钟一次），body 读完不会自动归还连接。兄弟仓库同一处注释写得很直白——「此前响应从不关闭，登录检测高频路径会泄漏连接」。泄漏累积到连接池耗尽时**所有**请求一起失败，用户侧的表现与「掉登录」无法区分。
+6. **两边的轮换流程本身是一致的**（我方的 `RefreshResult{OK,RETRY,NEED_LOGIN}` 与兄弟仓库的 `CookieRefreshResult{OK, REFRESH_RETRYABLE, REFRESH_REJECTED, CSRF_MISMATCH, CONFIRM_FAILED, …}` 只是档位名称不同）：只有 `-101` 判失效，`-111`（csrf 校验失败，本地 `bili_jct` 与 Cookie 不一致就会命中）与 `86095` 都按可重试处理。兄弟仓库额外做的「confirm 失败回滚 Cookie」我们不需要——我们先落新 `refresh_token`、新 Cookie 已由拦截器落盘，confirm 失败时新旧两侧都有效。
+
 ## 14. 番剧索引 / 推荐 / 动态筛选条件（26.11.07 实测）
 
 番剧分区页（`activity/video/BangumiActivity`）的三个数据源，两个接口都**无 WBI、Cookie 可选**（未登录能拿到完整结果）：
