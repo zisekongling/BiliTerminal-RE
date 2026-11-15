@@ -28,7 +28,8 @@ import java.util.Set;
  * 并且同时升 {@link NetWorkUtil} 的账号代际，把上一个账号还在飞的请求挡掉。
  *
  * <h3>多账号导入导出</h3>
- * {@link #exportAllAccounts()} 把所有账号（含当前账号的最新凭证）打成一份 JSON；
+ * {@link #exportCurrentAccount()} 只导出当前账号（三字段单条，给特殊登录页「查看登录信息」）；
+ * {@link #exportAllAccounts()} 把所有账号（含当前账号的最新凭证）打成一份 JSON，供独立的导出页；
  * {@link #importAccounts} 只写账号列表、**不动当前登录态**，所以导入不会把用户正在用的账号踢掉。
  */
 public class AccountManager {
@@ -392,6 +393,31 @@ public class AccountManager {
                 SharedPreferencesUtil.putLong(CURRENT_ACCOUNT_KEY, 0);
             }
             return removed;
+        }
+    }
+
+    /**
+     * 导出**当前账号**的单条登录信息（26.11.02 的三字段格式，见 {@link SpecialLoginParser}）。
+     *
+     * <p>这是特殊登录页「查看登录信息」里显示 / 复制的内容：只有 cookies / refresh_token /
+     * access_key 三个字段，与 26.11.02 发版逐字一致——老设备、别的终端都按这个格式读。
+     * 全部账号的多账号信封仍由 {@link #exportAllAccounts()} 提供，改由独立的导出页展示，
+     * 两边互不影响。
+     *
+     * @return 单条 JSON；本机未登录（没有 Cookie）时返回空串，调用方据此提示「还没有可导出的账号」
+     */
+    public static String exportCurrentAccount() {
+        String cookies = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "");
+        if (cookies == null || cookies.trim().isEmpty()) return "";
+        try {
+            JSONObject json = new JSONObject();
+            json.put("cookies", cookies);
+            json.put("refresh_token", SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, ""));
+            json.put("access_key", SharedPreferencesUtil.getString(SharedPreferencesUtil.access_key, ""));
+            return json.toString();
+        } catch (JSONException e) {
+            e.printStackTrace();
+            return "";
         }
     }
 

@@ -22,8 +22,10 @@ import com.RobinNotBad.BiliClient.util.ToolsUtil
  *    本类只负责把真身搬进槽位；同一个按钮在布局里出现第二次时，才复制一个「影子」出来。
  * 2. **影子只复刻外观，点击转发给真身**。这样「同一个按钮放多份、状态实时同步」不需要改任何
  *    业务代码：`syncMirrors()` 把真身的图标/文字/显隐抄给影子，点击走 `primary.performClick()`。
- * 3. **组（Slot.Group）** 在槽位里渲染成一个「更多」按钮，点开后把组内按钮搬进同一侧展开条
+ * 3. **组（Slot.Group）** 在槽位里渲染成一个「更多」格，点开后把组内按钮搬进同一侧展开条
  *    （右侧展开条在列左边、左侧在列右边、底部在按钮行上方），同一侧同时只开一组。
+ *    **没成员的组就是收纳格**：展开的是「没摆进任何槽位的按钮」，与有成员的组走同一条路径
+ *    （26.11.15 统一，两个概念合成一个）。
  */
 class PlayerButtonSlots(
     private val context: Context,
@@ -80,7 +82,7 @@ class PlayerButtonSlots(
     private val mirrorDrawableSource = HashMap<View, Drawable?>()
 
     /**
-     * 各区的组格（含「更多」收纳格）：槽位下标 → 展开内容的 keys。
+     * 各区的组格（有成员的是普通组，没成员的是收纳格）：槽位下标 → 展开内容的 keys。
      * render 时重建；[refreshEmptyGroups] 靠它算「这一格里还有没有可见按钮」。
      */
     private val groupCells = LinkedHashMap<PlayerUiLayout.Region, LinkedHashMap<Int, List<String>>>()
@@ -132,19 +134,13 @@ class PlayerButtonSlots(
             for (index in slots.indices) {
                 if (index >= regionKey.capacity) break
                 when (val slot = slots[index]) {
-                    is PlayerUiLayout.Slot.Button -> {
-                        if (slot.key == PlayerButtons.MORE) {
-                            // 「更多」＝自动收纳格：展开条里放的是当前没摆进布局的按钮。
-                            val keys = overflowKeys(layout)
-                            groupCells.getOrPut(regionKey) { LinkedHashMap() }[index] = keys
-                            region.container.addView(moreButton(region, regionKey, index, keys))
-                        } else {
-                            placeButton(region, regionKey, slot.key)
-                        }
-                    }
+                    is PlayerUiLayout.Slot.Button -> placeButton(region, regionKey, slot.key)
                     is PlayerUiLayout.Slot.Group -> {
-                        groupCells.getOrPut(regionKey) { LinkedHashMap() }[index] = slot.keys
-                        region.container.addView(moreButton(region, regionKey, index, slot.keys))
+                        // 空组＝收纳格（26.11.15 统一）：成员就是「没摆进任何槽位的按钮」，
+                        // 布局变了收纳内容跟着变；有成员的组照旧只展开它自己那几个成员。
+                        val keys = if (slot.keys.isEmpty()) overflowKeys(layout) else slot.keys
+                        groupCells.getOrPut(regionKey) { LinkedHashMap() }[index] = keys
+                        region.container.addView(moreButton(region, regionKey, index, keys))
                     }
                 }
             }
@@ -154,23 +150,15 @@ class PlayerButtonSlots(
     }
 
     /**
-     * 「自动收纳格」的内容：注册表里**没有出现在这份布局任何槽位（含组）**的 key，按候选
-     * 列表顺序排列。布局变了（增删按钮）收纳内容跟着变；多个「更多」各自展开的是同一份
-     * 清单（它们互相之间不算「已摆放」——收纳格是虚拟的，不占 [placedPrimaries]）。
+     * 「收纳格」（空组）的内容：注册表里**没有出现在这份布局任何槽位（含组）**的 key，按候选
+     * 列表顺序排列。布局变了（增删按钮）收纳内容跟着变；多个收纳格各自展开的是同一份清单
+     * （它们互相之间不算「已摆放」——收纳格本身不占 [placedPrimaries]）。
+     *
+     * 再按 `primaryOf != null` 过一遍：直播页 / 本地文件这些场景会把某些按钮从池子里摘掉，
+     * 没有真身的 key 收进来只会渲染成一个点不动的空格子。
      */
-    private fun overflowKeys(layout: PlayerUiLayout.Layout): List<String> {
-        val placed = HashSet<String>()
-        for (regionKey in PlayerUiLayout.Region.values()) {
-            for (slot in PlayerUiLayout.slots(layout, regionKey)) {
-                when (slot) {
-                    is PlayerUiLayout.Slot.Button -> placed.add(slot.key)
-                    is PlayerUiLayout.Slot.Group -> placed.addAll(slot.keys)
-                }
-            }
-        }
-        placed.remove(PlayerButtons.MORE)
-        return PlayerButtons.ALL.map { it.key }.filter { it !in placed && primaryOf(it) != null }
-    }
+    private fun overflowKeys(layout: PlayerUiLayout.Layout): List<String> =
+        PlayerUiLayout.unplacedKeys(layout).filter { primaryOf(it) != null }
 
     /** 收起所有展开的组（控制栏自动隐藏时调用，跟原来「更多」收起的手感一致）。 */
     fun collapseAll() {
@@ -178,8 +166,8 @@ class PlayerButtonSlots(
     }
 
     /**
-     * 空组格隐藏（26.11.09，需求②）：组里（或「更多」收纳格展开后）没有任何**可见**按钮时，
-     * 那个「更多」格本身也藏起来——留着它点开就是一条空条。
+     * 空组格隐藏（26.11.09，需求②）：组里（收纳格展开后也是一样）没有任何**可见**按钮时，
+     * 那一格本身也藏起来——留着它点开就是一条空条。
      *
      * 按钮显隐是动态的（看点按钮要等分段加载完、连播按钮要看队列），所以这个判定不能只在
      * render 时做一次：[syncMirrors] 已经是播放页挂的 400ms 对齐定时器在跑，跟着它一起刷新

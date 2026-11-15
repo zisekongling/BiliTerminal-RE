@@ -14,7 +14,7 @@ import com.RobinNotBad.BiliClient.R
  *
  * **不在这里的两样东西**：
  * - 播放时的点击行为（那是 `PlayerActivity` 的既有逻辑，按 key 派发）；
- * - 组格的展开/收起逻辑（在 `PlayerButtonSlots`；「更多」的**数据**登记在 [MORE]）。
+ * - 组格的展开/收起逻辑（在 `PlayerButtonSlots`；收纳格＝空组，只留一个旧存档标记 [MORE]）。
  *
  * 图标口径（26.11.09 对齐播放器真身）：锁定用 `icon_player_unlock`（播放页默认态就是解锁图）、
  * 看点用 `icon_folder`（播放页真身 `viewpoint_btn` 用的就是 folder，不再是借来的 star）。
@@ -57,8 +57,8 @@ object PlayerButtons {
      * 切上一个/下一个）或弹一张只有本页用的小卡片（睡眠定时、投币数量、收藏夹）。
      * 因此 [Button.settingsGroup] 全是 `null`——设置页卡片对它们只显示「这个按钮没有可单独调整的设置」。
      *
-     * **默认不摆进任何槽位**：老用户升级后布局不变，它们先躺在「更多」收纳格里，
-     * 用户想固定住再自己拖出去（这正是「更多」这次改造后应该有的用途）。
+     * **默认不摆进任何槽位**：老用户升级后布局不变，它们先躺在「收纳格」里（一个没加成员的
+     * 组格），用户想固定住再自己摆出去（这正是收纳格该有的用途）。
      */
     const val SLEEP_TIMER = "sleep_timer"
     const val LIKE = "like"
@@ -69,11 +69,12 @@ object PlayerButtons {
     const val NEXT_VIDEO = "next_video"
 
     /**
-     * 「更多」按钮：**自动收纳格**。26.11.09 起注册为可放置的按钮类型——摆进哪个区，
-     * 就在那个区挂一个「更多」格；点开时展开的是**当前没有摆进任何槽位的按钮**
-     * （即「这里没放的东西」），所以可以放多个「更多」来分摊，收纳内容会随布局自动变化。
-     * 与普通按钮的区别：不对应 button_pool 里的真身，渲染走 [PlayerButtonSlots] 的
-     * 组格路径（moreButton + 展开条）；**不能放进组里**（收纳格里再套收纳没有意义）。
+     * 「更多」：**旧存档里的收纳格标记，已经不是按钮了**（26.11.15 起）。
+     *
+     * 收纳格现在就是「空的一组按钮」——[PlayerUiLayout.Slot.Group] 里 keys 为空，播放页对
+     * 它展开「没摆进任何槽位的按钮」。所以这里只留一个字符串，供 [PlayerUiLayout] 解析老存档
+     * （独立的 `more` 单格、`{more}` 组）时迁移成空组；它**不在 [ALL] 里**，设置页的候选列表、
+     * 组内成员都不会再出现它。
      */
     const val MORE = "more"
 
@@ -136,9 +137,7 @@ object PlayerButtons {
         Button(DOWNLOAD, R.string.setting_player_btn_download, R.drawable.icon_download, mayHide = true),
         // 上一个/下一个复用线控跳曲那套逻辑（队列优先、再回落分P），单P且无连播队列时点了没反应，故标注意。
         Button(PREV_VIDEO, R.string.setting_player_btn_prev_video, R.drawable.icon_player_prev, mayHide = true),
-        Button(NEXT_VIDEO, R.string.setting_player_btn_next_video, R.drawable.icon_player_next, mayHide = true),
-        // 「更多」：自动收纳格，展开的是当前没摆进布局的按钮；渲染不走 button_pool 真身。
-        Button(MORE, R.string.setting_player_btn_more, R.mipmap.morehide)
+        Button(NEXT_VIDEO, R.string.setting_player_btn_next_video, R.drawable.icon_player_next, mayHide = true)
     )
 
     /**

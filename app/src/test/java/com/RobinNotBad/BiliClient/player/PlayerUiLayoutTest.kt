@@ -235,29 +235,60 @@ class PlayerUiLayoutTest {
     }
 
     @Test
-    fun `more slot survives round trip and can be duplicated`() {
-        // 「更多」＝自动收纳格：对布局格式而言就是一个普通 key，可单格、可多份
-        val twice = layout.add(layout.default(), PlayerUiLayout.Region.LEFT, PlayerUiLayout.Slot.Button(PlayerButtons.MORE))
-        val thrice = layout.add(twice, PlayerUiLayout.Region.RIGHT, PlayerUiLayout.Slot.Button(PlayerButtons.MORE))
-        assertEquals(1, twice.left.count { it == PlayerUiLayout.Slot.Button(PlayerButtons.MORE) })
-        assertEquals(1, thrice.left.count { it == PlayerUiLayout.Slot.Button(PlayerButtons.MORE) })
-        assertEquals(1, thrice.right.count { it == PlayerUiLayout.Slot.Button(PlayerButtons.MORE) })
+    fun `empty group is the collector and survives round trip`() {
+        // 26.11.15 统一：收纳格＝空组。它对布局格式而言就是一格普通槽位，可单格、可多份。
+        val twice = layout.add(layout.default(), PlayerUiLayout.Region.LEFT, PlayerUiLayout.Slot.Group(emptyList()))
+        val thrice = layout.add(twice, PlayerUiLayout.Region.RIGHT, PlayerUiLayout.Slot.Group(emptyList()))
+        assertEquals(1, twice.left.count { it == PlayerUiLayout.Slot.Group(emptyList()) })
+        assertEquals(1, thrice.right.count { it == PlayerUiLayout.Slot.Group(emptyList()) })
+        // 空组落盘就是 `{}`（老存档的 `more` 也读成它）
+        assertTrue(layout.encode(thrice).contains("{}"))
         assertEquals(thrice, layout.parse(layout.encode(thrice)))
     }
 
     @Test
+    fun `empty group token parses as collector`() {
+        val parsed = layout.parse("1;{};;;")
+        assertEquals(listOf<PlayerUiLayout.Slot>(PlayerUiLayout.Slot.Group(emptyList())), parsed.left)
+    }
+
+    @Test
+    fun `legacy more slot migrates to empty group`() {
+        // 老存档里独立的「更多」单格：不迁移成空组的话，这一格连同里面的收纳内容一起消失
+        val parsed = layout.parse("1;more;;;")
+        assertEquals(listOf<PlayerUiLayout.Slot>(PlayerUiLayout.Slot.Group(emptyList())), parsed.left)
+    }
+
+    @Test
     fun `more inside a group is dropped on parse`() {
-        // 收纳格不是按钮：组里再套一个「更多」在播放页拿不到真身，只会渲染出一个点不动的死格子。
+        // 收纳格没有真身：组里再套一个「更多」在播放页拿不到可展开的东西。
         // 旧版设置页能从「更多」格改成一组写出 {more}，所以解析这一层直接清掉。
         val parsed = layout.parse("1;{lock+more};;;")
         assertEquals(listOf<PlayerUiLayout.Slot>(PlayerUiLayout.Slot.Group(listOf("lock"))), parsed.left)
     }
 
     @Test
-    fun `group made only of more disappears`() {
-        // 整组只有收纳格 → 组里空无一人，这个槽位没有存在意义，直接不占格子
+    fun `group made only of more becomes the collector`() {
+        // 老存档的 {more}＝那个年代的空收纳格，跟 {} 是同一个东西
         val parsed = layout.parse("1;{more};;;")
-        assertEquals(emptyList<PlayerUiLayout.Slot>(), parsed.left)
+        assertEquals(listOf<PlayerUiLayout.Slot>(PlayerUiLayout.Slot.Group(emptyList())), parsed.left)
+    }
+
+    @Test
+    fun `unplaced keys are what the collector would show`() {
+        // 收纳格展开的内容＝没摆进布局的按钮；空组自己不算「已摆放」
+        val layout0 = layout.default()
+        val placed = layout.placedKeys(layout0)
+        assertTrue("lock" in placed)
+        assertTrue("loop" in placed) // 默认右列那组里的成员
+        val unplaced = layout.unplacedKeys(layout0)
+        // 默认布局没摆出去的只有 26.11.15 那 7 个动作类按钮 + 收藏等零散项
+        assertTrue("like" in unplaced)
+        assertTrue("sleep_timer" in unplaced)
+        assertTrue(unplaced.none { it in placed })
+        // 加一个空组不会改变这份清单
+        val withCollector = layout.add(layout0, PlayerUiLayout.Region.LEFT, PlayerUiLayout.Slot.Group(emptyList()))
+        assertEquals(unplaced, layout.unplacedKeys(withCollector))
     }
 
     @Test
