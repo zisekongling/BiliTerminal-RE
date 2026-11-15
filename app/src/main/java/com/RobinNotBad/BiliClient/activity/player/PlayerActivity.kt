@@ -616,6 +616,21 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private var timestamp_click: Long = 0
     private var onLongClick: Boolean = false
 
+    // ==================== 缩放诊断（反馈 #128 / #102） ====================
+    // 这两位用户报的是「捏合有时候能放大、有时候没反应，换显示方式也一样」，代码里的缩放链路是完整的，
+    // 找不出必然失效的分支，所以这一轮**只加观测、不改行为**：开关沿用「互动视频调试」
+    // （[SettingsKeys.PLAYER_INTERACTION_DEBUG]），关掉时一行都不打；拼装与判读在
+    // [PlayerZoomDiagnostics]（纯函数，有 JVM 单测），这里只负责读现场、打日志、留快照。
+    /** 这次事件被哪个分支提前 return 抢走了（点弹幕空降 / 长按切视频），没被抢走为 null。 */
+    private var zoomDiagSwallowedBy: PlayerTouchBranch? = null
+    /** 最近一次 MOVE 落在哪个分支。 */
+    private var zoomDiagBranch: PlayerTouchBranch = PlayerTouchBranch.NONE
+    /** 上一条 MOVE 日志的时间：MOVE 按 [zoomDiagMoveLogIntervalMs] 节流，避免每个 MOVE 一条。 */
+    private var zoomDiagLastMoveLogAt: Long = 0L
+    /** 上一次打过的状态签名：听视频 / 锁定这类状态变化只在真正变化时打一条。 */
+    private var zoomDiagLastStateKey: String = ""
+    private val zoomDiagMoveLogIntervalMs = 800L
+
     // ==================== 长按后纵向划切视频（task-14 ③） ====================
     /** 长按已触发后，是否已经开始记录「切视频划动」的起点。 */
     private var longPressSwitchTracking: Boolean = false
@@ -1652,6 +1667,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         if (doubleTapSeekEnabled) {
             doubleTapGestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
                 override fun onDoubleTap(e: MotionEvent): Boolean {
+                    // 缩放诊断：双击也被手势层收走，落分支时要能看出来（只是字段赋值）
+                    zoomDiagBranch = PlayerTouchBranch.DOUBLE_TAP
                     if (ijkPlayer != null && isPrepared && !isLiveMode) {
                         val x = e.x
                         val viewWidth = layout_control.width.toFloat()
@@ -1693,8 +1710,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             val doublemove_enabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_DOUBLEMOVE, true)
 
             layout_control.setOnTouchListener { v, event ->
+                // 缩放诊断（反馈 #128 / #102）：开关打开时才收集现场；关掉时只多一次
+                // SharedPreferences 读取和几个字段赋值，不拼字符串、不打日志。
+                val zoomDiag = zoomDiagOn()
+                if (zoomDiag && event.actionMasked == MotionEvent.ACTION_DOWN) zoomDiagOnGestureDown()
                 // task-14 ②③：点弹幕空降 / 长按后纵向划切视频，先于缩放与横滑判定处理。
-                if (handlePlayerTouchExtras(event)) return@setOnTouchListener true
+                if (handlePlayerTouchExtras(event)) {
+                    // 被前面的分支提前 return 抢走了——「捏合没轮到判定」正是要留的证据
+                    if (zoomDiag) zoomDiagOnGestureEnd()
+                    return@setOnTouchListener true
+                }
                 if (doubleTapSeekEnabled && doubleTapGestureDetector != null) {
                     doubleTapGestureDetector!!.onTouchEvent(event)
                 }
@@ -1713,20 +1738,37 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                         if (singleTouch) {
                             if (gesture_scaling) {
                                 videoMoveBy(0f, 0f)
-                            } else if (!handleSwipeSeekTouch(event) &&
-                                (!isVideoZoomed() || doublemove_enabled)
-                            ) {
-                                // 单指拖动只为查看放大后的画面：未缩放时 videoMoveBy 会被夹回原位，
-                                // 缩放后则取决于「缩放时可移动」。以前这里判 gesture_scaled，
-                                // 那个标志松手就复位，导致关掉「缩放时可移动」后仍能拖动。
-                                val currentX = event.getX(0)
-                                val currentY = event.getY(0)
-                                val deltaX = currentX - previousX
-                                val deltaY = currentY - previousY
-                                if (deltaX != 0f || deltaY != 0f) {
-                                    videoMoveBy(deltaX, deltaY)
-                                    previousX = currentX
-                                    previousY = currentY
+                                if (zoomDiag) {
+                                    zoomDiagBranch = PlayerTouchBranch.SCALE
+                                    zoomDiagLogMove()
+                                }
+                            } else {
+                                // 诊断要知道横滑门闸有没有吃掉这次 MOVE，所以先把结果存下来再判。
+                                // 语义与原来的短路写法完全一致：只在「这一轮没在捏合」时才调它。
+                                val seekHandled = handleSwipeSeekTouch(event)
+                                if (!seekHandled &&
+                                    (!isVideoZoomed() || doublemove_enabled)
+                                ) {
+                                    // 单指拖动只为查看放大后的画面：未缩放时 videoMoveBy 会被夹回原位，
+                                    // 缩放后则取决于「缩放时可移动」。以前这里判 gesture_scaled，
+                                    // 那个标志松手就复位，导致关掉「缩放时可移动」后仍能拖动。
+                                    val currentX = event.getX(0)
+                                    val currentY = event.getY(0)
+                                    val deltaX = currentX - previousX
+                                    val deltaY = currentY - previousY
+                                    if (deltaX != 0f || deltaY != 0f) {
+                                        videoMoveBy(deltaX, deltaY)
+                                        previousX = currentX
+                                        previousY = currentY
+                                    }
+                                    if (zoomDiag) {
+                                        zoomDiagBranch = PlayerTouchBranch.DRAG
+                                        zoomDiagLogMove()
+                                    }
+                                } else if (zoomDiag) {
+                                    zoomDiagBranch =
+                                        if (seekHandled) PlayerTouchBranch.SWIPE_SEEK else PlayerTouchBranch.NONE
+                                    zoomDiagLogMove()
                                 }
                             }
                         }
@@ -1739,6 +1781,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                                 videoMoveBy(deltaX, deltaY)
                                 previousX = currentX
                                 previousY = currentY
+                            }
+                            if (zoomDiag && !gesture_scaling) {
+                                zoomDiagBranch = PlayerTouchBranch.DRAG
+                                zoomDiagLogMove()
                             }
                         }
                     }
@@ -1775,11 +1821,23 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     hidecon.run()
                 }
 
+                // 每次手势只打一条摘要（不是每个 MOVE 一条）
+                if (zoomDiag && (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL)) {
+                    zoomDiagOnGestureEnd()
+                }
+
                 false
             }
         } else {
             layout_control.setOnTouchListener { _, motionEvent ->
-                if (handlePlayerTouchExtras(motionEvent)) return@setOnTouchListener true
+                // 缩放开关关着时手势层根本没建 ScaleGestureDetector，这里同样留一条现场，
+                // 免得「设置里看着是开的、实际没生效」这种情况完全没证据。
+                val zoomDiag = zoomDiagOn()
+                if (zoomDiag && motionEvent.actionMasked == MotionEvent.ACTION_DOWN) zoomDiagOnGestureDown()
+                if (handlePlayerTouchExtras(motionEvent)) {
+                    if (zoomDiag) zoomDiagOnGestureEnd()
+                    return@setOnTouchListener true
+                }
                 if (doubleTapSeekEnabled && doubleTapGestureDetector != null) {
                     doubleTapGestureDetector!!.onTouchEvent(motionEvent)
                 }
@@ -1788,6 +1846,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     motionEvent.action == MotionEvent.ACTION_CANCEL
                 ) {
                     endLongPressBoost()
+                    if (zoomDiag) zoomDiagOnGestureEnd()
                 }
                 false
             }
@@ -2072,6 +2131,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             }
         }
         if (autoHideMs > 0L) mainHandler?.postDelayed(hideLockIcon, autoHideMs)
+        // 锁定/解锁改了 control_layout 的可见性，正是「捏合没反应」的可疑时机，状态变了留一条
+        zoomDiagTraceState("lock")
     }
 
     private fun showLockHintIfNeeded() {
@@ -3971,6 +4032,95 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private fun isVideoZoomed(): Boolean =
         PlayerZoomPolicy.isZoomed(layout_video.scaleX, layout_video.scaleY)
 
+    // ==================== 缩放诊断（反馈 #128 / #102） ====================
+    // 观测代码只在这里和触摸链的几个 if 里，判读与拼装全在 PlayerZoomDiagnostics（纯函数、有单测）。
+    // 开关没开时这些函数连字符串都不拼，只有一次 SharedPreferences 读取。
+
+    /** 诊断开关：沿用「互动视频调试」，不新造开关。 */
+    private fun zoomDiagOn(): Boolean =
+        SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_INTERACTION_DEBUG, false)
+
+    private fun zoomDiagVisibility(view: View): String = when (view.visibility) {
+        View.VISIBLE -> "VISIBLE"
+        View.GONE -> "GONE"
+        View.INVISIBLE -> "INVISIBLE"
+        else -> "UNKNOWN(${view.visibility})"
+    }
+
+    /** 设置里的存档值。显示方式取**原始字符串**：播放器读它用的是布尔，两者对不上时要看得见。 */
+    private fun zoomDiagSaved(): PlayerZoomDiagnostics.Saved =
+        PlayerZoomDiagnostics.Saved(
+            scaleEnabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SCALE, true),
+            displayValue = SharedPreferencesUtil.getString(SettingsKeys.PLAYER_DISPLAY, ""),
+            doubleMoveEnabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_DOUBLEMOVE, true),
+        )
+
+    private fun zoomDiagSnapshot(): PlayerZoomDiagnostics.Snapshot =
+        PlayerZoomDiagnostics.Snapshot(
+            detectorCreated = scaleGestureDetector != null,
+            audioOnly = isAudioOnlyMode,
+            locked = PlayerLockPolicy.isLocked(lockPhase),
+            videoVisibility = zoomDiagVisibility(layout_video),
+            controlVisibility = zoomDiagVisibility(layout_control),
+            zoomed = isVideoZoomed(),
+            scaleX = layout_video.scaleX,
+            scaleY = layout_video.scaleY,
+            scaleBeginCount = scaleGestureListener?.diagBeginCount ?: 0,
+            scaleCount = scaleGestureListener?.diagScaleCount ?: 0,
+            scaleEndCount = scaleGestureListener?.diagEndCount ?: 0,
+            scaleIgnoredCount = scaleGestureListener?.diagIgnoredByGoneCount ?: 0,
+            branch = zoomDiagBranch,
+            swallowedBy = zoomDiagSwallowedBy,
+        )
+
+    /** 每轮手势开始：清上一轮的分支与计数器，留一份快照给设置页的「复制诊断信息」。 */
+    private fun zoomDiagOnGestureDown() {
+        zoomDiagBranch = PlayerTouchBranch.NONE
+        zoomDiagSwallowedBy = null
+        zoomDiagLastMoveLogAt = 0L
+        scaleGestureListener?.resetDiagCounters()
+        val snapshot = zoomDiagSnapshot()
+        PlayerZoomLastSnapshot.last = snapshot
+        Logu.i("zoom_diag", PlayerZoomDiagnostics.downLine(zoomDiagSaved(), snapshot))
+    }
+
+    /** MOVE 按 800ms 节流：一次拖动只留几条，不刷屏。 */
+    private fun zoomDiagLogMove() {
+        if (!zoomDiagOn()) return
+        val now = System.currentTimeMillis()
+        if (zoomDiagLastMoveLogAt != 0L && now - zoomDiagLastMoveLogAt < zoomDiagMoveLogIntervalMs) return
+        zoomDiagLastMoveLogAt = now
+        Logu.i("zoom_diag", PlayerZoomDiagnostics.moveLine(zoomDiagSnapshot()))
+    }
+
+    /** 每轮手势结束只打一条摘要，并刷新给设置页读的快照。 */
+    private fun zoomDiagOnGestureEnd() {
+        val snapshot = zoomDiagSnapshot()
+        PlayerZoomLastSnapshot.last = snapshot
+        Logu.i("zoom_diag", PlayerZoomDiagnostics.summaryLine(zoomDiagSaved(), snapshot))
+        zoomDiagBranch = PlayerTouchBranch.NONE
+        zoomDiagSwallowedBy = null
+    }
+
+    /**
+     * 状态变化（切听视频、锁屏、控件显隐）留痕：只在关键字段真的变了时打一条，
+     * 免得每个事件都刷一行。
+     */
+    private fun zoomDiagTraceState(reason: String) {
+        if (!zoomDiagOn()) return
+        val snapshot = zoomDiagSnapshot()
+        val key = "${snapshot.audioOnly}|${snapshot.locked}|${snapshot.videoVisibility}|" +
+            "${snapshot.controlVisibility}|${snapshot.detectorCreated}"
+        if (key == zoomDiagLastStateKey) return
+        zoomDiagLastStateKey = key
+        PlayerZoomLastSnapshot.last = snapshot
+        Logu.i(
+            "zoom_diag",
+            "[zoom] STATE $reason ${PlayerZoomDiagnostics.fieldLine(snapshot)} | " +
+                PlayerZoomDiagnostics.savedLine(zoomDiagSaved())
+        )
+    }
+
     private fun videoMoveBy(dx: Float, dy: Float) {
         var x = dx + layout_video.x
         var y = dy + layout_video.y
@@ -5761,8 +5911,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      * 拖动松手那一帧被当成点击。返回 true 表示这次触摸已被消费，调用方必须直接 return true。
      */
     private fun handlePlayerTouchExtras(event: MotionEvent): Boolean {
-        if (handleLongPressSwitchTouch(event)) return true
-        return handleDanmakuTimeJumpTap(event)
+        // 缩放诊断（反馈 #128 / #102）：这两个分支跑在缩放判定之前，谁把事件抢走了要留痕，
+        // 否则「捏合没反应」在日志里看不出是被前一个分支吞掉的。只是字段赋值，不影响返回值。
+        if (handleLongPressSwitchTouch(event)) {
+            zoomDiagSwallowedBy = PlayerTouchBranch.LONG_PRESS_SWITCH
+            return true
+        }
+        if (handleDanmakuTimeJumpTap(event)) {
+            zoomDiagSwallowedBy = PlayerTouchBranch.DANMAKU_TAP
+            return true
+        }
+        return false
     }
 
     /**
@@ -6075,6 +6234,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 layout_audio_only.visibility = View.GONE
                 if (mDanmakuView != null && isDanmakuVisible) mDanmakuView!!.setVisibility(View.VISIBLE)
             }
+            // 听视频模式会把 layout_video 设成 GONE（此时捏合必然被监听器忽略），状态变化留一条
+            zoomDiagTraceState("audio_only")
         }
     }
 

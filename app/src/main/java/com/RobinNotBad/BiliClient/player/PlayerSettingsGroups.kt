@@ -1,17 +1,25 @@
 package com.RobinNotBad.BiliClient.player
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.player.PlayerLongPressPolicy
 import com.RobinNotBad.BiliClient.activity.player.PlayerSwipeSeekScalePolicy
+import com.RobinNotBad.BiliClient.activity.player.PlayerZoomDiagnostics
+import com.RobinNotBad.BiliClient.activity.player.PlayerZoomLastSnapshot
 import com.RobinNotBad.BiliClient.activity.settings.SettingSkipActivity
 import com.RobinNotBad.BiliClient.adapter.SettingsAdapter
 import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.util.DanmakuDiskCache
+import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * 内置播放器的设置项分组表。
@@ -281,7 +289,39 @@ object PlayerSettingsGroups {
             "true"))
         out.add(SettingSection("switch", context.getString(R.string.setting_player_high_energy),
             SettingsKeys.PLAYER_HIGH_ENERGY, context.getString(R.string.desc_player_high_energy), "false"))
+        // 缩放诊断的「一键取证」入口（反馈 #128 / #102）。只在「互动视频调试」打开时出现：
+        // 这是给复现问题后收集现场用的，正常用户不需要，也不该在设置里多出一行看不懂的东西。
+        // 复制的内容由 PlayerZoomDiagnostics.report() 拼装，快照是播放页留的最后一次现场。
+        if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_INTERACTION_DEBUG, false)) {
+            out.add(
+                SettingSection(
+                    "nav",
+                    context.getString(R.string.player_zoom_dump_name),
+                    "",
+                    context.getString(R.string.desc_player_zoom_dump),
+                    "",
+                    SettingsAdapter.NavExtra(R.drawable.icon_menu, { view -> copyZoomDump(view.context) })
+                )
+            )
+        }
         return out
+    }
+
+    /** 把播放器缩放相关的状态拼成一段文本放进剪贴板，用户直接贴给开发者。 */
+    private fun copyZoomDump(context: Context) {
+        val saved = PlayerZoomDiagnostics.Saved(
+            scaleEnabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SCALE, true),
+            // 取**原始**存档字符串：播放器读 player_display 用的是布尔，两者对不上时要看得见
+            displayValue = SharedPreferencesUtil.getString(SettingsKeys.PLAYER_DISPLAY, ""),
+            doubleMoveEnabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_DOUBLEMOVE, true)
+        )
+        val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+        val text = PlayerZoomDiagnostics.report(saved, PlayerZoomLastSnapshot.last, stamp)
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(
+            ClipData.newPlainText(context.getString(R.string.player_zoom_dump_name), text)
+        )
+        MsgUtil.showMsg(context.getString(R.string.msg_player_zoom_dump_copied))
     }
 
     /**
