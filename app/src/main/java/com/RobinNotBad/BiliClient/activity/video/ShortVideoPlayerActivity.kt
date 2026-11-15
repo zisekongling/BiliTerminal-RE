@@ -56,6 +56,8 @@ import com.RobinNotBad.BiliClient.player.IjkPlayerBridge
 import com.RobinNotBad.BiliClient.player.PlayerState
 import com.RobinNotBad.BiliClient.player.PlayerVolumePolicy
 import com.RobinNotBad.BiliClient.player.ShortVideoDanmakuPolicy
+import com.RobinNotBad.BiliClient.player.ShortVideoSurfaceAction
+import com.RobinNotBad.BiliClient.player.ShortVideoSurfaceRebindPolicy
 import com.bumptech.glide.Glide
 import master.flame.danmaku.ui.widget.DanmakuView
 import kotlinx.coroutines.CoroutineScope
@@ -522,6 +524,27 @@ class ShortVideoPagerAdapter(
         private var stateJob: Job? = null
         private var playerReady = false
         private var textureView: TextureView? = null
+
+        /**
+         * 当前 [textureView] 的 SurfaceTexture 包出来的 Surface。
+         *
+         * 同一个 SurfaceTexture 只建一个：`Surface(st)` 是 native 句柄的包装，对象被 GC 不会
+         * 归还 native 资源，每次 surface 回调都新建一个就会持续泄漏（`PlayerSurfaceBinder`
+         * 的 `obtainTextureSurface` 记的是同一个坑）。换纹理或解绑时 release。
+         */
+        private var textureSurface: Surface? = null
+        private var textureSurfaceToken: SurfaceTexture? = null
+
+        /**
+         * 这个 holder 的 surface 丢了还没补上过一帧。
+         *
+         * 页面滑走时 TextureView 会摘掉 surface（[TextureView.SurfaceTextureListener.onSurfaceTextureDestroyed]
+         * → `setSurface(null)`），滑回来是一个新的 SurfaceTexture。此时播放器往往已经是
+         * prepared 的**暂停**状态：mediacodec 拿到新 surface 不会主动重绘上一帧，暂停中也不再
+         * 产新帧，于是整页停在纯黑（封面在 prepare 时已隐藏，页底是黑色）——反馈 #167
+         * 「回滑之后视频就黑了」。这个标记就是「该页需要重新出帧」的判据。
+         */
+        private var needsRepaint = false
         private var danmakuView: DanmakuView? = null
         private var danmakuManager: DanmakuManager? = null
         private var currentItem: ShortVideoItem? = null
@@ -1120,6 +1143,10 @@ class ShortVideoPagerAdapter(
         private fun initPlayer(item: ShortVideoItem) {
             if (playerReady) return
 
+            // 新建播放器 = 新的 surface 生命周期：上一条（或上一次挂载）丢过的 surface 不算数，
+            // 否则第一次挂载就会被判成「丢过 surface」而多 seek 一次
+            needsRepaint = false
+
             // 与 lastBufferingVisible 同步，避免状态收集因“值相同”而不再纠正可见性
             lastBufferingVisible = true
             bufferingIndicator.visibility = View.VISIBLE
@@ -1148,12 +1175,15 @@ class ShortVideoPagerAdapter(
                         override fun onSurfaceTextureAvailable(
                             st: SurfaceTexture, w: Int, h: Int
                         ) {
-                            playerBridge.setSurface(Surface(st))
+                            bindTextureSurface(st)
                         }
 
                         override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
                         override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                            // 先让播放器松手，再放掉我们自己包出来的 Surface
                             playerBridge.setSurface(null)
+                            needsRepaint = true
+                            releaseTextureSurface()
                             return true
                         }
 
@@ -1187,6 +1217,9 @@ class ShortVideoPagerAdapter(
 
                 playerBridge.setOnPrepared {
                     isPrepared = true
+                    // prepare 完成时还没有 surface（页面还没上屏，或 surface 已被摘掉）：
+                    // 等它真的挂上来时要强制出一帧，否则 mediacodec 没有输出目标，起来就是黑的
+                    if (textureSurface == null) needsRepaint = true
                     val st = playerBridge.state.value
                     videoAll = st.duration.toInt()
                     progressStr = StringUtil.toTime(videoAll / 1000)
@@ -1257,6 +1290,96 @@ class ShortVideoPagerAdapter(
                 isPlaying = false
                 MsgUtil.showMsg(UiText.of("播放器初始化失败"))
             }
+        }
+
+        /**
+         * 把 [st] 包出来的 Surface 挂到播放器上，再按 [ShortVideoSurfaceRebindPolicy] 决定要不要
+         * 「强制出帧 / 接着播」。
+         *
+         * 幂等：页面滑回来时「surface 回调」与「onPageSelected → setActive(true)」的先后顺序
+         * 并不确定，两条路径最终都落到这里。重复调用不会重复建 Surface，也不会重复 seek。
+         */
+        private fun bindTextureSurface(st: SurfaceTexture) {
+            if (textureSurfaceToken !== st) {
+                // 换了纹理：先把旧包装从播放器上摘下来再释放，
+                // 否则播放器可能还在持有一个已被 release 的 Surface
+                playerBridge.setSurface(null)
+                releaseTextureSurface()
+                textureSurface = Surface(st)
+                textureSurfaceToken = st
+            }
+            val surface = textureSurface ?: return
+            playerBridge.setSurface(surface)
+
+            val action = ShortVideoSurfaceRebindPolicy.decide(
+                hasTexture = true,
+                needsRepaint = needsRepaint,
+                isPrepared = isPrepared,
+                isActive = isActive,
+                // 横滑到详情页时宿主不在第 0 页：这一页就算重新拿到 surface 也不许自己起播
+                // （否则详情页背景音会响，破坏「滑去详情页暂停」这个既有行为）
+                feedVisible = activity.currentShellPage() == 0
+            )
+            // 先落标记再执行动作：repaint 里的 play() 不能再走一次「补 surface」
+            needsRepaint = false
+
+            when (action) {
+                ShortVideoSurfaceAction.ATTACH_REPAINT ->
+                    repaintAfterSurfaceRebind(startAfter = false)
+
+                ShortVideoSurfaceAction.ATTACH_REPAINT_AND_START ->
+                    repaintAfterSurfaceRebind(startAfter = true)
+
+                ShortVideoSurfaceAction.ATTACH_ONLY,
+                ShortVideoSurfaceAction.NONE -> Unit
+            }
+        }
+
+        /**
+         * 幂等入口：确保「该往哪画」这件事当前是接好的。
+         *
+         * 由 [setActive] 在页面变活跃时调用。正常情况下 surface 回调已经处理过，这里直接返回；
+         * 只有回调顺序被打乱（surface 就绪早于 / 晚于页面活跃）时才真去补一次，
+         * 避免「播放器在播、画面却全黑、也没有任何回调能救回来」这种状态。
+         */
+        fun ensureSurfaceReady() {
+            val st = textureView?.surfaceTexture ?: return
+            val bound = textureSurface
+            // 已经挂在同一个 SurfaceTexture 上且没丢过：不重复 setSurface（重复会触发一次 flush）
+            if (bound != null && textureSurfaceToken === st && !needsRepaint) return
+            bindTextureSurface(st)
+        }
+
+        /**
+         * 换过 surface 之后强制出一帧。
+         *
+         * 只 `setSurface` 是不够的：mediacodec 的输出链路在换 surface 后不会主动重绘上一帧，
+         * 而暂停中的播放器更是一个新帧都不解 —— 页面就停在纯黑（封面在 prepare 时已隐藏，
+         * 页底是 `@android:color/black`）。长视频那边同样是重挂后 seek 回当前位置强制出画面
+         * （`PlayerActivity` 的 `onSurfaceReattached`）。
+         */
+        private fun repaintAfterSurfaceRebind(startAfter: Boolean) {
+            if (!isPrepared) return
+            // 以播放器真实位置为准，拿不到时才退回最近一次采样值
+            val target = playerBridge.currentPosition.takeIf { it > 0L } ?: videoNow.toLong()
+            try {
+                playerBridge.seekTo(target)
+                danmakuManager?.seekTo(target)
+            } catch (e: Exception) {
+                Logu.e("ShortVideo", "重挂 surface 后强制出帧失败: ${e.message}")
+            }
+            if (startAfter) play()
+        }
+
+        /** 放掉当前 Surface 包装；SurfaceTexture 本身归 TextureView 管，这里不碰。 */
+        private fun releaseTextureSurface() {
+            try {
+                textureSurface?.release()
+            } catch (e: Exception) {
+                Logu.e("ShortVideo", "释放 Surface 异常: ${e.message}")
+            }
+            textureSurface = null
+            textureSurfaceToken = null
         }
 
         /**
@@ -1464,6 +1587,9 @@ class ShortVideoPagerAdapter(
                 isPlaying = false
                 return
             }
+            // 起播前把画面通道再确认一次：回滑回来时 surface 可能刚被摘掉或还没挂上，
+            // 直接 start() 只会播出声音、画面停在黑帧（反馈 #167）
+            ensureSurfaceReady()
             playerBridge.start()
             isPlaying = true
             buttonVideo.setImageResource(R.drawable.btn_player_pause)
@@ -1493,6 +1619,9 @@ class ShortVideoPagerAdapter(
 
         fun resume() {
             if (isPrepared) {
+                // 手动点播放 / 回前台续播：surface 可能还没挂回来，先补好通道再 start，
+                // 否则只有声音没有画面（反馈 #167）
+                ensureSurfaceReady()
                 // 已经播到结尾（自动接续失败停住的情况）：先回到开头，否则 start() 会立刻再次触发完成
                 if (videoAll > 0 && videoNow >= videoAll - 250) {
                     playerBridge.seekTo(0)
@@ -1512,6 +1641,9 @@ class ShortVideoPagerAdapter(
         fun setActive(active: Boolean) {
             isActive = active
             if (active) {
+                // 回滑回到这一页：它的 surface 可能已经随页面 detach 被摘掉，
+                // 这里先把画面通道补好再决定起播，否则 start() 出的是黑帧（反馈 #167）
+                ensureSurfaceReady()
                 if (isPrepared && !isPlaying) {
                     playerBridge.start()
                     isPlaying = true
@@ -1552,6 +1684,8 @@ class ShortVideoPagerAdapter(
                 Logu.e("ShortVideo", "释放播放器异常: ${e.message}")
             }
             playerReady = false
+            releaseTextureSurface()
+            needsRepaint = false
             textureView = null
             isPrepared = false
             isPlaying = false
