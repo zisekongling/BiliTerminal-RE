@@ -73,11 +73,12 @@ data class IslandDecision(
 object IslandPolicy {
 
     /**
-     * 功能总闸：26.11.08 曾暂时关闭并隐藏入口，26.11.09 用户要求恢复。
+     * 功能总闸：26.11.08 曾暂时关闭并隐藏入口，26.11.09 恢复，26.11.15 用户要求**永久关闭**。
      *
-     * 顶栏开关、设置项、搜索索引三处都读这个常量；关着时即使存档里残留 true 也不会挂载。
+     * 顶栏开关、设置项、搜索索引三处都读这个常量；关着时即使存档里残留 true 也不会挂载，
+     * 且「外观 → 灵动岛设置」入口与搜索索引里那 7 条会一起消失（代码保留，改回 true 即可恢复）。
      */
-    const val FEATURE_ENABLED = true
+    const val FEATURE_ENABLED = false
 
     /** 胶囊宽度按屏幕宽度封顶的比例（26.11.08：233dp 屏的 31% ≈ 72dp）。 */
     const val PILL_SCREEN_RATIO = 0.31f

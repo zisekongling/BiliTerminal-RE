@@ -57,8 +57,9 @@
     <!-- 「询问我」档的提示（26.11.14 逐类别三档） -->
     <string name="player_sb_ask_skip">这里有%1$s，要跳过去吗？</string>
 
-    <!-- 「跳过设置」二级页（26.11.14 起；入口在「选择播放器」页） -->
-    <string name="player_skip_page_name">跳过设置</string>
+    <!-- 「跳过设置」二级页（26.11.14 起；入口在「选择播放器」页）。
+         26.11.15 按用户要求标注「实验性」：类别与档位还在反复调。 -->
+    <string name="player_skip_page_name">跳过设置（实验性）</string>
     <string name="player_skip_page_desc">片头片尾与广告片段：关闭、询问我、自动跳转</string>
     <string name="player_skip_section_op_ed">片头片尾</string>
     <string name="player_skip_section_sponsor">广告片段（社区标注）</string>

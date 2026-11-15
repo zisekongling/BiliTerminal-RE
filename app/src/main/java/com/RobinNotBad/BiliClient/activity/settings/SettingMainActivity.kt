@@ -50,7 +50,12 @@ class SettingMainActivity : InstanceActivity() {
             return
         }
         for (entry in entries) {
-            if (entry.name.contains(q) || entry.desc.contains(q)) {
+            // name / desc 是界面上能看到的字，keywords 是「用户口语里的另一种叫法」（26.11.15 新增，
+            // 见 SettingsIndex.Entry）。三处都忽略大小写，省得为了搜「density」去猜大小写。
+            if (entry.name.contains(q, ignoreCase = true) ||
+                entry.desc.contains(q, ignoreCase = true) ||
+                entry.keywords.contains(q, ignoreCase = true)
+            ) {
                 addResult(entry)
             }
         }

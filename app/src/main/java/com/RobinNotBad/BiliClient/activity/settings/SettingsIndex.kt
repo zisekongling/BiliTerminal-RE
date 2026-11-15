@@ -20,9 +20,16 @@ import com.RobinNotBad.BiliClient.util.OptionalFeatures
  */
 object SettingsIndex {
 
+    /**
+     * 一条可搜索的设置。
+     *
+     * [keywords] 只参与匹配、不显示在结果里：给「用户嘴里的叫法」与「界面上的叫法」不一致的
+     * 项目补别名（例如「播放器界面」也叫「播放器按钮」），避免为了可搜性去改界面文案。
+     */
     data class Entry(
         val name: String,
         val desc: String = "",
+        val keywords: String = "",
         val open: (Activity) -> Unit
     )
 
@@ -96,7 +103,12 @@ object SettingsIndex {
         }
         // 「播放器界面」（自定义播放器按钮布局）入口：26.11.06 曾藏起来，26.11.09 已恢复，
         // 入口在「选择播放器」页的卡片；这里同样保留可搜索条目。
-        list += Entry(text(R.string.pagename_setting_player_ui), text(R.string.setting_player_ui_entry_desc)) { a ->
+        // 26.11.15：标题加「（实验性）」，并补「播放器按钮」这类用户口语别名（keywords 只参与匹配）。
+        list += Entry(
+            text(R.string.pagename_setting_player_ui),
+            text(R.string.setting_player_ui_entry_desc),
+            "播放器按钮 按钮设置 按钮布局 界面按钮 播放界面布局 实验 实验性"
+        ) { a ->
             a.startActivity(Intent(a, SettingPlayerUiActivity::class.java))
         }
         list += Entry(text(R.string.settingtext_settingsindex_003), text(R.string.settingtext_settingsindex_004)) { a ->
@@ -134,6 +146,11 @@ object SettingsIndex {
             text(R.string.settingtext_settinggroupactivity_003),
             text(R.string.settingtext_settingsindex_006)
         ) { a -> openGroup(a, "account", groupAccount, text(R.string.settingtext_settinggroupactivity_003)) }
+        // 「登录凭证状态」（26.11.15 补收录）：弹窗类条目，名字与页内 SettingSection.name 严格一致。
+        list += Entry(
+            text(R.string.settingtext_settinggroupactivity_005),
+            text(R.string.settingtext_settingsindex_083)
+        ) { a -> openGroup(a, "account", groupAccount, text(R.string.settingtext_settinggroupactivity_005)) }
         list += Entry(text(R.string.pagename_setting_menu), text(R.string.settingtext_settinggroupactivity_041)) { a ->
             a.startActivity(Intent(a, SettingMenuActivity::class.java))
         }
@@ -158,6 +175,11 @@ object SettingsIndex {
         list += Entry(text(R.string.pagename_update_check), text(R.string.settingtext_settinggroupactivity_079)) { a ->
             a.startActivity(Intent(a, UpdateActivity::class.java))
         }
+        // 「更新通道」（26.11.15 补收录）：在「关于与帮助」页里，是稳定 / 测试 / 实验三档下拉。
+        list += Entry(
+            text(R.string.setting_update_channel),
+            text(R.string.settingtext_settingsindex_094)
+        ) { a -> openGroup(a, "about", groupAbout, text(R.string.setting_update_channel)) }
         list += Entry(text(R.string.pagename_announcementsactivity_001), text(R.string.settingtext_settinggroupactivity_080)) { a ->
             a.startActivity(Intent(a, AnnouncementsActivity::class.java))
         }
@@ -198,8 +220,9 @@ object SettingsIndex {
             text(R.string.setting_immersive_fullscreen),
             text(R.string.desc_setting_immersive_fullscreen)
         ) { a -> openGroup(a, "layout", groupLayout, text(R.string.setting_immersive_fullscreen)) }
-        // 顶栏灵动岛：26.11.08 曾暂时关闭并隐藏入口，26.11.09 恢复。
-        // 26.11.14 起设置项搬到「外观 → 灵动岛设置」，索引这里同步指过去（含 5 个筛选开关与轮换间隔）。
+        // 顶栏灵动岛：26.11.08 曾暂时关闭并隐藏入口，26.11.09 恢复，
+        // 26.11.15 用户要求「隐藏并永久关闭」——总闸在 IslandPolicy.FEATURE_ENABLED，这里跟着一起消失。
+        // 26.11.14 起设置项在「外观 → 灵动岛设置」，索引这里指过去（含 5 个筛选开关与轮换间隔）。
         if (IslandPolicy.FEATURE_ENABLED) {
             val islandTitle = text(R.string.setting_topbar_island)
             list += Entry(
@@ -295,6 +318,25 @@ object SettingsIndex {
             text(R.string.setting_index_background_scrim),
             text(R.string.desc_setting_index_background_scrim)
         ) { a -> openGroup(a, GROUP_APPEARANCE, groupAppearance, text(R.string.appearance_background_scrim_title)) }
+        // 26.11.15 补收录的 4 条外观项：字体两行（选择 / 恢复系统字体）、转场动画开关、
+        // 清除背景图。名字必须与 buildAppearanceGroup() 里 SettingSection.name 逐字一致——
+        // 字体两项页内用的是中文字面量，经 SettingText 映射到下面这两个资源。
+        list += Entry(
+            text(R.string.settingtext_settinggroupactivity_038),
+            text(R.string.settingtext_settingsindex_084)
+        ) { a -> openGroup(a, GROUP_APPEARANCE, groupAppearance, text(R.string.settingtext_settinggroupactivity_038)) }
+        list += Entry(
+            text(R.string.settingtext_settinggroupactivity_040),
+            text(R.string.settingtext_settingsindex_085)
+        ) { a -> openGroup(a, GROUP_APPEARANCE, groupAppearance, text(R.string.settingtext_settinggroupactivity_040)) }
+        list += Entry(
+            text(R.string.appearance_page_motion_name),
+            text(R.string.settingtext_settingsindex_087)
+        ) { a -> openGroup(a, GROUP_APPEARANCE, groupAppearance, text(R.string.appearance_page_motion_name)) }
+        list += Entry(
+            text(R.string.appearance_background_clear),
+            text(R.string.settingtext_settingsindex_086)
+        ) { a -> openGroup(a, GROUP_APPEARANCE, groupAppearance, text(R.string.appearance_background_clear)) }
         list += Entry(
             text(R.string.settingtext_settinggroupactivity_021),
             text(R.string.settingtext_settingsindex_017)
@@ -311,6 +353,21 @@ object SettingsIndex {
             text(R.string.settingtext_settinggroupactivity_024),
             text(R.string.settingtext_settingsindex_020)
         ) { a -> openGroup(a, "ui", groupUi, text(R.string.settingtext_settinggroupactivity_024)) }
+
+        // ---- 伪装与安全 内联项（26.11.15 补收录）----
+        // 三处名字与 buildDisguiseGroup() 里的 SettingSection.name 逐字一致。
+        list += Entry(
+            text(R.string.text_setting_disguise_enabled),
+            text(R.string.settingtext_settingsindex_088)
+        ) { a -> openGroup(a, GROUP_DISGUISE, text(R.string.text_setting_disguise_group), text(R.string.text_setting_disguise_enabled)) }
+        list += Entry(
+            text(R.string.text_setting_disguise_style),
+            text(R.string.settingtext_settingsindex_089)
+        ) { a -> openGroup(a, GROUP_DISGUISE, text(R.string.text_setting_disguise_group), text(R.string.text_setting_disguise_style)) }
+        list += Entry(
+            text(R.string.text_setting_disguise_code),
+            text(R.string.settingtext_settingsindex_090)
+        ) { a -> openGroup(a, GROUP_DISGUISE, text(R.string.text_setting_disguise_group), text(R.string.text_setting_disguise_code)) }
 
         // ---- 缓存与下载 内联项 ----
         list += Entry(
@@ -353,6 +410,15 @@ object SettingsIndex {
             text(R.string.settingtext_settinggroupactivity_058),
             text(R.string.settingtext_settingsindex_032)
         ) { a -> openGroup(a, "download", groupDownload, text(R.string.settingtext_settinggroupactivity_058)) }
+        // 26.11.15 补收录：默认缓存画质（长按缓存 / 批量下载都读它）与存储权限授权入口。
+        list += Entry(
+            text(R.string.cache_default_quality),
+            text(R.string.settingtext_settingsindex_091)
+        ) { a -> openGroup(a, "download", groupDownload, text(R.string.cache_default_quality)) }
+        list += Entry(
+            text(R.string.setting_btn_storage_permission),
+            text(R.string.settingtext_settingsindex_092)
+        ) { a -> openGroup(a, "download", groupDownload, text(R.string.setting_btn_storage_permission)) }
 
         // ---- 高级与实验 内联项 ----
         list += Entry(
@@ -403,6 +469,12 @@ object SettingsIndex {
             text(R.string.setting_index_round_list),
             text(R.string.desc_setting_index_round_list)
         ) { a -> openGroup(a, "lab", groupLab, text(R.string.setting_index_round_list)) }
+        // 「缓存页文件夹入口」（26.11.15 补收录）：页内名字是尚未进 strings.xml 的中文字面量，
+        // 这里必须用同一个字面量当匹配键（SettingText 没有映射，两边显示的就是这个字面量）。
+        list += Entry(
+            "缓存页文件夹入口",
+            text(R.string.settingtext_settingsindex_093)
+        ) { a -> openGroup(a, "lab", groupLab, "缓存页文件夹入口") }
 
         // ---- 叶子设置项（独立设置页）----
         // 26.11.07：详情页动作区两个默认隐藏的入口。名字必须与 SettingInfoActivity 里
@@ -453,7 +525,9 @@ object SettingsIndex {
             text(R.string.settingtext_settingprefactivity_023),
             text(R.string.settingtext_settingprefactivity_025),
             text(R.string.settingtext_settingprefactivity_026),
-            text(R.string.settingtext_settingprefactivity_027)
+            text(R.string.settingtext_settingprefactivity_027),
+            // 「私信拦截提示」（26.11.15 补收录）：在「更新提醒」段里，此前漏收。
+            text(R.string.settingtext_settingprefactivity_033)
         ))
         // 「通知设置」分组的叶子项：全局搜索要能找到这两个开关。
         // 跳转目标是 SettingGroupActivity（分组页），靠 highlight 按项名滚动定位——
@@ -528,7 +602,18 @@ object SettingsIndex {
             // 顶部标题栏三件套（26.11.06 新增，名字与页内 SettingSection.name 严格一致）
             text(R.string.setting_player_ui_show_title),
             text(R.string.setting_player_ui_show_battery),
-            text(R.string.setting_player_ui_show_clock)
+            text(R.string.setting_player_ui_show_clock),
+            // 26.11.15 补收录的 7 项：返回键退出、快进步长、弹幕屏蔽词、短视频弹幕三项、弹幕停留时长。
+            // 名字与 PlayerSettingsGroups.kt 里的 SettingSection.name 严格一致（都取同一批资源）。
+            // 注意「复制播放器诊断信息」不收录：它只在 PLAYER_INTERACTION_DEBUG 打开时才出现，
+            // 收进来会让搜索把人送进一个点了没反应的项。
+            text(R.string.setting_player_back_key_exit),
+            text(R.string.player_port_seek_step_name),
+            text(R.string.player_port_danmaku_block_words_name),
+            text(R.string.setting_player_danmaku_shortvideo_separate),
+            text(R.string.setting_player_danmaku_shortvideo_maxline),
+            text(R.string.setting_player_danmaku_shortvideo_allow_overlap),
+            text(R.string.setting_player_danmaku_speed)
         ))
         // 「跳过设置」二级页（26.11.14）：片头片尾 + 广告片段逐类别三档 + 进度条标记 + 「不准」记录。
         // 名字必须与页内 SettingSection.name 严格一致（类别名直接取 SponsorCategoryLabels）。
@@ -544,7 +629,9 @@ object SettingsIndex {
         addLeafItems(list, text(R.string.player_skip_page_name), SettingSkipActivity::class.java, skipLeaves)
         list += Entry(
             text(R.string.player_skip_page_name),
-            text(R.string.player_skip_page_desc)
+            text(R.string.player_skip_page_desc),
+            // 26.11.15：标题加「（实验性）」后仍要能被「跳广告」这类口语搜到。
+            "跳广告 广告片段 跳过广告 广告 实验 实验性"
         ) { a -> a.startActivity(Intent(a, SettingSkipActivity::class.java)) }
         // 「标记哪些类别」：进度条条子的独立勾选页（与三档无关），从「跳过设置」进去。
         val markLeaves = ArrayList<String>(11)
@@ -579,6 +666,30 @@ object SettingsIndex {
             list += Entry(text(R.string.settingtext_settinggroupactivity_086), text(R.string.settingtext_settinggroupactivity_087)) { a ->
                 a.startActivity(Intent(a, TodoListActivity::class.java))
             }
+            // 26.11.15 补收录的开发者项：三个 Logu 开关在页内是尚未进 strings.xml 的中文字面量，
+            // 索引必须用同一字面量当匹配键；其余四项都取资源，页内也是同一批资源。
+            val devGroupTitle = text(R.string.settingtext_settingmainactivity_017)
+            for (logu in listOf("允许Logu.v", "允许Logu.d", "允许Logu.i")) {
+                list += Entry(logu, text(R.string.settingtext_settingsindex_096)) { a ->
+                    openGroup(a, "dev", devGroupTitle, logu)
+                }
+            }
+            list += Entry(
+                text(R.string.settingtext_settinggroupactivity_092),
+                text(R.string.settingtext_settingsindex_097)
+            ) { a -> openGroup(a, "dev", devGroupTitle, text(R.string.settingtext_settinggroupactivity_092)) }
+            list += Entry(
+                text(R.string.settingtext_settinggroupactivity_093),
+                text(R.string.settingtext_settingsindex_098)
+            ) { a -> openGroup(a, "dev", devGroupTitle, text(R.string.settingtext_settinggroupactivity_093)) }
+            list += Entry(
+                text(R.string.settingtext_settinggroupactivity_089),
+                text(R.string.settingtext_settingsindex_099)
+            ) { a -> openGroup(a, "dev", devGroupTitle, text(R.string.settingtext_settinggroupactivity_089)) }
+            list += Entry(
+                text(R.string.settingtext_settinggroupactivity_090),
+                text(R.string.settingtext_settingsindex_100)
+            ) { a -> openGroup(a, "dev", devGroupTitle, text(R.string.settingtext_settinggroupactivity_090)) }
         }
 
         return list
