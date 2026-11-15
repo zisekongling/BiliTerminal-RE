@@ -2722,6 +2722,8 @@
     <string name="uitext_bangumicache_009">队列中</string>
     <string name="uitext_bangumicache_010">共 %1$d 集 · 已缓存 %2$d 集</string>
     <string name="uitext_bangumicache_011">大会员</string>
+    <string name="uitext_bangumicache_010">共 %1$d 集 · 已缓存 %2$d 集</string>
+    <string name="uitext_bangumicache_011">大会员</string>
     <string name="uitext_videoinfofragment_028">播放视频</string>
     <string name="uitext_videoinfofragment_029">已在下载队列\n如有异常，长按可清空文件</string>
     <string name="uitext_voteinfoactivity_014">还需选择 %1$d 项</string>

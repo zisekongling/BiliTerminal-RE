@@ -298,8 +298,8 @@
             </androidx.constraintlayout.widget.ConstraintLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 播放 / 追番 / 缓存并排：三个都是填充按钮、同款式（26.10.11 用户要求统一样式，别把追番改回描边），
-             追番只靠文字「追番 / 已追番」区分状态；宽度各占三分之一（手表屏窄，做成两行会把播放键挤出首屏） -->
+        <!-- 播放 / 追番并排：两个都是填充按钮、同款式（26.10.11 用户要求统一样式，别把追番改回描边），
+             追番只靠文字「追番 / 已追番」区分状态 -->
         <LinearLayout
             android:id="@+id/btnRow"
             android:layout_width="match_parent"
@@ -325,15 +325,18 @@
                 android:layout_marginStart="4dp"
                 android:layout_weight="1"
                 android:text="@string/uitext_dynamicactivity_007" />
-
-            <!-- 番剧缓存：点开先选季（一次一季），再选集与清晰度，最后整批入队 -->
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_cache"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:layout_weight="1"
-                android:text="@string/uitext_bangumiinfofragment_025" />
         </LinearLayout>
+
+        <!-- 番剧缓存单独占一行（26.11.15 用户要求：和播放/追番挤一行时位置不对）。
+             单独成行后宽度够，文字不会被挤成一点点；点开是全屏的番剧缓存页 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_cache"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/uitext_bangumiinfofragment_025"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/btnRow" />
     </androidx.constraintlayout.widget.ConstraintLayout>
 </com.RobinNotBad.BiliClient.ui.widget.RotaryNestedScrollView>

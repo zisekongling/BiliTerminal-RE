@@ -31,7 +31,22 @@ class BangumiCacheAdapter(
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     /** 一集在季内的位置：带上分区名，多分区（正片 + PV/花絮）时才需要前缀。 */
-    class EpisodeEntry(@JvmField val sectionTitle: String, @JvmField val episode: Bangumi.Episode)
+    class EpisodeEntry(@JvmField val sectionTitle: String, @JvmField val episode: Bangumi.Episode) {
+        /** 缓存目录里已经有成品了：行尾标「已下载」，不许再勾 */
+        @JvmField var downloaded: Boolean = false
+
+        /** 已经排在下载队列里（还没下完）：行尾标「队列中」，也不许再勾 */
+        @JvmField var queued: Boolean = false
+
+        /**
+         * 大会员集、而当前账号不是大会员：行尾标「大会员」，不许勾。
+         *
+         * 由宿主按账号会员状态决定（是大会员时这一位永远是 false），适配器只负责画。
+         */
+        @JvmField var vipLocked: Boolean = false
+
+        fun locked(): Boolean = downloaded || queued || vipLocked
+    }
 
     /** 一季的缓存状态：剧集、折叠、勾选都在这里，宿主直接读写。 */
     class SeasonItem(
@@ -49,9 +64,25 @@ class BangumiCacheAdapter(
 
         fun episodeCount(): Int = entries?.size ?: 0
 
+        /** 还能勾的集数（已下载/队列中的不算） */
+        fun selectableCount(): Int = entries.orEmpty().count { !it.locked() }
+
+        fun downloadedCount(): Int = entries.orEmpty().count { it.downloaded }
+
         fun selectedCount(): Int = checked.count { it }
 
-        fun allSelected(): Boolean = checked.isNotEmpty() && checked.all { it }
+        /** 只有「还能勾」的集都勾上了才算全选——否则已下载那几集永远害它算不成全选 */
+        fun allSelected(): Boolean {
+            val entries = entries.orEmpty()
+            if (entries.isEmpty()) return false
+            var selectable = 0
+            for (index in entries.indices) {
+                if (entries[index].locked()) continue
+                if (checked.getOrNull(index) != true) return false
+                selectable++
+            }
+            return selectable > 0
+        }
     }
 
     private sealed class Row {
@@ -123,14 +154,19 @@ class BangumiCacheAdapter(
                 item.entries == null -> ""
                 item.episodeCount() == 0 -> context.getString(R.string.uitext_bangumicache_007)
                 item.selectedCount() > 0 -> context.getString(
-                    R.string.uitext_bangumicache_005, item.selectedCount(), item.episodeCount()
+                    R.string.uitext_bangumicache_005, item.selectedCount(), item.selectableCount()
+                )
+                // 已下载的集不该混进「共 N 集」里让人以为还能再勾 N 个
+                item.downloadedCount() > 0 -> context.getString(
+                    R.string.uitext_bangumicache_010, item.episodeCount(), item.downloadedCount()
                 )
                 else -> context.getString(R.string.uitext_bangumicache_004, item.episodeCount())
             }
             count.setTextColor(ColorScheme.getTextSecondary(context))
 
-            // 没拉到剧集时「全选本季」无从下手：先露出重试/展开的入口，别给一个点了没反应的按钮
-            action.visibility = if (item.entries.isNullOrEmpty()) View.GONE else View.VISIBLE
+            // 没拉到剧集时「全选本季」无从下手；一集都不能勾（全下过了）时同理
+            action.visibility =
+                if (item.entries.isNullOrEmpty() || item.selectableCount() == 0) View.GONE else View.VISIBLE
             action.text = context.getString(
                 if (item.allSelected()) R.string.uitext_bangumiinfofragment_031
                 else R.string.uitext_bangumiinfofragment_030
@@ -157,8 +193,11 @@ class BangumiCacheAdapter(
                 it.sectionTitle.isNotEmpty() && it.sectionTitle != entry.sectionTitle
             })
             title.setTextColor(
-                if (isChecked) ColorScheme.getTextPrimary(context)
-                else ColorScheme.getTextSecondary(context)
+                when {
+                    entry.locked() -> ColorScheme.getTextTertiary(context)
+                    isChecked -> ColorScheme.getTextPrimary(context)
+                    else -> ColorScheme.getTextSecondary(context)
+                }
             )
 
             // 会员 / 限免角标与详情页同一套判定与配色（EpisodeCardAdapter.badgeKind），
@@ -179,12 +218,36 @@ class BangumiCacheAdapter(
                 }
             }
 
-            check.text = if (isChecked) GLYPH_CHECKED else GLYPH_UNCHECKED
-            check.setTextColor(
-                if (isChecked) ColorScheme.getPrimary(context) else ColorScheme.getTextTertiary(context)
-            )
+            // 已下载 / 队列中的集不摆勾选圈，直接摆状态字——摆个「○」等于骗用户还能勾
+            when {
+                entry.downloaded -> {
+                    check.text = context.getString(R.string.uitext_bangumicache_008)
+                    check.setTextColor(ColorScheme.getTextTertiary(context))
+                }
+                entry.queued -> {
+                    check.text = context.getString(R.string.uitext_bangumicache_009)
+                    check.setTextColor(ColorScheme.getTextTertiary(context))
+                }
+                entry.vipLocked -> {
+                    check.text = context.getString(R.string.uitext_bangumicache_011)
+                    check.setTextColor(ColorScheme.getVipPink(context))
+                }
+                else -> {
+                    check.text = if (isChecked) GLYPH_CHECKED else GLYPH_UNCHECKED
+                    check.setTextColor(
+                        if (isChecked) ColorScheme.getPrimary(context)
+                        else ColorScheme.getTextTertiary(context)
+                    )
+                }
+            }
 
-            itemView.setOnClickListener { onToggleEpisode(item, index) }
+            if (entry.locked()) {
+                itemView.isClickable = false
+                itemView.setOnClickListener(null)
+            } else {
+                itemView.isClickable = true
+                itemView.setOnClickListener { onToggleEpisode(item, index) }
+            }
         }
 
         /** 「第 1 话 各自的答案」：短标题打头，长标题跟在后面；多分区时再套一层【分区】。 */

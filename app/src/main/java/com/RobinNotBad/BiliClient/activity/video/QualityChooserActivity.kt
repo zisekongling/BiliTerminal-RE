@@ -19,6 +19,7 @@ import com.RobinNotBad.BiliClient.model.LocalVideo
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
@@ -65,13 +66,15 @@ class QualityChooserActivity : BaseActivity() {
 
         (findViewById<TextView>(R.id.pageName)).text = UiText.of("请选择清晰度")
 
-        // 番剧缓存页过来的：只挑不下载，列表来自 pgc 取流接口的 accept_quality
-        if (intent.getLongExtra(EXTRA_BGM_EPID, 0) > 0) {
+        // 番剧缓存页过来的：只挑不下载，列表来自 pgc 取流接口的 accept_quality。
+        // 缓存页刚打开、还没拉完剧集时拿不到采样集，这时 epid 为 0 也走这条，
+        // 里面对不上采样就直接给固定四档——绝不能落到下面投稿视频那条分支上
+        val bgmEpid = intent.getLongExtra(EXTRA_BGM_EPID, 0)
+        pickOnly = intent.getBooleanExtra(EXTRA_PICK_ONLY, false)
+        if (bgmEpid > 0 || pickOnly) {
             setupBangumiQuality(recyclerView)
             return
         }
-
-        pickOnly = intent.getBooleanExtra(EXTRA_PICK_ONLY, false)
 
         val aid = intent.getLongExtra("aid", 0)
         val bvid = intent.getStringExtra("bvid")
@@ -119,7 +122,9 @@ class QualityChooserActivity : BaseActivity() {
                     if (qns == null) return@OnItemClickListener
 
                     if (isAudioOnlyOption && position == qns!!.size + forcedPositions.size) {
-                        // 仅音频选项
+                        // 仅音频选项。只挑不下载的模式下不会出现这一项（番剧只有音视频合一的 durl），
+                        // 这里守卫一下，免得哪天真冒出来就悄悄替用户下了个音频
+                        if (pickOnly) return@OnItemClickListener
                         CenterThreadPool.run {
                             try {
                                 val playerData = videoInfo.toPlayerData(page)
@@ -222,10 +227,12 @@ class QualityChooserActivity : BaseActivity() {
             var labels = ArrayList<String>()
             var values = intArrayOf()
             try {
+                val epid = intent.getLongExtra(EXTRA_BGM_EPID, 0)
+                if (epid <= 0) throw IllegalStateException("没有可采样的剧集，直接用固定四档")
                 val data = PlayerData(PlayerData.TYPE_BANGUMI)
                 data.aid = intent.getLongExtra(EXTRA_BGM_AID, 0)
                 data.cid = intent.getLongExtra(EXTRA_BGM_CID, 0)
-                data.epid = intent.getLongExtra(EXTRA_BGM_EPID, 0)
+                data.epid = epid
                 data.seasonId = intent.getLongExtra(EXTRA_BGM_SEASON_ID, 0)
                 data.seasonType = intent.getIntExtra(EXTRA_BGM_SEASON_TYPE, 0).takeIf { it > 0 } ?: 1
                 data.qn = 127
@@ -247,7 +254,9 @@ class QualityChooserActivity : BaseActivity() {
                     )
                 )
                 values = intArrayOf(80, 64, 32, 16)
-                MsgUtil.err(e)
+                // 会员集 / 地区限制时取流会直接失败：这时退回四档就够用了，别弹红字吓人，
+                // 真正下载时会再取一次流，失败原因那时显示在下载列表里
+                Logu.e("QualityChooser", "番剧清晰度获取失败，回落固定四档：" + e.message)
             }
             qns = values
             qualityLabels = labels

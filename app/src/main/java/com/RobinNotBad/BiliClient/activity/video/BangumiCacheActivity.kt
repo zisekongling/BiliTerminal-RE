@@ -10,13 +10,17 @@ import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.adapter.video.BangumiCacheAdapter
+import com.RobinNotBad.BiliClient.adapter.video.EpisodeCardAdapter
 import com.RobinNotBad.BiliClient.api.BangumiApi
+import com.RobinNotBad.BiliClient.api.VipApi
 import com.RobinNotBad.BiliClient.model.LocalVideo
 import com.RobinNotBad.BiliClient.service.DownloadService
+import com.RobinNotBad.BiliClient.service.download.BangumiCacheDownloadIndex
 import com.RobinNotBad.BiliClient.service.download.BangumiCacheSeason
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetworkPlaybackQuality
 
@@ -34,6 +38,12 @@ import com.RobinNotBad.BiliClient.util.NetworkPlaybackQuality
  *
  * 剧集按季懒加载：只有展开或点「全选本季」时才去拉那一季的 [BangumiApi.getSeasonDetail]，
  * 一部番五六季也不会一进页面就打五六个请求。
+ *
+ * 三种集是**勾不动**的（行尾直接写状态字，不摆假勾选圈）：
+ * - 「已下载」：缓存目录里已经有成品了（[BangumiCacheDownloadIndex]）
+ * - 「队列中」：下载表里还挂着这集的任务
+ * - 「大会员」：这集标着会员，而当前账号不是大会员（[queryVipState]）
+ * 默认勾选与「全选本季」都会跳过这三类，只勾真能下的集。
  */
 class BangumiCacheActivity : BaseActivity() {
 
@@ -49,6 +59,14 @@ class BangumiCacheActivity : BaseActivity() {
     private var currentSeasonType = 0
     private var qualityQn = 0
     private var qualityLabel = ""
+
+    /** 当前账号是不是大会员：非大会员时「大会员」集锁住不给勾（用户 26.11.15 的要求）。 */
+    @Volatile
+    private var isVip = false
+
+    /** 会员状态是否已经问到了；没问到之前一律按非大会员画（宁可少勾，不可让用户勾了必失败）。 */
+    @Volatile
+    private var isVipResolved = false
 
     /** 清晰度选择页的「只挑不下载」回值。 */
     private val qualityPicker =
@@ -96,9 +114,24 @@ class BangumiCacheActivity : BaseActivity() {
         btnStart.setOnClickListener { enqueue() }
         updateSelectedText()
 
-        // 首屏预热当前季：一进来就勾好「正片」，底部计数立刻有值
-        seasons.firstOrNull { it.seasonId == currentSeasonId }
-            ?.let { loadSeason(it, selectMainSection = true) }
+        // 先问会员状态、再预热当前季：默认勾选要按「这集我到底能不能下」来定，
+        // 顺序反了就会出现「先勾上大会员集、拿到会员状态后又取消」的闪烁
+        CenterThreadPool.run {
+            queryVipState()
+            val target = seasons.firstOrNull { it.seasonId == currentSeasonId }
+            target?.let { loadSeason(it, selectMainSection = true) }
+        }
+    }
+
+    /** 问一次会员状态：失败按非大会员处理，不弹红字（缓存页其余部分照常可用）。 */
+    private fun queryVipState() {
+        isVip = try {
+            VipApi.getVipInfo().isVip
+        } catch (e: Exception) {
+            Logu.e("BangumiCache", "读取会员状态失败，按非大会员处理：" + e.message)
+            false
+        }
+        isVipResolved = true
     }
 
     private fun collectSeasons() {
@@ -162,7 +195,59 @@ class BangumiCacheActivity : BaseActivity() {
             loadSeason(item, selectMainSection = false)
             return
         }
+        // 已经拉过：重新展开时再问一遍磁盘——用户可能刚在下载列表里下完几集又回来了
+        if (item.expanded) refreshDownloadState(item)
         adapter.rebuild()
+    }
+
+    /**
+     * 重新核对「已下载 / 队列中」。
+     *
+     * 只改标记、不动勾选之外的东西；顺手把已经锁定上的集从勾选里摘掉，
+     * 否则底部「已选 N 集」会和真能入队的条数对不上。
+     */
+    private fun refreshDownloadState(item: BangumiCacheAdapter.SeasonItem) {
+        val entries = item.entries ?: return
+        if (entries.isEmpty()) return
+        CenterThreadPool.run {
+            // 会员状态还没问到就在这儿补问：展开时才知道自己是不是大会员也不能算错
+            if (!isVipResolved) queryVipState()
+            markDownloadState(item, entries)
+            runOnUiThread {
+                for (index in entries.indices) {
+                    if (entries[index].locked() && index in item.checked.indices) {
+                        item.checked[index] = false
+                    }
+                }
+                adapter.rebuild()
+                updateSelectedText()
+            }
+        }
+    }
+
+    /**
+     * 给每一集打上「已下载 / 队列中」标记（必须在后台线程调用：有磁盘 stat 与一次查库）。
+     *
+     * 目录名靠 [BangumiCacheSeason.childNameOf] 与下载服务算出的 child 保持一致，
+     * 两边写两套规则的话，就会出现「明明下过了却还让你勾」。
+     */
+    private fun markDownloadState(
+        item: BangumiCacheAdapter.SeasonItem,
+        entries: List<BangumiCacheAdapter.EpisodeEntry>
+    ) {
+        val queued = BangumiCacheDownloadIndex.queuedCids()
+        val unknown = getString(R.string.text_download_bangumi_episode_unknown)
+        for (entry in entries) {
+            entry.queued = queued.contains(entry.episode.cid)
+            entry.downloaded = !entry.queued && BangumiCacheDownloadIndex.isDownloaded(
+                item.title,
+                BangumiCacheSeason.childNameOf(entry.episode, unknown)
+            )
+            // 非大会员：标着「会员」的集直接锁住——勾了也只会下到失败，
+            // 不如当场说明白。大会员账号则全部放开（用户 26.11.15 的要求）。
+            entry.vipLocked = !isVip && !entry.downloaded && !entry.queued &&
+                EpisodeCardAdapter.badgeKind(entry.episode.badge) == EpisodeCardAdapter.BadgeKind.VIP
+        }
     }
 
     private fun onSelectAllClicked(item: BangumiCacheAdapter.SeasonItem) {
@@ -174,13 +259,20 @@ class BangumiCacheActivity : BaseActivity() {
         }
         if (item.entries.isNullOrEmpty()) return
         val target = !item.allSelected()
-        for (index in item.checked.indices) item.checked[index] = target
+        val entries = item.entries.orEmpty()
+        for (index in item.checked.indices) {
+            // 已下载 / 队列中的集勾不动，全选也得绕开它们
+            if (entries.getOrNull(index)?.locked() == true) continue
+            item.checked[index] = target
+        }
         adapter.rebuild()
         updateSelectedText()
     }
 
     private fun toggleEpisode(item: BangumiCacheAdapter.SeasonItem, index: Int) {
         if (index !in item.checked.indices) return
+        // 已下载 / 队列中的集点了就当没点（适配器那边也没挂点击，这里再兜一层）
+        if (item.entries?.getOrNull(index)?.locked() == true) return
         item.checked[index] = !item.checked[index]
         adapter.rebuild()
         updateSelectedText()
@@ -222,8 +314,12 @@ class BangumiCacheActivity : BaseActivity() {
                         entries.add(BangumiCacheAdapter.EpisodeEntry(sectionTitle, episode))
                     }
                 }
+                // 哪些集已经下好了 / 已经在队列里，得问磁盘和下载表（都在后台线程里问）
+                markDownloadState(item, entries)
                 val checked = BooleanArray(entries.size) { index ->
-                    when {
+                    val entry = entries[index]
+                    // 已下载/队列中的集不给默认勾上：勾了也入不了队，只会让计数虚高
+                    !entry.locked() && when {
                         selectAll -> true
                         selectMainSection && hasMainSection ->
                             entries[index].sectionTitle == MAIN_SECTION_TITLE
@@ -255,7 +351,9 @@ class BangumiCacheActivity : BaseActivity() {
         val targets = ArrayList<BangumiCacheSeason>()
         for (item in seasons) {
             val entries = item.entries ?: continue
-            val picked = entries.filterIndexed { index, _ -> item.checked.getOrNull(index) == true }
+            val picked = entries.filterIndexed { index, entry ->
+                !entry.locked() && item.checked.getOrNull(index) == true
+            }
                 .map { it.episode }
                 .filter { it.aid > 0 && it.cid > 0 }
             if (picked.isEmpty()) continue

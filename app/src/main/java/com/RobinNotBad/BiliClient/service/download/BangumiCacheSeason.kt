@@ -20,4 +20,19 @@ class BangumiCacheSeason(
     @JvmField val seasonId: Long,
     @JvmField val seasonType: Int,
     @JvmField val episodes: List<Bangumi.Episode>
-)
+) {
+    companion object {
+        /**
+         * 这一集落盘时用的子目录名（= 下载表 child 列）。
+         *
+         * 下载服务和缓存页**必须用同一个函数算**：缓存页要靠「季名 + 这个名字」推算目录、
+         * 判断这一集是不是已经下载过。两边各写一套，改完一边就会出现「明明下过了却还让勾」。
+         *
+         * @param unknown 标题全空时的兜底文案（调用方传本地化字符串）
+         */
+        fun childNameOf(episode: Bangumi.Episode, unknown: String): String =
+            episode.title.orEmpty().ifEmpty {
+                episode.title_long.orEmpty().ifEmpty { unknown }
+            }
+    }
+}

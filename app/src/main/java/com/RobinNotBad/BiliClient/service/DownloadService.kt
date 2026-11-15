@@ -386,11 +386,11 @@ class DownloadService : Service() {
                         val seasonId = season.seasonId
                         val seasonType = season.seasonType
                         for (episode in season.episodes) {
-                            val child = episode.title.orEmpty().ifEmpty {
-                                episode.title_long.orEmpty().ifEmpty {
-                                    context.getString(R.string.text_download_bangumi_episode_unknown)
-                                }
-                            }
+                            // 命名规则与缓存页共用同一个函数：那边要靠它推算目录判断「已下载」
+                            val child = BangumiCacheSeason.childNameOf(
+                                episode,
+                                context.getString(R.string.text_download_bangumi_episode_unknown)
+                            )
                             cursor = database.rawQuery(
                                 "select state from download where aid=? and cid=?",
                                 arrayOf(episode.aid.toString(), episode.cid.toString())
