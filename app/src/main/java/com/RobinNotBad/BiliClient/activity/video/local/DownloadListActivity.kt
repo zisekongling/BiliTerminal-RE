@@ -22,6 +22,7 @@ import com.RobinNotBad.BiliClient.service.DownloadService
 import com.RobinNotBad.BiliClient.service.formatDownloadSpeed
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.DownloadListDiff
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
@@ -36,11 +37,25 @@ class DownloadListActivity : RefreshListActivity() {
         var weakRef: WeakReference<DownloadListActivity>? = null
     }
 
+    /**
+     * 列表 adapter：**整个页面只建一个实例**，之后每次刷新只换它手里的 list。
+     *
+     * 标记 @Volatile 是因为 Timer 线程（[onCreate] 里那个）会读它来跳过「还没建好」的 tick，
+     * 而写它的是主线程（[render]）——没有 happens-before 边的话，Timer 可能长期读到 null。
+     */
+    @Volatile
     private var adapter: DownloadAdapter? = null
     private var timer: Timer? = null
     private var emptyTipShown: Boolean = false
-    private var firstRefresh = true
+    @Volatile
     private var created: Boolean = false
+
+    /**
+     * 当前这一批下载记录。与 [DownloadAdapter.downloadList] 是**同一个实例**，且只在主线程
+     * （[render]）里一起换掉；后台线程（Timer / 条目点击）先取一份局部快照再用，
+     * 不要在同一个方法里两次读这个字段。
+     */
+    @Volatile
     private var sections: ArrayList<DownloadSection>? = null
 
     // 多选删除（26.11.09）：长按条目进入多选，勾选后走顶部 manageBar 的「删除(n)」。
@@ -95,15 +110,11 @@ class DownloadListActivity : RefreshListActivity() {
                         return
 
                     if (DownloadService.started) {
-                        // 并行模式：找出所有正在下载的项目并刷新
-                        val positionsToUpdate = findDownloadingPositions()
-                        if (positionsToUpdate.isNotEmpty()) {
-                            runOnUiThread {
-                                for (pos in positionsToUpdate) {
-                                    adapter!!.notifyItemChanged(pos)
-                                }
-                            }
-                        }
+                        // 逐条进度：位置必须按「主线程上 adapter 此刻真正挂着的那份 list」算。
+                        // 原来是在 Timer 线程先算好位置再 post notifyItemChanged，那条路和
+                        // 「后台换表 + 主线程 notifyDataSetChanged」交错时，算出的位置会落在
+                        // 已经换掉的新表之外（详见 docs/agents/pitfalls.md 里同一主线程 turn 那条）。
+                        runOnUiThread { refreshProgressRows() }
                     } else {
                         // 下载已结束，隐藏底栏
                         runOnUiThread { bottomBar?.visibility = View.GONE }
@@ -117,69 +128,74 @@ class DownloadListActivity : RefreshListActivity() {
     }
 
     /**
-     * 找出列表中所有正在下载的项目位置
-     * 通过检查进度映射表来判断，避免依赖可能过期的内存数据
+     * 主线程：把「正在下载」的那几行重绑一次。
+     *
+     * 这条路径每 400ms 跑一趟，只走逐条 `notifyItemChanged`，绝不整表重建：重建会把滚动位置、
+     * 正在推进的进度条和封面一起弄没。位置按 [DownloadAdapter.downloadList] 现算，
+     * 因此永远落在这个 adapter 真正持有、并且已经通知过的主线程数据上。
      */
-    private fun findDownloadingPositions(): List<Int> {
-        if (sections == null) return emptyList()
-        val positions = mutableListOf<Int>()
-        for (i in sections!!.indices) {
-            val s = sections!![i]
-            // 有进度映射即表示正在下载中
-            if (DownloadService.getDownloadProgress(s.id) != null) {
-                positions.add(i)
-            }
+    private fun refreshProgressRows() {
+        if (!created || isDestroyed) return
+        val current = adapter ?: return
+        for (position in downloadingPositions(current.downloadList)) {
+            current.notifyItemChanged(position)
         }
-        return positions
     }
 
-    @SuppressLint("NotifyDataSetChanged")
+    /**
+     * 找出列表中所有正在下载的项目位置。
+     * 通过检查进度映射表来判断，避免依赖可能过期的内存数据。
+     */
+    private fun downloadingPositions(list: List<DownloadSection>): List<Int> =
+        list.indices.filter { DownloadService.getDownloadProgress(list[it].id) != null }
+
+    /**
+     * 刷新下载列表。取数在调用线程（后台）跑，落地一律回主线程。
+     *
+     * **取数可以留在后台，换表与通知必须一起回主线程**：`DownloadService.getAll()` 是 DB IO，
+     * 不能挪到主线程；而「把新 list 赋给 [DownloadAdapter.downloadList]」会让 `getItemCount()`
+     * 立刻变成新长度，此时 ViewHolder 还按旧数据挂着，主线程下一趟 layout 就会抛
+     * `IndexOutOfBoundsException: Inconsistency detected. Invalid view holder adapter position`
+     * （线上 26.11.09.02 / OPPO OWW211 那条崩溃，与 docs/agents/pitfalls.md 记的是同一个坑）。
+     */
     fun refreshList(fromOutside: Boolean) {
         if (this.isDestroyed || !created)
             return
         Log.d("debug", "刷新下载列表")
 
-        sections = DownloadService.getAll()
+        val fetched = DownloadService.getAll()
+        runOnUiThread { render(fetched) }
+    }
 
-        // 刷新可能来自下载服务线程：选择集合与操作条都在 UI 线程上收拾。
-        // 已删除/已消失的任务不能继续留在勾选里，否则「删除(n)」会拿旧 id 去删一个不存在的项。
-        runOnUiThread {
-            if (selectionMode) {
-                val alive = sections?.mapTo(HashSet<Long>()) { it.id } ?: emptySet<Long>()
-                selectedIds.retainAll(alive)
-                // 列表空了就没得选；只是「勾选项没了」则留在多选里，让用户重新勾
-                if (alive.isEmpty()) exitSelectionMode()
-                else {
-                    adapter?.notifyDataSetChanged()
-                    updateSelectionBar()
-                }
-            } else {
-                updateSelectionBar()
-            }
-        }
+    /**
+     * 主线程：把一批取数结果整份落到界面（换表 + 通知 + 勾选集 + 空态 + 底栏）。
+     *
+     * <h3>为什么不像收藏夹列表页那样「换 list 就换 adapter」</h3>
+     * 收藏夹那页换 adapter 是硬要求（它的 adapter 开了 stable id 并按位置取卡片）；本页不同：
+     * adapter 由 Timer 每 400ms 逐条 `notifyItemChanged` 推进度，整表换实例会把这条高频路径
+     * 打断（新实例上还得重挂两个监听器、重带多选态），而且 `setAdapter()` 会把列表滚回顶部——
+     * 用户「边下边滚」时会莫名其妙跳回去。所以这里**同一个 adapter 实例**换表，只要
+     * 「换 `getItemCount()` 的数据」与「通知」落在同一个主线程 turn 里（本方法整段都在主线程
+     * 消息里跑，中间不会被 layout 插进来），RecyclerView 的一致性校验就看不到中间态。
+     *
+     * 结构没变时只逐条通知状态变了的行（见 [com.RobinNotBad.BiliClient.util.DownloadListDiff]），
+     * 免得每次状态回包都把整屏重绑一遍。
+     */
+    @SuppressLint("NotifyDataSetChanged")
+    private fun render(fetched: ArrayList<DownloadSection>?) {
+        if (isDestroyed || !created) return
+        val list = fetched ?: ArrayList()
+        val previous: List<DownloadSection> = sections ?: emptyList()
 
-        if (sections == null || sections!!.isEmpty()) {
-            if (!emptyTipShown) {
-                runOnUiThread {
-                    MsgUtil.showMsg(UiText.of("下载列表为空"))
-                    showEmptyView()
-                }
-                emptyTipShown = true
-            }
-        } else {
-            for (s in sections!!) {
-                Log.d("debug-download", s.name_short)
-            }
-
-            if (emptyTipShown) {
-                emptyTipShown = false
-                runOnUiThread { hideEmptyView() }
-            }
-
-            if (firstRefresh) {
-                adapter = DownloadAdapter(this, sections!!)
-                adapter!!.selectedIds = selectedIds
-                adapter!!.setOnClickListener(object : OnItemClickListener {
+        // 换表：sections 与 adapter.downloadList 始终是同一个实例，且只在主线程一起换
+        sections = list
+        val current = adapter
+        if (current == null) {
+            // 首屏：adapter 在主线程建并挂上，别在后台建好、过一会儿再 setAdapter
+            adapter = DownloadAdapter(this, list).also {
+                it.selectedIds = selectedIds
+                it.selectionMode = selectionMode
+                it.setOnClickListener(object : OnItemClickListener {
                     override fun onItemClick(position: Int) {
                         // 多选态下点击 = 勾选/取消勾选，不再暂停/恢复任务
                         if (selectionMode) {
@@ -188,10 +204,13 @@ class DownloadListActivity : RefreshListActivity() {
                         }
                         CenterThreadPool.run {
                             Log.d("debug-download", "click:" + position)
-                            if (sections == null || position < 0 || position >= sections!!.size)
+                            // 位置是按绑定时的数据算的：这里取一份快照再校验，
+                            // 别在「判越界」和「取条目」之间让后台换掉这张表
+                            val snapshot = sections ?: return@run
+                            if (position < 0 || position >= snapshot.size)
                                 return@run
 
-                            val section = sections!![position]
+                            val section = snapshot[position]
                             when (section.state) {
                                 // 点击下载中的任务：暂停该任务（不停止其他并行任务）
                                 "downloading" -> {
@@ -215,27 +234,57 @@ class DownloadListActivity : RefreshListActivity() {
                     }
                 })
 
-                adapter!!.setOnLongClickListener(object : OnItemLongClickListener {
+                it.setOnLongClickListener(object : OnItemLongClickListener {
                     override fun onItemLongClick(position: Int) {
-                        if (sections == null || position < 0 || position >= sections!!.size)
+                        // 长按回调本身就在主线程：sections 只在主线程换，读一次就够
+                        val snapshot = sections ?: return
+                        if (position < 0 || position >= snapshot.size)
                             return
                         // 长按进入多选并勾中这一条（取代原来的「再长按一次删除」）；
                         // 多选态下长按同样是勾选/取消勾选。
-                        runOnUiThread {
-                            if (selectionMode) toggleSelected(position)
-                            else enterSelectionMode(position)
-                        }
+                        if (selectionMode) toggleSelected(position)
+                        else enterSelectionMode(position)
                     }
                 })
-
-                runOnUiThread { setAdapter(adapter!!) }
-                firstRefresh = false
+            }
+            setAdapter(adapter!!)
+        } else {
+            current.downloadList = list
+            // 「换 getItemCount() 的数据」与「通知」就是这两行，同一个主线程 turn 里做完
+            if (DownloadListDiff.sameStructure(previous, list)) {
+                for (position in DownloadListDiff.changedPositions(previous, list)) {
+                    current.notifyItemChanged(position)
+                }
             } else {
-                adapter!!.downloadList = sections!!
-                runOnUiThread { adapter!!.notifyDataSetChanged() }
-                Log.d("debug-adapter", adapter!!.itemCount.toString())
+                current.notifyDataSetChanged()
             }
         }
+
+        // 已删除/已消失的任务不能继续留在勾选里，否则「删除(n)」会拿旧 id 去删一个不存在的项。
+        // 列表空了就没得选；只是「勾选项没了」则留在多选里，让用户重新勾。
+        if (selectionMode) {
+            val alive = list.mapTo(HashSet(list.size * 2)) { it.id }
+            selectedIds.retainAll(alive)
+            if (alive.isEmpty()) exitSelectionMode()
+        }
+        updateSelectionBar()
+
+        if (list.isEmpty()) {
+            if (!emptyTipShown) {
+                emptyTipShown = true
+                MsgUtil.showMsg(UiText.of("下载列表为空"))
+                showEmptyView()
+            }
+        } else {
+            if (emptyTipShown) {
+                emptyTipShown = false
+                hideEmptyView()
+            }
+            for (s in list) {
+                Log.d("debug-download", s.name_short)
+            }
+        }
+        Log.d("debug-adapter", (adapter?.itemCount ?: 0).toString())
     }
 
     // ==================== 多选删除（26.11.09） ====================
