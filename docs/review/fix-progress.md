@@ -18,6 +18,14 @@
 
 ## 1. 当前版本状态
 
+- **26.11.15 短视频刷久了越用越卡、退出重进恢复（用户原话「用一段时间后应用会变卡，疑似是内存泄露，退出重进后会恢复」）**：
+  - **来路**：静态审计（三路并行：短视频链路 / 弹幕与下载服务 / 静态状态横扫）定位到的累积点，未跑 L1 实测（用户拍板直接修）。
+  - **根因（主）**：`util/VideoPreloadManager.kt` 的 `allItems`（`CopyOnWriteArrayList<ShortVideoItem>`）只增不裁——`loadInitial` / `loadMore` / `loadRelated` 各自 `addAll`，滑到列表尾部 3 条内就再拉一页，直到 Fragment 销毁 `release()` 才清。每条 `ShortVideoItem` 在 `fetchVideoUrl` 之后带数 KB 的播放地址 / 清晰度表字符串；且 COW 每次 `addAll` 都 O(n) 整表复制，列表越长追加越贵、瞬时峰值翻倍——同时解释「越用越卡」（分配与 GC 压力递增）与「退出重进恢复」（release 清空）。
+  - **根因（次）**：`service/download/DownloadProgressStore.kt`（进程级 object 单例）的 `sectionBytes` 与 `pausedMap` 只增不清——`removeDownloadProgress` 原来只清进度映射与采样器，「删除一条已暂停的任务」这类不 retire 的路径会让两张表永远残留。
+  - **修法（主）**：不改列表长度（ViewPager2 position / fragment `currentPageIndex` / holders map 全是绝对下标，裁头部要平移全链调用方，风险不成比例），改为给离开回滑窗口的已播条目**瘦身**——`onSwipeToIndex` 时 `trimPlayedWindow()` 把 `[trimHighWater, currentIndex - KEEP_BEHIND)` 区间的条目清掉可重取的大字段（`videoUrl` / `danmakuUrl` / `qnStrList` / `qnValueList`），保留 aid/cid/标题/封面等元数据壳。安全性：`ShortVideoPlayerActivity` 的 `setupPlayer()` 在 `videoUrl.isEmpty()` 时会自动 `fetchVideoUrl` 重取，回滑只是多一次取址请求。`KEEP_BEHIND = 2`：ViewPager2 预绑定相邻页，播放页前一条的 `setupPlayer` 可能已在跑。幂等：高水位 `trimHighWater` 保证每条只瘦一次；全空条目返 false。`release()` 重置水位。裁剪时打一条 `Logu.d("PreloadManager", "Trimmed heavy fields of …")` 便于真机观测。
+  - **修法（次）**：`removeDownloadProgress(id)` 四表全清（+ `sectionBytes.remove` + `pausedMap.remove`）。
+  - **L0（26.11.15 本机实测）**：`:app:testStandardDebugUnitTest` → BUILD SUCCESSFUL，**2611 tests / 0 failures**（新增 `util/VideoPreloadTrimTest.kt` 5 例：大字段清空、幂等、未预加载条目不动、元数据壳保持原样、部分字段存在也算；`service/download/DownloadProgressStoreCleanupTest.kt` 2 例：删除即四表全清、未知 id 无害）；`:app:assembleDebug` → exit 0（双 flavor）。注：单测不走 `pauseDownload()`（它连带 `DownloadRepository.setState` 写 SQLite，纯 JVM 下 android.jar not-mocked 会假失败），直接写 `pausedMap` 等价覆盖。
+  - **未验证（L1/L2）**：真机连续刷 10+ 分钟内存曲线是否走平（`dumpsys meminfo` 轮询）；回滑到已瘦身页是否正常重取并起播（多等一次取址，无崩溃）。
 - **26.11.14 第一次进视频有概率加载不出标注，重进才行（用户原话「片头实测没有加载显示BV1oFxX6VEJP视频」「有的时候能跳过，可能是没加载出来吧」「大部分时间都加载不出来」「更正:第一次加载不出来，重进视频后可以加载出来」「总之就是有概率加载不出来」）**：
   - **来路**：exp.5 上播 `BV1oFxX6VEJP`（上游确有 1 段 `intro` 0~18.133s），第一次进入看不到条子、也不跳；退出重进就能加载。
   - **根因**：`applySponsorLevel()` 的签名键只覆盖「设置」（自动/询问/忽略集/已点精彩时刻/条子与三角开关），**不覆盖数据本身**。250ms 定时器在响应回来之前先用空表算过一次签名并写进 `sponsorSegmentsKey`；响应回来时签名一模一样 → 早退，两张跳转表与条子表永远是空的。另外两处把「偶发」放大成「大概率」：拿不到 bvid 时 `sponsorLoadCid` 已被置成当前 cid，这一 P 之后**永远不再重试**；`fetchSegments()` 把所有失败折成空表，播放页分不清「没有标注」与「没查到」，失败也不重试；4s 连接超时在手机网络下首次 DNS+TLS 常被掐掉。
