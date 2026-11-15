@@ -104,6 +104,7 @@ import com.RobinNotBad.BiliClient.player.PlaySessionStore
 import com.RobinNotBad.BiliClient.player.PlayerQueueAuthorPolicy
 import com.RobinNotBad.BiliClient.player.IjkNativeLibs
 import com.RobinNotBad.BiliClient.player.PlayerDefaults
+import com.RobinNotBad.BiliClient.player.PlayerDisplayModePolicy
 import com.RobinNotBad.BiliClient.player.PlayerButtonSlots
 import com.RobinNotBad.BiliClient.player.PlayerButtons
 import com.RobinNotBad.BiliClient.player.PlayerUiLayout
@@ -3945,13 +3946,26 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      * 所以尺寸计算必须走 [PlayerScreenMetricsPolicy.screenSize]（真旋转时**不能**再互换，
      * 那种情况 `DisplayMetrics` 本身已经是横屏值）。
      */
+    /**
+     * 「显示方式」设置现在是否要求用 TextureView。
+     *
+     * 存档是**字符串**（设置页「显示方式」按字符串写 `"TextureView"` / `"SurfaceView"`），
+     * 以前这里按布尔读，`SharedPreferencesUtil` 把类型转换异常吞成默认值，于是这个开关从来没生效过。
+     * 取值口径统一在 [PlayerDisplayModePolicy] 里（纯函数、有单测）。
+     */
+    private fun usesTextureView(): Boolean =
+        PlayerDisplayModePolicy.useTextureView(
+            SharedPreferencesUtil.getString(SettingsKeys.PLAYER_DISPLAY, ""),
+            Build.VERSION.SDK_INT
+        )
+
     private fun softwareRotate() {
         refreshScreenMetrics(swapIfSoftwareLandscape = true)
 
         if (isPrepared && !destroyed)
             runOnUiThread {
                 applySoftwareRotationLayout()
-                if (!SharedPreferencesUtil.getBoolean("player_display", Build.VERSION.SDK_INT < 26))
+                if (!usesTextureView())
                     MsgUtil.showMsg(UiText.of("请切换为TextureView才能支持软件旋屏！"))
             }
         changeVideoSize()
@@ -4812,7 +4826,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             onSurfaceLost = { detachSurface() }
         )
         surfaceBinder = binder
-        if (SharedPreferencesUtil.getBoolean("player_display", Build.VERSION.SDK_INT < 26)) {
+        if (usesTextureView()) {
             textureView = TextureView(this)
             binder.bindTextureView(textureView!!)
             layout_video.addView(textureView, params)

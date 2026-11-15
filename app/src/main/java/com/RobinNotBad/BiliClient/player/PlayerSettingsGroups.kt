@@ -350,10 +350,13 @@ object PlayerSettingsGroups {
         )
     )
     private fun decode(context: Context) = listOf(
+        // 默认值必须与选项、与播放器读取口径同一套字符串：这里以前写 `(sdk < 26).toString()`
+        // 得到 "true"/"false"，而播放器又按布尔读，两边都认为自己是「布尔」，结果这项设置恒不生效。
+        // 现在统一走 PlayerDisplayModePolicy（默认值、解析、回写都在那里，有单测）。
         SettingSection("choose", context.getString(R.string.setting_player_display_mode),
             SettingsKeys.PLAYER_DISPLAY, context.getString(R.string.desc_display),
-            (Build.VERSION.SDK_INT < 26).toString(),
-            arrayOf("TextureView", "SurfaceView")),
+            PlayerDisplayModePolicy.defaultFor(Build.VERSION.SDK_INT),
+            arrayOf(PlayerDisplayModePolicy.TEXTURE_VIEW, PlayerDisplayModePolicy.SURFACE_VIEW)),
         SettingSection("choose", context.getString(R.string.setting_player_codec),
             SettingsKeys.PLAYER_CODEC, context.getString(R.string.desc_videocodec), "true",
             arrayOf(
