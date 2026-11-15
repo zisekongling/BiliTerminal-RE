@@ -360,9 +360,27 @@ internal object RotaryEncoderSupport {
         return null
     }
 
-    private fun isScrollable(view: View): Boolean =
-        (view is RecyclerView || view is NestedScrollView || view is ScrollView) &&
-                (view.canScrollVertically(1) || view.canScrollVertically(-1))
+    private fun isScrollable(view: View): Boolean = when (view) {
+        is RecyclerView, is ScrollView -> view.canScrollVertically(1) || view.canScrollVertically(-1)
+        is NestedScrollView -> canScrollNestedVertically(view)
+        else -> false
+    }
+
+    /**
+     * `androidx.core.widget.NestedScrollView` 没有覆写 `canScrollVertically()`（它本质是 FrameLayout），
+     * 继承自 View 的默认实现恒返回 false——于是页面级兜底永远挑不到它，日志里就是
+     * 「兜底：本页找不到可滚容器」。反馈 #166 的消息页正是这个结构：外层 NestedScrollView 负责滚，
+     * 里面的 RecyclerView 被撑成整页高、自己滚不动，于是两条路一起灭，表冠怎么转都没反应。
+     *
+     * 这里改成自己比「内容高 vs 视口高」。不看当前位置（已经到底也算可滚容器），
+     * 因为调用方的语义是「这个容器能不能滚」，滚到头该由滚动的实现去 clamp。
+     */
+    private fun canScrollNestedVertically(view: NestedScrollView): Boolean {
+        if (view.childCount == 0) return false
+        val child = view.getChildAt(0) ?: return false
+        val viewport = view.height - view.paddingTop - view.paddingBottom
+        return viewport > 0 && child.height > viewport
+    }
 
     private fun isCandidateVisible(view: View, rect: Rect, requireOnScreen: Boolean): Boolean {
         if (!view.isShown) return false

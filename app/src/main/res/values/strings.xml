@@ -1913,6 +1913,7 @@
     <string name="uitext_liveinfoactivity_014">直播·</string>
     <string name="uitext_liveinfoactivity_015">路线</string>
     <string name="uitext_messageactivity_004">未读)</string>
+    <string name="uitext_messageactivity_005">没有更多会话了</string>
     <string name="uitext_messagesettingsactivity_006">消息提醒</string>
     <string name="uitext_messagesettingsactivity_007">是否接收消息提醒</string>
     <string name="uitext_messagesettingsactivity_008">收起未关注人消息</string>
