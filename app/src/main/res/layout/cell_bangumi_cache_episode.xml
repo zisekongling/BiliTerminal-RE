@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  番剧缓存页的「集」行：集名（+ 长标题，两行封顶）+ 会员/限免角标 + 右侧勾选标记。
+  整行点击 = 勾选/取消，右侧标记只是把勾选状态显性化（手表上整行可点比小按钮好按）。
+-->
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/episode_card"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginHorizontal="@dimen/activity_padding_horizontal"
+    android:layout_marginVertical="1dp"
+    android:foreground="?attr/selectableItemBackground">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="6dp">
+
+        <TextView
+            android:id="@+id/episode_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textSize="@dimen/text_body"
+            tools:text="第 1 话 各自的答案" />
+
+        <TextView
+            android:id="@+id/episode_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:maxLines="1"
+            android:textSize="@dimen/text_caption"
+            android:visibility="gone"
+            tools:text="会员"
+            tools:visibility="visible" />
+
+        <TextView
+            android:id="@+id/episode_check"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:minWidth="20dp"
+            android:gravity="center"
+            android:textSize="@dimen/text_subtitle"
+            tools:text="✓" />
+
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>

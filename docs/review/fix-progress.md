@@ -18,6 +18,15 @@
 
 ## 1. 当前版本状态
 
+- **26.11.15 番剧缓存改成独立全屏页（用户改设计：顶端选清晰度 + 按季折叠下拉 + 季行一键全选 + 集行单选）**：
+  - **来路**：用户原话「顶端选清晰的 / 之后做以季度为名称的下拉菜单，默认折叠，旁边有按钮可以一键全选 / 展开后可以看到每个季度的会员/限免情况和集的名字，旁边有按钮可以单选」；三问答复为「新开一个全屏页 / 可以跨季混着勾 / 清晰度点顶部进普通缓存那个选清晰度页面」。首版（详情页三连弹窗：选季 → 选集 → 清晰度）**整体废弃**。
+  - **改法**：新增 `activity/video/BangumiCacheActivity.kt` + 布局 `activity_bangumi_cache.xml` / `cell_bangumi_cache_season.xml` / `cell_bangumi_cache_episode.xml` + `adapter/video/BangumiCacheAdapter.kt`（扁平行数组：季组头 + 展开时的集行，状态改完调 `rebuild()`）。勾选按季各自维护、支持跨季混选；季的剧集**懒加载**（展开或「全选本季」时才 `BangumiApi.getSeasonDetail`），进页面只预热当前季并默认勾上「正片」分区；季行右侧「全选本季 / 取消全选」、集行「✓/○」、集行角标复用 `EpisodeCardAdapter.badgeKind()`（会员粉 / 限免绿，与详情页同款）；底部「已选 N 集 + 开始缓存」。
+  - **清晰度**：`QualityChooserActivity` 加 pick-only 模式（`EXTRA_PICK_ONLY` / `EXTRA_PICK_QN` / `EXTRA_PICK_LABEL`）与番剧入口（`EXTRA_BGM_AID/CID/EPID/SEASON_ID/SEASON_TYPE`，给了 epid 就走 `PlayerData(TYPE_BANGUMI)` + `PlayerApi.getBangumi` 拿 `qnStrList/qnValueList`，取不到回落 80/64/32/16），点任意档只回 `qn` + 文案、**永不下载**；投稿视频那条路径原样未动。
+  - **入队**：`DownloadService.startDownloadBangumi(qn, seasons: List<BangumiCacheSeason>)`（新 `service/download/BangumiCacheSeason.kt`）接住「按季分组的一批集」，同一个后台线程里按 `aid + cid` 去重、写 `.DOWNLOADING` / `.quality` / `.video_meta.json`，最后一条汇总提示 + `start(-1)`。
+  - **详情页**：`BangumiInfoFragment` 删掉旧的三连弹窗实现（`CacheEpisodeEntry` / `showCacheSeasonDialog` / `loadSeasonForCache` / `showCacheEpisodeDialog` / `showCacheQualityDialog` / `seasonTitleOf` / `selectedCountText` / `cacheRowTitle` 及 `MAIN_SECTION_TITLE` 常量），改成 `openCachePage()` 只把季列表拍成 `LongArray` + 两个 `ArrayList<String>` 塞进 Intent。
+  - **L0（26.11.15 本机实测）**：`:app:assembleDebug` 双 flavor BUILD SUCCESSFUL；`:app:testStandardDebugUnitTest` / `:app:testCoexistDebugUnitTest` 各 **252 套件 / 2726 用例 / 0 失败 / 0 错误 / 0 跳过**（本批不含新纯函数，未加用例）。
+  - **未验证（L2）**：真机手表上折叠/展开手感、季行「全选本季」与集行勾选是否点得准、清晰度页回填后顶部文案是否正确、跨季勾选后入队是否按季各自建目录、会员集在下载列表里是否给出具体失败原因。
+
 - **26.11.15 短视频刷久了越用越卡、退出重进恢复（用户原话「用一段时间后应用会变卡，疑似是内存泄露，退出重进后会恢复」）**：
   - **来路**：静态审计（三路并行：短视频链路 / 弹幕与下载服务 / 静态状态横扫）定位到的累积点，未跑 L1 实测（用户拍板直接修）。
   - **根因（主）**：`util/VideoPreloadManager.kt` 的 `allItems`（`CopyOnWriteArrayList<ShortVideoItem>`）只增不裁——`loadInitial` / `loadMore` / `loadRelated` 各自 `addAll`，滑到列表尾部 3 条内就再拉一页，直到 Fragment 销毁 `release()` 才清。每条 `ShortVideoItem` 在 `fetchVideoUrl` 之后带数 KB 的播放地址 / 清晰度表字符串；且 COW 每次 `addAll` 都 O(n) 整表复制，列表越长追加越贵、瞬时峰值翻倍——同时解释「越用越卡」（分配与 GC 压力递增）与「退出重进恢复」（release 清空）。

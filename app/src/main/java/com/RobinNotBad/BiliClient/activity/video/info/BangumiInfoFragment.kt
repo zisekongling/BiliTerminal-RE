@@ -19,17 +19,16 @@ import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
 import com.RobinNotBad.BiliClient.activity.settings.SettingPlayerChooseActivity
+import com.RobinNotBad.BiliClient.activity.video.BangumiCacheActivity
 import com.RobinNotBad.BiliClient.activity.video.JumpToPlayerActivity
 import com.RobinNotBad.BiliClient.adapter.video.EpisodeCardAdapter
 import com.RobinNotBad.BiliClient.adapter.video.SeasonTabAdapter
 import com.RobinNotBad.BiliClient.api.BangumiApi
 import com.RobinNotBad.BiliClient.model.Bangumi
-import com.RobinNotBad.BiliClient.service.DownloadService
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
-import com.RobinNotBad.BiliClient.util.NetworkPlaybackQuality
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
@@ -107,9 +106,6 @@ class BangumiInfoFragment : Fragment() {
 
         /** 状态无从得知时只说"选集"（与远端同口径） */
         private const val STATUS_TEXT_FALLBACK = "选集"
-
-        /** 后端给正片分区的固定标题（协议值，不是给人看的文案，比较用） */
-        private const val MAIN_SECTION_TITLE = "正片"
 
         /**
          * 选集标题行的状态文案（纯函数，便于单测）。
@@ -401,8 +397,8 @@ class BangumiInfoFragment : Fragment() {
             startActivity(intent)
             true
         }
-        // 缓存：先选季（一次只缓一季），再选集与清晰度，最后整批入队
-        cacheButton.setOnClickListener { showCacheSeasonDialog() }
+        // 缓存：跳到全屏缓存页（顶部选清晰度、下面按季折叠勾选）
+        cacheButton.setOnClickListener { openCachePage() }
         onFinishLoad()
 
         refreshReplies()
@@ -804,260 +800,57 @@ class BangumiInfoFragment : Fragment() {
         return dialog!!
     }
 
-    // ---------- 番剧缓存：选季 → 选集 → 清晰度 → 整批入队 ----------
-
-    /** 选集面板里的一行：记住它属于哪个分区（决定默认是否勾选、要不要加【分区名】前缀） */
-    private class CacheEpisodeEntry(
-        val sectionIndex: Int,
-        val sectionTitle: String,
-        val episode: Bangumi.Episode
-    )
+    // ---------- 番剧缓存：交给独立的缓存页 ----------
 
     /**
-     * 缓存入口第一步：选季。
+     * 缓存入口：跳到全屏的 [BangumiCacheActivity]。
      *
-     * 番剧和投稿视频不一样——一个 media 底下挂着好几季、每季几十集，还夹着花絮/PV/特别篇。
-     * 所以第一步只问「缓哪一季」，**一次只缓存一季**：既不会一口气把未开播、会员专享的集
-     * 全塞进下载队列，后面选集列表的长度也是可预期的。
+     * 早先这里是「选季 → 选集 → 清晰度」三连弹窗，一季几十集全挤在一个弹窗里滚，
+     * 手表上根本点不准；现在改成单独一页——顶部选清晰度，下面按季折叠、
+     * 每季一行「全选本季」，展开后逐集勾选，跨季混选也支持。
+     *
+     * 季列表直接用详情页已经拿到的 info.seasons；当前季不在里面（单季番常见）就补一条，
+     * 保证进页面至少有一季可选。剧集不在 Intent 里传——缓存页按需自己拉，省得把
+     * Bangumi.Season / Episode 都改成 Parcelable。
      */
-    private fun showCacheSeasonDialog() {
+    private fun openCachePage() {
         val info = bangumi?.info ?: return
-        val seasons = ArrayList<Bangumi.Season>()
-        // 与顶部季 tab 同源（info.seasons）。当前季不在里面时补到最前面：
-        // tabs.size<=1 时 tab 行是隐藏的，用户看不到"季"的概念，但缓存面板必须能选到正在看的这一季
-        info.seasons?.forEach { season -> if (season != null) seasons.add(season) }
-        if (seasons.none { it.season_id == currentSeasonId }) {
-            seasons.add(
-                0, Bangumi.Season().apply {
+        val tabSeasons = ArrayList<Bangumi.Season>()
+        info.seasons?.let { tabSeasons.addAll(it) }
+        if (tabSeasons.none { it.season_id == currentSeasonId }) {
+            tabSeasons.add(
+                0,
+                Bangumi.Season().apply {
                     season_id = currentSeasonId
-                    season_title = seasonTitleOf(null)
-                    cover = info.cover ?: ""
+                    season_title = info.title
+                    cover = info.cover
                     seasonType = currentSeasonType
                 }
             )
         }
-
-        val labels = seasons.map {
-            it.season_title?.takeIf { title -> title.isNotEmpty() }
-                ?: getString(R.string.uitext_bangumiinfofragment_033)
-        }
-        val checked = seasons.indexOfFirst { it.season_id == currentSeasonId }.coerceAtLeast(0)
-
-        TerminalDialog.singleChoice(
-            requireContext(),
-            getString(R.string.uitext_bangumiinfofragment_026),
-            labels,
-            checked
-        ) { sheet, which ->
-            val season = seasons.getOrNull(which) ?: return@singleChoice
-            sheet.dialog.dismiss()
-            loadSeasonForCache(season)
-        }.show()
-    }
-
-    /**
-     * 取出目标季的分区数据后进选集面板：命中 [seasonCache] 直接用（详情页顶部 tab 也共享它），
-     * 否则后台拉一次 [BangumiApi.getSeasonDetail]。
-     */
-    private fun loadSeasonForCache(season: Bangumi.Season) {
-        val seasonId = season.season_id
-        val cached = seasonCache[seasonId]
-        if (cached != null && !cached.sectionList.isNullOrEmpty()) {
-            showCacheEpisodeDialog(season, cached)
-            return
-        }
-
-        MsgUtil.showMsg(getString(R.string.uitext_bangumiinfofragment_037))
-        CenterThreadPool.run {
-            try {
-                val meta = BangumiApi.getSeasonDetail(seasonId)
-                if (meta.sectionList.none { !it.episodeList.isNullOrEmpty() }) {
-                    CenterThreadPool.runOnUiThread {
-                        if (isAdded) MsgUtil.showMsg(getString(R.string.uitext_bangumiinfofragment_034))
-                    }
-                    return@run
-                }
-                // 顺手塞进缓存：用户从缓存面板选过的季，切 tab 过去时也就省一次请求了
-                seasonCache[seasonId] = meta
-                CenterThreadPool.runOnUiThread {
-                    if (!isAdded) return@runOnUiThread
-                    showCacheEpisodeDialog(season, meta)
-                }
-            } catch (e: Exception) {
-                MsgUtil.err(e)
-                CenterThreadPool.runOnUiThread {
-                    if (isAdded) MsgUtil.showMsg(getString(R.string.uitext_bangumiinfofragment_035))
-                }
-            }
-        }
-    }
-
-    /**
-     * 选集面板：把这一季**所有分区**的剧集拍平后多选。
-     *
-     * 默认只勾「正片」那一整个分区（花絮/PV/特别篇默认全下没有意义，但留在列表里让用户自己加）。
-     * 会员/限免集**不静默跳过**：行尾照样带 `episode.badge`（和详情页选集卡片的角标同一份数据），
-     * 下不下的决定权交给用户；真下不动的，下载列表里会给出具体失败原因。
-     */
-    private fun showCacheEpisodeDialog(season: Bangumi.Season, meta: BangumiApi.SeasonMeta) {
-        val sectionList = meta.sectionList
-        val multiSection = sectionList.size > 1
-        val entries = ArrayList<CacheEpisodeEntry>()
-        sectionList.forEachIndexed { sectionIndex, section ->
-            section.episodeList?.forEach { episode ->
-                entries.add(CacheEpisodeEntry(sectionIndex, section.title ?: "", episode))
-            }
-        }
-        if (entries.isEmpty()) {
+        if (tabSeasons.isEmpty()) {
             MsgUtil.showMsg(getString(R.string.uitext_bangumiinfofragment_034))
             return
         }
 
-        // 默认勾选：后端标成"正片"的分区；没有这个标记就退回第一个非空分区
-        val mainSectionIndex = sectionList.indexOfFirst {
-            it.title == MAIN_SECTION_TITLE && !it.episodeList.isNullOrEmpty()
-        }.let { if (it >= 0) it else sectionList.indexOfFirst { !it.episodeList.isNullOrEmpty() } }
-        val checked = BooleanArray(entries.size) { entries[it].sectionIndex == mainSectionIndex }
+        val ids = LongArray(tabSeasons.size) { tabSeasons[it].season_id }
+        val titles = ArrayList<String>(tabSeasons.size)
+        val covers = ArrayList<String>(tabSeasons.size)
+        for (season in tabSeasons) {
+            titles.add(season.season_title.orEmpty())
+            covers.add(season.cover.orEmpty())
+        }
 
-        val seasonTitle = seasonTitleOf(season)
-        val seasonCover = season.cover.orEmpty()
-        val seasonId = season.season_id
-        // 季类型回退口径与 applySeason 一致：服务端没给就沿用 info.type
-        val seasonType = if (meta.seasonType != 0) meta.seasonType else (bangumi?.info?.type ?: 0)
-
-        val sheet = TerminalDialog.Sheet(
-            requireContext(),
-            getString(R.string.uitext_bangumiinfofragment_027)
+        startActivity(
+            Intent(requireContext(), BangumiCacheActivity::class.java)
+                .putExtra(BangumiCacheActivity.EXTRA_BANGUMI_TITLE, info.title.orEmpty())
+                .putExtra(BangumiCacheActivity.EXTRA_BANGUMI_COVER, info.cover.orEmpty())
+                .putExtra(BangumiCacheActivity.EXTRA_CURRENT_SEASON_ID, currentSeasonId)
+                .putExtra(BangumiCacheActivity.EXTRA_CURRENT_SEASON_TYPE, currentSeasonType)
+                .putExtra(BangumiCacheActivity.EXTRA_SEASON_IDS, ids)
+                .putStringArrayListExtra(BangumiCacheActivity.EXTRA_SEASON_TITLES, titles)
+                .putStringArrayListExtra(BangumiCacheActivity.EXTRA_SEASON_COVERS, covers)
         )
-
-        val countRow = sheet.addItem(selectedCountText(checked), onClick = {})
-        // 计数行只读：撤掉点击回调与引导符，别让它看着像能点
-        countRow.root.setOnClickListener(null)
-        countRow.root.isClickable = false
-        countRow.root.isFocusable = false
-        countRow.glyph.visibility = View.GONE
-
-        val selectAllRow = sheet.addItem(getString(R.string.uitext_bangumiinfofragment_030), onClick = {})
-
-        val rows = ArrayList<TerminalDialog.Row>()
-        entries.forEach { entry ->
-            rows.add(sheet.addItem(cacheRowTitle(entry, multiSection), onClick = {}))
-        }
-
-        fun paintRow(index: Int) {
-            val row = rows[index]
-            val on = checked[index]
-            row.glyph.text = if (on) TerminalDialog.GLYPH_ACTIVE else TerminalDialog.GLYPH_IDLE
-            row.glyph.setTextColor(if (on) sheet.primaryColor() else sheet.secondaryColor())
-            row.text.setTextColor(if (on) sheet.primaryColor() else sheet.onSurfaceColor())
-            row.state.text = if (on) TerminalDialog.GLYPH_CHECK else ""
-        }
-
-        fun refresh() {
-            for (i in rows.indices) paintRow(i)
-            countRow.text.text = selectedCountText(checked)
-            selectAllRow.text.text = getString(
-                if (checked.all { it }) R.string.uitext_bangumiinfofragment_031
-                else R.string.uitext_bangumiinfofragment_030
-            )
-        }
-
-        fun toggle(index: Int) {
-            checked[index] = !checked[index]
-            refresh()
-        }
-
-        fun toggleAll() {
-            val target = !checked.all { it }
-            for (i in checked.indices) checked[i] = target
-            refresh()
-        }
-
-        // 行点击在局部函数都就绪后再挂，避免闭包捕获到未初始化的局部函数
-        rows.forEachIndexed { index, row -> row.root.setOnClickListener { toggle(index) } }
-        selectAllRow.root.setOnClickListener { toggleAll() }
-
-        sheet.addButton(getString(R.string.btn_cancel), sheet.secondaryColor()) {
-            sheet.dialog.dismiss()
-        }
-        sheet.addButton(getString(R.string.uitext_bangumiinfofragment_032), sheet.primaryColor()) {
-            val picked = ArrayList<Bangumi.Episode>()
-            entries.forEachIndexed { index, entry -> if (checked[index]) picked.add(entry.episode) }
-            if (picked.isEmpty()) {
-                // 一集没勾就不关窗：关掉再重选更烦
-                MsgUtil.showMsg(getString(R.string.uitext_bangumiinfofragment_029, 0))
-                return@addButton
-            }
-            sheet.dialog.dismiss()
-            showCacheQualityDialog(seasonTitle, seasonCover, seasonId, seasonType, picked)
-        }
-
-        refresh()
-        sheet.setHint(getString(R.string.uitext_bangumiinfofragment_036))
-        sheet.prepareLayout()
-        sheet.dialog.show()
-    }
-
-    /**
-     * 清晰度：整季只问一次，所有勾选的集共用一个 qn。
-     *
-     * 用固定档位而不是先探测一集：番剧取流只有 durl（音视频合一的 mp4）一条链路，
-     * 要真实档位就得多发一次 playurl 请求，而请求高于片源实际清晰度时服务端会自动降级
-     * ——下不下来跟档位无关，探测只换来一次多余的等待。默认档位跟随设置里的默认清晰度。
-     */
-    private fun showCacheQualityDialog(
-        seasonTitle: String,
-        seasonCover: String,
-        seasonId: Long,
-        seasonType: Int,
-        episodes: List<Bangumi.Episode>
-    ) {
-        val qnValues = intArrayOf(80, 64, 32, 16)
-        val qnLabels = listOf(
-            getString(R.string.cache_quality_1080p),
-            getString(R.string.cache_quality_720p),
-            getString(R.string.cache_quality_480p),
-            getString(R.string.cache_quality_360p)
-        )
-        // 默认清晰度可能比最高档还高（比如设置了 4K）：往下降一档取第一个不超过它的档位
-        val defaultQn = NetworkPlaybackQuality.defaultQn(requireContext())
-        val checked = qnValues.indexOfFirst { it <= defaultQn }
-            .let { if (it >= 0) it else qnValues.lastIndex }
-
-        TerminalDialog.singleChoice(
-            requireContext(),
-            getString(R.string.uitext_bangumiinfofragment_028),
-            qnLabels,
-            checked
-        ) { sheet, which ->
-            sheet.dialog.dismiss()
-            DownloadService.startDownloadBangumi(
-                seasonTitle,
-                seasonCover,
-                seasonId,
-                seasonType,
-                qnValues.getOrElse(which) { qnValues.last() },
-                episodes
-            )
-        }.show()
-    }
-
-    /** 季名：优先这一季自己的标题，缺了才用番剧总标题（落库后它就是缓存目录名） */
-    private fun seasonTitleOf(season: Bangumi.Season?): String =
-        season?.season_title?.takeIf { it.isNotEmpty() }
-            ?: bangumi?.info?.title ?: getString(R.string.uitext_bangumiinfofragment_016)
-
-    private fun selectedCountText(checked: BooleanArray): String =
-        getString(R.string.uitext_bangumiinfofragment_029, checked.count { it })
-
-    /** 勾选列表的一行：集名沿用详情页选集口径，会员/限免角标照抄 episode.badge */
-    private fun cacheRowTitle(entry: CacheEpisodeEntry, multiSection: Boolean): String {
-        val name = entry.episode.title.orEmpty() + "." + entry.episode.title_long.orEmpty()
-        val body = if (multiSection) {
-            getString(R.string.uitext_bangumiinfofragment_023, entry.sectionTitle, name)
-        } else name
-        val badge = entry.episode.badge.orEmpty()
-        return if (badge.isEmpty()) body else "$body · $badge"
     }
 
     private fun refreshReplies() {

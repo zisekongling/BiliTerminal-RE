@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  番剧缓存页的「季」行：箭头 + 季名 + 已选/总集数 + 右侧「全选本季」。
+  整行点击 = 展开/折叠，右侧按钮只作用于这一季（点它会吃掉事件，不会顺带折叠）。
+-->
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/season_card"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginHorizontal="@dimen/activity_padding_horizontal"
+    android:layout_marginVertical="@dimen/list_margin_vertical"
+    android:foreground="?attr/selectableItemBackground">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/season_arrow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="6dp"
+            android:text="▸"
+            android:textSize="@dimen/text_subtitle"
+            tools:ignore="HardcodedText" />
+
+        <TextView
+            android:id="@+id/season_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:lines="1"
+            android:textSize="@dimen/text_subtitle"
+            android:textStyle="bold"
+            tools:text="第一季" />
+
+        <TextView
+            android:id="@+id/season_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:lines="1"
+            android:textSize="@dimen/text_caption"
+            tools:text="已选 12/12 集" />
+
+        <TextView
+            android:id="@+id/season_action"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:lines="1"
+            android:paddingStart="8dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="4dp"
+            android:text="@string/uitext_bangumiinfofragment_030"
+            android:textSize="@dimen/text_caption" />
+
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>

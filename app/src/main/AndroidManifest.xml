@@ -426,6 +426,11 @@
             android:label="@string/text_activityliveinfo_10"
             android:screenOrientation="locked" />
         <activity
+            android:name=".activity.video.BangumiCacheActivity"
+            android:exported="false"
+            android:label="@string/uitext_bangumicache_001"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.settings.SettingQualityActivity"
             android:exported="false"
             android:label="@string/label_activity_no_12"

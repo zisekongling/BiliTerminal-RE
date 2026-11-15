@@ -18,6 +18,7 @@ import com.RobinNotBad.BiliClient.activity.video.local.DownloadListActivity
 import com.RobinNotBad.BiliClient.activity.video.local.LocalListActivity
 import com.RobinNotBad.BiliClient.api.PlayerApi
 import com.RobinNotBad.BiliClient.helper.sql.DownloadSqlHelper
+import com.RobinNotBad.BiliClient.service.download.BangumiCacheSeason
 import com.RobinNotBad.BiliClient.service.download.DownloadNotifier
 import com.RobinNotBad.BiliClient.service.download.DownloadPathSpec
 import com.RobinNotBad.BiliClient.service.download.DownloadProgressMath
@@ -351,9 +352,9 @@ class DownloadService : Service() {
         }
 
         /**
-         * 番剧整季缓存入队：一次把用户勾选的那些集写进下载队列。
+         * 番剧缓存入队：一次把用户在缓存页勾选的那些集写进下载队列。
          *
-         * <p>为什么不像投稿视频那样一集一个入口：番剧侧是「选季 → 选集」一次勾一批，
+         * <p>为什么不像投稿视频那样一集一个入口：番剧侧是一次勾一批（还可能跨季勾），
          * 逐集调用会让每一集都弹一条「已在下载队列」的提示，勾十集就是十条提示；
          * 这里在同一个后台线程里做完去重与插入，最后只给一条汇总提示。
          *
@@ -362,20 +363,12 @@ class DownloadService : Service() {
          * epid / season_id / season_type 三列 —— 下载时靠它们走番剧取流接口，
          * 见 [processDownloadSection] 与 [DownloadSection.isBangumi]。
          *
-         * @param seasonTitle 季名（落库的 title，也就是父目录名）
-         * @param seasonCover 季封面；某集自己没有封面时兜底用它
-         * @param qn          统一清晰度：整季只问一次，所有集用同一个值
+         * @param qn      统一清晰度：缓存页只问一次，所有集用同一个值
+         * @param seasons 按季分组的剧集；允许一次传多季（缓存页支持跨季混选）
          */
         @JvmStatic
-        fun startDownloadBangumi(
-            seasonTitle: String,
-            seasonCover: String,
-            seasonId: Long,
-            seasonType: Int,
-            qn: Int,
-            episodes: List<Bangumi.Episode>
-        ) {
-            if (episodes.isEmpty()) return
+        fun startDownloadBangumi(qn: Int, seasons: List<BangumiCacheSeason>) {
+            if (seasons.none { it.episodes.isNotEmpty() }) return
             CenterThreadPool.run {
                 var database: SQLiteDatabase? = null
                 var cursor: Cursor? = null
@@ -387,58 +380,64 @@ class DownloadService : Service() {
 
                     var added = 0
                     var skipped = 0
-                    for (episode in episodes) {
-                        val child = episode.title.orEmpty().ifEmpty {
-                            episode.title_long.orEmpty().ifEmpty {
-                                context.getString(R.string.text_download_bangumi_episode_unknown)
+                    for (season in seasons) {
+                        val seasonTitle = season.seasonTitle
+                        val seasonCover = season.seasonCover
+                        val seasonId = season.seasonId
+                        val seasonType = season.seasonType
+                        for (episode in season.episodes) {
+                            val child = episode.title.orEmpty().ifEmpty {
+                                episode.title_long.orEmpty().ifEmpty {
+                                    context.getString(R.string.text_download_bangumi_episode_unknown)
+                                }
                             }
-                        }
-                        cursor = database.rawQuery(
-                            "select state from download where aid=? and cid=?",
-                            arrayOf(episode.aid.toString(), episode.cid.toString())
-                        )
-                        if (cursor != null && cursor.count > 0) {
-                            // 与投稿视频同口径：失败过的行不挡路（反馈 #136），删掉按新任务重排
-                            val oldState = if (cursor.moveToFirst()) cursor.getString(0) else ""
-                            cursor.close()
+                            cursor = database.rawQuery(
+                                "select state from download where aid=? and cid=?",
+                                arrayOf(episode.aid.toString(), episode.cid.toString())
+                            )
+                            if (cursor != null && cursor.count > 0) {
+                                // 与投稿视频同口径：失败过的行不挡路（反馈 #136），删掉按新任务重排
+                                val oldState = if (cursor.moveToFirst()) cursor.getString(0) else ""
+                                cursor.close()
+                                cursor = null
+                                if (oldState != "error") {
+                                    skipped++
+                                    continue
+                                }
+                                database.execSQL(
+                                    "delete from download where aid=? and cid=?",
+                                    arrayOf<Any>(episode.aid, episode.cid)
+                                )
+                            }
+                            cursor?.close()
                             cursor = null
-                            if (oldState != "error") {
-                                skipped++
-                                continue
-                            }
+
                             database.execSQL(
-                                "delete from download where aid=? and cid=?",
-                                arrayOf<Any>(episode.aid, episode.cid)
+                                "insert into download(type,state,aid,cid,qn,title,child,cover,download_type,audio_url," +
+                                        "epid,season_id,season_type) values(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                                arrayOf<Any>(
+                                    DownloadPathSpec.TASK_VIDEO_MULTI, "none", episode.aid, episode.cid, qn,
+                                    seasonTitle, child,
+                                    GlideUtil.url(episode.cover?.takeIf { it.isNotEmpty() } ?: seasonCover),
+                                    DownloadPathSpec.TYPE_VIDEO_PGC, "",
+                                    episode.id, seasonId, seasonType
+                                )
                             )
+
+                            val path_page = FileUtil.getVideoDownloadPath(seasonTitle, child)
+                            path_page.mkdirs()
+
+                            val file_sign = File(path_page, DownloadPathSpec.FILE_DOWNLOADING)
+                            if (!file_sign.exists()) file_sign.createNewFile()
+
+                            // 番剧只有 durl（音视频合一的 mp4）一条链路，画质标记就是 qn 本身
+                            File(path_page, DownloadPathSpec.FILE_QUALITY).writeText(qn.toString())
+                            DownloadRepository.saveVideoMeta(
+                                path_page, child, episode.aid, episode.cid, qn,
+                                DownloadPathSpec.TYPE_VIDEO_PGC
+                            )
+                            added++
                         }
-                        cursor?.close()
-                        cursor = null
-
-                        database.execSQL(
-                            "insert into download(type,state,aid,cid,qn,title,child,cover,download_type,audio_url," +
-                                    "epid,season_id,season_type) values(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                            arrayOf<Any>(
-                                DownloadPathSpec.TASK_VIDEO_MULTI, "none", episode.aid, episode.cid, qn,
-                                seasonTitle, child,
-                                GlideUtil.url(episode.cover?.takeIf { it.isNotEmpty() } ?: seasonCover),
-                                DownloadPathSpec.TYPE_VIDEO_PGC, "",
-                                episode.id, seasonId, seasonType
-                            )
-                        )
-
-                        val path_page = FileUtil.getVideoDownloadPath(seasonTitle, child)
-                        path_page.mkdirs()
-
-                        val file_sign = File(path_page, DownloadPathSpec.FILE_DOWNLOADING)
-                        if (!file_sign.exists()) file_sign.createNewFile()
-
-                        // 番剧只有 durl（音视频合一的 mp4）一条链路，画质标记就是 qn 本身
-                        File(path_page, DownloadPathSpec.FILE_QUALITY).writeText(qn.toString())
-                        DownloadRepository.saveVideoMeta(
-                            path_page, child, episode.aid, episode.cid, qn,
-                            DownloadPathSpec.TYPE_VIDEO_PGC
-                        )
-                        added++
                     }
 
                     val msg = when {

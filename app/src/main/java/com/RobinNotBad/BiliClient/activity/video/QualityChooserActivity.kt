@@ -2,6 +2,7 @@ package com.RobinNotBad.BiliClient.activity.video
 
 import com.RobinNotBad.BiliClient.util.UiText
 
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -14,6 +15,7 @@ import com.RobinNotBad.BiliClient.adapter.QualityChooseAdapter
 import com.RobinNotBad.BiliClient.listener.OnItemClickListener
 import com.RobinNotBad.BiliClient.api.PlayerApi
 import com.RobinNotBad.BiliClient.api.VipApi
+import com.RobinNotBad.BiliClient.model.LocalVideo
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -27,6 +29,12 @@ class QualityChooserActivity : BaseActivity() {
     private var qns: IntArray? = null
     private var isAudioOnlyOption = false
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** 与 [qns] 一一对应的显示文案，回调时用来回填「清晰度：XXX」。 */
+    private var qualityLabels: ArrayList<String> = ArrayList()
+
+    /** 只挑不下载：番剧缓存页要的是「选了哪一档」，下载由它自己入队。 */
+    private var pickOnly = false
 
     // 强制高分辨率选项：qn值 -> 显示名称
     private val forcedQualityMap = linkedMapOf(
@@ -56,6 +64,14 @@ class QualityChooserActivity : BaseActivity() {
         }
 
         (findViewById<TextView>(R.id.pageName)).text = UiText.of("请选择清晰度")
+
+        // 番剧缓存页过来的：只挑不下载，列表来自 pgc 取流接口的 accept_quality
+        if (intent.getLongExtra(EXTRA_BGM_EPID, 0) > 0) {
+            setupBangumiQuality(recyclerView)
+            return
+        }
+
+        pickOnly = intent.getBooleanExtra(EXTRA_PICK_ONLY, false)
 
         val aid = intent.getLongExtra("aid", 0)
         val bvid = intent.getStringExtra("bvid")
@@ -92,6 +108,7 @@ class QualityChooserActivity : BaseActivity() {
                         qualityList.add(UiText.of("仅音频"))
                         isAudioOnlyOption = true
 
+                        qualityLabels = qualityList
                         runOnUiThread { adapter.nameList = qualityList }
                     } catch (e: Exception) {
                         runOnUiThread { MsgUtil.showMsg(UiText.of("清晰度列表获取失败！")) }
@@ -133,6 +150,11 @@ class QualityChooserActivity : BaseActivity() {
                         val fnval = forcedQualityFnval[targetQn] ?: 16
                         val qualityName = forcedEntry.value
 
+                        if (pickOnly) {
+                            finishWithPick(targetQn, qualityName)
+                            return@OnItemClickListener
+                        }
+
                         CenterThreadPool.run {
                             try {
                                 // 1080P高码率(112)与4K(120)仅大会员可下载，其余强制项无需校验
@@ -169,6 +191,10 @@ class QualityChooserActivity : BaseActivity() {
                     } else {
                         // 正常API返回的分辨率选项
                         val qn = qns!![position]
+                        if (pickOnly) {
+                            finishWithPick(qn, qualityLabels.getOrNull(position))
+                            return@OnItemClickListener
+                        }
                         PlayerApi.startDownloading(videoInfo, page, qn)
                         mainHandler.postDelayed({ finish() }, 200)
                     }
@@ -178,5 +204,86 @@ class QualityChooserActivity : BaseActivity() {
                 recyclerView.adapter = adapter
             }
         }
+    }
+
+    /**
+     * 番剧清晰度列表：走 pgc 取流接口自己带回来的 accept_quality / accept_description。
+     *
+     * 与投稿视频的区别：番剧只有 durl（音视频合一的 mp4），没有「仅音频」也没有
+     * DASH 的强制高码率档，所以这里不追加那些项；拿到列表就直接一档对一档地列出来。
+     *
+     * 会员集、地区限制等情况下取流可能直接失败（[PlayerApi.NoPlayUrlException]），
+     * 此时退回固定四档：反正这一刻只是让用户先挑一个值，真正下载时会再取一次流，
+     * 到那时失败会按失败原因显示在下载列表里。
+     */
+    private fun setupBangumiQuality(recyclerView: RecyclerView) {
+        val adapter = QualityChooseAdapter(this)
+        CenterThreadPool.run {
+            var labels = ArrayList<String>()
+            var values = intArrayOf()
+            try {
+                val data = PlayerData(PlayerData.TYPE_BANGUMI)
+                data.aid = intent.getLongExtra(EXTRA_BGM_AID, 0)
+                data.cid = intent.getLongExtra(EXTRA_BGM_CID, 0)
+                data.epid = intent.getLongExtra(EXTRA_BGM_EPID, 0)
+                data.seasonId = intent.getLongExtra(EXTRA_BGM_SEASON_ID, 0)
+                data.seasonType = intent.getIntExtra(EXTRA_BGM_SEASON_TYPE, 0).takeIf { it > 0 } ?: 1
+                data.qn = 127
+                PlayerApi.getBangumi(data)
+                val names = data.qnStrList
+                val valueList = data.qnValueList
+                if (names == null || valueList == null || valueList.isEmpty()) {
+                    throw IllegalStateException("番剧清晰度列表为空")
+                }
+                labels = ArrayList(Arrays.asList(*names))
+                values = valueList
+            } catch (e: Exception) {
+                labels = ArrayList(
+                    Arrays.asList(
+                        getString(R.string.cache_quality_1080p),
+                        getString(R.string.cache_quality_720p),
+                        getString(R.string.cache_quality_480p),
+                        getString(R.string.cache_quality_360p)
+                    )
+                )
+                values = intArrayOf(80, 64, 32, 16)
+                MsgUtil.err(e)
+            }
+            qns = values
+            qualityLabels = labels
+            runOnUiThread { adapter.nameList = labels }
+        }
+        adapter.onItemClickListener = OnItemClickListener { position ->
+            val qn = qns?.getOrNull(position) ?: return@OnItemClickListener
+            finishWithPick(qn, qualityLabels.getOrNull(position))
+        }
+        recyclerView.layoutManager = CustomLinearManager(this)
+        recyclerView.adapter = adapter
+    }
+
+    /** 只挑不下载：把选中的档位回给调用方（番剧缓存页靠它回填「清晰度：XXX」）。 */
+    private fun finishWithPick(qn: Int, label: CharSequence?) {
+        val text = label?.toString()?.takeIf { it.isNotEmpty() } ?: LocalVideo.getQualityLabel(qn)
+        setResult(
+            RESULT_OK,
+            Intent().putExtra(EXTRA_PICK_QN, qn).putExtra(EXTRA_PICK_LABEL, text)
+        )
+        finish()
+    }
+
+    companion object {
+        /** 只挑不下载模式：点任意档位只回 qn，不触发任何下载。 */
+        const val EXTRA_PICK_ONLY = "pick_only"
+
+        /** 当前选中的清晰度（进页面时传进去、选完回传给调用方）。 */
+        const val EXTRA_PICK_QN = "pick_qn"
+        const val EXTRA_PICK_LABEL = "pick_label"
+
+        /** 番剧模式：给了 epid 就走 pgc 取流拿清晰度列表，且永不下载。 */
+        const val EXTRA_BGM_AID = "bgm_aid"
+        const val EXTRA_BGM_CID = "bgm_cid"
+        const val EXTRA_BGM_EPID = "bgm_epid"
+        const val EXTRA_BGM_SEASON_ID = "bgm_season_id"
+        const val EXTRA_BGM_SEASON_TYPE = "bgm_season_type"
     }
 }
