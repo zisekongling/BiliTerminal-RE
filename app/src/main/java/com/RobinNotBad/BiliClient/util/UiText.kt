@@ -898,6 +898,7 @@ object UiText {
         "共%1\$sP" to R.string.text_cache_list_pages,
         "没有可播放的缓存文件" to R.string.msg_cache_no_playable_file,
         // 「我的」页账号信息加载失败（反馈 #163）：失败文案与原因分类见 util/MySpaceLoadErrorText.kt
+        "加载失败，点我重新登录" to R.string.text_myspace_load_failed_login,
         "加载失败，点我重试" to R.string.text_myspace_load_failed_retry,
         "网络异常" to R.string.text_myspace_load_reason_network,
         "数据解析失败" to R.string.text_myspace_load_reason_parse,
