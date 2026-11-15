@@ -19,12 +19,14 @@ class PrivateMsgApiTest {
         unread: Int = 0,
         accountInfo: String = "",
         lastMsg: String = "",
-        topTs: Long = -1
+        topTs: Long = -1,
+        sessionTs: Long = -1
     ): String = buildString {
         append("""{"talker_id":$talkerId,"unread_count":$unread""")
         if (accountInfo.isNotEmpty()) append(""","account_info":$accountInfo""")
         if (lastMsg.isNotEmpty()) append(""","last_msg":$lastMsg""")
         if (topTs >= 0) append(""","top_ts":$topTs""")
+        if (sessionTs >= 0) append(""","session_ts":$sessionTs""")
         append("}")
     }
 
@@ -261,5 +263,50 @@ class PrivateMsgApiTest {
     @Test
     fun buildTextContent_null按空串发出() {
         assertEquals("", JSONObject(PrivateMsgApi.buildTextContent(null)).getString("content"))
+    }
+
+    // ==================== 会话翻页（反馈 #166） ====================
+
+    @Test
+    fun parseSessionsList_解析sessionTs作为翻页游标() {
+        val list = PrivateMsgApi.parseSessionsList(
+            rootWith(sessionJson(1001L, sessionTs = 1712305278098351L))
+        )
+
+        assertEquals(1712305278098351L, list[0].sessionTs)
+    }
+
+    @Test
+    fun parseSessionsList_缺sessionTs时游标为0() {
+        // 拿不到时间戳就没法翻页，调用方据此停止加载（不能拿 0 反复拉同一页）
+        assertEquals(0L, PrivateMsgApi.parseSessionsList(rootWith(sessionJson(1001L)))[0].sessionTs)
+    }
+
+    @Test
+    fun parseSessionsList_sessionList为null_返回空列表() {
+        // 翻到最后一页时服务端会把 session_list 直接给 null，getJSONArray 会抛
+        val root = JSONObject("""{"code":0,"data":{"session_list":null,"has_more":0}}""")
+
+        assertTrue(PrivateMsgApi.parseSessionsList(root).isEmpty())
+    }
+
+    @Test
+    fun parseSessionsHasMore_读data里的has_more() {
+        assertTrue(PrivateMsgApi.parseSessionsHasMore(JSONObject("""{"data":{"has_more":1}}""")))
+        assertEquals(false, PrivateMsgApi.parseSessionsHasMore(JSONObject("""{"data":{"has_more":0}}""")))
+        // 字段缺失按「没有更多」处理，避免无休止地翻
+        assertEquals(false, PrivateMsgApi.parseSessionsHasMore(JSONObject("""{"data":{}}""")))
+    }
+
+    @Test
+    fun buildSessionsUrl_第一页不带end_ts_后续页带上游标() {
+        val first = PrivateMsgApi.buildSessionsUrl(20, 0)
+        assertTrue(first.contains("session_type=1"))
+        assertTrue(first.contains("size=20"))
+        assertEquals("第一页不该带翻页游标", false, first.contains("end_ts"))
+
+        val next = PrivateMsgApi.buildSessionsUrl(20, 1712305278098351L)
+        assertTrue(next.contains("size=20"))
+        assertTrue(next.contains("end_ts=1712305278098351"))
     }
 }

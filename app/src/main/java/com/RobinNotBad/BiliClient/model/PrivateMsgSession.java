@@ -14,6 +14,12 @@ public class PrivateMsgSession {
      */
     public long topTs = 0;
 
+    /**
+     * 会话最后一条消息的时间（微秒级时间戳），翻页时作为 get_sessions 的 end_ts 游标。
+     * 见 PrivateMsgApi.getSessionsPage()（反馈 #166）。
+     */
+    public long sessionTs = 0;
+
     public PrivateMsgSession() {
     }
 
