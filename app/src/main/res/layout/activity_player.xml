@@ -695,6 +695,40 @@
 
         </LinearLayout>
 
+        <!--
+            通用动作卡片（26.11.15）：睡眠定时 / 投币 / 收藏共用这一张。
+            标题与里面的按钮都由 PlayerActivity 在代码里填——收藏夹有几个、定时给几档，
+            都是运行时才知道的，写死在 XML 里就会僵。样式沿用「跳到指定时间」那张卡片：
+            半透明底 + 居中 + 整行按钮。
+        -->
+        <LinearLayout
+            android:id="@+id/action_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:layout_marginHorizontal="6dp"
+            android:background="@drawable/background_card"
+            android:orientation="vertical"
+            android:paddingHorizontal="4dp"
+            android:paddingVertical="4dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/action_card_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="3dp"
+                android:textSize="14sp" />
+
+            <LinearLayout
+                android:id="@+id/action_card_options"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:orientation="vertical" />
+
+        </LinearLayout>
+
         <LinearLayout
             android:id="@+id/page_selector_card"
             android:layout_width="match_parent"
@@ -1106,6 +1140,97 @@
             android:textColor="?android:attr/textColorPrimary"
             android:textSize="13sp"
             android:visibility="gone" />
+
+        <!--
+            26.11.15：睡眠定时 / 点赞 / 投币 / 收藏 / 下载 / 上一个 / 下一个。
+            七个都是「点一下就有动作」的按钮，默认不进任何槽位（收在「更多」收纳格里），
+            所以一律 visibility=gone，摆进槽位时由 PlayerButtonSlots 及其影子负责显示。
+            点赞与睡眠定时的图标会在运行时换（已赞/未赞、定时是否生效），
+            因此本体必须用 VectorImageButton：它的 setImageResource 能解析矢量图。
+        -->
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:id="@+id/btn_sleep_timer"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:padding="10dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/setting_player_btn_sleep_timer"
+            android:scaleType="fitXY"
+            android:visibility="gone"
+            app:srcCompat="@drawable/icon_time" />
+
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:id="@+id/btn_like"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:padding="10dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/setting_player_btn_like"
+            android:scaleType="fitXY"
+            android:visibility="gone"
+            app:srcCompat="@drawable/icon_like_0" />
+
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:id="@+id/btn_coin"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:padding="10dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/setting_player_btn_coin"
+            android:scaleType="fitXY"
+            android:visibility="gone"
+            app:srcCompat="@drawable/icon_coin_0" />
+
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:id="@+id/btn_favorite"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:padding="10dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/setting_player_btn_favorite"
+            android:scaleType="fitXY"
+            android:visibility="gone"
+            app:srcCompat="@drawable/icon_fav_0" />
+
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:id="@+id/btn_download"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:padding="10dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/setting_player_btn_download"
+            android:scaleType="fitXY"
+            android:visibility="gone"
+            app:srcCompat="@drawable/icon_download" />
+
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:id="@+id/btn_prev_video"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:padding="10dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/setting_player_btn_prev_video"
+            android:scaleType="fitXY"
+            android:visibility="gone"
+            app:srcCompat="@drawable/icon_player_prev" />
+
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:id="@+id/btn_next_video"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:padding="10dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/setting_player_btn_next_video"
+            android:scaleType="fitXY"
+            android:visibility="gone"
+            app:srcCompat="@drawable/icon_player_next" />
 
     </LinearLayout>
 

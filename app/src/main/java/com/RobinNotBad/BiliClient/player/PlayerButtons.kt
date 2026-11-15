@@ -51,6 +51,24 @@ object PlayerButtons {
     const val SEEK_FORWARD = "seek_forward"
 
     /**
+     * 26.11.15 新增的 7 个「动作类」按钮。
+     *
+     * 与老按钮的区别：它们不是某个设置项的入口，点一下就直接产生一次操作（点赞、投币、下载、
+     * 切上一个/下一个）或弹一张只有本页用的小卡片（睡眠定时、投币数量、收藏夹）。
+     * 因此 [Button.settingsGroup] 全是 `null`——设置页卡片对它们只显示「这个按钮没有可单独调整的设置」。
+     *
+     * **默认不摆进任何槽位**：老用户升级后布局不变，它们先躺在「更多」收纳格里，
+     * 用户想固定住再自己拖出去（这正是「更多」这次改造后应该有的用途）。
+     */
+    const val SLEEP_TIMER = "sleep_timer"
+    const val LIKE = "like"
+    const val COIN = "coin"
+    const val FAVORITE = "favorite"
+    const val DOWNLOAD = "download"
+    const val PREV_VIDEO = "prev_video"
+    const val NEXT_VIDEO = "next_video"
+
+    /**
      * 「更多」按钮：**自动收纳格**。26.11.09 起注册为可放置的按钮类型——摆进哪个区，
      * 就在那个区挂一个「更多」格；点开时展开的是**当前没有摆进任何槽位的按钮**
      * （即「这里没放的东西」），所以可以放多个「更多」来分摊，收纳内容会随布局自动变化。
@@ -109,6 +127,16 @@ object PlayerButtons {
         Button(SOUND_CUT, R.string.setting_player_btn_sound_cut, R.mipmap.soundcut),
         Button(SOUND_ADD, R.string.setting_player_btn_sound_add, R.mipmap.soundadd),
         Button(PAGE_SELECTOR, R.string.setting_player_btn_page_selector, R.drawable.icon_folder, mayHide = true),
+        // 动作类按钮（26.11.15）：点一下就有动作，没有可调设置，默认收在「更多」里
+        Button(SLEEP_TIMER, R.string.setting_player_btn_sleep_timer, R.drawable.icon_time),
+        // 点赞状态会变（已赞/未赞），真身图标由 PlayerActivity 按 relation 接口动态换；这里登记未赞态。
+        Button(LIKE, R.string.setting_player_btn_like, R.drawable.icon_like_0, mayHide = true),
+        Button(COIN, R.string.setting_player_btn_coin, R.drawable.icon_coin_0, mayHide = true),
+        Button(FAVORITE, R.string.setting_player_btn_favorite, R.drawable.icon_fav_0, mayHide = true),
+        Button(DOWNLOAD, R.string.setting_player_btn_download, R.drawable.icon_download, mayHide = true),
+        // 上一个/下一个复用线控跳曲那套逻辑（队列优先、再回落分P），单P且无连播队列时点了没反应，故标注意。
+        Button(PREV_VIDEO, R.string.setting_player_btn_prev_video, R.drawable.icon_player_prev, mayHide = true),
+        Button(NEXT_VIDEO, R.string.setting_player_btn_next_video, R.drawable.icon_player_next, mayHide = true),
         // 「更多」：自动收纳格，展开的是当前没摆进布局的按钮；渲染不走 button_pool 真身。
         Button(MORE, R.string.setting_player_btn_more, R.mipmap.morehide)
     )

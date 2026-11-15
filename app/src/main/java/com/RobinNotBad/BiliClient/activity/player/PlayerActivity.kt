@@ -41,6 +41,7 @@ import android.view.TextureView
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -65,8 +66,10 @@ import com.RobinNotBad.BiliClient.adapter.QualitySelectorAdapter
 import com.RobinNotBad.BiliClient.adapter.ViewPointAdapter
 import com.RobinNotBad.BiliClient.api.ConfInfoApi
 import com.RobinNotBad.BiliClient.api.DanmakuApi
+import com.RobinNotBad.BiliClient.api.FavoriteApi
 import com.RobinNotBad.BiliClient.api.HistoryApi
 import com.RobinNotBad.BiliClient.api.InteractionVideoApi
+import com.RobinNotBad.BiliClient.api.LikeCoinFavApi
 import com.RobinNotBad.BiliClient.api.LiveDanmakuApi
 import com.RobinNotBad.BiliClient.api.PlayerApi
 import com.RobinNotBad.BiliClient.api.SponsorBlockApi
@@ -79,6 +82,7 @@ import com.RobinNotBad.BiliClient.model.Collection
 import com.RobinNotBad.BiliClient.model.LocalPageMedia
 import com.RobinNotBad.BiliClient.model.LocalPlaylistEntry
 import com.RobinNotBad.BiliClient.model.PlayerData
+import com.RobinNotBad.BiliClient.model.Stats
 import com.RobinNotBad.BiliClient.model.Subtitle
 import com.RobinNotBad.BiliClient.model.SubtitleLink
 import com.RobinNotBad.BiliClient.model.VideoInfo
@@ -122,6 +126,7 @@ import com.RobinNotBad.BiliClient.player.LongPressSwitchPolicy
 import com.RobinNotBad.BiliClient.player.DanmakuTimestampPolicy
 import com.RobinNotBad.BiliClient.player.ViewPointSkip
 import com.RobinNotBad.BiliClient.player.SurfaceTarget
+import com.RobinNotBad.BiliClient.service.DownloadService
 import com.RobinNotBad.BiliClient.service.PlaybackService
 import com.RobinNotBad.BiliClient.ui.widget.BatteryView
 import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
@@ -262,6 +267,32 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      */
     private lateinit var seek_back_btn: TextView
     private lateinit var seek_forward_btn: TextView
+
+    /**
+     * 26.11.15 新增的 7 个动作类按钮：睡眠定时 / 点赞 / 投币 / 收藏 / 下载 / 上一个 / 下一个。
+     *
+     * 它们没有可调设置，点一下直接产生动作（或弹出本页共用的一张 [action_card]）。
+     * 默认都不占槽位——收在「更多」收纳格里，用户想固定住再自己摆出来。
+     */
+    private lateinit var btn_sleep_timer: ImageButton
+    private lateinit var btn_like: ImageButton
+    private lateinit var btn_coin: ImageButton
+    private lateinit var btn_favorite: ImageButton
+    private lateinit var btn_download: ImageButton
+    private lateinit var btn_prev_video: ImageButton
+    private lateinit var btn_next_video: ImageButton
+
+    /** 睡眠定时 / 投币 / 收藏共用的那张卡片（标题与按钮行都在代码里填）。 */
+    private lateinit var action_card: LinearLayout
+    private lateinit var action_card_title: TextView
+    private lateinit var action_card_options: LinearLayout
+
+    /** 点赞状态：`null` 表示还没查过 relation 接口，第一次点会先查再写。 */
+    private var liked: Boolean? = null
+
+    /** 睡眠定时：剩下的分钟数（0 = 没设定）与那次待执行的暂停任务。 */
+    private var sleepTimerMinutes: Int = 0
+    private var sleepTimerRunnable: Runnable? = null
     private lateinit var text_online: TextView
     private lateinit var text_volume: TextView
     private lateinit var loading_text0: TextView
@@ -1370,6 +1401,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         initJumpToTimeButton()
         // G02：±N 秒快退/快进（文字按钮，步长来自设置；显隐同样等 onPrepared）
         initSeekButtons()
+        // 26.11.15：睡眠定时 / 点赞 / 投币 / 收藏 / 下载 / 上一个 / 下一个（默认收在「更多」里）
+        initActionButtons()
         autohideReset()
 
         initSeekbars()
@@ -1511,6 +1544,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         queue_mode_btn = findViewById(R.id.queue_mode_btn)
         seek_back_btn = findViewById(R.id.text_seek_back)
         seek_forward_btn = findViewById(R.id.text_seek_forward)
+
+        btn_sleep_timer = findViewById(R.id.btn_sleep_timer)
+        btn_like = findViewById(R.id.btn_like)
+        btn_coin = findViewById(R.id.btn_coin)
+        btn_favorite = findViewById(R.id.btn_favorite)
+        btn_download = findViewById(R.id.btn_download)
+        btn_prev_video = findViewById(R.id.btn_prev_video)
+        btn_next_video = findViewById(R.id.btn_next_video)
+        action_card = findViewById(R.id.action_card)
+        action_card_title = findViewById(R.id.action_card_title)
+        action_card_options = findViewById(R.id.action_card_options)
 
         button_pool = findViewById(R.id.button_pool)
         left_column_slots = findViewById(R.id.left_column_slots)
@@ -1656,6 +1700,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         PlayerButtons.SOUND_CUT -> findViewById(R.id.button_sound_cut)
         PlayerButtons.SOUND_ADD -> findViewById(R.id.button_sound_add)
         PlayerButtons.PAGE_SELECTOR -> btn_page_selector
+        PlayerButtons.SLEEP_TIMER -> btn_sleep_timer
+        PlayerButtons.LIKE -> btn_like
+        PlayerButtons.COIN -> btn_coin
+        PlayerButtons.FAVORITE -> btn_favorite
+        PlayerButtons.DOWNLOAD -> btn_download
+        PlayerButtons.PREV_VIDEO -> btn_prev_video
+        PlayerButtons.NEXT_VIDEO -> btn_next_video
         else -> null
     }
 
@@ -2237,6 +2288,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         card_page_selector.visibility = View.GONE
         card_quality_selector.visibility = View.GONE
         card_viewpoint_selector.visibility = View.GONE
+        // 26.11.15：睡眠定时 / 投币 / 收藏共用这张，漏掉它就会留一层半透明卡片压着画面
+        if (::action_card.isInitialized) action_card.visibility = View.GONE
     }
 
     /**
@@ -2252,6 +2305,371 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         seek_back_btn.setOnClickListener { seekByStep(-PlayerSeekStepPolicy.load()) }
         seek_forward_btn.setOnClickListener { seekByStep(PlayerSeekStepPolicy.load()) }
         refreshSeekButtons()
+    }
+
+    // ==================== 动作类按钮：睡眠定时 / 点赞 / 投币 / 收藏 / 下载 / 上一个 / 下一个 ====================
+
+    /**
+     * 接线 7 个动作类按钮（26.11.15）。
+     *
+     * 显隐不在这里定：它们是「点了才有用」的按钮，摆进槽位就该看得见。能不能用由点击时判断——
+     * 直播、本地文件、未登录会直接给一句提示。这样不会出现「设置页摆了按钮、播放页却一片空白」，
+     * 也不会让 slot 渲染逻辑再多一套隐藏规则。
+     */
+    private fun initActionButtons() {
+        btn_sleep_timer.setOnClickListener { showSleepTimerCard() }
+        btn_like.setOnClickListener { toggleLike() }
+        btn_coin.setOnClickListener { showCoinCard() }
+        btn_favorite.setOnClickListener { showFavoriteCard() }
+        btn_download.setOnClickListener { startDownloadCurrentVideo() }
+        btn_prev_video.setOnClickListener { playPreviousVideo() }
+        btn_next_video.setOnClickListener { playNextVideo() }
+        refreshSleepTimerIcon()
+        refreshLikeIcon()
+    }
+
+    /** 点赞 / 投币 / 收藏 / 下载只对在线视频有意义：直播没有稿件，本地文件没有 aid。 */
+    private fun canUseVideoActions(): Boolean {
+        if (!isOnlineVideo || isLiveMode || aid <= 0) {
+            MsgUtil.showMsg(getString(R.string.player_action_unavailable))
+            return false
+        }
+        return true
+    }
+
+    /** 这些动作都要 Cookie；未登录时接口只会返回空结果，先说清楚原因。 */
+    private fun ensureLoggedIn(): Boolean {
+        if (SharedPreferencesUtil.getLong("mid", 0) != 0L) return true
+        MsgUtil.showMsg(getString(R.string.player_action_need_login))
+        return false
+    }
+
+    /**
+     * 动作类按钮共用的页内卡片。
+     *
+     * 睡眠定时 / 投币 / 收藏都只有「标题 + 若干整行按钮」，给它们各写一张 XML 卡片会让
+     * `activity_player.xml` 再涨两百行，而三者永远不同时出现，所以共用一个壳子，
+     * 行内容在代码里填（收藏夹有几个、定时给几档，都是运行时才知道的）。
+     */
+    private fun showActionCard(title: CharSequence) {
+        // 先全关：同一时刻只留一张卡片，否则两张会叠在屏幕正中
+        hideAllCards()
+        action_card_title.text = title
+        action_card_options.removeAllViews()
+        layout_card_bg.visibility = View.VISIBLE
+        action_card.visibility = View.VISIBLE
+        autohideReset()
+    }
+
+    /** 往当前动作卡片里加一整行按钮，样式跟「跳到指定时间」的确认键一致。 */
+    private fun addActionRow(text: CharSequence, enabled: Boolean = true, onClick: () -> Unit) {
+        val row = Button(this)
+        row.text = text
+        row.textSize = 13f
+        row.isAllCaps = false
+        row.gravity = Gravity.CENTER
+        row.isEnabled = enabled
+        row.alpha = if (enabled) 1f else 0.6f
+        row.setBackgroundResource(R.drawable.background_card_borderless)
+        row.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            resources.getDimensionPixelSize(R.dimen.touch_min)
+        )
+        if (enabled) row.setOnClickListener { onClick() }
+        action_card_options.addView(row)
+    }
+
+    // ---------- 睡眠定时 ----------
+
+    /**
+     * 睡眠定时卡片。
+     *
+     * 为什么要这个按钮：手表场景基本是躺着戴耳机听，听完一集就睡着，没人会再抬手点暂停——
+     * 让它自己停，比什么播放增强都实用。档位取整刻钟，够细又不用滑条。
+     */
+    private fun showSleepTimerCard() {
+        showActionCard(getString(R.string.player_action_card_sleep_timer))
+        for (minutes in intArrayOf(15, 30, 60, 90)) {
+            addActionRow(getString(R.string.player_sleep_timer_minutes, minutes)) {
+                startSleepTimer(minutes)
+                hideAllCards()
+            }
+        }
+        if (sleepTimerMinutes > 0) {
+            addActionRow(getString(R.string.player_sleep_timer_off)) {
+                cancelSleepTimer()
+                MsgUtil.showMsg(getString(R.string.player_sleep_timer_cancelled))
+                hideAllCards()
+            }
+        }
+    }
+
+    private fun startSleepTimer(minutes: Int) {
+        cancelSleepTimer()
+        sleepTimerMinutes = minutes
+        val task = Runnable {
+            sleepTimerRunnable = null
+            sleepTimerMinutes = 0
+            refreshSleepTimerIcon()
+            if (isPlaying) {
+                playerPause()
+                updateMediaSessionPlaybackState()
+            }
+            MsgUtil.showMsg(getString(R.string.player_sleep_timer_fired))
+        }
+        sleepTimerRunnable = task
+        mainHandler?.postDelayed(task, minutes * 60_000L)
+        refreshSleepTimerIcon()
+        MsgUtil.showMsg(getString(R.string.player_sleep_timer_set, minutes))
+    }
+
+    private fun cancelSleepTimer() {
+        sleepTimerRunnable?.let { mainHandler?.removeCallbacks(it) }
+        sleepTimerRunnable = null
+        sleepTimerMinutes = 0
+        refreshSleepTimerIcon()
+    }
+
+    /** 定时生效时换成「走时」图标，一眼能看出它还开着。影子靠 400ms 的镜像同步跟着换。 */
+    private fun refreshSleepTimerIcon() {
+        if (!::btn_sleep_timer.isInitialized) return
+        btn_sleep_timer.setImageResource(
+            if (sleepTimerMinutes > 0) R.drawable.icon_player_clock_fading else R.drawable.icon_time
+        )
+    }
+
+    // ---------- 点赞 ----------
+
+    /**
+     * 点赞：一键切换。
+     *
+     * 状态口径：第一次点先查 `archive/relation`（[liked] 还是 `null` 的时候），之后按本地值翻转，
+     * 这样「点一下就变」的手感不用等网络，且不会出现「连点两下把赞点掉又点回来还显示已赞」。
+     */
+    private fun toggleLike() {
+        if (!canUseVideoActions() || !ensureLoggedIn()) return
+        val targetAid = aid
+        CenterThreadPool.run {
+            val code: Int = try {
+                val current = liked ?: queryLiked().also { liked = it }
+                LikeCoinFavApi.like(targetAid, if (current) 0 else 1)
+            } catch (e: Exception) {
+                MsgUtil.err(UiText.of("点赞"), e)
+                -1
+            }
+            if (code == 0) liked = liked != true
+            val ok = code == 0
+            val nowLiked = liked == true
+            runOnUiThread {
+                if (destroyed) return@runOnUiThread
+                refreshLikeIcon()
+                MsgUtil.showMsg(
+                    getString(
+                        when {
+                            !ok -> R.string.player_action_failed
+                            nowLiked -> R.string.player_like_done
+                            else -> R.string.player_like_cancelled
+                        }
+                    )
+                )
+            }
+        }
+    }
+
+    /** 查「当前账号是否已点赞」。`getVideoStats` 要求 VideoInfo 带 stats 对象，这里现造一个壳。 */
+    private fun queryLiked(): Boolean {
+        val probe = VideoInfo()
+        probe.aid = aid
+        probe.stats = Stats()
+        val result = LikeCoinFavApi.getVideoStats(probe)
+        if (result.code != 0) return false
+        return probe.stats.liked
+    }
+
+    private fun refreshLikeIcon() {
+        if (!::btn_like.isInitialized) return
+        btn_like.setImageResource(if (liked == true) R.drawable.icon_like_1 else R.drawable.icon_like_0)
+    }
+
+    // ---------- 投币 ----------
+
+    private fun showCoinCard() {
+        if (!canUseVideoActions() || !ensureLoggedIn()) return
+        showActionCard(getString(R.string.player_action_card_coin))
+        addActionRow(getString(R.string.player_coin_one)) {
+            hideAllCards()
+            sendCoin(1)
+        }
+        addActionRow(getString(R.string.player_coin_two)) {
+            hideAllCards()
+            sendCoin(2)
+        }
+    }
+
+    private fun sendCoin(multiply: Int) {
+        val targetAid = aid
+        CenterThreadPool.run {
+            val code: Int = try {
+                LikeCoinFavApi.coin(targetAid, multiply)
+            } catch (e: Exception) {
+                MsgUtil.err(UiText.of("投币"), e)
+                -1
+            }
+            runOnUiThread {
+                if (destroyed) return@runOnUiThread
+                MsgUtil.showMsg(
+                    getString(if (code == 0) R.string.player_coin_done else R.string.player_action_failed)
+                )
+            }
+        }
+    }
+
+    // ---------- 收藏 ----------
+
+    /**
+     * 收藏卡片：列出「我的收藏夹」并标出这个视频已经在哪些夹子里。
+     *
+     * 用的是 `x/v3/fav/folder/created/list-all?rid=` 一次拉全（[FavoriteApi.getFavoriteState]），
+     * 不先取用户信息再拼地址——手表上一次请求就能出结果，少一轮等待。
+     */
+    private fun showFavoriteCard() {
+        if (!canUseVideoActions() || !ensureLoggedIn()) return
+        showActionCard(getString(R.string.player_action_card_favorite))
+        addActionRow(getString(R.string.player_favorite_loading), enabled = false) {}
+        val targetAid = aid
+        CenterThreadPool.run {
+            val names = ArrayList<String>()
+            val fids = ArrayList<Long>()
+            val mediaIds = ArrayList<Long>()
+            val states = ArrayList<Boolean>()
+            val counts = ArrayList<Int>()
+            val maxCounts = ArrayList<Int>()
+            val ok: Boolean = try {
+                FavoriteApi.getFavoriteState(targetAid, names, fids, mediaIds, states, counts, maxCounts)
+                true
+            } catch (e: Exception) {
+                MsgUtil.err(UiText.of("收藏夹"), e)
+                false
+            }
+            runOnUiThread {
+                // 读列表期间用户可能已经把卡片关掉/换成别的卡片，别把迟到结果塞进去
+                if (destroyed || !::action_card.isInitialized || action_card.visibility != View.VISIBLE) return@runOnUiThread
+                action_card_options.removeAllViews()
+                if (!ok || names.isEmpty()) {
+                    addActionRow(getString(R.string.player_favorite_empty), enabled = false) {}
+                    return@runOnUiThread
+                }
+                names.forEachIndexed { index, name ->
+                    val collected = states.getOrElse(index) { false }
+                    val mediaId = mediaIds.getOrElse(index) { 0L }
+                    addActionRow(
+                        if (collected) getString(R.string.player_favorite_in_folder, name) else name
+                    ) {
+                        hideAllCards()
+                        toggleFavorite(targetAid, mediaId, collected)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun toggleFavorite(targetAid: Long, mediaId: Long, collected: Boolean) {
+        CenterThreadPool.run {
+            val code: Int = try {
+                if (collected) FavoriteApi.deleteFavorite(targetAid, mediaId)
+                else FavoriteApi.addFavorite(targetAid, mediaId)
+            } catch (e: Exception) {
+                MsgUtil.err(UiText.of("收藏"), e)
+                -1
+            }
+            runOnUiThread {
+                if (destroyed) return@runOnUiThread
+                MsgUtil.showMsg(
+                    getString(
+                        when {
+                            code != 0 -> R.string.player_action_failed
+                            collected -> R.string.player_favorite_cancelled
+                            else -> R.string.player_favorite_done
+                        }
+                    )
+                )
+            }
+        }
+    }
+
+    // ---------- 下载 ----------
+
+    /**
+     * 下载当前这一集：走 [DownloadService] 的后台下载队列，和详情页「下载」按钮完全同一条链路。
+     *
+     * 为什么不用 [DownloadActivity] 那条老的前台链路：它要我们先把 `video_url` / `danmaku_url` 摘到手，
+     * 而这两个地址是带时效签名的 —— 用户可能压根没等到起播就点了，或者地址已经过期；
+     * 后台队列则是自己按 aid/cid 取流、失败能续传、还能在通知栏看到进度，手表上更合适。
+     *
+     * 封面是唯一拿不到的东西：`PlayerApi.jumpToPlayer` 不往播放页塞 `cover`，所以先看 Intent，
+     * 没有就按 aid 补查一次（与 [resolveBvid] 同一口径，只查一次、不落缓存 —— 封面只有下载时用得上）。
+     */
+    private fun startDownloadCurrentVideo() {
+        if (!canUseVideoActions()) return
+        val targetAid = aid
+        val targetCid = cid
+        val parentTitle = playerTitleRaw.ifBlank { "av$targetAid" }
+        val multiPage = hasMultiplePages()
+        val names = pagenames
+        val pageIndex = currentPageIndex
+        val childTitle = if (multiPage && names != null && pageIndex in names.indices) names[pageIndex] else ""
+        // 按当前清晰度入队；没定过清晰度就用设置里的起播默认值，别拿 0 去请求（0 等于「最低」）
+        val qn = if (currentQuality > 0) currentQuality else startupDefaultQn()
+        val cachedCover = intent?.getStringExtra("cover").orEmpty()
+        CenterThreadPool.run {
+            val cover = cachedCover.ifEmpty {
+                try {
+                    VideoInfoApi.getVideoInfo(targetAid)?.cover.orEmpty()
+                } catch (e: Exception) {
+                    Logu.w("Download", "查封面失败: " + e.message)
+                    ""
+                }
+            }
+            if (cover.isEmpty()) {
+                runOnUiThread {
+                    if (!destroyed) MsgUtil.showMsg(getString(R.string.player_download_need_cover))
+                }
+                return@run
+            }
+            if (childTitle.isNotEmpty()) {
+                // 分P/合集：带上父标题，落盘结构与详情页下载的多P目录一致
+                DownloadService.startDownload(parentTitle, childTitle, targetAid, targetCid, cover, qn, "video", "")
+            } else {
+                DownloadService.startDownload(parentTitle, targetAid, targetCid, cover, qn, "video", "")
+            }
+        }
+    }
+
+    // ---------- 上一个 / 下一个 ----------
+
+    /**
+     * 上一个 / 下一个：与耳机线控完全同一条路径（顺序见媒体会话的 onSkipToNext/onSkipToPrevious）。
+     *
+     * 为什么要有按钮：手表上滑动手势容易误触，耳机线控又常被外套挡住；
+     * 把「切集」固定成一个格子，追番/听播单时就不用去找系统播放器控件了。
+     */
+    private fun playNextVideo() {
+        if (playNextFromQueue()) return
+        val names = pagenames
+        if (names != null && hasMultiplePages() && currentPageIndex < names.size - 1) {
+            switchToPage(currentPageIndex + 1)
+            return
+        }
+        MsgUtil.showMsg(getString(R.string.player_switch_no_next))
+    }
+
+    private fun playPreviousVideo() {
+        if (playPreviousFromQueue()) return
+        if (hasMultiplePages() && currentPageIndex > 0) {
+            switchToPage(currentPageIndex - 1)
+            return
+        }
+        MsgUtil.showMsg(getString(R.string.player_switch_no_prev))
     }
 
     /** 按设置刷新两个按钮上的文字与无障碍描述（设置页改完步长回来要重算）。 */
@@ -4413,6 +4831,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         destroyed = true
         // 锁定按钮自动隐去的延时任务要撤掉，别在 Activity 销毁后再去动 View
         mainHandler?.removeCallbacks(hideLockIcon)
+        // 睡眠定时的任务同理：留着会在页面销毁后调 playerPause() 去碰已释放的播放器
+        cancelSleepTimer()
 
         // 无论哪种退出原因（用户返回、被系统回收、后台通知里点"关闭"），
         // 后台播放服务与它的常驻通知都不能留存。
@@ -6944,6 +7364,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
 
         currentPageIndex = pageIndex
         val newTitle = pagenames!![pageIndex]
+
+        // 换一P可能换稿件（番剧/合集每集 aid 不同），点赞的缓存状态跟着作废，
+        // 下一次点「点赞」会重新查 relation，不会拿上一集的「已赞」去取消这一集。
+        liked = null
+        refreshLikeIcon()
 
         // 本地文件夹连播的根层切的是"下一条视频"，说「切换到 P2」会让人以为在切分P
         if (localPlaylist != null && localLayerIndex < 0) {

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    「播放下一个 / 上一个」用的一对图标（26.11.15）。播放器按钮池里的图标都画在纯黑画面上，
+    所以填充色跟 icon_time / icon_like_0 那些一样手写成 #ebe0e2，不走主题色。
+    造型取媒体播放器通行的「竖线 + 三角」：三角形朝左是上一个，朝右是下一个。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="16dp"
+    android:height="16dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#ebe0e2"
+        android:pathData="M6,6L8.4,6L8.4,18L6,18Z M20,6L11,12L20,18Z" />
+</vector>

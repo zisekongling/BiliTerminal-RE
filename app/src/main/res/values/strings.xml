@@ -2774,6 +2774,32 @@
     <!-- 页内输入卡片的确认按钮（与「发送弹幕」卡片的「发送」同构） -->
     <string name="btn_player_jump_time">跳转</string>
 
+    <!-- 播放页小卡片：睡眠定时 / 投币 / 收藏（26.11.15，动作类按钮共用一张卡片） -->
+    <string name="player_action_card_sleep_timer">睡眠定时</string>
+    <string name="player_action_card_coin">投币</string>
+    <string name="player_action_card_favorite">收藏到</string>
+    <string name="player_sleep_timer_minutes">听 %1$d 分钟后暂停</string>
+    <string name="player_sleep_timer_off">取消睡眠定时</string>
+    <string name="player_sleep_timer_set">已设定：%1$d 分钟后暂停播放</string>
+    <string name="player_sleep_timer_cancelled">已取消睡眠定时</string>
+    <string name="player_sleep_timer_fired">睡眠定时到，已暂停播放</string>
+    <string name="player_coin_one">投 1 枚硬币</string>
+    <string name="player_coin_two">投 2 枚硬币</string>
+    <string name="player_coin_done">投币成功</string>
+    <string name="player_like_done">已点赞</string>
+    <string name="player_like_cancelled">已取消点赞</string>
+    <string name="player_favorite_done">已收藏</string>
+    <string name="player_favorite_cancelled">已取消收藏</string>
+    <string name="player_favorite_loading">正在读取收藏夹…</string>
+    <string name="player_favorite_empty">没有可用的收藏夹</string>
+    <string name="player_action_need_login">这个操作需要登录账号</string>
+    <string name="player_action_unavailable">当前视频不支持这个操作</string>
+    <string name="player_favorite_in_folder">%1$s（已收藏）</string>
+    <string name="player_action_failed">操作失败，请稍后再试</string>
+    <string name="player_download_need_cover">拿不到封面，这次下载没能开始</string>
+    <string name="player_switch_no_next">没有下一个了</string>
+    <string name="player_switch_no_prev">已经是第一个了</string>
+
     <!-- ==================== 用户详情页：长按「已关注」加入分组（反馈 #88） ==================== -->
     <!-- 弹窗标题 -->
     <string name="uitext_userdynamicadapter_022">加入分组</string>
@@ -2827,6 +2853,14 @@
     <!-- 26.11.13 新增：±N 秒快退/快进（按钮上显示文字，如「«10s」） -->
     <string name="setting_player_btn_seek_back">快退</string>
     <string name="setting_player_btn_seek_forward">快进</string>
+    <!-- 26.11.15 新增的 7 个动作类按钮（点一下就有动作，没有可调设置） -->
+    <string name="setting_player_btn_sleep_timer">睡眠定时</string>
+    <string name="setting_player_btn_like">点赞</string>
+    <string name="setting_player_btn_coin">投币</string>
+    <string name="setting_player_btn_favorite">收藏</string>
+    <string name="setting_player_btn_download">下载</string>
+    <string name="setting_player_btn_prev_video">上一个</string>
+    <string name="setting_player_btn_next_video">下一个</string>
     <string name="setting_player_btn_more">更多</string>
     <!-- 收纳格（更多）：不是按钮，是容器。只在有按钮没摆进槽位时才显示，可以放多个。 -->
     <string name="setting_player_ui_more_desc">收纳格：收的是没摆进布局的按钮，一个都没空着时这一格不显示</string>
