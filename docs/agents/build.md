@@ -86,6 +86,21 @@
 
   **修法**：`./gradlew.bat :app:dexBuilderStandardDebug --rerun-tasks` 后重跑 `:app:assembleStandardDebug` 即可，不必整包 clean，也不必删 `kotlin-classes`（删了也不会好，因为毛病在 dexBuilder 的产物里）。修好后 archive 里出现 `BiliTerminal*.dex`、`classes.dex` 里出现该类定义，`adb install -r` 后启动正常。
 
+- **第四种长相（26.11.15 实测，丢的是伴生类，症状变成「卡启动页」）**：coexist flavor 的 `classes2.dex` 里少了 `com/RobinNotBad/BiliClient/activity/MenuActivity$Companion`，而 `MenuActivity;` 和它的 `$$ExternalSyntheticLambda*` 都在。`dexBuilderCoexistDebug` / `mergeDexCoexistDebug` / `packageCoexistDebug` / `assembleCoexistDebug` **全报 UP-TO-DATE 或 SUCCESSFUL**，APK 也装得上，但一启动就永久停在启动页「欢迎使用 RE:哔哩终端」：
+
+  ```text
+  W/System.err: java.lang.NoClassDefFoundError: Failed resolution of:
+                Lcom/RobinNotBad/BiliClient/activity/MenuActivity$Companion;
+      at com.RobinNotBad.BiliClient.activity.MenuActivity.<clinit>(Unknown Source:0)
+      at com.RobinNotBad.BiliClient.activity.SplashActivity.proceedSplashFlow$lambda$11(SplashActivity.kt:364)
+  ```
+
+  **为什么一点提示都没有**：这句 `MenuActivity.btnNames[startActivityKey]` 包在 `SplashActivity.proceedSplashFlow()` 的 `catch (e: Exception)` 里（`SplashActivity.kt:446`，本意是「任何失败都退化成进本地列表页」），可 `NoClassDefFoundError` 是 `Error` 不是 `Exception`——接不住，`CenterThreadPool` 里的协程静默死掉，既不弹错也不跳页，界面就停在 splash 文案上。
+
+  **判据**：`dexdump -l plain classes2.dex | Select-String "Class descriptor" | Select-String MenuActivity`——好的包里有一条 `MenuActivity$Companion;`，坏的没有；同时对照**同版本的 standard flavor APK**（一定有）。旁证：坏包体积明显偏小（本次 coexist arm64 14.6 MB，修好后 19.4 MB）。
+
+  **修法**：删 `app\build\intermediates\project_dex_archive\coexistDebug\`、`app\build\intermediates\dex\coexistDebug\`、`dex_archive_input_jar_hashes\coexistDebug\`、`legacy_multidex_main_dex_list\coexistDebug\`、`dex_number_of_buckets_file\coexistDebug\` 后重跑 `:app:assembleCoexistDebug`（等价于 `--rerun-tasks`，但只重跑该 flavor 的 dex 链，51 秒出包），再用 dexdump 复核命中后再 `adb install -r`。
+
 ## 改主类构造参数后单测 `NoSuchMethodError`
 
 改了某个主源码类（尤其是 `data class`）的**构造参数个数 / 类型**后，单测可能整批炸在同一条构造调用上，例如 26.11.14 改 `SponsorBlockApi.RawSegment`（7 参 → 10 参，尾部带默认值）后，`SponsorSkipPolicyTest.kt:30` 的 14 个用例全报：

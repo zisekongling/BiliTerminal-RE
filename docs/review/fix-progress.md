@@ -25,7 +25,8 @@
   - **长按**：`ClickableSpanTouchListener.isLongPressGesture(widget.isLongClickable(), …)` 靠 `isLongClickable()` 判断「长按已经处理过、别再补发点击」。原来长按只挂在卡片 `textContentCard` 上，按在链接上时 DOWN 被 TextView 消费、事件到不了卡片 → 症状是「按着没反应、抬手反而打开链接」（评论区踩过同一个坑，见 `StringUtil` 里 `ClickableSpanTouchListener` 的类注释）。现在 `msg_text_content` 也挂同一套长按（`onMessageLongPress`），按链接与按正文其它位置行为一致。
   - **没动的地方**：私信**列表**的预览文本（`PrivateMsgSessionsAdapter`）不上链接——单行省略、本来不可点，上色只会误导；「回复我的 / 收到的赞 / 系统通知」（`NoticeHolder`）本轮未动，要的话另开一条。
   - **L0（26.11.15 本机实测）**：`:app:assembleDebug` → standard flavor 四个 ABI 包全部产出（`app-standard-universal-debug.apk` 21.3 MB），`compileStandardDebugKotlin` / `compileCoexistDebugKotlin` 均通过（`PrivateMsgAdapter*.class` 落盘 22:33:44 晚于源码 22:33:36）；`:app:testStandardDebugUnitTest` → **BUILD SUCCESSFUL，252 套件 / 2726 用例 / 0 失败 / 0 错误 / 0 跳过**（本次无纯函数改动，未加用例）。注：`packageCoexistDebug` 报 `Unable to delete directory …app-coexist-arm64-v8a-debug.apk`，是本机旧 coexist APK 被别的进程占用（同时有发版 / 番剧缓存等会话在跑构建），与本项无关。
-  - **未验证（L2）**：手表上私信里发一条含 `https://` 或 BV 号的消息，确认显示为链接色、点一下能跳对页面；按在链接上长按先出复制 / 撤回菜单、不跳转；关掉「识别链接」后恢复纯文本且不可点。
+  - **L2（26.11.15 用户真机验收通过）**：手表上私信里发含 `https://` / BV 号的消息，显示为链接色、点一下跳对页面；按在链接上长按先出复制 / 撤回菜单、不跳转；关掉「识别链接」后恢复纯文本且不可点——用户自测四条全过。
+  - **装包时撞到的构建坑（与本项无关，已写进 `docs/agents/build.md`）**：共存 debug 包编译全绿、装上也正常，一启动却卡在「欢迎使用」首屏——`classes2.dex` 里少了 `MenuActivity$Companion`，`SplashActivity` 第 364 行 `MenuActivity.btnNames` 抛 `NoClassDefFoundError`；该异常是 `Error` 不是 `Exception`，`catch (e: Exception)` 接不住，`proceedSplashFlow` 的协程直接哑掉 → 永远停在启动页。删掉 coexist 的 `dexBuilder` / `mergeDex` 产物重编即恢复。
 
 - **26.11.15 详情页「转发」按钮点了没反应（用户原话「转发按钮不能点的bug修复下」）**：
   - **来路**：用户直接报告。
