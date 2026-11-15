@@ -60,10 +60,15 @@ object ThumbSizePolicy {
         // 屏幕尺寸都拿不到（Context 还没就绪）就不猜了，保持 Glide 的默认行为。
         if (boxWidth <= 0 || boxHeight <= 0) return intArrayOf(0, 0)
 
+        // 两个维度都定不下来（没测量、布局又是 MATCH_PARENT / WRAP_CONTENT）：
+        // 不 override（见类注释「取哪个尺寸」），交给 Glide 等布局完成。
+        // 只定下一个维度时，另一维才用屏幕对应边兜底。
+        if (measuredWidth <= 0 && layoutWidth <= 0 && measuredHeight <= 0 && layoutHeight <= 0) {
+            return intArrayOf(0, 0)
+        }
+
         val width = resolve(measuredWidth, layoutWidth, boxWidth)
         val height = resolve(measuredHeight, layoutHeight, boxHeight)
-        // 两个维度都定不下来：不 override（见类注释「取哪个尺寸」）。
-        if (width == 0 && height == 0) return intArrayOf(0, 0)
 
         return intArrayOf(clampEdge(width, boxWidth, minEdge), clampEdge(height, boxHeight, minEdge))
     }
