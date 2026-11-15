@@ -889,6 +889,10 @@ object UiText {
         "缓存页文件夹入口" to R.string.setting_cache_folder_page,
         "还没有文件夹" to R.string.text_local_folder_empty,
         "至少要有两个文件夹才能排序" to R.string.text_local_folder_sort_need_two,
+        // 视频 AI 摘要的「分结果文案」（反馈 #127）：风控那句复用既有的 uitext_videoinfofragment_019
+        "这个视频还没有 AI 摘要" to R.string.msg_video_conclusion_empty,
+        "获取视频摘要被拒绝（错误码 %1\$s）" to R.string.msg_video_conclusion_rejected,
+        "获取视频摘要被拒绝：%1\$s（错误码 %2\$s）" to R.string.msg_video_conclusion_rejected_reason,
 // @INSERT
     )
 
