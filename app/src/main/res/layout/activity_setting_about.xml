@@ -432,6 +432,22 @@
                         android:textSize="11sp"
                         android:layout_marginBottom="2dp"
                         android:layout_gravity="center" />
+
+                    <!-- 本次更新太长时的展开 / 收起开关（26.11.16）：条目超过 15 条才显示，
+                         显示状态与文案在 AboutActivity 的 renderCurrentLog() 里维护。 -->
+                    <TextView
+                        android:id="@+id/updatelog_toggle"
+                        android:layout_height="wrap_content"
+                        android:layout_width="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:paddingHorizontal="8dp"
+                        android:paddingVertical="3dp"
+                        android:layout_gravity="center"
+                        android:background="?attr/selectableItemBackground"
+                        android:textColor="?attr/colorPrimary"
+                        android:textSize="11sp"
+                        android:text="@string/about_updatelog_expand"
+                        android:visibility="gone" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

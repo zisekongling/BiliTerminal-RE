@@ -46,6 +46,9 @@ class AboutActivity : BaseActivity() {
     )
 
     companion object {
+        /** 关于页「本次更新」默认显示的条数：超过这个数就默认收起，点「展开全部」再看全。 */
+        private const val COLLAPSED_LOG_LINES = 15
+
         /** RE 版（当前这版）的主要开发者。身份由列名 `about_dev_trae` 与卡片简介位共同表达。 */
         private val DEVELOPERS_RE = listOf(
             Developer("紫色空灵", "", R.mipmap.avatar_zise, 591904067L, R.string.about_dev_trae_desc),
@@ -88,12 +91,35 @@ class AboutActivity : BaseActivity() {
                 codeStr.setSpan(StyleSpan(Typeface.BOLD), 0, codeLabel.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
                 (findViewById<TextView>(R.id.app_version_code)).text = codeStr
 
+                // 「本次更新」条目一多就没人翻得完（26.11.16 这一版 38 条），所以默认只显示前
+                // COLLAPSED_LOG_LINES 条，末尾给一个展开 / 收起的开关；条目没超过这个数就整条显示、
+                // 开关一起隐藏。收起只影响「显示」：长按复制始终给全文，贴到别处时不缺条目。
                 val currentLogItems = resources.getStringArray(R.array.update_log_current)
-                val currentLog = StringBuilder()
-                for (item in currentLogItems) currentLog.append("\n").append(item)
                 val updateLogView = findViewById<TextView>(R.id.updatelog_view)
-                updateLogView.text = currentLog.toString()
-                StringUtil.setCopy(updateLogView, currentLog.toString())
+                val logToggle = findViewById<TextView>(R.id.updatelog_toggle)
+                val fullLogText = currentLogItems.joinToString("") { "\n" + it }
+                val collapsible = currentLogItems.size > COLLAPSED_LOG_LINES
+                // 「共 N 条」只数编号条目（首行的【…本次更新】与下面的稳定版说明不算一条）
+                val entryCount = currentLogItems.count { it.isNotEmpty() && it[0].isDigit() }
+                    .takeIf { it > 0 } ?: currentLogItems.size
+                var logExpanded = !collapsible
+
+                fun renderCurrentLog() {
+                    // 两个分支都取 List：直接写 Array / List 混着会让类型推断并成 Any，
+                    // 后面的 joinToString 就调不到了。
+                    val shown = if (logExpanded) currentLogItems.asList() else currentLogItems.take(COLLAPSED_LOG_LINES)
+                    updateLogView.text = shown.joinToString("") { "\n" + it }
+                    logToggle.text = if (logExpanded) getString(R.string.about_updatelog_collapse)
+                    else getString(R.string.about_updatelog_expand, entryCount)
+                    logToggle.visibility = if (collapsible) View.VISIBLE else View.GONE
+                }
+
+                renderCurrentLog()
+                StringUtil.setCopy(updateLogView, fullLogText)
+                logToggle.setOnClickListener {
+                    logExpanded = !logExpanded
+                    renderCurrentLog()
+                }
 
                 val versionName = packageManager.getPackageInfo(packageName, 0).versionName
                 findViewById<TextView>(R.id.current_update_title).text = getString(R.string.text_update_current_version, versionName)

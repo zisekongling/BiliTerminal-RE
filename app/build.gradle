@@ -13,7 +13,7 @@ plugins {
 //   ./gradlew :app:assembleRelease -Pseq=1                 → 26.11.14.1 / 26111401
 //   ./gradlew :app:assembleRelease -Pchannel=beta -Pseq=2  → 26.11.14-beta.2 / 26111412
 //   ./gradlew :app:assembleRelease -Pchannel=exp  -Pseq=1  → 26.11.14-exp.1 / 26111421
-def appVersionDate = "26.11.14"
+def appVersionDate = "26.11.16"
 def appChannel = (project.findProperty('channel') ?: 'stable').toString().trim()
 def appChannelCode = [stable: 0, beta: 1, exp: 2][appChannel]
 def appSeq = (project.findProperty('seq') ?: (appChannel == 'stable' ? '0' : '1')).toString().trim().toInteger()
