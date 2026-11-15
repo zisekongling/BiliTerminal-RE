@@ -230,6 +230,7 @@ class ReplyAdapter(
             if (GlideUtil.url(reply.sender!!.avatar) != replyHolder.lastAvatarUrl) {
                 replyHolder.lastAvatarUrl = GlideUtil.url(reply.sender!!.avatar)
                 GlideUtil.with(replyHolder.replyAvatar).asDrawable().load(GlideUtil.url(reply.sender!!.avatar))
+                        .apply(GlideUtil.thumbOptionsCover(replyHolder.replyAvatar))
                         .transition(GlideUtil.getTransitionOptions())
                         .placeholder(R.mipmap.akari)
                         .error(R.mipmap.akari)
@@ -423,6 +424,7 @@ class ReplyAdapter(
                 if (firstImageUrl != replyHolder.lastImageUrl) {
                     replyHolder.lastImageUrl = firstImageUrl
                     GlideUtil.with(replyHolder.imageCard).asDrawable().load(firstImageUrl)
+                            .apply(GlideUtil.thumbOptions(replyHolder.imageCard))
                             .transition(GlideUtil.getTransitionOptions())
                             .placeholder(R.mipmap.placeholder)
                             .error(R.mipmap.placeholder)

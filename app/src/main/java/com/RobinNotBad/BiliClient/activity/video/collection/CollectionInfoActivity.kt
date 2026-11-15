@@ -311,6 +311,7 @@ class CollectionInfoActivity : RefreshListActivity() {
                 holder.desc.text = if (TextUtils.isEmpty(collection.intro)) UiText.of("这里没有简介哦") else collection.intro
                 holder.playTimes.text = UiText.fmt(UiText.of("共%1\$s"), collection.view)
                 Glide.with(context).asDrawable().load(GlideUtil.url_hq(collection.cover))
+                    .apply(GlideUtil.thumbOptions(holder.cover))
                     .transition(GlideUtil.getTransitionOptions())
                     .placeholder(R.mipmap.placeholder)
                     .error(R.mipmap.placeholder)
@@ -454,6 +455,7 @@ class CollectionInfoActivity : RefreshListActivity() {
                 holder.desc.text = if (TextUtils.isEmpty(collection.intro)) UiText.of("这里没有简介哦") else collection.intro
                 holder.playTimes.text = UiText.fmt(UiText.of("共%1\$s"), collection.view)
                 Glide.with(context).asDrawable().load(GlideUtil.url_hq(collection.cover))
+                    .apply(GlideUtil.thumbOptions(holder.cover))
                     .transition(GlideUtil.getTransitionOptions())
                     .placeholder(R.mipmap.placeholder)
                     .error(R.mipmap.placeholder)

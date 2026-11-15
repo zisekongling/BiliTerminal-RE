@@ -660,6 +660,7 @@ class ShortVideoPagerAdapter(
                     Glide.with(activity)
                         .asDrawable()
                         .load(GlideUtil.url_hq(item.cover))
+                        .apply(GlideUtil.thumbOptions(coverImage))
                         .into(coverImage)
                 }
             }

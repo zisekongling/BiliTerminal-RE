@@ -48,6 +48,7 @@ class ArticleCardHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
 
         GlideUtil.with(cover).asDrawable()
             .load(if (!TextUtils.isEmpty(articleCard.cover)) GlideUtil.url_hq(articleCard.cover) else R.mipmap.article_placeholder)
+            .apply(GlideUtil.thumbOptions(cover))
             .placeholder(R.mipmap.placeholder)
             .error(R.mipmap.placeholder)
             .transition(GlideUtil.getTransitionOptions())

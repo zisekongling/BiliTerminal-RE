@@ -98,6 +98,7 @@ class OpusContentAdapter(
                         if (imageUrl != holder.lastImageUrl) {
                             holder.lastImageUrl = imageUrl
                             GlideUtil.with(imageView).asDrawable().load(imageUrl)
+                                .apply(GlideUtil.thumbOptions(imageView))
                                 .placeholder(R.mipmap.placeholder)
                                 .error(R.mipmap.placeholder)
                                 .transition(GlideUtil.getTransitionOptions())
@@ -138,6 +139,7 @@ class OpusContentAdapter(
                     if (coverUrl != holder.lastTopImageUrl) {
                         holder.lastTopImageUrl = coverUrl
                         GlideUtil.with(topImage).asDrawable().load(coverUrl)
+                            .apply(GlideUtil.thumbOptions(topImage))
                             .placeholder(R.mipmap.placeholder)
                             .error(R.mipmap.placeholder)
                             .transition(GlideUtil.getTransitionOptions())
@@ -152,6 +154,7 @@ class OpusContentAdapter(
                     if (firstImageUrl != holder.lastTopImageUrl) {
                         holder.lastTopImageUrl = firstImageUrl
                         GlideUtil.with(topImage).asDrawable().load(firstImageUrl)
+                            .apply(GlideUtil.thumbOptions(topImage))
                             .placeholder(R.mipmap.placeholder)
                             .error(R.mipmap.placeholder)
                             .transition(GlideUtil.getTransitionOptions())
@@ -181,6 +184,7 @@ class OpusContentAdapter(
                 if (avatarUrl != holder.lastAvatarUrl) {
                     holder.lastAvatarUrl = avatarUrl
                     GlideUtil.with(upIcon).asDrawable().load(avatarUrl)
+                        .apply(GlideUtil.thumbOptionsCover(upIcon))
                         .placeholder(R.mipmap.akari)
                         .error(R.mipmap.akari)
                         .transition(GlideUtil.getTransitionOptions())

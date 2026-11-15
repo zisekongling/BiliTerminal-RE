@@ -246,6 +246,7 @@ class UserDynamicAdapter(
             }
 
             GlideUtil.with(this.userAvatar).asDrawable().load(GlideUtil.url(userInfo.avatar))
+                .apply(GlideUtil.thumbOptionsCover(this.userAvatar))
                 .transition(GlideUtil.getTransitionOptions())
                 .placeholder(R.mipmap.akari)
                 .error(R.mipmap.akari)

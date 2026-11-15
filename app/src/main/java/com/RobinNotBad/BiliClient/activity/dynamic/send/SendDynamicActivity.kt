@@ -28,6 +28,7 @@ import com.RobinNotBad.BiliClient.model.Dynamic
 import com.RobinNotBad.BiliClient.model.VideoInfo
 import com.RobinNotBad.BiliClient.model.VoteDraft
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.ScheduleTimePolicy
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
@@ -523,7 +524,9 @@ class SendDynamicActivity : BaseActivity() {
                         renderPicsPreview()
                     }
                 }
-                Glide.with(this).load(uri).centerCrop().into(imageView)
+                Glide.with(this).load(uri).centerCrop()
+                    .apply(GlideUtil.thumbOptionsCover(imageView))
+                    .into(imageView)
                 picsPreview.addView(imageView)
             }
         }

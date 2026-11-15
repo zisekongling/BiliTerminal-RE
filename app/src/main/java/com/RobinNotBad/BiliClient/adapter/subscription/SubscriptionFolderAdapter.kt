@@ -62,6 +62,7 @@ class SubscriptionFolderAdapter(
 
         GlideUtil.with(holder.cover).asDrawable()
             .load(GlideUtil.url_hq(item.cover))
+            .apply(GlideUtil.thumbOptions(holder.cover))
             .transition(GlideUtil.getTransitionOptions())
             .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(5f))))
             .format(DecodeFormat.PREFER_RGB_565)

@@ -49,6 +49,7 @@ class MedalListAdapter(
 
         if (medal.target_icon != null && medal.target_icon.isNotEmpty()) {
             GlideUtil.with(holder.avatar).asDrawable().load(GlideUtil.url(medal.target_icon))
+                .apply(GlideUtil.thumbOptionsCover(holder.avatar))
                 .transition(GlideUtil.getTransitionOptions())
                 .placeholder(R.mipmap.akari)
                 .error(R.mipmap.akari)

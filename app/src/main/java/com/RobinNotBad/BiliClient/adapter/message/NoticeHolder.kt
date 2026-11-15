@@ -73,6 +73,7 @@ class NoticeHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             GlideUtil.with(imageView)
                 .asDrawable()
                 .load(GlideUtil.url(message.user[i].avatar))
+                .apply(GlideUtil.thumbOptionsCover(imageView))
                 .transition(GlideUtil.getTransitionOptions())
                 .placeholder(R.mipmap.akari)
                 .error(R.mipmap.akari)

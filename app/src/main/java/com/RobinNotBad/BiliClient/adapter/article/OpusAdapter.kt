@@ -41,6 +41,7 @@ class OpusAdapter(
         if (coverUrl != holder.lastCoverUrl) {
             holder.lastCoverUrl = coverUrl
             GlideUtil.with(holder.coverView).load(coverUrl)
+                .apply(GlideUtil.thumbOptions(holder.coverView))
                 .transition(GlideUtil.getTransitionOptions())
                 .placeholder(R.mipmap.placeholder)
                 .error(R.mipmap.placeholder)
