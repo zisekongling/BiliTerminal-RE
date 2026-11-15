@@ -19,7 +19,7 @@
     <string name="title_opensource_license">开源协议</string>
     <string name="title_opensource_thanks">借鉴的项目与第三方库</string>
     <string name="title_opensource_icon">开源图标许可</string>
-    <string name="about_source">本程序使用或借鉴了下列项目的部分代码及其合法收集的API：\nWearBili：https://github.com/SpaceXC/WearBili\n腕上哔哩：https://github.com/luern0313/WristBilibili\nBAC Document：https://socialsisteryi.github.io/bilibili-API-collect\n小电视播放器：https://github.com/xinxiangshiicheng/xinxiangshicheng_wearbili_player\nKazumi：https://github.com/Predidit/Kazumi\n程序的界面借鉴于WearBili的UI部分，设计者为@JesseGary_（已得到授权）\n\n本程序使用的第三方库：\nOkHttp：com.squareup.okhttp3:okhttp\nGlide：com.github.bumptech.glide:glide\nPhotoView：com.github.chrisbanes:PhotoView\nJsoup：org.jsoup:jsoup\nEventBus：org.greenrobot:eventbus\nIJKPlayer：https://github.com/bilibili/ijkplayer\nDanmakuFlameMaster：com.github.ctiao:DanmakuFlameMaster\nGeetest：com.geetest.sensebot:sensebot\nAOSP：https://source.android.google.cn/\n\n软件图标提供者：银狐enlab（原图来自B站）\n其他部分图标来自网络，有修改，版权归原作者所有，如有侵权，请联系开发组删除。</string>
+    <string name="about_source">本程序使用或借鉴了下列项目的部分代码及其合法收集的API：\nWearBili：https://github.com/SpaceXC/WearBili\n腕上哔哩：https://github.com/luern0313/WristBilibili\nBAC Document：https://socialsisteryi.github.io/bilibili-API-collect\n小电视播放器：https://github.com/xinxiangshiicheng/xinxiangshicheng_wearbili_player\nKazumi：https://github.com/Predidit/Kazumi\nBilibiliSponsorBlock：https://github.com/hanydd/BilibiliSponsorBlock（广告片段标注数据来自该项目的社区标注）\n程序的界面借鉴于WearBili的UI部分，设计者为@JesseGary_（已得到授权）\n\n本程序使用的第三方库：\nOkHttp：com.squareup.okhttp3:okhttp\nGlide：com.github.bumptech.glide:glide\nPhotoView：com.github.chrisbanes:PhotoView\nJsoup：org.jsoup:jsoup\nEventBus：org.greenrobot:eventbus\nIJKPlayer：https://github.com/bilibili/ijkplayer\nDanmakuFlameMaster：com.github.ctiao:DanmakuFlameMaster\nGeetest：com.geetest.sensebot:sensebot\nAOSP：https://source.android.google.cn/\n\n软件图标提供者：银狐enlab（原图来自B站）\n其他部分图标来自网络，有修改，版权归原作者所有，如有侵权，请联系开发组删除。</string>
 
     <!-- 旧的免责声明 -->
     <string name="about_to_uncle">本软件开发的目的是使配置较低的安卓手表与老旧手机能够使用B站网页端提供的部分基本功能。本软件基于B站网页端接口运行，不会对任何接口进行恶意轰炸。软件默认开启一项匿名的使用统计（只包含随机生成的安装号、版本号与机型，不含账号、Cookie；为在同一台设备同时安装普通版与共存版时不重复计数，另有一个由系统匿名标识派生、不可逆的哈希短串，仅用于设备去重），你可以在「设置 - 关于与帮助」中随时关闭，关闭后不再上报；崩溃时也会自动上报一份错误报告，同样可以关闭；崩溃页与反馈页另提供「附带应用日志」的选项（默认分别为勾选 / 不勾选，可自行更改），日志在写入前已做脱敏——登录凭据这类敏感参数的值会被替换成占位符，不会明文外发。软件不存在付费功能，代码完全开源，收到的捐赠仅用于软件服务器的日常维护。如果您仍然认为本软件侵犯了您的权利，请联系我们（有事好商量呜呜呜）\n同时，我们也不对学生用户在不恰当的时间、地点使用本软件导致的财产损失（设备被没收）或精神伤害（？）负责。请尽量自控，不要影响到自己的学习和生活哦！</string>
@@ -411,8 +411,8 @@
 
     <!-- 本次版本更新日志（展示在关于页，与历史日志区分） -->
     <string-array name="update_log_current">
-        <item>【26.11.14 本次更新】</item>
-        <item>本次更新为实验版，可能有未知问题；遇到请走「我的 → 反馈」告诉我们</item>
+        <item>【26.11.16 本次更新】</item>
+        <item>本次更新为稳定版，请大家放心更新；26.11.13 / 26.11.14 两次实验版的改动都包含在这里</item>
         <item>1、新增「跳过广告片段」（SponsorBlock）：播放时自动跳过观众标注的广告 / 推广片段，跳过后面板给出「撤回」。默认关闭，分关闭 / 仅恰饭广告 / 广告+自我推广 / 推荐 / 全部类别 / 自定义六档，自定义页可逐项勾选十类（精彩时刻不会跳）。数据来自第三方 BilibiliSponsorBlock，不是 B 站官方数据</item>
         <item>2、新增「顶栏高度」设置：顶栏高一点还是矮一点自己定，长按顶栏的手势范围跟着一起变</item>
         <item>3、分段条与页签换成玻璃光晕胶囊；分段条可以横向拖动切换，行高压到 40dp，一屏能多放一行</item>
@@ -453,6 +453,23 @@
         <item>38、短视频长按三倍速只有按钮变成 3.0x、画面仍是原速，修了</item>
         <item>39、缓存文件夹里的多 P 视频原来只能看第一 P，现在能进分 P 列表往后看</item>
         <item>40、私信页底部改成整行「写私信」按钮；评论 / 动态 / 私信三处输入框下方都加了「换行」卡</item>
+        <item>41、番剧缓存改成独立一页：详情页点「缓存」进去，顶上选清晰度，下面按季折叠、逐集勾选，可以跨季混着勾；季行右侧「全选本季」只管这一季，别的季勾选不受影响</item>
+        <item>42、番剧详情页新增「缓存」按钮，和「播放 / 追番」分开、单独占一整行；缓存页里已经下好的集标「已下载」、排队中的标「队列中」，勾不动也不会让底部「已选 N 集」虚高</item>
+        <item>43、播放器底部新增七个按钮，都能自己摆：睡眠定时、点赞、投币、收藏、下载、上一个、下一个；「更多」不再混在按钮候选里，改成收纳格单独入口，空出来的格子自动隐藏；播放器设置卡片长高之后有关闭键可以收起来</item>
+        <item>44、播放器界面这一整块标成「实验性」：按钮排布还在改，用不惯可以点页里的「恢复默认布局」退回原样</item>
+        <item>45、跳过更细：片头片尾与广告片段改成按类别分开设档位（关闭 / 询问我 / 自动跳转），入口在「选择播放器 → 跳过设置（实验性）」；进度条上的标记与「跳不跳」解耦、按类别配色，精彩时刻可以单独关掉</item>
+        <item>46、进度条上的时间补上「扣掉广告后的时长」；详情页标题前会标出「广告」/「含广告」</item>
+        <item>47、播放器「显示方式」这个开关从来没生效过，修了；「第一次进视频有概率加载不出标注、重进才行」也修了</item>
+        <item>48、短视频回滑之后再滑回来黑屏，修了；短视频预加载列表不再无界增长，以前越用越卡就是它</item>
+        <item>49、列表缩略图改成按控件实际尺寸降采样：大图解码导致整页画不出来的、以及长列表边滑边建行时内存爆掉的，都堵上了；长图不再「上半部分加载完自己消失、一直转圈」</item>
+        <item>50、视频 AI 摘要按四种结果分开提示：正常、没有摘要、被风控、请求失败，不再一律显示同一句（反馈 #127）</item>
+        <item>51、下载列表切换数据时的闪退修了；删掉一个下载任务后不再残留分段字节与暂停状态，重下不会踩到旧进度</item>
+        <item>52、「我的」空间：账号信息加载失败不再一直转圈，会说明失败原因，并给「重试」或「重新登录」两个出口（反馈 #163）</item>
+        <item>53、消息页往下滚能加载更早的会话了；发完私信返回列表，顺序不再错乱（反馈 #166）</item>
+        <item>54、修了多 P 缓存第 2 集起在缓存列表里「消失」又重下不了的问题（#164）；详情页长按清缓存改成按计划删，删成功 / 部分失败 / 全失败会分开提示</item>
+        <item>55、设置搜索补收录「登录凭证状态」「更新通道」等条目，也认平时的叫法：搜「播放器按钮」能找到播放器界面</item>
+        <item>56、顶栏灵动岛这次整块停用（「外观 → 灵动岛设置」入口与搜索项一起隐藏）：常驻显示播放状态太吵，先关掉</item>
+        <item>57、跳过类别用的参考色块挪到「标记哪些类别」页，开关行上也能看到对应颜色；历史更新日志里版本标题的品牌名大小写改正</item>
     </string-array>
 
     <!-- 历史更新日志（按日期分组，## 开头为日期标题，之后为当日日志条目） -->
@@ -1398,6 +1415,24 @@
     <string name="settingtext_settingsindex_080">互动选项字体大小</string>
     <string name="settingtext_settingsindex_081">字幕字号大小</string>
     <string name="settingtext_settingsindex_082">在收藏夹里点视频卡片直接播放</string>
+    <string name="settingtext_settingsindex_083">查看 Cookie、Token 等登录凭证状态</string>
+    <string name="settingtext_settingsindex_084">更换界面字体（支持 TTF / OTF / TTC）</string>
+    <string name="settingtext_settingsindex_085">删除已安装的自定义字体，回到系统字体</string>
+    <string name="settingtext_settingsindex_086">删除背景图，回到纯色 / 弥散光晕背景</string>
+    <string name="settingtext_settingsindex_087">关掉页面切换时那 200ms 的转场动画</string>
+    <string name="settingtext_settingsindex_088">开启后顶栏单击要等一个双击判定窗口</string>
+    <string name="settingtext_settingsindex_089">计算器 / 蓝牙两种伪装外观</string>
+    <string name="settingtext_settingsindex_090">输入暗号退出伪装</string>
+    <string name="settingtext_settingsindex_091">长按缓存与收藏夹批量下载用的画质</string>
+    <string name="settingtext_settingsindex_092">向公共目录下载时需要「所有文件访问」权限</string>
+    <string name="settingtext_settingsindex_093">缓存页顶部多一行「文件夹 N」，点它进独立文件夹页</string>
+    <string name="settingtext_settingsindex_094">稳定版 / 测试版 / 实验版三通道</string>
+    <string name="settingtext_settingsindex_095">进私信页时提示「私信有可能被拦截」</string>
+    <string name="settingtext_settingsindex_096">开发者工具：分别允许输出 verbose / debug / info 等级的日志</string>
+    <string name="settingtext_settingsindex_097">给 AI agent / 自动化脚本用的一键开关</string>
+    <string name="settingtext_settingsindex_098">把日志与 HTTP 追踪写入文件，便于事后取证</string>
+    <string name="settingtext_settingsindex_099">打开后数据解析报错会显示得更详细</string>
+    <string name="settingtext_settingsindex_100">打开后列表报错会显示得更详细</string>
     <string name="settingtext_settingterminalplayeractivity_001">开</string>
     <string name="settingtext_settingterminalplayeractivity_002">关</string>
     <string name="settingtext_settingterminalplayeractivity_003">沿用上次</string>
@@ -2683,6 +2718,10 @@
     <string name="uitext_bangumicache_005">已选 %1$d/%2$d 集</string>
     <string name="uitext_bangumicache_006">请先勾选要缓存的剧集</string>
     <string name="uitext_bangumicache_007">该季暂无剧集</string>
+    <string name="uitext_bangumicache_008">已下载</string>
+    <string name="uitext_bangumicache_009">队列中</string>
+    <string name="uitext_bangumicache_010">共 %1$d 集 · 已缓存 %2$d 集</string>
+    <string name="uitext_bangumicache_011">大会员</string>
     <string name="uitext_videoinfofragment_028">播放视频</string>
     <string name="uitext_videoinfofragment_029">已在下载队列\n如有异常，长按可清空文件</string>
     <string name="uitext_voteinfoactivity_014">还需选择 %1$d 项</string>
@@ -2896,7 +2935,8 @@
     <string name="desc_player_group_expand">展开这组按钮</string>
 
     <!-- 设置 → 播放与播放器 → 播放器界面（26.11.06） -->
-    <string name="pagename_setting_player_ui">播放器界面</string>
+    <!-- 26.11.15 按用户要求标注「实验性」：按钮排布与跳广告都还在反复改，先明确标出来。 -->
+    <string name="pagename_setting_player_ui">播放器界面（实验性）</string>
     <string name="setting_player_ui_entry_desc">调整播放器上的按钮与布局</string>
     <string name="setting_player_ui_full">完整设置</string>
     <string name="setting_player_ui_choose_player">选择播放器</string>
