@@ -18,6 +18,16 @@
 
 ## 1. 当前版本状态
 
+- **26.11.15 设置搜索补收录 25 条 + 灵动岛永久关闭 + 两项标注「（实验性）」（用户一次提三件）**：
+  - **来路**：用户原话「设置中的搜索设置选项没有包含部分设置项目，请将其加入，另外-灵动岛相关设置帮我隐藏并永久关闭下（这个及其子项无法搜索到），以及播放器按钮设置和跳广告设置上面标注（实验性），并补充对应关键词以保证搜索能命中」。四问答复：「只补可调项」/「按 false 处理」/「标题后缀，卡片和页内标题同步」/「加 keywords 字段」。
+  - **补收录口径**：开关 / 输入框 / 下拉 / 能点进去的条目进索引；分组小标题（配色、性能、调试日志…）与「恢复默认 / 查看预览」这类按钮不进。按此口径用脚本比对各设置页的 `SettingSection.name`（`switch/nav/input/listChoose/title/button` 首个参数 + `PlayerSettingsGroups.kt` 的 `getString(R.string.X)`）与索引已收集合，差集 25 条全部补进 `activity/settings/SettingsIndex.kt`：登录凭证状态；选择字体文件 / 恢复系统字体 / 关闭页面转场动画 / 清除背景图；伪装三连（双击顶栏伪装 / 伪装样式 / 退出暗号）；默认缓存画质 / 存储权限授权；缓存页文件夹入口（页内是字面量，索引也用同一字面量当匹配键）；更新通道；私信拦截提示；内置播放器七项（返回键直接退出 / 快退步长 / 弹幕屏蔽词 / 短视频弹幕三项 / 弹幕停留时长）；开发者工具七项（三个 `允许Logu.*`、Agent 测试模式、日志落盘、两种详细报错）。新增描述串 `settingtext_settingsindex_083`…`_100`。
+  - **不收录**：`player_zoom_dump_name`（复制播放器诊断信息，只在 `PLAYER_INTERACTION_DEBUG` 打开时出现，收进去点了没反应）。`SettingSkipActivity` / `SettingMarkCategoryActivity` 里脚本误抓的长说明段落不算设置项，本来就在。
+  - **关键词**：`SettingsIndex.Entry` 加 `keywords` 字段（只参与匹配、不显示），`SettingMainActivity.filter()` 改成 `name` / `desc` / `keywords` 三处 `contains(ignoreCase = true)`。「播放器界面」补「播放器按钮 / 按钮设置 / 按钮布局 / 界面按钮 / 播放界面布局」，「跳过设置」补「跳广告 / 广告片段 / 跳过广告 / 广告」。
+  - **灵动岛**：`ui/widget/IslandPolicy.kt` 的 `FEATURE_ENABLED` 改 `false`——`TopbarIsland.isEnabled()` 不再挂胶囊，`SettingGroupActivity` 外观页的「灵动岛设置」`nav` 与 `SettingsIndex` 里那 7 条（总开关 / 5 个信息开关 / 轮换间隔）一起消失，设置首页也搜不到；代码保留，改回 `true` 即恢复。
+  - **实验性标注**：`pagename_setting_player_ui` → 「播放器界面（实验性）」、`player_skip_page_name` → 「跳过设置（实验性）」。改的是资源值，卡片（`activity_setting_player_choose.xml`）、页内 `setPageName`、`AndroidManifest` 的 label、搜索索引一起同步；页内 `SettingSection.name` 也取同一资源，`scrollToHighlight` 的逐字比对继续成立。
+  - **L0（26.11.15 本机实测）**：`:app:assembleDebug :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest --no-build-cache` → **BUILD SUCCESSFUL**。注：本机别的会话同时在改番剧缓存那几条，中途出现过 `BangumiCacheActivity.kt` 的 `Unresolved reference 'Logu'` 与 `Could not get file mode` 的构建缓存报错，均与本项无关，重跑后绿。
+  - **未验证（L2）**：手表上搜「播放器按钮」「跳广告」是否正好只命中一条并高亮到页内那一行；搜「字体」「伪装」「Logu」等新收录项是否落在正确分组；顶栏确认不再有胶囊、外观页无灵动岛入口。
+
 - **26.11.15 番剧缓存改成独立全屏页（用户改设计：顶端选清晰度 + 按季折叠下拉 + 季行一键全选 + 集行单选）**：
   - **来路**：用户原话「顶端选清晰的 / 之后做以季度为名称的下拉菜单，默认折叠，旁边有按钮可以一键全选 / 展开后可以看到每个季度的会员/限免情况和集的名字，旁边有按钮可以单选」；三问答复为「新开一个全屏页 / 可以跨季混着勾 / 清晰度点顶部进普通缓存那个选清晰度页面」。首版（详情页三连弹窗：选季 → 选集 → 清晰度）**整体废弃**。
   - **改法**：新增 `activity/video/BangumiCacheActivity.kt` + 布局 `activity_bangumi_cache.xml` / `cell_bangumi_cache_season.xml` / `cell_bangumi_cache_episode.xml` + `adapter/video/BangumiCacheAdapter.kt`（扁平行数组：季组头 + 展开时的集行，状态改完调 `rebuild()`）。勾选按季各自维护、支持跨季混选；季的剧集**懒加载**（展开或「全选本季」时才 `BangumiApi.getSeasonDetail`），进页面只预热当前季并默认勾上「正片」分区；季行右侧「全选本季 / 取消全选」、集行「✓/○」、集行角标复用 `EpisodeCardAdapter.badgeKind()`（会员粉 / 限免绿，与详情页同款）；底部「已选 N 集 + 开始缓存」。
