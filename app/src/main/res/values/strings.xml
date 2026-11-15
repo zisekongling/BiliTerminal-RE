@@ -3113,4 +3113,28 @@
     <string name="text_myspace_load_reason_parse">数据解析失败</string>
     <string name="text_myspace_load_reason_no_data">登录可能已失效</string>
     <string name="text_myspace_load_reason_unknown">未知错误</string>
+    <!-- 播放器缩放诊断（反馈 #128 / #102）：开关沿用「互动视频调试」，关掉时一行都不打、也不显示额外的入口。
+         设置里那一行「复制播放器诊断信息」把状态快照拼成一段文本进剪贴板，用户直接贴给开发者。 -->
+    <string name="player_zoom_dump_name">复制播放器诊断信息</string>
+    <string name="desc_player_zoom_dump">把播放器的缩放相关状态（开关存档、控件可见性、捏合回调次数、最近一次手势走了哪个分支）拼成一段文本复制到剪贴板，复现问题后点它，再把内容贴给开发者。</string>
+    <string name="msg_player_zoom_dump_copied">诊断信息已复制，可以直接贴给开发者</string>
+    <string name="uitext_playerzoomdiagnostics_001">缩放开关（设置 → 播放器 → 双指缩放视频）是关的：手势层没有创建 ScaleGestureDetector，必然捏合没反应</string>
+    <string name="uitext_playerzoomdiagnostics_002">缩放开关是开的，但 scaleGestureDetector 为 null：多半是进页面之后才改的开关，本次播放仍按旧值</string>
+    <string name="uitext_playerzoomdiagnostics_003">听视频模式：layout_video 被设为 GONE，捏合回调会被手势监听器直接忽略</string>
+    <string name="uitext_playerzoomdiagnostics_004">layout_video 当前不是 VISIBLE，捏合回调会被手势监听器直接忽略</string>
+    <string name="uitext_playerzoomdiagnostics_005">播放页处于锁定态：手势与按钮输入都被锁定逻辑挡住</string>
+    <string name="uitext_playerzoomdiagnostics_006">control_layout 当前为 GONE：触摸事件到不了手势层</string>
+    <string name="uitext_playerzoomdiagnostics_007">没有现场快照，只能确认设置存档：缩放链路本身没看到开关层面的阻断</string>
+    <string name="uitext_playerzoomdiagnostics_008">没发现已知的阻断条件，但最近一次手势没有触发 onScaleBegin：可能只是没捏合，也可能是双指事件没送到手势层</string>
+    <string name="uitext_playerzoomdiagnostics_009">没发现已知的阻断条件，链路看起来是通的（这正是需要现场字段的情形）</string>
+    <string name="uitext_playerzoomdiagnostics_010">（未设置）</string>
+    <string name="uitext_playerzoomdiagnostics_011">RE:哔哩终端 · 播放器缩放诊断</string>
+    <string name="uitext_playerzoomdiagnostics_012">没有现场快照：本次打开应用后还没进过播放页，或已退出播放页</string>
+    <string name="uitext_playerzoomdiagnostics_013">点弹幕空降</string>
+    <string name="uitext_playerzoomdiagnostics_014">长按后纵向划切视频</string>
+    <string name="uitext_playerzoomdiagnostics_015">左右滑动调进度</string>
+    <string name="uitext_playerzoomdiagnostics_016">双击</string>
+    <string name="uitext_playerzoomdiagnostics_017">捏合缩放</string>
+    <string name="uitext_playerzoomdiagnostics_018">拖动画面</string>
+    <string name="uitext_playerzoomdiagnostics_019">未消费</string>
 </resources>

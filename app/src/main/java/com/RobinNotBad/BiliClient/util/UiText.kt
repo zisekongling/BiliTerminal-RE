@@ -904,6 +904,26 @@ object UiText {
         "数据解析失败" to R.string.text_myspace_load_reason_parse,
         "登录可能已失效" to R.string.text_myspace_load_reason_no_data,
         "未知错误" to R.string.text_myspace_load_reason_unknown,
+        // 播放器缩放诊断（反馈 #128 / #102）：判读句子与手势分支标签，拼装见 activity/player/PlayerZoomDiagnostics.kt
+        "缩放开关（设置 → 播放器 → 双指缩放视频）是关的：手势层没有创建 ScaleGestureDetector，必然捏合没反应" to R.string.uitext_playerzoomdiagnostics_001,
+        "缩放开关是开的，但 scaleGestureDetector 为 null：多半是进页面之后才改的开关，本次播放仍按旧值" to R.string.uitext_playerzoomdiagnostics_002,
+        "听视频模式：layout_video 被设为 GONE，捏合回调会被手势监听器直接忽略" to R.string.uitext_playerzoomdiagnostics_003,
+        "layout_video 当前不是 VISIBLE，捏合回调会被手势监听器直接忽略" to R.string.uitext_playerzoomdiagnostics_004,
+        "播放页处于锁定态：手势与按钮输入都被锁定逻辑挡住" to R.string.uitext_playerzoomdiagnostics_005,
+        "control_layout 当前为 GONE：触摸事件到不了手势层" to R.string.uitext_playerzoomdiagnostics_006,
+        "没有现场快照，只能确认设置存档：缩放链路本身没看到开关层面的阻断" to R.string.uitext_playerzoomdiagnostics_007,
+        "没发现已知的阻断条件，但最近一次手势没有触发 onScaleBegin：可能只是没捏合，也可能是双指事件没送到手势层" to R.string.uitext_playerzoomdiagnostics_008,
+        "没发现已知的阻断条件，链路看起来是通的（这正是需要现场字段的情形）" to R.string.uitext_playerzoomdiagnostics_009,
+        "（未设置）" to R.string.uitext_playerzoomdiagnostics_010,
+        "RE:哔哩终端 · 播放器缩放诊断" to R.string.uitext_playerzoomdiagnostics_011,
+        "没有现场快照：本次打开应用后还没进过播放页，或已退出播放页" to R.string.uitext_playerzoomdiagnostics_012,
+        "点弹幕空降" to R.string.uitext_playerzoomdiagnostics_013,
+        "长按后纵向划切视频" to R.string.uitext_playerzoomdiagnostics_014,
+        "左右滑动调进度" to R.string.uitext_playerzoomdiagnostics_015,
+        "双击" to R.string.uitext_playerzoomdiagnostics_016,
+        "捏合缩放" to R.string.uitext_playerzoomdiagnostics_017,
+        "拖动画面" to R.string.uitext_playerzoomdiagnostics_018,
+        "未消费" to R.string.uitext_playerzoomdiagnostics_019,
 // @INSERT
     )
 
