@@ -16,6 +16,7 @@ import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.VideoInfo
 import com.RobinNotBad.BiliClient.listener.OnItemClickListener
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
+import com.RobinNotBad.BiliClient.util.CacheMediaPolicy
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
@@ -47,9 +48,15 @@ class MultiPageActivity : BaseActivity() {
                     adapter.onItemClickListener = OnItemClickListener { position ->
                         val rootPath = File(FileUtil.getVideoDownloadPath(), FileUtil.stringToFile(videoInfo.title))
                         val downPath = File(rootPath, FileUtil.stringToFile(videoInfo.pagenames[position]))
-                        if (downPath.exists()) {
-                            val fileSign = File(downPath, ".DOWNLOADING")
-                            MsgUtil.showMsg(if (fileSign.exists()) UiText.of("已在下载队列") else UiText.of("已下载完成"))
+                        // 反馈 #164：以前只判「这个页目录存不存在」。目录里只剩封面、`.page_order.json`
+                        // 或一次失败留下的空壳时，也会说「已下载完成」——用户既在缓存页找不到这一集，
+                        // 又永远重下不了。改成和缓存列表同一套判据：有成品算已下载，正在下载算排队，
+                        // 都不是就放行（残留由 DownloadResiduePolicy 那条链路清）。
+                        val names = downPath.list()?.toList()
+                        if (CacheMediaPolicy.isDownloading(names)) {
+                            MsgUtil.showMsg(UiText.of("已在下载队列"))
+                        } else if (CacheMediaPolicy.isCachedFolder(names)) {
+                            MsgUtil.showMsg(UiText.of("已下载完成"))
                         } else {
                             startActivity(
                                 Intent()

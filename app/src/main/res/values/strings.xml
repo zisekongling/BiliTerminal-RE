@@ -3100,4 +3100,8 @@
     <string name="text_local_folder_video_count">%1$d 个视频</string>
     <string name="text_local_folder_empty">还没有文件夹</string>
     <string name="text_local_folder_sort_need_two">至少要有两个文件夹才能排序</string>
+    <!-- 反馈 #164：多 P 缓存卡片标出「缓存了几集」，让用户知道第 2、3 集在条目里（点进去选页）。
+         「已下载」判定与缓存列表同口径，找不到却不让重下的情况不再出现。 -->
+    <string name="text_cache_list_pages">共%1$sP</string>
+    <string name="msg_cache_no_playable_file">没有可播放的缓存文件</string>
 </resources>

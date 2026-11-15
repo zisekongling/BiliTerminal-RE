@@ -30,6 +30,7 @@ import com.RobinNotBad.BiliClient.service.download.DownloadPathSpec
 import com.RobinNotBad.BiliClient.util.CacheChangeSignal
 import com.RobinNotBad.BiliClient.util.CacheDeletePlan
 import com.RobinNotBad.BiliClient.util.CacheListOrderStore
+import com.RobinNotBad.BiliClient.util.CacheMediaPolicy
 import com.RobinNotBad.BiliClient.util.CachePathResolver
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.DanmakuFileFetcher
@@ -363,20 +364,22 @@ open class LocalListActivity : InstanceActivity() {
                 val videoFile = File(video, DownloadPathSpec.FILE_VIDEO)
                 val audioFile = File(video, DownloadPathSpec.FILE_AUDIO)
                 val danmakuFile = File(video, DownloadPathSpec.FILE_DANMAKU)
-                val tempMergeFile = File(video, "video_merged_temp.mp4")
+                val tempMergeFile = File(video, CacheMediaPolicy.FILE_VIDEO_MERGED_TEMP)
 
-                // 优先使用合并后的视频文件，其次视频流，最后音频流
-                val mediaFile = if (videoFile.exists()) videoFile
-                    else if (tempMergeFile.exists()) {
-                        // 合并临时文件存在，重命名为正式文件
-                        if (tempMergeFile.renameTo(videoFile)) videoFile
-                        else tempMergeFile
-                    }
-                    else (if (audioFile.exists()) audioFile else null)
+                // 优先使用合并后的视频文件，其次视频流，最后音频流。
+                // 认哪些文件名、下载中算不算缓存，统一问 CacheMediaPolicy（反馈 #164：与「已下载」判据同源）
+                val dirNames = video.list()?.toList()
+                val mediaName = CacheMediaPolicy.pickMediaName(dirNames)
+                val mediaFile = when (mediaName) {
+                    null -> null
+                    // 合并临时文件存在：能转正就转正（与改动前一致），转不了就当它本身是成品
+                    CacheMediaPolicy.FILE_VIDEO_MERGED_TEMP ->
+                        if (tempMergeFile.renameTo(videoFile)) videoFile else tempMergeFile
+                    else -> File(video, mediaName)
+                }
 
                 if (mediaFile != null) {
-                    val mark = File(video, DownloadPathSpec.FILE_DOWNLOADING)
-                    if (mark.exists()) continue
+                    if (CacheMediaPolicy.isDownloading(dirNames)) continue
 
                     localVideo.sizeList.add(mediaFile.length())
                     // 「按更新时间」排序用（反馈 #94）：没有独立的更新时间字段，取媒体文件 mtime；
@@ -413,54 +416,52 @@ open class LocalListActivity : InstanceActivity() {
                             PageOrderStore.read(video)
                         )
                         val dirByName = pageDirs.associateBy { it.name }
-                        for (name in orderedNames) {
-                            val page = dirByName[name] ?: continue
-                            if (page.isDirectory) {
-                                val mark = File(page, DownloadPathSpec.FILE_DOWNLOADING)
-                                if (mark.exists()) continue
-
-                                val pageVideoFile = File(page, DownloadPathSpec.FILE_VIDEO)
-                                val pageAudioFile = File(page, DownloadPathSpec.FILE_AUDIO)
-                                val pageDanmakuFile = File(page, DownloadPathSpec.FILE_DANMAKU)
-                                val pageTempMergeFile = File(page, "video_merged_temp.mp4")
-                                val pageMediaFile = if (pageVideoFile.exists()) pageVideoFile
-                                    else if (pageTempMergeFile.exists()) {
-                                        if (pageTempMergeFile.renameTo(pageVideoFile)) pageVideoFile
-                                        else pageTempMergeFile
-                                    }
-                                    else (if (pageAudioFile.exists()) pageAudioFile else null)
-
-                                if (pageMediaFile != null) {
-                                    localVideo.pageList.add(page.name)
-                                    localVideo.sizeList.add(pageMediaFile.length())
-                                    // 合集取「最近修改的那一页」当更新时间（反馈 #94 的「按更新时间」排序）
-                                    if (pageMediaFile.lastModified() > localVideo.lastModified) {
-                                        localVideo.lastModified = pageMediaFile.lastModified()
-                                    }
-                                    localVideo.videoFileList.add(pageMediaFile.toString())
-                                    localVideo.danmakuFileList.add(pageDanmakuFile.toString())
-
-                                    // 如果合并失败，video.mp4和audio.m4a同时存在，把audio.m4a也加入列表
-                                    if (pageVideoFile.exists() && pageAudioFile.exists() && pageMediaFile == pageVideoFile) {
-                                        localVideo.videoFileList.add(pageAudioFile.toString())
-                                    }
-
-                                    val pageQualityFile = File(page, DownloadPathSpec.FILE_QUALITY)
-                                    if (pageQualityFile.exists()) {
-                                        try {
-                                            val pqnStr = pageQualityFile.readText().trim()
-                                            if (pqnStr == DownloadPathSpec.TYPE_AUDIO_ONLY) {
-                                                localVideo.qualityList.add(UiText.of("仅音频"))
-                                            } else {
-                                                val pqn = pqnStr.toInt()
-                                                val label = LocalVideo.getQualityLabel(pqn)
-                                                if (label.isNotEmpty()) localVideo.qualityList.add(label)
-                                                else localVideo.qualityList.add("")
-                                            }
-                                        } catch (_: Exception) { localVideo.qualityList.add("") }
-                                    } else { localVideo.qualityList.add("") }
-                                }
+                        // 反馈 #164：「这一页缓存好了没有」也走同一套判据（有成品且不在下载中），
+                        // 不再每页各写一遍 exists() / 标记判断，免得与「已下载」提示走偏
+                        val scannedPages = CacheMediaPolicy.pagesWithMedia(orderedNames) { name ->
+                            dirByName[name]?.list()?.toList()
+                        }
+                        for (scannedPage in scannedPages) {
+                            val page = dirByName[scannedPage.name] ?: continue
+                            val pageVideoFile = File(page, DownloadPathSpec.FILE_VIDEO)
+                            val pageAudioFile = File(page, DownloadPathSpec.FILE_AUDIO)
+                            val pageDanmakuFile = File(page, DownloadPathSpec.FILE_DANMAKU)
+                            val pageTempMergeFile = File(page, CacheMediaPolicy.FILE_VIDEO_MERGED_TEMP)
+                            val pageMediaFile = if (scannedPage.mediaName == CacheMediaPolicy.FILE_VIDEO_MERGED_TEMP) {
+                                // 合并临时文件存在：能转正就转正，转不了就当它本身是成品
+                                if (pageTempMergeFile.renameTo(pageVideoFile)) pageVideoFile else pageTempMergeFile
+                            } else {
+                                File(page, scannedPage.mediaName)
                             }
+
+                            localVideo.pageList.add(page.name)
+                            localVideo.sizeList.add(pageMediaFile.length())
+                            // 合集取「最近修改的那一页」当更新时间（反馈 #94 的「按更新时间」排序）
+                            if (pageMediaFile.lastModified() > localVideo.lastModified) {
+                                localVideo.lastModified = pageMediaFile.lastModified()
+                            }
+                            localVideo.videoFileList.add(pageMediaFile.toString())
+                            localVideo.danmakuFileList.add(pageDanmakuFile.toString())
+
+                            // 如果合并失败，video.mp4和audio.m4a同时存在，把audio.m4a也加入列表
+                            if (pageVideoFile.exists() && pageAudioFile.exists() && pageMediaFile == pageVideoFile) {
+                                localVideo.videoFileList.add(pageAudioFile.toString())
+                            }
+
+                            val pageQualityFile = File(page, DownloadPathSpec.FILE_QUALITY)
+                            if (pageQualityFile.exists()) {
+                                try {
+                                    val pqnStr = pageQualityFile.readText().trim()
+                                    if (pqnStr == DownloadPathSpec.TYPE_AUDIO_ONLY) {
+                                        localVideo.qualityList.add(UiText.of("仅音频"))
+                                    } else {
+                                        val pqn = pqnStr.toInt()
+                                        val label = LocalVideo.getQualityLabel(pqn)
+                                        if (label.isNotEmpty()) localVideo.qualityList.add(label)
+                                        else localVideo.qualityList.add("")
+                                    }
+                                } catch (_: Exception) { localVideo.qualityList.add("") }
+                            } else { localVideo.qualityList.add("") }
                         }
                         localVideo.calcTotalSize()
                         if (localVideo.videoFileList.size > 0) videoList.add(localVideo)
