@@ -287,6 +287,7 @@ class FollowGroupAdapter(
                     holder.desc.isSingleLine = false
                 } else {
                     GlideUtil.with(holder.avatar).asDrawable().load(GlideUtil.url(user.avatar))
+                        .apply(GlideUtil.thumbOptionsCover(holder.avatar))
                         .transition(GlideUtil.getTransitionOptions())
                         .placeholder(R.mipmap.akari)
                         .error(R.mipmap.akari)

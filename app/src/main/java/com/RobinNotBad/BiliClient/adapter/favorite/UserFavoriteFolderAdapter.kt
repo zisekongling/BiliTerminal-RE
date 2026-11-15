@@ -54,6 +54,7 @@ class UserFavoriteFolderAdapter(
             favoriteHolder.cover.setImageResource(R.mipmap.placeholder)
         } else {
             GlideUtil.with(favoriteHolder.cover).asDrawable().load(GlideUtil.url_hq(folder.cover))
+                .apply(GlideUtil.thumbOptions(favoriteHolder.cover))
                 .transition(GlideUtil.getTransitionOptions())
                 .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(5f))))
                 .format(DecodeFormat.PREFER_RGB_565)

@@ -239,6 +239,8 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
             if (coverUrl != lastCoverUrl) {
                 lastCoverUrl = coverUrl
                 GlideUtil.with(cover).asDrawable().load(coverUrl)
+                    // 封面是 centerCrop 语义（见 getRequestOptions），降采样跟它对齐
+                    .apply(GlideUtil.thumbOptionsCover(cover))
                     .transition(GlideUtil.getTransitionOptions())
                     .placeholder(R.mipmap.placeholder)
                     .error(R.mipmap.placeholder)

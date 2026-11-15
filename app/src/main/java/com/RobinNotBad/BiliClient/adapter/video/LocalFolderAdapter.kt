@@ -185,6 +185,7 @@ class LocalFolderAdapter(private val context: Context) : RecyclerView.Adapter<Re
         }
         try {
             GlideUtil.with(image).asDrawable().load(path)
+                .apply(GlideUtil.thumbOptions(image))
                 .transition(GlideUtil.getTransitionOptions())
                 .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(5f))))
                 .diskCacheStrategy(DiskCacheStrategy.NONE)

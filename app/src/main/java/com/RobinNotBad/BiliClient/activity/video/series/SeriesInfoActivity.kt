@@ -145,6 +145,7 @@ class SeriesInfoActivity : RefreshListActivity() {
                 holder.desc.text = activity.seriesIntro.ifEmpty { UiText.of("这里没有简介哦") }
                 holder.playTimes.text = "共${activity.seriesTotal}"
                 Glide.with(context).asDrawable().load(GlideUtil.url_hq(activity.seriesCover))
+                    .apply(GlideUtil.thumbOptions(holder.cover))
                     .transition(GlideUtil.getTransitionOptions())
                     .placeholder(R.mipmap.placeholder)
                     .error(R.mipmap.placeholder)

@@ -630,6 +630,7 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
             thumb.visibility = View.VISIBLE
             Glide.with(context)
                 .load(option.img_url)
+                .apply(GlideUtil.thumbOptionsCover(thumb))
                 .apply(RequestOptions().format(DecodeFormat.PREFER_RGB_565).centerCrop())
                 .transition(DrawableTransitionOptions.withCrossFade())
                 .into(thumb)
@@ -852,6 +853,7 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
                             // 动态配图：列表封面级尺寸，用 url_hq 且不写死 override，
                             // 否则 400×400 的绝对像素在大屏上被放大发虚
                             GlideUtil.with(imageView).asDrawable().load(GlideUtil.url_hq(firstImageUrl))
+                                .apply(GlideUtil.thumbOptionsCover(imageView))
                                 .transition(GlideUtil.getTransitionOptions())
                                 .placeholder(R.mipmap.placeholder)
                                 .error(R.mipmap.placeholder)

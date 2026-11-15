@@ -806,6 +806,7 @@ class CacheListAdapter(
             extra.text = size + qualityTag + pageTag
             try {
                 GlideUtil.with(cover).asDrawable().load(video.cover)
+                    .apply(GlideUtil.thumbOptions(cover))
                     .transition(GlideUtil.getTransitionOptions())
                     .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(5f))))
                     .diskCacheStrategy(DiskCacheStrategy.NONE)

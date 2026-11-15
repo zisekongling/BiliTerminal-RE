@@ -123,6 +123,7 @@ class PrivateMsgSessionsAdapter(
                     holder.nameText.text = displayName
                 }
                 GlideUtil.with(holder.avatarView).asDrawable().load(GlideUtil.url(user.avatar))
+                    .apply(GlideUtil.thumbOptionsCover(holder.avatarView))
                     .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                     .placeholder(R.mipmap.akari)
                     .error(R.mipmap.akari)

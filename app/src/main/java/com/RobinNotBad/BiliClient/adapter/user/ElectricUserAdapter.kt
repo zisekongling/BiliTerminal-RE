@@ -33,6 +33,7 @@ class ElectricUserAdapter(
         Glide.with(context)
             .asDrawable()
             .load(GlideUtil.url(user.avatar))
+            .apply(GlideUtil.thumbOptionsCover(holder.userAvatar))
             .transition(GlideUtil.getTransitionOptions())
             .placeholder(R.mipmap.akari)
             .error(R.mipmap.akari)

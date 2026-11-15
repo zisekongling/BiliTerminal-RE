@@ -201,6 +201,7 @@ class BangumiInfoFragment : Fragment() {
         // 不再因 requireContext() 追到已销毁的 Activity 而抛 "destroyed activity"
         GlideUtil.with(imageMediaCover)
             .load(GlideUtil.url_hq(bangumi!!.info.cover_horizontal))
+            .apply(GlideUtil.thumbOptions(imageMediaCover))
             .transition(GlideUtil.getTransitionOptions())
             .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
             .placeholder(R.mipmap.placeholder)
