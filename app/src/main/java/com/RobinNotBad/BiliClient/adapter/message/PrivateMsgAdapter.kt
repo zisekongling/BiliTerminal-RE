@@ -26,6 +26,7 @@ import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.LinkUrlUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
@@ -113,13 +114,23 @@ class PrivateMsgAdapter(
 
                     try {
                         val textContent = msg.content.getString("content")
-                        holder.textContentTv.text = textContent
+                        // 先按纯文本上一遍链接：表情替换要同步下载图（见 EmoteUtil.replaceSingle），
+                        // 等它回来才上色的话，纯文字消息也要先黑一下再变蓝。
+                        val plainText = SpannableStringBuilder(textContent)
+                        StringUtil.setLink(plainText)
+                        holder.textContentTv.text = plainText
+                        // 正文里的裸链接 / av / BV / cv 与评论区走同一个入口（[StringUtil.setLink]），
+                        // 颜色取主题链接色、点击走 [StringUtil.LinkClickableSpan]；受「识别链接」开关控制。
+                        // 链接要能点必须挂这个触摸监听：它自己发 onClick，不依赖 LinkMovementMethod。
+                        holder.textContentTv.setOnTouchListener(StringUtil.ClickableSpanTouchListener.getInstance())
                         CenterThreadPool.run {
                             try {
                                 val contentWithEmote: SpannableStringBuilder = PrivateMsgApi.textReplaceEmote(
                                     textContent,
                                     emoteArray, 1f, context
                                 )
+                                // 必须放在表情替换之后：表情会替换成 ImageSpan 并改变长度，先加 span 下标就全错位了
+                                StringUtil.setLink(contentWithEmote)
                                 if (holder.adapterPosition == position) {
                                     (context as Activity)
                                         .runOnUiThread { holder.textContentTv.text = contentWithEmote }
@@ -341,6 +352,14 @@ class PrivateMsgAdapter(
             }
 
             holder.textContentCard.setOnLongClickListener {
+                onMessageLongPress(msg, canCopy = true)
+                true
+            }
+            // 正文自己也要能长按：链接是 ClickableSpan，按在链接上时事件被 TextView 消费，
+            // 到不了外层卡片，长按就会「按着没反应、抬手反而打开链接」（评论区踩过同一个坑）。
+            // [StringUtil.ClickableSpanTouchListener] 靠 isLongClickable() 判断要不要补发点击，
+            // 所以这里必须挂上长按；非文本消息的正文是 GONE，挂上也不影响。
+            holder.textContentTv.setOnLongClickListener {
                 onMessageLongPress(msg, canCopy = true)
                 true
             }
