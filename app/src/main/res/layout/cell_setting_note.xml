@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 设置项之间的一句说明（26.11.15）：不是标题、不分组、不可点，只是灰一点的小字。
+     因为 cell_setting_title 是主色加粗，拿它当说明文字太重，才单独加这一种。 -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/setting_note_text"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginHorizontal="@dimen/activity_padding_horizontal"
+    android:layout_marginTop="2dp"
+    android:layout_marginBottom="4dp"
+    android:alpha="0.75"
+    android:lineSpacingMultiplier="1.1"
+    android:paddingHorizontal="6dp"
+    android:textSize="12sp" />

@@ -73,14 +73,34 @@
         android:padding="4dp"
         android:visibility="gone">
 
-        <TextView
-            android:id="@+id/cardTitle"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:paddingHorizontal="4dp"
-            android:paddingVertical="2dp"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/cardTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:paddingHorizontal="4dp"
+                android:paddingVertical="2dp"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <!-- 手表屏幕小：卡片万一把屏幕占满，手指就没地方点遮罩了，所以标题栏常驻一个关闭键 -->
+            <TextView
+                android:id="@+id/cardClose"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?android:attr/selectableItemBackground"
+                android:paddingHorizontal="6dp"
+                android:paddingVertical="2dp"
+                android:text="@string/setting_player_ui_close"
+                android:textSize="12sp" />
+
+        </LinearLayout>
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/cardList"

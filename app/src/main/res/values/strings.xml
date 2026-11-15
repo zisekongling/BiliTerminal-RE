@@ -2822,7 +2822,10 @@
     <string name="setting_player_btn_seek_back">快退</string>
     <string name="setting_player_btn_seek_forward">快进</string>
     <string name="setting_player_btn_more">更多</string>
-    <string name="setting_player_ui_more_desc">自动收纳没摆进布局的按钮，可以放多个</string>
+    <!-- 收纳格（更多）：不是按钮，是容器。只在有按钮没摆进槽位时才显示，可以放多个。 -->
+    <string name="setting_player_ui_more_desc">收纳格：收的是没摆进布局的按钮，一个都没空着时这一格不显示</string>
+    <!-- 槽位行副标题里对收纳格的短标注 -->
+    <string name="setting_player_ui_more_tag">自动收纳格</string>
     <!-- 没有可调设置的按钮，卡片里显示这一行说明 -->
     <string name="setting_player_btn_nosettings">这个按钮没有可单独调整的设置，播放时点了才有反应。</string>
     <!-- 播放页「组」槽位那个按钮的无障碍说明：点一下把组里的按钮横向展开 -->
@@ -2857,19 +2860,27 @@
     <string name="setting_player_ui_group_drop_member">移除组里的按钮</string>
     <string name="setting_player_ui_group_add_member">往这组里加按钮</string>
     <string name="setting_player_ui_group_remove_member">移除 %1$s</string>
+    <string name="setting_player_ui_group_member_exists">%1$s 已经在这组里了</string>
     <string name="setting_player_ui_region_full">这一列已经放不下了</string>
     <!-- 播放器界面：按列管理按钮（一列一节，一格一行） -->
     <string name="setting_player_ui_region_left">左列</string>
     <string name="setting_player_ui_region_right">右列</string>
-    <string name="setting_player_ui_region_bottom_left">底部左侧</string>
-    <string name="setting_player_ui_region_bottom_right">底部右侧</string>
+    <!-- 底部两区以屏幕正中的播放/暂停键为基准，标题直接写清楚方位（26.11.15） -->
+    <string name="setting_player_ui_region_bottom_left">中间暂停键左侧</string>
+    <string name="setting_player_ui_region_bottom_right">中间暂停键右侧</string>
+    <!-- 底部两区区首的一句说明：告诉用户这几格贴在暂停键旁边，不是随便浮在底部 -->
+    <string name="setting_player_ui_region_note_bottom_left">底部这一行整体居中：这几格排在屏幕正中那个播放/暂停键的左边，紧挨着它。</string>
+    <string name="setting_player_ui_region_note_bottom_right">底部这一行整体居中：这几格排在屏幕正中那个播放/暂停键的右边，紧挨着它。</string>
     <string name="setting_player_ui_region_desc">%1$s · 第 %2$d 格</string>
     <string name="setting_player_ui_region_capacity">最多放 %1$d 格</string>
     <string name="setting_player_ui_region_empty">这一列还空着，点下面加一个</string>
     <string name="setting_player_ui_group_count">一组按钮（%1$d 个）</string>
     <string name="setting_player_ui_add_button">＋ 加一个按钮</string>
+    <string name="setting_player_ui_add_more">＋ 加一个收纳格</string>
     <string name="setting_player_ui_may_hide">注意：有些视频里不显示</string>
-    <string name="setting_player_ui_region_title">%1$s（%2$d 格）</string>
+    <string name="setting_player_ui_region_title">%1$s · %2$d 格</string>
+    <!-- 设置页底部卡片（上滑弹出面板）标题栏的关闭按钮 -->
+    <string name="setting_player_ui_close">关闭</string>
     <string name="setting_player_ui_label_elements">画面元素</string>
     <string name="setting_player_ui_element_desc">点一下调整与它相关的设置</string>
 

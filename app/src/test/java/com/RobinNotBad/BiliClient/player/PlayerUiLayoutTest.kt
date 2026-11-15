@@ -246,11 +246,28 @@ class PlayerUiLayoutTest {
     }
 
     @Test
-    fun `more inside a group survives parsing as a plain member`() {
-        // 设置页已把「更多」从加成员候选里滤掉，但手改脏数据/未来版本可能仍写出 {..+more}：
-        // 解析不能崩、也不能把它无声丢掉——怎么渲染是 PlayerButtonSlots 的事。
+    fun `more inside a group is dropped on parse`() {
+        // 收纳格不是按钮：组里再套一个「更多」在播放页拿不到真身，只会渲染出一个点不动的死格子。
+        // 旧版设置页能从「更多」格改成一组写出 {more}，所以解析这一层直接清掉。
         val parsed = layout.parse("1;{lock+more};;;")
-        assertEquals(listOf<PlayerUiLayout.Slot>(PlayerUiLayout.Slot.Group(listOf("lock", PlayerButtons.MORE))), parsed.left)
+        assertEquals(listOf<PlayerUiLayout.Slot>(PlayerUiLayout.Slot.Group(listOf("lock"))), parsed.left)
+    }
+
+    @Test
+    fun `group made only of more disappears`() {
+        // 整组只有收纳格 → 组里空无一人，这个槽位没有存在意义，直接不占格子
+        val parsed = layout.parse("1;{more};;;")
+        assertEquals(emptyList<PlayerUiLayout.Slot>(), parsed.left)
+    }
+
+    @Test
+    fun `duplicate member inside a group is collapsed`() {
+        // 同一按钮在组里出现两次会渲染出两个影子、互相抢状态，解析时去重只留一份
+        val parsed = layout.parse("1;{lock+lock+speed};;;")
+        assertEquals(
+            listOf<PlayerUiLayout.Slot>(PlayerUiLayout.Slot.Group(listOf("lock", "speed"))),
+            parsed.left
+        )
     }
 
     @Test

@@ -124,6 +124,9 @@ class SettingsAdapter(
             TYPE_TITLE -> return TitleHolder(
                 LayoutInflater.from(this.context).inflate(R.layout.cell_setting_title, parent, false)
             )
+            TYPE_NOTE -> return NoteHolder(
+                LayoutInflater.from(this.context).inflate(R.layout.cell_setting_note, parent, false)
+            )
             else -> return SwitchHolder(
                 LayoutInflater.from(this.context).inflate(R.layout.cell_setting_switch, parent, false)
             )
@@ -143,6 +146,7 @@ class SettingsAdapter(
         // ClassCastException: NavHolder cannot be cast to SwitchHolder 并让设置页报错。
         when (holder) {
             is TitleHolder -> holder.bind(settingSection)
+            is NoteHolder -> holder.bind(settingSection)
             is DividerHolder -> {}
             is ChooseHolder -> holder.bind(settingSection)
             is InputHolder -> holder.bind(settingSection)
@@ -179,6 +183,9 @@ class SettingsAdapter(
         const val TYPE_DIVIDER = 8
         const val TYPE_TITLE = 9
 
+        /** 一段说明文字（灰色小字，不可点、不是分组标题）。26.11.15 起供播放器界面设置页的区首说明用。 */
+        const val TYPE_NOTE = 10
+
         /** list_choose 用 [ListChooseActivity] 选值时的请求码；承接结果的页面统一走 applyListChooseResult。 */
         const val REQUEST_CODE_LIST_CHOOSE = 1001
 
@@ -193,7 +200,8 @@ class SettingsAdapter(
             "nav" to TYPE_NAV,
             "button" to TYPE_BUTTON,
             "divider" to TYPE_DIVIDER,
-            "title" to TYPE_TITLE
+            "title" to TYPE_TITLE,
+            "note" to TYPE_NOTE
         )
     }
 
@@ -404,6 +412,17 @@ class SettingsAdapter(
 
         fun bind(settingSection: SettingSection) {
             titleText.text = SettingText.resolve(itemView.context, settingSection.name)
+        }
+    }
+
+    /** 说明文字：用 description 而不是 name，方便和其它 Holder 一样把长句放进 desc 字段。 */
+    class NoteHolder(@androidx.annotation.NonNull itemView: View) : RecyclerView.ViewHolder(itemView) {
+        private val noteText: TextView = itemView as TextView
+
+        fun bind(settingSection: SettingSection) {
+            val text = SettingText.resolve(itemView.context, settingSection.desc)
+            noteText.text = text
+            noteText.visibility = if (text.isNullOrEmpty()) View.GONE else View.VISIBLE
         }
     }
 

@@ -192,6 +192,11 @@ object PlayerUiLayout {
                     .split('+')
                     .map { it.trim() }
                     .filter { PlayerButtons.isKnown(it) }
+                    // 收纳格（更多）本身不是按钮、没有真身，放进组里播放页拿不到可展开的东西，
+                    // 只剩一个点不动的死格子。旧版设置页能从「更多」格改成一组写出来，这里统一清掉。
+                    .filterNot { it == PlayerButtons.MORE }
+                    // 同一按钮在组里出现两次会渲染出两个影子，点了互相抢状态，去重。
+                    .distinct()
                 when (keys.size) {
                     0 -> Unit
                     // 只留 1 个按钮也保留成「组」：用户是先建组、再往组里加成员的，
