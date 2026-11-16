@@ -2,6 +2,8 @@ package com.RobinNotBad.BiliClient.util;
 
 import android.content.SharedPreferences;
 
+import com.RobinNotBad.BiliClient.BuildConfig;
+
 /**
  * 被 luern0313 创建于 2020/5/4.
  * #以下代码部分来源于腕上哔哩的开源项目，有修改。感谢开源者做出的贡献！
@@ -124,6 +126,21 @@ public class SharedPreferencesUtil {
         return sharedPreferences;
     }
 
+    /**
+     * 类型保险丝的 Debug 取证：同一个 key 被别的类型写过时记一行，方便现场（用户日志）定位
+     * 「谁写错了类型」。只在 Debug 包打日志——Release 保持静默，避免刷屏；也不记值本身。
+     *
+     * @param expected 读取方期望的类型名，如 "String"
+     */
+    private static void logTypeFuse(String key, String expected) {
+        if (!BuildConfig.DEBUG) return;
+        Object actual = sharedPreferences.getAll().get(key);
+        Logu.w("SharedPreferencesUtil", "类型不匹配，已回落默认值：key=" + key
+                + " 期望=" + expected
+                + " 实际=" + (actual == null ? "null" : actual.getClass().getSimpleName())
+                + "（写入方与读取方用的不是同一种类型，属调用方 bug）");
+    }
+
     public static String getString(String key, String def) {
         // sharedPreferences 由 Application.onCreate 赋值，静态初始化或早期调用可能早于赋值，
         // 直接解引用会 NPE。未就绪时返回调用方传入的默认值（BiliTerminal.kt 有 getString(key, null)
@@ -135,6 +152,7 @@ public class SharedPreferencesUtil {
         try {
             return sharedPreferences.getString(key, def);
         } catch (ClassCastException e) {
+            logTypeFuse(key, "String");
             return def;
         }
     }
@@ -150,6 +168,7 @@ public class SharedPreferencesUtil {
         try {
             return sharedPreferences.getInt(key, def);
         } catch (ClassCastException e) {
+            logTypeFuse(key, "Int");
             return def;
         }
     }
@@ -164,6 +183,7 @@ public class SharedPreferencesUtil {
         try {
             return sharedPreferences.getLong(key, def);
         } catch (ClassCastException e) {
+            logTypeFuse(key, "Long");
             return def;
         }
     }
@@ -178,6 +198,7 @@ public class SharedPreferencesUtil {
         try {
             return sharedPreferences.getBoolean(key, def);
         } catch (ClassCastException e) {
+            logTypeFuse(key, "Boolean");
             return def;
         }
     }
@@ -196,6 +217,7 @@ public class SharedPreferencesUtil {
         try {
             return sharedPreferences.getFloat(key, def);
         } catch (ClassCastException e) {
+            logTypeFuse(key, "Float");
             return def;
         }
     }
