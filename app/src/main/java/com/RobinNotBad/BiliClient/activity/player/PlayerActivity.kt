@@ -6474,7 +6474,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 if (abs(event.x - danmakuTapDownX) > slop || abs(event.y - danmakuTapDownY) > slop) return false
                 val view = mDanmakuView ?: return false
                 if (!view.isPrepared) return false
-                val hit = findTappedDanmaku(view.currentVisibleDanmakus, event.x, event.y)
+                val hit = findTappedDanmaku(readVisibleDanmakus(view), event.x, event.y)
                     ?: return false
                 val match = DanmakuTimestampPolicy.find(hit.text) ?: return false
                 gesture_click_disabled = true
@@ -6487,6 +6487,24 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             }
         }
         return false
+    }
+
+    /**
+     * 读「当前可见弹幕集」，读不到就当没有。
+     *
+     * DFM 的渲染线程（`DrawTask.getVisibleDanmakusOnTime`）会在同一份 `Danmakus` 上增删条目，
+     * 而 `Danmakus.subnew` 内部要对底下的 TreeSet 做 size()/toArray()——与渲染线程并发时直接抛
+     * ConcurrentModificationException（线上崩溃 #340：`PlayerActivity.handleDanmakuTimeJumpTap`
+     * ← `DanmakuView.getCurrentVisibleDanmakus`，DJI RC 2 / 26.11.07）。
+     * 这条路径只是判断「这一下点到了哪条弹幕」，读失败就当作没点中，绝不让一次点击把播放器带崩。
+     */
+    private fun readVisibleDanmakus(view: IDanmakuView): IDanmakus? {
+        return try {
+            view.currentVisibleDanmakus
+        } catch (e: RuntimeException) {
+            Logu.w("danmaku", "读取可见弹幕失败，本次点击不参与空降: ${e.javaClass.simpleName}")
+            null
+        }
     }
 
     /** 在被点到坐标上找一条可见弹幕；DFM 的命中判定是矩形包围盒，与它自己的 touch helper 一致。 */
