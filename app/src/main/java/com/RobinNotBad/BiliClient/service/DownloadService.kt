@@ -37,6 +37,7 @@ import com.RobinNotBad.BiliClient.model.DownloadSegment
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.SubtitleLink
 import com.RobinNotBad.BiliClient.util.Aria2Util
+import com.RobinNotBad.BiliClient.util.CacheMediaPolicy
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.DownloadWakeLock
 import com.RobinNotBad.BiliClient.util.DanmakuFileFetcher
@@ -833,11 +834,38 @@ class DownloadService : Service() {
             if (s.state == "downloading" && !DownloadProgressStore.hasProgress(s.id)) {
                 DownloadRepository.setState(s.id, "none")
                 removeDownloadProgress(s.id)
+                // 进程被杀（更新、被系统回收）时留下的 .DOWNLOADING 标记必须一起清：
+                // 缓存页见到这个标记会整条跳过，于是「早就下好了、只是标记没删」的视频
+                // 在更新后再也不出现在缓存列表里（反馈 #187）。
+                clearStaleDownloadMarker(s.getPath())
             } else if (s.state == "error") {
                 // 历史失败任务（反馈 #136）：视频详情页只看「任务目录还在不在」，目录不清掉就
                 // 永远弹「已在下载队列」、再也进不了下载流程。这里趁批次启动把它们一并收拾了，
                 // 有成品时只清临时产物，不会动已经下好的视频。
                 cleanFailedResidue(s.getPath())
+            }
+        }
+    }
+
+    /**
+     * 清掉「已经下好、标记却没清」的 `.DOWNLOADING`。
+     *
+     * 只按 [CacheMediaPolicy.isStaleDownloadMarker] 动手：目录里既有成品、又有下载标记，
+     * 说明那一轮真正写完了（成品是下载的最后一步才被转正的），标记只是没来得及删。
+     * 没有成品时保留标记，失败收尾还要照它做残留判定。
+     *
+     * 多 P 任务的 `.DOWNLOADING` 写在页目录里，所以任务目录的一级子目录也判一遍。
+     */
+    private fun clearStaleDownloadMarker(dir: File?) {
+        if (dir == null) return
+        val targets = ArrayList<File>(1 + 8)
+        targets.add(dir)
+        dir.listFiles()?.forEach { if (it.isDirectory) targets.add(it) }
+        for (d in targets) {
+            val names = d.list()?.toList() ?: continue
+            if (!CacheMediaPolicy.isStaleDownloadMarker(names)) continue
+            if (File(d, DownloadPathSpec.FILE_DOWNLOADING).delete()) {
+                Logu.d("DownloadService", "清掉陈旧的下载标记：" + d.absolutePath)
             }
         }
     }

@@ -147,4 +147,22 @@ class CacheMediaPolicyTest {
         assertEquals(1, entry!!.pageCount())
         assertEquals("$root/video.mp4", entry.mediaAt(0)!!.videoFile)
     }
+
+    // ---------- isStaleDownloadMarker：下好了但标记没来得及删 ----------
+
+    @Test
+    fun `成品加上下载标记算陈旧标记`() {
+        // 反馈 #187：更新时进程被杀，成品已转正、.DOWNLOADING 没删，
+        // 缓存页按 isDownloading 跳过整条 → 用户看到「缓存全没」。
+        assertTrue(CacheMediaPolicy.isStaleDownloadMarker(listOf("video.mp4", ".DOWNLOADING")))
+        assertTrue(CacheMediaPolicy.isStaleDownloadMarker(listOf("audio.m4a", ".DOWNLOADING", "cover.png")))
+    }
+
+    @Test
+    fun `只有下载标记没有成品时不是陈旧标记`() {
+        // 真正的下载中：没有成品，标记要留给失败收尾做残留判定
+        assertFalse(CacheMediaPolicy.isStaleDownloadMarker(listOf(".DOWNLOADING", ".quality")))
+        assertFalse(CacheMediaPolicy.isStaleDownloadMarker(listOf("video.mp4")))
+        assertFalse(CacheMediaPolicy.isStaleDownloadMarker(null))
+    }
 }

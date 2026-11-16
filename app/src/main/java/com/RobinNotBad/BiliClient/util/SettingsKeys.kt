@@ -204,6 +204,8 @@ object SettingsKeys {
     const val CACHE_DEFAULT_QUALITY = "cache_default_quality"
     const val FORCE_HIGH_QUALITY = "force_high_quality_options"
     const val SAVE_PATH_VIDEO = "save_path_video"
+    /** 上次进程**实际**落盘的缓存根（可能是降级目录）。进程重启后靠它沿用同一个根，见 FileUtil.resolveVideoDownloadDir。 */
+    const val SAVE_PATH_VIDEO_ACTIVE = "save_path_video_active"
     const val SAVE_PATH_PICTURES = "save_path_pictures"
 
     // ==================== 高级与实验 ====================

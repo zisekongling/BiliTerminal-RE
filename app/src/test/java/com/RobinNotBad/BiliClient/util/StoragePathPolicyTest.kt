@@ -95,4 +95,51 @@ class StoragePathPolicyTest {
         assertTrue(StoragePathPolicy.hasRealContent(listOf(".nomedia", "某视频")))
         assertTrue(StoragePathPolicy.hasRealContent(listOf("video.mp4")))
     }
+
+    // ==================== shouldReclaimFallback ====================
+
+    @Test
+    fun `降级目录里没有内容时不做搬移`() {
+        assertFalse(StoragePathPolicy.shouldReclaimFallback(true, true, false, false))
+    }
+
+    @Test
+    fun `本进程刚从降级态回来要搬回`() {
+        assertTrue(StoragePathPolicy.shouldReclaimFallback(true, false, true, true))
+    }
+
+    @Test
+    fun `上次进程用的是降级目录也要搬回`() {
+        // 反馈 #187 的核心：进程重启后 wasFallback 必然是 false，
+        // 只认内存标记就会把降级期间写下的缓存永久晾在降级目录里。
+        assertTrue(StoragePathPolicy.shouldReclaimFallback(false, true, true, true))
+    }
+
+    @Test
+    fun `正式目录是空的而降级目录有货时直接搬回`() {
+        // 升级到带「记录实际根」这版之前就降级过的用户：没有记录可认，只能按「哪边有货」判定。
+        assertTrue(StoragePathPolicy.shouldReclaimFallback(false, false, true, false))
+    }
+
+    @Test
+    fun `两边都有内容且没有降级记录时不搬`() {
+        // 可能是用户自己换过路径留下的旧目录，别擅自把两份内容混到一起
+        assertFalse(StoragePathPolicy.shouldReclaimFallback(false, false, true, true))
+    }
+
+    // ==================== sameDir ====================
+
+    @Test
+    fun `尾部斜杠不影响同一目录判定`() {
+        assertTrue(StoragePathPolicy.sameDir("/sdcard/cache", "/sdcard/cache/"))
+        assertTrue(StoragePathPolicy.sameDir("/sdcard/cache/", "/sdcard/cache"))
+    }
+
+    @Test
+    fun `空路径与不同路径不算同一目录`() {
+        assertFalse(StoragePathPolicy.sameDir(null, null))
+        assertFalse(StoragePathPolicy.sameDir("", ""))
+        assertFalse(StoragePathPolicy.sameDir(null, "/sdcard/cache"))
+        assertFalse(StoragePathPolicy.sameDir("/sdcard/cache", "/sdcard/cache2"))
+    }
 }

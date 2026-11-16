@@ -69,6 +69,49 @@ object StoragePathPolicy {
     }
 
     /**
+     * 正式目录可写时，要不要把降级目录里落下的缓存搬回来。
+     *
+     * 两个触发条件（任一）：
+     * - `wasFallback`：本进程刚从降级态切回来（原来唯一的判据）；
+     * - `fallbackIsSaved`：**上次进程**实际用的就是降级目录。进程重启后 `wasFallback` 必然是
+     *   false，少了这一条，降级期间写下的缓存重启后既不会被搬回、也不会被扫描，
+     *   用户看到的就是「更新一次缓存全没」（反馈 #187）。
+     *
+     * 降级目录里没有真实内容时不做无意义的移动。
+     */
+    @JvmStatic
+    fun shouldReclaimFallback(
+        wasFallback: Boolean,
+        fallbackIsSaved: Boolean,
+        fallbackHasContent: Boolean,
+        configuredHasContent: Boolean
+    ): Boolean {
+        if (!fallbackHasContent) return false
+        // 还没装上「记录实际根」这一版之前就降级过的用户：正式目录是空的、降级目录里有货，
+        // 那就是上次更新后再也扫不到的缓存，直接搬回来（搬完降级目录就空了，天然幂等）。
+        if (!configuredHasContent) return true
+        return wasFallback || fallbackIsSaved
+    }
+
+    /**
+     * 两个路径是否指同一个目录（只忽略尾部路径分隔符）。
+     *
+     * 用来判断「上次记录的根 == 降级目录」这类关系。不碰文件系统、不解析软链接，
+     * 也不做大小写折叠——Android 的存储就是大小写敏感的。
+     */
+    @JvmStatic
+    fun sameDir(a: String?, b: String?): Boolean {
+        val na = normalizeDir(a)
+        val nb = normalizeDir(b)
+        return na.isNotEmpty() && na == nb
+    }
+
+    private fun normalizeDir(path: String?): String {
+        if (path.isNullOrBlank()) return ""
+        return path.trimEnd('/', '\\')
+    }
+
+    /**
      * 目录项里是否有「用户内容」。
      *
      * 全隐藏文件不算：`.nomedia`（本应用自己建的）、`.DOWNLOADING`/`.write_probe`

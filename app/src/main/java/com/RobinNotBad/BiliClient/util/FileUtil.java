@@ -375,25 +375,55 @@ public class FileUtil {
         File configured = getConfiguredVideoDownloadPath();
         File fallback = getFallbackVideoDownloadPath();
         boolean wasFallback = videoFallbackActive;
+        // 上次进程**实际**用的是哪个根（落盘在 save_path_video_active）。
+        // videoFallbackActive 只活在内存里，而每次更新都会把进程重启一次，于是降级期间写下的
+        // 缓存重启后既不会被搬回、也不会被扫描 —— 反馈 #187「每一次更新以后缓存全被重置」。
+        String savedDir = SharedPreferencesUtil.getString(SettingsKeys.SAVE_PATH_VIDEO_ACTIVE, "");
+        boolean fallbackIsSaved = StoragePathPolicy.sameDir(savedDir, fallback.getAbsolutePath());
+        boolean sameRoot = StoragePathPolicy.sameDir(configured.getAbsolutePath(), fallback.getAbsolutePath());
 
         if (canWriteDirectory(configured)) {
-            if (wasFallback) {
-                videoFallbackActive = false;
+            videoFallbackActive = false;
+            boolean fallbackHasContent = StoragePathPolicy.hasRealContent(listNames(fallback));
+            boolean configuredHasContent = StoragePathPolicy.hasRealContent(listNames(configured));
+            // 除了「本进程刚从降级态回来」，还要认「上次进程用的是降级目录」，
+            // 否则进程一重启就永远搬不回来；正式目录空、降级目录有货时也直接搬回（老用户的一次性找回）。
+            // 同一个目录时绝不做移动（会自己搬给自己）。
+            if (!sameRoot && StoragePathPolicy.shouldReclaimFallback(
+                    wasFallback, fallbackIsSaved, fallbackHasContent, configuredHasContent)) {
                 int moved = mergeMoveDirectoryContents(fallback, configured);
-                Logu.d("storage-perm", "正式目录恢复可写，搬回 " + moved + " 项缓存 -> " + configured);
+                Logu.d("storage-perm", "正式目录可写，搬回 " + moved + " 项缓存 -> " + configured);
             }
+            rememberActiveVideoDir(configured);
             return configured;
         }
 
         if (canWriteDirectory(fallback)) {
             videoFallbackActive = true;
-            if (!wasFallback) showStorageMsg(context, R.string.msg_storage_fallback, fallback.getAbsolutePath());
+            // 只有「本次进程第一次降级、且上次也不是降级」才提示一句，避免每次启动都弹
+            if (!wasFallback && !fallbackIsSaved) {
+                showStorageMsg(context, R.string.msg_storage_fallback, fallback.getAbsolutePath());
+            }
+            rememberActiveVideoDir(fallback);
             return fallback;
         }
 
         videoFallbackActive = false;
         showStorageMsg(context, R.string.msg_storage_unavailable);
         return null;
+    }
+
+    /**
+     * 记下本次进程实际使用的缓存根，供下次启动（尤其是更新后的那次重启）沿用。
+     *
+     * 写失败不影响本次使用，只是下次启动会重新判一次可写性。
+     */
+    private static void rememberActiveVideoDir(File dir) {
+        try {
+            SharedPreferencesUtil.putString(SettingsKeys.SAVE_PATH_VIDEO_ACTIVE, dir.getAbsolutePath());
+        } catch (Exception e) {
+            Log.w("storage-perm", "记录实际缓存根失败：" + e.getClass().getSimpleName());
+        }
     }
 
     /**

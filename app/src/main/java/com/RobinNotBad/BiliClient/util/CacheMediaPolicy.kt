@@ -60,6 +60,17 @@ object CacheMediaPolicy {
     }
 
     /**
+     * 「已经下好、只是 `.DOWNLOADING` 标记没来得及删」的残留。
+     *
+     * 成品是下载的最后一步被转正的，标记排在它之后删；进程被杀（更新、被系统回收）就会留下
+     * 「成品 + 标记」这种组合。缓存列表按 [isDownloading] 跳过它，用户看到的就是
+     * 「更新一次缓存全没」（反馈 #187），所以恢复流程要按这个判据把标记清掉。
+     */
+    @JvmStatic
+    fun isStaleDownloadMarker(names: Collection<String>?): Boolean =
+        pickMediaName(names) != null && isDownloading(names)
+
+    /**
      * 这个目录算不算「已经缓存好的一集 / 一个视频」：有成品，且不在下载中。
      *
      * 这是**缓存列表与「已下载」提示必须共用的口径**：列表按它决定条目出不出现，
