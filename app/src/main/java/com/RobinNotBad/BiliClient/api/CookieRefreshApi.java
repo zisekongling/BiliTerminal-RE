@@ -61,9 +61,10 @@ public class CookieRefreshApi {
     public static String getRefreshCsrf(String CorrespondPath) throws IOException {
         if (Objects.equals(CorrespondPath, "")) return "";
         String url = "https://www.bilibili.com/correspond/1/" + CorrespondPath;
-        // 响应必须关：这是「每次冷启动 + 每 30 分钟」都会走的高频路径，body 读完不会自动归还连接，
-        // 漏掉的连接会一直挂在 OkHttp 的连接池里。漏到池子耗尽时**所有**请求一起失败，用户侧看到
-        // 的就是「莫名其妙掉登录 / 一直转圈」（对照 cyq/Re-BiliTerminal 同一处的改法）。
+        // 响应用 try-with-resources 收掉：这是「每次冷启动 + 每 30 分钟」都会走的高频路径。
+        // 注意别把这条改动说成「修了一个连接泄漏」——OkHttp 读完 body 就会归还连接，不 close 并不
+        // 会漏到连接池耗尽；真正需要 close 的是不读 body 就 return 的异常路径（解析中途抛异常时
+        // 连接不归还），以及全仓 NetWorkUtil 返回裸 Response 的统一写法。
         try (Response response = NetWorkUtil.get(url)) {
             if (response.body() != null) {
                 Document document = Jsoup.parse(response.body().string());

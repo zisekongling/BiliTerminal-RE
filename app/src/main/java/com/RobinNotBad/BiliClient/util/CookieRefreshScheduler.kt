@@ -171,13 +171,22 @@ object CookieRefreshScheduler {
     private fun refreshNow(): Boolean {
         // TV / APP 登录：refresh_token 同时能续 access_token 与 cookies，走统一的 APP 刷新
         if (SharedPreferencesUtil.getString(SharedPreferencesUtil.access_key, "").isNotEmpty()) {
-            val refreshed = AppTokenRefreshApi.refreshAppToken()
-            if (refreshed) {
-                Logu.i(TAG, "access_token 已刷新")
-            } else {
-                Logu.w(TAG, "access_token 刷新未成功")
+            // 与下面 Web 那条同一口径（26.11.16）：OK 才算成功；RETRY 保留登录态等退避重试；
+            // NEED_LOGIN 是服务端明确说 refresh_token 没了——这时也不清本地凭证，交给启动页的失效流程
+            return when (AppTokenRefreshApi.refreshAppToken()) {
+                AppTokenRefreshApi.RefreshResult.OK -> {
+                    Logu.i(TAG, "access_token 已刷新")
+                    true
+                }
+                AppTokenRefreshApi.RefreshResult.NEED_LOGIN -> {
+                    Logu.w(TAG, "服务端判定 refresh_token 失效（-101），等用户重新登录；本地凭证保留")
+                    false
+                }
+                AppTokenRefreshApi.RefreshResult.RETRY -> {
+                    Logu.w(TAG, "access_token 刷新未成功（保留登录态，稍后重试）")
+                    false
+                }
             }
-            return refreshed
         }
 
         // 网页登录：先问服务端到底需不需要刷新，不需要就别去动 Cookie

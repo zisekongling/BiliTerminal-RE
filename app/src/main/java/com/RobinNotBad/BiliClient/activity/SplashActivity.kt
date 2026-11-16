@@ -131,26 +131,23 @@ class SplashActivity : Activity() {
      * 强制用户重新登录"的根因。
      */
     private fun hasLocalSession(): Boolean {
-        // TV/APP 登录拿的是 access_key，不走 Web 的 SESSDATA 体系：这类账号的 Cookie 里即使
-        // 没有 SESSDATA，登录态也是有效的，不能据此判「登录过期」把整套凭据清掉。
-        if (SharedPreferencesUtil.getString(SharedPreferencesUtil.access_key, "").isNotEmpty()) return true
+        // 只认 SESSDATA：唯一调用点是 checkCookieRefresh()，而它只在「没有 access_key」的 Web
+        // 登录分支里被调用（分流见 proceedSplashFlow()）。TV/APP 登录的账号拿的是 access_key，
+        // Cookie 里本来就可能没有 SESSDATA，压根走不到这里来判断登录态。
         val cookie = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "")
         return NetWorkUtil.getInfoFromCookie("SESSDATA", cookie).isNotEmpty()
     }
 
+    /**
+     * Web（扫码）登录的 Cookie 刷新。
+     *
+     * 调用点 [proceedSplashFlow] 已经按 `access_key` 分流——TV/APP 登录走 [AppTokenRefreshApi]，
+     * 只有「没有 access_key」的 Web 登录账号才会走到这里。**不要在本方法里再加一次 access_key
+     * 判断**：26.11.16 加过一次，因为调用点早已分流，那段守卫永远不会执行（「refresh_token 是两套
+     * 不通用口令」这件事已经在分流处解决了）。
+     */
     @Throws(IOException::class)
     private fun checkCookieRefresh() {
-        // TV/APP 登录的账号靠 access_key 续期，CookieRefreshScheduler.refreshNow() 已按此分流。
-        // 启动页这条链路原先不分流：会拿 APP 的 refresh_token 去调 Web 的 cookie/refresh
-        // （refresh_token 在 SharedPreferencesUtil 里只有一个键，短信/密码登录写的就是 APP 口令），
-        // 服务端要么回 86095 白跑一趟，要么回 -101 —— 而 -101 会走到下面的 resetLogin()，
-        // 把**仍然有效的 access_key 一起清掉**，用户就被登出了。手表端主用账户密码/短信登录，
-        // 这是「老是掉登录」的主要入口，必须和调度器保持同一套分流。
-        if (SharedPreferencesUtil.getString(SharedPreferencesUtil.access_key, "").isNotEmpty()) {
-            Log.e("Cookies", "当前是 APP/TV 登录（有 access_key），跳过 Web Cookie 刷新")
-            return
-        }
-
         // CookieRefreshApi.cookieInfo() 内部直接 `result.getJSONObject("data")`，
         // 网络抖动、返回体缺 data、服务端 code != 0 都会抛异常。这类失败与"登录已失效"
         // 无法从返回值区分，因此单独兜住它、跳过本次刷新检查，绝不清登录态。
@@ -444,7 +441,17 @@ class SplashActivity : Activity() {
                                 // 该接口会同时刷新 access_token 与 cookies；Web 登录走 web cookie 刷新。
                                 if (SharedPreferencesUtil.getString(SharedPreferencesUtil.access_key, "").isNotEmpty()) {
                                     try {
-                                        AppTokenRefreshApi.refreshAppToken()
+                                        // 结果分三档：只有 NEED_LOGIN（服务端明确说 refresh_token 失效）
+                                        // 才清登录态，与下面 Web 那条一致；RETRY 一律保留凭证等退避重试
+                                        when (AppTokenRefreshApi.refreshAppToken()) {
+                                            AppTokenRefreshApi.RefreshResult.OK -> Unit
+                                            AppTokenRefreshApi.RefreshResult.NEED_LOGIN -> {
+                                                MsgUtil.showMsgLong(UiText.of("登录信息过期，请重新登录！"))
+                                                resetLogin("APP token 刷新返回 -101（refresh_token 已失效）")
+                                            }
+                                            AppTokenRefreshApi.RefreshResult.RETRY ->
+                                                Log.e("Splash", "APP token 刷新未成功，保留本地登录态")
+                                        }
                                     } catch (e: Exception) {
                                         Log.e("Splash", "APP token刷新失败: ${e.message}")
                                     }
