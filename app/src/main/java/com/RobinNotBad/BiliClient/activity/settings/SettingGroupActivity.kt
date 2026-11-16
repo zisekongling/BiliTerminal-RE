@@ -987,6 +987,14 @@ class SettingGroupActivity : RefreshListActivity() {
                 true
             }
         )
+        // 26.11.16 静默下载（默认关）：开了以后启动检查到更新就在 Wi-Fi 下先把安装包下好，
+        // 下完才弹「已下载」，用户点确认再安装。蜂窝网络与下载失败都退回原来的更新页。
+        switch(
+            getString(R.string.setting_silent_update),
+            getString(R.string.desc_setting_silent_update),
+            SettingsKeys.SILENT_UPDATE_DOWNLOAD,
+            false
+        )
         // 三通道（docs/version-channels.md §5）：没选过的人默认测试版（26.11.08 用户拍板），
         // 装实验包的人默认实验版，显式选过的值优先——默认规则全在 UpdateChannel.current() 里，
         // 这里只把它的结果当 defaultValue 显示，别在这儿另写一份。

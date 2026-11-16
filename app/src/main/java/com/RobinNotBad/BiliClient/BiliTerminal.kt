@@ -36,6 +36,7 @@ import com.RobinNotBad.BiliClient.util.MessageUnreadRefresh
 import com.RobinNotBad.BiliClient.util.MessageUnreadRefresher
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
+import com.RobinNotBad.BiliClient.util.NetworkPlaybackQuality
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.PerformanceManager
 import com.RobinNotBad.BiliClient.util.SettingsKeys
@@ -129,9 +130,21 @@ class BiliTerminal : Application() {
         @Volatile
         private var pendingAutoOpenUpdate: UpdateConfig? = null
 
+        /**
+         * 静默下载完成、等着问用户「现在装吗」的版本（26.11.16）。
+         *
+         * 与 [pendingAutoOpenUpdate] 同样的道理：静默下载可能在启动页期间就下完了，
+         * 那一刻弹窗会被随后的首屏盖住，所以先记下、等前台页就绪再问。
+         */
+        @Volatile
+        private var pendingSilentInstall: UpdateConfig? = null
+
         /** 启动时查到的「我的反馈」新回复条数，等首屏就绪后提示一次（26.11.16）。 */
         @Volatile
         private var pendingFeedbackUnread: Int = 0
+
+        /** 静默下载已下完的版本号；用来避免同一版本反复下载（文件还在就不重下）。 */
+        private const val KEY_SILENT_UPDATE_VERSION = "silent_update_version_code"
 
         /**
          * 记下「发现新版本（非强制）」并尝试立刻打开更新页。
@@ -467,6 +480,9 @@ class BiliTerminal : Application() {
                     // 26.10.25：检查更新结果可能在启动页期间就返回，那时不能直接跳更新页
                     // （会被启动页随后的首屏盖住），挂起到这里——首屏 resumed 后再打开。
                     tryShowAutoOpenUpdatePage()
+                    // 26.11.16：静默下载完成的提示、以及「我的反馈有新回复」的提示，
+                    // 同样要等前台页就绪——启动页期间弹出来会被首屏盖掉。
+                    tryPromptSilentInstall()
                     tryPromptFeedbackUnread()
                 }
 
@@ -582,7 +598,10 @@ class BiliTerminal : Application() {
                                 val lastNewVersion = SharedPreferencesUtil.getInt("update_last_new_version", 0)
                                 // 26.10.25 用户要求：发现新版本时不再只弹一条 Toast（手表上很容易错过），
                                 // 而是直接跳到「检查更新/下载」页，用户点「下载更新」即可。
-                                if (UpdateManager.shouldAutoOpenUpdatePage(
+                                // 26.11.16 静默下载（默认关）：开关打开且当前是 Wi-Fi 时，
+                                // 先把包下好再弹「已下载」，否则保持原来的「直接跳更新页」。
+                                if (!trySilentUpdateDownload(config)
+                                    && UpdateManager.shouldAutoOpenUpdatePage(
                                         config,
                                         UpdateManager.getCurrentVersion(),
                                         lastNewVersion
@@ -599,6 +618,97 @@ class BiliTerminal : Application() {
                 )
             } catch (e: Exception) {
             }
+        }
+    }
+
+    /**
+     * 静默下载（26.11.16 新增，默认关，开关在「设置 → 关于 → 静默下载更新」）。
+     *
+     * <p>返回 true 表示这次更新由静默流程接管，调用方不要再走「发现新版本就跳更新页」那条路。
+     * 三个前提：
+     * 1. 开关打开（默认关——不替用户决定要不要往缓存里塞一个 APK）；
+     * 2. 当前是 Wi-Fi——蜂窝下绝不偷偷下安装包，花的是用户的钱，直接退回原来的弹页流程；
+     * 3. 更新地址有效。
+     *
+     * <p>下完之后不自动拉起安装器（用户拍板：先提示「已下载」，点了确认再装）。下载失败的
+     * 处理是「退回更新页」，用户至少还能手动重试，不会因为静默流程挂了就永远看不到更新。
+     */
+    private fun trySilentUpdateDownload(config: UpdateConfig): Boolean {
+        if (!SharedPreferencesUtil.getBoolean(SettingsKeys.SILENT_UPDATE_DOWNLOAD, false)) return false
+        val ctx = context ?: return false
+        if (NetworkPlaybackQuality.detectKind(ctx) != NetworkPlaybackQuality.NetworkKind.WIFI) {
+            Logu.i("静默更新", "当前不是 Wi-Fi，跳过静默下载")
+            return false
+        }
+        val url = config.downloadUrl
+        if (url.isNullOrBlank()) return false
+
+        // 上一次已经下完（进程被杀、或用户当时没点安装）：文件还在就不重下一遍，直接提示装
+        if (SharedPreferencesUtil.getInt(KEY_SILENT_UPDATE_VERSION, 0) == config.versionCode) {
+            val apk = UpdateManager.currentUpdatePackageFile()
+            if (apk != null) {
+                promptInstallDownloadedApk(config)
+                return true
+            }
+            // 包被清掉了（存储空间页删过、或系统清了缓存）：按没下过处理
+            SharedPreferencesUtil.putInt(KEY_SILENT_UPDATE_VERSION, 0)
+        }
+
+        Logu.i("静默更新", "开始静默下载 " + config.versionName)
+        UpdateManager.downloadApk(
+            url = url,
+            context = ctx,
+            onProgress = { },
+            onComplete = { file ->
+                SharedPreferencesUtil.putInt(KEY_SILENT_UPDATE_VERSION, config.versionCode)
+                Logu.i("静默更新", "静默下载完成：" + file.absolutePath)
+                promptInstallDownloadedApk(config)
+            },
+            onError = { msg ->
+                Logu.w("静默更新", "静默下载失败，退回更新页：" + msg)
+                requestAutoOpenUpdatePage(config)
+            }
+        )
+        return true
+    }
+
+    /** 静默下载完成：先记下，再立刻试一次（可能正卡在启动页，那就等首屏就绪）。 */
+    private fun promptInstallDownloadedApk(config: UpdateConfig) {
+        pendingSilentInstall = config
+        tryPromptSilentInstall()
+    }
+
+    /**
+     * 前台页就绪时提示「新版本已下载」。
+     *
+     * <p>用户点「立即安装」才拉起系统安装器——这是用户明确要求的交互：静默下载省掉的是
+     * 「等下载」，不是「装不装」这个决定。已经在更新页时不弹（那页自己有下载与进度，叠一个
+     * 「已下载」只会互相打脸）。
+     */
+    private fun tryPromptSilentInstall() {
+        val config = pendingSilentInstall ?: return
+        val activity = getCurrentActivity() ?: return
+        if (activity is SplashActivity) return
+        pendingSilentInstall = null
+        if (activity is UpdateActivity) return
+        val apk = UpdateManager.currentUpdatePackageFile()
+        if (apk == null) {
+            Logu.w("静默更新", "静默下载的安装包不见了，退回更新页")
+            requestAutoOpenUpdatePage(config)
+            return
+        }
+        try {
+            TerminalDialog.confirm(
+                context = activity,
+                title = activity.getString(R.string.msg_silent_update_ready_title),
+                message = activity.getString(R.string.msg_silent_update_ready_body, config.versionName),
+                confirmText = activity.getString(R.string.btn_silent_update_install),
+                cancelText = activity.getString(R.string.btn_cancel),
+                confirmIsDanger = false,
+                onConfirm = { UpdateManager.installApk(activity, apk) }
+            ).show()
+        } catch (e: Exception) {
+            Logu.w("静默更新", "提示安装失败：" + e.message)
         }
     }
 

@@ -531,6 +531,16 @@ object SettingsKeys {
     /** 用户已就哪个版本的隐私说明表过态（同意或不同意都算）。 */
     const val PRIVACY_PROMPTED_VERSION = "terminal_privacy_prompted_version"
 
+    /**
+     * 静默下载更新（26.11.16 新增）。**默认关**。
+     *
+     * 打开后启动检查发现新版本时不弹更新页，而是在 Wi-Fi 下后台把安装包下完，
+     * 下完再弹一次「新版本已下载」提示，用户点「立即安装」才交给系统安装器。
+     * 移动网络下不做静默（见 `BiliTerminal.trySilentUpdateDownload`）：
+     * 用户没同意过的事情里，最不该替人决定的就是「用你的流量下 8MB」。
+     */
+    const val SILENT_UPDATE_DOWNLOAD = "terminal_silent_update_download"
+
     // ==================== 调试 ====================
     const val DEV_LOGV = "dev_logv"
     const val DEV_LOGD = "dev_logd"

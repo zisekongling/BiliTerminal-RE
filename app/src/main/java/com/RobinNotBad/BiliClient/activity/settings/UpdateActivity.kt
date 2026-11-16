@@ -8,17 +8,25 @@ import android.os.Bundle
 import android.view.View
 import android.widget.ProgressBar
 import android.widget.TextView
+import com.RobinNotBad.BiliClient.BuildConfig
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.model.UpdateConfig
 import com.RobinNotBad.BiliClient.util.BetaUpdate
+import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.UpdateChannel
 import com.RobinNotBad.BiliClient.util.UpdateManager
+import com.RobinNotBad.BiliClient.util.WeiseMarket
 import java.io.File
 
 class UpdateActivity : BaseActivity() {
+
+    private companion object {
+        const val TAG = "微思下载"
+    }
 
     private lateinit var tipTitle: TextView
     private lateinit var versionNameText: TextView
@@ -34,6 +42,7 @@ class UpdateActivity : BaseActivity() {
     private lateinit var cancelDownloadBtn: View
     private lateinit var retryBtn: View
     private lateinit var descScroll: View
+    private lateinit var weseeBtn: View
 
     private var updateConfig: UpdateConfig? = null
     private var isDownloading: Boolean = false
@@ -68,6 +77,7 @@ class UpdateActivity : BaseActivity() {
         cancelDownloadBtn = findViewById(R.id.cancel_download_btn)
         retryBtn = findViewById(R.id.retry_btn)
         descScroll = findViewById(R.id.desc_scroll)
+        weseeBtn = findViewById(R.id.wesee_btn)
 
         cancelBtn.setOnClickListener { finish() }
         downloadBtn.setOnClickListener { startDownload() }
@@ -254,6 +264,57 @@ class UpdateActivity : BaseActivity() {
         } else {
             (cancelBtn as TextView).text = getString(R.string.btn_cancel)
             cancelBtn.setOnClickListener { finish() }
+        }
+
+        // 26.11.16：去微思下载只有在「商店版本号 == 本次检测到的版本号」且剪贴板可写时才露出来，
+        // 校验要走一次网络，放在后台，这里只是发个探查
+        setupWeiseDownload()
+    }
+
+    /**
+     * 「去微思下载」（26.11.16，仅共存版）。
+     *
+     * 两个条件都成立才显示按钮：
+     * 1. 微思商店那条应用的 versionCode（接口里的 `verid`）与本次检测到的更新版本号**完全一致**——
+     *    商店上的包是人手动传的，落后一版时点进去会把用户「更新」回旧版本，比不给按钮更糟；
+     * 2. 剪贴板可写——这个按钮的约定动作是「复制链接 + 跳商店」，写不进去就不显示。
+     *
+     * 查版本号是网络请求，放后台；写剪贴板必须在主线程，所以分两段切回来。
+     */
+    private fun setupWeiseDownload() {
+        weseeBtn.visibility = View.GONE
+        if (!BuildConfig.COEXIST) return
+        val config = updateConfig ?: return
+        val targetVersion = config.versionCode
+        if (targetVersion <= 0) return
+        CenterThreadPool.run {
+            val verid = WeiseMarket.fetchVerid()
+            if (!WeiseMarket.versionMatches(verid, targetVersion)) {
+                Logu.i(TAG, "商店版本 $verid 与更新版本 $targetVersion 不一致，不显示去微思下载")
+                return@run
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (weseeBtn.visibility == View.VISIBLE) return@runOnUiThread
+                // 能不能写剪贴板只能试着写一次（部分 ROM 会静默失败），顺便就把链接放进去了
+                if (!WeiseMarket.copyPageUrl(this)) {
+                    Logu.w(TAG, "剪贴板不可写，不显示去微思下载")
+                    return@runOnUiThread
+                }
+                weseeBtn.visibility = View.VISIBLE
+                weseeBtn.setOnClickListener { openWeise() }
+            }
+        }
+    }
+
+    /** 把商店链接再写一遍剪贴板（防被别处覆盖），然后交给系统 VIEW 打开商店页。 */
+    private fun openWeise() {
+        WeiseMarket.copyPageUrl(this)
+        try {
+            startActivity(WeiseMarket.buildOpenIntent())
+        } catch (e: Exception) {
+            Logu.w(TAG, "打开微思商店失败：" + e.message)
+            MsgUtil.showMsg(getString(R.string.msg_weise_open_failed))
         }
     }
 

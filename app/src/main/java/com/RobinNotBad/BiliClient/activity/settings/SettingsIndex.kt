@@ -181,6 +181,11 @@ object SettingsIndex {
             text(R.string.setting_update_channel),
             text(R.string.settingtext_settingsindex_094)
         ) { a -> openGroup(a, "about", groupAbout, text(R.string.setting_update_channel)) }
+        // 「静默下载更新」（26.11.16）：开关在「关于与帮助」页里，靠 highlight 定位到那一项
+        list += Entry(
+            text(R.string.setting_silent_update),
+            text(R.string.desc_setting_silent_update)
+        ) { a -> openGroup(a, "about", groupAbout, text(R.string.setting_silent_update)) }
         list += Entry(text(R.string.pagename_announcementsactivity_001), text(R.string.settingtext_settinggroupactivity_080)) { a ->
             a.startActivity(Intent(a, AnnouncementsActivity::class.java))
         }

@@ -3234,4 +3234,15 @@
     <string name="msg_feedback_unread_title">有新的反馈回复</string>
     <string name="msg_feedback_unread_body">开发者回复了你的 %1$d 条反馈，可在「设置 - 关于与帮助 - 反馈与统计 - 我的反馈」里查看。</string>
     <string name="btn_feedback_unread_open">去看看</string>
+
+    <!-- 26.11.16：静默下载更新（默认关，只走 Wi-Fi） -->
+    <string name="setting_silent_update">静默下载更新</string>
+    <string name="desc_setting_silent_update">开启后仅在 Wi-Fi 下后台把安装包下完，下完才提示安装；移动网络仍按原样打开更新页。默认关闭。</string>
+    <string name="msg_silent_update_ready_title">新版本已下载</string>
+    <string name="msg_silent_update_ready_body">%1$s 已下载完成，点「立即安装」交给系统安装器。</string>
+    <string name="btn_silent_update_install">立即安装</string>
+
+    <!-- 26.11.16：去微思下载（仅共存版） -->
+    <string name="btn_weise_download">去微思下载</string>
+    <string name="msg_weise_open_failed">没有找到能打开微思商店的应用</string>
 </resources>
