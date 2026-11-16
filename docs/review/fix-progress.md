@@ -18,6 +18,12 @@
 
 ## 1. 当前版本状态
 
+- **26.11.17 反馈 #204 详情页收藏后退出重进，收藏图标又变回未收藏（用户原话「在视频详情页中收藏完视频后退出再重进视频详情页那个收藏符号会消失，但实际却是收藏的」）**：
+  - **来路**：控制台反馈 #204（26.11.16 / v26.11.16.4 / OPPO OWW261）；附带日志只有表冠兜底、Opus 抓取失败、Cookie 刷新失败与弹幕回退，没有收藏相关报错。
+  - **根因**：`app/src/main/java/com/RobinNotBad/BiliClient/activity/video/info/VideoInfoFragment.kt` 的收藏回调只换图标（`ThemeTint.setActiveIcon` / `setInactiveIcon`），没写回 `videoInfo.stats.favoured`。详情对象由 `TerminalContext.getVideoInfoByAidOrBvId()` 的 `contentLruCache` 复用，退出页面不失效；重进详情页拿到的还是收藏前的快照，`initView` 里按 `stats.favoured == false` 画成未收藏。点赞、投币的回调都连 `stats` 一起改，只有收藏漏了。
+  - **改法**：`favLauncher` 在 `RESULT_ADDED` / `RESULT_DELETED` 分支同步把 `videoInfo.stats.favoured` 置 true / false，图标处理不变。**有意不改收藏数**：`RESULT_ADDED` 只说明至少加进了一个收藏夹，已收藏时再加第二个夹子不该 +1。
+  - **验证**：未编译验证（按项目约定不在本机编译）。静态自查：`git diff` 确认只动该回调；`grep` 确认详情页图标唯一读取点仍是 `VideoInfoFragment.kt` 的 `stats.favoured`，缓存侧只写不删、命中的是同一对象引用。
+  - **未验证（L2）**：收藏视频 → 退出详情页 → 再进，收藏图标仍显示已收藏；取消收藏 → 重进仍显示未收藏；进详情页后再从收藏夹页改状态，返回与重进都一致。
 - **26.11.16 缓存页能看见并直接播放「别的分支 / 改了包名」的缓存（只读）**：
   - **来路**：用户提问「切换分支（`jiabenguiyin/BiliTerminal-Revival`、`PianoEthan/BiliTerminal`、`cyq114514/Re-BiliTerminal`、Gitee 原版）时要重新配置、重新下载，能不能无痛迁移」。迁移那半边在私有仓（不进本文件）；这一半是「不迁移也能看」——对方目录里已经是成品视频，直接点开播。用户拍板：入口放**缓存页**（不另开页）、只做**自动扫描**（不加手输路径）、外部条目**只读**（不删、不写续播）。
   - **改法**：新增 `app/src/main/java/com/RobinNotBad/BiliClient/util/ExternalCacheRoots.kt`（`object ExternalCacheRoots`，`@JvmStatic fun candidateRoots(exclude: File?): List<File>`：枚举 `Android/media/<任意应用目录>` 的每个子目录 + `Android/data/<任意>/` 下的 `files`、`files/video`、`files/download`，用 `canonicalPath` 去重并排除本机下载根——**不认包名**，分叉改了 applicationId 也认）。`app/src/main/java/com/RobinNotBad/BiliClient/model/LocalVideo.java` 加 `public String externalRoot`（非空 = 外部只读来源）。`app/src/main/java/com/RobinNotBad/BiliClient/activity/video/local/LocalListActivity.kt`：`scanVideos(folder: File, externalRoot: String? = null)`（外部目录不跑 `FILE_VIDEO_MERGED_TEMP` 的 `renameTo` 转正）、`appendExternalSources(mainRoot)` 按标题去重、`rootOf(video)` 让元数据 / 删除 / 弹幕都按条目自己的根算；长按外部条目只留「查看详情」，删除、批量删除、批量更新弹幕、批量加入文件夹都滤掉它们并提示。`app/src/main/java/com/RobinNotBad/BiliClient/adapter/video/CacheListAdapter.kt` 副标题追加「· 外部」、起播带 `external_read_only`。`app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt` 加 `private var externalReadOnly`，`saveLocalProgressNow()` 直接 return。

@@ -96,9 +96,14 @@ class VideoInfoFragment : BaseFragment() {
 
     private val favLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { o ->
         val code = o.resultCode
+        // 收藏状态必须同时写回 VideoInfo：详情对象由 TerminalContext 的 LruCache 复用，
+        // 只改图标的话，退出再进详情页（命中缓存）仍按旧的 stats.favoured 画成「未收藏」
+        // （控制台反馈 #204）。点赞、投币的回调都是连 stats 一起改的，这里补齐。
         if (code == RESULT_ADDED) {
+            videoInfo?.stats?.favoured = true
             ThemeTint.setActiveIcon(fav, R.drawable.icon_fav_1)
         } else if (code == RESULT_DELETED) {
+            videoInfo?.stats?.favoured = false
             ThemeTint.setInactiveIcon(fav, R.drawable.icon_fav_0)
         }
     }
