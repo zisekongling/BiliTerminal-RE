@@ -7302,8 +7302,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
 
         runOnUiThread {
             val pageSelectorRecycler = findViewById<RecyclerView>(R.id.page_selector_list)
+            // pagenames 可能真的是 null：本地文件夹根层只有 1 条、但那条能进分P 时，
+            // canOpenPageSelector 靠 enterableLocalEntry 放行（见 :7272），这一层根本没有"页"可列，
+            // 只能经下面的 nest 入口往里进。早先这里直接 pagenames!! 就是那条 NPE 崩溃
+            // （控制台 #350/#349，PlayerActivity.showPageSelectorCard$lambda）。
+            val names: ArrayList<String> = pagenames ?: arrayListOf()
             val adapter = PageSelectorAdapter()
-            adapter.setData(pagenames!!, currentPageIndex)
+            adapter.setData(names, currentPageIndex)
             adapter.setOnItemClickListener { index ->
                 layout_card_bg.visibility = View.GONE
                 card_page_selector.visibility = View.GONE
@@ -7314,10 +7319,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
 
             // 标题要说清"现在在哪一层"：同一个"第 3 集"，在收藏夹连播里、在合集里、
             // 在多P视频的分P 里指的是完全不同的东西
-            val size = pagenames!!.size
+            val size = names.size
             // 层级标题 + 位置后缀：「合集 · 名字（3/12）」这类文案不再硬编码，
             // 前缀复用 UiText 里已有的「合集 · %s」，位置后缀是共享模板（三种层级都用）。
-            val pagePosition = getString(R.string.text_player_page_position, currentPageIndex + 1, size)
+            // 没有页可列时（上面的 null 兜底）不写「（1/0）」这种怪文案。
+            val pagePosition =
+                if (size <= 0) "" else getString(R.string.text_player_page_position, currentPageIndex + 1, size)
             findViewById<TextView>(R.id.page_selector_title).text = when {
                 collectionId != 0L ->
                     UiText.fmt(UiText.of("合集 · %s"), collectionTitle ?: "") + pagePosition
