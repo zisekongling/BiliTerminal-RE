@@ -3030,6 +3030,7 @@
     <!-- 画面与显示 -->
     <string name="setting_player_show_online">显示实时人数</string>
     <string name="setting_player_scale">视频可缩放</string>
+    <string name="player_scale_off_hint">视频缩放已关闭，可在播放器设置里打开「视频可缩放」</string>
     <string name="setting_player_double_move">缩放时可移动</string>
     <string name="setting_player_high_energy">显示高能进度条</string>
 

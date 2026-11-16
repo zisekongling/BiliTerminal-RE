@@ -635,6 +635,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
 
     private var scaleGestureDetector: ScaleGestureDetector? = null
     private var scaleGestureListener: ViewScaleGestureListener? = null
+    /** 这一串触摸事件是否已经由 layout_control 的监听器喂给 [scaleGestureDetector]（见 [dispatchTouchEvent]）。 */
+    private var scaleFedByControlListener: Boolean = false
+    /** 「缩放已关闭」的提示每次进播放页只弹一次。 */
+    private var scaleOffHintShown: Boolean = false
     private var doubleTapGestureDetector: GestureDetector? = null
     private var previousX: Float = 0f
     private var previousY: Float = 0f
@@ -1780,6 +1784,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 val singleTouch = pointerCount == 1
                 val doubleTouch = pointerCount == 2
 
+                scaleFedByControlListener = true
                 scaleGestureDetector!!.onTouchEvent(event)
                 val gesture_scaling = scaleGestureListener!!.scaling
 
@@ -4741,6 +4746,34 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 mainHandler?.postDelayed(this, MIRROR_SYNC_INTERVAL_MS)
             }
         }.also { mainHandler?.postDelayed(it, MIRROR_SYNC_INTERVAL_MS) }
+    }
+
+    /**
+     * 缩放的兜底入口（反馈 #184 / #128 / #102）。
+     *
+     * 手势判定原本只挂在 `layout_control` 的 OnTouchListener 上，而 View 的 OnTouchListener 只有
+     * 在「这一串事件由它自己处理」时才会被调用——第一根手指只要落在按钮、进度条、横向滚动区
+     * 这些可点击子视图上，监听器整串都收不到，两根手指都按在屏幕上也不会被认成捏合。手表屏小、
+     * 底部按钮区占比大，于是表现成「有时完全没反应，换个位置捏又能用」。
+     *
+     * 这里在 Activity 层补一次投喂：凡是没被上面的监听器喂过的事件都补喂给 detector，保证手势层
+     * 能看到完整的多指序列。卡片打开时（[layout_card_bg] 的遮罩）不补喂，免得捏合穿透到视频上。
+     */
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        scaleFedByControlListener = false
+        val handled = super.dispatchTouchEvent(ev)
+        val cardOpen = ::layout_card_bg.isInitialized && layout_card_bg.visibility == View.VISIBLE
+        if (!cardOpen) {
+            val detector = scaleGestureDetector
+            if (detector != null && !scaleFedByControlListener) {
+                detector.onTouchEvent(ev)
+            } else if (detector == null && ev.pointerCount >= 2 && !scaleOffHintShown) {
+                // 缩放开关关着时手势层根本没建，捏合完全没反应也没有任何提示，这里补一条说明。
+                scaleOffHintShown = true
+                MsgUtil.showMsg(getString(R.string.player_scale_off_hint))
+            }
+        }
+        return handled
     }
 
     override fun onPause() {
