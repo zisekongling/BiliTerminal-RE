@@ -2,11 +2,14 @@
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- 冷启动窗口底色：manifest 主题在 onCreate 之前就生效，无法按用户主题动态取色。
          原先用 @color/background_dark(#1B1B24)，而默认主题（经典终端）背景是纯黑 #000000，
-         会看到"深蓝灰 → 纯黑"的跳变；改纯黑对 6 套深色主题都最不突兀，默认主题完全一致。 -->
+         会看到"深蓝灰 → 纯黑"的跳变；改纯黑对 6 套深色主题都最不突兀，默认主题完全一致。
+
+         #173：这里原来还铺着一个 gravity="center" 的 128dp @mipmap/icon。两件事让它必须撤掉：
+         1. 它在 onCreate 里就被 ColorScheme.applyWindowTheme（ColorScheme.kt:744）用纯色盖死了，
+            等于只在冷启动首帧闪一下，真正的图标早已由 activity_splash.xml 负责绘制；
+         2. 首帧那个图标在【屏幕正中】，而布局里的图标是「图标+文字整组居中」，位置比正中高
+            （间距 + 文字高度的一半）——留着它，首帧到第一帧之间图标会往上跳一下。这个偏移量
+            取决于用户自定义的开屏文字行数与系统字体大小，layer-list 里写不出来。
+         结论：只留底色。首帧到第一帧的底色完全连续，没有闪白/闪黑，图标只在布局里出现。 -->
     <item android:drawable="@color/terminal_bgblack" />
-    <item
-        android:width="128dp"
-        android:height="128dp"
-        android:drawable="@mipmap/icon"
-        android:gravity="center" />
 </layer-list>

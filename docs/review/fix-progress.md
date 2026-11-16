@@ -2550,6 +2550,23 @@
   - **踩过的坑（不是代码问题）**：①构建前 `Unresolved reference 'text_account_export_all'` 是因为三条新字符串被连同别的会话 WIP 一起 `git stash` 走了，字符串回来后自愈；②同工作区两个会话并发跑 gradle 会争同一个 `app/build/intermediates/…/R.jar`（报「另一个程序正在使用此文件」）并让 Kotlin daemon `Java heap space`，**必须串行构建**。见 `docs/agents/build.md`「同工作区并发构建」。
 - **未验证（人测 / L2）**：真手表上「账号切换页底部多出一行、点进去能看到整份 JSON、复制粘贴到另一台设备能导入全部账号」这一整条链路。
 
+### 3.159 开屏「图标 + 文字」整体垂直居中 + 开屏图标被主题纯色盖掉（26.11.16，控制台 #173）
+
+- **用户口径**（paraphrased）：「开屏文字能不能上下居中？」+「我没图标啊」（控制台 #173，26.11.16 09:33，HUAWEI Simba-AL00 / SDK 27 / 版本 26.11.16）。两个现象同源。
+- **根因（已核实，勿再当"猜测"）**：`activity/SplashActivity.kt` 的 `onCreate` 是 `applyTheme()` → `setContentView()`，而 `applyTheme()` 走的是 `ui/appearance/ColorScheme.applyWindowTheme`，默认路径在 `ui/appearance/ColorScheme.kt:744` 用 `window.setBackgroundDrawable(ColorDrawable(BACKGROUND))` + `rootView?.setBackgroundColor(BACKGROUND)` 把窗口背景整个换成纯主题色。开屏原本唯一的画面就是 `drawable/splash_text.xml` 这个 `layer-list`（黑底 + 128dp 图标），窗口背景一被覆盖，**图标就整个看不见了**；只剩布局里那个 `TextView`。而那个 `TextView` 用的是 `gravity="center_horizontal|bottom"` + `paddingBottom="96dp"`，是「贴底」，不是居中——按 233dp 屏几何算，文字底边其实一直压在图标下缘上（图标不可见才没人发现）。
+- **改法**（4 个文件，均未触碰 `ColorScheme.applyWindowTheme` 的全局行为，也没改 7 套 `*.Splash` style 的引用名）：
+  1. `res/layout/activity_splash.xml` 重写成「整组居中」：根 `ScrollView`（`fillViewport="true"`，`scrollbars="none"`）→ `LinearLayout`（`orientation="vertical"`、`gravity="center"`、左右 `padding=16dp`）→ `ImageView @id/splashIcon`（`@mipmap/icon`，128dp，`scaleType="fitCenter"`，**`contentDescription="@null"` + `importantForAccessibility="no"`**，装饰图必须这么写，否则 `ui/a11y/LayoutAccessibilityTest` 那条会红）+ `TextView @id/splashText`（`match_parent` 宽、`gravity="center_horizontal"`、`layout_marginTop="20dp"`）。用 `ScrollView` 而不是纯 `LinearLayout` 是为了**极端情形（多行 + 大字体）整组比屏幕还高时退化成可滚动**，而不是被上下切掉；`fillViewport` 保证内容不足一屏时子 View 撑满、`gravity="center"` 才生效。
+  2. `res/drawable/splash_text.xml` **只留 `@color/terminal_bgblack` 底色，撤掉图标 item**——`layer-list` 里的图标在屏幕正中，布局里的图标是「整组居中」因此比正中高约 26dp，这个偏移量随用户自定义行数/字体大小变，写不出一个恒定值；留着图标首帧就会上跳一次。底色连续（都是 `terminal_bgblack`），没有闪白/闪黑。
+  3. `activity/SplashActivity.kt` 新增 `reserveTypewriterHeight()`（在 `startTypewriter()` 之前调用）：按**最终**行数 `splashText.lines().size` 用 `minHeight` 把文字区高度先定住（`lineHeight * lineCount` 再补 `includeFontPadding` 的上下留白，实测两行差 13px）。否则打字机从 1 行长到 N 行，整组居中会让图标每多一行往上挪半行。
+  4. `res/values/dimens.xml` 新增 `splash_icon_size="128dp"`、`splash_icon_text_gap="20dp"`。
+- **刻意没做**：①不改 `ColorScheme.applyWindowTheme`（它是全 App 的窗口底色策略，动它牵连所有页面）；②不在 `values-notnight` 另做一套（图标与文字都吃主题，无硬编码色）；③不新增用户可见文案（布局里仍是 `@string/pagename_splash` 占位，运行时被打字机覆盖）。
+- **验证 · L0（26.11.16 11:0x）**：`.\gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest --console=plain --max-workers=2 "-Dkotlin.daemon.jvmargs=-Xmx4096m -XX:+UseG1GC"` → **BUILD SUCCESSFUL in 4m 48s**，`app/build/outputs/apk/{standard,coexist}/debug/` 四个 ABI 包齐全（standard-universal ≈20MB）；`testStandardDebugUnitTest` 共 230 个 XML、**tests=2492 / failures=0 / errors=0 / skipped=0**。默认参数下两 flavor 并行 Kotlin 编译会 OOM（`Not enough memory to run compilation` → `Java heap space`），必须限 `--max-workers=2` 并抬 daemon 堆。
+- **验证 · L1（emulator-5554，AVD `rebili_watch466`，Android 17 / API 37，`wm size 466x466` + density 320 = 233dp 屏）**：闪屏停留太短（`proceedSplashFlow` 成功即 `finish()`），临时在 `proceedSplashFlow()` 的 `CenterThreadPool.run` 里加了一段读 `debug_hold_splash_ms` 的 `Thread.sleep` 把闪屏按住，dump 完已删除（提交前 `git diff` 复查过没有 `TEMP-173` 残留）。
+  - 默认两行文字（`欢迎使用\nRE:哔哩终端`）：`splashIcon` = `[105,47][361,303]`（256px = 128dp，左右留白各 105px 对称）、`splashText` = `[32,343][434,418]`。组顶 47px / 组底 466−418=48px，**垂直居中误差 1px（像素取整）**；图标→文字间距 40px = 20dp；文字底 418 < 466 未被裁；**控件树里图标存在 = 不再被主题纯色盖住**。
+  - `settings put system font_scale 1.3` + 4 行自定义文字：`splashIcon` = `[105,0][361,256]`、`splashText` = `[32,296][434,>466]`，`ScrollView` `scrollable="true"` —— 整组高于一屏时按设计退化成可滚动，图标不被压扁、文字不被横向裁。
+  - 截图：`screenshot-emulator-5554-33.png`（466×466，图标 + 两行文字整组居中）。
+- **未验证（人测 / L2）**：①真手表（尤其圆屏机）上的观感——圆屏边缘是否切到图标四角只有几何推算（居中后图标上缘落在 47px 处，圆屏最上缘弦长仍 > 128dp），没在圆屏真机上跑过；②20dp 图标-文字间距、`fitCenter` 留白是否"看起来"居中（主观）；③用户换成极长单行文字（自动折行超出预留高度）时的那一点残余位移。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。

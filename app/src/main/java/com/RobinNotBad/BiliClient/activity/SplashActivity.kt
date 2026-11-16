@@ -57,6 +57,26 @@ class SplashActivity : Activity() {
         }
     }
 
+    /**
+     * 按【最终】行数先把文字区高度定住，再开始打字机。
+     *
+     * 为什么：#173 之后「图标 + 文字」是整组居中的（`activity_splash.xml`），而打字机是逐字往上
+     * 贴的——文字区从 0 行长到 N 行，每多一行整组就往上挪半行，开屏时能看到图标往上跳。留出最终
+     * 高度的空白后，文字只在框内长出来，图标不再移动。
+     *
+     * 行数按换行符算（设置项 `ui_splashtext` 支持换行）。单行过长被自动折行时会略超预留高度，
+     * 那时最多还有一行以内的位移，不再单独处理。
+     *
+     * `lineHeight` 只含行距，不含 `includeFontPadding` 给出的首行上留白与末行下留白，直接乘行数
+     * 会比实际高度小几个像素（实测两行差 13px），那点差值仍然会让整组挪一下，所以把这两段补上。
+     */
+    private fun reserveTypewriterHeight() {
+        val lineCount = splashText.lines().size.coerceAtLeast(1)
+        val fontPadding = (splashTextView.totalPaddingTop - splashTextView.paddingTop) +
+            (splashTextView.totalPaddingBottom - splashTextView.paddingBottom)
+        splashTextView.minHeight = splashTextView.lineHeight * lineCount + fontPadding
+    }
+
     private fun startTypewriter(text: String) {
         typewriterRunning = true
         typewriterIndex = 0
@@ -87,6 +107,7 @@ class SplashActivity : Activity() {
 
         splashTextView = findViewById(R.id.splashText)
         splashText = SharedPreferencesUtil.getString("ui_splashtext", "欢迎使用\nRE:哔哩终端")
+        reserveTypewriterHeight()
         startTypewriter(splashText)
 
         // F4：在这里（而不是进主流程之后）判一次版本，是因为下面可能为了 UETool 悬浮窗权限
