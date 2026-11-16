@@ -8,6 +8,7 @@ import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.text.InputFilter
 import android.text.InputType
 import android.text.TextUtils
@@ -23,6 +24,8 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.content.res.AppCompatResources
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.util.view.DialogSizing
 import com.RobinNotBad.BiliClient.util.view.physicalScreenSizePx
@@ -284,8 +287,8 @@ object TerminalDialog {
         }
 
         sheet.prepareLayout()
-        // 输入型不走「钉高度」那套：内容只有一个输入框，钉死会在下面留一大片空白。
-        // prepareForTyping 会把滚动区改回 wrap_content（输入框自身 maxLines = 6 兜底）。
+        // 输入型也走同一套预算：滚动区该钉就钉（26.11.16 之前这里改成 wrap_content，
+        // 面板比可见区高时被切掉的正是按钮区）。输入框再多行也只在框内滚动（maxLines = 6）。
         sheet.prepareForTyping(edit)
         return sheet.dialog
     }
@@ -329,8 +332,16 @@ object TerminalDialog {
         private val hintView: TextView = content.findViewById(R.id.terminal_dialog_hint)
         private val buttonBar: LinearLayout = content.findViewById(R.id.terminal_dialog_buttons)
 
-        /** 输入型弹窗的输入框；非空 = 「打字模式」，滚动区不钉高度（见 [prepareForTyping]）。 */
+        /** 输入型弹窗的输入框；非空 = 「打字模式」，只用于 show 后补焦点（见 [prepareForTyping]）。 */
         private var typingEdit: EditText? = null
+
+        /**
+         * 软键盘占掉的屏幕底部高度（px），0 = 键盘没弹。
+         *
+         * 键盘盖住的正是面板下半截（按钮区在布局的最后），所以它必须进 [prepareLayout] 的预算，
+         * 见 [DialogSizing.budgetAboveIme]。
+         */
+        private var imeBottomPx = 0
 
         init {
             // 面板（圆角 + 1dp 描边）只由 content 根视图画**一次**：
@@ -373,6 +384,7 @@ object TerminalDialog {
             // 第一帧就是对的（不会先画一帧整屏宽再跳回来）。
             dialog.setOnShowListener {
                 prepareLayout()
+                watchImeInsets()
                 // 输入型：弹窗显示前 View 还没 attach，init 里那次 requestFocus 不一定生效，
                 // 表现为「弹窗出来了但键盘不弹、光标也不在框里」。
                 typingEdit?.let { edit ->
@@ -414,6 +426,36 @@ object TerminalDialog {
         }
 
         /**
+         * 盯住软键盘高度，变了就按新预算重排一次。
+         *
+         * <p>appcompat 的 `AlertDialog` 窗口是**浮动**的，`SOFT_INPUT_ADJUST_RESIZE` 不会把它
+         * 缩小（26.11.16 在 466×466 上实测：键盘弹出后 decor 仍是 419×362、顶端仍在 `y = 0`），
+         * 所以只能自己读 ime insets 交给 [DialogSizing.budgetAboveIme]。
+         *
+         * <p>挂在 decorView 上而不是 [content]：insets 一路下发时，中间层的
+         * `fitSystemWindows` 可能已经把 ime 那一项吃掉，只有在 decor 上读到的是完整值。
+         * 回调里原样返回 insets（不消费），窗口内部的其它处理不受影响。
+         *
+         * <p>API 30 起 `Type.ime()` 才给得出精确高度；更老的版本这里恒为 0 —— 行为与改动前
+         * 一致（那些设备上 ADJUST_RESIZE 仍有少数 ROM 生效，只是没法在这里算）。
+         */
+        private fun watchImeInsets() {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+            val decor = dialog.window?.decorView ?: return
+            ViewCompat.setOnApplyWindowInsetsListener(decor) { view, insets ->
+                val bottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+                if (bottom != imeBottomPx) {
+                    imeBottomPx = bottom
+                    // 正在下发 insets，别在这一轮里改布局（键盘弹出/收起是带动画的，会连来几次）
+                    view.post { prepareLayout() }
+                }
+                insets
+            }
+            // 监听装上时窗口可能已经分发过一轮 insets，主动再要一次
+            ViewCompat.requestApplyInsets(decor)
+        }
+
+        /**
          * 量一次、把尺寸落下去：窗口宽度 + 滚动区高度 + 该舍哪几行。
          *
          * **调用时机**：`TerminalDialog` 的每个工厂方法在 `return` 前都会调一次（条目、按钮、
@@ -437,15 +479,25 @@ object TerminalDialog {
                 DialogSizing.roundBox(frame, minOf(screen[0], screen[1]))
             else
                 DialogSizing.Box(DialogSizing.width(frame), DialogSizing.heightBudget(frame))
-            // 高度只给预算（可用高度 × 94%），上下各留一点能「点外面取消」的空白。
-            val budget = DialogSizing.Frame(box.width, box.heightBudget)
             // 26.11.13 起按钮是**整行宽的纵向堆叠行**，宽度天然等于窗口宽，不会再「放不下」
             // ——先前那套 `fitButtonBar`（事后缩字号 / 把并排按钮改成均分宽度）整段删掉了。
             // 它本身就是 #125 里「按钮的最终几何与窗口测量来自两次不同时机」的嫌疑源：
             // 现在固定行高度、滚动区自然高度、按钮行高度三者都来自同一份尺寸，没有事后改动。
+            val parts = measureParts(box.width)
+            // 高度只给预算（可用高度 × 94%），上下各留一点能「点外面取消」的空白；
+            // 键盘弹起时再收到键盘上沿以上（ADJUST_RESIZE 对本窗口不生效，见 budgetAboveIme）。
+            val budget = DialogSizing.Frame(
+                box.width,
+                DialogSizing.budgetAboveIme(
+                    budget = box.heightBudget,
+                    screenHeightPx = screen[1],
+                    imeBottomPx = imeBottomPx,
+                    minUsableHeightPx = parts.padding + parts.buttonBar + parts.minScroll
+                )
+            )
             applyPlan(
                 box.width,
-                DialogSizing.plan(budget, naturalScrollHeight(box.width), measureParts(box.width), box.width)
+                DialogSizing.plan(budget, naturalScrollHeight(box.width), parts, box.width)
             )
         }
 
@@ -469,12 +521,12 @@ object TerminalDialog {
                 titleView.visibility = View.GONE
                 divider.visibility = View.GONE
             }
-            // 打字模式下滚动区按内容收着（输入框自己 maxLines = 6 兜底），不钉高度。
-            val target = if (typingEdit != null) {
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            } else {
-                plan.scrollHeight ?: ViewGroup.LayoutParams.WRAP_CONTENT
-            }
+            // 26.11.16：**打字模式不再开后门**。这里原本是「typingEdit 非空就改成 wrap_content」，
+            // 等于把 DialogSizing 的滚动兜底整段放弃 —— 内容一旦比可见区高（界面大小放大、键盘
+            // 盖住下半屏），多出来的正好是**底部**：按钮区是纵向布局的最后一段，被切掉的就是
+            // 后添加的确认键，用户看到的正是「只有取消、没有确定」。钉住 plan 算出的高度后，
+            // 输入框的量由自身 maxLines = 6 兜底（内容再多也在框内滚动），面板永远收在预算内。
+            val target = plan.scrollHeight ?: ViewGroup.LayoutParams.WRAP_CONTENT
             scroll.layoutParams = scroll.layoutParams.apply { height = target }
 
             // 尺寸全部定稿，统一重排一次并把窗口尺寸落下去。show() 之后 `setLayout()` 是有效的，
@@ -506,6 +558,9 @@ object TerminalDialog {
                 sb.append(" decor=").append(decor.width).append('x').append(decor.height)
             }
             sb.append(" content=").append(content.width).append('x').append(content.height)
+            // 键盘高度与滚动区实际高度：查「按钮被挡」时必须能区分「面板没缩」和「预算算错」
+            sb.append(" ime=").append(imeBottomPx).append(" scroll=")
+                .append(scroll.height).append('/').append(scroll.layoutParams?.height)
             val rect = Rect()
             val loc = IntArray(2)
             for (i in 0 until buttonBar.childCount) {
@@ -607,7 +662,7 @@ object TerminalDialog {
                 gravity = Gravity.TOP or Gravity.START
                 textSize = 13f
                 // minLines 给足打字时的视野；maxLines 是**弹窗不被撑出屏幕**的保证
-                // （配合 prepareForTyping 把滚动区改回 wrap_content，见那里的说明）
+                // （滚动区高度由 DialogSizing 钉住，输入框自己框内滚动，见 applyPlan）
                 minLines = 3
                 maxLines = 6
                 setTextColor(onSurfaceColor())
@@ -632,16 +687,17 @@ object TerminalDialog {
         }
 
         /**
-         * 打字前的准备：把滚动区改回 `wrap_content` + 弹起软键盘 + 聚焦到文末。
+         * 打字前的准备：弹起软键盘 + 聚焦到文末。
          *
-         * **为什么改回 wrap**：[prepareLayout] 会把滚动区钉成「屏幕装得下」的固定高度，那是为
-         * 「条目/正文多到撑破表盘」准备的；输入型弹窗的内容只有一个输入框，钉死会在下面留一大片
-         * 空白。改回 `wrap_content` 的安全性由输入框自身的 `maxLines = 6` 保证 —— 内容再多也是
-         * 输入框内部滚动，不会把弹窗撑出屏幕。
+         * <p>26.11.16 之前这里还负责「把滚动区改回 `wrap_content`」——理由是输入型弹窗内容只有一个
+         * 输入框，钉高度会在下面留白。代价是**放弃了 DialogSizing 的兜底**：内容比可见区高时被切掉的
+         * 是布局最后一段，也就是按钮区（用户反馈的「输入弹窗只有取消、没有确定」）。现在滚动区
+         * 一律按 [DialogSizing.plan] 给的高度走，「不留白」由 plan 的第 1 档（放得下就 `null` →
+         * `wrap_content`）自己满足，不需要开这个后门。
          */
         internal fun prepareForTyping(edit: EditText) {
             typingEdit = edit
-            // 重新落一次尺寸：此时 typingEdit 非空，applyPlan 会把滚动区改回 wrap_content。
+            // 键盘还没弹，这里算的仍是「整屏预算」；真正按键盘高度重排的是 watchImeInsets 那条路。
             prepareLayout()
             dialog.window?.setSoftInputMode(
                 WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or

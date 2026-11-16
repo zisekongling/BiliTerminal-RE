@@ -236,4 +236,63 @@ class DialogSizingTest {
         assertTrue(plan.scrollHeight!! > 0)
         assertEquals(box.heightBudget, 170 + plan.scrollHeight!!)
     }
+
+    // ---------- 软键盘：预算必须收到键盘上沿以上（26.11.16「输入弹窗没有确定键」） ----------
+
+    /** 380×380 上「面板至少值得收」的高度：padding 0 + 按钮区 88 + 一个条目 88。 */
+    private val minUsable380 = parts380.padding + parts380.buttonBar + parts380.minScroll
+
+    @Test
+    fun 键盘没弹时预算原样返回() {
+        // imeBottomPx = 0 是常态（非输入型弹窗、或键盘已收起），一分都不许动
+        assertEquals(
+            357,
+            DialogSizing.budgetAboveIme(357, 380, 0, minUsable380)
+        )
+        // 负值同样当「没弹」，避免 insets 上报异常值时把面板压小
+        assertEquals(
+            357,
+            DialogSizing.budgetAboveIme(357, 380, -30, minUsable380)
+        )
+    }
+
+    @Test
+    fun 键盘弹起后预算收到键盘上沿以上() {
+        // 380×380 表盘，键盘占掉底部 120px：可见 260 < 预算 357 → 收到 260
+        assertEquals(260, DialogSizing.budgetAboveIme(357, 380, 120, minUsable380))
+        // 键盘只盖住一点点（可见 320 仍比预算矮）也要收
+        assertEquals(320, DialogSizing.budgetAboveIme(357, 380, 60, minUsable380))
+        // 键盘矮到可见区比预算还高：预算不必变
+        assertEquals(357, DialogSizing.budgetAboveIme(357, 380, 10, minUsable380))
+    }
+
+    @Test
+    fun 键盘大到连按钮区都放不下时放弃收缩() {
+        // 466×466 + 系统键盘（实测 306px）：可见 160 连「按钮区 88 + 一行 88」都放不下，
+        // 硬收只会把输入框压成 0 高。此时原样返回，等用户收起键盘——不制造新问题。
+        assertEquals(438, DialogSizing.budgetAboveIme(438, 466, 306, 176))
+        // ime insets 异常（比屏幕还高）时也不能把预算算成 0
+        assertEquals(438, DialogSizing.budgetAboveIme(438, 466, 600, 176))
+    }
+
+    @Test
+    fun 收到键盘上沿后整块面板恰好填满预算() {
+        // 端到端：预算 260、输入框自然高 300 → 舍提示行、正文滚动，面板总高恰好 = 预算，
+        // 按钮行永远压在键盘上沿以上（这就是用户反馈里缺「确定」的那一行）
+        val budget = DialogSizing.Frame(
+            DialogSizing.width(frame380),
+            DialogSizing.budgetAboveIme(357, 380, 120, minUsable380)
+        )
+        val plan = DialogSizing.plan(budget, natural = 300, parts = parts380)
+        assertTrue(plan.hideHint)
+        assertFalse(plan.hideTitle)
+        assertEquals(90, plan.scrollHeight)
+        assertEquals(
+            budget.height,
+            parts380.padding + parts380.title + parts380.divider +
+                plan.scrollHeight!! + parts380.buttonBar
+        )
+        // 滚动区至少还有一个条目高，不然输入框会整个看不见
+        assertTrue(plan.scrollHeight!! >= parts380.minScroll)
+    }
 }

@@ -132,6 +132,37 @@ object DialogSizing {
     fun heightBudget(frame: Frame): Int =
         (frame.height * HEIGHT_RATIO).toInt().coerceIn(1, frame.height.coerceAtLeast(1))
 
+    /**
+     * 软键盘弹起后的高度预算：把 [heightBudget] 再收到**键盘上沿以上**。
+     *
+     * <h3>为什么非算这一笔（26.11.16 反馈「输入弹窗只有取消、没有确定」）</h3>
+     * 输入型弹窗（`TerminalDialog.input`）会主动弹软键盘，而 `SOFT_INPUT_ADJUST_RESIZE` 对
+     * appcompat 的浮动 dialog 窗口**不生效**：466×466 实测键盘弹出后窗口 decor 仍是
+     * `419 × 362`、顶端照样在 `y = 0`，键盘从 `y ≈ 160` 起把面板下半截连同按钮区一起盖住。
+     * [plan] 只按整屏高度算预算，自然算不出这笔账 —— 预算必须先扣掉键盘。
+     *
+     * <h3>什么时候「放弃收缩」</h3>
+     * `minUsableHeightPx` 传「面板至少要有这么高才值得收」＝ padding + 按钮区 + [Parts.minScroll]。
+     * 键盘大到连按钮区都放不进可见区时（小方屏 + 高键盘），返回**原预算**：硬收只会把滚动区
+     * 压成 0，输入框整个看不见，比「按钮被键盘挡着」更糟（用户把键盘收起来就能接着点）。
+     *
+     * @param budget            键盘没弹时的预算（[heightBudget] 或 [roundBox] 的 `heightBudget`）
+     * @param screenHeightPx    物理屏幕高度（px）
+     * @param imeBottomPx       键盘占掉的屏幕底部高度（px），`<= 0` 表示键盘没弹
+     * @param minUsableHeightPx 见上
+     */
+    fun budgetAboveIme(
+        budget: Int,
+        screenHeightPx: Int,
+        imeBottomPx: Int,
+        minUsableHeightPx: Int
+    ): Int {
+        if (imeBottomPx <= 0) return budget
+        val visible = (screenHeightPx - imeBottomPx).coerceAtLeast(1)
+        val shrunk = budget.coerceAtMost(visible)
+        return if (shrunk < minUsableHeightPx) budget else shrunk
+    }
+
     /** 窗口框：宽 + 高度预算（px）。 */
     data class Box(val width: Int, val heightBudget: Int)
 
