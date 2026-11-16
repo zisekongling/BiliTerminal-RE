@@ -2566,6 +2566,23 @@
   - `settings put system font_scale 1.3` + 4 行自定义文字：`splashIcon` = `[105,0][361,256]`、`splashText` = `[32,296][434,>466]`，`ScrollView` `scrollable="true"` —— 整组高于一屏时按设计退化成可滚动，图标不被压扁、文字不被横向裁。
   - 截图：`screenshot-emulator-5554-33.png`（466×466，图标 + 两行文字整组居中）。
 - **未验证（人测 / L2）**：①真手表（尤其圆屏机）上的观感——圆屏边缘是否切到图标四角只有几何推算（居中后图标上缘落在 47px 处，圆屏最上缘弦长仍 > 128dp），没在圆屏真机上跑过；②20dp 图标-文字间距、`fitCenter` 留白是否"看起来"居中（主观）；③用户换成极长单行文字（自动折行超出预留高度）时的那一点残余位移。
+### 3.160 播放器「显示方式」恒不生效：写布尔 / 读字符串撞类型保险丝（26.11.16，QQ 群反馈「播放器设置失效」）
+
+- **用户口径**（QQ 群 FitBOY，LV2 青铜，26.11.16 10:34）：「播放器设置失效」「不管咋设置，所以播放器设置都不生效」；群主追问「所有的吗」→「对」「都恢复默认了」。**没有机型、没有版本号、没说具体哪几项**。
+- **根因（模拟器上已复现）**：`player_display` 这一行在设置页是 `choose`（`adapter/SettingsAdapter.kt` 的 `ChooseHolder` 走 `putBoolean`），而播放器自 `fd67e1eb` 起按**字符串**读（`activity/player/PlayerActivity.kt:4376`、`:4486` 的 `getString(PLAYER_DISPLAY, "")`）。同一个键两种类型 → `util/SharedPreferencesUtil.java` 的 `catch (ClassCastException) → return def` 保险丝把异常吞掉并返回 `""` → `PlayerDisplayModePolicy.useTextureView("")` 回落 `sdkInt < 26` 的默认值。**`fd67e1eb` 只改了读侧、写侧仍是布尔，属于半个修复**，用户点什么都白点。
+  - 取证（`emulator-5554` / AVD `rebili_watch37` / Android 17，调试桥直连 `SharedPreferencesUtil.sharedPreferences`）：`cmd set --es key player_display --es value false --es type bool` 后 `cmd get --es key player_display --es type string` → `ERR: ClassCastException: java.lang.Boolean cannot be cast to java.lang.String`；同键按 `bool` 读才拿得到值。
+- **方向相反的第二个坑**：这一行的 `defaultValue` 传的是 `PlayerDisplayModePolicy.defaultFor(SDK_INT)`（`"TextureView"`），而 `ChooseHolder` 拿 `defaultValue.toBoolean()` 决定单选钮位置 → `"TextureView".toBoolean() == false` → sdk < 26 的设备上设置页显示「表面视图」、播放器实际按 TextureView 建控件，**显示与实际相反**。
+- **改法**：
+  1. `player/PlayerSettingsGroups.kt` 的 `decode()` 里这一行由 `SettingSection("choose", …)` 改成 `listChoose(...)`（`actualValues = ["TextureView", "SurfaceView"]`，默认值仍取 `PlayerDisplayModePolicy.defaultFor(SDK_INT)`）→ 写入走 `putString`，与播放器读取口径统一。代码里留了注释说明「必须是 list_choose，否则又是布尔撞字符串」。
+  2. `res/values/strings.xml` 新增选项文案 `setting_player_display_option_texture`（纹理视图（兼容性最好））与 `setting_player_display_option_surface`（表面视图（更省电））。
+  3. `player/PlayerDisplayModePolicy.kt` 新增纯函数 `migrateLegacy(raw: Any?): String?`：布尔 / 历史 `"true"` / `"false"` → 规范串，认不出来（规范串、null、别的类型）返回 null，保证重复迁移幂等；同时改掉 KDoc 里「设置页按字符串写入」这句错误描述。
+  4. `BiliTerminal.onCreate` 的 `context == null` 块内（`TutorialStore.migrateLegacyKeys()` 之后）做一次性迁移：老用户存的是布尔，启动时改成规范字符串；Debug 包额外打一行 `Logu.d("BiliTerminal", …)` 记录「原类型 → 迁移结果」，下次现场可以直接看日志。
+  5. `adapter/SettingsAdapter.kt` 的 `ChooseHolder.bind` 补 `chocola.setOnCheckedChangeListener(null)` + `boundId` 守卫（`SwitchHolder` 从 26.10.18 起就有这条防御）：RecyclerView 复用时旧监听器会在 `isChecked` 赋值时触发，把**上一行**的键写成当前行的值（同类事故 26.10.18 在 `InputHolder` 上修过一次，「一路滚到底把所有行写成最后一行」）。播放器设置页的「解码方式」「音频输出」两行同属 `choose`，一并受益。
+  6. `util/SharedPreferencesUtil.java` 五个 getter 的 `catch (ClassCastException e)` 各加一行 `logTypeFuse(key, 期望类型)`：只在 `BuildConfig.DEBUG` 打，记 key / 期望类型 / 实际类型、**不记值**。这是批次七十三留下的「保险丝静默降级，必要时加日志」遗留项，本次的 `player_display` 就是它的活样本。
+- **单测**（`app/src/test/…/player/PlayerDisplayModePolicyTest.kt`，+3 例 → 共 9 例）：`旧布尔存档迁移成规范字符串`、`迁移是幂等的_规范串与认不出来的值都不动`、`迁移后播放器解析结果与用户当年的选择一致`（sdk 25 / 28 / 34 三档）。
+- **验证 · L0（26.11.16 11:25）**：`.\gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest --console=plain --no-parallel --max-workers=1` → **BUILD SUCCESSFUL**，standard 与 coexist 两个 flavor 都出包；`app/build/test-results/testStandardDebugUnitTest/TEST-com.RobinNotBad.BiliClient.player.PlayerDisplayModePolicyTest.xml` 记 **tests=9 / failures=0 / errors=0**，三个新用例全部执行且通过。
+- **验证 · L1（模拟器 emulator-5554，26.11.16 11:23）**：装 Debug 包 → 调试桥把 `player_display` 写成布尔 → `am force-stop` 后冷启动 → 调试桥按字符串读回 **`SurfaceView`**（说明迁移把它改成了字符串，播放器侧 `getString` 不再落到保险丝）；改前同一步骤读回的是 `ClassCastException`。顺手确认设置页能正常打开、`list_choose` 行（「长按倍速档位」）渲染与取值正常。
+- **未验证（人测 / L2）**：①真手表上点「显示方式」两选一之后，退出重进设置页显示是否跟着变、播放页是否真的换了控件（模拟器上因 UETool 浮层与无 OCR 后端，滚动定位到该行未能完成）；②「**所有**播放器设置都不生效 / 都恢复默认」这句**没有复现**——静态审计（扫全仓 `SettingSection` / `listChoose` 声明 91 个键，与消费方读取类型逐条比对）只发现 `player_display` 这一处类型冲突，其余播放器键（音频输出、解码方式、弹幕、缩放、9 档倍速、跳片头片尾等）写读同型；同时排除了「启动期重置」「双 prefs 文件」「`clear()` 清库」「七组重构改键名」四种会整片恢复默认的机制。**要闭环需要用户补：机型、版本号、具体哪几项失效、以及是否只发生在换过播放器内核 / 从备份恢复之后。**
 
 ## 4. 历史章节索引
 
