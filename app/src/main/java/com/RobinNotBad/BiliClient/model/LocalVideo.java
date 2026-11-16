@@ -16,6 +16,16 @@ public class LocalVideo {
     public long cid;                // B站视频cid（用于API调用）
     public long lastModified;       // 媒体文件最后修改时间（毫秒），缓存页「按更新时间」排序用；0 表示未知
 
+    /**
+     * 这条缓存是不是扫自**别的分支**的目录（绝对路径）；null 表示来自本机下载根。
+     *
+     * 分叉仓库各有各的 applicationId，缓存却都落在 Android/media/<包名> 或
+     * Android/data/<包名>/files 下，所以缓存页会把这些目录当额外来源扫一遍（见
+     * util/ExternalCacheRoots）。这类条目一律**只读**：删除、写元数据、写续播都要按这个字段避让，
+     * 否则就是在别人分支的数据上动手。
+     */
+    public String externalRoot;
+
     public LocalVideo() {
     }
 

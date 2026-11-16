@@ -605,6 +605,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      * 播放器内切P 时由 [doSwitchPage] 重新计算。
      */
     private var localMediaDir: File? = null
+
+    /**
+     * 这条本地视频是从**别的分支的缓存目录**里直接播的（缓存页的「外部」条目）。
+     *
+     * 只读来源：续播位置照旧读（那是对方自己写的），但**绝不回写** —— 写进去就是改了别人分支
+     * 的数据，而且对方下次启动会看到一个它没存过的进度。由 CacheListAdapter 起播时带
+     * \`external_read_only\` 标记。
+     */
+    private var externalReadOnly = false
     /** 上次落盘的本地续播位置（毫秒）；-1 表示本次会话还没写过，用于跨路径去重。 */
     private var lastSavedLocalProgressMs: Long = -1L
     /** 上次落盘的墙钟时刻，用于周期落盘的 15 秒节流。 */
@@ -1197,6 +1206,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         // 后面的续播逻辑（onPrepared 里那段）与在线视频完全共用。
         if (!isOnlineVideo) {
             localMediaDir = File(video_url!!).absoluteFile.parentFile
+            externalReadOnly = intent.getBooleanExtra("external_read_only", false)
             if (progress_history <= 0) {
                 val savedMs = localMediaDir?.let { VideoMetaManager.readResumeMs(it) } ?: 0L
                 if (savedMs > 0) {
@@ -3479,6 +3489,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      */
     private fun saveLocalProgressNow(reason: String) {
         if (isOnlineVideo || isLiveMode) return
+        // 外部只读来源（别的分支的目录）：读可以，写就是动别人的数据
+        if (externalReadOnly) return
         // 还没 prepare 完就退出时 video_now 还是 0，写下去会把已有的续播位置清掉
         if (destroyed || !isPrepared) return
         val dir = localMediaDir ?: return

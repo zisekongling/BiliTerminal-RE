@@ -1033,6 +1033,14 @@
     <string name="msg_cache_delete_success">已清除此视频的缓存文件夹</string>
     <string name="msg_cache_delete_partial_failed">有缓存目录没删干净：%1$s\n文件可能被占用，或当前没有该目录的写入权限，请用文件管理器删除</string>
     <string name="msg_cache_delete_not_found">没有找到这个视频的缓存目录</string>
+    <!-- 缓存页的「外部」只读来源（见 util/ExternalCacheRoots）：分叉仓库的缓存落在各自的
+         Android/media/<包名> 或 Android/data/<包名>/files 下，能扫到、能播；但删除 / 换分辨率 /
+         更新弹幕都会写进对方的目录，所以这类条目只给「查看详情」，写操作一律不给入口 -->
+    <string name="cache_external_tag">外部</string>
+    <string name="msg_cache_external_move_blocked">外部缓存不能加入文件夹</string>
+    <string name="msg_cache_external_readonly">这条缓存在别的分支的目录里，只能播放；删除请到那个版本操作</string>
+    <string name="msg_cache_deleted_skipped_external">已删除 %1$d 条，跳过 %2$d 条外部缓存</string>
+    <string name="msg_cache_deleted_failed_skipped_external">已删除 %1$d 条，%2$d 条失败，跳过 %3$d 条外部缓存</string>
     <string name="text_danmaku_download_failed">弹幕下载失败！</string>
     <string name="text_load_failed">加载失败</string>
     <!-- ===== 敏感操作前的 Cookie 检查提示（12.4 文案迁移：五批） ===== -->

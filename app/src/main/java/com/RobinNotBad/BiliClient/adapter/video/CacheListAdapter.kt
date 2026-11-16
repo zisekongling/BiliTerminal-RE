@@ -726,6 +726,8 @@ class CacheListAdapter(
             } else if (media.videoFile.endsWith("audio.m4a")) {
                 player.putExtra("audio_only", true)
             }
+            // 别的分支目录里的缓存：只播，不往对方目录写续播位置（同名 extra 在 PlayerActivity 读）
+            if (!video.externalRoot.isNullOrEmpty()) player.putExtra("external_read_only", true)
             context.startActivity(player)
         } catch (e: ActivityNotFoundException) {
             MsgUtil.showMsg(UiText.of("跳转失败"))
@@ -803,7 +805,11 @@ class CacheListAdapter(
             // 页数以磁盘上真扫到的 pageList 为准（下载中/没成品的那页不算）。
             val pageTag = if (video.pageList != null && video.pageList!!.size > 1)
                 " · " + UiText.fmt("共%1\$sP", video.pageList!!.size) else ""
-            extra.text = size + qualityTag + pageTag
+            // 只读的「外部」来源（别的分支的目录，见 util/ExternalCacheRoots）：必须标出来，
+            // 否则用户会以为这条能删、能换分辨率，长按发现菜单少了一大半
+            val externalTag = if (!video.externalRoot.isNullOrEmpty())
+                " · " + itemView.context.getString(R.string.cache_external_tag) else ""
+            extra.text = size + qualityTag + pageTag + externalTag
             try {
                 GlideUtil.with(cover).asDrawable().load(video.cover)
                     .apply(GlideUtil.thumbOptions(cover))

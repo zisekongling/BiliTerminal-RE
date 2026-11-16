@@ -38,6 +38,7 @@ import com.RobinNotBad.BiliClient.util.CacheMediaPolicy
 import com.RobinNotBad.BiliClient.util.CachePathResolver
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.DanmakuFileFetcher
+import com.RobinNotBad.BiliClient.util.ExternalCacheRoots
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.FolderManager
 import com.RobinNotBad.BiliClient.util.FolderPagePrefs
@@ -341,12 +342,16 @@ open class LocalListActivity : InstanceActivity() {
         videoList.clear()
         scanVideos(root)
 
+        // 别的分支的缓存目录：包名改没改都认，判据只看目录里有没有成品（见 ExternalCacheRoots）
+        appendExternalSources(root)
+
         // 加载每个视频的元数据（目录要按实际落盘位置解析，不能假设「根/标题」）
         for (video in videoList) {
             try {
-                val videoDir = resolveVideoDir(root, video)
-                val meta = VideoMetaManager.readMeta(videoDir)
-                video.folderName = meta.folderName
+                val meta = VideoMetaManager.readMeta(resolveVideoDir(rootOf(video), video))
+                // 外部条目不接本机的文件夹记录：folderName 是本机 .folders_info.json 的键，
+                // 把对方的记录搬过来只会在本机凭空多出几个分组
+                video.folderName = if (video.externalRoot.isNullOrEmpty()) meta.folderName else ""
                 video.aid = meta.aid
                 video.cid = meta.cid
             } catch (_: Exception) {}
@@ -357,13 +362,21 @@ open class LocalListActivity : InstanceActivity() {
         unclassifiedOrder = CacheListOrderStore.load(root.path)
     }
 
-    private fun scanVideos(folder: File) {
+    /**
+     * 扫一个根目录下的缓存视频，结果追加进 [videoList]。
+     *
+     * @param externalRoot 非空 = 这是别的分支的目录（只读来源）。扫出来的条目记下这个根，
+     *        之后删除 / 写元数据 / 写续播都靠它避让，不再按「当前下载根」硬算 —— 那个根跟这条
+     *        条目根本没关系。
+     */
+    private fun scanVideos(folder: File, externalRoot: String? = null) {
         val files = folder.listFiles() ?: return
 
         for (video in files) {
             if (video.isDirectory) {
                 val localVideo = LocalVideo()
                 localVideo.title = video.name
+                localVideo.externalRoot = externalRoot
                 localVideo.cover = File(video, DownloadPathSpec.FILE_COVER).toString()
                 localVideo.pageList = ArrayList()
                 localVideo.danmakuFileList = ArrayList()
@@ -389,7 +402,8 @@ open class LocalListActivity : InstanceActivity() {
                     null -> null
                     // 合并临时文件存在：能转正就转正（与改动前一致），转不了就当它本身是成品
                     CacheMediaPolicy.FILE_VIDEO_MERGED_TEMP ->
-                        if (tempMergeFile.renameTo(videoFile)) videoFile else tempMergeFile
+                        // 外部目录只读：转正就是改别人分支的文件，转不了就当它本身是成品
+                        if (externalRoot == null && tempMergeFile.renameTo(videoFile)) videoFile else tempMergeFile
                     else -> File(video, mediaName)
                 }
 
@@ -444,7 +458,8 @@ open class LocalListActivity : InstanceActivity() {
                             val pageTempMergeFile = File(page, CacheMediaPolicy.FILE_VIDEO_MERGED_TEMP)
                             val pageMediaFile = if (scannedPage.mediaName == CacheMediaPolicy.FILE_VIDEO_MERGED_TEMP) {
                                 // 合并临时文件存在：能转正就转正，转不了就当它本身是成品
-                                if (pageTempMergeFile.renameTo(pageVideoFile)) pageVideoFile else pageTempMergeFile
+                                // （外部目录只读，绝不动别人分支的文件）
+                                if (externalRoot == null && pageTempMergeFile.renameTo(pageVideoFile)) pageVideoFile else pageTempMergeFile
                             } else {
                                 File(page, scannedPage.mediaName)
                             }
@@ -485,6 +500,40 @@ open class LocalListActivity : InstanceActivity() {
             }
         }
     }
+
+    /**
+     * 追加「别的分支的缓存目录」里的视频（只读）。
+     *
+     * 目录怎么找、为什么不认包名，见 [ExternalCacheRoots]。这里只做两件事：
+     * 挨个扫（判据、多 P 折叠、画质文本全部复用 [scanVideos]，不另写一套），
+     * 以及**按标题去重** —— 从那个分支导入到本机的视频会同时出现在两边，列两遍最容易
+     * 让人以为「没导干净」，所以本机已有同标题时保留本机那条。
+     */
+    private fun appendExternalSources(mainRoot: File) {
+        val seenTitles = HashSet<String>()
+        for (video in videoList) {
+            if (!video.title.isNullOrEmpty()) seenTitles.add(video.title)
+        }
+        for (dir in ExternalCacheRoots.candidateRoots(mainRoot)) {
+            // scanVideos 只往 videoList 尾巴追加，记下起点就能只处理这一批
+            val before = videoList.size
+            scanVideos(dir, dir.path)
+            var i = before
+            while (i < videoList.size) {
+                val video = videoList[i]
+                // add 返回 false = 标题已经出现过（本机的或前一个外部目录的）：这条丢掉
+                if (video.title.isNullOrEmpty() || !seenTitles.add(video.title)) {
+                    videoList.removeAt(i)
+                } else {
+                    i++
+                }
+            }
+        }
+    }
+
+    /** 这条条目是哪个根扫出来的：外部只读来源有自己的根，其余用本次扫描的本机根。 */
+    private fun rootOf(video: LocalVideo): File =
+        video.externalRoot?.takeIf { it.isNotEmpty() }?.let { File(it) } ?: currentScanRoot()
 
     @SuppressLint("NotifyDataSetChanged")
     private fun setupAdapter() {
@@ -640,6 +689,14 @@ open class LocalListActivity : InstanceActivity() {
     private fun showVideoMenu(videoIndex: Int) {
         if (videoIndex < 0 || videoIndex >= videoList.size) return
         val video = videoList[videoIndex]
+        if (!video.externalRoot.isNullOrEmpty()) {
+            // 别的分支的目录只读（见 LocalVideo.externalRoot）：能做的只有「看看这条是什么」。
+            // 删除 / 换分辨率 / 更新弹幕全都要往对方目录写文件，索性不给入口，免得点了才被拦。
+            TerminalDialog.menu(this, menuTitle(video.title), listOf(UiText.of("查看详情"))) {
+                viewVideoDetail(videoIndex)
+            }.show()
+            return
+        }
         val isInFolder = adapter?.currentFolderName?.isNotEmpty() == true
         val items = listOf(
             UiText.of("更新弹幕"),
@@ -789,8 +846,8 @@ open class LocalListActivity : InstanceActivity() {
         val danmakuUrl = playerData.danmakuUrl
         if (danmakuUrl.isEmpty()) return false
 
-        // 下载弹幕到本地
-        val videoDir = resolveVideoDir(currentScanRoot(), video)
+        // 下载弹幕到本地（外部条目按它自己的根算：写进对方目录是不允许的，调用方已经拦下了）
+        val videoDir = resolveVideoDir(rootOf(video), video)
         val danmakuFile = File(videoDir, DownloadPathSpec.FILE_DANMAKU)
         downloadDanmakuFile(danmakuUrl, danmakuFile)
 
@@ -977,6 +1034,10 @@ open class LocalListActivity : InstanceActivity() {
      * 逐个删；只要还有候选目录残留就明确提示失败（含目录名），成功才提示成功；两种情况都强制重扫。
      */
     private fun performDelete(video: LocalVideo) {
+        if (!video.externalRoot.isNullOrEmpty()) {
+            MsgUtil.showMsgLong(getString(R.string.msg_cache_external_readonly))
+            return
+        }
         CenterThreadPool.run {
             val failed = deleteVideoFiles(video)
 
@@ -1003,7 +1064,9 @@ open class LocalListActivity : InstanceActivity() {
      * 顺手把它移出文件夹等于又加一次意外）。
      */
     private fun deleteVideoFiles(video: LocalVideo): File? {
-        val root = scannedRoot ?: FileUtil.getVideoDownloadPath()
+        // 外部目录只读：删掉的是别的分支的缓存，对方未必知道，一律不动
+        if (!video.externalRoot.isNullOrEmpty()) return File(video.externalRoot)
+        val root = rootOf(video)
         // 删除计划与详情页共用一份（反馈 #162）：候选目录怎么定位、真实结果怎么分级都收在
         // CacheDeletePlan 里，这里只做「摘文件夹记录 + 返回第一个失败目录」这两件本页的事
         val result = CacheDeletePlan.execute(root.path, video.title, video.videoFileList?.firstOrNull())
@@ -1472,20 +1535,33 @@ open class LocalListActivity : InstanceActivity() {
     private fun performBatchDelete() {
         val videos = selectedVideos()
         if (videos.isEmpty()) return
+        // 外部条目只读（见 LocalVideo.externalRoot）：整批都是外部的就当没这回事，混选里跳过它们，
+        // 免得「删除」按到别的分支的数据上、对方还不知道
+        val targets = videos.filter { it.externalRoot.isNullOrEmpty() }
+        val skipped = videos.size - targets.size
+        if (targets.isEmpty()) {
+            MsgUtil.showMsgLong(getString(R.string.msg_cache_external_readonly))
+            return
+        }
         CenterThreadPool.run {
             var ok = 0
             var failed = 0
-            for (video in videos) {
+            for (video in targets) {
                 if (deleteVideoFiles(video) == null) ok++ else failed++
             }
             runOnUiThread {
                 exitSelectionMode()
                 markFolderPageDirty()
                 refresh()
-                if (failed == 0) {
-                    MsgUtil.showMsg(UiText.fmt("已删除 %1\$d 条", ok))
-                } else {
-                    MsgUtil.showMsgLong(UiText.fmt("已删除 %1\$d 条，%2\$d 条失败", ok, failed))
+                when {
+                    failed == 0 && skipped == 0 -> MsgUtil.showMsg(UiText.fmt("已删除 %1\$d 条", ok))
+                    failed == 0 -> MsgUtil.showMsg(
+                        getString(R.string.msg_cache_deleted_skipped_external, ok, skipped)
+                    )
+                    skipped == 0 -> MsgUtil.showMsgLong(UiText.fmt("已删除 %1\$d 条，%2\$d 条失败", ok, failed))
+                    else -> MsgUtil.showMsgLong(
+                        getString(R.string.msg_cache_deleted_failed_skipped_external, ok, failed, skipped)
+                    )
                 }
             }
         }
@@ -1494,7 +1570,8 @@ open class LocalListActivity : InstanceActivity() {
     // ---------- 批量更新弹幕 ----------
 
     private fun performBatchUpdateDanmaku() {
-        val videos = selectedVideos()
+        // 外部目录只读：更新弹幕要往对方目录写 danmaku.xml，与删除同一口径，跳过
+        val videos = selectedVideos().filter { it.externalRoot.isNullOrEmpty() }
         if (videos.isEmpty()) return
         MsgUtil.showMsg(UiText.of("正在更新弹幕..."))
         CenterThreadPool.run {
@@ -1522,8 +1599,14 @@ open class LocalListActivity : InstanceActivity() {
     // ---------- 批量移动到文件夹 / 移出文件夹 ----------
 
     private fun showBatchMoveDialog() {
-        val titles = selectedVideoTitles.toList()
-        if (titles.isEmpty()) return
+        // 外部条目只读（见 LocalVideo.externalRoot）：文件夹记录是按标题存的，把对方的标题写进来
+        // 只会在本机凭空造出一条「夹里有、列表里没有」的记录，以后同名的本机视频还会被它拽进夹里
+        val externalTitles = videoList.filter { !it.externalRoot.isNullOrEmpty() }.map { it.title }.toSet()
+        val titles = selectedVideoTitles.filter { !externalTitles.contains(it) }
+        if (titles.isEmpty()) {
+            MsgUtil.showMsgLong(getString(R.string.msg_cache_external_move_blocked))
+            return
+        }
 
         val folders = FolderManager.getAllFolders()
         if (folders.isEmpty()) {
@@ -1619,7 +1702,7 @@ open class LocalListActivity : InstanceActivity() {
     }
 
     private fun readVideoMeta(video: LocalVideo): VideoMeta {
-        return VideoMetaManager.readMeta(resolveVideoDir(currentScanRoot(), video))
+        return VideoMetaManager.readMeta(resolveVideoDir(rootOf(video), video))
     }
 
     fun refresh() {
