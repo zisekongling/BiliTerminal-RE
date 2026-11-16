@@ -1,5 +1,6 @@
 package com.RobinNotBad.BiliClient.activity.settings
 
+import android.content.Intent
 import android.graphics.PorterDuff
 import android.graphics.drawable.LayerDrawable
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
