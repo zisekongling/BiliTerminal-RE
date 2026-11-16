@@ -18,6 +18,15 @@
 
 ## 1. 当前版本状态
 
+- **26.11.16 开屏页撤掉图标，只留文字居中打字机（用户原话「图标删除，仅文字居中进行打字机动画展示」）**：
+  - **来路**：用户直接提。改前开屏页是「图标 + 文字」整组垂直居中（#173，commit `87870aa0`）。
+  - **改法**：`app/src/main/res/layout/activity_splash.xml` 删掉 `ImageView @id/splashIcon`（128dp `@mipmap/icon`）连同它的 `layout_marginTop`，结构退化为 `ScrollView`（`fillViewport` 兜底）→ `LinearLayout(gravity="center")` → `TextView @id/splashText`；`app/src/main/res/values/dimens.xml` 删掉只服务图标的 `splash_icon_size`（128dp）与 `splash_icon_text_gap`（20dp）。
+  - **代码零改动**：`SplashActivity` 的 `reserveTypewriterHeight()` 原样保留——它按最终行数钉住文字区 `minHeight`，否则打字机逐行增长时居中的文字块会上下跳（居中对象从「图标 + 文字」变成文字自己，跳动来源没变）；只把那处注释与 `textLines` 口径的措辞同步改掉。
+  - **为什么冷启动不受影响**：`drawable/splash_text.xml` 自 #173 起就只剩纯黑底、没有图标，manifest 主题与窗口背景都不用动；`@mipmap/icon` 仍被应用图标引用，资源不删。
+  - **口径**：没有把开屏文字换成 `MarqueeTextView`（一次性展示、打字机只填前半段时跑马灯会滚空内容），布局注释里写明这条防止以后被「顺手统一」。
+  - **L0（26.11.16 本机实测）**：`:app:assembleDebug :app:testStandardDebugUnitTest` → BUILD SUCCESSFUL（1m35s），`testStandardDebugUnitTest` **255 套件 / 2752 用例 / 0 失败 / 0 错误 / 0 跳过**（含 `LayoutAccessibilityTest` / `TopbarBackArrowTest` 等直接解析 `res/layout` 的守卫）；standard flavor 四个 ABI 的 debug APK 均产出。全仓 grep `splashIcon` / `splash_icon` 0 残留。
+  - **未验证（L2）**：手表上看开屏——只有文字、垂直居中、逐字出现；默认两行与 4 行自定义文字、系统字体放大时仍居中不跳；文字撑满一屏时能上下滚动兜底。
+
 - **26.11.16 审查并合并两个外部 PR（#32 登录 Cookie 刷新链路 / #33 缓存页底部条 + 硬币流水），补齐审查发现的问题**：
   - **来路**：开发者要求先审这两个 PR，审完直接合并、并把审查发现的问题补上（均以 squash 合并：PR #33 → `feeb10f5`、PR #32 → `f1334e95`，审查结论与四问决策见本会话记录）。
   - **PR #32 的决定性事实（逐行核实，纠正 PR 自述）**：`activity/SplashActivity.proceedSplashFlow()` 早就按 access_key 分流（有 access_key → `AppTokenRefreshApi.refreshAppToken()`，否则 → `checkCookieRefresh()`），而 `checkCookieRefresh()` 全仓只有一个调用点就是这个 else 分支、`hasLocalSession()` 只在 `checkCookieRefresh()` 里被调 ⇒ PR 新增的两处 Kotlin 判断**恒不可达**（死代码），它自述的「根因：启动页不按 access_key 分流」与源码相反，据此写进文档的 L2 判据「日志出现跳过 Web Cookie 刷新」永远观察不到。它自述的另一条「未做：`CookieRefreshPolicy.checkRefreshedCredentials()` 只判 sessData 非空」也不成立——该函数已有 4 档校验（NO_REFRESH_TOKEN / NO_SESSION_COOKIE / MID_MISMATCH / READY）。

@@ -1,15 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 开屏页（#173）：图标 + 文字作为【一个整体】在屏幕上垂直居中。
+<!-- 开屏页：自定义开屏文字单独在屏幕上垂直居中，由 SplashActivity 用打字机逐字填。
 
-     历史坑：冷启动窗口背景 splash_text.xml 里画过一个居中的 128dp 图标，布局里只有一句贴底的
-     文字。但 SplashActivity 是先 applyTheme()（ColorScheme.applyWindowTheme → ColorScheme.kt:744
-     把窗口背景整个换成纯主题色）再 setContentView，于是 layer-list 里的图标被整块盖掉 ——
-     用户只看到一句贴底的字（反馈原文「我没图标啊」）。现在图标改由这里绘制，与窗口背景彻底
-     解耦：不管主题怎么换、有没有自定义背景图，图标都在。
+     26.11.16 按用户要求撤掉图标，只留文字（此前是「图标 + 文字」整组居中，见 #173）。
+     冷启动窗口背景（drawable/splash_text.xml）本来就只有纯黑底、没有图标，所以首帧与第一帧
+     都没有图标，也不再存在「首帧与布局里图标位置不一致、往上跳」的历史问题。
 
-     根 ScrollView 只做兜底：自定义开屏文字行数多、或系统字体放大到把「图标 + 文字」撑得比屏幕
-     还高时，内容退化成可滚动，而不是上下两头被切掉。fillViewport 让内容不足一屏时子 View 撑满
-     可用高度，再由 gravity="center" 把整组居中。 -->
+     根 ScrollView 只做兜底：自定义开屏文字行数多、或系统字体放大到把文字撑得比屏幕还高时，
+     内容退化成可滚动，而不是上下两头被切掉。fillViewport 让内容不足一屏时子 View 撑满可用
+     高度，再由 gravity="center" 把文字块垂直居中。 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
@@ -27,26 +25,15 @@
         android:paddingLeft="16dp"
         android:paddingRight="16dp">
 
-        <!-- 装饰图：对读屏隐藏（LayoutAccessibilityTest 要求 contentDescription=@null 必须配
-             importantForAccessibility="no"）。图标是 640×640 的浅底位图，不透明，scaleType 用
-             fitCenter 保证 128dp 方框里不变形。 -->
-        <ImageView
-            android:id="@+id/splashIcon"
-            android:layout_width="@dimen/splash_icon_size"
-            android:layout_height="@dimen/splash_icon_size"
-            android:contentDescription="@null"
-            android:importantForAccessibility="no"
-            android:scaleType="fitCenter"
-            android:src="@mipmap/icon" />
-
-        <!-- 文字仍由 SplashActivity 用打字机逐字填（id 不变）；这里 android:text 只是预览占位。
+        <!-- 文字由 SplashActivity 用打字机逐字填（id 不变）；android:text 只是预览占位。
              宽度给 match_parent + gravity=center_horizontal：用户自定义的多行文字每行都水平居中，
-             左右各留 16dp 是为了圆屏最外圈的弦长，长行不至于被圆角切掉。 -->
+             左右各留 16dp 是为了圆屏最外圈的弦长，长行不至于被圆角切掉。
+             不要把这段文字换成 MarqueeTextView：开屏是一次性展示，滚动没有意义，而且打字机只填
+             前半段时跑马灯会一直滚空内容。 -->
         <TextView
             android:id="@+id/splashText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/splash_icon_text_gap"
             android:gravity="center_horizontal"
             android:text="@string/pagename_splash"
             android:textSize="@dimen/text_subtitle" />
