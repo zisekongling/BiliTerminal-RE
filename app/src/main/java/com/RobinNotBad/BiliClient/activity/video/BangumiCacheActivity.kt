@@ -301,7 +301,13 @@ class BangumiCacheActivity : BaseActivity() {
         if (item.loading) return
         item.loading = true
         item.failed = false
-        adapter.rebuild()
+        // 刷新视图**必须回主线程**：本方法有两条调用路径——用户点开某一季（主线程）、
+        // 首屏预热当前季（onCreate 里的 CenterThreadPool，IO 线程）。在 IO 线程上
+        // notifyDataSetChanged 会触发 ViewRootImpl 的线程检查抛 CalledFromWrongThreadException，
+        // 而 CenterThreadPool 把它吞掉只记一条日志，于是 loading 永远停在 true、entries 永远是 null：
+        // 那一季的行一直显示「正在获取剧集…」，再怎么点也被上面的 `if (item.loading) return` 挡住。
+        // 这正是反馈 #179「点开缓存页时播放页停在哪一季，哪一季就加载不出来」（只有预热的那一季中招）。
+        runOnUiThread { adapter.rebuild() }
         CenterThreadPool.run {
             try {
                 val meta = BangumiApi.getSeasonDetail(item.seasonId)
