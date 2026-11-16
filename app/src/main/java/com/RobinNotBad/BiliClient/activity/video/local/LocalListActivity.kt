@@ -1116,9 +1116,9 @@ open class LocalListActivity : InstanceActivity() {
         // 不还原就是一条 0 高度、点不到的隐形条
         val wasHidden = multiSelectBar.visibility != View.VISIBLE
         multiSelectBar.visibility = View.VISIBLE
-        if (wasHidden) expandSelectionBarNow()
-        // 多选 / 排序时用户正在操作这条，收起来就点不到了（与顶部条「别把正在用的操作条放进来」同一考虑）
-        if (selectionMode || sortMode) expandSelectionBarNow()
+        // 多选 / 排序 / 搜索中用户正在用这条，收起来就点不到了（与顶部条「别把正在用的操作条放进来」
+        // 同一考虑）；搜索中尤其如此——列表可能一条都没有，底部「清除」是唯一出口
+        if (wasHidden || selectionMode || sortMode || searchKeyword.isNotEmpty()) expandSelectionBarNow()
         if (sortMode) {
             // 排序模式只需要「提示 + 完成」两个东西：左边复用计数 TextView 显示提示，右边「排序」变「完成」
             textSelectedCount.visibility = View.VISIBLE
@@ -1191,11 +1191,13 @@ open class LocalListActivity : InstanceActivity() {
      * 就把列表内容顶走、和手指打架（26.10.05 的现场）。动画本身在单测里跑不了（View 全是 Android
      * 桩），所以判断留在纯函数里、这里只负责照着做。
      *
-     * 多选 / 排序模式下**不参与**收回：用户正在用这条（与顶部条「别把正在用的操作条放进来」同一考虑）。
+     * 多选 / 排序 / 搜索中**不参与**收回：用户正在用这条（与顶部条「别把正在用的操作条放进来」
+     * 同一考虑）。搜索中更得留着——列表可能一条都没有，「清除」是退出去的唯一出口。
      */
     private fun handleSelectionBarScroll(dy: Int) {
         if (!::multiSelectBar.isInitialized) return
         if (multiSelectBar.visibility != View.VISIBLE || selectionMode || sortMode) return
+        if (searchKeyword.isNotEmpty()) return
         selectionBarAccum += dy
         when (ScrollRetractDecider.action(
             accumulated = selectionBarAccum,
@@ -1636,6 +1638,11 @@ open class LocalListActivity : InstanceActivity() {
                 // 重扫后可能有条目已经不在了（删掉 / 被移走）：勾选集合跟着收缩，底部计数才不会虚高
                 pruneSelection()
                 updateSelectionBar()
+                // 重扫完再强制展开一次：收起 / 展开全靠滚动事件驱动，而「列表内容整批换掉」未必
+                // 产生滚动事件，条就会停在 0 高度（RefreshListActivity 顶部条也记过同一条教训）
+                if (::multiSelectBar.isInitialized && multiSelectBar.visibility == View.VISIBLE) {
+                    expandSelectionBarNow()
+                }
                 swipeRefreshLayout.setRefreshing(false)
             }
         }
