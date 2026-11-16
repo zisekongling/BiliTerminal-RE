@@ -292,6 +292,9 @@ class SettingsAdapter(
         val name: TextView = itemView.findViewById(R.id.setting_choose_name)
         val desc: TextView = itemView.findViewById(R.id.setting_choose_desc)
 
+        /** 当前这一次 bind 绑的是哪个键；监听器里据此跳过「别的行留下的旧监听器」触发。 */
+        private var boundId: String? = null
+
         fun bind(settingSection: SettingSection) {
             if (SettingText.resolve(itemView.context, settingSection.desc).isNullOrEmpty())
                 desc.visibility = View.GONE
@@ -304,6 +307,12 @@ class SettingsAdapter(
             chocola.text = SettingText.resolve(itemView.context, strings[0])
             vanilla.text = SettingText.resolve(itemView.context, strings[1])
 
+            // RecyclerView 复用：上一行留下的监听器还挂在同一个 RadioButton 上，直接给
+            // isChecked 赋值会触发它，把**上一行的键**写成这一行的值（跨键污染）。
+            // 26.10.18 的 InputHolder 就是这个坑（滚到底把所有行写成最后一行），这里对齐
+            // SwitchHolder.bind 的做法：先摘监听器、再回填界面、最后装本行监听器。
+            chocola.setOnCheckedChangeListener(null)
+            boundId = settingSection.id
             val value = SharedPreferencesUtil.getBoolean(
                 settingSection.id,
                 settingSection.defaultValue.toBoolean()
@@ -312,6 +321,8 @@ class SettingsAdapter(
             vanilla.isChecked = !value
 
             chocola.setOnCheckedChangeListener { _, isChecked ->
+                // 兜底：万一还是被旧监听器串到了别的行，宁可本次不写，也不污染存档
+                if (boundId != settingSection.id) return@setOnCheckedChangeListener
                 SharedPreferencesUtil.putBoolean(settingSection.id, isChecked)
             }
         }

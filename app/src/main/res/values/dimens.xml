@@ -51,6 +51,11 @@
     <dimen name="icon_lg">24dp</dimen>
     <dimen name="icon_xl">32dp</dimen>
 
+    <!-- 开屏页（activity_splash.xml）：图标沿用原来冷启动窗口背景里的 128dp，不变小；
+         文字间距按「一眼能看出是两块」给，别贴在一起。改观感只动这两个值。 -->
+    <dimen name="splash_icon_size">128dp</dimen>
+    <dimen name="splash_icon_text_gap">20dp</dimen>
+
     <!-- 分割线 -->
     <dimen name="divider_thin">1dp</dimen>
 

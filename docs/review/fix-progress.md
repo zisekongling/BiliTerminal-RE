@@ -18,16 +18,43 @@
 
 ## 1. 当前版本状态
 
-- **26.11.16 手表端「老是掉登录」：启动页不按 `access_key` 分流 + 三处响应不关（用户原话「排查一下我这边容易掉登录的问题，问题出在cookie轮换上，可以对比截图项目的实现方法」）**：
-  - **来路**：用户直接报告，并指定对照截图里的兄弟仓库 `cyq114514/Re-BiliTerminal`（同源分支，1.3.9）。
-  - **对照结论（不是流程差异）**：两边轮换链路与错误码口径完全一致——`cookie/info` → `correspond/1/<path>` 取 `refresh_csrf` → `cookie/refresh`（旧 csrf + 旧口令）→ 落新凭据 → `confirm/refresh`（**新** `bili_jct` + **旧** `refresh_token`），且只有 `-101` 清登录态。兄弟仓库比我们多的只有三处健壮性细节：三个响应 `try-with-resources` 关闭、confirm 失败回滚 Cookie、`-111` 单列一档（我们已归 `RETRY`，等价）。回滚我们不需要：先落新 `refresh_token`、新 Cookie 由拦截器落盘，confirm 失败时新旧两侧都有效。
-  - **根因 1（主，APP/TV 登录用户）**：`util/CookieRefreshScheduler.refreshNow()` 按 `access_key` 分流，但 `activity/SplashActivity.kt` 的 `checkCookieRefresh()` 没有这条分流。`refresh_token` 在 `SharedPreferencesUtil` 里只有一个键：扫码登录写 Web 口令（`QRLoginFragment.kt:470/637`），短信/密码登录写 APP 口令（`SMSLoginFragment.kt:280-285`、`PasswordLoginFragment.kt:231-237`）。于是 APP/TV 登录的用户**每次冷启动**都可能把 APP 口令喂给 `web/cookie/refresh`，服务端回 `-101` 时走 `resetLogin()` → `AccountManager.clearCurrentLogin()`，**连仍然有效的 `access_key` 一起清掉**——明明还登着却要求重新登录。手表端主打账户密码/短信登录，命中率高。
-  - **根因 2**：同文件 `hasLocalSession()` 只认 Cookie 里的 `SESSDATA`。APP/TV 登录的账号 Cookie 里没有 `SESSDATA`（或已过期）时会被判成「未登录」，`checkCookieRefresh()` 结尾那条 `if (!hasLocalSession()) resetLogin(...)` 同样清整套。
-  - **根因 3**：`api/CookieRefreshApi.java` 的 `getRefreshCsrf()` / `cookie/refresh` / `confirm/refresh` 三处响应都只读 body、从不 `close()`。这条路径每次冷启动 + 每 30 分钟跑一次，漏掉的连接一直挂在 OkHttp 池里，累积到耗尽后**所有**请求一起失败，用户侧表现与「掉登录」分不清。兄弟仓库同一位置就有「此前响应从不关闭，登录检测高频路径会泄漏连接」的注释与改法。
-  - **改法**：`checkCookieRefresh()` 开头加 `access_key` 分流（日志「当前是 APP/TV 登录（有 access_key），跳过 Web Cookie 刷新」）；`hasLocalSession()` 先判 `access_key` 非空即算已登录；三处响应改 `try-with-resources`。
-  - **未改（建议另开）**：`util/CookieRefreshPolicy.kt:119-132` 的 `checkRefreshedCredentials()` 注释写的是「确认前必须核对**新**凭据已落本地」，实现只判 `sessData` 非空 + `cookieMid == expectedMid`——**刷新前的旧 SESSDATA 也满足**。若某次刷新的 `Set-Cookie` 没落盘（`saveCookiesLocked()` 在 SP 未就绪 / 代际判旧时会整条丢弃），仍返回 `READY`，接着 confirm 作废旧会话 = 必掉登录。真要堵需要加 `sessionCookieOld` 参数与新档 `SESSION_NOT_UPDATED`（连带改单测与调用方），本次不动。
-  - **L0**：见下条真机前的构建结果（`:app:assembleDebug` + 两个 flavor 的单测）。
-  - **未验证（L2）**：短信/密码登录 → 反复冷启动十几次不应被登出、日志里应出现「跳过 Web Cookie 刷新」；扫码登录的账号冷启动后仍能正常刷新出「Cookies已刷新」。
+- **26.11.16 番剧缓存页「当前播放的那一季」永远加载不出来（控制台反馈 #179）**：
+  - **来路**：控制台反馈 #179（26.11.16，版本 26.11.16）。用户描述的症状很精确：**在打开缓存页之前，播放页停在哪一季，那一季在缓存页里就加载不出来**，别的季都正常。
+  - **根因**：`activity/video/BangumiCacheActivity.kt` 进页面时会在后台预热「当前播放的那一季」——`onCreate` 里 `CenterThreadPool.run { queryVipState(); target?.let { loadSeason(it, selectMainSection = true) } }`（119–123 行）。而 `loadSeason()` 里把 `adapter.rebuild()` 写在了 `CenterThreadPool.run { … }` **之外**：主线程点击进来的季走的是主线程，没事；预热这条路径是 IO 线程直接调 `notifyDataSetChanged()`，RecyclerView 的线程检查抛 `CalledFromWrongThreadException`，又被 `CenterThreadPool` 的 `catch (Throwable)` 静默吞掉（只 `MsgUtil.err`）。结果 `item.loading` 停在 `true`、`entries` 一直是 `null`：那一季永远显示「正在获取剧集…」，而且再点也被 `if (item.loading) return` 挡住、无法重试——正好解释「只有当前那一季坏」。
+  - **改法**：`adapter.rebuild()` 改投主线程执行（`runOnUiThread { adapter.rebuild() }`），`item.loading` / `item.failed` 仍在原线程同步置位（只有刷新回主线程）。主线程调用时 `runOnUiThread` 同步执行，所以「点季展开」这条既有路径行为完全不变。
+  - **口径**：只改这一处。页面里其余 `adapter.rebuild()` 调用都在主线程回调里，本轮不动；也没有顺手把 `rebuild()` 内部包一层 `runOnUiThread`——那会把「谁在什么线程改数据」这件事藏进 adapter，下次再有人在后台改状态还是同样的坑。
+  - **L0（26.11.16 本机实测）**：`:app:assembleDebug` → BUILD SUCCESSFUL（29s，standard / coexist 两个 flavor 的 compileKotlin + dex + package 全过）；`:app:testStandardDebugUnitTest` → BUILD SUCCESSFUL，**253 套件 / 2735 用例 / 0 失败 / 0 错误 / 0 跳过**（本次为 UI 线程切换，无新纯函数，未加用例）。
+  - **未验证（L2）**：手表上「播放页停在第 2 季 → 打开缓存页」时第 2 季能自动展开出「正片」、不再卡在「正在获取剧集…」；再折叠/展开、切到别的季、断网下打开该季能落到「加载失败」并可重试。
+
+- **26.11.16 缓存里的多 P 视频能顺着分 P 自己播下去（控制台反馈 #178）**：
+  - **来路**：控制台反馈 #178（26.11.16，建议）：缓存里的多 P 视频希望自动连播。开发者先回过「加到文件夹里就可以连播了哦」，但那是绕过问题的说法——单条合集本来就有分 P 列表页，不该逼用户自己再建文件夹。
+  - **根因**：缓存页点开多 P 走 `activity/video/local/LocalPageChooseActivity.kt`，它起播时只把**选中那一 P** 的文件塞进 `PlayerData`，从不传 `pagenames`。播放器的自动下一 P 只认 `pagenames`（`PlayerActivity` 的 `onCompletionListener`：`auto_next_enabled && hasMultiplePages() && currentPageIndex < pagenames.size - 1`），所以播放器根本不知道后面还有 P，播完就停，选集卡片也只有一页。
+  - **改法**：`onItemClickListener` 里 `pageList.size > 1` 时补 `playerData.pagenames = ArrayList(pageList)`、`playerData.cids = ArrayList()`（本地缓存没有 cid，换 P 直接按文件切）、`playerData.currentPageIndex = position`，并在 `PlayerApi.jumpToPlayer()` 之后补三条 **按页对齐** 的 extra：`videoFileList` = `pageMediaFiles.map { it.first }`、`audioFileList` = `pageMediaFiles.map { it.second }`、`danmakuFileList` = 按页下标取值（缺的补空串）。
+  - **为什么必须重给一遍扁平表**：播放器换 P 走的是「老路径」（`PlayerActivity#resolveLocalPageMedia`，`localPlaylist == null` 时按 intent 里这三条列表**同一下标**取文件）。缓存页传进来的 `videoFileList` 是**扁平**表，一页仍占两个下标的页（`video.mp4` + `audio.m4a` 双文件）在它里面就会让后面的页整体错位，原样转交会一错位就把 P3 播成 P2 的音轨（与 #164 / #51 同形）。这里用 `buildPageMediaFiles()` 的每页 Pair 重新拼成严格按页对齐的三条表——**单文件页行为不变**（两种表此时逐项相同），对齐只在双文件场景下才看出差别。
+  - **双文件只是少数**：1080P 及以上的 DASH 缓存下载完会由 `DownloadService#mergeDashPair` 重封装成单个 `video.mp4` 并删掉 `audio.m4a`（26.10.25 起，见 FEATURES §10.5），所以常规缓存是单文件；只有**合并失败 / 被跳过**（旧设备、特殊编码、磁盘不足、替换失败）以及 **26.10.25 之前下的旧缓存**才留双文件，这类缓存照样要能连着播且不错位，所以按页对齐这条必须做对。
+  - **口径（有意的取舍）**：**没有**新开「直接跳进播放器的分 P 层」——26.10.16 定过「分层进入必须用户点」，那是另一条更侵入的路。现在只是让播放器知道分 P 存在：选集卡片露出全部 P、「自动下一P」按钮出现，**是否真自动接下一 P 仍由「自动连播」开关决定**（默认关，与文件夹连播同一套开关），不改变任何默认行为。
+  - **L0（26.11.16 本机实测）**：同上一项同一次构建——`:app:assembleDebug` BUILD SUCCESSFUL、`:app:testStandardDebugUnitTest` **253 套件 / 2735 用例 / 0 失败**（无新纯函数，未加用例）。
+  - **未验证（L2）**：手表上从缓存点开一个多 P 视频 → 选集卡片能看到 P1…Pn 且当前页标对 → 打开「自动连播」后一 P 播完自动接下一 P、标题与弹幕跟着换 → 关掉开关后播完停住。至于「双文件页不错位」：常规缓存（1080P 及以上）合并后就是单文件，**手上有合并失败的或 26.10.25 之前下的旧双文件缓存**才需要专门验一遍声音与画面是同一条 P。
+
+- **26.11.16 反馈页顶栏补返回箭头（后台控制台反馈 #174，用户原话「在反馈与界面左上角没有返回的箭头」）**：
+  - **来路**：控制台反馈 #174（26.11.16 09:35，HUAWEI Simba-AL00 / Android SDK 27 / 版本 26.11.16），开发者已回「不影响功能的话下个版本补上」。
+  - **根因**：全仓声明 `@id/pageName` 的布局 50 份，其中 43 份带 `app:drawableStartCompat="@drawable/arrow_back"`；缺的 7 份里 6 份是菜单级一级页（按 26.10.25 定下的规则，由 `InstanceActivity.setMenuClick()` 在运行时换成 `arrow_down`：`activity_bangumi` / `activity_message` / `activity_search` / `activity_setting_main` / `activity_simple_main_refresh` 五份是同一情况的复用），`activity_menu.xml` 是菜单根页、没有「上一级」，剩下 `activity_feedback.xml` 是**全仓唯一一个漏了箭头的返回式页面**，正是 #174 报的那一页。顶栏本身一直能点（`BaseActivity.setTopbarExit()` → `finish()`，与右滑返回同一个结束路径），只是没有可见箭头提示用户。
+  - **改法**：`app/src/main/res/layout/activity_feedback.xml` 给 `@id/pageName` 补一行 `app:drawableStartCompat="@drawable/arrow_back"`，**不改任何代码**——与其余 43 份布局同一套写法，圆屏（`setRound()`）、顶栏高度（`applyTopbarHeight()`）、暗/亮两套图标（`drawable-notnight*/arrow_back.xml`）全部由既有路径继承。**刻意没有新增 `BaseActivity.setTopbarBack()`**：那会在已带箭头的 43 个页面上出现两个箭头，并让图标变成「布局声明 + 代码注入」两套机制（`InstanceActivity.setMenuClick()` 已经在运行时改这一个 drawable 位）。
+  - **口径（有意的取舍）**：点击热区仍是整条 `@id/top`（`setTopbarExit()`），与全仓 44 个页面一致，没有为箭头单独开 48dp 热区；compound drawable 不产生独立无障碍节点，读屏读到的仍是 `pageName` 的标题文本（与其余 43 页一致），因此本次没有新增 `strings.xml` 条目。
+  - **守卫**：新增 `app/src/test/java/com/RobinNotBad/BiliClient/ui/TopbarBackArrowTest.kt`（纯 JVM 解析 `src/main/res/layout/*.xml`）：①非白名单布局的 `@id/pageName` 必须带 `app:drawableStartCompat="@drawable/arrow_back"`，报错里给出修法；②白名单那 6 份菜单级布局必须仍然存在（防改名后守卫静默失效）；③扫到的带箭头布局必须 >30 份（防断言空转）。
+  - **L0（26.11.16 本机实测）**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest --no-parallel --max-workers=2` → BUILD SUCCESSFUL（2m44s），`testStandardDebugUnitTest` **231 套件 / 2495 用例 / 0 失败 / 0 错误 / 0 跳过**，`TopbarBackArrowTest` 3 个用例全过；两个 flavor 各四个 ABI 的 debug APK 全部产出。
+  - **L1（26.11.16 模拟器实测，466×466 圆屏 AVD `rebili_watch466` + `app-standard-universal-debug.apk`）**：同一份包、圆屏偏好（`player_ui_round=true`、`paddingH_percent=5`、`paddingV_percent=3`）下，走**同一套** `app:drawableStartCompat="@drawable/arrow_back"` 的页面顶栏正常出箭头：`SetupUIActivity` 的 `@id/pageName` bounds `[140,28][326,70]`、`ShowTextActivity`「关于反馈的一些说明」的 `[91,41][375,83]`——标题居中、箭头贴在标题左侧，没有顶到 466 圆屏边缘，也没和 `@id/timeText` 抢位置。**但没能在本轮直接打开 `FeedbackActivity` 取证**：该页不是 exported，playstore 系统镜像没有 adb root，`run-as … am start` 被 `SecurityException: package=com.android.shell does not belong to uid=` 拦下，只剩 UI 导航一条路，而 debug 包首启被「更新日志 → 公告 → 教程 → 免责声明」串行弹窗反复占屏（`setup=true`、`last_version`、`tutorial_ver_*` 都补上仍清不完），两轮 L1 预算内没走到那一页。
+  - **未验证（L2）**：真机上 `FeedbackActivity` 的箭头与点击返回，详见 §2.1「26.11.16 反馈页返回箭头真机未验」。
+
+- **26.11.16 反馈 #172 打开「圆屏列表」时自动打开「圆屏适配」（用户原话「圆屏列表开了感觉和没开一样」）**：
+  - **来路**：控制台反馈 #172。用户拍板的修法：开圆屏列表时自动开圆屏适配；反向不联动，关圆屏列表不回退圆屏适配。
+  - **根因（复核确认）**：`ui/appearance/RoundListEffect.kt:37-39` 的 `isEnabled()` 要求 `ui_round_list_effect` 与 `player_ui_round` **同时为真**，而两个开关分处「实验室 → 圆屏列表」（`activity/settings/SettingGroupActivity.kt:914`，改前没有 `onChange`）与「布局适配 → 圆屏适配」（同文件 `:365`）两页，**改前没有任何联动**——只开前者时效果恒不生效。grep 全仓 17 处读写点确认没有第三条隐藏前置条件、也没有既有联动；`RoundListEffect.install()` 在 `BaseActivity.kt:209` 是无条件调用、内部只被 `isEnabled()` 拦住，根因成立。
+  - **次因（同样让人觉得「没变化」）**：`RoundInsets.compute` 只按「界面边距」百分比算留白，圆屏分支仅多让出底部 3%（`ROUND_EXTRA_BOTTOM_RATIO = 0.03f`）——所以「圆屏适配」开关的 onChange 一直带着 `paddingH_percent=5` / `paddingV_percent=3` 这组副作用。联动只写 `player_ui_round` 一条 bool 的话，用户依旧看不出变化。
+  - **改法**：新增纯策略 `ui/appearance/RoundListSwitchPolicy.kt`（`roundModeAfter(roundMode, roundListEnabled)` / `turnsOnRoundMode(roundMode, roundListEnabled)`，4 例单测覆盖两开关四种组合）；`SettingGroupActivity` 把圆屏适配的全部副作用抽成私有 `applyRoundMode(enabled)`（bool + 两组边距），圆屏适配开关与新增的 `onRoundListToggled(enabled)` 共用同一份写法；「实验室 → 圆屏列表」接上 `onChange`，只在「勾上、且圆屏适配当前是关着的」时写盘并提示「已同时打开圆屏适配，重新进入页面生效」。
+  - **取舍**：①**反向不联动**——关圆屏适配不连带关圆屏列表（效果随之失效，与改前一致），关圆屏列表也不回退圆屏适配（避免把用户本来就想要的圆屏排版一起关掉），两条都按用户拍板；②**方屏设备也会顺手打开圆屏适配**（多 5% / 3% 边距 + 底部 3%），没加机型判断——本项本来就只在圆屏上有意义，若认为方屏副作用不可接受，给 `onRoundListToggled` 前面加一层 `ScreenMetrics` 圆屏判定即可；③两个开关分处两页，本页没有第二行需要同步刷新，所以不调 `refresh()`（也就避开设置搜索进页后的 highlight / position 漂移）。
+  - **文案**：`desc_ui_round_list_effect` 补「开启本项会同时打开圆屏适配…关掉本项不会替你把它关回去」；新增 `msg_round_list_enable_round_mode`；设置搜索用的 `desc_setting_index_round_list` 同步补「（开启时自动打开圆屏适配）」；`docs/FEATURES.md` 功能开关那行一并改口径。
+  - **L0（26.11.16 本机实测）**：`:app:testStandardDebugUnitTest` → **BUILD SUCCESSFUL，231 套件 / 2496 用例 / 0 失败 / 0 错误 / 0 跳过**（新增 `RoundListSwitchPolicyTest` 4 例全过）；`:app:assembleDebug` → **BUILD SUCCESSFUL**，双 flavor 各 4 个 ABI 包（standard / coexist 的 arm64-v8a、armeabi-v7a、x86、universal）。注：首次把 `assembleDebug` 与单测并进同一条命令跑时两个 flavor 并行编译 OOM（`Not enough memory to run compilation`），当时本机另有多路会话在跑构建，按 `docs/agents/build.md` 的解法改跑 `--no-parallel --max-workers=1 -Pkotlin.daemon.jvmargs=-Xmx3072m` 后绿。
+  - **未验证（L1/L2）**：①圆屏手表上勾上「圆屏列表」后是否立刻把圆屏适配一并打开（`shared_prefs` 里 `ui_round_list_effect` 与 `player_ui_round` 同为 true、两组边距为 5 / 3）并弹出提示；②圆屏适配已开时再勾圆屏列表不应重复弹提示；③重进列表页滚动是否真的出现曲率缩放（效果本身的观感见 §2.1「圆屏列表效果真表未验证」）；④方屏设备上的副作用是否可接受（多出 5% / 3% 边距）。本机有 `rebili_watch466` AVD，本轮有多路会话同时在用设备，未占用。
 
 - **26.11.15 私信正文复用评论区的链接识别（用户原话「消息页面发送的消息，能否复用评论区的超链接蓝色显示呢」）**：
   - **来路**：用户直接提的功能请求。
@@ -656,6 +683,14 @@
 
 - **同一类阴影暗边的第二处：关注页列表项去掉 2dp 抬高（26.11.10，排查反馈 #17 时同案发现）**：`cell_user_list.xml`（关注 / 粉丝列表，另被搜索用户页 `SearchUserFragment`、充电鸣谢 `SponsorActivity` 复用）原写 `android:elevation="2dp"`，`cell_follow_group.xml`（关注分组标题行）原写 `app:cardElevation="2dp"` —— 全 App 只有关注页给列表项抬高（其它列表项一律 0），而 `cell_user_list` 又是全仓唯一手绘不透明卡底的列表项（`@drawable/bg_card_rounded` 是 `solid @color/card_dark` + 12dp 圆角，**没有 stroke**，全库仅它一个使用者），阴影沿卡片轮廓投在自定义背景的照片上就是一圈暗边；卡色随主题变（`card_dark` 暗色 `#2A2A35` / 亮色 `#FFFEF7F1`），所以「边框颜色随主题」也有对应物。**这与 `2026-11-09` 那条不是同一个落点**：那条改的是动态页顶部头像条的 `cell_up_avatar`，本条是关注页两处列表项；`GlassStyle.kt:146-154` 的既有注释（「elevation 一并置 0：半透明底下的阴影会从下面透出来形成沿轮廓一圈的脏边」）已写明同一约定，只是默认分支没压。改法：两处抬高归 0，卡色 / 圆角 / 内容 / 点击一律不动（`clipToOutline` 与 `outlineProvider="background"` 保留，裁圆角不依赖 elevation）。L0（26.11.10 本机实测，head `8b43d494` + 本改动）：`:app:assembleDebug` BUILD SUCCESSFUL、`:app:testStandardDebugUnitTest` **210 suites / 2259 tests / 0 失败 0 错误**。**未验证**：真机看画面（L2，依据是画面），步骤见 `docs/review/manual-test-guide-261109-avatar-shadow.md` 的 H06。
 
+- **26.11.14 三条反馈落地（缓存页底部栏常驻 / 订阅长按取消点不动 / 硬币流水打赏显示 0）**：口径、三条人工验收项与前置条件见 [`handoff-261114-cache-bar-subscribe-coin.md`](handoff-261114-cache-bar-subscribe-coin.md)。**分支已 rebase 到上游最新 `main`（`07faad5e`），只留 2 个代码提交 + 本提交**：其中「订阅取消」那条上游 26.11.13 已自行修好（见下），本分支不再重复改。
+  - **缓存页「多选 / 排序 / 搜索」一排太占底下空间**（用户报「这一常驻栏太占底下的空间，请把它改成随下面页面的」）：它在 `activity_simple_main_refresh.xml` 里是 `SwipeRefreshLayout` 的**兄弟节点**、不在列表里（该布局 5 个一级页共用，但只有 `LocalListActivity` 会 findViewById 这一排），所以不会跟着列表滚。现按滚动把它收走：判据直接复用顶部工具条那套纯函数 `util/view/ScrollRetractDecider`（累计过 12px 阈值才动、**只有滚到顶了才展**——高度一变就把列表内容顶走会跟手指打架），新增 `handleSelectionBarScroll` / `animateSelectionBar`（180ms，单条）/ `expandSelectionBarNow`（幂等还原，负责把「收回时压成 0 的高度」掰回去）；**多选 / 排序态不参与收回**（用户正在用这一排）。`RefreshListActivity` 一行没动（两个列表基类没有继承关系，`LocalListActivity` 继承 `InstanceActivity`）；它文档里原先特意写明「多选条不收（正选着视频呢）」，这次按用户点名的新口径反过来。
+  - **订阅页长按订阅合集 → 点「确定」没反应、弹窗不关**（用户选的是「弹窗根本没关，点确定像没点到」这个分支）：**不是网络问题**（`SubscriptionApi` 一行没动），根因就在弹窗按钮的命中区。这条**上游 26.11.13 已用更强的构造性修法解决**：`layout_dialog_terminal.xml` 的 `terminal_dialog_buttons` 由横排改竖排、**每个按钮独占一整行**（`MATCH_PARENT` + `Gravity.CENTER`），整块按钮区固定放在滚动区之外，`Sheet` 的构造参数 `bottomButtonBar` 因此被删掉（见本文件 §1 上方 26.11.13 那条、`docs/specs/feedback-261111.md:204`）；旧横排下每个按钮只占按钮行右端、左 144px / 右 30px 是死区，OEM 输入层一偏就「点左执行右」，正好是「点确定像没点到」。本分支最初按「按钮行被长正文顶到滚动区下方」的假设改过 `Sheet(context, title, bottomButtonBar = true)`，rebase 到最新 `main` 后该参数已不存在、按钮本来就在滚动区外，**这一处改动已整个删除**（删掉后 `:app:compileCoexistDebugKotlin` 才过），只留一条 L2 验收项（H02）顺手复核。
+  - **硬币变化记录里给视频打赏显示 0**：`x/member/web/coin/log` 的 `delta` 是 **num**，老的 `item.getInt("delta")` + `int delta` 把小数**截断**成 0（文档样本里打赏既有 `-1` 也有 `0.1` / `0.2`）。解析放宽到 `getDouble` / `double`，显示抽成纯函数 `util/CoinLogDelta.kt`（配 `CoinLogDeltaTest`）：整数照旧（`+1` / `-1` / `0`）、正的小数原样（`+0.1`）、**负的小数按 0.1 硬币为单位还原**（`-0.1` → `-1`、`-0.2` → `-2`；硬币只有整数枚，扣 0.1 枚不存在），全程 `BigDecimal`。接口口径与推断记入 `docs/bilibili-api-notes.md` **§18**（rebase 到上游最新 `main` 后，上游已占用 §16 / §17）。
+  - **两处上游 `main` 构建断链最终由上游自行修好**（同步到最新 `main` 时本机曾编不过，都不是本次改动引起）：①`5ccb7973` 的 `activity_simple_refresh.xml` 引用 `@string/btn_select_all` 而 `strings.xml` 未定义（曾按上游另一分支的 `6b0da752` `cherry-pick -x` 补「全选」）；②`6501c3f4` 把「顶栏高度」的 `input(...)` 整块插进 `switch(` 与它的参数之间 ⇒ `SettingGroupActivity.kt:368 Unresolved reference 'getString'`（曾按 `ecd6141d` `cherry-pick -x`）。**rebase 到 `07faad5e` 后这两处上游都已存在**（`strings.xml` 已有 `btn_select_all`，`SettingGroupActivity.kt` 已重构成分组入口写法），故本分支把这两个 `cherry-pick` 全部去掉，不留重复提交。
+  - **L0（26.11.16 本机实测，rebase 到上游 `07faad5e` 之后）**：`:app:clean` + `:app:assembleDebug` + `:app:testStandardDebugUnitTest` + `:app:testCoexistDebugUnitTest` + `:app:verifyVersionConsistency` + `:app:assembleRelease` 全部 BUILD SUCCESSFUL（11m 50s，8 个 release 包齐全）；两 flavor 单测各 **231 suites / 2499 tests / 0 失败 0 错误**（含新增 `CoinLogDeltaTest`）。本机并发编译会 OOM（`Not enough memory to run compilation`），这轮用 `--max-workers=1` 跑通，没改 `gradle.properties`。**中途踩坑**：`TerminalDialog.kt:172 No parameter with name 'bottomButtonBar'`——本分支那个 `bottomButtonBar` 改动和上游「删掉该参数」撞车（见上），删掉该改动即通。
+  - **未验证（L2，已出交接单）**：①底部条收放的**手感**（收得太急 / 展开不跟手都算不合格）；②订阅页长按「确定」在**上游新按钮布局**（每键独占一行）下是否真能点到、弹窗正常关闭——该条上游已修，本包只是顺手复核；③硬币流水那笔打赏显示的数字是否与官方一致（「0.1 硬币为单位」是**推断**，该接口要登录态且只能查最近一周，对照后若有出入只改 `CoinLogDelta` 一处）。
+
 ## 2. 未完成待办
 
 ### 2.1 真机未验证（无设备 / 无登录态）
@@ -666,6 +701,8 @@
 > **26.11.11 消息页「私信列表」玻璃质感的验收步骤与判据见 [`handoff-261111-private-msg-glass.md`](handoff-261111-private-msg-glass.md)（H22~H24）。**
 > **26.11.11 播放器底部按钮行「新加按钮与同行不一致」的验收步骤与判据见 [`manual-test-guide-261111-player-slot-icon.md`](manual-test-guide-261111-player-slot-icon.md)（H25~H26）。**
 > **26.11.11 自动跳过广告片段（SponsorBlock）的验收步骤与判据见 [`manual-test-guide-261111-sponsorblock.md`](manual-test-guide-261111-sponsorblock.md)（S01~S06）。**
+
+- [ ] **26.11.16 反馈页（#174）顶栏返回箭头真机未验（L2，只能看画面）**：L0 已过（231 套件 / 2495 用例全绿 + 双 flavor `assembleDebug`）；L1 在 466×466 圆屏 AVD 上只验到「同一套 `drawableStartCompat` 写法在圆屏下正常出箭头、标题不被压、不贴圆边」，`FeedbackActivity` 本身没能在模拟器里打开（非 exported + 无 adb root + 首启弹窗串行占屏，见 §1 该条）。需确认：①设置 → 关于与帮助 → 反馈与统计 →「反馈与建议」，进页后标题左侧有 `<` 箭头，标题不被箭头压住，右上角时间仍在；②点箭头（或顶栏任意处）能返回上一页，与右滑返回同一效果；③把「圆屏适配」打开、以及把「顶栏高度」调成非默认值，两种情况下箭头都还在，且不贴到屏幕圆边；④「我的反馈」（列表页）与反馈详情页左上角也有箭头（这两页布局本来就有箭头，本轮只做静态覆盖）；⑤亮色主题下箭头颜色与标题一致、看得见。顺带请人判观感：图标大小、与标题的间距。
 
 - [ ] **26.11.11 自动跳过广告片段（SponsorBlock）真机未验（L2，只能看画面 / 判手感，且要设备能出网）**：L0 已过（两套单测 26 例全绿 + 整包 `assembleDebug` 通过）。需确认：①档位「关闭」下播任一视频全程无请求、无提示；设置搜索能搜到「自动跳过」组与两项设置；②档位「仅恰饭广告」下 `BV1KLgkzzEb1` 播到 5:17 自动跳到 6:27、提示「已跳过广告」、点「撤回」回到 5:17 且不会被立刻弹走、同一段只跳一次、跳完弹幕不是空白；③档位「推荐」下 `BV11Kc2zZEDK` 开头 0~21 秒被跳过且文案是「已跳过片头」（类别名必须是中文）；④档位「全部类别」下 `BV1Pb3uzyEmT` 的相邻重叠标注不会连跳 / 乱跳；⑤番剧、直播、本地视频一律不查不跳；⑥断网时静默降级（不弹错），恢复网络后一分钟内自愈；⑦换 P / 换集后上一集片段不串到新一集；⑧从历史 / 缓存入口进播放时广告照跳、且高能进度条曲线能显示（顺带修的老问题）；⑨「自动跳过」组里点「要跳的类别」，列表**没有**「精彩时刻」，勾一类返回后档位自动变「自定义」，回播放页该类别照跳、取消勾选后不再跳。步骤见 [`manual-test-guide-261111-sponsorblock.md`](manual-test-guide-261111-sponsorblock.md)（S01~S06）。
 
@@ -737,7 +774,7 @@
 
 - [ ] **媒体控件「音乐播放」归类（§3.90）真表未验证**：本机模拟器不可用，会话↔通知配对只有代码级推演。真机用例：开启「系统媒体控件」后播放视频，系统媒体卡片应显示为音乐播放类型且标题正确；切 P / 换清晰度后标题跟随；退出播放页通知消失、不残留僵尸卡片；同时挂着下载任务时控件仍应标「音乐播放」（不再标「下载」）。
 
-- [ ] **「圆屏列表」效果（§3.91）真表未验证**：视觉手感（0.50 缩放下限、0.85 系数的 t³ 淡出）是按代码定的参数。真机用例：圆屏模式下开启后各列表页滚动，条目应边缘变小变透明、中央正常；滑动流畅无卡顿（滚动回调零分配）；横向翻页（短视频 / 搜索）与文章、大图不应缩放；关闭开关重进页面恢复原样。
+- [ ] **「圆屏列表」效果（§3.93）真表未验证**：视觉手感（0.50 缩放下限、0.85 系数的 t³ 淡出）是按代码定的参数。真机用例：圆屏模式下开启后各列表页滚动，条目应边缘变小变透明、中央正常；滑动流畅无卡顿（滚动回调零分配）；横向翻页（短视频 / 搜索）与文章、大图不应缩放；关闭开关重进页面恢复原样。**26.11.16 起勾上「圆屏列表」会自动打开圆屏适配（反馈 #172，见 §1）**，验证时不必再手工开；顺带看一眼方屏设备上这层副作用（多出 5% / 3% 边距）能不能接受。
 
 - [ ] **图片保存改造（对比审计 §3.3 P2-2，第二批）真机未验证**：Android 10+ 默认目录改为应用专属、下载完成经 MediaStore 发布进 `Pictures/哔哩终端/`。用例：看图页下载图片 → 相册可见、无 0 字节残留；再下载同一张覆盖不产生两份；自定义公共目录时行为不变；API 28 及以下仍落公共 Pictures。日志判据 `adb logcat -s PictureMediaStore`。
 - [ ] **直播弹幕 wss 校验（§3.3 P2-6）真机未验证**：正常直播间能连、能收弹幕；`host_list` 缺失/异常时应提示而不是继续裸连；握手 Cookie 只剩 `SESSDATA` 后，需确认长连接鉴权仍成功。
@@ -2520,6 +2557,57 @@
 - **验证 · L0（26.11.15 23:22）**：`.\gradlew.bat :app:testStandardDebugUnitTest :app:assembleDebug --console=plain` → **BUILD SUCCESSFUL in 2m 41s**（128 tasks: 17 executed / 111 up-to-date），standard 与 coexist 两个 flavor 的 `assembleDebug` 均出包；`app/build/test-results/testStandardDebugUnitTest/TEST-com.RobinNotBad.BiliClient.util.AccountManagerTest.xml` 记 **tests=26 / failures=0 / errors=0**，三个新用例 `exportCurrentAccount_notLoggedIn_returnsEmptyString`、`exportCurrentAccount_isExactlyThreeFieldSingleAccountJson`、`exportCurrentAccount_onlyExportsCurrentAccount` 全部执行且通过（同文件原有的 3 个 `exportAllAccounts_*` 用例仍在跑，说明多账号信封侧没被带坏）。
   - **踩过的坑（不是代码问题）**：①构建前 `Unresolved reference 'text_account_export_all'` 是因为三条新字符串被连同别的会话 WIP 一起 `git stash` 走了，字符串回来后自愈；②同工作区两个会话并发跑 gradle 会争同一个 `app/build/intermediates/…/R.jar`（报「另一个程序正在使用此文件」）并让 Kotlin daemon `Java heap space`，**必须串行构建**。见 `docs/agents/build.md`「同工作区并发构建」。
 - **未验证（人测 / L2）**：真手表上「账号切换页底部多出一行、点进去能看到整份 JSON、复制粘贴到另一台设备能导入全部账号」这一整条链路。
+
+### 3.159 开屏「图标 + 文字」整体垂直居中 + 开屏图标被主题纯色盖掉（26.11.16，控制台 #173）
+
+- **用户口径**（paraphrased）：「开屏文字能不能上下居中？」+「我没图标啊」（控制台 #173，26.11.16 09:33，HUAWEI Simba-AL00 / SDK 27 / 版本 26.11.16）。两个现象同源。
+- **根因（已核实，勿再当"猜测"）**：`activity/SplashActivity.kt` 的 `onCreate` 是 `applyTheme()` → `setContentView()`，而 `applyTheme()` 走的是 `ui/appearance/ColorScheme.applyWindowTheme`，默认路径在 `ui/appearance/ColorScheme.kt:744` 用 `window.setBackgroundDrawable(ColorDrawable(BACKGROUND))` + `rootView?.setBackgroundColor(BACKGROUND)` 把窗口背景整个换成纯主题色。开屏原本唯一的画面就是 `drawable/splash_text.xml` 这个 `layer-list`（黑底 + 128dp 图标），窗口背景一被覆盖，**图标就整个看不见了**；只剩布局里那个 `TextView`。而那个 `TextView` 用的是 `gravity="center_horizontal|bottom"` + `paddingBottom="96dp"`，是「贴底」，不是居中——按 233dp 屏几何算，文字底边其实一直压在图标下缘上（图标不可见才没人发现）。
+- **改法**（4 个文件，均未触碰 `ColorScheme.applyWindowTheme` 的全局行为，也没改 7 套 `*.Splash` style 的引用名）：
+  1. `res/layout/activity_splash.xml` 重写成「整组居中」：根 `ScrollView`（`fillViewport="true"`，`scrollbars="none"`）→ `LinearLayout`（`orientation="vertical"`、`gravity="center"`、左右 `padding=16dp`）→ `ImageView @id/splashIcon`（`@mipmap/icon`，128dp，`scaleType="fitCenter"`，**`contentDescription="@null"` + `importantForAccessibility="no"`**，装饰图必须这么写，否则 `ui/a11y/LayoutAccessibilityTest` 那条会红）+ `TextView @id/splashText`（`match_parent` 宽、`gravity="center_horizontal"`、`layout_marginTop="20dp"`）。用 `ScrollView` 而不是纯 `LinearLayout` 是为了**极端情形（多行 + 大字体）整组比屏幕还高时退化成可滚动**，而不是被上下切掉；`fillViewport` 保证内容不足一屏时子 View 撑满、`gravity="center"` 才生效。
+  2. `res/drawable/splash_text.xml` **只留 `@color/terminal_bgblack` 底色，撤掉图标 item**——`layer-list` 里的图标在屏幕正中，布局里的图标是「整组居中」因此比正中高约 26dp，这个偏移量随用户自定义行数/字体大小变，写不出一个恒定值；留着图标首帧就会上跳一次。底色连续（都是 `terminal_bgblack`），没有闪白/闪黑。
+  3. `activity/SplashActivity.kt` 新增 `reserveTypewriterHeight()`（在 `startTypewriter()` 之前调用）：按**最终**行数 `splashText.lines().size` 用 `minHeight` 把文字区高度先定住（`lineHeight * lineCount` 再补 `includeFontPadding` 的上下留白，实测两行差 13px）。否则打字机从 1 行长到 N 行，整组居中会让图标每多一行往上挪半行。
+  4. `res/values/dimens.xml` 新增 `splash_icon_size="128dp"`、`splash_icon_text_gap="20dp"`。
+- **刻意没做**：①不改 `ColorScheme.applyWindowTheme`（它是全 App 的窗口底色策略，动它牵连所有页面）；②不在 `values-notnight` 另做一套（图标与文字都吃主题，无硬编码色）；③不新增用户可见文案（布局里仍是 `@string/pagename_splash` 占位，运行时被打字机覆盖）。
+- **验证 · L0（26.11.16 11:0x）**：`.\gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest --console=plain --max-workers=2 "-Dkotlin.daemon.jvmargs=-Xmx4096m -XX:+UseG1GC"` → **BUILD SUCCESSFUL in 4m 48s**，`app/build/outputs/apk/{standard,coexist}/debug/` 四个 ABI 包齐全（standard-universal ≈20MB）；`testStandardDebugUnitTest` 共 230 个 XML、**tests=2492 / failures=0 / errors=0 / skipped=0**。默认参数下两 flavor 并行 Kotlin 编译会 OOM（`Not enough memory to run compilation` → `Java heap space`），必须限 `--max-workers=2` 并抬 daemon 堆。
+- **验证 · L1（emulator-5554，AVD `rebili_watch466`，Android 17 / API 37，`wm size 466x466` + density 320 = 233dp 屏）**：闪屏停留太短（`proceedSplashFlow` 成功即 `finish()`），临时在 `proceedSplashFlow()` 的 `CenterThreadPool.run` 里加了一段读 `debug_hold_splash_ms` 的 `Thread.sleep` 把闪屏按住，dump 完已删除（提交前 `git diff` 复查过没有 `TEMP-173` 残留）。
+  - 默认两行文字（`欢迎使用\nRE:哔哩终端`）：`splashIcon` = `[105,47][361,303]`（256px = 128dp，左右留白各 105px 对称）、`splashText` = `[32,343][434,418]`。组顶 47px / 组底 466−418=48px，**垂直居中误差 1px（像素取整）**；图标→文字间距 40px = 20dp；文字底 418 < 466 未被裁；**控件树里图标存在 = 不再被主题纯色盖住**。
+  - `settings put system font_scale 1.3` + 4 行自定义文字：`splashIcon` = `[105,0][361,256]`、`splashText` = `[32,296][434,>466]`，`ScrollView` `scrollable="true"` —— 整组高于一屏时按设计退化成可滚动，图标不被压扁、文字不被横向裁。
+  - 截图：`screenshot-emulator-5554-33.png`（466×466，图标 + 两行文字整组居中）。
+- **未验证（人测 / L2）**：①真手表（尤其圆屏机）上的观感——圆屏边缘是否切到图标四角只有几何推算（居中后图标上缘落在 47px 处，圆屏最上缘弦长仍 > 128dp），没在圆屏真机上跑过；②20dp 图标-文字间距、`fitCenter` 留白是否"看起来"居中（主观）；③用户换成极长单行文字（自动折行超出预留高度）时的那一点残余位移。
+
+### 3.160 播放器「显示方式」恒不生效：写布尔 / 读字符串撞类型保险丝（26.11.16，QQ 群反馈「播放器设置失效」）
+
+- **用户口径**（QQ 群 FitBOY，LV2 青铜，26.11.16 10:34）：「播放器设置失效」「不管咋设置，所以播放器设置都不生效」；群主追问「所有的吗」→「对」「都恢复默认了」。**没有机型、没有版本号、没说具体哪几项**。
+- **根因（模拟器上已复现）**：`player_display` 这一行在设置页是 `choose`（`adapter/SettingsAdapter.kt` 的 `ChooseHolder` 走 `putBoolean`），而播放器自 `fd67e1eb` 起按**字符串**读（`activity/player/PlayerActivity.kt:4376`、`:4486` 的 `getString(PLAYER_DISPLAY, "")`）。同一个键两种类型 → `util/SharedPreferencesUtil.java` 的 `catch (ClassCastException) → return def` 保险丝把异常吞掉并返回 `""` → `PlayerDisplayModePolicy.useTextureView("")` 回落 `sdkInt < 26` 的默认值。**`fd67e1eb` 只改了读侧、写侧仍是布尔，属于半个修复**，用户点什么都白点。
+  - 取证（`emulator-5554` / AVD `rebili_watch37` / Android 17，调试桥直连 `SharedPreferencesUtil.sharedPreferences`）：`cmd set --es key player_display --es value false --es type bool` 后 `cmd get --es key player_display --es type string` → `ERR: ClassCastException: java.lang.Boolean cannot be cast to java.lang.String`；同键按 `bool` 读才拿得到值。
+- **方向相反的第二个坑**：这一行的 `defaultValue` 传的是 `PlayerDisplayModePolicy.defaultFor(SDK_INT)`（`"TextureView"`），而 `ChooseHolder` 拿 `defaultValue.toBoolean()` 决定单选钮位置 → `"TextureView".toBoolean() == false` → sdk < 26 的设备上设置页显示「表面视图」、播放器实际按 TextureView 建控件，**显示与实际相反**。
+- **改法**：
+  1. `player/PlayerSettingsGroups.kt` 的 `decode()` 里这一行由 `SettingSection("choose", …)` 改成 `listChoose(...)`（`actualValues = ["TextureView", "SurfaceView"]`，默认值仍取 `PlayerDisplayModePolicy.defaultFor(SDK_INT)`）→ 写入走 `putString`，与播放器读取口径统一。代码里留了注释说明「必须是 list_choose，否则又是布尔撞字符串」。
+  2. `res/values/strings.xml` 新增选项文案 `setting_player_display_option_texture`（纹理视图（兼容性最好））与 `setting_player_display_option_surface`（表面视图（更省电））。
+  3. `player/PlayerDisplayModePolicy.kt` 新增纯函数 `migrateLegacy(raw: Any?): String?`：布尔 / 历史 `"true"` / `"false"` → 规范串，认不出来（规范串、null、别的类型）返回 null，保证重复迁移幂等；同时改掉 KDoc 里「设置页按字符串写入」这句错误描述。
+  4. `BiliTerminal.onCreate` 的 `context == null` 块内（`TutorialStore.migrateLegacyKeys()` 之后）做一次性迁移：老用户存的是布尔，启动时改成规范字符串；Debug 包额外打一行 `Logu.d("BiliTerminal", …)` 记录「原类型 → 迁移结果」，下次现场可以直接看日志。
+  5. `adapter/SettingsAdapter.kt` 的 `ChooseHolder.bind` 补 `chocola.setOnCheckedChangeListener(null)` + `boundId` 守卫（`SwitchHolder` 从 26.10.18 起就有这条防御）：RecyclerView 复用时旧监听器会在 `isChecked` 赋值时触发，把**上一行**的键写成当前行的值（同类事故 26.10.18 在 `InputHolder` 上修过一次，「一路滚到底把所有行写成最后一行」）。播放器设置页的「解码方式」「音频输出」两行同属 `choose`，一并受益。
+  6. `util/SharedPreferencesUtil.java` 五个 getter 的 `catch (ClassCastException e)` 各加一行 `logTypeFuse(key, 期望类型)`：只在 `BuildConfig.DEBUG` 打，记 key / 期望类型 / 实际类型、**不记值**。这是批次七十三留下的「保险丝静默降级，必要时加日志」遗留项，本次的 `player_display` 就是它的活样本。
+- **单测**（`app/src/test/…/player/PlayerDisplayModePolicyTest.kt`，+3 例 → 共 9 例）：`旧布尔存档迁移成规范字符串`、`迁移是幂等的_规范串与认不出来的值都不动`、`迁移后播放器解析结果与用户当年的选择一致`（sdk 25 / 28 / 34 三档）。
+- **验证 · L0（26.11.16 11:25）**：`.\gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest --console=plain --no-parallel --max-workers=1` → **BUILD SUCCESSFUL**，standard 与 coexist 两个 flavor 都出包；`app/build/test-results/testStandardDebugUnitTest/TEST-com.RobinNotBad.BiliClient.player.PlayerDisplayModePolicyTest.xml` 记 **tests=9 / failures=0 / errors=0**，三个新用例全部执行且通过。
+- **验证 · L1（模拟器 emulator-5554，26.11.16 11:23）**：装 Debug 包 → 调试桥把 `player_display` 写成布尔 → `am force-stop` 后冷启动 → 调试桥按字符串读回 **`SurfaceView`**（说明迁移把它改成了字符串，播放器侧 `getString` 不再落到保险丝）；改前同一步骤读回的是 `ClassCastException`。顺手确认设置页能正常打开、`list_choose` 行（「长按倍速档位」）渲染与取值正常。
+- **未验证（人测 / L2）**：①真手表上点「显示方式」两选一之后，退出重进设置页显示是否跟着变、播放页是否真的换了控件（模拟器上因 UETool 浮层与无 OCR 后端，滚动定位到该行未能完成）；②「**所有**播放器设置都不生效 / 都恢复默认」这句**没有复现**——静态审计（扫全仓 `SettingSection` / `listChoose` 声明 91 个键，与消费方读取类型逐条比对）只发现 `player_display` 这一处类型冲突，其余播放器键（音频输出、解码方式、弹幕、缩放、9 档倍速、跳片头片尾等）写读同型；同时排除了「启动期重置」「双 prefs 文件」「`clear()` 清库」「七组重构改键名」四种会整片恢复默认的机制。**要闭环需要用户补：机型、版本号、具体哪几项失效、以及是否只发生在换过播放器内核 / 从备份恢复之后。**
+
+### 3.161 输入弹窗「只有取消、没有确定」：打字模式开后门放弃高度兜底 + 键盘高度没进预算（26.11.16，QQ 群反馈）
+
+- **用户口径**（QQ 群 CreeperMPG，LV5 青铜，26.11.16 截图）：收藏夹内搜索的输入弹窗只有「取消」，看不到「确定」；同一用户另一张图是「这个看起来也是没有确认按钮」。**没有机型、没有版本号**（截图分辨率看起来是方屏手表）。
+- **根因（两条，都在 `util/TerminalDialog.kt`）**：
+  1. `applyPlan` 里 `typingEdit != null` 就把滚动区改回 `WRAP_CONTENT`，等于把 `DialogSizing.plan` 的高度兜底整段丢掉。布局 `res/layout/layout_dialog_terminal.xml` 里按钮区是纵向布局的**最后一段**，内容一旦比可见区高，先被切掉的正是它；而 `input()` 是先 `addButton(cancelText)`、后 `addButton(confirmText)`（`TerminalDialog.kt:275-284`），所以留下的是「取消」、消失的是「确定」。26.11.13 起按钮改成整行宽纵向堆叠后，按钮区更占高，这条后门的影响面比当年更大。
+  2. 输入型弹窗会主动弹软键盘，而 appcompat 的 `AlertDialog` 是**浮动窗口**，`SOFT_INPUT_ADJUST_RESIZE` 对它不生效（`emulator-5554` / 466×466 实测：键盘弹出后 decor 仍是 `419×362`、顶端仍在 `y = 0`，键盘从 `y ≈ 160` 起把面板下半截连同按钮区一起盖住）；`DialogSizing.heightBudget()` 只按整屏高度算预算，算不出这笔账。
+- **改法**：
+  1. `applyPlan` 去掉打字模式后门：滚动区一律取 `plan.scrollHeight`（放得下时 `plan` 第 1 档本来就给 `null` → `wrap_content`，「不留白」由 plan 自己满足）。输入框行数仍由自身 `minLines = 3` / `maxLines = 6` 兜住，再多也在框内滚动。
+  2. `util/view/DialogSizing.kt` 新增纯函数 `budgetAboveIme(budget, screenHeightPx, imeBottomPx, minUsableHeightPx)`：键盘没弹（`imeBottomPx <= 0`）原样返回；否则收到屏幕可见高以内；收完比 `padding + buttonBar + minScroll` 还小就**放弃收缩**（硬收会把滚动区压成 0，输入框整个看不见，比「按钮被键盘挡着」更糟——用户收起键盘就能接着点）。
+  3. `TerminalDialog` 新增 `watchImeInsets()`：挂在 **decorView** 上读 `WindowInsetsCompat.Type.ime().bottom`（中间层的 `fitSystemWindows` 可能已经把 ime 吃掉，只有 decor 上读到的是完整值），变化时 `view.post { prepareLayout() }` 重排；`prepareLayout` 把 ime 高度交给 `budgetAboveIme`。API < 30 时 ime 恒 0，行为与改动前一致。
+  4. 调试信息补 `ime=` 与 `scroll=`（实际高度 / 布局参数），现场能区分「面板根本没缩」和「预算算错了」。
+- **单测**（`app/src/test/…/util/view/DialogSizingTest.kt`）：新增「收到键盘上沿后整块面板恰好填满预算」等 `budgetAboveIme` 用例，该类 23 例全绿。
+- **验证 · L0（26.11.16 11:50）**：`:app:assembleStandardDebug :app:testStandardDebugUnitTest` → **BUILD SUCCESSFUL**；standard 变体全量 **2746 例 / 失败 0 / 跳过 0**（比合并前多出的 4 例即本次新增的 `budgetAboveIme` 用例）。
+- **验证 · L1（模拟器，未完成）**：Debug 包在 `emulator-5554` 上装好后卡在首启引导/设置流程，没走到「收藏夹内搜索」那一步；`DialogSizing` 的尺寸结论目前只有单测与几何推算支撑。
+- **未验证（人测 / L2）**：①真手表（466×466 与小方屏）上打开收藏夹内搜索，键盘弹起后「确定」是否可见可点、面板是否留白；②圆屏机上按钮区是否仍被键盘挡住；③**API < 30 的设备只有第 1 条修法生效**（拿不到 ime 高度），要真机确认是否仍有遮挡。
 
 ## 4. 历史章节索引
 

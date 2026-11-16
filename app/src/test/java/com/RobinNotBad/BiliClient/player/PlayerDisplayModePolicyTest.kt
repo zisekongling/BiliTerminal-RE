@@ -63,4 +63,36 @@ class PlayerDisplayModePolicyTest {
             )
         }
     }
+
+    @Test
+    fun 旧布尔存档迁移成规范字符串() {
+        // 老用户的存档是 Boolean：设置页那行当时是 choose（putBoolean），true = 选中第一个选项
+        assertEquals(PlayerDisplayModePolicy.TEXTURE_VIEW, PlayerDisplayModePolicy.migrateLegacy(true))
+        assertEquals(PlayerDisplayModePolicy.SURFACE_VIEW, PlayerDisplayModePolicy.migrateLegacy(false))
+        // 历史遗留的布尔字符串同样要收口
+        assertEquals(PlayerDisplayModePolicy.TEXTURE_VIEW, PlayerDisplayModePolicy.migrateLegacy("true"))
+        assertEquals(PlayerDisplayModePolicy.SURFACE_VIEW, PlayerDisplayModePolicy.migrateLegacy(" false "))
+    }
+
+    @Test
+    fun 迁移是幂等的_规范串与认不出来的值都不动() {
+        // 已经是规范串：返回 null，调用方据此不写盘，重复迁移不会反复改写
+        assertEquals(null, PlayerDisplayModePolicy.migrateLegacy(PlayerDisplayModePolicy.TEXTURE_VIEW))
+        assertEquals(null, PlayerDisplayModePolicy.migrateLegacy(PlayerDisplayModePolicy.SURFACE_VIEW))
+        // 键不存在 / 别的类型（早期误写成 Int 之类）/ 垃圾串：都不动，交给解析函数回落默认
+        assertEquals(null, PlayerDisplayModePolicy.migrateLegacy(null))
+        assertEquals(null, PlayerDisplayModePolicy.migrateLegacy(1))
+        assertEquals(null, PlayerDisplayModePolicy.migrateLegacy("???"))
+    }
+
+    @Test
+    fun 迁移后播放器解析结果与用户当年的选择一致() {
+        // 迁移的目的是「别把用户选过的值丢掉」：迁移结果喂回解析函数必须还原当年的语义
+        for (sdk in intArrayOf(25, 28, 34)) {
+            val migrated = PlayerDisplayModePolicy.migrateLegacy(true)
+            assertTrue(PlayerDisplayModePolicy.useTextureView(migrated, sdk))
+            val migratedFalse = PlayerDisplayModePolicy.migrateLegacy(false)
+            assertFalse(PlayerDisplayModePolicy.useTextureView(migratedFalse, sdk))
+        }
+    }
 }

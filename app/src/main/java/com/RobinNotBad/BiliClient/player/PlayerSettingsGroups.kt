@@ -350,13 +350,23 @@ object PlayerSettingsGroups {
         )
     )
     private fun decode(context: Context) = listOf(
-        // 默认值必须与选项、与播放器读取口径同一套字符串：这里以前写 `(sdk < 26).toString()`
-        // 得到 "true"/"false"，而播放器又按布尔读，两边都认为自己是「布尔」，结果这项设置恒不生效。
-        // 现在统一走 PlayerDisplayModePolicy（默认值、解析、回写都在那里，有单测）。
-        SettingSection("choose", context.getString(R.string.setting_player_display_mode),
-            SettingsKeys.PLAYER_DISPLAY, context.getString(R.string.desc_display),
+        // 显示方式：**必须走 list_choose（按字符串存）**。
+        // 这一行以前是 `choose`（两选一 RadioButton，写的是布尔），而播放器按字符串读
+        // （PlayerActivity 的 getString(PLAYER_DISPLAY) → PlayerDisplayModePolicy），
+        // `SharedPreferencesUtil.getString` 撞类型保险丝就静默回落 sdk 默认值——不管用户选哪项
+        // 都不生效，26.11.16「播放器设置失效」的根因之一（模拟器已复现：存档里是 Boolean，
+        // 按 string 读抛 ClassCastException）。老存档由 BiliTerminal 启动时一次性迁移。
+        listChoose(
+            context.getString(R.string.setting_player_display_mode),
+            SettingsKeys.PLAYER_DISPLAY,
+            context.getString(R.string.desc_display),
             PlayerDisplayModePolicy.defaultFor(Build.VERSION.SDK_INT),
-            arrayOf(PlayerDisplayModePolicy.TEXTURE_VIEW, PlayerDisplayModePolicy.SURFACE_VIEW)),
+            listOf(
+                context.getString(R.string.setting_player_display_option_texture),
+                context.getString(R.string.setting_player_display_option_surface)
+            ),
+            listOf(PlayerDisplayModePolicy.TEXTURE_VIEW, PlayerDisplayModePolicy.SURFACE_VIEW)
+        ),
         SettingSection("choose", context.getString(R.string.setting_player_codec),
             SettingsKeys.PLAYER_CODEC, context.getString(R.string.desc_videocodec), "true",
             arrayOf(

@@ -4,11 +4,13 @@ package com.RobinNotBad.BiliClient.player
  * 播放器「显示方式」（`SettingsKeys.PLAYER_DISPLAY`）存档的解析与回写口径（纯逻辑，便于 JVM 单测）。
  *
  * <h3>为什么需要这个兜底</h3>
- * 这个键在设置页是「选择项」（[com.RobinNotBad.BiliClient.activity.settings.SettingChooseResult]），
- * 选中后按**字符串**写入 `"TextureView"` / `"SurfaceView"`；而播放器内核这边历史上是按**布尔**
- * 读的（`SharedPreferencesUtil.getBoolean("player_display", sdk < 26)`），
- * `getBoolean` 把 `ClassCastException` 吞掉并返回默认值——于是不管用户选什么，
- * 播放器永远按 `sdk < 26` 的默认值建控件，「显示方式」这个开关从来没生效过。
+ * 这个键历史上两边各说各话：设置页那一行是 `choose`（两选一 RadioButton），写的是**布尔**；
+ * 播放器内核按**字符串**读（`getString("player_display", "")`）。`SharedPreferencesUtil.getString`
+ * 把 `ClassCastException` 吞掉并返回默认值——于是不管用户选什么，播放器永远按 `sdk < 26` 的
+ * 默认值建控件，「显示方式」这个开关从来没生效过（26.11.16 用户反馈「播放器设置失效」的根因）。
+ *
+ * 现在设置页那一行改成 `list_choose`，按**字符串**写规范取值；播放器按字符串读。历史存档里
+ * 可能还是布尔（老用户选过一次），由 [migrateLegacy] 在启动时一次性改成规范字符串。
  *
  * 这里把「原始存档字符串 → 用哪种控件」收敛成一个纯函数：既认现在的字符串取值，
  * 也认早期版本可能留下的 `"true"` / `"false"`，认不出来（空、乱码、从未设置）时回落
@@ -55,4 +57,26 @@ object PlayerDisplayModePolicy {
     @JvmStatic
     fun valueOf(useTextureView: Boolean): String =
         if (useTextureView) TEXTURE_VIEW else SURFACE_VIEW
+
+    /**
+     * 旧存档（布尔 / `"true"` / `"false"`）→ 规范字符串，供启动时一次性迁移。
+     *
+     * 老用户的存档是布尔：设置页 `choose` 行调 `putBoolean`，而布尔 `true` 表示选中了
+     * 第一个单选项，也就是「纹理视图」。不迁移的话，改版后 `getString` 只会拿到空串、
+     * 回落 sdk 默认值，用户「明明选过」的设置又丢一次。
+     *
+     * @param raw `SharedPreferences.all[PLAYER_DISPLAY]` 的原始对象
+     * @return 需要写回的规范字符串；已经是规范串（或 `null`/认不出来的类型）时返回 `null`，
+     *         调用方据此「什么都不做」，保证重复迁移是幂等的
+     */
+    @JvmStatic
+    fun migrateLegacy(raw: Any?): String? = when (raw) {
+        is Boolean -> valueOf(raw)
+        is String -> when (raw.trim().lowercase()) {
+            "true" -> TEXTURE_VIEW
+            "false" -> SURFACE_VIEW
+            else -> null
+        }
+        else -> null
+    }
 }

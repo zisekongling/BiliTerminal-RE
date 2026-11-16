@@ -74,7 +74,7 @@
     <string name="setting_lab_recyclererr_detailed">由于开发者技术稀烂（？），软件中的各种列表可能会偶尔出现报错且难以避免。\n虽然是偶尔出现，但很烦人很恶心。\n所以被逼疯的开发者把这个报错catch掉了，只留下一个“此错误无需上报”的提示框和这个用于调试的开关。</string>
     <string name="setting_lab_logv">打开此开关，将会允许输出verbose等级的log，仅对Logu生效。\n下面那两个开关同理，管的分别是debug和info等级\n*非开发者不需要看懂这段话，一般人不需要动这个开关。大量的日志输出可能会降低性能。\n——不过其实终端的代码里从一开始就是Log.e到处飞，很多地方根本没做限制（从小天才和小电视播放器学来的坏习惯），现在在逐步替换……</string>
     <string name="setting_lab_media_session">启用后可在通知栏和锁屏界面控制播放。\n仅部分设备可正常使用。</string>
-    <string name="desc_ui_round_list_effect">圆屏模式下给所有滚动列表加曲率缩放与边缘淡出：条目越靠近屏幕上下边缘越小、越透明，避免顶到圆形屏面的弧形边界。\n实验性效果，开启后重新进入页面生效。</string>
+    <string name="desc_ui_round_list_effect">圆屏模式下给所有滚动列表加曲率缩放与边缘淡出：条目越靠近屏幕上下边缘越小、越透明，避免顶到圆形屏面的弧形边界。\n开启本项会同时打开「布局适配」里的圆屏适配（它是这个效果的前置条件）；关掉本项不会替你把它关回去。\n实验性效果，开启后重新进入页面生效。</string>
     <string name="desc_dev_agent_mode">给 AI agent / 自动化脚本用的一键开关。\n打开后：日志全量输出、HTTP 请求与响应写入日志、启动时不再弹 UETool 悬浮窗。\n仅 Debug 构建有效，且只在开发者工具分组里出现。</string>
     <string name="desc_dev_log_file">把日志与 HTTP 追踪写入文件，便于脱离 adb 连接后事后取证。\n位置：应用专属外部目录的 logs/ 下。\n仅在 Agent 测试模式打开时生效。</string>
 
@@ -1073,6 +1073,7 @@
     <string name="msg_settinggroupactivity_006">已恢复系统字体</string>
     <string name="msg_settinggroupactivity_007">高性能模式已开启，列表与图片缓存会使用更高配置</string>
     <string name="msg_settinggroupactivity_008">高性能模式已关闭，改用标准配置（列表与图片缓存更省内存）</string>
+    <string name="msg_round_list_enable_round_mode">已同时打开圆屏适配，重新进入页面生效</string>
     <string name="pagename_settingprefactivity_001">偏好设置</string>
     <string name="pagename_settinginfoactivity_001">详情页设置</string>
     <string name="pagename_settingrepliesactivity_001">评论区设置</string>
@@ -3034,6 +3035,8 @@
 
     <!-- 渲染与解码 -->
     <string name="setting_player_display_mode">显示方式</string>
+    <string name="setting_player_display_option_texture">纹理视图（兼容性最好）</string>
+    <string name="setting_player_display_option_surface">表面视图（更省电）</string>
     <string name="setting_player_codec">解码方式</string>
     <string name="setting_player_option_codec_hw">硬件解码</string>
     <string name="setting_player_option_codec_sw">软件解码</string>
@@ -3080,7 +3083,7 @@
     <string name="setting_index_background_scrim">背景图遮罩强度</string>
     <string name="desc_setting_index_background_scrim">遮罩越强文字越清楚</string>
     <string name="setting_index_round_list">圆屏列表</string>
-    <string name="desc_setting_index_round_list">圆屏模式的滚动列表曲率效果</string>
+    <string name="desc_setting_index_round_list">圆屏模式的滚动列表曲率效果（开启时自动打开圆屏适配）</string>
 
     <!-- 无障碍描述（26.11.07 调研清单第 11 条）：
          全 res/layout 的 ImageView / ImageButton 要么给出可读描述，要么显式标成装饰图

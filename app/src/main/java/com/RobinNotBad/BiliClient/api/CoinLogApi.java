@@ -24,7 +24,8 @@ public class CoinLogApi {
             for (int i = 0; i < list.length(); i++) {
                 JSONObject item = list.getJSONObject(i);
                 String time = item.getString("time");
-                int delta = item.getInt("delta");
+                // delta 是 num：打赏类记录里有 0.1 / 0.2 这种小数，getInt 会截成 0
+                double delta = item.getDouble("delta");
                 String reason = item.getString("reason");
                 logs.add(new CoinLog(time, delta, reason));
             }
