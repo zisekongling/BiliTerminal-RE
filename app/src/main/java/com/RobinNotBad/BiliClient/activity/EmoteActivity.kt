@@ -263,7 +263,11 @@ class EmoteActivity : BaseActivity() {
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
             val emote = emotePackage.emotes[position]
             if (holder is Holder) {
-                Glide.with(context).asDrawable()
+                // 26.11.16 崩溃 #356：这里原本是 Glide.with(context)，context 是 requireContext() 给的
+                // Activity，面板销毁后仍被复用的行再绑一次就抛「You cannot start a load for a
+                // destroyed activity」。改走 GlideUtil.with(view)：宿主 Activity 还活着就绑它的生命周期，
+                // 已销毁 / 正在 finish 时回落 Application 级，与 UserListAdapter 同一套防护。
+                GlideUtil.with(holder.itemView).asDrawable()
                     .transition(GlideUtil.getTransitionOptions())
                     .load(GlideUtil.url(emote.url))
                     .into(holder.itemView)
