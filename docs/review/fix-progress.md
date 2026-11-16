@@ -46,6 +46,16 @@
   - **L1（26.11.16 模拟器实测，466×466 圆屏 AVD `rebili_watch466` + `app-standard-universal-debug.apk`）**：同一份包、圆屏偏好（`player_ui_round=true`、`paddingH_percent=5`、`paddingV_percent=3`）下，走**同一套** `app:drawableStartCompat="@drawable/arrow_back"` 的页面顶栏正常出箭头：`SetupUIActivity` 的 `@id/pageName` bounds `[140,28][326,70]`、`ShowTextActivity`「关于反馈的一些说明」的 `[91,41][375,83]`——标题居中、箭头贴在标题左侧，没有顶到 466 圆屏边缘，也没和 `@id/timeText` 抢位置。**但没能在本轮直接打开 `FeedbackActivity` 取证**：该页不是 exported，playstore 系统镜像没有 adb root，`run-as … am start` 被 `SecurityException: package=com.android.shell does not belong to uid=` 拦下，只剩 UI 导航一条路，而 debug 包首启被「更新日志 → 公告 → 教程 → 免责声明」串行弹窗反复占屏（`setup=true`、`last_version`、`tutorial_ver_*` 都补上仍清不完），两轮 L1 预算内没走到那一页。
   - **未验证（L2）**：真机上 `FeedbackActivity` 的箭头与点击返回，详见 §2.1「26.11.16 反馈页返回箭头真机未验」。
 
+- **26.11.16 反馈 #172 打开「圆屏列表」时自动打开「圆屏适配」（用户原话「圆屏列表开了感觉和没开一样」）**：
+  - **来路**：控制台反馈 #172。用户拍板的修法：开圆屏列表时自动开圆屏适配；反向不联动，关圆屏列表不回退圆屏适配。
+  - **根因（复核确认）**：`ui/appearance/RoundListEffect.kt:37-39` 的 `isEnabled()` 要求 `ui_round_list_effect` 与 `player_ui_round` **同时为真**，而两个开关分处「实验室 → 圆屏列表」（`activity/settings/SettingGroupActivity.kt:914`，改前没有 `onChange`）与「布局适配 → 圆屏适配」（同文件 `:365`）两页，**改前没有任何联动**——只开前者时效果恒不生效。grep 全仓 17 处读写点确认没有第三条隐藏前置条件、也没有既有联动；`RoundListEffect.install()` 在 `BaseActivity.kt:209` 是无条件调用、内部只被 `isEnabled()` 拦住，根因成立。
+  - **次因（同样让人觉得「没变化」）**：`RoundInsets.compute` 只按「界面边距」百分比算留白，圆屏分支仅多让出底部 3%（`ROUND_EXTRA_BOTTOM_RATIO = 0.03f`）——所以「圆屏适配」开关的 onChange 一直带着 `paddingH_percent=5` / `paddingV_percent=3` 这组副作用。联动只写 `player_ui_round` 一条 bool 的话，用户依旧看不出变化。
+  - **改法**：新增纯策略 `ui/appearance/RoundListSwitchPolicy.kt`（`roundModeAfter(roundMode, roundListEnabled)` / `turnsOnRoundMode(roundMode, roundListEnabled)`，4 例单测覆盖两开关四种组合）；`SettingGroupActivity` 把圆屏适配的全部副作用抽成私有 `applyRoundMode(enabled)`（bool + 两组边距），圆屏适配开关与新增的 `onRoundListToggled(enabled)` 共用同一份写法；「实验室 → 圆屏列表」接上 `onChange`，只在「勾上、且圆屏适配当前是关着的」时写盘并提示「已同时打开圆屏适配，重新进入页面生效」。
+  - **取舍**：①**反向不联动**——关圆屏适配不连带关圆屏列表（效果随之失效，与改前一致），关圆屏列表也不回退圆屏适配（避免把用户本来就想要的圆屏排版一起关掉），两条都按用户拍板；②**方屏设备也会顺手打开圆屏适配**（多 5% / 3% 边距 + 底部 3%），没加机型判断——本项本来就只在圆屏上有意义，若认为方屏副作用不可接受，给 `onRoundListToggled` 前面加一层 `ScreenMetrics` 圆屏判定即可；③两个开关分处两页，本页没有第二行需要同步刷新，所以不调 `refresh()`（也就避开设置搜索进页后的 highlight / position 漂移）。
+  - **文案**：`desc_ui_round_list_effect` 补「开启本项会同时打开圆屏适配…关掉本项不会替你把它关回去」；新增 `msg_round_list_enable_round_mode`；设置搜索用的 `desc_setting_index_round_list` 同步补「（开启时自动打开圆屏适配）」；`docs/FEATURES.md` 功能开关那行一并改口径。
+  - **L0（26.11.16 本机实测）**：`:app:testStandardDebugUnitTest` → **BUILD SUCCESSFUL，231 套件 / 2496 用例 / 0 失败 / 0 错误 / 0 跳过**（新增 `RoundListSwitchPolicyTest` 4 例全过）；`:app:assembleDebug` → **BUILD SUCCESSFUL**，双 flavor 各 4 个 ABI 包（standard / coexist 的 arm64-v8a、armeabi-v7a、x86、universal）。注：首次把 `assembleDebug` 与单测并进同一条命令跑时两个 flavor 并行编译 OOM（`Not enough memory to run compilation`），当时本机另有多路会话在跑构建，按 `docs/agents/build.md` 的解法改跑 `--no-parallel --max-workers=1 -Pkotlin.daemon.jvmargs=-Xmx3072m` 后绿。
+  - **未验证（L1/L2）**：①圆屏手表上勾上「圆屏列表」后是否立刻把圆屏适配一并打开（`shared_prefs` 里 `ui_round_list_effect` 与 `player_ui_round` 同为 true、两组边距为 5 / 3）并弹出提示；②圆屏适配已开时再勾圆屏列表不应重复弹提示；③重进列表页滚动是否真的出现曲率缩放（效果本身的观感见 §2.1「圆屏列表效果真表未验证」）；④方屏设备上的副作用是否可接受（多出 5% / 3% 边距）。本机有 `rebili_watch466` AVD，本轮有多路会话同时在用设备，未占用。
+
 - **26.11.15 私信正文复用评论区的链接识别（用户原话「消息页面发送的消息，能否复用评论区的超链接蓝色显示呢」）**：
   - **来路**：用户直接提的功能请求。
   - **改法**：`adapter/message/PrivateMsgAdapter.kt` 的 `PrivateMessage.TYPE_TEXT` 分支改走评论区同一个入口 `StringUtil.setLink(SpannableStringBuilder)`（评论区在 `model/Reply.java:174` 调的也是它）：裸链接 / `av` / `BV` / `cv` 都标记，颜色取 `ColorScheme.LINK`、点击走 `LinkClickableSpan`，整体受 `SharedPreferencesUtil.LINK_ENABLE`（偏好设置 → 功能 →「识别链接」，默认 true）管。`msg_text_content` 挂 `StringUtil.ClickableSpanTouchListener`——它自己在 ACTION_UP 里调 `onClick`，不依赖 `LinkMovementMethod`。
@@ -756,7 +766,7 @@
 
 - [ ] **媒体控件「音乐播放」归类（§3.90）真表未验证**：本机模拟器不可用，会话↔通知配对只有代码级推演。真机用例：开启「系统媒体控件」后播放视频，系统媒体卡片应显示为音乐播放类型且标题正确；切 P / 换清晰度后标题跟随；退出播放页通知消失、不残留僵尸卡片；同时挂着下载任务时控件仍应标「音乐播放」（不再标「下载」）。
 
-- [ ] **「圆屏列表」效果（§3.91）真表未验证**：视觉手感（0.50 缩放下限、0.85 系数的 t³ 淡出）是按代码定的参数。真机用例：圆屏模式下开启后各列表页滚动，条目应边缘变小变透明、中央正常；滑动流畅无卡顿（滚动回调零分配）；横向翻页（短视频 / 搜索）与文章、大图不应缩放；关闭开关重进页面恢复原样。
+- [ ] **「圆屏列表」效果（§3.93）真表未验证**：视觉手感（0.50 缩放下限、0.85 系数的 t³ 淡出）是按代码定的参数。真机用例：圆屏模式下开启后各列表页滚动，条目应边缘变小变透明、中央正常；滑动流畅无卡顿（滚动回调零分配）；横向翻页（短视频 / 搜索）与文章、大图不应缩放；关闭开关重进页面恢复原样。**26.11.16 起勾上「圆屏列表」会自动打开圆屏适配（反馈 #172，见 §1）**，验证时不必再手工开；顺带看一眼方屏设备上这层副作用（多出 5% / 3% 边距）能不能接受。
 
 - [ ] **图片保存改造（对比审计 §3.3 P2-2，第二批）真机未验证**：Android 10+ 默认目录改为应用专属、下载完成经 MediaStore 发布进 `Pictures/哔哩终端/`。用例：看图页下载图片 → 相册可见、无 0 字节残留；再下载同一张覆盖不产生两份；自定义公共目录时行为不变；API 28 及以下仍落公共 Pictures。日志判据 `adb logcat -s PictureMediaStore`。
 - [ ] **直播弹幕 wss 校验（§3.3 P2-6）真机未验证**：正常直播间能连、能收弹幕；`host_list` 缺失/异常时应提示而不是继续裸连；握手 Cookie 只剩 `SESSDATA` 后，需确认长连接鉴权仍成功。
