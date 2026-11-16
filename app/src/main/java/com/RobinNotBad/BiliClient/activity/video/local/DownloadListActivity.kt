@@ -79,6 +79,15 @@ class DownloadListActivity : RefreshListActivity() {
         setPageName(UiText.of("下载列表"))
         setRefreshing(false)
         weakRef = WeakReference(this)
+
+        // 26.11.16 崩溃 #353（OWW263 / sdk30）：本页 Timer 每 400ms 逐行 notifyItemChanged，
+        // 下载结束或增删任务时还会整表 notifyDataSetChanged；这个组合进行到一半（mState 还是
+        // 上一帧的条数）时，GapWorker 仍按旧位置预取，tryGetViewHolderForPositionByDeadline
+        // 取不到 holder 就直接抛「Inconsistency detected. Invalid item position 3(offset:3).state:4」。
+        // 它崩在 GapWorker 的预取回调里，CustomLinearManager.onLayoutChildren 的 try/catch 兜不到。
+        // 本页列表只有几行、又靠 notify 高频刷新，预取本来就没有收益，索性关掉这条路径。
+        recyclerView.layoutManager?.isItemPrefetchEnabled = false
+
         setupSelectionBar()
 
         // 添加底栏到根布局
