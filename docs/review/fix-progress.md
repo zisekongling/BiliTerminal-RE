@@ -18,6 +18,16 @@
 
 ## 1. 当前版本状态
 
+- **26.11.16 反馈页顶栏补返回箭头（后台控制台反馈 #174，用户原话「在反馈与界面左上角没有返回的箭头」）**：
+  - **来路**：控制台反馈 #174（26.11.16 09:35，HUAWEI Simba-AL00 / Android SDK 27 / 版本 26.11.16），开发者已回「不影响功能的话下个版本补上」。
+  - **根因**：全仓声明 `@id/pageName` 的布局 50 份，其中 43 份带 `app:drawableStartCompat="@drawable/arrow_back"`；缺的 7 份里 6 份是菜单级一级页（按 26.10.25 定下的规则，由 `InstanceActivity.setMenuClick()` 在运行时换成 `arrow_down`：`activity_bangumi` / `activity_message` / `activity_search` / `activity_setting_main` / `activity_simple_main_refresh` 五份是同一情况的复用），`activity_menu.xml` 是菜单根页、没有「上一级」，剩下 `activity_feedback.xml` 是**全仓唯一一个漏了箭头的返回式页面**，正是 #174 报的那一页。顶栏本身一直能点（`BaseActivity.setTopbarExit()` → `finish()`，与右滑返回同一个结束路径），只是没有可见箭头提示用户。
+  - **改法**：`app/src/main/res/layout/activity_feedback.xml` 给 `@id/pageName` 补一行 `app:drawableStartCompat="@drawable/arrow_back"`，**不改任何代码**——与其余 43 份布局同一套写法，圆屏（`setRound()`）、顶栏高度（`applyTopbarHeight()`）、暗/亮两套图标（`drawable-notnight*/arrow_back.xml`）全部由既有路径继承。**刻意没有新增 `BaseActivity.setTopbarBack()`**：那会在已带箭头的 43 个页面上出现两个箭头，并让图标变成「布局声明 + 代码注入」两套机制（`InstanceActivity.setMenuClick()` 已经在运行时改这一个 drawable 位）。
+  - **口径（有意的取舍）**：点击热区仍是整条 `@id/top`（`setTopbarExit()`），与全仓 44 个页面一致，没有为箭头单独开 48dp 热区；compound drawable 不产生独立无障碍节点，读屏读到的仍是 `pageName` 的标题文本（与其余 43 页一致），因此本次没有新增 `strings.xml` 条目。
+  - **守卫**：新增 `app/src/test/java/com/RobinNotBad/BiliClient/ui/TopbarBackArrowTest.kt`（纯 JVM 解析 `src/main/res/layout/*.xml`）：①非白名单布局的 `@id/pageName` 必须带 `app:drawableStartCompat="@drawable/arrow_back"`，报错里给出修法；②白名单那 6 份菜单级布局必须仍然存在（防改名后守卫静默失效）；③扫到的带箭头布局必须 >30 份（防断言空转）。
+  - **L0（26.11.16 本机实测）**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest --no-parallel --max-workers=2` → BUILD SUCCESSFUL（2m44s），`testStandardDebugUnitTest` **231 套件 / 2495 用例 / 0 失败 / 0 错误 / 0 跳过**，`TopbarBackArrowTest` 3 个用例全过；两个 flavor 各四个 ABI 的 debug APK 全部产出。
+  - **L1（26.11.16 模拟器实测，466×466 圆屏 AVD `rebili_watch466` + `app-standard-universal-debug.apk`）**：同一份包、圆屏偏好（`player_ui_round=true`、`paddingH_percent=5`、`paddingV_percent=3`）下，走**同一套** `app:drawableStartCompat="@drawable/arrow_back"` 的页面顶栏正常出箭头：`SetupUIActivity` 的 `@id/pageName` bounds `[140,28][326,70]`、`ShowTextActivity`「关于反馈的一些说明」的 `[91,41][375,83]`——标题居中、箭头贴在标题左侧，没有顶到 466 圆屏边缘，也没和 `@id/timeText` 抢位置。**但没能在本轮直接打开 `FeedbackActivity` 取证**：该页不是 exported，playstore 系统镜像没有 adb root，`run-as … am start` 被 `SecurityException: package=com.android.shell does not belong to uid=` 拦下，只剩 UI 导航一条路，而 debug 包首启被「更新日志 → 公告 → 教程 → 免责声明」串行弹窗反复占屏（`setup=true`、`last_version`、`tutorial_ver_*` 都补上仍清不完），两轮 L1 预算内没走到那一页。
+  - **未验证（L2）**：真机上 `FeedbackActivity` 的箭头与点击返回，详见 §2.1「26.11.16 反馈页返回箭头真机未验」。
+
 - **26.11.15 私信正文复用评论区的链接识别（用户原话「消息页面发送的消息，能否复用评论区的超链接蓝色显示呢」）**：
   - **来路**：用户直接提的功能请求。
   - **改法**：`adapter/message/PrivateMsgAdapter.kt` 的 `PrivateMessage.TYPE_TEXT` 分支改走评论区同一个入口 `StringUtil.setLink(SpannableStringBuilder)`（评论区在 `model/Reply.java:174` 调的也是它）：裸链接 / `av` / `BV` / `cv` 都标记，颜色取 `ColorScheme.LINK`、点击走 `LinkClickableSpan`，整体受 `SharedPreferencesUtil.LINK_ENABLE`（偏好设置 → 功能 →「识别链接」，默认 true）管。`msg_text_content` 挂 `StringUtil.ClickableSpanTouchListener`——它自己在 ACTION_UP 里调 `onClick`，不依赖 `LinkMovementMethod`。
@@ -655,6 +665,8 @@
 > **26.11.11 消息页「私信列表」玻璃质感的验收步骤与判据见 [`handoff-261111-private-msg-glass.md`](handoff-261111-private-msg-glass.md)（H22~H24）。**
 > **26.11.11 播放器底部按钮行「新加按钮与同行不一致」的验收步骤与判据见 [`manual-test-guide-261111-player-slot-icon.md`](manual-test-guide-261111-player-slot-icon.md)（H25~H26）。**
 > **26.11.11 自动跳过广告片段（SponsorBlock）的验收步骤与判据见 [`manual-test-guide-261111-sponsorblock.md`](manual-test-guide-261111-sponsorblock.md)（S01~S06）。**
+
+- [ ] **26.11.16 反馈页（#174）顶栏返回箭头真机未验（L2，只能看画面）**：L0 已过（231 套件 / 2495 用例全绿 + 双 flavor `assembleDebug`）；L1 在 466×466 圆屏 AVD 上只验到「同一套 `drawableStartCompat` 写法在圆屏下正常出箭头、标题不被压、不贴圆边」，`FeedbackActivity` 本身没能在模拟器里打开（非 exported + 无 adb root + 首启弹窗串行占屏，见 §1 该条）。需确认：①设置 → 关于与帮助 → 反馈与统计 →「反馈与建议」，进页后标题左侧有 `<` 箭头，标题不被箭头压住，右上角时间仍在；②点箭头（或顶栏任意处）能返回上一页，与右滑返回同一效果；③把「圆屏适配」打开、以及把「顶栏高度」调成非默认值，两种情况下箭头都还在，且不贴到屏幕圆边；④「我的反馈」（列表页）与反馈详情页左上角也有箭头（这两页布局本来就有箭头，本轮只做静态覆盖）；⑤亮色主题下箭头颜色与标题一致、看得见。顺带请人判观感：图标大小、与标题的间距。
 
 - [ ] **26.11.11 自动跳过广告片段（SponsorBlock）真机未验（L2，只能看画面 / 判手感，且要设备能出网）**：L0 已过（两套单测 26 例全绿 + 整包 `assembleDebug` 通过）。需确认：①档位「关闭」下播任一视频全程无请求、无提示；设置搜索能搜到「自动跳过」组与两项设置；②档位「仅恰饭广告」下 `BV1KLgkzzEb1` 播到 5:17 自动跳到 6:27、提示「已跳过广告」、点「撤回」回到 5:17 且不会被立刻弹走、同一段只跳一次、跳完弹幕不是空白；③档位「推荐」下 `BV11Kc2zZEDK` 开头 0~21 秒被跳过且文案是「已跳过片头」（类别名必须是中文）；④档位「全部类别」下 `BV1Pb3uzyEmT` 的相邻重叠标注不会连跳 / 乱跳；⑤番剧、直播、本地视频一律不查不跳；⑥断网时静默降级（不弹错），恢复网络后一分钟内自愈；⑦换 P / 换集后上一集片段不串到新一集；⑧从历史 / 缓存入口进播放时广告照跳、且高能进度条曲线能显示（顺带修的老问题）；⑨「自动跳过」组里点「要跳的类别」，列表**没有**「精彩时刻」，勾一类返回后档位自动变「自定义」，回播放页该类别照跳、取消勾选后不再跳。步骤见 [`manual-test-guide-261111-sponsorblock.md`](manual-test-guide-261111-sponsorblock.md)（S01~S06）。
 

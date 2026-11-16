@@ -8,6 +8,12 @@
 
   全部控件都用工程里已有的样式（background_edittext / MaterialCardView / RotaryScrollView），
   没有引入新的 drawable 或主题属性 —— 手表端 7 套主题都要成立。
+
+  顶栏返回箭头用 `pageName` 的 `drawableStartCompat="@drawable/arrow_back"`，与其余 43 份
+  布局里的返回式页面完全一致（26.10.25 定下的规则：菜单级一级页由 `InstanceActivity.setMenuClick()`
+  在运行时换成 `arrow_down`，返回级页面在布局里保持 `arrow_back`）。点击靠整条 `@id/top`
+  上的 `BaseActivity.setTopbarExit()`，与右滑返回同样是 finish()。26.11.16 反馈 #174
+  报「本页左上角没有返回箭头」——本页是当时全仓唯一漏了这条的返回式页面。
 -->
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -34,7 +40,8 @@
             android:layout_toLeftOf="@id/timeText"
             android:lines="1"
             android:text="@string/pagename_feedback"
-            android:textStyle="bold" />
+            android:textStyle="bold"
+            app:drawableStartCompat="@drawable/arrow_back" />
 
         <com.RobinNotBad.BiliClient.ui.widget.TextClock
             android:id="@+id/timeText"
