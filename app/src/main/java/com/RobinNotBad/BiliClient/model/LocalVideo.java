@@ -26,6 +26,16 @@ public class LocalVideo {
      */
     public String externalRoot;
 
+    /**
+     * 这条外部缓存在**对方**分支里属于哪个文件夹（空 = 未分类），只用于显示和迁移。
+     *
+     * 来自对方根目录的 .folders_info.json（缺失时退回该视频自己的 .video_meta.json）。
+     * 刻意不写进本机的 folderName：那是本机 .folders_info.json 的键，直接搬过来会在本机
+     * 凭空多出几个分组，以后同名的本机视频还会被它拽进夹里。真正落进本机夹发生在迁移时
+     * （见 CacheMigrator 与 FolderManager.ensureFolderAndAdd）。
+     */
+    public String externalFolder;
+
     public LocalVideo() {
     }
 

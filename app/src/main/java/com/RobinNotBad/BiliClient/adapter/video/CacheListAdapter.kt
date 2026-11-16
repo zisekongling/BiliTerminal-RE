@@ -807,8 +807,12 @@ class CacheListAdapter(
                 " · " + UiText.fmt("共%1\$sP", video.pageList!!.size) else ""
             // 只读的「外部」来源（别的分支的目录，见 util/ExternalCacheRoots）：必须标出来，
             // 否则用户会以为这条能删、能换分辨率，长按发现菜单少了一大半
-            val externalTag = if (!video.externalRoot.isNullOrEmpty())
-                " · " + itemView.context.getString(R.string.cache_external_tag) else ""
+            // 外部条目再带上它在对方分支所属的夹：用户能看出这条搬过来会落到哪个分组
+            val externalTag = if (!video.externalRoot.isNullOrEmpty()) {
+                val externalFolder = video.externalFolder
+                " · " + itemView.context.getString(R.string.cache_external_tag) +
+                    if (!externalFolder.isNullOrEmpty()) " · " + externalFolder else ""
+            } else ""
             extra.text = size + qualityTag + pageTag + externalTag
             try {
                 GlideUtil.with(cover).asDrawable().load(video.cover)

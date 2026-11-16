@@ -201,6 +201,14 @@ class LocalPageChooseActivity : BaseActivity() {
 
         recyclerView.layoutManager = CustomLinearManager(this)
         recyclerView.adapter = adapter
+        // 崩溃 #351（OPPO OWW202 / 26.11.01）：长按删分 P 时先 notifyItemRemoved(position)（:171）、
+        // 再 notifyItemRangeChanged(position, ...)（:175），这两次通知之间 adapter 的记账处于中间态；
+        // GapWorker 的预取正是在这个窗口里按旧位置去预取，tryGetViewHolderForPositionByDeadline
+        // 取不到对应 holder 就直接抛「Inconsistency detected. Invalid view holder adapter position」。
+        // 它崩在预取回调里，CustomLinearManager.onLayoutChildren 的 try/catch（只包布局）兜不到。
+        // 本页列表只有几个分 P，预取换不来滑动手感，关掉这条路径没有任何代价。
+        // 必须写在 :202 之后：那之前 layoutManager 还是 null，赋值会静默失效。
+        recyclerView.layoutManager?.isItemPrefetchEnabled = false
     }
 
     /**

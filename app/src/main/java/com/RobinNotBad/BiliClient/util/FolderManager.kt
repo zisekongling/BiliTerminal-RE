@@ -24,9 +24,21 @@ object FolderManager {
      * 获取所有文件夹列表
      */
     @JvmStatic
-    fun getAllFolders(): ArrayList<VideoFolder> {
+    fun getAllFolders(): ArrayList<VideoFolder> = getAllFoldersAt(FileUtil.getVideoDownloadPath())
+
+    /**
+     * 读**任意根目录**下的文件夹记录。
+     *
+     * 加这个重载是为了「别的分支的缓存」：他们的 .folders_info.json 与本机同一套格式，
+     * 但记在那个分支的根目录里，用 [getAllFolders] 永远读不到（它写死本机下载根）。
+     * 缓存页据此知道外部条目在对方属于哪个夹，迁移时好把分类一起带过来。
+     *
+     * 只读：写回仍然只走本机根的 [saveAllFolders]。
+     */
+    @JvmStatic
+    fun getAllFoldersAt(root: File): ArrayList<VideoFolder> {
         val folders = ArrayList<VideoFolder>()
-        val file = getFoldersFile()
+        val file = File(root, FOLDERS_FILE)
         if (!file.exists()) return folders
 
         try {
@@ -136,6 +148,25 @@ object FolderManager {
         saveAllFolders(folders)
         VideoMetaManager.updateFolderName(title, folderName)
         return true
+    }
+
+    /**
+     * 迁移专用：确保本机有这个夹（没有就建一个），再把这条视频放进去。
+     *
+     * 夹名来自对方分支的 .folders_info.json。为什么不能直接 [addVideoToFolder]：那条要求夹已存在，
+     * 而迁移过来的夹名本机多半还没有——先建再放，用户整理好的分类才不会在搬迁这一步丢掉。
+     *
+     * 夹名不合法（超 30 字符、含斜杠之类）、或建夹失败时返回 false：视频仍留在未分类，
+     * 不为了一个夹名把整次迁移判失败。
+     *
+     * @return 是否真的落进了夹里
+     */
+    @JvmStatic
+    fun ensureFolderAndAdd(title: String, folderName: String): Boolean {
+        if (title.isBlank() || folderName.isBlank()) return false
+        if (!isValidFolderName(folderName)) return false
+        if (getAllFolders().none { it.name == folderName }) createFolder(folderName)
+        return addVideoToFolder(title, folderName)
     }
 
     /**

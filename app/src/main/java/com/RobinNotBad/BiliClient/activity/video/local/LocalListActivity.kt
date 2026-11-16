@@ -35,6 +35,7 @@ import com.RobinNotBad.BiliClient.util.CacheChangeSignal
 import com.RobinNotBad.BiliClient.util.CacheDeletePlan
 import com.RobinNotBad.BiliClient.util.CacheListOrderStore
 import com.RobinNotBad.BiliClient.util.CacheMediaPolicy
+import com.RobinNotBad.BiliClient.util.CacheMigrator
 import com.RobinNotBad.BiliClient.util.CachePathResolver
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.DanmakuFileFetcher
@@ -350,8 +351,12 @@ open class LocalListActivity : InstanceActivity() {
             try {
                 val meta = VideoMetaManager.readMeta(resolveVideoDir(rootOf(video), video))
                 // 外部条目不接本机的文件夹记录：folderName 是本机 .folders_info.json 的键，
-                // 把对方的记录搬过来只会在本机凭空多出几个分组
+                // 把对方的记录搬过来只会在本机凭空多出几个分组（见 LocalVideo.externalFolder）
                 video.folderName = if (video.externalRoot.isNullOrEmpty()) meta.folderName else ""
+                // 对方根目录没有 .folders_info.json（或被删过）时，退回到这条视频自己的元数据
+                if (!video.externalRoot.isNullOrEmpty() && video.externalFolder.isNullOrEmpty()) {
+                    video.externalFolder = meta.folderName
+                }
                 video.aid = meta.aid
                 video.cid = meta.cid
             } catch (_: Exception) {}
@@ -518,6 +523,9 @@ open class LocalListActivity : InstanceActivity() {
             // scanVideos 只往 videoList 尾巴追加，记下起点就能只处理这一批
             val before = videoList.size
             scanVideos(dir, dir.path)
+            // 对方也按文件夹整理过：把它的 .folders_info.json 读成「标题 → 夹名」，
+            // 只用来显示和迁移时还原分类，不写进本机的 folderName（见 LocalVideo.externalFolder）
+            val folderIndex = CacheMigrator.folderIndex(dir)
             var i = before
             while (i < videoList.size) {
                 val video = videoList[i]
@@ -525,6 +533,7 @@ open class LocalListActivity : InstanceActivity() {
                 if (video.title.isNullOrEmpty() || !seenTitles.add(video.title)) {
                     videoList.removeAt(i)
                 } else {
+                    video.externalFolder = CacheMigrator.folderOf(folderIndex, video.title)
                     i++
                 }
             }
@@ -690,10 +699,10 @@ open class LocalListActivity : InstanceActivity() {
         if (videoIndex < 0 || videoIndex >= videoList.size) return
         val video = videoList[videoIndex]
         if (!video.externalRoot.isNullOrEmpty()) {
-            // 别的分支的目录只读（见 LocalVideo.externalRoot）：能做的只有「看看这条是什么」。
-            // 删除 / 换分辨率 / 更新弹幕全都要往对方目录写文件，索性不给入口，免得点了才被拦。
-            TerminalDialog.menu(this, menuTitle(video.title), listOf(UiText.of("查看详情"))) {
-                viewVideoDetail(videoIndex)
+            // 别的分支的目录只读（见 LocalVideo.externalRoot）：删除 / 换分辨率 / 更新弹幕全都要往
+            // 对方目录写文件，所以这里只有一条路——把它搬进本机，搬完就是本机条目，功能自然齐全。
+            TerminalDialog.menu(this, menuTitle(video.title), listOf(UiText.of("迁移到本机"))) {
+                confirmMigrate(listOf(video))
             }.show()
             return
         }
@@ -714,6 +723,79 @@ open class LocalListActivity : InstanceActivity() {
                 4 -> deleteVideo(videoIndex)
             }
         }.show()
+    }
+
+    // ===================== 迁移（别的分支 → 本机） =====================
+    //
+    // 外部条目只读（见 LocalVideo.externalRoot）：想删、想换分辨率、想进文件夹，都得先「搬过来」。
+    // 搬 = 把对方目录里那条视频目录整个挪到本机下载根（[CacheMigrator]），并把它在对方所属的
+    // 文件夹在本机还原一份（[FolderManager.ensureFolderAndAdd]）。搬完源目录里就没有了，所以先确认。
+
+    private fun confirmMigrate(videos: List<LocalVideo>) {
+        val targets = videos.filter { !it.externalRoot.isNullOrEmpty() }
+        if (targets.isEmpty()) return
+        val message = if (targets.size == 1) {
+            getString(R.string.msg_cache_migrate_confirm_one, targets[0].title ?: "")
+        } else {
+            getString(R.string.msg_cache_migrate_confirm_many, targets.size)
+        }
+        TerminalDialog.confirm(this, UiText.of("迁移到本机"), message, UiText.of("迁移")) {
+            performMigrate(targets)
+        }.show()
+    }
+
+    /**
+     * 真的搬：整目录挪进本机 + 还原对方的文件夹分类。
+     *
+     * 失败只算「这条没搬成」，源目录原封不动；搬成了但源目录没删干净的单独提示一句，
+     * 免得用户以为那个分支里已经没这份缓存了。
+     */
+    private fun performMigrate(videos: List<LocalVideo>) {
+        if (videos.isEmpty()) return
+        MsgUtil.showMsg(UiText.of("正在迁移..."))
+        CenterThreadPool.run {
+            val destRoot = FileUtil.getVideoDownloadPath()
+            var moved = 0
+            var failed = 0
+            var leftover = 0
+            var foldered = 0
+            for (video in videos) {
+                val rootPath = video.externalRoot
+                if (rootPath.isNullOrEmpty()) continue
+                val source = resolveVideoDir(File(rootPath), video)
+                val result = CacheMigrator.moveDir(source, destRoot)
+                val dest = result.dest
+                if (dest == null) {
+                    failed++
+                    continue
+                }
+                moved++
+                if (!result.sourceCleaned) leftover++
+                // 落地目录名可能与标题不同（重名时加了后缀），文件夹记录要按实际目录名写，
+                // VideoMetaManager.updateFolderName 也是按目录名找的
+                val folderName = video.externalFolder ?: ""
+                if (folderName.isNotEmpty() && FolderManager.ensureFolderAndAdd(dest.name, folderName)) {
+                    foldered++
+                }
+            }
+            runOnUiThread {
+                exitSelectionMode()
+                markFolderPageDirty()
+                refresh()
+                when {
+                    failed > 0 -> MsgUtil.showMsgLong(
+                        getString(R.string.msg_cache_migrated_with_failed, moved, failed)
+                    )
+                    leftover > 0 -> MsgUtil.showMsgLong(
+                        getString(R.string.msg_cache_migrated_leftover, moved, leftover)
+                    )
+                    foldered > 0 -> MsgUtil.showMsg(
+                        getString(R.string.msg_cache_migrated_foldered, moved, foldered)
+                    )
+                    else -> MsgUtil.showMsg(getString(R.string.msg_cache_migrated, moved))
+                }
+            }
+        }
     }
 
     // ===================== 文件夹操作 =====================
@@ -1490,30 +1572,46 @@ open class LocalListActivity : InstanceActivity() {
         }
 
         val inFolder = adapter?.currentFolderName?.isNotEmpty() == true
-        val items = if (selectedFolderNames.isNotEmpty()) {
-            listOf(UiText.of("拆散文件夹"))
+        // 勾选里混了外部条目：它们唯一能做的就是「迁移到本机」（见 LocalVideo.externalRoot），
+        // 所以菜单第一条按需给出来，其余批量操作照旧只作用于本机条目
+        val externalSelected = if (selectedFolderNames.isEmpty()) {
+            selectedVideos().filter { !it.externalRoot.isNullOrEmpty() }
         } else {
-            listOf(
-                UiText.of("删除视频"),
-                UiText.of("更新弹幕"),
-                if (inFolder) UiText.of("移出文件夹") else UiText.of("添加到文件夹")
+            emptyList()
+        }
+        val ops = ArrayList<Pair<String, () -> Unit>>()
+        if (selectedFolderNames.isNotEmpty()) {
+            ops.add(UiText.of("拆散文件夹") to { confirmBatchDisband() })
+        } else {
+            if (externalSelected.isNotEmpty()) {
+                ops.add(
+                    UiText.fmt("迁移到本机（%1\$d 条）", externalSelected.size) to {
+                        confirmMigrate(externalSelected)
+                    }
+                )
+            }
+            ops.add(UiText.of("删除视频") to { confirmBatchDelete() })
+            ops.add(UiText.of("更新弹幕") to { performBatchUpdateDanmaku() })
+            ops.add(
+                (if (inFolder) UiText.of("移出文件夹") else UiText.of("添加到文件夹")) to {
+                    if (inFolder) performBatchRemoveFromFolder() else showBatchMoveDialog()
+                }
             )
         }
-        val danger = if (selectedFolderNames.isEmpty()) setOf(0) else emptySet<Int>()
+        // 危险项只有「删除视频」；它在不在第 0 位取决于有没有外部条目可迁移
+        val danger = if (selectedFolderNames.isEmpty()) {
+            setOf(if (externalSelected.isNotEmpty()) 1 else 0)
+        } else {
+            emptySet<Int>()
+        }
 
         TerminalDialog.menu(
             this,
             UiText.fmt("已选 %1\$d 项", count),
-            items,
+            ops.map { it.first },
             danger = danger
         ) { which ->
-            when {
-                selectedFolderNames.isNotEmpty() -> confirmBatchDisband()
-                which == 0 -> confirmBatchDelete()
-                which == 1 -> performBatchUpdateDanmaku()
-                inFolder -> performBatchRemoveFromFolder()
-                else -> showBatchMoveDialog()
-            }
+            ops.getOrNull(which)?.second?.invoke()
         }.show()
     }
 
