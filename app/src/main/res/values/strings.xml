@@ -1696,6 +1696,7 @@
     <string name="uitext_playeractivity_032">初始化播放</string>
     <string name="uitext_playeractivity_033">不支持默认横屏！</string>
     <string name="uitext_replyfragment_001">暂时没有更多评论了</string>
+    <string name="uitext_replyfragment_002">评论加载不出来，稍后下拉重试</string>
     <string name="uitext_replyinfoactivity_001">评论详情</string>
     <string name="uitext_writereplyactivity_001">图片处理失败</string>
     <string name="uitext_writereplyactivity_002">图片上传失败</string>

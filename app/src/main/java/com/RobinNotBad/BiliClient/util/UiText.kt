@@ -155,6 +155,7 @@ object UiText {
         "初始化播放" to R.string.uitext_playeractivity_032,
         "不支持默认横屏！" to R.string.uitext_playeractivity_033,
         "暂时没有更多评论了" to R.string.uitext_replyfragment_001,
+        "评论加载不出来，稍后下拉重试" to R.string.uitext_replyfragment_002,
         "评论详情" to R.string.uitext_replyinfoactivity_001,
         "图片处理失败" to R.string.uitext_writereplyactivity_001,
         "图片上传失败" to R.string.uitext_writereplyactivity_002,
