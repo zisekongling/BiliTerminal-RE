@@ -2,10 +2,14 @@ package com.RobinNotBad.BiliClient.activity.video.local
 
 import com.RobinNotBad.BiliClient.util.UiText
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.widget.TextViewCompat
@@ -45,6 +49,7 @@ import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.VideoMetaManager
 import com.RobinNotBad.BiliClient.util.VirtualCollectionStart
+import com.RobinNotBad.BiliClient.util.view.ScrollRetractDecider
 import java.io.File
 import java.lang.ref.WeakReference
 
@@ -60,6 +65,9 @@ open class LocalListActivity : InstanceActivity() {
          * 所以文件夹页销毁时把「最近实例」还给下面这层缓存页。
          */
         private var cachePageRef: WeakReference<LocalListActivity>? = null
+
+        /** 底部条收放动画时长（毫秒）。与顶部工具条同款：手表屏小，收放要快，拖久了像卡顿。 */
+        private const val BAR_ANIM_MS = 180L
 
         /**
          * 结束「本地缓存」这一整条页面链（缓存页 → 文件夹页）。
@@ -260,6 +268,13 @@ open class LocalListActivity : InstanceActivity() {
         }
 
         setupSelectionBar()
+
+        // 底部条随列表收回：判据与顶部工具条共用 ScrollRetractDecider（见 handleSelectionBarScroll）
+        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                handleSelectionBarScroll(dy)
+            }
+        })
 
         findViewById<View>(R.id.top).setOnClickListener {
             if (isFolderPage) finish() else menuClick.run()
@@ -1097,7 +1112,13 @@ open class LocalListActivity : InstanceActivity() {
             return
         }
 
+        // 从「整条藏起来」变回可见时先把高度还原：收回时被压成 0 的高度会留在 LayoutParams 上，
+        // 不还原就是一条 0 高度、点不到的隐形条
+        val wasHidden = multiSelectBar.visibility != View.VISIBLE
         multiSelectBar.visibility = View.VISIBLE
+        if (wasHidden) expandSelectionBarNow()
+        // 多选 / 排序时用户正在操作这条，收起来就点不到了（与顶部条「别把正在用的操作条放进来」同一考虑）
+        if (selectionMode || sortMode) expandSelectionBarNow()
         if (sortMode) {
             // 排序模式只需要「提示 + 完成」两个东西：左边复用计数 TextView 显示提示，右边「排序」变「完成」
             textSelectedCount.visibility = View.VISIBLE
@@ -1144,6 +1165,132 @@ open class LocalListActivity : InstanceActivity() {
         btnSearchClear.visibility = View.GONE
         // 一条都没勾时「操作」压暗，点了也只会提示「先选几条吧~」（收藏夹多选的同款处理）
         btnMultiOperate.alpha = if (count == 0) 0.5f else 1f
+    }
+
+    // ---------- 底部条随列表收回（26.11.14 反馈） ----------
+
+    /** 底部条的自然高度。条是 wrap_content，压成 0 之后就量不出来了，所以要记第一次量到的值。 */
+    private var selectionBarHeight = 0
+
+    /** 底部条当前是否处于收回状态。 */
+    private var selectionBarCollapsed = false
+
+    /** 正在跑的收放动画；新手势到来时先取消，免得两条动画抢同一个 height。 */
+    private var selectionBarAnimator: ValueAnimator? = null
+
+    /** 同向累计的滚动量，交给 [ScrollRetractDecider] 判断，避免手一抖条就来回闪。 */
+    private var selectionBarAccum = 0
+
+    /**
+     * 列表滚动时把底部条收走，滚回顶部再展开。
+     *
+     * 「多选 / 排序 / 搜索」这一排和列表不是一个整体（布局里它是 [R.id.swipeRefreshLayout] 的兄弟
+     * 节点，见 activity_simple_main_refresh.xml 的注释），不手动收就会一直钉在屏幕底部吃掉一行高度
+     * ——正是反馈里的「这一常驻栏太占底下的空间」（26.11.14）。判据复用顶部工具条那套
+     * [ScrollRetractDecider]：累计到阈值才动、**只有滚不动了（回到顶部）才展开**，否则条的高度一变
+     * 就把列表内容顶走、和手指打架（26.10.05 的现场）。动画本身在单测里跑不了（View 全是 Android
+     * 桩），所以判断留在纯函数里、这里只负责照着做。
+     *
+     * 多选 / 排序模式下**不参与**收回：用户正在用这条（与顶部条「别把正在用的操作条放进来」同一考虑）。
+     */
+    private fun handleSelectionBarScroll(dy: Int) {
+        if (!::multiSelectBar.isInitialized) return
+        if (multiSelectBar.visibility != View.VISIBLE || selectionMode || sortMode) return
+        selectionBarAccum += dy
+        when (ScrollRetractDecider.action(
+            accumulated = selectionBarAccum,
+            collapsed = selectionBarCollapsed,
+            canScrollUp = recyclerView.canScrollVertically(-1)
+        )) {
+            ScrollRetractDecider.COLLAPSE -> {
+                selectionBarAccum = 0
+                animateSelectionBar(collapse = true)
+            }
+
+            ScrollRetractDecider.EXPAND -> {
+                selectionBarAccum = 0
+                animateSelectionBar(collapse = false)
+            }
+        }
+    }
+
+    /** 收回（高度压到 0 并淡出）或展开。单条，不用像顶部工具条那样多条同步。 */
+    private fun animateSelectionBar(collapse: Boolean) {
+        if (collapse == selectionBarCollapsed) return
+        val natural = naturalSelectionBarHeight()
+        if (natural <= 0) return
+
+        // 先摘掉引用再 cancel：cancel() 会**同步**回调旧动画的 onAnimationEnd，
+        // 那时它若还指着旧动画，收尾就会把刚定下的新状态改回去
+        stopSelectionBarAnimator()
+
+        selectionBarCollapsed = collapse
+        val animator = ValueAnimator.ofFloat(if (collapse) 0f else 1f, if (collapse) 1f else 0f)
+        animator.duration = BAR_ANIM_MS
+        animator.addUpdateListener { animation ->
+            val fraction = animation.animatedValue as Float
+            setSelectionBarHeight((natural * (1f - fraction)).toInt())
+            multiSelectBar.alpha = 1f - fraction
+        }
+        animator.addListener(object : AnimatorListenerAdapter() {
+            override fun onAnimationEnd(animation: Animator) {
+                // 被新手势取消掉的旧动画不要收尾，否则会把新状态改成旧的
+                if (selectionBarAnimator !== animation) return
+                selectionBarAnimator = null
+                if (collapse) {
+                    // 收完只留 0 高度，不设 GONE：可见性归 updateSelectionBar 管，
+                    // 这里替它做主（GONE）会和「本该显示」的状态打架
+                    setSelectionBarHeight(0)
+                    multiSelectBar.alpha = 0f
+                } else {
+                    expandSelectionBarNow()
+                }
+            }
+        })
+        selectionBarAnimator = animator
+        animator.start()
+    }
+
+    /**
+     * 立刻还原成自然高度（不带动画，幂等）。
+     *
+     * 用在「用户要操作这条」和「条刚从隐藏变回可见」两种场合：收回的高度留在 LayoutParams 上，
+     * 不还原就是一条 0 高度、点不到的隐形条。
+     */
+    private fun expandSelectionBarNow() {
+        stopSelectionBarAnimator()
+        selectionBarCollapsed = false
+        selectionBarAccum = 0
+        multiSelectBar.alpha = 1f
+        resetSelectionBarHeight()
+    }
+
+    private fun stopSelectionBarAnimator() {
+        val running = selectionBarAnimator
+        selectionBarAnimator = null
+        running?.cancel()
+    }
+
+    /** 把条的高度改成指定值（保留其它 LayoutParams）。 */
+    private fun setSelectionBarHeight(height: Int) {
+        val lp = multiSelectBar.layoutParams ?: return
+        lp.height = height
+        multiSelectBar.layoutParams = lp
+    }
+
+    /** 还原成 `wrap_content`。 */
+    private fun resetSelectionBarHeight() {
+        val lp = multiSelectBar.layoutParams ?: return
+        lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
+        multiSelectBar.layoutParams = lp
+    }
+
+    /** 条的自然高度：只在它正常显示时量得到，所以第一次量到就缓存。 */
+    private fun naturalSelectionBarHeight(): Int {
+        if (selectionBarHeight > 0) return selectionBarHeight
+        val measured = if (multiSelectBar.height > 0) multiSelectBar.height else multiSelectBar.measuredHeight
+        if (measured > 0) selectionBarHeight = measured
+        return measured
     }
 
     private fun hasSelectableItems(): Boolean {
