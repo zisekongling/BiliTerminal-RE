@@ -307,15 +307,31 @@ class UpdateActivity : BaseActivity() {
         }
     }
 
-    /** 把商店链接再写一遍剪贴板（防被别处覆盖），然后交给系统 VIEW 打开商店页。 */
+    /**
+     * 把商店链接再写一遍剪贴板（防被别处覆盖），然后打开微思商店。
+     *
+     * 商店**没有**注册 apk.wysteam.cn 的 VIEW 过滤器（26.11.16 实测只落到浏览器），
+     * 所以这里按包名显式启动；本机没装商店才退回浏览器，并明确告诉用户「链接已复制」。
+     */
     private fun openWeise() {
         WeiseMarket.copyPageUrl(this)
-        try {
-            startActivity(WeiseMarket.buildOpenIntent())
-        } catch (e: Exception) {
-            Logu.w(TAG, "打开微思商店失败：" + e.message)
+        val marketIntent = WeiseMarket.buildOpenIntent(this)
+        // 装了商店就以商店为准；没装、或商店本身起不来（包坏了 / 被禁用）才退浏览器
+        if (marketIntent != null && startQuietly(marketIntent)) return
+        if (startQuietly(WeiseMarket.buildBrowserFallbackIntent())) {
+            MsgUtil.showMsg(getString(R.string.msg_weise_open_browser))
+        } else {
             MsgUtil.showMsg(getString(R.string.msg_weise_open_failed))
         }
+    }
+
+    /** 起一个 Activity，失败只记日志不抛——调用方自己决定怎么兜。 */
+    private fun startQuietly(intent: Intent): Boolean = try {
+        startActivity(intent)
+        true
+    } catch (e: Exception) {
+        Logu.w(TAG, "启动失败：" + e.message)
+        false
     }
 
     private fun startDownload() {

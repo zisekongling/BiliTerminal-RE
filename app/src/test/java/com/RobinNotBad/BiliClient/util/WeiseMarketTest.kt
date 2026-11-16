@@ -2,6 +2,7 @@ package com.RobinNotBad.BiliClient.util
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -54,5 +55,27 @@ class WeiseMarketTest {
         assertFalse("商店更新（还没发版）：同样不显示", WeiseMarket.versionMatches(26111700, 26111600))
         assertFalse("读不到商店版本时一律不显示", WeiseMarket.versionMatches(0, 26111600))
         assertFalse(WeiseMarket.versionMatches(26111600, 0))
+    }
+
+    @Test
+    fun pickMarketPackage_prefersWatchPackage() {
+        assertEquals(
+            "两个都装时用手表端那个（com.qx.wysappmarket）",
+            "com.qx.wysappmarket",
+            WeiseMarket.pickMarketPackage { it == "com.qx.wysappmarket" || it == "com.wys.appmarket" }
+        )
+        assertEquals(
+            "只装手机端那个也能跳",
+            "com.wys.appmarket",
+            WeiseMarket.pickMarketPackage { it == "com.wys.appmarket" }
+        )
+    }
+
+    @Test
+    fun pickMarketPackage_noneInstalled_returnsNull() {
+        assertNull(
+            "没装商店时不能瞎猜包名，交给浏览器兜底",
+            WeiseMarket.pickMarketPackage { false }
+        )
     }
 }

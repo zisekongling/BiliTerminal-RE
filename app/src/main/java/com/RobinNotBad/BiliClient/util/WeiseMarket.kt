@@ -102,10 +102,49 @@ object WeiseMarket {
     }
 
     /**
-     * 打开商店页的 Intent。
+     * 已知的微思商店包名（26.11.16 实测）。
      *
-     * 用普通 ACTION_VIEW 而不是自定义 scheme：装了微思商店的机器会由它接管
-     * apk.wysteam.cn，没装就落到浏览器——两种结果都能用，不必判断「装没装」。
+     * - `com.qx.wysappmarket`：手表上装的是这个（versionName 3.8.1-CE）；
+     * - `com.wys.appmarket`：另一处见到过的包名，两个都试，装哪个用哪个。
+     *
+     * 顺序即优先级：手表端那个在前。
      */
-    fun buildOpenIntent(): Intent = Intent(Intent.ACTION_VIEW, Uri.parse(PAGE_URL))
+    val MARKET_PACKAGES: List<String> = listOf("com.qx.wysappmarket", "com.wys.appmarket")
+
+    /**
+     * 按优先级挑第一个装着的商店包名，没装返回 null（纯函数，方便单测）。
+     */
+    @JvmStatic
+    fun pickMarketPackage(installed: (String) -> Boolean): String? =
+        MARKET_PACKAGES.firstOrNull { installed(it) }
+
+    /** 本机装着的微思商店包名，没装返回 null。 */
+    fun findInstalledMarket(context: Context): String? = pickMarketPackage { pkg ->
+        try {
+            context.packageManager.getPackageInfo(pkg, 0)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * 打开微思商店的 Intent；本机没装商店返回 null（调用方自行决定兜底方式）。
+     *
+     * 26.11.16 线上问题：原来直接 `ACTION_VIEW` 那个 https 链接，指望商店注册了
+     * apk.wysteam.cn 的 VIEW 过滤器——**实测它没注册**（`cmd package query-activities`
+     * 对该链接只命中 `com.huawei.browser/.Main`），于是点按钮只打开了浏览器，
+     * 「跳商店」这件事根本没发生。商店只声明了 MAIN/LAUNCHER，所以只能按包名显式启动：
+     * 进商店首页，链接已在剪贴板里，由用户粘贴。
+     */
+    fun buildOpenIntent(context: Context): Intent? {
+        val pkg = findInstalledMarket(context) ?: return null
+        val intent = context.packageManager.getLaunchIntentForPackage(pkg) ?: return null
+        // 从 Activity 调也加上：部分 ROM 的商店会自己起新栈，带上更稳
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return intent
+    }
+
+    /** 没装商店时的兜底：用浏览器打开商店网页（此时链接已写进剪贴板）。 */
+    fun buildBrowserFallbackIntent(): Intent = Intent(Intent.ACTION_VIEW, Uri.parse(PAGE_URL))
 }

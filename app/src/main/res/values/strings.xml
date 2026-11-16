@@ -3247,4 +3247,5 @@
     <!-- 26.11.16：去微思下载（仅共存版） -->
     <string name="btn_weise_download">去微思下载</string>
     <string name="msg_weise_open_failed">没有找到能打开微思商店的应用</string>
+    <string name="msg_weise_open_browser">已复制商店链接；本机没装微思商店，已用浏览器打开</string>
 </resources>
