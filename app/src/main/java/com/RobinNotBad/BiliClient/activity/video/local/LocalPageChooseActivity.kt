@@ -72,8 +72,36 @@ class LocalPageChooseActivity : BaseActivity() {
                 playerData.danmakuUrl = danmakuFileList[position]
             }
             playerData.title = pageTitle
+            // 反馈 #178：多P 缓存选集之后应该顺着 P2、P3 自己播下去。
+            // 播放器的「自动下一P」只认 pagenames（见 PlayerActivity 的 onCompletionListener：
+            // `auto_next_enabled && hasMultiplePages() && currentPageIndex < pagenames.size - 1`），
+            // 以前这里只塞了当前这一P 的文件，播放器不知道后面还有P，播完就停。
+            val multiPage = pageList.size > 1
+            if (multiPage) {
+                playerData.pagenames = ArrayList(pageList)
+                playerData.cids = ArrayList() // 本地缓存没有 cid，换P 直接按文件切
+                playerData.currentPageIndex = position
+            }
             try {
                 val player = PlayerApi.jumpToPlayer(playerData)
+                if (multiPage) {
+                    // 播放器换P 走的是「老路径」（PlayerActivity#resolveLocalPageMedia），
+                    // 三条列表按**同一页下标**取文件。所以这里必须给按页对齐的表，
+                    // 不能把缓存页传进来的扁平表原样转交：DASH 未合并的页在扁平表里占两个下标，
+                    // 一错位 P3 就会被播成 P2 的音轨（与 #164 / #51 同形）。
+                    player.putStringArrayListExtra(
+                        "videoFileList",
+                        ArrayList(pageMediaFiles.map { it.first })
+                    )
+                    player.putStringArrayListExtra(
+                        "audioFileList",
+                        ArrayList(pageMediaFiles.map { it.second })
+                    )
+                    player.putStringArrayListExtra(
+                        "danmakuFileList",
+                        ArrayList(pageList.indices.map { danmakuFileList.getOrElse(it) { "" } })
+                    )
+                }
                 if (mediaInfo.first.endsWith("audio.m4a")) {
                     player.putExtra("audio_only", true)
                 }

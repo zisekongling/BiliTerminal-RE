@@ -18,6 +18,23 @@
 
 ## 1. 当前版本状态
 
+- **26.11.16 番剧缓存页「当前播放的那一季」永远加载不出来（控制台反馈 #179）**：
+  - **来路**：控制台反馈 #179（26.11.16，版本 26.11.16）。用户描述的症状很精确：**在打开缓存页之前，播放页停在哪一季，那一季在缓存页里就加载不出来**，别的季都正常。
+  - **根因**：`activity/video/BangumiCacheActivity.kt` 进页面时会在后台预热「当前播放的那一季」——`onCreate` 里 `CenterThreadPool.run { queryVipState(); target?.let { loadSeason(it, selectMainSection = true) } }`（119–123 行）。而 `loadSeason()` 里把 `adapter.rebuild()` 写在了 `CenterThreadPool.run { … }` **之外**：主线程点击进来的季走的是主线程，没事；预热这条路径是 IO 线程直接调 `notifyDataSetChanged()`，RecyclerView 的线程检查抛 `CalledFromWrongThreadException`，又被 `CenterThreadPool` 的 `catch (Throwable)` 静默吞掉（只 `MsgUtil.err`）。结果 `item.loading` 停在 `true`、`entries` 一直是 `null`：那一季永远显示「正在获取剧集…」，而且再点也被 `if (item.loading) return` 挡住、无法重试——正好解释「只有当前那一季坏」。
+  - **改法**：`adapter.rebuild()` 改投主线程执行（`runOnUiThread { adapter.rebuild() }`），`item.loading` / `item.failed` 仍在原线程同步置位（只有刷新回主线程）。主线程调用时 `runOnUiThread` 同步执行，所以「点季展开」这条既有路径行为完全不变。
+  - **口径**：只改这一处。页面里其余 `adapter.rebuild()` 调用都在主线程回调里，本轮不动；也没有顺手把 `rebuild()` 内部包一层 `runOnUiThread`——那会把「谁在什么线程改数据」这件事藏进 adapter，下次再有人在后台改状态还是同样的坑。
+  - **L0（26.11.16 本机实测）**：`:app:assembleDebug` → BUILD SUCCESSFUL（29s，standard / coexist 两个 flavor 的 compileKotlin + dex + package 全过）；`:app:testStandardDebugUnitTest` → BUILD SUCCESSFUL，**253 套件 / 2735 用例 / 0 失败 / 0 错误 / 0 跳过**（本次为 UI 线程切换，无新纯函数，未加用例）。
+  - **未验证（L2）**：手表上「播放页停在第 2 季 → 打开缓存页」时第 2 季能自动展开出「正片」、不再卡在「正在获取剧集…」；再折叠/展开、切到别的季、断网下打开该季能落到「加载失败」并可重试。
+
+- **26.11.16 缓存里的多 P 视频能顺着分 P 自己播下去（控制台反馈 #178）**：
+  - **来路**：控制台反馈 #178（26.11.16，建议）：缓存里的多 P 视频希望自动连播。开发者先回过「加到文件夹里就可以连播了哦」，但那是绕过问题的说法——单条合集本来就有分 P 列表页，不该逼用户自己再建文件夹。
+  - **根因**：缓存页点开多 P 走 `activity/video/local/LocalPageChooseActivity.kt`，它起播时只把**选中那一 P** 的文件塞进 `PlayerData`，从不传 `pagenames`。播放器的自动下一 P 只认 `pagenames`（`PlayerActivity` 的 `onCompletionListener`：`auto_next_enabled && hasMultiplePages() && currentPageIndex < pagenames.size - 1`），所以播放器根本不知道后面还有 P，播完就停，选集卡片也只有一页。
+  - **改法**：`onItemClickListener` 里 `pageList.size > 1` 时补 `playerData.pagenames = ArrayList(pageList)`、`playerData.cids = ArrayList()`（本地缓存没有 cid，换 P 直接按文件切）、`playerData.currentPageIndex = position`，并在 `PlayerApi.jumpToPlayer()` 之后补三条 **按页对齐** 的 extra：`videoFileList` = `pageMediaFiles.map { it.first }`、`audioFileList` = `pageMediaFiles.map { it.second }`、`danmakuFileList` = 按页下标取值（缺的补空串）。
+  - **为什么必须重给一遍扁平表**：播放器换 P 走的是「老路径」（`PlayerActivity#resolveLocalPageMedia`，`localPlaylist == null` 时按 intent 里这三条列表**同一下标**取文件）。缓存页传进来的 `videoFileList` 是**扁平**表，DASH 未合并的页在它里面占两个下标，原样转交会一错位就把 P3 播成 P2 的音轨（与 #164 / #51 同形）。这里用 `buildPageMediaFiles()` 的每页 Pair 重新拼成严格按页对齐的三条表。
+  - **口径（有意的取舍）**：**没有**新开「直接跳进播放器的分 P 层」——26.10.16 定过「分层进入必须用户点」，那是另一条更侵入的路。现在只是让播放器知道分 P 存在：选集卡片露出全部 P、「自动下一P」按钮出现，**是否真自动接下一 P 仍由「自动连播」开关决定**（默认关，与文件夹连播同一套开关），不改变任何默认行为。
+  - **L0（26.11.16 本机实测）**：同上一项同一次构建——`:app:assembleDebug` BUILD SUCCESSFUL、`:app:testStandardDebugUnitTest` **253 套件 / 2735 用例 / 0 失败**（无新纯函数，未加用例）。
+  - **未验证（L2）**：手表上从缓存点开一个多 P 视频 → 选集卡片能看到 P1…Pn 且当前页标对 → 打开「自动连播」后一 P 播完自动接下一 P、标题与弹幕跟着换 → 关掉开关后播完停住 → 播一页 DASH 双文件的 P（`video.mp4` + `audio.m4a`）时声音与画面是同一条 P（不错位到隔壁 P）。
+
 - **26.11.16 反馈页顶栏补返回箭头（后台控制台反馈 #174，用户原话「在反馈与界面左上角没有返回的箭头」）**：
   - **来路**：控制台反馈 #174（26.11.16 09:35，HUAWEI Simba-AL00 / Android SDK 27 / 版本 26.11.16），开发者已回「不影响功能的话下个版本补上」。
   - **根因**：全仓声明 `@id/pageName` 的布局 50 份，其中 43 份带 `app:drawableStartCompat="@drawable/arrow_back"`；缺的 7 份里 6 份是菜单级一级页（按 26.10.25 定下的规则，由 `InstanceActivity.setMenuClick()` 在运行时换成 `arrow_down`：`activity_bangumi` / `activity_message` / `activity_search` / `activity_setting_main` / `activity_simple_main_refresh` 五份是同一情况的复用），`activity_menu.xml` 是菜单根页、没有「上一级」，剩下 `activity_feedback.xml` 是**全仓唯一一个漏了箭头的返回式页面**，正是 #174 报的那一页。顶栏本身一直能点（`BaseActivity.setTopbarExit()` → `finish()`，与右滑返回同一个结束路径），只是没有可见箭头提示用户。
