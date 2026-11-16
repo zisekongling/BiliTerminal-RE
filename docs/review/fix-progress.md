@@ -18,6 +18,15 @@
 
 ## 1. 当前版本状态
 
+- **26.11.16 「每次更新后缓存全部被重置」——降级根没落盘 + 陈旧 .DOWNLOADING 让整条缓存凭空消失（控制台反馈 #187）**：
+  - **来路**：控制台反馈 #187（26.11.16，v26.11.16 / SDK 27 / XTC msm8937_32go_i25）。用户原话「每一次更新以后，我的缓存里面的所有东西都会被重置，求修复。我500m的电影，下了又删，删了又下」。
+  - **结论（逐条排除后）**：**代码里没有任何一步会删下载目录**。把 9 条「可能删目录」的路径逐条查空（`FileUtil.clearCache` 无调用方、`DownloadSqlHelper.onUpgrade` 只 ALTER 不 drop、`DownloadRepository.clear` 死代码、`AppStorageManager.clearTempFiles` 仅设置页手动、启动迁移只写 prefs 单键、`UpdateManager` 只删 APK、`DownloadListActivity` 不裁剪、`SplashActivity` 不碰文件、空间不足只在 `MediaMerger` 跳过合并）；11-09 那次「整目录删成品」已在 `599611e9`（#136 批）修掉。真正让缓存「看起来全没」的是两条机制叠加，而且**都只在更新（=进程重启）后才显形**：①**降级根翻转**——`FileUtil.videoFallbackActive` 是 `private static volatile`（`util/FileUtil.java:44`），只活在进程内存里，更新把它清零后 `getVideoDownloadPath()`（`:318`）立刻回到正式目录，而降级期间写下的缓存全在 `getExternalFilesDir("video")`（`:349-354`），缓存页 `LocalListActivity.loadData()` 只扫当前一个根（`activity/video/local/LocalListActivity.kt:329-342`）→ 一条都扫不到；②**陈旧 `.DOWNLOADING`**——进程被杀时「成品已转正、标记还没删」，`LocalListActivity.kt:396-397` 见到标记直接 `continue` 整条跳过，而 `DownloadService.recoverStuckSections()`（`service/DownloadService.kt:833-841`）只把 state 改回 `none`、不清标记，于是「早就下好的视频」同样永远不出现。
+  - **改法（三处）**：①`util/SettingsKeys.kt` 新增 `SAVE_PATH_VIDEO_ACTIVE = "save_path_video_active"`，`util/FileUtil.java` 的 `resolveVideoDownloadDir()` 每次定完根就 `rememberActiveVideoDir()` 落盘；下次启动按它判断「上次进程用的是不是降级目录」，是就把降级目录里的缓存搬回正式目录（`mergeMoveDirectoryContents`），并在正式目录空、降级目录有货时**直接找回**（给升级到本版之前就已降级过的老用户一次兜底，搬完降级目录就空了，天然幂等）。同一目录绝不自己搬给自己。②`service/DownloadService.kt` 的 `recoverStuckSections()` 在 `downloading → none` 分支调新增的 `clearStaleDownloadMarker(dir)`，按 `CacheMediaPolicy.isStaleDownloadMarker()`（有成品 **且** 有标记）删掉 `.DOWNLOADING`，任务目录与一级子目录（多 P）各判一遍；没有成品时保留标记，失败收尾还要照它判残留。③降级提示只在「本进程第一次降级、且上次也不是降级」时弹一句，避免每次启动都弹。
+  - **纯逻辑抽到 `util/StoragePathPolicy.kt`**：`shouldReclaimFallback(wasFallback, fallbackIsSaved, fallbackHasContent, configuredHasContent)` 与 `sameDir(a, b)`（只 `trimEnd('/', '\\')`，不做大小写折叠——Android 存储大小写敏感），零 Android API，可 JVM 单测。
+  - **口径（有意的取舍）**：没有让缓存页同时扫两个根——根由 `resolveVideoDownloadDir()` 统一裁决、`getVideoDownloadPath()` 只认裁决结果，扫两个根会在「用户自己把路径改回正式目录」时出现同一视频两条记录，也和「读列表、下载落盘、元数据读写共用同一个根」这条既有约定冲突。
+  - **L0（26.11.16 本机实测）**：`./gradlew.bat :app:testStandardDebugUnitTest :app:assembleDebug --console=plain` → BUILD SUCCESSFUL（1m47s），`testStandardDebugUnitTest` **255 套件 / 2761 用例 / 0 失败 / 0 错误 / 0 跳过**（新增 `StoragePathPolicyTest` 7 例、`CacheMediaPolicyTest` 2 例）；standard / coexist 两个 flavor 的 debug 包全部产出。
+  - **未验证（L2）**：手表上一次「覆盖安装更新」后缓存列表仍能看到更新前下的视频（这是 #187 的原症状，只能靠真机+真更新验）；降级态（正式目录不可写）下新增缓存、再恢复可写并重启，缓存能被搬回正式目录而不是消失；进程被杀留下的 `.DOWNLOADING` 在下次启动下载服务后自行清掉、缓存页不再漏条。
+
 - **26.11.16 开屏页撤掉图标，只留文字居中打字机（用户原话「图标删除，仅文字居中进行打字机动画展示」）**：
   - **来路**：用户直接提。改前开屏页是「图标 + 文字」整组垂直居中（#173，commit `87870aa0`）。
   - **改法**：`app/src/main/res/layout/activity_splash.xml` 删掉 `ImageView @id/splashIcon`（128dp `@mipmap/icon`）连同它的 `layout_marginTop`，结构退化为 `ScrollView`（`fillViewport` 兜底）→ `LinearLayout(gravity="center")` → `TextView @id/splashText`；`app/src/main/res/values/dimens.xml` 删掉只服务图标的 `splash_icon_size`（128dp）与 `splash_icon_text_gap`（20dp）。
