@@ -4329,6 +4329,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     /** 落盘当前百分比。拖动过程中不写，松手/关闭面板时各写一次。 */
     private fun persistVolumeGain() {
         SharedPreferencesUtil.putInt(PlayerVolumePolicy.KEY_GAIN_PERCENT, volumeGainPercent)
+        audioDiagLog("gain-saved")
     }
 
     /**
@@ -4558,6 +4559,60 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         )
     }
 
+    // ==================== 音频输出诊断（反馈 #182） ====================
+    // 「仅音频模式连蓝牙，音量只有别家一半」在代码里找不到成因：软件增益默认 100%
+    // （PlayerVolumePolicy.DEFAULT_PERCENT），音量键走的是系统 STREAM_MUSIC，外挂音轨用的同一增益。
+    // 剩下的只可能在系统音量档位、蓝牙绝对音量、音频焦点这几层，都只能现场读。
+    // 开关沿用「互动视频调试」，与缩放诊断同一把，关掉时连快照都不读（见 audioDiagLog）。
+
+    private fun audioDiagOn(): Boolean =
+        SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_INTERACTION_DEBUG, false)
+
+    /** 读输出设备类型；API 23 以下没有 getDevices，给空表（诊断行里显示成 —）。 */
+    private fun audioDiagOutputTypes(): List<Int> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return emptyList()
+        return try {
+            val manager = audioManager ?: return emptyList()
+            manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { it.type }
+        } catch (e: Exception) {
+            // 个别 ROM 的 AudioManager 会抛异常，读不到就记一条，不能影响播放
+            Logu.w("audio_diag", "读取输出设备失败：${e.message}")
+            emptyList()
+        }
+    }
+
+    private fun audioDiagSnapshot(): PlayerAudioDiagnostics.Snapshot {
+        val systemVolume = try {
+            audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: -1
+        } catch (e: Exception) {
+            -1
+        }
+        val systemVolumeMax = try {
+            audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: -1
+        } catch (e: Exception) {
+            -1
+        }
+        return PlayerAudioDiagnostics.Snapshot(
+            gainPercent = volumeGainPercent,
+            systemVolume = systemVolume,
+            systemVolumeMax = systemVolumeMax,
+            audioFocus = hasAudioFocus,
+            audioOnly = isAudioOnlyMode,
+            externalTrack = audioPlayer != null,
+            outputTypes = audioDiagOutputTypes(),
+        )
+    }
+
+    /** 打一条音频现场。开关没开时一次 SharedPreferences 读取就返回。 */
+    private fun audioDiagLog(reason: String) {
+        if (!audioDiagOn()) return
+        try {
+            Logu.i("audio_diag", PlayerAudioDiagnostics.line(reason, audioDiagSnapshot()))
+        } catch (e: Exception) {
+            Logu.w("audio_diag", "音频诊断记录失败：${e.message}")
+        }
+    }
+
     private fun videoMoveBy(dx: Float, dy: Float) {
         var x = dx + layout_video.x
         var y = dy + layout_video.y
@@ -4657,6 +4712,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private fun handleAudioFocusChange(change: Int) {
         if (!AudioFocusPolicy.shouldPause(change)) return
         hasAudioFocus = false
+        audioDiagLog("focus-loss")
         runOnUiThread {
             if (destroyed || isFinishing) return@runOnUiThread
             if (isPlaying) playerPause()
@@ -6621,6 +6677,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             Logu.e("AudioTrack", "音频轨道初始化失败: ${e.message}")
             releaseAudioTrack()
         }
+        audioDiagLog("audio-track")
     }
 
     private fun toggleAudioOnlyMode() {
@@ -6691,6 +6748,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             updateAudioOnlyButton()
             updateAudioOnlyUI()
             MsgUtil.showMsg(if (isAudioOnlyMode) UiText.of("已切换到听视频模式") else UiText.of("已切换到普通模式"))
+            audioDiagLog("audio-only")
         }
     }
 
@@ -8829,6 +8887,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         // 新建的 IjkMediaPlayer/外部音轨默认增益都是 1.0，必须把用户记忆的「无极调音」重新打上去，
         // 否则换清晰度、切 P、出错重试之后音量会跳回满格。
         applyVolumeGain()
+        // 每次 prepare（含切清晰度/切 P/重试）留一份音频现场：反馈 #182 靠这一行才看得出
+        // 起播那一刻增益、系统音量档位与输出设备是什么。
+        audioDiagLog("prepared")
 
         if (isPlaying) {
             ijkPlayer!!.start()
