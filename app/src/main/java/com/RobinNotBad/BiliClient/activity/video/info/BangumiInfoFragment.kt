@@ -25,6 +25,7 @@ import com.RobinNotBad.BiliClient.adapter.video.EpisodeCardAdapter
 import com.RobinNotBad.BiliClient.adapter.video.SeasonTabAdapter
 import com.RobinNotBad.BiliClient.api.BangumiApi
 import com.RobinNotBad.BiliClient.model.Bangumi
+import com.RobinNotBad.BiliClient.service.download.BangumiCacheClearStore
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
@@ -397,8 +398,10 @@ class BangumiInfoFragment : Fragment() {
             startActivity(intent)
             true
         }
-        // 缓存：跳到全屏缓存页（顶部选清晰度、下面按季折叠勾选）
+        // 缓存：点一下跳全屏缓存页（顶部选清晰度、下面按季折叠勾选），
+        // 长按则强制清掉这部番的缓存状态（只清状态、不删文件）
         cacheButton.setOnClickListener { openCachePage() }
+        cacheButton.setOnLongClickListener { forceClearCache() }
         onFinishLoad()
 
         refreshReplies()
@@ -812,22 +815,13 @@ class BangumiInfoFragment : Fragment() {
      * 季列表直接用详情页已经拿到的 info.seasons；当前季不在里面（单季番常见）就补一条，
      * 保证进页面至少有一季可选。剧集不在 Intent 里传——缓存页按需自己拉，省得把
      * Bangumi.Season / Episode 都改成 Parcelable。
+     *
+     * 长按走 [forceClearCache]（清缓存状态），两份入口共用 [cacheSeasons] 这份季列表——
+     * 清的和看的必须是同一批季，不然「清完进去还是已下载」。
      */
     private fun openCachePage() {
         val info = bangumi?.info ?: return
-        val tabSeasons = ArrayList<Bangumi.Season>()
-        info.seasons?.let { tabSeasons.addAll(it) }
-        if (tabSeasons.none { it.season_id == currentSeasonId }) {
-            tabSeasons.add(
-                0,
-                Bangumi.Season().apply {
-                    season_id = currentSeasonId
-                    season_title = info.title
-                    cover = info.cover
-                    seasonType = currentSeasonType
-                }
-            )
-        }
+        val tabSeasons = cacheSeasons()
         if (tabSeasons.isEmpty()) {
             MsgUtil.showMsg(getString(R.string.uitext_bangumiinfofragment_034))
             return
@@ -851,6 +845,49 @@ class BangumiInfoFragment : Fragment() {
                 .putStringArrayListExtra(BangumiCacheActivity.EXTRA_SEASON_TITLES, titles)
                 .putStringArrayListExtra(BangumiCacheActivity.EXTRA_SEASON_COVERS, covers)
         )
+    }
+
+    /**
+     * 这部番要出现在缓存页里的季：直接用详情页已经拿到的 info.seasons；
+     * 当前季不在里面（单季番常见）就补一条，保证进页面至少有一季可选。
+     */
+    private fun cacheSeasons(): ArrayList<Bangumi.Season> {
+        val info = bangumi?.info ?: return ArrayList()
+        val tabSeasons = ArrayList<Bangumi.Season>()
+        info.seasons?.let { tabSeasons.addAll(it) }
+        if (tabSeasons.none { it.season_id == currentSeasonId }) {
+            tabSeasons.add(
+                0,
+                Bangumi.Season().apply {
+                    season_id = currentSeasonId
+                    season_title = info.title
+                    cover = info.cover
+                    seasonType = currentSeasonType
+                }
+            )
+        }
+        return tabSeasons
+    }
+
+    /**
+     * 长按缓存按钮：强制清掉这部番**所有季**的「已下载」状态（26.11.17 用户要求）。
+     *
+     * 缓存页的「已下载」只看磁盘有没有成品，所以下过一次就再也勾不上；想重下（比如之前
+     * 下的是低清晰度、或者文件下坏了）就得先在这儿解锁。清完的季在缓存页按「没下过」画，
+     * 重新勾上再缓存即可——下载服务本来就是先写临时文件、成功后再覆盖成品。
+     * **只清状态，不动磁盘上的任何文件。**
+     *
+     * @return 恒为 true：长按要吃掉这一下，别让它再退化成点击（跳缓存页）
+     */
+    private fun forceClearCache(): Boolean {
+        val tabSeasons = cacheSeasons()
+        if (tabSeasons.isEmpty()) {
+            MsgUtil.showMsg(getString(R.string.uitext_bangumiinfofragment_034))
+            return true
+        }
+        BangumiCacheClearStore.clear(tabSeasons.map { it.season_id })
+        MsgUtil.showMsg(getString(R.string.uitext_bangumiinfofragment_038))
+        return true
     }
 
     private fun refreshReplies() {

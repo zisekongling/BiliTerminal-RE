@@ -17,9 +17,12 @@ import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
  * 语义是「点一下播放这一集」，没有勾选态也没有折叠分组；这里要的是纵向分组树
  * （季 = 可折叠的组头，集 = 组内可勾的行），两者视图结构完全不同。
  *
- * 列表是**扁平的一维行数组**：组头一行 + （展开时才有的）该季每集一行。折叠/展开/勾选
- * 全部由宿主（[com.RobinNotBad.BiliClient.activity.video.BangumiCacheActivity]）改完状态后
- * 调 [rebuild] 重算行数组 —— 行数会变，用 notifyDataSetChanged 最省心，列表规模也就几十行。
+ * 列表是**扁平的一维行数组**：最上面一行清晰度入口 + 组头一行 + （展开时才有的）该季每集一行。
+ * 折叠/展开/勾选全部由宿主（[com.RobinNotBad.BiliClient.activity.video.BangumiCacheActivity]）
+ * 改完状态后调 [rebuild] 重算行数组 —— 行数会变，用 notifyDataSetChanged 最省心，列表规模也就几十行。
+ *
+ * 清晰度入口是**列表的第 0 行**而不是页面顶上那条固定栏（26.11.17 用户要求）：手表屏小，
+ * 固定栏会一直占着一行高度，滚到下面就没意义了；放进列表就跟着滚走。
  *
  * 季的剧集是**按需拉取**的：[SeasonItem.entries] 为 null 表示还没拉到，此时组头显示
  * 「正在获取剧集…」（[SeasonItem.loading]）或「加载失败，点此重试」（[SeasonItem.failed]）。
@@ -27,7 +30,8 @@ import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 class BangumiCacheAdapter(
     private val onToggleSeason: (SeasonItem) -> Unit,
     private val onSelectAllClick: (SeasonItem) -> Unit,
-    private val onToggleEpisode: (SeasonItem, Int) -> Unit
+    private val onToggleEpisode: (SeasonItem, Int) -> Unit,
+    private val onQualityClick: () -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     /** 一集在季内的位置：带上分区名，多分区（正片 + PV/花絮）时才需要前缀。 */
@@ -86,12 +90,25 @@ class BangumiCacheAdapter(
     }
 
     private sealed class Row {
+        /** 列表头部那行清晰度入口（永远是第 0 行） */
+        object Quality : Row()
         class Season(val item: SeasonItem) : Row()
         class Episode(val item: SeasonItem, val index: Int) : Row()
     }
 
     private val seasons = ArrayList<SeasonItem>()
     private val rows = ArrayList<Row>()
+
+    /** 头部行显示的清晰度文案（「清晰度：1080P」里的那半截）；宿主换清晰度时经 [setQualityLabel] 写。 */
+    private var qualityLabel: String = ""
+
+    /** 换清晰度：只刷新头部那一行，不整表重建（不然正在展开的季会跳一下）。 */
+    @SuppressLint("NotifyDataSetChanged")
+    fun setQualityLabel(label: String) {
+        if (label == qualityLabel) return
+        qualityLabel = label
+        if (rows.firstOrNull() is Row.Quality) notifyItemChanged(0)
+    }
 
     @SuppressLint("NotifyDataSetChanged")
     fun setSeasons(list: List<SeasonItem>) {
@@ -104,6 +121,7 @@ class BangumiCacheAdapter(
     @SuppressLint("NotifyDataSetChanged")
     fun rebuild() {
         rows.clear()
+        rows.add(Row.Quality)
         for (item in seasons) {
             rows.add(Row.Season(item))
             if (!item.expanded) continue
@@ -115,22 +133,47 @@ class BangumiCacheAdapter(
 
     override fun getItemCount(): Int = rows.size
 
-    override fun getItemViewType(position: Int): Int =
-        if (rows[position] is Row.Season) TYPE_SEASON else TYPE_EPISODE
+    override fun getItemViewType(position: Int): Int = when (rows.getOrNull(position)) {
+        is Row.Quality -> TYPE_QUALITY
+        is Row.Season -> TYPE_SEASON
+        else -> TYPE_EPISODE
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         val inflater = LayoutInflater.from(parent.context)
-        return if (viewType == TYPE_SEASON)
-            SeasonHolder(inflater.inflate(R.layout.cell_bangumi_cache_season, parent, false))
-        else
-            EpisodeHolder(inflater.inflate(R.layout.cell_bangumi_cache_episode, parent, false))
+        return when (viewType) {
+            TYPE_QUALITY -> QualityHolder(
+                inflater.inflate(R.layout.item_bangumi_cache_quality, parent, false)
+            )
+            TYPE_SEASON -> SeasonHolder(
+                inflater.inflate(R.layout.cell_bangumi_cache_season, parent, false)
+            )
+            else -> EpisodeHolder(
+                inflater.inflate(R.layout.cell_bangumi_cache_episode, parent, false)
+            )
+        }
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val row = rows.getOrNull(position)) {
+            is Row.Quality -> (holder as? QualityHolder)?.bind()
             is Row.Season -> (holder as? SeasonHolder)?.bind(row.item)
             is Row.Episode -> (holder as? EpisodeHolder)?.bind(row.item, row.index)
             null -> Unit
+        }
+    }
+
+    /** 头部那行「清晰度：xxx ›」：点一下由宿主去弹清晰度页。 */
+    private inner class QualityHolder(view: View) : RecyclerView.ViewHolder(view) {
+        private val text: TextView = view.findViewById(R.id.text_quality)
+        private val arrow: TextView = view.findViewById(R.id.quality_arrow)
+
+        fun bind() {
+            val context = itemView.context
+            text.text = context.getString(R.string.uitext_bangumicache_002, qualityLabel)
+            text.setTextColor(ColorScheme.getTextPrimary(context))
+            arrow.setTextColor(ColorScheme.getTextSecondary(context))
+            itemView.setOnClickListener { onQualityClick() }
         }
     }
 
@@ -263,8 +306,9 @@ class BangumiCacheAdapter(
     }
 
     companion object {
-        private const val TYPE_SEASON = 0
-        private const val TYPE_EPISODE = 1
+        private const val TYPE_QUALITY = 0
+        private const val TYPE_SEASON = 1
+        private const val TYPE_EPISODE = 2
 
         /** 勾选标记：与详情页/弹窗里的双态引导符保持同一套字符。 */
         private const val GLYPH_CHECKED = "✓"

@@ -15,6 +15,7 @@ import com.RobinNotBad.BiliClient.api.BangumiApi
 import com.RobinNotBad.BiliClient.api.VipApi
 import com.RobinNotBad.BiliClient.model.LocalVideo
 import com.RobinNotBad.BiliClient.service.DownloadService
+import com.RobinNotBad.BiliClient.service.download.BangumiCacheClearStore
 import com.RobinNotBad.BiliClient.service.download.BangumiCacheDownloadIndex
 import com.RobinNotBad.BiliClient.service.download.BangumiCacheSeason
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
@@ -27,9 +28,10 @@ import com.RobinNotBad.BiliClient.util.NetworkPlaybackQuality
 /**
  * 番剧缓存页（26.11.15 重做，取代详情页里「选季 → 选集 → 清晰度」的三连弹窗）。
  *
- * 版式来自用户对交互的要求：**顶部一行清晰度入口**（点开就是投稿视频那套全屏清晰度页，
- * 只是选完回填、不当场下载）、**下面是按季折叠的下拉分组**（默认全部折叠）、
- * 每个季行右侧一个「全选本季」、展开后每集一行「集名 + 会员/限免角标 + 勾选标记」。
+ * 版式来自用户对交互的要求：**列表第 0 行是清晰度入口**（点开就是投稿视频那套全屏清晰度页，
+ * 只是选完回填、不当场下载；26.11.17 从固定顶栏改成随列表滚动的一行）、
+ * **下面是按季折叠的下拉分组**（默认全部折叠）、每个季行右侧一个「全选本季」、
+ * 展开后每集一行「集名 + 会员/限免角标 + 勾选标记」。
  *
  * 跨季混选是允许的：勾选状态按「季」各自维护，入队时再按季分组拼成多条任务。
  *
@@ -44,11 +46,14 @@ import com.RobinNotBad.BiliClient.util.NetworkPlaybackQuality
  * - 「队列中」：下载表里还挂着这集的任务
  * - 「大会员」：这集标着会员，而当前账号不是大会员（[queryVipState]）
  * 默认勾选与「全选本季」都会跳过这三类，只勾真能下的集。
+ *
+ * 「已下载」只看磁盘，所以下过一次就再勾不上。用户在详情页长按「缓存」按钮可以**强制清除**
+ * 这部番所有季的状态（[BangumiCacheClearStore]，只清状态、不删文件）；被清过的季在这里
+ * 一律当「没下过」画，重新勾上即可覆盖旧成品（下载服务本就先写临时文件再替换）。
  */
 class BangumiCacheActivity : BaseActivity() {
 
     private lateinit var adapter: BangumiCacheAdapter
-    private lateinit var textQuality: TextView
     private lateinit var textSelected: TextView
     private lateinit var btnStart: View
 
@@ -67,6 +72,15 @@ class BangumiCacheActivity : BaseActivity() {
     /** 会员状态是否已经问到了；没问到之前一律按非大会员画（宁可少勾，不可让用户勾了必失败）。 */
     @Volatile
     private var isVipResolved = false
+
+    /**
+     * 被「详情页缓存按钮长按」强行清过状态的季（[BangumiCacheClearStore]）。
+     *
+     * 记过的季一律按「这一集没下过」画，用户能重新勾、重新下（覆盖旧成品）。
+     * 在后台线程读，所以 @Volatile。
+     */
+    @Volatile
+    private var clearedSeasons: Set<Long> = emptySet()
 
     /** 清晰度选择页的「只挑不下载」回值。 */
     private val qualityPicker =
@@ -87,14 +101,12 @@ class BangumiCacheActivity : BaseActivity() {
         setPageName(getString(R.string.uitext_bangumicache_001))
         findViewById<View>(R.id.top).setOnClickListener { finish() }
 
-        textQuality = findViewById(R.id.text_quality)
         textSelected = findViewById(R.id.text_selected)
         btnStart = findViewById(R.id.btn_start)
 
         qualityQn = NetworkPlaybackQuality.defaultQn(this)
         qualityLabel = LocalVideo.getQualityLabel(qualityQn)
-        renderQuality()
-        findViewById<View>(R.id.quality_row).setOnClickListener { openQualityPicker() }
+        clearedSeasons = BangumiCacheClearStore.load()
 
         bangumiCover = intent.getStringExtra(EXTRA_BANGUMI_COVER).orEmpty()
         currentSeasonId = intent.getLongExtra(EXTRA_CURRENT_SEASON_ID, 0L)
@@ -104,12 +116,16 @@ class BangumiCacheActivity : BaseActivity() {
         adapter = BangumiCacheAdapter(
             onToggleSeason = { item -> toggleSeason(item) },
             onSelectAllClick = { item -> onSelectAllClicked(item) },
-            onToggleEpisode = { item, index -> toggleEpisode(item, index) }
+            onToggleEpisode = { item, index -> toggleEpisode(item, index) },
+            // 清晰度入口现在是列表第 0 行，点击由适配器转回来
+            onQualityClick = { openQualityPicker() }
         )
         val recyclerView = findViewById<RecyclerView>(R.id.recyclerView)
         recyclerView.layoutManager = CustomLinearManager(this)
         recyclerView.adapter = adapter
         adapter.setSeasons(seasons)
+        // 必须在 adapter 建好之后再刷清晰度文案：它是写给适配器头部行的，早调等于丢了
+        renderQuality()
 
         btnStart.setOnClickListener { enqueue() }
         updateSelectedText()
@@ -155,8 +171,9 @@ class BangumiCacheActivity : BaseActivity() {
         }
     }
 
+    /** 把当前清晰度写进列表头部那一行（文案拼装在适配器里，避免两处各拼一次）。 */
     private fun renderQuality() {
-        textQuality.text = getString(R.string.uitext_bangumicache_002, qualityLabel)
+        if (::adapter.isInitialized) adapter.setQualityLabel(qualityLabel)
     }
 
     /** 打开清晰度页：复用投稿视频那套全屏清晰度列表，只是回填而不下载。 */
@@ -237,9 +254,11 @@ class BangumiCacheActivity : BaseActivity() {
     ) {
         val queued = BangumiCacheDownloadIndex.queuedCids()
         val unknown = getString(R.string.text_download_bangumi_episode_unknown)
+        // 被长按「强制清除」过的季：磁盘上就算有成品也算没下过，好让用户重新勾、重新覆盖
+        val cleared = clearedSeasons.contains(item.seasonId)
         for (entry in entries) {
             entry.queued = queued.contains(entry.episode.cid)
-            entry.downloaded = !entry.queued && BangumiCacheDownloadIndex.isDownloaded(
+            entry.downloaded = !entry.queued && !cleared && BangumiCacheDownloadIndex.isDownloaded(
                 item.title,
                 BangumiCacheSeason.childNameOf(entry.episode, unknown)
             )
@@ -378,6 +397,12 @@ class BangumiCacheActivity : BaseActivity() {
             return
         }
         DownloadService.startDownloadBangumi(qualityQn, targets)
+        // 清过的季入队后就把记号撤掉：清一次只解锁一次，下回进来按磁盘真实状态画
+        val enqueuedSeasons = targets.map { it.seasonId }.toSet()
+        if (enqueuedSeasons.any { clearedSeasons.contains(it) }) {
+            BangumiCacheClearStore.restore(enqueuedSeasons)
+            clearedSeasons = clearedSeasons - enqueuedSeasons
+        }
         finish()
     }
 

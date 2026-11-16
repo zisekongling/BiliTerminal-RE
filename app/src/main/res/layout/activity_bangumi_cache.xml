@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  番剧缓存页（26.11.15 重做）：顶部一行清晰度入口，中间是「按季折叠」的剧集列表，底部是
-  已选计数 + 开始缓存。
+  番剧缓存页（26.11.15 重做）：顶部标题栏，中间是「按季折叠」的剧集列表，底部是已选计数 +
+  开始缓存。
 
-  与投稿视频的 activity_simple_list 的区别只有「top 下面多挂了一条清晰度行、底部多挂了一条
-  操作栏」，所以顶栏的 id / 结构照抄它——BaseActivity 的 setPageName / setTopbarExit /
-  setRound 全是按 id 找控件的，少一个 id 就会静默失效。
+  清晰度入口 26.11.17 从「顶栏下面一条固定横栏」改成**列表的第 0 行**（见
+  item_bangumi_cache_quality.xml），跟着列表一起滚——手表屏窄，固定栏白占一行高度。
+
+  与投稿视频的 activity_simple_list 的区别只剩「底部多挂了一条操作栏」，所以顶栏的 id / 结构
+  照抄它——BaseActivity 的 setPageName / setTopbarExit / setRound 全是按 id 找控件的，
+  少一个 id 就会静默失效。
 -->
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -45,45 +48,12 @@
 
     </RelativeLayout>
 
-    <LinearLayout
-        android:id="@+id/quality_row"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_below="@id/top"
-        android:background="?attr/selectableItemBackground"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="12dp"
-        android:paddingTop="6dp"
-        android:paddingEnd="12dp"
-        android:paddingBottom="6dp">
-
-        <TextView
-            android:id="@+id/text_quality"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:lines="1"
-            android:textSize="@dimen/text_subtitle"
-            tools:text="清晰度：1080P" />
-
-        <TextView
-            android:id="@+id/quality_arrow"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="6dp"
-            android:text="›"
-            android:textSize="@dimen/text_subtitle" />
-
-    </LinearLayout>
-
     <com.RobinNotBad.BiliClient.ui.widget.RotaryRecyclerView
         android:id="@+id/recyclerView"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_above="@id/cache_bottom_bar"
-        android:layout_below="@id/quality_row" />
+        android:layout_below="@id/top" />
 
     <LinearLayout
         android:id="@+id/cache_bottom_bar"
