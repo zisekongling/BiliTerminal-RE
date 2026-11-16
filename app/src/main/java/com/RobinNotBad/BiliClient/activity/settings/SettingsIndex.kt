@@ -97,6 +97,16 @@ object SettingsIndex {
                 )
             }
         }
+        // 「数据迁移」（26.11）：整页在 private/ 里，不存在时不收录，理由同上。
+        if (OptionalFeatures.migrationAvailable) {
+            list += Entry(
+                text(R.string.setting_migration_entry),
+                text(R.string.desc_setting_migration_entry),
+                "迁移 导入 旧版 换版本 分支 搬数据 备份 下载"
+            ) { a ->
+                OptionalFeatures.openMigration(a)
+            }
+        }
 
         // ---- 子页面 ----
         list += Entry(text(R.string.pagename_setting_player_choose), text(R.string.settingtext_settingsindex_002)) { a ->

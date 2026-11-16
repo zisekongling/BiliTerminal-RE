@@ -178,6 +178,8 @@
     <string name="desc_setting_bangumi_source_entry">启用、排序与测活第三方番剧源</string>
     <string name="setting_bangumi_danmaku_entry">管理弹幕</string>
     <string name="desc_setting_bangumi_danmaku_entry">第三方弹幕的开关、简繁、偏移与屏蔽</string>
+    <string name="setting_migration_entry">数据迁移</string>
+    <string name="desc_setting_migration_entry">把其他分支的已下载视频搬过来；有 root 时还能带上设置与登录状态</string>
     <string name="desc_creative_enable">打开此选项，在“我的”页面会显示创作中心（可查看投稿视频的数据变化情况）</string>
     <string name="desc_ban_gallery">打开此选项，缓存的视频将不会出现在系统相册中</string>
     <string name="desc_copy_enable">打开此选项，长按一些文字（如视频描述或评论）可以打开复制界面以复制这些文本</string>

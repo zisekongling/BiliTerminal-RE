@@ -81,6 +81,7 @@ class SettingMainActivity : InstanceActivity() {
         buildNotifyGroup()
         buildDisguiseGroup()
         buildDownloadGroup()
+        buildMigrationGroup()
         buildLabGroup()
         buildAboutGroup()
         buildDevGroup()
@@ -94,7 +95,8 @@ class SettingMainActivity : InstanceActivity() {
         title: String,
         desc: String,
         groupType: String,
-        target: Class<*>? = null
+        target: Class<*>? = null,
+        onClick: (() -> Unit)? = null
     ) {
         val header = layoutInflater.inflate(R.layout.cell_group_header, settingsContainer, false) as MaterialCardView
         header.findViewById<ImageView>(R.id.group_icon).setImageResource(iconRes)
@@ -104,7 +106,10 @@ class SettingMainActivity : InstanceActivity() {
         header.findViewById<ImageView>(R.id.group_arrow).setImageResource(R.drawable.arrow_forward)
 
         header.setOnClickListener {
-            if (target != null) {
+            if (onClick != null) {
+                // 私有注入里的页面：公开侧拿不到那个 Class，只能走 OptionalFeatures 门面
+                onClick()
+            } else if (target != null) {
                 startActivity(Intent(this, target))
             } else {
                 val intent = Intent(this, SettingGroupActivity::class.java)
@@ -172,6 +177,23 @@ class SettingMainActivity : InstanceActivity() {
             getString(R.string.desc_setting_bangumi_group),
             GROUP_BANGUMI
         )
+    }
+
+    /**
+     * 「数据迁移」分组（26.11）。
+     *
+     * <p>整页都在私有注入里（private/），所以按 [OptionalFeatures.migrationAvailable] 条件挂载；
+     * 公开构建下设置页与从前完全一致。点击直接拉起私有 Activity，不走 SettingGroupActivity。
+     */
+    private fun buildMigrationGroup() {
+        if (!OptionalFeatures.migrationAvailable) return
+        addGroup(
+            R.drawable.icon_folder,
+            getString(R.string.setting_migration_entry),
+            getString(R.string.desc_setting_migration_entry),
+            // 这个分组 id 不会被用到（点击走 onClick 直接起私有页），只为占位
+            "migration"
+        ) { OptionalFeatures.openMigration(this) }
     }
 
     /**

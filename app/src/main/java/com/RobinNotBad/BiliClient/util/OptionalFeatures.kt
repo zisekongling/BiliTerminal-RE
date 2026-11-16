@@ -431,6 +431,25 @@ object OptionalFeatures {
         }
     }
 
+    // ==================== 数据迁移 ====================
+
+    /** 「数据迁移」页是否可用（26.11）。页面在 private/ 里，公开构建下返回 false，设置页不显示这张卡片。 */
+    val migrationAvailable: Boolean
+        get() = try {
+            holder?.getMethod("hasMigration")?.invoke(null) as? Boolean ?: false
+        } catch (e: Throwable) {
+            false
+        }
+
+    /** 打开「数据迁移」页：扫描其他分支的已下载视频，有 root 时还能带设置与登录状态。 */
+    fun openMigration(context: Context) {
+        try {
+            holder?.getMethod("openMigration", Context::class.java)?.invoke(null, context)
+        } catch (e: Throwable) {
+            Logu.w("OptionalFeatures", "openMigration failed: " + e.message)
+        }
+    }
+
     private fun invokeString(name: String): String? = try {
         holder?.getMethod(name)?.invoke(null) as? String
     } catch (e: Throwable) {
