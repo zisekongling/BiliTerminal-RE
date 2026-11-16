@@ -11,6 +11,7 @@ import com.RobinNotBad.BiliClient.activity.feedback.FeedbackListActivity
 import com.RobinNotBad.BiliClient.activity.settings.login.AccountSwitchActivity
 import com.RobinNotBad.BiliClient.player.SponsorCategoryLabels
 import com.RobinNotBad.BiliClient.ui.widget.IslandPolicy
+import com.RobinNotBad.BiliClient.util.FeedbackUnread
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
 
 /**
@@ -193,7 +194,10 @@ object SettingsIndex {
             a.startActivity(Intent(a, FeedbackActivity::class.java))
         }
         // 「我的反馈」（26.10.16 新增）：独立 Activity 子页面，按 AGENTS 约定要进搜索索引
-        list += Entry(text(R.string.feedback_mine_entry_title), text(R.string.feedback_mine_entry_desc)) { a ->
+        list += Entry(
+            text(R.string.feedback_mine_entry_title),
+            text(R.string.feedback_mine_entry_desc) + FeedbackUnread.badgeSuffix()
+        ) { a ->
             a.startActivity(Intent(a, FeedbackListActivity::class.java))
         }
         list += Entry(text(R.string.setting_telemetry), text(R.string.settingtext_settingsindex_009)) { a ->

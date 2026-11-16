@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.api.TerminalApi
 import com.RobinNotBad.BiliClient.model.FeedbackItem
+import com.RobinNotBad.BiliClient.util.FeedbackUnread
 import com.google.android.material.card.MaterialCardView
 
 /**
@@ -40,6 +41,9 @@ class FeedbackListAdapter(
         holder.status.text = if (item.handled) UiText.of("已受理") else UiText.of("待受理")
         holder.content.text = item.content
         holder.time.text = item.ctime
+        // 26.11.16：开发者回复过、且用户还没看过这条之后的新回复 —— 挂一个「新回复」标签。
+        // 判断只读本地水位线，不发请求（见 FeedbackUnread）。
+        holder.newReply.visibility = if (FeedbackUnread.isUnread(item)) View.VISIBLE else View.GONE
         holder.cardView.setOnClickListener { onClick(item) }
     }
 
@@ -64,6 +68,7 @@ class FeedbackListAdapter(
         val cardView: MaterialCardView = itemView.findViewById(R.id.cardView)
         val category: TextView = itemView.findViewById(R.id.category)
         val status: TextView = itemView.findViewById(R.id.status)
+        val newReply: TextView = itemView.findViewById(R.id.newreply)
         val content: TextView = itemView.findViewById(R.id.content)
         val time: TextView = itemView.findViewById(R.id.time)
     }

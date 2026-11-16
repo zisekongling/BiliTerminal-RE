@@ -47,6 +47,19 @@
                 android:textSize="12sp"
                 tools:text="待受理" />
 
+            <!-- 26.11.16：有开发者新回复、且用户还没看过（判据见 FeedbackUnread） -->
+            <TextView
+                android:id="@+id/newreply"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="@string/text_feedback_new_reply"
+                android:textColor="?attr/colorPrimary"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:visibility="gone"
+                tools:visibility="visible" />
+
         </LinearLayout>
 
         <TextView

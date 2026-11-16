@@ -37,6 +37,7 @@ import com.RobinNotBad.BiliClient.util.Aria2Util
 import com.RobinNotBad.BiliClient.util.BetaUpdate
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.DisguisePrefs
+import com.RobinNotBad.BiliClient.util.FeedbackUnread
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.FolderPagePrefs
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -1085,7 +1086,8 @@ class SettingGroupActivity : RefreshListActivity() {
         nav(
             R.drawable.icon_announcement,
             getString(R.string.feedback_mine_entry_title),
-            getString(R.string.feedback_mine_entry_desc)
+            // 26.11.16：有开发者新回复时在描述后追加「· N 条新回复」（缓存值，打开列表会重算）
+            getString(R.string.feedback_mine_entry_desc) + FeedbackUnread.badgeSuffix()
         ) {
             startActivity(Intent(this, FeedbackListActivity::class.java))
         }

@@ -17,9 +17,12 @@ import android.provider.Settings
 import androidx.multidex.MultiDex
 import com.RobinNotBad.BiliClient.activity.SplashActivity
 import com.RobinNotBad.BiliClient.activity.base.InstanceActivity
+import com.RobinNotBad.BiliClient.activity.feedback.FeedbackDetailActivity
+import com.RobinNotBad.BiliClient.activity.feedback.FeedbackListActivity
 import com.RobinNotBad.BiliClient.activity.settings.UpdateActivity
 import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.api.DynamicApi
+import com.RobinNotBad.BiliClient.api.TerminalApi
 import com.RobinNotBad.BiliClient.model.UpdateConfig
 import com.RobinNotBad.BiliClient.player.PlayerDisplayModePolicy
 import com.RobinNotBad.BiliClient.tutorial.TutorialStore
@@ -27,6 +30,7 @@ import com.RobinNotBad.BiliClient.util.BangumiUpdateChecker
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.CookieRefreshScheduler
 import com.RobinNotBad.BiliClient.util.CrashTrail
+import com.RobinNotBad.BiliClient.util.FeedbackUnread
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MessageUnreadRefresh
 import com.RobinNotBad.BiliClient.util.MessageUnreadRefresher
@@ -37,6 +41,7 @@ import com.RobinNotBad.BiliClient.util.PerformanceManager
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
+import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.UpdateManager
 import me.ele.uetool.UETool
 import org.json.JSONException
@@ -123,6 +128,10 @@ class BiliTerminal : Application() {
          */
         @Volatile
         private var pendingAutoOpenUpdate: UpdateConfig? = null
+
+        /** 启动时查到的「我的反馈」新回复条数，等首屏就绪后提示一次（26.11.16）。 */
+        @Volatile
+        private var pendingFeedbackUnread: Int = 0
 
         /**
          * 记下「发现新版本（非强制）」并尝试立刻打开更新页。
@@ -458,6 +467,7 @@ class BiliTerminal : Application() {
                     // 26.10.25：检查更新结果可能在启动页期间就返回，那时不能直接跳更新页
                     // （会被启动页随后的首屏盖住），挂起到这里——首屏 resumed 后再打开。
                     tryShowAutoOpenUpdatePage()
+                    tryPromptFeedbackUnread()
                 }
 
                 override fun onActivityPaused(activity: Activity) {}
@@ -526,6 +536,9 @@ class BiliTerminal : Application() {
             }
 
             checkAppUpdate()
+            // 26.11.16：开发者回复后用户完全不知情（反馈详情只能自己点进去看），
+            // 所以启动时拉一次「我的反馈」算未读，首屏弹一次提示。
+            checkFeedbackReplies()
         }
     }
 
@@ -586,6 +599,59 @@ class BiliTerminal : Application() {
                 )
             } catch (e: Exception) {
             }
+        }
+    }
+
+    /**
+     * 启动时查一次「我的反馈」有没有开发者新回复（26.11.16）。
+     *
+     * <p>用户的原话是「我回复了但用户不知道」——手表上没有可靠的通知权限，所以按用户拍板的方案
+     * 走站内提示：首屏弹一次、「我的反馈」入口显示条数、列表项标「新回复」。
+     * 失败一律静默：这只是提醒，不能因为它挂了影响启动。
+     */
+    private fun checkFeedbackReplies() {
+        CenterThreadPool.run {
+            try {
+                val list = TerminalApi.getMyFeedback()
+                val unread = FeedbackUnread.refreshCount(list)
+                if (unread > 0) {
+                    CenterThreadPool.runOnUiThread {
+                        pendingFeedbackUnread = unread
+                        tryPromptFeedbackUnread()
+                    }
+                }
+            } catch (e: Exception) {
+                Logu.w("反馈提醒", "启动检查反馈回复失败：" + e.message)
+            }
+        }
+    }
+
+    /** 前台页就绪时弹一次「有 N 条新回复」；用户已在反馈页里就不打扰。 */
+    private fun tryPromptFeedbackUnread() {
+        val count = pendingFeedbackUnread
+        if (count <= 0) return
+        val activity = getCurrentActivity() ?: return
+        if (activity is SplashActivity) return
+        pendingFeedbackUnread = 0
+        if (activity is FeedbackListActivity || activity is FeedbackDetailActivity) return
+        try {
+            TerminalDialog.confirm(
+                context = activity,
+                title = activity.getString(R.string.msg_feedback_unread_title),
+                message = activity.getString(R.string.msg_feedback_unread_body, count),
+                confirmText = activity.getString(R.string.btn_feedback_unread_open),
+                cancelText = activity.getString(R.string.btn_cancel),
+                confirmIsDanger = false,
+                onConfirm = {
+                    try {
+                        activity.startActivity(Intent(activity, FeedbackListActivity::class.java))
+                    } catch (e: Exception) {
+                        Logu.w("反馈提醒", "打开我的反馈失败：" + e.message)
+                    }
+                }
+            ).show()
+        } catch (e: Exception) {
+            Logu.w("反馈提醒", "弹出反馈提醒失败：" + e.message)
         }
     }
 }

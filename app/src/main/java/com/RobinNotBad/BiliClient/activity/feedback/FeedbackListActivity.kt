@@ -11,6 +11,7 @@ import com.RobinNotBad.BiliClient.adapter.FeedbackListAdapter
 import com.RobinNotBad.BiliClient.api.TerminalApi
 import com.RobinNotBad.BiliClient.model.FeedbackItem
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.FeedbackUnread
 import com.RobinNotBad.BiliClient.util.MsgUtil
 
 /**
@@ -40,6 +41,10 @@ class FeedbackListActivity : RefreshListActivity() {
      * <p>注册成属性初始化（与本工程 `DynamicActivity` / `SendDynamicActivity` 一致）——
      * 必须在 Activity 进入 STARTED 之前完成注册，放 `onCreate` 里也安全，但字段更不容易漏。
      */
+    /** 最近一次拉到的列表与本页的适配器：从详情页回来时只重算「新回复」，不再发一次请求。 */
+    private var items: ArrayList<FeedbackItem>? = null
+    private var adapter: FeedbackListAdapter? = null
+
     private val detailLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -58,6 +63,15 @@ class FeedbackListActivity : RefreshListActivity() {
         load()
     }
 
+    override fun onResume() {
+        super.onResume()
+        // 从详情页返回：详情页已把这条标记成「看过」（FeedbackUnread.markSeen），
+        // 列表内容本身没变，只需重算未读数并重绑一遍「新回复」标签。
+        val current = items ?: return
+        FeedbackUnread.refreshCount(current)
+        adapter?.notifyDataSetChanged()
+    }
+
     private fun load() {
         setRefreshing(true)
         CenterThreadPool.run {
@@ -71,7 +85,12 @@ class FeedbackListActivity : RefreshListActivity() {
                     } else {
                         hideEmptyView()
                     }
-                    setAdapter(FeedbackListAdapter(this@FeedbackListActivity, list) { openDetail(it) })
+                    items = list
+                    // 26.11.16：顺手用这份列表重算「新回复」条数（设置页入口要靠它显示 N 条）
+                    FeedbackUnread.refreshCount(list)
+                    val listAdapter = FeedbackListAdapter(this@FeedbackListActivity, list) { openDetail(it) }
+                    adapter = listAdapter
+                    setAdapter(listAdapter)
                     // 加载完必须复位：它是 isLoading / isRefreshing 的唯一复位信号，漏了翻页会永久卡死
                     setRefreshing(false)
                 }
