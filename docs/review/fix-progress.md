@@ -30,10 +30,11 @@
   - **来路**：控制台反馈 #178（26.11.16，建议）：缓存里的多 P 视频希望自动连播。开发者先回过「加到文件夹里就可以连播了哦」，但那是绕过问题的说法——单条合集本来就有分 P 列表页，不该逼用户自己再建文件夹。
   - **根因**：缓存页点开多 P 走 `activity/video/local/LocalPageChooseActivity.kt`，它起播时只把**选中那一 P** 的文件塞进 `PlayerData`，从不传 `pagenames`。播放器的自动下一 P 只认 `pagenames`（`PlayerActivity` 的 `onCompletionListener`：`auto_next_enabled && hasMultiplePages() && currentPageIndex < pagenames.size - 1`），所以播放器根本不知道后面还有 P，播完就停，选集卡片也只有一页。
   - **改法**：`onItemClickListener` 里 `pageList.size > 1` 时补 `playerData.pagenames = ArrayList(pageList)`、`playerData.cids = ArrayList()`（本地缓存没有 cid，换 P 直接按文件切）、`playerData.currentPageIndex = position`，并在 `PlayerApi.jumpToPlayer()` 之后补三条 **按页对齐** 的 extra：`videoFileList` = `pageMediaFiles.map { it.first }`、`audioFileList` = `pageMediaFiles.map { it.second }`、`danmakuFileList` = 按页下标取值（缺的补空串）。
-  - **为什么必须重给一遍扁平表**：播放器换 P 走的是「老路径」（`PlayerActivity#resolveLocalPageMedia`，`localPlaylist == null` 时按 intent 里这三条列表**同一下标**取文件）。缓存页传进来的 `videoFileList` 是**扁平**表，DASH 未合并的页在它里面占两个下标，原样转交会一错位就把 P3 播成 P2 的音轨（与 #164 / #51 同形）。这里用 `buildPageMediaFiles()` 的每页 Pair 重新拼成严格按页对齐的三条表。
+  - **为什么必须重给一遍扁平表**：播放器换 P 走的是「老路径」（`PlayerActivity#resolveLocalPageMedia`，`localPlaylist == null` 时按 intent 里这三条列表**同一下标**取文件）。缓存页传进来的 `videoFileList` 是**扁平**表，一页仍占两个下标的页（`video.mp4` + `audio.m4a` 双文件）在它里面就会让后面的页整体错位，原样转交会一错位就把 P3 播成 P2 的音轨（与 #164 / #51 同形）。这里用 `buildPageMediaFiles()` 的每页 Pair 重新拼成严格按页对齐的三条表——**单文件页行为不变**（两种表此时逐项相同），对齐只在双文件场景下才看出差别。
+  - **双文件只是少数**：1080P 及以上的 DASH 缓存下载完会由 `DownloadService#mergeDashPair` 重封装成单个 `video.mp4` 并删掉 `audio.m4a`（26.10.25 起，见 FEATURES §10.5），所以常规缓存是单文件；只有**合并失败 / 被跳过**（旧设备、特殊编码、磁盘不足、替换失败）以及 **26.10.25 之前下的旧缓存**才留双文件，这类缓存照样要能连着播且不错位，所以按页对齐这条必须做对。
   - **口径（有意的取舍）**：**没有**新开「直接跳进播放器的分 P 层」——26.10.16 定过「分层进入必须用户点」，那是另一条更侵入的路。现在只是让播放器知道分 P 存在：选集卡片露出全部 P、「自动下一P」按钮出现，**是否真自动接下一 P 仍由「自动连播」开关决定**（默认关，与文件夹连播同一套开关），不改变任何默认行为。
   - **L0（26.11.16 本机实测）**：同上一项同一次构建——`:app:assembleDebug` BUILD SUCCESSFUL、`:app:testStandardDebugUnitTest` **253 套件 / 2735 用例 / 0 失败**（无新纯函数，未加用例）。
-  - **未验证（L2）**：手表上从缓存点开一个多 P 视频 → 选集卡片能看到 P1…Pn 且当前页标对 → 打开「自动连播」后一 P 播完自动接下一 P、标题与弹幕跟着换 → 关掉开关后播完停住 → 播一页 DASH 双文件的 P（`video.mp4` + `audio.m4a`）时声音与画面是同一条 P（不错位到隔壁 P）。
+  - **未验证（L2）**：手表上从缓存点开一个多 P 视频 → 选集卡片能看到 P1…Pn 且当前页标对 → 打开「自动连播」后一 P 播完自动接下一 P、标题与弹幕跟着换 → 关掉开关后播完停住。至于「双文件页不错位」：常规缓存（1080P 及以上）合并后就是单文件，**手上有合并失败的或 26.10.25 之前下的旧双文件缓存**才需要专门验一遍声音与画面是同一条 P。
 
 - **26.11.16 反馈页顶栏补返回箭头（后台控制台反馈 #174，用户原话「在反馈与界面左上角没有返回的箭头」）**：
   - **来路**：控制台反馈 #174（26.11.16 09:35，HUAWEI Simba-AL00 / Android SDK 27 / 版本 26.11.16），开发者已回「不影响功能的话下个版本补上」。
