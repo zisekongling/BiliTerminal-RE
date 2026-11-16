@@ -18,6 +18,23 @@
 
 ## 1. 当前版本状态
 
+- **26.11.16 「评论区只翻得动三四条」——把「这一页拉不出来」错判成「到底了」，一判就永不翻页（控制台反馈 #171）**：
+  - **来路**：控制台反馈 #171（26.11.16，三星 Watch4 / SDK 36）用户原话「评论区里的评论往往只能翻到三四条就翻不动了…这bug在原哔哩终端和orbit都有，太影响看评论了」。
+  - **两层根因**（子代理只读诊断 + 我复核）：①**服务端**：部分会话的评论列表接口第 2 页起恒返回空页而 `code` 仍是 0（用仓库 WBI 算法在 Node 复现：`pn=1&sort=2` 首轮 20 条，之后一律 3 条，`pn=2/3` 直接空），所以「只有三四条」是服务端放行量，不是你拿到的页被吞了；②**代码**：`activity/reply/ReplyFragment.kt` 空页重试 5 次（`:294-298`）后，在循环出口把 `isEnd = true; bottom = true`（原 `:357-366`），而父类 `activity/base/RefreshListFragment.kt:66` / `:77` 的 `!bottom` 是硬守卫 → **此后任何滚动都不再发一次请求**，除下拉刷新（`ReplyFragment.refresh()`）外没有任何恢复路径，且提示还写着「暂时没有更多评论了」，等于把限流说成「没有评论」。同形复发：本文件 §3.135（推荐页误判到底）。
+  - **改法**：空页用尽/超时不再封口，改成**冷却重试**——新增字段 `@Volatile private var retryCooldownUntil`（`EMPTY_PAGE_COOLDOWN_MS = 15_000L`），循环出口只置冷却时间戳、不动 `isEnd`/`bottom`；`continueLoading()` 头部在冷却期内直接 `setRefreshing(false)` 撤退（不发请求、也不改 `bottom`），冷却结束后用户再往下滚就会真的重试。`refresh()` 里 `retryCooldownUntil = 0L` 复位。提示文案改成「评论加载不出来，稍后下拉重试」——空页用尽不等于没有更多。另在 `PAGE_EMPTY` 分支补 `Log.w("debug", "reply-empty-page n=… cursorLen=… sort=… replyType=… loaded=…")`，下次有人报就能一眼看出是不是这条路。
+  - **口径（有意的取舍）**：没有把空页重试次数（`MAX_EMPTY_PAGES = 5`）调小，也没有一失败就自动切 `sort`——降级排序在服务端同样只回 3 条时是白切，而且会把用户选的排序悄悄改掉；那一条（放宽 `util/ReplyFetchPolicy.kt:95-96` 的 `shouldTryFirstPageFallback`）留作后续，等有登录态实测数据再定。也没有在未登录时弹「登录可看更多」——控制台里该用户日志确实有 `csrf 为空`（未登录），但「未登录只给 3 条」这个结论只在裸会话上复现过，本机登录态样本不足以支撑对用户说这句话。
+  - **同一条日志里的 csrf 报错判定为同源非因果**：`api/HistoryApi.java:50/:86` 的「csrf 为空，上报必被服务端拒绝(-111)」是历史进度上报的，评论是纯读接口不需要 csrf；它只证明当时未登录，而登录态影响的正是服务端放行量，所以没有为它单独改动。
+  - **L0（26.11.16 本机实测）**：`./gradlew.bat :app:testStandardDebugUnitTest :app:assembleDebug --console=plain` → BUILD SUCCESSFUL，`testStandardDebugUnitTest` **255 套件 / 2761 用例 / 0 失败 / 0 错误 / 0 跳过**；standard / coexist 两个 debug 包产出。本次是线程与状态机改动，无新纯函数，未加用例。
+  - **未验证（L2）**：三星 Watch4（或任意会被限流的会话）进评论区滚到底 → 提示变成「评论加载不出来，稍后下拉重试」而不是「暂时没有更多评论了」→ 等十几秒再往下滚能再发一轮请求（日志出 `reply-empty-page`）→ 拉一次下拉刷新后仍能正常拿到第一页。真到底的评论区（`is_end=true`）行为必须与改前一致：滚到底就停、不反复请求。
+
+- **26.11.16 选集按钮点一下必崩——`pagenames` 为空时被 `!!` 断言（崩溃报告 #350 / #349）**：
+  - **来路**：控制台崩溃 #350 与 #349 是同一条（OPPO OPWW234 / SDK 30 / v26.11.16 / 共存版），retrace 后 `java.lang.NullPointerException` at `PlayerActivity.showPageSelectorCard$lambda`（发布版 :7273）← `runOnUiThread` ← `showPageSelectorCard`(:7270) ← `refreshPageNavButtons$lambda`(:7252) ← `View.performClick`；崩溃前日志只有 `LocalFolderActivity` ×2 → `PlayerActivity`，即走的是本地文件夹连播。
+  - **根因**：`canOpenPageSelector()`（当前 `:7272-7274`）= `hasMultiplePages() || (localPlaylist != null && (localLayerIndex >= 0 || enterableLocalEntry != null))`。第二条分支**不保证 `pagenames` 非空**：本地文件夹根层只有 1 条、但那条本身是多P / 属于合集时（正是 #178 那轮为它放行按钮的场景），按钮照样露出，而这一层根本没有「页」可列；点下去 `showPageSelectorCard()` 里 `adapter.setData(pagenames!!, currentPageIndex)` 直接 NPE。
+  - **改法**：`showPageSelectorCard()` 里 `val names: ArrayList<String> = pagenames ?: arrayListOf()`，后续 `setData`、标题位置后缀都改用 `names`；`size <= 0` 时位置后缀留空（否则会出现「（1/0）」这种怪文案），列表区为空、只剩 nest 入口「进入分P / 进入合集」——正好是用户这时候唯一能做的事。`switchToPage()` 原本就有 `hasMultiplePages()` 守卫，未改。
+  - **口径**：没有改 `canOpenPageSelector()` 的判定（本来就该让这条视频的选集按钮露出来），也没有把 `pagenames` 改成「至少塞一条占位名」——那会让卡片里出现一条点不动的假条目。其余 5 处 `pagenames!!` 逐处核过：`hasMultiplePages()` 守卫或紧接在赋值之后（`:3008`/`:5074`/`:5129`/`:7394`/`:7406`/`:7573`/`:7637`/`:7781`/`:7803`），都不存在空值窗口。
+  - **L0（26.11.16 本机实测）**：同 #171 同一次构建——`:app:testStandardDebugUnitTest :app:assembleDebug` BUILD SUCCESSFUL，**255 套件 / 2761 用例 / 0 失败**（无新纯函数，未加用例；`LayoutAccessibilityTest` 等布局守卫通过）。
+  - **未验证（L2）**：手表上把「只有 1 个视频、但它有多P」的文件夹连播起来 → 点选集按钮不崩、卡片标题是文件夹名且不出现「（1/0）」→ 点「进入分P」能进到 P1..Pn；多 P 视频自身（`pagenames` 非空）与在线合集/收藏夹的选集卡片行为与改前完全一致。
+
 - **26.11.16 「更新后看视频没办法放大」——手势层只在 layout_control 自己接到事件时才判定捏合（控制台反馈 #184，同源 #128 / #102）**：
   - **来路**：控制台反馈 #184（26.11.16，v26.11.16 / SDK 30 / OPPO OWW261），用户原话「更新后看视频没办法放大了」，开发者已回「你再试试看。。？我定位下」。同症状的历史反馈：#128（26.11.07，「有的时候视频播放时缩放视频会失效更换显示方式也是失效 有时却可以」）、#102（26.11.06，「视频缩放用不了了，不知道触发原因」）——间歇性、换位置又能用，是长期问题而不是这次更新引入的。
   - **先排除了「显示方式」这条看似最像的线索**：26.11.15 的 `fd67e1eb` 把「显示方式」从 `choose`（存 Boolean，true = 第 0 项 = 纹理视图）改成 `list_choose`（存字符串），播放器两处读取改走 `PlayerDisplayModePolicy.usesTextureView()`；26.11.16 的 `e5f7a64a` 在 `BiliTerminal.kt:398-410` 启动时用 `PlayerDisplayModePolicy.migrateLegacy()` 迁移旧布尔。逐行核对 `adapter/SettingsAdapter.kt:289-328` 的 ChooseHolder（`putBoolean`）与 `player/PlayerDisplayModePolicy.kt`（`migrateLegacy` 的 Boolean→`valueOf` 方向一致）：sdk≥26 的设备更新前后都落在同一档，**解释不了「更新后才不能放大」**。
