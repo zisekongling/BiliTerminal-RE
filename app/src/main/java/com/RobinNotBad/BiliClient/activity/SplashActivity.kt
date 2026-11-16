@@ -131,12 +131,26 @@ class SplashActivity : Activity() {
      * 强制用户重新登录"的根因。
      */
     private fun hasLocalSession(): Boolean {
+        // TV/APP 登录拿的是 access_key，不走 Web 的 SESSDATA 体系：这类账号的 Cookie 里即使
+        // 没有 SESSDATA，登录态也是有效的，不能据此判「登录过期」把整套凭据清掉。
+        if (SharedPreferencesUtil.getString(SharedPreferencesUtil.access_key, "").isNotEmpty()) return true
         val cookie = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "")
         return NetWorkUtil.getInfoFromCookie("SESSDATA", cookie).isNotEmpty()
     }
 
     @Throws(IOException::class)
     private fun checkCookieRefresh() {
+        // TV/APP 登录的账号靠 access_key 续期，CookieRefreshScheduler.refreshNow() 已按此分流。
+        // 启动页这条链路原先不分流：会拿 APP 的 refresh_token 去调 Web 的 cookie/refresh
+        // （refresh_token 在 SharedPreferencesUtil 里只有一个键，短信/密码登录写的就是 APP 口令），
+        // 服务端要么回 86095 白跑一趟，要么回 -101 —— 而 -101 会走到下面的 resetLogin()，
+        // 把**仍然有效的 access_key 一起清掉**，用户就被登出了。手表端主用账户密码/短信登录，
+        // 这是「老是掉登录」的主要入口，必须和调度器保持同一套分流。
+        if (SharedPreferencesUtil.getString(SharedPreferencesUtil.access_key, "").isNotEmpty()) {
+            Log.e("Cookies", "当前是 APP/TV 登录（有 access_key），跳过 Web Cookie 刷新")
+            return
+        }
+
         // CookieRefreshApi.cookieInfo() 内部直接 `result.getJSONObject("data")`，
         // 网络抖动、返回体缺 data、服务端 code != 0 都会抛异常。这类失败与"登录已失效"
         // 无法从返回值区分，因此单独兜住它、跳过本次刷新检查，绝不清登录态。
