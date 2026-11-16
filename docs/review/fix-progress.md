@@ -2566,6 +2566,7 @@
   - `settings put system font_scale 1.3` + 4 行自定义文字：`splashIcon` = `[105,0][361,256]`、`splashText` = `[32,296][434,>466]`，`ScrollView` `scrollable="true"` —— 整组高于一屏时按设计退化成可滚动，图标不被压扁、文字不被横向裁。
   - 截图：`screenshot-emulator-5554-33.png`（466×466，图标 + 两行文字整组居中）。
 - **未验证（人测 / L2）**：①真手表（尤其圆屏机）上的观感——圆屏边缘是否切到图标四角只有几何推算（居中后图标上缘落在 47px 处，圆屏最上缘弦长仍 > 128dp），没在圆屏真机上跑过；②20dp 图标-文字间距、`fitCenter` 留白是否"看起来"居中（主观）；③用户换成极长单行文字（自动折行超出预留高度）时的那一点残余位移。
+
 ### 3.160 播放器「显示方式」恒不生效：写布尔 / 读字符串撞类型保险丝（26.11.16，QQ 群反馈「播放器设置失效」）
 
 - **用户口径**（QQ 群 FitBOY，LV2 青铜，26.11.16 10:34）：「播放器设置失效」「不管咋设置，所以播放器设置都不生效」；群主追问「所有的吗」→「对」「都恢复默认了」。**没有机型、没有版本号、没说具体哪几项**。
@@ -2583,6 +2584,22 @@
 - **验证 · L0（26.11.16 11:25）**：`.\gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest --console=plain --no-parallel --max-workers=1` → **BUILD SUCCESSFUL**，standard 与 coexist 两个 flavor 都出包；`app/build/test-results/testStandardDebugUnitTest/TEST-com.RobinNotBad.BiliClient.player.PlayerDisplayModePolicyTest.xml` 记 **tests=9 / failures=0 / errors=0**，三个新用例全部执行且通过。
 - **验证 · L1（模拟器 emulator-5554，26.11.16 11:23）**：装 Debug 包 → 调试桥把 `player_display` 写成布尔 → `am force-stop` 后冷启动 → 调试桥按字符串读回 **`SurfaceView`**（说明迁移把它改成了字符串，播放器侧 `getString` 不再落到保险丝）；改前同一步骤读回的是 `ClassCastException`。顺手确认设置页能正常打开、`list_choose` 行（「长按倍速档位」）渲染与取值正常。
 - **未验证（人测 / L2）**：①真手表上点「显示方式」两选一之后，退出重进设置页显示是否跟着变、播放页是否真的换了控件（模拟器上因 UETool 浮层与无 OCR 后端，滚动定位到该行未能完成）；②「**所有**播放器设置都不生效 / 都恢复默认」这句**没有复现**——静态审计（扫全仓 `SettingSection` / `listChoose` 声明 91 个键，与消费方读取类型逐条比对）只发现 `player_display` 这一处类型冲突，其余播放器键（音频输出、解码方式、弹幕、缩放、9 档倍速、跳片头片尾等）写读同型；同时排除了「启动期重置」「双 prefs 文件」「`clear()` 清库」「七组重构改键名」四种会整片恢复默认的机制。**要闭环需要用户补：机型、版本号、具体哪几项失效、以及是否只发生在换过播放器内核 / 从备份恢复之后。**
+
+### 3.161 输入弹窗「只有取消、没有确定」：打字模式开后门放弃高度兜底 + 键盘高度没进预算（26.11.16，QQ 群反馈）
+
+- **用户口径**（QQ 群 CreeperMPG，LV5 青铜，26.11.16 截图）：收藏夹内搜索的输入弹窗只有「取消」，看不到「确定」；同一用户另一张图是「这个看起来也是没有确认按钮」。**没有机型、没有版本号**（截图分辨率看起来是方屏手表）。
+- **根因（两条，都在 `util/TerminalDialog.kt`）**：
+  1. `applyPlan` 里 `typingEdit != null` 就把滚动区改回 `WRAP_CONTENT`，等于把 `DialogSizing.plan` 的高度兜底整段丢掉。布局 `res/layout/layout_dialog_terminal.xml` 里按钮区是纵向布局的**最后一段**，内容一旦比可见区高，先被切掉的正是它；而 `input()` 是先 `addButton(cancelText)`、后 `addButton(confirmText)`（`TerminalDialog.kt:275-284`），所以留下的是「取消」、消失的是「确定」。26.11.13 起按钮改成整行宽纵向堆叠后，按钮区更占高，这条后门的影响面比当年更大。
+  2. 输入型弹窗会主动弹软键盘，而 appcompat 的 `AlertDialog` 是**浮动窗口**，`SOFT_INPUT_ADJUST_RESIZE` 对它不生效（`emulator-5554` / 466×466 实测：键盘弹出后 decor 仍是 `419×362`、顶端仍在 `y = 0`，键盘从 `y ≈ 160` 起把面板下半截连同按钮区一起盖住）；`DialogSizing.heightBudget()` 只按整屏高度算预算，算不出这笔账。
+- **改法**：
+  1. `applyPlan` 去掉打字模式后门：滚动区一律取 `plan.scrollHeight`（放得下时 `plan` 第 1 档本来就给 `null` → `wrap_content`，「不留白」由 plan 自己满足）。输入框行数仍由自身 `minLines = 3` / `maxLines = 6` 兜住，再多也在框内滚动。
+  2. `util/view/DialogSizing.kt` 新增纯函数 `budgetAboveIme(budget, screenHeightPx, imeBottomPx, minUsableHeightPx)`：键盘没弹（`imeBottomPx <= 0`）原样返回；否则收到屏幕可见高以内；收完比 `padding + buttonBar + minScroll` 还小就**放弃收缩**（硬收会把滚动区压成 0，输入框整个看不见，比「按钮被键盘挡着」更糟——用户收起键盘就能接着点）。
+  3. `TerminalDialog` 新增 `watchImeInsets()`：挂在 **decorView** 上读 `WindowInsetsCompat.Type.ime().bottom`（中间层的 `fitSystemWindows` 可能已经把 ime 吃掉，只有 decor 上读到的是完整值），变化时 `view.post { prepareLayout() }` 重排；`prepareLayout` 把 ime 高度交给 `budgetAboveIme`。API < 30 时 ime 恒 0，行为与改动前一致。
+  4. 调试信息补 `ime=` 与 `scroll=`（实际高度 / 布局参数），现场能区分「面板根本没缩」和「预算算错了」。
+- **单测**（`app/src/test/…/util/view/DialogSizingTest.kt`）：新增「收到键盘上沿后整块面板恰好填满预算」等 `budgetAboveIme` 用例，该类 23 例全绿。
+- **验证 · L0（26.11.16 11:50）**：`:app:assembleStandardDebug :app:testStandardDebugUnitTest` → **BUILD SUCCESSFUL**；standard 变体全量 **2746 例 / 失败 0 / 跳过 0**（比合并前多出的 4 例即本次新增的 `budgetAboveIme` 用例）。
+- **验证 · L1（模拟器，未完成）**：Debug 包在 `emulator-5554` 上装好后卡在首启引导/设置流程，没走到「收藏夹内搜索」那一步；`DialogSizing` 的尺寸结论目前只有单测与几何推算支撑。
+- **未验证（人测 / L2）**：①真手表（466×466 与小方屏）上打开收藏夹内搜索，键盘弹起后「确定」是否可见可点、面板是否留白；②圆屏机上按钮区是否仍被键盘挡住；③**API < 30 的设备只有第 1 条修法生效**（拿不到 ime 高度），要真机确认是否仍有遮挡。
 
 ## 4. 历史章节索引
 
