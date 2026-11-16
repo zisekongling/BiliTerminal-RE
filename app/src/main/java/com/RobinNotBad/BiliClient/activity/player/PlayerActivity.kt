@@ -3778,14 +3778,22 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     adapter.setOnItemClickListener { index ->
                         layout_card_bg.visibility = View.GONE
                         card_subtitle.visibility = View.GONE
+                        // 26.11.16 崩溃 #352（ArrayIndexOutOfBoundsException: length=2, index=2）：
+                        // 选择框是异步弹出来的，弹窗还挂着的时候切 P / 换视频，subtitleLinks 会被换成
+                        // 更短的数组、或直接置 null（见本文件置 null 的两处），此时回调里再解引用就崩。
+                        // 用弹窗那一刻的列表快照，并对 index 再核一次边界；不匹配就当这次点击作废。
+                        val links = subtitleLinks
+                        if (links == null || index < 0 || index >= links.size) {
+                            return@setOnItemClickListener
+                        }
                         subtitle_selected = index
 
-                        if (subtitleLinks!![index].id == -1L) {
+                        if (links[index].id == -1L) {
                             subtitles = null
                             subtitle_shown_index = -1
                             btn_subtitle.setImageResource(R.mipmap.subtitle_off)
                         } else
-                            CenterThreadPool.run { getSubtitle(subtitleLinks!![index].url) }
+                            CenterThreadPool.run { getSubtitle(links[index].url) }
                     }
                     subtitleRecycler.layoutManager = CustomLinearManager(this, LinearLayoutManager.HORIZONTAL, false)
                     subtitleRecycler.setHasFixedSize(true)
@@ -7933,6 +7941,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         subtitles = null
         subtitleLinks = null
         subtitle_selected = -1
+        // 26.11.16 崩溃 #352 的同源问题：字幕选择框要是还开着，它挂着的是上一P 的列表，
+        // 点下去会加载上一P 的字幕（回调已加边界保护，不会崩，但行为仍是错的）。换P 统一收起卡片。
+        hideAllCards()
         viewPoints = null
         viewPointAdapter = null
         btn_viewpoint.visibility = View.GONE
@@ -8579,6 +8590,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     subtitles = null
                     subtitleLinks = null
                     subtitle_selected = -1
+                    // 同上（#352）：换互动分P 时也把还开着的字幕选择框收起来
+                    hideAllCards()
                     viewPoints = null
                     viewPointAdapter = null
                     btn_viewpoint.visibility = View.GONE
