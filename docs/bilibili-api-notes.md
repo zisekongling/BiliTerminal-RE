@@ -283,8 +283,8 @@
 
 **26.11.16 补充（对照兄弟仓库 cyq114514/Re-BiliTerminal 同一文件后核实）**：
 
-4. **这套 Web 刷新只适用于 Web（扫码）登录**。`refresh_token` 在 `SharedPreferencesUtil` 里只有一个键，但它是**两套不通用**的口令：扫码登录写的是 Web 口令，`oauth2/refresh_token`（APP/TV 登录，见 `api/AppTokenRefreshApi`）写的是 APP 口令。拿 APP 口令去调 `web/cookie/refresh` 只会拿到 `86095`，最坏情况还会拿到 `-101` —— 而 `-101` 是会清登录态的那一档。所以**有 `access_key` 的账号一律走 `AppTokenRefreshApi`，不要进 Web 刷新**（`util/CookieRefreshScheduler.refreshNow()` 早已按 `access_key` 分流，启动页 `SplashActivity.checkCookieRefresh()` 26.11.16 才补上同一条分流）。
-5. **三个响应都必须关闭**：`getRefreshCsrf()`、`cookie/refresh`、`confirm/refresh` 都是高频路径（每次冷启动 + `CookieRefreshScheduler` 每 30 分钟一次），body 读完不会自动归还连接。兄弟仓库同一处注释写得很直白——「此前响应从不关闭，登录检测高频路径会泄漏连接」。泄漏累积到连接池耗尽时**所有**请求一起失败，用户侧的表现与「掉登录」无法区分。
+4. **这套 Web 刷新只适用于 Web（扫码）登录**。`refresh_token` 在 `SharedPreferencesUtil` 里只有一个键，但它是**两套不通用**的口令：扫码登录写的是 Web 口令，`oauth2/refresh_token`（APP/TV 登录，见 `api/AppTokenRefreshApi`）写的是 APP 口令。拿 APP 口令去调 `web/cookie/refresh` 只会拿到 `86095`，最坏情况还会拿到 `-101` —— 而 `-101` 是会清登录态的那一档。所以**有 `access_key` 的账号一律走 `AppTokenRefreshApi`，不要进 Web 刷新**。分流放在**调用点**：`util/CookieRefreshScheduler.refreshNow()` 与 `activity/SplashActivity.proceedSplashFlow()` 都先判 `access_key`；`checkCookieRefresh()` 自己不再判一次（26.11.16 曾在它内部加过一道 `access_key` 早退守卫，但 `proceedSplashFlow()` 早已分流、它是唯一调用点，那段守卫永远不会执行，已在同一轮里删掉）。
+5. **三个响应都该关，但这是卫生改动、不是修了一个泄漏**：`getRefreshCsrf()`、`cookie/refresh`、`confirm/refresh` 都是高频路径（每次冷启动 + `CookieRefreshScheduler` 每 30 分钟一次）。OkHttp 的 `Response` 只要 `body().string()` 读完就会把连接还回连接池，所以「不 close ⇒ 每次登录检测泄漏一条连接 ⇒ 池耗尽 ⇒ 所有请求失败」这条推理**不成立**（26.11.16 一开始就是这么写的，已纠正）。真正需要 close 的是**不读 body 就 return 的异常路径**（解析中途抛异常时连接不归还），以及仓库既有写法统一——`NetWorkUtil.get/post` 返回裸 `okhttp3.Response`，全仓已有十余处用 try-with-resources 收它。
 6. **两边的轮换流程本身是一致的**（我方的 `RefreshResult{OK,RETRY,NEED_LOGIN}` 与兄弟仓库的 `CookieRefreshResult{OK, REFRESH_RETRYABLE, REFRESH_REJECTED, CSRF_MISMATCH, CONFIRM_FAILED, …}` 只是档位名称不同）：只有 `-101` 判失效，`-111`（csrf 校验失败，本地 `bili_jct` 与 Cookie 不一致就会命中）与 `86095` 都按可重试处理。兄弟仓库额外做的「confirm 失败回滚 Cookie」我们不需要——我们先落新 `refresh_token`、新 Cookie 已由拦截器落盘，confirm 失败时新旧两侧都有效。
 
 ## 14. 番剧索引 / 推荐 / 动态筛选条件（26.11.07 实测）
@@ -364,5 +364,5 @@
 `CoinLogApi.getCoinLog` 以前写的是 `item.getInt("delta")`，`CoinLog.delta` 也是 `int`。这条接口的 `delta` 是 **num**：`bilibili-API/docs/login/member_center.md` 的样本里，打赏类记录既有 `-1`，也有 `0.1` / `0.2`（同一个 `x/member/web/coin/log` 的 `data.list`，`reason` 都是「给视频 … 打赏」）。
 
 - **后果**：`org.json` 的 `getInt` 走 `Number.intValue()`，小数被**截断**（不是四舍五入），打赏那笔于是显示成 `0`——就是用户看到的「给视频打赏显示的硬币变化数为零」。同一行代码对 `0.9` 也给 `0`，所以以前对所有「小数变化量」都是错的，不只是打赏。
-- **修法**：解析改 `item.getDouble("delta")`、模型 `delta` 改 `double`，显示交给纯函数 `util/CoinLogDelta.kt`：整数照旧（`+1` / `-1` / `0`）、正的小数原样（`+0.1`）、负的小数按 **0.1 硬币为单位**还原成整数（`-0.1` → `-1`、`-0.2` → `-2`）。理由：硬币只有整数枚，扣 0.1 枚不存在，所以「负的小数」只能是记账单位问题；收入侧文档样本确实是小数，原样显示才对。全程 `BigDecimal` 精确算术，不走二进制浮点。
-- **口径未定（未验证）**：`-0.1` 究竟对应官方显示的 `-1` 还是别的数，没有登录态实测（接口要 SESSDATA，且只能查最近一周）。实现按上面这条推断走，真机对照后若有出入只改 `CoinLogDelta` 一处。
+- **修法**：解析改 `item.getDouble("delta")`、模型 `delta` 改 `double`，显示交给纯函数 `util/CoinLogDelta.kt`：整数照旧（`+1` / `-1` / `0`）、小数不论正负一律**原样**显示（`+0.1` / `-0.1`）、`0` 与 `-0.0` 归一成 `0`。全程 `BigDecimal` 精确算术，不走二进制浮点。
+- **为什么不按正负推单位（26.11.16 纠正）**：第一版曾假定「支出不可能是小数硬币，所以负的小数是以 0.1 枚为单位记账」，把 `-0.1` 显示成 `-1`。这条推断**没有任何样本支撑**——该接口样本里出现过的 `delta` 只有整数支出（`-1`）与小数收入（`0.1` / `0.2`），一条负小数都没有。「硬币只有整数枚」是推理，不是接口事实。现已删掉这条换算：真出现负小数时按原值显示，宁可显示接口给的数，也不显示一个自己编出来的 10 倍数字。若将来有登录态实测证明单位确实是 0.1 枚，再连同样本一起记回来。
