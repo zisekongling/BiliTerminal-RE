@@ -32,6 +32,7 @@ import com.RobinNotBad.BiliClient.ui.appearance.CornerStyle
 import com.RobinNotBad.BiliClient.ui.appearance.FontStyle
 import com.RobinNotBad.BiliClient.ui.appearance.GlassStyle
 import com.RobinNotBad.BiliClient.ui.appearance.ImmersiveMode
+import com.RobinNotBad.BiliClient.ui.appearance.RoundListSwitchPolicy
 import com.RobinNotBad.BiliClient.util.Aria2Util
 import com.RobinNotBad.BiliClient.util.BetaUpdate
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -363,8 +364,7 @@ class SettingGroupActivity : RefreshListActivity() {
         ) { ImmersiveMode.apply(this) }
 
         switch("圆屏适配", getString(R.string.desc_setting_ui_round), SettingsKeys.UI_ROUND, false) { isChecked ->
-            SharedPreferencesUtil.putInt(SettingsKeys.PADDING_H, if (isChecked) 5 else 0)
-            SharedPreferencesUtil.putInt(SettingsKeys.PADDING_V, if (isChecked) 3 else 0)
+            applyRoundMode(isChecked)
             refresh()
             if (isChecked) MsgUtil.showMsg(getString(R.string.msg_settinggroupactivity_003))
         }
@@ -416,6 +416,36 @@ class SettingGroupActivity : RefreshListActivity() {
             }
         }
         switch("横屏模式", getString(R.string.setting_lab_ui_landscape), SettingsKeys.UI_LANDSCAPE, false)
+    }
+
+    /**
+     * 打开 / 关闭「圆屏适配」（`player_ui_round`）的**全部**副作用：开关本身 + 配套边距。
+     *
+     * 本页的「圆屏适配」开关与「实验室 → 圆屏列表」的联动都走这里，别各写一份。
+     * 边距不是可选项：`RoundInsets.compute` 只按「界面边距」的百分比算留白，圆屏开关本身
+     * 只多让出底部 3%，只写 `putBoolean` 的话页面几乎看不出变化——那正是「开了和没开一样」
+     * 的一半来源。
+     */
+    private fun applyRoundMode(enabled: Boolean) {
+        SharedPreferencesUtil.putBoolean(SettingsKeys.UI_ROUND, enabled)
+        SharedPreferencesUtil.putInt(SettingsKeys.PADDING_H, if (enabled) 5 else 0)
+        SharedPreferencesUtil.putInt(SettingsKeys.PADDING_V, if (enabled) 3 else 0)
+    }
+
+    /**
+     * 「实验室 → 圆屏列表」开关的联动（反馈 #172）。
+     *
+     * 打开「圆屏列表」时顺带打开「圆屏适配」——后者是 `RoundListEffect.isEnabled` 的前置条件，
+     * 用户只开前者时效果恒不生效。**关掉「圆屏列表」不回退「圆屏适配」**（用户可能本来就要圆屏）。
+     * 判据在 [RoundListSwitchPolicy]（纯函数，有单测），这里只负责写盘与提示。
+     *
+     * 两个开关分处「实验室」与「布局适配」两页，本页没有第二行需要同步刷新，所以不调 `refresh()`。
+     */
+    private fun onRoundListToggled(enabled: Boolean) {
+        val roundMode = SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROUND, false)
+        if (!RoundListSwitchPolicy.turnsOnRoundMode(roundMode, enabled)) return
+        applyRoundMode(true)
+        MsgUtil.showMsg(getString(R.string.msg_round_list_enable_round_mode))
     }
 
     /**
@@ -911,7 +941,12 @@ class SettingGroupActivity : RefreshListActivity() {
             VirtualCollectionPrefs.CLICK_PLAY,
             VirtualCollectionPrefs.DEFAULT_CLICK_PLAY
         )
-        switch(getString(R.string.setting_index_round_list), getString(R.string.desc_ui_round_list_effect), SettingsKeys.UI_ROUND_LIST_EFFECT, false)
+        switch(
+            getString(R.string.setting_index_round_list),
+            getString(R.string.desc_ui_round_list_effect),
+            SettingsKeys.UI_ROUND_LIST_EFFECT,
+            false
+        ) { isChecked -> onRoundListToggled(isChecked) }
         // 缓存页的文件夹从列表里搬到独立页（26.11.13）：关着是原来的样子，
         // 开着缓存页顶部只多一行「文件夹 N」，点它进独立文件夹页
         switch(
