@@ -3035,6 +3035,8 @@
 
     <!-- 渲染与解码 -->
     <string name="setting_player_display_mode">显示方式</string>
+    <string name="setting_player_display_option_texture">纹理视图（兼容性最好）</string>
+    <string name="setting_player_display_option_surface">表面视图（更省电）</string>
     <string name="setting_player_codec">解码方式</string>
     <string name="setting_player_option_codec_hw">硬件解码</string>
     <string name="setting_player_option_codec_sw">软件解码</string>

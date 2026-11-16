@@ -21,6 +21,7 @@ import com.RobinNotBad.BiliClient.activity.settings.UpdateActivity
 import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.api.DynamicApi
 import com.RobinNotBad.BiliClient.model.UpdateConfig
+import com.RobinNotBad.BiliClient.player.PlayerDisplayModePolicy
 import com.RobinNotBad.BiliClient.tutorial.TutorialStore
 import com.RobinNotBad.BiliClient.util.BangumiUpdateChecker
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -393,6 +394,20 @@ class BiliTerminal : Application() {
 
             // 教程系统重构：一次性把旧键迁移到新 id（旧系统拿数组下标当 tag 且错位，详见 docs/tutorial-system-redesign.md）
             TutorialStore.migrateLegacyKeys()
+
+            // 播放器「显示方式」旧存档迁移：早期设置页按布尔写、播放器按字符串读，
+            // 老用户的存档是 Boolean，`getString` 会撞 SharedPreferencesUtil 的类型保险丝拿到空串、
+            // 静默回落默认值（用户观感就是「设置失效」）。这里在启动时一次性改成规范字符串，
+            // 已经是规范串或认不出来的原样不动（迁移规则见 PlayerDisplayModePolicy.migrateLegacy）。
+            val displayRaw = SharedPreferencesUtil.sharedPreferences?.all?.get(SettingsKeys.PLAYER_DISPLAY)
+            val displayMigrated = PlayerDisplayModePolicy.migrateLegacy(displayRaw)
+            // Debug 包留一行取证：现场（用户日志/调试桥 logs）能看到这个键当初是什么类型、有没有迁成功
+            if (BuildConfig.DEBUG) {
+                Logu.d("BiliTerminal", "显示方式存档：raw=${displayRaw?.javaClass?.simpleName} 迁移结果=$displayMigrated")
+            }
+            if (displayMigrated != null) {
+                SharedPreferencesUtil.putString(SettingsKeys.PLAYER_DISPLAY, displayMigrated)
+            }
 
             // 初始化性能管理器 - 设备检测与自适应优化
             PerformanceManager.init(this)
