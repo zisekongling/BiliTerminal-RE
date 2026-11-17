@@ -96,10 +96,15 @@ class VideoInfoFragment : BaseFragment() {
 
     private val favLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { o ->
         val code = o.resultCode
-        if (code == RESULT_ADDED) {
-            ThemeTint.setActiveIcon(fav, R.drawable.icon_fav_1)
-        } else if (code == RESULT_DELETED) {
-            ThemeTint.setInactiveIcon(fav, R.drawable.icon_fav_0)
+        // 反馈 #204：这里原先只换图标、没改 videoInfo.stats.favoured。而详情页的 VideoInfo 是
+        // TerminalContext 的 LRU 里那**同一个对象**（util/TerminalContext.java:308-313 缓存命中时
+        // 直接返回缓存实例），退出重进命中的还是它，于是图标按旧的 favoured=false 渲染——
+        // 表现就是"收藏后退出重进，收藏符号消失（实际已收藏）"。
+        // 所以图标和状态位必须一起改，缓存里的对象才会跟着对。
+        if (code == RESULT_ADDED || code == RESULT_DELETED) {
+            val info = videoInfo ?: return@registerForActivityResult
+            info.stats.favoured = code == RESULT_ADDED
+            ThemeTint.setToggleIcon(fav, info.stats.favoured, R.drawable.icon_fav_1, R.drawable.icon_fav_0)
         }
     }
 
