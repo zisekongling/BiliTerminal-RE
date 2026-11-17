@@ -755,7 +755,12 @@ jobs:
           export OUT="$out"
           python3 .github/scripts/make_config_json.py
 
-      - name: 创建 GitHub Release
+      # 仓库开了 release immutability（26.11.17 起）后，**已发布**的 Release 拒绝再传附件：
+      #   HTTP 422 "Cannot upload assets to an immutable release."
+      # 而草稿阶段传附件是允许的，所以拆成「建草稿（含附件）→ 再发布」两步。
+      # 注意：草稿是预发布时，发布走的是 release.published 事件（不是 release.prereleased），
+      # 下游若要挂事件请认 release.published；本工作流的 Gitee 中转是同 job 内后续步骤，不受影响。
+      - name: 创建 GitHub Release（草稿，含全部附件）
         if: env.BUILD_ONLY != 'true' && steps.tag.outputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
@@ -773,12 +778,28 @@ jobs:
             app/build/outputs/apk/release/release-links.txt
             app/build/outputs/apk/release/config.json
           target_commitish: main
-          draft: false
+          draft: true
           # 三通道（docs/version-channels.md §4）：只有稳定版是正式 Release，beta / exp 一律
           # 标成预发布。GitHub 的 `releases/latest` **天然排除 prerelease**，所以客户端稳定的
           # 那条检查路径走 latest 就只可能拿到稳定版；测试版 / 实验版客户端改为拉 releases
           # 列表、按 versionCode 自己筛（见 util/UpdateManager.kt）。
           prerelease: ${{ needs.verify-version.outputs.channel != 'stable' }}
+
+      # 把刚建好的草稿真正发布出去。附件已在草稿阶段传完，这一步只翻 draft 状态，
+      # 所以 immutability 不会拦（它拦的是「已发布之后」的改动）。
+      - name: 发布 Release（草稿 → 正式）
+        if: env.BUILD_ONLY != 'true' && steps.tag.outputs.tag != ''
+        shell: bash
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --repo "${{ github.repository }}" --draft=false
+          count=$(gh release view "$TAG" --repo "${{ github.repository }}" --json assets --jq '.assets | length')
+          echo "已发布 $TAG，附件 $count 个"
+          # 0 个附件说明前面的上传静默失败了，直接报错，别让中转去同步一个空 Release。
+          [ "$count" -gt 0 ] || { echo "::error::$TAG 发布后附件数为 0"; exit 1; }
 
       # 通知中转服务，由它把本次 Release 的附件同步到 Gitee；
       # Action 侧不再直接访问 Gitee（网络不通）。
