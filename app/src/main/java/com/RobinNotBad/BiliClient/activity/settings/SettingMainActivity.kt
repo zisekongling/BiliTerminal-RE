@@ -49,6 +49,7 @@ class SettingMainActivity : InstanceActivity() {
             buildGroups()
             return
         }
+        var hit = 0
         for (entry in entries) {
             // name / desc 是界面上能看到的字，keywords 是「用户口语里的另一种叫法」（26.11.15 新增，
             // 见 SettingsIndex.Entry）。三处都忽略大小写，省得为了搜「density」去猜大小写。
@@ -57,8 +58,24 @@ class SettingMainActivity : InstanceActivity() {
                 entry.keywords.contains(q, ignoreCase = true)
             ) {
                 addResult(entry)
+                hit++
             }
         }
+        // 反馈 #213：一条都没命中时以前什么都不加，removeAllViews() 之后整块空白，
+        // 用户看不出是「没搜到」还是「界面卡了」。
+        if (hit == 0) addNoResult()
+    }
+
+    /**
+     * 搜索无结果时的占位行（反馈 #213）。
+     *
+     * <p>复用缓存页那行空态（[R.layout.cell_empty_tip]）：随列表一起滚动、颜色走系统主题，
+     * 不另造一套样式，也不挡住搜索框。
+     */
+    private fun addNoResult() {
+        val tip = layoutInflater.inflate(R.layout.cell_empty_tip, settingsContainer, false) as TextView
+        tip.text = getString(R.string.text_setting_search_empty)
+        settingsContainer.addView(tip)
     }
 
     /** 添加一条搜索结果卡片，点击跳转到对应设置页/分组并定位。 */

@@ -2128,6 +2128,8 @@
     <string name="text_cache_search_title">搜索缓存</string>
     <string name="text_cache_search_hint">输入关键词，留空清除</string>
     <string name="text_cache_search_empty">没有匹配的缓存</string>
+    <!-- 设置页全局搜索无结果时的提示（反馈 #213）：以前列表整块空白，用户以为界面卡了。 -->
+    <string name="text_setting_search_empty">没有找到匹配的设置\n换个关键词试试吧</string>
 
     <!-- 多选「全不选」（26.11.11，反馈 #94）：缓存页与下载列表页的多选条共用；
          「全选」复用上面那条 btn_select_all，别在这里重复定义（重复会被 AAPT 判重复资源）。 -->
