@@ -18,6 +18,16 @@
 
 ## 1. 当前版本状态
 
+- **26.11.17 后台播放服务的「5 秒义务」从源头拆掉（控制台崩溃 #354 / #212 / #365）**：
+  - **来路**：#354（26.11.16，hesc Ultra Pro Max）、#212（26.11.02，Xiaomi Watch 2 Pro）、#365（26.11.17-beta.2，同为 hesc Ultra Pro Max，11-17 21:40）三次都是同一个异常：`android.app.RemoteServiceException: Context.startForegroundService() did not then call Service.startForeground()`，#365 的页面轨迹里 `PlayerActivity` 一分钟内被创建 5 次（21:39:33 / :41 / :56、21:40:32 / :33），崩在最后一次之后。
+  - **上一轮为什么没修住**：26.11.17 那轮（提交 b3e18c4e）只做了"把 onStartCommand 的失败路径改成重试 + 补埋点 + 给通知渠道创建加 try/catch"，前提是 `onCreate` 已经开始跑。而 #365 说明真正卡住的位置更早：**主线程被播放页反复重建占满，服务连 `onCreate` 都排不上**，5 秒计时照样到期。
+  - **改法（用户拍板"两个服务都改"）**：`app/src/main/java/com/RobinNotBad/BiliClient/service/PlaybackService.kt` 的 `start()` 与 `app/src/main/java/com/RobinNotBad/BiliClient/service/DownloadService.kt` 的 `start()` 都改成优先 `Context.startService()`——普通启动**不产生**"5 秒内必须 startForeground"的义务，服务晚一点进前台只是晚一点，不会崩进程。前台通知照旧由 `onCreate` / `onStartCommand` 首行的 `enterForeground()` / `ensureForeground()` 挂上，熄屏保活行为不变。调用点（`PlayerActivity.onPause`、下载页与恢复暂停）当时都有可见界面，`startService` 合法；万一某机型把它判成后台启动（抛 `IllegalStateException`），退回落 `startForegroundService` 并记一条 W 级日志，义务重新出现时由同一批 `onCreate` 立刻兑现。原有的 `stopPending` 延迟停止、启动看门狗、`logStartDelta` 埋点全部保留（看门狗现在降级为"服务起得慢不慢"的观测点）。
+  - **L0（26.11.17 本机实测）**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest` → BUILD SUCCESSFUL；单测 **264 套件 / 2933 用例 / 0 失败 / 0 错误 / 0 跳过**。
+  - **L1（26.11.17 模拟器实测，466x466 API 37，debug 包）**：把 `player_background` 置 true 后在播放页按 HOME → 系统日志 `Background started FGS: Allowed [... uidState: TOP ... intent: cmp=.../.service.PlaybackService; code:PROC_STATE_TOP]`；`dumpsys activity services` 里 `PlaybackService ... isForeground=true foregroundId=1028 types=0x00000002`，通知栏有常驻 `id=1028 playback_channel`；埋点显示 `onCreate 距 start() 6ms`、`enterForeground 59ms`；进程存活、`logcat -b crash` 0 行。
+  - **未验证（L2）**：
+    - 真机（尤其 hesc 这类低配表）反复进出播放页 + 熄屏，确认后台播放不再崩、通知遥控正常；
+    - **下载服务**这一侧只做了静态等价改动，没跑出真实下载：需要在真机上开始一次下载，确认下载通知出现、熄屏后继续下载；
+    - Android 12+ 的后台启动限制在厂商 ROM（华为/OPPO/小米）上的实际表现——若被判成后台启动，会走 `startForegroundService` 回退路径，需看日志里是否出现「startService 被拒」这条 W。
 - **26.11.17 拖进度条时弹幕线程崩（控制台崩溃 #362）**：
   - **来路**：崩溃 #362（hesc Ultra Pro Max，v26.11.16，2026-11-17 16:09），`java.util.NoSuchElementException`，thread=`DFM Handler Thread #0`，栈 `Danmakus.last ← DrawTask.seek ← CacheManagingDrawTask.seek`。同一份堆栈在 26.11.16 那批里只出现这一条，机型是低配手表（sdk27）。
   - **根因（并发清空）**：`DanmakuFlameMaster/src/main/java/master/flame/danmaku/danmaku/model/android/Danmakus.java:257-266` 的 `last()` 是「先 `isEmpty()` 判断，再 `((SortedSet) items).last()`」——两步之间集合被清空，`TreeSet.last()` 就抛 `NoSuchElementException`（`first()` 同形）。清空来自主线程：`app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:5795-5803` 的 `rebuildDanmakuTimeline()` 调 `view.removeAllDanmakus(true)` → `DanmakuFlameMaster/src/main/java/master/flame/danmaku/controller/DrawTask.java:146-159` 的 `removeAllDanmakus`（`synchronized`，内部 `danmakuList.clear()`）；而 `seek` 跑在弹幕控件自己的 handler 线程上，**原来没有加锁**（`DrawTask.java:249-265`），于是与 `removeAllDanmakus`/`addDanmaku` 之间没有任何互斥。

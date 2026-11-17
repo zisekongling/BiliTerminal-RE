@@ -474,10 +474,22 @@ class DownloadService : Service() {
 
             val context = BiliTerminal.context!!
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                    context.startForegroundService(Intent(context, DownloadService::class.java))
-                else
+                // 26.11.17（崩溃 #354 / #212 / #365）：优先走普通 startService，不再给这次启动
+                // 记「5 秒内必须 startForeground」的义务——低配手表上主线程被占满时，
+                // 服务还没轮到 onCreate 就超时崩进程。前台通知仍由 ensureForeground() 在
+                // onStartCommand 开头挂上，行为不变。
+                // 若被判定为后台启动（IllegalStateException：系统重建、通知栏“继续”等无可见界面
+                // 的入口），退回 startForegroundService——那种情形下义务重新出现，同样由
+                // onStartCommand 第一行的 ensureForeground() 立刻兑现。
+                try {
                     context.startService(Intent(context, DownloadService::class.java))
+                } catch (e: IllegalStateException) {
+                    Logu.w("DownloadService.start", "startService 被拒（判成后台启动），退回 startForegroundService：" + (e.message ?: ""))
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                        context.startForegroundService(Intent(context, DownloadService::class.java))
+                    else
+                        throw e
+                }
             } catch (e: Exception) {
                 started = false
                 Logu.e("start", e.message ?: "启动下载服务失败")

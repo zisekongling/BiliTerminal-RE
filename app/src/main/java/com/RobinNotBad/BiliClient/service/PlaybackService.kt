@@ -38,7 +38,18 @@ import java.util.TimerTask
  * 之所以必须用前台服务而不是普通后台线程：Android 8 起后台进程随时可能被回收，
  * 而本服务的目标恰恰是"熄屏后不被回收"。
  *
- * ── "5 秒义务"（26.10.11 修线上崩溃后补充的硬约束，改本文件前必读）────────────
+ * ── 26.11.17 起：启动方式改为 startService，5 秒义务从源头消失 ──────────────
+ * 线上崩溃 #354 / #212 / #365 三次都是同一个异常（`startForegroundService() did not then
+ * call startForeground()`），且都发生在低配手表上：播放页重建时主线程被占满，
+ * `onCreate` / `onStartCommand` 这两条主线程消息迟迟排不上，5 秒计时到期就崩进程。
+ * 加埋点、加看门狗、把失败路径改成重试都只能"少崩一点"，挡不住主线程忙。
+ * 因此 [start] 改成普通 `startService()`：**不产生这条义务**，服务照样在 `onCreate` 里
+ * `startForeground()`（行为不变，仍是前台服务、不再被后台回收），只是不再有"5 秒内不进前台就崩"。
+ * 调用点只有 [PlayerActivity.onPause]，那一刻应用仍有可见界面，`startService` 合法；
+ * 万一某机型把它判成后台启动（`IllegalStateException`），[start] 退回 `startForegroundService`
+ * ——此时义务重新出现，靠下面的 `onCreate` 立刻兑现。
+ *
+ * ── 历史："5 秒义务"（26.10.11 修线上崩溃时补充，保留作背景）────────────
  * `Context.startForegroundService()` 一旦调用，系统就给这次启动记一笔账：
  * 服务必须在 **5 秒内** 调 `startForeground()`，否则系统直接往 app 主线程抛
  * `RemoteServiceException: Context.startForegroundService() did not then call
@@ -114,6 +125,14 @@ class PlaybackService : Service() {
         /**
          * 启动后台播放保活。调用点只在 [PlayerActivity.onPause]，
          * 此时应用仍处于"有可见界面"的豁免范围内，不会被 Android 12 的后台启动限制拦截。
+         *
+         * **26.11.17 起用 `startService()`，不再是 `startForegroundService()`**：后者会给这次
+         * 启动记一笔"5 秒内必须 startForeground"的义务，低配手表上播放页重建把主线程占满时，
+         * 服务还没轮到 `onCreate` 就超时崩进程（崩溃 #354 / #212 / #365）。改用普通启动后
+         * 这条义务根本不存在——服务晚一点进前台只是晚一点，不会崩。前台通知由 [onCreate]
+         * 里的 `enterForeground()` 照旧挂上，熄屏保活行为不变。
+         * 被判成后台启动（`IllegalStateException`）时退回 `startForegroundService`，
+         * 那种情形下义务重新出现，交给 `onCreate` 立刻兑现。
          */
         @JvmStatic
         fun start(context: Context, activity: PlayerActivity) {
@@ -124,10 +143,18 @@ class PlaybackService : Service() {
             val startedAt = SystemClock.uptimeMillis()
             lastStartElapsed = startedAt
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
+                try {
                     context.startService(intent)
+                } catch (e: IllegalStateException) {
+                    Logu.w(
+                        "PlaybackService.start",
+                        "startService 被拒（判成后台启动），退回 startForegroundService：" + (e.message ?: "")
+                    )
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        context.startForegroundService(intent)
+                    } else {
+                        throw e
+                    }
                 }
                 armStartWatchdog(startedAt)
             } catch (e: Exception) {
@@ -142,10 +169,10 @@ class PlaybackService : Service() {
         /**
          * 看门狗：`start()` 之后 [START_WATCHDOG_MS] 还没进前台，就以 W 级记一条。
          *
-         * 这条日志是给「5 秒义务超时」攒证据用的：release 包里只有 w/e/wtf 会进
-         * [Logu] 的内存缓冲，而崩溃报告正是把那份缓冲一起带上来的。
-         * 它能区分两种情形——有这条 ⇒ 服务确实起晚了（主线程被占满）；
-         * 没有这条又崩了 ⇒ 主线程连这个延时任务都没跑到，或走的是失败路径。
+         * 这条日志原本是给「5 秒义务超时」攒证据用的：release 包里只有 w/e/wtf 会进
+         * [Logu] 的内存缓冲，而崩溃报告正是把那份缓冲一起带上来的。26.11.17 改用
+         * `startService()` 后义务已消失（见 [start]），它降级成"服务起得慢不慢"的观测点：
+         * 有这条 ⇒ 低配机上 onCreate 确实被主线程拖住了（用户体验层面仍是问题）；没有 ⇒ 正常。
          *
          * 到期时若已有更新的启动（[lastStartElapsed] 被改写）或服务已销毁（[onDestroy] 清零），静默跳过。
          */
@@ -175,6 +202,9 @@ class PlaybackService : Service() {
          * 所以：**没进前台就不发停止指令**，只记一笔 [stopPending]，让服务自己在
          * `onStartCommand` 里先 `startForeground()`（义务兑现）再 `stopSelf()`。
          * 结果一样干净——服务不会残留、通知不会残留——但不会崩。
+         *
+         * 26.11.17 起 [start] 改走 `startService()`，已经不存在这条义务；这里的延迟语义
+         * 保留下来当"兜底"——秒级窗口内服务还没建好时直接 stopService 也没坏处，但留一手更稳。
          */
         @JvmStatic
         fun stop(context: Context) {
@@ -210,8 +240,9 @@ class PlaybackService : Service() {
     override fun onCreate() {
         super.onCreate()
         logStartDelta("onCreate")
-        // 通知管理器与渠道创建都可能因厂商策略在这一步抛异常；它们绝不能挡在 startForeground 前面，
-        // 否则 onCreate 半途退出、义务永远没人兑现（按类注释，那是必然崩进程）。
+        // 通知管理器与渠道创建都可能因厂商策略在这一步抛异常；它们绝不能挡在 startForeground 前面：
+        // 26.11.17 前那会让「5 秒义务」无人兑现直接崩进程，现在虽然义务已消失（start 改走 startService），
+        // 但 onCreate 半途抛异常仍会导致服务没进前台、熄屏后被系统回收——同样必须兜住。
         try {
             notifyManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -225,9 +256,9 @@ class PlaybackService : Service() {
         } catch (e: Exception) {
             Logu.e("PlaybackService.onCreate", e.message ?: "初始化通知渠道失败")
         }
-        // 义务要在 onCreate 就兑现：onStartCommand 是主线程上另一条消息，可能被拖到 5 秒之外。
-        // 失败时**不**在这里 stopSelf：onStartCommand 紧接着还会再试一次，而「没兑现就销毁」按 AOSP
-        // bringDownServiceLocked 的语义同样是立即崩，早崩不如把第二次机会留给 onStartCommand。
+        // 越早进前台越好：onStartCommand 是主线程上另一条消息，低配机上可能被拖到几百毫秒甚至数秒之后，
+        // 这段时间里服务还是后台服务、随时可能被回收。失败时**不**在这里 stopSelf——onStartCommand
+        // 紧接着还会再试一次（重复 startForeground 无害），把第二次机会留给它。
         if (!enterForeground()) Logu.w("PlaybackService.onCreate", "进入前台失败，交给 onStartCommand 重试一次")
     }
 
@@ -235,8 +266,10 @@ class PlaybackService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         logStartDelta("onStartCommand")
-        // onCreate 已经兑现过一次；但每次 startForegroundService 都会重新记一笔账，
-        // 而 onCreate 只跑一次，所以这里必须再兑现一次（重复调用 startForeground 是无害的）。
+        // onCreate 已经进过一次前台，而 onCreate 只跑一次；onStartCommand 却可能被反复投递
+        // （系统重建、通知栏按钮、弱引用重挂），所以这里再进一次，保证每次启动都以"已在前台"收尾
+        // （重复 startForeground 无害）。26.11.17 起启动不再记「5 秒义务」，这条失败分支里
+        // stopSelf() 只是放弃保活，不再崩进程。
         if (!enterForeground()) {
             stopSelf()
             return START_NOT_STICKY
