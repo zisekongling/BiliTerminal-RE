@@ -36,6 +36,7 @@ import com.RobinNotBad.BiliClient.util.CacheDeletePlan
 import com.RobinNotBad.BiliClient.util.CacheListOrderStore
 import com.RobinNotBad.BiliClient.util.CacheMediaPolicy
 import com.RobinNotBad.BiliClient.util.CacheMigrator
+import com.RobinNotBad.BiliClient.util.CachePageSources
 import com.RobinNotBad.BiliClient.util.CachePathResolver
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.DanmakuFileFetcher
@@ -402,6 +403,8 @@ open class LocalListActivity : InstanceActivity() {
                 localVideo.videoFileList = ArrayList()
                 localVideo.sizeList = ArrayList()
                 localVideo.qualityList = ArrayList()
+                // 每页落在哪个根（反馈 #217）：合集可能一半在本机根、一半在别的分支的旧缓存根里
+                localVideo.pageRootList = ArrayList()
 
                 val qualityFile = File(video, DownloadPathSpec.FILE_QUALITY)
                 val qualityStr = if (qualityFile.exists()) {
@@ -484,6 +487,9 @@ open class LocalListActivity : InstanceActivity() {
                             }
 
                             localVideo.pageList.add(page.name)
+                            // 这一页真正落在哪个根：空串 = 本机下载根，否则是那个外部根。删除、写弹幕、
+                            // 写续播都按它判断（见 CachePageSources），不再拿整条条目的 externalRoot 一刀切
+                            localVideo.pageRootList?.add(externalRoot ?: "")
                             localVideo.sizeList.add(pageMediaFile.length())
                             // 合集取「最近修改的那一页」当更新时间（反馈 #94 的「按更新时间」排序）
                             if (pageMediaFile.lastModified() > localVideo.lastModified) {
@@ -526,12 +532,20 @@ open class LocalListActivity : InstanceActivity() {
      * 目录怎么找、为什么不认包名，见 [ExternalCacheRoots]。这里只做两件事：
      * 挨个扫（判据、多 P 折叠、画质文本全部复用 [scanVideos]，不另写一套），
      * 以及**按标题去重** —— 从那个分支导入到本机的视频会同时出现在两边，列两遍最容易
-     * 让人以为「没导干净」，所以本机已有同标题时保留本机那条。
+     * 让人以为「没导干净」，所以本机已有同标题时保留本机那条。合集之间是例外：
+     * 同名的两边都是合集时按**页**合并（见 [CachePageSources.mergePages]），因为番剧与多 P
+     * 合集的落盘结构是「父目录 + 集名子目录」，改过缓存位置之后同一季的集常常一半在这边、
+     * 一半留在那边，整条丢掉就是「第一季点开只有 6、7 两集」（反馈 #217）。
      */
     private fun appendExternalSources(mainRoot: File, onlyTitles: Set<String>? = null) {
-        val seenTitles = HashSet<String>()
-        for (video in videoList) {
-            if (!video.title.isNullOrEmpty()) seenTitles.add(video.title)
+        // 标题 → 已在 videoList 里的下标。以前这里只记标题（HashSet），同名条目一律丢掉 ——
+        // 反馈 #217 / #214 的根因就在这里：番剧与合集的落盘结构是「季名父目录 + 集名子目录」，
+        // 改过缓存位置后一半集在本机根、一半留在旧根（判成外部来源），整条丢掉就只剩本机那几集。
+        // 现在合集之间按**页**合并（页名重复才跳过），其它情况仍按老规矩只留本机那条。
+        val indexByTitle = HashMap<String, Int>()
+        for (index in videoList.indices) {
+            val title = videoList[index].title
+            if (!title.isNullOrEmpty() && !indexByTitle.containsKey(title)) indexByTitle[title] = index
         }
         for (dir in ExternalCacheRoots.candidateRoots(mainRoot)) {
             // scanVideos 只往 videoList 尾巴追加，记下起点就能只处理这一批
@@ -543,13 +557,23 @@ open class LocalListActivity : InstanceActivity() {
             var i = before
             while (i < videoList.size) {
                 val video = videoList[i]
-                // add 返回 false = 标题已经出现过（本机的或前一个外部目录的）：这条丢掉
-                if (video.title.isNullOrEmpty() || !seenTitles.add(video.title)) {
+                val title = video.title
+                if (title.isNullOrEmpty()) {
                     videoList.removeAt(i)
-                } else {
-                    video.externalFolder = CacheMigrator.folderOf(folderIndex, video.title)
-                    i++
+                    continue
                 }
+                val existing = indexByTitle[title]
+                if (existing == null) {
+                    video.externalFolder = CacheMigrator.folderOf(folderIndex, title)
+                    indexByTitle[title] = i
+                    i++
+                    continue
+                }
+                // 同名：两边都是合集就按页并到本机那条尾巴上（页根一起记，删除 / 写弹幕才知道
+                // 这几页不能按本机根算）；并进去之后外部这条不再单独显示（存量下标不受影响：
+                // existing 一定小于 i，removeAt(i) 不会让它左移）
+                videoList.getOrNull(existing)?.let { CachePageSources.mergePages(it, video) }
+                videoList.removeAt(i)
             }
         }
     }
@@ -1021,6 +1045,9 @@ open class LocalListActivity : InstanceActivity() {
         if (video.pageList != null && video.pageList!!.isNotEmpty()) {
             for (i in 0 until video.pageList!!.size) {
                 val pageName = video.pageList!![i]
+                // 混合来源的合集（反馈 #217）：外部分支里那几页写不得——那是在别人的数据上动手，
+                // 只更新落在本机根下的页
+                if (CachePageSources.rootOfPage(video, i).isNotEmpty()) continue
                 val pageDir = File(videoDir, pageName)
                 val pageDanmakuFile = File(pageDir, DownloadPathSpec.FILE_DANMAKU)
 
@@ -1232,19 +1259,33 @@ open class LocalListActivity : InstanceActivity() {
     private fun deleteVideoFiles(video: LocalVideo): File? {
         // 外部目录只读：删掉的是别的分支的缓存，对方未必知道，一律不动
         if (!video.externalRoot.isNullOrEmpty()) return File(video.externalRoot)
-        val root = rootOf(video)
-        // 删除计划与详情页共用一份（反馈 #162）：候选目录怎么定位、真实结果怎么分级都收在
-        // CacheDeletePlan 里，这里只做「摘文件夹记录 + 返回第一个失败目录」这两件本页的事
-        val result = CacheDeletePlan.execute(root.path, video.title, video.videoFileList?.firstOrNull())
+
+        // 一条合集可能拆在几个根上（反馈 #217：本机几集 + 旧缓存根的几集），所以按页根分组算。
+        // 但只删本机根那一组：外部那几页属于别的分支的目录，与「外部条目只读」同一条红线
+        // （见 [LocalVideo.externalRoot]），不动它们；删完刷新时它们会以外部条目的形式重新出现。
+        val localRootPath = rootOf(video).path
+        val targets = CachePageSources.deleteTargets(video, localRootPath)
+        var firstFailed: File? = null
+        var partial = false
+        for (target in targets) {
+            if (target.rootPath != localRootPath) continue
+            // 删除计划与详情页共用一份（反馈 #162）：候选目录怎么定位、真实结果怎么分级都收在
+            // CacheDeletePlan 里，这里只做「摘文件夹记录 + 返回第一个失败目录」这两件本页的事
+            val result = CacheDeletePlan.execute(target.rootPath, video.title, target.mediaFilePath)
+            if (result.outcome == CacheDeletePlan.Outcome.PARTIAL_FAILED) {
+                partial = true
+                if (firstFailed == null) firstFailed = result.firstFailedDir
+            }
+        }
 
         // 用 removeVideoFromAllFolders 而不是 removeVideoFromFolder——文件夹里存的标题可能是
         // 早期版本写入的原始标题，与磁盘目录名（清洗过）只差几个全角符号，按原文匹配会漏。
         // 判据与原来一致：没有「删不掉的候选目录」就算这条删掉了（含一个候选都没找到的情况，
         // 那条本来就已经不在磁盘上，正好顺手摘掉记录）。
-        if (result.outcome != CacheDeletePlan.Outcome.PARTIAL_FAILED) {
+        if (!partial) {
             FolderManager.removeVideoFromAllFolders(video.title)
         }
-        return result.firstFailedDir
+        return firstFailed
     }
 
     private fun showMoveToFolderDialog(videoIndex: Int) {

@@ -132,11 +132,14 @@ import com.RobinNotBad.BiliClient.ui.widget.BatteryView
 import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
 import com.RobinNotBad.BiliClient.ui.widget.RadiusBackgroundSpan
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
+import com.RobinNotBad.BiliClient.util.CachePathResolver
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.CookieDomainPolicy
 import com.RobinNotBad.BiliClient.util.DanmakuFileFetcher
 import com.RobinNotBad.BiliClient.util.DisguiseGesture
 import com.RobinNotBad.BiliClient.util.DisguisePrefs
+import com.RobinNotBad.BiliClient.util.ExternalCacheRoots
+import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.LocalVideoProgress
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -615,6 +618,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      * \`external_read_only\` 标记。
      */
     private var externalReadOnly = false
+
+    /** 「别的分支的缓存根」绝对路径（第一次判「这一页能不能写」时算一遍并缓存）。 */
+    private var externalCacheRootPaths: List<String>? = null
+
     /** 上次落盘的本地续播位置（毫秒）；-1 表示本次会话还没写过，用于跨路径去重。 */
     private var lastSavedLocalProgressMs: Long = -1L
     /** 上次落盘的墙钟时刻，用于周期落盘的 15 秒节流。 */
@@ -3536,6 +3543,27 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     }
 
     /**
+     * 这个目录是不是落在**别的分支的缓存根**里（缓存页的「外部」来源，见 LocalVideo.externalRoot）。
+     *
+     * 条目级只读标记（[externalReadOnly]）挡不住混合来源的合集：反馈 #217 里同一部番剧一半集在
+     * 本机根、一半在改存储位置之前的旧根，条目本身不再整体算「外部」，于是每 15 秒就往别人数据里
+     * 写一次续播位置。这里按**这一页实际落在哪**判断：在本机根下就允许写，否则看它是不是某个
+     * 外部候选根。
+     */
+    private fun isUnderExternalCacheRoot(dir: File): Boolean {
+        val ownRoot = FileUtil.getVideoDownloadPath().absolutePath
+        val path = dir.absolutePath
+        // 本机根优先：候选根是「Android/media/任意包名下的子目录」，本机根嵌套在其中很常见，
+        // 不先判本机根会把能写的页也判成只读
+        if (CachePathResolver.isUnderRoot(ownRoot, path)) return false
+        val roots = externalCacheRootPaths ?: ExternalCacheRoots
+            .candidateRoots(File(ownRoot))
+            .map { it.absolutePath }
+            .also { externalCacheRootPaths = it }
+        return roots.any { CachePathResolver.isUnderRoot(it, path) }
+    }
+
+    /**
      * 把本地视频当前播放位置写进它所在目录的 `.video_meta.json`。
      *
      * 本地视频没有服务端历史可上报（[maybeReportProgress] 的第一行就把它们挡掉了），
@@ -3555,6 +3583,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         // 还没 prepare 完就退出时 video_now 还是 0，写下去会把已有的续播位置清掉
         if (destroyed || !isPrepared) return
         val dir = localMediaDir ?: return
+        // 混合来源的合集（反馈 #217）：条目本身不再整体算「外部」，但外部分支那几页同样写不得
+        if (isUnderExternalCacheRoot(dir)) return
         // 同理：刚进页面还没播就退出（位置 0）不该覆盖上次看到的位置
         if (!finishWatching && video_now <= 0) return
         val durationMs = video_all.toLong()
