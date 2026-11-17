@@ -18,6 +18,15 @@
 
 ## 1. 当前版本状态
 
+- **26.11.17 设置搜索一条都没命中时整块空白，看不出是卡了还是没搜到（控制台反馈 #213）**：
+  - **来路**：控制台反馈 #213（OPPO OWW221，v26.11.17-beta.2，category=suggestion）原话「设置里的搜索，在搜索后没有指定关键词以导致未显示任何结果，可以添“换个关键词吧”以提醒，有时候会觉得是卡了」；开发者回复「可以的」。
+  - **根因**：`app/src/main/java/com/RobinNotBad/BiliClient/activity/settings/SettingMainActivity.kt:45` 的 `filter()` 先 `settingsContainer.removeAllViews()`，命中项逐条 `addResult()`；**一条都没命中时什么也不加**，容器就留在空白状态——与「搜索框刚被清空、正在渲染分组」长得一模一样，用户只能猜是不是卡了。
+  - **改法（两个文件）**：① `SettingMainActivity.kt` 的 `filter()` 加 `hit` 计数，`hit == 0` 时调新方法 `addNoResult()`（`:75-79`）——复用缓存页那行空态 `app/src/main/res/layout/cell_empty_tip.xml`（列表里随滚动的一行、`?android:attr/textColorSecondary`、14sp、居中），只把文字换成 `R.string.text_setting_search_empty`；② `app/src/main/res/values/strings.xml:2131-2132` 新增 `text_setting_search_empty`＝「没有找到匹配的设置\n换个关键词试试吧」。
+  - **口径（有意的取舍）**：① **只加提示、不动匹配逻辑**——`name` / `desc` / `keywords` 三处 `contains(ignoreCase = true)` 原样保留（那是 26.11.15 加的别名匹配；用户这次报的是「没结果要有个交代」，不是「搜不到想要的」）；② **不新造布局**——直接复用 `cell_empty_tip`，与缓存页空态同色同字号，也不做挡住搜索框的浮层；③ 提示只在「关键词非空且 0 命中」时出现，清空搜索框立刻回到分组列表。
+  - **L0（26.11.17 本机实测）**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest --console=plain` → BUILD SUCCESSFUL（1m39s，135 tasks，42 executed）；standard / coexist 两套单测各 **262 套件 / 2838 用例 / 0 失败 / 0 错误 / 0 跳过**（本轮 test 任务实际执行）。本条只是往容器里加一个视图，无新纯函数，未加用例。
+  - **L1（26.11.17 模拟器实测）**：AVD `rebili_watch466`（`emulator-5554`，466×466，Android 17）装 standard debug 包，菜单 → 设置 → 搜索框输入 `zzz`（adbd 只能打 ASCII）：控件树里出现 `TextView` `id=text`、文字「没有找到匹配的设置 / 换个关键词试试吧」，bounds `[23,153 420×192]`，就在搜索框下方居中、没挡住输入框；连按三次退格清空后，控件树立刻回到分组列表（`播放与播放器` / `账号与登录` / `界面与外观` 的 `group_title` 与 `group_desc` 齐全），那句提示消失。
+  - **未验证（L2）**：① **中文关键词命中时结果与提示不共存**——模拟器没有中文 IME、`cmd clipboard` 也不可用，这条没能在设备上跑（改动没碰命中分支，命中结果仍由原 `addResult()` 决定）；② 手表**真机**上这句提示的字号与断句观感（466 方屏上是 14sp 两行居中，圆屏真机得人看一眼）。
+
 - **26.11.17 图片查看器圆屏排版：下载键居中贴底、页数顶掉顶栏标题（用户需求）**：
   - **来路**：用户原话（本轮对话）「圆屏适配开启后，将图片预览器的播放按钮居中底部放置，页数显示在上方，顶掉图片查看按钮的位置，按键和退出的功能不替换」。其中「播放按钮」经确认指左下角那个下载键（图标是下载箭头）；页数位置经确认选「放在『图片查看』这行标题的位置，标题文字被替换掉」，时钟仍在它上方居中。
   - **根因**：`app/src/main/res/layout/activity_image_viewer.xml` 是方屏排版——`btn_download` 挂 `alignParentStart` 落在左下角、`text_page` 挂在右下角；而圆屏适配（`BaseActivity.setRound`，`app/src/main/java/com/RobinNotBad/BiliClient/activity/base/BaseActivity.kt:337`）只处理顶栏标题的居中与内缩，管不到这两个键。
