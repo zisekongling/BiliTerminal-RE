@@ -172,6 +172,7 @@ import java.io.IOException
 import java.util.Locale
 import java.util.Timer
 import java.util.TimerTask
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.regex.Pattern
 import kotlin.math.abs
 
@@ -1082,6 +1083,22 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private var subtitle_selected = -1
 
     /**
+     * 字幕下载的代次号：每发起一次 [getSubtitle] 自增，回来时对不上就丢弃。
+     *
+     * 没有它的时候，一次慢请求（自动中文字幕那条尤其慢）可能在用户已经选了「不显示字幕」之后才回来，
+     * 把刚关掉的字幕又塞回屏幕 —— 用户看到的就是「关了还是有字幕」（反馈 #202）。
+     */
+    private val subtitleLoadToken = AtomicInteger(0)
+
+    /**
+     * 用户在这一P里显式关过字幕（选了「不显示字幕」）。
+     *
+     * 换画质 / 换线路会重建播放器、重新 prepare 并再跑一次 [maybeAutoSubtitle]，
+     * 没有这个标记就会把用户刚关掉的字幕按设置自动打开。换P / 换视频时清掉（新的一P仍按默认值来）。
+     */
+    private var subtitleUserOff = false
+
+    /**
      * 「播放页返回键直接退出」是否开启（**默认关**，见 [SettingsKeys.PLAYER_BACK_KEY_EXIT]）。
      *
      * 26.11.14 按用户要求把默认值从开改成关：默认回到「旧语义」——开着「左右滑动控制进度」时
@@ -1582,9 +1599,30 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         bottom_group_scroll = findViewById(R.id.bottom_group_scroll)
         bottom_group_slots = findViewById(R.id.bottom_group_slots)
         initButtonSlots()
+        disablePressUntilWired()
 
         // 字幕字号来自设置页，这里先按存档刷一次；之后每次 onResume 再刷（改完设置返回即生效）
         applySubtitleTextSize()
+    }
+
+    /**
+     * 让「还没有监听器」的播放器按钮不显示按下动画。
+     *
+     * 按钮的监听器一律在 [onPrepared] 里才挂，加载中这些键都是「点得动、但什么也不会发生」；
+     * 可 ImageButton 默认就是 clickable，按下去照样闪一下按下动画（用户反馈 #207：加载中点播放区
+     * 的暂停键，画质键也跟着出按下动画）。手边没有监听器就不该给按下反馈，这里一次性关掉。
+     *
+     * 不用在别处恢复：[View.setOnClickListener] / [View.setOnLongClickListener] 会把对应标志
+     * 重新打开，所以 [onPrepared] 里挂上监听器的那一刻按钮自己就活过来了。
+     */
+    private fun disablePressUntilWired() {
+        for (i in 0 until button_pool.childCount) {
+            val child = button_pool.getChildAt(i)
+            child.isClickable = false
+            child.isLongClickable = false
+        }
+        btn_control.isClickable = false
+        btn_control.isLongClickable = false
     }
 
     /**
@@ -3629,10 +3667,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
 
     private fun getSubtitle(subtitleUrl: String) {
         if (subtitleUrl.isEmpty()) return
+        val token = subtitleLoadToken.incrementAndGet()
         try {
-            subtitles = if (isOnlineVideo) PlayerApi.getSubtitle(subtitleUrl)
+            val loaded = if (isOnlineVideo) PlayerApi.getSubtitle(subtitleUrl)
             else PlayerApi.getSubtitle(File(subtitleUrl))
 
+            // 拉取期间用户可能已经选了「不显示字幕」或换了别的轨：这时的结果必须丢掉，
+            // 否则晚回来的旧请求会把刚关掉的字幕又打开（反馈 #202）
+            if (token != subtitleLoadToken.get()) return
+
+            subtitles = loaded
             if (subtitles == null) return
 
             subtitle_count = subtitles!!.size
@@ -3719,6 +3763,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      * 三个调用点原本都跑在 `CenterThreadPool` 后台线程里，这里不做线程切换。
      */
     private fun maybeAutoSubtitle() {
+        // 用户在这一P里已经选了「不显示字幕」：换画质/换线路会再走一遍这里，不能再自动打开（反馈 #202）
+        if (subtitleUserOff) return
         val mode = SharedPreferencesUtil.getString(
             SettingsKeys.PLAYER_DEFAULT_SUBTITLE, SettingsKeys.PLAYER_DEFAULT_SUBTITLE_MANUAL
         )
@@ -3789,11 +3835,22 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                         subtitle_selected = index
 
                         if (links[index].id == -1L) {
+                            // 「不显示字幕」：除了清数据，还要把已经在屏幕上的那行立刻抹掉。
+                            // 250ms 定时器只在播放进度变化时才跑（暂停时 video_now 不变），
+                            // 所以以前暂停着选「不显示」会一直挂着最后一句字幕（反馈 #202）
                             subtitles = null
+                            subtitle_count = 0
                             subtitle_shown_index = -1
+                            text_subtitle.visibility = View.GONE
+                            // 记住「用户自己关的」，换画质/换线路不要再自动开回来；
+                            // 同时作废还在路上的字幕请求，避免它回来把字幕塞回去
+                            subtitleUserOff = true
+                            subtitleLoadToken.incrementAndGet()
                             btn_subtitle.setImageResource(R.mipmap.subtitle_off)
-                        } else
+                        } else {
+                            subtitleUserOff = false
                             CenterThreadPool.run { getSubtitle(links[index].url) }
+                        }
                     }
                     subtitleRecycler.layoutManager = CustomLinearManager(this, LinearLayoutManager.HORIZONTAL, false)
                     subtitleRecycler.setHasFixedSize(true)
@@ -7941,6 +7998,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         subtitles = null
         subtitleLinks = null
         subtitle_selected = -1
+        // 新的一P从头按默认值来：上一P 里「用户关了字幕」的标记不能带过来，
+        // 还在路上的字幕请求也要作废（否则它回来会显示在这一P 上）
+        subtitleUserOff = false
+        subtitleLoadToken.incrementAndGet()
         // 26.11.16 崩溃 #352 的同源问题：字幕选择框要是还开着，它挂着的是上一P 的列表，
         // 点下去会加载上一P 的字幕（回调已加边界保护，不会崩，但行为仍是错的）。换P 统一收起卡片。
         hideAllCards()
@@ -8590,6 +8651,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     subtitles = null
                     subtitleLinks = null
                     subtitle_selected = -1
+                    // 同上：换分P 后重新按默认值来，并作废还在路上的字幕请求
+                    subtitleUserOff = false
+                    subtitleLoadToken.incrementAndGet()
                     // 同上（#352）：换互动分P 时也把还开着的字幕选择框收起来
                     hideAllCards()
                     viewPoints = null

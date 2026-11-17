@@ -56,7 +56,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
             android:text="@string/text_activityliveinfo_11"
-            android:textSize="@dimen/text_title"
+            android:textSize="@dimen/text_subtitle"
             android:textStyle="bold" />
 
         <com.google.android.material.card.MaterialCardView

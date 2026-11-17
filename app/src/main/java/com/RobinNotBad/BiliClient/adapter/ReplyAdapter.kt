@@ -350,6 +350,14 @@ class ReplyAdapter(
                 if (reply.childMsgList != null && replyHolder.childReplies != null) {
                     val childCount = reply.childMsgList!!.size
                     val existingViewCount = replyHolder.childReplies!!.childCount
+                    // rpid -> 昵称：楼中楼里被回复的那条可能是楼里任意一层，用 child.parent 反查
+                    // 就知道「回复 @谁」（用户反馈 #176：看不出回复的是同一楼里的哪一条）
+                    val childNames = HashMap<Long, String>()
+                    for (c in reply.childMsgList!!) {
+                        if (c == null) continue
+                        val sender = c.sender ?: continue
+                        childNames[c.rpid] = sender.name
+                    }
                     // 已删除的楼中楼会被跳过，视图下标不能直接用 i，
                     // 否则跳过后同一行会被下一条覆盖、GONE 收尾也会藏错行
                     var renderIndex = 0
@@ -374,6 +382,14 @@ class ReplyAdapter(
                         } else
                             childMsg.append(child.sender!!.name)
 
+                        // child.parent 指向被回复那条的 rpid。等于这条一级评论（或未填）时就是「直接回楼主」，
+                        // 不必标注；指向楼里另一条子评论时补「回复 @某某」，否则这一行只剩
+                        // 「昵称：正文」，看不出在对楼里哪位说话（反馈 #176）。那条没加载到就不标。
+                        if (child.parent != 0L && child.parent != reply.rpid) {
+                            val repliedName = childNames[child.parent]
+                            if (repliedName != null && repliedName != child.sender!!.name)
+                                childMsg.append(" 回复 @").append(repliedName)
+                        }
                         childMsg.append("：").append(child.message)
 
                         val textView: TextView

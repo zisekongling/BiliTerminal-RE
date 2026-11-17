@@ -566,12 +566,20 @@ class CacheListAdapter(
         }
     }
 
+    /** 本页实际扫到、归在 [folderName] 名下的条目数（理由见 bindFolderItem 里那段注释）。 */
+    private fun scannedVideoCount(folderName: String): Int =
+        videoList.count { it.folderName == folderName }
+
     private fun bindFolderItem(holder: FolderItemHolder, folderIndex: Int) {
         if (folderIndex < 0 || folderIndex >= folderList.size) return
         val folder = folderList[folderIndex]
 
         holder.folderName.text = folder.name
-        holder.folderCount.text = "${folder.getVideoCount()}个视频"
+        // 计数按「本次真扫到的条目」算，不用 VideoFolder.getVideoCount()：那个数字来自
+        // .folders_info.json 的记录条数，外部（文件管理器 / 另一台设备 / 卸载重装）删掉目录后
+        // 记录不会跟着变，于是夹上写「5个视频」、点进去只有 4 条（反馈 #209）。
+        // 夹内列表本来就按 video.folderName 过滤，两边同源，数字才和点进去看到的一致。
+        holder.folderCount.text = "${scannedVideoCount(folder.name)}个视频"
         applySelection(holder, holder.folderName, selectionMode && selectedFolderNames.contains(folder.name))
 
         // 多选 / 排序两种「临时态」进入和退出都只翻字段、不重绑列表（重绑会重读封面、明显闪一下），

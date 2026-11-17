@@ -18,6 +18,54 @@
 
 ## 1. 当前版本状态
 
+- **26.11.17 播放页「不显示字幕」关不掉：晚回来的字幕请求把字幕塞回来（控制台反馈 #202）**：
+  - **来路**：控制台反馈 #202（OPPO OWW212＝OPPO Watch 3，v26.11.16，category=suggestion）原话「能增添一个字幕关闭按钮吗字幕没法关闭啊大多时候看视频两个字幕，当然可能我没找到关闭的地方能麻烦告知一下吗」。开发者先答「设置搜索自动弹出字幕选择，关掉即可」；用户回「关了自动弹出字幕选择还是有字幕啊」；开发者再答「那确定是 bug，修」。本轮用户又追了一句「字幕关闭项本来就存在，但是人家之后说了关闭此选项没有用，建议查看一下」，于是按链路复查。
+  - **根因（三条叠在一起，读代码得出，不是猜）**：① `getSubtitle` 没有任何代次保护——一次慢请求（自动中文字幕那条尤其慢）在用户选完「不显示字幕」之后才回来，照样写 `subtitles` / `subtitle_count` / `btn_subtitle` 图标，把字幕塞回屏幕；② `maybeAutoSubtitle` 会在换画质 / 换线路（`PlayerActivity.kt:8030` 附近）与换互动分P（`:8647` 附近）之后重跑，用户刚关掉的意图当场丢失；③ 选「不显示字幕」只清数据不清 UI——250ms 定时器只在播放进度变化时才跑（`:3330` 的 `video_now_last != video_now`），暂停时那条 `if (subtitles == null) text_subtitle.visibility = GONE`（`:3339`）永远不会执行，最后一句字幕就一直挂在屏幕上，用户看到的就是「关了这个选项没用」。设置键本身没错位：`SettingsKeys.PLAYER_SUBTITLE_AUTOSHOW` 确实接到了 `maybeAutoSubtitle`。
+  - **改法（`app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt` 一个文件）**：① 新增 `private val subtitleLoadToken = AtomicInteger(0)`（`:1091`）与 `private var subtitleUserOff = false`（`:1099`）；② `getSubtitle`（`:3668`）开头取号，拉回来先比对 `token != subtitleLoadToken.get()` 就整段丢弃，对上了才写字段；③ `maybeAutoSubtitle`（`:3765`）开头 `if (subtitleUserOff) return`；④ 选择卡点击回调（`:3837-3849`）的 `id == -1L` 分支补 `subtitle_count = 0`、`text_subtitle.visibility = View.GONE`、`subtitleUserOff = true`、`subtitleLoadToken.incrementAndGet()`，另一分支先 `subtitleUserOff = false` 再拉字幕；⑤ 换P（`:8003-8004`）与换互动分P（`:8655-8656`）各加 `subtitleUserOff = false` + 令牌自增，新的一P重新按默认值来。
+  - **口径（有意的取舍）**：① `subtitleUserOff` 只活在「当前这一P」——换P / 换视频即清。用户关掉的是这一集的字幕，不是要永久关字幕；永久关仍走设置（默认字幕改成「手动」并关掉「自动弹出字幕」）。② 没有改 `SubtitleLink(-1, "不显示字幕", …)` 那一条的语义——它本来就在列表里，缺的是上面三处保护。③ `if (subtitle_selected == -1) subtitle_selected = subtitleLinks!!.size`（`:3817`）看着像 off-by-one，其实是**故意的**越界值，用来让 `SubtitleAdapter` 一项都不高亮，本轮不动。
+  - **L0（26.11.17 本机实测）**：`./gradlew.bat :app:assembleDebug --console=plain` → BUILD SUCCESSFUL（1m20s，121 tasks）；`./gradlew.bat :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest` → BUILD SUCCESSFUL，standard / coexist 两套单测各 **262 套件 / 2838 用例 / 0 失败 / 0 错误 / 0 跳过**（本轮清了 test 任务强制重跑，非上次残留结果）。本条只动运行期状态，无新纯函数，未加用例。
+  - **未验证（L2）**：① 播放带多条字幕的视频 → 弹字幕选择 → 选「不显示字幕」→ 屏幕上的字幕立刻消失；② **暂停状态下**重复上一步，同样立刻消失（这是原来最确定的「关不掉」）；③ 关掉后换画质 / 换线路 / 切到下一P，字幕不会再自动冒出来；④ 切到别的 P 再选一条字幕，仍能正常显示、图标变回「字幕开」。
+
+- **26.11.17 视频加载中点播放区，画质键跟着一起闪按下动画（控制台反馈 #207）**：
+  - **来路**：控制台反馈 #207（OPPO，v26.11.16）「视频加载中时点击视频播放区域暂停开始的按钮和画质选择的按钮会出现被按下的动画（同时）」；开发者回复「太细了，我之前发现的时候都没当回事（懒的说是），修！」。
+  - **根因**：播放器按钮的监听器**一律在 `onPrepared` 里才挂**（`btn_quality` `:8832`、`btn_control` `:8928`、`btn_subtitle` `:8929`），而 `ImageButton` 默认就是 clickable——加载中这些键「点得动、但什么也不会发生」，却照样闪一下按下态。至于「为什么两个键一起闪」静态读不出来：已排除 `setPressed` / `duplicateParentState` / `addStatesFromChildren` / `TouchDelegate` / 自定义 ripple / `PlayerButtonSlots` 影子互转，两个键共用的是同一份主题 attr 而不是同一个 Drawable 实例。所以不去猜机制，改成「没有监听器的按钮不表现按下态」。
+  - **改法**：`PlayerActivity.kt:1602` 在 `initButtonSlots()` 之后调新方法 `disablePressUntilWired()`（`:1618`）：把 `button_pool` 的所有子 View 与 `btn_control` 的 `isClickable` / `isLongClickable` 一并置 false。`View.setOnClickListener` 会把 `isClickable` 重新打开，所以 `onPrepared` 里挂监听器的那一刻按钮自己就活了，别处不用恢复。
+  - **口径（有意的取舍）**：只治「加载中没有动作的按钮」。没动布局、没动主题、没给按钮加自己的 ripple。`PlayerButtonSlots` 的影子转发仍然有效——`View.performClick()` 不看 clickable 标志，`:294-295` 的 `mirror.setOnClickListener { primary.performClick() }` 不受影响；改前已核对 `PlayerActivity.kt` 全文原本没有任何 `isClickable` / `setClickable` 使用，且所有按钮监听器都在 `findview()` 之后才设置。
+  - **L0（26.11.17 本机实测）**：`./gradlew.bat :app:assembleDebug --console=plain` → BUILD SUCCESSFUL（1m20s，121 tasks）；`./gradlew.bat :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest` → BUILD SUCCESSFUL，standard / coexist 两套单测各 **262 套件 / 2838 用例 / 0 失败 / 0 错误 / 0 跳过**（本轮清了 test 任务强制重跑，非上次残留结果）。本条是 View 状态设置，无新纯函数，未加用例。
+  - **未验证（L2）**：① 冷启动播放一个要缓冲的视频，加载中连点播放区与画质键 → 两个键都不再出按下动画；② 加载完成后点播放区能正常暂停 / 继续、点画质键能弹出画质选择卡；③ 其它键（弹幕、循环、旋转、侧边按钮）加载后照常可用。
+
+- **26.11.17 推荐页封面与标题偏大、简介页标题比正文大一号（控制台反馈 #208）**：
+  - **来路**：控制台反馈 #208（OPPO Watch 3，v26.11.16）「推荐页封面和字体有点太大了，标题显示字数太少；简介页标题字体明显大于其他字体很奇怪」。
+  - **根因**：卡片封面固定占宽 48%（`app/src/main/res/layout/cell_video_list.xml`），标题 12sp（`@dimen/text_body`）+ `maxLines=2`——手表屏宽下留给标题的只剩一半，一行放不下几个字；简介页标题用 `@dimen/text_title`（15sp + bold），而整页其余文字（播放量 / 弹幕数 / BVID / 标签 / 简介 / 三连标签）全是 12sp，标题因此「大得没道理」。字号 token 见 `app/src/main/res/values/dimens.xml:22-26`（text_title 15 / text_subtitle 13 / text_body 12 / text_caption 11）。
+  - **改法（两个布局文件）**：① `cell_video_list.xml`：`app:layout_constraintWidth_percent` 48% → 42%，`text_title` 的 `android:textSize` 由 `@dimen/text_body`(12sp) → `@dimen/text_caption`(11sp)，`maxLines=2` 不动，顶部注释补了改动理由；② `app/src/main/res/layout/fragment_video_info.xml:53-60`：标题 `@dimen/text_title`(15sp) → `@dimen/text_subtitle`(13sp)，保留 `textStyle="bold"`（`VideoInfoFragment.kt:384` 只 findViewById，无 setTextSize 覆盖）。
+  - **口径（有意的取舍）**：`cell_video_list.xml` 是全站共用卡片（首页推荐、用户投稿、合集、历史、直播、动态、设置预览等 10 处引用，如 `VideoCardAdapter.kt:82`、`UserVideoAdapter.kt:34`、`HistoryVideoCardAdapter.kt:41`），改它是**有意的全站统一**，不单独给推荐页开一套；标题只降一档而不是改 `maxLines`，避免「字太小」换成「标题被截断」。简介页只降字号，不动结构。
+  - **L0（26.11.17 本机实测）**：`./gradlew.bat :app:assembleDebug --console=plain` → BUILD SUCCESSFUL（1m20s，121 tasks）；`./gradlew.bat :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest` → BUILD SUCCESSFUL，standard / coexist 两套单测各 **262 套件 / 2838 用例 / 0 失败 / 0 错误 / 0 跳过**（本轮清了 test 任务强制重跑，非上次残留结果）。本条只是布局参数，无新逻辑，未加用例。
+  - **未验证（L2）**：① 首页推荐流：封面小一圈、一屏能多露内容，标题一行能显示的汉字变多；② 简介页：标题只比正文大一点、不再突兀，各卡片不跑版；③ 共用同一卡片的列表（历史、合集、用户投稿、动态）排版不坏。
+
+- **26.11.17 楼中楼看不出在回复谁：补「回复 @某某」（控制台反馈 #176）**：
+  - **来路**：控制台反馈 #176（OPPO，v26.11.16，category=content）「二级评论被回复时看不出具体被回复的是同一条一级评论底下的哪一条二级评论，更高级的也一样」；开发者回复「这个等我之后研究一下（」。
+  - **根因**：`app/src/main/java/com/RobinNotBad/BiliClient/adapter/ReplyAdapter.kt` 渲染楼中楼时只拼「昵称：正文」，完全没有「回复给谁」的信息；而模型里本来就有现成字段——`app/src/main/java/com/RobinNotBad/BiliClient/model/Reply.java` 的 `rpid` / `root` / `parent`（解析在 `:98-101`），`parent` 正指向被回复那条的 `rpid`。
+  - **改法（`ReplyAdapter.kt` 一个文件）**：渲染循环前先建 `rpid → 昵称` 表（`:355-360`，遍历 `reply.childMsgList`）；拼完昵称后（`:385-392`）若 `child.parent != 0L && child.parent != reply.rpid`、能在表里查到、且不是本人，追加 `" 回复 @" + 昵称`，随后仍是原有的 `"：" + 正文` → 最终形态「昵称 回复 @某某：正文」。
+  - **口径（有意的取舍）**：① 直接回楼主（`parent == reply.rpid`）不标注——那一层的被回复对象就是整条一级评论，标上反而是噪音；② 被回复那条在本楼没加载到（被删 / 只给了部分楼中楼）就不标，不编造「@某人」；③ 不改模型、不加接口请求，靠已加载的楼内数据反查；④ 被回复者昵称与本人相同（自回复）不标。
+  - **L0（26.11.17 本机实测）**：`./gradlew.bat :app:assembleDebug --console=plain` → BUILD SUCCESSFUL（1m20s，121 tasks）；`./gradlew.bat :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest` → BUILD SUCCESSFUL，standard / coexist 两套单测各 **262 套件 / 2838 用例 / 0 失败 / 0 错误 / 0 跳过**（本轮清了 test 任务强制重跑，非上次残留结果）。本条是视图拼接，无新纯函数，未加用例（编译期一条 'Condition is always true' 警告来自平台类型非空，属既有风格）。
+  - **未验证（L2）**：① 找楼中楼里「A 回复 B」的评论 → 那行显示「A 回复 @B：…」，直接回楼主的行仍是「A：…」；② UP 主在楼里回复时「UP 昵称 回复 @某某：…」徽章与文字不错位；③ 楼里评论被删后剩余行不错行、不串人。
+
+- **26.11.17 缓存页合集计数虚高：按真扫到的条目算（控制台反馈 #209）**：
+  - **来路**：控制台反馈 #209（OPPO Watch 3，v26.11.16）「合集文件夹上显示的『n个视频』有问题，比如本来合集里 5 个，我用文件管理器删掉一个，再回来看合集上还是 5 个，但点进去右上角写的就是 4 个」；开发者回复「哇，还有外部干预（修」。
+  - **根因**：夹上那个数字取自 `app/src/main/java/com/RobinNotBad/BiliClient/model/VideoFolder.java:58` 的 `getVideoCount()`＝`videoTitles.size()`，也就是 `.folders_info.json` 里的**记录条数**；用户从文件管理器删目录不会回写这份 json。而点进去的条数是按 `video.folderName` 过滤实际扫到的目录——两边不同源，于是「5 vs 4」。
+  - **改法（`app/src/main/java/com/RobinNotBad/BiliClient/adapter/video/CacheListAdapter.kt` 一个文件）**：新增 `private fun scannedVideoCount(folderName: String): Int = videoList.count { it.folderName == folderName }`（`:569-571`），`bindFolderItem` 里改成 `holder.folderCount.text = "${scannedVideoCount(folder.name)}个视频"`（`:582`）。夹内列表本来就按同一字段过滤（`:263` 附近），两边同源，数字必然和点进去看到的一致。
+  - **口径（有意的取舍）**：① **没去「清理」记录**——外部删目录后 `.folders_info.json` 里仍留着旧标题，本轮只让显示跟着磁盘走，不自动删记录（自动删等于替用户丢分类信息，留到真做「整理缓存」时一起做）。② 另一处同类计数（文件夹列表页 `app/src/main/java/com/RobinNotBad/BiliClient/activity/video/local/LocalFolderListActivity.kt:126-135` 仍用 `FolderManager.getFolderVideos(...).size`）本轮**不动**：那一页要显示「还没点进去过的夹」的条目，改成扫盘会让整页变慢，已记进 §2 待办。
+  - **L0（26.11.17 本机实测）**：`./gradlew.bat :app:assembleDebug --console=plain` → BUILD SUCCESSFUL（1m20s，121 tasks）；`./gradlew.bat :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest` → BUILD SUCCESSFUL，standard / coexist 两套单测各 **262 套件 / 2838 用例 / 0 失败 / 0 错误 / 0 跳过**（本轮清了 test 任务强制重跑，非上次残留结果）。本条是一个计数表达式，无新纯函数，未加用例；`scannedVideoCount` 依赖 `videoList` 这个 UI 状态，抽纯函数只能测「按字段过滤」，价值不大。
+  - **未验证（L2）**：① 夹里 5 个 → 用文件管理器删掉 1 个目录 → 回缓存页，夹上写「4个视频」，点进去也是 4 条；② 夹内全删光 → 夹上写「0个视频」，点进去是空列表且有正常空态；③ 改名 / 删除夹 / 把视频移入夹等操作仍正常，移入后计数立刻 +1。
+
+- **26.11.17 每次点开文件夹都全量扫盘卡几秒：夹页只扫本夹的目录（控制台反馈 #211）**：
+  - **来路**：控制台反馈 #211（OPPO Watch 3，v26.11.16，category=suggestion）「现在每次打开缓存文件夹都会自动刷新，即使我并没有下载新的视频，每次点都要卡个 5 秒左右，关键我还分了文件夹方便点击，点开一个卡一次」；开发者回复「可以的，马上检查下」。
+  - **根因**：夹页和缓存根页共用同一个 `loadData()`，一进来就 `scanVideos(root)` **全量**遍历下载根下的每个目录（每个目录要读 `.video_meta.json`、封面路径、合集分页），扫完才按 `video.folderName` 过滤出这一夹的几条。缓存多、夹多时，点进一个只有 4 条的夹也要把所有缓存 stat 一遍——用户「分了文件夹方便点击」恰好是最坏情况。
+  - **改法（`app/src/main/java/com/RobinNotBad/BiliClient/activity/video/local/LocalListActivity.kt` 一个文件）**：① `scanVideos` 加参数 `onlyTitles: Set<String>?`（`:391`），循环判据在 `:395`：`onlyTitles` 非空时只认列出的目录名（按 `FileUtil.stringToFile` 口径比较，磁盘目录名本来就是清洗过的）；② `loadData`（`:344-357`）在夹页先算 `folderScanTitles(root)`（新方法 `:567-578`：本机 `.folders_info.json` 里属于本夹的标题 ∪ 各外部缓存根 `CacheMigrator.folderIndex` 里夹名相同的标题，统一归一，**记录为空则返回 null**），只扫这些目录；③ `appendExternalSources` 透传同一集合（`:531`、`:539`）；④ **兜底**：夹页扫完仍是 0 条就退回全量扫（`:354-357`），记录被清过 / 目录名对不上也不会把有内容的夹显示成空的。
+  - **口径（有意的取舍）**：① 缓存根页仍全量扫——它本来就要显示全部条目；② **没做**反馈里提的「可选自动刷新 / 手动刷新」开关：真正的耗时是全量扫，只扫本夹之后已经是「点开就走」，再加开关只是多一个要维护的状态（想手动刷新可以下拉，`swipeRefreshLayout` 本来就有）；③ 白名单取「本机记录 ∪ 外部根索引」而不是只信本机记录：`FolderManager.addVideoToFolder` 写记录的同时会写 `VideoMetaManager.updateFolderName`（`FolderManager.kt:140`、`:149`），两边永远同步，所以按记录筛目录不会漏掉从 UI 归过类的视频；漏网情况交给兜底。
+  - **L0（26.11.17 本机实测）**：`./gradlew.bat :app:assembleDebug --console=plain` → BUILD SUCCESSFUL（1m20s，121 tasks）；`./gradlew.bat :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest` → BUILD SUCCESSFUL，standard / coexist 两套单测各 **262 套件 / 2838 用例 / 0 失败 / 0 错误 / 0 跳过**（本轮清了 test 任务强制重跑，非上次残留结果）。本条的判据是 `Set` 成员检查 + 一次目录遍历，无新纯函数，未加用例。
+  - **未验证（L2）**：① 夹里放 5 个、另有一堆未归类缓存 → 点进夹的等待时间明显变短（从「转圈几秒」到「几乎立刻」）；② 夹内条目、封面、合集分页、点击播放都正常；③ 外部（另一分支 / 另一台设备）缓存里的夹点进去同样只显示本夹条目；④ 把某夹的 `.folders_info.json` 记录手工清空后再进夹，仍能看到全部条目（走兜底全量扫）。
+
 - **26.11.17 详情页收藏后退出重进，收藏图标消失——图标换了、状态位没换（控制台反馈 #204）**：
   - **来路**：控制台反馈 #204（OPPO OWW261，26.11.16 23:58）「视频详情页收藏后退出重进，收藏符号消失（实际已收藏）」。
   - **根因**：`favLauncher` 的回调只在 `RESULT_ADDED` / `RESULT_DELETED` 时**换图标**，从不写 `videoInfo.stats.favoured`。而详情页的 `VideoInfo` 是 `util/TerminalContext.java:301-314` 里 LRU 缓存的那**同一个对象**（缓存命中时直接 `new MutableLiveData<>(Result.success((VideoInfo) obj))` 返回缓存实例），退出重进命中的还是它 → 图标按旧的 `favoured=false` 渲染。
@@ -1062,6 +1110,8 @@
   模拟器（AVD `Medium_Phone_API_37.0`，Android 17、1080×2400；本机 `wear5` 的系统镜像缺失、起不来）上已实测：①默认配置下菜单页依次是「登录 / 推荐 / 短视频 / 热门 / 热搜 / 搜索 / 缓存 / 设置 / 扫一扫 / 退出」，**没有**「继续播放」；②「设置 → 内容与浏览 → 菜单设置」的「未启用」区末尾有「继续播放」，点回已启用后再点它提示「继续播放」不是页面、不能设为启动页（`adb logcat` 抓到 `MsgUtil>showMsg: 「继续播放」不是页面，不能设为启动页`）；③「设置 → 内容与浏览 → 详情页设置」在原 7 个开关之后多了「视频笔记」（默认关）与「分享到其他设备」（默认关；这条只在 `OptionalFeatures.available` 为真的构建里出现，本次模拟器装的是带 `private/` 注入的 standard debug 包）；④把「视频笔记」打开后设备上 `shared_prefs/default.xml` 多出 `<boolean name="detail_note_entry" value="true" />`，关掉后恢复，键名与 `SettingsKeys.DETAIL_NOTE_ENTRY` 一致。**仍未验的（都要登录态或真实播放会话）**：①有可续播会话时，把「继续播放」放到已启用区，菜单最上方应出现它、点进去回到上次视频与位置；再关掉开关应立刻消失；②登录态下「视频笔记」开 → 详情页动作区出现「笔记」且能进笔记页，关 → 不出现；③带 `private/` 的构建里「分享到其他设备」开 → 详情页出现该行并能进分享页，关 → 不出现且不做反射；④设置页搜索框搜「笔记」「跨设备」应命中这两条并滚到高亮；⑤466×466 圆屏上动作区多一行后的排版与滚动观感。**未验证**。（**26.11.08 更新**：§3.139 已把私有分享行改回默认显示，上面 ③④ 里「默认关」的口径过期，只作当时的测量记录。）
 
 ### 2.2 功能与工程待办
+
+- [ ] **文件夹列表页的「N 个视频」仍是记录条数，与缓存页对不上（26.11.17 记，与 §1 #209 同源）**：`activity/video/local/LocalFolderListActivity.kt:126-135` 的 `buildRows()` 用 `FolderManager.getFolderVideos(folder.name).size` 当计数，而 `.folders_info.json` 只是记录、外部用文件管理器删掉目录后不会同步；缓存页那边已改成「按本页真扫到的条数」（§1 #209）。这里没跟着改，是因为它要同时算外置卷（`util/ExternalCacheRoots.kt`）里的条目，计数口径要先把「本机记录 ∪ 各外部根的扫描结果」合并出来，属于一次单独的重排；在改之前，用户从文件夹列表页进夹会看到比夹内多一条的数字。**别把这个当成 #209 没修干净。**
 
 - [ ] **顶部条 / 底部条「随滚动收起」的机制该抽成公共控制器（26.11.16 审查 PR #33 时记，先不动）**：`activity/base/RefreshListActivity.kt` 与 `activity/video/local/LocalListActivity.kt` 里各写了一份同样的活（`animateBars` / `setBarHeight` / `resetBarHeight` / `naturalBarHeight`，连 `private const val BAR_ANIM_MS = 180L` 都同名同值）。两个列表基类没有继承关系，是仓库里已经踩过的老坑——`util/view/LoadMoreTipController.kt` + `LoadMoreTipPolicy.kt` 就是为此抽出来的（见 `RefreshListActivity.kt:307-316` 的注释）。底条这套建议同样落成 `util/view/` 下一个控制器 + 纯判据，`ScrollRetractDecider` 继续复用（但要注意它文档前提是「条在列表上方、高度一变内容整体位移」，底条是底边让位、内容不位移，注释得重写）。**本轮只记不排期**：先把行为改对，等下一次动这两条时一起收。
 

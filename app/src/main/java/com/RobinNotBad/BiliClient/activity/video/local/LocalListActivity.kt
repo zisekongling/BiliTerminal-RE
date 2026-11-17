@@ -341,10 +341,20 @@ open class LocalListActivity : InstanceActivity() {
         // 记下扫描开始时的缓存改动版本：扫描期间 / 之后别处改了文件，回来时好重扫（反馈 #162）
         cacheVersionAtLoad = CacheChangeSignal.snapshot()
         videoList.clear()
-        scanVideos(root)
+        // 文件夹页整页只显示这一个夹的条目，全量扫等于把机器上所有缓存的目录都 stat + 读一遍
+        // 元数据：夹多、缓存多时每次点进来都要卡几秒（反馈 #211）。所以夹页只扫记录里属于本夹的
+        // 那些目录名（见 folderScanTitles）；缓存根页仍全量扫。
+        val onlyTitles = if (isFolderPage) folderScanTitles(root) else null
+        scanVideos(root, onlyTitles = onlyTitles)
 
         // 别的分支的缓存目录：包名改没改都认，判据只看目录里有没有成品（见 ExternalCacheRoots）
-        appendExternalSources(root)
+        appendExternalSources(root, onlyTitles)
+
+        // 兜底：夹记录不全（被清过、目录名对不上）时宁可慢一点也不能显示成空夹
+        if (isFolderPage && onlyTitles != null && videoList.isEmpty()) {
+            scanVideos(root)
+            appendExternalSources(root, null)
+        }
 
         // 加载每个视频的元数据（目录要按实际落盘位置解析，不能假设「根/标题」）
         // 注意顺序：外部条目的夹名要等这一轮读完（含退回元数据那条路）才全，建夹必须在它之后
@@ -375,12 +385,14 @@ open class LocalListActivity : InstanceActivity() {
      * @param externalRoot 非空 = 这是别的分支的目录（只读来源）。扫出来的条目记下这个根，
      *        之后删除 / 写元数据 / 写续播都靠它避让，不再按「当前下载根」硬算 —— 那个根跟这条
      *        条目根本没关系。
+     * @param onlyTitles 非空 = 只认这些目录名（文件夹页用，见 [folderScanTitles]）。名字按
+     *        [FileUtil.stringToFile] 的口径比较，磁盘上的目录名本来就是清洗过的。
      */
-    private fun scanVideos(folder: File, externalRoot: String? = null) {
+    private fun scanVideos(folder: File, externalRoot: String? = null, onlyTitles: Set<String>? = null) {
         val files = folder.listFiles() ?: return
 
         for (video in files) {
-            if (video.isDirectory) {
+            if (video.isDirectory && (onlyTitles == null || FileUtil.stringToFile(video.name) in onlyTitles)) {
                 val localVideo = LocalVideo()
                 localVideo.title = video.name
                 localVideo.externalRoot = externalRoot
@@ -516,7 +528,7 @@ open class LocalListActivity : InstanceActivity() {
      * 以及**按标题去重** —— 从那个分支导入到本机的视频会同时出现在两边，列两遍最容易
      * 让人以为「没导干净」，所以本机已有同标题时保留本机那条。
      */
-    private fun appendExternalSources(mainRoot: File) {
+    private fun appendExternalSources(mainRoot: File, onlyTitles: Set<String>? = null) {
         val seenTitles = HashSet<String>()
         for (video in videoList) {
             if (!video.title.isNullOrEmpty()) seenTitles.add(video.title)
@@ -524,7 +536,7 @@ open class LocalListActivity : InstanceActivity() {
         for (dir in ExternalCacheRoots.candidateRoots(mainRoot)) {
             // scanVideos 只往 videoList 尾巴追加，记下起点就能只处理这一批
             val before = videoList.size
-            scanVideos(dir, dir.path)
+            scanVideos(dir, dir.path, onlyTitles)
             // 对方也按文件夹整理过：把它的 .folders_info.json 读成「标题 → 夹名」，
             // 只用来显示和迁移时还原分类，不写进本机的 folderName（见 LocalVideo.externalFolder）
             val folderIndex = CacheMigrator.folderIndex(dir)
@@ -540,6 +552,29 @@ open class LocalListActivity : InstanceActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * 文件夹页要扫的目录名集合，返回 null 表示不限（按全量扫）。
+     *
+     * 记录的来源有两个：本机 `.folders_info.json`（[FolderManager.getFolderVideos]），以及别的
+     * 分支的缓存根（[CacheMigrator.folderIndex]，只要夹名对得上的）。本机记录存的是原始标题，
+     * 磁盘目录名是清洗过的，所以统一按 [FileUtil.stringToFile] 归一。
+     *
+     * **记录为空时返回 null**：夹记录可能被清过或从来就没写过，这时宁可全量扫慢一点，
+     * 也不能把一个还有内容的夹显示成空的。
+     */
+    private fun folderScanTitles(root: File): Set<String>? {
+        val titles = HashSet<String>()
+        for (title in FolderManager.getFolderVideos(folderPageName)) {
+            if (title.isNotEmpty()) titles.add(FileUtil.stringToFile(title))
+        }
+        for (external in ExternalCacheRoots.candidateRoots(root)) {
+            for ((title, name) in CacheMigrator.folderIndex(external)) {
+                if (name == folderPageName) titles.add(title)
+            }
+        }
+        return titles.ifEmpty { null }
     }
 
     /**
