@@ -948,7 +948,7 @@ class SettingGroupActivity : RefreshListActivity() {
             SettingsKeys.UI_ROUND_LIST_EFFECT,
             false
         ) { isChecked -> onRoundListToggled(isChecked) }
-        // 缓存页的文件夹从列表里搬到独立页（26.11.13）：关着是原来的样子，
+        // 缓存页的文件夹从列表里搬到独立页（26.11.13；26.11.17 起默认开）：关着是原来的样子，
         // 开着缓存页顶部只多一行「文件夹 N」，点它进独立文件夹页
         switch(
             "缓存页文件夹入口",

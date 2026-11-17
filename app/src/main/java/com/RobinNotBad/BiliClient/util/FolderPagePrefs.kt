@@ -12,9 +12,9 @@ package com.RobinNotBad.BiliClient.util
  * 「文件夹 N」，点它进独立的文件夹列表页（[com.RobinNotBad.BiliClient.activity.video.local.LocalFolderListActivity]）。
  * 关闭时缓存页一行都不变，与开启前完全一致。
  *
- * <h3>为什么默认关闭</h3>
- * 独立文件夹页是新入口，文件夹少的人反而多一次点击才能进夹；默认沿用老界面，
- * 觉得挤的人自己去实验性开关里打开。
+ * <h3>为什么默认开启</h3>
+ * 26.11.17 用户拍板改成默认开：文件夹铺在列表里时，文件夹一多就把「未分类视频」挤到要滑
+ * 很久，而独立页顶多让文件夹少的人多一次点击。想要老界面的自己去设置里关掉。
  *
  * <h3>键为什么定义在这里</h3>
  * 与 `VirtualCollectionPrefs` 同一个理由：默认值散到多个调用点后，改漏一处的症状是
@@ -27,8 +27,8 @@ object FolderPagePrefs {
     /** 开关在 SharedPreferences 里的键。 */
     const val ENABLE = "cache_folder_page_enable"
 
-    /** 默认关闭：默认界面与加开关之前完全一致。 */
-    const val DEFAULT_ENABLE = false
+    /** 默认开启（26.11.17 用户拍板；此前是默认关闭，想还原老界面的用户自己去设置里关）。 */
+    const val DEFAULT_ENABLE = true
 
     /** 缓存页是否用「文件夹 N」入口 + 独立文件夹页。 */
     @JvmStatic

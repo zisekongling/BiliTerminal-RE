@@ -3193,10 +3193,10 @@
     <string name="msg_video_conclusion_rejected">获取视频摘要被拒绝（错误码 %1$s）</string>
     <string name="msg_video_conclusion_rejected_reason">获取视频摘要被拒绝：%1$s（错误码 %2$s）</string>
     <!-- 缓存页「文件夹」入口 + 独立文件夹列表页（26.11.13）。
-         开关见 util/FolderPagePrefs.kt，默认关闭；关闭时缓存页与加开关之前一行都不变，
-         打开后才把文件夹分区换成顶部这一行入口 text_cache_folder_entry。 -->
+         开关见 util/FolderPagePrefs.kt，26.11.17 起**默认开启**（用户拍板）；关闭时缓存页与加
+         开关之前一行都不变，打开后把文件夹分区换成顶部这一行入口 text_cache_folder_entry。 -->
     <string name="setting_cache_folder_page">缓存页文件夹入口</string>
-    <string name="desc_cache_folder_page">缓存页顶部多一行「文件夹 N」入口，点它进独立的文件夹列表页，不再把文件夹铺在缓存列表里。默认关闭。</string>
+    <string name="desc_cache_folder_page">缓存页顶部多一行「文件夹 N」入口，点它进独立的文件夹列表页，不再把文件夹铺在缓存列表里。默认开启。</string>
     <!-- 确认型弹窗的按钮形态（26.11.17，反馈 #199）。默认开启：手表窗口太矮时，上下两个
          44dp 按钮共 88dp，高度预算不够会把下面那个后添加的「确定」键切出屏幕，用户只看到
          「取消」。见 util/TerminalDialog.kt 的 Sheet.renderButtons()。 -->
