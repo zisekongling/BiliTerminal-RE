@@ -108,6 +108,50 @@ public class VideoInfo implements Parcelable, Serializable { // 自定义类需�
         }
     };
 
+    /**
+     * 交给播放器的**轻量副本**（26.11.17，控制台崩溃 #201）。
+     *
+     * <p>为什么需要：合集视频的 {@code collection.sections[].episodes[].arc} 是**每一集的完整
+     * VideoInfo**（见 {@code VideoInfoApi} 里 {@code episode.arc = getInfoByJson(arc)}）。
+     * 965 集的合集光这一项就有 750KB 左右，而 {@code PlayerData} 是随 Intent 过 binder 交给
+     * 播放器的——一撞上事务上限（约 1MB）就是 {@code TransactionTooLargeException}，
+     * 表现是详情页点播放、进程当场被杀。这与机型无关，只和视频所属合集有多大有关：
+     * 反馈 #201 那个视频正是 965 集的合集，开发者侧也复现为「视频特化的 bug、不分机型」。
+     *
+     * <p>播放器实际只读两样东西：{@code collection}（选集卡片的标题与
+     * {@link Collection#toPlaylist} 的条目）和 {@code cids}（多P 换集）。
+     * 这里把每集的 {@code arc} 剥掉、其余字段原样保留，体积从「每集一份完整 VideoInfo」
+     * 降到「每集 aid + cid + 标题」。
+     *
+     * <p>**不原地修改**：同一个实例常常同时被详情页持有（{@code VideoInfoFragment} 既把
+     * videoInfo 交给播放器、又留在页面上画合集卡片），就地清空 arc 会让合集页失去封面/播放量。
+     * 所以这里复制一层，返回新对象。
+     */
+    public VideoInfo slimForTransfer() {
+        VideoInfo copy = new VideoInfo();
+        copy.bvid = bvid;
+        copy.aid = aid;
+        copy.title = title;
+        copy.staff = staff;
+        copy.cover = cover;
+        copy.description = description;
+        copy.duration = duration;
+        copy.stats = stats;
+        copy.timeDesc = timeDesc;
+        copy.pagenames = pagenames;
+        copy.cids = cids;
+        copy.descAts = descAts;
+        copy.upowerExclusive = upowerExclusive;
+        copy.argueMsg = argueMsg;
+        copy.isCooperation = isCooperation;
+        copy.isSteinGate = isSteinGate;
+        copy.is360 = is360;
+        copy.epid = epid;
+        copy.copyright = copyright;
+        copy.collection = collection == null ? null : collection.slimForTransfer();
+        return copy;
+    }
+
     public VideoCard toCard() {
         // 不能直接取 staff.get(0)：联合投稿接口没返回 staff、UP主已注销、稿件被删等情况下 staff 会是空列表；
         // stats 同理可能为 null。转发预览卡（SendDynamicActivity）会走这里，越界/空指针会直接崩在发送页。

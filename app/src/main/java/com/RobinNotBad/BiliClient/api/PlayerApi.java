@@ -842,7 +842,10 @@ public class PlayerApi {
             // 起播那一条的 videoInfo：播放器靠它决定选集卡片上要不要显示「进入分P/进入合集」
             // 必须显式转 Parcelable——VideoInfo 同时实现了 Parcelable 和 Serializable，
             // 不转的话 putExtra 两个重载都匹配，编译报"引用不明确"
-            intent.putExtra("enterable_info", (android.os.Parcelable) playerData.enterableInfo);
+            // 同样要瘦身（崩溃 #201）：这条 extra 也会过 binder，合集一大就 TransactionTooLargeException。
+            // 播放器侧 updateEnterable() 只用 collection 与 cids，剥掉每集的 arc 不影响选集卡片。
+            VideoInfo enterable = playerData.enterableInfo;
+            intent.putExtra("enterable_info", (android.os.Parcelable) (enterable == null ? null : enterable.slimForTransfer()));
         }
         return intent;
     }

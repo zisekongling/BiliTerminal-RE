@@ -194,7 +194,10 @@ public class PlayerData implements Parcelable {
         dest.writeInt(seasonType);
         dest.writeStringList(liveUrlCandidates);
         dest.writeInt(virtualCollection ? 1 : 0);
-        dest.writeParcelable(enterableInfo, flags);
+        // 合集信息必须**瘦身**再进 Parcel（崩溃 #201）：它每一集都挂着完整 VideoInfo（arc），
+        // 965 集的合集能到 750KB，随 Intent 过 binder 时撞上事务上限，播放页根本起不来。
+        // 播放器只读 collection 与 cids（见 VideoInfo#slimForTransfer 的注释），arc 留着没用。
+        dest.writeParcelable(enterableInfo == null ? null : enterableInfo.slimForTransfer(), flags);
         // 新字段一律追加在末尾（见构造函数里的同一处注释）
         dest.writeLong(uploaderMid);
         dest.writeString(bvid);
