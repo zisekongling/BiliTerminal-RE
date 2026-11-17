@@ -18,6 +18,20 @@
 
 ## 1. 当前版本状态
 
+- **26.11.17 确认框两个按钮改左右并排，按钮区从 88dp 收到 44dp（控制台反馈 #199）**：
+  - **来路**：控制台反馈 #199（category=other，XTC 小天才 Z8，dpi320，26.11.***.***）原话「现在弹窗按钮只有取消了」。无日志、无对应崩溃记录（不是闪退，是布局被切）。
+  - **根因**：按钮区是弹窗面板的最后一段、**不参与 `DialogSizing` 的压缩**——`Sheet.prepareLayout()` 用 `measureParts()` 把按钮区高度计入 `minUsableHeightPx` 交给预算，预算不够时只能隐藏提示行 / 收标题 / 压滚动区，按钮行不能缩。两个键各占一条整行 44dp 共 88dp，小屏手表上超出的部分被切在屏幕外，而「确定」是 `TerminalDialog.confirm()` 里**后添加**的那个（`:160-185` 先 `addButton(cancelText, secondaryColor())` 再确认键），于是只剩「取消」。`app/src/main/java/com/RobinNotBad/BiliClient/util/TerminalDialog.kt:524-528` 的既有注释（26.11.16）已写过这件事。
+  - **改法**：`Sheet` 里 `addButton` 只登记 `ButtonSpec(label, color, onClick)` 进 `buttons` 列表（`buttonBar.visibility = VISIBLE` + `buttonsDirty = true`），真正的 View 由新方法 `renderButtons()` 建，`prepareLayout()` **第一句**调它（按钮区高度是 `measureParts()` 的一项，建晚了会拿旧形态算预算）。`rowMode()` 判定：`buttons.size == 2 && SharedPreferencesUtil.getBoolean(SettingsKeys.DIALOG_BUTTON_ROW, true)`。并排时外层横向 `LinearLayout` 用 weight 把两个按钮各分一半，中间 `columnDivider()` 一根 1dp 竖线（与标题分割线同色同透明度 0.18）。`logButtonGeometry()` 的循环从遍历 `buttonBar` 子 View 改成遍历 `buttonViews`（并排后子 View 是容器，cast 成 `TextView` 会静默落空）。新开关 `SettingsKeys.DIALOG_BUTTON_ROW = "dialog_button_row"` 落在「设置 → 高级与实验 → 功能开关 → 弹窗按钮并排」，并补进 `activity/settings/SettingsIndex.kt`（name 与索引同源，`scrollToHighlight` 逐字比对才对得上）。
+  - **口径（有意的取舍）**：① 只并排**恰好两个**按钮——单个按钮（`confirm` 传空 `cancelText` 的提示型）整行宽本来没得切，三个以上并排会把三字按钮挤成两行；② 不动 `DialogSizing` 的预算算法，并排本身就把按钮区省下一半（88dp → 44dp），改预算会牵连所有弹窗；③ 默认开而不询问用户：反馈来自 dpi320 设备，纵向堆叠在那种屏幕上必坏，开关只是给大屏留的退路；④ 没给按钮加 `maxWidth`／固定两行，`maxLines = 2` + `ellipsize = END` 保证极端字号下也不出界（截断总比点不到好）。
+  - **L0（26.11.17 本机实测）**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest --console=plain` → BUILD SUCCESSFUL（1m36s），standard / coexist 两个 debug 包都产出，单测两套各 **263 套件 / 2843 用例 / 0 失败 / 0 错误 / 0 跳过**（合计 526 / 5686）。本次只动 View 装配，无新纯函数，未加用例。
+  - **未验证（L2）**：① 小屏手表（逼近 380×380 或 dpi320 设备）上触发任一确认框（如长按 → 移除稍后再看）→ 「取消」在左、「确定」在右、各占半行、两个都完整可见且都能点到；② 点左半执行取消、点右半执行确认（不再出现「点左边执行右边」）；③ 三个按钮的弹窗（如批量删除多选框）与单按钮提示框保持原样；④ 设置里把「弹窗按钮并排」关掉后，确认框恢复上下堆叠。
+
+- **26.11.17 缓存页文件夹入口默认开启（用户拍板）**：
+  - **来路（用户原话）**：「另外默认开启实验室里缓存文件夹入口功能」。同一句里还提了弹窗并排，两条一起做的。
+  - **改法**：`app/src/main/java/com/RobinNotBad/BiliClient/util/FolderPagePrefs.kt` 的 `DEFAULT_ENABLE` 由 `false` 改为 `true`，KDoc 那节从「为什么默认关闭」改成「为什么默认开启」；`setting_cache_folder_page` / `desc_cache_folder_page` 两条文案的「默认关闭」同步改成「默认开启」。设置页开关没动（它的默认值直接读 `FolderPagePrefs.DEFAULT_ENABLE`），消费点 `adapter/video/CacheListAdapter.kt:288` 与 `activity/video/local/LocalListActivity.kt:294`、`:325` 也不用改。
+  - **口径**：没做「老用户迁移」——`SharedPreferencesUtil.getBoolean(ENABLE, DEFAULT_ENABLE)` 只在新装/没存过值时取默认，**已经显式关过的用户仍然关着**，这正是要的（尊重既有选择）；也没把键从 `FolderPagePrefs` 挪进 `SharedPreferencesUtil`（与 `VirtualCollectionPrefs` 同一理由：默认值散到调用点会出现「设置页显示开着、实际是关的」）。
+  - **L0**：与上一条同一轮构建（BUILD SUCCESSFUL，两套单测各 263 套件 / 2843 用例 / 0 失败）。
+  - **未验证（L2）**：① 全新安装（或清数据）后进缓存页 → 顶部直接是「文件夹 N」入口，点进去是独立文件夹列表页；② 之前手动关掉过该开关的用户升级后仍然是关的（老界面）；③ 关掉再打开，缓存页立即重排、不用重启。
 - **26.11.17 本应用可以当外部播放器用：注册成系统「打开方式」，文件管理器点本地视频就能交给它播**：
   - **来路（用户原话）**：起初是「想让其他播放器接入本地播放，你看有机会吗比如 VLC、PotPlayer 这类，需要开放什么接口吗」。中间先后做过两版都被否掉——「手表起 HTTP 服务让 VLC 拉播放列表」和「把缓存登记进系统媒体库 + 生成 m3u8」，用户回「播放本地视频啊，为啥用网络呢」；最后拍定的方向是反过来：「我不是让你把我们的应用做成可以当视频播放器的吗」，即**让外部来调用本应用**。
   - **改法（导出入口）**：新增 [ExternalVideoActivity.kt](app/src/main/java/com/RobinNotBad/BiliClient/activity/player/ExternalVideoActivity.kt)，[AndroidManifest.xml](app/src/main/AndroidManifest.xml) 里 `android:exported="true"`、`android:screenOrientation="locked"`、`android:label="@string/pagename_external_video"`，两条 filter：`ACTION_VIEW` + DEFAULT + OPENABLE + `video/*` + scheme `content`/`file`；`ACTION_SEND` + DEFAULT + `video/*`。**不加 http/https**。单独开空壳页而不改 `GetIntentActivity` / `PlayerActivity`：前者语义是 B 站链接白名单，后者带着整套 B 站播放上下文（aid/cid/弹幕/选集/上报），把本地文件塞进任何一个都得动它们的判定。
