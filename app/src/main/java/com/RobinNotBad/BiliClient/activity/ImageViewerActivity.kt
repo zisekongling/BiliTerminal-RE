@@ -2,7 +2,6 @@ package com.RobinNotBad.BiliClient.activity
 
 import com.RobinNotBad.BiliClient.util.UiText
 
-import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.os.Bundle
@@ -11,6 +10,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.RelativeLayout
 import android.widget.TextView
 import androidx.viewpager.widget.ViewPager
 import com.RobinNotBad.BiliClient.R
@@ -24,6 +24,8 @@ import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.ImageTilePolicy
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.SettingsKeys
+import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.request.FutureTarget
@@ -184,6 +186,18 @@ class ImageViewerActivity : BaseActivity() {
      */
     private var downloadLaunched = false
 
+    /** 顶栏标题：方屏显示「图片查看」，圆屏适配时改成页数（见 [applyRoundLayout]）。 */
+    private lateinit var titleView: TextView
+
+    /** 右下角的页数标签：方屏用它，圆屏时隐藏（页数改到 [titleView]）。 */
+    private lateinit var pageCountView: TextView
+
+    /** 当前是否按圆屏排版（= 设置里的圆屏适配开关），每次 onStart 重算。 */
+    private var roundLayout = false
+
+    /** 下载键的原始左边距（px）：圆屏把它居中后，切回方屏要用它还原。 */
+    private var downloadStartMarginPx = 0
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // 主题由 BaseActivity 按用户选择设置，这里不再强制回 B站粉
@@ -199,7 +213,8 @@ class ImageViewerActivity : BaseActivity() {
         imageList = urls
 
         viewPager = findViewById(R.id.viewPager)
-        val textView = findViewById<TextView>(R.id.text_page)
+        titleView = findViewById(R.id.pageName)
+        pageCountView = findViewById(R.id.text_page)
 
         // ============ 下载入口（反馈 #17） ============
         // 原来要求「3 秒内点两次」：第一次点击的提示是页面底部的 Snackbar，**正好盖住左下角的下载
@@ -207,6 +222,8 @@ class ImageViewerActivity : BaseActivity() {
         // 就是「看一眼 → 想存下来」，这个确认既不防误触（按钮在角落、下载也不是破坏性操作），
         // 又把唯一入口挡住了，所以改成单击直接开始下载（失败提示由 DownloadActivity 负责）。
         val download = findViewById<ImageButton>(R.id.btn_download)
+        // 记下布局里的原始左边距：圆屏适配把按钮挪到正中后，切回方屏要按这个值还原
+        downloadStartMarginPx = (download.layoutParams as RelativeLayout.LayoutParams).leftMargin
         download.setOnClickListener {
             if (downloadLaunched) return@setOnClickListener
             val position = viewPager.currentItem
@@ -261,10 +278,8 @@ class ImageViewerActivity : BaseActivity() {
         viewPager.onDoubleTap = { x, y -> zoomAt(viewPager.currentItem, x, y) }
 
         viewPager.addOnPageChangeListener(object : ViewPager.OnPageChangeListener {
-            @SuppressLint("SetTextI18n")
             override fun onPageScrolled(position: Int, positionOffset: Float, positionOffsetPixels: Int) {
-                if (positionOffset % 1 == 0f)
-                    textView.text = "第${position + 1}/${imageList.size}张"
+                if (positionOffset % 1 == 0f) updatePageLabel(position)
             }
 
             override fun onPageSelected(position: Int) {
@@ -281,6 +296,62 @@ class ImageViewerActivity : BaseActivity() {
         })
 
         loadAround(0)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // 圆屏适配由 BaseActivity.setRound() 在每次回前台时重算，本页排版跟着同一时机走：
+        // 用户在设置里改了开关再回到这一页，也不会留下上一次的布局。
+        applyRoundLayout()
+    }
+
+    /**
+     * 圆屏适配下的排版（未开启时保持原样）。
+     *
+     * - 下载键：从「左下角」挪到「底部正中」。圆屏的可见区中间最宽，居中最不容易被圆弧切到。
+     * - 页数：从「右下角」挪到顶栏标题的位置，顶替「图片查看」那行文字，时钟仍在它上方居中；
+     *   右下角那个标签同时隐藏，免得同一份页数出现两次。
+     *
+     * 顶栏整条仍然是点击退出（[BaseActivity.setTopbarExit] 挂的是 `R.id.top`，与标题文字无关），
+     * 返回键退出也不受影响——只是标题文字从「图片查看」换成了页数。
+     */
+    private fun applyRoundLayout() {
+        // onCreate 里缺参数提前 return 时，这个方法仍可能被 onStart 调到
+        if (!::titleView.isInitialized || !::imageList.isInitialized) return
+        roundLayout = SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROUND, false)
+        pageCountView.visibility = if (roundLayout) View.GONE else View.VISIBLE
+        titleView.text = if (roundLayout) pageLabel(viewPager.currentItem)
+        else getString(R.string.pagename_image_viewer)
+        pageCountView.text = pageLabel(viewPager.currentItem)
+
+        val download = findViewById<ImageButton>(R.id.btn_download)
+        val lp = download.layoutParams as? RelativeLayout.LayoutParams ?: return
+        if (roundLayout) {
+            lp.removeRule(RelativeLayout.ALIGN_PARENT_START)
+            lp.removeRule(RelativeLayout.ALIGN_PARENT_LEFT)
+            lp.addRule(RelativeLayout.CENTER_HORIZONTAL)
+            lp.marginStart = 0
+            lp.leftMargin = 0
+        } else {
+            lp.removeRule(RelativeLayout.CENTER_HORIZONTAL)
+            lp.addRule(RelativeLayout.ALIGN_PARENT_START)
+            lp.addRule(RelativeLayout.ALIGN_PARENT_LEFT)
+            lp.marginStart = downloadStartMarginPx
+            lp.leftMargin = downloadStartMarginPx
+        }
+        download.layoutParams = lp
+    }
+
+    /** 「第 x/N 张」文案；越界的位置按第一张兜底，避免出现「第 0/N 张」。 */
+    private fun pageLabel(position: Int): String {
+        val index = if (position in imageList.indices) position else 0
+        return getString(R.string.text_image_viewer_page_count, index + 1, imageList.size)
+    }
+
+    /** 翻页时更新页数：圆屏写到顶栏标题，方屏写到右下角标签。 */
+    private fun updatePageLabel(position: Int) {
+        if (roundLayout) titleView.text = pageLabel(position)
+        else pageCountView.text = pageLabel(position)
     }
 
     override fun onResume() {

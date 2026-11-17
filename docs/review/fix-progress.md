@@ -18,6 +18,15 @@
 
 ## 1. 当前版本状态
 
+- **26.11.17 图片查看器圆屏排版：下载键居中贴底、页数顶掉顶栏标题（用户需求）**：
+  - **来路**：用户原话（本轮对话）「圆屏适配开启后，将图片预览器的播放按钮居中底部放置，页数显示在上方，顶掉图片查看按钮的位置，按键和退出的功能不替换」。其中「播放按钮」经确认指左下角那个下载键（图标是下载箭头）；页数位置经确认选「放在『图片查看』这行标题的位置，标题文字被替换掉」，时钟仍在它上方居中。
+  - **根因**：`app/src/main/res/layout/activity_image_viewer.xml` 是方屏排版——`btn_download` 挂 `alignParentStart` 落在左下角、`text_page` 挂在右下角；而圆屏适配（`BaseActivity.setRound`，`app/src/main/java/com/RobinNotBad/BiliClient/activity/base/BaseActivity.kt:337`）只处理顶栏标题的居中与内缩，管不到这两个键。
+  - **改法（`app/src/main/java/com/RobinNotBad/BiliClient/activity/ImageViewerActivity.kt` + `app/src/main/res/values/strings.xml`）**：新增 `applyRoundLayout()`（`ImageViewerActivity.kt:318`），在 `onStart()`（`:301`，与 `BaseActivity.setRound()` 同一时机）调用；读 `SettingsKeys.UI_ROUND`，开启时把 `text_page` 置 `GONE`、页数写进 `pageName`（保留 `drawableStartCompat` 的返回箭头），把 `btn_download` 的 `RelativeLayout.LayoutParams` 去掉 `ALIGN_PARENT_START/LEFT`、加 `CENTER_HORIZONTAL`、左边距清 0（保留 `alignParentBottom` 与 8dp 底边距）；方屏按 `onCreate` 里记下的原始左边距（`downloadStartMarginPx`）还原，方法幂等。页数文案从硬编码「第x/N张」迁到新资源 `text_image_viewer_page_count`（`strings.xml:2390`），翻页统一走 `updatePageLabel()`。
+  - **口径（有意的取舍）**：① 只换位置、不换功能——顶栏整条的点击退出（`setTopbarExit` 挂的是 `R.id.top`，与标题文字无关）与返回键退出都没动，标题被页数顶替但箭头与可点区域不变；② 圆屏下标题保留 `arrow_back` 箭头（既是返回提示也不影响点击）；③ 未开圆屏适配时排版一字不动；④ 顺带把本条涉及的硬编码中文迁进 `strings.xml`（`docs/agents/dev-conventions.md:99` 的要求）。
+  - **L0（26.11.17 本机实测）**：`./gradlew.bat :app:assembleDebug --console=plain` → BUILD SUCCESSFUL（1m31s，121 tasks，24 executed）；`./gradlew.bat :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest` → BUILD SUCCESSFUL（15s），standard / coexist 两套单测各 **262 套件 / 2838 用例 / 0 失败 / 0 错误 / 0 跳过**（两个 test 任务本轮都实际执行，非上次残留结果）。本条是视图与布局参数设置，没有新增纯函数，未加用例。
+  - **L1（26.11.17 模拟器实测，`rebili_watch466` AVD，466×466）**：把 `player_ui_round` 置 true 后从视频详情页长按封面进图片查看器，控件树读出 ① `pageName` 文本=「第1/1张」、bounds `[168,41 130x42]`（水平中心 233 = 屏宽一半，居中），时钟 `timeText` 仍在它上方 `y=13`；② `btn_download` bounds `[193,368 80x56]`（中心 233 = 居中，底边 424 贴底）；③ `text_page` 已从控件树消失（GONE）；④ 点顶栏 `top` 仍能退出回上一页。改回 false 重启后对照：`pageName`=「图片查看」`[39,19 316x42]`（左对齐）、`btn_download` `[39,381]`（左下角）、`text_page`=「第1/1张」`[303,379]`（右下角）——方屏排版未受影响。
+  - **未验证（L2）**：① 多图（N>1）左右滑动时顶栏页数是否跟着变（本次只验证了单张封面，翻页走同一个 `updatePageLabel(position)`）；② 圆屏下「← 第 x/N 张」这组箭头+文字是否好看、字号要不要再调；③ 圆屏下点下载键实际保存进相册。
+
 - **26.11.17 播放页「不显示字幕」关不掉：晚回来的字幕请求把字幕塞回来（控制台反馈 #202）**：
   - **来路**：控制台反馈 #202（OPPO OWW212＝OPPO Watch 3，v26.11.16，category=suggestion）原话「能增添一个字幕关闭按钮吗字幕没法关闭啊大多时候看视频两个字幕，当然可能我没找到关闭的地方能麻烦告知一下吗」。开发者先答「设置搜索自动弹出字幕选择，关掉即可」；用户回「关了自动弹出字幕选择还是有字幕啊」；开发者再答「那确定是 bug，修」。本轮用户又追了一句「字幕关闭项本来就存在，但是人家之后说了关闭此选项没有用，建议查看一下」，于是按链路复查。
   - **根因（三条叠在一起，读代码得出，不是猜）**：① `getSubtitle` 没有任何代次保护——一次慢请求（自动中文字幕那条尤其慢）在用户选完「不显示字幕」之后才回来，照样写 `subtitles` / `subtitle_count` / `btn_subtitle` 图标，把字幕塞回屏幕；② `maybeAutoSubtitle` 会在换画质 / 换线路（`PlayerActivity.kt:8030` 附近）与换互动分P（`:8647` 附近）之后重跑，用户刚关掉的意图当场丢失；③ 选「不显示字幕」只清数据不清 UI——250ms 定时器只在播放进度变化时才跑（`:3330` 的 `video_now_last != video_now`），暂停时那条 `if (subtitles == null) text_subtitle.visibility = GONE`（`:3339`）永远不会执行，最后一句字幕就一直挂在屏幕上，用户看到的就是「关了这个选项没用」。设置键本身没错位：`SettingsKeys.PLAYER_SUBTITLE_AUTOSHOW` 确实接到了 `maybeAutoSubtitle`。
