@@ -18,6 +18,13 @@
 
 ## 1. 当前版本状态
 
+- **26.11.17 拖进度条时弹幕线程崩（控制台崩溃 #362）**：
+  - **来路**：崩溃 #362（hesc Ultra Pro Max，v26.11.16，2026-11-17 16:09），`java.util.NoSuchElementException`，thread=`DFM Handler Thread #0`，栈 `Danmakus.last ← DrawTask.seek ← CacheManagingDrawTask.seek`。同一份堆栈在 26.11.16 那批里只出现这一条，机型是低配手表（sdk27）。
+  - **根因（并发清空）**：`DanmakuFlameMaster/src/main/java/master/flame/danmaku/danmaku/model/android/Danmakus.java:257-266` 的 `last()` 是「先 `isEmpty()` 判断，再 `((SortedSet) items).last()`」——两步之间集合被清空，`TreeSet.last()` 就抛 `NoSuchElementException`（`first()` 同形）。清空来自主线程：`app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt:5795-5803` 的 `rebuildDanmakuTimeline()` 调 `view.removeAllDanmakus(true)` → `DanmakuFlameMaster/src/main/java/master/flame/danmaku/controller/DrawTask.java:146-159` 的 `removeAllDanmakus`（`synchronized`，内部 `danmakuList.clear()`）；而 `seek` 跑在弹幕控件自己的 handler 线程上，**原来没有加锁**（`DrawTask.java:249-265`），于是与 `removeAllDanmakus`/`addDanmaku` 之间没有任何互斥。
+  - **改法（vendored 库 3 处，沿用以往「补崩溃兜底」的做法）**：① `DrawTask.java` 的 `seek(long)` 加 `synchronized`——与 `removeAllDanmakus` / `addDanmaku` 同一把实例锁，把「判空 + 取 last」与清空串行化；② 同文件 `danmakuList` 加 `volatile`（解析线程写、控制线程读，避免看到旧引用/null）；③ `Danmakus.java` 的 `first()` / `last()` 各包一层 try/catch（`NoSuchElementException | IndexOutOfBoundsException` → 返回 null），护住其它调用点（`loadDanmakus`、`prepareCaches` 等），调用方本来就按可能为空处理。
+  - **L0（26.11.17 本机实测）**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest` → BUILD SUCCESSFUL（34s）；单测 **264 套件 / 2850 用例 / 0 失败**。vendored 库改动不新增用例（`Danmakus` 依赖 Android 绘制类，JVM 单测起不来）。
+  - **L1（26.11.17 模拟器实测）**：播放 BV1FPWy6QE1L（965 集合集里的一集，2 小时 28 分）后在进度条上连点 8 次（进度从 01:23 跳到 02:39），弹幕照常渲染、进程存活（pid 4605）、`logcat -b crash` **0 行**。
+  - **未验证（L2）**：竞态窗口极窄，没法主动触发，所以这条只能靠「下一版里不再出现」来确认——真机上反复拖动进度条 / 切集会重新走 `rebuildDanmakuTimeline` 那条路，观察是否还有这条崩溃。
 - **26.11.17 合集视频点播放就闪退：Intent 里塞了整个合集，撞穿 binder 上限（控制台反馈 #201）**：
   - **来路**：控制台反馈 #201（OPPO OWW211，v26.11.16，2026-11-16 23:12，category=bug，**log 为空**）原话「打开BV1FPWy6QE1L时闪退」；开发者回复「确实啊，还有视频特化的bug，还不分机型的，真奇怪啊，明天修吧（」——「视频特化、不分机型」正是后面查到的根因形状。
   - **复现（模拟器 `emulator-5554`，466×466，装的 `app-standard-arm64-v8a-debug.apk`）**：`am start -n com.RobinNotBad.BiliClient/.activity.GetIntentActivity --es type video_bv --es content BV1FPWy6QE1L` → 详情页正常（封面 `img_cover` bounds 35,83,396×222）→ 点封面 → **进程当场被杀，两次必现**。注意不能用 `-a VIEW -d https://www.bilibili.com/video/...`：那条会被 `app/src/main/java/com/RobinNotBad/BiliClient/activity/GetIntentActivity.kt:52-56` 按 `DeepLinkPolicy.WEB_LINK` 挡掉。

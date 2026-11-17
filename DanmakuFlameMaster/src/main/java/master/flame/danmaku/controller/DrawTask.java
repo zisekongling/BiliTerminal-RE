@@ -39,7 +39,9 @@ public class DrawTask implements IDrawTask {
     
     protected final AbsDisplayer mDisp;
 
-    protected IDanmakus danmakuList;
+    // volatile：它在解析线程（prepare → loadDanmakus）里写、在绘制/控制线程里读，
+    // 不加的话另一个线程可能一直看着旧引用甚至是 null（切集/切 P 时最常见）。
+    protected volatile IDanmakus danmakuList;
 
     protected BaseDanmakuParser mParser;
 
@@ -246,8 +248,17 @@ public class DrawTask implements IDrawTask {
             mRenderer.clear();
     }
 
+    /**
+     * 跳到指定时间点。
+     *
+     * <p>加 {@code synchronized} 是为了跟 {@link #removeAllDanmakus(boolean)} / {@link #addDanmaku(BaseDanmaku)}
+     * 互斥：它们都在这个实例锁上，而 seek 却跑在弹幕控制线程（{@code DanmakuView} 的 handler 线程）上。
+     * 不加的话「判空 → 取 last()」中间可能被主线程清空，{@code Danmakus.last()} 直接抛
+     * {@code NoSuchElementException}（控制台崩溃 #362：thread=DFM Handler Thread，栈为
+     * {@code Danmakus.last ← DrawTask.seek ← CacheManagingDrawTask.seek}）。
+     */
     @Override
-    public void seek(long mills) {
+    public synchronized void seek(long mills) {
         reset();
         mContext.mGlobalFlagValues.updateVisibleFlag();
         mContext.mGlobalFlagValues.updateFirstShownFlag();
