@@ -2,7 +2,8 @@
 name: rebili-feedback-triage
 description: >-
   在 RE:哔哩终端（ReBiliClient）里处理控制台用户反馈与崩溃报告：用 rebili-console MCP 拉取未处理条目、
-  按异常与机型聚类、读日志并定位到源码、判别「真 bug / 线上旧包已修 / 不是 bug / 信息不足」、
+  按异常与机型聚类、读日志并定位到源码、用 git 史与当前代码核实「已修 / 未修」、
+  判别「真 bug / 线上旧包已修 / 不是 bug / 信息不足」、
   把已确认的批量标成已处理、对真 bug 落地修复并写 docs/review/fix-progress.md 台账。
   当用户说「看看最近的反馈」「处理崩溃报告」「控制台那批还没标的」「这条反馈是不是 bug」
   「把已修的标掉」「最近用户报了什么」时使用本技能。
@@ -69,7 +70,34 @@ crash_detail({ crash_id, log_chars: 8000 })         → exception、message、th
 
 **完成判据**：每条崩溃都能说出「包的构建日期」与「疑似修复提交日期」，并据此归桶。
 
-## 5. 标记
+## 5. 已修 / 未修：git 史 + 当前代码二次核实
+
+**只读一遍代码就下「是不是 bug」的结论，几乎必然出错**——要么它早就修了，要么改过但没覆盖到用户那条路径。每条候选都做下面两问，再对一次时间线。
+
+1. **提交史里有没有它**。三种查法按顺序试：反馈号（`#209`）、用户原话里的关键词、异常类名或 message 片段。
+
+   ```powershell
+   git log -n 3000 --format="%h %cI %s" | Out-File -Encoding utf8 outputs/_gitlog.txt
+   ```
+
+   **反馈号命中率很低**（上一轮 25 条反馈只有 6 条被写进提交信息），查不到 ≠ 没修，必须落到第 2 问。
+2. **当前代码是不是真的修好了**。读实现和调用点，结论落在 `文件:行号`。四种实际结局，别混为一谈：
+
+   | 结局 | 怎么认出来 | 汇报口径 |
+   | --- | --- | --- |
+   | 真修好了 | 行为改了 + 调用点对得上 | 已修 + hash |
+   | **只加了埋点 / 诊断** | `git show <hash> --stat` 改动面只有日志、`probe()`、单测，无行为变更 | 「只加埋点，没修」（#205 表冠就是这样） |
+   | **改过但覆盖不到** | 修的位置与用户描述场景不是同一条路径（#210 合集连播 390b5080 在包内、用户仍报） | 「改过但仍复现，需真机复现」 |
+   | **修了但默认关** | 功能存在，开关默认 `false`（#191 `player/PlayerSettingsGroups.kt:213-216`） | 「已实现待开启」，不是「没做」 |
+   | **词不对** | 用户原话在代码里搜不到（#206 说「鱼眼」，实现叫 `RoundListEffect`） | 先找同义实现，再说没有 |
+
+3. **时间线对账**：修复提交的 `%cI` 与包的构建日期（第 4 步）比。**修复晚于包 → 「已修未发」**，进已修桶；修复早于包仍被报 → 新样本，回去重新查。
+
+一个真实例子：11-17 09:37–09:46 那批（#204/#199/#191/#205 与崩溃 #356/#352/#353 的修）全在线上包之后，所以用户在 26111604 报的现象**一条都还没被修好**——不做这一步就会把它们误报成「已修」。
+
+**完成判据**：每条候选都能说出「提交 hash（或明确「无提交」）+ 当前代码 `文件:行号` 的正反面证据 + 归桶」，而不是「看起来像已经修了」。
+
+## 6. 标记
 
 先给用户**命中条数**、得到确认再动手——「标已处理」虽是安全操作，但用户要知道什么被标掉了：
 
@@ -84,7 +112,7 @@ crash_bulk_handled({ q, version_name, pending_only: true, handled: true, dry_run
 
 **完成判据**：重新 `crash_list({pending:true,limit:1})` / `feedback_list({pending:true,limit:1})` 复核 `total` 已下降，且下降数与「你说要标的条数」一致。
 
-## 6. 修真 bug
+## 7. 修真 bug
 
 走仓库既有纪律（`AGENTS.md` + `docs/agents/testing.md`），这条流水线额外强调三点：
 
@@ -95,7 +123,7 @@ crash_bulk_handled({ q, version_name, pending_only: true, handled: true, dry_run
 
 **完成判据**：build 绿 + 台账有条目 + 已 push，并且「未验证 L2」那行写的是具体的人工验收动作，不是「应该没问题」。
 
-## 7. 收尾汇报
+## 8. 收尾汇报
 
 给三样东西，不写流水账：
 
@@ -130,3 +158,4 @@ crash_bulk_handled({ q, version_name, pending_only: true, handled: true, dry_run
 - PowerShell 没有 heredoc：提交信息先 `write` 到临时文件，再 `git commit -F 临时文件`。
 - `edit` 工具可能把 `.kt` 改成 CRLF 并重写整文件；改完用 `[System.IO.File]::ReadAllBytes` 数一下 CRLF 数量再提交。
 - 读中文文件别用 `Get-Content`（本机乱码），用 `read` 工具或 `[System.IO.File]::ReadAllText($f,[System.Text.Encoding]::UTF8)`。
+- pwsh 里 `git log … > 文件` 重定向出来是 **UTF-16LE（带 BOM）**，`Get-Content`/UTF-8 读会全是乱码：必须 `| Out-File -Encoding utf8`，或 Node 侧 `fs.readFileSync(f).toString("utf16le")`。
