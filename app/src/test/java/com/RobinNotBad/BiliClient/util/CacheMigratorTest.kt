@@ -206,4 +206,43 @@ class CacheMigratorTest {
         assertEquals(listOf("先", "后"), folders.map { it.name })
         assertNotNull(folders[0].videoTitles)
     }
+
+    // ---------- 预建文件夹（对方的夹先在本机建好） ----------
+
+    @Test
+    fun `只挑本机还缺的夹并保持首次出现顺序`() {
+        val wanted = listOf("追番", "教程", "追番", "已存在")
+
+        val toCreate = CacheMigrator.foldersToCreate(setOf("已存在"), wanted)
+
+        assertEquals(listOf("追番", "教程"), toCreate)
+    }
+
+    @Test
+    fun `空名与不合法夹名不会被拿去建夹`() {
+        // "a/b" 带路径分隔符、长串超过 30 字，都建不出来：留着它们只会让条目归进不存在的夹
+        val longName = "长".repeat(31)
+        val wanted = listOf("", "   ", "a/b", longName, "正常的夹")
+
+        val toCreate = CacheMigrator.foldersToCreate(emptySet(), wanted)
+
+        assertEquals(listOf("正常的夹"), toCreate)
+    }
+
+    @Test
+    fun `夹名两头有空格时按去掉空格后的名字建`() {
+        val toCreate = CacheMigrator.foldersToCreate(emptySet(), listOf(" 追番 "))
+
+        assertEquals(listOf("追番"), toCreate)
+    }
+
+    @Test
+    fun `本机全都有时不需要建任何夹`() {
+        assertTrue(CacheMigrator.foldersToCreate(setOf("追番", "教程"), listOf("教程", "追番")).isEmpty())
+    }
+
+    @Test
+    fun `没有对方夹名时什么也不建`() {
+        assertTrue(CacheMigrator.foldersToCreate(emptySet(), emptyList()).isEmpty())
+    }
 }

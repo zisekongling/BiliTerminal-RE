@@ -111,6 +111,28 @@ object CacheMigrator {
         return index[normalize(title)] ?: index[title] ?: ""
     }
 
+    /**
+     * 从「对方分支的文件夹名」里挑出本机还缺的那几个。
+     *
+     * 只做筛选，不碰文件：去空、去重、保持首次出现的顺序，并跳过
+     * [FolderManager.isValidFolderName] 不过的名字 —— 建不出来的夹不能算「本机已有」，
+     * 否则条目会被归进一个根本不存在的分组，从列表里彻底消失。
+     */
+    @JvmStatic
+    fun foldersToCreate(existingNames: Set<String>, wanted: Collection<String>): List<String> {
+        val result = ArrayList<String>()
+        val seen = HashSet<String>(wanted.size * 2)
+        for (raw in wanted) {
+            val name = raw.trim()
+            if (name.isEmpty()) continue
+            if (existingNames.contains(name)) continue
+            if (!seen.add(name)) continue
+            if (!FolderManager.isValidFolderName(name)) continue
+            result.add(name)
+        }
+        return result
+    }
+
     /** 目录里已有的名字（用来算不冲突的目标名）。 */
     @JvmStatic
     fun listDirNames(root: File): Set<String> {

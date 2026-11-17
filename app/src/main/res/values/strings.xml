@@ -1041,9 +1041,9 @@
     <string name="msg_cache_external_readonly">这条缓存在别的分支的目录里，只能播放；删除请到那个版本操作</string>
     <string name="msg_cache_deleted_skipped_external">已删除 %1$d 条，跳过 %2$d 条外部缓存</string>
     <string name="msg_cache_deleted_failed_skipped_external">已删除 %1$d 条，%2$d 条失败，跳过 %3$d 条外部缓存</string>
-    <string name="msg_cache_migrate_confirm_one">把「%1$s」搬到本机？\n原目录里的文件会被删除，无法恢复</string>
-    <string name="msg_cache_migrate_confirm_many">把这 %1$d 条缓存搬到本机？\n原目录里的文件会被删除，无法恢复</string>
-    <string name="msg_cache_migrated">已迁移 %1$d 条到本机</string>
+    <string name="msg_cache_migrate_confirm_one">把「%1$s」搬到本应用？\n原目录里的文件会被删除，无法恢复</string>
+    <string name="msg_cache_migrate_confirm_many">把这 %1$d 条缓存搬到本应用？\n原目录里的文件会被删除，无法恢复</string>
+    <string name="msg_cache_migrated">已迁移 %1$d 条到本应用</string>
     <string name="msg_cache_migrated_foldered">已迁移 %1$d 条，其中 %2$d 条还原到原来的文件夹</string>
     <string name="msg_cache_migrated_with_failed">已迁移 %1$d 条，%2$d 条失败（原目录还在）</string>
     <string name="msg_cache_migrated_leftover">已迁移 %1$d 条，但原目录有 %2$d 条没删掉，请到那个版本里删</string>

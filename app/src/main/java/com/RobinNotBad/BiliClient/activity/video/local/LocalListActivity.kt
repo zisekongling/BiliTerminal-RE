@@ -347,11 +347,10 @@ open class LocalListActivity : InstanceActivity() {
         appendExternalSources(root)
 
         // 加载每个视频的元数据（目录要按实际落盘位置解析，不能假设「根/标题」）
+        // 注意顺序：外部条目的夹名要等这一轮读完（含退回元数据那条路）才全，建夹必须在它之后
         for (video in videoList) {
             try {
                 val meta = VideoMetaManager.readMeta(resolveVideoDir(rootOf(video), video))
-                // 外部条目不接本机的文件夹记录：folderName 是本机 .folders_info.json 的键，
-                // 把对方的记录搬过来只会在本机凭空多出几个分组（见 LocalVideo.externalFolder）
                 video.folderName = if (video.externalRoot.isNullOrEmpty()) meta.folderName else ""
                 // 对方根目录没有 .folders_info.json（或被删过）时，退回到这条视频自己的元数据
                 if (!video.externalRoot.isNullOrEmpty() && video.externalFolder.isNullOrEmpty()) {
@@ -361,6 +360,9 @@ open class LocalListActivity : InstanceActivity() {
                 video.cid = meta.cid
             } catch (_: Exception) {}
         }
+
+        // 对方的文件夹在本机侧先建一份，再让外部条目归进去（见 ensureExternalFolders）
+        ensureExternalFolders()
 
         // 未分类视频没有「列表本身」可以写顺序，单独存在 SharedPreferences 里，按缓存根目录分键。
         // 必须在第一次 setData 之前读出来，否则进页面会先按扫描顺序画一遍再跳一下。
@@ -540,6 +542,40 @@ open class LocalListActivity : InstanceActivity() {
         }
     }
 
+    /**
+     * 对方的文件夹在本机侧先建一份（口径：有文件夹数据就先建夹，点进去就能播）。
+     *
+     * 只建夹、**不写本机的视频记录**：这些条目仍然是外部只读条目，夹内成员靠
+     * `video.folderName` 过滤（见 [orderedVideosInFolder]）；等用户把它们「迁移到本应用」时，
+     * [FolderManager.ensureFolderAndAdd] 才会把夹记录正式补上。
+     *
+     * 必须在元数据读完**之后**调用：外部条目的夹名可能来自对方根目录的 .folders_info.json，
+     * 也可能来自它自己的元数据（见 loadData），后者只有这一轮读完才知道。
+     */
+    private fun ensureExternalFolders() {
+        val wanted = ArrayList<String>()
+        for (video in videoList) {
+            if (video.externalRoot.isNullOrEmpty()) continue
+            val name = video.externalFolder
+            if (!name.isNullOrEmpty()) wanted.add(name)
+        }
+        if (wanted.isEmpty()) return
+        val existing = HashSet<String>(folderList.size * 2)
+        for (folder in folderList) existing.add(folder.name)
+        // 夹名不合法 / 建夹失败的不会进 existing，那些条目最后留在未分类，不会凭空消失
+        for (name in CacheMigrator.foldersToCreate(existing, wanted)) {
+            if (FolderManager.createFolder(name)) {
+                folderList.add(VideoFolder(name))
+                existing.add(name)
+            }
+        }
+        for (video in videoList) {
+            if (video.externalRoot.isNullOrEmpty()) continue
+            val name = video.externalFolder
+            video.folderName = if (!name.isNullOrEmpty() && existing.contains(name)) name else ""
+        }
+    }
+
     /** 这条条目是哪个根扫出来的：外部只读来源有自己的根，其余用本次扫描的本机根。 */
     private fun rootOf(video: LocalVideo): File =
         video.externalRoot?.takeIf { it.isNotEmpty() }?.let { File(it) } ?: currentScanRoot()
@@ -681,15 +717,28 @@ open class LocalListActivity : InstanceActivity() {
     private fun menuTitle(title: String): String =
         if (title.length <= 12) title else title.take(12) + "…"
 
-    /** 长按文件夹：重命名 / 拆散。 */
+    /**
+     * 长按文件夹：整夹迁移（只有整夹都是外部条目时才给）/ 重命名 / 拆散。
+     *
+     * 夹内成员按 `video.folderName` 过滤（见 [orderedVideosInFolder]）。整夹都是外部条目时
+     * 才值得整夹搬：混了本机条目就只搬一部分，剩下的还得留在这儿，不如让用户进夹后自己勾。
+     */
     private fun showFolderMenu(folderIndex: Int) {
         if (folderIndex < 0 || folderIndex >= folderList.size) return
         val folder = folderList[folderIndex]
-        val items = listOf(UiText.of("重命名"), UiText.of("拆散文件夹"))
+        val members = videoList.filter { it.folderName == folder.name }
+        val externalOnly = members.isNotEmpty() && members.all { !it.externalRoot.isNullOrEmpty() }
+        val items = ArrayList<String>(3)
+        if (externalOnly) items.add(UiText.fmt("迁移整个文件夹到本应用（%1\$d 条）", members.size))
+        items.add(UiText.of("重命名"))
+        items.add(UiText.of("拆散文件夹"))
+        // 多出来的那一项在最前面，后两项的下标整体后移一位
+        val offset = if (externalOnly) 1 else 0
         TerminalDialog.menu(this, menuTitle(folder.name), items) { which ->
-            when (which) {
-                0 -> showRenameDialog(folderIndex)
-                1 -> showDisbandConfirmDialog(folderIndex)
+            when {
+                which < offset -> confirmMigrate(members)
+                which - offset == 0 -> showRenameDialog(folderIndex)
+                else -> showDisbandConfirmDialog(folderIndex)
             }
         }.show()
     }
@@ -700,8 +749,8 @@ open class LocalListActivity : InstanceActivity() {
         val video = videoList[videoIndex]
         if (!video.externalRoot.isNullOrEmpty()) {
             // 别的分支的目录只读（见 LocalVideo.externalRoot）：删除 / 换分辨率 / 更新弹幕全都要往
-            // 对方目录写文件，所以这里只有一条路——把它搬进本机，搬完就是本机条目，功能自然齐全。
-            TerminalDialog.menu(this, menuTitle(video.title), listOf(UiText.of("迁移到本机"))) {
+            // 对方目录写文件，所以这里只有一条路——把它搬进本应用，搬完就是本机条目，功能自然齐全。
+            TerminalDialog.menu(this, menuTitle(video.title), listOf(UiText.of("迁移到本应用"))) {
                 confirmMigrate(listOf(video))
             }.show()
             return
@@ -725,7 +774,7 @@ open class LocalListActivity : InstanceActivity() {
         }.show()
     }
 
-    // ===================== 迁移（别的分支 → 本机） =====================
+    // ===================== 迁移（别的分支 → 本应用） =====================
     //
     // 外部条目只读（见 LocalVideo.externalRoot）：想删、想换分辨率、想进文件夹，都得先「搬过来」。
     // 搬 = 把对方目录里那条视频目录整个挪到本机下载根（[CacheMigrator]），并把它在对方所属的
@@ -739,7 +788,7 @@ open class LocalListActivity : InstanceActivity() {
         } else {
             getString(R.string.msg_cache_migrate_confirm_many, targets.size)
         }
-        TerminalDialog.confirm(this, UiText.of("迁移到本机"), message, UiText.of("迁移")) {
+        TerminalDialog.confirm(this, UiText.of("迁移到本应用"), message, UiText.of("迁移")) {
             performMigrate(targets)
         }.show()
     }
@@ -1572,7 +1621,7 @@ open class LocalListActivity : InstanceActivity() {
         }
 
         val inFolder = adapter?.currentFolderName?.isNotEmpty() == true
-        // 勾选里混了外部条目：它们唯一能做的就是「迁移到本机」（见 LocalVideo.externalRoot），
+        // 勾选里混了外部条目：它们唯一能做的就是「迁移到本应用」（见 LocalVideo.externalRoot），
         // 所以菜单第一条按需给出来，其余批量操作照旧只作用于本机条目
         val externalSelected = if (selectedFolderNames.isEmpty()) {
             selectedVideos().filter { !it.externalRoot.isNullOrEmpty() }
@@ -1585,7 +1634,7 @@ open class LocalListActivity : InstanceActivity() {
         } else {
             if (externalSelected.isNotEmpty()) {
                 ops.add(
-                    UiText.fmt("迁移到本机（%1\$d 条）", externalSelected.size) to {
+                    UiText.fmt("迁移到本应用（%1\$d 条）", externalSelected.size) to {
                         confirmMigrate(externalSelected)
                     }
                 )

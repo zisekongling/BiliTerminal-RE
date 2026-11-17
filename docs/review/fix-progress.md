@@ -18,6 +18,15 @@
 
 ## 1. 当前版本状态
 
+- **26.11.17 迁移改名「迁移到本应用」；对方的文件夹先在本机建好，整夹也能一键搬**：
+  - **来路（用户原话）**：「迁移到本app，这个名字变一下」「另外若有RE版本的文件夹数据，则你先建个文件夹再播放」「不懂的问我」。追问两轮后用户拍板：文案用「**迁移到本应用**」；文件夹口径选「1」（扫到就按对方的夹在本机建好并归进去），并补一句「1+若整个文件夹都是外部的，即可长按迁移整个文件夹」。
+  - **改法（改文案）**：[LocalListActivity.kt](app/src/main/java/com/RobinNotBad/BiliClient/activity/video/local/LocalListActivity.kt) 的 `showVideoMenu` 单条项、`confirmMigrate` 对话框标题、`showBatchMenu` 的 `UiText.fmt("迁移到本应用（%1$d 条）")` 三处换名；[strings.xml](app/src/main/res/values/strings.xml) 的 `msg_cache_migrate_confirm_one` / `_many` / `msg_cache_migrated` 把「本机」改成「本应用」。
+  - **改法（预建夹）**：[CacheMigrator.kt](app/src/main/java/com/RobinNotBad/BiliClient/util/CacheMigrator.kt) 加纯函数 `foldersToCreate(existingNames: Set<String>, wanted: Collection<String>): List<String>`（去空、去重、保持首次出现顺序、跳过 `FolderManager.isValidFolderName` 不过的名字——建不出来的夹不能算「本机已有」）；[LocalListActivity.kt](app/src/main/java/com/RobinNotBad/BiliClient/activity/video/local/LocalListActivity.kt) 新增 `ensureExternalFolders()`，在**元数据读完之后**调用：外部条目的夹名可能来自对方根目录的 `.folders_info.json`，也可能来自它自己的元数据（`loadData` 里那条退回分支），后者只有这一轮读完才知道，建夹排在元数据循环之前会让条目归进一个还不存在的夹、从列表里彻底消失。建好的夹 `folderList.add(VideoFolder(name))` 立刻可显示；夹名不合法或 `createFolder` 失败的条目 `video.folderName` 留空、回到未分类。
+  - **改法（整夹迁移）**：`showFolderMenu` 先按 `video.folderName == 夹名` 取夹内成员，`members` 非空且**全是外部条目**时在菜单首位插入 `UiText.fmt("迁移整个文件夹到本应用（%1$d 条）", members.size)` → `confirmMigrate(members)`，后两项（重命名 / 拆散）用 `offset` 顺延下标。
+  - **口径（有意的取舍）**：① 预建夹**只建夹、不写视频记录**：条目仍是外部只读条目，夹内成员靠 `video.folderName` 过滤出来（[orderedVideosInFolder](app/src/main/java/com/RobinNotBad/BiliClient/activity/video/local/LocalListActivity.kt)），正式写夹记录仍留给迁移时的 `FolderManager.ensureFolderAndAdd`；② 不把对方的夹搬成本机磁盘目录——本机夹是 `.folders_info.json` 里的记录，不是目录；③ 整夹迁移只在**缓存页的夹卡**上做：开了「文件夹独立页」试验开关（默认关）时夹卡不在本页，且那个页面不扫视频、拿不到「夹内是否全外部」，进夹后多选迁移即可，`docs/FEATURES.md` 已写明；④ 空掉的夹不自动删（迁走之后夹卡还在），用户可长按「拆散文件夹」清掉。
+  - **L0（26.11.17 本机实测）**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest --console=plain` → BUILD SUCCESSFUL，standard / coexist 两套 debug 包都产出，单测两套各 **262 套件 / 2835 用例 / 0 失败 / 0 错误 / 0 跳过**（本改动 +5 例：[CacheMigratorTest.kt](app/src/test/java/com/RobinNotBad/BiliClient/util/CacheMigratorTest.kt) 由 12 例增至 **17 例**——只挑本机还缺的夹并保持首次出现顺序、空名与不合法夹名不建、夹名两头空格按去掉后建、本机全都有时不建、没有对方夹名时什么也不建；这份构建里另有工作区未提交的 `SharedMediaPolicyTest` 9 例，不是本改动）。
+  - **未验证（L2）**：① 真机扫到对方留下 `.folders_info.json` 的缓存根 → 缓存页里直接出现同名夹，点进去能看到那几条带「· 外部 · 夹名」的条目、点开能播；② 夹名超 30 字或带 `/:*?"<>|` 时那几条留在未分类、不丢；③ 整夹都是外部条目时长按夹卡 → 第一项是「迁移整个文件夹到本应用（N 条）」，迁完夹内变成本机条目、能删能续播；④ 混合夹（本机 + 外部条目）长按**没有**整夹迁移项；⑤ 迁走之后空夹仍在、长按可拆散。
+
 - **26.11.17 番剧缓存支持长按「强制清除」缓存状态；清晰度入口不再钉在页顶**：
   - **来路（用户一次提了两件事）**：原话「番剧缓存功能，长按缓存按钮可以强制清除番剧的缓存状态，清除之后若再次下载，会尝试覆盖上次下载的（若已下载）」「另外选择缓存中选择清晰度的按钮不要固定在顶部，不固定即可」。①缓存页的「已下载」**只认磁盘**（目录里有成品就锁成已下载、勾不动），所以某集下到一半失败、成品被别的工具动过、或者想换清晰度重下时，用户没有任何入口解锁；②清晰度那一行是 `RelativeLayout` 里 `layout_below="@id/top"` 的**固定横栏**，手表屏本来就窄，往下翻季列表时它一直白占一行高度。
   - **口径（已问过用户，按答复做）**：长按**只清「已下载」这个判定结果，不删磁盘文件**（用户选的不是连文件一起删）；范围是**整部番的所有季**（详情页拿到的是全季列表）；清过之后再入队的那几季，记号立刻撤销——即「清一次只解锁一次」，下次进来仍按磁盘如实显示。
