@@ -13,8 +13,10 @@ import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
 import com.RobinNotBad.BiliClient.adapter.video.LocalFolderAdapter
 import com.RobinNotBad.BiliClient.adapter.video.LocalFolderAdapter.FolderRow
 import com.RobinNotBad.BiliClient.service.download.DownloadPathSpec
+import com.RobinNotBad.BiliClient.util.CacheMigrator
 import com.RobinNotBad.BiliClient.util.CachePathResolver
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.ExternalCacheRoots
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.FolderManager
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -32,8 +34,9 @@ import java.io.File
  * 「文件夹 N」，点它进本页；文件夹的增删改排序全在本页做，关掉开关则一切照旧。
  *
  * <h3>数据全部本地</h3>
- * 文件夹本身来自 `FolderManager.getAllFolders()`（`.folders_info.json`），每个夹的视频数走
- * `FolderManager.getFolderVideos(name).size`，封面取夹内**第一条**视频目录里的 `cover.png`。
+ * 文件夹本身来自 `FolderManager.getAllFolders()`（`.folders_info.json`），每个夹的视频数按
+ * [countExistingTitles] 现算（记录条数不可信：外部删掉目录后记录不会同步，反馈 #209），封面取夹内
+ * **第一条**视频目录里的 `cover.png`。
  * 都在 [loadFolders] 的后台线程里算好，再一次性交给 adapter——`bindViewHolder` 里不读盘。
  *
  * <h3>刷新口径</h3>
@@ -129,7 +132,7 @@ class LocalFolderListActivity : RefreshListActivity() {
         val result = ArrayList<FolderRow>(folders.size)
         for (folder in folders) {
             val titles = FolderManager.getFolderVideos(folder.name)
-            result.add(FolderRow(folder.name, titles.size, firstCover(root, titles)))
+            result.add(FolderRow(folder.name, countExistingTitles(root, folder.name), firstCover(root, titles)))
         }
         return result
     }
@@ -141,12 +144,57 @@ class LocalFolderListActivity : RefreshListActivity() {
      * 原始标题），与缓存页找条目目录用的是同一套规则，不做第二套拼法。
      */
     private fun firstCover(root: File, titles: List<String>): String? {
-        val first = titles.firstOrNull() ?: return null
-        for (path in CachePathResolver.videoDirCandidates(root.path, first)) {
-            val cover = File(path, DownloadPathSpec.FILE_COVER)
-            if (cover.isFile) return cover.absolutePath
+        // 第一条可能就是被外部删掉的那条（见 [countExistingTitles]），所以往后找第一条真有封面的
+        for (title in titles) {
+            for (path in CachePathResolver.videoDirCandidates(root.path, title)) {
+                val cover = File(path, DownloadPathSpec.FILE_COVER)
+                if (cover.isFile) return cover.absolutePath
+            }
         }
         return null
+    }
+
+    /**
+     * 夹里**当下真的还在盘上**的视频数（反馈 #209：外部删掉目录后夹上数字不会变）。
+     *
+     * 白名单与夹页扫描用的是同一份：本机记录 `FolderManager.getFolderVideos(name)` ∪ 各外部缓存根
+     * `CacheMigrator.folderIndex(ext)` 里夹名等于 [folderName] 的标题——夹页
+     * （`LocalListActivity.folderScanTitles`）正是按这份集合去扫目录，所以这里数出来的就是
+     * 「点进去能看到的条数」。只做目录存在性判断（每个标题几次 stat），不读 `.video_meta.json`，
+     * 本页保持原来的「不扫盘」口径。
+     *
+     * 已知取舍：目录还在、但里面的成品被删光的残骸仍会被数进去（夹页不显示它），与 #211
+     * 白名单的取舍同源——宁可数字少算一点点，也不为此把整盘扫一遍。
+     */
+    private fun countExistingTitles(root: File, folderName: String): Int {
+        val titles = LinkedHashSet<String>()
+        for (title in FolderManager.getFolderVideos(folderName)) {
+            if (title.isNotEmpty()) titles.add(title)
+        }
+        val externalRoots = ExternalCacheRoots.candidateRoots(root)
+        for (ext in externalRoots) {
+            for ((title, name) in CacheMigrator.folderIndex(ext)) {
+                if (name == folderName) titles.add(title)
+            }
+        }
+        if (titles.isEmpty()) return 0
+        var count = 0
+        for (title in titles) {
+            if (existsVideoDir(root, externalRoots, title)) count++
+        }
+        return count
+    }
+
+    /** [title] 这个条目在任一候选位置有目录就算在。 */
+    private fun existsVideoDir(root: File, externalRoots: List<File>, title: String): Boolean {
+        for (path in CachePathResolver.videoDirCandidates(root.path, title)) {
+            if (File(path).isDirectory) return true
+        }
+        val normalized = FileUtil.stringToFile(title)
+        for (ext in externalRoots) {
+            if (File(ext, normalized).isDirectory) return true
+        }
+        return false
     }
 
     private fun bindList(computed: List<FolderRow>) {

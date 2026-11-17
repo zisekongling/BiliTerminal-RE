@@ -1598,31 +1598,54 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         bottom_right_slots = findViewById(R.id.bottom_right_slots)
         bottom_group_scroll = findViewById(R.id.bottom_group_scroll)
         bottom_group_slots = findViewById(R.id.bottom_group_slots)
+        isolateSharedBackgrounds(findViewById(R.id.root_layout))
         initButtonSlots()
-        disablePressUntilWired()
 
         // 字幕字号来自设置页，这里先按存档刷一次；之后每次 onResume 再刷（改完设置返回即生效）
         applySubtitleTextSize()
     }
 
     /**
-     * 让「还没有监听器」的播放器按钮不显示按下动画。
+     * 把「被多个控件共用同一个实例」的背景拆开，一个控件一份。
      *
-     * 按钮的监听器一律在 [onPrepared] 里才挂，加载中这些键都是「点得动、但什么也不会发生」；
-     * 可 ImageButton 默认就是 clickable，按下去照样闪一下按下动画（用户反馈 #207：加载中点播放区
-     * 的暂停键，画质键也跟着出按下动画）。手边没有监听器就不该给按下反馈，这里一次性关掉。
+     * 用户反馈 #207（加载中点播放区的暂停键，画面里**两个**按钮一起出按下动画）真正的机制在这里：
+     * 布局里这批按钮的背景都写 `?android:attr/selectableItemBackground`，而主题属性取到的
+     * `Drawable` 是 **Resources 里缓存的那一个实例**——十几个按钮共用同一份 `RippleDrawable`。
+     * 按下其中任意一个（或被同一个实例的容器按下），`setState(pressed)` 落在共享实例上，
+     * 于是所有用这份背景的按钮一起画按下态，看起来就是「两个键同时按下」。
      *
-     * 不用在别处恢复：[View.setOnClickListener] / [View.setOnLongClickListener] 会把对应标志
-     * 重新打开，所以 [onPrepared] 里挂上监听器的那一刻按钮自己就活过来了。
+     * 修法只做「拆共用」，不碰视觉：同一份 `ConstantState` 第一次出现时保持原样，后面再遇到的
+     * 控件各自 `newDrawable().mutate()` 一份独立实例（位图仍共享，不额外占内存）。因此按钮的
+     * 外观、ripple 颜色、圆角一个都不变，只是按下态不再串台。
+     *
+     * **别再改成「加载中把按钮 clickable 关掉」**：26.11.17 试过一版（当晚已撤），用户复看反而
+     * 变成四个按钮一起亮。原因是 `ViewGroup.dispatchSetPressed()` 只把按下态传给**自己不可点**
+     * 的子控件——AOSP 原话「Children that are clickable on their own should not show a pressed
+     * state when their parent view does」。整屏的 `layout_control` 挂了 `setOnClickListener`
+     * （`PlayerActivity.kt:2001`），点视频区域它自己会按下；按钮一旦不可点，就全都收下这个按下态。
      */
-    private fun disablePressUntilWired() {
-        for (i in 0 until button_pool.childCount) {
-            val child = button_pool.getChildAt(i)
-            child.isClickable = false
-            child.isLongClickable = false
+    private fun isolateSharedBackgrounds(root: View?) {
+        if (root == null) return
+        val seen = HashMap<Drawable.ConstantState, Drawable>()
+        fun walk(view: View) {
+            val bg = view.background
+            if (bg != null) {
+                val state = bg.constantState
+                if (state != null) {
+                    if (seen.containsKey(state)) {
+                        // newDrawable 返回 null 时保持原样：宁可继续共用，也不能把背景弄丢
+                        val isolated = state.newDrawable(view.resources)?.mutate()
+                        if (isolated != null) view.background = isolated
+                    } else {
+                        seen[state] = bg
+                    }
+                }
+            }
+            if (view is ViewGroup) {
+                for (i in 0 until view.childCount) walk(view.getChildAt(i))
+            }
         }
-        btn_control.isClickable = false
-        btn_control.isLongClickable = false
+        walk(root)
     }
 
     /**

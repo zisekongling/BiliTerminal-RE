@@ -37,11 +37,13 @@
 
 - **26.11.17 视频加载中点播放区，画质键跟着一起闪按下动画（控制台反馈 #207）**：
   - **来路**：控制台反馈 #207（OPPO，v26.11.16）「视频加载中时点击视频播放区域暂停开始的按钮和画质选择的按钮会出现被按下的动画（同时）」；开发者回复「太细了，我之前发现的时候都没当回事（懒的说是），修！」。
-  - **根因**：播放器按钮的监听器**一律在 `onPrepared` 里才挂**（`btn_quality` `:8832`、`btn_control` `:8928`、`btn_subtitle` `:8929`），而 `ImageButton` 默认就是 clickable——加载中这些键「点得动、但什么也不会发生」，却照样闪一下按下态。至于「为什么两个键一起闪」静态读不出来：已排除 `setPressed` / `duplicateParentState` / `addStatesFromChildren` / `TouchDelegate` / 自定义 ripple / `PlayerButtonSlots` 影子互转，两个键共用的是同一份主题 attr 而不是同一个 Drawable 实例。所以不去猜机制，改成「没有监听器的按钮不表现按下态」。
-  - **改法**：`PlayerActivity.kt:1602` 在 `initButtonSlots()` 之后调新方法 `disablePressUntilWired()`（`:1618`）：把 `button_pool` 的所有子 View 与 `btn_control` 的 `isClickable` / `isLongClickable` 一并置 false。`View.setOnClickListener` 会把 `isClickable` 重新打开，所以 `onPrepared` 里挂监听器的那一刻按钮自己就活了，别处不用恢复。
-  - **口径（有意的取舍）**：只治「加载中没有动作的按钮」。没动布局、没动主题、没给按钮加自己的 ripple。`PlayerButtonSlots` 的影子转发仍然有效——`View.performClick()` 不看 clickable 标志，`:294-295` 的 `mirror.setOnClickListener { primary.performClick() }` 不受影响；改前已核对 `PlayerActivity.kt` 全文原本没有任何 `isClickable` / `setClickable` 使用，且所有按钮监听器都在 `findview()` 之后才设置。
-  - **L0（26.11.17 本机实测）**：`./gradlew.bat :app:assembleDebug --console=plain` → BUILD SUCCESSFUL（1m20s，121 tasks）；`./gradlew.bat :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest` → BUILD SUCCESSFUL，standard / coexist 两套单测各 **262 套件 / 2838 用例 / 0 失败 / 0 错误 / 0 跳过**（本轮清了 test 任务强制重跑，非上次残留结果）。本条是 View 状态设置，无新纯函数，未加用例。
-  - **未验证（L2）**：① 冷启动播放一个要缓冲的视频，加载中连点播放区与画质键 → 两个键都不再出按下动画；② 加载完成后点播放区能正常暂停 / 继续、点画质键能弹出画质选择卡；③ 其它键（弹幕、循环、旋转、侧边按钮）加载后照常可用。
+  - **根因（26.11.17 二轮修正，第一版判断是错的）**：这批按钮的背景在布局里都写 `?android:attr/selectableItemBackground`，而主题属性取到的是 **Resources 里缓存的那一个 `Drawable` 实例**——播放页里被多个控件共用的背景实例实测有 **13 个**（`isolateSharedBackgrounds` 拆分时打日志数出来的）。按下任意一个按钮，`setState(pressed)` 落在共享实例上，所有用这份背景的控件一起画按下态，看起来就是「两个键同时按下」。
+  - **改法**：`PlayerActivity.kt:1601` 在 `initButtonSlots()` 之前调新方法 `isolateSharedBackgrounds(findViewById(R.id.root_layout))`（`:1627`）：递归遍历整棵视图树，同一份 `ConstantState` 第一次出现时保持原样，之后每遇到一个控件就 `newDrawable(resources).mutate()` 给它自己一份（位图仍共享，不额外占内存；`newDrawable` 返回 null 时保持原样，绝不把背景弄丢）。颜色、圆角、ripple 参数一个都不动。
+  - **走过的弯路（已撤掉）**：第一版是「加载中把按钮 `isClickable` 关掉」（`disablePressUntilWired()`），用户复看后**反而变成四个键一起亮**。原因在 AOSP：`ViewGroup.dispatchSetPressed()` 只把按下态传给自己**不可点**的子控件（注释原话「Children that are clickable on their own should not show a pressed state when their parent view does」），而整屏的 `layout_control` 挂了 `setOnClickListener`（`PlayerActivity.kt:2001`），点视频区域它自己会按下——按钮一旦不可点就全收下这个按下态。该方法已删除，别再改回去。
+  - **口径（有意的取舍）**：只拆「共用实例」，不换背景资源、不加 `duplicateParentState`、不碰 `PlayerButtonSlots` 的影子逻辑；背景看着完全一样，只是按下态不再串台。
+  - **L0（26.11.17 本机实测）**：`./gradlew.bat :app:assembleDebug --console=plain` → BUILD SUCCESSFUL；本条只改运行时 View 状态，不新增纯函数，未加用例（两 flavor 单测结论同本轮其它条目：262 套件 / 2838 用例全绿）。
+  - **L1（模拟器 emulator-5554，arm64 debug 包）**：① 加载中长按播放键抓帧，只有该键自己出现按下圆底，同排的画质键 / 音量键都不亮（帧存 `outputs/q1.png`）；② 起播后点播放键能正常暂停、再点恢复（`text_progress` 从 00:01 走起来）；③ 播放页按钮在 `onPrepared` 之后 `clickable` 恢复为 true（`android_ui_tree` 里 `button_video` / `button_quality` 带 `clickable=true`）。
+  - **未验证（L2）**：真机上「加载中点播放区 / 画质键」是否还有任何残余闪烁——按下态串台已从机制上消除，但观感要人眼确认。
 
 - **26.11.17 推荐页封面与标题偏大、简介页标题比正文大一号（控制台反馈 #208）**：
   - **来路**：控制台反馈 #208（OPPO Watch 3，v26.11.16）「推荐页封面和字体有点太大了，标题显示字数太少；简介页标题字体明显大于其他字体很奇怪」。
@@ -63,7 +65,7 @@
   - **来路**：控制台反馈 #209（OPPO Watch 3，v26.11.16）「合集文件夹上显示的『n个视频』有问题，比如本来合集里 5 个，我用文件管理器删掉一个，再回来看合集上还是 5 个，但点进去右上角写的就是 4 个」；开发者回复「哇，还有外部干预（修」。
   - **根因**：夹上那个数字取自 `app/src/main/java/com/RobinNotBad/BiliClient/model/VideoFolder.java:58` 的 `getVideoCount()`＝`videoTitles.size()`，也就是 `.folders_info.json` 里的**记录条数**；用户从文件管理器删目录不会回写这份 json。而点进去的条数是按 `video.folderName` 过滤实际扫到的目录——两边不同源，于是「5 vs 4」。
   - **改法（`app/src/main/java/com/RobinNotBad/BiliClient/adapter/video/CacheListAdapter.kt` 一个文件）**：新增 `private fun scannedVideoCount(folderName: String): Int = videoList.count { it.folderName == folderName }`（`:569-571`），`bindFolderItem` 里改成 `holder.folderCount.text = "${scannedVideoCount(folder.name)}个视频"`（`:582`）。夹内列表本来就按同一字段过滤（`:263` 附近），两边同源，数字必然和点进去看到的一致。
-  - **口径（有意的取舍）**：① **没去「清理」记录**——外部删目录后 `.folders_info.json` 里仍留着旧标题，本轮只让显示跟着磁盘走，不自动删记录（自动删等于替用户丢分类信息，留到真做「整理缓存」时一起做）。② 另一处同类计数（文件夹列表页 `app/src/main/java/com/RobinNotBad/BiliClient/activity/video/local/LocalFolderListActivity.kt:126-135` 仍用 `FolderManager.getFolderVideos(...).size`）本轮**不动**：那一页要显示「还没点进去过的夹」的条目，改成扫盘会让整页变慢，已记进 §2 待办。
+  - **口径（有意的取舍）**：① **没去「清理」记录**——外部删目录后 `.folders_info.json` 里仍留着旧标题，本轮只让显示跟着磁盘走，不自动删记录（自动删等于替用户丢分类信息，留到真做「整理缓存」时一起做）。② 另一处同类计数（文件夹列表页 `app/src/main/java/com/RobinNotBad/BiliClient/activity/video/local/LocalFolderListActivity.kt`）**当天补做了**：26.11.17 `FolderPagePrefs.DEFAULT_ENABLE` 改成默认开以后，缓存页只留「文件夹 N」一行，每个夹的「N个视频」正是这一页画的，不修的话默认配置下用户看到的还是旧数字。改法是 `buildRows()`（`:126-138`）改用新方法 `countExistingTitles(root, folder.name)`（`:169-186`）：标题集合取「本机记录 `FolderManager.getFolderVideos` ∪ 各外部缓存根 `CacheMigrator.folderIndex` 里夹名相同的标题」（与夹页 `LocalListActivity.folderScanTitles` 同一白名单），逐个只判目录是否还在（`existsVideoDir` `:189-198`，走 `CachePathResolver.videoDirCandidates` 或外部根的清洗标题），因此**不扫盘、不读 `.video_meta.json`**，数字与点进去能看到的条数一致；`firstCover()`（`:146-155`）同时改成「往后找第一条真有封面的」，免得第一条被外部删掉时夹没封面。取舍同源：目录还在但成品被删光的残骸仍会被数进去。
   - **L0（26.11.17 本机实测）**：`./gradlew.bat :app:assembleDebug --console=plain` → BUILD SUCCESSFUL（1m20s，121 tasks）；`./gradlew.bat :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest` → BUILD SUCCESSFUL，standard / coexist 两套单测各 **262 套件 / 2838 用例 / 0 失败 / 0 错误 / 0 跳过**（本轮清了 test 任务强制重跑，非上次残留结果）。本条是一个计数表达式，无新纯函数，未加用例；`scannedVideoCount` 依赖 `videoList` 这个 UI 状态，抽纯函数只能测「按字段过滤」，价值不大。
   - **未验证（L2）**：① 夹里 5 个 → 用文件管理器删掉 1 个目录 → 回缓存页，夹上写「4个视频」，点进去也是 4 条；② 夹内全删光 → 夹上写「0个视频」，点进去是空列表且有正常空态；③ 改名 / 删除夹 / 把视频移入夹等操作仍正常，移入后计数立刻 +1。
 
@@ -1120,7 +1122,8 @@
 
 ### 2.2 功能与工程待办
 
-- [ ] **文件夹列表页的「N 个视频」仍是记录条数，与缓存页对不上（26.11.17 记，与 §1 #209 同源）**：`activity/video/local/LocalFolderListActivity.kt:126-135` 的 `buildRows()` 用 `FolderManager.getFolderVideos(folder.name).size` 当计数，而 `.folders_info.json` 只是记录、外部用文件管理器删掉目录后不会同步；缓存页那边已改成「按本页真扫到的条数」（§1 #209）。这里没跟着改，是因为它要同时算外置卷（`util/ExternalCacheRoots.kt`）里的条目，计数口径要先把「本机记录 ∪ 各外部根的扫描结果」合并出来，属于一次单独的重排；在改之前，用户从文件夹列表页进夹会看到比夹内多一条的数字。**别把这个当成 #209 没修干净。**
+- [x] **文件夹列表页的「N 个视频」仍是记录条数，与缓存页对不上（26.11.17 记，与 §1 #209 同源；26.11.17 当天已修）**：`activity/video/local/LocalFolderListActivity.kt:126-135` 的 `buildRows()` 用 `FolderManager.getFolderVideos(folder.name).size` 当计数，而 `.folders_info.json` 只是记录、外部用文件管理器删掉目录后不会同步；缓存页那边已改成「按本页真扫到的条数」（§1 #209）。这里没跟着改，是因为它要同时算外置卷（`util/ExternalCacheRoots.kt`）里的条目，计数口径要先把「本机记录 ∪ 各外部根的扫描结果」合并出来，属于一次单独的重排；在改之前，用户从文件夹列表页进夹会看到比夹内多一条的数字。**别把这个当成 #209 没修干净。**
+  - **解法（26.11.17 当天落地）**：`activity/video/local/LocalFolderListActivity.kt` 的 `buildRows()`（`:126-138`）改用 `countExistingTitles()`（`:169-186`）：标题集合 = 本机记录 ∪ 各外部根 `CacheMigrator.folderIndex` 里夹名相同的标题（与夹页白名单同一份），逐个只判目录是否还在（`existsVideoDir` `:189-198`），不扫盘、不读 meta；`firstCover()`（`:146-155`）顺带改成「往后找第一条真有封面的」。实测：删掉 `测试视频三` 目录后本页显示「4 个视频」、点进夹页也是 4 条。
 
 - [ ] **顶部条 / 底部条「随滚动收起」的机制该抽成公共控制器（26.11.16 审查 PR #33 时记，先不动）**：`activity/base/RefreshListActivity.kt` 与 `activity/video/local/LocalListActivity.kt` 里各写了一份同样的活（`animateBars` / `setBarHeight` / `resetBarHeight` / `naturalBarHeight`，连 `private const val BAR_ANIM_MS = 180L` 都同名同值）。两个列表基类没有继承关系，是仓库里已经踩过的老坑——`util/view/LoadMoreTipController.kt` + `LoadMoreTipPolicy.kt` 就是为此抽出来的（见 `RefreshListActivity.kt:307-316` 的注释）。底条这套建议同样落成 `util/view/` 下一个控制器 + 纯判据，`ScrollRetractDecider` 继续复用（但要注意它文档前提是「条在列表上方、高度一变内容整体位移」，底条是底边让位、内容不位移，注释得重写）。**本轮只记不排期**：先把行为改对，等下一次动这两条时一起收。
 
