@@ -498,6 +498,21 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         private const val DANMAKU_DRIFT_LOG_INTERVAL_MS = 5_000L
 
         /**
+         * 播放位置「回跳」告警阈值（毫秒，反馈 #215）。
+         *
+         * 正常播放位置只会单调前进；用户自己拖进度条走的是 [seekToVideo]，那条路会先把
+         * [video_now] 同步到目标位置。所以播放器报出来的位置比上一帧还小这么多，只可能是
+         * 播放器自身往回跳（解码器重定位、缓存文件索引异常、看门狗重建后的续播点）。
+         */
+        private const val POSITION_BACKJUMP_ALERT_MS = 3_000
+
+        /** 回跳 / seek 落点告警的最小间隔（毫秒），真出问题时也不至于每 250ms 刷一条。 */
+        private const val POSITION_BACKJUMP_LOG_INTERVAL_MS = 3_000L
+
+        /** seek 之后隔多久去实测落点（毫秒）。IJK 的 seek 是异步的，太早取到的还是旧位置。 */
+        private const val SEEK_LANDING_CHECK_MS = 1_500L
+
+        /**
          * G07「高能条本地兜底」等弹幕装载的时间（毫秒）。
          *
          * 高能数据在页面初始化早期就请求，而弹幕要等播放器 prepare、DFM 再 prepare 之后才装载完；
@@ -592,6 +607,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private var video_now_last: Int = 0
     /** 上次打印弹幕时钟偏差的时间（弹幕跟随媒体时钟的体检日志，见 progressChange）。 */
     private var danmakuDriftLogMs: Long = 0
+
+    /** 上次打印「播放位置回跳」告警的时间（反馈 #215 的现场证据，见 progressChange）。 */
+    private var positionBackjumpLogMs: Long = 0
     private var lastMediaSessionSecond: Int = -1 // 上次上报 MediaSession 的整秒数，用于抑制重复 Binder IPC
     private var progress_history: Long = 0
     private var progress_str: String = ""
@@ -3326,7 +3344,23 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             override fun run() {
                 if (isPrepared && isPlaying && !isSeeking && !destroyed) {
                     // 取不到播放器时保持上次位置，避免进度条突然跳回 0
+                    val previousVideoNow = video_now
                     video_now = ijkPlayer?.currentPosition?.toInt() ?: video_now
+                    // 反馈 #215：缓存视频拖完进度条后"画面自己跳回"。用户拖动走 seekToVideo，会把
+                    // video_now 同步到目标；所以播放器报出来的位置**倒退**只能是播放器自己往回跳
+                    // （解码器重定位、缓存文件索引异常、停下看门狗重建后的续播点）。这条日志会进
+                    // 崩溃报告带的内存日志缓冲，用户下次带日志反馈就能直接定案。
+                    if (video_now < previousVideoNow - POSITION_BACKJUMP_ALERT_MS) {
+                        val backjumpNow = android.os.SystemClock.elapsedRealtime()
+                        if (backjumpNow - positionBackjumpLogMs >= POSITION_BACKJUMP_LOG_INTERVAL_MS) {
+                            positionBackjumpLogMs = backjumpNow
+                            Logu.w(
+                                "播放位置回跳",
+                                "从 " + previousVideoNow + "ms 退到 " + video_now + "ms"
+                                    + "（playerError=" + playerError + " 本地=" + !isOnlineVideo + "）"
+                            )
+                        }
+                    }
                     // #41：每轮都校正一次外挂音轨的播放/暂停状态（静音即暂停）。
                     // 幂等且只在状态不一致时动手，250ms 一次的开销可以忽略。
                     syncExternalAudioPlayback()
@@ -5755,6 +5789,24 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         pendingSeekIsAutoSkip = false
 
         ijkPlayer?.seekTo(position)
+        // 反馈 #215：IJK 的 seek 是异步的，落点有没有生效只能过一会儿再看。1.5 秒后实测一次，
+        // 偏离目标就留一条 W 日志（进崩溃报告带的内存缓冲），把"松手后跳到别的点"这类投诉变成证据。
+        mainHandler?.postDelayed({
+            if (!destroyed) {
+                val actual = try {
+                    ijkPlayer?.currentPosition ?: -1L
+                } catch (_: Exception) {
+                    -1L
+                }
+                if (actual >= 0 && Math.abs(actual - position) > POSITION_BACKJUMP_ALERT_MS) {
+                    Logu.w(
+                        "进度条 seek 落点",
+                        "目标 " + position + "ms，1.5s 后实际 " + actual + "ms"
+                            + "（userInitiated=" + userInitiated + " 本地=" + !isOnlineVideo + "）"
+                    )
+                }
+            }
+        }, SEEK_LANDING_CHECK_MS)
         if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.seekTo(position)
         // #143：跳转之后弹幕必须按新位置重新对轴。
         // - 跨段（片头 → 片尾这种）：只「补缺段」不够，DFM 的绘制子集与缓存窗口还钉在旧位置，

@@ -18,6 +18,14 @@
 
 ## 1. 当前版本状态
 
+- **26.11.17 缓存视频拖完进度条「自己跳回」：只加取证，不改行为（控制台反馈 #215）**：
+  - **来路**：XTC `msm8937_32go_i25`（v26.11.17-beta.2）报「缓存/下载的视频拖进度条后总是莫名其妙跳到一个固定的点」，补充「调到其他位置后观看一段时间又自己跳回去」。
+  - **排掉的分支（都不是原因）**：`progressChange` 的 250ms 主线程循环里没有任何周期性 `ijkPlayer.seekTo`；自动跳过片头片尾 / SponsorBlock 只对在线稿件生效（`ensureSponsorSegments` 开头就 `if (!isOnlineVideo …) return`）；续播点只在 `onPrepared` 首次算一次（`progress_history` 来自 Intent 或 `.video_meta.json`，之后由 `retryAfterPlayerError` 用当前 `video_now` 覆盖）；进度条只在 `onStopTrackingTouch` 触发一次 `seekToVideo`；`VideoMetaManager.readResumeMs` 全仓只有进入播放器时读一次；下载是字节级分片 + 纯拼接（`DownloadSegmentMerger`），不存在"按段 seek 到段首"。
+  - **改法：只加取证，不改行为**（手册口径同 #182：机制没定就别猜着改）：
+    - `app/src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt` 的 `progressChange` 里，播放器报出的位置**倒退**超过 `POSITION_BACKJUMP_ALERT_MS`（3 秒）时打一条 W 日志「播放位置回跳：从 Xms 退到 Yms（playerError=… 本地=…）」；
+    - `seekToVideo` 里 seek 之后 1.5 秒（`SEEK_LANDING_CHECK_MS`）实测一次 `currentPosition`，与目标相差超过 3 秒就记「进度条 seek 落点：目标 Xms，1.5s 后实际 Yms（userInitiated=… 本地=…）」；
+    - 两条都限频 3 秒（`POSITION_BACKJUMP_LOG_INTERVAL_MS`），都用 W 级——W/E/F 才会进 `Logu` 的环形缓冲，也才会随崩溃报告一起上报（`Logu.java` 里 release 包的 v/d/i 直接 return）。
+  - **未验证（L2）**：埋点本身只能在真实复现场景里生效——需要在真机上用同一台 XTC 类低配机、拖缓存视频的进度条复现一次，再看 `logcat` / 崩溃报告里的「播放位置回跳」「进度条 seek 落点」两条日志。
 - **26.11.17 后台播放服务的「5 秒义务」从源头拆掉（控制台崩溃 #354 / #212 / #365）**：
   - **来路**：#354（26.11.16，hesc Ultra Pro Max）、#212（26.11.02，Xiaomi Watch 2 Pro）、#365（26.11.17-beta.2，同为 hesc Ultra Pro Max，11-17 21:40）三次都是同一个异常：`android.app.RemoteServiceException: Context.startForegroundService() did not then call Service.startForeground()`，#365 的页面轨迹里 `PlayerActivity` 一分钟内被创建 5 次（21:39:33 / :41 / :56、21:40:32 / :33），崩在最后一次之后。
   - **上一轮为什么没修住**：26.11.17 那轮（提交 b3e18c4e）只做了"把 onStartCommand 的失败路径改成重试 + 补埋点 + 给通知渠道创建加 try/catch"，前提是 `onCreate` 已经开始跑。而 #365 说明真正卡住的位置更早：**主线程被播放页反复重建占满，服务连 `onCreate` 都排不上**，5 秒计时照样到期。
