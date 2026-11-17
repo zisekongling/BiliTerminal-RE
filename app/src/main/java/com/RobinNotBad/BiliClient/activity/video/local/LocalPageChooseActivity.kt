@@ -55,9 +55,19 @@ class LocalPageChooseActivity : BaseActivity() {
         val videoFileList = intent.getStringArrayListExtra("videoFileList")!!
         val danmakuFileList = intent.getStringArrayListExtra("danmakuFileList")!!
 
+        // 每一页各自落在哪个根（反馈 #217 / #214）：空串 = 本机下载根，非空 = 外部只读来源。
+        // 老调用方不带这两个 extra（那时一条条目只可能在同一根上），这时靠 externalRoot 兜底：
+        // 整条外部 → 每一页都算外部；其余 → 每一页都算本机。
+        val pageRootList = intent.getStringArrayListExtra("pageRootList")
+        val externalRoot = intent.getStringExtra("externalRoot")?.takeIf { it.isNotEmpty() }
+        val pageRoots = ArrayList<String>(pageList.size)
+        for (i in pageList.indices) {
+            pageRoots.add(pageRootList?.getOrNull(i)?.takeIf { it.isNotEmpty() } ?: externalRoot ?: "")
+        }
+
         // 构建每个分页的播放文件映射，处理DASH双文件情况。
         // 必须可变：删掉一个分 P 后列表会变短，映射要跟着重建，否则点剩下的分 P 会播到已删除的文件。
-        var pageMediaFiles = buildPageMediaFiles(pageList, videoFileList, title)
+        var pageMediaFiles = buildPageMediaFiles(pageList, videoFileList, title, pageRoots)
 
         val adapter = PageChooseAdapter(this, pageList)
         adapter.onItemClickListener = OnItemClickListener { position ->
@@ -122,7 +132,12 @@ class LocalPageChooseActivity : BaseActivity() {
                 longClickPosition = -1
                 // 要删的目录名用点击这一刻的快照：删除跑在后台线程，期间列表可能已被刷新
                 val pageName = pageList.getOrNull(position)
-                if (pageName != null) {
+                val pageRoot = pageRoots.getOrNull(position) ?: ""
+                if (pageName != null && pageRoot.isNotEmpty()) {
+                    // 外部来源的页只播不删（与缓存页「外部条目只读」同一条红线）：
+                    // 删的是另一个分支的缓存目录，对方未必知道（反馈 #217 / #214）
+                    MsgUtil.showMsgLong(getString(R.string.msg_cache_external_readonly))
+                } else if (pageName != null) {
                     CenterThreadPool.run {
                         val videoPath = File(FileUtil.getVideoDownloadPath(), title)
                         val pagePath = File(videoPath, pageName)
@@ -163,6 +178,8 @@ class LocalPageChooseActivity : BaseActivity() {
                             }
                             if (position in pageList.indices) pageList.removeAt(position)
                             if (position in danmakuFileList.indices) danmakuFileList.removeAt(position)
+                            // 每页的根与其它三条「每页一项」的列表同增同减，否则页根会错位
+                            if (position in pageRoots.indices) pageRoots.removeAt(position)
                             deleted = true
                         }
 
@@ -174,7 +191,7 @@ class LocalPageChooseActivity : BaseActivity() {
                                 // 不重绑、仍握着旧 position，点它就是越界（同 #230 的成因）
                                 adapter.notifyItemRangeChanged(position, (pageList.size - position).coerceAtLeast(0))
                                 // 列表短了一项，分页→播放文件的映射要一起重建
-                                pageMediaFiles = buildPageMediaFiles(pageList, videoFileList, title)
+                                pageMediaFiles = buildPageMediaFiles(pageList, videoFileList, title, pageRoots)
                                 MsgUtil.showMsg(UiText.of("删除成功"))
                                 // 缓存页还停在旧列表上（它是本页下面那层），直接让它重扫——别只靠
                                 // onDestroy 的通知：用户删完立刻退出时后台删除可能还没跑完，
@@ -212,19 +229,28 @@ class LocalPageChooseActivity : BaseActivity() {
     }
 
     /**
+     * 一季/一部合集的落盘父目录：[root] 为空串时是本机下载根下的 [title]，否则是那个外部根下的 [title]。
+     */
+    private fun videoRootDir(root: String, title: String): File =
+        if (root.isEmpty()) File(FileUtil.getVideoDownloadPath(), title) else File(root, title)
+
+    /**
      * 构建分页媒体文件映射，处理DASH双文件（video.mp4 + audio.m4a）情况
      * @return 每个分页对应的 Pair<主文件路径, 音频文件路径(可能为空)>
      */
     private fun buildPageMediaFiles(
         pageList: ArrayList<String>,
         videoFileList: ArrayList<String>,
-        title: String
+        title: String,
+        pageRoots: List<String>
     ): List<Pair<String, String>> {
         val result = mutableListOf<Pair<String, String>>()
-        val workPath = FileUtil.getVideoDownloadPath()
 
-        for (pageName in pageList) {
-            val pageDir = File(File(workPath, title), pageName)
+        for (i in pageList.indices) {
+            val pageName = pageList[i]
+            // 每一页按**自己的根**定位：改过缓存位置之后，同一季的集分落在两个根上，
+            // 一律按本机根拼路径会让外部那几页永远走「兼容旧格式」那条兜底（反馈 #217 / #214）
+            val pageDir = File(videoRootDir(pageRoots.getOrNull(i) ?: "", title), pageName)
             val videoFile = File(pageDir, "video.mp4")
             val audioFile = File(pageDir, "audio.m4a")
 

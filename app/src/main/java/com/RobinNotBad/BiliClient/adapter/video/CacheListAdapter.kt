@@ -717,6 +717,17 @@ class CacheListAdapter(
             intent.putExtra("videoFileList", video.videoFileList)
             intent.putExtra("danmakuFileList", video.danmakuFileList)
             intent.putExtra("title", video.title)
+            // 每页各自落在哪个根（反馈 #217 / #214）：选页页要用它决定「这一页在哪个目录」
+            // 以及「这一页能不能删」——外部那几页只播不删。
+            // 必须**按页名对齐**再传：entry.pageNames 会丢掉一个文件都没有的页，
+            // 直接转发 video.pageRootList 会让根错位（页根一错，删的就是别的页的目录）
+            val pageRoots = ArrayList<String>(entry.pageNames.size)
+            for (pageName in entry.pageNames) {
+                val index = video.pageList?.indexOf(pageName) ?: -1
+                pageRoots.add(if (index >= 0) video.pageRootList?.getOrNull(index).orEmpty() else "")
+            }
+            intent.putStringArrayListExtra("pageRootList", pageRoots)
+            intent.putExtra("externalRoot", video.externalRoot)
             context.startActivity(intent)
             return
         }
