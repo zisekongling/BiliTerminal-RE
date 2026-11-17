@@ -83,4 +83,29 @@ object PlayerVolumePolicy {
         val gain = percentToGain(percent)
         return gain to gain
     }
+
+    /**
+     * 系统媒体音量的档位步进（反馈 #191）。
+     *
+     * [current] 与 [max] 都来自 AudioManager 的 getStreamVolume / getStreamMaxVolume，
+     * 方向语义与 [step] 一致：大于 0 加一档、小于 0 减一档、等于 0 原样返回。边界处停住，
+     * 不绕回对侧——手表上系统音量常常只有十几档，绕回会变成「按到最大再按一下就静音」。
+     *
+     * [max] 非法（小于等于 0，个别设备的 STREAM_MUSIC 会返回 0）时按 0 处理，调用方据此跳过。
+     */
+    fun stepStream(current: Int, max: Int, direction: Int): Int {
+        if (max <= 0) return 0
+        val dir = when {
+            direction > 0 -> 1
+            direction < 0 -> -1
+            else -> return current.coerceIn(0, max)
+        }
+        return (current + dir).coerceIn(0, max)
+    }
+
+    /** 系统媒体音量档位 → 百分比（0~100，四舍五入），只用于回显。 */
+    fun streamPercent(current: Int, max: Int): Int {
+        if (max <= 0) return MIN_PERCENT
+        return clampPercent((current.toFloat() / max * MAX_PERCENT).roundToInt())
+    }
 }

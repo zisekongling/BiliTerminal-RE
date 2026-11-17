@@ -384,6 +384,15 @@ object SettingsKeys {
     const val SHORTVIDEO_DANMAKU_MAXLINE = "shortvideo_danmaku_maxline"
     const val SHORTVIDEO_DANMAKU_ALLOW_OVERLAP = "shortvideo_danmaku_allowoverlap"
     /**
+     * 短视频音量键改调**系统媒体音量**（反馈 #191，默认关＝保持现在的 App 内增益）。
+     *
+     * 关着的时候音量键调的是 ijk 软件增益（0~100%，1% 一档，不影响其它应用）；
+     * 打开后改成调手表的系统媒体音量，退出本 App 后音量变化对其它应用同样有效。
+     * 两种模式的步进/百分比换算都在 `player/PlayerVolumePolicy`，读取点见
+     * `activity/video/ShortVideoPlayerActivity` 的 changeVolume（每次按下现读，改完即生效）。
+     */
+    const val SHORTVIDEO_SYSTEM_VOLUME = "shortvideo_system_volume"
+    /**
      * 弹幕磁盘缓存上限（list_choose 存字符串，单位 MB）。
      *
      * 读写都在 util/DanmakuDiskCache，登记在这里只为「设置键集中一处」，

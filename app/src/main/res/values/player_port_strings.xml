@@ -19,6 +19,9 @@
 
     <!-- 短视频无极调音 -->
     <string name="player_port_volume_percent">音量：%1$d%%</string>
+    <!-- 反馈 #191：短视频音量键可以改调系统媒体音量 -->
+    <string name="player_port_system_volume_name">短视频音量调系统音量</string>
+    <string name="player_port_system_volume_desc">关（默认）＝音量键只调 App 内增益，1% 一档、不影响其它应用；开＝改调手表系统媒体音量，与别的应用联动（档位较少）</string>
 
     <!-- G01 弹幕屏蔽词 -->
     <string name="player_port_danmaku_block_words_name">弹幕屏蔽词</string>

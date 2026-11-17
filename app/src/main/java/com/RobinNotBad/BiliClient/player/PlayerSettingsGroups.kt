@@ -209,7 +209,11 @@ object PlayerSettingsGroups {
             SettingsKeys.PLAYER_SEEK_STEP_SECONDS,
             context.getString(R.string.player_port_seek_step_desc), "10"),
         SettingSection("switch", context.getString(R.string.setting_player_background),
-            SettingsKeys.PLAYER_BACKGROUND, context.getString(R.string.desc_setting_player_background), "false")
+            SettingsKeys.PLAYER_BACKGROUND, context.getString(R.string.desc_setting_player_background), "false"),
+        // 反馈 #191：短视频的音量键默认仍调 App 内增益（1% 一档），想要联动系统音量的人打开这一项。
+        SettingSection("switch", context.getString(R.string.player_port_system_volume_name),
+            SettingsKeys.SHORTVIDEO_SYSTEM_VOLUME,
+            context.getString(R.string.player_port_system_volume_desc), "false")
     )
 
     private fun defaults(

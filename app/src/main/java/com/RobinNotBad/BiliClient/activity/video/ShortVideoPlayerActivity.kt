@@ -466,9 +466,8 @@ class ShortVideoPagerAdapter(
     @Suppress("ClickableViewAccessibility")
     inner class PageHolder(
         itemView: View,
-        // 短视频音量已改走 ijk 软件增益（无极调音），不再需要系统 AudioManager。
-        // 参数保留是为了不动上层 ShortVideoFeedFragment 的构造链（该文件不属于本次改动范围）。
-        @Suppress("UNUSED_PARAMETER") audioManager: AudioManager,
+        // 反馈 #191：开关打开时音量键改调系统媒体音量，这个 AudioManager 又要用上了。
+        private val audioManager: AudioManager,
         private val activity: ShortVideoPlayerActivity
     ) : androidx.recyclerview.widget.RecyclerView.ViewHolder(itemView) {
 
@@ -967,12 +966,20 @@ class ShortVideoPagerAdapter(
         }
 
         /**
-         * 音量键/按钮：调「无极调音」的软件增益（0–100%），不再动系统媒体音量。
+         * 音量键/按钮。
          *
+         * 默认（反馈 #191 的开关关着）调「无极调音」的软件增益（0–100%），不动系统媒体音量：
          * 0% 是真静音（采样乘 0），再按 + 从 0 恢复；静音/恢复语义与长视频播放器完全一致。
          * 手表系统媒体音量只有很少几档，软件增益是 1% 一档，才调得出 30% 这种档位。
+         *
+         * 开关打开后改成调手表的系统媒体音量——这才是 #191 要的：在本 App 里调完，退出后
+         * 别的应用也一起变。每次按下都现读开关，改完即生效，不用重进页面。
          */
         private fun changeVolume(addOrCut: Boolean) {
+            if (systemVolumeEnabled()) {
+                changeSystemVolume(addOrCut)
+                return
+            }
             val next = PlayerVolumePolicy.step(
                 volumeGainPercent,
                 if (addOrCut) 1 else -1,
@@ -981,14 +988,33 @@ class ShortVideoPagerAdapter(
             applyVolumeGain(next)
             // 与长视频共用存档键：在短视频里调完，回到长视频播放器也是同一档
             SharedPreferencesUtil.putInt(PlayerVolumePolicy.KEY_GAIN_PERCENT, next)
+            showVolumePercent(next)
+        }
 
+        /** 开关打开时走这条路：直接改系统媒体音量，一档就是系统的一档。 */
+        private fun changeSystemVolume(addOrCut: Boolean) {
+            val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            if (max <= 0) return
+            val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+            val next = PlayerVolumePolicy.stepStream(current, max, if (addOrCut) 1 else -1)
+            if (next != current) {
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
+            }
+            showVolumePercent(PlayerVolumePolicy.streamPercent(next, max))
+        }
+
+        /** 音量提示条：显示 3 秒后自动收起（两种模式共用）。 */
+        private fun showVolumePercent(percent: Int) {
             showSound.visibility = View.VISIBLE
-            showSound.text = activity.getString(R.string.player_port_volume_percent, next)
-
+            showSound.text = activity.getString(R.string.player_port_volume_percent, percent)
             hideVolumeRunnable?.let { mainHandler.removeCallbacks(it) }
             hideVolumeRunnable = Runnable { showSound.visibility = View.GONE }
             mainHandler.postDelayed(hideVolumeRunnable!!, 3000)
         }
+
+        /** 反馈 #191 的开关（每次现读，改完即生效）。 */
+        private fun systemVolumeEnabled(): Boolean =
+            SharedPreferencesUtil.getBoolean(SettingsKeys.SHORTVIDEO_SYSTEM_VOLUME, false)
 
         /** 把 [percent] 打到当前播放器的软件增益上，并记到本页字段。 */
         private fun applyVolumeGain(percent: Int) {
@@ -999,6 +1025,13 @@ class ShortVideoPagerAdapter(
 
         /** 起播时把存档增益打到新播放器上（每个分页 holder 各自一份播放器）。 */
         private fun applyStoredVolumeGain() {
+            if (systemVolumeEnabled()) {
+                // 系统音量模式下 App 增益固定满格：否则「系统 100% × 上次在 App 里调到 40%」
+                // 会变成双重衰减，用户把系统音量拉满还是小声。存档里的增益不动——切回
+                // 「App 内增益」模式时照旧按用户上次填的值走。
+                applyVolumeGain(PlayerVolumePolicy.MAX_PERCENT)
+                return
+            }
             volumeGainPercent = PlayerVolumePolicy.sanitize(
                 SharedPreferencesUtil.getInt(
                     PlayerVolumePolicy.KEY_GAIN_PERCENT,
