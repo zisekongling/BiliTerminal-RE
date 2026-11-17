@@ -1597,6 +1597,15 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **选集按钮的守卫要认「可进入的层」**：`showPageSelectorCard()` 用 `canOpenPageSelector()`（`hasMultiplePages() || 有 localPlaylist 且（在层内或当前条目可分 P）`），不是 `hasMultiplePages()`——夹里只有一个多 P 视频时根层只有一页，用老守卫会把按钮藏掉，正是这个 bug 的场景。按钮显隐统一走 `refreshPageNavButtons()`，别再在别处手写 `btn_page_selector.visibility`。
 - **「文件夹」独立页（实验性开关，默认关）**：开关 `util/FolderPagePrefs.kt`（`cache_folder_page_enable`，键留在门面里、默认 `false`，与 `VirtualCollectionPrefs` 同口径）。唯一判断点在 `CacheListAdapter.rebuildFlatList()` 顶层分支：开 = 顶部一行 `TYPE_GOTO_FOLDERS`（`cell_goto` + `FolderEntryHolder`，「文件夹 N」）+ 文件夹分区与「新建文件夹」整段跳过；关 = 逐行等价原实现。独立页 `activity/video/local/LocalFolderListActivity.kt`（`RefreshListActivity` 子类）+ `adapter/video/LocalFolderAdapter.kt` + `res/layout/cell_local_folder_list.xml`，交互照「我的 → 收藏夹」列表页（封面 / 「N 个视频」/ 多选 / 拖动排序），数据仍是 `.folders_info.json`。**返回刷新要接两处**：`LocalListActivity.folderListLauncher`（`RESULT_OK` → `refreshAfterExternalChange()`，否则入口上的文件夹数停在旧值）+ `folderPageEnabledAtLoad` 比较（开关改完回页面要重排整表）；适配器侧的 `onFolderListClick` 不接就自己 `startActivity`，接了才由 Activity 管启动与回跳。
 
+### 7.68 被外部应用当作播放器调用：导出入口 + 外部 Uri 的两种解析路线（26.11.17 新增）
+
+- **入口是导出组件，不是给 `GetIntentActivity` 加 action**：`activity/player/ExternalVideoActivity.kt`（清单里 `android:exported="true"`，全应用第三个有意导出的 Activity）。单独开一个空壳 Activity 而不是把 `ACTION_VIEW` 挂到 `GetIntentActivity` 或 `PlayerActivity`：`GetIntentActivity` 的语义是 B 站链接白名单（`util/DeepLinkPolicy`），`PlayerActivity` 有一整套 B 站播放上下文（aid/cid/上报/弹幕/选集），把「本地文件」混进任何一个都得改它们的判定。空壳只做「Uri → 路径 → 起播放器 → finish」。
+- **intent-filter 只认本地 + video/***：`ACTION_VIEW` 配 `scheme={content,file}`、`ACTION_SEND` 配 `mimeType=video/*`。**不要加 http/https**——那样任何网页都能把播放器拉起来，等价于把 `GetIntentActivity` 的域名白名单作废。多个 `<data>` 在同一 filter 里是「同属性取值并集、不同属性取交集」，所以 scheme 与 mimeType 要分别写一条 `<data>` 才得到「本地且是视频」。
+- **解析走 `util/IncomingMediaResolver.kt`，两条路线**：① 真实路径——`file://` 直接看 `File.canRead()`；`content://` 先查 `MediaStore.MediaColumns.DATA`（`queryDataPath`）再 `canRead()`，自家缓存 / 旧系统 / 部分 ROM 命中，**零拷贝**；② 兜底复制——上面都读不到时 `openInputStream` 复制进 `cacheDir/incoming_video/` 再播，`staleFiles` 按 24h TTL 清旧文件、`enoughSpace` 复制前留 64MB 余量。**别指望 `DATA` 列在 Android 11+ 可用**：分区存储下它基本只剩残值，主力路线是复制；也**别把 `content://` 直接塞给 ijk 的 `setDataSource(path)`**（`IjkPlayerBridge.setDataSource(context, uri)` 那条重载虽然存在，但 `PlayerActivity` 走的是字符串路径那条）。
+- **播放器必须从 application context 起**：解析是异步的（`CenterThreadPool.run`），空壳页可能已经 finish，用 Activity 当 context 会 `BadTokenException`；`PlayerActivity` 的 Intent 带 `FLAG_ACTIVITY_NEW_TASK`。
+- **aid / cid 传 0 是安全的、且是有意为之**：`PlayerActivity` 对在线能力的判定都带 `aid == 0L || cid == 0L` 短路（`PlayerActivity.kt:3558` / `:3601` / `:5330`），所以外部视频不会去请求 playurl、不会加载弹幕、不会回写续播；`danmaku` 传空串即可。
+- **文案兜底在调用方**：`IncomingMediaResolver.titleOf` 没有可用名字时返回空串，由 Activity 换成 `R.string.text_external_video_untitled`（本仓库禁止新代码硬编码用户可见中文）。
+
 ## 8. UI 基建速查（新增页面临摹用）
 
 ### 8.1 完整继承体系

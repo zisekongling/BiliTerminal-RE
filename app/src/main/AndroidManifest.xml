@@ -225,6 +225,35 @@
                     android:scheme="https" />
             </intent-filter>
         </activity>
+        <!-- 外部视频入口：全应用第二个有意导出的 Activity。
+             导出理由：要在文件管理器 / 相册 / 分享菜单里作为「打开方式」被第三方拉起，
+             exported=false 就收不到 ACTION_VIEW / ACTION_SEND。
+             安全边界：只接本地文件（content / file 且类型为 video/*），不接 http(s)——
+             否则任何网页链接都能把本应用拉起来。页面自己不解码，交给内置播放器，
+             且只读取调用方主动授权的那个 Uri（见 ExternalVideoActivity 注释）。 -->
+        <activity
+            android:name=".activity.player.ExternalVideoActivity"
+            android:exported="true"
+            android:label="@string/pagename_external_video"
+            android:screenOrientation="locked">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.OPENABLE" />
+
+                <data android:mimeType="video/*" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:mimeType="video/*" />
+            </intent-filter>
+        </activity>
         <activity
             android:name=".activity.settings.AnnouncementsActivity"
             android:exported="false"

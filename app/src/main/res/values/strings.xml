@@ -2589,6 +2589,11 @@
     <string name="label_activity_no_22">崩溃捕捉</string>
     <string name="label_activity_no_23">直播详情页</string>
     <string name="label_activity_no_24">表情包选择</string>
+    <!-- 外部视频入口（ExternalVideoActivity）：被文件管理器/相册/分享菜单拉起时显示的名字 -->
+    <string name="pagename_external_video">哔哩终端播放器</string>
+    <string name="text_external_video_untitled">本地视频</string>
+    <string name="msg_external_video_no_uri">没有收到视频文件</string>
+    <string name="msg_external_video_unplayable">这个视频打不开：文件不可读或不在本机</string>
     <!-- ===== layout copy with newlines (B11) ===== -->
     <string name="text_crash_reason">可能的崩溃原因：\n？？？</string>
     <string name="text_upload_avatar_hint">点击上传头像\n支持从相册选择图片，审核通过后生效</string>
