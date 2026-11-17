@@ -13,6 +13,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -182,50 +183,51 @@ internal object RotaryEncoderSupport {
         if (multiple <= 0f) return runFramework()
         if (!RotaryEventPolicy.isRotaryEvent(event.action, event.source)) return runFramework()
 
+        probeMode(view, event)
         val before = scrollOffset()
         val frameworkHandled = runFramework()
         val frameworkDelta = scrollOffset() - before
+        // 这一格「应该」走多远。**必须在 event 被回收之前算出来**：系统在 dispatch 返回后会
+        // recycle 这个 MotionEvent，延后使用它的 axis 值只会读到 0。
+        val target = systemFirstTargetDelta(view, event, multiple)
 
         if (RotaryEventPolicy.shouldConsumeAfterFramework(frameworkHandled, frameworkDelta != 0)) {
             // 框架说自己处理了、偏移却没变：可能是异步滚动（惯性/动画还没落到 scrollY 上），
             // 也可能已经到顶/到底。此时一律不补——补了会和随后到来的框架滚动叠加，
             // 正是 1789a853 要防的「同一次手势被算两次」。
-            if (frameworkDelta == 0) return true
+            if (frameworkDelta == 0) {
+                probePerView(
+                    "系统优先：框架说处理了但没位移，吞掉不补", view, event,
+                    "target=$target multiple=$multiple"
+                )
+                return true
+            }
 
-            val target = systemFirstTargetDelta(view, event, multiple)
             val topUp = RotaryEventPolicy.topUpDelta(target, frameworkDelta)
             if (topUp == 0) {
-                if (systemFirstProbed.compareAndSet(false, true)) {
-                    probe(
-                        "系统优先：框架已滚够，吞掉事件（本进程首次）", event,
-                        "target=$target frameworkDelta=$frameworkDelta view=${view.javaClass.simpleName}"
-                    )
-                }
+                probePerView(
+                    "系统优先：框架已滚够", view, event,
+                    "target=$target frameworkDelta=$frameworkDelta multiple=$multiple"
+                )
                 return true
             }
             smoothScrollBy(topUp)
-            if (topUpProbed.compareAndSet(false, true)) {
-                probe(
-                    "系统优先：框架滚得不够，补足差额（本进程首次）", event,
-                    "target=$target frameworkDelta=$frameworkDelta topUp=$topUp" +
-                            " view=${view.javaClass.simpleName}"
-                )
-            }
+            probePerView(
+                "系统优先：框架滚得不够，补足差额", view, event,
+                "target=$target frameworkDelta=$frameworkDelta topUp=$topUp multiple=$multiple"
+            )
             return true
         }
 
-        val dy = systemFirstTargetDelta(view, event, multiple)
-        if (!RotaryEventPolicy.shouldConsume(dy)) {
-            probe(
-                "系统优先：框架没动、补位位移为 0，不吞事件", event,
-                "view=${view.javaClass.simpleName} multiple=$multiple"
+        if (!RotaryEventPolicy.shouldConsume(target)) {
+            probePerView(
+                "系统优先：框架没动、补位位移为 0，不吞事件", view, event,
+                "multiple=$multiple"
             )
             return false
         }
-        smoothScrollBy(dy)
-        if (successProbed.compareAndSet(false, true)) {
-            probe("补位：框架没动，App 接管（本进程首次）", event, "dy=$dy view=${view.javaClass.simpleName}")
-        }
+        smoothScrollBy(target)
+        probePerView("补位：框架没动，App 接管", view, event, "target=$target multiple=$multiple")
         return true
     }
 
@@ -315,11 +317,58 @@ internal object RotaryEncoderSupport {
     private const val PROBE_MAX = 6
     private val probeCount = AtomicInteger(0)
     private val successProbed = AtomicBoolean(false)
-    private val systemFirstProbed = AtomicBoolean(false)
-    private val topUpProbed = AtomicBoolean(false)
+
+    // ---------- 反馈 #205（「有的页面表冠快有的慢」）专用埋点 ----------
+    //
+    // 这条反馈靠读代码定不了论：三种容器的目标距离是**同一套口径**（[systemFirstTargetDelta]，
+    // 64dp × 2 × 灵敏度），差异只可能来自「框架自己先滚了多少」——而框架各容器的换算基准并不
+    // 相同（NestedScrollView 用主题 listPreferredItemHeight ≈48dp，ScrollView / RecyclerView 用
+    // config_verticalScrollFactor = 64dp），补差额补得对不对，全看 frameworkDelta 这一个数。
+    // 原先的 [probe] 只在本进程第一次打，第一条几乎总是来自最先被转的那个页面，后面所有页面的
+    // 数都被 [PROBE_MAX] 挤掉，正好看不见「快慢不同」。
+    // 现在给三种容器**各留 [PER_VIEW_PROBE_MAX] 条**，并在本进程第一次转表冠时把「当前模式 +
+    // 两类容器的灵敏度 + 本机竖直滚动基准」一起打出来——「快慢不同」有一半是两类容器填了不同
+    // 灵敏度造成的，这几个数一摆出来就能区分开。
+
+    private const val PER_VIEW_PROBE_MAX = 4
+    private val perViewProbeCount = ConcurrentHashMap<String, AtomicInteger>()
+    private val modeProbed = AtomicBoolean(false)
+
+    /** 本进程第一次转表冠时记一条：模式、两个灵敏度、竖直滚动基准。 */
+    private fun probeMode(view: View, event: MotionEvent) {
+        if (!modeProbed.compareAndSet(false, true)) return
+        // 系统优先模式下 [sensitivityOf] 恒返回 1.0（开关关着时灵敏度不参与），所以把用户
+        // **实际填的**值也一起打出来：用户看到「两类页面快慢不同」时，很可能是当初给两类容器
+        // 填了不同灵敏度，而那几个值在系统优先模式下并不会生效——不摆出来就会误判。
+        logLine(
+            "模式与灵敏度（本进程首次）", event,
+            "enabled=${isEnabled()} systemFirst=${isSystemFirstMode()}" +
+                    " storedRecycler=${storedMultiple(SettingsKeys.UI_ROTATORY_RECYCLER)}" +
+                    " storedScroll=${storedMultiple(SettingsKeys.UI_ROTATORY_SCROLL)}" +
+                    " effectiveRecycler=${sensitivityOf(SettingsKeys.UI_ROTATORY_RECYCLER)}" +
+                    " effectiveScroll=${sensitivityOf(SettingsKeys.UI_ROTATORY_SCROLL)}" +
+                    " factor=${scaledVerticalScrollFactorOf(view)}"
+        )
+    }
+
+    /** 用户存下来的灵敏度原值（不受总开关影响）。 */
+    private fun storedMultiple(key: String): Float =
+        SharedPreferencesUtil.getFloat(key, DEFAULT_MULTIPLE.toFloat())
+
+    /** 按容器类名各记 [PER_VIEW_PROBE_MAX] 条；超出后只计数不打日志。 */
+    private fun probePerView(reason: String, view: View, event: MotionEvent, extra: String = "") {
+        val key = view.javaClass.simpleName
+        val counter = perViewProbeCount.computeIfAbsent(key) { AtomicInteger(0) }
+        if (counter.getAndIncrement() >= PER_VIEW_PROBE_MAX) return
+        logLine(reason, event, "view=$key $extra")
+    }
 
     private fun probe(reason: String, event: MotionEvent, extra: String = "") {
         if (probeCount.getAndIncrement() >= PROBE_MAX) return
+        logLine(reason, event, extra)
+    }
+
+    private fun logLine(reason: String, event: MotionEvent, extra: String = "") {
         val source = event.source
         val text = buildString {
             append(reason)
