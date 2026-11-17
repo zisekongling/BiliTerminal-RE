@@ -13,7 +13,7 @@ import java.io.File
 import java.nio.file.Files
 
 /**
- * 锁住 [CacheMigrator]：缓存页「迁移到本机」就是把它搬进本机下载根。
+ * 锁住 [CacheMigrator]：缓存页「迁移到本应用」就是把它搬进本机下载根。
  *
  * 这里全部走真实临时目录（纯 JVM，不碰 Android API），锁三件容易错的事：
  * 1. 目标名冲突时不能覆盖已有缓存；

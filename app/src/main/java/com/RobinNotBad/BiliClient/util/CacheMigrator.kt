@@ -3,7 +3,7 @@ package com.RobinNotBad.BiliClient.util
 import java.io.File
 
 /**
- * 把「别的分支缓存目录」里的一条缓存搬到本机下载根（缓存页长按外部条目 →「迁移到本机」）。
+ * 把「别的分支缓存目录」里的一条缓存搬到本机下载根（缓存页长按外部条目 →「迁移到本应用」）。
  *
  * 为什么要这么一层：外部来源是只读的（见 [ExternalCacheRoots] 与 LocalVideo.externalRoot），
  * 想删、想换分辨率都得先变成「本机条目」，而用户能做的动作只有「搬过来」。
