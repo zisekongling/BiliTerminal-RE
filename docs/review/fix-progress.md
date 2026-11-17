@@ -18,6 +18,29 @@
 
 ## 1. 当前版本状态
 
+- **26.11.17 详情页收藏后退出重进，收藏图标消失——图标换了、状态位没换（控制台反馈 #204）**：
+  - **来路**：控制台反馈 #204（OPPO OWW261，26.11.16 23:58）「视频详情页收藏后退出重进，收藏符号消失（实际已收藏）」。
+  - **根因**：`favLauncher` 的回调只在 `RESULT_ADDED` / `RESULT_DELETED` 时**换图标**，从不写 `videoInfo.stats.favoured`。而详情页的 `VideoInfo` 是 `util/TerminalContext.java:301-314` 里 LRU 缓存的那**同一个对象**（缓存命中时直接 `new MutableLiveData<>(Result.success((VideoInfo) obj))` 返回缓存实例），退出重进命中的还是它 → 图标按旧的 `favoured=false` 渲染。
+  - **改法（`app/src/main/java/com/RobinNotBad/BiliClient/activity/video/info/VideoInfoFragment.kt:97-109`）**：两条分支合成一条——`val info = videoInfo ?: return@registerForActivityResult` → `info.stats.favoured = code == RESULT_ADDED` → `ThemeTint.setToggleIcon(fav, info.stats.favoured, R.drawable.icon_fav_1, R.drawable.icon_fav_0)`。状态位与图标一起改，缓存里的同一个对象才会跟着对。`ThemeTint.setToggleIcon` 在 `app/src/main/java/com/RobinNotBad/BiliClient/ui/appearance/ThemeTint.kt:73`。
+  - **口径（有意的取舍）**：只修「本页收藏 → 回本页」这一条路径。收藏动作本身仍在 `activity/video/info/AddFavoriteActivity.kt:56-65`（按 `added` / `isAllDeleted()` 回传 `RESULT_ADDED=1` / `RESULT_DELETED=-1`）；**没有**做「在别的页面（如播放页）收藏后回详情页也刷新」——那要失效 `TerminalContext` 的 `contentLruCache`，牵连所有详情页取数路径，本轮不动。
+  - **L0（26.11.17 本机实测）**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest --console=plain -q` → BUILD SUCCESSFUL，standard / coexist 两个 flavor 的四个 ABI debug 包全部产出；单测两套各 **263 套件 / 2847 用例 / 0 失败 / 0 错误 / 0 跳过**。本改动是回调里的两行状态写入，无新纯函数，未加用例。
+  - **未验证（L2）**：① 手表上进详情页 → 收藏 → 退出 → 重进，图标仍是实心；② 再取消收藏 → 退出 → 重进，变回空心；③ 顺带确认那条视频确实进了收藏夹（本改动只动图标与状态位，不动收藏写入）。
+
+- **26.11.17 表冠「有的页面快有的慢」：按容器类型埋点，暂不改手感（控制台反馈 #205）**：
+  - **来路**：控制台反馈 #205（HUAWEI HWARC，26.11.17 00:03）「有的页面表冠滚动快有的慢」，无日志。开发者已回过「没有表冠不好测，试试开关表冠适配」，但那条不是修，只是让用户自己试。
+  - **查证结论（读代码得出，不是猜）**：三种容器（`ui/widget/RotaryScrollView.kt:29`、`ui/widget/RotaryRecyclerView.kt:28`、`ui/widget/RotaryNestedScrollView.kt:34-35`）都走同一个 `RotaryEncoderSupport.handleSystemFirst`，目标位移 `RotaryEventPolicy.systemFirstTargetDelta`（`ui/widget/RotaryEventPolicy.kt:111-117`）用的是**统一**基准 `config_verticalScrollFactor`（64dp × 2 × 灵敏度，见 `RotaryEncoderSupport.kt:293` 的 `ViewConfigurationCompat.getScaledVerticalScrollFactor`），并没有拿各容器的 `listPreferredItemHeight`——所以「同一个基准」这一条本来就成立。差异只可能来自两处：① 框架自己先滚了多少（NestedScrollView 吃主题 `listPreferredItemHeight`≈48dp，ScrollView / RecyclerView 吃 64dp）；② 两类容器各自的灵敏度键 `SettingsKeys.UI_ROTATORY_RECYCLER` / `SettingsKeys.UI_ROTATORY_SCROLL`（`RotaryEncoderSupport.sensitivityOf` 在 `:109-111`，系统优先模式下恒返回 1.0，用户填过的值只有关掉适配才生效）。另外找到一处**真实的丢格**：`handleSystemFirst` 里框架声称「已处理」但 `frameworkDelta == 0` 时直接 `return true`、不补位（`RotaryEncoderSupport.kt:199` 附近，注释写的是防止与异步惯性叠加）。
+  - **改法（只加日志）**：`app/src/main/java/com/RobinNotBad/BiliClient/ui/widget/RotaryEncoderSupport.kt` 新增 `probeMode(view, event)`（每进程一次，打 `enabled` / `systemFirst` / 用户存的与生效的两个灵敏度 / `scaledVerticalScrollFactor`）与 `probePerView(view, action, extra)`（**按 `view.javaClass.simpleName` 各留 4 条**，打 `target` / `frameworkDelta` / `topUp` / `multiple`），四个分支（吞格、已滚够、补差额、App 接管）各调一次；`MotionEvent` 在 `dispatchTouchEvent` 返回后会被 recycle，所以 `target` 在 `runFramework()` 之后**立刻**算，不能延后读 axis。新增 `storedMultiple(key)` 单独读用户存的值——系统优先模式下 `sensitivityOf` 恒 1.0，不打原值就看不出「两类容器填了不同灵敏度」。日志级别 `W`，tag `RotaryEncoder`。
+  - **口径（有意的取舍）**：**没改行为**。那个吞格分支很可能是异步滚动（惯性 / 动画还没落到 `scrollY`），此刻补差额会和随后到来的框架滚动叠加——`1789a853` 修的就是这种叠加；没有表冠真机无法验证「延后一帧再补差额」的手感，盲改风险大于收益。改成「用户下一次反馈带上日志就能定性」：反馈页勾「附带应用日志」即可把这几行带出来。
+  - **L0（26.11.17 本机实测）**：与上一条同一轮构建（BUILD SUCCESSFUL，两套单测各 263 套件 / 2847 用例 / 0 失败）。纯日志改动，无新纯函数，未加用例。
+  - **未验证（L2）**：① Debug 包在各页面滚表冠，`adb logcat -s RotaryEncoder` 里出现一行 `mode` 与若干 `per-view`；② 用用户的日志判断「慢」是吞格还是灵敏度差异；③ 埋点不影响滚动观感。
+
+- **26.11.17 短视频音量键可选「直接调系统音量」（控制台反馈 #191）**：
+  - **来路**：控制台反馈 #191（hesc sl8541e_1h10，26.11.16 17:26，v26.11.16）希望短视频能调系统音量；用户补充**手表系统音量每按一次 +7，而 App 内增益一次 +5**，调不到想要的档。开发者已回「下个更新周期就加」。
+  - **改法（六个文件）**：①`util/SettingsKeys.kt` 新增 `SHORTVIDEO_SYSTEM_VOLUME = "shortvideo_system_volume"`（默认关）；②`res/values/player_port_strings.xml` 新增 `player_port_system_volume_name`「短视频音量调系统音量」与 `player_port_system_volume_desc`；③`player/PlayerSettingsGroups.kt` 的 `gesture(context)` 末尾加一个 switch 项（设置 → 播放 → 手势）；④`player/PlayerVolumePolicy.kt` 新增纯函数 `stepStream(current, max, direction)` 与 `streamPercent(current, max)`；⑤`activity/video/ShortVideoPlayerActivity.kt`：`PageHolder` 的 `audioManager` 参数从 `@Suppress("UNUSED_PARAMETER")` 改成真正持有，`changeVolume` 开头按开关分流到新的 `changeSystemVolume`（`getStreamMaxVolume` / `getStreamVolume` → `stepStream` → `setStreamVolume(STREAM_MUSIC, next, 0)`，`max <= 0` 直接返回），提示条抽成 `showVolumePercent(percent)` 两种模式共用；⑥`app/src/test/java/com/RobinNotBad/BiliClient/player/PlayerVolumePolicyTest.kt` 补 4 例（步进加减与两端停住、方向 0 原样返回、非法上限按 0 处理、档位换算百分比回显）。
+  - **口径（有意的取舍）**：① 默认**关**——老用户听感不变，只有主动打开才联动系统；② 开关打开时 `applyStoredVolumeGain()` 直接把播放器增益打满并 return，否则「系统 100% × 存档里 40%」会双重衰减、用户把系统音量拉满还是小声；存档值不动，切回 App 内增益模式时照旧按上次的值走；③ 步进到两端停住、不绕回对侧（与 `step` 同一口径）；④ 每次按键现读开关，改完即生效，不用重进页面。
+  - **L0（26.11.17 本机实测）**：与上面两条同一轮构建 → BUILD SUCCESSFUL，两套单测各 **263 套件 / 2847 用例 / 0 失败 / 0 错误 / 0 跳过**，其中 `PlayerVolumePolicyTest` 由 15 例增至 **19 例**（这份构建里另有工作区未提交的 `SharedMediaPolicyTest` 9 例，不属于本轮改动）。
+  - **未验证（L2）**：① 手表上开该开关后按音量键，系统音量条每次动一档、提示条显示换算后的百分比；② 退出本 App 后其它应用音量确实跟着变；③ 关掉开关回到 1% 一档的 App 内增益；④ 开着开关时把系统音量拉满，听感是满音量（无双重衰减）。
+
 - **26.11.17 确认框两个按钮改左右并排，按钮区从 88dp 收到 44dp（控制台反馈 #199）**：
   - **来路**：控制台反馈 #199（category=other，XTC 小天才 Z8，dpi320，26.11.***.***）原话「现在弹窗按钮只有取消了」。无日志、无对应崩溃记录（不是闪退，是布局被切）。
   - **根因**：按钮区是弹窗面板的最后一段、**不参与 `DialogSizing` 的压缩**——`Sheet.prepareLayout()` 用 `measureParts()` 把按钮区高度计入 `minUsableHeightPx` 交给预算，预算不够时只能隐藏提示行 / 收标题 / 压滚动区，按钮行不能缩。两个键各占一条整行 44dp 共 88dp，小屏手表上超出的部分被切在屏幕外，而「确定」是 `TerminalDialog.confirm()` 里**后添加**的那个（`:160-185` 先 `addButton(cancelText, secondaryColor())` 再确认键），于是只剩「取消」。`app/src/main/java/com/RobinNotBad/BiliClient/util/TerminalDialog.kt:524-528` 的既有注释（26.11.16）已写过这件事。
