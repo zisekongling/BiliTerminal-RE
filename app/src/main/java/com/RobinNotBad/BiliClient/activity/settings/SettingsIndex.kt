@@ -494,6 +494,12 @@ object SettingsIndex {
             "缓存页文件夹入口",
             text(R.string.settingtext_settingsindex_093)
         ) { a -> openGroup(a, "lab", groupLab, "缓存页文件夹入口") }
+        // 「弹窗按钮并排」（26.11.17，默认开，反馈 #199）：设置页那行的 name 取的就是
+        // R.string.setting_dialog_button_row，这边同源，highlight 逐字比对才落得到那一行上。
+        list += Entry(
+            text(R.string.setting_dialog_button_row),
+            text(R.string.desc_dialog_button_row)
+        ) { a -> openGroup(a, "lab", groupLab, text(R.string.setting_dialog_button_row)) }
 
         // ---- 叶子设置项（独立设置页）----
         // 26.11.07：详情页动作区两个默认隐藏的入口。名字必须与 SettingInfoActivity 里

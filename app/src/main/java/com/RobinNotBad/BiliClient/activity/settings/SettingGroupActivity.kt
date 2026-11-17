@@ -956,6 +956,15 @@ class SettingGroupActivity : RefreshListActivity() {
             FolderPagePrefs.ENABLE,
             FolderPagePrefs.DEFAULT_ENABLE
         )
+        // 确认型弹窗的按钮形态（26.11.17，默认开）。反馈 #199（小天才 Z8，dpi320）：手表窗口
+        // 太矮时纵向两条 44dp 会把后添加的「确定」切出屏幕，用户只看到「取消」。关掉回到
+        // 26.11.13 起的上下堆叠。读取点在 util/TerminalDialog.kt 的 Sheet.renderButtons()。
+        switch(
+            getString(R.string.setting_dialog_button_row),
+            getString(R.string.desc_dialog_button_row),
+            SettingsKeys.DIALOG_BUTTON_ROW,
+            true
+        )
 
         title("播放器兼容")
         switch("播放器旋屏兼容方案", getString(R.string.desc_player_rotate_software), SettingsKeys.DEV_PLAYER_ROTATE_SOFTWARE, false)

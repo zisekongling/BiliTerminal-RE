@@ -332,6 +332,17 @@ object TerminalDialog {
         private val hintView: TextView = content.findViewById(R.id.terminal_dialog_hint)
         private val buttonBar: LinearLayout = content.findViewById(R.id.terminal_dialog_buttons)
 
+        /** 待渲染的按钮（文字 / 颜色 / 点击）。渲染推迟到 [prepareLayout]，先知道「一共几个」再决定一行还是两行。 */
+        private class ButtonSpec(val label: String, val color: Int, val onClick: () -> Unit)
+
+        private val buttons = ArrayList<ButtonSpec>()
+
+        /** 已渲染出来的按钮文字视图，供 [logButtonGeometry] 打日志（并排模式下它们多包了一层）。 */
+        private val buttonViews = ArrayList<TextView>()
+
+        /** [buttons] 自上次渲染后有没有变化。输入型弹窗会随键盘高度反复重排，没变化就不重建。 */
+        private var buttonsDirty = false
+
         /** 输入型弹窗的输入框；非空 = 「打字模式」，只用于 show 后补焦点（见 [prepareForTyping]）。 */
         private var typingEdit: EditText? = null
 
@@ -466,6 +477,9 @@ object TerminalDialog {
          * 的界面，低端手表上那一帧能停几百毫秒。View 在 attach 之前就能 `measure()`，不必等 show。
          */
         internal fun prepareLayout() {
+            // 先按当前形态把按钮建出来：按钮区高度是下面 measureParts() 的一项，
+            // 建晚了就会拿旧形态（两行 vs 一行）的高度去算预算。
+            renderButtons()
             val screen = physicalScreenSizePx(dialog.context)
             val frame = DialogSizing.available(
                 screen[0],
@@ -479,7 +493,8 @@ object TerminalDialog {
                 DialogSizing.roundBox(frame, minOf(screen[0], screen[1]))
             else
                 DialogSizing.Box(DialogSizing.width(frame), DialogSizing.heightBudget(frame))
-            // 26.11.13 起按钮是**整行宽的纵向堆叠行**，宽度天然等于窗口宽，不会再「放不下」
+            // 26.11.13 起按钮是**整行宽的纵向堆叠行**（26.11.17 又加了「两个按钮并排一行」的
+            // 形态，见 renderButtons()），无论哪种宽度都天然等于窗口宽，不会再「放不下」
             // ——先前那套 `fitButtonBar`（事后缩字号 / 把并排按钮改成均分宽度）整段删掉了。
             // 它本身就是 #125 里「按钮的最终几何与窗口测量来自两次不同时机」的嫌疑源：
             // 现在固定行高度、滚动区自然高度、按钮行高度三者都来自同一份尺寸，没有事后改动。
@@ -563,8 +578,9 @@ object TerminalDialog {
                 .append(scroll.height).append('/').append(scroll.layoutParams?.height)
             val rect = Rect()
             val loc = IntArray(2)
-            for (i in 0 until buttonBar.childCount) {
-                val label = buttonBar.getChildAt(i) as? TextView ?: continue
+            // 遍历 [buttonViews] 而不是 buttonBar 的子 View：并排模式下按钮多包了一层横向
+            // LinearLayout，直接 cast 子 View 会一个都取不到，日志会静默变成「一条按钮都没有」。
+            for (label in buttonViews) {
                 // getHitRect = 父容器按下时真正用来判定的矩形（含 margins/translation 结果）；
                 // getLocationInWindow = 它画在哪。
                 label.getHitRect(rect)
@@ -727,37 +743,112 @@ object TerminalDialog {
          *
          * <p>行高用 `dialog_item_min_height`（44dp，与列表项同一个触控下限），文字居中。颜色由
          * 调用方给：`colorError` = 破坏性，`colorPrimary` / `secondaryColor` = 其它。
+         *
+         * <p><b>26.11.17 起两个按钮改并排一行</b>（左「取消」右「确定」，各占一半宽度）：纵向堆叠
+         * 是**两条** 44dp，共 88dp，而按钮区不参与`DialogSizing` 的压缩——高度预算不够时被切掉的
+         * 正好是后添加的确认键，用户只看到「取消」（反馈 #199，小天才 Z8，dpi320）。并排后按钮区
+         * 只剩一条 44dp，正好把这条老毛病解掉。形态由 [rowMode] 判定，可用
+         * `SettingsKeys.DIALOG_BUTTON_ROW`（实验性开关，默认开）关回纵向堆叠。
+         *
+         * <p>这里只登记规格，**真正的 View 在 [prepareLayout] 里由 [renderButtons] 建**：
+         * 并排与否取决于「一共几个按钮」，加第一个的时候还看不出来。
          */
         internal fun addButton(label: String, color: Int, onClick: () -> Unit) {
             // 按钮区默认 GONE（菜单/单选型没有按钮，不留一条空分割线白占高度预算）。
             buttonBar.visibility = View.VISIBLE
-            buttonBar.addView(
-                TextView(dialog.context).apply {
-                    text = label
-                    setTextColor(color)
-                    // 与 item_dialog_terminal 的条目同号：整行宽之后不再需要为了塞进半行而缩到 12.5sp。
-                    textSize = 13f
-                    gravity = Gravity.CENTER
-                    minHeight = dimen(R.dimen.dialog_item_min_height)
-                    setPadding(
-                        dimen(R.dimen.dialog_item_padding_h), 0,
-                        dimen(R.dimen.dialog_item_padding_h), 0
-                    )
-                    // 允许折成两行：三字按钮在 1.8 倍界面下整行仍放得下，折行只是极端字号的余地；
-                    // 真到两行还放不下才截断（截断总比把按钮挤出行外、点不到要好）。
-                    maxLines = 2
-                    ellipsize = TextUtils.TruncateAt.END
-                    isClickable = true
-                    isFocusable = true
-                    background = selectableItemBackground()
-                    setOnClickListener { onClick() }
-                },
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-            )
+            buttons.add(ButtonSpec(label, color, onClick))
+            buttonsDirty = true
         }
+
+        /**
+         * 是否把两个按钮并排成一行。
+         *
+         * <p>只有**恰好两个**按钮才并排：一个按钮（[TerminalDialog.confirm] 传空 `cancelText` 的
+         * 提示型）整行宽本来就没得切，三个以上并排又会把三字按钮挤成两行——都不如纵向堆叠。
+         */
+        private fun rowMode(): Boolean =
+            buttons.size == 2 &&
+                SharedPreferencesUtil.getBoolean(SettingsKeys.DIALOG_BUTTON_ROW, true)
+
+        /**
+         * 把 [buttons] 渲染进按钮区。
+         *
+         * <p>**必须发生在 [measureParts] 之前**：按钮区高度是弹窗高度预算里的一项，建晚了就会拿
+         * 旧形态的高度去算预算。所以 [prepareLayout] 第一句就调它，而不是在 `addButton` 里直接建。
+         *
+         * <p>XML 里按钮区第 0 个子 View 是那根 1dp 分割线（横贯整块面板），这里只清掉它后面的按钮。
+         */
+        private fun renderButtons() {
+            if (!buttonsDirty) return
+            buttonsDirty = false
+            while (buttonBar.childCount > 1) buttonBar.removeViewAt(buttonBar.childCount - 1)
+            buttonViews.clear()
+            if (rowMode()) {
+                // 并排：外层横向容器用 weight 把两个按钮各分成一半，中间一根竖线分开
+                // ——两半同色同字号时没有这根线，用户看不出哪里有边界。
+                val row = LinearLayout(dialog.context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                }
+                row.addView(
+                    newButton(buttons[0]),
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                )
+                row.addView(
+                    columnDivider(),
+                    LinearLayout.LayoutParams(dividerWidthPx(), ViewGroup.LayoutParams.MATCH_PARENT)
+                )
+                row.addView(
+                    newButton(buttons[1]),
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                )
+                buttonBar.addView(row)
+            } else {
+                buttons.forEach {
+                    buttonBar.addView(
+                        newButton(it),
+                        LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                        )
+                    )
+                }
+            }
+        }
+
+        /** 一个按钮的文字视图。并排模式下宽度由外层 weight 决定，所以这里只管文字与触控下限。 */
+        private fun newButton(spec: ButtonSpec): TextView = TextView(dialog.context).apply {
+            text = spec.label
+            setTextColor(spec.color)
+            // 与 item_dialog_terminal 的条目同号：整行宽之后不再需要为了塞进半行而缩到 12.5sp。
+            textSize = 13f
+            gravity = Gravity.CENTER
+            minHeight = dimen(R.dimen.dialog_item_min_height)
+            setPadding(
+                dimen(R.dimen.dialog_item_padding_h), 0,
+                dimen(R.dimen.dialog_item_padding_h), 0
+            )
+            // 允许折成两行：三字按钮在 1.8 倍界面下整行仍放得下，折行只是极端字号的余地；
+            // 真到两行还放不下才截断（截断总比把按钮挤出行外、点不到要好）。
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            isClickable = true
+            isFocusable = true
+            background = selectableItemBackground()
+            setOnClickListener { spec.onClick() }
+        }.also { buttonViews.add(it) }
+
+        /** 并排两键中间那根竖线：与标题/按钮区分割线同色同透明度。 */
+        private fun columnDivider(): View = View(dialog.context).apply {
+            setBackgroundColor(onSurfaceColor())
+            alpha = 0.18f
+        }
+
+        private fun dividerWidthPx(): Int =
+            (dialog.context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
 
         internal fun setHint(hint: String) {
             hintView.text = hint

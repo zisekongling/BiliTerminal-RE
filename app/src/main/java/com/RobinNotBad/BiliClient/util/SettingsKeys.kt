@@ -212,6 +212,16 @@ object SettingsKeys {
     const val DEV_PLAYER_ROTATE_SOFTWARE = "dev_player_rotate_software"
     const val PLAYER_SHOW_VIEWPOINTS = "player_show_viewpoints"
     const val PLAYER_INTERACTION_DEBUG = "player_interaction_debug"
+    /**
+     * 确认型弹窗的按钮形态：true（默认）= 左「取消」右「确定」并排一行、各占一半宽度；
+     * false = 26.11.13 起的整行宽纵向堆叠。
+     *
+     * <p>反馈 #199（小天才 Z8，dpi320）：**手表窗口太小**——纵向两条 44dp 共 88dp，而按钮区
+     * 不参与 `DialogSizing` 的高度压缩，预算不够时被切掉的正好是后添加的确认键，用户只看到
+     * 「取消」。并排后按钮区只剩一条 44dp。读取点在
+     * [com.RobinNotBad.BiliClient.util.TerminalDialog.Sheet] 的 `rowMode()`。
+     */
+    const val DIALOG_BUTTON_ROW = "dialog_button_row"
 
     // ==================== 播放器 ====================
     /** 当前选择的播放器（null / terminalPlayer / mtvPlayer / aliangPlayer）。 */

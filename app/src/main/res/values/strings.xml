@@ -3197,6 +3197,11 @@
          打开后才把文件夹分区换成顶部这一行入口 text_cache_folder_entry。 -->
     <string name="setting_cache_folder_page">缓存页文件夹入口</string>
     <string name="desc_cache_folder_page">缓存页顶部多一行「文件夹 N」入口，点它进独立的文件夹列表页，不再把文件夹铺在缓存列表里。默认关闭。</string>
+    <!-- 确认型弹窗的按钮形态（26.11.17，反馈 #199）。默认开启：手表窗口太矮时，上下两个
+         44dp 按钮共 88dp，高度预算不够会把下面那个后添加的「确定」键切出屏幕，用户只看到
+         「取消」。见 util/TerminalDialog.kt 的 Sheet.renderButtons()。 -->
+    <string name="setting_dialog_button_row">弹窗按钮并排</string>
+    <string name="desc_dialog_button_row">确认框的「取消」和「确定」左右各占一半、并排一行。默认开启：手表窗口太矮时，上下两个按钮会把下面的「确定」挤出屏幕，只看得到「取消」。关掉恢复上下堆叠。</string>
     <string name="pagename_localfolderlist">文件夹</string>
     <string name="text_cache_folder_entry">文件夹 %1$d</string>
     <string name="text_local_folder_video_count">%1$d 个视频</string>
