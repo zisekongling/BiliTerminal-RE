@@ -359,7 +359,7 @@ class DownloadService : Service() {
          * 逐集调用会让每一集都弹一条「已在下载队列」的提示，勾十集就是十条提示；
          * 这里在同一个后台线程里做完去重与插入，最后只给一条汇总提示。
          *
-         * <p>落盘结构与多 P 视频完全一致（季名当父目录、集名当子目录），所以
+         * <p>落盘结构与多 P 视频一致（番剧名-季名当父目录、集名当子目录），所以
          * 缓存页/播放器/删除逻辑一行都不用改；区别只有 download_type 与
          * epid / season_id / season_type 三列 —— 下载时靠它们走番剧取流接口，
          * 见 [processDownloadSection] 与 [DownloadSection.isBangumi]。
@@ -382,7 +382,11 @@ class DownloadService : Service() {
                     var added = 0
                     var skipped = 0
                     for (season in seasons) {
-                        val seasonTitle = season.seasonTitle
+                        // 父目录必须带番剧名：季名（「TV」「第二季」）是通用的，只用季名当目录时
+                        // 两部番的同名季会落进同一个目录，缓存状态互相串台、成品互相覆盖（26.11.18）
+                        val folderName = BangumiCacheSeason.seasonFolderName(
+                            season.bangumiTitle, season.seasonTitle
+                        )
                         val seasonCover = season.seasonCover
                         val seasonId = season.seasonId
                         val seasonType = season.seasonType
@@ -418,14 +422,14 @@ class DownloadService : Service() {
                                         "epid,season_id,season_type) values(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                                 arrayOf<Any>(
                                     DownloadPathSpec.TASK_VIDEO_MULTI, "none", episode.aid, episode.cid, qn,
-                                    seasonTitle, child,
+                                    folderName, child,
                                     GlideUtil.url(episode.cover?.takeIf { it.isNotEmpty() } ?: seasonCover),
                                     DownloadPathSpec.TYPE_VIDEO_PGC, "",
                                     episode.id, seasonId, seasonType
                                 )
                             )
 
-                            val path_page = FileUtil.getVideoDownloadPath(seasonTitle, child)
+                            val path_page = FileUtil.getVideoDownloadPath(folderName, child)
                             path_page.mkdirs()
 
                             val file_sign = File(path_page, DownloadPathSpec.FILE_DOWNLOADING)

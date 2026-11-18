@@ -59,6 +59,9 @@ class BangumiCacheActivity : BaseActivity() {
 
     private val seasons = ArrayList<BangumiCacheAdapter.SeasonItem>()
 
+    /** 番剧名：拼缓存目录名用（季名是「TV」这种通用词，不带番剧名会跟别的番撞目录）。 */
+    private var bangumiTitle = ""
+
     private var bangumiCover = ""
     private var currentSeasonId = 0L
     private var currentSeasonType = 0
@@ -108,6 +111,7 @@ class BangumiCacheActivity : BaseActivity() {
         qualityLabel = LocalVideo.getQualityLabel(qualityQn)
         clearedSeasons = BangumiCacheClearStore.load()
 
+        bangumiTitle = intent.getStringExtra(EXTRA_BANGUMI_TITLE).orEmpty()
         bangumiCover = intent.getStringExtra(EXTRA_BANGUMI_COVER).orEmpty()
         currentSeasonId = intent.getLongExtra(EXTRA_CURRENT_SEASON_ID, 0L)
         currentSeasonType = intent.getIntExtra(EXTRA_CURRENT_SEASON_TYPE, 0)
@@ -245,8 +249,10 @@ class BangumiCacheActivity : BaseActivity() {
     /**
      * 给每一集打上「已下载 / 队列中」标记（必须在后台线程调用：有磁盘 stat 与一次查库）。
      *
-     * 目录名靠 [BangumiCacheSeason.childNameOf] 与下载服务算出的 child 保持一致，
-     * 两边写两套规则的话，就会出现「明明下过了却还让你勾」。
+     * 父目录名靠 [BangumiCacheSeason.seasonFolderName]、子目录名靠
+     * [BangumiCacheSeason.childNameOf]，两者都必须和下载服务算出来的完全一致；
+     * 两边写两套规则的话，就会出现「明明下过了却还让你勾」，
+     * 或者两部番的同名季（都用「TV」）互相认成对方下的。
      */
     private fun markDownloadState(
         item: BangumiCacheAdapter.SeasonItem,
@@ -254,12 +260,13 @@ class BangumiCacheActivity : BaseActivity() {
     ) {
         val queued = BangumiCacheDownloadIndex.queuedCids()
         val unknown = getString(R.string.text_download_bangumi_episode_unknown)
+        val folderName = BangumiCacheSeason.seasonFolderName(bangumiTitle, item.title)
         // 被长按「强制清除」过的季：磁盘上就算有成品也算没下过，好让用户重新勾、重新覆盖
         val cleared = clearedSeasons.contains(item.seasonId)
         for (entry in entries) {
             entry.queued = queued.contains(entry.episode.cid)
             entry.downloaded = !entry.queued && !cleared && BangumiCacheDownloadIndex.isDownloaded(
-                item.title,
+                folderName,
                 BangumiCacheSeason.childNameOf(entry.episode, unknown)
             )
             // 非大会员：标着「会员」的集直接锁住——勾了也只会下到失败，
@@ -384,6 +391,7 @@ class BangumiCacheActivity : BaseActivity() {
             if (picked.isEmpty()) continue
             targets.add(
                 BangumiCacheSeason(
+                    bangumiTitle,
                     item.title,
                     item.cover.ifEmpty { bangumiCover },
                     item.seasonId,
