@@ -18,6 +18,14 @@
 
 ## 1. 当前版本状态
 
+- **26.11.18-beta.5 基准修好之后手感翻到另一头：快转一格滑过整屏、慢转一跳一跳发黏（控制台反馈 #235 复测）**：
+  - **来路**：beta.4 交付后，同一批 OPPO Watch 4 Pro 测试者回「大部分页面变得能动但黏黏的，之前能正常滑动的页面变得一滑到底」，同时另有人说「修好了」。19:47 的日志（beta.4）确认 `enabled=true systemFirst=false storedRecycler=1.0 effectiveRecycler=1.0 factor=128.0 factorRaw=1.0`：基准确实从 1px 抬到了 128px（64dp × density 2.0），灵敏度是默认 1.0。
+  - **根因（基准与量级被重复放大）**：`wheelScrollDelta` 的公式是 `-ratio × factor × multiple`，两处改动叠在一起：① beta.4 把 `factor` 从 ROM 给的 1px 抬到 128px（128 倍）；② 单事件封顶仍是配 1px 基准定的「列表 32 格 / 阅读容器 2 格」。4 Pro 快转一格报 `AXIS_VSCROLL = -32.0`，一个事件就是 32 × 128 = 4096px，即便有「单次封顶一屏」（496px）也是**一次跳满屏**——这就是「一滑到底」；慢转时每格 128px（≈1.3 个列表项）配 `smoothScrollBy` 每 30~40ms 被下一格打断，就是一跳一跳的「黏」。
+  - **改法（2 个主文件 + 设置页 + 单测）**：① `CrownSourcePolicy.WHEEL_MAX_STEPS_LIST` 32f → **2f**、`WHEEL_MAX_STEPS_READING` 2f → **1f**：速度改由**事件数**承担（快转连来几个事件就叠几格），单事件不再靠量级放大。原先「不能封到 1 格」的结论是 1px 基准下的（1 格 = 1px），基准修好后 1 格 = 128px，前提已变，KDoc 已改写。② 新增 `RotaryEventPolicy.clampSensitivity(value)` 纯函数：`≤ 0` 原样返回（0 仍是「这类页面不响应表冠」的既有语义），其余收进 `SENSITIVITY_MIN = 0.2f` .. `SENSITIVITY_MAX = 8f`；`RotaryEncoderSupport.multipleOf` / `sensitivityOf` 读取时一律过它。③ 新增 `RotaryEncoderSupport.normalizeSensitivity(key)`：设置页建列表时把越界的已存值就地收回（旧的 700 → 8），保证**设置页显示的数字等于真正生效的数字**；读取侧也收，所以从不进设置页的用户同样用不到越界值。④ 设置页两项灵敏度的说明换成新串 `desc_ui_rotatory_sensitivity`（范围 0.2–8、旧版本为何要填到几百、会自动收回）。
+  - **口径（有意的取舍）**：**没有改「1.0 = 标准滚动量」的语义，也没有改基准下限 64dp**——这两项在 beta.4 已被日志证明是对的（能动了、正常机型零变化），偏冲只来自「量级 × 128」这一处。灵敏度上限取 8 是「一格最多 8 格距离」，配合一屏封顶仍有加速余量。
+  - **L0（26.11.18 本机实测）**：`:app:testStandardDebugUnitTest :app:assembleDebug --console=plain` → BUILD SUCCESSFUL（1m49s，128 tasks）；**272 套件 / 2927 用例 / 0 失败 / 0 错误 / 0 跳过**（上一版 2924，新增 3 条 clampSensitivity 用例；改写 3 条：快转整格量 16 格 → 100px、阅读容器 16 格 → 50px、细量乘灵敏度改按上限 8 计）。
+  - **未验证（L2）**：① OPPO Watch 4 Pro 上默认 1.0 慢转一格的步长是否「不僵也不飞」；② 快转是否不再一滑到底（单事件最多 256px）；③ 「黏」是否消失（慢转不再一跳一跳）；④ 被自动收到 8 的灵敏度与手动填 1.0 的手感差多少；⑤ 正常机型（三星 / 小米 / Wear OS）是否有任何变化（封顶只减不增、基线下限在这类机器上取不到）。
+
 - **26.11.18-beta.4 表冠落在「滚不动的内层容器」上时被整格扔掉，且这台 ROM 把滚动基准改成了 1px（控制台反馈 #235，beta.3 的续修）**：
   - **来路**：同一个 OPPO Watch 4 Pro 用户（反馈 #235，`OWW221`，与 #197 / #234 同一台机）在 beta.2 上回了带日志的反馈：「几乎每个页面都用表冠滑动测试了，希望能帮到」。日志里每一条都是 `view=RotaryRecyclerView ratio=1.0 scrollable=false`，另有 `兜底：滚动成功（本进程首次）… dy=-1 target=RotaryRecyclerView`，以及连续的 `axisVScroll=1.0 / -8.0 / -16.0 / -36.0`（快转能超过原先假设的 ±16）。
   - **根因①（闸门找错了容器）**：消息页是 `app/src/main/res/layout/activity_message.xml:47` 的 `RotaryNestedScrollView` 里再套 `:358` 一个 `layout_height="match_parent"` 的 `RotaryRecyclerView`，内层被 `NestedScrollView` 的 UNSPECIFIED 测成「刚好装下全部会话」，`canScrollVertically()` 恒 false——正是 #166 那种「外层滚、内层撑满」的结构。`handle()` 的闸门「滚轮但容器滚不动 → 交回框架」于是每格都成立；而把表冠报成 mouse 源的 ROM 上框架根本不换算轴值，这一格等于扔给一个不处理的人，只剩 DecorView 兜底那一次。

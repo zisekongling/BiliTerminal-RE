@@ -144,7 +144,7 @@ internal object RotaryEncoderSupport {
      * 归并成一个「倍数 ≤ 0 即不生效」的判断。用户显式把灵敏度填 0 也就等于关掉该类控件。
      */
     fun multipleOf(key: String): Float =
-        if (isEnabled()) SharedPreferencesUtil.getFloat(key, DEFAULT_MULTIPLE.toFloat()) else 0f
+        if (isEnabled()) RotaryEventPolicy.clampSensitivity(storedMultiple(key)) else 0f
 
     /**
      * 补位/兜底用的倍率：开关关闭时是 [DEFAULT_MULTIPLE]，开启时是用户填的灵敏度。
@@ -154,8 +154,24 @@ internal object RotaryEncoderSupport {
      * 用户显式填 0 仍是「这类页面不响应表冠」的逃生口。
      */
     fun sensitivityOf(key: String): Float =
-        if (isEnabled()) SharedPreferencesUtil.getFloat(key, DEFAULT_MULTIPLE.toFloat())
+        if (isEnabled()) RotaryEventPolicy.clampSensitivity(storedMultiple(key))
         else DEFAULT_MULTIPLE.toFloat()
+
+    /**
+     * 把存下来的灵敏度**就地收回** [RotaryEventPolicy.SENSITIVITY_MIN]..[SENSITIVITY_MAX]。
+     *
+     * 只在设置页建列表时调一次：读取侧（[multipleOf] / [sensitivityOf]）已经收过了，所以即便
+     * 这里没跑到（用户从不进设置页），换算也用不到越界的值；这一步的目的是让**设置页显示的
+     * 数字等于真正生效的数字**，否则用户看到 700、手感却是 8，只会当成又一个 bug。
+     *
+     * 反馈 #235 的复测里，这一条对应「之前能正常滑动的页面变得一滑到底」：那些页面本身没变，
+     * 是基准从 1px 修到 128px 之后，他们为旧基准填的几百倍被原样乘了上去。
+     */
+    fun normalizeSensitivity(key: String) {
+        val stored = storedMultiple(key)
+        val clamped = RotaryEventPolicy.clampSensitivity(stored)
+        if (clamped != stored) SharedPreferencesUtil.putFloat(key, clamped)
+    }
 
     /** 总开关关闭时走「系统优先、App 补位」，开启时走老的「App 先接管」。 */
     fun isSystemFirstMode(): Boolean = !isEnabled()
@@ -920,27 +936,42 @@ object CrownSourcePolicy {
      */
     fun isCoarseWheelStep(ratio: Float): Boolean = ratio >= 0.9f || ratio <= -0.9f
 
-    /** 列表容器单次滚轮事件最多折算几格：32 格等于「不封顶」（框架自己也不封顶），只为挡住异常轴值。 */
-    const val WHEEL_MAX_STEPS_LIST = 32f
+    /**
+     * 列表容器单次滚轮事件最多折算几格（26.11.18-beta.5 从 32 收到 2，反馈 #235 复测）。
+     *
+     * 32 是配「基准被 ROM 压成 1px」那版定的：那时一格只算 1px，倍数再大也不过几十像素。
+     * 基准被 [RotaryEncoderSupport.verticalScrollFactorOf] 拉回 64dp 之后，一格 = 128px
+     * （378×496 的表上约 1.3 个列表项），而快转一格报的 `AXIS_VSCROLL` 可达 -32.0：
+     * 32 × 128 = 4096px，即便有「单次封顶一屏」也是一次跳满屏，用户看到的就是「一滑到底」。
+     *
+     * 所以速度**不再由单事件量级承担，而由事件数承担**：慢转一格 128px，快转连来几个事件就
+     * 叠几格，与编码器机型的观感一致。留 2 格（256px ≈ 半个屏高）给「稍微快一点」的余量。
+     */
+    const val WHEEL_MAX_STEPS_LIST = 2f
 
     /**
      * 阅读容器（`NestedScrollView` 及其子类：视频详情简介、消息页这类）单次滚轮事件最多折算几格。
      *
-     * 2 格是这么定的：这类容器拿主题的 `listPreferredItemHeight`（≈48dp）当一行，而一次快拨会在
-     * 34ms 内连来 3 个整格事件（#197 日志：-1.0 / -16.0 / -16.0）。不封顶就是 48 格 ≈ 十几屏，
-     * 正是 #197 说的「一转过整页、没法精确控制」；封到 2 格后一次快拨 ≈ 6 格 ≈ 1.5 屏。
+     * **26.11.18-beta.5 从 2 收到 1**（反馈 #235 复测），理由与 [WHEEL_MAX_STEPS_LIST] 相同：
+     * 这类容器拿主题的 `listPreferredItemHeight`（≈48dp ≈ 96px）当一行，基准修好后一格 128px
+     * 已经接近 1.4 行，再乘 2 就是「转一格跳三行」——#197 原话「一转过整页、没法精确控制」。
      *
-     * **不能封到 1 格**：26.11.18-beta.1 就是这样，OPPO Watch 4 Pro 快转一格从 16 行掉到 1 行，
-     * 用户（#234）直接报「表冠失效」。这个数字是手感参数，只能真机判，改动要记 L2。
+     * 这里原先写着「不能封到 1 格」，那条结论的前提是 **1px 基准**（1 格 = 1px，封到 1 就是
+     * 完全不动的 #234）。基准修好后 1 格 = 128px，两个前提不是一回事。这个数字是手感参数，
+     * 只能真机判，改动要记 L2。
      */
-    const val WHEEL_MAX_STEPS_READING = 2f
+    const val WHEEL_MAX_STEPS_READING = 1f
 
     /**
      * 一次滚轮事件该滚多少像素。
      *
-     * **保留量级、只封顶**，不要归成 ±1 的方向：26.11.18-beta.1 用 stepOf 收成一格，把量级抹掉了。
-     * OPPO Watch 4 Pro 快转一格报 `AXIS_VSCROLL = -16.0`，改前框架给 16 行、改后只给 1 行，速度掉到
-     * 1/16——用户体感就是「表冠失效/转不动」（反馈 #234），而这个人正是 #197 的报修者。
+     * **保留量级、只封顶**（封到 [WHEEL_MAX_STEPS_LIST] / [WHEEL_MAX_STEPS_READING] 那点格子），
+     * 不要写成「只取方向」：26.11.18-beta.1 用 stepOf 把量级整个抹掉，OPPO Watch 4 Pro 快转一格
+     * 报 `AXIS_VSCROLL = -16.0`，框架给 16 行、App 只给 1 行，用户（#234）体感就是「表冠失效」。
+     *
+     * **但「保留量级」不等于「量级不设上限」**：26.11.18-beta.5 之前上限是 32 格，那是配 1px 基准
+     * 定的；基准修回 128px 之后，一个 -32.0 的事件就是 4096px，用户（#235）直接报「一滑到底」。
+     * 现在 32 → 2（列表）/ 1（阅读），量级只用来区分「一格」和「不到一格」，快转的加速交给事件数。
      *
      * **不乘 2**：`pixelDelta` 里那个 ×2 是 26.10.17 为「编码器一格」定的手感基准；滚轮与框架的
      * `config_verticalScrollFactor × 1` 同口径——#197 用户说「其他地方都正常」，那些地方走的正是它。

@@ -116,28 +116,35 @@ class CrownSourcePolicyTest {
     }
 
     @Test
-    fun 快转的整格量按量级放大而不是收成一格() {
-        // 反馈 #234：OPPO Watch 4 Pro 快转一格报 AXIS_VSCROLL = -16.0，框架口径就是 16 行。
-        // 26.11.18-beta.1 把它收成一格，速度掉到 1/16，用户直接报「表冠失效」。
+    fun 快转的整格量按量级放大但单事件封顶两格() {
+        // #234 的反面教训：不能把量级收成 ±1（beta.1 就这么干，1px 基准下等于不动）。
+        // 但 26.11.18-beta.5 起上限只有 2 格（#235「一滑到底」）：基准修回 128px 后，
+        // 一个 -32.0 的事件若原样放大就是 4096px，一次跳满屏。所以 16 格 → 2 格 = 100px。
         assertEquals(
-            -800,
+            -100,
             CrownSourcePolicy.wheelScrollDelta(16f, 50f, 1f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST)
         )
         assertEquals(
-            800,
+            100,
             CrownSourcePolicy.wheelScrollDelta(-16f, 50f, 1f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST)
+        )
+        // 量级在「一格以内」仍原样保留：两格以内不吃封顶
+        assertEquals(
+            -100,
+            CrownSourcePolicy.wheelScrollDelta(2f, 50f, 1f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST)
         )
     }
 
     @Test
-    fun 阅读容器把单次滚轮量封顶() {
-        // 反馈 #197：简介/消息是 NestedScrollView，一格 16 行就是一整页，封到 2 格
+    fun 阅读容器把单次滚轮量封到一格() {
+        // #197：简介/消息是 NestedScrollView，一行 ≈ 48dp；基准修好后一格 128px 已接近 1.4 行，
+        // 再多乘就是「转一格跳三行」（beta.5 从 2 格收到 1 格）
         assertEquals(
-            -100,
+            -50,
             CrownSourcePolicy.wheelScrollDelta(16f, 50f, 1f, CrownSourcePolicy.WHEEL_MAX_STEPS_READING)
         )
         assertEquals(
-            100,
+            50,
             CrownSourcePolicy.wheelScrollDelta(-16f, 50f, 1f, CrownSourcePolicy.WHEEL_MAX_STEPS_READING)
         )
     }
@@ -176,12 +183,13 @@ class CrownSourcePolicyTest {
     }
 
     @Test
-    fun 细量乘高灵敏度按比例放大() {
-        // 反馈 #234 的「调到 700 就一卡一卡」：同一个细量乘 700 就是 7000px，一次事件跨好几十屏。
-        // 这条守住「公式对细量与整格量是同一套」，免得下次为了「动不了」在别处偷偷加系数。
+    fun 细量乘灵敏度按比例放大且不在这里兜灵敏度() {
+        // 守住「公式对细量与整格量是同一套」，免得下次为了「动不了」在别处偷偷加系数。
+        // 灵敏度本身由 RotaryEventPolicy.clampSensitivity 在读取时收进 0.2–8，
+        // #234 那种填到 700 的值不会走到这里，所以上限 8 时是 0.2 × 50 × 8 = 80px。
         assertEquals(
-            -7000,
-            CrownSourcePolicy.wheelScrollDelta(0.2f, 50f, 700f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST)
+            -80,
+            CrownSourcePolicy.wheelScrollDelta(0.2f, 50f, 8f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST)
         )
     }
 

@@ -116,10 +116,15 @@ class SettingPrefActivity : RefreshListActivity() {
             add(SettingSection("title", "表冠适配", "", "", ""))
             add(SettingSection("switch", "启用表冠适配", SettingsKeys.UI_ROTATORY_ENABLE,
                 getString(R.string.setting_lab_ui_rotatory), "false"))
-            add(SettingSection("input_float", "表冠适配灵敏度（Recycler）", SettingsKeys.UI_ROTATORY_RECYCLER, "",
-                RotaryEncoderSupport.DEFAULT_MULTIPLE))
-            add(SettingSection("input_float", "表冠适配灵敏度（Scroll）", SettingsKeys.UI_ROTATORY_SCROLL, "",
-                RotaryEncoderSupport.DEFAULT_MULTIPLE))
+            // 26.11.18（反馈 #235 复测）：旧基准被 ROM 压成 1px 时，用户会把灵敏度填到几百才转得动；
+            // 基准修回 64dp 之后同一个值就变成「每格满屏」（#235「一滑到底」）。这里先把越界的历史值
+            // 就地收回 0.2–8，保证设置页显示的数字就是真正生效的数字（读取侧也收，见 sensitivityOf）。
+            RotaryEncoderSupport.normalizeSensitivity(SettingsKeys.UI_ROTATORY_RECYCLER)
+            RotaryEncoderSupport.normalizeSensitivity(SettingsKeys.UI_ROTATORY_SCROLL)
+            add(SettingSection("input_float", "表冠适配灵敏度（Recycler）", SettingsKeys.UI_ROTATORY_RECYCLER,
+                getString(R.string.desc_ui_rotatory_sensitivity), RotaryEncoderSupport.DEFAULT_MULTIPLE))
+            add(SettingSection("input_float", "表冠适配灵敏度（Scroll）", SettingsKeys.UI_ROTATORY_SCROLL,
+                getString(R.string.desc_ui_rotatory_sensitivity), RotaryEncoderSupport.DEFAULT_MULTIPLE))
         }
 
         recyclerView.setHasFixedSize(true)

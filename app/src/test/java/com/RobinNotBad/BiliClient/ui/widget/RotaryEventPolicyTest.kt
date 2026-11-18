@@ -250,4 +250,34 @@ class RotaryEventPolicyTest {
     fun 零位移不受封顶影响() {
         assertEquals(0, RotaryEventPolicy.clampToViewport(0, 496))
     }
+
+    // ---------- clampSensitivity（反馈 #235 复测：基准修好后旧的高倍数变成「一滑到底」） ----------
+
+    @Test
+    fun 灵敏度超上限时收到八倍() {
+        // 4 Pro 用户为了在 1px 基准下「转得动」把值填到 700；基准修回 128px 后 700 就是
+        // 「每格 89600px」，每一格都撞一屏封顶，看到的就是「一滑到底」
+        assertEquals(8f, RotaryEventPolicy.clampSensitivity(700f), 0f)
+        assertEquals(8f, RotaryEventPolicy.clampSensitivity(8.5f), 0f)
+        // 边内不动
+        assertEquals(8f, RotaryEventPolicy.clampSensitivity(8f), 0f)
+        assertEquals(1f, RotaryEventPolicy.clampSensitivity(1f), 0f)
+        assertEquals(3.5f, RotaryEventPolicy.clampSensitivity(3.5f), 0f)
+    }
+
+    @Test
+    fun 灵敏度低于下限时抬到零点二() {
+        // 防手滑填 0.01：那种值让 App 算出的位移恒为 0，看起来又像「表冠失效」
+        assertEquals(0.2f, RotaryEventPolicy.clampSensitivity(0.01f), 0f)
+        assertEquals(0.2f, RotaryEventPolicy.clampSensitivity(0.2f), 0f)
+        assertEquals(0.35f, RotaryEventPolicy.clampSensitivity(0.35f), 0f)
+    }
+
+    @Test
+    fun 零和负数原样返回() {
+        // 0 是「这类页面不响应表冠」的既有语义（multipleOf / sensitivityOf 的约定），
+        // 在这里被抬成 0.2 就等于把用户显式关掉的功能又打开了
+        assertEquals(0f, RotaryEventPolicy.clampSensitivity(0f), 0f)
+        assertEquals(-3f, RotaryEventPolicy.clampSensitivity(-3f), 0f)
+    }
 }

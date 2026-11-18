@@ -162,4 +162,27 @@ object RotaryEventPolicy {
         if (delta == 0 || viewport <= 0) return delta
         return delta.coerceIn(-viewport, viewport)
     }
+
+    /** 灵敏度倍数的下界，见 [clampSensitivity]。 */
+    const val SENSITIVITY_MIN = 0.2f
+
+    /** 灵敏度倍数的上界，见 [clampSensitivity]。 */
+    const val SENSITIVITY_MAX = 8f
+
+    /**
+     * 把用户填的灵敏度收进 [SENSITIVITY_MIN]..[SENSITIVITY_MAX]（反馈 #235 复测）。
+     *
+     * 为什么要收：26.11.18-beta.4 之前 OPPO Watch 4 Pro 这类机子的滚动基准被 ROM 压成 1px，
+     * 用户为了「转得动」把灵敏度一路填到 700——那是在一个坏掉的基准上找手感。基准被
+     * `RotaryEncoderSupport.verticalScrollFactorOf` 拉回 64dp 之后，同一个 700 就是
+     * 「每格 128 × 700 = 89600px」，慢转也一次跳过好几屏，体感从「转不动」直接翻到「一滑到底」。
+     * 上限 8 是「一格最多 8 格距离」：配合单次封顶一屏仍有加速余量，又不会失控。
+     *
+     * 下限 0.2 只防手滑填成 0.01 导致完全不动；**≤ 0 原样返回**——0 是「这类页面不响应表冠」
+     * 的既有语义（见 `RotaryEncoderSupport.multipleOf`），不能在这里被顺手改成 0.2。
+     */
+    fun clampSensitivity(value: Float): Float {
+        if (value <= 0f) return value
+        return value.coerceIn(SENSITIVITY_MIN, SENSITIVITY_MAX)
+    }
 }
