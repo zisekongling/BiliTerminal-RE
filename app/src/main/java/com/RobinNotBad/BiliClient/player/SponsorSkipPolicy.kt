@@ -334,7 +334,11 @@ object SponsorSkipPolicy {
             if (pos < 0.0) continue
             // 总时长未知（<=0）时不做越界判断——此时任何一个点都没法验证，宁可全留
             if (currentDurationSec > 0.0 && pos > currentDurationSec + DURATION_TOLERANCE_SEC) continue
-            out.putIfAbsent(pos.toString() + "|" + item.category, Highlight(pos, item.category))
+            // 不用 out.putIfAbsent(…)：LinkedHashMap 自己没有这个方法，解析到的是
+            // java.util.Map 的默认方法——**API 24 才有**，minSdk 19 的机器上是
+            // NoSuchMethodError。这里是单线程写入，先到先留即可。
+            val key = pos.toString() + "|" + item.category
+            if (!out.containsKey(key)) out[key] = Highlight(pos, item.category)
         }
         return out.values.toList()
     }

@@ -114,7 +114,7 @@ internal object DownloadProgressStore {
     @JvmStatic
     fun reportFileProgress(id: Long, fallbackState: String, downloadedInFile: Long, fileTotal: Long,
                            baseProgress: Float, endProgress: Float, pseudoProgress: Float) {
-        val bytes = sectionBytes.computeIfAbsent(id) { DownloadSectionBytes() }
+        val bytes = sectionBytes.getOrCreate(id) { DownloadSectionBytes() }
         val report = bytes.report(downloadedInFile)
         val state = downloadProgressMap[id]?.state ?: fallbackState
 
@@ -151,7 +151,7 @@ internal object DownloadProgressStore {
 
     /** 数据部分全部下完（后面只剩合并/转封装）：进度顶到 100% */
     fun finishAllProgress(id: Long, state: String) {
-        val bytes = sectionBytes.computeIfAbsent(id) { DownloadSectionBytes() }
+        val bytes = sectionBytes.getOrCreate(id) { DownloadSectionBytes() }
         val report = bytes.finishAll()
         publish(id, 1f, state, report.doneBytes, report.totalBytes)
     }
@@ -273,7 +273,26 @@ internal object DownloadProgressStore {
     // ---------- 内部 ----------
 
     private fun samplerFor(id: Long): SpeedSampler =
-        samplers.computeIfAbsent(id) { SpeedSampler() }
+        samplers.getOrCreate(id) { SpeedSampler() }
+
+    /**
+     * `ConcurrentHashMap.computeIfAbsent(k) { }` 的替身。
+     *
+     * 不用 computeIfAbsent 的原因：它的 λ 编译出来是 `java.util.function.Function`，这个包
+     * **API 24 才有**，而 app/build.gradle 里 minSdk 是 19——API 19~23 的真机上实例化这个 λ
+     * 类会抛 `NoClassDefFoundError`（26.11.18 用户在下载列表上看到的「下载异常：
+     * java.lang.NoClassDefFoundError: …ui.widget.e」就是它）。
+     * 这里的 `putIfAbsent` 是 [java.util.concurrent.ConcurrentHashMap] 自己的成员方法（API 1
+     * 就有），不是 `java.util.Map` 的默认方法，语义与 computeIfAbsent 一致：已经有人建好了
+     * 就用它那一份，不覆盖。
+     */
+    private inline fun <V : Any> java.util.concurrent.ConcurrentHashMap<Long, V>.getOrCreate(
+        id: Long, create: () -> V,
+    ): V {
+        get(id)?.let { return it }
+        val created = create()
+        return putIfAbsent(id, created) ?: created
+    }
 
     private fun publish(id: Long, progress: Float, state: String,
                         downloadedBytes: Long, totalBytes: Long) {

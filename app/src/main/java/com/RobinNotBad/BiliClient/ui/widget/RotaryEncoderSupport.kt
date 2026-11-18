@@ -771,9 +771,23 @@ internal object RotaryEncoderSupport {
     /** 按容器类名各记 [PER_VIEW_PROBE_MAX] 条；超出后只计数不打日志。 */
     private fun probePerView(reason: String, view: View, event: MotionEvent, extra: String = "") {
         val key = view.javaClass.simpleName
-        val counter = perViewProbeCount.computeIfAbsent(key) { AtomicInteger(0) }
+        val counter = counterFor(key)
         if (counter.getAndIncrement() >= PER_VIEW_PROBE_MAX) return
         logLine(reason, event, "view=$key $extra")
+    }
+
+    /**
+     * 取（或建）某个容器类名的探针计数器。
+     *
+     * 原本写的是 `perViewProbeCount.computeIfAbsent(key) { AtomicInteger(0) }`，那个 λ 编译成
+     * `java.util.function.Function`——API 24 才有，minSdk 19 的机器上会 `NoClassDefFoundError`
+     * （26.11.18 下载报错就是这么来的，详见 DownloadProgressStore.getOrCreate 的注释）。
+     * `ConcurrentHashMap.putIfAbsent` 是 API 1 的成员方法，语义与 computeIfAbsent 一致。
+     */
+    private fun counterFor(key: String): AtomicInteger {
+        perViewProbeCount[key]?.let { return it }
+        val created = AtomicInteger(0)
+        return perViewProbeCount.putIfAbsent(key, created) ?: created
     }
 
     private fun probe(reason: String, event: MotionEvent, extra: String = "") {
