@@ -1005,6 +1005,7 @@
     <string name="text_download_all_complete">全部下载完成</string>
     <string name="text_download_some_failed">%1$d 个任务下载失败，请重试</string>
     <string name="text_download_failed_unknown">下载失败，未知错误</string>
+    <string name="text_download_failed_exception">下载异常：%1$s</string>
     <string name="text_download_link_failed">下载链接获取失败：\n%1$s</string>
     <string name="text_download_success">下载成功：\n%1$s</string>
     <string name="text_download_end">下载结束</string>

@@ -10,6 +10,7 @@ import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
@@ -56,6 +57,9 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.util.Timer
+
+/** release 包里 Logu 是关死的（BuildConfig.DEBUG 编译期折叠），真正出事的现场只有这条 logcat 能看到。 */
+private const val TAG = "DownloadService"
 
 class DownloadService : Service() {
 
@@ -588,6 +592,30 @@ class DownloadService : Service() {
     private fun takeFailReason(sectionId: Long): String =
         failReasons.remove(sectionId) ?: getString(R.string.text_download_failed_unknown)
 
+    /** 把异常压成一行可读原因：类名 + message（Error 常常没有 message，只留类名）。 */
+    private fun describeThrowable(t: Throwable): String {
+        val name = t.javaClass.name
+        val message = t.message
+        return if (message.isNullOrBlank()) name else "$name: $message"
+    }
+
+    /**
+     * 把任务当场标成失败并落库原因。
+     *
+     * 给 [parallelDownload] 的兜底用：那一层只负责「这个任务完了」，不写数据库；
+     * 一旦异常越过 [runDownloadSection]（Error 就会），任务会永远留在「下载中 0.0%」。
+     */
+    private fun failSection(sectionId: Long, t: Throwable) {
+        try {
+            DownloadProgressStore.retireSection(sectionId, false)
+            removeDownloadProgress(sectionId)
+            DownloadRepository.setState(sectionId, "error")
+            DownloadRepository.setFailReason(sectionId, describeThrowable(t))
+        } catch (e: Throwable) {
+            Log.e(TAG, "标记任务 $sectionId 失败时又出错", e)
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
 
@@ -685,7 +713,11 @@ class DownloadService : Service() {
                     else
                         getString(R.string.text_download_all_complete)
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // 必须捕 Throwable：NoClassDefFoundError / OutOfMemoryError 这类 Error 不是
+                // Exception，修复前从这里逃出去会让批次线程直接死掉——stopSelf() 不执行、
+                // 队列停在「准备中 0.0%」，用户只看到一行类名（反馈现场即如此）。
+                Log.e(TAG, "下载批次异常终止", e)
                 MsgUtil.err(e)
                 exitCode = DownloadPathSpec.ERR_UNKNOWN
                 exitMessage = getString(R.string.text_download_failed_unknown)
@@ -778,8 +810,11 @@ class DownloadService : Service() {
                 try {
                     // 单个任务失败不会中止整个批次，其余任务继续下载
                     runDownloadSection(taskSection)
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
+                    // 同上：Error 不能让任务一直停在「准备中 0.0%」，当场标成失败。
+                    Log.e(TAG, "任务 ${taskSection.id} 线程异常", e)
                     MsgUtil.err(e)
+                    failSection(taskSection.id, e)
                 } finally {
                     val remaining = activeCount.decrementAndGet()
                     activeDownloadsCount = remaining
@@ -805,9 +840,10 @@ class DownloadService : Service() {
     private fun runDownloadSection(downloadSection: DownloadSection): Boolean {
         val success = try {
             processDownloadSection(downloadSection)
-        } catch (e: Exception) {
-            Logu.e("DownloadService", "下载异常: ${e.message}")
+        } catch (e: Throwable) {
+            Log.e(TAG, "下载异常: ${downloadSection.id}", e)
             MsgUtil.err(e)
+            recordFailReason(downloadSection.id, getString(R.string.text_download_failed_exception, describeThrowable(e)))
             removeDownloadProgress(downloadSection.id)
             false
         }

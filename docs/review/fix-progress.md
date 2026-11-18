@@ -18,6 +18,14 @@
 
 ## 1. 当前版本状态
 
+- **26.11.18 后台下载被 Error 打断后整套队列静默死掉、任务永远停在「准备中 0.0%」（用户截图反馈）**：
+  - **来路**：用户报「新 beta 版使用后台下载出现问题」并贴截图（406x599）：下载列表里两行停在「第一季-2 准备中 0.0%」/「断不了情… 下载视频 0.0%」，浮层写着「错误：java.lang.NoClassDefFoundError: com/RobinNotBad/BiliClient.O…」（类名被弹窗宽度截断，只读到 O 开头）。
+  - **根因**：app/src/main/java/com/RobinNotBad/BiliClient/service/DownloadService.kt 的下载批次用 catch (e: Exception) 兜底（批次主体 :688、并行单任务 :781、runDownloadSection :808），而 **NoClassDefFoundError 是 Error 不是 Exception**——它从这三处直接逃出去，落到 CenterThreadPool 的 catch (Throwable) 里只弹出那一行类名。后果是：批次线程当场死亡，函数尾部那条 stopSelf()（:698）永远不执行，任务在 download 表里一直是 downloading、进度 0.0%，用户看到的就是「卡在准备中 0.0% + 一行类名」。顺带解释为什么这条报错在控制台查不到：它走 MsgUtil.err 的浮层，不写崩溃表。
+  - **改法（1 个文件 + 1 条文案）**：① 三处 catch (e: Exception) 改成 catch (e: Throwable)，并各自记 android.util.Log.e(TAG, …)（文件级 private const val TAG = "DownloadService"）——release 包里 Logu 是编译期关死的，这是唯一能留下现场痕迹的通道。② 新增 describeThrowable(t)（类名 + message，Error 通常没有 message 就只留类名）与 failSection(sectionId, t)（DownloadProgressStore.retireSection + removeDownloadProgress + setState("error") + setFailReason(…)，自身再包一层 Throwable 兜底）；runDownloadSection 的 catch 里改用 text_download_failed_exception（「下载异常：%1$s」）写失败原因，列表上直接能看到是哪一类错误。
+  - **口径（有意的取舍）**：**没有把 Error 当成「不可恢复就放弃队列」**——一个任务被 Error 打断只标这一个任务失败，其余任务照旧下载；批次主体那一层捕到 Throwable 时仍然走原来的收尾（放 WakeLock → stopSelf()），队列不会留在「服务还在前台跑、但没人在干活」的状态。本轮只做了「不再静默死掉 + 留证据」，**到底是哪个类缺失没定论**（用户装的是 26.11.17-exp.1 arm64 split，dex 自洽、com/RobinNotBad/BiliClient/feature/O 确实存在，本地模拟器 API37 x86_64 上 debug / release 都下载成功，复现不了），下一步等新版真机日志里的完整类名与堆栈。
+  - **L0（26.11.18 本机实测）**：:app:assembleStandardDebug → BUILD SUCCESSFUL；:app:testStandardDebugUnitTest **272 套件 / 2916 用例 / 0 失败 / 0 错误 / 0 跳过**。无纯函数可测（改动是异常兜底），未加用例。
+  - **未验证（L2）**：真机上再遇到同类 Error 时，① 列表里那一行是否从「准备中 0.0%」变成「下载出错 + 下载异常：<类名>」；② adb logcat -s DownloadService 是否能拿到带堆栈的 E 行；③ 同一批其余任务是否继续下载。三条都要等下次真机复现才能确认。
+
 - **26.11.18 音轨分离的缓存不能倍速、倍速下音画不同步：老双文件机会式重封装 + 播放侧锁 1 倍速（控制台反馈 #231）**：
   - **来路**：反馈 #231（26.11.17-beta.2，OPPO OWW231）：缓存视频有时无法使用倍速，或倍速下音画不同步。
   - **根因**：1080P 走 DASH，下载下来是 `video.mp4` + `audio.m4a` 两路。下载侧 `app/src/main/java/com/RobinNotBad/BiliClient/service/DownloadService.kt:1312` 的 `mergeDashPair` 只在**下载成功那一刻**把两路重封装成单文件；盘上遗留的双文件（老版本下的、合并失败留下的、拷贝进来的）没人再管。这类条目在 `LocalListActivity` 里是「视频 + 独立音轨」两条，播放时音频挂**第二个 MediaPlayer**（`PlayerActivity.initAudioTrack`），而倍速只设在主播放器的视频流上——视频快了、音频不跟，于是「不能倍速」与「音画不同步」是同一件事的两种表现。
