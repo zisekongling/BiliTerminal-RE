@@ -1055,7 +1055,7 @@
 > **26.11.11 播放器底部按钮行「新加按钮与同行不一致」的验收步骤与判据见 [`manual-test-guide-261111-player-slot-icon.md`](manual-test-guide-261111-player-slot-icon.md)（H25~H26）。**
 > **26.11.11 自动跳过广告片段（SponsorBlock）的验收步骤与判据见 [`manual-test-guide-261111-sponsorblock.md`](manual-test-guide-261111-sponsorblock.md)（S01~S06）。**
 
-> **26.11.18 六批修复（崩溃 #366/#367/#368/#369/#370/#371、反馈 #197/#211/#223/#224/#225/#228）的 L2 验收项逐条写在 §1 对应条目的「未验证（L2）」里**，本轮没有单独出交接单文档：每条都是「照着改前会坏的场景再看一遍」，其中 #370 需要一台 Android 8.0/8.1 设备。
+> **26.11.18 六批修复（崩溃 #366/#367/#368/#369/#370/#371、反馈 #197/#211/#223/#224/#225/#228）的验收步骤与判据见 [`manual-test-guide-261118.md`](manual-test-guide-261118.md)（H01~H08，8 条约 25 分钟）**，每条与 §1 里对应的「未验证（L2）」一一对应；其中 #370 需要一台 Android 8.0/8.1 设备，H05/H06 需要 OPPO Watch 4 Pro 与小米手表那两类表冠/机型。
 
 - [ ] **26.11.18 表情页仍漏还 Glide 资源（待修，未开单）**：`app/src/main/java/com/RobinNotBad/BiliClient/activity/EmoteActivity.kt:110` 的 `.submit().get()` 取完图没有 `manager.clear(future)`，与 §1「表情 Glide 资源泄漏」修的是**同一个 EngineKey**（表情 URL）——虽然本轮把 `EmoteUtil` 侧的租约全部归还了，这一处仍会在反复进出表情页时留下 acquired 计数。判据同崩溃 #366 那批（`Cannot recycle a resource while it is still acquired`）。
 
