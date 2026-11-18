@@ -2862,6 +2862,12 @@
     <!-- 页内输入卡片的确认按钮（与「发送弹幕」卡片的「发送」同构） -->
     <string name="btn_player_jump_time">跳转</string>
 
+    <!-- ==================== 播放器：反馈 #231 音轨分离的缓存不能倍速 ==================== -->
+    <!-- 起播时自动压回 1 倍速的一次性提示；括号里说清「下次会自动变好」，免得用户以为永远不能倍速 -->
+    <string name="msg_player_external_audio_speed_locked">此缓存音轨与画面分开存放，已固定为 1 倍速（下次进入缓存页会自动合并）</string>
+    <!-- 用户拖倍速滑条 / 长按加速时的拒绝提示 -->
+    <string name="msg_player_external_audio_speed_rejected">音轨分离的缓存暂不支持倍速</string>
+
     <!-- 播放页小卡片：睡眠定时 / 投币 / 收藏（26.11.15，动作类按钮共用一张卡片） -->
     <string name="player_action_card_sleep_timer">睡眠定时</string>
     <string name="player_action_card_coin">投币</string>

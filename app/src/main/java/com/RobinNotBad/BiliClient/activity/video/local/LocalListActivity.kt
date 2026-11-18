@@ -31,6 +31,7 @@ import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.VideoMeta
 import com.RobinNotBad.BiliClient.model.VideoFolder
 import com.RobinNotBad.BiliClient.service.download.DownloadPathSpec
+import com.RobinNotBad.BiliClient.util.CacheAudioRepair
 import com.RobinNotBad.BiliClient.util.CacheChangeSignal
 import com.RobinNotBad.BiliClient.util.CacheDeletePlan
 import com.RobinNotBad.BiliClient.util.CacheListOrderStore
@@ -265,6 +266,14 @@ open class LocalListActivity : InstanceActivity() {
      */
     private var cacheVersionAtLoad: Long = 0L
 
+    /**
+     * 本轮扫描发现的「音轨分离」缓存目录（`video.mp4` + `audio.m4a` 并存，反馈 #231）。
+     *
+     * 扫描本身只读，收集起来等整页扫完再一次性交给 [CacheAudioRepair]：合并耗时几秒到几十秒，
+     * 不能挂在扫描路径上；而且排进队列即刻返回，列表照旧显示这一条。
+     */
+    private val pendingAudioRepairDirs = LinkedHashSet<File>()
+
     // ===================== 多选（26.11.02） =====================
 
     /** 是否处于多选模式。打开后列表点击/长按都变成勾选，底部条换成「已选 N 项 / 操作 / 退出」。 */
@@ -468,6 +477,24 @@ open class LocalListActivity : InstanceActivity() {
 
         // 存一份本次结果，供「自动刷新」关着时下次进页面直接复用（反馈 #211）
         saveScanSnapshot(root, signatureAtStart)
+
+        // 整页扫完再排后台重封装（反馈 #231）：这一步不阻塞、不改上面的列表
+        flushAudioRepairs(root)
+    }
+
+    /**
+     * 把这一轮扫到的双文件目录交给 [CacheAudioRepair] 后台重封装（反馈 #231）。
+     *
+     * 只认本机下载根下的目录：外部缓存根属于别的分支，替换/删除那里的文件等于改别人的数据
+     * （扫描侧已经挡了一道，这里再按绝对路径核一遍，防止有人把外部目录塞进来）。
+     * 队列自己去重、跳过正在播放的目录，重复调用没有副作用。
+     */
+    private fun flushAudioRepairs(root: File) {
+        if (pendingAudioRepairDirs.isEmpty()) return
+        val rootPrefix = root.absolutePath + File.separator
+        val dirs = pendingAudioRepairDirs.filter { it.absolutePath.startsWith(rootPrefix) }
+        pendingAudioRepairDirs.clear()
+        if (dirs.isNotEmpty()) CacheAudioRepair.enqueueAll(dirs)
     }
 
     /**
@@ -593,6 +620,8 @@ open class LocalListActivity : InstanceActivity() {
                     // 如果合并失败，video.mp4和audio.m4a同时存在，把audio.m4a也加入列表供播放器使用
                     if (videoFile.exists() && audioFile.exists() && mediaFile == videoFile) {
                         localVideo.videoFileList.add(audioFile.toString())
+                        // 反馈 #231：这种双文件播放时只能 1 倍速，排进后台重封装（外部根只读，绝不排）
+                        if (externalRoot == null) pendingAudioRepairDirs.add(video)
                     }
 
                     if (qualityStr == DownloadPathSpec.TYPE_AUDIO_ONLY || (audioFile.exists() && !videoFile.exists())) {
@@ -652,6 +681,8 @@ open class LocalListActivity : InstanceActivity() {
                             // 如果合并失败，video.mp4和audio.m4a同时存在，把audio.m4a也加入列表
                             if (pageVideoFile.exists() && pageAudioFile.exists() && pageMediaFile == pageVideoFile) {
                                 localVideo.videoFileList.add(pageAudioFile.toString())
+                                // 反馈 #231：按「这一页」的根判断，本机根才排重封装
+                                if (externalRoot == null) pendingAudioRepairDirs.add(page)
                             }
 
                             val pageQualityFile = File(page, DownloadPathSpec.FILE_QUALITY)

@@ -132,6 +132,7 @@ import com.RobinNotBad.BiliClient.ui.widget.BatteryView
 import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
 import com.RobinNotBad.BiliClient.ui.widget.RadiusBackgroundSpan
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
+import com.RobinNotBad.BiliClient.util.CacheAudioRepair
 import com.RobinNotBad.BiliClient.util.CachePathResolver
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.CookieDomainPolicy
@@ -423,6 +424,21 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private var isLocalAudioFile = false
     private var audioTrackUrl: String? = null // DASH外部音频轨道
     private var audioPlayer: android.media.MediaPlayer? = null // 外部音频播放器
+
+    /**
+     * 当前这份本地缓存是不是「音轨分离」——此刻倍速被锁在 1x（反馈 #231）。
+     *
+     * 为什么必须锁：双文件的音频挂在第二路 [android.media.MediaPlayer] 上，而倍速只作用在主播放器的
+     * 视频流（IJK 的 setSpeed），音轨仍按原速走。用户报的就是「倍速下音画不同步」。
+     * 锁的判定与解除全在 [initAudioTrack] 里（每次重建都重新算一遍），其余入口只读它。
+     */
+    private var externalAudioSpeedLocked = false
+
+    /** 「已锁 1 倍速」的提示只弹一次，别让切清晰度这种重建反复打扰。 */
+    private var externalAudioSpeedHintShown = false
+
+    /** 锁之前用户选的倍速档位（speed_values 下标）；-1 = 没记过。解锁时还回去。 */
+    private var speedBeforeExternalAudioLock = -1
 
     /**
      * 外挂音轨此刻是否真的在跑（由 [syncExternalAudioPlayback] / [playerPause] 维护）。
@@ -2010,7 +2026,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             else clickUI()
         }
         layout_control.setOnLongClickListener {
-            if (SharedPreferencesUtil.getBoolean("player_longclick", true) && ijkPlayer != null && isPlaying && !isLiveMode) {
+            // 反馈 #231：音轨分离的缓存不能加速，长按加速一并关掉（否则声音会掉队）
+            if (SharedPreferencesUtil.getBoolean("player_longclick", true) && ijkPlayer != null && isPlaying &&
+                !isLiveMode && !externalAudioSpeedLocked
+            ) {
                 if (!onLongClick && !gesture_click_disabled) {
                     hidecon.run()
                     // #61：倍率来自设置页，每次长按重读（改完即生效），默认 3.0 与改造前一致
@@ -5108,7 +5127,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         ijkPlayer = null
         releaseIjkPlayerAsync(playerToRelease)
         releaseAudioTrack()
-
+        // 页面没了就不再「正在播放」：缓存页可以照常重封装这个目录了（见 CacheAudioRepair）
+        CacheAudioRepair.setPlayingDir(null)
         if (isOnlineVideo && danmakuFile != null && danmakuFile!!.exists())
             danmakuFile!!.delete()
 
@@ -5677,6 +5697,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
 
         seekbar_speed.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar, position: Int, fromUser: Boolean) {
+                if (fromUser && externalAudioSpeedLocked) {
+                    // 反馈 #231：音轨分离的缓存加速只会让声音掉队，直接拒绝并弹回 1x。
+                    // 改 progress 会再触发一次 fromUser=false 的回调，那一支负责把提示文字与
+                    // 播放器速度一起按回去。
+                    seekBar.progress = speedNormalIndex
+                    MsgUtil.showMsg(UiText.of(getString(R.string.msg_player_external_audio_speed_rejected)))
+                    return
+                }
                 if (fromUser) {
                     text_newspeed.text = speed_strs[position]
                     text_speed.text = speed_strs[position]
@@ -6786,12 +6814,58 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         }
     }
 
+    /** 1 倍速在 speed_values 里的下标：音轨分离的缓存只能停在这一档。 */
+    private val speedNormalIndex: Int
+        get() = speed_values.indexOfFirst { abs(it - 1.0F) < 0.001F }.takeIf { it >= 0 } ?: 2
+
+    /**
+     * 反馈 #231：音轨分离的缓存把倍速锁在 1x。
+     *
+     * **必须在外部音轨起播之后调用**：onPrepared 里先套了「默认倍速 / 本次会话的倍速」，
+     * 提前锁会被它盖回去。锁的动作只是把滑条按回 1x 档再重新应用——走 [applySpeedFromSeekbar]
+     * 而不是直接 setSpeed(1f)，是为了让提示文字、弹幕速度与播放器三者一致（本来就一起改的）。
+     */
+    private fun lockSpeedForExternalAudio() {
+        externalAudioSpeedLocked = true
+        val current = seekbar_speed.progress
+        if (current != speedNormalIndex) {
+            if (speedBeforeExternalAudioLock < 0) speedBeforeExternalAudioLock = current
+            seekbar_speed.progress = speedNormalIndex
+            applySpeedFromSeekbar()
+        }
+        if (!externalAudioSpeedHintShown) {
+            externalAudioSpeedHintShown = true
+            MsgUtil.showMsg(UiText.of(getString(R.string.msg_player_external_audio_speed_locked)))
+        }
+        Logu.d("AudioTrack", "音轨分离的缓存已锁定 1 倍速")
+    }
+
+    /**
+     * 解除上面的锁定，并把锁之前用户选的倍速还回去。
+     *
+     * 不把这段并进 [releaseAudioTrack]：那个方法在 onDestroy 里也会走，那时再回头调
+     * [applySpeedFromSeekbar] 会去碰正在释放的播放器。调用点都是「下一次要重新判定」的地方。
+     */
+    private fun unlockExternalAudioSpeed() {
+        if (!externalAudioSpeedLocked) return
+        externalAudioSpeedLocked = false
+        val restore = speedBeforeExternalAudioLock
+        speedBeforeExternalAudioLock = -1
+        if (restore in 0 until speed_values.size && restore != seekbar_speed.progress) {
+            seekbar_speed.progress = restore
+            applySpeedFromSeekbar()
+        }
+    }
+
     /**
      * 主播放器已解析媒体后，确认主文件没有音轨才使用外部音频。
      * 直接使用 IJK 的轨道元数据，不再额外打开文件扫描，也不删除任何缓存文件。
      */
     private fun initAudioTrack(mediaPlayer: IMediaPlayer) {
         releaseAudioTrack()
+        // 反馈 #231：每次重建都重新判定。这一份可能是单文件（能倍速），也可能换了文件、
+        // 内置音轨重新出现——先解锁并把用户原来的倍速还回去，确认真要外挂音轨时再锁。
+        unlockExternalAudioSpeed()
         val url = audioTrackUrl?.takeIf { it.isNotBlank() } ?: return
         val audioFile = File(url)
         val fileUsable = audioFile.isFile && audioFile.canRead() && audioFile.length() > 0L
@@ -6840,6 +6914,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 if (audioPlayer === failedPlayer) {
                     Logu.e("AudioTrack", "外部音频播放失败：$what/$extra")
                     releaseAudioTrack()
+                    // 没有外挂音轨了就不该再锁 1x（反馈 #231）
+                    unlockExternalAudioSpeed()
                     if (!destroyed) MsgUtil.showMsg(UiText.of("本地音频播放失败，请重新载入"))
                 }
                 true
@@ -6855,6 +6931,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 externalAudioRunning = true
             }
             Logu.d("AudioTrack", "已启用唯一的外部音频轨道，增益=$gain，静音=${isAudiblySilent()}")
+            // 反馈 #231：外挂音轨是第二路 MediaPlayer，主播放器一加速它就掉队，只能锁 1x。
+            // 放在这里而不是函数开头：此刻 onPrepared 的默认倍速已经套过，锁住才不会又被盖掉。
+            lockSpeedForExternalAudio()
         } catch (e: Exception) {
             Logu.e("AudioTrack", "音频轨道初始化失败: ${e.message}")
             releaseAudioTrack()
@@ -8074,6 +8153,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         if (destroyed) return
 
         releaseAudioTrack()
+        // 上一页的锁定随音轨一起作废，新一P 由 onPrepared → initAudioTrack 重新判定（反馈 #231）
+        unlockExternalAudioSpeed()
+        // 换了文件就是新的一次起播，锁 1x 的提示该重新说一遍
+        externalAudioSpeedHintShown = false
         // 新分页不能继续复用上一页的外部音轨，但要用**本页**的音轨（没有则置空）
         audioTrackUrl = newAudioTrackUrl.takeIf { it.isNotEmpty() }
         ijkPlayer?.stop()
@@ -8085,6 +8168,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         // 切P 后本地视频的目录与落盘去重都要跟着换：每个分P 各有自己的 `.video_meta.json`，
         // 沿用上一P 的目录会把这一P 的位置写进别人的文件
         localMediaDir = if (newVideoUrl.contains("http")) null else File(newVideoUrl).absoluteFile.parentFile
+        // 正在播放的目录随之换人：缓存页的「双文件机会式重封装」据此跳过它（见 CacheAudioRepair）
+        CacheAudioRepair.setPlayingDir(localMediaDir)
         lastSavedLocalProgressMs = -1L
         setPlayerTitle(newTitle)
         videoTitle = newTitle
@@ -9076,6 +9161,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         progressChange()
         onlineChange()
 
+        // 上报「正在放的本地目录」：缓存页的后台重封装要避开它（替换/删除正在读的文件会出事）。
+        // 在线播放 / 直播时 localMediaDir 为 null，等于「没有要避让的目录」。
+        CacheAudioRepair.setPlayingDir(localMediaDir)
         // 判断实际轨道，含内嵌音轨时禁止再启动第二路音频；重复 prepared 也不会遗留旧实例。
         initAudioTrack(mediaPlayer)
         // 新建的 IjkMediaPlayer/外部音轨默认增益都是 1.0，必须把用户记忆的「无极调音」重新打上去，
