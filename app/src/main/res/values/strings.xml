@@ -201,7 +201,7 @@
     <string name="desc_player_doubletap_restore_scale">开启后，画面有缩放时双击优先恢复原大小和居中位置；未缩放时双击播放/暂停。只切换横竖屏不算缩放，恢复缩放也不会改变当前方向。开启双击快进快退时，左右两侧仍用于快退/快进。</string>
     <string name="desc_audio_only">开启后，进入播放器时默认使用听视频模式。\n禁用视频解码，只播放音频</string>
     <string name="desc_doublemove">大屏幕设备上会更好用，手表上可能会造成操作不便</string>
-    <string name="desc_display">！如果视频播放异常/闪退/未响应/无法缩放，请尝试切换该选项！\n已知：KidoX3只能Surface，小天才只能Texture，部分设备需要使用Texture才能进行缩放</string>
+    <string name="desc_display">！如果视频播放异常/闪退/未响应/无法缩放，请尝试切换该选项！\n已知：KidoX3只能用表面视图，小天才只能用纹理视图，部分设备需要使用纹理视图才能进行缩放</string>
     <string name="desc_videocodec">硬件解码：使用GPU解码，速度快，性能消耗小\n软件解码：使用CPU硬算，兼容性好，暖手必备</string>
     <string name="desc_audiocodec">通常使用AudioTrack即可，声音延迟或无法播放请尝试切换</string>
     <string name="desc_new_danmaku_api">开启后，内置播放器将通过新的弹幕接口实时获取视频弹幕。\n注意：该选项仅对内置播放器有效，且不支持高级弹幕</string>
@@ -1707,7 +1707,7 @@
     <string name="uitext_playeractivity_019">正在发送~</string>
     <string name="uitext_playeractivity_020">不能发送空弹幕喵</string>
     <string name="uitext_playeractivity_021">直播弹幕连接失败</string>
-    <string name="uitext_playeractivity_022">请切换为TextureView才能支持软件旋屏！</string>
+    <string name="uitext_playeractivity_022">请切换为纹理视图才能支持软件旋屏！</string>
     <string name="uitext_playeractivity_024">重新载入失败，请重试</string>
     <string name="uitext_playeractivity_025">重新载入</string>
     <string name="uitext_playeractivity_026">本视频无字幕</string>
