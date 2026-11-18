@@ -24,6 +24,11 @@ class RotaryRecyclerView @JvmOverloads constructor(
 ) : RecyclerView(context, attrs, defStyleAttr) {
 
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        // 自己是 ViewPager 离屏页里的控件时不接这一格（反馈 #228）。焦点会留在切走的那一页上，
+        // 编码器事件顺着旧焦点路径先落到这里；拦不住的话下面的 `super`（RecyclerView 本身就认
+        // 表冠源）照样会滚，用户看到的是「当前页纹丝不动、看不见的那页在后台滚」。让路之后
+        // 事件冒泡到 DecorView 兜底，由它按当前页重新选目标（见 isOffscreenPageWidget 的注释）。
+        if (RotaryEncoderSupport.isOffscreenPageWidget(this)) return false
         if (RotaryEncoderSupport.isSystemFirstMode()) {
             return RotaryEncoderSupport.handleSystemFirst(
                 this, event,

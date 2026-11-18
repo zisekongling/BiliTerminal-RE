@@ -10,12 +10,15 @@ import android.widget.ScrollView
 import androidx.core.view.ViewConfigurationCompat
 import androidx.core.widget.NestedScrollView
 import androidx.recyclerview.widget.RecyclerView
+import androidx.viewpager.widget.ViewPager
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.math.roundToInt
 
 /**
  * 表冠（旋转编码器）滚动的公共实现。
@@ -73,6 +76,27 @@ import java.util.concurrent.atomic.AtomicInteger
  * （[RotaryEventPolicy.topUpDelta]）：框架滚了多少就抵扣多少，不够的由 App 补到与「开启表冠
  * 适配」一致的距离。框架本来就给得够的机型（issue #21 那一类）分毫不动，同一次手势也不会
  * 被算两次。
+ *
+ * **26.11.18 修反馈 #228（小米手表「主界面正常，进视频详细页转得很慢，像 0.5 倍速」）与
+ * #197（OPPO Watch 4 Pro「视频详情页简介部分，表冠无法精确控制滑动」）**，两条的原因不同：
+ * 1. #197 是**来源**问题：这台表把表冠交付成鼠标滚轮（反馈日志 `src=0x2002` =
+ *    `SOURCE_MOUSE`、量放在 `AXIS_VSCROLL` 上，相邻几条里既有 -1.0 也有 -16.0），而
+ *    [RotaryEventPolicy.isRotaryEvent] 只认 `SOURCE_ROTARY_ENCODER`，于是三条入口全部在
+ *    门口退回框架（见 [handleSystemFirst] 的第二行），只剩框架自己的换算——`NestedScrollView`
+ *    把 -16 当 16 行算就是**一次跳一整页**，手感即「无法精确控制」。放宽的判据与换算在
+ *    [CrownSourcePolicy]：只放宽「表把表冠报成滚轮」这一种来源，且只在**一格报成多行**时由
+ *    App 收成一格；真实鼠标一格（|量| ≤ 1）仍原样交回框架，接了鼠标的手机与模拟器手感不变。
+ *    接管必须放在**框架之前**：[RotaryEventPolicy.topUpDelta] 只补不足，收不回框架已经跳出去
+ *    的那一段。
+ * 2. #228 是**落点与开销**问题，且是详情页独有。详情页 `viewPager.offscreenPageLimit = 页数`，
+ *    三个页始终 attached + VISIBLE：兜底第一轮靠 [isCandidateVisible] 还能滤掉离屏页，
+ *    第二轮（`requireOnScreen = false`）就会选中**用户看不见那一页**的容器并把事件吃掉；
+ *    焦点同理可能停在别页的容器上（本工程的 `Rotary*` 控件靠焦点路径拿事件）。于是「一直在转，
+ *    看得见的那页不动」。现在兜底排除 `ViewPager` 非当前页（[isInsideOffscreenPagerPage]），
+ *    并把命中目标缓存起来（[resolveScrollTarget]）：详情页是「三页同时 attached」的最坏情况，
+ *    原先每个表冠事件都要跑两轮全树遍历、每个候选问一次 `canScrollVertically`，低端手表上
+ *    这就是「转起来发涩」的叠加项。找不到目标时的日志也补上扫描统计（[ScanStats]），
+ *    下次再报「转不动」能直接分辨「整页没内容」与「被可见性判断挡掉」。
  */
 internal object RotaryEncoderSupport {
 
@@ -133,14 +157,24 @@ internal object RotaryEncoderSupport {
         smoothScrollBy: (Int) -> Unit
     ): Boolean {
         if (multiple <= 0f) return false
-        if (!RotaryEventPolicy.isRotaryEvent(event.action, event.source)) {
+        if (isOffscreenPageWidget(view)) return false
+        val crown = CrownSourcePolicy.kindOf(event.action, event.source)
+        if (crown == CrownSourcePolicy.NONE) {
             if (RotaryEventPolicy.isScrollEvent(event.action)) {
                 probe("控件级：非表冠源，未处理", event, "view=${view.javaClass.simpleName}")
             }
             return false
         }
+        // 滚轮类来源（反馈 #197）：连续小量（|量| < 0.9，触控板那种）交回框架自己换算；只有整格
+        // （±1.0 / ±16.0）才由 App 收成一格。容器此刻压根滚不动（横向列表、内容不满一屏）时也
+        // 交回框架——否则就是「事件被吃掉、画面却不动」，比不接管更糟。
+        if (crown == CrownSourcePolicy.WHEEL &&
+            (!CrownSourcePolicy.isCoarseWheelStep(rawScrollRatio(event)) || !isScrollable(view))
+        ) {
+            return false
+        }
 
-        val dy = pixelDelta(view, event, multiple)
+        val dy = crownPixelDelta(view, event, multiple) ?: return false
         if (!RotaryEventPolicy.shouldConsume(dy)) {
             probe("控件级：位移为 0，不吞事件", event, "view=${view.javaClass.simpleName} multiple=$multiple")
             return false
@@ -181,9 +215,32 @@ internal object RotaryEncoderSupport {
         smoothScrollBy: (Int) -> Unit
     ): Boolean {
         if (multiple <= 0f) return runFramework()
-        if (!RotaryEventPolicy.isRotaryEvent(event.action, event.source)) return runFramework()
+        if (isOffscreenPageWidget(view)) return false
+        val crown = CrownSourcePolicy.kindOf(event.action, event.source)
+        if (crown == CrownSourcePolicy.NONE) return runFramework()
 
         probeMode(view, event)
+
+        // 滚轮类来源（反馈 #197）一格报多行时，必须在**框架动手之前**接管：框架按行数换算
+        // （-16 就是 16 行 = 一次整页，见 [RotaryEventPolicy.systemFirstTargetDelta] 的注释），
+        // 而 [RotaryEventPolicy.topUpDelta] 只补不足、收不回已经跳出去的那一段距离。
+        if (crown == CrownSourcePolicy.WHEEL) {
+            val ratio = rawScrollRatio(event)
+            if (!CrownSourcePolicy.isCoarseWheelStep(ratio) || !isScrollable(view)) {
+                return runFramework()
+            }
+            val dy = CrownSourcePolicy.wheelStepDelta(
+                CrownSourcePolicy.stepOf(ratio), scaledVerticalScrollFactorOf(view), multiple
+            )
+            if (!RotaryEventPolicy.shouldConsume(dy)) return runFramework()
+            smoothScrollBy(dy)
+            probePerView(
+                "滚轮：框架会整页跳，App 收成一格", view, event,
+                "ratio=$ratio dy=$dy multiple=$multiple"
+            )
+            return true
+        }
+
         val before = scrollOffset()
         val frameworkHandled = runFramework()
         val frameworkDelta = scrollOffset() - before
@@ -238,19 +295,29 @@ internal object RotaryEncoderSupport {
      * 横向容器（如 `ViewPager2` 内部、横向 `RecyclerView`）的 `canScrollVertically` 恒为
      * false，天然被排除，不会把翻页手势抢成竖滚。
      *
+     * 26.11.18 为反馈 #228 收紧了两处，见 [resolveScrollTarget]：不再选 ViewPager 离屏页里的
+     * 容器（详情页三页常驻，宽松轮会捞到看不见的那一页并吞掉事件），以及命中缓存时不遍历。
+     *
      * @return 是否消费了这次事件
      */
     fun handlePage(root: View, event: MotionEvent): Boolean {
-        if (!RotaryEventPolicy.isRotaryEvent(event.action, event.source)) {
+        val crown = CrownSourcePolicy.kindOf(event.action, event.source)
+        if (crown == CrownSourcePolicy.NONE) {
             if (RotaryEventPolicy.isScrollEvent(event.action)) {
                 probe("兜底：非表冠源，未处理", event, "root=${root.javaClass.simpleName}")
             }
             return false
         }
 
-        val target = findScrollTarget(root)
+        val stats = ScanStats()
+        val target = resolveScrollTarget(root, stats)
         if (target == null) {
-            probe("兜底：本页找不到可滚容器", event)
+            // 反馈 #228 就卡在这一句上：原先它只能说「本页没有可滚容器」，说不出是哪种原因。
+            // 现在把扫描统计一起打出来——scrollable > 0 而 hidden / noOverlap / offscreenPage
+            // 也 > 0，说明目标被可见性或页位判断挡掉了（详情页三页常驻时最可能是 offscreenPage）；
+            // scrollable 为 0 说明页面上当时**根本没有可滚内容**（详情页取数没回来、页面根还
+            // 是 GONE 的那段时间，正好对上 #228 那种满屏 DNS 失败、半天加载不出的场景）。
+            probe("兜底：本页找不到可滚容器", event, stats.describe(root))
             return false
         }
         val multiple = if (target is RecyclerView)
@@ -259,7 +326,7 @@ internal object RotaryEncoderSupport {
             sensitivityOf(SettingsKeys.UI_ROTATORY_SCROLL)
         if (multiple <= 0f) return false
 
-        val dy = pixelDelta(target, event, multiple)
+        val dy = crownPixelDelta(target, event, multiple) ?: return false
         if (!RotaryEventPolicy.shouldConsume(dy)) {
             probe("兜底：位移为 0，不吞事件", event, "target=${target.javaClass.simpleName} multiple=$multiple")
             return false
@@ -295,8 +362,26 @@ internal object RotaryEncoderSupport {
             ViewConfiguration.get(view.context), view.context
         )
 
-    private fun pixelDelta(view: View, event: MotionEvent, multiple: Float): Int =
-        RotaryEventPolicy.pixelDelta(rawScrollRatio(event), scaledVerticalScrollFactorOf(view), multiple)
+    /**
+     * 本容器上这一格该滚多少像素；返回 null 表示「这次不接管」。
+     *
+     * 编码器来源走 [RotaryEventPolicy.pixelDelta]（原口径，含那个 ×2）；滚轮来源走
+     * [CrownSourcePolicy.wheelStepDelta]（收成一格、不乘 2，理由见那里的注释）。三条入口
+     * 都已经提前挡掉了 CrownSourcePolicy.NONE，所以 null 在正常路径上不会出现。
+     */
+    private fun crownPixelDelta(view: View, event: MotionEvent, multiple: Float): Int? {
+        val factor = scaledVerticalScrollFactorOf(view)
+        return when (CrownSourcePolicy.kindOf(event.action, event.source)) {
+            CrownSourcePolicy.ENCODER ->
+                RotaryEventPolicy.pixelDelta(rawScrollRatio(event), factor, multiple)
+
+            CrownSourcePolicy.WHEEL -> CrownSourcePolicy.wheelStepDelta(
+                CrownSourcePolicy.stepOf(rawScrollRatio(event)), factor, multiple
+            )
+
+            else -> null
+        }
+    }
 
     /** 系统优先模式下这一格「应该」走的距离（与开启表冠适配 + 灵敏度 1.0 一致）。 */
     private fun systemFirstTargetDelta(view: View, event: MotionEvent, multiple: Float): Int =
@@ -375,6 +460,9 @@ internal object RotaryEncoderSupport {
             append(" action=").append(event.action)
             append(" src=0x").append(source.toString(16))
             append(" rotary=").append(RotaryEventPolicy.isRotaryEvent(event.action, source))
+            // crown 是放宽后的判据（1=编码器 2=滚轮 0=不接管），排查 #197 这类「ROM 把表冠报成
+            // 鼠标」时，rotary=false 只能说明没走老路径，crown 才能说明到底认没认出来。
+            append(" crown=").append(CrownSourcePolicy.kindOf(event.action, source))
             append(" axisScroll=").append(event.getAxisValue(MotionEvent.AXIS_SCROLL))
             append(" axisVScroll=").append(event.getAxisValue(MotionEvent.AXIS_VSCROLL))
             if (extra.isNotEmpty()) {
@@ -387,26 +475,130 @@ internal object RotaryEncoderSupport {
     // ==================== 找目标 ====================
 
     /**
-     * 深度优先找本页第一个「可见且当前确实能上下滚」的竖直滚动容器。
+     * 上一次兜底命中的容器。
      *
-     * 两轮：先要求候选与窗口有实际交集（[isCandidateVisible]），一个都没有时再退回只看
-     * `isShown()`（26.11.07 之前的行为）——布局还没完成、尺寸都是 0 的瞬间，严格条件会全灭，
-     * 此时按老办法至少不会比原来更差。
+     * 一格的代价是「ViewPager → 三个常驻 fragment → 每个 fragment 几十个 View 的子树」全遍历，
+     * 而 [isScrollable] 内部的 canScrollVertically 是虚调用；表冠转得快时一帧可能来好几格，
+     * 累计起来就是「发涩 / 像 0.5 倍速」的体感（反馈 #228）。缓存只解决「同一个容器连续命中」
+     * 这个绝大多数情况，命中条件每次都重新校验（不在离屏页 + 能滚 + 可见），所以容器被回收、
+     * 切页、滚到内容不满屏时都会自动失效。
+     *
+     * 用弱引用：owner 是 DecorView，活到 Activity 销毁，强引用会把已经离开的 fragment 的
+     * 整棵 View 树一起摁住。
      */
-    private fun findScrollTarget(root: View): View? {
+    private var cachedTargetRef: WeakReference<View>? = null
+
+    /**
+     * 找本页第一个「可见且当前确实能上下滚」的竖直滚动容器。
+     *
+     * 顺序：先试 [cachedTargetRef]，未命中再单轮深度优先扫全树（[scanScrollTarget]）。
+     * 26.11.18 为反馈 #228 改了两点：
+     * 1. 两轮遍历合成一轮——原来「严格一轮 + 宽松一轮」在详情页就是两遍全树；
+     * 2. 扫描时**跳过 ViewPager 非当前页里的容器**。视频详情页把 offscreenPageLimit 设成页数
+     *    （VideoInfoActivity.kt:125 / :92），简介 / 评论 / 推荐三页同时 attached 且 VISIBLE，
+     *    只是被摆到屏幕外，`isShown()` 对它们仍为真：老代码的严格轮被 getGlobalVisibleRect
+     *    挡掉之后，宽松轮会捞到离屏页的容器，于是表冠滚的是用户看不见的那一页，事件还被吞掉
+     *    （返回 true 后不再有别的处理者）。
+     */
+    private fun resolveScrollTarget(root: View, stats: ScanStats): View? {
         val rect = Rect()
-        return findScrollTarget(root, rect, requireOnScreen = true)
-            ?: findScrollTarget(root, rect, requireOnScreen = false)
+        val cached = cachedTargetRef?.get()
+        if (cached != null && !isInsideOffscreenPagerPage(cached) &&
+            isScrollable(cached) && isCandidateVisible(cached, rect, requireOnScreen = true)
+        ) {
+            return cached
+        }
+
+        val hit = scanScrollTarget(root, rect, stats) ?: stats.fallback
+        cachedTargetRef = hit?.let { WeakReference(it) }
+        return hit
     }
 
-    private fun findScrollTarget(view: View, rect: Rect, requireOnScreen: Boolean): View? {
-        if (isScrollable(view) && isCandidateVisible(view, rect, requireOnScreen)) return view
+    /**
+     * 单轮深度优先：优先返回「可见、与窗口有实际交集、且不在 ViewPager 离屏页里」的容器；
+     * 一个都没有时退回第一个「`isShown()` 为真」的容器（26.11.07 之前的行为：布局还没完成、
+     * 尺寸都是 0 的瞬间严格条件会全灭，此时按老办法至少不会比原来更差）。
+     *
+     * 顺路把统计记进 [stats]：反馈 #228 的日志只有一句「本页找不到可滚容器」，没法区分
+     * 「页面上真的没有可滚内容」和「有容器但被可见性判断挡掉了」，只能靠这几组数字下次判死。
+     */
+    private fun scanScrollTarget(view: View, rect: Rect, stats: ScanStats): View? {
+        if (view is ViewGroup) stats.groups++
+        if (isScrollable(view)) {
+            stats.scrollable++
+            when {
+                // 先判几何可见：只要与窗口有交集就一定是用户看得见的那个（含翻页过程中的两页），
+                // 不受 ViewPager 子序号与页号对不对得上的影响。
+                isCandidateVisible(view, rect, requireOnScreen = true) -> return view
+                // 再排除离屏页：宽松轮（只看 isShown）正是 #228 / #205 那类「滚了没反应」的来源。
+                isInsideOffscreenPagerPage(view) -> stats.offscreenPage++
+                !view.isShown -> stats.hidden++
+                else -> {
+                    stats.noOverlap++
+                    if (stats.fallback == null) stats.fallback = view
+                }
+            }
+        }
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) {
-                findScrollTarget(view.getChildAt(i), rect, requireOnScreen)?.let { return it }
+                scanScrollTarget(view.getChildAt(i), rect, stats)?.let { return it }
             }
         }
         return null
+    }
+
+    /**
+     * 控件级入口的落点闸门：自己要嘛在 ViewPager 的离屏页里，要嘛根本不在屏幕上，就别消费这一格。
+     *
+     * 典型现场（反馈 #228 的详情页）：焦点停在切走的那一页上，ViewPager 又不会搬焦点，于是编码器
+     * 事件顺着**旧焦点路径**先落到那一页的滚动控件上。老代码在这里照旧接管，用户看到的是
+     * 「在当前页转表冠，看不见的那一页在后台滚，当前页纹丝不动」——事件还被吞掉。返回 false 之后
+     * 事件冒泡到 DecorView 的兜底（[handlePage]），由它按「当前页」重新选目标。
+     *
+     * 两个条件缺一不可：只有**同时**满足「在离屏页里」和「与窗口无交集」才让路。只判前者会受
+     * ViewPager 子序号与页号对不对得上的影响（对不上时会把当前页当离屏页，直接滚不动）；
+     * 只判后者会把「布局还没完成、尺寸还是 0」的正常情况也挡掉。
+     */
+    internal fun isOffscreenPageWidget(view: View): Boolean =
+        isInsideOffscreenPagerPage(view) && !isCandidateVisible(view, Rect(), requireOnScreen = true)
+
+    /**
+     * 这个 View 是否躺在 ViewPager 的非当前页里。
+     *
+     * 只认 v1 的 androidx ViewPager（本工程的 SafeViewPager / ViewPagerFragmentAdapter 就是它）：
+     * 页面是它的直接子 View，页号能用 indexOfChild 直接对上 currentItem。沿 parent 链找最近的
+     * ViewPager，比的是「装我的那个直接子 View」的序号——离屏页可以有任意多个
+     * （offscreenPageLimit = 页数），所以不能只判「差一页」。
+     */
+    private fun isInsideOffscreenPagerPage(view: View): Boolean {
+        var child = view
+        while (true) {
+            val parent = child.parent ?: return false
+            if (parent !is ViewGroup) return false
+            if (parent is ViewPager) return parent.indexOfChild(child) != parent.currentItem
+            child = parent
+        }
+    }
+
+    /**
+     * 一次兜底扫描的统计，只在「找不到目标」时由 [handlePage] 打进日志。
+     *
+     * [groups] 走过的 ViewGroup 数；[scrollable] 能滚的容器数；[hidden] 能滚但整条祖先链不可见
+     * （含还在 GONE 的 fragment 根）；[noOverlap] 能滚且 isShown 但与窗口无交集或尺寸为 0；
+     * [offscreenPage] 在 ViewPager 离屏页里；[fallback] 是宽松轮的退路。
+     */
+    private class ScanStats {
+        var groups = 0
+        var scrollable = 0
+        var hidden = 0
+        var noOverlap = 0
+        var offscreenPage = 0
+        var fallback: View? = null
+
+        fun describe(root: View): String =
+            "scanned=$groups scrollable=$scrollable hidden=$hidden " +
+                "noOverlap=$noOverlap offscreenPage=$offscreenPage " +
+                "root=${root.javaClass.simpleName}"
     }
 
     private fun isScrollable(view: View): Boolean = when (view) {
@@ -438,5 +630,96 @@ internal object RotaryEncoderSupport {
         // ViewPager 的离屏页、被上层盖住的页都仍算 shown。这里再要求与窗口有实际交集。
         if (view.width <= 0 || view.height <= 0) return false
         return view.getGlobalVisibleRect(rect) && rect.height() > 0
+    }
+}
+
+/**
+ * 表冠来源的放宽判据：把「ROM 把表冠报成鼠标滚轮」这一档认出来（反馈 #197）。
+ *
+ * 背景：OPPO Watch 4 Pro 把表冠报成**鼠标滚轮**——action 仍是 ACTION_SCROLL，但 source 为
+ * 0x2002（SOURCE_MOUSE），位移落在 AXIS_VSCROLL 上，量既有 ±1.0 也有 ±16.0。而
+ * [RotaryEventPolicy.isRotaryEvent] 只认 SOURCE_ROTARY_ENCODER，于是三个入口全部在源闸门
+ * 就 return，页面完全交给框架：框架对 NestedScrollView 用主题的 listPreferredItemHeight
+ * （48dp）当一行，-16 一步就是十几行，用户看到的就是「一转过整页、没法精确控制」。
+ *
+ * 为什么不直接把 [RotaryEventPolicy.isRotaryEvent] 放宽：
+ * 1. 它的 KDoc 写明「pointer 类来源判 false 是有意的保守」，且 RotaryEventPolicyTest 里已有
+ *    「指针类来源不算表冠事件」的断言——改语义等于推翻既有用例；
+ * 2. 判据和接管分开：这里只回答「这次事件像不像表冠」，接不接管由 [RotaryEncoderSupport]
+ *    拿到容器、再看步长与容器状态决定（见 handle / handleSystemFirst 的 WHEEL 分支）。
+ *
+ * 本对象只吃 int 与 float，不 import android.*，可以直接上 JVM 单测。
+ */
+object CrownSourcePolicy {
+
+    /** 不是表冠事件（触屏、摇杆、未知来源）。 */
+    const val NONE = 0
+
+    /** ROM 如实报成旋转编码器（绝大多数手表）。 */
+    const val ENCODER = 1
+
+    /** ROM 把表冠报成鼠标滚轮（OPPO Watch 4 Pro、部分 Wear 机型）。 */
+    const val WHEEL = 2
+
+    /** MotionEvent.ACTION_SCROLL。写字面量是为了不在本文件 import android.*，与 RotaryEventPolicy 同一套写法。 */
+    private const val ACTION_SCROLL = 8
+
+    /**
+     * InputDevice.SOURCE_MOUSE（0x00002002，pointer 类 | bit 13）：鼠标，以及把表冠报成滚轮的 ROM
+     * ——反馈 #197 的日志里就是 `src=0x2002` 这一个。
+     *
+     * 数值必须写对：`0x00020002` 是 SOURCE_MOUSE_RELATIVE（另一个常量），拿它当掩码去与 `0x2002`
+     * 只会剩 pointer 类那一位 0x2，永远判不出来，等于这条修复完全失效。两个常量都要认——
+     * 有的 ROM / 输入栈报相对位移时给的是 MOUSE_RELATIVE。
+     */
+    private const val SOURCE_MOUSE = 0x00002002
+
+    /** InputDevice.SOURCE_MOUSE_RELATIVE（0x00020002，pointer 类 | bit 17）：相对位移鼠标。 */
+    private const val SOURCE_MOUSE_RELATIVE = 0x00020002
+
+    /**
+     * 判定这次 generic motion 属于哪一类。
+     *
+     * 只看 ACTION_SCROLL（别的 action 不是滚动）。编码器优先：真实编码器即使同时带轴值也按
+     * 编码器口径（每格 ×2）算，不让手感回退。鼠标源判成 [WHEEL] 之后仍要在调用方过「步长是
+     * 不是够粗」「容器还能不能滚」两道闸，所以触控板那种连续小量不会被抢走。
+     */
+    fun kindOf(action: Int, source: Int): Int = when {
+        action != ACTION_SCROLL -> NONE
+        RotaryEventPolicy.isRotaryEvent(action, source) -> ENCODER
+        (source and SOURCE_MOUSE) == SOURCE_MOUSE -> WHEEL
+        (source and SOURCE_MOUSE_RELATIVE) == SOURCE_MOUSE_RELATIVE -> WHEEL
+        // 触屏（0x1002）也带 pointer 类那一位，但它 and 上面两个掩码都只剩 0x2，落不到 WHEEL；
+        // 触屏拖拽本来也不该被这里接管，保持 NONE 与既有单测一致。
+        else -> NONE
+    }
+
+    /**
+     * 这一格的轴值是不是「一格一跳」的滚轮量（|ratio| >= 0.9）。
+     *
+     * 实测数据（#197 日志）：OPPO Watch 4 Pro 的表冠一格是 AXIS_VSCROLL = ±1.0，部分 ROM 报
+     * ±16.0；两者都是整格量。触控板 / 精细滚轮给的是 0.1 这种连续小量，那种情况框架自己换算
+     * 更顺手，不该被抢（所以阈值定在 0.9 而不是「非 0 即接管」，留出小数量的余地）。
+     */
+    fun isCoarseWheelStep(ratio: Float): Boolean = ratio >= 0.9f || ratio <= -0.9f
+
+    /** 把一格滚轮的轴值归一成方向（±1）；给 0 表示没有方向，调用方据此不接管。 */
+    fun stepOf(ratio: Float): Float = when {
+        ratio >= 0.9f -> 1f
+        ratio <= -0.9f -> -1f
+        else -> 0f
+    }
+
+    /**
+     * 滚轮一格该滚多少像素。
+     *
+     * **不乘 2**：pixelDelta 里那个 ×2 是 26.10.17 为「编码器一格」定的手感基准；滚轮一格的
+     * 量级由用户对照物决定——#197 里用户说「其他地方都正常」，那些地方走的正是框架的
+     * verticalScrollFactor × 1 行。这里取同一口径（factor × 1），换来的效果是「一格 ≈ 一行」
+     * 而不是框架对 NestedScrollView 的「一格 ≈ 16 行」。
+     */
+    fun wheelStepDelta(step: Float, scrollFactor: Float, multiple: Float): Int {
+        if (step == 0f || multiple <= 0f) return 0
+        return (-step * scrollFactor * multiple).roundToInt()
     }
 }

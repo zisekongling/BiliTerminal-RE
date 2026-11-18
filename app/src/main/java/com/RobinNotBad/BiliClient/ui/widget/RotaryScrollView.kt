@@ -25,6 +25,9 @@ class RotaryScrollView @JvmOverloads constructor(
 ) : ScrollView(context, attrs, defStyleAttr) {
 
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        // 同 [RotaryRecyclerView]：ViewPager 离屏页里的控件不接这一格（反馈 #228），事件交回上层，
+        // 由 DecorView 兜底按当前页重新选目标。
+        if (RotaryEncoderSupport.isOffscreenPageWidget(this)) return false
         if (RotaryEncoderSupport.isSystemFirstMode()) {
             return RotaryEncoderSupport.handleSystemFirst(
                 this, event,
