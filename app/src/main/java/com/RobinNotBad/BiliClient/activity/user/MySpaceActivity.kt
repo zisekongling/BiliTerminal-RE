@@ -208,9 +208,25 @@ class MySpaceActivity : InstanceActivity() {
         myInfo.setOnClickListener(null)
     }
 
+    /**
+     * 成功态：头像 + 昵称 + 粉丝/硬币 + 等级。
+     *
+     * **判活必须和用控件贴在同一个主线程 Runnable 里**（崩溃 #367，26.11.17-beta.2 / 8.1 /
+     * alps Q5Plus / main 线程）。原来这里在后台线程先 `if (isDestroyed) return`，再
+     * `runOnUiThread` 投递；而 runOnUiThread 只是把 Runnable 塞进主线程队列 ——
+     * 投递到执行之间用户按返回键、系统回收页面都会走完 onDestroy。等到 Runnable 真的跑起来，
+     * `Glide.with(this@MySpaceActivity)` 里 `RequestManagerRetriever.assertNotDestroyed`
+     * 看到页面已销毁，直接抛 `IllegalArgumentException: You cannot start a load for a
+     * destroyed activity`（Glide.java:574）。
+     *
+     * 放进 Runnable 就堵死了这条缝：onDestroy 也在主线程，两者之间插不进任何东西；
+     * 这与 AccountSwitchActivity.loadAvatar（Activity 已销毁直接放弃）是同一套写法。
+     * 这里判的 [isDestroyed] 是 BaseActivity 的重写（销毁**或**正在 finish 都算，
+     * 见 BaseActivity.kt:833），恰好就是 Glide 那行 assertNotDestroyed 读的条件，所以够用。
+     */
     private fun renderUserInfo(userInfo: UserInfo, userCoin: Int) {
-        if (isDestroyed) return
         runOnUiThread {
+            if (isDestroyed) return@runOnUiThread
             userInfoLoading = false
             Glide.with(this@MySpaceActivity).load(GlideUtil.url(userInfo.avatar))
                 .transition(GlideUtil.getTransitionOptions())
@@ -234,7 +250,10 @@ class MySpaceActivity : InstanceActivity() {
      * @param e 加载异常；`null` 表示接口没给账号数据（见 [MySpaceLoadErrorText.reasonOf]）
      */
     private fun renderUserInfoFailure(e: Exception?) {
-        if (isDestroyed) return
+        // 原来这里先 `if (isDestroyed) return` 再投递——与 [renderUserInfo] 一样是
+        // 「判断在后台线程、使用在主线程」的错位（崩溃 #367 的同一处病根），这里一并挪进
+        // 下面的 runOnUiThread。纯计算（reasonOf / textOf / tapActionOf / titleOf）不碰控件，
+        // 留在主线程外没有影响，先算好再投递。
         val reason = MySpaceLoadErrorText.reasonOf(e)
         val reasonText = MySpaceLoadErrorText.textOf(reason)
         // 掉登录（NO_DATA）时重试永远成功不了，直接给登录页；其余原因给重试。文案跟着动作走，
@@ -242,6 +261,7 @@ class MySpaceActivity : InstanceActivity() {
         val tapAction = MySpaceLoadErrorText.tapActionOf(reason)
         val titleText = MySpaceLoadErrorText.titleOf(tapAction)
         runOnUiThread {
+            if (isDestroyed) return@runOnUiThread
             userInfoLoading = false
             userName.text = UiText.of(titleText)
             userFans.text = UiText.of(reasonText)
