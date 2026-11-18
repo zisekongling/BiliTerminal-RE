@@ -162,6 +162,39 @@ class CrownSourcePolicyTest {
     }
 
     @Test
+    fun 细量按比例换算而不是被当成整格() {
+        // 触控板式 / 部分 ROM 的连续小量（|量| < 0.9）。26.11.18-beta.3 起这类量也由 App
+        // 换算（以前整段交回框架，而在把表冠报成鼠标的 ROM 上框架根本不换算轴值）。
+        assertEquals(
+            -10,
+            CrownSourcePolicy.wheelScrollDelta(0.2f, 50f, 1f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST)
+        )
+        assertEquals(
+            -10,
+            CrownSourcePolicy.wheelScrollDelta(0.2f, 50f, 1f, CrownSourcePolicy.WHEEL_MAX_STEPS_READING)
+        )
+    }
+
+    @Test
+    fun 细量乘高灵敏度按比例放大() {
+        // 反馈 #234 的「调到 700 就一卡一卡」：同一个细量乘 700 就是 7000px，一次事件跨好几十屏。
+        // 这条守住「公式对细量与整格量是同一套」，免得下次为了「动不了」在别处偷偷加系数。
+        assertEquals(
+            -7000,
+            CrownSourcePolicy.wheelScrollDelta(0.2f, 50f, 700f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST)
+        )
+    }
+
+    @Test
+    fun 细量不足半像素时算成零() {
+        // 算成 0 不是错误：shouldConsume 会因此把事件交回框架，不至于「吃掉却不滚」。
+        assertEquals(
+            0,
+            CrownSourcePolicy.wheelScrollDelta(0.01f, 50f, 1f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST)
+        )
+    }
+
+    @Test
     fun 方向为零或灵敏度为零时不产生位移() {
         assertEquals(0, CrownSourcePolicy.wheelScrollDelta(0f, 50f, 1f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST))
         assertEquals(0, CrownSourcePolicy.wheelScrollDelta(1f, 50f, 0f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST))

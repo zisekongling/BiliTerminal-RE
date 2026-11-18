@@ -171,18 +171,21 @@ internal object RotaryEncoderSupport {
             }
             return false
         }
-        // 滚轮类来源（反馈 #197）：连续小量（|量| < 0.9，触控板那种）交回框架自己换算；整格量
-        // （±1.0 / ±16.0）由 App 按量级换算，阅读容器另封顶（见 CrownSourcePolicy.wheelScrollDelta）。
-        // 容器此刻压根滚不动（横向列表、内容不满一屏）时也交回框架——否则就是「事件被吃掉、
-        // 画面却不动」，比不接管更糟。
-        if (crown == CrownSourcePolicy.WHEEL &&
-            (!CrownSourcePolicy.isCoarseWheelStep(rawScrollRatio(event)) || !isScrollable(view))
-        ) {
-            // 反馈 #234 的排查要靠这句：这一格到底是被「量不够粗」还是「容器滚不动」挡回去的。
+        // 开启模式下也要把「模式 + 两类灵敏度 + factor」记一次：反馈 #234 的复现步骤里用户会
+        // 先关开关再打开，两条路各打一条，才能看出是哪条路上的量级不对。
+        probeMode(view, event)
+        // 滚轮类来源（反馈 #197）：容器此刻压根滚不动（横向列表、内容不满一屏）时交回框架——
+        // 否则就是「事件被吃掉、画面却不动」，比不接管更糟。
+        //
+        // 26.11.18-beta.3 起**不再按「量够不够粗」让路**（反馈 #234）：OPPO Watch 4 Pro 这类把
+        // 表冠报成鼠标的 ROM，框架自己并不换算轴值，让路等于整段交给一个不处理的人——低灵敏度
+        // 下就是「完全动不了」，高灵敏度下又因为只有框架那一份最慢的基准而「一卡一卡」。细量
+        // 照旧按 [CrownSourcePolicy.wheelScrollDelta] 换算，只有位移真的算成 0（轴值本来就是 0）
+        // 时才由下面的 shouldConsume 交回框架。
+        if (crown == CrownSourcePolicy.WHEEL && !isScrollable(view)) {
             probe(
-                "控件级：滚轮整格不接管，交回框架", event,
-                "view=" + view.javaClass.simpleName + " ratio=" + rawScrollRatio(event) +
-                    " scrollable=" + isScrollable(view)
+                "控件级：滚轮但容器滚不动，交回框架", event,
+                "view=" + view.javaClass.simpleName + " ratio=" + rawScrollRatio(event)
             )
             return false
         }
@@ -237,27 +240,62 @@ internal object RotaryEncoderSupport {
         // 滚轮类来源（反馈 #197）一格报多行时，必须在**框架动手之前**接管：框架按行数换算
         // （-16 就是 16 行 = 一次整页，见 [RotaryEventPolicy.systemFirstTargetDelta] 的注释），
         // 而 [RotaryEventPolicy.topUpDelta] 只补不足、收不回已经跳出去的那一段距离。
+        //
+        // 细量（|量| < 0.9，触控板式 / 部分 ROM 的连续小量）反过来：一格只有几像素，先让框架跑
+        // 不会「跳出去收不回」，再按同一套滚轮口径补足差额即可。26.11.18-beta.3 之前这里是
+        // 「细量整段交回框架」，而在 OPPO Watch 4 Pro 那类把表冠报成鼠标的 ROM 上框架根本不换算
+        // 轴值——低灵敏度下表现为「完全动不了」，正是反馈 #234；高灵敏度下又只剩框架那一份最慢
+        // 的基准，表现为「一卡一卡」。
         if (crown == CrownSourcePolicy.WHEEL) {
             val ratio = rawScrollRatio(event)
-            if (!CrownSourcePolicy.isCoarseWheelStep(ratio) || !isScrollable(view)) {
+            if (!isScrollable(view)) {
                 probePerView(
-                    "滚轮：量不够粗或容器滚不动，交回框架", view, event,
-                    "ratio=$ratio scrollable=" + isScrollable(view)
+                    "滚轮：容器滚不动，交回框架", view, event,
+                    "ratio=$ratio scrollable=false"
                 )
                 return runFramework()
             }
             val cap = wheelMaxStepsOf(view)
-            val dy = CrownSourcePolicy.wheelScrollDelta(
-                ratio, scaledVerticalScrollFactorOf(view), multiple, cap
-            )
-            if (!RotaryEventPolicy.shouldConsume(dy)) {
-                probePerView("滚轮：位移为 0，交回框架", view, event, "ratio=$ratio multiple=$multiple")
-                return runFramework()
+            val factor = scaledVerticalScrollFactorOf(view)
+
+            if (CrownSourcePolicy.isCoarseWheelStep(ratio)) {
+                val dy = CrownSourcePolicy.wheelScrollDelta(ratio, factor, multiple, cap)
+                if (!RotaryEventPolicy.shouldConsume(dy)) {
+                    probePerView("滚轮：整格量位移为 0，交回框架", view, event, "ratio=$ratio multiple=$multiple")
+                    return runFramework()
+                }
+                smoothScrollBy(dy)
+                probePerView(
+                    "滚轮：整格量按量级换算（列表保量级、阅读容器封顶）", view, event,
+                    "ratio=$ratio dy=$dy multiple=$multiple cap=$cap factor=$factor"
+                )
+                return true
             }
-            smoothScrollBy(dy)
+
+            val target = CrownSourcePolicy.wheelScrollDelta(ratio, factor, multiple, cap)
+            val before = scrollOffset()
+            val frameworkHandled = runFramework()
+            val frameworkDelta = scrollOffset() - before
+            if (RotaryEventPolicy.shouldConsumeAfterFramework(frameworkHandled, frameworkDelta != 0)) {
+                val topUp = RotaryEventPolicy.topUpDelta(target, frameworkDelta)
+                if (topUp != 0) smoothScrollBy(topUp)
+                probePerView(
+                    "滚轮：细量框架先跑后补差额", view, event,
+                    "ratio=$ratio target=$target frameworkDelta=$frameworkDelta topUp=$topUp multiple=$multiple"
+                )
+                return true
+            }
+            if (!RotaryEventPolicy.shouldConsume(target)) {
+                probePerView(
+                    "滚轮：细量、框架没动且目标为 0，不吞事件", view, event,
+                    "ratio=$ratio multiple=$multiple"
+                )
+                return false
+            }
+            smoothScrollBy(target)
             probePerView(
-                "滚轮：按量级换算（列表保量级、阅读容器封顶）", view, event,
-                "ratio=$ratio dy=$dy multiple=$multiple cap=$cap"
+                "滚轮：细量框架没动，App 接管", view, event,
+                "ratio=$ratio target=$target multiple=$multiple factor=$factor"
             )
             return true
         }
@@ -733,8 +771,15 @@ object CrownSourcePolicy {
      * 这一格的轴值是不是「一格一跳」的滚轮量（|ratio| >= 0.9）。
      *
      * 实测数据（#197 日志）：OPPO Watch 4 Pro 的表冠一格是 AXIS_VSCROLL = ±1.0，部分 ROM 报
-     * ±16.0；两者都是整格量。触控板 / 精细滚轮给的是 0.1 这种连续小量，那种情况框架自己换算
-     * 更顺手，不该被抢（所以阈值定在 0.9 而不是「非 0 即接管」，留出小数量的余地）。
+     * ±16.0；两者都是整格量。触控板 / 精细滚轮给的是 0.1 这种连续小量。
+     *
+     * **它现在只决定「谁先动手」，不再决定「接不接管」**（26.11.18-beta.3，反馈 #234）：
+     * - 整格量 → App 在框架之前接管，否则框架按「行数」换算会一次跳掉整页（-16 就是 16 行）；
+     * - 细量 → 先让框架跑，再用 [RotaryEventPolicy.topUpDelta] 补到滚轮口径，谁也不叠加。
+     *
+     * 以前细量是整段让给框架的，这个判据因此变成了「要不要处理这一格」；在把表冠报成鼠标、
+     * 框架又根本不换算轴值的 ROM 上，让路等于整段交给一个不处理的人（#234「默认灵敏度完全
+     * 动不了」）。阈值 0.9 本身没变，只是用途变了。
      */
     fun isCoarseWheelStep(ratio: Float): Boolean = ratio >= 0.9f || ratio <= -0.9f
 
