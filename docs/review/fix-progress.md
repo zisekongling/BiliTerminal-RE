@@ -18,6 +18,14 @@
 
 ## 1. 当前版本状态
 
+- **26.11.18 分段条 / 页签的胶囊比轨道两端各内缩一截：轨道按宿主内边距收边（用户报「按钮铺不满整个框」）**：
+  - **来路**：用户此前提出（转述，非原话）小屏上分段条「按钮铺不满整个框」——164dp 宽容器、6dp 内边距时，胶囊比轨道两端各内缩约 12dp。改动由用户先在工作区里写好（未提交），本轮随 26.11.18-beta.1 一起提交。
+  - **根因**：`app/src/main/java/com/RobinNotBad/BiliClient/ui/appearance/SegmentedBarStyle.kt` 的 `TrackDrawable` 只按宿主 `View` 的完整 bounds 画轨道，没有扣掉内边距；胶囊画在轨道里，所以两端各少一截，看起来像「按钮铺不满」。
+  - **改法（1 个文件）**：`TrackDrawable` 改为持有宿主 `View`、颜色表与 `density`（构造器变成 `TrackDrawable(host: View, colors: IntArray, density: Float)`），新增 `updateGeometry()` 按 `host.paddingLeft/Right/Top/Bottom` 收边；`onBoundsChange` 与 `draw()` 里各调一次（只靠 `onBoundsChange` 会在内边距生效前先画一次旧几何）；`applyTrack` / `styleTabs` 两个调用点跟着改。
+  - **口径（有意的取舍）**：只在轨道自己身上扣内边距，不动布局里的 padding 与胶囊的高度；内边距变化仍需靠下一次 `draw()` 收边，所以没有加 `addOnLayoutChangeListener`（这一层已由 `draw()` 每次重算兜住）。
+  - **L0（26.11.18 本机实测）**：`:app:verifyVersionConsistency :app:testStandardDebugUnitTest :app:assembleRelease -Pchannel=beta -Pseq=1 --console=plain` → BUILD SUCCESSFUL（3m48s，210 actionable tasks；两 flavor 各 4 个 ABI 的 release 包产出，`versionName=26.11.18-beta.1` / `versionCode=26111811` 已在两份 `output-metadata.json` 核对）。几何计算依赖宿主 View 的 padding，没有纯函数可测，未加用例。
+  - **未验证（L2）**：① 小屏（164dp 宽一类）上看首页 / 动态 / 关注页顶部分段条的胶囊是否铺满整条轨道、两端与轨道对齐；② 切页签时胶囊的滑动动画落点是否仍对准（轨道变窄后目标 x 也变了）；③ 同一套样式用在页签（`styleTabs`）上的那几处是否有同样改善。
+
 - **26.11.18 后台下载被 Error 打断后整套队列静默死掉、任务永远停在「准备中 0.0%」（用户截图反馈）**：
   - **来路**：用户报「新 beta 版使用后台下载出现问题」并贴截图（406x599）：下载列表里两行停在「第一季-2 准备中 0.0%」/「断不了情… 下载视频 0.0%」，浮层写着「错误：java.lang.NoClassDefFoundError: com/RobinNotBad/BiliClient.O…」（类名被弹窗宽度截断，只读到 O 开头）。
   - **根因**：app/src/main/java/com/RobinNotBad/BiliClient/service/DownloadService.kt 的下载批次用 catch (e: Exception) 兜底（批次主体 :688、并行单任务 :781、runDownloadSection :808），而 **NoClassDefFoundError 是 Error 不是 Exception**——它从这三处直接逃出去，落到 CenterThreadPool 的 catch (Throwable) 里只弹出那一行类名。后果是：批次线程当场死亡，函数尾部那条 stopSelf()（:698）永远不执行，任务在 download 表里一直是 downloading、进度 0.0%，用户看到的就是「卡在准备中 0.0% + 一行类名」。顺带解释为什么这条报错在控制台查不到：它走 MsgUtil.err 的浮层，不写崩溃表。
