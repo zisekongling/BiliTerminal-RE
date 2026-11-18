@@ -80,6 +80,16 @@ server/
 # 控制台的设计文档同理（描述的正是 server/ 那套东西）
 docs/superpowers/specs/2026-10-14-console-v2-design.md
 
+# 界面设计稿（26.11.18 起统一放仓库根 design/，**不入库**）
+# 收的是「动手做界面之前先画出来的那类稿子」：可交互 HTML 预览、原型、截图，以及配套的
+# 文字 spec 草稿 —— 例如短视频播放器交互、播放器界面重设计那种一整套（HTML 稿 + 说明）。
+# 这类稿子迭代快、常有 v1/v2/v3 并存、单份 HTML 就几百 KB，进仓库只会让发版 diff 失真：
+# 先例是 26.11.18 的播放器重设计稿，入库（0e385912）后又要整体撤掉（0b74ce8c）。
+# 定稿后的取舍、验收口径与踩到的坑要回迁 docs/ 的活文档（architecture-map.md /
+# FEATURES.md / review/fix-progress.md / agents/*），过程稿本身留本机即可。
+# 新克隆 / CI 里没有 design/ 属预期，别当成缺文件；也别在 docs/ 下另建一个同名目录。
+/design/
+
 防止IDE配置误入版本库的配置目录
 .vscode/
 .idea/
