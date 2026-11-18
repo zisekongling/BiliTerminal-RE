@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
-import android.content.res.Resources
 import android.os.Build
 import android.os.Bundle
 import android.text.TextUtils
@@ -58,6 +57,7 @@ import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.RobinNotBad.BiliClient.util.TopbarLongPressPrefs
+import com.RobinNotBad.BiliClient.util.UiScaleInput
 import com.RobinNotBad.BiliClient.util.ViewCapabilityProbe
 import com.RobinNotBad.BiliClient.util.view.EditorEnterKeyGuard
 import com.RobinNotBad.BiliClient.util.view.RoundInsets
@@ -197,9 +197,14 @@ open class BaseActivity : AppCompatActivity() {
         // 与改造前完全一致，所以不需要在外面判开关。
         ImmersiveMode.apply(this)
 
-        val density = SharedPreferencesUtil.getInt("density", -1)
-        if (density >= 72) {
-            setDensity(density)
+        // 密度：目标值由 BiliTerminal.getFitDisplayContext 在 attachBaseContext 时就已经算好并
+        // 交给本页的 Resources（.kt:113），正常路径上这里只是个校验 —— resources 已是目标值，
+        // setDensity 第一行就早退。留着它是为了兜两种边角：createConfigurationContext 失败回落
+        // 旧 context 的机型，以及 attach 之后设置又被改过（设置页改完不重建页面）。
+        // 阈值与设置页写盘处共用 UiScaleInput.DENSITY_MIN，不再各写一个 72。
+        val absoluteDensity = SharedPreferencesUtil.getInt(SettingsKeys.DENSITY, -1)
+        if (absoluteDensity >= UiScaleInput.DENSITY_MIN) {
+            setDensity(absoluteDensity)
         }
 
         installRotaryFallback()
@@ -763,13 +768,33 @@ open class BaseActivity : AppCompatActivity() {
         return SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.SNACKBAR_ENABLE, true)
     }
 
+    /**
+     * 把本页 Resources 的密度改成 [targetDensityDpi]（绝对值）。
+     *
+     * **正常路径上不该有活干**：密度与字号现在统一由 [BiliTerminal.getFitDisplayContext]
+     * （BiliTerminal.kt:207 起）在 `attachBaseContext` 时一次算清，本页 `resources.configuration`
+     * 已经是目标值，第一行就早退。留着它是给两种边角兜底：`createConfigurationContext` 抛异常
+     * 回落旧 context 的机型，以及 attach 之后设置又被改过。
+     *
+     * **不许再就地改 `resources.configuration`**（反馈 #225 的核心）：那是 ResourcesImpl 内部的
+     * **活**配置对象，改完再 `updateConfiguration(它自己, …)` 时 `Configuration.updateFrom`
+     * 是拿它自己跟自己比，`DENSITY_DPI_CHANGED` 这类 changed 位算不出来；而 ResourcesImpl 正是
+     * 靠 changed 位决定要不要失效已解析的资源缓存。后果是「配置显示 220、早就缓存下来的尺寸
+     * 还是 189」——同一页面上新老两套尺寸并存。`BiliTerminal.kt` 里同类代码早就因为同一个坑
+     * 改成「先拷贝再改」（那处注释写明了原因），这里一直是旧写法。
+     * （AOSP 源码这次抓不到：raw.githubusercontent.com / android.googlesource.com 都被本机
+     * 出网策略拦了，所以依据是仓库内既有注释 + `util/view/ScreenMetrics.kt:7-19` 记录的
+     * 「updateConfiguration 后有的 ROM 只改 density 不重算 widthPixels/heightPixels」。）
+     *
+     * fontScale 与密度**绑定**：接管了密度就不再跟系统字体缩放，口径与
+     * [BiliTerminal.getFitDisplayContext] 一致；否则本页 sp 与 [ToolsUtil.sp2px] 会差一个倍数。
+     */
     fun setDensity(targetDensityDpi: Int) {
         if (Build.VERSION.SDK_INT < 17) return
-        val resources: Resources = resources
-
-        if (resources.configuration.densityDpi == targetDensityDpi) return
-
-        val configuration: Configuration = resources.configuration
+        val current: Configuration = resources.configuration
+        if (current.densityDpi == targetDensityDpi) return
+        // 拷贝一份再改：见上面 KDoc 第二段（不要就地改活配置对象）
+        val configuration = Configuration(current)
         configuration.densityDpi = targetDensityDpi
         configuration.fontScale = 1f
         @Suppress("DEPRECATION")

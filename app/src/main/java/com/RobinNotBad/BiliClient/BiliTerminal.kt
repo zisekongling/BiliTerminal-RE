@@ -43,6 +43,7 @@ import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TerminalDialog
+import com.RobinNotBad.BiliClient.util.UiScaleInput
 import com.RobinNotBad.BiliClient.util.UpdateManager
 import me.ele.uetool.UETool
 import org.json.JSONException
@@ -200,25 +201,52 @@ class BiliTerminal : Application() {
          * 参数/返回保持可空：旧 Java 版无 `@Nullable`/`@NonNull` 注解，是平台类型，
          * 而 `SplashActivity.attachBaseContext` 把入参声明成了 `Context?`。写成非空会编译失败。
          *
+         * **密度与字号在这里一次算清**（反馈 #225）。这里以前只认「界面大小」倍数，
+         * 绝对 DPI 留给 `BaseActivity.onCreate` 里的 `setDensity` 事后补，于是同一个进程里
+         * 两套答案：页面按绝对值、Application context（Toast / `ToolsUtil.dp2px`）按倍数，
+         * 表现为「有的字跟界面缩放走、有的跟着系统 DPI 走」。现在两边都问
+         * `UiScaleInput.resolveDensityDpi`，并且**在任何主题 / DecorView 创建之前**
+         * （`attachBaseContext` 早于 `onCreate` 的 `setTheme`）就定型，
+         * 不再出现「页面渲染到一半才改密度」那种一半新一半旧的情况。
+         *
          * @param old The origin context.
+         * @param forceDark 强制暗色（`SplashActivity` / `PlayerActivity` 用导航栏配色时传 true）
          */
         @JvmStatic
         @JvmOverloads
         fun getFitDisplayContext(old: Context?, forceDark: Boolean = false): Context? {
-            val dpiTimes = SharedPreferencesUtil.getFloat("dpi", 1.0F)
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR1) return old
             if (old == null) return null
-            val dpiChanged = DPI_FORCE_CHANGE || dpiTimes != 1.0F
+            // 基线取 old 自己的 displayMetrics：它是系统发给这个 context 的原始值，本应用还没动过，
+            // 所以反复调用（Application / 每个 Activity / Splash / Player）不会把倍数乘两次。
+            val baseDensityDpi = old.resources.displayMetrics.densityDpi
+            val targetDensityDpi = UiScaleInput.resolveDensityDpi(
+                baseDensityDpi,
+                SharedPreferencesUtil.getInt(SettingsKeys.DENSITY, -1),
+                SharedPreferencesUtil.getFloat(SettingsKeys.DPI, 1.0F)
+            )
+            val densityChanged = targetDensityDpi != baseDensityDpi
+            // DPI_FORCE_CHANGE 是「刚在设置里改过界面大小」的一次性标记（SettingGroupActivity
+            // 的「界面大小」分支置位）：那条通路只写盘、不重建 context，所以即使换算结果恰好
+            // 与基线相同也要重建一次，否则改了没反应。语义与改造前一致。
+            val needRebuild = DPI_FORCE_CHANGE || densityChanged
             // 暗色 / 亮色模式：由我们决定 uiMode 的夜间位（亮色命中 -notnight 资源），见 ColorMode。
             // 手表系统普遍报 NIGHT_NO，所以暗色模式也必须显式写 NIGHT_YES。
             val night = ColorMode.nightBits(forceDark)
             val nightMatches = (old.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == night
-            if (!dpiChanged && nightMatches) return old
+            if (!needRebuild && nightMatches) return old
             return try {
-                val displayMetrics = old.resources.displayMetrics
                 // 拷贝一份再改：此前直接改 resources.configuration（宿主 Resources 的活配置对象）
                 val configuration = Configuration(old.resources.configuration)
-                if (dpiChanged) configuration.densityDpi = (displayMetrics.densityDpi * dpiTimes).toInt()
+                configuration.densityDpi = targetDensityDpi
+                // 字号与密度**同进同退**：应用一旦接管了密度，sp 的换算基准也得跟着接管，
+                // 否则页面里的 sp（Activity 的 Resources，已被压成 1f）与 `ToolsUtil.sp2px` /
+                // Toast 正文（Application context，仍是系统 fontScale）之间会再差一个系统
+                // 字体缩放倍数——这正是 #225「大小不统一」的另一半来源。
+                // 没有接管密度时**不动** fontScale：这类用户本来就该跟系统字号走
+                // （`docs/agents/dev-conventions.md` 要求自测时把系统字体调到最大，
+                // 说明跟系统字号是有意的默认行为）。
+                if (densityChanged) configuration.fontScale = 1f
                 configuration.uiMode = (configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or night
                 old.createConfigurationContext(configuration)
             } catch (e: Exception) {
