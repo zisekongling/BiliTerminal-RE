@@ -310,6 +310,33 @@ jobs:
       - name: 赋予 gradlew 可执行权限
         run: chmod +x gradlew
 
+      # 与 ci.yml:55-68 同一处修正。发版工作流此前**没有任何依赖缓存**：每次发版都现下
+      # 138 MB 的 wrapper 发行版 + 全量依赖，2026-11-18 就撞上 maven.aliyun.com/repository/google
+      # 对 flatbuffers-java / apache-23 这类中央仓库包连回 502 Bad Gateway，整条发版线红在单测步。
+      - name: 缓存 Gradle 发行版与依赖缓存
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/wrapper/dists
+            ~/.gradle/caches/modules-2
+          key: gradle-${{ runner.os }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      # 缓存未命中时仍要真下 138 MB，一次卡顿就整轮红（同 ci.yml:70-83）。
+      - name: 预热 Gradle 发行版（失败重试）
+        run: |
+          for attempt in 1 2 3; do
+            if ./gradlew --version --no-configuration-cache; then
+              echo "Gradle 发行版就绪（第 $attempt 次尝试）"
+              exit 0
+            fi
+            echo "::warning::第 $attempt 次下载/启动 Gradle 失败，$((attempt * 15)) 秒后重试"
+            sleep $((attempt * 15))
+          done
+          echo "::error::Gradle 发行版连续 3 次下载失败（services.gradle.org 重定向到 GitHub Release 资产），先确认 runner 网络再重跑"
+          exit 1
+
       # gradle.properties 硬编码了本机 Windows JDK 路径和本地代理（Clash），
       # Linux CI 必须移除，否则会拿不存在的 JDK 路径启动 daemon、并通过本地代理拉依赖失败。
       # 同时把 Gradle/Kotlin daemon 堆内存调低，避免在 GitHub 较小内存的 runner 上 OOM。
@@ -381,8 +408,25 @@ jobs:
       # 引入 product flavor（standard / coexist）后，单测任务名带上了 flavor：
       # testDebugUnitTest 已不存在，必须写 testStandardDebugUnitTest
       # （两个 flavor 共用同一份 app/src/test，跑一个即可）。
+      # 依赖镜像抖动不该判成「单测失败」：只对网络/镜像类错误重试，真正的测试红立刻停。
+      # 2026-11-18 一次 502 Bad Gateway 让这一步 32 秒就红，整条发版线白跑。
       - name: 运行单元测试
-        run: ./gradlew :app:testStandardDebugUnitTest --stacktrace
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if ./gradlew :app:testStandardDebugUnitTest --stacktrace 2>&1 | tee /tmp/unit-test.log; then
+              exit 0
+            fi
+            if grep -qE 'Received status code 5[0-9][0-9]|Could not (resolve|GET|HEAD|download)' /tmp/unit-test.log; then
+              echo "::warning::第 $attempt 次因依赖镜像/网络失败，$((attempt * 20)) 秒后重试"
+              sleep $((attempt * 20))
+            else
+              echo "::error::单测失败（不是网络问题），不重试"
+              exit 1
+            fi
+          done
+          echo "::error::依赖持续的镜像/网络失败：连续 3 次都没能把依赖拉下来"
+          exit 1
 
       # ── 私有功能的第三方凭证（BGM 数据代理 / 第三方弹幕）──────────────────────
       # 和 Kazumi 一样**只在构建期注入**：值只经 Secrets → 环境变量 → app/build.gradle →
