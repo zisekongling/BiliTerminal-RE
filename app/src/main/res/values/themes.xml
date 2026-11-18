@@ -925,6 +925,13 @@
     <!--
       「蓝牙已断开」伪装用的半透明变体：底下的页面会透出来，再被布局里的暗色遮罩压一层，
       看起来就是「系统提示框盖在当前画面上」。计算器那种全屏的用上面那个不透明主题。
+
+      **这一项决定了本主题的宿主 activity 不能声明固定方向**（崩溃 #370）：Android 8.0/8.1 的
+      系统在 `Activity.onCreate` 里按清单方向施加方向时会校验「全屏不透明」，windowIsTranslucent=true
+      的窗口一律被拒，抛 `IllegalStateException: Only fullscreen opaque activities can request orientation`。
+      所以 AndroidManifest.xml 里 BluetoothDisguiseActivity 那条**没有** android:screenOrientation，
+      两份文件的注释是互相指认的，别只在其中一边「补全」。改成不透明能绕开这条校验，但那等于
+      放弃这一款伪装的效果，已经评估过、不采用。
     -->
     <style name="Theme.BiliClient.Disguise.Dialog" parent="Theme.BiliClient.Disguise">
         <item name="android:windowIsTranslucent">true</item>
