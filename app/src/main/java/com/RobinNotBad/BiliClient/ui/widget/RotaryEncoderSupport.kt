@@ -120,6 +120,15 @@ import kotlin.math.roundToInt
  *    异常 ROM 拉回正常量级。
  * 3. 单次位移另外加了**一屏封顶**（[clampToOneViewport]）：极端灵敏度下拒绝「一次跳过一屏以上」，
  *    不改灵敏度语义（乘数照旧生效），只是不让 `smoothScrollBy` 每 34ms 就撞一次端点。
+ *
+ * **26.11.18 加「表冠兼容模式」（反馈 #243）**：这台 OPPO Watch 4 Pro 上，表冠的手感从 #234 的
+ * 「完全不动」被修成 #235 的「一滑到底」，再被 beta.5 收到 1~2 格——每一次都是对着一份脱敏日志
+ * 反推的，没有一台机器能本地复现。到这个程度该承认：**这台 ROM 的手感不在 App 侧能算准的范围里**。
+ * 所以加一条退路——[isCompatMode]，开启后三条入口整体走 `COMPAT_TARGET_VERSION`（26.11.16.4，
+ * 最后一个正式版）的旧口径：只认 `SOURCE_ROTARY_ENCODER`，滚轮源完全放手给框架
+ * （那一版就是这么写的，用户说「不会」），基准取原值、不做下限与一屏封顶、不爬祖先、不封灵敏度。
+ * 首次踩到「滚轮源」或「基准 < 8px」的机器会自动打开（[maybeAutoEnableCompat]，每进程只判一次），
+ * 设置页也可以手动开关。编码器机型（三星表圈等）两个条件都不成立，行为一点不变。
  */
 internal object RotaryEncoderSupport {
 
@@ -177,6 +186,20 @@ internal object RotaryEncoderSupport {
     fun isSystemFirstMode(): Boolean = !isEnabled()
 
     /**
+     * 表冠兼容模式是否开启（`SettingsKeys.UI_ROTATORY_COMPAT`）。
+     *
+     * 开启后三条入口**一律走 `COMPAT_TARGET_VERSION`（最后一个正式版）的旧口径**：只有
+     * `SOURCE_ROTARY_ENCODER` 的事件才由 App 接管，滚轮源（`0x2002`）完全放手给框架；基准用
+     * [scaledVerticalScrollFactorOf] 原值（不补 64dp 下限）、不做一屏封顶、不爬祖先、灵敏度也不套 0.2–8 的新上限。
+     *
+     * 为什么需要它：OPPO Watch 4 Pro 这类 ROM 把表冠报成鼠标滚轮，而框架对 mouse 源的 ACTION_SCROLL
+     * 根本不换算轴值——App 参不参与、怎么换算，全是对着它猜出来的（#197 → #234 → #235 → #243 四轮）。
+     * 这条退路让这类机器一键回到「用户说不会出问题的那一版」，不必陪着我们一起试手感。
+     */
+    fun isCompatMode(): Boolean =
+        SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROTATORY_COMPAT, false)
+
+    /**
      * 处理一次 generic motion 事件（控件级）。
      *
      * 命中表冠滚动则滚动并返回 `true`；否则返回 `false`，由调用方继续走自己的默认分发。
@@ -207,6 +230,10 @@ internal object RotaryEncoderSupport {
         // 开启模式下也要把「模式 + 两类灵敏度 + factor」记一次：反馈 #234 的复现步骤里用户会
         // 先关开关再打开，两条路各打一条，才能看出是哪条路上的量级不对。
         probeMode(view, event)
+        // 反馈 #243：本机表冠被报成滚轮、或滚动基准被 ROM 压到 8px 以下时，自动切兼容模式，
+        // 从这里开始完全按 26.11.16.4 的旧口径处理（见 [handleCompat]）。
+        maybeAutoEnableCompat(view, event, crown)
+        if (isCompatMode()) return handleCompat(view, event, multiple, requestFocus, smoothScrollBy)
         // 落点自己滚不动时**先向上找可滚祖先**（反馈 #235），找到就由 App 滚它。
         //
         // 这条针对 #166 那种「外层滚、内层撑满」的结构：#235 的消息页是
@@ -275,6 +302,10 @@ internal object RotaryEncoderSupport {
         if (crown == CrownSourcePolicy.NONE) return runFramework()
 
         probeMode(view, event)
+        maybeAutoEnableCompat(view, event, crown)
+        if (isCompatMode()) {
+            return handleSystemFirstCompat(view, event, multiple, scrollOffset, runFramework, smoothScrollBy)
+        }
 
         // 落点自己滚不动时先向上找可滚祖先（反馈 #235），与 [handle] 里同一段同因，见那里的注释。
         //
@@ -435,6 +466,9 @@ internal object RotaryEncoderSupport {
             return false
         }
 
+        maybeAutoEnableCompat(root, event, crown)
+        if (isCompatMode()) return handlePageCompat(root, event)
+
         val stats = ScanStats()
         val target = resolveScrollTarget(root, stats)
         if (target == null) {
@@ -543,6 +577,144 @@ internal object RotaryEncoderSupport {
             rawScrollRatio(event), verticalScrollFactorOf(view), multiple
         )
 
+    // ==================== 兼容模式（回退 26.11.16.4） ====================
+    //
+    // 反馈 #243：OPPO Watch 4 Pro 这类「表冠被 ROM 报成鼠标滚轮」的机器，App 侧怎么换算都是在猜
+    // （#197 → #234 → #235 三轮下来，手感从「完全不动」翻到「一滑到底」再回来）。与其继续对着没有的
+    // 设备调参，不如给一条确定的退路：一键回到 26.11.16.4，那版用户说「不会」。
+    //
+    // 「等价 26.11.16.4」在滚轮机器上是**一行代码**就成立的事实：那一版只认
+    // [RotaryEventPolicy.isRotaryEvent]（`SOURCE_ROTARY_ENCODER`），滚轮源在三条入口里一律放手，
+    // 实际手感全由框架决定。所以下面三个 Compat 函数第一件事都是这道闸门。
+    //
+    // 编码器机型万一被误判（理论上不会：source 带 0x400000、factor 是 128px），走的也是旧口径
+    // （原值 factor、无下限、无一屏封顶、不爬祖先、不封灵敏度），等于回到旧版手感。
+
+    /** 兼容模式对齐的版本号，只用于日志与设置页文案。 */
+    const val COMPAT_TARGET_VERSION = "26.11.16.4"
+
+    /**
+     * 自动判定并开启兼容模式，每个进程只跑一次（[SettingsKeys.UI_ROTATORY_COMPAT_AUTO]）。
+     *
+     * 只跑一次是**有意的**：用户在设置页手动关掉之后，不能因为下一次转动又被重新打开。
+     * 代价只有「第一次转动之前就手动关掉」这一种边角会失效。
+     */
+    private fun maybeAutoEnableCompat(view: View, event: MotionEvent, crown: Int) {
+        if (SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROTATORY_COMPAT_AUTO, false)) return
+        SharedPreferencesUtil.putBoolean(SettingsKeys.UI_ROTATORY_COMPAT_AUTO, true)
+        if (isCompatMode()) return
+        val factorRaw = scaledVerticalScrollFactorOf(view)
+        if (!RotaryEventPolicy.shouldEnableCompat(crown == CrownSourcePolicy.WHEEL, factorRaw)) return
+        SharedPreferencesUtil.putBoolean(SettingsKeys.UI_ROTATORY_COMPAT, true)
+        logLine(
+            "兼容：本机表冠报成滚轮或滚动基准异常，已自动切到兼容模式（回退 $COMPAT_TARGET_VERSION）",
+            event, "crown=$crown factorRaw=$factorRaw"
+        )
+    }
+
+    /**
+     * 兼容模式下的位移：26.11.16.4 口径——**原值** factor（不走 [verticalScrollFactorOf] 的 64dp 下限），
+     * 也不做 [clampToOneViewport] 的一屏封顶。
+     */
+    private fun compatPixelDelta(view: View, event: MotionEvent, multiple: Float): Int =
+        RotaryEventPolicy.pixelDelta(rawScrollRatio(event), scaledVerticalScrollFactorOf(view), multiple)
+
+    /** 兼容模式下的「这一格该走多远」，对应 26.11.16.4 的同名函数。 */
+    private fun compatSystemFirstTargetDelta(view: View, event: MotionEvent, multiple: Float): Int =
+        RotaryEventPolicy.systemFirstTargetDelta(
+            rawScrollRatio(event), scaledVerticalScrollFactorOf(view), multiple
+        )
+
+    /** 兼容模式的控件级入口，逐条对应 26.11.16.4 的 `handle()`。 */
+    private fun handleCompat(
+        view: View,
+        event: MotionEvent,
+        multiple: Float,
+        requestFocus: Boolean,
+        smoothScrollBy: (Int) -> Unit
+    ): Boolean {
+        if (!RotaryEventPolicy.isRotaryEvent(event.action, event.source)) {
+            if (RotaryEventPolicy.isScrollEvent(event.action)) {
+                probe("兼容：非表冠源，未处理", event, "view=${view.javaClass.simpleName}")
+            }
+            return false
+        }
+        val dy = compatPixelDelta(view, event, multiple)
+        if (!RotaryEventPolicy.shouldConsume(dy)) {
+            probe("兼容：位移为 0，不吞事件", event, "view=${view.javaClass.simpleName} multiple=$multiple")
+            return false
+        }
+        smoothScrollBy(dy)
+        if (requestFocus) view.requestFocus()
+        return true
+    }
+
+    /** 兼容模式的「系统优先」入口，逐条对应 26.11.16.4 的 `handleSystemFirst()`。 */
+    private fun handleSystemFirstCompat(
+        view: View,
+        event: MotionEvent,
+        multiple: Float,
+        scrollOffset: () -> Int,
+        runFramework: () -> Boolean,
+        smoothScrollBy: (Int) -> Unit
+    ): Boolean {
+        if (multiple <= 0f) return runFramework()
+        if (!RotaryEventPolicy.isRotaryEvent(event.action, event.source)) return runFramework()
+
+        val before = scrollOffset()
+        val frameworkHandled = runFramework()
+        val frameworkDelta = scrollOffset() - before
+        // 必须在 event 被系统回收之前算出来，理由同 [handleSystemFirst]。
+        val target = compatSystemFirstTargetDelta(view, event, multiple)
+
+        if (RotaryEventPolicy.shouldConsumeAfterFramework(frameworkHandled, frameworkDelta != 0)) {
+            // 框架自称处理了却没位移：可能是异步滚动没落到 scrollY 上，也可能已经到头。一律不补。
+            if (frameworkDelta == 0) return true
+            val topUp = RotaryEventPolicy.topUpDelta(target, frameworkDelta)
+            if (topUp != 0) smoothScrollBy(topUp)
+            return true
+        }
+
+        if (!RotaryEventPolicy.shouldConsume(target)) {
+            probe("兼容：框架没动、补位位移为 0，不吞事件", event, "view=${view.javaClass.simpleName} multiple=$multiple")
+            return false
+        }
+        smoothScrollBy(target)
+        return true
+    }
+
+    /** 兼容模式的页面级兜底，逐条对应 26.11.16.4 的 `handlePage()`。 */
+    private fun handlePageCompat(root: View, event: MotionEvent): Boolean {
+        if (!RotaryEventPolicy.isRotaryEvent(event.action, event.source)) {
+            if (RotaryEventPolicy.isScrollEvent(event.action)) {
+                probe("兼容：兜底非表冠源，未处理", event, "root=${root.javaClass.simpleName}")
+            }
+            return false
+        }
+        val stats = ScanStats()
+        val target = resolveScrollTarget(root, stats)
+        if (target == null) {
+            probe("兼容：本页找不到可滚容器", event, stats.describe(root))
+            return false
+        }
+        val multiple = if (target is RecyclerView)
+            sensitivityOf(SettingsKeys.UI_ROTATORY_RECYCLER)
+        else
+            sensitivityOf(SettingsKeys.UI_ROTATORY_SCROLL)
+        if (multiple <= 0f) return false
+
+        val dy = compatPixelDelta(target, event, multiple)
+        if (!RotaryEventPolicy.shouldConsume(dy)) {
+            probe("兼容：位移为 0，不吞事件", event, "target=${target.javaClass.simpleName} multiple=$multiple")
+            return false
+        }
+        if (!smoothScrollVertically(target, dy)) return false
+        if (successProbed.compareAndSet(false, true)) {
+            probe("兼容：滚动成功（本进程首次）", event, "dy=$dy target=${target.javaClass.simpleName}")
+        }
+        return true
+    }
+
     // ==================== 诊断 ====================
     //
     // 只在「本该处理却没处理」「本进程第一次真的滚动成功」「本进程第一次补差额」时打日志，
@@ -587,7 +759,8 @@ internal object RotaryEncoderSupport {
                     " effectiveRecycler=${sensitivityOf(SettingsKeys.UI_ROTATORY_RECYCLER)}" +
                     " effectiveScroll=${sensitivityOf(SettingsKeys.UI_ROTATORY_SCROLL)}" +
                     " factor=${verticalScrollFactorOf(view)}" +
-                    " factorRaw=${scaledVerticalScrollFactorOf(view)}"
+                    " factorRaw=${scaledVerticalScrollFactorOf(view)}" +
+                    " compat=${isCompatMode()}"
         )
     }
 

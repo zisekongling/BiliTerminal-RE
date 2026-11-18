@@ -280,4 +280,36 @@ class RotaryEventPolicyTest {
         assertEquals(0f, RotaryEventPolicy.clampSensitivity(0f), 0f)
         assertEquals(-3f, RotaryEventPolicy.clampSensitivity(-3f), 0f)
     }
+
+    // ---------- shouldEnableCompat（反馈 #243：给滚轮类 ROM 一条退回正式版的退路） ----------
+
+    @Test
+    fun 表冠报成滚轮时自动开兼容() {
+        // source=0x2002 的那类 ROM 就是前四轮一直修不顺的机器（OPPO Watch 4 Pro / OWW251），
+        // 无论滚动基准多正常都该退回正式版口径：App 侧怎么算都是猜
+        assertTrue(RotaryEventPolicy.shouldEnableCompat(true, 128f))
+        assertTrue(RotaryEventPolicy.shouldEnableCompat(true, 1f))
+    }
+
+    @Test
+    fun 编码器机型基准正常时不自动开兼容() {
+        // 三星表圈等正常机型：源是 SOURCE_ROTARY_ENCODER、基底 64dp（≈128px），行为一点不变
+        assertFalse(RotaryEventPolicy.shouldEnableCompat(false, 128f))
+        assertFalse(RotaryEventPolicy.shouldEnableCompat(false, 64f))
+    }
+
+    @Test
+    fun 编码器机型基准被压到一像素时也自动开兼容() {
+        // #235 实测这台 ROM 的 config_verticalScrollFactor 就是 1px；源偶尔报成表冠也不可信
+        assertTrue(RotaryEventPolicy.shouldEnableCompat(false, 1f))
+        assertTrue(RotaryEventPolicy.shouldEnableCompat(false, 0f))
+        assertTrue(RotaryEventPolicy.shouldEnableCompat(false, -1f))
+    }
+
+    @Test
+    fun 基准正好踩在阈值上不算异常() {
+        // 8px 是「被压坏」与「确实很小但可用」的分界，边界取闭到正常一侧，避免正常机器被误判
+        assertFalse(RotaryEventPolicy.shouldEnableCompat(false, 8f))
+        assertTrue(RotaryEventPolicy.shouldEnableCompat(false, 7.9f))
+    }
 }

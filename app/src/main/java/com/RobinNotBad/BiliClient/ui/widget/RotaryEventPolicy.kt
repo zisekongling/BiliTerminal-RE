@@ -185,4 +185,27 @@ object RotaryEventPolicy {
         if (value <= 0f) return value
         return value.coerceIn(SENSITIVITY_MIN, SENSITIVITY_MAX)
     }
+
+    /**
+     * 判定「这台机器是否该自动开表冠兼容模式」的基准阈值（像素）。
+     *
+     * 正常机型的 `config_verticalScrollFactor` 是 64dp（手表 density 2.0 时 = 128px），
+     * AOSP 没有低于 64dp 的取值；反馈 #235 的 OPPO Watch 4 Pro 报的是 **1px**。取 8px 是为了留足余量：
+     * 比它小就意味着这台 ROM 的基准与 App 口径差一个数量级以上，而这台机器同时还是滚轮源。
+     */
+    const val COMPAT_FACTOR_THRESHOLD_PX = 8f
+
+    /**
+     * 是否该自动打开表冠兼容模式（把表冠行为整体回退到 26.11.16.4，最后一个正式版）。
+     *
+     * 两个信号任一成立，就算「这台机器不属于 App 能可靠换算的那一类」：
+     * 1. `isWheelSource`——表冠被 ROM 报成鼠标滚轮（`source = 0x2002`，OPPO Watch 4 Pro 就是这样）。
+     *    26.11.16.4 对这类事件**完全不接管**、全交给框架，那正是用户说「上一个版本不会」的那套行为。
+     * 2. `factorRaw < COMPAT_FACTOR_THRESHOLD_PX`——ROM 把 `config_verticalScrollFactor` 压得远低于 64dp，
+     *    这时「1 格 = 1px」的量级不论怎么换算都不对。
+     *
+     * 编码器机型（三星表圈等）两个条件都不成立，继续走新逻辑，一点不受影响。
+     */
+    fun shouldEnableCompat(isWheelSource: Boolean, factorRaw: Float): Boolean =
+        isWheelSource || factorRaw < COMPAT_FACTOR_THRESHOLD_PX
 }

@@ -18,6 +18,13 @@
 
 ## 1. 当前版本状态
 
+- **26.11.18-beta.6 新增「表冠兼容模式」：滚轮类 ROM 一键退回 26.11.16.4 的老逻辑（控制台反馈 #243）**：
+  - **来路**：同一台 OPPO Watch 4 Pro（OWW221，#197 起就是同一位测试者）在 beta.5 上又发了一条反馈，正文只有「OPPOwatch」，日志（931 字符）里只有一条 `模式与灵敏度（本进程首次） action=8 src=0x2002 crown=2 axisVScroll=-1.0 enabled=true systemFirst=false storedRecycler=1.0 storedScroll=1.0 effectiveRecycler=1.0 effectiveScroll=1.0 factor=128.0 factorRaw=1.0`，**没有任何一条失败探针**——说明包是对的、基准是好的、路径也是通的，但「手感如何」一句话都读不出来。四轮下来（#197 → #234 → #235 → #243）每一次都在拿脱敏日志反推这台 ROM 的换算关系，`axisVScroll` 的整格量从 ±1 一路看到 ±48，`factor` 从 1px 修到 128px，结论是：**这台 ROM 的表冠手感不在 App 侧能算准的范围里**。
+  - **改法（新增一条退路，不推翻现有逻辑）**：① 新键 `SettingsKeys.UI_ROTATORY_COMPAT`（`ui_rotatory_compat`）与 `UI_ROTATORY_COMPAT_AUTO`（`ui_rotatory_compat_auto`，自动判定只跑一次的标记）。② `RotaryEventPolicy.shouldEnableCompat(isWheelSource, factorRaw)` + `COMPAT_FACTOR_THRESHOLD_PX = 8f`：表冠被报成滚轮（source=0x2002）或原值基准 < 8px 即认定「这台机不对劲」。③ `RotaryEncoderSupport.isCompatMode()`；`handle()` / `handleSystemFirst()` / `handlePage()` 三条入口在 `probeMode` 之后先跑 `maybeAutoEnableCompat(...)`（每进程只判一次，可滚祖先的 `factor` 取落点上的），命中就写开关并打 `兼容：本机表冠报成滚轮或滚动基准异常，已自动切到兼容模式（回退 26.11.16.4）`，随后整体转进 `handleCompat` / `handleSystemFirstCompat` / `handlePageCompat`，口径照抄 26.11.16.4：**只认 `SOURCE_ROTARY_ENCODER`**（滚轮源一律 `return false` / `runFramework()`，就是那一版让用户说「不会」的写法）、基准取 `scaledVerticalScrollFactorOf` 原值、不套 64dp 下限、不做一屏封顶、不爬祖先、不过 `clampSensitivity`。④ 设置页「表冠适配」段加「表冠兼容模式」开关（`desc_ui_rotatory_compat`），默认关。⑤ `probeMode` 末尾追加 `compat=` 字段。
+  - **口径（有意的取舍）**：兼容模式**严格等价 26.11.16.4**，不与现有修法混用——半新半旧正是前四轮越修越偏的原因。编码器机型（三星表圈等）两个条件都不成立，行为零变化；已经踩过坑的机器只自动开一次，之后用户手动的选择一直保留（`UI_ROTATORY_COMPAT_AUTO` 保证不被反复覆盖）。
+  - **L0（26.11.18 本机实测）**：`:app:testStandardDebugUnitTest :app:assembleDebug --console=plain` → BUILD SUCCESSFUL（1m43s，128 tasks）；**272 套件 / 2931 用例 / 0 失败 / 0 错误 / 0 跳过**（上一版 2927，新增 4 条 `shouldEnableCompat` 用例）。markdownlint 83 文件 0 问题。
+  - **未验证（L2）**：① 滚轮类 ROM 自动切兼容后，手感是否回到 26.11.16.4（要那位测试者确认）；② 三星表圈等编码器机型是否真的零变化；③ 手动关掉后不再被自动打开；④ 设置页开关与说明文案的可读性。
+
 - **26.11.18-beta.5 基准修好之后手感翻到另一头：快转一格滑过整屏、慢转一跳一跳发黏（控制台反馈 #235 复测）**：
   - **来路**：beta.4 交付后，同一批 OPPO Watch 4 Pro 测试者回「大部分页面变得能动但黏黏的，之前能正常滑动的页面变得一滑到底」，同时另有人说「修好了」。19:47 的日志（beta.4）确认 `enabled=true systemFirst=false storedRecycler=1.0 effectiveRecycler=1.0 factor=128.0 factorRaw=1.0`：基准确实从 1px 抬到了 128px（64dp × density 2.0），灵敏度是默认 1.0。
   - **根因（基准与量级被重复放大）**：`wheelScrollDelta` 的公式是 `-ratio × factor × multiple`，两处改动叠在一起：① beta.4 把 `factor` 从 ROM 给的 1px 抬到 128px（128 倍）；② 单事件封顶仍是配 1px 基准定的「列表 32 格 / 阅读容器 2 格」。4 Pro 快转一格报 `AXIS_VSCROLL = -32.0`，一个事件就是 32 × 128 = 4096px，即便有「单次封顶一屏」（496px）也是**一次跳满屏**——这就是「一滑到底」；慢转时每格 128px（≈1.3 个列表项）配 `smoothScrollBy` 每 30~40ms 被下一格打断，就是一跳一跳的「黏」。

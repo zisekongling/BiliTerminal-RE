@@ -175,6 +175,10 @@ object SettingsKeys {
     const val UI_ROTATORY_ENABLE = "ui_rotatory_enable"
     const val UI_ROTATORY_RECYCLER = "ui_rotatory_recycler"
     const val UI_ROTATORY_SCROLL = "ui_rotatory_scroll"
+    /** 表冠兼容模式：开启后表冠的手感完全回退到 26.11.16.4（最后一个正式版）。 */
+    const val UI_ROTATORY_COMPAT = "ui_rotatory_compat"
+    /** 兼容模式的「自动判定已跑过」标记，见 `RotaryEncoderSupport.maybeAutoEnableCompat`。 */
+    const val UI_ROTATORY_COMPAT_AUTO = "ui_rotatory_compat_auto"
 
     // ==================== 通知 ====================
     /**

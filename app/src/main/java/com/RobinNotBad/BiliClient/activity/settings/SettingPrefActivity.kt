@@ -121,6 +121,11 @@ class SettingPrefActivity : RefreshListActivity() {
             // 就地收回 0.2–8，保证设置页显示的数字就是真正生效的数字（读取侧也收，见 sensitivityOf）。
             RotaryEncoderSupport.normalizeSensitivity(SettingsKeys.UI_ROTATORY_RECYCLER)
             RotaryEncoderSupport.normalizeSensitivity(SettingsKeys.UI_ROTATORY_SCROLL)
+            // 反馈 #243：OPPO Watch 4 Pro 那类「表冠被报成鼠标滚轮」的机器，App 侧的手感怎么调都是猜；
+            // 这个开关把表冠整体退回 26.11.16.4（最后一个正式版）的旧行为。默认关闭，但首次踩到
+            // 滚轮源或异常基准会自动打开一次（见 RotaryEncoderSupport.maybeAutoEnableCompat）。
+            add(SettingSection("switch", "表冠兼容模式", SettingsKeys.UI_ROTATORY_COMPAT,
+                getString(R.string.desc_ui_rotatory_compat), "false"))
             add(SettingSection("input_float", "表冠适配灵敏度（Recycler）", SettingsKeys.UI_ROTATORY_RECYCLER,
                 getString(R.string.desc_ui_rotatory_sensitivity), RotaryEncoderSupport.DEFAULT_MULTIPLE))
             add(SettingSection("input_float", "表冠适配灵敏度（Scroll）", SettingsKeys.UI_ROTATORY_SCROLL,
