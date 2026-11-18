@@ -148,14 +148,17 @@ object SegmentedBarStyle {
     /**
      * 给分段条的容器（`filterBar` / `sortBar` / `tabBar` 这种 LinearLayout）铺玻璃轨道。
      *
-     * 不需要算 inset：背景的绘制区域**天然就排除了容器 padding**，而 [TrackDrawable]
-     * 会和 [PillDrawable] 用同一条高度公式，所以轨道内缘与胶囊外缘永远对齐——
+     * 纵向：[TrackDrawable] 和 [PillDrawable] 用同一条高度公式，所以轨道与胶囊的高度永远一致——
      * 无论容器是 48dp 的 `touch_min` 格子 + 2dp 上下 padding，还是 TabLayout 的默认高度。
+     *
+     * 横向：轨道必须**让出容器 padding**（见 [TrackDrawable]）。View 的背景铺满整个 bounds、
+     * padding 也在里面，而格子只占 padding 以内的内容区——不把 padding 让出来，格子就比轨道两端
+     * 各内缩一个 padding，窄屏上看着就是「按钮铺不满整个框」。
      */
     @JvmStatic
     fun applyTrack(bar: View) {
         val density = bar.resources.displayMetrics.density
-        ViewCompat.setBackground(bar, TrackDrawable(barColors(), density))
+        ViewCompat.setBackground(bar, TrackDrawable(bar, barColors(), density))
     }
 
     /**
@@ -318,7 +321,7 @@ object SegmentedBarStyle {
     fun styleTabs(tabs: TabLayout) {
         val density = tabs.resources.displayMetrics.density
         val colors = barColors()
-        ViewCompat.setBackground(tabs, TrackDrawable(colors, density))
+        ViewCompat.setBackground(tabs, TrackDrawable(tabs, colors, density))
         // 先按官方接口置色：TabView 内部 update() 会拿这份 ColorStateList 重刷文字，
         // 只改子 View 的话下一次选中/取消选中又会被覆盖回去。
         tabs.setTabTextColors(colors.textUnselected, colors.textSelected)
@@ -367,8 +370,14 @@ object SegmentedBarStyle {
      * 高度**自己算**而不是靠 inset：和 [PillDrawable] 用同一条 `min(BAR_HEIGHT_DP, h - 2*sidelen)` 公式，
      * 于是不管容器多高（48dp 格子、TabLayout 默认高度、以后别人改的别的尺寸），
      * 轨道和胶囊都严丝合缝，不会出现「胶囊比轨道高 1dp」这种一眼假的错位。
+     *
+     * 尺寸按 [host] 的**内容区**（bounds 减 padding）算，而不是直接按 bounds：
+     * 背景是画在整个 View 上的，padding 也在内；格子却只在内容区里。
+     * 不减 padding 的话，三格（以及选中胶囊）会比轨道两端各内缩一个 padding，
+     * 小屏（164dp 宽、6dp padding）上这 12dp 就是「按钮铺不满整个框」。
      */
     private class TrackDrawable(
+        private val host: View,
         private val colors: BarColors,
         private val density: Float
     ) : Drawable() {
@@ -386,15 +395,26 @@ object SegmentedBarStyle {
         private val track = RectF()
         private var radius = 0f
 
-        override fun onBoundsChange(bounds: Rect) {
+        override fun onBoundsChange(bounds: Rect) = updateGeometry()
+
+        /**
+         * 改 padding 只会 requestLayout，不一定重发 onBoundsChange，所以每次绘制前都按
+         * 当前 bounds + padding 重算一遍（几个加减，不在热路径上）。
+         */
+        private fun updateGeometry() {
             val side = TRACK_EDGE_DP * density
-            val height = minOf(BAR_HEIGHT_DP * density, bounds.height() - 2 * side)
-            val vInset = (bounds.height() - height) / 2f
-            track.set(bounds.left + side, bounds.top + vInset, bounds.right - side, bounds.bottom - vInset)
-            radius = minOf(RADIUS_DP * density, height / 2f)
+            val left = bounds.left + host.paddingLeft + side
+            val right = bounds.right - host.paddingRight - side
+            val top = bounds.top + host.paddingTop + side
+            val bottom = bounds.bottom - host.paddingBottom - side
+            val height = minOf(BAR_HEIGHT_DP * density, bottom - top)
+            val vInset = ((bottom - top) - height) / 2f
+            track.set(left, top + vInset, right, bottom - vInset)
+            radius = minOf(RADIUS_DP * density, maxOf(0f, height) / 2f)
         }
 
         override fun draw(canvas: Canvas) {
+            updateGeometry()
             if (track.width() <= 0f || track.height() <= 0f) return
             canvas.drawRoundRect(track, radius, radius, fillPaint)
             canvas.drawRoundRect(track, radius, radius, strokePaint)
