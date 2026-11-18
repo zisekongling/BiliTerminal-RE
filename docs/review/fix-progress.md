@@ -18,6 +18,15 @@
 
 ## 1. 当前版本状态
 
+- **26.11.18 表冠把「报成滚轮」的整格量收成一格，OPPO Watch 4 Pro 的转动整段变慢到像失效（控制台反馈 #234）**：
+  - **来路**：反馈 #234（26.11.18-beta.1，OPPO OWW221 / Watch 4 Pro）「表冠失效，调极高的灵敏度一卡一卡的粘置」；用户在对话里确认「上一个版本不会」。与 #197 是同一台设备、同一个用户。
+  - **根因**：26.11.18 为 #197 新加的滚轮分支把整格量一律归一成方向（`stepOf` → ±1），**量级被抹掉**。#197 的日志证明这台表快转一格报 `AXIS_VSCROLL = -16.0`：改前框架按 `-16 × 64dp` 给 16 行，改后只给 1 行，速度掉到 1/16——体感就是「失效」。同一条日志里 34ms 内连来 3 个事件（-1.0 / -16.0 / -16.0），叠加用户把灵敏度拉到极高，`smoothScrollBy` 被反复打断、到边后粘住，就是「一卡一卡的粘置」。
+  - **改法（2 个文件 + 1 个单测）**：`CrownSourcePolicy.wheelStepDelta(step, …)` 换成 `wheelScrollDelta(ratio, scrollFactor, multiple, maxSteps)`——保留量级、只封顶；新增 `WHEEL_MAX_STEPS_LIST = 32f`（等于不封顶）与 `WHEEL_MAX_STEPS_READING = 2f`；`RotaryEncoderSupport` 新增 `wheelMaxStepsOf(view)` 按容器选封顶（`NestedScrollView` 封 2 格，其余不封），三条入口（`handle` / `handleSystemFirst` / `crownPixelDelta`）统一走它。`stepOf` 删除。
+  - **口径（有意的取舍）**：列表页与 26.11.17 完全一致（框架口径 `config_verticalScrollFactor × 1` 行/格），那是「上一个版本能用」的原点；简介/消息这类 `NestedScrollView` 单次封顶 2 格，一次快拨约 3 个事件 ≈ 6 格 ≈ 1.5 屏，比 26.11.17 的十几屏克制，又不像 26.11.18-beta.1 那样「一格一行」。2 这个数是手感参数，只能真机判。
+  - **顺带**：滚轮分支原先两处静默 `return runFramework()` 都补了 W 级埋点（「量不够粗或容器滚不动」「位移为 0」），`handle()` 的闸门也补了一条——下次再有「转不动」，日志能直接分出是哪道闸。
+  - **L0（26.11.18 本机实测）**：`:app:testStandardDebugUnitTest :app:assembleDebug --console=plain` → BUILD SUCCESSFUL（1m36s）；**272 套件 / 2917 用例 / 0 失败 / 0 错误**；`CrownSourcePolicyTest` 15 个用例（新增「快转的整格量按量级放大而不是收成一格」「阅读容器把单次滚轮量封顶」「封顶不影响慢转的一格」）。
+  - **未验证（L2）**：① OPPO Watch 4 Pro 上慢转一格 ≈ 1 行、快转明显加速（回到 26.11.17 的手感）；② 视频详情简介、消息页这些 `NestedScrollView` 快拨不再整页跳、也不再「转不动」；③ 关掉「启用表冠适配」后系统优先路径同样正常（`handleSystemFirst` 的 WHEEL 分支）；④ 接了鼠标的手机滚一格仍 ≈ 1 行。
+
 - **26.11.18 分段条 / 页签的胶囊比轨道两端各内缩一截：轨道按宿主内边距收边（用户报「按钮铺不满整个框」）**：
   - **来路**：用户此前提出（转述，非原话）小屏上分段条「按钮铺不满整个框」——164dp 宽容器、6dp 内边距时，胶囊比轨道两端各内缩约 12dp。改动由用户先在工作区里写好（未提交），本轮随 26.11.18-beta.1 一起提交。
   - **根因**：`app/src/main/java/com/RobinNotBad/BiliClient/ui/appearance/SegmentedBarStyle.kt` 的 `TrackDrawable` 只按宿主 `View` 的完整 bounds 画轨道，没有扣掉内边距；胶囊画在轨道里，所以两端各少一截，看起来像「按钮铺不满」。

@@ -84,10 +84,8 @@ import kotlin.math.roundToInt
  *    [RotaryEventPolicy.isRotaryEvent] 只认 `SOURCE_ROTARY_ENCODER`，于是三条入口全部在
  *    门口退回框架（见 [handleSystemFirst] 的第二行），只剩框架自己的换算——`NestedScrollView`
  *    把 -16 当 16 行算就是**一次跳一整页**，手感即「无法精确控制」。放宽的判据与换算在
- *    [CrownSourcePolicy]：只放宽「表把表冠报成滚轮」这一种来源，且只在**一格报成多行**时由
- *    App 收成一格；真实鼠标一格（|量| ≤ 1）仍原样交回框架，接了鼠标的手机与模拟器手感不变。
- *    接管必须放在**框架之前**：[RotaryEventPolicy.topUpDelta] 只补不足，收不回框架已经跳出去
- *    的那一段。
+ *    [CrownSourcePolicy]：只放宽「表把表冠报成滚轮」这一种来源。接管必须放在**框架之前**：
+ *    [RotaryEventPolicy.topUpDelta] 只补不足，收不回框架已经跳出去的那一段。
  * 2. #228 是**落点与开销**问题，且是详情页独有。详情页 `viewPager.offscreenPageLimit = 页数`，
  *    三个页始终 attached + VISIBLE：兜底第一轮靠 [isCandidateVisible] 还能滤掉离屏页，
  *    第二轮（`requireOnScreen = false`）就会选中**用户看不见那一页**的容器并把事件吃掉；
@@ -97,6 +95,14 @@ import kotlin.math.roundToInt
  *    原先每个表冠事件都要跑两轮全树遍历、每个候选问一次 `canScrollVertically`，低端手表上
  *    这就是「转起来发涩」的叠加项。找不到目标时的日志也补上扫描统计（[ScanStats]），
  *    下次再报「转不动」能直接分辨「整页没内容」与「被可见性判断挡掉」。
+ *
+ * **26.11.18.1 修反馈 #234（同一个 OPPO Watch 4 Pro 用户：「表冠失效，调极高的灵敏度一卡一卡」）**：
+ * 上一版把滚轮整格量一律归一成 ±1（抹掉量级），而这台表**快转一格报 -16.0**——改前框架给 16 行、
+ * 改后只给 1 行，速度掉到 1/16，用户的体感就是「转不动」。现在改成 [CrownSourcePolicy.wheelScrollDelta]
+ * 保留量级，只用 `maxSteps` 封顶，且封顶按容器分：列表（`RecyclerView` / `ScrollView`）按量级原样
+ * （与 26.11.17 完全一致），阅读容器（`NestedScrollView`）单次封顶 2 格，兼顾 #197 的「一转过整页」。
+ * 那一次修法的教训：**「收成一格」等于把用户唯一的调速手段抹掉了**，再靠灵敏度补偿只会变成
+ * 「一卡一卡」——灵敏度是乘数，救不回量级信息。
  */
 internal object RotaryEncoderSupport {
 
@@ -165,12 +171,19 @@ internal object RotaryEncoderSupport {
             }
             return false
         }
-        // 滚轮类来源（反馈 #197）：连续小量（|量| < 0.9，触控板那种）交回框架自己换算；只有整格
-        // （±1.0 / ±16.0）才由 App 收成一格。容器此刻压根滚不动（横向列表、内容不满一屏）时也
-        // 交回框架——否则就是「事件被吃掉、画面却不动」，比不接管更糟。
+        // 滚轮类来源（反馈 #197）：连续小量（|量| < 0.9，触控板那种）交回框架自己换算；整格量
+        // （±1.0 / ±16.0）由 App 按量级换算，阅读容器另封顶（见 CrownSourcePolicy.wheelScrollDelta）。
+        // 容器此刻压根滚不动（横向列表、内容不满一屏）时也交回框架——否则就是「事件被吃掉、
+        // 画面却不动」，比不接管更糟。
         if (crown == CrownSourcePolicy.WHEEL &&
             (!CrownSourcePolicy.isCoarseWheelStep(rawScrollRatio(event)) || !isScrollable(view))
         ) {
+            // 反馈 #234 的排查要靠这句：这一格到底是被「量不够粗」还是「容器滚不动」挡回去的。
+            probe(
+                "控件级：滚轮整格不接管，交回框架", event,
+                "view=" + view.javaClass.simpleName + " ratio=" + rawScrollRatio(event) +
+                    " scrollable=" + isScrollable(view)
+            )
             return false
         }
 
@@ -227,16 +240,24 @@ internal object RotaryEncoderSupport {
         if (crown == CrownSourcePolicy.WHEEL) {
             val ratio = rawScrollRatio(event)
             if (!CrownSourcePolicy.isCoarseWheelStep(ratio) || !isScrollable(view)) {
+                probePerView(
+                    "滚轮：量不够粗或容器滚不动，交回框架", view, event,
+                    "ratio=$ratio scrollable=" + isScrollable(view)
+                )
                 return runFramework()
             }
-            val dy = CrownSourcePolicy.wheelStepDelta(
-                CrownSourcePolicy.stepOf(ratio), scaledVerticalScrollFactorOf(view), multiple
+            val cap = wheelMaxStepsOf(view)
+            val dy = CrownSourcePolicy.wheelScrollDelta(
+                ratio, scaledVerticalScrollFactorOf(view), multiple, cap
             )
-            if (!RotaryEventPolicy.shouldConsume(dy)) return runFramework()
+            if (!RotaryEventPolicy.shouldConsume(dy)) {
+                probePerView("滚轮：位移为 0，交回框架", view, event, "ratio=$ratio multiple=$multiple")
+                return runFramework()
+            }
             smoothScrollBy(dy)
             probePerView(
-                "滚轮：框架会整页跳，App 收成一格", view, event,
-                "ratio=$ratio dy=$dy multiple=$multiple"
+                "滚轮：按量级换算（列表保量级、阅读容器封顶）", view, event,
+                "ratio=$ratio dy=$dy multiple=$multiple cap=$cap"
             )
             return true
         }
@@ -363,11 +384,25 @@ internal object RotaryEncoderSupport {
         )
 
     /**
+     * 这一次滚轮事件最多折算几格（封顶值）。
+     *
+     * 判据是**容器类型**而不是页面：同一个视频详情页里，简介是 `NestedScrollView`（阅读，要精确）、
+     * 外层是 `RecyclerView`（列表，要快），两类容器的手感要求本来就相反。封顶值见
+     * [CrownSourcePolicy.WHEEL_MAX_STEPS_READING] 与 [CrownSourcePolicy.WHEEL_MAX_STEPS_LIST]。
+     */
+    private fun wheelMaxStepsOf(view: View): Float =
+        if (view is NestedScrollView) {
+            CrownSourcePolicy.WHEEL_MAX_STEPS_READING
+        } else {
+            CrownSourcePolicy.WHEEL_MAX_STEPS_LIST
+        }
+
+    /**
      * 本容器上这一格该滚多少像素；返回 null 表示「这次不接管」。
      *
      * 编码器来源走 [RotaryEventPolicy.pixelDelta]（原口径，含那个 ×2）；滚轮来源走
-     * [CrownSourcePolicy.wheelStepDelta]（收成一格、不乘 2，理由见那里的注释）。三条入口
-     * 都已经提前挡掉了 CrownSourcePolicy.NONE，所以 null 在正常路径上不会出现。
+     * [CrownSourcePolicy.wheelScrollDelta]（保留量级、阅读容器封顶、不乘 2，理由见那里的注释）。
+     * 三条入口都已经提前挡掉了 CrownSourcePolicy.NONE，所以 null 在正常路径上不会出现。
      */
     private fun crownPixelDelta(view: View, event: MotionEvent, multiple: Float): Int? {
         val factor = scaledVerticalScrollFactorOf(view)
@@ -375,8 +410,8 @@ internal object RotaryEncoderSupport {
             CrownSourcePolicy.ENCODER ->
                 RotaryEventPolicy.pixelDelta(rawScrollRatio(event), factor, multiple)
 
-            CrownSourcePolicy.WHEEL -> CrownSourcePolicy.wheelStepDelta(
-                CrownSourcePolicy.stepOf(rawScrollRatio(event)), factor, multiple
+            CrownSourcePolicy.WHEEL -> CrownSourcePolicy.wheelScrollDelta(
+                rawScrollRatio(event), factor, multiple, wheelMaxStepsOf(view)
             )
 
             else -> null
@@ -703,23 +738,37 @@ object CrownSourcePolicy {
      */
     fun isCoarseWheelStep(ratio: Float): Boolean = ratio >= 0.9f || ratio <= -0.9f
 
-    /** 把一格滚轮的轴值归一成方向（±1）；给 0 表示没有方向，调用方据此不接管。 */
-    fun stepOf(ratio: Float): Float = when {
-        ratio >= 0.9f -> 1f
-        ratio <= -0.9f -> -1f
-        else -> 0f
-    }
+    /** 列表容器单次滚轮事件最多折算几格：32 格等于「不封顶」（框架自己也不封顶），只为挡住异常轴值。 */
+    const val WHEEL_MAX_STEPS_LIST = 32f
 
     /**
-     * 滚轮一格该滚多少像素。
+     * 阅读容器（`NestedScrollView` 及其子类：视频详情简介、消息页这类）单次滚轮事件最多折算几格。
      *
-     * **不乘 2**：pixelDelta 里那个 ×2 是 26.10.17 为「编码器一格」定的手感基准；滚轮一格的
-     * 量级由用户对照物决定——#197 里用户说「其他地方都正常」，那些地方走的正是框架的
-     * verticalScrollFactor × 1 行。这里取同一口径（factor × 1），换来的效果是「一格 ≈ 一行」
-     * 而不是框架对 NestedScrollView 的「一格 ≈ 16 行」。
+     * 2 格是这么定的：这类容器拿主题的 `listPreferredItemHeight`（≈48dp）当一行，而一次快拨会在
+     * 34ms 内连来 3 个整格事件（#197 日志：-1.0 / -16.0 / -16.0）。不封顶就是 48 格 ≈ 十几屏，
+     * 正是 #197 说的「一转过整页、没法精确控制」；封到 2 格后一次快拨 ≈ 6 格 ≈ 1.5 屏。
+     *
+     * **不能封到 1 格**：26.11.18-beta.1 就是这样，OPPO Watch 4 Pro 快转一格从 16 行掉到 1 行，
+     * 用户（#234）直接报「表冠失效」。这个数字是手感参数，只能真机判，改动要记 L2。
      */
-    fun wheelStepDelta(step: Float, scrollFactor: Float, multiple: Float): Int {
-        if (step == 0f || multiple <= 0f) return 0
-        return (-step * scrollFactor * multiple).roundToInt()
+    const val WHEEL_MAX_STEPS_READING = 2f
+
+    /**
+     * 一次滚轮事件该滚多少像素。
+     *
+     * **保留量级、只封顶**，不要归成 ±1 的方向：26.11.18-beta.1 用 stepOf 收成一格，把量级抹掉了。
+     * OPPO Watch 4 Pro 快转一格报 `AXIS_VSCROLL = -16.0`，改前框架给 16 行、改后只给 1 行，速度掉到
+     * 1/16——用户体感就是「表冠失效/转不动」（反馈 #234），而这个人正是 #197 的报修者。
+     *
+     * **不乘 2**：`pixelDelta` 里那个 ×2 是 26.10.17 为「编码器一格」定的手感基准；滚轮与框架的
+     * `config_verticalScrollFactor × 1` 同口径——#197 用户说「其他地方都正常」，那些地方走的正是它。
+     *
+     * @param ratio 这一格的轴值（带量级）
+     * @param maxSteps 单次事件最多折算几格，见 [WHEEL_MAX_STEPS_LIST] / [WHEEL_MAX_STEPS_READING]
+     */
+    fun wheelScrollDelta(ratio: Float, scrollFactor: Float, multiple: Float, maxSteps: Float): Int {
+        if (ratio == 0f || multiple <= 0f || maxSteps <= 0f) return 0
+        val capped = ratio.coerceIn(-maxSteps, maxSteps)
+        return (-capped * scrollFactor * multiple).roundToInt()
     }
 }

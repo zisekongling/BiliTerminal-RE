@@ -99,30 +99,56 @@ class CrownSourcePolicyTest {
         assertFalse(CrownSourcePolicy.isCoarseWheelStep(0f))
     }
 
-    // ---------- stepOf：只取方向 ----------
-
-    @Test
-    fun 整格量归一成方向() {
-        assertEquals(1f, CrownSourcePolicy.stepOf(1.0f), 0f)
-        assertEquals(1f, CrownSourcePolicy.stepOf(16.0f), 0f)
-        assertEquals(-1f, CrownSourcePolicy.stepOf(-1.0f), 0f)
-        assertEquals(-1f, CrownSourcePolicy.stepOf(-16.0f), 0f)
-    }
-
-    @Test
-    fun 小量没有方向() {
-        assertEquals(0f, CrownSourcePolicy.stepOf(0.1f), 0f)
-        assertEquals(0f, CrownSourcePolicy.stepOf(0f), 0f)
-    }
-
-    // ---------- wheelStepDelta：换算成一格的像素 ----------
+    // ---------- wheelScrollDelta：保留量级，阅读容器封顶 ----------
 
     @Test
     fun 一格滚轮按一倍滚动系数换算() {
         // factor 50、灵敏度 1.0：一格就是 50px。方向用滚动的语义（内容上移 = 负值），
         // 与 RotaryEventPolicy.pixelDelta 的符号约定保持一致。
-        assertEquals(-50, CrownSourcePolicy.wheelStepDelta(1f, 50f, 1f))
-        assertEquals(50, CrownSourcePolicy.wheelStepDelta(-1f, 50f, 1f))
+        assertEquals(
+            -50,
+            CrownSourcePolicy.wheelScrollDelta(1f, 50f, 1f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST)
+        )
+        assertEquals(
+            50,
+            CrownSourcePolicy.wheelScrollDelta(-1f, 50f, 1f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST)
+        )
+    }
+
+    @Test
+    fun 快转的整格量按量级放大而不是收成一格() {
+        // 反馈 #234：OPPO Watch 4 Pro 快转一格报 AXIS_VSCROLL = -16.0，框架口径就是 16 行。
+        // 26.11.18-beta.1 把它收成一格，速度掉到 1/16，用户直接报「表冠失效」。
+        assertEquals(
+            -800,
+            CrownSourcePolicy.wheelScrollDelta(16f, 50f, 1f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST)
+        )
+        assertEquals(
+            800,
+            CrownSourcePolicy.wheelScrollDelta(-16f, 50f, 1f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST)
+        )
+    }
+
+    @Test
+    fun 阅读容器把单次滚轮量封顶() {
+        // 反馈 #197：简介/消息是 NestedScrollView，一格 16 行就是一整页，封到 2 格
+        assertEquals(
+            -100,
+            CrownSourcePolicy.wheelScrollDelta(16f, 50f, 1f, CrownSourcePolicy.WHEEL_MAX_STEPS_READING)
+        )
+        assertEquals(
+            100,
+            CrownSourcePolicy.wheelScrollDelta(-16f, 50f, 1f, CrownSourcePolicy.WHEEL_MAX_STEPS_READING)
+        )
+    }
+
+    @Test
+    fun 封顶不影响慢转的一格() {
+        // 慢转一格本来就只有 1 格，封顶不该改变它的手感
+        assertEquals(
+            -50,
+            CrownSourcePolicy.wheelScrollDelta(1f, 50f, 1f, CrownSourcePolicy.WHEEL_MAX_STEPS_READING)
+        )
     }
 
     @Test
@@ -131,14 +157,15 @@ class CrownSourcePolicyTest {
         // 否则 #197 用户对照「其他地方都正常」的参照物就不成立了。
         val factor = 50f
         val encoder = RotaryEventPolicy.pixelDelta(1f, factor, 1f)
-        val wheel = CrownSourcePolicy.wheelStepDelta(1f, factor, 1f)
+        val wheel = CrownSourcePolicy.wheelScrollDelta(1f, factor, 1f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST)
         assertEquals(encoder / 2, wheel)
     }
 
     @Test
     fun 方向为零或灵敏度为零时不产生位移() {
-        assertEquals(0, CrownSourcePolicy.wheelStepDelta(0f, 50f, 1f))
-        assertEquals(0, CrownSourcePolicy.wheelStepDelta(1f, 50f, 0f))
-        assertEquals(0, CrownSourcePolicy.wheelStepDelta(1f, 50f, -1f))
+        assertEquals(0, CrownSourcePolicy.wheelScrollDelta(0f, 50f, 1f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST))
+        assertEquals(0, CrownSourcePolicy.wheelScrollDelta(1f, 50f, 0f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST))
+        assertEquals(0, CrownSourcePolicy.wheelScrollDelta(1f, 50f, -1f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST))
+        assertEquals(0, CrownSourcePolicy.wheelScrollDelta(1f, 50f, 1f, 0f))
     }
 }
