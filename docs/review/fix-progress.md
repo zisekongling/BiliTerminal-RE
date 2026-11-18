@@ -1055,6 +1055,14 @@
 > **26.11.11 播放器底部按钮行「新加按钮与同行不一致」的验收步骤与判据见 [`manual-test-guide-261111-player-slot-icon.md`](manual-test-guide-261111-player-slot-icon.md)（H25~H26）。**
 > **26.11.11 自动跳过广告片段（SponsorBlock）的验收步骤与判据见 [`manual-test-guide-261111-sponsorblock.md`](manual-test-guide-261111-sponsorblock.md)（S01~S06）。**
 
+> **26.11.18 六批修复（崩溃 #366/#367/#368/#369/#370/#371、反馈 #197/#211/#223/#224/#225/#228）的 L2 验收项逐条写在 §1 对应条目的「未验证（L2）」里**，本轮没有单独出交接单文档：每条都是「照着改前会坏的场景再看一遍」，其中 #370 需要一台 Android 8.0/8.1 设备。
+
+- [ ] **26.11.18 表情页仍漏还 Glide 资源（待修，未开单）**：`app/src/main/java/com/RobinNotBad/BiliClient/activity/EmoteActivity.kt:110` 的 `.submit().get()` 取完图没有 `manager.clear(future)`，与 §1「表情 Glide 资源泄漏」修的是**同一个 EngineKey**（表情 URL）——虽然本轮把 `EmoteUtil` 侧的租约全部归还了，这一处仍会在反复进出表情页时留下 acquired 计数。判据同崩溃 #366 那批（`Cannot recycle a resource while it is still acquired`）。
+
+- [ ] **26.11.18 封面请求宽度可能被绝对 DPI 抬高（待评估）**：`app/src/main/java/com/RobinNotBad/BiliClient/util/PerformanceManager.kt:359` 的 `screenLongSidePx()` 读的是 `BiliTerminal.context.resources.displayMetrics`。本轮「绝对 DPI 与界面缩放在同一处定型」之后，设了绝对 DPI 的用户那里这个 metrics 会跟着变，封面选档可能从 480 抬到 640（多流量）。建议改用 `physicalScreenSizePx()` / `getRealMetrics`，或直接从 `WindowManager` 取真实屏宽。
+
+- [ ] **26.11.18 `RotaryNestedScrollView` 没有离屏页早退（记录在案，判为可接受）**：`app/src/main/java/com/RobinNotBad/BiliClient/ui/widget/RotaryNestedScrollView.kt` 的 `dispatchGenericMotionEvent` 未加本轮 `RotaryRecyclerView` / `RotaryScrollView` 那样的 `isOffscreenPageWidget` 早退。它的框架路径只读 `AXIS_VSCROLL`、对编码器事件给 0.0，残留风险≈0，本轮未动。
+
 - [ ] **26.11.16 反馈页（#174）顶栏返回箭头真机未验（L2，只能看画面）**：L0 已过（231 套件 / 2495 用例全绿 + 双 flavor `assembleDebug`）；L1 在 466×466 圆屏 AVD 上只验到「同一套 `drawableStartCompat` 写法在圆屏下正常出箭头、标题不被压、不贴圆边」，`FeedbackActivity` 本身没能在模拟器里打开（非 exported + 无 adb root + 首启弹窗串行占屏，见 §1 该条）。需确认：①设置 → 关于与帮助 → 反馈与统计 →「反馈与建议」，进页后标题左侧有 `<` 箭头，标题不被箭头压住，右上角时间仍在；②点箭头（或顶栏任意处）能返回上一页，与右滑返回同一效果；③把「圆屏适配」打开、以及把「顶栏高度」调成非默认值，两种情况下箭头都还在，且不贴到屏幕圆边；④「我的反馈」（列表页）与反馈详情页左上角也有箭头（这两页布局本来就有箭头，本轮只做静态覆盖）；⑤亮色主题下箭头颜色与标题一致、看得见。顺带请人判观感：图标大小、与标题的间距。
 
 - [ ] **26.11.11 自动跳过广告片段（SponsorBlock）真机未验（L2，只能看画面 / 判手感，且要设备能出网）**：L0 已过（两套单测 26 例全绿 + 整包 `assembleDebug` 通过）。需确认：①档位「关闭」下播任一视频全程无请求、无提示；设置搜索能搜到「自动跳过」组与两项设置；②档位「仅恰饭广告」下 `BV1KLgkzzEb1` 播到 5:17 自动跳到 6:27、提示「已跳过广告」、点「撤回」回到 5:17 且不会被立刻弹走、同一段只跳一次、跳完弹幕不是空白；③档位「推荐」下 `BV11Kc2zZEDK` 开头 0~21 秒被跳过且文案是「已跳过片头」（类别名必须是中文）；④档位「全部类别」下 `BV1Pb3uzyEmT` 的相邻重叠标注不会连跳 / 乱跳；⑤番剧、直播、本地视频一律不查不跳；⑥断网时静默降级（不弹错），恢复网络后一分钟内自愈；⑦换 P / 换集后上一集片段不串到新一集；⑧从历史 / 缓存入口进播放时广告照跳、且高能进度条曲线能显示（顺带修的老问题）；⑨「自动跳过」组里点「要跳的类别」，列表**没有**「精彩时刻」，勾一类返回后档位自动变「自定义」，回播放页该类别照跳、取消勾选后不再跳。步骤见 [`manual-test-guide-261111-sponsorblock.md`](manual-test-guide-261111-sponsorblock.md)（S01~S06）。
