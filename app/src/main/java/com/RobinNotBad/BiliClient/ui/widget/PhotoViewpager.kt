@@ -25,13 +25,22 @@ import com.RobinNotBad.BiliClient.util.Logu
  * 它拿到的是**分发到容器的最原始事件**，不受子 View 是否被拦截影响；同时
  * **不消费事件、不改变返回值**，所以双指缩放 / 拖动 / 左右翻页的行为一点不变。
  * 判定出双击后用 [onDoubleTap] 通知宿主，由宿主决定缩放哪一张、放到多大。
+ *
+ * <h3>为什么删掉「双指时临时放开拦截」（26.11.18，反馈 #232）</h3>
+ * 这里原来有一段：只要 `pointerCount > 1 && mIsDisallowIntercept`，就先
+ * `requestDisallowInterceptTouchEvent(false)` 派发、再 `true` 兜回去。
+ * 那是把子 View 好不容易立起来的 `FLAG_DISALLOW_INTERCEPT` 在每个双指事件上
+ * **拆开一次**，容器（自己）的 [onInterceptTouchEvent] 因此有机会在手势中途成立，
+ * 把事件改成 ACTION_CANCEL 发给子 View——捏合当场断掉，表现为「双击放大后有时
+ * 缩不回去」「两指要拉到很大才开始跟手」。26.10.30 初版起就在，属遗留。
+ *
+ * 现在改动全交给子 View：它放大 / 双指时自己 disallow，退回原始大小或拉到边上时
+ * 自己放开，翻页照常。代价是纯双指左右翻页不再可用（图片页没有这个用法）。
  */
 class PhotoViewpager @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
 ) : ViewPager(context, attrs) {
-
-    private var mIsDisallowIntercept = false
 
     /**
      * 双击回调：参数是**本容器坐标系**里的触点位置（当前页铺满容器，可以直接当页面内坐标用）。
@@ -57,11 +66,6 @@ class PhotoViewpager @JvmOverloads constructor(
         }
     ).apply { setIsLongpressEnabled(false) }
 
-    override fun requestDisallowInterceptTouchEvent(disallowIntercept: Boolean) {
-        mIsDisallowIntercept = disallowIntercept
-        super.requestDisallowInterceptTouchEvent(disallowIntercept)
-    }
-
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         // 先旁路跑一遍双击检测：必须在 super 之前，否则容器一旦拦截子 View 就收不到后续事件。
         // 这里**只看不吞**：检测器的返回值不参与派发决策，翻页 / 缩放 / 拖动完全照旧。
@@ -73,14 +77,9 @@ class PhotoViewpager @JvmOverloads constructor(
                 Logu.e("image-zoom", "双击检测异常：${e.message}")
             }
         }
-        return if (ev.pointerCount > 1 && mIsDisallowIntercept) {
-            requestDisallowInterceptTouchEvent(false)
-            val handled = super.dispatchTouchEvent(ev)
-            requestDisallowInterceptTouchEvent(true)
-            handled
-        } else {
-            super.dispatchTouchEvent(ev)
-        }
+        // 不再在双指期间临时放开拦截（见类文档）：子 View 设的 FLAG_DISALLOW_INTERCEPT
+        // 必须一路生效，否则容器会在捏合中途抢走手势、给子 View 发 ACTION_CANCEL。
+        return super.dispatchTouchEvent(ev)
     }
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean =

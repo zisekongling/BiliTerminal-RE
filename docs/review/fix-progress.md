@@ -18,6 +18,12 @@
 
 ## 1. 当前版本状态
 
+- **26.11.18 图片页「双击放大后偶发缩不回去」：容器在每个双指事件上临时放开拦截（控制台反馈 #232）**：
+  - **来路**：反馈 #232（26.11.17-beta.2，OPPO OWW221）：图片双指缩放「判定距离稍大」，两指要拉到很大才开始跟手；双击放大后有概率双指缩不回去。
+  - **根因**：`app/src/main/java/com/RobinNotBad/BiliClient/ui/widget/PhotoViewpager.kt:76-83`（26.10.30 初次导入 a7fb06be 就带着）在 `dispatchTouchEvent` 里对「`pointerCount > 1` 且子 View 已请求 disallow」的事件处理成 `requestDisallowInterceptTouchEvent(false)` → super 派发 → `true` 兜回。子 View 刚立起来的 `FLAG_DISALLOW_INTERCEPT` 因此在**每个双指事件上被拆开一次**，容器自己的 `onInterceptTouchEvent` 就能在手势中途成立，给子 View 发 `ACTION_CANCEL`，捏合当场断。PhotoView 只在 scale>1 拖动时调 disallow，所以正是「双击放大后」才走到这个分支——同时解释了「有概率」（看容器那一帧有没有判成拖动）与「要拉很大才动」（捏合刚起就被掐断，用户只能重来）。
+  - **改法**：删掉该分支，连同只服务它的 `mIsDisallowIntercept` 字段与 `requestDisallowInterceptTouchEvent` override，派发回到 `super.dispatchTouchEvent(ev)`；拦截开关完全交回子 View（双指/放大时自己 disallow，退回原始大小或拉到边上时自己放开，翻页照旧）。类文档补一节记原因。代价：纯双指左右翻页不再可用（图片页没有这个用法）。
+  - **验证**：L0 —— `:app:assembleDebug`（standard / coexist 两个 flavor 均出包）与 `:app:testStandardDebugUnitTest` 通过。**未验证（L2，需人测）**：双击放大后双指缩回、单指拖到左右边缘仍能翻页。
+
 - **26.11.18 顶栏长标题压住右侧按钮、右边缘没有省略号（用户截图）**：
   - **来路**：用户发来两张设置页截图并要「修复上面的顶栏无省略号的 bug，同时检查其他页面有没有类似的 bug（为灵动岛流出空间用）」。病态那张是「播放器界面（实验性）」：标题与右侧「完整设置」按钮**文字互相叠在一起**、右边缘直接把字切掉；同屏另一张「跳过设置（实… 13:01」有省略号、带时钟，说明正常页表现是对的。
   - **根因**：`app/src/main/java/com/RobinNotBad/BiliClient/activity/base/BaseActivity.kt:346-347` 的 `setRound()` 只在**运行时**给标题 `maxLines = 1` + `TruncateAt.END`，可读宽度却是布局给的。`app/src/main/res/layout/activity_setting_player_ui.xml` 的 `@id/pageName` 只有 `layout_alignParentStart` + `wrap_content`、没有任何右边界，RelativeLayout 于是拿整屏宽度当上界——文字只要比「屏宽 − 左内距」短就按文字宽排完、**根本不触发 ellipsize**，标题便直接铺到 `@id/btnFull` 身上。同类还漏了两份：`activity_message.xml`（`match_parent` 无右边界）与 `activity_update.xml`（`wrap_content` 无右边界）。
