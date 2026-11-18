@@ -144,4 +144,22 @@ object RotaryEventPolicy {
         if (gap <= 0) return 0
         return if (targetDy > 0) gap else -gap
     }
+
+    /**
+     * 把单次事件的位移封顶在**一屏**之内（反馈 #235）。
+     *
+     * 灵敏度是个乘数：用户在设置页把「表冠灵敏度」填到 700，`700 × 基准` 就远超一屏。
+     * `smoothScrollBy` 每 30~40ms 被下一格打断、每次都撞在端点附近，看到的就是「一卡一卡、
+     * 粘住」（#235 原话），而用户并不会因此更快到达想去的地方——中间那一段根本没被看见。
+     *
+     * 封顶**不改灵敏度语义**：慢转该走多远还是多远，只是拒绝「一次跳过一屏以上」。
+     *
+     * @param delta 换算出来的位移
+     * @param viewport 容器可视高（`height - paddingTop - paddingBottom`）；
+     *   ≤ 0 表示布局还没完成、量不出可视高，此时**原样返回**——封顶反而会误伤首屏手势
+     */
+    fun clampToViewport(delta: Int, viewport: Int): Int {
+        if (delta == 0 || viewport <= 0) return delta
+        return delta.coerceIn(-viewport, viewport)
+    }
 }

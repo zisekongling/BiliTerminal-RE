@@ -103,6 +103,23 @@ import kotlin.math.roundToInt
  * （与 26.11.17 完全一致），阅读容器（`NestedScrollView`）单次封顶 2 格，兼顾 #197 的「一转过整页」。
  * 那一次修法的教训：**「收成一格」等于把用户唯一的调速手段抹掉了**，再靠灵敏度补偿只会变成
  * 「一卡一卡」——灵敏度是乘数，救不回量级信息。
+ *
+ * **26.11.18.2 修反馈 #235（同一台 OPPO Watch 4 Pro 回过一份带日志的「几乎每个页面都用表冠
+ * 滑动测试了」）**：日志把这两条硬伤一次说清了——
+ * 1. **闸门找错了容器**：每条都是 `view=RotaryRecyclerView ratio=1.0 scrollable=false`。消息页是
+ *    `activity_message.xml:47` 的 `RotaryNestedScrollView` 里再套 `:358` 一个
+ *    `layout_height="match_parent"` 的 `RotaryRecyclerView`，内层被 UNSPECIFIED 测成「刚好装下
+ *    全部会话」，自己永远滚不动（#166 的老结构）。老代码「容器滚不动就交回框架」，而框架不换算
+ *    mouse 源的轴值，这一格就白扔了。现在 [resolveWidgetTarget] 沿 parent 链找可滚祖先再接管
+ *    （[handle] 与 [handleSystemFirst] 两条入口都走它）。
+ * 2. **基准被 ROM 改坏了**：兜底那条是 `dy=-1`，当时灵敏度 1.0、ratio 1.0，按
+ *    `-ratio × factor × multiple` 反推 **factor = 1px**（正常机 `config_verticalScrollFactor`
+ *    = 64dp ≈ 128px）。于是 1.0 灵敏度 = 每格 1px（用户眼里的「完全动不了」），调到 700 又是每格
+ *    700px、超过 378×496 屏幕上那 496px 可视高（「一卡一卡、粘住」）。现在统一走
+ *    [verticalScrollFactorOf]，基准不低于 [SCROLL_FACTOR_FLOOR_DP] × density：正常机取到原值，
+ *    异常 ROM 拉回正常量级。
+ * 3. 单次位移另外加了**一屏封顶**（[clampToOneViewport]）：极端灵敏度下拒绝「一次跳过一屏以上」，
+ *    不改灵敏度语义（乘数照旧生效），只是不让 `smoothScrollBy` 每 34ms 就撞一次端点。
  */
 internal object RotaryEncoderSupport {
 
@@ -174,28 +191,34 @@ internal object RotaryEncoderSupport {
         // 开启模式下也要把「模式 + 两类灵敏度 + factor」记一次：反馈 #234 的复现步骤里用户会
         // 先关开关再打开，两条路各打一条，才能看出是哪条路上的量级不对。
         probeMode(view, event)
-        // 滚轮类来源（反馈 #197）：容器此刻压根滚不动（横向列表、内容不满一屏）时交回框架——
-        // 否则就是「事件被吃掉、画面却不动」，比不接管更糟。
+        // 落点自己滚不动时**先向上找可滚祖先**（反馈 #235），找到就由 App 滚它。
         //
-        // 26.11.18-beta.3 起**不再按「量够不够粗」让路**（反馈 #234）：OPPO Watch 4 Pro 这类把
-        // 表冠报成鼠标的 ROM，框架自己并不换算轴值，让路等于整段交给一个不处理的人——低灵敏度
-        // 下就是「完全动不了」，高灵敏度下又因为只有框架那一份最慢的基准而「一卡一卡」。细量
-        // 照旧按 [CrownSourcePolicy.wheelScrollDelta] 换算，只有位移真的算成 0（轴值本来就是 0）
-        // 时才由下面的 shouldConsume 交回框架。
-        if (crown == CrownSourcePolicy.WHEEL && !isScrollable(view)) {
+        // 这条针对 #166 那种「外层滚、内层撑满」的结构：#235 的消息页是
+        // activity_message.xml:47 的 `RotaryNestedScrollView` 套 :358 的 `RotaryRecyclerView`
+        // （`layout_height="match_parent"`，被 `NestedScrollView` 的 UNSPECIFIED 量成「刚好装下
+        // 全部会话」），内层自己永远 `canScrollVertically() == false`。老代码在这里一律交回框架
+        // （理由是「别吃掉事件却没人动」），可把表冠报成鼠标的 ROM 上框架根本不换算轴值，交回
+        // 等于整段交给一个不处理的人——#235 的日志里每格只剩 DecorView 兜底那一次最慢的滚动。
+        //
+        // 26.11.18-beta.3 起**不再按「量够不够粗」让路**（反馈 #234）：细量照旧按
+        // [CrownSourcePolicy.wheelScrollDelta] 换算，只有位移真的算成 0（轴值本来就是 0）时才由
+        // 下面的 shouldConsume 交回框架。
+        val scrollTarget = resolveWidgetTarget(view)
+        if (scrollTarget == null) {
             probe(
-                "控件级：滚轮但容器滚不动，交回框架", event,
-                "view=" + view.javaClass.simpleName + " ratio=" + rawScrollRatio(event)
+                "控件级：落点与祖先都滚不动，交回框架", event,
+                "view=" + view.javaClass.simpleName + " crown=" + crown +
+                    " ratio=" + rawScrollRatio(event)
             )
             return false
         }
 
-        val dy = crownPixelDelta(view, event, multiple) ?: return false
+        val dy = crownPixelDelta(scrollTarget, event, multiple) ?: return false
         if (!RotaryEventPolicy.shouldConsume(dy)) {
             probe("控件级：位移为 0，不吞事件", event, "view=${view.javaClass.simpleName} multiple=$multiple")
             return false
         }
-        smoothScrollBy(dy)
+        if (scrollTarget === view) smoothScrollBy(dy) else smoothScrollVertically(scrollTarget, dy)
         if (requestFocus) view.requestFocus()
         return true
     }
@@ -237,6 +260,37 @@ internal object RotaryEncoderSupport {
 
         probeMode(view, event)
 
+        // 落点自己滚不动时先向上找可滚祖先（反馈 #235），与 [handle] 里同一段同因，见那里的注释。
+        //
+        // 这条路**不走「框架先跑、App 补差额」**，而是直接整段滚祖先：`runFramework` / `scrollOffset` /
+        // `smoothScrollBy` 三个 λ 都绑在**落点**上，而落点此刻滚不动，`super` 那条路什么也动不了；
+        // 祖先自己的 `onGenericMotionEvent` 要等子控件返回 false 之后才跑，此刻还没轮到它。也就是说
+        // 祖先的框架处理尚未发生，直接接管不会与它叠加。
+        val scrollTarget = resolveWidgetTarget(view)
+        if (scrollTarget == null) {
+            probePerView(
+                "滚轮：落点与祖先都滚不动，交回框架", view, event,
+                "crown=" + crown + " ratio=" + rawScrollRatio(event)
+            )
+            return runFramework()
+        }
+        if (scrollTarget !== view) {
+            val dy = crownPixelDelta(scrollTarget, event, multiple) ?: return runFramework()
+            if (!RotaryEventPolicy.shouldConsume(dy)) {
+                probePerView(
+                    "接管祖先：位移为 0，交回框架", view, event,
+                    "ratio=" + rawScrollRatio(event) + " multiple=" + multiple
+                )
+                return runFramework()
+            }
+            smoothScrollVertically(scrollTarget, dy)
+            probePerView(
+                "接管祖先：落点滚不动，改滚外层容器", view, event,
+                "target=" + scrollTarget.javaClass.simpleName + " dy=" + dy + " multiple=" + multiple
+            )
+            return true
+        }
+
         // 滚轮类来源（反馈 #197）一格报多行时，必须在**框架动手之前**接管：框架按行数换算
         // （-16 就是 16 行 = 一次整页，见 [RotaryEventPolicy.systemFirstTargetDelta] 的注释），
         // 而 [RotaryEventPolicy.topUpDelta] 只补不足、收不回已经跳出去的那一段距离。
@@ -248,18 +302,13 @@ internal object RotaryEncoderSupport {
         // 的基准，表现为「一卡一卡」。
         if (crown == CrownSourcePolicy.WHEEL) {
             val ratio = rawScrollRatio(event)
-            if (!isScrollable(view)) {
-                probePerView(
-                    "滚轮：容器滚不动，交回框架", view, event,
-                    "ratio=$ratio scrollable=false"
-                )
-                return runFramework()
-            }
             val cap = wheelMaxStepsOf(view)
-            val factor = scaledVerticalScrollFactorOf(view)
+            val factor = verticalScrollFactorOf(view)
 
             if (CrownSourcePolicy.isCoarseWheelStep(ratio)) {
-                val dy = CrownSourcePolicy.wheelScrollDelta(ratio, factor, multiple, cap)
+                val dy = clampToOneViewport(
+                    view, CrownSourcePolicy.wheelScrollDelta(ratio, factor, multiple, cap)
+                )
                 if (!RotaryEventPolicy.shouldConsume(dy)) {
                     probePerView("滚轮：整格量位移为 0，交回框架", view, event, "ratio=$ratio multiple=$multiple")
                     return runFramework()
@@ -272,7 +321,9 @@ internal object RotaryEncoderSupport {
                 return true
             }
 
-            val target = CrownSourcePolicy.wheelScrollDelta(ratio, factor, multiple, cap)
+            val target = clampToOneViewport(
+                view, CrownSourcePolicy.wheelScrollDelta(ratio, factor, multiple, cap)
+            )
             val before = scrollOffset()
             val frameworkHandled = runFramework()
             val frameworkDelta = scrollOffset() - before
@@ -305,7 +356,7 @@ internal object RotaryEncoderSupport {
         val frameworkDelta = scrollOffset() - before
         // 这一格「应该」走多远。**必须在 event 被回收之前算出来**：系统在 dispatch 返回后会
         // recycle 这个 MotionEvent，延后使用它的 axis 值只会读到 0。
-        val target = systemFirstTargetDelta(view, event, multiple)
+        val target = clampToOneViewport(view, systemFirstTargetDelta(view, event, multiple))
 
         if (RotaryEventPolicy.shouldConsumeAfterFramework(frameworkHandled, frameworkDelta != 0)) {
             // 框架说自己处理了、偏移却没变：可能是异步滚动（惯性/动画还没落到 scrollY 上），
@@ -390,12 +441,7 @@ internal object RotaryEncoderSupport {
             probe("兜底：位移为 0，不吞事件", event, "target=${target.javaClass.simpleName} multiple=$multiple")
             return false
         }
-        when (target) {
-            is RecyclerView -> target.smoothScrollBy(0, dy)
-            is NestedScrollView -> target.smoothScrollBy(0, dy)
-            is ScrollView -> target.smoothScrollBy(0, dy)
-            else -> return false
-        }
+        if (!smoothScrollVertically(target, dy)) return false
         if (successProbed.compareAndSet(false, true)) {
             probe("兜底：滚动成功（本进程首次）", event, "dy=$dy target=${target.javaClass.simpleName}")
         }
@@ -410,16 +456,33 @@ internal object RotaryEncoderSupport {
         )
 
     /**
-     * 本机 `ViewConfiguration` 的竖直滚动缩放值（`config_verticalScrollFactor`，即 64dp × density）。
+     * 本机 `ViewConfiguration` 报上来的竖直滚动缩放值（`config_verticalScrollFactor`，正常机 = 64dp × density）。
      *
-     * 这是 **App 口径**的基准。框架各容器自己算表冠滚动量时未必用这个值（`NestedScrollView`
-     * 用的是主题的 `listPreferredItemHeight`），所以系统优先模式下的补位要按 App 口径重新算一遍
-     * 目标距离，见 [RotaryEventPolicy.systemFirstTargetDelta]。
+     * 这是**原值**，不保证可用：反馈 #235 的 OPPO Watch 4 Pro 报的是 **1px**（正常手表 64dp ≈ 128px，
+     * 差两个数量级），于是灵敏度 1.0 时每格只滚 1px（用户眼里就是「完全动不了」）、灵敏度 700 时
+     * 每格 700px 又一格撞穿一屏（「一卡一卡粘住」）。要算位移请用 [verticalScrollFactorOf]。
      */
     private fun scaledVerticalScrollFactorOf(view: View): Float =
         ViewConfigurationCompat.getScaledVerticalScrollFactor(
             ViewConfiguration.get(view.context), view.context
         )
+
+    /**
+     * 真正用于换算的基准：`max(config_verticalScrollFactor, [SCROLL_FACTOR_FLOOR_DP] × density)`。
+     *
+     * 这是反馈 #235 的第二条根因。ROM 把 `config_verticalScrollFactor` 调成 1px 之后，所有按它换算的
+     * 路径都只剩百分之一的距离。这个值由 ROM 决定、AOSP 的默认值是 64dp，正常机器不会低于它，所以
+     * 设一个下限既不会改变正常机型（`max` 取到原值），又能把异常 ROM 拉回正常量级。
+     *
+     * 框架各容器自己算表冠滚动量时未必用这个值（`NestedScrollView` 用的是主题的
+     * `listPreferredItemHeight`），所以系统优先模式下的补位要按 App 口径重新算一遍目标距离，
+     * 见 [RotaryEventPolicy.systemFirstTargetDelta]。
+     */
+    private fun verticalScrollFactorOf(view: View): Float {
+        val floor = SCROLL_FACTOR_FLOOR_DP * view.resources.displayMetrics.density
+        val config = scaledVerticalScrollFactorOf(view)
+        return if (config >= floor) config else floor
+    }
 
     /**
      * 这一次滚轮事件最多折算几格（封顶值）。
@@ -440,11 +503,12 @@ internal object RotaryEncoderSupport {
      *
      * 编码器来源走 [RotaryEventPolicy.pixelDelta]（原口径，含那个 ×2）；滚轮来源走
      * [CrownSourcePolicy.wheelScrollDelta]（保留量级、阅读容器封顶、不乘 2，理由见那里的注释）。
+     * 两条都过 [verticalScrollFactorOf] 的下限与 [clampToOneViewport] 的一屏封顶（反馈 #235）。
      * 三条入口都已经提前挡掉了 CrownSourcePolicy.NONE，所以 null 在正常路径上不会出现。
      */
     private fun crownPixelDelta(view: View, event: MotionEvent, multiple: Float): Int? {
-        val factor = scaledVerticalScrollFactorOf(view)
-        return when (CrownSourcePolicy.kindOf(event.action, event.source)) {
+        val factor = verticalScrollFactorOf(view)
+        val delta = when (CrownSourcePolicy.kindOf(event.action, event.source)) {
             CrownSourcePolicy.ENCODER ->
                 RotaryEventPolicy.pixelDelta(rawScrollRatio(event), factor, multiple)
 
@@ -452,14 +516,15 @@ internal object RotaryEncoderSupport {
                 rawScrollRatio(event), factor, multiple, wheelMaxStepsOf(view)
             )
 
-            else -> null
+            else -> return null
         }
+        return clampToOneViewport(view, delta)
     }
 
     /** 系统优先模式下这一格「应该」走的距离（与开启表冠适配 + 灵敏度 1.0 一致）。 */
     private fun systemFirstTargetDelta(view: View, event: MotionEvent, multiple: Float): Int =
         RotaryEventPolicy.systemFirstTargetDelta(
-            rawScrollRatio(event), scaledVerticalScrollFactorOf(view), multiple
+            rawScrollRatio(event), verticalScrollFactorOf(view), multiple
         )
 
     // ==================== 诊断 ====================
@@ -505,7 +570,8 @@ internal object RotaryEncoderSupport {
                     " storedScroll=${storedMultiple(SettingsKeys.UI_ROTATORY_SCROLL)}" +
                     " effectiveRecycler=${sensitivityOf(SettingsKeys.UI_ROTATORY_RECYCLER)}" +
                     " effectiveScroll=${sensitivityOf(SettingsKeys.UI_ROTATORY_SCROLL)}" +
-                    " factor=${scaledVerticalScrollFactorOf(view)}"
+                    " factor=${verticalScrollFactorOf(view)}" +
+                    " factorRaw=${scaledVerticalScrollFactorOf(view)}"
         )
     }
 
@@ -672,6 +738,77 @@ internal object RotaryEncoderSupport {
             "scanned=$groups scrollable=$scrollable hidden=$hidden " +
                 "noOverlap=$noOverlap offscreenPage=$offscreenPage " +
                 "root=${root.javaClass.simpleName}"
+    }
+
+    /** 「向上找可滚祖先」最多走几层。正常手表页面 10~20 层，32 只是防超深树。 */
+    private const val MAX_ANCESTOR_DEPTH = 32
+
+    /** [verticalScrollFactorOf] 的下限（dp）。AOSP 的 `config_verticalScrollFactor` 默认值就是 64dp。 */
+    private const val SCROLL_FACTOR_FLOOR_DP = 64f
+
+    /**
+     * 控件级入口的落点解析：自己滚得动就用自己，滚不动就沿 `parent` 链向上找第一个滚得动的容器。
+     *
+     * 反馈 #235 的消息页就是这个结构：`RotaryNestedScrollView`（activity_message.xml:47）里再套一个
+     * `RotaryRecyclerView`（activity_message.xml:358，`layout_height="match_parent"`），后者被
+     * `NestedScrollView` 的 UNSPECIFIED 测成「刚好装下全部会话」，自己永远滚不动。于是事件落在内层时
+     * 老代码「容器滚不动就交回框架」→ 框架不换算 mouse 源的轴值 → 每格只剩 DecorView 兜底那一次。
+     * 找到祖先之后由 App 直接滚它，量与其它页面同一口径。
+     *
+     * 不会越过 DecorView 继续往上（`parent` 走到 `ViewRootImpl` 就不是 `View` 了），也选不到横向容器
+     * （[isScrollable] 只认竖直）。
+     */
+    private fun resolveWidgetTarget(view: View): View? {
+        if (isScrollable(view)) return view
+        var child = view
+        for (i in 1..MAX_ANCESTOR_DEPTH) {
+            val parent = child.parent
+            if (parent !is View) return null
+            if (isScrollable(parent)) return parent
+            child = parent
+        }
+        return null
+    }
+
+    /**
+     * 按容器类型竖直平滑滚动 [view]。
+     *
+     * 控件级入口平时用调用方传进来的 λ（子类可能覆写 `smoothScrollBy`），只有「改滚祖先」时才走这里
+     * ——祖先的类型是运行时才确定的，只能自己分发。[isScrollable] 已把范围限定在这三个类，所以返回
+     * false 只是防御（类型判断与滚动能力判断不同步的瞬间）。
+     */
+    private fun smoothScrollVertically(view: View, dy: Int): Boolean = when (view) {
+        is RecyclerView -> {
+            view.smoothScrollBy(0, dy)
+            true
+        }
+
+        is NestedScrollView -> {
+            view.smoothScrollBy(0, dy)
+            true
+        }
+
+        is ScrollView -> {
+            view.smoothScrollBy(0, dy)
+            true
+        }
+
+        else -> false
+    }
+
+    /**
+     * 单次事件的位移封顶**一屏**（反馈 #235 的第三条改动）。
+     *
+     * #235 里用户把灵敏度一路调到 700：`700 × 基准` 远超 378×496 屏幕上那 496px 的可视高度，
+     * `smoothScrollBy` 每隔 34ms 就被下一格打断、每次都撞到端点，看到的就是「一卡一卡、粘住」。
+     * 一屏封顶不改灵敏度语义（乘数照旧生效，慢转该走多远还是多远），只是拒绝「一次跳过一屏以上」
+     * ——那一段距离用户根本看不见，只会把容器的位置感和动画一起弄坏。
+     *
+     * 布局还没完成（`height == 0`）时不封顶：那时量不出可视高，封顶反而会误伤。
+     */
+    private fun clampToOneViewport(view: View, dy: Int): Int {
+        val viewport = view.height - view.paddingTop - view.paddingBottom
+        return RotaryEventPolicy.clampToViewport(dy, viewport)
     }
 
     private fun isScrollable(view: View): Boolean = when (view) {

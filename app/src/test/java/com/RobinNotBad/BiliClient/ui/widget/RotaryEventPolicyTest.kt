@@ -218,4 +218,36 @@ class RotaryEventPolicyTest {
         // 真机微调的旋钮：1.0 = 与开启表冠适配一致。别在代码里随手改成手感猜测值
         assertEquals(1.0f, RotaryEventPolicy.SYSTEM_FIRST_TARGET_SCALE, 0f)
     }
+
+    // ---------- clampToViewport（反馈 #235：灵敏度填到 700 时「一卡一卡、粘住」） ----------
+
+    @Test
+    fun 一屏封顶不放过跨屏位移() {
+        // 4 Pro 的可视高：378×496 的屏，扣除系统栏后约 496px
+        val viewport = 496
+        // 灵敏度 700、滚轮一格 -16 的极端值：7000px ≫ 一屏
+        assertEquals(-viewport, RotaryEventPolicy.clampToViewport(-7000, viewport))
+        assertEquals(viewport, RotaryEventPolicy.clampToViewport(7000, viewport))
+    }
+
+    @Test
+    fun 一屏以内的位移原样保留() {
+        val viewport = 496
+        // 慢转的几像素、列表的一整格、刚好一屏——都不该被动过
+        assertEquals(-8, RotaryEventPolicy.clampToViewport(-8, 496))
+        assertEquals(-32, RotaryEventPolicy.clampToViewport(-32, 496))
+        assertEquals(viewport, RotaryEventPolicy.clampToViewport(viewport, viewport))
+    }
+
+    @Test
+    fun 量不出可视高时不封顶() {
+        // 布局还没完成（height==0）或内容比容器还窄时，封顶会误伤首屏手势，此时原样放行
+        assertEquals(-7000, RotaryEventPolicy.clampToViewport(-7000, 0))
+        assertEquals(-7000, RotaryEventPolicy.clampToViewport(-7000, -12))
+    }
+
+    @Test
+    fun 零位移不受封顶影响() {
+        assertEquals(0, RotaryEventPolicy.clampToViewport(0, 496))
+    }
 }
