@@ -19,9 +19,9 @@
 | 写新功能 | [`superpowers/plans/2026-08-27-new-features-roadmap.md`](superpowers/plans/2026-08-27-new-features-roadmap.md) | 功能 backlog（含实测过的接口地址、判据与仍未落地项） |
 | 改播放器 / 弱网 / 下载 | [`architecture-map.md`](architecture-map.md) §7.4 / §7.27 / §7.54 + [`review/fix-progress.md`](review/fix-progress.md) §2.2 | 现状与坑看架构地图，剩余待办看台账；原合并方案、弱网调研、下载排查与引擎方案已归档（ijkplayer 选项语义与 `.so` 实测仍可在 `archive/superpowers/specs/` 里查） |
 | 改教程系统 | [`tutorial-system-redesign.md`](tutorial-system-redesign.md) | 重做进行中，旧链路未删完——**动之前先读它** |
-| 改菜单设置 / 启动页 | `design/2026-10-20-menu-start-page.md`（设计稿，不入库） | 启动页单选（默认推荐、失效写回）与说明块折叠/长按隐藏的需求、验收与设计 |
-| 改短视频取流 | `design/2026-10-21-short-video-feed-protocol.md`（设计稿，不入库） | 取流参数、分页状态归属、横屏过滤与跨批去重、降级池策略；动 `ShortVideoFeedApi` 前先读 |
-| 改伪装页 / 顶栏双击手势 | `design/2026-10-22-disguise-mode.md`（设计稿，不入库） | 需求与验收口径、三个存储键、手势层接线点、两种样式的退出方式、已知取舍（单击多等 0.3 秒 / 忘了暗号只能强杀） |
+| 改菜单设置 / 启动页 | [`superpowers/specs/2026-10-20-menu-start-page.md`](superpowers/specs/2026-10-20-menu-start-page.md) | 启动页单选（默认推荐、失效写回）与说明块折叠/长按隐藏的需求、验收与设计 |
+| 改短视频取流 | [`superpowers/specs/2026-10-21-short-video-feed-protocol.md`](superpowers/specs/2026-10-21-short-video-feed-protocol.md) | 取流参数、分页状态归属、横屏过滤与跨批去重、降级池策略；动 `ShortVideoFeedApi` 前先读 |
+| 改伪装页 / 顶栏双击手势 | [`superpowers/specs/2026-10-22-disguise-mode.md`](superpowers/specs/2026-10-22-disguise-mode.md) | 需求与验收口径、三个存储键、手势层接线点、两种样式的退出方式、已知取舍（单击多等 0.3 秒 / 忘了暗号只能强杀） |
 | 改用户看到的任何文案 | 直接改 `app/src/main/res/values/strings.xml` | **用户可见文案已集中到这一处**（26.10.19 完成，见 [`copy-inventory/STRINGS-MIGRATION.md`](copy-inventory/STRINGS-MIGRATION.md) 第九节）；想知道某句话原本出现在哪个页面/干什么用，查 [`copy-inventory/`](copy-inventory/README.md) 的 7 份清单（1012 条）；改之前先读 [`copy-inventory/GUIDE.md`](copy-inventory/GUIDE.md) 的红线 |
 | 看用户能用到什么 | [`FEATURES.md`](FEATURES.md) | 用户视角功能总表（对应用户文档，不含实现细节） |
 | 查 B 站接口字段 | [`../bilibili-API/`](../bilibili-API/) | 上游接口文档快照（**注意上游已关停，见 `bilibili-api-notes.md` §1 的合规风险**） |
@@ -67,11 +67,11 @@
 | [`review/fork-comparison-2026-11-06.md`](review/fork-comparison-2026-11-06.md) | 三个兄弟分支（Revival / PianoEthan / cyq 1.3.0）与我们的功能增量对比、实现质量优化、不建议照搬清单与三批实施路线；分报告在 `review/forks/` | 排期移植 / 参考兄弟分支实现时；结论基于 2026-11-06 双方 HEAD |
 | [`review/fork-comparison-2026-11-13.md`](review/fork-comparison-2026-11-13.md) | **本轮（26.11.13 HEAD）三仓再对比**：G01–G32 去重后的差距总表（含成本/手表价值）、O1–O11 优化项、16 条不建议移植、**§5「已核对推翻的误报」**（大弹幕量保护与未读计数我方其实已有）、三批排期（小成本批量 / 动链路 / 单独立项）与 8 条待验；逐仓原始清单在 `review/forks/2026-11-13/` | 决定「从兄弟分支移植什么」时先读这份；逐仓细节按 `forks/2026-11-13/{revival,piano-ethan,cyq}.md` 查 |
 | [`superpowers/plans/2026-08-27-new-features-roadmap.md`](superpowers/plans/2026-08-27-new-features-roadmap.md) | 功能路线图 + 从各报告回迁的仍未落地项 | 排期 / 落地后 |
-| `design/2026-10-20-menu-start-page.md`（设计稿，不入库） | 菜单启动页与菜单设置说明改造：需求、验收标准、存储键与行结构设计 | 改菜单设置 / 启动流程时 |
-| `design/2026-10-21-short-video-feed-protocol.md`（设计稿，不入库） | 竖屏短视频取流协议修订：参数约定、会话级分页状态、横屏过滤、跨批去重、降级池与验收标准 | 改短视频取流 / 排查短视频页内容异常时 |
-| `design/2026-10-22-disguise-mode.md`（设计稿，不入库） | 伪装与安全：双击顶栏触发、两种样式与各自退出方式、三个存储键、手势层三个接线点、验收标准与已知取舍 | 改伪装页 / 顶栏双击手势时 |
-| `design/2026-10-25-dash-merge-single-file.md`（设计稿，不入库） | DASH 下载改合并单文件：合并时机、失败回退保留双文件、端到端待登录实测 | 改下载合并 / 排查双文件缓存时 |
-| `design/2026-11-06-player-ui-custom-layout.md`（设计稿，不入库） | 播放器界面设置（假播放器）与按钮自定义布局：槽位模型、七组设置、默认布局与验收标准；**已实施** | 改播放器按钮 / 播放器界面设置时 |
+| [`superpowers/specs/2026-10-20-menu-start-page.md`](superpowers/specs/2026-10-20-menu-start-page.md) | 菜单启动页与菜单设置说明改造：需求、验收标准、存储键与行结构设计 | 改菜单设置 / 启动流程时 |
+| [`superpowers/specs/2026-10-21-short-video-feed-protocol.md`](superpowers/specs/2026-10-21-short-video-feed-protocol.md) | 竖屏短视频取流协议修订：参数约定、会话级分页状态、横屏过滤、跨批去重、降级池与验收标准 | 改短视频取流 / 排查短视频页内容异常时 |
+| [`superpowers/specs/2026-10-22-disguise-mode.md`](superpowers/specs/2026-10-22-disguise-mode.md) | 伪装与安全：双击顶栏触发、两种样式与各自退出方式、三个存储键、手势层三个接线点、验收标准与已知取舍 | 改伪装页 / 顶栏双击手势时 |
+| [`superpowers/specs/2026-10-25-dash-merge-single-file.md`](superpowers/specs/2026-10-25-dash-merge-single-file.md) | DASH 下载改合并单文件：合并时机、失败回退保留双文件、端到端待登录实测 | 改下载合并 / 排查双文件缓存时 |
+| [`superpowers/specs/2026-11-06-player-ui-custom-layout.md`](superpowers/specs/2026-11-06-player-ui-custom-layout.md) | 播放器界面设置（假播放器）与按钮自定义布局：槽位模型、七组设置、默认布局与验收标准；**已实施** | 改播放器按钮 / 播放器界面设置时 |
 | [`specs/feedback-261111.md`](specs/feedback-261111.md) | **26.11.11 未处理反馈需求整理**：控制台 36 条待处理反馈逐条核实到 `file:line`、附开发者拍板结论（做 / 不做 / 暂缓 / 待验证）、实现要点与验收口径；接手反馈排期时先读这份 | 接手反馈修复 / 想知道某条反馈查到了哪一步时 |
 | [`archive/superpowers/specs/2026-11-07-test-build-framework.md`](archive/superpowers/specs/2026-11-07-test-build-framework.md) | **已拔出（26.11.08）留档配方**：测试版构建框架 —— `-PtestBuild=<name>` → `BuildConfig.TEST_BUILD`（编译期常量，普通包零影响）→ probe 会话（`begin/event/metric/finishAndUpload`）→ 复用崩溃通道「模拟崩溃」进管理台崩溃表；含加新测试版本的照抄清单、一键拔出三步、管理台认法与隐私红线 | 下次要给某个线上疑难问题出测试包抓真机现场时（按 §4 重建） |
 | [`tutorial-system-redesign.md`](tutorial-system-redesign.md) | 教程系统重做（**已完成**：注册表驱动 + 旧链路已删；§五 记录迁移明细，剩余待办只有强制声明清单） | 动教程时 |
@@ -88,5 +88,4 @@
 3. **归档不是删除**：`git mv` 进 `docs/archive/` 并在 `archive/README.md` 加一行「内容 + 为什么归档」，正文一字不改（只在开头加存档说明）。
 4. **归档前先回迁**：文档里唯一还活着的知识（不要回退的取舍、未落地的待办、实测数字）要先搬进活文档，再归档。
 5. 文档间引用一律写**仓库相对路径**（`docs/...`），归档后同步改引用；源码注释里的文档路径同样要改。
-6. **设计稿不进 `docs/`**：mockup、原型、截图与设计文档一律写仓库根的 `design/`（已 gitignore），本目录只留活知识；定稿的取舍 / 验收口径 / 坑回迁到对应活文档，过程稿留在本机。
 6. **格式**：改完任何 `.md` 跑一次 `npx --yes markdownlint-cli2 "AGENTS.md" "readme.md" "docs/**/*.md" "!docs/archive/**"`，**0 错误**才算完；规则与豁免理由见 [`agents/docs.md`](agents/docs.md)。

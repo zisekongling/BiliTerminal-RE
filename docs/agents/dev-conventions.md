@@ -85,7 +85,7 @@
 
 ## 伪装页（双击顶栏切过去的那两个页面）
 
-> 需求与验收见 `design/2026-10-22-disguise-mode.md`（设计稿，不入库）；手势技术结论见 `docs/architecture-map.md` §7.53。
+> 需求与验收见 `docs/superpowers/specs/2026-10-22-disguise-mode.md`；手势技术结论见 `docs/architecture-map.md` §7.53。
 
 - **伪装页刻意不继承 `BaseActivity`**：主题、DPI 适配、圆屏 `setRound`、教程触发、EventBus、顶栏手势，任何一项都可能把「这是 B 站客户端」暴露出来。用 `AppCompatActivity` + 专用主题（`Theme.BiliClient.Disguise` / `Theme.BiliClient.Disguise.Dialog`）。
 - **但圆屏留白是设备适配、不是外观**：不继承 `BaseActivity` 就拿不到 `setRound()`，改由 `activity/disguise/DisguiseRoundPadding.applyDisguiseRoundPadding(root)` 读同一组 `PADDING_H` / `PADDING_V` 换算。**新增伪装页必须调它**，否则圆屏最外圈的按键会被切掉。

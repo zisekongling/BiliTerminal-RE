@@ -1563,7 +1563,7 @@
 
 ### 3.59 新增「伪装与安全」：双击顶栏切到假计算器 / 假蓝牙提示（issue #22，26.10.22）
 
-- **需求与验收口径见 `design/2026-10-22-disguise-mode.md`（设计稿，不入库）**（Gitee 侧 issue #22，GitHub 镜像上没有该编号；技术坑见 `docs/architecture-map.md` §7.53、`docs/agents/pitfalls.md`「伪装与顶栏手势」）。
+- **需求与验收口径见 `docs/superpowers/specs/2026-10-22-disguise-mode.md`**（Gitee 侧 issue #22，GitHub 镜像上没有该编号；技术坑见 `docs/architecture-map.md` §7.53、`docs/agents/pitfalls.md`「伪装与顶栏手势」）。
 - **需求**（issue #22，用户定的三条口径）：① 两种样式都做、可在设置里选；② 计算器的退出方式是「输入暗号再按 `=`」；③ 做成设置开关、**默认关**；触发方式为**双击顶栏**。
 - **新增**：
   - `util/DisguisePrefs.kt`：开关 / 样式（`calculator` / `bluetooth`）/ 暗号（4~8 位数字）与纯函数 `normalizeCode`、`matchesSecret`。暗号**只允许数字**，否则计算器上敲不出来 = 用户把自己锁在伪装页里，只能强杀应用。
@@ -1740,7 +1740,7 @@
   - `util/FileUtil.java`：`cleanDownloadTempFiles` 增加删除 `video_merging.tmp`。
   - `res/values/strings.xml`：新增 `text_download_merging`「合并音视频」。
   - `app/src/debug/.../DebugBridge.kt`：新增 `merge` 命令（给两条 m4s 直接跑一次 `MediaMerger`，回显返回码/耗时/产物轨道与采样数），`help` 与 `docs/review/agent-test-guide.md` §4.8 同步。
-  - 新增设计文档 `design/2026-10-25-dash-merge-single-file.md`（设计稿，不入库）（含历史决策反转说明与 API 19 兼容性依据）。
+  - 新增设计文档 `docs/superpowers/specs/2026-10-25-dash-merge-single-file.md`（含历史决策反转说明与 API 19 兼容性依据）。
 - **验证**：
   - 构建：`.\gradlew.bat :app:assembleDebug` 双 flavor 成功；`:app:testStandardDebugUnitTest`、`:app:testCoexistDebugUnitTest` 各 **88 suites / 954 tests / 0 failures**（`app/build/test-results/` 下 `TEST-*.xml` 求和）。
   - 设备侧容器验证（Wear OS 模拟器 `sdk_gwear_x86_64`，Android 14，装 `standardDebug` universal 包；注意 **x86 单 ABI 包装不上**，本模拟器 `abilist=x86_64,arm64-v8a` 没有 32 位）：把仓库根的两条匿名 360P 样本 m4s（视频 3,867,429B / 音频 1,265,842B）经 `run-as` 拷进应用私有目录，广播 `--es cmd merge` → `result=OK(0) cost=3381ms`、产物 5,167,200B、`tracks=2`（`video/hevc` 2992 samples / `audio/mp4a-latm` 8584 samples，与源文件一致）、`progress=0,20,50,90`。
@@ -2581,7 +2581,7 @@
 
 ### 3.126 内置播放器设置按七组重构（26.11.06，用户要求「改设置-播放与播放器的层级结构」第 1 步 / 共 6 步）
 
-- **背景**：用户要「假播放器界面当设置」，最终目标是把播放器控制按钮做成可自定义槽位（设计文档 `design/2026-11-06-player-ui-custom-layout.md`（设计稿，不入库），§2 十七条口径已与用户逐条确认）。六步走：①抽分组数据（本条）②布局纯逻辑 + 单测 ③播放器按布局挂载按钮 ④假界面只读 ⑤编辑能力 ⑥顶部三开关 + 其余点击映射。
+- **背景**：用户要「假播放器界面当设置」，最终目标是把播放器控制按钮做成可自定义槽位（设计文档 `docs/superpowers/specs/2026-11-06-player-ui-custom-layout.md`，§2 十七条口径已与用户逐条确认）。六步走：①抽分组数据（本条）②布局纯逻辑 + 单测 ③播放器按布局挂载按钮 ④假界面只读 ⑤编辑能力 ⑥顶部三开关 + 其余点击映射。
 - **原状**：`SettingTerminalPlayerActivity` 里一段 200 行的 `ArrayList<SettingSection>().apply { … }`，48 项平铺，中间 5 条 `divider` 全无标题，「从历史位置播放 / 视频可缩放 / 缩放时可移动」被视觉上并进了上一个「播放默认值」标题之下。
 - **改法**：设置项全集搬到新文件 `app/src/main/java/com/RobinNotBad/BiliClient/player/PlayerSettingsGroups.kt`：`data class Group(key, title, sections)` + 七个 `private fun`（gesture / defaults / display / decode / danmaku / subtitle / toolbar）。对外三个入口：`build(context)`（全部组）、`group(context, key)`（按组取，给假界面的按钮卡片用）、`flatten(context)`（每组前插一行 `type="title"` 的 `SettingSection`，供「完整设置」页）。Activity 只剩 47 行：`sections = PlayerSettingsGroups.flatten(this)` → `SettingsAdapter` → 把 `list_choose` 回写接回 `applyListChooseResult`。
 - **组名**：新增 7 条字符串 `setting_player_group_*`（手势与滑动 / 播放默认值 / 画面与显示 / 渲染与解码 / 弹幕 / 字幕 / 界面按钮），**不用中文硬编码**——这条路径不经过 `SettingText` 的字面量映射表。

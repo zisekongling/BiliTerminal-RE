@@ -77,14 +77,8 @@ __pycache__/
 # （后端按 mtime 缓存吐出），改后端重启一下服务即可。
 # 它有自己的发布节奏，跟 APK 发版没有关系 —— 混进发版提交只会让「这次发了什么」失真。
 server/
-# 设计稿工作区（design/）：mockup（HTML / 图片 / 原型）与设计文档（需求 / 交互 /
-# 验收口径的 md）一律写这里，**不入库**。设计稿是过程稿：会反复改、常有 v1/v2/v3
-# 并存、体积不小（先例：历史上入库的 docs/design/dialog-redesign-v1..v3.html 最后只能
-# 整体归档进 docs/archive/design/）。定稿的取舍、验收口径与踩到的坑要回迁进 docs/ 的
-# 活文档（architecture-map.md / FEATURES.md / review/fix-progress.md / agents/*），
-# 让知识只有一个落点；过程稿本身留在本机即可。
-# 新克隆 / CI 里没有 design/ 属预期，别当成缺文件。
-/design/
+# 控制台的设计文档同理（描述的正是 server/ 那套东西）
+docs/superpowers/specs/2026-10-14-console-v2-design.md
 
 防止IDE配置误入版本库的配置目录
 .vscode/
