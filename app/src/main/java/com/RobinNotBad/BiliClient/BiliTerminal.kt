@@ -140,6 +140,15 @@ class BiliTerminal : Application() {
         @Volatile
         private var pendingSilentInstall: UpdateConfig? = null
 
+        /**
+         * 静默下载那次另存到 Download 的路径（26.11.18）。
+         *
+         * 只活在本进程里：进程重启后即使安装包还在缓存里，也确实说不出它当初存到 Download 的哪个位置，
+         * 那时提示词退回不带路径的旧文案（不编造路径）。
+         */
+        @Volatile
+        private var silentSavedPath: String? = null
+
         /** 启动时查到的「我的反馈」新回复条数，等首屏就绪后提示一次（26.11.16）。 */
         @Volatile
         private var pendingFeedbackUnread: Int = 0
@@ -683,6 +692,7 @@ class BiliTerminal : Application() {
         }
 
         Logu.i("静默更新", "开始静默下载 " + config.versionName)
+        silentSavedPath = null
         UpdateManager.downloadApk(
             url = url,
             context = ctx,
@@ -695,6 +705,11 @@ class BiliTerminal : Application() {
             onError = { msg ->
                 Logu.w("静默更新", "静默下载失败，退回更新页：" + msg)
                 requestAutoOpenUpdatePage(config)
+            },
+            versionName = config.versionName,
+            onSaved = { path ->
+                silentSavedPath = path
+                Logu.i("静默更新", "安装包已另存到 " + path)
             }
         )
         return true
@@ -725,11 +740,18 @@ class BiliTerminal : Application() {
             requestAutoOpenUpdatePage(config)
             return
         }
+        // 有另存路径就说清楚在哪儿（用户要的就是「装完还能在文件管理器里找到」），没有就用旧文案
+        val savedPath = silentSavedPath
+        val message = if (savedPath.isNullOrBlank()) {
+            activity.getString(R.string.msg_silent_update_ready_body, config.versionName)
+        } else {
+            activity.getString(R.string.msg_silent_update_ready_body_saved, config.versionName, savedPath)
+        }
         try {
             TerminalDialog.confirm(
                 context = activity,
                 title = activity.getString(R.string.msg_silent_update_ready_title),
-                message = activity.getString(R.string.msg_silent_update_ready_body, config.versionName),
+                message = message,
                 confirmText = activity.getString(R.string.btn_silent_update_install),
                 cancelText = activity.getString(R.string.btn_cancel),
                 confirmIsDanger = false,

@@ -1606,6 +1606,16 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **aid / cid 传 0 是安全的、且是有意为之**：`PlayerActivity` 对在线能力的判定都带 `aid == 0L || cid == 0L` 短路（`PlayerActivity.kt:3558` / `:3601` / `:5330`），所以外部视频不会去请求 playurl、不会加载弹幕、不会回写续播；`danmaku` 传空串即可。
 - **文案兜底在调用方**：`IncomingMediaResolver.titleOf` 没有可用名字时返回空串，由 Activity 换成 `R.string.text_external_video_untitled`（本仓库禁止新代码硬编码用户可见中文）。
 
+### 7.69 更新包另存到 Download：MediaStore.Downloads 与「复制而非移动」（26.11.18 新增）
+
+- **落点**：`util/ApkDownloadStore.kt`（纯函数 `fileName(versionName, coexisting)` + `canSave(context)` + `saveToDownloads(context, source, fileName)`）；调用点在 `util/UpdateManager.kt` 的 `downloadApk` 里，**在 `ApkVerifier.verify` 通过之后、`onComplete` 之前**——验签不过的包绝不能出现在用户的 Download 里。
+- **只复制、不移动**：缓存那份（`externalCacheDir/update/bili_terminal_update.apk`）继续承担三件事——Range 续传的起始偏移、`KEY_SILENT_UPDATE_VERSION` 的「已下载就不重下」、`AppStorageManager.updateApkFile` 的存储统计。挪去 Download 要连带改这三处，所以 26.11.18 按用户选定只复制（代价是同版本占两份空间）。
+- **API 29+ 走 `MediaStore.Downloads.EXTERNAL_CONTENT_URI`**：`insert(IS_PENDING=1)` → `openOutputStream` 写字节 → `update(IS_PENDING=0)`；中途失败必须 `delete(uri)`，否则文件管理器里留一个打不开的空壳。写之前先按 `DISPLAY_NAME=? AND RELATIVE_PATH="Download/"` 删同名旧包，免得重下时堆成「xxx (1).apk」。**别用 `DATA` 列拼路径、也别在 29+ 调 `Environment.getExternalStoragePublicDirectory` 写入**（分区存储下不可写）。
+- **API <29 只能裸写公共 Download**，需要 `WRITE_EXTERNAL_STORAGE`：能不能写用 `FileUtil.canWriteDirectory`（试写判据）判断，**不要查 `checkSelfPermission`**——ROM 上「权限给了但存储只读」查不出来。申请点在 `activity/settings/UpdateActivity.kt` 的 `storagePermissionLauncher`（仅 SDK 23–28，在 `startDownload()` 里、真正开始下载之前），**用户拒绝也照常下载安装**，只是不落 Download。
+- **文件名规则全在 `fileName()`**：剥 `.apk` 后缀、非法字符（`\\ / : * ? " < > |` 与控制字符）换 `_`、去首尾点与连字符、已带 `RE哔哩终端` 前缀先剥掉（内测通道传进来的其实是分享文件名，可能带全角冒号或 `.apk`）、空则用「未知版本」、主干截 80 字符；共存版加 `-共存`。单测 `app/src/test/java/com/RobinNotBad/BiliClient/util/ApkDownloadStoreTest.kt`。
+- **静默下载那条链**（`BiliTerminal.trySilentUpdateDownload`）把另存路径记在进程内的 `silentSavedPath`，提示词换成 `msg_silent_update_ready_body_saved` 把位置一并说明；**进程重启后该字段为空**，提示词退回不带路径的旧文案——别去猜路径，也不要把路径持久化（下次下的包未必存同一处）。
+- **失败一律不阻断更新**：权限缺失、存储只读、MediaStore 拒收都只 `Logu` 一条，`onSaved` 不回调，安装照旧走缓存那份。
+
 ## 8. UI 基建速查（新增页面临摹用）
 
 ### 8.1 完整继承体系

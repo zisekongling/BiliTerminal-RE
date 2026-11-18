@@ -440,12 +440,23 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
         return assets
     }
 
+    /**
+     * 下载更新包，验签通过后交给 [onComplete]。
+     *
+     * 26.11.18 起，验签通过后还会**另存一份**到系统 Download（[ApkDownloadStore]），文件名带版本号：
+     *
+     * @param versionName 版本号，只用于拼 Download 里的文件名；null 时用「未知版本」兜底
+     * @param onSaved     另存成功后的回调，参数是给用户看的路径（Download/RE哔哩终端-26.11.17.apk）。
+     *                    另存失败不会回调，也不影响更新本身的任何一步
+     */
     fun downloadApk(
         url: String,
         context: Context,
         onProgress: (DownloadProgress) -> Unit,
         onComplete: (File) -> Unit,
-        onError: (String) -> Unit
+        onError: (String) -> Unit,
+        versionName: String? = null,
+        onSaved: (String) -> Unit = {}
     ) {
         downloadCanceled = false
         CenterThreadPool.run {
@@ -492,6 +503,23 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
                     result.delete()
                     CenterThreadPool.runOnUiThread { onError(context.getString(R.string.text_update_verify_failed, verifyResult.message)) }
                     return@run
+                }
+
+                // 26.11.18：验签通过后另存一份到系统 Download，方便用户在文件管理器里找到这个包。
+                // 缓存里那份继续留着（续传、静默更新的「已下载」判断、存储空间页都靠它），
+                // 所以这里只复制不移动；复制失败只记日志，绝不能挡住安装。
+                try {
+                    val savedPath = ApkDownloadStore.saveToDownloads(
+                        context,
+                        result,
+                        ApkDownloadStore.fileName(versionName, BuildConfig.COEXIST)
+                    )
+                    if (savedPath != null) {
+                        Logu.i(TAG, "安装包已另存到 " + savedPath)
+                        CenterThreadPool.runOnUiThread { onSaved(savedPath) }
+                    }
+                } catch (e: Exception) {
+                    Logu.e(TAG, "另存到下载目录失败：" + e.message)
                 }
 
                 CenterThreadPool.runOnUiThread { onComplete(result) }

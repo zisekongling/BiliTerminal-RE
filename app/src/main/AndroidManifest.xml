@@ -18,6 +18,8 @@
          只在点开选图页时申请，拒绝后退回系统选择器，不影响发图。 -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- 26.11.18：更新包另存到系统 Download 在 Android 9 及以下也要这枚权限（10+ 走 MediaStore 不需要）。
+         申请点只多一个「更新页开始下载前」，拒绝也不影响下载安装，只是那份拷贝不落 Download。 -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />

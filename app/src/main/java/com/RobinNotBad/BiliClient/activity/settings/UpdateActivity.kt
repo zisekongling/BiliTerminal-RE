@@ -1,18 +1,22 @@
 package com.RobinNotBad.BiliClient.activity.settings
 
+import android.Manifest
 import android.content.Intent
 import android.graphics.PorterDuff
 import android.graphics.drawable.LayerDrawable
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import android.annotation.SuppressLint
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import com.RobinNotBad.BiliClient.BuildConfig
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.model.UpdateConfig
+import com.RobinNotBad.BiliClient.util.ApkDownloadStore
 import com.RobinNotBad.BiliClient.util.BetaUpdate
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.Logu
@@ -49,6 +53,16 @@ class UpdateActivity : BaseActivity() {
     private var isDownloading: Boolean = false
     private var downloadFinished: Boolean = false
     private var downloadedFile: File? = null
+
+    /**
+     * Android 9 及以下的存储权限申请（26.11.18：更新包另存到 Download 需要它）。
+     *
+     * 拿到与否都不改变下载流程——没给只是那份拷贝不落 Download，缓存里照旧、安装照旧（见 [ApkDownloadStore]）。
+     */
+    private val storagePermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (!granted) Logu.i(TAG, "未授予存储权限，本次不另存到 Download")
+        }
 
     /** 内测模式：非空表示本页是从「长按检查更新 → 输入内测码」进来的。 */
     private var betaCode: String? = null
@@ -346,6 +360,16 @@ class UpdateActivity : BaseActivity() {
             MsgUtil.showMsg(getString(R.string.msg_update_no_download_url))
             return
         }
+        // 26.11.18：更新包要另存一份到系统 Download。Android 10+ 走 MediaStore 免权限；
+        // Android 6–9 得先拿到 WRITE_EXTERNAL_STORAGE，这里问一次——用户拒绝也**照常下载安装**，
+        // 只是那份拷贝不落 Download（用户 26.11.18 选定：申请一次、拒绝才跳过）。
+        // 放在开始下载之前问，是因为下载要几十秒到几分钟，等权限回来基本赶得上复制那一刻。
+        if (Build.VERSION.SDK_INT in Build.VERSION_CODES.M until Build.VERSION_CODES.Q &&
+            !ApkDownloadStore.canSave(this)
+        ) {
+            storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+
         isDownloading = true
         downloadFinished = false
 
@@ -393,6 +417,11 @@ class UpdateActivity : BaseActivity() {
                 cancelDownloadBtn.visibility = View.GONE
                 retryBtn.visibility = View.VISIBLE
                 kotlin.Unit
+            },
+            versionName = updateConfig?.versionName,
+            onSaved = { path ->
+                // 只在真的存下来了才提示，且不打断安装流程（这条 Toast 会和「下载完成」前后脚出现）
+                MsgUtil.showMsg(getString(R.string.msg_update_saved_to_download, path))
             }
         )
     }

@@ -18,6 +18,13 @@
 
 ## 1. 当前版本状态
 
+- **26.11.18 更新包另存到系统 Download（用户需求：文件名带版本号）**：
+  - **来路**：用户要求「更新后安装包保存在 download 文件夹，最好用系统默认 Download 目录，文件名带上版本号」。三个岔路口当场问定——文件名用 `RE哔哩终端-26.11.17.apk`（共存版加 `-共存`）；Android 6–9「下载前申请一次权限，拒绝才跳过」；「复制一份到 Download，缓存保留」。
+  - **改法（新增 1 个工具类 + 4 处改动 + 2 条文案 + 1 个单测）**：① 新增 `app/src/main/java/com/RobinNotBad/BiliClient/util/ApkDownloadStore.kt`：纯函数 `fileName(versionName, coexisting)`（剥 `.apk`、非法字符换 `_`、去首尾点/连字符、已带应用名前缀先剥掉、空则「未知版本」、主干截 80 字符，共存版加 `-共存`）、`canSave(context)`（29+ 恒 true，否则用 `FileUtil.canWriteDirectory` 试写判断）、`saveToDownloads(...)`（29+ 走 `MediaStore.Downloads` 的 IS_PENDING 三步曲并先删同名旧包；<29 裸写公共 Download 再 `MediaScannerConnection.scanFile`）。② `util/UpdateManager.kt` 的 `downloadApk` 参数表末尾加 `versionName: String? = null` 与 `onSaved: (String) -> Unit = {}`（都带默认值，两个既有调用点不改也能编），在 `ApkVerifier.verify` 通过之后、`onComplete` 之前复制，失败只记日志。③ `activity/settings/UpdateActivity.kt` 加 `storagePermissionLauncher`，`startDownload()` 里仅 SDK 23–28 且 `!canSave(this)` 时申请一次；调用处补 `versionName` / `onSaved`。④ `BiliTerminal.kt` 静默链传同样的两个参数，另存路径记在进程内的 `silentSavedPath`，`tryPromptSilentInstall` 据此换用带位置的文案。⑤ `res/values/strings.xml` 加 `msg_update_saved_to_download` 与 `msg_silent_update_ready_body_saved`。
+  - **口径（有意的取舍）**：只复制、不移动——缓存那份（`externalCacheDir/update/bili_terminal_update.apk`）继续承担 Range 续传、静默更新的「已下载」判断与存储空间页统计，挪走要连带改三处，代价是同版本占两份空间；Android 9 及以下用户拒绝授权时只是不落 Download，下载与安装照旧；另存失败绝不阻断更新；进程重启后静默提示不再报路径（不编造位置）。
+  - **L0（26.11.18 本机实测）**：`:app:assembleDebug`（两 flavor）BUILD SUCCESSFUL；`:app:testStandardDebugUnitTest` 全绿，新增 `app/src/test/java/com/RobinNotBad/BiliClient/util/ApkDownloadStoreTest.kt` 10 用例（通道后缀 / 共存 / 去 `.apk` / 不重复前缀 / 非法字符 / 首尾点连字符 / 空值兜底 / 超长截断 / 不含路径分隔符）。
+  - **未验证（L1/L2）**：① Android 10+ 真机上下载一次更新后 `Download/RE哔哩终端-<版本>.apk` 真的出现、能点开安装；② Android 6–9 上「授权」与「拒绝」两条分支；③ 静默下载路径的提示文案里位置是否正确。**本机没有可更新的版本号，触发不了真实下载**，这三条只能等下一次发版后的真机验收。
+
 - **26.11.18 安卓 8.x 上开蓝牙伪装页必崩：半透明窗口不允许固定方向（控制台崩溃 #370）**：
   - **来路**：#370（huawei LEO-DLXXU，11-18 00:30，v26.11.17-beta.2），`java.lang.RuntimeException`（外层 `Unable to start activity ComponentInfo{…activity.disguise.BluetoothDisguiseActivity}`），栈顶落在 framework `Activity.onCreate(Activity.java:986)`；异常正文 `java.lang.IllegalStateException: Only fullscreen opaque activities can request orientation`。控制台按 `Only fullscreen opaque` 全量检索只有这一条。
   - **根因**：`app/src/main/AndroidManifest.xml` 里 BluetoothDisguiseActivity 声明了 `android:screenOrientation="locked"`，而它用的 `Theme.BiliClient.Disguise.Dialog`（`app/src/main/res/values/themes.xml`）带 `windowIsTranslucent=true`。targetSdk=34（`app/build.gradle:75`）下，**Android 8.0/8.1** 的 `Activity.onCreate` 会校验「请求固定方向 ⇒ 窗口必须全屏不透明」，半透明窗口一律抛这个 `IllegalStateException`（API 27 之后校验放宽，所以只有 8.x 设备中招）。

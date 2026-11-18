@@ -86,6 +86,8 @@
     <string name="text_update_download_failed">下载失败：%s</string>
     <string name="text_update_download_preparing">准备下载...</string>
     <string name="text_update_download_complete">下载完成</string>
+    <!-- 26.11.18：更新包另外复制一份到系统 Download 后提示（%1$s 是 Download/RE哔哩终端-版本号.apk） -->
+    <string name="msg_update_saved_to_download">安装包已保存到 %1$s</string>
     <string name="text_update_background_check">后台自动检查更新</string>
     <string name="text_update_background_check_desc">启动应用时自动检查是否有新版本</string>
     <string name="text_update_new_found">发现新版本 %s</string>
@@ -3277,6 +3279,8 @@
     <string name="desc_setting_silent_update">开启后仅在 Wi-Fi 下后台把安装包下完，下完才提示安装；移动网络仍按原样打开更新页。默认关闭。</string>
     <string name="msg_silent_update_ready_title">新版本已下载</string>
     <string name="msg_silent_update_ready_body">%1$s 已下载完成，点「立即安装」交给系统安装器。</string>
+    <!-- 26.11.18：另存到 Download 成功时用这条，把位置一并告诉用户 -->
+    <string name="msg_silent_update_ready_body_saved">%1$s 已下载完成，并另存到 %2$s；点「立即安装」交给系统安装器。</string>
     <string name="btn_silent_update_install">立即安装</string>
 
     <!-- 26.11.16：去微思下载（仅共存版） -->
