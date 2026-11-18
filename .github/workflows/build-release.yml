@@ -320,10 +320,15 @@ jobs:
           sed -i -E '/^[[:space:]]*#?[[:space:]]*systemProp\.(http|https)\.(proxyHost|proxyPort)=/d' gradle.properties
           # 堆内存必须整行替换（与 ci.yml 同一处修正，调研清单第 3 条）：原先写死 `-Xmx4096m`，
           # 本仓库实际是 `-Xmx8192m`，替换 0 命中、后面又挂了 `|| true`，「防 runner OOM」从未生效。
-          sed -i -E 's/^org\.gradle\.jvmargs=.*/org.gradle.jvmargs=-Xmx2048m -Xms1024m -Dfile.encoding=UTF-8/' gradle.properties
-          sed -i -E 's/^kotlin\.daemon\.jvmargs=.*/kotlin.daemon.jvmargs=-Xmx2048m/' gradle.properties
-          if ! grep -qE '^org\.gradle\.jvmargs=-Xmx2048m' gradle.properties; then
-            echo "::error::org.gradle.jvmargs 未被替换成 -Xmx2048m，Gradle daemon 堆内存设置没生效"
+          # 2026-11-18：发版构建连续两次卡死在 :app:compileStandardReleaseKotlin（第一次 55 分钟
+          # 撞 60 分钟上限被取消，第二次 18 分钟仍未出结果），而同源码在 ci.yml 里 8 分钟内编完——
+          # 两边的实质差异只有「配置缓存开/关」与堆大小。这里按 ci.yml 实测可用的组合取值：
+          # Gradle daemon 3 G（R8 与 standard/coexist 两个 release 编译并行时 2 G 太紧），
+          # Kotlin daemon 仍 2 G 并恢复 G1（此前整行替换把 -XX:+UseG1GC 丢掉了）。
+          sed -i -E 's/^org\.gradle\.jvmargs=.*/org.gradle.jvmargs=-Xmx3072m -Xms1024m -XX:+UseG1GC -Dfile.encoding=UTF-8/' gradle.properties
+          sed -i -E 's/^kotlin\.daemon\.jvmargs=.*/kotlin.daemon.jvmargs=-Xmx2048m -XX:+UseG1GC/' gradle.properties
+          if ! grep -qE '^org\.gradle\.jvmargs=-Xmx3072m' gradle.properties; then
+            echo "::error::org.gradle.jvmargs 未被替换成 -Xmx3072m，Gradle daemon 堆内存设置没生效"
             exit 1
           fi
           echo "CI 实际生效的 JVM 参数："
@@ -414,7 +419,10 @@ jobs:
           fi
           echo "::notice::公开版构建，缺少 Secrets:$missing（私有功能不在这次构建里，无需凭证）"
 
+      # 超时上限：正常 9–11 分钟（26.11.17-beta.2 实测 9.5 分钟）。卡死时宁可 30 分钟就红，
+      # 也不要再让一条卡住的构建把 job 的 60 分钟上限吃干净（2026-11-18 那次就是 55 分钟空转）。
       - name: 构建签名发行 APK
+        timeout-minutes: 30
         env:
           KAZUMI_APPID: ${{ secrets.KAZUMI_APPID }}
           KAZUMI_KEY: ${{ secrets.KAZUMI_KEY }}
@@ -427,7 +435,12 @@ jobs:
           channel="${CHANNEL:-stable}"
           seq="${VERSION_SEQ:-0}"
           echo "构建 flavor=standard+coexist channel=$channel seq=$seq（期望 versionName=${VERSION_NAME:-?} versionCode=${VERSION_CODE:-?}）"
-          ./gradlew :app:assembleRelease -Pchannel="$channel" -Pseq="$seq"
+          free -m || true
+          # 显式 --no-configuration-cache：与 ci.yml（CI 编译与单测自检，跑同一条 assembleRelease）
+          # 保持同一条已验证路径。配置缓存会把上一次构建的输入快照写进 build/，
+          # 2026-11-18 两次卡死在 compileStandardReleaseKotlin 都发生在这条开着配置缓存的老路径上。
+          ./gradlew :app:assembleRelease -Pchannel="$channel" -Pseq="$seq" \
+            --no-configuration-cache --stacktrace --console=plain
 
       # 崩溃堆栈解混淆（R8 retrace）需要「这一版、这个 flavor、这个构建变体」的 mapping。
       # 注意：mapping 里含私有功能的类名/方法名，**绝不能**作为公开仓库的 artifact 上传，
