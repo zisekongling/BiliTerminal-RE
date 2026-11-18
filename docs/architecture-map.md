@@ -1742,6 +1742,8 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
     统一走 `util/ViewCapabilityProbe.probeBoolean(view, "方法名") { 名, 异常 -> 日志 }`：能反射调通就走框架，调不通返回 `null` 让调用方走降级分支（自己是标志位即可），探测结论进程级缓存、只失败一次。返回 `null` 是**降级信号**不是错误，调用方必须处理。
 12. **顶栏的 `@id/pageName` / `@id/timeText` 必须是 `@id/top`(RelativeLayout) 的直系子 View**（26.11.01）：`BaseActivity.setRound()` 的圆屏适配靠 `RelativeLayout.LayoutParams.addRule(CENTER_HORIZONTAL)` 把时钟挪到正中，而 `newTopbarParams()` 是按**真实父容器**造船型的——时钟若套在 `LinearLayout` 里，拿到的是 `LinearLayout.LayoutParams`，`if (clockParams is RelativeLayout.LayoutParams)` 判假 → **居中规则被跳过、不崩也不报错**，圆屏模式下时钟仍被 `alignParentRight` 钉在最右、被圆盘切掉。`activity_simple_main_refresh.xml` 就曾多包一层 `menuArea`(LinearLayout)，害得首页 / 推荐 / 排行榜 / 热门 / 入站必刷 / 本地列表 5 页时钟全部不居中。已删掉 `menuArea`，结构对齐 `activity_simple_refresh.xml`。
 
+13. **顶栏标题 `@id/pageName` 必须写右边界**（26.11.19 用户截图：设置子页「播放器界面（实验性）」的标题压住右侧「完整设置」按钮、右边缘直接把字截断却没有省略号）：`BaseActivity.setRound()` 只在**运行时**给标题 `maxLines = 1` + `TruncateAt.END`，可读宽度却是**布局给的**——没有 `android:layout_toStartOf` 时 RelativeLayout 用整屏宽度当上界，文字只要比「屏宽 − 左内距」短就按文字宽排完、根本不触发 ellipsize，于是标题直接铺到右侧控件身上。全仓 50 份带 `@id/pageName` 的布局里 47 份本来就写 `toStartOf="@id/timeText"`，26.11.19 补了漏掉的三份（`activity_setting_player_ui.xml` 收在 `@id/btnFull` 左边，`activity_message.xml` / `activity_update.xml` 收在时钟左边），并加了守卫单测 `app/src/test/java/com/RobinNotBad/BiliClient/ui/TopbarTitleRoomTest.kt`。**灵动岛不需要额外留白**：`TopbarIsland.applyStyle()` 把时钟自己的 `layoutParams.width` 改成胶囊宽度，胶囊就画在时钟上。
+
 ---
 
 ### 8.6 新增一个设置项的完整链路

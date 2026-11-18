@@ -19,6 +19,8 @@
             android:layout_alignParentLeft="true"
             android:layout_marginStart="8dp"
             android:layout_marginVertical="3dp"
+            android:layout_toStartOf="@id/timeText"
+            android:ellipsize="end"
             android:lines="1"
             android:text="@string/pagename_update_check"
             android:textStyle="bold"

@@ -37,6 +37,13 @@
 - **同一行放两个以上按钮的横向 `LinearLayout` 必须写 `android:baselineAligned="false"`**：默认按文字基线对齐，一旦两颗按钮字号/行数不同就会整体上下错开，看起来就是「按钮对不齐」。
 - 自测口径：系统「字体大小」调到最大（或 `adb shell settings put system font_scale 2.0`）后，按钮文字要么单行、要么按上面的例外显式多行；同一行按钮的上下边缘必须齐平。
 
+## 顶栏（`@id/top` / `@id/pageName`，26.11.19 起写页面必读）
+
+- **标题必须写右边界**：给 `@id/pageName` 加 `android:layout_toStartOf="@id/timeText"`（右侧是时钟 / 灵动岛胶囊那一格），或右侧那个控件的 id（如 `activity_setting_player_ui` 的 `@id/btnFull`）。少了它，RelativeLayout 拿整屏宽度当上界量标题，文字只要比「屏宽 − 左内距」短就按文字宽排完、**永远不触发省略号**，长标题会压到右侧按钮上（26.11.19 用户截图：设置子页「播放器界面（实验性）」压住「完整设置」）或从时钟底下穿过去。
+- 省略号本身由 `BaseActivity.setRound()` 在运行时补（`maxLines = 1` + `TruncateAt.END`）；布局里再写一条 `android:ellipsize="end"` 是为了不依赖 `onStart` 那次调用。只写 `android:lines="1"` 是**裁断**、没有省略号。
+- **灵动岛不需要额外留白**：`TopbarIsland.applyStyle()` 把 `@id/timeText` **自己**的 `layoutParams.width` 改成胶囊宽度（72dp，小屏按屏宽 31% 封顶），胶囊背景就画在时钟身上——所以「收在 `@id/timeText` 左边」等于「收在胶囊左边」。
+- **守卫单测** `app/src/test/java/com/RobinNotBad/BiliClient/ui/TopbarTitleRoomTest.kt`：每份带 `@id/pageName` 的布局都必须有 `layout_toStartOf` / `layout_toLeftOf`，且被引用的 id 在同一份文件里存在；新页漏写直接红。
+
 ## 外观设置
 
 - 外观设置（配色 / 卡片圆角 / 字体）走 `ui/appearance/` 三模块：**模块只放候选值与纯函数，写入一律走 `AppearanceManager`**（它负责递增外观版本号）；模块里别做几何计算，也别在热路径上缓存。细则见 `docs/architecture-map.md` §8.7。

@@ -21,6 +21,8 @@
             android:layout_centerVertical="true"
             android:layout_marginVertical="3dp"
             android:layout_marginStart="8dp"
+            android:layout_toStartOf="@id/btnFull"
+            android:ellipsize="end"
             android:lines="1"
             android:text="@string/pagename_setting_player_ui"
             android:textStyle="bold"
