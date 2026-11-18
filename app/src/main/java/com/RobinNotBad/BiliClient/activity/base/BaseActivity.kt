@@ -603,7 +603,7 @@ open class BaseActivity : AppCompatActivity() {
     /**
      * 双击顶栏 → 打开伪装页（issue #22，建在 Gitee 侧，GitHub 镜像上没有该编号）。
      *
-     * 实现见 [DisguiseGesture]，需求与验收见 `docs/superpowers/specs/2026-10-22-disguise-mode.md`，
+     * 实现见 [DisguiseGesture]，需求与验收见 `design/2026-10-22-disguise-mode.md`（设计稿，不入库），
      * 本节只处理**本页的安装时序**。
      *
      * 每次 `onStart` 都重新判断一遍：开关可能在别的页面被改过，用户也可能刚关掉它。

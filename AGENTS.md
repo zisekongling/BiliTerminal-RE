@@ -40,7 +40,7 @@
 - **`§9` 末尾三节（7.56 收藏夹管理页 / 7.57 播放器内切 1080P / 7.59 外置卷 FileProvider，`2051–2107`，≈6.5k token）是误放在那里的坑点**，不是 API 映射——读 §9 读到 `1941–2050` 就够，那三节按坑点单独 grep（文内两处已标交叉引用）。
 - **`docs/review/fix-progress.md` 平时只读 §1 + §2**（§1 `19–164` ≈17.9k、§2 `165–338` ≈12.7k）；`§3` 起 `339–1671` 行是历史流水（≈9.2 万 token），只有要查「某轮改动到底怎么改的」才按关键词 grep 进去。
 
-其他参考：`docs/README.md`（文档总索引）、`bilibili-API/`（B 站接口文档快照，**197 份 / 5.5MB，按接口名 grep 单份，别通读**）、`docs/bilibili-api-notes.md`（接口与风控常识，改 API 前读）、`docs/FEATURES.md`（用户可见功能总表，≈3.4 万 token，按章 grep）、`docs/superpowers/specs/`（功能设计文档，只读与你这次改动相关的那一份）、`docs/tutorial-system-redesign.md`（教程系统重做中——**改教程前先读它**，全份仅 2.4k，可以整读）。**`docs/archive/` 里全是历史资料，记录的是当时、不是现状**，别照着它改代码。
+其他参考：`docs/README.md`（文档总索引）、`bilibili-API/`（B 站接口文档快照，**197 份 / 5.5MB，按接口名 grep 单份，别通读**）、`docs/bilibili-api-notes.md`（接口与风控常识，改 API 前读）、`docs/FEATURES.md`（用户可见功能总表，≈3.4 万 token，按章 grep）、`design/`（各类设计稿与设计文档，**不入库**；只读与你这次改动相关的那一份，新克隆里没有它属正常）、`docs/tutorial-system-redesign.md`（教程系统重做中——**改教程前先读它**，全份仅 2.4k，可以整读）。**`docs/archive/` 里全是历史资料，记录的是当时、不是现状**，别照着它改代码。
 
 ## 分册索引（按"我正在做什么"读）
 
@@ -78,6 +78,7 @@
   - **L2 人工验收**：结论只能靠**看画面 / 听声音 / 判手感 / 主观取舍**时，**不要自己上模拟器硬试**——写交接单交给人，并在 `docs/review/fix-progress.md` 记「未验证：<项>」。
 - **不许攒交接单**：需要人测的改动提交后立刻给交接单，别攒到发版前一次堆几十条。
 - 用户可见文案一律进 `app/src/main/res/values/strings.xml`（写法与纯函数例外见 `docs/agents/dev-conventions.md`）。
+- **设计稿进 `design/`（已 gitignore）**：mockup、原型、截图与设计文档都写这里，不进版本库；定稿的取舍 / 验收口径 / 踩到的坑要回迁 `docs/` 的活文档（`architecture-map.md`、`FEATURES.md`、`review/fix-progress.md`、`agents/*`）。
 - 不轻易引入新第三方库；**一切功能优先考虑手表端**，手机等设备只是顺便适配。
 - **改完同步文档**：修 bug / 关待办 → `docs/review/fix-progress.md`；改架构 / 基建 → `docs/architecture-map.md`；新增用户可见功能 → `docs/FEATURES.md`；接口 / 风控结论 → `docs/bilibili-api-notes.md`；本文件描述的内容变了 → 改对应分册。改任何 `.md` 后跑 `npx --yes markdownlint-cli2 "AGENTS.md" "readme.md" "docs/**/*.md" "!docs/archive/**"`，**要求 0 错误**（规则、豁免与逐字素材示例见 `docs/agents/docs.md`）。
 

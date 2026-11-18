@@ -67,7 +67,7 @@
 
 ## 伪装与顶栏手势
 
-> 需求与验收口径见 `docs/superpowers/specs/2026-10-22-disguise-mode.md`。这一节只记「踩过就会出事」的那几条。
+> 需求与验收口径见 `design/2026-10-22-disguise-mode.md`（设计稿，不入库）。这一节只记「踩过就会出事」的那几条。
 
 - **双击顶栏必须自己接管触摸，别只挂 `OnDoubleTapListener`**（26.10.22）：双击的**第一次抬手已经是一次完整 click**，页面会先 `finish()`，第二次点击根本落不到同一个 View 上。正确做法是 `OnTouchListener` 返回 `true` 消费全部触摸、事件喂 `GestureDetector`，单击 / 长按再用 `performClick()` / `performLongClick()` **回放**给各页面自己装的监听器（实现只有 `util/DisguiseGesture.kt` 一份，详见 `docs/architecture-map.md` §7.53）。**别改成「在单击监听器里判断两次点击」**——第一次点击已经执行完了，那会变成「退出两次」。
 - **在 `OnTouchListener` 里做长按计时，`ACTION_DOWN` 必须返回 `true`**（蓝牙伪装页的教训）：返回 `false` 时 View 没成为触摸目标，系统不再派发 `UP` / `CANCEL`，`removeCallbacks` 永远执行不到 → **轻点一下，2 秒后窗口自己 `finish()`**，伪装直接失效（`BluetoothDisguiseActivity.setupExitGesture`）。返回 `true` 时若要保留点击语义，得自己补 `performClick()`。
