@@ -864,6 +864,20 @@ class SettingGroupActivity : RefreshListActivity() {
             listOf("highest", "64", "16", "audio_only", "dialog")
         )
         switch("强制高分辨率选项", getString(R.string.desc_force_high_quality), SettingsKeys.FORCE_HIGH_QUALITY, true)
+        // 反馈 #211：缓存页 / 文件夹页每次进入都在 onCreate 里整盘重扫（LocalListActivity.onCreate 的
+        // CenterThreadPool.run、LocalFolderListActivity.onCreate 的 loadFolders），夹一多、缓存一多
+        // 就要卡好几秒。用户要的是「可选自动刷新」，所以这里给一个开关，默认仍为自动
+        // （FolderPagePrefs.DEFAULT_AUTO_REFRESH = true，既有行为不变），
+        // 不想等的人自己关掉；关掉后进页面先比一次缓存树指纹（util/FolderPagePrefs.kt 的 CacheTreeSignature），
+        // 指纹没变就用上次结果，真下过新视频仍会重扫，另有下拉刷新兜底。
+        // 放在「缓存与下载 → 缓存选项」而不是「高级与实验」：它直接影响缓存页的打开速度，
+        // 是普通用户会主动来找的开关，不该埋在实验区。
+        switch(
+            getString(R.string.storage_refresh_auto_title),
+            getString(R.string.storage_refresh_auto_desc),
+            FolderPagePrefs.AUTO_REFRESH,
+            FolderPagePrefs.DEFAULT_AUTO_REFRESH
+        )
 
         title("存储路径")
         // 「存储空间」页（批次 1 移植）：统计图片缓存 / 临时文件 / 更新安装包占用，按白名单清理。

@@ -438,6 +438,12 @@ object SettingsIndex {
             text(R.string.setting_btn_storage_permission),
             text(R.string.settingtext_settingsindex_092)
         ) { a -> openGroup(a, "download", groupDownload, text(R.string.setting_btn_storage_permission)) }
+        // 反馈 #211：缓存页自动刷新开关（默认开）。设置页里的总搜索也要能找到它，
+        // 否则关了开关的人下次想开回去只能凭记忆翻分组。
+        list += Entry(
+            text(R.string.storage_refresh_auto_title),
+            text(R.string.storage_refresh_auto_desc)
+        ) { a -> openGroup(a, "download", groupDownload, text(R.string.storage_refresh_auto_title)) }
 
         // ---- 高级与实验 内联项 ----
         list += Entry(

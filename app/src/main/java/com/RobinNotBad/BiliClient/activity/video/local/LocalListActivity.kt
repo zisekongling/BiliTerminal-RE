@@ -38,6 +38,7 @@ import com.RobinNotBad.BiliClient.util.CacheMediaPolicy
 import com.RobinNotBad.BiliClient.util.CacheMigrator
 import com.RobinNotBad.BiliClient.util.CachePageSources
 import com.RobinNotBad.BiliClient.util.CachePathResolver
+import com.RobinNotBad.BiliClient.util.CacheTreeSignature
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.DanmakuFileFetcher
 import com.RobinNotBad.BiliClient.util.ExternalCacheRoots
@@ -56,6 +57,38 @@ import com.RobinNotBad.BiliClient.util.view.ScrollRetractDecider
 import java.io.File
 import java.lang.ref.WeakReference
 
+/**
+ * 「缓存页自动刷新」关着时复用的一份扫描结果（反馈 #211）。
+ *
+ * 存的是**扫描产物**而不是 UI 状态：两个列表各是拷出来的 ArrayList，灌回
+ * [LocalListActivity.folderList]/[LocalListActivity.videoList] 时整份替换，所以快照与当前列表
+ * 不会互相牵连（适配器侧 [com.RobinNotBad.BiliClient.adapter.video.CacheListAdapter.setData] 也只是
+ * 存引用 + rebuildFlatList，见 CacheListAdapter.kt:179-185）。
+ */
+private class ScanSnapshot(
+    /**
+     * 扫描时用的缓存根路径。
+     *
+     * 不能恢复成「当前 getVideoDownloadPath()」：用户可能已经改过缓存路径，而删除是按条目来自哪个根
+     * 拼路径的（见 [LocalListActivity.rootAtLoad] 的说明，反馈 #58），用新根拼就会去删不存在的路径。
+     */
+    val rootPath: String,
+    /** 这份快照属于哪个文件夹页（顶层缓存页是空串）。 */
+    val folderPageName: String,
+    /** 扫描之前算的指纹（[CacheTreeSignature.of]），进页面时重算一次与它比。 */
+    val signature: Long,
+    /**
+     * 扫描时的 [com.RobinNotBad.BiliClient.util.CacheChangeSignal] 版本。
+     *
+     * 恢复快照后仍要记回 [LocalListActivity.cacheVersionAtLoad]：快照只代表「扫那次」的磁盘，之后
+     * 别处删过缓存（详情页长按清缓存）时，靠 [com.RobinNotBad.BiliClient.util.CacheChangeSignal] 的版本号
+     * 让 onResume 补一次重扫，而不是相信快照（反馈 #162）。
+     */
+    val cacheVersion: Long,
+    val folders: List<VideoFolder>,
+    val videos: List<LocalVideo>
+)
+
 open class LocalListActivity : InstanceActivity() {
 
     companion object {
@@ -71,6 +104,33 @@ open class LocalListActivity : InstanceActivity() {
 
         /** 底部条收放动画时长（毫秒）。与顶部工具条同款：手表屏小，收放要快，拖久了像卡顿。 */
         private const val BAR_ANIM_MS = 180L
+
+        /**
+         * 「缓存页自动刷新」关着时最多留几份扫描结果（反馈 #211）。
+         *
+         * 键是「缓存根路径 + 文件夹页名」，顶层缓存页与每个文件夹页各一份，互不覆盖；上限只是别让
+         * 换过几次缓存路径、翻过很多夹的机器把旧结果一直攥在内存里——反正指纹对不上就会重扫，留着也没用。
+         */
+        private const val SNAPSHOT_LIMIT = 4
+
+        /**
+         * 见 [SNAPSHOT_LIMIT]。
+         *
+         * 淘汰不用 removeEldestEntry 覆写：Kotlin 里覆写 java.util 的 protected 方法签名有类型映射坑，
+         * 本仓 [com.RobinNotBad.BiliClient.util.ReplyStateStore] 已经踩过一次并改成手动淘汰，这里沿用同一写法。
+         * 它是进程级静态表，而缓存页与文件夹页（都是本类，两层可以同时存活）各自在 `CenterThreadPool`
+         * 的后台线程里读写，[LinkedHashMap] 本身不是线程安全的，所以两处访问都套了 `synchronized`。
+         */
+        private val scanSnapshots = LinkedHashMap<String, ScanSnapshot>()
+
+        /**
+         * 「这次用的是上次结果」提示本进程只弹一次。
+         *
+         * 关掉自动刷新的用户往往是「文件夹点来点去」的重度用户（反馈 #211 原话是「点开一个卡一次」），
+         * 每次进页面都弹一条 Snackbar 等于把卡顿换成了打扰。第一次讲清楚「下拉 = 手动刷新」就够了，
+         * 之后静默沿用（本进程内不再弹，重启进程才会再出现一次）。
+         */
+        private var manualHintShown = false
 
         /**
          * 结束「本地缓存」这一整条页面链（缓存页 → 文件夹页）。
@@ -255,6 +315,11 @@ open class LocalListActivity : InstanceActivity() {
 
         recyclerView = findViewById(R.id.recyclerView)
         swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout)
+        // 下拉刷新 = 真正的重扫（[refresh] → loadData），也是「自动刷新」关掉之后唯一的手动刷新入口。
+        // 注意本类继承 InstanceActivity 而**不是** RefreshListActivity（同目录的文件夹列表页才是），
+        // 所以没有基类的 setOnRefreshListener、也没有 RefreshListActivity.kt:96 那句
+        // `swipeRefreshLayout.isEnabled = false`——这里直接给字段挂 listener 就是本类的正确写法，
+        // 不要"顺手改成基类方法"（26.11.18 试过，编译不过）。
         swipeRefreshLayout.setOnRefreshListener { refresh() }
 
         val pageName = findViewById<TextView>(R.id.pageName)
@@ -295,7 +360,25 @@ open class LocalListActivity : InstanceActivity() {
 
         CenterThreadPool.run {
             runOnUiThread { swipeRefreshLayout.setRefreshing(true) }
-            loadData()
+            // 反馈 #211「每次点开缓存文件夹都自动刷新、一卡 5 秒」的根因就在下面这一行以前无条件跑
+            // loadData()：每次进页面（新建本 Activity，onCreate 必然走这里）都要整盘扫一遍——
+            // 文件夹页先按 .folders_info.json 过滤出本夹的目录名（folderScanTitles），再逐个目录 list()、
+            // 读 .quality、按候选路径找封面（scanVideos），外部根还要各读一遍对方的索引（appendExternalSources），
+            // 最后适配器整表重绑、每张封面重新从磁盘解码
+            // （CacheListAdapter.kt:179-185）。
+            // 开关「设置 → 缓存与下载 → 缓存选项 → 缓存页自动刷新」默认仍是 true，所以默认行为不变；
+            // 关掉后先看能不能沿用上次结果（restoreScanSnapshot 会先验磁盘指纹，真下过新视频仍会重扫）。
+            val reusedSnapshot = !FolderPagePrefs.autoRefresh() && restoreScanSnapshot()
+            if (reusedSnapshot) {
+                // 用户会怀疑「到底刷没刷」，顺手把「下拉 = 手动刷新」讲清楚；
+                // 但只在本进程第一次复用时弹，之后静默（见 manualHintShown）
+                if (!manualHintShown) {
+                    manualHintShown = true
+                    runOnUiThread { MsgUtil.showMsg(getString(R.string.storage_refresh_manual_hint)) }
+                }
+            } else {
+                loadData()
+            }
             setupAdapter()
             started = true
         }
@@ -336,6 +419,10 @@ open class LocalListActivity : InstanceActivity() {
 
         // 扫描视频（根目录只取一次：getVideoDownloadPath 会顺带维护 .nomedia，扫描和后续解析必须同一个根）
         val root = FileUtil.getVideoDownloadPath()
+        // 「自动刷新」关着时靠这个指纹判断磁盘有没有变过（反馈 #211，见 CacheTreeSignature）。
+        // 必须在扫描**之前**算：扫描过程中才发生的改动会让指纹偏掉，下次进页面宁可再扫一遍，
+        // 也不要把半新半旧的结果当成「缓存没变」留着。
+        val signatureAtStart = CacheTreeSignature.of(root)
         // 记下这次真正扫描的是哪个根，onResume 才能判断「根目录换了要重扫」
         rootAtLoad = root.path
         scannedRoot = root
@@ -378,6 +465,70 @@ open class LocalListActivity : InstanceActivity() {
         // 未分类视频没有「列表本身」可以写顺序，单独存在 SharedPreferences 里，按缓存根目录分键。
         // 必须在第一次 setData 之前读出来，否则进页面会先按扫描顺序画一遍再跳一下。
         unclassifiedOrder = CacheListOrderStore.load(root.path)
+
+        // 存一份本次结果，供「自动刷新」关着时下次进页面直接复用（反馈 #211）
+        saveScanSnapshot(root, signatureAtStart)
+    }
+
+    /**
+     * 尽量沿用上次扫描结果，跳过整盘重扫（反馈 #211 的「可选自动刷新」）。
+     *
+     * 判据只有一条：磁盘指纹（[CacheTreeSignature.of]）与快照记的一致。一致说明缓存目录的条目集合
+     * 与 .folders_info.json 都没动过，直接灌回上次结果；不一致（下过新视频 / 删过缓存 / 挪过文件夹 /
+     * 换过缓存路径）就返回 false，让调用方照常 [loadData] 重扫——这就是「关掉自动刷新后仍然看得见
+     * 新下载」的兜底，也是不能只认开关的原因：只认开关的话，用户关掉自动刷新、下完视频再进页面
+     * 就只剩旧列表，会以为缓存丢了。
+     *
+     * 指纹的盲区（往已存在的视频目录里重下、文件系统只记到秒时的同秒删建）写在 CacheTreeSignature
+     * 的 KDoc 里；这两种情况用户下拉一次即可，而 [refresh] 不看开关，永远是真重扫。
+     *
+     * @return true = 已把快照灌回 [folderList]/[videoList]，调用方不要再 [loadData]；
+     *         false = 没有可用快照或缓存已变，调用方按老路重扫。
+     */
+    private fun restoreScanSnapshot(): Boolean {
+        val root = FileUtil.getVideoDownloadPath()
+        // 快照表是进程级静态表：缓存页与文件夹页（同一类，两层同时存活）各自在自己的后台线程里读写，
+        // LinkedHashMap 不是线程安全的，裸读写可能丢条目甚至把链表搞坏，所以每次访问都加锁
+        val snapshot = synchronized(scanSnapshots) { scanSnapshots[snapshotKey(root)] } ?: return false
+        if (snapshot.signature != CacheTreeSignature.of(root)) return false
+        folderList.clear()
+        folderList.addAll(snapshot.folders)
+        videoList.clear()
+        videoList.addAll(snapshot.videos)
+        // 排序不跟快照走：拖拽排序写在 SharedPreferences（CacheListOrderStore），别的页面也可能改它，
+        // 现读一次最省事，也避免「快照里存着旧顺序、进页面先跳一下」的观感
+        unclassifiedOrder = CacheListOrderStore.load(root.path)
+        // 根目录与缓存改动版本照快照记回去：删除按「条目来自哪个根」拼路径，版本号供 onResume 比对
+        rootAtLoad = snapshot.rootPath
+        scannedRoot = File(snapshot.rootPath)
+        cacheVersionAtLoad = snapshot.cacheVersion
+        return true
+    }
+
+    /** 快照键：缓存根 + 文件夹页名（顶层缓存页是空串）。同一个根下每个夹各有一份，互不覆盖。 */
+    private fun snapshotKey(root: File): String = root.path + "|" + folderPageName
+
+    /** 存下这次扫描的结果，供「自动刷新」关着时下次进页面直接复用（反馈 #211）。 */
+    private fun saveScanSnapshot(root: File, signature: Long) {
+        val snapshot = ScanSnapshot(
+            rootPath = root.path,
+            folderPageName = folderPageName,
+            signature = signature,
+            cacheVersion = cacheVersionAtLoad,
+            folders = ArrayList(folderList),
+            videos = ArrayList(videoList)
+        )
+        // 同上：静态表，写入也要加锁；淘汰最老的那份也在锁内做（按插入顺序，先来的先丢）
+        synchronized(scanSnapshots) {
+            scanSnapshots[snapshotKey(root)] = snapshot
+            if (scanSnapshots.size > SNAPSHOT_LIMIT) {
+                val iterator = scanSnapshots.keys.iterator()
+                if (iterator.hasNext()) {
+                    iterator.next()
+                    iterator.remove()
+                }
+            }
+        }
     }
 
     /**

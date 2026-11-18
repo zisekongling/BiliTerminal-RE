@@ -15,10 +15,12 @@ import com.RobinNotBad.BiliClient.adapter.video.LocalFolderAdapter.FolderRow
 import com.RobinNotBad.BiliClient.service.download.DownloadPathSpec
 import com.RobinNotBad.BiliClient.util.CacheMigrator
 import com.RobinNotBad.BiliClient.util.CachePathResolver
+import com.RobinNotBad.BiliClient.util.CacheTreeSignature
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.ExternalCacheRoots
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.FolderManager
+import com.RobinNotBad.BiliClient.util.FolderPagePrefs
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.UiText
@@ -42,10 +44,53 @@ import java.io.File
  * <h3>刷新口径</h3>
  * 每次加载都**换一个全新 adapter**（与 `FavoriteFolderListActivity` 同一口径）：原地改已挂在
  * RecyclerView 上的那份列表会撞 `IndexOutOfBoundsException: Inconsistency detected`（控制台崩溃 #160）。
- * 从某个夹回来无条件重算（夹内可能删了视频，视频数与封面都会变）。
+ * 从某个夹回来重算（夹内可能删了视频，视频数与封面都会变）；「缓存页自动刷新」关掉时只在磁盘指纹变了才真重算，
+ * 否则沿用上次的行（反馈 #211，见 [loadFolders]）。
  * 本页改过东西就带着 `RESULT_OK` 退出，缓存页收到后重扫（缓存页自己的未分类分区也受影响）。
  */
 class LocalFolderListActivity : RefreshListActivity() {
+
+    /**
+     * 「缓存页自动刷新」关着时复用的一份行数据（反馈 #211）。
+     *
+     * 本页每行的「视频数」与封面都要按 [countExistingTitles] / [firstCover] 逐个候选路径 stat
+     * （夹多、缓存多时就是用户说的那 5 秒），所以这份结果值得留一次：磁盘指纹没变就用它。
+     */
+    private class RowsSnapshot(
+        /** 算这份行时用的缓存根路径。 */
+        val rootPath: String,
+        /** 算之前取到的指纹（[CacheTreeSignature.of]）。 */
+        val signature: Long,
+        val rows: List<FolderRow>
+    )
+
+    companion object {
+        /**
+         * 最多留几份快照。
+         *
+         * 本页只有「文件夹列表」这一层，正常情况下同一时刻只需要一份（键是缓存根路径）；
+         * 留几份是为了换过缓存路径、或缓存根页与文件夹页交替进入时不至于每次落空。
+         */
+        private const val SNAPSHOT_LIMIT = 4
+
+        /**
+         * 见 [SNAPSHOT_LIMIT]。
+         *
+         * 淘汰不用 removeEldestEntry 覆写：Kotlin 里覆写 java.util 的 protected 方法签名有类型映射坑，
+         * 本仓 [com.RobinNotBad.BiliClient.util.ReplyStateStore] 已经踩过一次并改成手动淘汰，这里沿用同一写法。
+         * 表是静态的、可能被多个后台线程访问，读写都套 `synchronized`。
+         */
+        private val rowsSnapshots = LinkedHashMap<String, RowsSnapshot>()
+
+        /**
+         * 「这次用的是上次结果」提示本进程只弹一次。
+         *
+         * 关掉自动刷新的人会来回进出本页（进夹、退回来），每次弹一条等于用打扰换卡顿；
+         * 第一次说清「下拉 = 手动刷新」就够，之后静默沿用（与
+         * [com.RobinNotBad.BiliClient.activity.video.local.LocalListActivity] 同一口径）。
+         */
+        private var manualHintShown = false
+    }
 
     /** 当前显示的行（文件夹层改过东西时用来判断「有没有东西可选」）。 */
     private var rows: List<FolderRow> = emptyList()
@@ -84,12 +129,15 @@ class LocalFolderListActivity : RefreshListActivity() {
 
     /**
      * 从某个夹回来：夹里可能删过视频（视频数 / 封面变）、也可能把视频移回未分类
-     * （那连缓存页的未分类分区都要重扫），所以无条件重算一遍；只在真的改过时标脏。
+     * （那连缓存页的未分类分区都要重扫），所以这里重算一遍；只在真的改过时标脏。
+     *
+     * 「缓存页自动刷新」关着时把复用快照这条路打开（反馈 #211）：夹里真删过视频时 .folders_info.json
+     * 的 mtime 会变、指纹对不上，照样会重算；没改动就直接沿用上次的行，退回来不再卡一下。
      */
     private val folderLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) dataChanged = true
-            loadFolders()
+            loadFolders(mayUseSnapshot = true)
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -105,30 +153,73 @@ class LocalFolderListActivity : RefreshListActivity() {
         manageSelectAll.setOnClickListener { onManageSelectAllClick() }
         manageOperate.setOnClickListener { showBatchMenu() }
 
-        // 本页数据在本地，下拉刷新 = 重新读一遍文件夹信息（夹里的改动、外部下载完成都能刷出来）
+        // 本页数据在本地，下拉刷新 = 重新读一遍文件夹信息（夹里的改动、外部下载完成都能刷出来）。
+        // 下拉是本页唯一的手动刷新入口，所以它永远真重算，不看「自动刷新」开关。
         setOnRefreshListener { loadFolders() }
-        loadFolders()
+        // 进页面：开关关着时先看能不能沿用上次结果（反馈 #211，以前这里无条件整页重算）
+        loadFolders(mayUseSnapshot = true)
     }
 
     // ===================== 加载 =====================
 
-    private fun loadFolders() {
+    /**
+     * 读一遍文件夹信息并重绑列表。
+     *
+     * @param mayUseSnapshot true = 允许在「缓存页自动刷新」关着且磁盘指纹没变时，直接沿用上次算好的行
+     *        （反馈 #211：每次进页面、每次从夹里退回来都要按 [countExistingTitles] 逐个候选路径 stat，
+     *        夹一多缓存一多就要卡好几秒）。进页面与「从夹里回来」传 true；
+     *        下拉刷新传 false —— 那个手势本身就是用户明确要求重算。
+     */
+    private fun loadFolders(mayUseSnapshot: Boolean = false) {
         if (isFinishing) return
         CenterThreadPool.run {
-            val computed = buildRows()
-            runOnUiThread {
-                if (isFinishing) return@runOnUiThread
-                rows = computed
-                bindList(computed)
-                setRefreshing(false)
+            val root = FileUtil.getVideoDownloadPath()
+            // 指纹在重算之前取：算的过程中才发生的改动会让它偏掉，下次进来宁可再算一遍
+            val signature = CacheTreeSignature.of(root)
+            // 兜底逻辑见 [CacheTreeSignature]：指纹不变才敢用上次的行；用户真下过新视频、真删过缓存时
+            // .folders_info.json 或缓存根条目会变，指纹对不上就走下面真重算的分支，不会出现「缓存没了」
+            // 快照表是静态的、会被多个后台线程访问，LinkedHashMap 不是线程安全的，读写都加锁
+            val snapshot = if (mayUseSnapshot && !FolderPagePrefs.autoRefresh()) {
+                synchronized(rowsSnapshots) { rowsSnapshots[root.path] }
+            } else null
+            if (snapshot != null && snapshot.signature == signature) {
+                runOnUiThread {
+                    if (isFinishing) return@runOnUiThread
+                    rows = snapshot.rows
+                    bindList(snapshot.rows)
+                    setRefreshing(false)
+                    // 用户会怀疑「到底刷没刷」：说清这次用的是上次结果、下拉才是手动刷新。
+                    // 只在本进程第一次复用时弹（见 manualHintShown），否则进夹退回来每次都要挨一下
+                    if (!manualHintShown) {
+                        manualHintShown = true
+                        MsgUtil.showMsg(getString(R.string.storage_refresh_manual_hint))
+                    }
+                }
+            } else {
+                val computed = buildRows(root)
+                synchronized(rowsSnapshots) {
+                    rowsSnapshots[root.path] = RowsSnapshot(root.path, signature, computed)
+                    if (rowsSnapshots.size > SNAPSHOT_LIMIT) {
+                        val iterator = rowsSnapshots.keys.iterator()
+                        if (iterator.hasNext()) {
+                            iterator.next()
+                            iterator.remove()
+                        }
+                    }
+                }
+                runOnUiThread {
+                    if (isFinishing) return@runOnUiThread
+                    rows = computed
+                    bindList(computed)
+                    setRefreshing(false)
+                }
             }
         }
     }
 
-    /** 算好每一行的数据（文件夹名 / 视频数 / 封面路径）。 */
-    private fun buildRows(): List<FolderRow> {
+    /** 算好每一行的数据（文件夹名 / 视频数 / 封面路径）。[root] 由调用方取好，避免与指纹用的不是同一个根。 */
+    private fun buildRows(root: File): List<FolderRow> {
         val folders = FolderManager.getAllFolders()
-        val root = FileUtil.getVideoDownloadPath()
         val result = ArrayList<FolderRow>(folders.size)
         for (folder in folders) {
             val titles = FolderManager.getFolderVideos(folder.name)

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  「缓存页自动刷新」开关（反馈 #211）的全部文案。
+
+  为什么不写进 res/values/strings.xml：该文件本轮由并行批次占用，新增键集中在本文件避免冲突。
+  命名前缀统一 storage_refresh_，读取点是：
+  - activity/settings/SettingGroupActivity.kt（buildDownloadGroup 的开关名与说明）
+  - activity/video/local/LocalListActivity.kt、activity/video/local/LocalFolderListActivity.kt（沿用缓存时的提示）
+-->
+<resources>
+
+    <!-- 设置项：缓存与下载 → 缓存选项 -->
+    <string name="storage_refresh_auto_title">缓存页自动刷新</string>
+    <string name="storage_refresh_auto_desc">关闭后打开缓存页与文件夹页直接沿用上次结果（缓存有改动时才重扫），下拉可随时手动刷新</string>
+
+    <!-- 沿用上次结果时的提示：用户会怀疑「是不是没刷新」，同时把「下拉 = 手动刷新」讲清楚 -->
+    <string name="storage_refresh_manual_hint">自动刷新已关闭，用的是上次结果；下拉可刷新</string>
+
+</resources>
