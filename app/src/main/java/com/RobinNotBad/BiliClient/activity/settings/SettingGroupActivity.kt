@@ -939,6 +939,18 @@ class SettingGroupActivity : RefreshListActivity() {
         )
 
         title("功能开关")
+        switch(
+            getString(R.string.setting_player_ui_new),
+            getString(R.string.desc_player_ui_new),
+            SettingsKeys.PLAYER_UI_NEW,
+            false
+        )
+        switch(
+            getString(R.string.setting_player_ui_new_idle_progress),
+            getString(R.string.desc_player_ui_new_idle_progress),
+            SettingsKeys.PLAYER_UI_NEW_IDLE_PROGRESS,
+            true
+        )
         switch("新版弹幕获取方式", getString(R.string.desc_new_danmaku_api), SharedPreferencesUtil.NEW_DANMAKU_API, true)
         switch("私信未读标记", getString(R.string.desc_private_msg_unread_badge_enable), SharedPreferencesUtil.PRIVATE_MSG_UNREAD_BADGE_ENABLE, false)
         // 虚拟合集拆成两个独立功能（26.11.01，用户要求）：

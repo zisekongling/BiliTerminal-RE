@@ -45,6 +45,25 @@ class HighEnergyProgressBar @JvmOverloads constructor(
     private var stepSec = 10
     private var showHighEnergy = true
 
+    /**
+     * 整条进度行的自定义绘制（26.11.19，新版播放器）。
+     *
+     * 新版设计稿的进度行与旧样式没有可复用的部分：波形画在轨道**上方**、轨道 3dp 圆角、
+     * 已播 `#FF6699`、滑块是白心粉边的 8dp 圆。与其在这里塞一堆 if，不如把 [onDraw]
+     * 整个交出去——触摸、进度、片段标记仍由 SeekBar 与本类处理，只有「怎么画」变了。
+     * 设回 null 即恢复旧外观。
+     */
+    var customRenderer: ((Canvas) -> Unit)? = null
+
+    /** 诊断计数：只打前几次绘制，避免刷屏。 */
+    private var drawProbe = 0
+
+    /** 供 [customRenderer] 读取的高能波形（null = 没有数据，别画波形）。 */
+    val highEnergyWave: FloatArray? get() = highEnergyData
+
+    /** 供 [customRenderer] 读取的高能波形步长（秒）。 */
+    val highEnergyStepSeconds: Int get() = stepSec
+
     /** 片段标记（可为空）。改动只走 [setMarks] / [clearMarks]，两者都会 invalidate。 */
     private var marks: List<Mark> = emptyList()
     private val markPaint = Paint().apply { isAntiAlias = true; style = Paint.Style.FILL }
@@ -147,6 +166,19 @@ class HighEnergyProgressBar @JvmOverloads constructor(
 
     @Synchronized
     override fun onDraw(canvas: Canvas) {
+        val custom = customRenderer
+        if (drawProbe < 3) {
+            drawProbe++
+            com.RobinNotBad.BiliClient.util.Logu.d(
+                "旧进度条 onDraw>custom=" + (custom != null) + " w=" + width + " h=" + height +
+                    " p=" + progress + " max=" + max
+            )
+        }
+        if (custom != null) {
+            custom.invoke(canvas)
+            return
+        }
+
         if (showHighEnergy && highEnergyData != null && highEnergyData!!.isNotEmpty()) {
             drawHighEnergy(canvas)
         }

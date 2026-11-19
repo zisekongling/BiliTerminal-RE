@@ -2689,6 +2689,31 @@
     <string name="text_player_enter_collection">进入合集 · %1$s（%2$d 集）</string>
     <string name="text_player_enter_multi_page">进入分P（%1$d 个）</string>
     <string name="text_player_back_to_root">← 返回主合集</string>
+    <string name="desc_player_new_ui_back">返回</string>
+    <string name="player_lock_hint">已锁定 · 点锁图标解锁</string>
+    <string name="player_quality_panel_hint">转表冠选择 · 点一下确认</string>
+    <string name="player_seek_total">共 %1$s</string>
+    <string name="player_more_panel_title">更多</string>
+    <string name="player_more_panel_collapse">收起</string>
+    <string name="player_more_send">发弹幕</string>
+    <string name="player_more_cc">字幕</string>
+    <string name="player_more_loop">循环</string>
+    <string name="player_more_audio">听视频</string>
+    <string name="player_more_autonext">自动连播</string>
+    <string name="player_more_chapter">看点</string>
+    <string name="player_more_info">视频信息</string>
+    <string name="player_more_clock">跳转时间</string>
+    <string name="player_more_queue">连播方式</string>
+    <string name="player_more_like">点赞</string>
+    <string name="player_more_coin">投币</string>
+    <string name="player_more_star">收藏</string>
+    <string name="player_more_download">下载</string>
+    <string name="player_more_moon">睡眠定时</string>
+    <string name="player_more_seek_back">后退 10 秒</string>
+    <string name="player_more_seek_forward">前进 10 秒</string>
+    <string name="player_more_seek_back_glyph">-10s</string>
+    <string name="player_more_seek_forward_glyph">+10s</string>
+    <string name="player_more_panel_hint">上滑 / 转表冠翻页 · %1$s</string>
     <string name="msg_player_entered_collection">进入合集：%1$s</string>
     <string name="msg_player_entered_multi_page">进入分P：%1$s</string>
     <string name="msg_player_lock_hint">已锁定：点画面显示锁定按钮，再点按钮解锁</string>
@@ -3123,6 +3148,11 @@
 
     <!-- 界面按钮 -->
     <string name="setting_player_interaction_choice_size">互动选项字体大小</string>
+    <string name="setting_player_ui_new">新版播放器（实验性）</string>
+    <string name="desc_player_ui_new">普通与短视频播放器使用新版沉浸布局；关闭后恢复老版，重新进入播放器生效。</string>
+    <string name="setting_player_ui_new_idle_progress">沉浸时显示细进度线</string>
+    <string name="desc_player_ui_new_idle_progress">新版播放器隐藏控件后仍在底边显示细进度线。</string>
+
     <!-- 设置索引（SettingsIndex）：全局设置搜索里显示的条目名与说明。 -->
     <string name="setting_index_color_mode">颜色模式</string>
     <string name="desc_setting_index_color_mode">暗色 / 亮色模式切换</string>

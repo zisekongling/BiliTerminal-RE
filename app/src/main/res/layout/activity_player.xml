@@ -23,10 +23,24 @@
         android:layout_centerInParent="true" />
 
 
-    <master.flame.danmaku.ui.widget.DanmakuView
-        android:id="@+id/sv_danmaku"
+    <!--
+        弹幕包一层容器：DanmakuView 是普通 View（不是 SurfaceView），而根布局 clipChildren=false，
+        滚出画布的弹幕会画到自身 bounds 之外（滚到画面外的字会漏到顶栏/黑边上）。
+        新版播放器把这个容器收成视频画面大小，容器的裁剪就顺手把弹幕关在画面内；
+        旧版容器仍是全屏，行为不变。
+    -->
+    <FrameLayout
+        android:id="@+id/danmaku_container"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:clipChildren="true"
+        android:clipToPadding="true">
+
+        <master.flame.danmaku.ui.widget.DanmakuView
+            android:id="@+id/sv_danmaku"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+    </FrameLayout>
 
     <RelativeLayout
         android:id="@+id/audio_only_layout"

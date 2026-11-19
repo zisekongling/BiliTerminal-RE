@@ -447,6 +447,15 @@ object SettingsIndex {
 
         // ---- 高级与实验 内联项 ----
         list += Entry(
+            text(R.string.setting_player_ui_new),
+            text(R.string.desc_player_ui_new),
+            "播放器 新版 老版 布局 沉浸 实验 实验性"
+        ) { a -> openGroup(a, "lab", groupLab, text(R.string.setting_player_ui_new)) }
+        list += Entry(
+            text(R.string.setting_player_ui_new_idle_progress),
+            text(R.string.desc_player_ui_new_idle_progress)
+        ) { a -> openGroup(a, "lab", groupLab, text(R.string.setting_player_ui_new_idle_progress)) }
+        list += Entry(
             text(R.string.settingtext_settinggroupactivity_060),
             text(R.string.settingtext_settingsindex_033)
         ) { a -> openGroup(a, "lab", groupLab, text(R.string.settingtext_settinggroupactivity_060)) }

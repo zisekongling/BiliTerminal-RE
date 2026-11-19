@@ -216,6 +216,10 @@ object SettingsKeys {
     const val DEV_PLAYER_ROTATE_SOFTWARE = "dev_player_rotate_software"
     const val PLAYER_SHOW_VIEWPOINTS = "player_show_viewpoints"
     const val PLAYER_INTERACTION_DEBUG = "player_interaction_debug"
+    /** 实验性新版播放界面；默认关闭，普通与短视频播放器共用。 */
+    const val PLAYER_UI_NEW = "player_ui_new"
+    /** 新版播放器在控件隐藏时保留细进度线。 */
+    const val PLAYER_UI_NEW_IDLE_PROGRESS = "player_ui_new_idle_progress"
     /**
      * 确认型弹窗的按钮形态：true（默认）= 左「取消」右「确定」并排一行、各占一半宽度；
      * false = 26.11.13 起的整行宽纵向堆叠。

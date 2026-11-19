@@ -59,6 +59,8 @@ class ShortVideoFeedFragment : Fragment() {
     /** 当前活跃那页是否真的在播放；宿主据此决定要不要保持亮屏。 */
     fun isCurrentPlaying(): Boolean = feedAdapter?.isCurrentPlaying() == true
 
+    fun closeCurrentPanel(): Boolean = feedAdapter?.closeCurrentPanel() == true
+
     /**
      * 宿主的可用区域尺寸变了（旋转 / 界面边距 / 圆屏留白）：让各页按新尺寸重摆画面。
      *

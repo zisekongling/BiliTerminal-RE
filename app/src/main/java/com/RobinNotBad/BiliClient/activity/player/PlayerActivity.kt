@@ -111,6 +111,7 @@ import com.RobinNotBad.BiliClient.player.PlayerDefaults
 import com.RobinNotBad.BiliClient.player.PlayerDisplayModePolicy
 import com.RobinNotBad.BiliClient.player.PlayerButtonSlots
 import com.RobinNotBad.BiliClient.player.PlayerButtons
+import com.RobinNotBad.BiliClient.player.PlayerNewUiController
 import com.RobinNotBad.BiliClient.player.PlayerUiLayout
 import com.RobinNotBad.BiliClient.player.PlayerRequestPolicy
 import com.RobinNotBad.BiliClient.player.LocalAudioTrackPolicy
@@ -227,6 +228,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private lateinit var bottom_group_scroll: HorizontalScrollView
     private lateinit var bottom_group_slots: LinearLayout
     private var buttonSlots: PlayerButtonSlots? = null
+    private var newPlayerUi: PlayerNewUiController? = null
     private lateinit var card_subtitle: LinearLayout
     private lateinit var card_danmaku_send: LinearLayout
     /** 「跳到指定时间」的页内输入卡片（QQ#9；26.11.14 从独立 Activity 改成与发弹幕同构的卡片）。 */
@@ -1641,6 +1643,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         bottom_group_slots = findViewById(R.id.bottom_group_slots)
         isolateSharedBackgrounds(findViewById(R.id.root_layout))
         initButtonSlots()
+        // 新版播放器把弹幕视口收进视频画面。设计稿的顶栏 / 底栏渐变要压在弹幕之上，但弹幕是
+        // 独立 Surface，普通 View 盖不住它（「更多」面板同样只能靠 hide() 绕开），所以只能让
+        // 弹幕本身不出画面。画面一变（换视频、捏合、圆/方屏切换）就重新对齐一次。
+        layout_video.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> applyNewUiDanmakuViewport() }
 
         // 字幕字号来自设置页，这里先按存档刷一次；之后每次 onResume 再刷（改完设置返回即生效）
         applySubtitleTextSize()
@@ -1706,6 +1712,58 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      * 什么也弹不出来。
      */
     private fun initButtonSlots() {
+        // 圆屏判定必须先落到 screen_round 上：新版控制器把屏形固化进构造参数
+        // （尺寸、半径、弧进度全按它算，构造后不再更新），而 onCreate 里 screen_round
+        // 的赋值在 initButtonSlots 之后，不在这里补读一次就会拿到默认的 false，
+        // 于是圆屏手表按方屏布局摆按钮，底栏（y=252dp）直接掉到屏幕外。
+        screen_round = SharedPreferencesUtil.getBoolean("player_ui_round", false)
+        if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_NEW, false)) {
+            newPlayerUi = PlayerNewUiController(
+                this, findViewById(R.id.root_layout), button_pool, screen_round,
+                layout_control, layout_top, bottom_buttons, findViewById(R.id.left_control), right_control,
+                btn_control, seekbar_progress, text_progress, { key -> buttonViewById(key) },
+                { showQualitySelectorCard() }, { showPageSelectorCard() },
+                { currentQualityLabel() },
+                { key ->
+                    // 「更多」面板的开启态：设计稿只把这些画成粉色，判据沿用播放页自己的开关状态。
+                    when (key) {
+                        PlayerButtons.SUBTITLE -> subtitles != null && !subtitleUserOff
+                        PlayerButtons.AUTO_NEXT -> auto_next_enabled
+                        PlayerButtons.LOOP -> loop_enabled
+                        else -> false
+                    }
+                },
+                // 弹幕画在独立 surface 上，遮罩压不住它：面板开着就先把它藏起来。
+                // 面板是模态的（设计稿里点格子或点空白才关），顺带把 4 秒自动隐藏停掉，否则面板会自己消失。
+                {
+                    shown -> if (shown) {
+                        mDanmakuView?.hide()
+                        layout_control.removeCallbacks(hidecon)
+                    } else {
+                        mDanmakuView?.show()
+                        if (!PlayerLockPolicy.isLocked(lockPhase)) autohideReset()
+                    }
+                },
+                // 圆弧 seek 的起止回调：与 seekbar_progress 的 onStart/StopTrackingTouch 同判据同链路
+                {
+                    isSeeking = true
+                    newPlayerUi?.setSeekPreview(true, seekbar_progress.progress.toLong(), video_now.toLong(), video_all.toLong())
+                },
+                { pos ->
+                    isSeeking = false
+                    newPlayerUi?.setSeekPreview(false, 0L, 0L, 0L)
+                    if (isPrepared && !destroyed) {
+                        seekToVideo(pos.toLong())
+                        autohideReset()
+                    }
+                },
+                // 中心键的播放/暂停图标与弹幕按钮的高亮都按这两个真实状态取。
+                { isPlaying },
+                { isDanmakuVisible }
+            )
+            applyPlayerButtonLayout()
+            return
+        }
         val slots = PlayerButtonSlots(this, button_pool) { key -> buttonViewById(key) }
         // 左右两列：28×28dp，与 11.02 一致（图标与格子同大，不额外留内边距）。
         slots.bind(
@@ -1732,7 +1790,32 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     }
 
     /** 按存档的布局重摆按钮；设置页改完布局回来，onResume 会再走一遍。 */
+    /**
+     * 新版底栏的清晰度槽位显示文字（设计稿画的是「720P」，不是那个三横线图标）。
+     * 取当前 qn 在 [qnStrList] 里的名字，只留分辨率那一段（「1080P 高清」→「1080P」）。
+     */
+    private fun currentQualityLabel(): String? {
+        val names = qnStrList ?: return null
+        val values = qnValueList ?: return null
+        val index = values.indexOf(currentQuality)
+        if (index < 0 || index >= names.size) return null
+        return names[index].substringBefore(' ').trim().takeIf { it.isNotEmpty() }
+    }
+
     private fun applyPlayerButtonLayout() {
+        val newUi = newPlayerUi
+        if (newUi != null) {
+            playerUiLayout = PlayerUiLayout.load(
+                { key -> SharedPreferencesUtil.getString(key, "") },
+                { key, value -> SharedPreferencesUtil.putString(key, value) },
+            )
+            newUi.render(playerUiLayout, screen_round)
+            btn_quality.tag = PlayerNewUiController.NEW_QUALITY_TAG
+            btn_page_selector.tag = PlayerNewUiController.NEW_PAGES_TAG
+            startMirrorSync()
+            if (lockPhase != PlayerLockPolicy.Phase.UNLOCKED) applyLockPhase(lockPhase)
+            return
+        }
         val slots = buttonSlots ?: return
         val layout = PlayerUiLayout.load(
             { key -> SharedPreferencesUtil.getString(key, "") },
@@ -1759,7 +1842,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      * 贴边摆；解锁后再按用户布局摆回去（[applyPlayerButtonLayout]）。
      */
     private fun parkLockButton() {
+        newPlayerUi?.closeTransientPanels()
         if (lock_btn.parent === lock_holder) return
+        // 新版按设计稿 lockView 摆：锁图标留在自己那一格（左列 r=94 θ=155 的位置），
+        // 底下 34dp 圆底由 PlayerNewUiController 画；这里原地停靠，不再贴边。
+        if (newPlayerUi != null && parkLockButtonInPlace()) return
         val gravity = lockButtonGravity()
         val side = ToolsUtil.dp2px(4f)
         // 贴在底部时要躲开底部的按钮行，别压在一起
@@ -1769,6 +1856,26 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         lock_btn.layoutParams = lp
         (lock_btn.parent as? ViewGroup)?.removeView(lock_btn)
         lock_holder.addView(lock_btn)
+    }
+
+    /** 新版锁定态：把按钮原地搬到遮罩层（坐标不变），成功返回 true。 */
+    private fun parkLockButtonInPlace(): Boolean {
+        val w = lock_btn.width
+        val h = lock_btn.height
+        if (w <= 0 || h <= 0) return false
+        val here = IntArray(2)
+        val holder = IntArray(2)
+        lock_btn.getLocationOnScreen(here)
+        lock_holder.getLocationOnScreen(holder)
+        // 还没量过位置（0,0）时退回贴边兜底，否则锁图标会跑到左上角
+        if (here[0] == 0 && here[1] == 0) return false
+        val lp = FrameLayout.LayoutParams(w, h)
+        lp.leftMargin = here[0] - holder[0]
+        lp.topMargin = here[1] - holder[1]
+        lock_btn.layoutParams = lp
+        (lock_btn.parent as? ViewGroup)?.removeView(lock_btn)
+        lock_holder.addView(lock_btn)
+        return true
     }
 
     /** 解锁后把锁定按钮还给布局（重新摆一遍所有按钮最省事，也就一次 requestLayout 的量）。 */
@@ -2096,6 +2203,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private fun showcon() {
         // 锁定期间控制栏必须整体保持隐藏，任何「显示控制栏」的路径都在这里被挡掉
         if (PlayerLockPolicy.isLocked(lockPhase)) return
+        if (newPlayerUi != null) {
+            newPlayerUi?.setControlsVisible(true)
+            if (isPrepared && !isLiveMode && !isAudioOnlyMode) {
+                text_speed.visibility = View.VISIBLE
+                updateDebugButtonVisibility()
+            }
+            lock_btn.visibility = View.VISIBLE
+            setSubtitleBottomMargin(SUBTITLE_MARGIN_BOTTOM_CONTROLBAR_DP)
+            autohideReset()
+            return
+        }
         right_control.visibility = View.VISIBLE
         layout_top.visibility = View.VISIBLE
         bottom_buttons.visibility = View.VISIBLE
@@ -2139,6 +2257,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private val hidecon = Runnable {
         // 锁定期间由锁定状态自己管显隐，别让自动隐藏去动控制栏（会顶掉浮现中的锁定按钮）
         if (PlayerLockPolicy.isLocked(lockPhase)) return@Runnable
+        newPlayerUi?.let { ui ->
+            ui.setControlsVisible(false)
+            if (isPrepared && !isAudioOnlyMode) {
+                text_speed.visibility = View.GONE
+                btn_debug.visibility = View.GONE
+            }
+            lock_btn.visibility = View.GONE
+            setSubtitleBottomMargin(SUBTITLE_MARGIN_BOTTOM_COLLAPSED_DP)
+            return@Runnable
+        }
         right_control.visibility = View.GONE
         layout_top.visibility = View.GONE
         bottom_buttons.visibility = View.GONE
@@ -2252,6 +2380,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         mainHandler?.removeCallbacks(hideLockIcon)
         when (target) {
             PlayerLockPolicy.Phase.UNLOCKED -> {
+                newPlayerUi?.setLocked(false)
                 lock_overlay.visibility = View.GONE
                 // 整条控制栏在锁定时被藏掉，解锁时连 button 组一起恢复，再走既有的 4 秒自动隐藏
                 layout_control.visibility = View.VISIBLE
@@ -2270,6 +2399,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             }
 
             PlayerLockPolicy.Phase.LOCKED_HIDDEN -> {
+                newPlayerUi?.setLocked(true)
                 lock_overlay.visibility = View.VISIBLE
                 layout_control.visibility = View.GONE
                 // 左列在 control_layout 外面，锁定时要单独藏，否则用户摆进去的按钮会浮在遮罩上
@@ -2278,7 +2408,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 // 现在按钮压暗常驻（还要搬到遮罩层上，否则摆在被藏掉的 control_layout 里就点不到）。
                 parkLockButton()
                 lock_btn.visibility = View.VISIBLE
-                lock_btn.alpha = PlayerLockPolicy.IDLE_ICON_ALPHA
+                // 设计稿 lockView 把锁定态画成常亮（34dp 圆底 + 开锁图标），不再有「点一下才亮」；
+                // 旧版播放器保持原来的压暗（防烧屏），两版互不影响。
+                lock_btn.alpha = if (newPlayerUi != null) 1f else PlayerLockPolicy.IDLE_ICON_ALPHA
                 // 倍速文字现在挂在左侧列里，不随 control_layout 一起隐藏，得单独收掉
                 text_speed.visibility = View.GONE
                 // 锁定时控制栏整体 GONE 而字幕仍显示，底下没了控制栏占位，字幕要下沉到低位
@@ -2288,6 +2420,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             }
 
             PlayerLockPolicy.Phase.LOCKED_ICON_VISIBLE -> {
+                newPlayerUi?.setLocked(true)
                 lock_overlay.visibility = View.VISIBLE
                 layout_control.visibility = View.GONE
                 left_control.visibility = View.GONE
@@ -2404,6 +2537,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      * 留下半透明的卡片压着画面）。
      */
     private fun hideAllCards() {
+        newPlayerUi?.closeTransientPanels()
         layout_card_bg.visibility = View.GONE
         card_subtitle.visibility = View.GONE
         card_danmaku_send.visibility = View.GONE
@@ -3438,6 +3572,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                             text_online.text = online_number
                         } else {
                             seekbar_progress.progress = video_now
+                            newPlayerUi?.syncProgress()
                         }
                         if (subtitles == null) text_subtitle.visibility = View.GONE
 
@@ -4189,6 +4324,28 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     }
 
     /** 重新绑定弹幕视图与弹幕管理器（弹幕视图在切分页/切互动分支后会重新取一次引用）。 */
+    /**
+     * 把弹幕视口收进视频画面（仅新版播放器）。弹幕按容器尺寸分配轨道，
+     * 缩到画面大小后它就不会滚过顶栏与底栏了。
+     *
+     * 收的是 [R.id.danmaku_container] 而不是 DanmakuView 本身：DanmakuView 是普通 View，
+     * 根布局又是 clipChildren=false，滚出画布的弹幕会被画到自身 bounds 之外（画面左右黑边上
+     * 能看到半条弹幕）。给容器设画面尺寸 + clipChildren=true，裁剪就落在容器上。
+     */
+    private fun applyNewUiDanmakuViewport() {
+        if (newPlayerUi == null) return
+        if (!::layout_video.isInitialized) return
+        val container = findViewById<View>(R.id.danmaku_container) ?: return
+        val width = layout_video.width
+        val height = layout_video.height
+        if (width <= 0 || height <= 0) return
+        val params = container.layoutParams
+        if (params != null && params.width == width && params.height == height) return
+        container.layoutParams = RelativeLayout.LayoutParams(width, height).apply {
+            addRule(RelativeLayout.CENTER_IN_PARENT, RelativeLayout.TRUE)
+        }
+    }
+
     private fun bindDanmakuView() {
         mDanmakuView = findViewById(R.id.sv_danmaku)
         danmakuManager = DanmakuManager(mDanmakuView!!, isLiveMode).also { manager ->
@@ -4211,6 +4368,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         danmakuStreamLoader = DanmakuStreamLoader().also {
             it.setLoadPolicy(if (thirdPartyDanmaku) null else danmakuLoadPolicy)
         }
+        // 弹幕关闭再打开会重建视图，视口要重新收进画面（onCreate 时布局还没算完）
+        if (::layout_video.isInitialized) layout_video.post { applyNewUiDanmakuViewport() }
     }
 
     /** 释放弹幕视图与管理器。 */
@@ -4981,10 +5140,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private fun startMirrorSync() {
         mirrorSyncTimer?.let { mainHandler?.removeCallbacks(it) }
         mirrorSyncTimer = null
-        if (buttonSlots?.hasMirrors() != true && buttonSlots?.hasGroups() != true) return
+        if (newPlayerUi == null && buttonSlots?.hasMirrors() != true && buttonSlots?.hasGroups() != true) return
         mirrorSyncTimer = object : Runnable {
             override fun run() {
                 buttonSlots?.syncMirrors()
+                newPlayerUi?.sync()
                 mainHandler?.postDelayed(this, MIRROR_SYNC_INTERVAL_MS)
             }
         }.also { mainHandler?.postDelayed(it, MIRROR_SYNC_INTERVAL_MS) }
@@ -5441,7 +5601,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         btn_rotate.visibility = View.VISIBLE
 
         screen_round = SharedPreferencesUtil.getBoolean("player_ui_round", false)
-        if (screen_round) {
+        if (screen_round && !SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_NEW, false)) {
             val padding = (screen_width * 0.03).toInt()
 
             val progressParams = seekbar_progress.layoutParams as LinearLayout.LayoutParams
@@ -5678,15 +5838,19 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             override fun onProgressChanged(seekBar: SeekBar, position: Int, fromUser: Boolean) {
                 // SeekBar 回调本身就在主线程，无需再 runOnUiThread
                 // 有可跳片段时格式是 `00:31 / 01:43 (1:34)`，见 formatProgressText
-                if (!isLiveMode) text_progress.text = formatProgressText(position)
+                if (!isLiveMode) updateProgressText(position)
+                // 新版拖动预览（设计稿 seek 态）：弧形拖动同样经过这里（它改的是同一个 SeekBar）。
+                if (isSeeking) newPlayerUi?.setSeekPreview(true, position.toLong(), video_now.toLong(), video_all.toLong())
             }
 
             override fun onStartTrackingTouch(seekBar: SeekBar) {
                 isSeeking = true
+                newPlayerUi?.setSeekPreview(true, seekBar.progress.toLong(), video_now.toLong(), video_all.toLong())
             }
 
             override fun onStopTrackingTouch(seekBar: SeekBar) {
                 isSeeking = false
+                newPlayerUi?.setSeekPreview(false, 0L, 0L, 0L)
                 if (isPrepared && !destroyed) {
                     // 统一走 seekToVideo：它同时 seek 视频、弹幕、外部音频轨，并压住
                     // progressChange 的偏差校正。原来这里只 seek 了视频（和弹幕），DASH 双文件
@@ -6321,11 +6485,32 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         )
     }
 
+    /**
+     * 写一次进度时间。新版圆屏按设计稿排成一行 `03:12 / 08:41`（后半段 60% 不透明），
+     * 其余情况沿用原格式（`03:12/08:41`，有可跳片段时带括号）。
+     */
+    private fun updateProgressText(positionMs: Int) {
+        val controller = newPlayerUi
+        if (controller != null && screen_round) {
+            val saved = sponsorSavedMs
+            val totalMs = video_all.toLong()
+            val suffix = if (saved > 0L && totalMs > saved)
+                " (" + StringUtil.toTime(((totalMs - saved) / 1000L).toInt()) + ")" else ""
+            text_progress.text = controller.roundProgressText(
+                StringUtil.toTime(positionMs / 1000),
+                progress_str,
+                suffix,
+            )
+            return
+        }
+        text_progress.text = formatProgressText(positionMs)
+    }
+
     /** 片段表变了就重画一次时间文案（暂停时没有 250ms tick，不主动刷会停在旧的括号上）。 */
     private fun refreshProgressText() {
         if (!::text_progress.isInitialized) return
         if (isLiveMode) return
-        text_progress.text = formatProgressText(seekbar_progress.progress)
+        updateProgressText(seekbar_progress.progress)
     }
 
     /** 一个精彩时刻点的内存键：`类别@秒`。只活一次播放，不做跨会话落盘。 */
@@ -7668,7 +7853,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             // 没有页可列时（上面的 null 兜底）不写「（1/0）」这种怪文案。
             val pagePosition =
                 if (size <= 0) "" else getString(R.string.text_player_page_position, currentPageIndex + 1, size)
-            findViewById<TextView>(R.id.page_selector_title).text = when {
+            val pageTitle = when {
                 collectionId != 0L ->
                     UiText.fmt(UiText.of("合集 · %s"), collectionTitle ?: "") + pagePosition
                 multiPageAid != 0L ->
@@ -7714,7 +7899,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 inLocalLayer -> getString(R.string.text_player_back_to_root)
                 else -> enterable
             }
-            nestEntry.setOnClickListener {
+            val onNestClick: () -> Unit = {
                 layout_card_bg.visibility = View.GONE
                 card_page_selector.visibility = View.GONE
                 if (returnPlaylist != null) {
@@ -7726,6 +7911,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 } else {
                     enterCurrentNestLayer()
                 }
+            }
+            nestEntry.setOnClickListener { onNestClick() }
+            newPlayerUi?.let { ui ->
+                val rows = names.toMutableList()
+                if (nestEntry.visibility == View.VISIBLE) rows += nestEntry.text.toString()
+                ui.showList(pageTitle, rows, currentPageIndex) { index ->
+                    if (index < names.size) {
+                        if (index != currentPageIndex) switchToPage(index)
+                    } else onNestClick()
+                }
+                return@runOnUiThread
             }
 
             layout_card_bg.visibility = View.VISIBLE
@@ -8300,6 +8496,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         }
 
         runOnUiThread {
+            newPlayerUi?.let { ui ->
+                ui.showQualityPanel(getString(R.string.setting_player_btn_quality), qnStrList!!.toList(), qnValueList!!.indexOf(currentQuality)) { index ->
+                    if (index in qnValueList!!.indices && qnValueList!![index] != currentQuality) switchQuality(qnValueList!![index])
+                }
+                return@runOnUiThread
+            }
             val qualitySelectorRecycler = findViewById<RecyclerView>(R.id.quality_selector_list)
             val adapter = QualitySelectorAdapter()
             adapter.setData(qnStrList!!, qnValueList!!, currentQuality)
