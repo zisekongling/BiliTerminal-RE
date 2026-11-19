@@ -279,6 +279,34 @@ class BiliTerminal : Application() {
         fun isDebugBuild(): Boolean = BuildConfig.DEBUG
 
         /**
+         * 是否抑制「自动弹出的教程与信息提示」。
+         *
+         * Debug 构建下返回 true：调试包每次冷启动都会被一串弹窗按固定顺序糊满屏幕
+         * （更新日志 → 公告 → 全屏教程 → 隐私说明 → 免责声明），手测与页面自动化都得先
+         * 手动点掉它们才看得到目标页——`docs/review/fix-progress.md` §1 那条
+         * 「26.11.16 反馈页顶栏补返回箭头（#174）」的 L1 就是因为「首启弹窗串行占屏」
+         * 没能在模拟器里打开目标页。这里收一个统一门面，各调用点自己判一次。
+         *
+         * 命中范围（括号里是调用点）：
+         * - 教程：全屏 GUIDE / NOTICE 与页面滑动 HINT（BaseActivity.autoTriggerTutorial）；
+         *   「设置 → 教程」里的教程管理页走的是点击，不经过这里，debug 下仍能手动看；
+         * - 启动信息：升级后的更新日志页（SplashActivity）、自建公告（TerminalApi.checkAnnouncement）、
+         *   免责声明与「夜深了」提醒（AppInfoApi.showStartupNotices）、BETA 通道包的警告
+         *   （AppInfoApi.check，那一行用的 ToolsUtil.isDebugBuild 判的其实是「非 stable 通道」）；
+         * - 隐私说明闸门（SplashActivity.proceedSplashFlowWithPrivacyGate）：debug 直接进主流程。
+         *   刻意**不写**「已同意」——匿名统计因此仍按未同意处理，不会上报；
+         * - 首次使用引导：播放器片头片尾跳过引导（PlayerActivity.maybeShowSkipGuide）、
+         *   视频详情页第一次点播放时的说明（VideoInfoFragment.playClick）。
+         *
+         * 不在范围内、刻意保留：强制更新拦截（功能性拦截，不是弹窗）、首启初始化向导
+         * （SetupUIActivity，整页向导）、下载时请求通知权限（系统能力，测权限流程要用）。
+         *
+         * 与 [isDebugBuild] 一样用 BuildConfig.DEBUG（编译期常量），Release 里整段被折叠掉。
+         */
+        @JvmStatic
+        fun isAutoPopupSuppressed(): Boolean = BuildConfig.DEBUG
+
+        /**
          * UETool 悬浮窗请求码（入口 Activity onActivityResult 使用）。
          *
          * 原先这几个 UETool 辅助方法挂在 [BiliTerminalApp] 上——那是个从未被实例化的

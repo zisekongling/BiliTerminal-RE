@@ -43,6 +43,9 @@ public class AppInfoApi {
      * 否则两层对话框叠在一起，要连关两次。
      */
     public static void showStartupNotices(Context context) {
+        // Debug 包不弹启动提示（见 BiliTerminal.isAutoPopupSuppressed）。
+        if (BiliTerminal.isAutoPopupSuppressed()) return;
+
         boolean nightNow = SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.NIGHT_REMINDER_ENABLE, true)
                 && isNightNow();
 
@@ -88,7 +91,10 @@ public class AppInfoApi {
                 // 现在版本升级后的当版日志由 SplashActivity 打开专门的更新日志页展示（按版本分选项卡），
                 // 两处会同时弹、内容完全重复，且全屏页会盖在日志页上面，所以这里只保留后面
                 // 「删除已下载的旧更新包」与「debug 包警告」两件事，不再弹公告。
-                if (ToolsUtil.isDebugBuild())
+                // ToolsUtil.isDebugBuild() 判的其实是「非 stable 通道」（BuildConfig.BETA），
+                // 所以 debug 包里这条本来就不弹、只有 beta/exp 通道包才弹；再加一道
+                // isAutoPopupSuppressed 是为了让规则收敛到「debug 包一律不弹」。
+                if (ToolsUtil.isDebugBuild() && !BiliTerminal.isAutoPopupSuppressed())
                     MsgUtil.showDialog("警告", context.getString(R.string.warning_debug));
                 SharedPreferencesUtil.putInt("app_version_last", version);
             }

@@ -115,7 +115,10 @@ class SplashActivity : Activity() {
         // F4：在这里（而不是进主流程之后）判一次版本，是因为下面可能为了 UETool 悬浮窗权限
         // 直接 return、稍后由 onActivityResult 再走一遍 proceedSplashFlow；判定结果用字段记住，
         // 保证"升级后首次启动弹更新日志"只算一次。
-        pendingUpdateLog = shouldShowUpdateLogAfterUpgrade()
+        // Debug 包不弹更新日志（见 BiliTerminal.isAutoPopupSuppressed）。这里短路后
+        // shouldShowUpdateLogAfterUpgrade() 不会执行，也就不会写回 last_version 键——
+        // 将来换装正式包仍按「升级」处理，无害。
+        pendingUpdateLog = !BiliTerminal.isAutoPopupSuppressed() && shouldShowUpdateLogAfterUpgrade()
 
         // Debug 构建下：若未授予悬浮窗权限，先跳去授权再继续启动流程，确保 UETool 能显示
         if (ensureUEToolOverlayPermission()) return
@@ -352,7 +355,10 @@ class SplashActivity : Activity() {
      * 用户就卡在闪屏上了。
      */
     private fun proceedSplashFlowWithPrivacyGate() {
-        if (!TerminalApi.needsPrivacyConsent()) {
+        // Debug 包不弹隐私说明：直接进主流程（见 BiliTerminal.isAutoPopupSuppressed）。
+        // 注意这**不是**替用户点「同意」——consent 不落盘，hasPrivacyConsent 仍为 false，
+        // 匿名统计照旧不上报。
+        if (BiliTerminal.isAutoPopupSuppressed() || !TerminalApi.needsPrivacyConsent()) {
             proceedSplashFlow()
             return
         }

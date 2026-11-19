@@ -680,6 +680,10 @@ open class BaseActivity : AppCompatActivity() {
     private fun autoTriggerTutorial() {
         if (tutorialAutoTriggered) return
         tutorialAutoTriggered = true
+        // Debug 包整体静默：全屏教程会把刚拉起的页面盖住，自动化与手测都走不到目标页
+        // （判据与完整范围见 BiliTerminal.isAutoPopupSuppressed）。
+        // 教程管理页的「重看」直接调 TutorialPagerActivity.start，不经过这里。
+        if (BiliTerminal.isAutoPopupSuppressed()) return
         if (!tutorialAutoTriggerEnabled()) return
 
         val pending = Tutorials.forPage(javaClass).filter { !TutorialStore.isRead(it) }

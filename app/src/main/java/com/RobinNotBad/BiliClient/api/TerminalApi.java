@@ -749,13 +749,18 @@ public class TerminalApi {
         requireOk(result);
 
         ArrayList<Announcement> list = parseAnnouncements(result.optJSONArray("data"));
+        // Debug 包不弹公告（见 BiliTerminal.isAutoPopupSuppressed），但**已读计数照旧推进**：
+        // 否则现在不弹、以后换装正式包会把这段时间积压的公告一次全弹出来。
+        boolean showPopup = !BiliTerminal.isAutoPopupSuppressed();
         boolean fresh = false;
         for (Announcement announcement : list) {
             if (SharedPreferencesUtil.getInt(SettingsKeys.TERMINAL_ANNOUNCEMENT_LAST, 0) < announcement.id) {
                 SharedPreferencesUtil.putInt(SettingsKeys.TERMINAL_ANNOUNCEMENT_LAST, announcement.id);
                 fresh = true;
             }
-            MsgUtil.showText(announcement.title, announcement.content, announcement.isRelayed());
+            if (showPopup) {
+                MsgUtil.showText(announcement.title, announcement.content, announcement.isRelayed());
+            }
         }
         // 有新公告时给顶栏灵动岛留一个 10 秒的「公告」事件；启动线程只置标记，不碰 UI。
         if (fresh) {

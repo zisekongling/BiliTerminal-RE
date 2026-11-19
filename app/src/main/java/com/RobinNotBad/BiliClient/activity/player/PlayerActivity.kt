@@ -6506,6 +6506,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         // 总开关为假（再次紧急撤回）时连引导都不能出现：引导上带「开启」按钮，点了会往存档里写 true，
         // 等于给了用户一条绕过闸门的路（虽然闸门仍然拦得住，但弹一条已经下线的功能提示本身就是骚扰）。
         if (!SkipOpEdPrefs.FEATURE_ENABLED) return
+        // Debug 包不弹首次引导（见 BiliTerminal.isAutoPopupSuppressed）。早退放在写
+        // PLAYER_SKIP_OP_ED_GUIDED 之前，debug 里不会把「已引导」记账位吃掉。
+        if (BiliTerminal.isAutoPopupSuppressed()) return
         val enabled = skipOpEdEnabled()
         if (!SkipOpEdPrefs.shouldShowGuide(
                 skipDecider.segments.isNotEmpty(),

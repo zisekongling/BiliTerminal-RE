@@ -1,5 +1,6 @@
 package com.RobinNotBad.BiliClient.activity.video.info
 
+import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.ui.appearance.ThemeTint
 import com.RobinNotBad.BiliClient.util.UiText
 
@@ -982,7 +983,9 @@ class VideoInfoFragment : BaseFragment() {
     }
 
     private fun playClick() {
-        if (SharedPreferencesUtil.getBoolean("first_play", true)) {
+        // Debug 包不弹「第一次点播放」的说明（见 BiliTerminal.isAutoPopupSuppressed）：
+        // 既不弹窗也不吞掉这次点击，直接往下走正常起播。
+        if (!BiliTerminal.isAutoPopupSuppressed() && SharedPreferencesUtil.getBoolean("first_play", true)) {
             SharedPreferencesUtil.putBoolean("first_play", false)
 
             if (SharedPreferencesUtil.getBoolean("cover_play_enable", true))
