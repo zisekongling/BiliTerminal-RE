@@ -1618,6 +1618,17 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **静默下载那条链**（`BiliTerminal.trySilentUpdateDownload`）把另存路径记在进程内的 `silentSavedPath`，提示词换成 `msg_silent_update_ready_body_saved` 把位置一并说明；**进程重启后该字段为空**，提示词退回不带路径的旧文案——别去猜路径，也不要把路径持久化（下次下的包未必存同一处）。
 - **失败一律不阻断更新**：权限缺失、存储只读、MediaStore 拒收都只 `Logu` 一条，`onSaved` 不回调，安装照旧走缓存那份。
 
+### 7.70 缓存下载断点续传：sidecar 记账 + 「半成品留到成功或用户清缓存」（26.11.19 新增）
+
+- **断点记在临时文件旁边，不记在数据库里**：`<临时文件>.resume`（`DownloadPathSpec.resumeNameFor` → `video_new.mp4.resume` / `audio_new.m4a.resume`），内容由 `service/download/DownloadResumePolicy.kt` 的 `toJson/fromJson` 读写，形如 `{"v":1,"tag":"…","total":123,"segments":[…]}`。**任务行会被重写**：失败后重新入队时 `startDownload` 会把 `state=="error"` 的旧行 `delete` 掉再 insert，`section.id` 因此变化，所以 `tag` 只能由内容派生——`DownloadResumePolicy.tag(aid, cid, qn, stream)`，`stream` 取 `STREAM_VIDEO`/`STREAM_AUDIO`/`STREAM_MERGED`（`DownloadService.resumeTagFor`）。别改成用 id 或路径做标识。
+- **单连接靠 file.length()、分片只能靠 segments，两者不可互换**：`downFileSpeedSingle` 用 `DownloadResumePolicy.singlePlan(record, tag, file.length())` 得 FRESH / APPEND(offset) / COMPLETE；带 `Range: bytes=offset-` 请求，**只有 206 且 Content-Range 起点与总长都对得上才算续传**，收到 200（服务器忽略 Range）或总长不符就关响应、`resetFile`、重发一次不带 Range 的 GET。分片模式先 `setLength(totalSize)` 预分配，文件长度从第一秒就等于总长，所以 `downFileSpeedSeg` 明写「`file.length() == totalSize` 才敢读 segments」——**稀疏文件的长度不能当进度**。分片回退到 `downFileSpeedSingle` 之前必须先 `clearResumeRecord` 并把 `resumeTag` 传 null，否则单连接会把预分配的整长当「已下完」。
+- **存档顺序是「先 fsync 再写 sidecar」**（`flushSegmentResume`，约 `:1682`）：`RandomAccessFile(file,"rw").fd.sync()` 之后再落 JSON。反过来写，进程被杀时 sidecar 会声称那些字节已落盘、而它们还在页缓存里，续传就在文件中间留下零字节窟窿。分片轮询里每 ≥1000ms flush 一次，暂停 / 停止分支返回前再 flush 一次（最多丢 1 秒）。
+- **失败不再清目录**：`cleanFailedResidue`（`:525`）只做 `DownloadResiduePolicy.cleanupPlan(folder.list())` 给出的三件事——修 `.bak`（正式名缺失才 rename 回去）、删 `.DOWNLOADING`、删 `video_merging.tmp` 与「对应临时文件已不存在的孤儿 `.resume`」。**不许再调 `FileUtil.cleanDownloadTempFiles` / `DownloadSegmentPlan.clearTempParts` / `FileUtil.deleteFolder`**：那三样会连半成品一起删，正是「断网重下从 0% 开始」的老根因。`onDestroy` 的失败分支同样改调它。
+- **重入队能落回同一个临时文件的前提**：详情页入口 `VideoInfoFragment` 只拦 `isDownloading || isCachedFolder`（`util/CacheMediaPolicy`），所以失败的目录只要摘掉 `.DOWNLOADING`、没有成品，就允许重新入队；`startDownload` 重复入队时**不删目录**，于是 `video_new.mp4` 与 sidecar 原样还在。
+- **`DownloadStreamTransfer.copy` 的 `startBytes` 必须排在 `onBytesWritten` 之前**：Kotlin 的尾随 lambda 永远绑最后一个形参，`startBytes` 放末尾会让所有 `copy(...) { total, _ -> }` 编译不过。
+- **多段 durl（`video_seg*.part`）本轮不做片内续传**：它本来就有 `part` + `done` 的整段复用（`DownloadSegmentPlan.isReusablePart`），`downFileOrSegments` 里只有「单段」分支传 `STREAM_MERGED` 的 tag，多段 `partFile` 传 null。
+- **失败文案不丢**：单连接里 `ERR_NETWORK` 仍走 `recordFailReason(text_download_fail_incomplete, downloaded, total)`，下载列表那条「下载出错：…」的措辞没变。
+
 ## 8. UI 基建速查（新增页面临摹用）
 
 ### 8.1 完整继承体系
