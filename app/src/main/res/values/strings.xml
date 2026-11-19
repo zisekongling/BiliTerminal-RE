@@ -3152,6 +3152,11 @@
     <string name="desc_player_ui_new">普通与短视频播放器使用新版沉浸布局；关闭后恢复老版，重新进入播放器生效。</string>
     <string name="setting_player_ui_new_idle_progress">沉浸时显示细进度线</string>
     <string name="desc_player_ui_new_idle_progress">新版播放器隐藏控件后仍在底边显示细进度线。</string>
+    <string name="setting_player_ui_form">播放器界面形态</string>
+    <string name="desc_player_ui_form">手表、手机、长条屏三套布局手动切换；重新进入播放器生效。</string>
+    <string name="player_form_watch">手表</string>
+    <string name="player_form_phone">手机</string>
+    <string name="player_form_strip">长条屏</string>
 
     <!-- 设置索引（SettingsIndex）：全局设置搜索里显示的条目名与说明。 -->
     <string name="setting_index_color_mode">颜色模式</string>

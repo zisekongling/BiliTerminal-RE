@@ -220,6 +220,16 @@ object SettingsKeys {
     const val PLAYER_UI_NEW = "player_ui_new"
     /** 新版播放器在控件隐藏时保留细进度线。 */
     const val PLAYER_UI_NEW_IDLE_PROGRESS = "player_ui_new_idle_progress"
+
+    /**
+     * 播放器界面形态，手动切换（26.11.19，用户要求不做自动分档）：
+     * [PLAYER_FORM_WATCH] 手表 / [PLAYER_FORM_PHONE] 手机 / [PLAYER_FORM_STRIP] 长条屏。
+     * 三套布局差异大（坐标写死在手表参考系上直接套会出界），所以各自独立实现。
+     */
+    const val PLAYER_UI_FORM = "player_ui_form"
+    const val PLAYER_FORM_WATCH = "watch"
+    const val PLAYER_FORM_PHONE = "phone"
+    const val PLAYER_FORM_STRIP = "strip"
     /**
      * 确认型弹窗的按钮形态：true（默认）= 左「取消」右「确定」并排一行、各占一半宽度；
      * false = 26.11.13 起的整行宽纵向堆叠。

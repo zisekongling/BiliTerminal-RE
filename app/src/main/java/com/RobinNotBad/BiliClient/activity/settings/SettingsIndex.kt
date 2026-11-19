@@ -456,6 +456,11 @@ object SettingsIndex {
             text(R.string.desc_player_ui_new_idle_progress)
         ) { a -> openGroup(a, "lab", groupLab, text(R.string.setting_player_ui_new_idle_progress)) }
         list += Entry(
+            text(R.string.setting_player_ui_form),
+            text(R.string.desc_player_ui_form),
+            "播放器 形态 手表 手机 长条屏 词典笔 布局"
+        ) { a -> openGroup(a, "lab", groupLab, text(R.string.setting_player_ui_form)) }
+        list += Entry(
             text(R.string.settingtext_settinggroupactivity_060),
             text(R.string.settingtext_settingsindex_033)
         ) { a -> openGroup(a, "lab", groupLab, text(R.string.settingtext_settinggroupactivity_060)) }

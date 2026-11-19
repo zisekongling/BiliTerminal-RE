@@ -951,6 +951,22 @@ class SettingGroupActivity : RefreshListActivity() {
             SettingsKeys.PLAYER_UI_NEW_IDLE_PROGRESS,
             true
         )
+        listChoose(
+            getString(R.string.setting_player_ui_form),
+            getString(R.string.desc_player_ui_form),
+            SettingsKeys.PLAYER_UI_FORM,
+            SettingsKeys.PLAYER_FORM_WATCH,
+            listOf(
+                getString(R.string.player_form_watch),
+                getString(R.string.player_form_phone),
+                getString(R.string.player_form_strip)
+            ),
+            listOf(
+                SettingsKeys.PLAYER_FORM_WATCH,
+                SettingsKeys.PLAYER_FORM_PHONE,
+                SettingsKeys.PLAYER_FORM_STRIP
+            )
+        )
         switch("新版弹幕获取方式", getString(R.string.desc_new_danmaku_api), SharedPreferencesUtil.NEW_DANMAKU_API, true)
         switch("私信未读标记", getString(R.string.desc_private_msg_unread_badge_enable), SharedPreferencesUtil.PRIVATE_MSG_UNREAD_BADGE_ENABLE, false)
         // 虚拟合集拆成两个独立功能（26.11.01，用户要求）：
