@@ -90,6 +90,21 @@ adb pull $LOG/bridge-last.txt ./bridge-last.txt        # 拷到本地（实测�
 > `Permission denied`。`run-as` 只进得了应用的**内部**数据目录，外部 `Android/data/.../files/`
 > 不在它的挂载命名空间里。上面两条（`adb shell cat` / `adb pull`）在 Android 12 上都能用。
 
+### 2.4 直接 `am start` 进任意页面（26.11.19 起，不必先开应用）
+
+Debug 包把主清单里**所有**页面（117 个原本 `exported="false"` 的）都补成了导出，并统一挂 `android:permission="android.permission.DUMP"`——adb shell 持有 DUMP，所以下面这条命令**冷启动也能直达**，不依赖 `DebugBridge`、不必先让应用跑到前台：
+
+```bash
+PKG=com.RobinNotBad.BiliClient.coexist
+adb shell am start -W -n $PKG/.activity.settings.AboutActivity
+# Status: ok / LaunchState: WARM / Activity: …/.activity.settings.AboutActivity / TotalTime: 333
+```
+
+- `-W` 会等页面出来再返回，能顺手拿到 `Status` / `LaunchState` / `TotalTime`，比 `DebugBridge` 的 `start` 更适合「拉起 → 截图」的流水线。
+- **带参数的页面用 `--es` / `--ei` / `--ez` 传 extras**。缺必需参数的页面会自己 `finish`（实测 `.tutorial.TutorialPagerActivity` 不带参数启动后立刻退出、焦点留在原页），但 `am start` 仍报 `Status: ok`——看到「ok 却没换页面」先怀疑参数，不要怀疑导出。
+- **后台启动限制仍然有效**（Android 10+）：应用在场时最稳，冷启动目标页若被静默丢弃，先跑 §2.2 的 `cmd appops set $PKG SYSTEM_ALERT_WINDOW allow`。
+- 这份清单只活在 `app/src/debug/AndroidManifest.xml`，Release 合并产物仍是「3 个导出 / 0 个 DUMP」（`docs/agents/security.md`）。**新增页面**要照主清单顺序在 debug 清单末尾补一行，`DebugActivityExportTest` 会核对。
+
 ---
 
 ## 3. 命令表
