@@ -326,6 +326,123 @@ adb push a.mp4 $R/第二个视频/video.mp4 ; adb push b.m4a $R/第二个视频/
 - 打开选集面板切到另一 P → `PlayerActivity>setDisplay: url>` 变成另一条、`initAudioTrack` 再走一遍。
 - 想确认真的打开了哪个音频文件：**别查 `/proc/<pid>/fd`**——`android.media.MediaPlayer` 的 fd 在 mediaserver 侧，应用进程里看不到；以 `选择=EXTERNAL` + 文件可读为准，音质差异用不同频率的 `sine` 造样本靠耳朵区分。
 
+### 4.10 一条程序跑完一条流程（26.11.19 提速）
+
+> **动手点第一下之前先读这一节。** 同一条流程，「一步一次工具调用」和「一条命令跑完」差 5 倍以上，而且差距随步数线性放大。
+
+#### 4.10.1 慢在哪：实测账单
+
+测量环境：Android 14 Wear 模拟器（`emulator-5554`）；标了「真机」的是 Android 12 的 NOP-AN00。
+
+| 操作 | 耗时 |
+| --- | --- |
+| 经 PowerShell 工具跑一条 adb（含进程启动） | 1572 ms（空调用）/ 1648 ms（含一条 adb） |
+| 程序里直连 adb（`execFileSync`） | 90–130 ms |
+| `am start -W` 把已在后台的页面拉回前台 | 138–152 ms（`TotalTime: 0`，只是 bringToFront） |
+| `am start -W` 从桌面拉回 | 252 ms（`TotalTime: 66`） |
+| `am start -W` **冷启动**（先 `force-stop`） | **2100–2300 ms**（`TotalTime` 2084–2298） |
+| 调试桥一条命令（`ping` / `top` / `start` / `set` / 全表 `dump`） | 130–190 ms |
+| `screencap -p` | 350–530 ms（真机 726 ms） |
+| `uiautomator dump`（整棵控件树） | 2460–3140 ms（真机 2551 ms；`--compressed` 并不更快，2.4–2.5 s，只是节点从 29 减到 14） |
+| 本仓库 MCP 的 `android_ui_tree` / `android_screenshot` | 3449 ms / 765 ms |
+| `android_find_text` / `android_tap_text` | **本机不可用**：没装 Tesseract，OCR 后端缺失，调用直接报错 |
+
+**成本 ≈ 步数 ×（一次工具往返 + 一次看屏幕）**。所以要压的是步数和「看屏幕」的次数，不是换哪个 adb 命令。
+
+#### 4.10.2 四条硬规矩
+
+1. **别 `force-stop`**。冷启动 2.1–2.2 s，热启动 0.14 s——差 15 倍。测试中途要「重来一遍」时，用 `am force-stop` 的重启成本比你以为的高得多；能改状态就改状态，能 `start` 别的页面就换页面。
+2. **一条流程一个程序跑完**，不要「调一次工具 → 看一眼 → 再调一次」。一条 8 步的流程拆成 8 次工具调用，光 PowerShell 启动就 12.6 秒（8 × 1572 ms），还没算 8 次模型往返。
+3. **能不用 UI 就不用 UI**。改状态用 `set`、跳页面用 `start` / `am start -W`、确认结果用 `top` / `get` / `log`——都是 130–190 ms；同一条结论靠「点进去看屏幕」要 2500 ms 起。
+4. **「看」按需**。判布局、判文字有没有被切 → 截图（0.35 s，比 dump 快 6 倍）；要 `resource-id` 或精确坐标去点 → 才 dump，一条流程里 dump 控制在 1–2 次。
+
+#### 4.10.3 驱动形状
+
+最小驱动长这样（直连 adb + 桥 + 控件树；控件树用一条 `exec-out` 把 dump 和 cat 串起来，省掉一次 pull）：
+
+```js
+import { execFileSync } from "node:child_process";
+
+const ADB = "D:\\Program Files\\android-sdk\\platform-tools\\adb.exe";
+const SERIAL = "emulator-5554";
+const PKG = "com.RobinNotBad.BiliClient";
+const BRIDGE = PKG + "/com.RobinNotBad.BiliClient.debug.DebugBridge";
+const run = (args) => execFileSync(ADB, ["-s", SERIAL, ...args], { encoding: "utf8", maxBuffer: 64 << 20 });
+
+// 调试桥：130–190 ms 一条
+const bridge = (...extras) => {
+  const out = run(["shell", "am", "broadcast", "-n", BRIDGE, "--es", "token", "rebili-agent-bridge", ...extras]);
+  return (/data="([\s\S]*?)"\s*$/.exec(out.trim()) || [, ""])[1];
+};
+
+// 控件树：2.5 s，所以一条流程里最多两三次
+const nodes = () => {
+  const xml = run(["exec-out", "uiautomator dump /sdcard/d.xml >/dev/null 2>&1; cat /sdcard/d.xml"]);
+  return [...xml.matchAll(/<node[^>]*>/g)].map((m) => {
+    const s = m[0];
+    const at = (k) => (new RegExp(" " + k + '="([^"]*)"').exec(s) || [, ""])[1];
+    const b = /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(s);
+    if (!b) return null;
+    const [, x1, y1, x2, y2] = b.map(Number);
+    return { rid: at("resource-id").split("/").pop(), text: at("text"), desc: at("content-desc"), x: (x1 + x2) >> 1, y: (y1 + y2) >> 1 };
+  }).filter(Boolean);
+};
+
+// 一条流程：直达 → 找控件 → 点 → 桥确认（不要再看第二眼屏幕）
+run(["shell", "am", "start", "-W", "-n", PKG + "/.activity.settings.SettingGroupActivity", "--es", "group_type", "dev"]);
+const sw = nodes().find((n) => n.rid === "setting_switch");
+run(["shell", "input", "tap", String(sw.x), String(sw.y)]);
+console.log(bridge("--es", "cmd", "get", "--es", "key", "dev_logv"));
+```
+
+跑一条真流程的账单（直达 → 找控件 → 点击 → 桥确认 → 截图，全在一次调用里）：
+
+```text
+  247ms  amstart SettingGroupActivity
+  155ms  top
+ 2513ms  dump
+  126ms  get dev_logv
+  344ms  shot
+总计 3385ms / 5 步（最慢：dump=2513ms）
+```
+
+同一条流程按「一步一次工具调用」走，光 PowerShell 启动就是 5 × 1572 ms ≈ 8 s，再加 5 次模型往返——**设备侧时间只是零头，往返才是大头**。
+
+#### 4.10.4 什么时候仍然得走 UI
+
+- 验的**就是**点击 / 长按 / 滑动的交互本身（只能靠 `input` 造）；
+- 页面不带参数起不来，而参数没法用 `extras` 造（见 §2.4）；
+- 判画面、判手感——那本来就不该由 AI 下结论（见 `docs/agents/testing.md` §4）。
+
+#### 4.10.5 现成实现
+
+本机有一套跑通的完整驱动：`.dsh/device-test/adb.mjs`（`.dsh/` 已 gitignore，不入库；丢了照 §4.10.3 重写即可）。
+API：`amstart` / `start` / `top` / `setPref` / `getPref` / `log` / `trail` / `dump` / `tap` / `tapText` / `key` / `shot` / `waitFor` / `report`；`report()` 直接打出上面那种账单。
+
+#### 4.10.6 环境一次性调优（26.11.19 实测效果）
+
+模拟器建好后跑一次，之后一直有效（`settings` 写在 `/data` 里，重启模拟器不丢）：
+
+```bash
+# 动画归零：只影响页面的进出动画
+adb shell settings put global window_animation_scale 0
+adb shell settings put global transition_animation_scale 0
+adb shell settings put global animator_duration_scale 0
+# 免掉悬浮窗授权弹窗（弹出来会挡住后面所有点击）
+adb shell cmd appops set com.RobinNotBad.BiliClient SYSTEM_ALERT_WINDOW allow
+adb shell cmd appops set com.RobinNotBad.BiliClient.coexist SYSTEM_ALERT_WINDOW allow
+```
+
+实测（同一个页面，各 3 次）：
+
+| 项 | 动画 scale 1.0 | 动画 scale 0 |
+| --- | --- | --- |
+| 冷启动 `TotalTime` | 2186 / 2267 / 2298 ms | 2084 / 2103 / 2129 ms |
+| 热启动（页面已在后台） | — | 138–152 ms（开不开动画都一样） |
+
+结论：**动画归零只省 0.1–0.2 s（约 7%），而且只对冷启动有效**。它的主要价值是让操作「点完立刻生效」、少等一次性动画，不是省时间——真正的提速还是 §4.10.2 那四条。
+要交人测手感时把三个 scale 改回 `1`，否则人对「动画快不快」的判断是错的。
+
 ---
 
 ## 5. 日志与落盘
