@@ -95,9 +95,11 @@ class PlayerNewProgressRenderer(
         canvas.drawCircle(x, centerY, thumbRadius, thumbStroke)
 
         // 片段与点标记画在最上层：旧版由 HighEnergyProgressBar 自己画，customRenderer
-        // 接管后那段被整段跳过，这里补回来。
-        drawMarks(canvas, width, centerY + half)
-        drawPointMarks(canvas, width, centerY + half)
+        // 接管后那段被整段跳过，这里补回来。锚点用**控件底边**而不是轨道下沿——
+        // 贴在轨道下沿会把 3dp 轨道糊进色块里，已播段和标记分不清。
+        val markBase = bar.height.toFloat()
+        drawMarks(canvas, width, markBase)
+        drawPointMarks(canvas, width, markBase)
     }
 
     /** 缓冲段只用播放器给的真实值；没有真实值就不画，不再伪造一段固定长度。 */
@@ -107,29 +109,37 @@ class PlayerNewProgressRenderer(
     }
 
     /**
-     * 弹幕热度波形：等距铺满轨道宽度，0 → 基线，1 → 基线以上 7dp。
+     * 弹幕热度波形：按**真实时间轴**铺，0 → 基线，1 → 基线以上 7dp。
      *
-     * 数据点很多时逐点画（折线自然变成密排的柱状），数据点很少时也不会拉成锯齿——
-     * 起止点都对齐到轨道两端，与设计稿 `M0 8 L… L${W} 8Z` 的形状同构。
+     * 关键在横坐标：数据是每 [HighEnergyProgressBar.highEnergyStepSeconds] 秒一个桶，
+     * 第 i 个点对应 `i × stepSec / 总时长`。不能用「等距铺满控件宽度」——接口常常只覆盖
+     * 前一半（或返回的桶数少于影片长度），等距拉伸会把曲线整体横向放大，刻度与画面就对不上了。
+     * 同样不做峰值归一化：高度是相对量，整体很平的视频就该看起来平。
      */
     private fun drawWave(canvas: Canvas, width: Float) {
         val data = bar.highEnergyWave
         if (data == null || data.isEmpty()) return
-        var peak = 0f
-        for (value in data) if (value > peak) peak = value
-        if (peak <= 0f) return
+        val totalMs = bar.max.toFloat()
+        val stepSec = bar.highEnergyStepSeconds
+        if (totalMs <= 0f || stepSec <= 0) return
 
         val baseline = 8f * scale * density
         val height = 7f * scale * density
-        val lastIndex = data.size - 1
+        // 每个桶在时间轴上占的宽度；超出总时长的部分直接裁掉。
+        val stepPx = width * (stepSec * 1000f) / totalMs
+        if (stepPx <= 0f) return
+
         path.reset()
         path.moveTo(0f, baseline)
         for (index in data.indices) {
-            val x = if (lastIndex == 0) 0f else width * index / lastIndex
-            val value = (data[index] / peak).coerceIn(0f, 1f)
+            val x = index * stepPx
+            if (x > width) break
+            val value = data[index].coerceIn(0f, 1f)
             path.lineTo(x, baseline - height * value)
         }
-        path.lineTo(width, baseline)
+        // 收尾：最后一个有效点之后回到基线（数据没覆盖满时曲线在该处断开，不留一条假尾巴）。
+        val lastX = (data.size * stepPx).coerceAtMost(width)
+        path.lineTo(lastX, baseline)
         path.close()
         canvas.drawPath(path, wavePaint)
     }

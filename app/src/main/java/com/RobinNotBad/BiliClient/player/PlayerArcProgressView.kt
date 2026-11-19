@@ -3,10 +3,12 @@ package com.RobinNotBad.BiliClient.player
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.exp
@@ -32,6 +34,9 @@ class PlayerArcProgressView @JvmOverloads constructor(
     private var fraction = 0f
     private var dragging = false
     private var idle = true
+    /** 进度最大值（毫秒），片段标记按它换算到弧上的角度；由 [setProgress] 更新。 */
+    private var max = 0
+    private val path = Path()
 
     /** 弧半径（dp）与 1dp 对应的像素数，随控件尺寸等比缩放。 */
     private var unit = 1f
@@ -76,7 +81,30 @@ class PlayerArcProgressView @JvmOverloads constructor(
     /** 真实高能波形；null 时退回设计稿的示意刻度（[HEAT]）。 */
     private var heatData: FloatArray? = null
 
+    /**
+     * SponsorBlock 片段标记与精彩时刻三角。
+     *
+     * 圆屏下 [HighEnergyProgressBar] 是 GONE 的，旧实现只把标记设给它，于是圆屏用户
+     * **一条条子、一个三角都看不到**。这里按弧上的角度重新画一遍：条子贴在弧外侧，
+     * 三角挂在弧内——与方屏「贴底」的位置语义一致（一个说「别看这里」，一个说「这里值得看」）。
+     */
+    private var segments: List<HighEnergyProgressBar.Mark> = emptyList()
+    private var jumpPoints: List<HighEnergyProgressBar.PointMark> = emptyList()
+
+    private val markPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+
+    fun setMarks(marks: List<HighEnergyProgressBar.Mark>?) {
+        segments = marks.orEmpty()
+        invalidate()
+    }
+
+    fun setPointMarks(marks: List<HighEnergyProgressBar.PointMark>?) {
+        jumpPoints = marks.orEmpty()
+        invalidate()
+    }
+
     fun setProgress(value: Int, max: Int) {
+        this.max = max.coerceAtLeast(0)
         fraction = if (max <= 0) 0f else (value.toFloat() / max).coerceIn(0f, 1f)
         invalidate()
     }
@@ -131,21 +159,29 @@ class PlayerArcProgressView @JvmOverloads constructor(
         canvas.drawArc(arc, start, sweep * buffered, false, buffer)
         canvas.drawArc(arc, start, sweep * fraction, false, progress)
         drawThumb(canvas, radius)
+        // 片段条与三角画在最上层：它们要压在轨道上，否则会被进度色盖住。
+        drawSegmentMarks(canvas, radius)
+        drawJumpPoints(canvas, radius)
     }
 
-    /** 弧内侧的热度刻度：外端固定 r=103，向内最多缩 5.5dp。优先用真实高能数据。 */
+    /**
+     * 弧内侧的热度刻度：外端固定 r=103，向内最多缩 5.5dp。
+     *
+     * **没有真实高能数据就不画**。此前这里退回设计稿的示意波形 [HEAT]，
+     * 造成「方屏关着高能条什么都没有、圆屏却永远有一条形状一样的假曲线」——
+     * 两个屏形对同一条视频表现相反，而且那条曲线对用户没有任何信息量。
+     * 高度同样不做峰值归一化：真实数据是 0..1 的相对量，整体平的地方就该看起来平。
+     */
     private fun drawHeat(canvas: Canvas) {
+        val data = heatData ?: return
+        if (data.isEmpty()) return
         heat.strokeWidth = 1.6f * unit
         val outer = 103f * unit
-        val data = heatData ?: HEAT
-        var peak = 0f
-        for (value in data) if (value > peak) peak = value
-        if (peak <= 0f) return
         val last = data.size - 1
         for (index in data.indices) {
             val degree = START_DEGREE + SWEEP_DEGREE * index / last.coerceAtLeast(1)
             val radians = Math.toRadians(degree.toDouble())
-            val length = (data[index] / peak).coerceIn(0f, 1f) * 5.5f * unit
+            val length = data[index].coerceIn(0f, 1f) * 5.5f * unit
             val cos = cos(radians).toFloat()
             val sin = sin(radians).toFloat()
             canvas.drawLine(
@@ -167,6 +203,70 @@ class PlayerArcProgressView @JvmOverloads constructor(
         canvas.drawCircle(x, y, size, thumbFill)
         thumbStroke.strokeWidth = 2f * unit
         canvas.drawCircle(x, y, size, thumbStroke)
+    }
+
+    /**
+     * SponsorBlock 片段条：沿弧画一段加粗的弧线，贴在轨道**外侧**（方屏是贴轨道下沿）。
+     *
+     * 色值与透明度沿用旧进度条：[mark.color] 的 0xE6 不透明度直接画。
+     * 极短片段（1 秒的片头在 1 小时的视频里不到 1°）至少给 1.5°，否则肉眼看不见。
+     */
+    private fun drawSegmentMarks(canvas: Canvas, radius: Float) {
+        if (segments.isEmpty() || max <= 0) return
+        val total = max.toFloat()
+        val stroke = 3f * unit
+        markPaint.style = Paint.Style.STROKE
+        markPaint.strokeWidth = stroke
+        markPaint.strokeCap = Paint.Cap.BUTT
+        // 条子贴在弧外侧一点点，避免和 3dp 轨道糊成一条。
+        val markRadius = radius + (stroke + 1.5f * unit)
+        val minSweep = 1.5f
+        for (mark in segments) {
+            val from = mark.startMs.coerceIn(0, max).toFloat() / total
+            val to = mark.endMs.coerceIn(0, max).toFloat() / total
+            if (to <= from) continue
+            val fromDegree = START_DEGREE + SWEEP_DEGREE * from
+            val sweep = (SWEEP_DEGREE * (to - from)).coerceAtLeast(minSweep)
+            markPaint.color = mark.color
+            // Canvas 角 = 360 - 数学角，且沿屏幕下方逆时针走，所以扫角取负。
+            canvas.drawArc(
+                centerX - markRadius, centerY - markRadius,
+                centerX + markRadius, centerY + markRadius,
+                360f - fromDegree, -sweep, false, markPaint
+            )
+        }
+    }
+
+    /** 精彩时刻：弧**内侧**的小三角，尖端朝圆心（方屏是尖端朝下）。 */
+    private fun drawJumpPoints(canvas: Canvas, radius: Float) {
+        if (jumpPoints.isEmpty() || max <= 0) return
+        val total = max.toFloat()
+        markPaint.style = Paint.Style.FILL
+        val inner = radius - 1.5f * unit
+        val half = 3.5f * unit
+        val tip = 4.5f * unit
+        for (point in jumpPoints) {
+            val fraction = point.posMs.coerceIn(0, max).toFloat() / total
+            val degree = START_DEGREE + SWEEP_DEGREE * fraction
+            val radians = Math.toRadians(degree.toDouble())
+            val cos = cos(radians).toFloat()
+            val sin = sin(radians).toFloat()
+            // 以弧上一点为基准，沿「径向」往里推 tip 得到尖端，两侧沿切向各展开 half。
+            val baseX = centerX + inner * cos
+            val baseY = centerY - inner * sin
+            val tipX = baseX - tip * cos
+            val tipY = baseY + tip * sin
+            // 切向量：把径向旋转 90°。
+            val tangentX = -sin
+            val tangentY = -cos
+            path.reset()
+            path.moveTo(tipX, tipY)
+            path.lineTo(baseX + half * tangentX, baseY + half * tangentY)
+            path.lineTo(baseX - half * tangentX, baseY - half * tangentY)
+            path.close()
+            markPaint.color = point.color
+            canvas.drawPath(path, markPaint)
+        }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -224,15 +324,3 @@ class PlayerArcProgressView @JvmOverloads constructor(
 /** 设计稿的进度弧几何（数学角，度）：从 200° 逆时针扫到 340°。 */
 private const val START_DEGREE = 200f
 private const val SWEEP_DEGREE = 140f
-
-/**
- * 48 条热度刻度的高度系数，与设计稿 312 行同一个公式（四段高斯峰）。
- * 设计稿用它当固定波形，这里先照抄保持画面一致，将来接真实热度数据只换这一处。
- */
-private val HEAT = FloatArray(48) { index ->
-    val t = index / 47.0
-    fun peak(center: Double, width: Double, amplitude: Double) =
-        amplitude * exp(-((t - center) * (t - center)) / width)
-    (0.12 + peak(0.16, 0.004, 0.9) + peak(0.44, 0.006, 0.55) +
-        peak(0.63, 0.003, 1.0) + peak(0.86, 0.01, 0.3)).toFloat()
-}
