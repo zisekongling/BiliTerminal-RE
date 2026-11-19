@@ -236,4 +236,18 @@ class PlayerNewUiFormSpecTest {
             }
         }
     }
+
+    @Test
+    fun `round geometry scales with the real dial size`() {
+        // 233 参考系下的落点，在 466 的表盘上必须整体放大一倍——
+        // 这一条守着「widthDp() 不许对圆屏直接返回参考值」这个曾经存在的 bug。
+        val ref = PlayerNewUiGeometry.sideSpec(emptyList(), round = true).positions[0]
+        val scaled = PlayerNewUiGeometry.scalePoint(ref, 466f)
+        assertEquals(ref.x * 2f, scaled.x, 0.001f)
+        assertEquals(ref.y * 2f, scaled.y, 0.001f)
+        // 233 的表盘上不缩放，与设计稿逐项一致。
+        val same = PlayerNewUiGeometry.scalePoint(ref, PlayerNewUiGeometry.REFERENCE_SIZE_DP)
+        assertEquals(ref.x, same.x, 0.001f)
+        assertEquals(ref.y, same.y, 0.001f)
+    }
 }

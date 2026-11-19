@@ -148,7 +148,7 @@ class PlayerNewUiController(
         overlay.addView(buttons, FrameLayout.LayoutParams(-1, -1))
         buttons.bringToFront()
 
-        val playSize = if (round) 52f else spec.playSize
+        val playSize = playSizeDp().toFloat()
         play.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(0x6b0a080c)
@@ -1239,9 +1239,11 @@ class PlayerNewUiController(
         return primary
     }
 
-    /** 槽位热区与图标边长（dp）：圆屏沿用设计稿 36/20，方屏按形态放大。 */
-    private fun buttonDp() = if (round) 36 else spec.buttonSize.toInt().coerceAtLeast(1)
-    private fun iconDp() = if (round) 20 else spec.iconSize.toInt().coerceAtLeast(1)
+    /** 槽位热区与图标边长（dp）：圆屏按真实表盘缩放，方屏按形态。 */
+    private fun buttonDp() = if (round) (36f * roundScale()).toInt().coerceAtLeast(1)
+        else spec.buttonSize.toInt().coerceAtLeast(1)
+    private fun iconDp() = if (round) (20f * roundScale()).toInt().coerceAtLeast(1)
+        else spec.iconSize.toInt().coerceAtLeast(1)
 
     private fun moreButton(keys: List<String>): View = ImageButton(activity).apply {
         // 设计稿 ic(214,184,'more')：三点图标；旧位图 morehide 是方框三横线，不符
@@ -1336,7 +1338,7 @@ class PlayerNewUiController(
      */
     private fun placeAt(view: View, point: PlayerNewUiGeometry.Point) {
         val p = if (round) PlayerNewUiGeometry.scalePoint(point, widthDp()) else point
-        val size: Float = if (round) 36f else spec.buttonSize
+        val size: Float = if (round) 36f * roundScale() else spec.buttonSize
         val half = dp(size / 2f)
         val lp = FrameLayout.LayoutParams(dp(size), dp(size))
         lp.leftMargin = (p.x * density).toInt() - half
@@ -1411,18 +1413,34 @@ class PlayerNewUiController(
     }
 
     private fun idleEnabled() = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_NEW_IDLE_PROGRESS, true)
-    private fun widthDp() = if (round) PlayerNewUiGeometry.REFERENCE_SIZE_DP else
-        (root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels) / density
 
     /**
-     * 方屏的可视高度（dp）。**优先用 root 的实测高度**：displayMetrics 给的是含状态栏/导航栏的
+     * 屏幕短边（dp）——圆屏与方屏都取真实值。
+     *
+     * **圆屏这里曾经直接返回参考值 233**，于是 `scalePoint` 的缩放系数恒为 1，
+     * 233 和 466 的表盘上按钮落点一模一样：466 上所有按钮挤在圆心附近、外圈全是空的。
+     * 设计稿的极坐标只是「233 参考系下的比例」，必须乘上真实尺寸才是本机坐标。
+     */
+    private fun widthDp() = (root.width.takeIf { it > 0 }
+        ?: activity.resources.displayMetrics.widthPixels) / density
+
+    /**
+     * 屏幕高度（dp）。**优先用 root 的实测高度**：displayMetrics 给的是含状态栏/导航栏的
      * 全屏高度，比播放页的可视区大，拿它去算「距底 N」会让底栏整体沉到屏幕外。
      * 还没测量时退回 displayMetrics（此时摆的位置只是临时的，[overlay] 的 post 会重摆一次）。
      */
-    private fun heightDp() = if (round) PlayerNewUiGeometry.REFERENCE_SIZE_DP else
-        (root.height.takeIf { it > 0 } ?: activity.resources.displayMetrics.heightPixels) / density
-    /** 播放键热区：圆屏 52；方屏按形态（手表 56、手机 78、长条屏并入底栏后与普通按钮同大）。 */
-    private fun playSizeDp() = (if (round) 52f else spec.playSize).toInt()
+    private fun heightDp() = (root.height.takeIf { it > 0 }
+        ?: activity.resources.displayMetrics.heightPixels) / density
+
+    /**
+     * 圆屏相对设计稿 233dp 参考系的缩放比（方屏恒为 1，形态规格自己管尺寸）。
+     * 按钮热区、图标、中心键、字号都乘它，才不会在 466 的表盘上还是 233 的大小。
+     */
+    private fun roundScale() =
+        if (round) (widthDp() / PlayerNewUiGeometry.REFERENCE_SIZE_DP).coerceAtLeast(0.5f) else 1f
+
+    /** 播放键热区：圆屏 52×缩放；方屏按形态（手表 56、手机 78、长条屏并入底栏后与普通按钮同大）。 */
+    private fun playSizeDp() = (if (round) 52f * roundScale() else spec.playSize).toInt()
     private fun dp(value: Int) = (value * density).toInt()
     private fun dp(value: Float) = (value * density).toInt()
     private fun detach(view: View) { (view.parent as? ViewGroup)?.removeView(view) }
