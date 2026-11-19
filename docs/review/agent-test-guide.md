@@ -414,10 +414,36 @@ console.log(bridge("--es", "cmd", "get", "--es", "key", "dev_logv"));
 - 页面不带参数起不来，而参数没法用 `extras` 造（见 §2.4）；
 - 判画面、判手感——那本来就不该由 AI 下结论（见 `docs/agents/testing.md` §4）。
 
-#### 4.10.5 现成实现
+#### 4.10.5 现成实现：`scripts/devtest/adb.mjs`
 
-本机有一套跑通的完整驱动：`.dsh/device-test/adb.mjs`（`.dsh/` 已 gitignore，不入库；丢了照 §4.10.3 重写即可）。
-API：`amstart` / `start` / `top` / `setPref` / `getPref` / `log` / `trail` / `dump` / `tap` / `tapText` / `key` / `shot` / `waitFor` / `report`；`report()` 直接打出上面那种账单。
+26.11.19 起这套驱动**进了仓库**（`scripts/devtest/adb.mjs`，纯 Node、零依赖、只封装「动作 + 取数」不做业务判定），不用每次现写。两种用法：
+
+**A. 在 `run_code` 里 import（推荐：一条流程一个程序）**
+
+```js
+const { makeDriver } = await import("file:///D:/…/scripts/devtest/adb.mjs");
+const d = makeDriver({ serial: "emulator-5554" });   // 省略 serial 时：ANDROID_SERIAL > 唯一在线设备（多台就报错，不猜）
+d.amstart(".activity.settings.SettingGroupActivity"); // 直达，返回 { status, totalTime, waitTime }
+const sw = d.find({ rid: "setting_switch" });         // 命中返回节点，没有返回 null
+if (sw) d.tap(sw);                                    // 也可 d.tap("233,409") / d.tapText("允许Logu")
+console.log(d.top(), d.get("dev_logv"));
+console.log(d.report());                              // 每步 ms + 总计
+```
+
+**B. 终端里当命令用**（临时查一眼，不用写程序）
+
+```bash
+node scripts/devtest/adb.mjs top --serial emulator-5554
+node scripts/devtest/adb.mjs find --text 标题           # 找不到退出码 1
+node scripts/devtest/adb.mjs tap --text 允许Logu        # 先 find 再点，找不到就不点
+node scripts/devtest/adb.mjs start .activity.settings.SettingGroupActivity --es group_type dev
+node scripts/devtest/adb.mjs dump --filter 设置 --json  # 过滤后的控件树
+node scripts/devtest/adb.mjs -v top                    # 结束打印耗时账单，-v 放哪都行
+```
+
+通用参数：`--serial <序列号>` / `--pkg <包名>` / `--coexist`（切到共存版，注意桥的 fqcn 两个 flavor 不同）/ `--json` / `-v`；adb 路径走 `ADB_PATH` 环境变量，默认取本机 SDK。
+
+实测（emulator-5554，同机）：单条 `top` 走 CLI **238 ms**（其中 node 启动 64 ms、adb 135 ms）；模块内一条 4 步流程 **2917 ms**。也就是说 **CLI 的额外成本只有几十毫秒，贵的是「一步一次模型往返」**——同一句话在 §4.10.1 已经量过。
 
 #### 4.10.6 环境一次性调优（26.11.19 实测效果）
 
