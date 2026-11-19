@@ -497,8 +497,8 @@ class ShortVideoPagerAdapter(
         // `findViewById(...) must not be null`（用户反馈「短视频播放器依旧报错」）。
         // 一律改成可空，调用点都在 newUi == null 分支里，安全调用即可。
         private val bottomControl: View? = itemView.findViewById(R.id.bottom_control)
-        private val videoProgress: SeekBar = itemView.findViewById(R.id.videoprogress)
-        private val textProgress: TextView = itemView.findViewById(R.id.text_progress)
+        private val videoProgress: SeekBar? = itemView.findViewById(R.id.videoprogress)
+        private val textProgress: TextView? = itemView.findViewById(R.id.text_progress)
         private val buttonVideo: ImageButton? = itemView.findViewById(R.id.button_video)
         private val buttonSoundCut: ImageButton? = itemView.findViewById(R.id.button_sound_cut)
         private val buttonSoundAdd: ImageButton? = itemView.findViewById(R.id.button_sound_add)
@@ -513,12 +513,12 @@ class ShortVideoPagerAdapter(
         private val baseTopPadding =
             intArrayOf(top.paddingLeft, top.paddingTop, top.paddingRight, top.paddingBottom)
         private val baseProgressPadding = intArrayOf(
-            videoProgress.paddingLeft, videoProgress.paddingTop,
-            videoProgress.paddingRight, videoProgress.paddingBottom
+            videoProgress?.paddingLeft ?: 0, videoProgress?.paddingTop ?: 0,
+            videoProgress?.paddingRight ?: 0, videoProgress?.paddingBottom ?: 0
         )
         private val baseProgressTextPadding = intArrayOf(
-            textProgress.paddingLeft, textProgress.paddingTop,
-            textProgress.paddingRight, textProgress.paddingBottom
+            textProgress?.paddingLeft ?: 0, textProgress?.paddingTop ?: 0,
+            textProgress?.paddingRight ?: 0, textProgress?.paddingBottom ?: 0
         )
 
         private val playerBridge = IjkPlayerBridge(onError = { what, _ ->
@@ -707,20 +707,20 @@ class ShortVideoPagerAdapter(
             if (round) {
                 val padding = activity.roundPadding
                 top.setPadding(padding * 7, padding, padding * 7, 0)
-                videoProgress.setPadding(
+                videoProgress?.setPadding(
                     padding * 4, baseProgressPadding[1], padding * 4, baseProgressPadding[3]
                 )
-                textProgress.setPadding(
+                textProgress?.setPadding(
                     padding * 3, baseProgressTextPadding[1],
                     baseProgressTextPadding[2], baseProgressTextPadding[3]
                 )
             } else {
                 top.setPadding(baseTopPadding[0], baseTopPadding[1], baseTopPadding[2], baseTopPadding[3])
-                videoProgress.setPadding(
+                videoProgress?.setPadding(
                     baseProgressPadding[0], baseProgressPadding[1],
                     baseProgressPadding[2], baseProgressPadding[3]
                 )
-                textProgress.setPadding(
+                textProgress?.setPadding(
                     baseProgressTextPadding[0], baseProgressTextPadding[1],
                     baseProgressTextPadding[2], baseProgressTextPadding[3]
                 )
@@ -781,6 +781,8 @@ class ShortVideoPagerAdapter(
                         return activity.isDanmakuVisible
                     }
                     override fun changeVolume(add: Boolean) { this@PageHolder.changeVolume(add) }
+                    override fun currentSpeed(): Float = this@PageHolder.currentSpeed
+                    override fun currentVolumePercent(): Int = this@PageHolder.volumePercent()
                     override fun changeQuality(quality: Int) {
                         val video = currentItem ?: return
                         CenterThreadPool.run {
@@ -887,20 +889,28 @@ class ShortVideoPagerAdapter(
             }
 
             if (newUi == null) initBottomButtons()
+            // 中心播放键属于画面层，不属于底栏按钮组：新版布局下 initBottomButtons() 不调用，
+            // 少了这一句暂停后就再也点不回来（点击会穿透到 itemView 被当成「切常驻层」）。
+            bindCenterPlayButton()
+        }
+
+        /**
+         * 中心播放键的点击。
+         *
+         * 只给这个 56dp 图标装监听：页面级 GestureDetector 那条链（单击切底栏、
+         * 双击播放暂停、长按三倍速、双指缩放）一律不动。
+         */
+        private fun bindCenterPlayButton() {
+            // 三角只在暂停/播完时可见，此时点它就是「继续播」；[resume] 里已经处理了
+            // 「播到结尾」的情形（先 seekTo(0) 再 start），所以直接复用 togglePlayPause。
+            playIcon.setOnClickListener {
+                togglePlayPause()
+            }
         }
 
         private fun initBottomButtons() {
             buttonVideo?.setOnClickListener {
                 controlVideo()
-            }
-
-            // 画面正中的三角也能按（用户反馈「这个可以加个按那个三角播放」）。
-            // 三角只在暂停/播完时可见，此时点它就是「继续播」；[resume] 里已经处理了
-            // 「播到结尾」的情形（先 seekTo(0) 再 start），所以直接复用 togglePlayPause。
-            // 注意只给这个 56dp 图标装监听：页面级 GestureDetector 那条链（单击切底栏、
-            // 双击播放暂停、长按三倍速、双指缩放）一律不动。
-            playIcon.setOnClickListener {
-                togglePlayPause()
             }
 
             buttonDanmaku?.setImageResource(if (isDanmakuVisible) R.mipmap.danmakuon else R.mipmap.danmakuoff)
@@ -920,10 +930,10 @@ class ShortVideoPagerAdapter(
                 cycleSpeed()
             }
 
-            videoProgress.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            videoProgress?.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar, position: Int, fromUser: Boolean) {
                     if (fromUser) {
-                        textProgress.text = StringUtil.toTime(position / 1000) + "/" + progressStr
+                        textProgress?.text = StringUtil.toTime(position / 1000) + "/" + progressStr
                     }
                 }
 
@@ -1072,6 +1082,23 @@ class ShortVideoPagerAdapter(
         /** 反馈 #191 的开关（每次现读，改完即生效）。 */
         private fun systemVolumeEnabled(): Boolean =
             SharedPreferencesUtil.getBoolean(SettingsKeys.SHORTVIDEO_SYSTEM_VOLUME, false)
+
+        /**
+         * 当前音量百分比，给「更多」网格的底注显示。
+         *
+         * 两种音量模式下的「当前音量」不是同一个东西：系统音量模式读的是系统档位，
+         * App 增益模式读的是存档的增益值。显示时按当前模式取，与按下音量键的实际效果一致。
+         */
+        internal fun volumePercent(): Int {
+            if (systemVolumeEnabled()) {
+                val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                if (max <= 0) return 0
+                return PlayerVolumePolicy.streamPercent(
+                    audioManager.getStreamVolume(AudioManager.STREAM_MUSIC), max
+                )
+            }
+            return volumeGainPercent
+        }
 
         /** 把 [percent] 打到当前播放器的软件增益上，并记到本页字段。 */
         private fun applyVolumeGain(percent: Int) {
@@ -1317,7 +1344,7 @@ class ShortVideoPagerAdapter(
                     // 换了视频要复位进度去重标记，否则新视频的文本要等整秒变化才刷新
                     videoNowLast = -1
                     videoNowLastSec = -1
-                    if (newUi == null) videoProgress.max = videoAll
+                    if (newUi == null) videoProgress?.max = videoAll
 
                     lastBufferingVisible = false
                     bufferingIndicator.visibility = View.GONE
@@ -1552,11 +1579,11 @@ class ShortVideoPagerAdapter(
                             // 进度条每 250ms 刷（要平滑），但文本一秒才变一次，
                             // 所以只在整秒变化时才做字符串拼接与 setText
                             if (newUi != null) newUi?.onProgress(pos, videoAll, isPlaying)
-                            else videoProgress.progress = pos
+                            else videoProgress?.progress = pos
                             val sec = pos / 1000
                             if (sec != videoNowLastSec) {
                                 videoNowLastSec = sec
-                                if (newUi == null) textProgress.text = StringUtil.toTime(sec) + "/" + progressStr
+                                if (newUi == null) textProgress?.text = StringUtil.toTime(sec) + "/" + progressStr
                             }
                         }
                     }
