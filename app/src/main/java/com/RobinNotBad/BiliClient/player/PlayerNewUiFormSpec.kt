@@ -99,7 +99,14 @@ object PlayerNewUiFormSpec {
         val gridGap get() = s(6f)
         val gridW get() = gridCellW * 3 + gridGap * 2
         val gridH get() = gridCellH * 3 + gridGap * 2
-        fun gridTop(height: Float) = (height / 2f - s(93f) - s(1f)).coerceAtLeast(s(30f))
+        /**
+         * 「更多」网格的顶边：竖直**居中**。
+         *
+         * 以前按「屏幕中心 - 93」锚定，那是以 280 高为参考算的；横屏（368dp 高）时
+         * 网格顶在 90 左右、整块 186 高，底边压到 276，底部就空出一大截，看起来偏低。
+         * 改成让整块网格在可用高度里居中，任何比例都不会偏。
+         */
+        fun gridTop(height: Float) = ((height - gridH) / 2f).coerceAtLeast(topBarHeight)
         fun gridHintTop(height: Float) = gridTop(height) + gridH + s(12f)
 
         // ---- 清晰度 / 列表底部弹层（240×280 时 top 96，即距底 184）----

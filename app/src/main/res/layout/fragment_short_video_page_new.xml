@@ -6,10 +6,12 @@
     android:layout_height="match_parent"
     android:background="@android:color/black">
 
-    <com.RobinNotBad.BiliClient.ui.widget.PlayerTextureView
-        android:id="@+id/videoTexture"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+    <!--
+        视频画面不在这里声明：ShortVideoPlayerActivity 会 new 一个 TextureView 再 addView 进
+        videoContainer（见 PageHolder.initSurface）。这里曾经写过一个
+        `com.RobinNotBad.BiliClient.ui.widget.PlayerTextureView`，那个类根本不存在，
+        inflate 时直接抛 ClassNotFoundException 崩溃（用户反馈「点短视频就崩」）。
+    -->
 
     <ImageView
         android:id="@+id/coverImage"

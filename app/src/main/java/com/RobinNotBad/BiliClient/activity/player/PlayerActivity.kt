@@ -1759,7 +1759,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 },
                 // 中心键的播放/暂停图标与弹幕按钮的高亮都按这两个真实状态取。
                 { isPlaying },
-                { isDanmakuVisible }
+                { isDanmakuVisible },
+                // 槽位「这条视频能不能用」——只管业务可用性，**不许读 view.visibility**：
+                // 控制层收起时 hidecon 会把 lock_btn / text_speed 置 GONE，那是暂时不显示，
+                // 拿它当判据会让按钮在一次重摆后永久消失（圆屏上整列空掉）。
+                { key -> slotAvailableFor(key) }
             )
             applyPlayerButtonLayout()
             return
@@ -7812,6 +7816,25 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_CODEC, true)
 
     private fun hasMultiplePages(): Boolean = pagenames != null && pagenames!!.size > 1
+
+    /**
+     * 槽位在这条视频上能不能用（新版控制层摆位前过滤不可用槽位时用）。
+     *
+     * **只读业务状态，绝不读 `view.visibility`**：控制栏自动收起时 `hidecon` 会把
+     * lock_btn / text_speed 置 GONE，那是「暂时不显示」；若拿它当「这条视频用不上」的判据，
+     * 一次重摆（旋转、回前台）之后按钮就会被永久摘掉——圆屏上看到的就是整列按钮消失。
+     *
+     * 这里的口径与 [refreshPageNavButtons]、[onPrepared] 里那些显隐分支保持一致：
+     * 直播没有清晰度/选集/片头片尾，本地文件没有清晰度。
+     */
+    private fun slotAvailableFor(key: String): Boolean = when (key) {
+        // 直播：没有清晰度与选集，其余（音量/弹幕/倍速/锁定）都在。
+        PlayerButtons.QUALITY -> isOnlineVideo && !isLiveMode
+        PlayerButtons.PAGE_SELECTOR -> canOpenPageSelector()
+        PlayerButtons.AUTO_NEXT -> hasMultiplePages()
+        PlayerButtons.AUDIO_ONLY -> !isLocalAudioFile
+        else -> true
+    }
 
     /**
      * 选集按钮要不要露出来：有分页，**或者有能进入/返回的层**（本地文件夹连播）。

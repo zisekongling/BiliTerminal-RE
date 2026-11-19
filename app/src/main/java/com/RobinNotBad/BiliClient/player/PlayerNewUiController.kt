@@ -63,6 +63,14 @@ class PlayerNewUiController(
     private val playingNow: () -> Boolean,
     /** 弹幕是否可见：可见时弹幕按钮像设计稿那样染成 #FF8CB0。 */
     private val danmakuNow: () -> Boolean,
+    /**
+     * 某个槽位在**这条视频上**是否可用（与该按钮此刻显示/隐藏无关）。
+     *
+     * 不能拿 `view.visibility` 当判据：控制层自动收起时 `hidecon` 会把 lock_btn / text_speed
+     * 直接置 GONE，若此时正好重摆（旋转、回前台），这些按钮就会被误判成「用不上」、
+     * 从布局里永久摘掉，表现就是**圆屏按钮凭空消失**。判据必须来自业务状态。
+     */
+    private val slotAvailable: (String) -> Boolean = { true },
 ) {
     private val overlay = FrameLayout(activity)
     private val buttons = FrameLayout(activity)
@@ -1059,7 +1067,7 @@ class PlayerNewUiController(
         android.view.GestureDetector(activity, object : android.view.GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: android.view.MotionEvent): Boolean = true
             override fun onFling(e1: android.view.MotionEvent?, e2: android.view.MotionEvent, vx: Float, vy: Float): Boolean {
-                val pages = PlayerNewUiGeometry.pages(gridKeys)
+                val pages = PlayerNewUiGeometry.pages(gridKeys, gridPageSize())
                 if (pages.size < 2 || kotlin.math.abs(vy) < kotlin.math.abs(vx)) return false
                 gridPage = if (vy < 0) (gridPage + 1) % pages.size else (gridPage - 1 + pages.size) % pages.size
                 gridFlinged = true
@@ -1073,24 +1081,42 @@ class PlayerNewUiController(
     private fun gridCellHeight() = if (round) 46f else spec.gridCellH
     private fun gridGap() = if (round) 4f else spec.gridGap
     private fun gridWidthDp() = gridCellWidth() * 3 + gridGap() * 2
-    private fun gridHeightDp() = gridCellHeight() * 3 + gridGap() * 2
+
+    /**
+     * 这一页最多放几格：按「标题下沿到提示行上沿」的可用高度算行数，3 列铺开。
+     *
+     * 用户要求「手机播放器一页展示全部的更多按钮」——固定 9 格分页在横屏/长屏上会把
+     * 明明放得下的按钮硬拆成两页。改成按实际空间算：放得下就一页全给。
+     */
+    private fun gridPageSize(): Int {
+        val height = heightDp()
+        val top = gridTop()
+        val hintH = if (round) 12f else spec.s(12f)
+        val available = height - top - spec.gridHintTop(height) + spec.s(12f) - hintH
+        return PlayerNewUiGeometry.gridCapacity(gridCellHeight(), gridGap(), available)
+    }
+
+    private fun gridRows(): Int = (gridPageSize() / 3).coerceAtLeast(1)
+    private fun gridHeightDp() = gridCellHeight() * gridRows() + gridGap() * (gridRows() - 1)
+    private fun gridTop() = if (round) 42f else spec.gridTop(heightDp())
 
     private fun renderGridPage() {
         grid.removeAllViews()
         gridDots.removeAllViews()
-        val pages = PlayerNewUiGeometry.pages(gridKeys)
+        val pages = PlayerNewUiGeometry.pages(gridKeys, gridPageSize())
         if (pages.isEmpty()) { closeGrid(); return }
         gridPage = gridPage.coerceIn(0, pages.lastIndex)
         val cellW = gridCellWidth()
         val cellH = gridCellHeight()
         val gap = gridGap()
-        for (rowIndex in 0 until 3) {
+        for (rowIndex in 0 until gridRows()) {
             val line = LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER
             }
-            for (col in 0 until 3) {
-                val key = pages[gridPage].getOrNull(rowIndex * 3 + col)
+            val perRow = PlayerNewUiGeometry.GRID_COLUMNS
+            for (col in 0 until perRow) {
+                val key = pages[gridPage].getOrNull(rowIndex * perRow + col)
                 val primary = key?.let { slotOf(it) }
                 val cell: View = if (primary != null && key != null) gridCell(primary, key) else View(activity)
                 line.addView(cell, LinearLayout.LayoutParams(dp(cellW), dp(cellH)).apply {
@@ -1401,15 +1427,16 @@ class PlayerNewUiController(
     private fun containsGroup(value: PlayerUiLayout.Layout) = (value.left + value.right + value.bottomLeft + value.bottomRight).any { it is PlayerUiLayout.Slot.Group }
 
     /**
-     * 这个槽位的按钮当前在这条视频上存不存在（本体能找到、且不是 GONE）。
+     * 这个槽位的按钮在**这条视频上**是否可用。
      *
-     * [primaryOf] 拿不到本体说明这个视频根本用不上它（本地视频的清晰度之类）；
-     * 拿到但被 Activity 设成 GONE 的（单 P 视频的分P按钮）同理。
-     * **不能用 `isShown`**：页面还没上屏时它对所有按钮都是 false，会把整条底栏判没。
+     * 判据只看 [primaryOf] 拿不拿得到本体（拿不到＝这条视频根本没这个按钮，例如本地视频的清晰度），
+     * 以及 Activity 给出的业务判定 [slotAvailable]。**绝不能读 `view.visibility`**：
+     * 控制层自动收起时 `hidecon` 会把 lock_btn / text_speed 置 GONE，那是「暂时不显示」，
+     * 不是「这条视频用不上」；拿它当判据会让按钮在一次重摆后永久消失（圆屏上就是整列空掉）。
      */
     private fun slotIsPresent(key: String): Boolean {
-        val view = slotOf(key) ?: return false
-        return view.visibility != View.GONE
+        if (primaryOf(key) == null) return false
+        return slotAvailable(key)
     }
 
     private fun idleEnabled() = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_NEW_IDLE_PROGRESS, true)

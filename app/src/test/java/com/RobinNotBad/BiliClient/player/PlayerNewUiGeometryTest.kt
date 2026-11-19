@@ -87,6 +87,29 @@ class PlayerNewUiGeometryTest {
         assertTrue(PlayerNewUiGeometry.pages(emptyList()).isEmpty())
     }
 
+    @Test
+    fun `grid capacity grows with available height`() {
+        // 手机横屏放得下更多行，就不该为翻页而翻页。
+        val cellH = 58f
+        val gap = 6f
+        // 刚好 3 行：3*58 + 2*6 = 186。
+        assertEquals(9, PlayerNewUiGeometry.gridCapacity(cellH, gap, 186f))
+        // 5 行：5*58 + 4*6 = 314。
+        assertEquals(15, PlayerNewUiGeometry.gridCapacity(cellH, gap, 314f))
+        // 高度不足一行时也至少给一行，不会算出 0 格。
+        assertEquals(3, PlayerNewUiGeometry.gridCapacity(cellH, gap, 10f))
+        // 非法输入退回设计稿的 9 格。
+        assertEquals(9, PlayerNewUiGeometry.gridCapacity(0f, gap, 200f))
+    }
+
+    @Test
+    fun `pages honours an explicit page size`() {
+        val keys = (0 until 20).map { "key$it" }
+        assertEquals(listOf(15, 5), PlayerNewUiGeometry.pages(keys, 15).map { it.size })
+        assertEquals(keys, PlayerNewUiGeometry.pages(keys, 15).flatten())
+        assertTrue(PlayerNewUiGeometry.pages(keys, 0).isEmpty())
+    }
+
     private fun assertPoint(x: Float, y: Float, actual: PlayerNewUiGeometry.Point) {
         assertEquals(x, actual.x, 0.02f)
         assertEquals(y, actual.y, 0.02f)

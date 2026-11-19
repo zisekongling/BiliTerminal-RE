@@ -9,6 +9,9 @@ object PlayerNewUiGeometry {
     const val ROUND_RADIUS_DP = 116.5f
     const val GRID_PAGE_SIZE = 9
 
+    /** 「更多」网格固定 3 列。 */
+    const val GRID_COLUMNS = 3
+
     data class Point(val x: Float, val y: Float)
 
     data class Spec(
@@ -52,6 +55,25 @@ object PlayerNewUiGeometry {
 
     fun pages(keys: List<String>): List<List<String>> =
         if (keys.isEmpty()) emptyList() else keys.chunked(GRID_PAGE_SIZE)
+
+    /**
+     * 按可用高度算一页能放几格（3 列的网格）。
+     *
+     * 手表/圆屏竖着只能放 3 行（9 格）；手机竖屏能放 4 行、横屏/长条屏更少行但更宽。
+     * 用户要求「手机播放器一页展示全部更多按钮」——与其固定 9 格分页，
+     * 不如按屏幕实际能装下多少行来定，短列表就一页放完，不再为了翻页而翻页。
+     */
+    fun gridCapacity(cellH: Float, gapH: Float, availableH: Float, columns: Int = 3): Int {
+        if (cellH <= 0f || availableH <= 0f) return GRID_PAGE_SIZE
+        val rowH = cellH + gapH
+        // +gapH 是因为 n 行之间只有 n-1 个间隙。
+        val rows = ((availableH + gapH) / rowH).toInt().coerceAtLeast(1)
+        return (rows * columns).coerceAtLeast(columns)
+    }
+
+    /** 按容量分页；容量为 0 或 keys 为空时返回空列表。 */
+    fun pages(keys: List<String>, pageSize: Int): List<List<String>> =
+        if (keys.isEmpty() || pageSize <= 0) emptyList() else keys.chunked(pageSize)
 
     fun polar(radius: Float, degrees: Float): Point {
         val radians = Math.toRadians(degrees.toDouble())
