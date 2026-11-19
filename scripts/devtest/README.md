@@ -28,12 +28,18 @@ node scripts/devtest/adb.mjs devices
 node scripts/devtest/adb.mjs top --serial emulator-5554
 node scripts/devtest/adb.mjs find --text 标题        # 找不到退出码 1
 node scripts/devtest/adb.mjs tap --text 允许Logu     # 先 find 再点
+node scripts/devtest/adb.mjs dump --filter 设置      # 控件树（默认走进程内，0.12–0.2 s）
+node scripts/devtest/adb.mjs view --json             # 只要进程内那棵，取不到退出码 1
 ```
 
 ## 约束
 
 - 需要 Node 18+（本机 `D:\Program Files\nodejs\node.exe`）；adb 路径取 `ADB_PATH`，默认 `D:\Program Files\android-sdk\platform-tools\adb.exe`。
 - 多台设备同时在线时**必须显式给 `--serial`**：不猜，猜错会点错机器。
-- 控件树 2.5 s 一次，是全套里最贵的动作；一条流程里控制在 1–2 次，能靠 `top` / `get` / `log` 拿到结论就别 dump。
+- 控件树有两种读法，`dump()` 默认先试快的：
+  - **进程内**（调试桥 `view` 命令）：**0.12–0.2 s**，读的是当前页面的 View 树，已展开的列表条目全在。界面是 Compose / WebView / 纯自绘时读不到（这类界面本来就没有子 View）。
+  - **uiautomator**：**2.5 s**，靠无障碍语义，快的那种读不到时才回落到它。`dump({ mode: "fast" })` 只走快通道、`{ mode: "uiauto" }` 只走慢通道。
+- 应用退到后台后，进程内那条**仍然读得到上一次的窗口**（`nodes.fg === false`）。要确认「这一页真的在屏幕上」就得看 `fg`，或者用 `top`。
+- 列表里滚出屏幕的节点带 `off: true`（中心点不在屏幕上），`tap()` 遇到它会直接报错，逼你先滚动——静默点空比报错难查得多。
 - `resource-id` 会被列表复用（同一个 id 可能对应多个条目），要精确到位就用 `--text`，或者在两三个候选里按文本挑。
 - 这个脚本只给 **Debug 包**用（调试桥只在 debug 构建里），Release 包投不通。

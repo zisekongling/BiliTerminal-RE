@@ -131,6 +131,7 @@ adb shell am start -W -n $PKG/.activity.settings.AboutActivity
 | `logring` | `[--es inject <文本>]` | 读**内存日志缓冲**（不落盘那条路）的当前状态；带 `inject` 时先以 W 级写一条再取快照 |
 | `crash` | — | 在主线程抛真实异常，**主进程立刻崩溃**。用于验证崩溃上报整条链路（见 §4.7） |
 | `top` | — | 当前前台 Activity 全类名 |
+| `view` | `[--es max 600]` `[--ez all true]` | **进程内控件树**（0.12–0.2 s，比 uiautomator 快 15 倍以上），输出 `{activity,count,fg,nodes}`，每条含 cls / rid / text / desc / 中心坐标 / bounds / clickable / enabled / scroll，见 §4.10.7 |
 | `help` | — | 命令表 |
 
 `type` 可选：`string`（默认）/ `int` / `long` / `bool` / `float`。
@@ -343,7 +344,8 @@ adb push a.mp4 $R/第二个视频/video.mp4 ; adb push b.m4a $R/第二个视频/
 | `am start -W` **冷启动**（先 `force-stop`） | **2100–2300 ms**（`TotalTime` 2084–2298） |
 | 调试桥一条命令（`ping` / `top` / `start` / `set` / 全表 `dump`） | 130–190 ms |
 | `screencap -p` | 350–530 ms（真机 726 ms） |
-| `uiautomator dump`（整棵控件树） | 2460–3140 ms（真机 2551 ms；`--compressed` 并不更快，2.4–2.5 s，只是节点从 29 减到 14） |
+| **调试桥 `view`（进程内控件树）** | **118–211 ms**（首次 602 ms，含一次布局）；同一屏 uiautomator 是 2435–2876 ms |
+| `uiautomator dump`（整棵控件树，现在是兜底） | 2460–3140 ms（真机 2551 ms；`--compressed` 并不更快，2.4–2.5 s，只是节点从 29 减到 14） |
 | 本仓库 MCP 的 `android_ui_tree` / `android_screenshot` | 3449 ms / 765 ms |
 | `android_find_text` / `android_tap_text` | **本机不可用**：没装 Tesseract，OCR 后端缺失，调用直接报错 |
 
@@ -354,7 +356,7 @@ adb push a.mp4 $R/第二个视频/video.mp4 ; adb push b.m4a $R/第二个视频/
 1. **别 `force-stop`**。冷启动 2.1–2.2 s，热启动 0.14 s——差 15 倍。测试中途要「重来一遍」时，用 `am force-stop` 的重启成本比你以为的高得多；能改状态就改状态，能 `start` 别的页面就换页面。
 2. **一条流程一个程序跑完**，不要「调一次工具 → 看一眼 → 再调一次」。一条 8 步的流程拆成 8 次工具调用，光 PowerShell 启动就 12.6 秒（8 × 1572 ms），还没算 8 次模型往返。
 3. **能不用 UI 就不用 UI**。改状态用 `set`、跳页面用 `start` / `am start -W`、确认结果用 `top` / `get` / `log`——都是 130–190 ms；同一条结论靠「点进去看屏幕」要 2500 ms 起。
-4. **「看」按需**。判布局、判文字有没有被切 → 截图（0.35 s，比 dump 快 6 倍）；要 `resource-id` 或精确坐标去点 → 才 dump，一条流程里 dump 控制在 1–2 次。
+4. **读树用进程内的 `view`（0.12–0.2 s），别再默认 uiautomator（2.5 s）**。要找控件、要坐标、要确认文字，直接读进程内控件树；只有 Compose / WebView / 纯自绘界面读不到时才回落到 uiautomator。`scripts/devtest/adb.mjs` 的 `dump()` 已经按这个顺序自动走（见 §4.10.7）。判「像素层面有没有被切」仍然用截图（0.35 s）。
 
 #### 4.10.3 驱动形状
 
@@ -408,6 +410,19 @@ console.log(bridge("--es", "cmd", "get", "--es", "key", "dev_logv"));
 
 同一条流程按「一步一次工具调用」走，光 PowerShell 启动就是 5 × 1572 ms ≈ 8 s，再加 5 次模型往返——**设备侧时间只是零头，往返才是大头**。
 
+上面那段 `dump` 是 2513 ms 的 uiautomator 老写法（保留它是为了说明账单）。**现在读树改用调试桥的 `view` 命令**，同一条流程变成 `127 + 119 + 122 + 186 + 554 ms`（实测于 emulator-5554，设置页 30 个节点），即：
+
+```js
+// 进程内控件树：0.12–0.2 s，拿节点直接点
+const view = () => JSON.parse(
+  JSON.parse('"' + /data="([\s\S]*?)"\s*$/.exec(
+    run(["shell", "am", "broadcast", "-n", BRIDGE, "--es", "token", "rebili-agent-bridge", "--es", "cmd", "view"]).trim(),
+  )[1] + '"'),
+);   // → { activity, count, fg, nodes }
+```
+
+两段 `JSON.parse` 不是炫技：桥把 JSON 塞进广播的 `data` 里，引号是 `\"` 形式、换行是 `\n` 形式，先按 JSON 字符串解一层才对得上（用 `replace(/\\n/g, "\n")` 那种粗暴解转义会把正文里的换行变成非法控制字符，26.11.19 踩过）。
+
 #### 4.10.4 什么时候仍然得走 UI
 
 - 验的**就是**点击 / 长按 / 滑动的交互本身（只能靠 `input` 造）；
@@ -437,13 +452,17 @@ node scripts/devtest/adb.mjs top --serial emulator-5554
 node scripts/devtest/adb.mjs find --text 标题           # 找不到退出码 1
 node scripts/devtest/adb.mjs tap --text 允许Logu        # 先 find 再点，找不到就不点
 node scripts/devtest/adb.mjs start .activity.settings.SettingGroupActivity --es group_type dev
-node scripts/devtest/adb.mjs dump --filter 设置 --json  # 过滤后的控件树
+node scripts/devtest/adb.mjs dump --filter 设置 --json  # 控件树（默认先走进程内，0.12–0.2 s）
+node scripts/devtest/adb.mjs view --json               # 只要进程内那棵，取不到退出码 1
+node scripts/devtest/adb.mjs dump --uiauto             # 强制走 uiautomator（Compose / WebView 才需要）
 node scripts/devtest/adb.mjs -v top                    # 结束打印耗时账单，-v 放哪都行
 ```
 
 通用参数：`--serial <序列号>` / `--pkg <包名>` / `--coexist`（切到共存版，注意桥的 fqcn 两个 flavor 不同）/ `--json` / `-v`；adb 路径走 `ADB_PATH` 环境变量，默认取本机 SDK。
 
-实测（emulator-5554，同机）：单条 `top` 走 CLI **238 ms**（其中 node 启动 64 ms、adb 135 ms）；模块内一条 4 步流程 **2917 ms**。也就是说 **CLI 的额外成本只有几十毫秒，贵的是「一步一次模型往返」**——同一句话在 §4.10.1 已经量过。
+实测（emulator-5554，同机）：单条 `top` 走 CLI **238 ms**（其中 node 启动 64 ms、adb 135 ms）；模块内一条 4 步流程 **2917 ms**（当时控件树还是 uiautomator）；换成进程内 `view` 之后同一条流程 **554 ms**。也就是说 **CLI 的额外成本只有几十毫秒，贵的是「一步一次模型往返」**——同一句话在 §4.10.1 已经量过。
+
+`dump()` 的三种模式：默认 `auto`（先进程内，空则回落 uiautomator）、`{ mode: "fast" }`（只进程内，读不到抛错）、`{ mode: "uiauto" }`（只 uiautomator）；CLI 上分别是默认 / `--fast` / `--uiauto`。`find` 在 `auto` 下没命中会用 uiautomator 复核一次（代价 2.5 s，只在"确实找不到"这条路上付）。
 
 #### 4.10.6 环境一次性调优（26.11.19 实测效果）
 
@@ -468,6 +487,20 @@ adb shell cmd appops set com.RobinNotBad.BiliClient.coexist SYSTEM_ALERT_WINDOW 
 
 结论：**动画归零只省 0.1–0.2 s（约 7%），而且只对冷启动有效**。它的主要价值是让操作「点完立刻生效」、少等一次性动画，不是省时间——真正的提速还是 §4.10.2 那四条。
 要交人测手感时把三个 scale 改回 `1`，否则人对「动画快不快」的判断是错的。
+
+#### 4.10.7 进程内控件树：快 15 倍，但有三个边界
+
+调试桥的 `view` 命令（`app/src/debug/java/com/RobinNotBad/BiliClient/debug/DebugBridge.kt`，26.11.19 加入）直接在主线程遍历当前 Activity 的 `decorView`，不再走 uiautomator 的跨进程无障碍查询。**这是这一轮提速里单项收益最大的一条**：2.5 s → 0.15 s。
+
+实测（emulator-5554，每次都是同一屏、连跑 5 次）：`602 / 153 / 211 / 165 / 118 ms`；推荐页 36 个节点、设置页 30 个节点；同屏 uiautomator 2435–2876 ms、节点 28 个（进程内那棵还多带了布局容器，找坐标更好用）。
+
+三个边界，踩了会得出错误结论：
+
+1. **Compose / WebView / 纯自绘读不到**。它们没有子 View，遍历出来是空的 → `view` 返回 null，脚本回落 uiautomator（那条路上无障碍语义反而更全）。判据是「`view` 取不到节点但屏幕上有字」。
+2. **应用退到后台，进程内那条仍读得到上一次的窗口**。这不是 bug：旧窗口还 attach 着。但**它不等于这一页在屏幕上**——所以输出里有 `fg`（`root.hasWindowFocus()`），退到后台就是 `false`。要断言「现在真在看这一页」，看 `fg` 或 `top`；uiautomator 在同样情形下读到的会是别的应用。
+3. **列表里滚出屏幕的节点会被列出来**（中心点不在屏幕上）。这些节点带 `off: true`，`adb.mjs` 的 `tap()` 遇到它会**直接抛错**而不是静默点空——先滚动再点。
+
+另外两条与老写法一致的：`resource-id` 会被列表复用（同 rid 多条目，精确到位靠文字）；`--es max`（默认 600）是节点上限，超出就截断（大页面想看全用 `--ez all` 或调大 max）。
 
 ---
 

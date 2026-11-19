@@ -1,5 +1,6 @@
 package com.RobinNotBad.BiliClient.debug
 
+import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -8,7 +9,12 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
+import android.view.View
+import android.view.ViewGroup
+import android.widget.TextView
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.BuildConfig
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -23,9 +29,11 @@ import com.RobinNotBad.BiliClient.util.SettingsKeys
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.nio.ByteBuffer
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
@@ -160,6 +168,7 @@ class DebugBridge : BroadcastReceiver() {
             "logring" -> logRing(intent)
             "crash" -> crash()
             "top" -> top()
+            "view", "viewdump" -> viewDump(intent)
             else -> "ERR: 未知命令 $cmd（用 --es cmd help 看命令表）"
         }
     }
@@ -193,6 +202,10 @@ class DebugBridge : BroadcastReceiver() {
         |  --es cmd crash                    在主线程抛一个测试异常，**主进程会立刻崩**。
         |                                   用于验证「崩溃 → ErrorCatch 带 ring_log → 崩溃页自动上报」整条链路
         |  --es cmd top                      当前前台 Activity
+        |  --es cmd view [--es max 600] [--es all true]
+        |                                    进程内控件树（0.1–0.2 s，替代 uiautomator 的 2.5 s）
+        |                                    JSON：{activity,count,nodes[{cls,rid,text,desc,x,y,bounds,clickable,scroll,enabled}]}
+        |                                    Compose/WebView 这类自绘界面读不到，用 uiautomator 兜底
         |
         |结果同时写入 logs/$RESULT_FILE；回显为空时读该文件。
     """.trimMargin()
@@ -748,6 +761,101 @@ class DebugBridge : BroadcastReceiver() {
     private fun top(): String {
         val activity = BiliTerminal.getCurrentActivity()
         return activity?.javaClass?.name ?: "<应用不在前台>"
+    }
+
+    /**
+     * 进程内控件树快照 —— 给 agent 用的「看一眼」接口（26.11.19）。
+     *
+     * <p>存在的理由只有一个：`uiautomator dump` 在手表模拟器上要 **2.4–2.5 s**，是整条自动化流程里
+     * 唯一的大头（其余每条 adb 或桥命令都是 130–190 ms）。同一棵树在应用进程里直接遍历
+     * `decorView` 只要 **0.1–0.2 s**，快一个数量级。
+     *
+     * <p>边界（脚本侧必须保留 uiautomator 兜底）：
+     * - 只看得见**真正的 View**。Compose / Flutter / WebView 这类自绘界面在这里是空的
+     *   （同一张屏幕 uiautomator 还能从无障碍语义里读到东西）；
+     * - 坐标是屏幕坐标，与 uiautomator 的 bounds 同一套，可直接交给 `input tap`；
+     * - 遍历必须在主线程做（ViewGroup 的子 View 列表不是线程安全的），所以 post 到主线程并等回。
+     *
+     * <p>输出 `{"activity":"…","count":N,"nodes":[…]}`，空字段省略以减小回显体积。
+     */
+    private fun viewDump(intent: Intent): String {
+        val maxNodes = (intent.getStringExtra("max")?.toIntOrNull() ?: 600).coerceIn(1, 2000)
+        val includeAll = boolExtra(intent, "all", false)
+        val activity = BiliTerminal.getCurrentActivity()
+            ?: return "ERR: 应用不在前台（先用 start 拉起页面，或把它切回前台）"
+        val root = activity.window?.decorView
+        if (root == null || !root.isAttachedToWindow) {
+            return "ERR: 当前窗口不可读（页面可能已销毁），用 start 重新拉起"
+        }
+        return onMainThread(3000) { dumpViewTree(activity, root, maxNodes, includeAll) }
+            ?: "ERR: 主线程 3 s 内没空，控件树没取到（页面可能卡住了）"
+    }
+
+    private fun dumpViewTree(activity: Activity, root: View, maxNodes: Int, includeAll: Boolean): String {
+        val nodes = JSONArray()
+        val res = activity.resources
+        val screen = res.displayMetrics
+        fun visit(view: View) {
+            if (nodes.length() >= maxNodes) return
+            val visible = view.visibility == View.VISIBLE
+            val w = view.width
+            val h = view.height
+            if ((visible || includeAll) && w > 0 && h > 0) {
+                val loc = IntArray(2)
+                view.getLocationOnScreen(loc)
+                val node = JSONObject()
+                node.put("cls", view.javaClass.simpleName)
+                if (view.id != View.NO_ID) {
+                    val rid = try {
+                        res.getResourceEntryName(view.id)
+                    } catch (ignored: Exception) {
+                        ""
+                    }
+                    if (rid.isNotEmpty()) node.put("rid", rid)
+                }
+                val text = (view as? TextView)?.text?.toString().orEmpty()
+                if (text.isNotEmpty()) node.put("text", text.take(300))
+                val desc = view.contentDescription?.toString().orEmpty()
+                if (desc.isNotEmpty()) node.put("desc", desc.take(300))
+                val cx = loc[0] + w / 2
+                val cy = loc[1] + h / 2
+                node.put("x", cx)
+                node.put("y", cy)
+                node.put("bounds", JSONArray().put(loc[0]).put(loc[1]).put(loc[0] + w).put(loc[1] + h))
+                // 中心点落在屏幕外（列表里滚出去的那部分）：坐标不能直接点，要先滚动
+                if (cx < 0 || cy < 0 || cx >= screen.widthPixels || cy >= screen.heightPixels) node.put("off", true)
+                if (view.isClickable) node.put("clickable", true)
+                if (!view.isEnabled) node.put("enabled", false)
+                if (view.canScrollVertically(1) || view.canScrollVertically(-1)) node.put("scroll", true)
+                nodes.put(node)
+            }
+            if (view is ViewGroup) {
+                for (i in 0 until view.childCount) visit(view.getChildAt(i))
+            }
+        }
+        visit(root)
+        return JSONObject()
+            .put("activity", activity.javaClass.name)
+            .put("count", nodes.length())
+            // 有焦点才是真的在屏幕上：应用退到后台时这棵旧窗口仍可读，别把它当"当前页面"
+            .put("fg", root.hasWindowFocus())
+            .put("nodes", nodes)
+            .toString()
+    }
+
+    /** 把 block 丢到主线程执行并等结果；超时返回 null（调用方负责给出提示）。 */
+    private fun <T> onMainThread(timeoutMs: Long, block: () -> T): T? {
+        if (Looper.myLooper() == Looper.getMainLooper()) return block()
+        val latch = CountDownLatch(1)
+        var result: T? = null
+        Handler(Looper.getMainLooper()).post {
+            try {
+                result = block()
+            } finally {
+                latch.countDown()
+            }
+        }
+        return if (latch.await(timeoutMs, TimeUnit.MILLISECONDS)) result else null
     }
 
     /**

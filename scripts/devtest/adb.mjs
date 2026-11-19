@@ -167,14 +167,81 @@ export function makeDriver(opts) {
     return adbRun(["shell", "cat", "/storage/emulated/0/Android/data/" + pkg + "/files/logs/bridge-last.txt"]);
   }
 
+  /**
+   * 原样取回 data 载荷（不解转义）。桥返回 JSON 时必须用这个：
+   * rawBridge 会把 \n 还原成真换行，JSON 里一出现就成非法控制字符。
+   */
+  function rawBridgeVerbatim() {
+    const extras = Array.prototype.slice.call(arguments);
+    const out = adbRun(["shell", "am", "broadcast", "-n", component, "--es", "token", TOKEN].concat(extras));
+    const m = /data="([\s\S]*?)"\s*$/.exec(out.trim());
+    return m ? m[1] : null;
+  }
+
   /** 桥命令：bridge("get", ["--es", "key", "dev_logv"]) */
   function bridge(cmd, args) {
     return rawBridge.apply(null, ["--es", "cmd", cmd].concat(args || []));
   }
 
-  /** 整棵控件树 → 数组。一条 exec-out 把 dump 和 cat 串起来，省掉一次 pull */
+  /**
+   * 进程内控件树（调试桥 view 命令，130–190 ms）。取不到返回 null。
+   * 只有真正的 View 能读到：Compose / WebView 这类自绘界面得走 uiautomator。
+   */
+  function viewDump(vopts) {
+    const v = vopts || {};
+    const args = ["--es", "max", String(v.max || 600)];
+    if (v.all) args.push("--ez", "all", true);
+    // 桥把 JSON 塞进广播的 data 里，引号是 \" 形式、换行是 \n 形式：
+    // 先按 JSON 字符串解一层，再按 JSON 解第二层，文字里的换行与引号都不会坏。
+    let raw = rawBridgeVerbatim("--es", "cmd", "view", ...args);
+    if (raw === null) raw = bridge("view", args);
+    if (!raw || raw.indexOf("ERR") === 0) return null;
+    const start = raw.indexOf("{");
+    if (start < 0) return null;
+    const body = raw.slice(start).trim();
+    let obj;
+    try {
+      obj = JSON.parse(JSON.parse('"' + body + '"'));
+    } catch (e) {
+      try {
+        obj = JSON.parse(body.replace(/\\"/g, '"').replace(/[\u0000-\u001f]/g, " "));
+      } catch (e2) {
+        return null;
+      }
+    }
+    const nodes = (obj.nodes || []).map(function (n) {
+      return {
+        cls: n.cls || "",
+        rid: n.rid || "",
+        text: n.text || "",
+        desc: n.desc || "",
+        clickable: n.clickable === true,
+        enabled: n.enabled !== false,
+        scrollable: n.scroll === true,
+        off: n.off === true,
+        x: n.x,
+        y: n.y,
+        bounds: n.bounds || [n.x, n.y, n.x, n.y],
+      };
+    });
+    // 附带来源信息：哪个页面、是否真有焦点（退到后台时这棵旧窗口仍可读）
+    nodes.activity = obj.activity || "";
+    nodes.fg = obj.fg === true;
+    return nodes;
+  }
+
+  /**
+   * 整棵控件树 → 数组。
+   * mode: "auto"（默认，先进程内后 uiautomator）| "fast"（只进程内）| "uiauto"（只 uiautomator）
+   */
   function dump(dumpOpts) {
     const dopt = dumpOpts || {};
+    const mode = dopt.mode || "auto";
+    if (mode !== "uiauto") {
+      const fast = step("view", function () { return viewDump(dopt); });
+      if (fast && fast.length) return fast;
+      if (mode === "fast") throw new Error("view 取不到控件树：可能不是前台页面，或界面是 Compose/WebView（改用 uiautomator）");
+    }
     return step("dump", function () {
       const xml = adbRun(["exec-out", "uiautomator dump /sdcard/dsh.xml >/dev/null 2>&1; cat /sdcard/dsh.xml"]);
       if (dopt.save) fs.writeFileSync(dopt.save, xml);
@@ -182,9 +249,16 @@ export function makeDriver(opts) {
     });
   }
 
-  function find(sel) {
-    const hit = filterNodes(dump(), sel);
-    return hit.length ? pickNode(hit) : null;
+  /** 找控件：auto 模式下进程内没命中会再用 uiautomator 复核一次 */
+  function find(sel, fopts) {
+    const mode = (fopts && fopts.mode) || "auto";
+    const hit = filterNodes(dump(fopts), sel);
+    if (hit.length) return pickNode(hit);
+    if (mode === "auto") {
+      const slow = filterNodes(dump({ mode: "uiauto" }), sel);
+      if (slow.length) return pickNode(slow);
+    }
+    return null;
   }
 
   function tapAt(x, y) {
@@ -202,6 +276,10 @@ export function makeDriver(opts) {
       return tapAt(Number(q[0]), Number(q[1]));
     }
     if (!target || target.x == null) throw new Error("tap 需要节点、{x,y} 或 \"x,y\"");
+    // 列表里滚出屏幕的那部分：中心点不在屏幕上，点下去是静默落空
+    if (target.off === true) {
+      throw new Error("控件中心 [" + target.x + "," + target.y + "] 在屏幕外（列表里滚出去的那部分），先滚动再点");
+    }
     return tapAt(target.x, target.y);
   }
 
@@ -215,12 +293,14 @@ export function makeDriver(opts) {
     rawBridge: rawBridge,
     bridge: bridge,
     dump: dump,
-    findAll: function (sel) { return filterNodes(dump(), sel); },
+    /** 只要进程内控件树（不兜底）；取不到返回 null */
+    view: viewDump,
+    findAll: function (sel, fopts) { return filterNodes(dump(fopts), sel); },
     find: find,
     tap: tap,
     /** 按文字/描述点；找不到就抛（不猜） */
-    tapText: function (text) {
-      const hit = filterNodes(dump(), { text: text });
+    tapText: function (text, fopts) {
+      const hit = filterNodes(dump(fopts), { text: text });
       if (!hit.length) throw new Error("找不到文字/描述含「" + text + "」的控件");
       return tap(pickNode(hit));
     },
@@ -295,7 +375,7 @@ export function makeDriver(opts) {
       const interval = wo.interval || 250;
       const t0 = Date.now();
       while (Date.now() - t0 < timeout) {
-        const hit = filterNodes(dump(), sel);
+        const hit = filterNodes(dump(wo), sel);
         if (hit.length) return pickNode(hit);
         await new Promise(function (r) { setTimeout(r, interval); });
       }
@@ -354,6 +434,9 @@ function parseArgv(argv) {
     else if (a === "--tag") f.tag = next();
     else if (a === "--lines") f.lines = Number(next());
     else if (a === "--type") f.type = next();
+    else if (a === "--fast") f.mode = "fast";
+    else if (a === "--uiauto") f.mode = "uiauto";
+    else if (a === "--all") f.all = true;
     else if (a === "-h" || a === "--help") f.help = true;
     else f.pos.push(a);
   }
@@ -371,7 +454,8 @@ function selectorOf(f) {
 
 function formatNode(n) {
   const label = n.text || n.desc || "";
-  return (n.rid || "-") + " " + n.cls + " 「" + label + "」 @" + n.x + "," + n.y + (n.clickable ? " *可点" : "");
+  return (n.rid || "-") + " " + n.cls + " 「" + label + "」 @" + n.x + "," + n.y +
+    (n.clickable ? " *可点" : "") + (n.off ? " *屏幕外" : "");
 }
 
 async function main(argv) {
@@ -396,8 +480,16 @@ async function main(argv) {
       console.log(f.json ? JSON.stringify({ top: top }) : top);
       return 0;
     }
+    if (cmd === "view") {
+      const nodes = d.view({ all: f.all });
+      if (!nodes) { console.error("进程内控件树取不到（不是前台页面，或界面是 Compose/WebView）"); return 1; }
+      if (f.json) console.log(JSON.stringify(nodes, null, 1));
+      else nodes.forEach(function (n) { console.log(formatNode(n)); });
+      console.error("[" + nodes.length + " 个节点]");
+      return 0;
+    }
     if (cmd === "dump") {
-      const nodes = d.dump({ save: f.save });
+      const nodes = d.dump({ save: f.save, mode: f.mode, all: f.all });
       const shown = f.filter
         ? nodes.filter(function (n) {
             return (n.text || "").indexOf(f.filter) >= 0 || (n.desc || "").indexOf(f.filter) >= 0 || n.rid.indexOf(f.filter) >= 0;
@@ -409,7 +501,7 @@ async function main(argv) {
       return 0;
     }
     if (cmd === "find") {
-      const found = filterNodes(d.dump(), sel);
+      const found = filterNodes(d.dump({ mode: f.mode, all: f.all }), sel);
       if (!found.length) { console.error("未找到：" + JSON.stringify(sel)); return 1; }
       if (f.json) console.log(JSON.stringify(found, null, 1));
       else found.forEach(function (n) { console.log(formatNode(n)); });
