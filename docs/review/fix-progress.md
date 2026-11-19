@@ -18,6 +18,17 @@
 
 ## 1. 当前版本状态
 
+- **26.11.19 播放器/短视频设计稿缺口扫描 + 第一批修复（用户点名：高能进度条、跳过助手）**：
+  - **来路**：用户「还有哪些设计没做呢，扫描一遍源码和两个设计稿。我先来两个——高能进度条和跳过助手的渲染没做」。两个设计稿（`design/player-redesign-v2.html` / `design/short-video-redesign.html`）逐节对照源码扫了一遍，本轮先修「无设计歧义、且用户已点名」的部分。
+  - **口径**：「跳过助手」在仓库与两份设计稿里**都没有这个词**（设计稿检索 `跳过/片头/片尾/广告/赞助/SponsorBlock` 命中 0 处），经用户确认指**进度条上的片段标记**（SponsorBlock 条子 + 精彩时刻三角）。
+  - **高能进度条（`player/PlayerNewProgressRenderer.kt`、`player/PlayerArcProgressView.kt`）**：
+    - 方屏波形原先把 N 个真实数据点**等距拉伸到满宽**，不看 `highEnergyStepSeconds` 与总时长——接口只覆盖前半段时曲线整体横向放大、与画面错位；还按峰值归一化，把整体很平的视频抬成满高。现改为横坐标 `i × stepSec / 总时长`，数据没覆盖满的部分在末尾断开，高度直接用 0..1 原值。
+    - 圆屏 `drawHeat()` 原来是 `heatData ?: HEAT`，**没数据时永远画设计稿那 48 个假点**，与「方屏关掉高能条就什么都没有」正好相反。按用户口径「只修渲染，不画假数据」，改为无真实数据不画，并删掉 `HEAT` 常量。
+  - **片段标记（本轮用户点名项二）**：`updateSponsorMarks()` 只把条子/三角设给 `seekbar_progress`，而圆屏下 `seekbar` 是 `GONE`（`PlayerNewUiController.kt:218`），`PlayerArcProgressView` 也没有对应接口——**圆屏用户一条标记都看不到**。现给弧加 `setMarks()` / `setPointMarks()`，在弧外侧画条子（极短片段最少 1.5°）、弧内侧画三角，`updateSponsorMarks()` 把同一批数据同步过去。方屏条子改锚到控件底边，原先贴在轨道下沿会被 3dp 轨道糊住。
+  - **短视频四处硬 bug（`ui/shortvideo/ShortVideoNewUi.kt`、`activity/video/ShortVideoPlayerActivity.kt`）**：① 中心播放键的点击监听装在 `initBottomButtons()`，新版布局不调用它 → 暂停后点不回来，点击穿透被当成「切常驻层」；改为单独的 `bindCenterPlayButton()`，与布局分支无关。② 「更多」的压暗层与右上角 ⋯ 都没装监听 → 打开后关不掉、返回键还会直接退页；两处都接 `hideMore()`。③ 手势说明写进 `panelContent` 但面板层仍是 `GONE` → 点了没反应；改为先 `hideMore()` 再 `openPanel()`。④ `onProgress()` 每 250ms 调一次 `onPlayingChanged()`，而它会把 `lastInteractionAt` 刷成当前时刻 → **静置 3 秒自动沉浸永远不触发**；改为只在播放状态真的变了时才调用。
+  - **L0（26.11.19 本机实测）**：`:app:assembleDebug` 两 flavor + `testStandardDebugUnitTest` / `testCoexistDebugUnitTest` 全绿。
+  - **未验证（L2）**：① 方屏高能波形在「接口只覆盖前半段」的视频上与画面同步；② 圆屏条子/三角的位置与颜色观感；③ 短视频中心键暂停后能点回来；④ 「更多」点空白/⋯ 能收起且返回键不再退页；⑤ 静置 3 秒真的进沉浸；⑥ 手势说明面板能打开。
+  - **待办（扫描出、本轮未做，见下一行）**：播放器 A1 听视频歌词区 / A2 直播态 / A3 表冠 / A4 锁定提示 1.5 秒淡出 / A5 页码点可点 / A6 暂停时控件常驻 / A7 大会员标签 / B1 缓冲段 / B5 圆屏 seek 与时间行重叠 / B6 字幕位置与底板 / B9 进度色跟主题；短视频作者卡与「只看 TA」原地换源 / 简介评论双 Tab / 收藏夹面板 / 表冠换条 / 圆屏专属布局 / 沉浸细进度线 / 面板不压暗。
 - **26.11.19 缓存下载做断点续传：暂停 / 断网 / 杀进程后不再从 0% 重下，半成品留到下载成功或用户清缓存（控制台反馈 #250 #252 #253）**：
   - **来路**：控制台三条未处理反馈，全是"下载进度清零重下"，设备与版本一致（`version_code 26111816` / 26.11.18-beta.6）：#253 OPPO OWW211「缓存下载时会进度清零重下」；#252 OPPO OWW251「为什么暂停下载视频后再开始会从头下载呢」；#250 OPPO OWW231「准备下载好的视频没有网络就要重新下载」，用户补充原话「视频下载到99% 然后我这里没有网络提示我重新下载视频 就要从0%开始下载」。同一个 pending 批次里的 #247（小天才 Z7「下载和后台播放会一直有弹窗」）是通知弹窗，与缓存无关，**本轮不做**。
   - **根因（五处，全部在 `app/src/main/java/com/RobinNotBad/BiliClient/service/DownloadService.kt`）**：① `resetFile(file)` 在 `downFileNormal` / `downFileSpeed` **每次开始下载时无条件 `delete() && createNewFile()`**，任何已存在的半成品先被删掉；② `downFileNormal` 的 GET 不带 `Range`、`FileOutputStream(file)` 覆盖写，`downFileSpeedSingle` 同为无 Range 覆盖；③ 两条 `downFileSpeed*` 收尾时「非 NORMAL 且非 ERR_PAUSED 就 delete 目标文件」；④ `cleanFailedResidue` 在失败后按 `DownloadResiduePolicy.disposition` 走 `FileUtil.cleanDownloadTempFiles`（删 `video_new.mp4` / `audio_new.m4a`）、`DELETE_FOLDER` 时甚至连任务目录一起删；⑤ `processDownloadSection` 每次开始 `setDownloadProgress(id, 0f)` + `beginSectionBytes` 新建字节预算（`completed` 归零），所以即使文件还在进度也从 0 起。①③④ 让磁盘上的断点消失，②让它永远从字节 0 请求，⑤让进度条必然先掉到 0——#250 的「99% → 0%」是 DASH 里视频已下完、音频断了，下次连已完成的视频（大文件）也整段重下。
