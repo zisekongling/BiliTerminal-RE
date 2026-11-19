@@ -1,7 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    根节点的 id 必须是 shortVideoRoot，**不能是 videoContainer**：
+    PageHolder.initPlayer() 会 `videoContainer.removeAllViews()` 再 addView 一个 TextureView，
+    若 videoContainer 就是根本身，这一步会把弹幕、封面、播放键等所有子视图一起清空，
+    紧接着的 `findViewById(R.id.danmakuView)!!` 就拿到 null 抛 NPE
+    （用户反馈「短视频播放初始化失败」）。
+    旧布局里 videoContainer 是一个嵌套 FrameLayout，只清它自己，所以一直是好的。
+-->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:id="@+id/videoContainer"
+    android:id="@+id/shortVideoRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@android:color/black">
@@ -10,8 +18,12 @@
         视频画面不在这里声明：ShortVideoPlayerActivity 会 new 一个 TextureView 再 addView 进
         videoContainer（见 PageHolder.initSurface）。这里曾经写过一个
         `com.RobinNotBad.BiliClient.ui.widget.PlayerTextureView`，那个类根本不存在，
-        inflate 时直接抛 ClassNotFoundException 崩溃（用户反馈「点短视频就崩」）。
+        inflate 时直接抛 ClassNotFoundException 崩溃。
     -->
+    <FrameLayout
+        android:id="@+id/videoContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
 
     <ImageView
         android:id="@+id/coverImage"
