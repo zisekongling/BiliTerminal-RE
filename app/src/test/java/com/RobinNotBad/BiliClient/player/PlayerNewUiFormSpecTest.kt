@@ -171,4 +171,59 @@ class PlayerNewUiFormSpecTest {
         assertTrue(PlayerNewUiFormSpec.of("phone") === phone)
         assertTrue(PlayerNewUiFormSpec.of("strip") === strip)
     }
+
+    @Test
+    fun `invisible slots are dropped so the bottom row does not leave a gap`() {
+        // 默认布局底栏是 [清晰度][音量-][音量+] + 播放键；单 P 视频时分P 不在布局里，
+        // 但用户的存档里可能留着它——那一格必须被摘掉，否则右边空出一块。
+        val layout = PlayerUiLayout.Layout(
+            left = listOf(PlayerUiLayout.Slot.Button("lock")),
+            right = emptyList(),
+            bottomLeft = listOf(
+                PlayerUiLayout.Slot.Button("quality"),
+                PlayerUiLayout.Slot.Button("vol_down"),
+            ),
+            bottomRight = listOf(
+                PlayerUiLayout.Slot.Button("vol_up"),
+                PlayerUiLayout.Slot.Button("pages"),
+            ),
+        )
+        val visible = PlayerNewUiFormSpec.visibleOnly(layout) { key -> key != "pages" }
+        assertEquals(3, visible.bottomLeft.size + visible.bottomRight.size)
+        assertTrue(visible.bottomRight.none { (it as PlayerUiLayout.Slot.Button).key == "pages" })
+        // 左列不受影响。
+        assertEquals(1, visible.left.size)
+    }
+
+    @Test
+    fun `group slots survive the visibility filter`() {
+        // 组是「更多」的入口，判断可见性得逐格看它里面，不能整组摘掉。
+        val layout = PlayerUiLayout.Layout(
+            emptyList(),
+            listOf(PlayerUiLayout.Slot.Group(listOf("a", "b"))),
+            emptyList(),
+            emptyList(),
+        )
+        val visible = PlayerNewUiFormSpec.visibleOnly(layout) { false }
+        assertEquals(1, visible.right.size)
+        assertEquals(emptyList<PlayerUiLayout.Slot>(), visible.left)
+    }
+
+    @Test
+    fun `dropping an invisible slot recentres the whole bottom row`() {
+        // 关键行为：摘掉一格之后整行仍然居中，不会残留一边的空洞。
+        // 注意 playX 会随槽位数变化——整行是「所有格一起居中」，不是「播放键钉死在某个位置」。
+        val width = 411f
+        val half = phone.buttonSize / 2f
+        for (slots in 1..6) {
+            val p = phone.bottomPlacement(slots, width)
+            val all = listOfNotNull(p.playX) + p.slotXs
+            if (all.isEmpty()) continue
+            val leftGap = all.first() - half
+            val rightGap = width - all.last() - half
+            assertEquals("slots=$slots 左右留白应相等", leftGap, rightGap, 0.001f)
+            // 相邻中心距始终相等，不因摘掉一格而错位。
+            all.zipWithNext { a, b -> assertEquals(phone.bottomSpacing, b - a, 0.001f) }
+        }
+    }
 }

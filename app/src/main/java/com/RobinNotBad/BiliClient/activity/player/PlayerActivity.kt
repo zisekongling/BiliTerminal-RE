@@ -5086,6 +5086,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         screen_height = displayMetrics.heightPixels
         changeVideoSize()
 
+        // 新版控制层的所有落点都锚在屏幕边缘（距底 58 / 28 / 8），屏幕一转向这些值就全变了。
+        // 不在这里重排的话，竖屏时按 800+dp 高度算出来的底栏在横屏（380dp）下会整体落到屏幕外——
+        // 实测横屏下进度行在 y≈680dp、整个 overlay 只剩上半截可见。老版走 XML 布局自适应，不需要。
+        newPlayerUi?.let {
+            findViewById<View>(R.id.root_layout)?.post { applyPlayerButtonLayout() }
+        }
+
         Logu.v("旋转屏幕结束")
     }
 

@@ -167,10 +167,38 @@ object PlayerNewUiFormSpec {
     fun current(form: String?): Spec = of(form)
 
     /**
-     * 一屏的摆法：左右两列各放哪些、底栏放哪些、其余进「更多」。
+     * 把「当前这个视频用不上」的槽位从布局里摘掉。
      *
-     * 这是方屏布局的唯一真相来源——控制器只照单落位，不再自己算容量，避免两边各写一份
-     * 「放不下怎么办」而在边界处对不上。
+     * 为什么必须做：槽位布局是用户存档的，不会随视频变；而按钮本体是 Activity 的常驻字段，
+     * 单 P 视频时 `btn_page_selector` 会被置 GONE。如果照存档摆位，那一格仍然占着位置，
+     * 表现就是**底栏右侧空出一格**（用户反馈的「最后一个按钮右边空得太多」）——
+     * 圆的、方的、手机的一个都跑不掉，所以三种形态共用这一个判据。
+     *
+     * 判据只看「按钮本体是否存在且不是 GONE」。不用 `isShown`：它在页面还没上屏时恒为 false，
+     * 会把整条底栏都判没。
+     */
+    fun visibleOnly(
+        layout: PlayerUiLayout.Layout,
+        isVisible: (String) -> Boolean,
+    ): PlayerUiLayout.Layout {
+        fun keep(slot: PlayerUiLayout.Slot): Boolean = when (slot) {
+            is PlayerUiLayout.Slot.Button -> isVisible(slot.key)
+            // 组本身永远保留：它是「更多」的入口，里面装着什么由网格那边逐格判可见。
+            is PlayerUiLayout.Slot.Group -> true
+        }
+        return PlayerUiLayout.Layout(
+            left = layout.left.filter(::keep),
+            right = layout.right.filter(::keep),
+            bottomLeft = layout.bottomLeft.filter(::keep),
+            bottomRight = layout.bottomRight.filter(::keep),
+        )
+    }
+
+    /**
+     * 这一屏能放下哪些槽位、哪些要进「更多」。
+     *
+     * 顺序与设计稿一致：左列、右列、底栏，各自按上限截断，剩下的按原顺序追加进「更多」，
+     * 不丢按钮。没有左右两列的长条屏，两列整段进溢出。
      */
     data class Plan(
         val left: List<PlayerUiLayout.Slot>,

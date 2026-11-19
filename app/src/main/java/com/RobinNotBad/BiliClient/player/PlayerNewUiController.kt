@@ -244,6 +244,12 @@ class PlayerNewUiController(
         // root 在 init 期间还没测量（height 为 0），贴底的那些元素必须等真实宽高出来再摆一次，
         // 否则会按 displayMetrics 的全屏高度算，被状态栏/导航栏顶掉一段。
         overlay.post { placeBottomAnchored() }
+        // 旋转屏幕 / 分屏改变尺寸时，锚在底边的东西也要跟着重摆一次。
+        // 这里只补「贴底元素」这一半；按钮的落位由 Activity 在 onConfigurationChanged 里
+        // 调 applyPlayerButtonLayout() → render() 负责（那边还要重算槽位容量）。
+        overlay.addOnLayoutChangeListener { _, left, top, right, bottom, oL, oT, oR, oB ->
+            if (right - left != oR - oL || bottom - top != oB - oT) placeBottomAnchored()
+        }
 
         // 设计稿 lockView：顶部居中一行「已锁定 · 点锁图标解锁」胶囊 + 锁图标底下 34dp 圆底
         // （黑 30% 填充 + 白 40% 内描边）。锁定时 overlay 整个收起，这一层单独顶上来；
@@ -453,7 +459,10 @@ class PlayerNewUiController(
         // 顶栏的排布在 onCreate 里做一次还不够：Activity 的 initUI 会再按屏宽/开关改一轮
         // （padding、最大宽度之类），每次重摆都纠正回来。
         arrangeTop()
-        layout = newLayout
+        // 先把「这个视频用不上」的槽位摘掉（单 P 视频没有分P按钮、本地视频没有清晰度…），
+        // 否则它们虽然 GONE，却仍然占着摆位的一格，底栏右边就会空出一块。
+        // 三种形态共用这一道过滤，圆屏同样受益。
+        layout = PlayerNewUiFormSpec.visibleOnly(newLayout) { key -> slotIsPresent(key) }
         closeGrid()
         buttons.removeAllViews()
         val playSize = playSizeDp()
@@ -1382,6 +1391,19 @@ class PlayerNewUiController(
     }
 
     private fun containsGroup(value: PlayerUiLayout.Layout) = (value.left + value.right + value.bottomLeft + value.bottomRight).any { it is PlayerUiLayout.Slot.Group }
+
+    /**
+     * 这个槽位的按钮当前在这条视频上存不存在（本体能找到、且不是 GONE）。
+     *
+     * [primaryOf] 拿不到本体说明这个视频根本用不上它（本地视频的清晰度之类）；
+     * 拿到但被 Activity 设成 GONE 的（单 P 视频的分P按钮）同理。
+     * **不能用 `isShown`**：页面还没上屏时它对所有按钮都是 false，会把整条底栏判没。
+     */
+    private fun slotIsPresent(key: String): Boolean {
+        val view = slotOf(key) ?: return false
+        return view.visibility != View.GONE
+    }
+
     private fun idleEnabled() = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_NEW_IDLE_PROGRESS, true)
     private fun widthDp() = if (round) PlayerNewUiGeometry.REFERENCE_SIZE_DP else
         (root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels) / density
