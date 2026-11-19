@@ -492,16 +492,20 @@ class ShortVideoPagerAdapter(
         private val playIcon: ImageView = itemView.findViewById(R.id.playIcon)
         private val top: View = itemView.findViewById(R.id.top)
         private val textTitle: TextView = itemView.findViewById(R.id.text_title)
-        private val bottomControl: View = itemView.findViewById(R.id.bottom_control)
+        // 下面这 8 个控件**只有老版布局**有；新版布局（fragment_short_video_page_new）
+        // 用 shortNew* 那一套 id，取不到。写成非空类型会在 inflate 时直接抛
+        // `findViewById(...) must not be null`（用户反馈「短视频播放器依旧报错」）。
+        // 一律改成可空，调用点都在 newUi == null 分支里，安全调用即可。
+        private val bottomControl: View? = itemView.findViewById(R.id.bottom_control)
         private val videoProgress: SeekBar = itemView.findViewById(R.id.videoprogress)
         private val textProgress: TextView = itemView.findViewById(R.id.text_progress)
-        private val buttonVideo: ImageButton = itemView.findViewById(R.id.button_video)
-        private val buttonSoundCut: ImageButton = itemView.findViewById(R.id.button_sound_cut)
-        private val buttonSoundAdd: ImageButton = itemView.findViewById(R.id.button_sound_add)
-        private val buttonSpeed: TextView = itemView.findViewById(R.id.button_speed)
-        private val buttonDanmaku: ImageButton = itemView.findViewById(R.id.button_danmaku)
-        private val showSound: TextView = itemView.findViewById(R.id.showsound)
-        private val speedBoostHint: TextView = itemView.findViewById(R.id.text_speed_boost)
+        private val buttonVideo: ImageButton? = itemView.findViewById(R.id.button_video)
+        private val buttonSoundCut: ImageButton? = itemView.findViewById(R.id.button_sound_cut)
+        private val buttonSoundAdd: ImageButton? = itemView.findViewById(R.id.button_sound_add)
+        private val buttonSpeed: TextView? = itemView.findViewById(R.id.button_speed)
+        private val buttonDanmaku: ImageButton? = itemView.findViewById(R.id.button_danmaku)
+        private val showSound: TextView? = itemView.findViewById(R.id.showsound)
+        private val speedBoostHint: TextView? = itemView.findViewById(R.id.text_speed_boost)
         internal var newUi: ShortVideoNewUi? = null
 
         // 圆屏适配前的原始 padding：圆屏下要在布局原有留白基础上再收进来，
@@ -683,7 +687,7 @@ class ShortVideoPagerAdapter(
             newUi?.bind(item)
 
             if (newUi == null) {
-                bottomControl.visibility = if (activity.isBottomControlVisible) View.VISIBLE else View.GONE
+                bottomControl?.visibility = if (activity.isBottomControlVisible) View.VISIBLE else View.GONE
             }
         }
 
@@ -886,7 +890,7 @@ class ShortVideoPagerAdapter(
         }
 
         private fun initBottomButtons() {
-            buttonVideo.setOnClickListener {
+            buttonVideo?.setOnClickListener {
                 controlVideo()
             }
 
@@ -900,19 +904,19 @@ class ShortVideoPagerAdapter(
             }
 
             buttonDanmaku?.setImageResource(if (isDanmakuVisible) R.mipmap.danmakuon else R.mipmap.danmakuoff)
-            buttonDanmaku.setOnClickListener {
+            buttonDanmaku?.setOnClickListener {
                 toggleDanmaku()
             }
 
-            buttonSoundAdd.setOnClickListener {
+            buttonSoundAdd?.setOnClickListener {
                 changeVolume(true)
             }
 
-            buttonSoundCut.setOnClickListener {
+            buttonSoundCut?.setOnClickListener {
                 changeVolume(false)
             }
 
-            buttonSpeed.setOnClickListener {
+            buttonSpeed?.setOnClickListener {
                 cycleSpeed()
             }
 
@@ -1178,7 +1182,7 @@ class ShortVideoPagerAdapter(
         }
 
         private fun toggleBottomControl() {
-            if (bottomControl.visibility == View.VISIBLE) {
+            if (bottomControl?.visibility == View.VISIBLE) {
                 hideBottomControl()
             } else {
                 showBottomControl()
@@ -1186,19 +1190,19 @@ class ShortVideoPagerAdapter(
         }
 
         private fun showBottomControl() {
-            bottomControl.visibility = View.VISIBLE
+            bottomControl?.visibility = View.VISIBLE
             activity.isBottomControlVisible = true
 
             hideBottomRunnable?.let { mainHandler.removeCallbacks(it) }
             hideBottomRunnable = Runnable {
-                bottomControl.visibility = View.GONE
+                bottomControl?.visibility = View.GONE
                 activity.isBottomControlVisible = false
             }
             mainHandler.postDelayed(hideBottomRunnable!!, 10000)
         }
 
         private fun hideBottomControl() {
-            bottomControl.visibility = View.GONE
+            bottomControl?.visibility = View.GONE
             activity.isBottomControlVisible = false
             hideBottomRunnable?.let { mainHandler.removeCallbacks(it) }
             hideBottomRunnable = null

@@ -63,13 +63,13 @@ class ShortVideoNewUi(
     private val views = root.findViewById<TextView>(R.id.shortNewViews)
     private val progress = root.findViewById<SeekBar>(R.id.videoprogress)
     private val time = root.findViewById<TextView>(R.id.text_progress)
-    private val favourite = root.findViewById<ImageButton>(R.id.shortNewFavourite)
+    private val favourite = root.findViewById<android.widget.ImageView>(R.id.shortNewFavourite)
     private val scrim = root.findViewById<View>(R.id.shortNewPanelScrim)
     private val panelTitle = root.findViewById<TextView>(R.id.shortNewPanelTitle)
     private val panelContent = root.findViewById<LinearLayout>(R.id.shortNewPanelContent)
     private val clock = root.findViewById<TextView>(R.id.shortNewClock)
-    private val descriptionIcon = root.findViewById<android.widget.ImageView>(R.id.shortNewDescription)
-    private val commentsIcon = root.findViewById<android.widget.ImageView>(R.id.shortNewComments)
+    private val descriptionIcon = root.findViewById<TextView>(R.id.shortNewDescription)
+    private val commentsIcon = root.findViewById<TextView>(R.id.shortNewComments)
     private val accent: Int
     private var item: ShortVideoItem? = null
     private var followed = false
@@ -96,9 +96,11 @@ class ShortVideoNewUi(
         root.context.theme.resolveAttribute(android.R.attr.textColorSecondary, secondary, true)
         val textSecondary = if (secondary.data != 0) secondary.data else 0xB3FFFFFF.toInt()
         views.setTextColor(textSecondary)
+        // 这两个在布局里是**文字图标**（TextView，内容是 ⓘ 与 💬 之类），不是 ImageView：
+        // 着色要走 setTextColor，用 imageTintList 会抛 ClassCastException。
         listOf(descriptionIcon, commentsIcon).forEach { icon ->
             val tint = if (ShortVideoTheme.prefersDarkIcons(textSecondary)) 0xFF17181C.toInt() else ShortVideoTheme.WHITE
-            icon.imageTintList = android.content.res.ColorStateList.valueOf(tint)
+            icon.setTextColor(tint)
         }
         progress.progressTintList = android.content.res.ColorStateList.valueOf(accent)
         progress.progressBackgroundTintList =
