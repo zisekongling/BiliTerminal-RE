@@ -36,11 +36,22 @@ internal object DownloadStreamTransfer {
         else -> errorCode
     }
 
+    /**
+     * 把 [input] 的内容写进 [output]，直到写完/暂停/取消/出错。
+     *
+     * [startBytes] 是"这个文件在本次续传之前已经落盘的字节数"：调方在续传时传文件已有长度，
+     * 于是 [Result.downloadedBytes]、[onBytesWritten] 报的都是**整份文件的累计量**（含断点之前），
+     * 进度条才是接着走的，而不是从 0 再涨一遍。它同时参与完整性判断：
+     * `downloaded != expectedBytes` 里的 expectedBytes 是服务器给的文件总长。
+     *
+     * 不续传时保持默认 0，行为与原来完全一致。
+     */
     fun copy(input: InputStream, output: OutputStream, expectedBytes: Long,
              isRunning: () -> Boolean, isPaused: () -> Boolean,
+             startBytes: Long = 0L,
              onBytesWritten: (downloadedBytes: Long, deltaBytes: Int) -> Unit): Result {
         val buffer = ByteArray(65536)
-        var downloaded = 0L
+        var downloaded = startBytes.coerceAtLeast(0L)
         var reachedEof = false
         while (isRunning() && !isPaused()) {
             val read = try {

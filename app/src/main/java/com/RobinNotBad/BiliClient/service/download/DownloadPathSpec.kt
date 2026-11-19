@@ -48,6 +48,17 @@ internal object DownloadPathSpec {
      */
     const val FILE_VIDEO_MERGING = "video_merging.tmp"
 
+    /**
+     * 断点续传存档的后缀：临时文件旁边记一份"已经下到哪"，如 `video_new.mp4.resume`。
+     *
+     * 存档只在两种情况下存在：正在下载（含暂停、崩溃前）、或者下载失败等用户重试。
+     * 临时文件一旦被替换成成品，存档立刻删掉——它只描述"这个临时文件下到哪了"。
+     */
+    const val SUFFIX_RESUME = ".resume"
+
+    /** 续传存档文件名：`video_new.mp4` → `video_new.mp4.resume` */
+    fun resumeNameFor(tempFileName: String): String = tempFileName + SUFFIX_RESUME
+
     // ---------- 下载类型与任务类型（写进数据库的字面量） ----------
 
     /** download_type：仅下载音频 */

@@ -6,105 +6,107 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 失败任务残留的收拾判定（反馈 #136）。
+ * 失败任务目录的收拾判定（反馈 #136 + #250 / #252 / #253）。
  *
- * 这些用例对应真实后果：判成 DELETE_FOLDER 的任务目录会被删掉、视频详情页才肯重新入队；
- * 判错的代价是把用户已经下好的 `video.mp4` 删掉，所以"有成品只清临时产物"这条必须锁死。
+ * 锁死两件事：**挡住重试的标记必须删**（否则同一个视频永远进不了队列），
+ * **半成品必须留**（否则用户下了几十分钟的东西白白丢掉）。
  */
 class DownloadResiduePolicyTest {
 
+    private fun deleteNames(vararg names: String): List<String> =
+        DownloadResiduePolicy.cleanupPlan(names.toList()).deleteNames
+
+    private fun restoreNames(vararg names: String): List<String> =
+        DownloadResiduePolicy.cleanupPlan(names.toList()).restoreFromBackup
+
     @Test
-    fun 只有下载中标记和半成品的目录判为纯残留整目录删掉() {
-        // 反馈 #136 的现场：分片下到 512KB 就断，目录里只剩这些
-        val names = listOf(
-            DownloadPathSpec.FILE_DOWNLOADING,
-            DownloadPathSpec.FILE_VIDEO_TMP
+    fun 下载中标记必须删掉否则详情页一直以为还在队列里() {
+        // 反馈 #136 的现场：分片下到一半就断，目录里只剩这两样
+        val plan = DownloadResiduePolicy.cleanupPlan(
+            listOf(DownloadPathSpec.FILE_DOWNLOADING, DownloadPathSpec.FILE_VIDEO_TMP)
         )
-        assertFalse(DownloadResiduePolicy.hasFinishedArtifact(names))
-        assertEquals(DownloadResiduePolicy.Disposition.DELETE_FOLDER, DownloadResiduePolicy.disposition(names))
+        assertEquals(listOf(DownloadPathSpec.FILE_DOWNLOADING), plan.deleteNames)
+        assertTrue(plan.restoreFromBackup.isEmpty())
     }
 
     @Test
-    fun 一个成品都没有就是需要重下() {
-        // 半成品哪怕体积和成品相近，也不算下好了：本仓库不做断点续传，只有正式文件名才算成品
-        val names = setOf(
+    fun 半成品和续传存档一个都不能删() {
+        // 反馈 #250「下到 99% 断网要从 0 开始」的现场
+        val names = listOf(
+            DownloadPathSpec.FILE_DOWNLOADING,
             DownloadPathSpec.FILE_VIDEO_TMP,
             DownloadPathSpec.FILE_AUDIO_TMP,
-            DownloadPathSpec.FILE_VIDEO_MERGING
+            DownloadPathSpec.FILE_VIDEO_TMP + DownloadPathSpec.SUFFIX_RESUME,
+            DownloadPathSpec.FILE_AUDIO_TMP + DownloadPathSpec.SUFFIX_RESUME,
+            DownloadPathSpec.FILE_QUALITY,
+            "video_seg0.part",
+            "video_seg0.part.done",
+            ".video_meta.json"
         )
-        assertFalse(DownloadResiduePolicy.hasFinishedArtifact(names))
+        assertEquals(listOf(DownloadPathSpec.FILE_DOWNLOADING), deleteNames(*names.toTypedArray()))
     }
 
     @Test
-    fun 下载自己生成的全部标记文件也算纯残留() {
+    fun 封面弹幕字幕元数据都留着() {
         val names = listOf(
-            DownloadPathSpec.FILE_DOWNLOADING,
-            DownloadPathSpec.FILE_QUALITY,
             DownloadPathSpec.FILE_COVER,
             DownloadPathSpec.FILE_DANMAKU,
             DownloadPathSpec.DIR_SUBTITLES,
-            DownloadPathSpec.FILE_VIDEO_TMP,
-            DownloadPathSpec.FILE_AUDIO_TMP,
-            DownloadPathSpec.FILE_VIDEO_MERGING,
             ".video_meta.json"
         )
-        assertEquals(DownloadResiduePolicy.Disposition.DELETE_FOLDER, DownloadResiduePolicy.disposition(names))
+        assertTrue(DownloadResiduePolicy.cleanupPlan(names).isNoop)
     }
 
     @Test
-    fun 有视频成品时只清临时产物() {
-        val names = listOf(
-            DownloadPathSpec.FILE_VIDEO,
-            DownloadPathSpec.FILE_DOWNLOADING,
-            DownloadPathSpec.FILE_VIDEO_TMP
+    fun 用户自己放的文件不动() {
+        val names = listOf(DownloadPathSpec.FILE_DOWNLOADING, "我自己放的字幕.srt", "笔记.txt")
+        assertEquals(listOf(DownloadPathSpec.FILE_DOWNLOADING), deleteNames(*names.toTypedArray()))
+    }
+
+    @Test
+    fun 坏合并件要删掉() {
+        assertEquals(
+            listOf(DownloadPathSpec.FILE_VIDEO_MERGING),
+            deleteNames(DownloadPathSpec.FILE_VIDEO_MERGING, DownloadPathSpec.FILE_VIDEO_TMP)
         )
-        assertTrue(DownloadResiduePolicy.hasFinishedArtifact(names))
-        assertEquals(DownloadResiduePolicy.Disposition.CLEAN_TEMPS, DownloadResiduePolicy.disposition(names))
     }
 
     @Test
-    fun 纯音频任务的audio成品也算成品() {
-        val names = listOf(
-            DownloadPathSpec.FILE_AUDIO,
-            DownloadPathSpec.FILE_AUDIO_TMP,
-            DownloadPathSpec.FILE_DOWNLOADING
+    fun 临时文件没了留下的孤儿存档要删掉() {
+        // 临时文件被别处清掉后，存档留着只会在下次误命中
+        assertEquals(
+            listOf(DownloadPathSpec.FILE_VIDEO_TMP + DownloadPathSpec.SUFFIX_RESUME),
+            deleteNames(DownloadPathSpec.FILE_VIDEO_TMP + DownloadPathSpec.SUFFIX_RESUME)
         )
-        assertTrue(DownloadResiduePolicy.hasFinishedArtifact(names))
-        assertEquals(DownloadResiduePolicy.Disposition.CLEAN_TEMPS, DownloadResiduePolicy.disposition(names))
     }
 
     @Test
-    fun 成品的bak备份算成品不能被当残留删掉() {
-        // 替换在两次 rename 之间被打断：video.mp4.bak 是当前唯一的成品，删了就真丢视频
-        val names = listOf("video.mp4.bak", DownloadPathSpec.FILE_DOWNLOADING)
-        assertTrue(DownloadResiduePolicy.hasFinishedArtifact(names))
-        assertEquals(DownloadResiduePolicy.Disposition.CLEAN_TEMPS, DownloadResiduePolicy.disposition(names))
+    fun 成品缺失时bak要改名回去而不是删掉() {
+        // 替换在两次 rename 之间被打断：video.mp4.bak 是当前唯一的成品
+        assertEquals(listOf("video.mp4.bak"), restoreNames("video.mp4.bak", DownloadPathSpec.FILE_DOWNLOADING))
     }
 
     @Test
-    fun 混进陌生文件时保守只清临时产物() {
-        // 用户自己往任务目录里放了东西，整目录删掉就是误删
-        val names = listOf(
-            DownloadPathSpec.FILE_DOWNLOADING,
-            DownloadPathSpec.FILE_VIDEO_TMP,
-            "我自己放的字幕.srt"
+    fun 成品还在时陈旧bak删掉() {
+        assertEquals(
+            listOf("video.mp4.bak"),
+            deleteNames(DownloadPathSpec.FILE_VIDEO, "video.mp4.bak")
         )
-        assertEquals(DownloadResiduePolicy.Disposition.CLEAN_TEMPS, DownloadResiduePolicy.disposition(names))
-    }
-
-    @Test
-    fun 只有陌生文件时退化成只清临时产物不删目录() {
-        val names = listOf("我自己放的字幕.srt", "笔记.txt")
-        assertFalse(DownloadResiduePolicy.hasFinishedArtifact(names))
-        assertEquals(DownloadResiduePolicy.Disposition.CLEAN_TEMPS, DownloadResiduePolicy.disposition(names))
     }
 
     @Test
     fun 目录不存在或为空时无事可做() {
         // folder.list() 在目录不存在/不可读时返回 null
-        assertEquals(DownloadResiduePolicy.Disposition.NONE, DownloadResiduePolicy.disposition(null))
-        assertEquals(DownloadResiduePolicy.Disposition.NONE, DownloadResiduePolicy.disposition(emptyList()))
-        assertFalse(DownloadResiduePolicy.hasFinishedArtifact(null))
-        assertFalse(DownloadResiduePolicy.hasFinishedArtifact(emptyList()))
+        assertTrue(DownloadResiduePolicy.cleanupPlan(null).isNoop)
+        assertTrue(DownloadResiduePolicy.cleanupPlan(emptyList()).isNoop)
+    }
+
+    @Test
+    fun 续传存档的名字换算正确() {
+        val resume = DownloadPathSpec.resumeNameFor(DownloadPathSpec.FILE_VIDEO_TMP)
+        assertEquals("video_new.mp4.resume", resume)
+        assertTrue(DownloadResiduePolicy.isResumeName(resume))
+        assertEquals(DownloadPathSpec.FILE_VIDEO_TMP, DownloadResiduePolicy.resumeBaseName(resume))
+        assertFalse(DownloadResiduePolicy.isResumeName(DownloadPathSpec.FILE_VIDEO_TMP))
     }
 }
