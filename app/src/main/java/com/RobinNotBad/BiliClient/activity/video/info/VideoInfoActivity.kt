@@ -8,6 +8,7 @@ import android.view.View
 import android.widget.ImageView
 import androidx.fragment.app.Fragment
 import androidx.viewpager.widget.ViewPager
+import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.activity.reply.ReplyFragment
@@ -94,7 +95,10 @@ class VideoInfoActivity : BaseActivity() {
         viewPager.adapter = vpfAdapter
         registerPageNameListener(UiText.of("番剧详情"))
         if (seek_reply != -1L) viewPager.currentItem = 1
-        if (SharedPreferencesUtil.getBoolean("first_videoinfo", true)) {
+        // 26.11.19 debug 包不弹任何自动提示：这条「可以左右滑动」只弹一次，release 照旧。
+        if (!BiliTerminal.isAutoPopupSuppressed()
+            && SharedPreferencesUtil.getBoolean("first_videoinfo", true)
+        ) {
             MsgUtil.showMsgLong(UiText.of("提示：本页面可以左右滑动"))
             SharedPreferencesUtil.putBoolean("first_videoinfo", false)
         }

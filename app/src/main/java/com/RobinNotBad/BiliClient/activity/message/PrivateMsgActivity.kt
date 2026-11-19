@@ -16,6 +16,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.NonNull
 import androidx.recyclerview.widget.RecyclerView
 
+import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.activity.reply.WriteReplyActivity
@@ -80,7 +81,10 @@ class PrivateMsgActivity : BaseActivity() {
         Log.e("", uid.toString())
 
         // 反馈 #121：这句提示可以关（设置 → 私信拦截提示，默认开）。老用户每次进会话都被弹一次太吵
-        if (SharedPreferencesUtil.getBoolean(SettingsKeys.PRIVATE_MSG_INTERCEPT_TIP_ENABLE, true)) {
+        // 26.11.19 debug 包不弹任何自动提示：这条每次进会话都弹的拦截提示直接免掉，release 照旧。
+        if (!BiliTerminal.isAutoPopupSuppressed()
+            && SharedPreferencesUtil.getBoolean(SettingsKeys.PRIVATE_MSG_INTERCEPT_TIP_ENABLE, true)
+        ) {
             MsgUtil.showMsg(UiText.of("私信有可能被拦截\n尽量不要用终端发私信喵"))
         }
 

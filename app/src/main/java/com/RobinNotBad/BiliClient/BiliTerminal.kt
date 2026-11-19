@@ -665,7 +665,12 @@ class BiliTerminal : Application() {
                                 // 而是直接跳到「检查更新/下载」页，用户点「下载更新」即可。
                                 // 26.11.16 静默下载（默认关）：开关打开且当前是 Wi-Fi 时，
                                 // 先把包下好再弹「已下载」，否则保持原来的「直接跳更新页」。
-                                if (!trySilentUpdateDownload(config)
+                                // 26.11.19 debug 包不弹任何自动提示：连「发现新版本直接跳更新页」也一并免掉，
+                                // 否则自动化刚进主页就被拽去更新页；静默下载完成后那条「已下载」提示同理。
+                                // 强制更新拦截走上面的 if 分支，是功能性拦截，不受这道门影响。
+                                val suppressAutoTips = isAutoPopupSuppressed()
+                                if (!suppressAutoTips
+                                    && !trySilentUpdateDownload(config)
                                     && UpdateManager.shouldAutoOpenUpdatePage(
                                         config,
                                         UpdateManager.getCurrentVersion(),

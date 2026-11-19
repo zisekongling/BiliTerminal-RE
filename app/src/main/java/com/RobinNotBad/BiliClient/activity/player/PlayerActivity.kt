@@ -2308,6 +2308,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     }
 
     private fun showLockHintIfNeeded() {
+        // 26.11.19 debug 包不弹任何自动提示：锁定说明只弹一次，早退必须放在记账（putBoolean）之前——
+        // 否则调试包会把「已提示过」的位置吃掉，换回 release 包就再也不弹了。
+        if (BiliTerminal.isAutoPopupSuppressed()) return
         if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_LOCK_HINT_SHOWN, false)) return
         SharedPreferencesUtil.putBoolean(SettingsKeys.PLAYER_LOCK_HINT_SHOWN, true)
         MsgUtil.showMsg(getString(R.string.msg_player_lock_hint))

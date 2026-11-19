@@ -15,6 +15,9 @@ import java.io.File
  * 门面是 `BiliTerminal.isAutoPopupSuppressed()`（= `BuildConfig.DEBUG`），各调用点自己判一次。
  * 这里把「哪些地方必须判」钉死：新加一个自动弹窗忘了判、或者有人把门面改成别的判据，当场红。
  *
+ * 26.11.19 第二批（用户「全禁」）：发现新版本自动跳更新页、私信页拦截提示、播放页触摸锁定的
+ * 首次说明、视频详情页「本页面可以左右滑动」也一并纳入。
+ *
  * 扫的是源码 token 而不是运行期行为——它只能保证「写在这里的调用点还带着门」，不能证明
  * 弹窗真的没弹出来（那要上设备，见 docs/agents/testing.md 的 L1/L2）。
  *
@@ -71,6 +74,26 @@ class DebugPopupSuppressionTest {
             "src/main/java/com/RobinNotBad/BiliClient/activity/video/info/VideoInfoFragment.kt",
             "if (!BiliTerminal.isAutoPopupSuppressed() && SharedPreferencesUtil.getBoolean(\"first_play\", true))",
             "playClick：第一次点播放的说明（也不许吞掉这次点击）"
+        ),
+        Site(
+            "src/main/java/com/RobinNotBad/BiliClient/BiliTerminal.kt",
+            "val suppressAutoTips = isAutoPopupSuppressed()",
+            "检查更新：发现新版本时自动跳更新页（静默下载与「已下载」提示也一并免掉）"
+        ),
+        Site(
+            "src/main/java/com/RobinNotBad/BiliClient/activity/message/PrivateMsgActivity.kt",
+            "if (!BiliTerminal.isAutoPopupSuppressed()\n            && SharedPreferencesUtil.getBoolean(SettingsKeys.PRIVATE_MSG_INTERCEPT_TIP_ENABLE, true)",
+            "私信页：每次进会话都弹的拦截提示"
+        ),
+        Site(
+            "src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt",
+            "if (BiliTerminal.isAutoPopupSuppressed()) return\n        if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_LOCK_HINT_SHOWN, false)) return",
+            "播放页：触摸锁定的首次说明（门必须在记账 putBoolean 之前）"
+        ),
+        Site(
+            "src/main/java/com/RobinNotBad/BiliClient/activity/video/info/VideoInfoActivity.kt",
+            "if (!BiliTerminal.isAutoPopupSuppressed()\n            && SharedPreferencesUtil.getBoolean(\"first_videoinfo\", true)",
+            "视频详情页：首次进入的「本页面可以左右滑动」"
         ),
     )
 
