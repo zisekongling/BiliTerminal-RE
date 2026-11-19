@@ -51,10 +51,10 @@ class PlayerNewUiFormSpecTest {
     @Test
     fun `watch bottom row is centred with four default slots`() {
         // 默认布局底栏 4 格：48 / 96 / 144 / 192（设计稿 S_BOT_X）。
-        assertEquals(listOf(48f, 96f, 144f, 192f), watch.bottomPlacement(4, refW).slotXs)
-        assertNull(watch.bottomPlacement(4, refW).playX)
+        assertEquals(listOf(48f, 96f, 144f, 192f), watch.bottomPlacement(4, 0, refW).slotXs)
+        assertNull(watch.bottomPlacement(4, 0, refW).playX)
         // 5 格：24 / 72 / 120 / 168 / 216。
-        assertEquals(listOf(24f, 72f, 120f, 168f, 216f), watch.bottomPlacement(5, refW).slotXs)
+        assertEquals(listOf(24f, 72f, 120f, 168f, 216f), watch.bottomPlacement(5, 0, refW).slotXs)
         // 底栏容量：240 宽 5 格。
         assertEquals(5, watch.bottomSlotCount(refW))
     }
@@ -74,15 +74,19 @@ class PlayerNewUiFormSpecTest {
     }
 
     @Test
-    fun `phone play button takes the leftmost bottom cell and shifts slots right`() {
-        val placement = phone.bottomPlacement(4, 411f)
-        // 并入播放键后一行共 5 格，播放键占第 0 格，4 个槽位顺延。
-        val all = listOfNotNull(placement.playX) + placement.slotXs
-        assertEquals(5, all.size)
-        assertTrue(all[0] < all[1])
-        // 整行仍然居中：最左与最右关于屏幕中线对称。
-        assertEquals(411f, all.first() + all.last(), 0.001f)
-        // 槽位不会落在播放键那一格上（这是分开返回 playX 的意义）。
+    fun `phone play button sits dead centre with slots flanking it`() {
+        val width = 411f
+        val placement = phone.bottomPlacement(2, 2, width)
+        // 播放键固定在屏幕正中，槽位分列两侧。
+        assertEquals(width / 2f, placement.playX!!, 0.001f)
+        assertEquals(2, placement.leftXs.size)
+        assertEquals(2, placement.rightXs.size)
+        // 左侧全在中心左边、右侧全在中心右边，且紧邻的一格相距一个间距。
+        assertTrue(placement.leftXs.all { it < width / 2f })
+        assertTrue(placement.rightXs.all { it > width / 2f })
+        assertEquals(width / 2f - phone.bottomSpacing, placement.leftXs.max(), 0.001f)
+        assertEquals(width / 2f + phone.bottomSpacing, placement.rightXs.min(), 0.001f)
+        // 不会有一格压在播放键上。
         assertFalse(placement.slotXs.contains(placement.playX))
     }
 
@@ -117,14 +121,20 @@ class PlayerNewUiFormSpecTest {
             phonePlan.overflow.take(4).map { (it as PlayerUiLayout.Slot.Button).key },
         )
 
-        // 长条屏（320 宽）：左右两列整段并进底栏，前几个排得下，其余进「更多」。
+        // 长条屏（320 宽）：左右两列整段并进底栏；16 个槽位塞不进 7 格，放不下的进「更多」。
         val stripPlan = PlayerNewUiFormSpec.plan(strip, layout, 320f, hasGroup = false)
         assertTrue(stripPlan.left.isEmpty())
         assertTrue(stripPlan.right.isEmpty())
-        // l0 是被并入底栏的（不是溢出）——这正是「两列并入底栏」的含义。
-        assertTrue(stripPlan.bottom.any { (it as? PlayerUiLayout.Slot.Button)?.key == "l0" })
-        assertTrue(stripPlan.overflow.any { (it as? PlayerUiLayout.Slot.Button)?.key == "br2" })
-        assertEquals(allCount, stripPlan.bottom.size + stripPlan.overflow.size)
+        // 放不下时先保右边（用户放在主键右侧的高频键），剩下的容量从左半按原顺序取。
+        assertEquals(3, stripPlan.bottomRight.size)
+        assertEquals(layout.bottomRight, stripPlan.bottomRight)
+        // 容量受 bottomMaxSlots 封顶（长条屏 6），借掉一格给「更多」后剩 5；右边 3 格全留，左边剩 2。
+        assertEquals(2, stripPlan.bottomLeft.size)
+        // 被并入底栏的两列槽位确实在底栏里（不是被丢掉）。
+        assertTrue(stripPlan.bottomLeft.any { (it as? PlayerUiLayout.Slot.Button)?.key == "l0" })
+        // 没塞下的一律进「更多」，一个都不丢。
+        assertTrue(stripPlan.overflow.isNotEmpty())
+        assertEquals(allCount, stripPlan.bottomCount + stripPlan.overflow.size)
     }
 
     @Test
@@ -210,20 +220,20 @@ class PlayerNewUiFormSpecTest {
     }
 
     @Test
-    fun `dropping an invisible slot recentres the whole bottom row`() {
-        // 关键行为：摘掉一格之后整行仍然居中，不会残留一边的空洞。
-        // 注意 playX 会随槽位数变化——整行是「所有格一起居中」，不是「播放键钉死在某个位置」。
+    fun `dropping an invisible slot does not leave a gap around the play key`() {
+        // 摘掉一格后，播放键仍在正中，剩下的槽位仍然紧贴着它按固定间距排开——
+        // 不会在某一侧留出一个空格子。
         val width = 411f
-        val half = phone.buttonSize / 2f
-        for (slots in 1..6) {
-            val p = phone.bottomPlacement(slots, width)
-            val all = listOfNotNull(p.playX) + p.slotXs
-            if (all.isEmpty()) continue
-            val leftGap = all.first() - half
-            val rightGap = width - all.last() - half
-            assertEquals("slots=$slots 左右留白应相等", leftGap, rightGap, 0.001f)
-            // 相邻中心距始终相等，不因摘掉一格而错位。
-            all.zipWithNext { a, b -> assertEquals(phone.bottomSpacing, b - a, 0.001f) }
+        for (left in 0..3) {
+            for (right in 0..3) {
+                val p = phone.bottomPlacement(left, right, width)
+                assertEquals(width / 2f, p.playX!!, 0.001f)
+                assertEquals("left=$left 应全部在中心左侧", left, p.leftXs.count { it < width / 2f })
+                assertEquals("right=$right 应全部在中心右侧", right, p.rightXs.count { it > width / 2f })
+                // 相邻中心距恒定。
+                p.leftXs.zipWithNext { a, b -> assertEquals(phone.bottomSpacing, b - a, 0.001f) }
+                p.rightXs.zipWithNext { a, b -> assertEquals(phone.bottomSpacing, b - a, 0.001f) }
+            }
         }
     }
 }

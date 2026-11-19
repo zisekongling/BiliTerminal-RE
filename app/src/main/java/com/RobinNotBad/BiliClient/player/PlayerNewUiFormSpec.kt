@@ -108,46 +108,47 @@ object PlayerNewUiFormSpec {
         // ---- 锁定提示 ----
         val lockHintTop get() = s(16f)
 
-        /**
-         * 底栏一行的按钮中心 x：整行居中。播放键并入底栏时排在最左，其余按钮整体右移一格。
-         * 返回值的第 0 项是播放键（[playInRow] 为 false 时不含）。
-         */
-        fun bottomXs(count: Int, width: Float): List<Float> {
-            val total = count + if (playInRow) 1 else 0
-            if (total <= 0) return emptyList()
-            val center = width / 2f
-            return (0 until total).map { center + (it - (total - 1) / 2f) * bottomSpacing }
-        }
-
-        /** 底栏一行能放几格（含并入的播放键）：整行居中时最外侧热区不越界。 */
+        /** 底栏一行能放几格（含播放键）：整行居中时最外侧热区不越界。 */
         fun bottomCells(width: Float) =
             ((width - buttonSize) / bottomSpacing).toInt() + 1
 
         /**
-         * 底栏能放几个槽位（不含并入的播放键），受 [bottomMaxSlots] 与屏幕宽度双重约束。
-         * 手表 240 宽 → 5；手机竖屏 411 → 5；长条屏 320 → 6（封顶）。
-         */
-        fun bottomSlotCount(width: Float) =
-            (bottomCells(width) - if (playInRow) 1 else 0).coerceIn(0, bottomMaxSlots)
-
-        /**
-         * 底栏落点的最终形态：播放键的 x（不在底栏时为 null）与各槽位的 x。
+         * 底栏落点的最终形态：播放键的 x（不在底栏时为 null）、左半槽位的 x、右半槽位的 x。
+         *
+         * 并入底栏时**播放键固定在屏幕正中**，槽位按 `bottomLeft` / `bottomRight` 分列两侧——
+         * 这正好对上布局存档的语义（底左＝播放键左边、底右＝播放键右边）。左右两侧从中心
+         * 各向外按 [bottomSpacing] 排开，两边不对称时整行不再居中，但播放键本身始终不动。
          *
          * 分开返回是刻意的——调用方若自己按 `bottomXs(index)` 取，会把并入的播放键那一格
          * 一起算进槽位里，第一个槽位正好压在播放键上。这里把错位挡在源头。
          */
-        fun bottomPlacement(slotCount: Int, width: Float): BottomPlacement {
-            val xs = bottomXs(slotCount, width)
-            return if (playInRow) {
-                BottomPlacement(playX = xs.firstOrNull(), slotXs = xs.drop(1))
-            } else {
-                BottomPlacement(playX = null, slotXs = xs)
+        fun bottomPlacement(leftCount: Int, rightCount: Int, width: Float): BottomPlacement {
+            val center = width / 2f
+            if (!playInRow) {
+                // 手表：播放键在画面中心，底栏整行居中（设计稿口径，一格都不改）。
+                val total = leftCount + rightCount
+                val xs = (0 until total).map { center + (it - (total - 1) / 2f) * bottomSpacing }
+                return BottomPlacement(playX = null, leftXs = xs.take(leftCount), rightXs = xs.drop(leftCount))
             }
+            // 左半从中心往左数：紧邻播放键的那格是 leftCount-1。
+            val left = (0 until leftCount).map { center - (leftCount - it) * bottomSpacing }
+            val right = (1..rightCount).map { center + it * bottomSpacing }
+            return BottomPlacement(playX = center, leftXs = left, rightXs = right)
         }
+
+        /**
+         * 底栏能放几个槽位（不含播放键），受 [bottomMaxSlots] 与屏幕宽度双重约束。
+         * 播放键占正中一格，所以两侧各有 (总格数-1)/2 的空间。
+         */
+        fun bottomSlotCount(width: Float) =
+            (bottomCells(width) - if (playInRow) 1 else 0).coerceIn(0, bottomMaxSlots)
     }
 
     /** 底栏落点，见 [Spec.bottomPlacement]。 */
-    data class BottomPlacement(val playX: Float?, val slotXs: List<Float>)
+    data class BottomPlacement(val playX: Float?, val leftXs: List<Float>, val rightXs: List<Float>) {
+        /** 所有槽位（左半在前），手表形态直接用这个顺序。 */
+        val slotXs: List<Float> get() = leftXs + rightXs
+    }
 
     val WATCH = Spec(FORM_WATCH, scale = 1f, playInRow = false, sideColumns = true, bottomMaxSlots = 5)
 
@@ -198,17 +199,23 @@ object PlayerNewUiFormSpec {
      * 这一屏能放下哪些槽位、哪些要进「更多」。
      *
      * 顺序与设计稿一致：左列、右列、底栏，各自按上限截断，剩下的按原顺序追加进「更多」，
-     * 不丢按钮。没有左右两列的长条屏，两列整段进溢出。
+     * 不丢按钮。没有左右两列的长条屏，两列整段进底栏。
      */
     data class Plan(
         val left: List<PlayerUiLayout.Slot>,
         val right: List<PlayerUiLayout.Slot>,
-        val bottom: List<PlayerUiLayout.Slot>,
+        /** 底栏里落在播放键**左边**的槽位（存档的 bottomLeft）。 */
+        val bottomLeft: List<PlayerUiLayout.Slot>,
+        /** 底栏里落在播放键**右边**的槽位（存档的 bottomRight）。 */
+        val bottomRight: List<PlayerUiLayout.Slot>,
         /** 放不下、要进「更多」面板的槽位，保持原有顺序。 */
         val overflow: List<PlayerUiLayout.Slot>,
         /** 底栏末尾要不要借一格给「更多」按钮。 */
         val needsMoreCell: Boolean,
-    )
+    ) {
+        val bottom: List<PlayerUiLayout.Slot> get() = bottomLeft + bottomRight
+        val bottomCount: Int get() = bottomLeft.size + bottomRight.size
+    }
 
     /**
      * 按这一屏宽度排出各区域。
@@ -223,27 +230,31 @@ object PlayerNewUiFormSpec {
         hasGroup: Boolean,
     ): Plan {
         val perSide = if (spec.sideColumns) 3 else 0
-        // 长条屏没有左右两列，两列的按钮整段并入底栏。
-        val bottomAll = (if (spec.sideColumns) emptyList() else layout.left + layout.right) +
-            layout.bottomLeft + layout.bottomRight
+        // 长条屏没有左右两列，两列的按钮整段并入底栏（排在底左之前，即播放键更左边）。
+        val mergedLeft = if (spec.sideColumns) emptyList() else layout.left + layout.right
+        val leftAll = mergedLeft + layout.bottomLeft
+        val rightAll = layout.bottomRight
         val capacity = spec.bottomSlotCount(width)
-        // 长条屏没有左右两列：两列的槽位已经整段并进 bottomAll，
+        // 长条屏没有左右两列：两列的槽位已经整段并进 leftAll，
         // 这里必须返回空，否则同一批槽位会被算两次（既在底栏又在溢出里）。
         val sideOverflow = if (spec.sideColumns) {
             layout.left.drop(perSide) + layout.right.drop(perSide)
         } else {
             emptyList()
         }
-        // 没有显式组、且有东西放不下时，从底栏末尾借一格摆「更多」。
-        val needsMoreCell = !hasGroup && (sideOverflow.isNotEmpty() || bottomAll.size > capacity)
+        // 没有显式组、且有东西放不下时，从底栏借一格摆「更多」。
+        val needsMoreCell = !hasGroup && (sideOverflow.isNotEmpty() || leftAll.size + rightAll.size > capacity)
         val slotCapacity = if (needsMoreCell) (capacity - 1).coerceAtLeast(0) else capacity
-        val shown = bottomAll.take(slotCapacity)
+        // 放不下时先保右边（那里通常是音量/分P 这类高频键），左边从尾部截。'
+        val shownRight = rightAll.take(slotCapacity)
+        val shownLeft = leftAll.take((slotCapacity - shownRight.size).coerceAtLeast(0))
         return Plan(
             left = if (spec.sideColumns) layout.left.take(perSide) else emptyList(),
             right = if (spec.sideColumns) layout.right.take(perSide) else emptyList(),
-            bottom = shown,
+            bottomLeft = shownLeft,
+            bottomRight = shownRight,
             // 溢出顺序按阅读顺序：左列余下、右列余下、底栏余下，与设计稿「按原顺序追加」一致。
-            overflow = sideOverflow + bottomAll.drop(slotCapacity),
+            overflow = sideOverflow + leftAll.drop(shownLeft.size) + rightAll.drop(shownRight.size),
             needsMoreCell = needsMoreCell,
         )
     }

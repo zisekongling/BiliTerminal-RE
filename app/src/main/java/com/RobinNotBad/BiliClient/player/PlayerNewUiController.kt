@@ -522,19 +522,25 @@ class PlayerNewUiController(
             plan.left.forEachIndexed { i, s -> place(s, spec.sideX, sideYs[i]) }
             plan.right.forEachIndexed { i, s -> place(s, spec.sideRightX(width), sideYs[i]) }
         }
-        // 底栏：借格补「更多」时，最后一格由它占，槽位少排一个。
-        val placement = spec.bottomPlacement(plan.bottom.size + if (plan.needsMoreCell) 1 else 0, width)
-        plan.bottom.forEachIndexed { i, s -> place(s, placement.slotXs[i], bottomY) }
-        // 播放键并入底栏最左（手机 / 长条屏）；手表仍留在画面中心，由 init 摆放。
+        // 底栏：播放键占正中一格，槽位按存档分列两侧；手表形态播放键仍在画面中心、整行居中。
+        val placement = spec.bottomPlacement(
+            plan.bottomLeft.size,
+            plan.bottomRight.size + if (plan.needsMoreCell) 1 else 0,
+            width,
+        )
+        plan.bottomLeft.forEachIndexed { i, s -> place(s, placement.leftXs[i], bottomY) }
+        plan.bottomRight.forEachIndexed { i, s -> place(s, placement.rightXs[i], bottomY) }
+        // 播放键并入底栏正中（手机 / 长条屏）；手表仍留在画面中心，由 init 摆放。
         if (spec.playInRow) placement.playX?.let { placePlay(it, bottomY) }
+        // 「更多」借格时排在最右（它是放不下才出现的兜底入口）。
         if (plan.needsMoreCell) {
-            val moreX = placement.slotXs.lastOrNull() ?: placement.playX ?: (width / 2f)
+            val moreX = placement.rightXs.lastOrNull() ?: (width / 2f)
             placeAt(moreButton(overflow.flatMap { keysOf(it) }), PlayerNewUiGeometry.Point(moreX, bottomY))
             overflow = emptyList()
         }
         // 有显式组却没被摆到（槽位全塞满了）时，溢出的按钮也不能丢。
         if (overflow.isNotEmpty()) {
-            val moreX = placement.slotXs.lastOrNull() ?: (width / 2f)
+            val moreX = placement.rightXs.lastOrNull() ?: placement.playX ?: (width / 2f)
             placeAt(moreButton(overflow.flatMap { keysOf(it) }), PlayerNewUiGeometry.Point(moreX, bottomY))
         }
     }
