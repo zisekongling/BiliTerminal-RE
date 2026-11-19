@@ -104,6 +104,19 @@ class PlayerNewUiController(
     /** 上一次由本类设置的 drawable 实例，用来分辨「还是我设的」与「Activity 又改回去了」。 */
     private val appliedIcon = HashMap<View, android.graphics.drawable.Drawable?>()
     private var layout = PlayerUiLayout.DEFAULT
+
+    /**
+     * 本次进播放器时的界面形态（设置 → 播放器界面形态，手动切换、重进生效）。
+     * 圆屏的几何由 [PlayerNewUiGeometry] 的极坐标单独负责，形态只作用于方屏。
+     */
+    private val form = PlayerNewUiFormSpec.of(
+        SharedPreferencesUtil.getString(SettingsKeys.PLAYER_UI_FORM, SettingsKeys.PLAYER_FORM_WATCH)
+    )
+
+    /** 方屏按形态取的几何规格；圆屏一律回落到手表基准（圆屏只存在于手表形态）。 */
+    private val spec: PlayerNewUiFormSpec.Spec
+        get() = if (round) PlayerNewUiFormSpec.WATCH else form
+
     private var round = isRound
     private var shown = true
     private var gridKeys = listOf<String>()
@@ -122,28 +135,30 @@ class PlayerNewUiController(
         detach(play)
         detach(seekbar)
         // 圆屏顶栏是「时钟一行 + 标题一行」，36dp 装不下，按设计稿给到 46dp。
-        overlay.addView(top, FrameLayout.LayoutParams(-1, dp(if (round) 46 else 36), Gravity.TOP))
+        overlay.addView(top, FrameLayout.LayoutParams(-1, dp(if (round) 46f else spec.topBarHeight), Gravity.TOP))
         top.setBackgroundColor(Color.TRANSPARENT)
         oldControl.visibility = View.VISIBLE
         arrangeTop()
 
         // 设计稿的压暗范围：圆屏顶 76 / 底 96，方屏顶 66 / 底 110。
-        overlay.addView(gradient(true), FrameLayout.LayoutParams(-1, dp(if (round) 76 else 66), Gravity.TOP))
-        overlay.addView(gradient(false), FrameLayout.LayoutParams(-1, dp(if (round) 96 else 110), Gravity.BOTTOM))
+        overlay.addView(gradient(true), FrameLayout.LayoutParams(-1, dp(if (round) 76f else spec.scrimTop), Gravity.TOP))
+        overlay.addView(gradient(false), FrameLayout.LayoutParams(-1, dp(if (round) 96f else spec.scrimBottom), Gravity.BOTTOM))
         // 渐变必须在顶栏下面：刚搬进来的顶栏目前在末尾，调整绘制顺序。
         top.bringToFront()
         overlay.addView(buttons, FrameLayout.LayoutParams(-1, -1))
         buttons.bringToFront()
 
-        val playSize = if (round) 52 else 56
+        val playSize = if (round) 52f else spec.playSize
         play.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(0x6b0a080c)
             setStroke(dp(1), 0x24ffffff)
         }
         play.scaleType = ImageView.ScaleType.CENTER_INSIDE
-        play.setPadding(dp(if (round) 15 else 16), dp(if (round) 15 else 16), dp(if (round) 15 else 16), dp(if (round) 15 else 16))
-        buttons.addView(play, centered(playSize, playSize, 0f, 0f))
+        // 内边距取「热区减图标」的一半，放大后图标才跟着变大（手表 56-24 → 16，与设计稿一致）。
+        val playPad = ((playSize - (if (round) 22f else spec.playIconSize)) / 2f).coerceAtLeast(0f)
+        play.setPadding(dp(playPad), dp(playPad), dp(playPad), dp(playPad))
+        buttons.addView(play, centered(playSize.toInt(), playSize.toInt(), 0f, 0f))
 
         arc = if (round) PlayerArcProgressView(activity).also {
             it.bind { fraction, finished ->
@@ -171,17 +186,20 @@ class PlayerNewUiController(
             progressText.visibility = View.GONE
             // 设计稿 sProg：左侧时间 left12 top215 宽36 右对齐，右侧 left192 左对齐且 75% 不透明，
             // 行高 14dp、字号 10；轨道两端各留 54dp（132dp 轨道），热度波形带在轨道上方 8dp。
-            elapsed.setTextSize(10f)
-            duration.setTextSize(10f)
+            // 换成「距底」锚定后，屏幕高矮都不会把这一行挤出画面。
+            elapsed.setTextSize(spec.textSmall)
+            duration.setTextSize(spec.textSmall)
             duration.alpha = 0.75f
-            overlay.addView(elapsed, FrameLayout.LayoutParams(dp(36), dp(14), Gravity.START).apply { topMargin = dp(215); leftMargin = dp(12) })
-            overlay.addView(duration, FrameLayout.LayoutParams(dp(36), dp(14), Gravity.END).apply { topMargin = dp(215); rightMargin = dp(12) })
             elapsed.gravity = Gravity.END or Gravity.CENTER_VERTICAL
             duration.gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            // 先按当前能量到的屏幕高度摆一次；root 还没测量时这只是个临时值，
+            // root 布局完成后 placeBottomAnchored() 会再按真实宽高摆一遍（见 overlay 的 post）。
+            overlay.addView(elapsed, FrameLayout.LayoutParams(dp(spec.timeWidth), dp(spec.timeHeight), Gravity.START))
+            overlay.addView(duration, FrameLayout.LayoutParams(dp(spec.timeWidth), dp(spec.timeHeight), Gravity.END))
             // 整行改成自绘：旧样式（波形压在轨道上、滑块是小电视）与设计稿对不上。
             seekbar.setPadding(0, 0, 0, 0)
-            seekbar.customRenderer = PlayerNewProgressRenderer(seekbar)::draw
-            overlay.addView(seekbar, FrameLayout.LayoutParams(-1, dp(24)).apply { leftMargin = dp(54); rightMargin = dp(54); topMargin = dp(208) })
+            seekbar.customRenderer = PlayerNewProgressRenderer(seekbar, spec.scale)::draw
+            overlay.addView(seekbar, FrameLayout.LayoutParams(-1, dp(spec.trackRowHeight)))
         } else {
             detach(progressText)
             progressText.gravity = Gravity.CENTER
@@ -200,11 +218,16 @@ class PlayerNewUiController(
         idleFill = View(activity).apply {
             background = GradientDrawable().apply { cornerRadius = dp(2).toFloat(); setColor(0xffff6699.toInt()) }
         }
-        overlay.addView(idleTrack, FrameLayout.LayoutParams(dp(180), dp(2)).apply { leftMargin = dp(30); topMargin = dp(272) })
+        overlay.addView(idleTrack, FrameLayout.LayoutParams(0, dp(spec.idleHeight)))
         // 细进度线给满宽度、靠 scaleX 表达进度（见 syncProgress），不再每次改 layoutParams。
         idleFill.pivotX = 0f
         idleFill.scaleX = 0f
-        overlay.addView(idleFill, FrameLayout.LayoutParams(dp(180), dp(2)).apply { leftMargin = dp(30); topMargin = dp(272) })
+        overlay.addView(idleFill, FrameLayout.LayoutParams(0, dp(spec.idleHeight)))
+        // 初始态是「控制层显示」：这两条线属于沉浸态，必须一开始就藏起来。
+        // 只靠 setControlsVisible 会漏掉第一次起播——那时还没人调它，addView 的默认
+        // VISIBLE 会直接画在底边，看起来就像多了一条来路不明的进度条。
+        idleTrack.visibility = View.GONE
+        idleFill.visibility = View.GONE
 
         buildGrid()
         // 设计稿 seek 态：整屏压暗 38%（顶栏与渐变要盖在它上面，所以插到最底层），
@@ -218,6 +241,9 @@ class PlayerNewUiController(
         top.bringToFront()
         buttons.bringToFront()
         root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
+        // root 在 init 期间还没测量（height 为 0），贴底的那些元素必须等真实宽高出来再摆一次，
+        // 否则会按 displayMetrics 的全屏高度算，被状态栏/导航栏顶掉一段。
+        overlay.post { placeBottomAnchored() }
 
         // 设计稿 lockView：顶部居中一行「已锁定 · 点锁图标解锁」胶囊 + 锁图标底下 34dp 圆底
         // （黑 30% 填充 + 白 40% 内描边）。锁定时 overlay 整个收起，这一层单独顶上来；
@@ -234,7 +260,7 @@ class PlayerNewUiController(
             }
         }
         lockLayer.addView(lockHint, FrameLayout.LayoutParams(-2, dp(18), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
-            topMargin = dp(if (round) 28 else 16)
+            topMargin = dp(if (round) 28f else spec.lockHintTop)
         })
         lockRing.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
@@ -261,27 +287,32 @@ class PlayerNewUiController(
     private fun buildSeekText() {
         seekDelta.apply {
             setTextColor(accentSoft)
-            textSize = 11f
+            textSize = if (round) 11f else spec.textSmall + 1f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
         }
         seekMain.apply {
             setTextColor(Color.WHITE)
-            textSize = if (round) 28f else 30f
+            textSize = if (round) 28f else spec.seekMainText
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
         }
         seekTotal.apply {
             setTextColor(Color.WHITE)
-            textSize = 10f
+            textSize = if (round) 10f else spec.textSmall
             alpha = 0.7f
             gravity = Gravity.CENTER
         }
-        // 设计稿：圆屏 top 78 / 94 / 132，方屏 100 / 116 / 156。
-        val y = if (round) intArrayOf(78, 94, 132) else intArrayOf(100, 116, 156)
-        seekText.addView(seekDelta, FrameLayout.LayoutParams(-1, dp(14)).apply { topMargin = dp(y[0]) })
-        seekText.addView(seekMain, FrameLayout.LayoutParams(-1, dp(if (round) 34 else 36)).apply { topMargin = dp(y[1]) })
-        seekText.addView(seekTotal, FrameLayout.LayoutParams(-1, dp(13)).apply { topMargin = dp(y[2]) })
+        // 设计稿：圆屏 top 78 / 94 / 132，方屏 100 / 116 / 156（方屏按屏幕中心 ±偏移锚定）。
+        val heights = floatArrayOf(
+            if (round) 14f else spec.seekDeltaHeight,
+            if (round) 34f else spec.seekMainHeight,
+            if (round) 13f else spec.seekTotalHeight,
+        )
+        val tops = if (round) listOf(78f, 94f, 132f) else spec.seekRows(heightDp())
+        seekText.addView(seekDelta, FrameLayout.LayoutParams(-1, dp(heights[0])).apply { topMargin = dp(tops[0]) })
+        seekText.addView(seekMain, FrameLayout.LayoutParams(-1, dp(heights[1])).apply { topMargin = dp(tops[1]) })
+        seekText.addView(seekTotal, FrameLayout.LayoutParams(-1, dp(heights[2])).apply { topMargin = dp(tops[2]) })
     }
 
     /**
@@ -425,22 +456,117 @@ class PlayerNewUiController(
         layout = newLayout
         closeGrid()
         buttons.removeAllViews()
-        buttons.addView(play, centered(if (round) 52 else 56, if (round) 52 else 56, 0f, 0f))
+        val playSize = playSizeDp()
+        buttons.addView(play, centered(playSize, playSize, 0f, 0f))
         mirrors.clear()
-        val (_, overflow) = PlayerNewUiGeometry.visibleAndOverflow(layout, round)
-        val left = PlayerNewUiGeometry.sideSpec(layout.left, round)
-        val right = PlayerNewUiGeometry.mirrorX(PlayerNewUiGeometry.sideSpec(layout.right, round), widthDp())
-        val bottom = PlayerNewUiGeometry.bottomSpec(layout.bottomLeft + layout.bottomRight, round, widthDp())
-        var remainingOverflow = overflow
-        if (placeSpec(left, remainingOverflow)) remainingOverflow = emptyList()
-        if (placeSpec(right, remainingOverflow)) remainingOverflow = emptyList()
-        placeSpec(bottom, remainingOverflow)
+        if (round) {
+            placeRound()
+        } else if (root.height > 0) {
+            placeSquare()
+        } else {
+            // root 还没测量（首帧之前就被 render 调到了）：这时按 displayMetrics 摆出来的
+            // 「距底」坐标是错的，等真实宽高出来再摆一次，垫上第一步的空视图。
+            overlay.post {
+                if (!round) {
+                    buttons.removeAllViews()
+                    buttons.addView(play, centered(playSizeDp(), playSizeDp(), 0f, 0f))
+                    mirrors.clear()
+                    placeSquare()
+                    sync()
+                    applyDesignIcons()
+                }
+            }
+        }
         sync()
         applyDesignIcons()
+    }
+
+    /** 圆屏：沿用设计稿的极坐标，左右各 3 格、底栏 4 格，其余进「更多」。 */
+    private fun placeRound() {
+        val (_, overflow) = PlayerNewUiGeometry.visibleAndOverflow(layout, true)
+        val left = PlayerNewUiGeometry.sideSpec(layout.left, true)
+        val right = PlayerNewUiGeometry.mirrorX(PlayerNewUiGeometry.sideSpec(layout.right, true), widthDp())
+        val bottom = PlayerNewUiGeometry.bottomSpec(layout.bottomLeft + layout.bottomRight, true, widthDp())
+        var remaining = overflow
+        if (placeSpec(left, remaining)) remaining = emptyList()
+        if (placeSpec(right, remaining)) remaining = emptyList()
+        placeSpec(bottom, remaining)
         // 没有显式组时，溢出仍必须有入口，不能静默丢按钮。
         if (overflow.isNotEmpty() && !containsGroup(layout)) {
-            val more = moreButton(overflow.flatMap { keysOf(it) })
-            placeAt(more, if (round) PlayerNewUiGeometry.polar(88f, 305f) else PlayerNewUiGeometry.Point(120f, 204f))
+            placeAt(moreButton(overflow.flatMap { keysOf(it) }), PlayerNewUiGeometry.polar(88f, 305f))
+        }
+    }
+
+    /** 方屏：坐标一律由 [PlayerNewUiFormSpec] 按边缘锚定，屏幕高矮/宽窄都不会越界。 */
+    private fun placeSquare() {
+        val width = widthDp()
+        val height = heightDp()
+        val bottomY = spec.bottomY(height)
+        // 摆法只由 PlayerNewUiFormSpec.plan 决定，这里只负责照单落位。
+        val plan = PlayerNewUiFormSpec.plan(spec, layout, width, containsGroup(layout))
+        var overflow = plan.overflow
+        fun place(slot: PlayerUiLayout.Slot, x: Float, y: Float) {
+            overflow = placeSquareSlot(slot, x, y, overflow)
+        }
+        if (spec.sideColumns) {
+            val sideYs = spec.sideYs(height)
+            plan.left.forEachIndexed { i, s -> place(s, spec.sideX, sideYs[i]) }
+            plan.right.forEachIndexed { i, s -> place(s, spec.sideRightX(width), sideYs[i]) }
+        }
+        // 底栏：借格补「更多」时，最后一格由它占，槽位少排一个。
+        val placement = spec.bottomPlacement(plan.bottom.size + if (plan.needsMoreCell) 1 else 0, width)
+        plan.bottom.forEachIndexed { i, s -> place(s, placement.slotXs[i], bottomY) }
+        // 播放键并入底栏最左（手机 / 长条屏）；手表仍留在画面中心，由 init 摆放。
+        if (spec.playInRow) placement.playX?.let { placePlay(it, bottomY) }
+        if (plan.needsMoreCell) {
+            val moreX = placement.slotXs.lastOrNull() ?: placement.playX ?: (width / 2f)
+            placeAt(moreButton(overflow.flatMap { keysOf(it) }), PlayerNewUiGeometry.Point(moreX, bottomY))
+            overflow = emptyList()
+        }
+        // 有显式组却没被摆到（槽位全塞满了）时，溢出的按钮也不能丢。
+        if (overflow.isNotEmpty()) {
+            val moreX = placement.slotXs.lastOrNull() ?: (width / 2f)
+            placeAt(moreButton(overflow.flatMap { keysOf(it) }), PlayerNewUiGeometry.Point(moreX, bottomY))
+        }
+    }
+
+    /**
+     * 播放键并入底栏。**不能走 [placeAt]**：那会把已经 `addView` 过的 play 再加一次，
+     * `ViewGroup.addView` 对已在树上的子 View 会抛 IllegalStateException。
+     * 这里只改它自己的 layoutParams。
+     */
+    private fun placePlay(x: Float, y: Float) {
+        val size = playSizeDp()
+        val half = dp(size / 2f)
+        val lp = play.layoutParams as FrameLayout.LayoutParams
+        lp.width = dp(size)
+        lp.height = dp(size)
+        lp.gravity = 0
+        lp.leftMargin = (x * density).toInt() - half
+        lp.topMargin = (y * density).toInt() - half
+        play.layoutParams = lp
+    }
+
+    /**
+     * 方屏落一个槽位，返回仍然没被接收的溢出。
+     *
+     * 「更多」按钮会把溢出并进自己的键表（之后就不必再补一个入口），其余槽位原样把溢出传回去。
+     */
+    private fun placeSquareSlot(
+        slot: PlayerUiLayout.Slot,
+        x: Float,
+        y: Float,
+        overflow: List<PlayerUiLayout.Slot> = emptyList(),
+    ): List<PlayerUiLayout.Slot> = when (slot) {
+        is PlayerUiLayout.Slot.Button -> {
+            placeAt(button(slot.key), PlayerNewUiGeometry.Point(x, y))
+            overflow
+        }
+        is PlayerUiLayout.Slot.Group -> {
+            val keys = (if (slot.keys.isEmpty()) PlayerUiLayout.unplacedKeys(layout) else slot.keys) +
+                overflow.flatMap { keysOf(it) }
+            placeAt(moreButton(keys), PlayerNewUiGeometry.Point(x, y))
+            emptyList()
         }
     }
 
@@ -616,8 +742,12 @@ class PlayerNewUiController(
         }
         scroll.addView(rows, ViewGroup.LayoutParams(-1, -2))
         card.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        val lp = FrameLayout.LayoutParams(dp(if (round) 184 else 216), dp(if (round) 178 else 214), if (round) Gravity.CENTER else Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)
-        if (!round) lp.bottomMargin = dp(8)
+        val lp = FrameLayout.LayoutParams(
+            dp(if (round) 184f else spec.s(216f)),
+            dp(if (round) 178f else spec.s(214f)),
+            if (round) Gravity.CENTER else Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+        )
+        if (!round) lp.bottomMargin = dp(spec.s(8f))
         listHost.addView(card, lp)
         // 弹幕是独立绘制层，普通 View 的压暗盖不住它，列表打开期间让它自己藏起来
         onPanelShown(true)
@@ -687,12 +817,14 @@ class PlayerNewUiController(
             sheet.addView(View(activity).apply { setBackgroundColor(0x14ffffff) }, FrameLayout.LayoutParams(-1, dp(1)))
             sheet.addView(TextView(activity).apply {
                 text = title
-                textSize = 11f
+                textSize = if (round) 11f else spec.textSmall + 1f
                 setTextColor(Color.WHITE)
                 alpha = 0.6f
-            }, FrameLayout.LayoutParams(-2, dp(16)).apply { topMargin = dp(12); leftMargin = dp(18) })
+            }, FrameLayout.LayoutParams(-2, dp(spec.s(16f))).apply {
+                topMargin = dp(spec.s(12f)); leftMargin = dp(spec.s(18f))
+            })
             items.forEachIndexed { index, text ->
-                val row = qualityRow(text, index == selected, 13f, dp(16), dp(6), false, index, items.lastIndex) {
+                val row = qualityRow(text, index == selected, if (round) 13f else spec.textSmall + 2f, dp(16), dp(6), false, index, items.lastIndex) {
                     closeList(); onClick(index)
                 }
                 if (index == selected) row.background = GradientDrawable().apply {
@@ -700,13 +832,13 @@ class PlayerNewUiController(
                     setColor(0x24ff6699)
                 }
                 row.setPadding(dp(8), 0, dp(8), 0)
-                sheet.addView(row, FrameLayout.LayoutParams(-1, dp(34)).apply {
-                    topMargin = dp(32 + index * 36)
-                    leftMargin = dp(12)
-                    rightMargin = dp(12)
+                sheet.addView(row, FrameLayout.LayoutParams(-1, dp(spec.s(34f))).apply {
+                    topMargin = dp(spec.s(32f) + index * spec.s(36f))
+                    leftMargin = dp(spec.s(12f))
+                    rightMargin = dp(spec.s(12f))
                 })
             }
-            listHost.addView(sheet, FrameLayout.LayoutParams(-1, -1).apply { topMargin = dp(96) })
+            listHost.addView(sheet, FrameLayout.LayoutParams(-1, -1).apply { topMargin = dp(spec.sheetTop(heightDp())) })
         }
         onPanelShown(true)
         // 设计稿 quality 态整屏只有「压暗后的画面 + 面板」：顶栏、按钮、弧、时间行一律不画，
@@ -837,15 +969,15 @@ class PlayerNewUiController(
             // 圆屏标题按文字宽度居中；写成 -1 加左右 margin 时文字会偏左半个 margin。
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             topMargin = dp(20)
-        } else FrameLayout.LayoutParams(-1, dp(18)).apply {
-            topMargin = dp(16); leftMargin = dp(18); rightMargin = dp(18)
+        } else FrameLayout.LayoutParams(-1, dp(spec.s(18f))).apply {
+            topMargin = dp(spec.s(16f)); leftMargin = dp(spec.s(18f)); rightMargin = dp(spec.s(18f))
         })
         grid.orientation = LinearLayout.VERTICAL
         grid.gravity = Gravity.CENTER
         gridHost.addView(grid, FrameLayout.LayoutParams(
             dp(gridWidthDp()), dp(gridHeightDp())
         ).apply {
-            topMargin = dp(if (round) 42 else 46)
+            topMargin = dp(if (round) 42f else spec.gridTop(heightDp()))
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
         })
         gridHint.apply {
@@ -853,11 +985,14 @@ class PlayerNewUiController(
             setTextColor(0x99ffffff.toInt())
             gravity = Gravity.CENTER
         }
-        gridHost.addView(gridHint, FrameLayout.LayoutParams(-1, dp(12)).apply { topMargin = dp(if (round) 196 else 244) })
+        gridHost.addView(gridHint, FrameLayout.LayoutParams(-1, dp(12)).apply {
+            topMargin = dp(if (round) 196f else spec.gridHintTop(heightDp()))
+        })
         // 页码点：设计稿 dx=208 / dy=116.5（方屏 231 / 139），每颗顶边 = dy-10+i*12。
+        // 方屏改成跟着网格右缘走，屏幕变宽时不会甩在很远的边上。
         gridHost.addView(gridDots, FrameLayout.LayoutParams(dp(8), dp(62)).apply {
-            topMargin = dp(if (round) 106.5f else 129f)
-            leftMargin = dp(if (round) 204 else 227)
+            topMargin = dp(if (round) 106.5f else spec.gridTop(heightDp()) - spec.s(17f))
+            leftMargin = dp(if (round) 204f else (widthDp() + spec.gridW) / 2f + spec.s(12f))
         })
         // 方屏顶栏右侧的收起按钮（设计稿 ib(214,25)：中心 (214,25)、36dp 热区、图标 more）。
         if (!round) {
@@ -870,8 +1005,8 @@ class PlayerNewUiController(
                 setPadding(dp(8), dp(8), dp(8), dp(8))
                 setOnClickListener { closeGrid() }
             }, FrameLayout.LayoutParams(dp(36), dp(36)).apply {
-                gravity = Gravity.TOP or Gravity.START
-                leftMargin = dp(196); topMargin = dp(7)
+                gravity = Gravity.TOP or Gravity.END
+                rightMargin = dp(spec.s(8f)); topMargin = dp(spec.s(7f))
             })
         }
         overlay.addView(gridHost, FrameLayout.LayoutParams(-1, -1))
@@ -919,9 +1054,9 @@ class PlayerNewUiController(
         })
     }
 
-    private fun gridCellWidth() = if (round) 46 else 64
-    private fun gridCellHeight() = if (round) 46 else 58
-    private fun gridGap() = if (round) 4 else 6
+    private fun gridCellWidth() = if (round) 46f else spec.gridCellW
+    private fun gridCellHeight() = if (round) 46f else spec.gridCellH
+    private fun gridGap() = if (round) 4f else spec.gridGap
     private fun gridWidthDp() = gridCellWidth() * 3 + gridGap() * 2
     private fun gridHeightDp() = gridCellHeight() * 3 + gridGap() * 2
 
@@ -1080,12 +1215,18 @@ class PlayerNewUiController(
             }
         }
         // 真身已在别处时复制；这样原状态更新仍只写一处。
-        if (isDescendant(primary, buttons) || isDescendant(primary, grid)) return mirror(primary, 36, 20, key)
+        if (isDescendant(primary, buttons) || isDescendant(primary, grid)) {
+            return mirror(primary, buttonDp(), iconDp(), key)
+        }
         detach(primary)
-        styleButton(primary, 36, 20)
+        styleButton(primary, buttonDp(), iconDp())
         designViews[primary] = key
         return primary
     }
+
+    /** 槽位热区与图标边长（dp）：圆屏沿用设计稿 36/20，方屏按形态放大。 */
+    private fun buttonDp() = if (round) 36 else spec.buttonSize.toInt().coerceAtLeast(1)
+    private fun iconDp() = if (round) 20 else spec.iconSize.toInt().coerceAtLeast(1)
 
     private fun moreButton(keys: List<String>): View = ImageButton(activity).apply {
         // 设计稿 ic(214,184,'more')：三点图标；旧位图 morehide 是方框三横线，不符
@@ -1125,11 +1266,66 @@ class PlayerNewUiController(
         return view
     }
 
+    /**
+     * 把贴底锚定的元素按**真实**宽高摆一遍：进度行两端的两个时间、进度条本身、沉浸细进度线。
+     *
+     * 只在构造末尾（overlay 已挂上、root 完成布局后）调用一次。设计稿把这一整块都锚在底边上
+     * （时间距底 58、底栏距底 28、细线距底 8），屏幕一高一矮都跟着走；若留在 init 里按
+     * displayMetrics 摆，手机上的全屏高度比可视区大，这些元素会整体下沉到屏幕外。
+     */
+    private fun placeBottomAnchored() {
+        if (round) return // 圆屏：时间行在中心键下方、进度是弧形，不参与。
+        val height = heightDp()
+        val width = widthDp()
+        val rowTop = spec.timeTop(height)
+        val rowInset = spec.timeLeft
+        (elapsed.layoutParams as? FrameLayout.LayoutParams)?.let {
+            it.width = dp(spec.timeWidth)
+            it.height = dp(spec.timeHeight)
+            it.gravity = Gravity.START
+            it.leftMargin = dp(rowInset)
+            it.rightMargin = 0
+            it.topMargin = dp(rowTop)
+            elapsed.layoutParams = it
+        }
+        (duration.layoutParams as? FrameLayout.LayoutParams)?.let {
+            it.width = dp(spec.timeWidth)
+            it.height = dp(spec.timeHeight)
+            it.gravity = Gravity.END
+            it.rightMargin = dp(rowInset)
+            it.leftMargin = 0
+            it.topMargin = dp(rowTop)
+            duration.layoutParams = it
+        }
+        (seekbar.layoutParams as? FrameLayout.LayoutParams)?.let {
+            it.leftMargin = dp(spec.trackInset)
+            it.rightMargin = dp(spec.trackInset)
+            it.topMargin = dp(spec.trackTop(height))
+            seekbar.layoutParams = it
+        }
+        val idleWidth = spec.idleWidth(width)
+        val idleTop = spec.idleTop(height)
+        for (view in arrayOf(idleTrack, idleFill)) {
+            (view.layoutParams as? FrameLayout.LayoutParams)?.let {
+                it.width = dp(idleWidth)
+                it.leftMargin = dp(spec.idleInset)
+                it.topMargin = dp(idleTop)
+                view.layoutParams = it
+            }
+        }
+    }
+
+    /**
+     * 把一个按钮中心摆到 dp 坐标上。热区尺寸按形态放大（手表 36、手机 50、长条屏 29），
+     * 归位时减的是热区的一半，所以放大后中心仍然对得上。
+     */
     private fun placeAt(view: View, point: PlayerNewUiGeometry.Point) {
         val p = if (round) PlayerNewUiGeometry.scalePoint(point, widthDp()) else point
-        val lp = FrameLayout.LayoutParams(dp(36), dp(36))
-        lp.leftMargin = (p.x * density - dp(18)).toInt()
-        lp.topMargin = (p.y * density - dp(18)).toInt()
+        val size: Float = if (round) 36f else spec.buttonSize
+        val half = dp(size / 2f)
+        val lp = FrameLayout.LayoutParams(dp(size), dp(size))
+        lp.leftMargin = (p.x * density).toInt() - half
+        lp.topMargin = (p.y * density).toInt() - half
         buttons.addView(view, lp)
     }
 
@@ -1189,6 +1385,16 @@ class PlayerNewUiController(
     private fun idleEnabled() = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_NEW_IDLE_PROGRESS, true)
     private fun widthDp() = if (round) PlayerNewUiGeometry.REFERENCE_SIZE_DP else
         (root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels) / density
+
+    /**
+     * 方屏的可视高度（dp）。**优先用 root 的实测高度**：displayMetrics 给的是含状态栏/导航栏的
+     * 全屏高度，比播放页的可视区大，拿它去算「距底 N」会让底栏整体沉到屏幕外。
+     * 还没测量时退回 displayMetrics（此时摆的位置只是临时的，[overlay] 的 post 会重摆一次）。
+     */
+    private fun heightDp() = if (round) PlayerNewUiGeometry.REFERENCE_SIZE_DP else
+        (root.height.takeIf { it > 0 } ?: activity.resources.displayMetrics.heightPixels) / density
+    /** 播放键热区：圆屏 52；方屏按形态（手表 56、手机 78、长条屏并入底栏后与普通按钮同大）。 */
+    private fun playSizeDp() = (if (round) 52f else spec.playSize).toInt()
     private fun dp(value: Int) = (value * density).toInt()
     private fun dp(value: Float) = (value * density).toInt()
     private fun detach(view: View) { (view.parent as? ViewGroup)?.removeView(view) }

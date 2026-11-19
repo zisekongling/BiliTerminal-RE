@@ -20,7 +20,14 @@ import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
  * 缓冲段优先用播放器给的真实值（拖动/加载时才有意义），没有真实值时退回设计稿的
  * `max(.55, p+.08)`，避免进度条大片空白。
  */
-class PlayerNewProgressRenderer(private val bar: HighEnergyProgressBar) {
+class PlayerNewProgressRenderer(
+    private val bar: HighEnergyProgressBar,
+    /**
+     * 界面形态的放大系数（手表 1.0、手机 1.4）。轨道粗细、波形高度、滑块半径都乘它，
+     * 否则手机上这条进度行会细得像一根头发。
+     */
+    private val scale: Float = 1f,
+) {
 
     private val density = bar.resources.displayMetrics.density
 
@@ -59,11 +66,11 @@ class PlayerNewProgressRenderer(private val bar: HighEnergyProgressBar) {
         val fraction = if (bar.max <= 0) 0f else (bar.progress.toFloat() / bar.max).coerceIn(0f, 1f)
         // 拖动时设计稿把轨道加粗到 5dp、滑块放大到 6dp。
         val dragging = bar.isPressed || bar.isFocused
-        val barHeight = (if (dragging) 5f else 3f) * density
+        val barHeight = (if (dragging) 5f else 3f) * scale * density
 
         drawWave(canvas, width)
 
-        val centerY = 14f * density
+        val centerY = 14f * scale * density
         val half = barHeight / 2f
         // 圆角半径取条高的一半 —— 设计稿的 bar 是 height=w、border-radius=w。
         val radius = barHeight
@@ -81,10 +88,10 @@ class PlayerNewProgressRenderer(private val bar: HighEnergyProgressBar) {
             canvas.drawRoundRect(rect, radius, radius, playedPaint)
         }
 
-        val thumbRadius = (if (dragging) 6f else 4f) * density
+        val thumbRadius = (if (dragging) 6f else 4f) * scale * density
         val x = width * fraction
         canvas.drawCircle(x, centerY, thumbRadius, thumbFill)
-        thumbStroke.strokeWidth = 2f * density
+        thumbStroke.strokeWidth = 2f * scale * density
         canvas.drawCircle(x, centerY, thumbRadius, thumbStroke)
 
         // 片段与点标记画在最上层：旧版由 HighEnergyProgressBar 自己画，customRenderer
@@ -112,8 +119,8 @@ class PlayerNewProgressRenderer(private val bar: HighEnergyProgressBar) {
         for (value in data) if (value > peak) peak = value
         if (peak <= 0f) return
 
-        val baseline = 8f * density
-        val height = 7f * density
+        val baseline = 8f * scale * density
+        val height = 7f * scale * density
         val lastIndex = data.size - 1
         path.reset()
         path.moveTo(0f, baseline)
@@ -136,8 +143,8 @@ class PlayerNewProgressRenderer(private val bar: HighEnergyProgressBar) {
     private fun drawMarks(canvas: Canvas, width: Float, trackBottom: Float) {
         val total = bar.max
         if (total <= 0) return
-        val minWidth = 2f * density
-        val strip = 3f * density
+        val minWidth = 2f * scale * density
+        val strip = 3f * scale * density
         for (mark in bar.segmentMarks) {
             val from = mark.startMs.coerceIn(0, total)
             val to = mark.endMs.coerceIn(0, total)
@@ -156,8 +163,8 @@ class PlayerNewProgressRenderer(private val bar: HighEnergyProgressBar) {
     private fun drawPointMarks(canvas: Canvas, width: Float, trackBottom: Float) {
         val total = bar.max
         if (total <= 0) return
-        val half = 4f * density
-        val tip = 5f * density
+        val half = 4f * scale * density
+        val tip = 5f * scale * density
         for (point in bar.jumpPointMarks) {
             val center = (width * point.posMs.coerceIn(0, total) / total).coerceIn(half, width - half)
             path.reset()
