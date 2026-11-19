@@ -64,6 +64,12 @@ class HighEnergyProgressBar @JvmOverloads constructor(
     /** 供 [customRenderer] 读取的高能波形步长（秒）。 */
     val highEnergyStepSeconds: Int get() = stepSec
 
+    /** 供 [customRenderer] 读取的片段标记（26.11.19：新版渲染器此前整段跳过了它们）。 */
+    val segmentMarks: List<Mark> get() = marks
+
+    /** 供 [customRenderer] 读取的点标记（精彩时刻这类跳转点）。 */
+    val jumpPointMarks: List<PointMark> get() = pointMarks
+
     /** 片段标记（可为空）。改动只走 [setMarks] / [clearMarks]，两者都会 invalidate。 */
     private var marks: List<Mark> = emptyList()
     private val markPaint = Paint().apply { isAntiAlias = true; style = Paint.Style.FILL }

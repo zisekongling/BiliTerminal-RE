@@ -5616,9 +5616,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
 
             right_control.setPadding(0, 0, padding, 0)
 
-            val danmakuParams = mDanmakuView!!.layoutParams as RelativeLayout.LayoutParams
-            danmakuParams.setMargins(0, padding * 3, 0, padding * 3)
-            mDanmakuView!!.layoutParams = danmakuParams
+            // 新版把 DanmakuView 包进了 danmaku_container（FrameLayout），这里只能用 MarginLayoutParams：
+            // 强转 RelativeLayout.LayoutParams 会在手机/旧版共存路径上抛 ClassCastException（26.11.19 真机崩溃）。
+            val danmakuParams = mDanmakuView!!.layoutParams as? ViewGroup.MarginLayoutParams
+            if (danmakuParams != null) {
+                danmakuParams.setMargins(0, padding * 3, 0, padding * 3)
+                mDanmakuView!!.layoutParams = danmakuParams
+            }
 
             text_subtitle.maxWidth = (screen_width * 0.65).toInt()
 
@@ -7330,7 +7334,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 if (data != null && data.hasValidData()) {
                     runOnUiThread {
                         if (!destroyed) {
-                            seekbar_progress.setHighEnergyData(data.events, data.stepSec)
+                            applyHighEnergyCurve(data.events, data.stepSec)
                             Logu.d("高能进度条", "数据加载成功并设置到进度条")
                         }
                     }
@@ -7374,7 +7378,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     )
                     return@postDelayed
                 }
-                seekbar_progress.setHighEnergyData(curve, DanmakuDensityHighEnergy.STEP_SEC)
+                applyHighEnergyCurve(curve, DanmakuDensityHighEnergy.STEP_SEC)
                 Logu.d(
                     "高能进度条",
                     "本地兜底生效：弹幕 " + times.size + " 条，曲线 " + curve.size + " 个桶"
@@ -7383,6 +7387,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 Logu.e("高能进度条", "本地兜底失败: " + e.message)
             }
         }, DENSITY_FALLBACK_DELAY_MS)
+    }
+
+    /**
+     * 高能曲线的统一入口：方屏进度条与圆屏弧共用同一份数据。
+     *
+     * 圆屏下 [seekbar_progress] 被藏起来、只靠弧形进度显示，不把曲线同步过去的话
+     * 弧内侧的热度刻度会一直停在设计稿的示意波形上。
+     */
+    private fun applyHighEnergyCurve(events: FloatArray, stepSec: Int) {
+        seekbar_progress.setHighEnergyData(events, stepSec)
+        newPlayerUi?.arcProgress()?.setHeat(events)
     }
 
     // ------------------------------------------------------------------ 连播队列

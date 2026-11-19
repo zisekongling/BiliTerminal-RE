@@ -73,6 +73,9 @@ class PlayerArcProgressView @JvmOverloads constructor(
 
     private var onSeek: ((Float, Boolean) -> Unit)? = null
 
+    /** 真实高能波形；null 时退回设计稿的示意刻度（[HEAT]）。 */
+    private var heatData: FloatArray? = null
+
     fun setProgress(value: Int, max: Int) {
         fraction = if (max <= 0) 0f else (value.toFloat() / max).coerceIn(0f, 1f)
         invalidate()
@@ -81,6 +84,12 @@ class PlayerArcProgressView @JvmOverloads constructor(
     fun setIdle(isIdle: Boolean) {
         idle = isIdle
         if (isIdle) dragging = false
+        invalidate()
+    }
+
+    /** 接入真实高能数据；传 null 或空数组恢复设计稿的示意刻度。 */
+    fun setHeat(data: FloatArray?) {
+        heatData = if (data == null || data.isEmpty()) null else data
         invalidate()
     }
 
@@ -124,14 +133,19 @@ class PlayerArcProgressView @JvmOverloads constructor(
         drawThumb(canvas, radius)
     }
 
-    /** 弧内侧的热度刻度：外端固定 r=103，向内最多缩 5.5dp。 */
+    /** 弧内侧的热度刻度：外端固定 r=103，向内最多缩 5.5dp。优先用真实高能数据。 */
     private fun drawHeat(canvas: Canvas) {
         heat.strokeWidth = 1.6f * unit
         val outer = 103f * unit
-        for (index in HEAT.indices) {
-            val degree = START_DEGREE + SWEEP_DEGREE * index / (HEAT.size - 1)
+        val data = heatData ?: HEAT
+        var peak = 0f
+        for (value in data) if (value > peak) peak = value
+        if (peak <= 0f) return
+        val last = data.size - 1
+        for (index in data.indices) {
+            val degree = START_DEGREE + SWEEP_DEGREE * index / last.coerceAtLeast(1)
             val radians = Math.toRadians(degree.toDouble())
-            val length = min(HEAT[index], 1f) * 5.5f * unit
+            val length = (data[index] / peak).coerceIn(0f, 1f) * 5.5f * unit
             val cos = cos(radians).toFloat()
             val sin = sin(radians).toFloat()
             canvas.drawLine(

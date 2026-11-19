@@ -5,7 +5,6 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
-import kotlin.math.max
 
 /**
  * 新版播放器方屏进度行的绘制（对应设计稿 design/player-redesign-v2.html 的 `sProg`）。
@@ -49,22 +48,13 @@ class PlayerNewProgressRenderer(private val bar: HighEnergyProgressBar) {
         style = Paint.Style.STROKE
         color = 0xffff6699.toInt()
     }
+    /** 片段标记（会跳的广告区间等）的贴底实心条。 */
+    private val markPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val path = Path()
     private val rect = RectF()
 
-    /** 诊断用：前几次绘制打一条现场日志，确认控件尺寸与进度真的进来了。 */
-    private var drawCount = 0
-
     fun draw(canvas: Canvas) {
         val width = bar.width.toFloat()
-        if (drawCount < 3) {
-            drawCount++
-            com.RobinNotBad.BiliClient.util.Logu.d(
-                "进度行绘制>w=" + width + " h=" + bar.height + " max=" + bar.max +
-                    " p=" + bar.progress + " sp=" + bar.secondaryProgress +
-                    " vis=" + bar.visibility + " wave=" + (bar.highEnergyWave?.size ?: -1)
-            )
-        }
         if (width <= 0f) return
         val fraction = if (bar.max <= 0) 0f else (bar.progress.toFloat() / bar.max).coerceIn(0f, 1f)
         // 拖动时设计稿把轨道加粗到 5dp、滑块放大到 6dp。
@@ -96,13 +86,17 @@ class PlayerNewProgressRenderer(private val bar: HighEnergyProgressBar) {
         canvas.drawCircle(x, centerY, thumbRadius, thumbFill)
         thumbStroke.strokeWidth = 2f * density
         canvas.drawCircle(x, centerY, thumbRadius, thumbStroke)
+
+        // 片段与点标记画在最上层：旧版由 HighEnergyProgressBar 自己画，customRenderer
+        // 接管后那段被整段跳过，这里补回来。
+        drawMarks(canvas, width, centerY + half)
+        drawPointMarks(canvas, width, centerY + half)
     }
 
-    /** 缓冲段：真实 secondaryProgress 比已播更靠前时才用它，否则照设计稿的 `max(.55, p+.08)`。 */
+    /** 缓冲段只用播放器给的真实值；没有真实值就不画，不再伪造一段固定长度。 */
     private fun bufferedFraction(fraction: Float): Float {
         val real = if (bar.max <= 0) 0f else bar.secondaryProgress.toFloat() / bar.max
-        if (real > fraction) return real.coerceAtMost(1f)
-        return max(0.55f, fraction + 0.08f).coerceAtMost(1f)
+        return if (real > fraction) real.coerceAtMost(1f) else 0f
     }
 
     /**
@@ -131,5 +125,48 @@ class PlayerNewProgressRenderer(private val bar: HighEnergyProgressBar) {
         path.lineTo(width, baseline)
         path.close()
         canvas.drawPath(path, wavePaint)
+    }
+
+    /**
+     * 片段标记：轨道上铺一层半透明底，再贴一条实心条。
+     *
+     * 口径与旧版 [HighEnergyProgressBar] 一致（半透明铺底 + 贴底实心条），只是这里贴在
+     * 新版 3dp 轨道的下沿而不是整个控件底。极短片段至少给 2dp，避免缩成看不见。
+     */
+    private fun drawMarks(canvas: Canvas, width: Float, trackBottom: Float) {
+        val total = bar.max
+        if (total <= 0) return
+        val minWidth = 2f * density
+        val strip = 3f * density
+        for (mark in bar.segmentMarks) {
+            val from = mark.startMs.coerceIn(0, total)
+            val to = mark.endMs.coerceIn(0, total)
+            if (to <= from) continue
+            val x1 = width * from / total
+            val rawRight = width * to / total
+            val x2 = if (rawRight - x1 < minWidth) x1 + minWidth else rawRight
+            markPaint.color = (0x26 shl 24) or (mark.color and 0x00FFFFFF)
+            canvas.drawRect(x1, trackBottom - strip * 2, x2, trackBottom, markPaint)
+            markPaint.color = (0xE6 shl 24) or (mark.color and 0x00FFFFFF)
+            canvas.drawRoundRect(x1, trackBottom - strip, x2, trackBottom, strip / 2f, strip / 2f, markPaint)
+        }
+    }
+
+    /** 点标记：贴在轨道下沿的小三角，尖朝下。左右各留半个三角宽，避免首尾被裁掉。 */
+    private fun drawPointMarks(canvas: Canvas, width: Float, trackBottom: Float) {
+        val total = bar.max
+        if (total <= 0) return
+        val half = 4f * density
+        val tip = 5f * density
+        for (point in bar.jumpPointMarks) {
+            val center = (width * point.posMs.coerceIn(0, total) / total).coerceIn(half, width - half)
+            path.reset()
+            path.moveTo(center, trackBottom + tip)
+            path.lineTo(center - half, trackBottom)
+            path.lineTo(center + half, trackBottom)
+            path.close()
+            markPaint.color = point.color
+            canvas.drawPath(path, markPaint)
+        }
     }
 }

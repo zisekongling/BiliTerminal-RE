@@ -3,7 +3,6 @@ package com.RobinNotBad.BiliClient.player
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.Color
-import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.SpannableString
@@ -202,7 +201,10 @@ class PlayerNewUiController(
             background = GradientDrawable().apply { cornerRadius = dp(2).toFloat(); setColor(0xffff6699.toInt()) }
         }
         overlay.addView(idleTrack, FrameLayout.LayoutParams(dp(180), dp(2)).apply { leftMargin = dp(30); topMargin = dp(272) })
-        overlay.addView(idleFill, FrameLayout.LayoutParams(0, dp(2)).apply { leftMargin = dp(30); topMargin = dp(272) })
+        // 细进度线给满宽度、靠 scaleX 表达进度（见 syncProgress），不再每次改 layoutParams。
+        idleFill.pivotX = 0f
+        idleFill.scaleX = 0f
+        overlay.addView(idleFill, FrameLayout.LayoutParams(dp(180), dp(2)).apply { leftMargin = dp(30); topMargin = dp(272) })
 
         buildGrid()
         // 设计稿 seek 态：整屏压暗 38%（顶栏与渐变要盖在它上面，所以插到最底层），
@@ -242,11 +244,8 @@ class PlayerNewUiController(
         lockLayer.addView(lockRing, FrameLayout.LayoutParams(dp(34), dp(34)))
         lockLayer.visibility = View.GONE
         root.addView(lockLayer, FrameLayout.LayoutParams(-1, -1))
-        // 每帧绘制前校准一遍图标：Activity 改一次图标（弹幕开关、锁定、播放暂停）就把它拉回来。
-        overlay.viewTreeObserver.addOnPreDrawListener {
-            applyDesignIcons()
-            true
-        }
+        // 图标校准不再挂每帧的 OnPreDrawListener（那会每帧遍历全部按钮并 setColorFilter，
+        // 是新版卡顿的主因之一）。改成只在状态可能变化时校准：重摆、显隐、镜像同步、面板开合。
         // 保持原锁定遮罩与落脚点在新版层之上；列表层同理不能挡住解锁。
         root.findViewById<View>(R.id.lock_overlay).bringToFront()
         root.findViewById<View>(R.id.lock_holder).bringToFront()
@@ -437,118 +436,16 @@ class PlayerNewUiController(
         if (placeSpec(right, remainingOverflow)) remainingOverflow = emptyList()
         placeSpec(bottom, remainingOverflow)
         sync()
+        applyDesignIcons()
         // 没有显式组时，溢出仍必须有入口，不能静默丢按钮。
         if (overflow.isNotEmpty() && !containsGroup(layout)) {
             val more = moreButton(overflow.flatMap { keysOf(it) })
             placeAt(more, if (round) PlayerNewUiGeometry.polar(88f, 305f) else PlayerNewUiGeometry.Point(120f, 204f))
         }
-        probeSlots()
-        dumpPlacement()
-        dumpTopLeft()
     }
 
-    /** 临时诊断：打印左上角区域里所有有尺寸的 View，用来找出压在标题上的那个蓝色圆。 */
-    private fun dumpTopLeft() {
-        val text = StringBuilder("新版左上角>")
-        fun visit(view: View, depth: Int) {
-            if (depth > 12) return
-            val location = IntArray(2)
-            view.getLocationOnScreen(location)
-            if (location[0] < 120 && location[1] < 120 && view.width > 20 && view.height > 20) {
-                val name = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull() ?: "-"
-                text.append("\n").append(view.javaClass.simpleName).append('#').append(name)
-                    .append(" (").append(location[0]).append(',').append(location[1]).append(") ")
-                    .append(view.width).append('x').append(view.height)
-                    .append(" vis=").append(view.visibility)
-                    .append(" 父=").append((view.parent as? View)?.let {
-                        runCatching { it.resources.getResourceEntryName(it.id) }.getOrNull()
-                    })
-            }
-            if (view is ViewGroup) for (index in 0 until view.childCount) visit(view.getChildAt(index), depth + 1)
-        }
-        visit(activity.window.decorView, 0)
-        Logu.d(text.toString())
-    }
-
-    /**
-     * 槽位探测：落位后打一遍每个 key 的按钮本体类型。
-     * 返回 null 说明 [primaryOf] 没找到（当前视频不支持、或按钮还没接上线），
-     * 那个槽位就会摆一个空 View —— 画面上看不见，只用日志能看出来。
-     */
-    private fun probeSlots() {
-        val keys = listOf(
-            PlayerButtons.LOCK, PlayerButtons.SPEED, PlayerButtons.DANMAKU, PlayerButtons.ROTATE,
-            PlayerButtons.QUALITY, PlayerButtons.SOUND_CUT, PlayerButtons.SOUND_ADD, PlayerButtons.PAGE_SELECTOR
-        )
-        Logu.d("新版槽位> " + keys.joinToString(" ") { key ->
-            key + "=" + (slotOf(key)?.javaClass?.simpleName ?: "null")
-        })
-    }
-
-    /**
-     * 布局落位后打一条现场日志。
-     *
-     * 新版控件全是代码 new 出来的、没有 resource-id，uiautomator 抓不到，
-     * 出问题时没法从控件树核对坐标。这条日志给的是**真实屏幕像素**的中心点与宽高，
-     * 与设计稿的 dp 参考值（圆屏 233dp 参考系，见 [PlayerNewUiGeometry]）乘以 density 后应逐项吻合。
-     */
-    private fun dumpPlacement() {
-        buttons.post {
-            val location = IntArray(2)
-            val text = StringBuilder()
-            text.append("新版布局>round=").append(round)
-                .append(" density=").append(density)
-                .append(" 参考边长=").append(PlayerNewUiGeometry.REFERENCE_SIZE_DP).append("dp")
-                .append(" 屏宽dp=").append(widthDp())
-            for (index in 0 until buttons.childCount) {
-                val child = buttons.getChildAt(index)
-                child.getLocationOnScreen(location)
-                val name = child.contentDescription?.toString()
-                    ?: (child as? TextView)?.text?.toString()
-                    ?: if (child === play) "播放键" else "未知"
-                val rect = Rect()
-                val globalVisible = child.getGlobalVisibleRect(rect)
-                text.append("\n  ").append(name)
-                    .append(" 中心=(").append(location[0] + child.width / 2)
-                    .append(',').append(location[1] + child.height / 2)
-                    .append(") 宽高=").append(child.width).append('x').append(child.height)
-                    .append(" 可见=").append(child.visibility == View.VISIBLE)
-                    .append(" shown=").append(child.isShown)
-                    .append(" alpha=").append(child.alpha)
-                    .append(" 类型=").append(child.javaClass.simpleName)
-                    .append(" 文本=").append((child as? TextView)?.text)
-                    .append(" 有图=").append((child as? ImageView)?.drawable != null)
-                    .append(" 图宽=").append((child as? ImageView)?.drawable?.intrinsicWidth ?: -1)
-                    .append(" imAlpha=").append((child as? ImageView)?.imageAlpha ?: -1)
-                    .append(" 滤镜=").append((child as? ImageView)?.colorFilter != null)
-                    .append(" 图类=").append((child as? ImageView)?.drawable?.javaClass?.simpleName)
-                    .append(" 填充=").append((child as? ImageView)?.paddingLeft)
-                    .append(" 尺度=").append((child as? ImageView)?.scaleType)
-                    .append(" z=").append(child.z).append(" tAlpha=").append(child.transitionAlpha)
-                    .append(" 全局可见=").append(globalVisible).append(rect.toShortString())
-                    .append(" 父=").append(
-                        (child.parent as? View)?.let { parent ->
-                            if (parent === buttons) "buttons" else runCatching {
-                                parent.resources.getResourceEntryName(parent.id)
-                            }.getOrNull() ?: parent.javaClass.simpleName
-                        }
-                    )
-            }
-            for (probe in arrayOf<View?>(seekbar, elapsed, duration, buttons, overlay)) {
-                if (probe == null) continue
-                probe.getLocationOnScreen(location)
-                text.append("\n  [层]").append(probe.javaClass.simpleName).append(" (")
-                    .append(location[0]).append(',').append(location[1]).append(") ")
-                    .append(probe.width).append('x').append(probe.height)
-                    .append(" vis=").append(probe.visibility).append(" alpha=").append(probe.alpha)
-                    .append(" shown=").append(probe.isShown)
-                    .append(" 父=").append((probe.parent as? View)?.let { parent ->
-                        parent.javaClass.simpleName + "/vis" + parent.visibility + "/shown" + parent.isShown
-                    })
-            }
-            Logu.d(text.toString())
-        }
-    }
+    /** 圆屏弧形进度（方屏为 null）：高能数据加载后由 Activity 把真实曲线同步过来。 */
+    fun arcProgress(): PlayerArcProgressView? = arc
 
     fun setControlsVisible(visible: Boolean) {
         shown = visible
@@ -572,6 +469,7 @@ class PlayerNewUiController(
             closeGrid()
             closeList()
         }
+        applyDesignIcons()
         syncProgress()
     }
 
@@ -630,6 +528,9 @@ class PlayerNewUiController(
             val fixed = designSpeedLabel(label.text)
             if (fixed != null && fixed != label.text) label.text = fixed
         }
+        // 镜像同步由 Activity 的定时器驱动（约 400ms 一次），顺手在这里校准图标，
+        // 取代原先每帧都跑的 OnPreDrawListener。
+        applyDesignIcons()
         syncProgress()
     }
 
@@ -671,9 +572,11 @@ class PlayerNewUiController(
             elapsed.text = StringUtil.toTime(value / 1000)
             duration.text = StringUtil.toTime(max / 1000)
             if (idleFill.visibility == View.VISIBLE) {
-                val lp = idleFill.layoutParams
-                lp.width = if (max <= 0) 0 else (dp(180) * value.toFloat() / max).toInt()
-                idleFill.layoutParams = lp
+                // 用 scaleX 而不是改 layoutParams：后者每次都触发 requestLayout，
+                // 进度回调约 1Hz、拖动时更密，是新版卡顿的另一个来源。
+                val fraction = if (max <= 0) 0f else value.toFloat() / max
+                idleFill.pivotX = 0f
+                idleFill.scaleX = fraction
             }
         }
     }
@@ -1248,9 +1151,17 @@ class PlayerNewUiController(
         mirror.visibility = primary.visibility
         mirror.isEnabled = primary.isEnabled
         if (primary is ImageButton && mirror is ImageButton) {
-            mirror.setImageDrawable(primary.drawable?.constantState?.newDrawable(activity.resources)?.mutate())
+            // 只在真身换了图时才复制：每 400ms 无条件 newDrawable().mutate() 会反复触发
+            // 镜像的重绘与布局，是新版卡顿的来源之一。
+            val source = primary.drawable
+            if (mirror.tag !== source) {
+                mirror.setImageDrawable(source?.constantState?.newDrawable(activity.resources)?.mutate())
+                mirror.tag = source
+            }
             mirror.contentDescription = primary.contentDescription
-        } else if (primary is TextView && mirror is TextView) mirror.text = primary.text
+        } else if (primary is TextView && mirror is TextView && mirror.text != primary.text) {
+            mirror.text = primary.text
+        }
     }
 
     private fun centered(width: Int, height: Int, xDp: Float, yDp: Float) =
