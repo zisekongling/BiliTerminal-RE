@@ -119,3 +119,8 @@ bin/
 # 公共仓库里只有 util/OptionalFeatures 这个反射门面和几处条件注册，看不到实现。
 # 同理用护栏忽略，防止一次 `git add -A` 把私有源码推上 GitHub。
 /private/
+
+# 本机联调工作区（.local/）：adb 走查脚本、各分辨率×DPI 的对照截图、gradlew 重定向出来的
+# 构建日志（shots/ 与 scratch/）。都是「这一轮验证的证据」，不是客户端代码，体积还会随
+# 每轮截图涨；与 design/、outputs/ 同理用护栏忽略，防止一次 `git add -A` 就带进去。
+/.local/
