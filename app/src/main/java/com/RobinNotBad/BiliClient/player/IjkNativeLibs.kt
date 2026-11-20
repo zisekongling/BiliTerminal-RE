@@ -236,7 +236,16 @@ object IjkNativeLibs {
             Logu.ringSnapshot(),
             CrashReporter.uptimeSeconds()
         )
-        Logu.i(TAG, "原生库失败诊断已上报，报错ID=${result.code}")
+        // 26.11.20（崩溃记录加固）：upload 现在「先落盘再上传」，没发出去也会返回 CODE_SAVED_LOCALLY(-5)，
+        // 那不代表失败、更不是报错 ID，日志里必须分开写，否则以后排查会被这条 -5 带偏。
+        when {
+            result.code >= 0 ->
+                Logu.i(TAG, "原生库失败诊断已上报，报错ID=${result.code}")
+            result.code == CrashReporter.CODE_SAVED_LOCALLY ->
+                Logu.i(TAG, "原生库失败诊断未发出（网络不通），已存本机，下次启动自动重试")
+            else ->
+                Logu.e(TAG, "原生库失败诊断上报失败，code=${result.code}：${result.message}")
+        }
     }
 
     /**

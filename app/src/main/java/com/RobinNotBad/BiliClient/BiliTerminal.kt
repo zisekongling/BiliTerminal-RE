@@ -29,6 +29,7 @@ import com.RobinNotBad.BiliClient.tutorial.TutorialStore
 import com.RobinNotBad.BiliClient.util.BangumiUpdateChecker
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.CookieRefreshScheduler
+import com.RobinNotBad.BiliClient.util.CrashReporter
 import com.RobinNotBad.BiliClient.util.CrashTrail
 import com.RobinNotBad.BiliClient.util.FeedbackUnread
 import com.RobinNotBad.BiliClient.util.Logu
@@ -561,6 +562,11 @@ class BiliTerminal : Application() {
             errorCatch.init(context)
 
             applyLogSwitches()
+
+            // 26.11.20（崩溃记录加固）：上次崩溃如果赶上网络不通、或者用户在崩溃页那 3 秒窗口里点了
+            // 「退出」，报告已经落在 filesDir/crash_pending/ 里，这里在后台补传最多 3 条。
+            // 隐私同意与「自动上报」开关的判定在 retryPending 内部——关掉开关就一个字节都不往外发。
+            CenterThreadPool.run { CrashReporter.retryPending(context) }
 
             // #60 老是掉登录：原先只有 SplashActivity 在启动时刷一次 Cookie，而手表常年不冷启动，
             // 进程一直活着就再也没人续期 SESSDATA。这里起一条进程级后台调度（每 5 分钟扫一次，
