@@ -102,17 +102,32 @@ object VideoMetaManager {
     }
 
     /**
-     * 更新视频的文件夹归属
+     * 更新视频的文件夹归属。
+     *
+     * 按「缓存根 / 目录名」找目录，找不到就直接返回（**什么都不写**）。调用方如果手上已有真实目录
+     * （外置卷、目录名与标题不同、根目录刚换过），必须用 [updateFolderNameIn]：靠这条路径写不进去时，
+     * 归属只剩 `.folders_info.json` 里那一份，于是夹卡有数字、夹内为空（反馈 #254）。
      */
     @JvmStatic
     fun updateFolderName(videoDirName: String, folderName: String) {
+        updateFolderNameIn(File(FileUtil.getVideoDownloadPath(), videoDirName), folderName)
+    }
+
+    /**
+     * 更新视频的文件夹归属，目录由调用方给准（反馈 #254 的自愈路径用这个）。
+     *
+     * 与 [updateFolderName] 的差别只有「怎么找目录」：这里直接用传进来的 [videoFolder]，
+     * 不再假设它长在「缓存根 / 目录名」上。目录不存在时同样什么都不做。
+     */
+    @JvmStatic
+    @Synchronized
+    fun updateFolderNameIn(videoFolder: File, folderName: String) {
         try {
-            val videoFolder = File(FileUtil.getVideoDownloadPath(), videoDirName)
-            if (!videoFolder.exists()) return
+            if (!videoFolder.isDirectory) return
 
             val meta = readMeta(videoFolder)
             meta.folderName = folderName
-            meta.title = videoDirName
+            meta.title = videoFolder.name
             saveMeta(videoFolder, meta)
         } catch (e: Exception) {
             e.printStackTrace()

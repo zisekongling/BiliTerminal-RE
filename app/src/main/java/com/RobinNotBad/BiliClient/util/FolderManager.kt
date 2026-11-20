@@ -208,6 +208,39 @@ object FolderManager {
         return removed
     }
 
+    /**
+     * 把一批「元数据里有、夹记录里漏掉」的标题补回对应夹（反馈 #254 自愈的另一半）。
+     *
+     * 归属解析统一走 [CacheFolderResolver] 的「记录优先、元数据兜底」；靠元数据兜底救回来的那条，
+     * 夹记录里本来就没有它——不补的话夹卡数字、夹页扫描白名单（`LocalListActivity.folderScanTitles`）
+     * 都数不到这一条，夹里还是看不全。整批读完一次、写一次，不逐条读重写 json。
+     *
+     * 只认已经存在的夹（[byFolder] 里对不上夹名的直接丢掉）；比对沿用 [titleMatches]，
+     * 记录里存的是清洗前的原始标题时也不会重复补一份。
+     *
+     * @param byFolder 夹名 → 要补进去的标题
+     * @return 真正补进去的条数（0 表示没动过盘）
+     */
+    @JvmStatic
+    fun adoptTitles(byFolder: Map<String, Collection<String>>): Int {
+        if (byFolder.isEmpty()) return 0
+        val folders = getAllFolders()
+        if (folders.isEmpty()) return 0
+        var added = 0
+        for (folder in folders) {
+            val titles = byFolder[folder.name] ?: continue
+            val existing = folder.videoTitles
+            for (title in titles) {
+                if (title.isBlank()) continue
+                if (existing != null && existing.any { titleMatches(it, title) }) continue
+                folder.addVideo(title)
+                added++
+            }
+        }
+        if (added > 0) saveAllFolders(folders)
+        return added
+    }
+
     private fun removeVideoFromAnyFolder(title: String, folders: ArrayList<VideoFolder>): Boolean {
         for (folder in folders) {
             val stored = folder.videoTitles?.firstOrNull { titleMatches(it, title) } ?: continue

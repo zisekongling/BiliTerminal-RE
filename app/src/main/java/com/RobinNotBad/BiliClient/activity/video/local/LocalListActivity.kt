@@ -34,6 +34,7 @@ import com.RobinNotBad.BiliClient.service.download.DownloadPathSpec
 import com.RobinNotBad.BiliClient.util.CacheAudioRepair
 import com.RobinNotBad.BiliClient.util.CacheChangeSignal
 import com.RobinNotBad.BiliClient.util.CacheDeletePlan
+import com.RobinNotBad.BiliClient.util.CacheFolderResolver
 import com.RobinNotBad.BiliClient.util.CacheListOrderStore
 import com.RobinNotBad.BiliClient.util.CacheMediaPolicy
 import com.RobinNotBad.BiliClient.util.CacheMigrator
@@ -455,18 +456,49 @@ open class LocalListActivity : InstanceActivity() {
 
         // 加载每个视频的元数据（目录要按实际落盘位置解析，不能假设「根/标题」）
         // 注意顺序：外部条目的夹名要等这一轮读完（含退回元数据那条路）才全，建夹必须在它之后
+        //
+        // 夹名归属按「记录优先、元数据兜底」解析（反馈 #254）：夹卡上的「N 个视频」、夹的封面、
+        // 夹页扫描白名单全部取自 .folders_info.json，而夹内页的可见判据取的是 .video_meta.json 的
+        // folderName。两边一旦不一致（老版本只往 json 里写过归属、改夹名时目录没找到、
+        // 手改过 json），就变成「外面写着 N 个、点进去一条都没有」。所以这里让记录当主口径，
+        // 并把不一致的两边顺手写回一致——只在这一轮写一次，盘面一致后不再写。
+        val folderNames = HashSet<String>(folderList.size * 2)
+        for (folder in folderList) {
+            val name = folder.name
+            if (!name.isNullOrEmpty()) folderNames.add(name)
+        }
+        val recordIndex = CacheFolderResolver.titleIndex(folderList)
+        val recordHeals = HashMap<String, MutableList<String>>()
         for (video in videoList) {
             try {
-                val meta = VideoMetaManager.readMeta(resolveVideoDir(rootOf(video), video))
-                video.folderName = if (video.externalRoot.isNullOrEmpty()) meta.folderName else ""
-                // 对方根目录没有 .folders_info.json（或被删过）时，退回到这条视频自己的元数据
-                if (!video.externalRoot.isNullOrEmpty() && video.externalFolder.isNullOrEmpty()) {
-                    video.externalFolder = meta.folderName
+                // 目录先解析出来复用：自愈要写到这条目录上，不能按「根/标题」再猜一次
+                val dir = resolveVideoDir(rootOf(video), video)
+                val meta = VideoMetaManager.readMeta(dir)
+                if (video.externalRoot.isNullOrEmpty()) {
+                    val recordName = recordIndex[FileUtil.stringToFile(video.title)] ?: ""
+                    val resolved = CacheFolderResolver.resolve(recordName, meta.folderName, folderNames)
+                    video.folderName = resolved
+                    if (CacheFolderResolver.needsMetaHeal(resolved, meta.folderName, folderNames)) {
+                        VideoMetaManager.updateFolderNameIn(dir, resolved)
+                    }
+                    if (CacheFolderResolver.needsRecordHeal(resolved, recordName)) {
+                        recordHeals.getOrPut(resolved) { ArrayList() }.add(video.title)
+                    }
+                } else {
+                    video.folderName = ""
+                    // 对方根目录没有 .folders_info.json（或被删过）时，退回到这条视频自己的元数据
+                    if (video.externalFolder.isNullOrEmpty()) {
+                        video.externalFolder = meta.folderName
+                    }
                 }
                 video.aid = meta.aid
                 video.cid = meta.cid
             } catch (_: Exception) {}
         }
+
+        // 元数据里有夹名、夹记录里没有这条标题：补进 .folders_info.json（整批读一次写一次）
+        var recordHealCount = 0
+        if (recordHeals.isNotEmpty()) recordHealCount = FolderManager.adoptTitles(recordHeals)
 
         // 对方的文件夹在本机侧先建一份，再让外部条目归进去（见 ensureExternalFolders）
         ensureExternalFolders()
@@ -475,8 +507,11 @@ open class LocalListActivity : InstanceActivity() {
         // 必须在第一次 setData 之前读出来，否则进页面会先按扫描顺序画一遍再跳一下。
         unclassifiedOrder = CacheListOrderStore.load(root.path)
 
-        // 存一份本次结果，供「自动刷新」关着时下次进页面直接复用（反馈 #211）
-        saveScanSnapshot(root, signatureAtStart)
+        // 存一份本次结果，供「自动刷新」关着时下次进页面直接复用（反馈 #211）。
+        // 自愈刚写过 .folders_info.json 的话指纹已经变了，按当前盘面重算一次，
+        // 免得下次进页面把这份刚存下的结果当成「缓存变过」白扫一遍
+        val snapshotSignature = if (recordHealCount > 0) CacheTreeSignature.of(root) else signatureAtStart
+        saveScanSnapshot(root, snapshotSignature)
 
         // 整页扫完再排后台重封装（反馈 #231）：这一步不阻塞、不改上面的列表
         flushAudioRepairs(root)
