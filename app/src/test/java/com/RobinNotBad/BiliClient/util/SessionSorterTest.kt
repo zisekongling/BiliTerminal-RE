@@ -12,11 +12,21 @@ import org.junit.Test
  */
 class SessionSorterTest {
 
-    private fun session(uid: Long, unread: Int = 0, topTs: Long = 0): PrivateMsgSession {
+    private fun session(
+        uid: Long,
+        unread: Int = 0,
+        topTs: Long = 0,
+        bizUnread: Int = 0,
+        systemMsgType: Int = 0,
+        accountName: String = ""
+    ): PrivateMsgSession {
         val s = PrivateMsgSession()
         s.talkerUid = uid
         s.unread = unread
         s.topTs = topTs
+        s.bizUnread = bizUnread
+        s.systemMsgType = systemMsgType
+        s.accountName = accountName
         return s
     }
 
@@ -53,6 +63,20 @@ class SessionSorterTest {
         val list = mutableListOf(
             session(uid = 1, unread = 0),
             session(uid = 2, unread = 1),
+        )
+
+        SessionSorter.sort(list)
+
+        assertEquals(listOf(2L, 1L), uids(list))
+    }
+
+    @Test
+    fun `系统会话只有通知类未读时也要排到前面`() {
+        // 系统会话（UP主小助手 / 系统通知…）的 unread_count 常为 0，未读记在 biz_msg_unread_count。
+        // 旧逻辑只看 unread，会把「有 3 条官方未读」的会话当成已读排到后面（26.11.20）
+        val list = mutableListOf(
+            session(uid = 1, unread = 0),
+            session(uid = 2, unread = 0, bizUnread = 3, systemMsgType = 7, accountName = "UP主小助手"),
         )
 
         SessionSorter.sort(list)

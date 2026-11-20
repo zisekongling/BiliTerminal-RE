@@ -216,9 +216,10 @@ public class PrivateMsgApi {
     /**
      * 解析会话列表响应（纯解析，便于 JVM 单测）。
      *
-     * <p>account_info 仅在系统会话中出现（见 bilibili-API/docs/message/private_msg.md），
-     * 系统会话不是普通私信，需要过滤掉。用 isNull 判断同时覆盖"字段缺失"和"值为 null"两种情况；
-     * 旧写法 {@code !has && isNull} 恒等于 {@code !has}，会把 account_info 显式为 null 的普通会话一起丢弃。
+     * <p>26.11.20：**不再丢弃系统会话**。get_sessions 用的 session_type=1 语义本来就是「用户与系统」，
+     * UP主小助手 / 系统通知 / 客服这些官方会话本来就在 session_list 里；以前按 account_info 把它们
+     * 过滤掉之后，single_unread 里 biz_msg_* / custom_unread 那部分未读照样被算进主菜单角标，
+     * 可 App 里没有任何入口能点进去读掉 → 角标只涨不退（用户反馈「一直有消息消除不掉」）。
      */
     public static ArrayList<PrivateMsgSession> parseSessionsList(JSONObject root) throws JSONException {
         ArrayList<PrivateMsgSession> sessionList = new ArrayList<>();
@@ -233,27 +234,43 @@ public class PrivateMsgApi {
         JSONArray sessions = data.optJSONArray("session_list");
         if (sessions == null) return sessionList;
         for (int i = 0; i < sessions.length(); ++i) {
-            PrivateMsgSession session = new PrivateMsgSession();
-            JSONObject sessionJson = sessions.getJSONObject(i);
-            session.talkerUid = sessionJson.getLong("talker_id");
-
-            if (!sessionJson.isNull("last_msg")) {
-                session.contentType = sessionJson.getJSONObject("last_msg").getInt("msg_type");
-                String content = sessionJson.getJSONObject("last_msg").getString("content");
-
-                if (content.endsWith("}") && content.startsWith("{"))
-                    session.content = new JSONObject(content);
-            }
-
-            session.unread = sessionJson.getInt("unread_count");
-            session.topTs = sessionJson.optLong("top_ts", 0);
-            // 微秒级的会话时间戳，翻页时当 end_ts 游标用（#166）
-            session.sessionTs = sessionJson.optLong("session_ts", 0);
-
-            if (sessionJson.isNull("account_info"))
-                sessionList.add(session);
+            sessionList.add(parseSession(sessions.getJSONObject(i)));
         }
         return sessionList;
+    }
+
+    /**
+     * 解析单条会话（纯解析，便于 JVM 单测）。
+     *
+     * <p>普通会话与系统会话共用同一套字段，差别只在 account_info（仅系统会话有）、
+     * system_msg_type 与 biz_msg_unread_count（通知类未读，角标要看 unreadTotal()）。
+     */
+    public static PrivateMsgSession parseSession(JSONObject sessionJson) throws JSONException {
+        PrivateMsgSession session = new PrivateMsgSession();
+        session.talkerUid = sessionJson.getLong("talker_id");
+
+        JSONObject lastMsg = sessionJson.optJSONObject("last_msg");
+        if (lastMsg != null) {
+            session.contentType = lastMsg.optInt("msg_type", 0);
+            String content = lastMsg.optString("content", "");
+
+            if (content.endsWith("}") && content.startsWith("{"))
+                session.content = new JSONObject(content);
+        }
+
+        // opt 而不是 get：系统会话不一定带 unread_count，缺字段按 0 算
+        session.unread = sessionJson.optInt("unread_count", 0);
+        session.bizUnread = sessionJson.optInt("biz_msg_unread_count", 0);
+        session.systemMsgType = sessionJson.optInt("system_msg_type", 0);
+        JSONObject accountInfo = sessionJson.optJSONObject("account_info");
+        if (accountInfo != null) {
+            session.accountName = accountInfo.optString("name", "");
+            session.accountAvatar = accountInfo.optString("pic_url", "");
+        }
+        session.topTs = sessionJson.optLong("top_ts", 0);
+        // 微秒级的会话时间戳，翻页时当 end_ts 游标用（#166）
+        session.sessionTs = sessionJson.optLong("session_ts", 0);
+        return session;
     }
 
     public static ArrayList<PrivateMsgSession> getNewSessionsList(long beginTs, int size, int build, String mobiApp)
@@ -281,21 +298,8 @@ public class PrivateMsgApi {
             if (data.has("session_list") && !data.isNull("session_list")) {
                 JSONArray sessions = data.getJSONArray("session_list");
                 for (int i = 0; i < sessions.length(); ++i) {
-                    PrivateMsgSession session = new PrivateMsgSession();
-                    JSONObject sessionJson = sessions.getJSONObject(i);
-                    session.talkerUid = sessionJson.getLong("talker_id");
-
-                    if (!sessionJson.isNull("last_msg")) {
-                        session.contentType = sessionJson.getJSONObject("last_msg").getInt("msg_type");
-                        String content = sessionJson.getJSONObject("last_msg").getString("content");
-
-                        if (content.endsWith("}") && content.startsWith("{"))
-                            session.content = new JSONObject(content);
-                    }
-
-                    session.unread = sessionJson.getInt("unread_count");
-                    session.topTs = sessionJson.optLong("top_ts", 0);
-                    sessionList.add(session);
+                    // 与 get_sessions 共用同一条解析，免得两处各写一遍、慢慢跑偏
+                    sessionList.add(parseSession(sessions.getJSONObject(i)));
                 }
             }
         }

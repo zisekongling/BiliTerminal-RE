@@ -49,11 +49,12 @@ class PrivateMsgSessionsAdapter(
     private val onSessionClick: ((PrivateMsgSession) -> Unit)? = null,
     /**
      * 打开会话页的回调（反馈 #166）。为 null 时退回 `context.startActivity`。
+     * 传整条会话而不是 uid：系统会话（26.11.20）没有真实 mid，页面要用它自带的名字做标题。
      * 消息页传进来是为了拿到「发过私信」的结果，好把刚聊过的会话刷到最上面。
      * 必须放在 [onSessionsChanged] 之前——尾随 lambda 绑的是最后一个参数，插到后面会让
      * 现有 `PrivateMsgSessionsAdapter(ctx, list, map) { … }` 调用点静默绑错。
      */
-    private val onOpenSession: ((Long) -> Unit)? = null,
+    private val onOpenSession: ((PrivateMsgSession) -> Unit)? = null,
     private val onSessionsChanged: (() -> Unit)? = null
 ) : RecyclerView.Adapter<PrivateMsgSessionsAdapter.PrivateMsgSessionsHolder>() {
 
@@ -106,23 +107,39 @@ class PrivateMsgSessionsAdapter(
 
             holder.contentText.ellipsize = TextUtils.TruncateAt.END
 
-            val user = userMap?.get(msgContent.talkerUid)
-            if (user != null) {
-                // 置顶态没有布尔字段，靠 top_ts 是否非零判断
-                val displayName = if (msgContent.isTop()) "[置顶] ${user.name}" else user.name
-                if (msgContent.unread > 0 && SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.PRIVATE_MSG_UNREAD_BADGE_ENABLE, false)) {
-                    val nameStr = SpannableStringBuilder(displayName)
-                    val nameLength = displayName.length
-                    nameStr.append(BADGE_TEXT)
-                    nameStr.setSpan(
-                        RadiusBackgroundSpan(1, cardRoundRadius, BADGE_TEXT_COLOR, BADGE_BG_COLOR),
-                        nameLength + 1, nameStr.length, Spanned.SPAN_INCLUSIVE_EXCLUSIVE
-                    )
-                    holder.nameText.text = nameStr
-                } else {
-                    holder.nameText.text = displayName
-                }
-                GlideUtil.with(holder.avatarView).asDrawable().load(GlideUtil.url(user.avatar))
+            // 名字/头像的来源：系统会话（UP主小助手 / 系统通知 / 客服…）的 talker_id 是服务端合成的
+            // id，查 user/cards 查不到，只能用会话自带的 account_info（26.11.20 放开系统会话时补的）
+            val isSystem = msgContent.isSystem()
+            val user = if (isSystem) null else userMap?.get(msgContent.talkerUid)
+            val baseName = when {
+                isSystem -> msgContent.accountName.ifEmpty { UiText.of("B站官方消息") }
+                user != null -> user.name
+                // 普通会话但没查到用户信息：留空，别把上一条的名字留在复用的 View 上
+                else -> ""
+            }
+            // 置顶态没有布尔字段，靠 top_ts 是否非零判断
+            val displayName = if (msgContent.isTop()) "[置顶] $baseName" else baseName
+            // 系统会话的未读记在 biz_msg_unread_count 里，只看 unread 的话永远显示 0 条未读
+            val unread = msgContent.unreadTotal()
+            if (unread > 0 && SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.PRIVATE_MSG_UNREAD_BADGE_ENABLE, false)) {
+                val nameStr = SpannableStringBuilder(displayName)
+                val nameLength = displayName.length
+                nameStr.append(BADGE_TEXT)
+                nameStr.setSpan(
+                    RadiusBackgroundSpan(1, cardRoundRadius, BADGE_TEXT_COLOR, BADGE_BG_COLOR),
+                    nameLength + 1, nameStr.length, Spanned.SPAN_INCLUSIVE_EXCLUSIVE
+                )
+                holder.nameText.text = nameStr
+            } else {
+                holder.nameText.text = displayName
+            }
+
+            val avatarUrl = if (isSystem) msgContent.accountAvatar else user?.avatar
+            if (avatarUrl.isNullOrEmpty()) {
+                // 没有头像时也要把占位图塞回去：否则复用的 View 会继续显示上一条会话的头像
+                holder.avatarView.setImageResource(R.mipmap.akari)
+            } else {
+                GlideUtil.with(holder.avatarView).asDrawable().load(GlideUtil.url(avatarUrl))
                     .apply(GlideUtil.thumbOptionsCover(holder.avatarView))
                     .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                     .placeholder(R.mipmap.akari)
@@ -138,17 +155,20 @@ class PrivateMsgSessionsAdapter(
                     pick(msgContent)
                 } else {
                     val open = onOpenSession
-                    if (open != null) open(msgContent.talkerUid)
+                    if (open != null) open(msgContent)
                     else {
                         val intent = Intent(context, PrivateMsgActivity::class.java)
                         intent.putExtra("uid", msgContent.talkerUid)
+                        // 系统会话的标题只能用会话自带的账号名（没有真实 mid 可查）
+                        if (isSystem) intent.putExtra(PrivateMsgActivity.EXTRA_SYSTEM_NAME, msgContent.accountName)
                         context.startActivity(intent)
                     }
                 }
             }
             holder.itemView.setOnLongClickListener {
-                // 选好友模式下不给长按菜单：置顶/删除会话对「挑个人发消息」没有意义
-                if (onSessionClick != null) {
+                // 选好友模式下不给长按菜单：置顶/删除会话对「挑个人发消息」没有意义；
+                // 系统会话同样不给：talker_id 是合成的、没有主页可跳，删除还会让官方消息彻底没入口
+                if (onSessionClick != null || isSystem) {
                     false
                 } else {
                     showSessionMenu(msgContent)

@@ -190,13 +190,25 @@ class MessageActivity : InstanceActivity() {
                 SessionSorter.sort(list)
                 val uidList = ArrayList<Long>()
                 for (item in list) {
-                    uidList.add(item.talkerUid)
+                    // 系统会话（UP主小助手 / 系统通知 / 客服…）的 talker_id 是服务端合成的，
+                    // 查 user/cards 查不到，名字头像都来自会话自带的 account_info，别塞无效 id 进去
+                    if (!item.isSystem()) uidList.add(item.talkerUid)
                 }
                 val users = PrivateMsgApi.getUsersInfo(uidList)
+                // 角标只写回「私信未读的真值」：通知类（回复/赞/@）在这一页顶部就有计数、
+                // 点进去就是全量列表，按老语义视为已看；私信未读则要靠会话页的 update_ack 逐条消，
+                // 在这里清零就会「清零→回菜单又被刷新器恢复」地反复闪（26.11.20）。
+                // 取不到真值时留 -1，回主线程就不写，保留原值。
+                val privateUnread = try {
+                    MessageApi.checkPrivateMsgUnread()
+                } catch (e: Exception) {
+                    MsgUtil.err(e)
+                    -1
+                }
                 val adapter = PrivateMsgSessionsAdapter(
                     this, list, users,
                     onSessionsChanged = { loadSessions() },
-                    onOpenSession = { uid -> openSession(uid) }
+                    onOpenSession = { session -> openSession(session) }
                 )
                 runOnUiThread {
                     // 晚到的旧响应直接丢，别把刚刷新出来的新顺序又盖回去
@@ -218,9 +230,13 @@ class MessageActivity : InstanceActivity() {
                         sessionAdapter = adapter
                         sessionsView.layoutManager = CustomLinearManager(this)
                         sessionsView.adapter = adapter
-                        SharedPreferencesUtil.putInt(SharedPreferencesUtil.MESSAGE_UPDATE_NUM, 0)
-                        // 未读已清零，挂着的通知也该撤掉（否则"看过了通知还在"）
-                        MsgNotifier.cancel(this)
+                        // 只清「确实看完了」的部分：通知类已视为已看，私信未读按服务端真值写回，
+                        // 用户每读完一条会话再回来，这个数就会降一格，直到 0
+                        if (privateUnread >= 0) {
+                            SharedPreferencesUtil.putInt(SharedPreferencesUtil.MESSAGE_UPDATE_NUM, privateUnread)
+                            // 真清零了才撤通知（否则"看过了通知还在"）
+                            if (privateUnread == 0) MsgNotifier.cancel(this)
+                        }
                         // 发完私信回来：滚回列表顶部，让刚聊过的那个人露出来（#166）
                         if (scrollToListTop) sessionsView.post {
                             scrollView.smoothScrollTo(0, sessionsView.top)
@@ -245,9 +261,13 @@ class MessageActivity : InstanceActivity() {
     }
 
     /** 打开某个会话页。走 launcher 而不是直接 startActivity，是为了收到「发过私信」的结果（#166）。 */
-    private fun openSession(uid: Long) {
+    private fun openSession(session: PrivateMsgSession) {
         val intent = Intent(this, PrivateMsgActivity::class.java)
-        intent.putExtra("uid", uid)
+        intent.putExtra("uid", session.talkerUid)
+        // 系统会话没有真实 mid，标题只能用会话自带的账号名（26.11.20）
+        if (session.isSystem()) {
+            intent.putExtra(PrivateMsgActivity.EXTRA_SYSTEM_NAME, session.accountName)
+        }
         sessionLauncher.launch(intent)
     }
 
@@ -290,7 +310,7 @@ class MessageActivity : InstanceActivity() {
                 }
                 SessionSorter.sort(fresh)
                 val uidList = ArrayList<Long>()
-                for (item in fresh) uidList.add(item.talkerUid)
+                for (item in fresh) if (!item.isSystem()) uidList.add(item.talkerUid)
                 val users =
                     if (uidList.isEmpty()) HashMap<Long, UserInfo>() else PrivateMsgApi.getUsersInfo(uidList)
                 runOnUiThread {

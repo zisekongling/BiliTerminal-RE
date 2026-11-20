@@ -37,6 +37,16 @@ import java.util.Timer
 import java.util.TimerTask
 
 class PrivateMsgActivity : BaseActivity() {
+    companion object {
+        /**
+         * 系统会话（UP主小助手 / 系统通知 / 客服…）的标题。
+         *
+         * 这些会话的 talker_id 是服务端合成的，user/cards 查不到昵称，只能用会话自带的
+         * account_info.name，由消息页通过这个 extra 传进来（26.11.20 放开系统会话）。
+         */
+        const val EXTRA_SYSTEM_NAME = "system_name"
+    }
+
     var allMsg = JSONObject()
     var list: MutableList<PrivateMessage> = Collections.synchronizedList(ArrayList())
     var emoteArray = JSONArray()
@@ -80,9 +90,19 @@ class PrivateMsgActivity : BaseActivity() {
         uid = intent.getLongExtra("uid", 114514)
         Log.e("", uid.toString())
 
+        // 系统会话只能读：没有真实 mid，私信发不出去；标题也用它自带的账号名（默认是「私信」）
+        val systemName = intent.getStringExtra(EXTRA_SYSTEM_NAME).orEmpty()
+        val isSystemSession = systemName.isNotEmpty()
+        if (isSystemSession) {
+            setPageName(systemName)
+            writeMsgBtn.visibility = View.GONE
+        }
+
         // 反馈 #121：这句提示可以关（设置 → 私信拦截提示，默认开）。老用户每次进会话都被弹一次太吵
         // 26.11.19 debug 包不弹任何自动提示：这条每次进会话都弹的拦截提示直接免掉，release 照旧。
-        if (!BiliTerminal.isAutoPopupSuppressed()
+        // 系统会话没有发送入口，这条「发私信会被拦截」的提示对它没有意义，直接跳过。
+        if (!isSystemSession
+            && !BiliTerminal.isAutoPopupSuppressed()
             && SharedPreferencesUtil.getBoolean(SettingsKeys.PRIVATE_MSG_INTERCEPT_TIP_ENABLE, true)
         ) {
             MsgUtil.showMsg(UiText.of("私信有可能被拦截\n尽量不要用终端发私信喵"))

@@ -2213,6 +2213,7 @@
     <string name="uitext_privatemsgsessionsadapter_008">只会把会话从列表里移除，不会删除聊天记录。</string>
     <string name="uitext_privatemsgsessionsadapter_009">已置顶</string>
     <string name="uitext_privatemsgsessionsadapter_010">已取消置顶</string>
+    <string name="uitext_privatemsgsessionsadapter_011">B站官方消息</string>
     <string name="uitext_followgroupadapter_001"> 位成员</string>
     <string name="uitext_medallistadapter_001"> (佩戴中)</string>
     <string name="uitext_medallistadapter_002">亲密度: </string>

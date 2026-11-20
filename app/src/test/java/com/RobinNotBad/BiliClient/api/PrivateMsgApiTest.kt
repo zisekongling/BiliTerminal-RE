@@ -61,16 +61,50 @@ class PrivateMsgApiTest {
     }
 
     @Test
-    fun parseSessionsList_系统会话_应被过滤() {
-        val root = rootWith(
-            sessionJson(3001L, accountInfo = """{"name":"系统消息"}"""),
-            sessionJson(3002L)
+    fun parseSessionsList_系统会话_保留并解析账号名与通知未读() {
+        // 26.11.20 起系统会话不再过滤：它们的未读（biz_msg_unread_count）本来就算进主菜单角标，
+        // 而会话列表里又没有它们，用户没有任何入口能把未读读掉——角标只涨不退。
+        val root = JSONObject(
+            """{"code":0,"data":{"session_list":[
+                {"talker_id":844424930131966,"unread_count":0,"biz_msg_unread_count":3,
+                 "system_msg_type":7,
+                 "account_info":{"name":"UP主小助手","pic_url":"https://message.biliimg.com/bfs/im/x.png"}},
+                {"talker_id":3002}
+            ]}}"""
         )
 
         val list = PrivateMsgApi.parseSessionsList(root)
 
-        assertEquals("系统会话应被过滤", 1, list.size)
-        assertEquals(3002L, list[0].talkerUid)
+        assertEquals("系统会话要保留，普通会话照旧", 2, list.size)
+        assertTrue(list[0].isSystem)
+        assertEquals(7, list[0].systemMsgType)
+        assertEquals("UP主小助手", list[0].accountName)
+        assertEquals("https://message.biliimg.com/bfs/im/x.png", list[0].accountAvatar)
+        assertEquals("系统会话的未读在 biz_msg_unread_count 里", 3, list[0].unreadTotal())
+        assertTrue("普通会话不是系统会话", !list[1].isSystem)
+        assertEquals(0, list[1].unreadTotal())
+    }
+
+    @Test
+    fun parseSessionsList_只有account_info没有systemMsgType_也算系统会话() {
+        // 老版本会话可能只带 account_info，没有 system_msg_type 字段，同样要按系统会话处理
+        val root = rootWith(sessionJson(3001L, accountInfo = """{"name":"系统消息"}"""))
+
+        val list = PrivateMsgApi.parseSessionsList(root)
+
+        assertEquals(1, list.size)
+        assertTrue(list[0].isSystem)
+        assertEquals("系统消息", list[0].accountName)
+    }
+
+    @Test
+    fun unreadTotal_私信未读与通知未读相加() {
+        val root = rootWith(
+            JSONObject("""{"talker_id":3001,"unread_count":2,"biz_msg_unread_count":3}""").toString()
+        )
+
+        // 两种未读都可能同时非零（系统会话既可以直接私信、也可以有通知），角标要把它们加起来
+        assertEquals(5, PrivateMsgApi.parseSessionsList(root)[0].unreadTotal())
     }
 
     @Test

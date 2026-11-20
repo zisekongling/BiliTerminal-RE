@@ -82,7 +82,7 @@ class DebugPopupSuppressionTest {
         ),
         Site(
             "src/main/java/com/RobinNotBad/BiliClient/activity/message/PrivateMsgActivity.kt",
-            "if (!BiliTerminal.isAutoPopupSuppressed()\n            && SharedPreferencesUtil.getBoolean(SettingsKeys.PRIVATE_MSG_INTERCEPT_TIP_ENABLE, true)",
+            "if (!isSystemSession\n            && !BiliTerminal.isAutoPopupSuppressed()\n            && SharedPreferencesUtil.getBoolean(SettingsKeys.PRIVATE_MSG_INTERCEPT_TIP_ENABLE, true)",
             "私信页：每次进会话都弹的拦截提示"
         ),
         Site(

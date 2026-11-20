@@ -575,6 +575,7 @@ object UiText {
         "会话操作" to R.string.uitext_privatemsgsessionsadapter_007,
         "只会把会话从列表里移除，不会删除聊天记录。" to R.string.uitext_privatemsgsessionsadapter_008,
         "已置顶" to R.string.uitext_privatemsgsessionsadapter_009,
+        "B站官方消息" to R.string.uitext_privatemsgsessionsadapter_011,
         "已取消置顶" to R.string.uitext_privatemsgsessionsadapter_010,
         " 位成员" to R.string.uitext_followgroupadapter_001,
         " (佩戴中)" to R.string.uitext_medallistadapter_001,

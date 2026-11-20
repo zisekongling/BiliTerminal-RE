@@ -14,7 +14,9 @@ import java.util.Collections
  * 现在的规则（优先级从高到低）：
  * 1. 置顶的会话排在最前（`topTs > 0`，服务端置顶时间戳，微秒级）；
  * 2. 都是置顶时，置顶时间越晚越靠前；
- * 3. 都未置顶时，有未读的排前面（保留用户想先看到未读的诉求）；
+ * 3. 都未置顶时，有未读的排前面（保留用户想先看到未读的诉求）。
+ *    「有未读」按 [PrivateMsgSession.unreadTotal] 算：系统会话（UP主小助手、系统通知等）的未读
+ *    记在 biz_msg_unread_count 里，单看 unread_count 会把它们当成已读排到后面（26.11.20）；
  * 4. 其余情况维持服务端返回的相对顺序。
  *
  * 排序是**稳定**的（[Collections.sort] 保证），所以第 4 条天然成立：
@@ -49,9 +51,9 @@ object SessionSorter {
             return if (o1.topTs > o2.topTs) -1 else 1
         }
 
-        // 3. 都未置顶：有未读的靠前
-        val o1Unread = o1.unread > 0
-        val o2Unread = o2.unread > 0
+        // 3. 都未置顶：有未读的靠前（系统会话的未读在 biz_msg_unread_count 里，要用 unreadTotal）
+        val o1Unread = o1.unreadTotal() > 0
+        val o2Unread = o2.unreadTotal() > 0
         if (o1Unread != o2Unread) return if (o1Unread) -1 else 1
 
         // 4. 其余维持服务端原序（稳定排序不需要返回值表达「相等」以外的语义）

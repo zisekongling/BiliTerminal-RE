@@ -7,6 +7,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
 import com.RobinNotBad.BiliClient.adapter.message.PrivateMsgSessionsAdapter
 import com.RobinNotBad.BiliClient.api.PrivateMsgApi
+import com.RobinNotBad.BiliClient.model.PrivateMsgSession
 import com.RobinNotBad.BiliClient.model.UserInfo
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
@@ -63,7 +64,11 @@ class ChooseFriendActivity : RefreshListActivity() {
         setRefreshing(true)
         CenterThreadPool.run {
             try {
-                val sessionsList = PrivateMsgApi.getSessionsList(SESSION_SIZE)
+                val allSessions = PrivateMsgApi.getSessionsList(SESSION_SIZE)
+                // 系统会话（UP主小助手 / 系统通知 / 客服…）不是「可以发私信的好友」，
+                // 消息页放开它们之后这里必须自己剔掉，否则会拿合成 id 去发私信（26.11.20）
+                val sessionsList = ArrayList<PrivateMsgSession>()
+                for (item in allSessions) if (!item.isSystem()) sessionsList.add(item)
                 // 与消息页同一套排序：置顶优先 → 未读优先。用户找人的顺序和看消息一致
                 SessionSorter.sort(sessionsList)
                 val uidList = ArrayList<Long>()
