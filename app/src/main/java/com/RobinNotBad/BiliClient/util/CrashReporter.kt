@@ -45,6 +45,9 @@ object CrashReporter {
     /** 每次冷启动最多补传几条：手表上别抢流量，同时保证攒下的报告几天内都能轮一遍。 */
     private const val MAX_RETRY_PER_START = 3
 
+    /** 日志标签：补传与落盘的成败都记在这个标签下（用户报「补传没生效」时只有这行能查）。 */
+    private const val TAG = "CrashReporter"
+
     /**
      * 把页面轨迹与应用日志合并进同一个 `log` 字段。
      *
@@ -215,19 +218,28 @@ object CrashReporter {
     @JvmStatic
     fun retryPending(context: Context?): Int {
         if (context == null) return 0
-        if (!TerminalApi.isCrashReportAutoEnabled()) return 0
         val dir = PendingCrashStore.dirOf(context) ?: return 0
+        val pending = PendingCrashStore.list(dir)
+        // 补传本身不许出声（启动链路上、用户没点任何东西），但**结果必须留一行日志**：
+        // 「补传到底有没有生效」在用户那边只能靠排查日志回答，没有这行就又要靠猜。
+        if (!TerminalApi.isCrashReportAutoEnabled()) {
+            if (pending.isNotEmpty()) Logu.i(TAG, "未开启崩溃自动上报，跳过补传（保留 ${pending.size} 条）")
+            return 0
+        }
+        if (pending.isEmpty()) return 0
         var sent = 0
-        for (file in PendingCrashStore.list(dir).take(MAX_RETRY_PER_START)) {
+        for (file in pending.take(MAX_RETRY_PER_START)) {
             val text = PendingCrashStore.read(file)
             if (text == null) {
                 // 坏文件 / 超大 / 空文件：删掉，别占着那 20 个名额
+                Logu.w(TAG, "待传崩溃报告不可用（空/超大/非文件），已丢弃：${file.name}")
                 PendingCrashStore.delete(file)
                 continue
             }
             val payload = try {
                 JSONObject(text)
             } catch (e: Exception) {
+                Logu.w(TAG, "待传崩溃报告不是合法 JSON，已丢弃：${file.name}")
                 PendingCrashStore.delete(file)
                 continue
             }
@@ -239,11 +251,14 @@ object CrashReporter {
             if (result != null && result.code >= 0) {
                 PendingCrashStore.delete(file)
                 sent++
+                Logu.i(TAG, "补传成功，报错ID=${result.code}（${file.name}）")
             } else {
                 // 推到队尾，下次启动先试别的：一条死活传不上去的报告不该把后面的一起堵死
                 PendingCrashStore.touch(file)
+                Logu.w(TAG, "补传失败 code=${result?.code ?: -4}，推到队尾等下次启动：${file.name}")
             }
         }
+        Logu.i(TAG, "崩溃报告补传结束：成功 $sent 条，待传 ${PendingCrashStore.list(dir).size} 条")
         return sent
     }
 
