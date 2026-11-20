@@ -674,13 +674,13 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 
 ## 7. 改功能前必须知道的坑（按"会不会踩到"排序）
 
-> 本节共 61 个 `### 7.x` 小节（≈5.4 万 token）。**另有 `### 7.56`（收藏夹管理页）/ `### 7.57`（播放器内切 1080P）/ `### 7.59`（外置卷交给外部播放器）三节误放在 §9 末尾**，它们同样是坑点，按 §7 对待。
+> 本节共 72 个 `### 7.x` 小节（≈5.4 万 token）。**另有 `### 7.56`（收藏夹管理页）/ `### 7.57`（播放器内切 1080P）/ `### 7.59`（外置卷交给外部播放器）三节误放在 §9 末尾**，它们同样是坑点，按 §7 对待。
 
 ### 7.1 本轮已修复（26.09.08，已验证，别再当 bug 修一遍）
 
 | # | 位置 | 原问题 | 修法 |
 | --- | --- | --- | --- |
-| 1 | `api/PrivateMsgApi.java` | `!has && isNull` 恒等于 `!has`，`account_info` 为 null 的普通会话被误过滤 | 改用 `isNull("account_info")`；解析抽成纯函数 `parseSessionsList()` 并补单测 |
+| 1 | `api/PrivateMsgApi.java` | `!has && isNull` 恒等于 `!has`，`account_info` 为 null 的普通会话被误过滤 | 改用 `isNull("account_info")`；解析抽成纯函数 `parseSessionsList()` 并补单测（**26.11.20 起这条过滤整条移除**：系统会话必须有入口，见 §7.71） |
 | 2 | `activity/base/InstanceActivity.kt` | MENU 键打开菜单后继续走 `super`，被 `BaseActivity.onKeyDown` 又 `finish()` 当前页 | 消费按键，`return true` |
 | 3 | `activity/base/InstanceActivity.kt` | `from` 参数判的是刚 new 的空 Intent，恒 false | 改判 `getIntent().getStringExtra("from")` |
 | 4 | `util/NetWorkUtil.java` | `saveCookiesFromResponse` 无锁，与 `putCookie`/`setCookies` 的 `synchronized` 不对称 | 抽出 `saveCookiesLocked()`，纳入同一把 `NetWorkUtil.class` 锁 |
@@ -1628,6 +1628,15 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **`DownloadStreamTransfer.copy` 的 `startBytes` 必须排在 `onBytesWritten` 之前**：Kotlin 的尾随 lambda 永远绑最后一个形参，`startBytes` 放末尾会让所有 `copy(...) { total, _ -> }` 编译不过。
 - **多段 durl（`video_seg*.part`）本轮不做片内续传**：它本来就有 `part` + `done` 的整段复用（`DownloadSegmentPlan.isReusablePart`），`downFileOrSegments` 里只有「单段」分支传 `STREAM_MERGED` 的 tag，多段 `partFile` 传 null。
 - **失败文案不丢**：单连接里 `ERR_NETWORK` 仍走 `recordFailReason(text_download_fail_incomplete, downloaded, total)`，下载列表那条「下载出错：…」的措辞没变。
+
+### 7.71 私信未读与「B站官方消息」：系统会话不能过滤、角标只能写回服务端私信真值（26.11.20 新增）
+
+- **`get_sessions` 的 `session_type=1` 是「用户与系统」**：返回的 `session_list` 里混着系统会话——带 `account_info{name,pic_url}` 与 `system_msg_type`（1 主播小助手 / 5 系统通知 / 7 UP主小助手 / 8 客服 / 9 支付小助手），`talker_id` 是合成 id（如 `844424930131966`），用 `account/v1/user/cards` 查不到用户卡。**`parseSessionsList()` 不许再按 `account_info` 是否存在过滤**：26.09.08 的 `isNull("account_info")` 修的是「普通会话被误滤」，26.11.20 起这条过滤整条删除——系统会话必须有入口，否则它的未读永远消不掉（`docs/review/fix-progress.md` §1 当天条目）。
+- **系统会话的未读在 `biz_msg_unread_count`，不在 `unread_count`**：`PrivateMsgSession.unreadTotal() = unread + bizUnread` 是唯一口径，列表角标（`adapter/message/PrivateMsgSessionsAdapter.kt`）与 `util/SessionSorter.kt` 的「有未读排前面」都走它。
+- **打开消息页不再把角标清零**（`activity/message/MessageActivity.kt`）：以前 `loadSessions` 回主线程无条件 `putInt(MESSAGE_UPDATE_NUM, 0)`，而 `util/MessageUnreadRefresh.kt` 回菜单又按服务端真值（`MessageApi.checkMessageUnread() + checkPrivateMsgUnread()`）刷回来，于是私信还有未读时角标反复闪。现在只写回 `MessageApi.checkPrivateMsgUnread()`（与刷新器的私信口径同源），查询失败（返回 -1）不写、保留原值，只有它 `== 0` 时才 `MsgNotifier.cancel()`。
+- **系统会话只能读**：`activity/message/PrivateMsgActivity.kt` 靠 intent 额外参数 `EXTRA_SYSTEM_NAME`（键 `system_name`）判定，命中则 `setPageName(账号名)` + 隐藏「写私信」按钮 + 不弹私信拦截提示（合成 id 发不出去，也没有主页可看）；`activity/message/ChooseFriendActivity.kt` 是「发私信」候选列表，要自己滤掉 `isSystem()`。
+- **头像与昵称的回落**：系统会话没有用户卡，适配器用 `accountName` / `accountAvatar`，为空时回落 `R.mipmap.akari` 与「B站官方消息」（`uitext_privatemsgsessionsadapter_011`）——**新文案必须同时进 `values/strings.xml` 与 `util/UiText.kt` 的 MAP**，只加 strings.xml 界面会显示原文。
+- **仍未解决（本轮没动）**：`api/MessageApi.java:124` 的 `checkPrivateMsgUnread()` 把 `dustbin_unread` / `dustbin_push_msg` 也累加进角标，但 `get_sessions` 不带 `show_dustbin`、App 里没有拦截区入口，这部分未读**仍可能消不掉**。
 
 ## 8. UI 基建速查（新增页面临摹用）
 
