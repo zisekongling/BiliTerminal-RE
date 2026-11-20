@@ -4,6 +4,7 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
 
 /**
@@ -12,8 +13,8 @@ import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
  * 设计稿口径（dp，本类以控件左上角为原点换算）：
  * - 控件顶在 y=208、轨道中线 y=222，所以本类把「波形基线」定在 8dp、「轨道中线」定在 14dp；
  * - 弹幕热度波形：48 段折线，白色 26% 填充，最高 7dp，画在轨道**上方**；
- * - 轨道：3dp 圆角、白 22%；缓冲白 38%；已播 `#FF6699`；
- * - 滑块：4dp 白心 + 2dp `#FF6699` 描边（中心正好落在已播段末端）。
+ * - 轨道：3dp 圆角、白 22%；缓冲白 38%；已播取 [ColorScheme.PLAYER_PROGRESS_FILL]（跟主题走）；
+ * - 滑块：4dp 白心 + 2dp 同色描边（中心正好落在已播段末端）。
  *
  * 真实高能数据是按 [HighEnergyProgressBar.highEnergyStepSeconds] 切片的一串浮点数，
  * 设计稿那 48 个点是示意值；这里把真实数据点等距铺满轨道宽度，观感与设计稿同构。
@@ -45,7 +46,7 @@ class PlayerNewProgressRenderer(
     }
     private val playedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = 0xffff6699.toInt()
+        color = ColorScheme.PLAYER_PROGRESS_FILL
     }
     private val thumbFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
@@ -53,12 +54,22 @@ class PlayerNewProgressRenderer(
     }
     private val thumbStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        color = 0xffff6699.toInt()
+        color = ColorScheme.PLAYER_PROGRESS_FILL
     }
     /** 片段标记（会跳的广告区间等）的贴底实心条。 */
     private val markPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val path = Path()
     private val rect = RectF()
+
+    /**
+     * 封面取色（G06）优先于主题色，与圆屏 [PlayerArcProgressView.setAccentColor] 同口径。
+     * 轨道 / 缓冲 / 热度按设计稿是白 22%/38%/26%，**不跟主题也不跟封面**，所以不在这里改。
+     */
+    fun setAccentColor(color: Int) {
+        playedPaint.color = color
+        thumbStroke.color = color
+        bar.invalidate()
+    }
 
     fun draw(canvas: Canvas) {
         val width = bar.width.toFloat()

@@ -8,6 +8,7 @@ import android.graphics.drawable.GradientDrawable
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.TextPaint
+import android.text.TextUtils
 import android.text.style.CharacterStyle
 import android.view.Gravity
 import android.view.View
@@ -21,6 +22,8 @@ import android.widget.LinearLayout
 import android.widget.RelativeLayout
 import android.widget.TextView
 import com.RobinNotBad.BiliClient.R
+import com.RobinNotBad.BiliClient.activity.player.PlayerLockPolicy
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
@@ -51,7 +54,7 @@ class PlayerNewUiController(
     private val showPages: () -> Unit,
     /** 清晰度槽位要显示的文字（「720P」）；拿不到时退回原图标。 */
     private val qualityLabel: () -> String?,
-    /** 某个按钮当前是否处于「开启」态，「更多」面板据此把那一格染成 #FF8CB0。 */
+    /** 某个按钮当前是否处于「开启」态，「更多」面板据此把那一格染成主题强调色（设计稿 #FF8CB0）。 */
     private val slotIsOn: (String) -> Boolean,
     /** 整屏弹层开合：弹幕是独立 surface，普通 View 的遮罩盖不住它，只能让它自己藏起来。 */
     private val onPanelShown: (Boolean) -> Unit,
@@ -61,7 +64,7 @@ class PlayerNewUiController(
     private val onArcSeekStop: (Int) -> Unit,
     /** 当前是否在播放：中心键据此在「播放/暂停」两个设计稿图标之间切换。 */
     private val playingNow: () -> Boolean,
-    /** 弹幕是否可见：可见时弹幕按钮像设计稿那样染成 #FF8CB0。 */
+    /** 弹幕是否可见：可见时弹幕按钮像设计稿那样染成主题强调色（#FF8CB0）。 */
     private val danmakuNow: () -> Boolean,
     /**
      * 某个槽位在**这条视频上**是否可用（与该按钮此刻显示/隐藏无关）。
@@ -100,10 +103,23 @@ class PlayerNewUiController(
     private val mirrors = ArrayList<Pair<View, View>>()
 
     /**
-     * 设计稿强调色 #FF8CB0。**必须声明在这里**：init 块里的 buildSeekText() 要用它，
+     * 设计稿强调色（开关「已开启」）= [ColorScheme.PRIMARY_LIGHT]，跟主题走。
+     * **必须声明在这里**：init 块里的 buildSeekText() 要用它，
      * 而 Kotlin 的字段按源码顺序初始化，声明在后面的属性那时还是 0（等于全透明）。
      */
-    private val accentSoft = 0xFFFF8CB0.toInt()
+    private val accentSoft = ColorScheme.PRIMARY_LIGHT
+
+    /** 已播进度色：封面取色优先（G06），没取到就用主题色。同样必须声明在 init 之前。 */
+    private var progressAccent = ColorScheme.PLAYER_PROGRESS_FILL
+
+    /** 方屏进度行的自绘渲染器；封面取色回来时要改它的已播色，所以留引用。 */
+    private var progressRenderer: PlayerNewProgressRenderer? = null
+
+    /** 当前是否锁定：锁定期间 closeList/closeGrid 不许把控制层又放出来。 */
+    private var lockedNow = false
+
+    /** 用户主动收起（单击 / 手势）待生效一次；暂停时自动隐藏被拒，但主动收起照收。 */
+    private var manualHidePending = false
 
     /** 槽位按钮 → key。Activity 会随时改这些按钮的图标（弹幕开关、锁定、播放暂停），
      * 靠这张表把它们重新拉回设计稿那一套矢量图标。 */
@@ -206,25 +222,27 @@ class PlayerNewUiController(
             overlay.addView(duration, FrameLayout.LayoutParams(dp(spec.timeWidth), dp(spec.timeHeight), Gravity.END))
             // 整行改成自绘：旧样式（波形压在轨道上、滑块是小电视）与设计稿对不上。
             seekbar.setPadding(0, 0, 0, 0)
-            seekbar.customRenderer = PlayerNewProgressRenderer(seekbar, spec.scale)::draw
+            progressRenderer = PlayerNewProgressRenderer(seekbar, spec.scale)
+            seekbar.customRenderer = progressRenderer!!::draw
             overlay.addView(seekbar, FrameLayout.LayoutParams(-1, dp(spec.trackRowHeight)))
         } else {
             detach(progressText)
             progressText.gravity = Gravity.CENTER
-            progressText.textSize = 10f
             progressText.setPadding(0, 0, 0, 0)
             // 设计稿：中心键下方一行「当前 / 总长」，top 72、行高 13、字号 10。
-            overlay.addView(progressText, FrameLayout.LayoutParams(dp(130), dp(13), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(72) })
+            // 落点与字号都按实际直径缩放，否则小表盘上这一行会压到拖动预览三行。
+            placeRoundText()
             seekbar.visibility = View.GONE
         }
 
         // 沉浸态细进度线（设计稿 squareNew 的 immerse 分支）：left 30、宽 180、top 272、高 2、圆角 2，
-        // 底色白 18%、已播 #FF6699。注意它不是贴屏幕底边的那条 —— 底下还留 6dp。
+        // 底色白 18%、已播跟主题进度色（封面取色回来由 setCoverAccent 覆盖）。
+        // 注意它不是贴屏幕底边的那条 —— 底下还留 6dp。
         idleTrack = View(activity).apply {
             background = GradientDrawable().apply { cornerRadius = dp(2).toFloat(); setColor(0x2effffff) }
         }
         idleFill = View(activity).apply {
-            background = GradientDrawable().apply { cornerRadius = dp(2).toFloat(); setColor(0xffff6699.toInt()) }
+            background = GradientDrawable().apply { cornerRadius = dp(2).toFloat(); setColor(progressAccent) }
         }
         overlay.addView(idleTrack, FrameLayout.LayoutParams(0, dp(spec.idleHeight)))
         // 细进度线给满宽度、靠 scaleX 表达进度（见 syncProgress），不再每次改 layoutParams。
@@ -251,12 +269,12 @@ class PlayerNewUiController(
         root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
         // root 在 init 期间还没测量（height 为 0），贴底的那些元素必须等真实宽高出来再摆一次，
         // 否则会按 displayMetrics 的全屏高度算，被状态栏/导航栏顶掉一段。
-        overlay.post { placeBottomAnchored() }
+        overlay.post { placeSizeDependent() }
         // 旋转屏幕 / 分屏改变尺寸时，锚在底边的东西也要跟着重摆一次。
         // 这里只补「贴底元素」这一半；按钮的落位由 Activity 在 onConfigurationChanged 里
         // 调 applyPlayerButtonLayout() → render() 负责（那边还要重算槽位容量）。
         overlay.addOnLayoutChangeListener { _, left, top, right, bottom, oL, oT, oR, oB ->
-            if (right - left != oR - oL || bottom - top != oB - oT) placeBottomAnchored()
+            if (right - left != oR - oL || bottom - top != oB - oT) placeSizeDependent()
         }
 
         // 设计稿 lockView：顶部居中一行「已锁定 · 点锁图标解锁」胶囊 + 锁图标底下 34dp 圆底
@@ -286,12 +304,14 @@ class PlayerNewUiController(
         root.addView(lockLayer, FrameLayout.LayoutParams(-1, -1))
         // 图标校准不再挂每帧的 OnPreDrawListener（那会每帧遍历全部按钮并 setColorFilter，
         // 是新版卡顿的主因之一）。改成只在状态可能变化时校准：重摆、显隐、镜像同步、面板开合。
-        // 保持原锁定遮罩与落脚点在新版层之上；列表层同理不能挡住解锁。
-        root.findViewById<View>(R.id.lock_overlay).bringToFront()
-        root.findViewById<View>(R.id.lock_holder).bringToFront()
         root.addView(listHost, FrameLayout.LayoutParams(-1, -1))
         listHost.visibility = View.GONE
+        // 锁定三层的 z 序必须固定成「控制层 < 列表层 < lock_overlay < lockLayer < lock_holder」：
+        // lock_overlay 是吞触摸的透明遮罩，必须压在控制层/列表层之上，否则锁定期间还能点到按钮；
+        // lockLayer（顶部提示胶囊 + 锁底圆）要压在 lock_overlay 之上，提示才画得出来；
+        // lock_holder 里的锁按钮最后顶上来，点它才解锁得了。这三句不能删，删了锁定就失效。
         root.findViewById<View>(R.id.lock_overlay).bringToFront()
+        lockLayer.bringToFront()
         root.findViewById<View>(R.id.lock_holder).bringToFront()
     }
 
@@ -301,32 +321,71 @@ class PlayerNewUiController(
     private fun buildSeekText() {
         seekDelta.apply {
             setTextColor(accentSoft)
-            textSize = if (round) 11f else spec.textSmall + 1f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
+            includeFontPadding = false
         }
         seekMain.apply {
             setTextColor(Color.WHITE)
-            textSize = if (round) 28f else spec.seekMainText
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
+            // 28sp 默认还带 ~4.5dp 的字体内边距，34dp 的行会把它裁掉一截；关掉才装得下。
+            includeFontPadding = false
         }
         seekTotal.apply {
             setTextColor(Color.WHITE)
-            textSize = if (round) 10f else spec.textSmall
             alpha = 0.7f
             gravity = Gravity.CENTER
+            includeFontPadding = false
         }
-        // 设计稿：圆屏 top 78 / 94 / 132，方屏 100 / 116 / 156（方屏按屏幕中心 ±偏移锚定）。
+        seekText.addView(seekDelta, FrameLayout.LayoutParams(-1, 0))
+        seekText.addView(seekMain, FrameLayout.LayoutParams(-1, 0))
+        seekText.addView(seekTotal, FrameLayout.LayoutParams(-1, 0))
+        placeSeekRows()
+    }
+
+    /**
+     * 三行预览文字的字号与落点：尺寸变了要重摆，所以与样式分开，可反复调用。
+     * 圆屏落点交给纯函数按实际直径算（设计稿 233dp 上是 87 / 103 / 141，
+     * 原来写死 78 / 94 / 132 会压住中心键下方 top 72 的「当前 / 总长」行）；
+     * 方屏按屏幕中心 ±偏移锚定。字号必须跟着行高一起缩，否则小表盘上行矮了字没矮，照样裁。
+     */
+    private fun placeSeekRows() {
+        val bands = if (round) PlayerNewUiGeometry.roundSeekRows(widthDp()) else null
         val heights = floatArrayOf(
-            if (round) 14f else spec.seekDeltaHeight,
-            if (round) 34f else spec.seekMainHeight,
-            if (round) 13f else spec.seekTotalHeight,
+            bands?.get(0)?.height ?: spec.seekDeltaHeight,
+            bands?.get(1)?.height ?: spec.seekMainHeight,
+            bands?.get(2)?.height ?: spec.seekTotalHeight,
         )
-        val tops = if (round) listOf(78f, 94f, 132f) else spec.seekRows(heightDp())
-        seekText.addView(seekDelta, FrameLayout.LayoutParams(-1, dp(heights[0])).apply { topMargin = dp(tops[0]) })
-        seekText.addView(seekMain, FrameLayout.LayoutParams(-1, dp(heights[1])).apply { topMargin = dp(tops[1]) })
-        seekText.addView(seekTotal, FrameLayout.LayoutParams(-1, dp(heights[2])).apply { topMargin = dp(tops[2]) })
+        val tops = bands?.map { it.top } ?: spec.seekRows(heightDp())
+        val f = roundScale()
+        seekDelta.textSize = if (round) 11f * f else spec.textSmall + 1f
+        seekMain.textSize = if (round) 28f * f else spec.seekMainText
+        seekTotal.textSize = if (round) 10f * f else spec.textSmall
+        listOf(seekDelta, seekMain, seekTotal).forEachIndexed { index, view ->
+            (view.layoutParams as? FrameLayout.LayoutParams)?.let {
+                it.height = dp(heights[index])
+                it.topMargin = dp(tops[index])
+                view.layoutParams = it
+            }
+        }
+    }
+
+    /**
+     * 圆屏「当前 / 总长」那一行：落点、行高、字号全按实际直径缩放。
+     * init 时 root 还没测量，只能先摆个临时值；layout 变化后再摆一次（见 placeRoundText 的调用点）。
+     */
+    private fun placeRoundText() {
+        if (!round) return
+        val size = widthDp()
+        val band = PlayerNewUiGeometry.roundProgressTextBand(size)
+        progressText.textSize = 10f * roundScale()
+        progressText.includeFontPadding = false
+        val width = (130f * size / PlayerNewUiGeometry.REFERENCE_SIZE_DP).toInt().coerceAtLeast(1)
+        val params = FrameLayout.LayoutParams(dp(width), dp(band.height), Gravity.TOP or Gravity.CENTER_HORIZONTAL)
+        params.topMargin = dp(band.top)
+        if (progressText.parent === overlay) progressText.layoutParams = params
+        else overlay.addView(progressText, params)
     }
 
     /**
@@ -338,6 +397,8 @@ class PlayerNewUiController(
             seekDim.visibility = View.GONE
             seekText.visibility = View.GONE
             buttons.visibility = if (shown) View.VISIBLE else View.GONE
+            // 圆屏那行「当前 / 总长」在 seek 态被三行预览替掉了，松手要还回来。
+            if (round) progressText.visibility = if (shown) View.VISIBLE else View.GONE
             if (seekPreviewShown) {
                 seekPreviewShown = false
                 // 松手：弹幕回来，同时重置自动隐藏计时（面板/拖动都不该被 4 秒自动收掉）。
@@ -353,6 +414,8 @@ class PlayerNewUiController(
         seekMain.text = StringUtil.toTime((pos / 1000L).toInt())
         seekTotal.text = activity.getString(R.string.player_seek_total, StringUtil.toTime((total / 1000L).toInt()))
         buttons.visibility = View.GONE
+        // 设计稿 roundNew 的 seek 态不画中心键下方那行时间：留着会与「+mm:ss」挤在一起。
+        if (round) progressText.visibility = View.GONE
         seekDim.visibility = View.VISIBLE
         seekText.visibility = View.VISIBLE
         if (!seekPreviewShown) {
@@ -596,7 +659,39 @@ class PlayerNewUiController(
     /** 圆屏弧形进度（方屏为 null）：高能数据加载后由 Activity 把真实曲线同步过来。 */
     fun arcProgress(): PlayerArcProgressView? = arc
 
-    fun setControlsVisible(visible: Boolean) {
+    /**
+     * 封面取色（G06）：取到的颜色优先于主题色，喂给弧形进度、方屏自绘进度行与沉浸细线。
+     *
+     * 方屏的 [seekbar] 被 customRenderer 接管后，它自己的 setAccentColor 只改旧画笔、画不出来，
+     * 所以必须在这里把颜色转交给渲染器。取不到封面色时 Activity 不调这里，进度色留在主题色。
+     * 轨道 / 缓冲 / 热度按设计稿是白 22%/38%/30%，不跟主题也不跟封面，这里不动它们。
+     */
+    fun setCoverAccent(color: Int) {
+        progressAccent = color
+        arc?.setAccentColor(color)
+        progressRenderer?.setAccentColor(color)
+        (idleFill.background as? GradientDrawable)?.setColor(color)
+        idleFill.invalidate()
+    }
+
+    /**
+     * 用户主动收起控制层（单击画面 / 手势）。必须与自动隐藏分开：
+     * 暂停时自动隐藏被设计稿禁掉了，但用户单击还是得能收起来，否则暂停后控件再也关不掉。
+     * 只对下一次 [setControlsVisible] 生效一次。
+     */
+    fun requestManualHide() {
+        manualHidePending = true
+    }
+
+    /**
+     * 显隐控制层，返回**是否真的执行了**。
+     * 设计稿 NOTES.paused：暂停时控件常驻，所以自动隐藏会被拒（返回 false），
+     * 调用方据此跳过连带的收尾动作；用户主动收起（[requestManualHide]）不受此限。
+     */
+    fun setControlsVisible(visible: Boolean): Boolean {
+        val manual = manualHidePending
+        manualHidePending = false
+        if (!visible && !PlayerNewUiControlPolicy.autoHideAllowed(playingNow(), manual)) return false
         shown = visible
         overlay.visibility = View.VISIBLE
         top.visibility = if (visible) View.VISIBLE else View.GONE
@@ -608,7 +703,7 @@ class PlayerNewUiController(
         // 滑动 seek 全挂在它的监听器上，一旦隐藏就再没有 View 能接住触摸，
         // 控制层收起后单击唤不回来（死锁）。旧实现同样只隐藏它的子层，从不隐藏它本身。
         oldControl.visibility = View.VISIBLE
-        if (round) progressText.visibility = if (visible) View.VISIBLE else View.GONE
+        if (round) progressText.visibility = if (visible && !seekPreviewShown) View.VISIBLE else View.GONE
         arc?.visibility = if (round && (visible || idleEnabled())) View.VISIBLE else View.GONE
         arc?.setIdle(!visible)
         arc?.isEnabled = visible
@@ -620,6 +715,7 @@ class PlayerNewUiController(
         }
         applyDesignIcons()
         syncProgress()
+        return true
     }
 
     /** 设计稿 IC 表里对应的主界面图标（0 = 该槽位本来就是文字，比如清晰度与倍速）。 */
@@ -636,7 +732,7 @@ class PlayerNewUiController(
     }
 
     /**
-     * 把主界面按钮统一换成设计稿的图标，开着的染成 #FF8CB0。
+     * 把主界面按钮统一换成设计稿的图标，开着的染成主题强调色（设计稿 #FF8CB0）。
      *
      * 图标归属仍在 Activity：弹幕开关、锁定/解锁、播放/暂停都会 setImageResource，一次交互就把
      * 设计稿图标顶掉了。所以在每次绘制前对一遍——实例还是我们设的那个就什么都不做，
@@ -781,8 +877,16 @@ class PlayerNewUiController(
      * 清晰度面板（设计稿 qualityPanel）。和通用 [showList] 只差排版：
      * 圆屏是一列直接浮在压暗画面上的选项（选中行背后一条 168×35 粉色胶囊），
      * 方屏是从 y=96 到底的抽屉（圆角 18、深底 + 顶部 1px 分隔线）。
+     *
+     * [vipFlags] 与 [items] 一一对应，标记哪些档位要大会员徽标（判据见 QualityAccessPolicy.requiresVip）。
      */
-    fun showQualityPanel(title: CharSequence, items: List<String>, selected: Int, onClick: (Int) -> Unit) {
+    fun showQualityPanel(
+        title: CharSequence,
+        items: List<String>,
+        selected: Int,
+        vipFlags: List<Boolean> = emptyList(),
+        onClick: (Int) -> Unit,
+    ) {
         closeGrid()
         listHost.removeAllViews()
         listHost.setOnClickListener { closeList() }
@@ -807,7 +911,7 @@ class PlayerNewUiController(
             listHost.addView(View(activity).apply {
                 background = GradientDrawable().apply {
                     cornerRadius = dp(18).toFloat()
-                    setColor(0x29ff6699)
+                    setColor(accentWithAlpha(0x29))
                 }
             }, FrameLayout.LayoutParams(dp(168), dp(35)).apply {
                 topMargin = dp(selectedY - 17.5f)
@@ -815,7 +919,7 @@ class PlayerNewUiController(
             })
             items.forEachIndexed { index, text ->
                 val y = rowY(index)
-                listHost.addView(qualityRow(text, index == selected, 12f, dp(14), dp(6), true, index, items.lastIndex) {
+                listHost.addView(qualityRow(text, index == selected, 12f, dp(14), dp(6), true, vipFlags.getOrElse(index) { false }, index, items.lastIndex) {
                     closeList(); onClick(index)
                 }, FrameLayout.LayoutParams(-1, dp(20)).apply { topMargin = dp(y - 10f) })
             }
@@ -847,12 +951,12 @@ class PlayerNewUiController(
                 topMargin = dp(spec.s(12f)); leftMargin = dp(spec.s(18f))
             })
             items.forEachIndexed { index, text ->
-                val row = qualityRow(text, index == selected, if (round) 13f else spec.textSmall + 2f, dp(16), dp(6), false, index, items.lastIndex) {
+                val row = qualityRow(text, index == selected, if (round) 13f else spec.textSmall + 2f, dp(16), dp(6), false, vipFlags.getOrElse(index) { false }, index, items.lastIndex) {
                     closeList(); onClick(index)
                 }
                 if (index == selected) row.background = GradientDrawable().apply {
                     cornerRadius = dp(10).toFloat()
-                    setColor(0x24ff6699)
+                    setColor(accentWithAlpha(0x24))
                 }
                 row.setPadding(dp(8), 0, dp(8), 0)
                 sheet.addView(row, FrameLayout.LayoutParams(-1, dp(spec.s(34f))).apply {
@@ -870,7 +974,29 @@ class PlayerNewUiController(
         listHost.visibility = View.VISIBLE
     }
 
-    /** 清晰度面板的一行：圆屏居中（文字 + 选中勾连排），方屏左对齐、勾贴右边。 */
+    /** 当前进度强调色带上指定 alpha：胶囊底、选中行底都用它，跟着主题/封面取色走。 */
+    private fun accentWithAlpha(alpha: Int) = (progressAccent and 0x00ffffff) or (alpha shl 24)
+
+    /**
+     * 大会员徽标（设计稿 .vip）：8sp、左右 4dp、圆角 3、1dp 描边，跟在档位名后面而不是单独一行。
+     * 尺寸只走 spec（不乘 roundScale）：圆屏清晰度行高固定 20dp，放大就溢出了。
+     */
+    private fun vipBadge(): TextView = TextView(activity).apply {
+        text = activity.getString(R.string.player_quality_vip_badge)
+        textSize = spec.qualityBadgeText
+        setTextColor(ColorScheme.VIP_COLOR)
+        gravity = Gravity.CENTER
+        includeFontPadding = false
+        maxLines = 1
+        setPadding(dp(spec.qualityBadgePadH), 0, dp(spec.qualityBadgePadH), 0)
+        background = GradientDrawable().apply {
+            cornerRadius = dp(spec.qualityBadgeRadius).toFloat()
+            setColor(Color.TRANSPARENT)
+            setStroke(dp(1), (ColorScheme.VIP_COLOR and 0x00ffffff) or 0x99000000.toInt())
+        }
+    }
+
+    /** 清晰度面板的一行：圆屏居中（文字 + 徽标 + 选中勾连排），方屏左对齐、勾贴右边。 */
     private fun qualityRow(
         text: String,
         selected: Boolean,
@@ -878,6 +1004,7 @@ class PlayerNewUiController(
         checkSize: Int,
         checkMargin: Int,
         centered: Boolean,
+        vip: Boolean,
         index: Int,
         lastIndex: Int,
         onClick: () -> Unit,
@@ -895,21 +1022,30 @@ class PlayerNewUiController(
             setTextColor(if (selected) accentSoft else Color.WHITE)
             setTypeface(typeface, if (selected) Typeface.BOLD else Typeface.NORMAL)
             maxLines = 1
+            // 加了徽标之后档位名可能被挤出去：限宽 + 尾部省略，别让整行截断或把勾顶出屏幕。
+            maxWidth = dp(spec.qualityLabelMaxWidth(widthDp(), vip, selected, centered))
+            ellipsize = TextUtils.TruncateAt.END
             gravity = if (centered) Gravity.CENTER else Gravity.START or Gravity.CENTER_VERTICAL
         }
         val check = if (selected) ImageView(activity).apply {
             setImageResource(R.drawable.ic_player_v2_check)
             setColorFilter(accentSoft)
         } else null
+        val badge = if (vip) vipBadge() else null
+        val badgeParams = LinearLayout.LayoutParams(-2, dp(spec.qualityBadgeHeight)).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            marginStart = dp(spec.qualityBadgeMargin)
+        }
         if (centered) {
             // 设计稿里「文字 + 勾」是一个整体居中的 flex 行（gap 6）——勾紧跟文字，
-            // 而不是钉在屏幕右边缘：把勾放进水平 LinearLayout 再整体居中。
+            // 而不是钉在屏幕右边缘：把勾放进水平 LinearLayout 再整体居中。徽标插在两者之间。
             val line = LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER
                 isBaselineAligned = false
             }
             line.addView(label, LinearLayout.LayoutParams(-2, -1))
+            if (badge != null) line.addView(badge, badgeParams)
             if (check != null) {
                 line.addView(check, LinearLayout.LayoutParams(checkSize, checkSize).apply {
                     gravity = Gravity.CENTER_VERTICAL
@@ -918,21 +1054,33 @@ class PlayerNewUiController(
             }
             row.addView(line, FrameLayout.LayoutParams(-1, -1))
         } else {
-            row.addView(label, FrameLayout.LayoutParams(-1, -1).apply { leftMargin = dp(8) })
+            // 方屏抽屉：一行水平排「档位名 + 徽标 + 弹性空白 + 勾」，勾仍贴右。
+            // 原来用 FrameLayout 把 label 铺满整行，徽标没地方插，只能改成 LinearLayout。
+            val line = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                isBaselineAligned = false
+            }
+            line.addView(label, LinearLayout.LayoutParams(-2, -1).apply { leftMargin = dp(8) })
+            if (badge != null) line.addView(badge, badgeParams)
+            line.addView(View(activity), LinearLayout.LayoutParams(0, 1, 1f))
             if (check != null) {
-                // 方屏抽屉：勾贴右，行内已有 8dp 内边距
-                row.addView(check, FrameLayout.LayoutParams(checkSize, checkSize, Gravity.END or Gravity.CENTER_VERTICAL).apply {
-                    rightMargin = dp(8)
+                line.addView(check, LinearLayout.LayoutParams(checkSize, checkSize).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    marginStart = checkMargin
+                    marginEnd = dp(8)
                 })
             }
+            row.addView(line, FrameLayout.LayoutParams(-1, -1))
         }
         return row
     }
 
     fun closeList() {
         listHost.visibility = View.GONE
-        // showQualityPanel 期间整层控制层是藏起来的（设计稿 quality 态不画顶栏与按钮），关面板时按当前显隐态还原
-        overlay.visibility = if (shown) View.VISIBLE else View.GONE
+        // showQualityPanel 期间整层控制层是藏起来的（设计稿 quality 态不画顶栏与按钮），关面板时按当前显隐态还原。
+        // 锁定期间一律不许还原：parkLockButton() 会走到这里，无条件置 VISIBLE 会把刚藏好的控制层又放出来。
+        overlay.visibility = if (shown && !lockedNow) View.VISIBLE else View.GONE
         // 「更多」网格也开着时不能把弹幕放回来
         if (gridHost.visibility != View.VISIBLE) onPanelShown(false)
     }
@@ -941,10 +1089,39 @@ class PlayerNewUiController(
 
     /** 锁定时藏掉整个新版控制层、顶出锁定层；解锁时反过来，避免控制层压住 lock_holder。 */
     fun setLocked(locked: Boolean) {
+        val entering = locked && !lockedNow
+        lockedNow = locked
         if (locked) closeTransientPanels()
         overlay.visibility = if (locked) View.GONE else View.VISIBLE
         lockLayer.visibility = if (locked) View.VISIBLE else View.GONE
-        if (locked) positionLockRing()
+        if (locked) {
+            positionLockRing()
+            if (entering) showLockHint()
+        } else {
+            lockHint.removeCallbacks(lockHintFade)
+            lockHint.animate().cancel()
+            lockHint.alpha = 1f
+        }
+    }
+
+    /**
+     * 顶部「已锁定」胶囊提示（设计稿 NOTES.lock）：出现 [PlayerLockPolicy.EXIT_HINT_MS] 后淡出。
+     * 淡出走 alpha 动画而不是直接 GONE —— 硬切在手表上看着像闪了一下就没了。
+     * 解锁时取消计时并复原不透明度，下次锁定还能再提示一遍。
+     */
+    fun showLockHint() {
+        if (!lockedNow) return
+        lockHint.removeCallbacks(lockHintFade)
+        lockHint.animate().cancel()
+        lockHint.alpha = 1f
+        lockHint.visibility = View.VISIBLE
+        lockHint.postDelayed(lockHintFade, PlayerLockPolicy.EXIT_HINT_MS)
+    }
+
+    private val lockHintFade = Runnable {
+        lockHint.animate().alpha(0f).setDuration(LOCK_HINT_FADE_MS).withEndAction {
+            lockHint.visibility = View.GONE
+        }.start()
     }
 
     /**
@@ -997,25 +1174,44 @@ class PlayerNewUiController(
         })
         grid.orientation = LinearLayout.VERTICAL
         grid.gravity = Gravity.CENTER
-        gridHost.addView(grid, FrameLayout.LayoutParams(
-            dp(gridWidthDp()), dp(gridHeightDp())
-        ).apply {
-            topMargin = dp(if (round) 42f else spec.gridTop(heightDp()))
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        // 网格 + 页码点 + 提示行装进一个**居中容器**，靠 FrameLayout 的 CENTER 自动定位，
+        // 不再手算 topMargin。之前用 `spec.gridTop(heightDp())` 算一次就固定下来：
+        // 高度是在 init/首次布局时取的，横屏后（或旋转后）不会重算，
+        // 面板就整块掉到屏幕下方被裁掉（真机截图可见）。
+        // 交给布局容器后，尺寸怎么变都由系统重新居中，不需要监听旋转。
+        val gridRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            isBaselineAligned = false
+        }
+        gridRow.addView(grid, LinearLayout.LayoutParams(dp(gridWidthDp()), dp(gridHeightDp())).apply {
+            gravity = Gravity.CENTER_VERTICAL
+        })
+        // 页码点列的宽高在 renderGridPage() 里按实际页数重算（热区 ≥24dp，见 spec.gridDots）；
+        // 这里先给个单页的初值。留白必须收窄：热区从 8dp 涨到 24dp 后，原来的 12dp 间距会把整块顶出表圈。
+        val dotsInit = spec.gridDots(1, gridHeightDp())
+        gridRow.addView(gridDots, LinearLayout.LayoutParams(dp(dotsInit.hot), dp(dotsInit.height)).apply {
+            marginStart = dp(spec.gridDotsMargin)
+            gravity = Gravity.CENTER_VERTICAL
+        })
+        val centerBlock = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+        centerBlock.addView(gridRow, LinearLayout.LayoutParams(-2, -2).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
         })
         gridHint.apply {
             textSize = 9f
             setTextColor(0x99ffffff.toInt())
             gravity = Gravity.CENTER
         }
-        gridHost.addView(gridHint, FrameLayout.LayoutParams(-1, dp(12)).apply {
-            topMargin = dp(if (round) 196f else spec.gridHintTop(heightDp()))
+        centerBlock.addView(gridHint, LinearLayout.LayoutParams(-2, dp(12)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            topMargin = dp(spec.s(12f))
         })
-        // 页码点：设计稿 dx=208 / dy=116.5（方屏 231 / 139），每颗顶边 = dy-10+i*12。
-        // 方屏改成跟着网格右缘走，屏幕变宽时不会甩在很远的边上。
-        gridHost.addView(gridDots, FrameLayout.LayoutParams(dp(8), dp(62)).apply {
-            topMargin = dp(if (round) 106.5f else spec.gridTop(heightDp()) - spec.s(17f))
-            leftMargin = dp(if (round) 204f else (widthDp() + spec.gridW) / 2f + spec.s(12f))
+        gridHost.addView(centerBlock, FrameLayout.LayoutParams(-2, -2).apply {
+            gravity = Gravity.CENTER
         })
         // 方屏顶栏右侧的收起按钮（设计稿 ib(214,25)：中心 (214,25)、36dp 热区、图标 more）。
         if (!round) {
@@ -1034,10 +1230,7 @@ class PlayerNewUiController(
         }
         overlay.addView(gridHost, FrameLayout.LayoutParams(-1, -1))
         gridHost.visibility = View.GONE
-        gridHost.setOnTouchListener { _, event ->
-            gridGesture.onTouchEvent(event)
-            false
-        }
+        gridHost.setOnTouchListener { _, event -> handleGridTouch(event) }
     }
 
     private fun openGrid(keys: List<String>) {
@@ -1056,11 +1249,63 @@ class PlayerNewUiController(
         onPanelShown(false)
         // 只有控制层本身还显示时才把顶栏与按钮层让回来。收起控制层时 setControlsVisible(false)
         // 也会走到这里，无条件恢复会把刚藏好的 top/buttons 又打开——实测症状就是这样：
-        // 控制层收起后按钮一直挂屏幕上、底部细进度线也跟着露出来。
-        if (shown) {
+        // 控制层收起后按钮一直挂屏幕上、底部细进度线也跟着露出来。锁定期间同理不许恢复。
+        if (shown && !lockedNow) {
             top.visibility = View.VISIBLE
             buttons.visibility = View.VISIBLE
         }
+    }
+
+    /**
+     * 「更多」面板的翻页手势。
+     *
+     * 原来只挂 `onFling`——它要求手指**甩得够快**（速度阈值），慢慢拖、短距离拖都判不出来，
+     * 用户体感就是「划不动」。这里补两条更宽容的判据：
+     * - 快速甩动（沿用 onFling）；
+     * - **按下到抬起纵向位移超过阈值**（慢速长拖也算），按方向翻页。
+     * 两者都不满足才交回给点击（点空白关闭面板）。
+     */
+    private var gridDownX = 0f
+    private var gridDownY = 0f
+    private var gridDragged = false
+
+    private fun handleGridTouch(event: android.view.MotionEvent): Boolean {
+        gridGesture.onTouchEvent(event)
+        when (event.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                gridDownX = event.x
+                gridDownY = event.y
+                gridDragged = false
+            }
+            android.view.MotionEvent.ACTION_UP -> {
+                val dy = event.y - gridDownY
+                val dx = event.x - gridDownX
+                val minDrag = dp(gridDragThresholdDp())
+                if (!gridDragged && kotlin.math.abs(dy) >= minDrag &&
+                    kotlin.math.abs(dy) > kotlin.math.abs(dx)
+                ) {
+                    flipGridPage(if (dy < 0) 1 else -1)
+                    gridDragged = true
+                }
+                if (gridDragged) {
+                    // 这一串手势已经被判成翻页：吞掉随后的 click，别顺手把面板关掉。
+                    gridFlinged = true
+                }
+            }
+        }
+        return false
+    }
+
+    /** 判定一次「拖动翻页」所需的纵向位移（dp）：取屏幕高度的 6%，再夹在 24~56dp 之间。 */
+    private fun gridDragThresholdDp(): Float =
+        (heightDp() * 0.06f).coerceIn(24f, 56f)
+
+    private fun flipGridPage(delta: Int) {
+        val pages = PlayerNewUiGeometry.pages(gridKeys, gridPageSize())
+        if (pages.size < 2) return
+        gridPage = ((gridPage + delta) % pages.size + pages.size) % pages.size
+        gridFlinged = true
+        renderGridPage()
     }
 
     private val gridGesture by lazy {
@@ -1126,15 +1371,34 @@ class PlayerNewUiController(
             grid.addView(line, LinearLayout.LayoutParams(-2, dp(cellH)).apply { if (rowIndex > 0) topMargin = dp(gap) })
         }
         // 页码点：设计稿竖排在网格右侧，选中那颗拉长成 12dp。
+        // 视觉点只有 8dp，手指点不中，所以每颗都套一个 ≥24dp 的可点热区（见 spec.gridDots）；
+        // 热区之间靠 spacing ≥ hot 保证互不重叠，点哪颗就跳哪页。
+        val dots = spec.gridDots(pages.size, gridHeightDp())
+        (gridDots.layoutParams as? LinearLayout.LayoutParams)?.let {
+            it.width = dp(dots.hot)
+            it.height = dp(dots.height)
+            gridDots.layoutParams = it
+        }
         pages.indices.forEach { index ->
+            val active = index == gridPage
             val dot = View(activity).apply {
                 background = GradientDrawable().apply {
                     cornerRadius = dp(4).toFloat()
-                    setColor(if (index == gridPage) Color.WHITE else 0x59ffffff)
+                    setColor(if (active) Color.WHITE else 0x59ffffff)
                 }
             }
-            gridDots.addView(dot, FrameLayout.LayoutParams(dp(8), dp(if (index == gridPage) 12 else 8)).apply {
-                topMargin = dp(index * 12)
+            val hot = FrameLayout(activity).apply {
+                isClickable = true
+                contentDescription = activity.getString(R.string.player_more_panel_page_dot, index + 1)
+                addView(dot, FrameLayout.LayoutParams(dp(dots.dot), dp(if (active) dots.dotActive else dots.dot), Gravity.CENTER))
+                setOnClickListener {
+                    if (gridPage == index) return@setOnClickListener
+                    gridPage = index
+                    renderGridPage()
+                }
+            }
+            gridDots.addView(hot, FrameLayout.LayoutParams(dp(dots.hot), dp(dots.hot)).apply {
+                topMargin = dp(index * dots.spacing)
             })
         }
         gridHint.text = if (pages.size > 1) {
@@ -1310,6 +1574,19 @@ class PlayerNewUiController(
     }
 
     /**
+     * 尺寸相关的落点重摆：方屏走贴底锚定，圆屏走「中心键下方时间行 + 拖动预览三行」。
+     * init 时 root 还没测量，两边都得等真实宽高出来再摆一次。
+     */
+    private fun placeSizeDependent() {
+        if (round) {
+            placeRoundText()
+            placeSeekRows()
+        } else {
+            placeBottomAnchored()
+        }
+    }
+
+    /**
      * 把贴底锚定的元素按**真实**宽高摆一遍：进度行两端的两个时间、进度条本身、沉浸细进度线。
      *
      * 只在构造末尾（overlay 已挂上、root 完成布局后）调用一次。设计稿把这一整块都锚在底边上
@@ -1480,6 +1757,9 @@ class PlayerNewUiController(
     companion object {
         const val NEW_QUALITY_TAG = "player_new_quality"
         const val NEW_PAGES_TAG = "player_new_pages"
+
+        /** 锁定提示淡出动画时长：设计稿只说「1.5 秒后淡出」，淡出本身给 240ms，不拖泥带水。 */
+        private const val LOCK_HINT_FADE_MS = 240L
 
         /** 倍速按钮的文案形状：「x 1.0」，见 Activity 里的 speed_strs。 */
         internal val SPEED_LABEL = Regex("^x\\s*(\\d+(?:\\.\\d+)?)$")

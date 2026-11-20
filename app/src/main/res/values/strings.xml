@@ -2695,6 +2695,8 @@
     <string name="player_seek_total">共 %1$s</string>
     <string name="player_more_panel_title">更多</string>
     <string name="player_more_panel_collapse">收起</string>
+    <string name="player_more_panel_page_dot">第 %1$d 页</string>
+    <string name="player_quality_vip_badge">大会员</string>
     <string name="player_more_send">发弹幕</string>
     <string name="player_more_cc">字幕</string>
     <string name="player_more_loop">循环</string>

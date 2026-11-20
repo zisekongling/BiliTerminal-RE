@@ -14,6 +14,41 @@ object PlayerNewUiGeometry {
 
     data class Point(val x: Float, val y: Float)
 
+    /** 一段竖直区间（dp）：文字行、热区都用它判「有没有压在一起」。 */
+    data class Band(val top: Float, val height: Float) {
+        val bottom: Float get() = top + height
+        fun overlaps(other: Band): Boolean = top < other.bottom && other.top < bottom
+    }
+
+    /** 圆屏中心键下方那行「当前 / 总长」：设计稿 top 72、行高 13，按实际直径缩放。 */
+    fun roundProgressTextBand(sizeDp: Float): Band = Band(72f, 13f).scaled(sizeDp)
+
+    /**
+     * 圆屏拖动预览三行（+mm:ss / 目标时间 / 共 mm:ss）的落点。
+     *
+     * 设计稿写的是 top 78 / 94 / 132，但第一行 78–92 与时间行 72–85 **重叠**，
+     * 拖弧时「+mm:ss」会压在「当前 / 总长」上。这里把整块挪到时间行下方（留 2dp），
+     * 行高 14 / 34 / 13 与行间距 2 / 4 仍照设计稿，全部乘实际直径 / 233。
+     * 中心播放键与底部按钮在预览期间是 GONE 的（设计稿 seek 态只留顶栏、弧与这三行），
+     * 所以整块可以占住画面中部，只要不伸进底部按钮那一圈。
+     */
+    fun roundSeekRows(sizeDp: Float): List<Band> {
+        val factor = sizeDp / REFERENCE_SIZE_DP
+        val heights = floatArrayOf(14f, 34f, 13f)
+        val gaps = floatArrayOf(2f, 4f)
+        var top = roundProgressTextBand(sizeDp).bottom + 2f * factor
+        return heights.indices.map { index ->
+            val band = Band(top, heights[index] * factor)
+            top = band.bottom + gaps.getOrElse(index) { 0f } * factor
+            band
+        }
+    }
+
+    private fun Band.scaled(sizeDp: Float): Band {
+        val factor = sizeDp / REFERENCE_SIZE_DP
+        return Band(top * factor, height * factor)
+    }
+
     data class Spec(
         val slots: List<PlayerUiLayout.Slot>,
         val positions: List<Point>

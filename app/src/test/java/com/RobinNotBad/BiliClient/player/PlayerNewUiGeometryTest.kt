@@ -110,6 +110,67 @@ class PlayerNewUiGeometryTest {
         assertTrue(PlayerNewUiGeometry.pages(keys, 0).isEmpty())
     }
 
+    @Test
+    fun `round seek rows keep design gaps on the reference screen`() {
+        val size = PlayerNewUiGeometry.REFERENCE_SIZE_DP
+        val time = PlayerNewUiGeometry.roundProgressTextBand(size)
+        assertEquals(72f, time.top, 0.02f)
+        assertEquals(85f, time.bottom, 0.02f)
+        val rows = PlayerNewUiGeometry.roundSeekRows(size)
+        assertEquals(3, rows.size)
+        // 原来写死 78 / 94 / 132：第一行 78–92 与时间行 72–85 重叠，拖动时「+mm:ss」压在时间上。
+        assertEquals(87f, rows[0].top, 0.02f)
+        assertEquals(101f, rows[0].bottom, 0.02f)
+        assertEquals(103f, rows[1].top, 0.02f)
+        assertEquals(137f, rows[1].bottom, 0.02f)
+        assertEquals(141f, rows[2].top, 0.02f)
+        assertEquals(154f, rows[2].bottom, 0.02f)
+    }
+
+    @Test
+    fun `round seek rows never overlap each other the time row or the bottom buttons`() {
+        // 233dp 参考屏、192dp 小方表转圆、227dp 常见表盘、466px@density2、466dp 大表盘。
+        for (size in listOf(233f, 192f, 227f, 466f / 2f, 466f)) {
+            val factor = size / PlayerNewUiGeometry.REFERENCE_SIZE_DP
+            val time = PlayerNewUiGeometry.roundProgressTextBand(size)
+            val rows = PlayerNewUiGeometry.roundSeekRows(size)
+            assertEquals(3, rows.size)
+            for (i in rows.indices) {
+                assertTrue("size=$size row=$i 压到时间行", !rows[i].overlaps(time))
+                assertTrue("size=$size row=$i 在时间行上方", rows[i].top >= time.bottom)
+                for (j in i + 1 until rows.size) {
+                    assertTrue("size=$size row=$i 与 row=$j 重叠", !rows[i].overlaps(rows[j]))
+                }
+            }
+            // 底部按钮那一圈：圆屏四个角 polar(88, 235/258.3/281.7/305)，热区 36dp×缩放。
+            val bottomTop = PlayerNewUiGeometry.bottomSpec(emptyList(), round = true).positions
+                .map { PlayerNewUiGeometry.scalePoint(it, size).y }
+                .minOrNull()!! - 18f * factor
+            assertTrue("size=$size 预览三行伸进底部按钮热区", rows.last().bottom < bottomTop)
+            // 顶栏（圆屏 46dp）也不该被压到。
+            assertTrue("size=$size 预览三行顶进顶栏", rows.first().top > 46f * factor)
+        }
+    }
+
+    @Test
+    fun `round seek text fits its row without font padding`() {
+        // includeFontPadding=false 时 TextView 行高约 1.1719em；行高必须装得下字号，否则字被裁。
+        for (size in listOf(233f, 192f, 227f, 466f)) {
+            val factor = size / PlayerNewUiGeometry.REFERENCE_SIZE_DP
+            val rows = PlayerNewUiGeometry.roundSeekRows(size)
+            val textSizes = floatArrayOf(11f, 28f, 10f)
+            rows.forEachIndexed { index, band ->
+                assertTrue(
+                    "size=$size row=$index 行高 ${band.height} 装不下 ${textSizes[index]}sp",
+                    band.height >= textSizes[index] * 1.1719f * factor,
+                )
+            }
+            // 时间行同理：10sp。
+            val time = PlayerNewUiGeometry.roundProgressTextBand(size)
+            assertTrue(time.height >= 10f * 1.1719f * factor)
+        }
+    }
+
     private fun assertPoint(x: Float, y: Float, actual: PlayerNewUiGeometry.Point) {
         assertEquals(x, actual.x, 0.02f)
         assertEquals(y, actual.y, 0.02f)

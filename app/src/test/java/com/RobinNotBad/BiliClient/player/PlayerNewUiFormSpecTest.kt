@@ -250,4 +250,86 @@ class PlayerNewUiFormSpecTest {
         assertEquals(ref.x, same.x, 0.001f)
         assertEquals(ref.y, same.y, 0.001f)
     }
+
+    @Test
+    fun `grid dots keep a finger sized hot zone that never overlaps`() {
+        // 视觉点只有 8dp，手指点不中；热区必须 ≥24dp，且相邻热区不许叠在一起。
+        // 这条与屏幕宽度无关，所以 233dp 圆屏与 192dp 方屏都成立。
+        for (spec in listOf(watch, phone, strip)) {
+            for (count in 1..6) {
+                for (availableH in listOf(146f, 100f, 60f, 24f)) {
+                    val dots = spec.gridDots(count, availableH)
+                    assertTrue("spec=${spec.form} count=$count 热区不足 24dp", dots.hot >= PlayerNewUiFormSpec.MIN_TOUCH_DP)
+                    assertTrue("spec=${spec.form} count=$count 间距小于热区", dots.spacing >= dots.hot)
+                    assertEquals(dots.spacing * count, dots.height, 0.001f)
+                    // 视觉点仍是设计稿的 8dp / 当前页 12dp，且都装得进热区。
+                    assertEquals(spec.s(8f), dots.dot, 0.001f)
+                    assertEquals(spec.s(12f), dots.dotActive, 0.001f)
+                    assertTrue(dots.dotActive <= dots.hot)
+                    // 逐颗按 topMargin = index * spacing 落位，任意两颗不重叠。
+                    val bands = (0 until count).map { PlayerNewUiGeometry.Band(it * dots.spacing, dots.hot) }
+                    for (i in bands.indices) {
+                        for (j in i + 1 until bands.size) {
+                            assertTrue("spec=${spec.form} count=$count 第 $i 与第 $j 颗热区重叠", !bands[i].overlaps(bands[j]))
+                        }
+                    }
+                    // 整列高度不超过 spacing*count，最后一颗不会伸出列外。
+                    assertTrue(bands.last().bottom <= dots.height + 0.001f)
+                }
+            }
+        }
+        // 页数非法时按一页算，不会算出 0 或负高度。
+        assertEquals(watch.gridDots(1, 146f).height, watch.gridDots(0, 146f).height, 0.001f)
+    }
+
+    @Test
+    fun `grid plus dots still fit inside the round bezel`() {
+        // 圆屏：网格 146dp + 留白 + 24dp 热区，整块居中后最外侧角点仍要在表圈（r=116.5）内。
+        val size = PlayerNewUiGeometry.REFERENCE_SIZE_DP
+        val gridW = 46f * 3 + 4f * 2
+        val dots = watch.gridDots(6, 146f)
+        val total = gridW + watch.gridDotsMargin + dots.hot
+        assertTrue("圆屏上网格+页码点整块宽 $total 超出直径", total <= size)
+        val left = (size - total) / 2f
+        val dotsRight = left + gridW + watch.gridDotsMargin + dots.hot
+        val top = (size - dots.height) / 2f
+        val bottom = top + dots.height
+        val cx = size / 2f
+        val cy = size / 2f
+        for (y in listOf(top, bottom)) {
+            val dx = dotsRight - cx
+            val dy = y - cy
+            val r = kotlin.math.sqrt(dx * dx + dy * dy)
+            assertTrue("页码点角点半径 $r 顶出表圈", r < PlayerNewUiGeometry.ROUND_RADIUS_DP)
+        }
+        // 方屏参考尺寸 240dp：网格 204 + 留白 2 + 热区 24 = 230，仍装得下。
+        assertTrue(watch.gridW + watch.gridDotsMargin + watch.gridDots(3, 186f).hot <= refW)
+    }
+
+    @Test
+    fun `quality badge fits both the round row and the square sheet row`() {
+        for (spec in listOf(watch, phone, strip)) {
+            // 徽标文字 8sp（关字体内边距后约 1.1719em）必须装得进徽标高度。
+            assertTrue(spec.qualityBadgeText * 1.1719f <= spec.qualityBadgeHeight)
+            // 方屏抽屉行高 34dp、圆屏清晰度行高固定 20dp，徽标都不能超。
+            assertTrue(spec.qualityBadgeHeight <= spec.s(34f))
+            assertTrue(spec.qualityBadgeHeight <= 20f)
+            assertTrue(spec.qualityBadgeMargin > 0f)
+            assertTrue(spec.qualityBadgePadH > 0f)
+        }
+    }
+
+    @Test
+    fun `quality label width leaves room for the badge and the check`() {
+        // 方屏抽屉：屏宽扣掉两侧留白 40、徽标 40、勾 32。
+        assertEquals(128f, watch.qualityLabelMaxWidth(240f, hasBadge = true, hasCheck = true, centered = false), 0.001f)
+        // 圆屏居中滚轮：留白 24、徽标 40、勾 20。
+        assertEquals(149f, watch.qualityLabelMaxWidth(233f, hasBadge = true, hasCheck = true, centered = true), 0.001f)
+        // 没徽标没勾时名字可以占满。
+        assertEquals(209f, watch.qualityLabelMaxWidth(233f, hasBadge = false, hasCheck = false, centered = true), 0.001f)
+        // 手机形态按 1.4 倍扣。
+        assertEquals(411f - 56f - 56f - 44.8f, phone.qualityLabelMaxWidth(411f, hasBadge = true, hasCheck = true, centered = false), 0.01f)
+        // 屏再窄也保底 48dp，不会算出 0 或负宽把名字整段吃掉。
+        assertEquals(48f, watch.qualityLabelMaxWidth(60f, hasBadge = true, hasCheck = true, centered = true), 0.001f)
+    }
 }

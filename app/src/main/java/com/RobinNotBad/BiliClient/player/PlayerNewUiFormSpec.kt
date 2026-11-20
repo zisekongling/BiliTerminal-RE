@@ -33,6 +33,9 @@ object PlayerNewUiFormSpec {
     const val REF_WIDTH = 240f
     const val REF_HEIGHT = 280f
 
+    /** 手表上手指能可靠点中的最小热区边长（dp），不随形态缩小。 */
+    const val MIN_TOUCH_DP = 24f
+
     data class Spec(
         val form: String,
         /** 尺寸放大系数：热区、图标、字号、间距都乘它。 */
@@ -109,6 +112,44 @@ object PlayerNewUiFormSpec {
         fun gridTop(height: Float) = ((height - gridH) / 2f).coerceAtLeast(topBarHeight)
         fun gridHintTop(height: Float) = gridTop(height) + gridH + s(12f)
 
+        /**
+         * 「更多」右侧页码点的排布。
+         *
+         * 设计稿把点画成 8dp、间距 12dp，但那是**视觉**尺寸：手表手指粗，12dp 间距塞不下
+         * 24dp 热区，相邻热区一重叠就会点错页。所以间距至少一个热区，可用高度富余时最多
+         * 放宽到 1.5 倍热区（再宽就与网格不成比例）。高度不够也不缩热区——点不中比整列
+         * 略高一点更糟，面板整块居中，高一点仍在屏内。
+         */
+        fun gridDots(pageCount: Int, availableH: Float): GridDots {
+            val count = pageCount.coerceAtLeast(1)
+            val hot = maxOf(MIN_TOUCH_DP, s(24f))
+            val spacing = if (count <= 1) hot else maxOf(hot, minOf(availableH / count, hot * 1.5f))
+            return GridDots(hot = hot, spacing = spacing, dot = s(8f), dotActive = s(12f), height = spacing * count)
+        }
+
+        /** 页码点列与网格之间的留白：热区变宽后这里必须收窄，否则圆屏上整块会顶出表圈。 */
+        val gridDotsMargin get() = s(2f)
+
+        // ---- 清晰度行的大会员徽标（设计稿 .vip：8sp、左右 4dp、圆角 3、1dp 描边）----
+        val qualityBadgeText get() = s(8f)
+        val qualityBadgeHeight get() = s(12f)
+        val qualityBadgePadH get() = s(4f)
+        val qualityBadgeMargin get() = s(4f)
+        val qualityBadgeRadius get() = s(3f)
+
+        /**
+         * 清晰度行里档位名能占的最大宽度：屏宽扣掉行边距、徽标与勾。
+         *
+         * 名字过长时让**名字**出省略号，而不是把徽标或勾挤出屏幕——设计稿要求徽标紧跟名字，
+         * 两者都得看得见。圆屏整行居中、方屏是底部抽屉，两侧留白不一样，所以分开算。
+         */
+        fun qualityLabelMaxWidth(screenWidth: Float, hasBadge: Boolean, hasCheck: Boolean, centered: Boolean): Float {
+            val inset = if (centered) s(24f) else s(40f)
+            val badge = if (hasBadge) s(40f) else 0f
+            val check = if (hasCheck) (if (centered) s(20f) else s(32f)) else 0f
+            return (screenWidth - inset - badge - check).coerceAtLeast(s(48f))
+        }
+
         // ---- 清晰度 / 列表底部弹层（240×280 时 top 96，即距底 184）----
         fun sheetTop(height: Float) = (height - s(184f)).coerceAtLeast(topBarHeight)
 
@@ -156,6 +197,15 @@ object PlayerNewUiFormSpec {
         /** 所有槽位（左半在前），手表形态直接用这个顺序。 */
         val slotXs: List<Float> get() = leftXs + rightXs
     }
+
+    /** 页码点落点，见 [Spec.gridDots]。[spacing] ≥ [hot] 保证相邻热区互不重叠。 */
+    data class GridDots(
+        val hot: Float,
+        val spacing: Float,
+        val dot: Float,
+        val dotActive: Float,
+        val height: Float,
+    )
 
     val WATCH = Spec(FORM_WATCH, scale = 1f, playInRow = false, sideColumns = true, bottomMaxSlots = 5)
 

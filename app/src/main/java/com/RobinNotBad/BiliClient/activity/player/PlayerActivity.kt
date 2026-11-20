@@ -114,6 +114,7 @@ import com.RobinNotBad.BiliClient.player.PlayerButtons
 import com.RobinNotBad.BiliClient.player.PlayerNewUiController
 import com.RobinNotBad.BiliClient.player.PlayerUiLayout
 import com.RobinNotBad.BiliClient.player.PlayerRequestPolicy
+import com.RobinNotBad.BiliClient.player.QualityAccessPolicy
 import com.RobinNotBad.BiliClient.player.LocalAudioTrackPolicy
 import com.RobinNotBad.BiliClient.player.PlayerSurfaceBinder
 import com.RobinNotBad.BiliClient.player.PlayerVolumePolicy
@@ -2098,6 +2099,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
 
                 if (!gesture_click_disabled && (gesture_moved || gesture_scaled)) {
                     gesture_click_disabled = true
+                    // 新版：手势结束后的收起同样是用户主动行为，暂停时也要生效。
+                    newPlayerUi?.requestManualHide()
                     hidecon.run()
                 }
 
@@ -2174,7 +2177,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         } else {
             timestamp_click = nowTimestamp
             if (layout_top.visibility == View.GONE) showcon()
-            else hidecon.run()
+            else {
+                // 新版：单击属于用户主动收起，暂停时也得收得掉（常驻只针对自动隐藏）。
+                newPlayerUi?.requestManualHide()
+                hidecon.run()
+            }
         }
     }
 
@@ -2262,7 +2269,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         // 锁定期间由锁定状态自己管显隐，别让自动隐藏去动控制栏（会顶掉浮现中的锁定按钮）
         if (PlayerLockPolicy.isLocked(lockPhase)) return@Runnable
         newPlayerUi?.let { ui ->
-            ui.setControlsVisible(false)
+            // 设计稿 NOTES.paused：暂停时控件常驻，自动隐藏会被新版控制器拒掉。
+            // 被拒就整段跳过——否则倍速文字 / 锁定按钮 / 字幕边距被连带收掉，画面上只剩一半控件。
+            if (!ui.setControlsVisible(false)) return@Runnable
             if (isPrepared && !isAudioOnlyMode) {
                 text_speed.visibility = View.GONE
                 btn_debug.visibility = View.GONE
@@ -2469,6 +2478,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         if (before == PlayerLockPolicy.Phase.LOCKED_HIDDEN) {
             MsgUtil.showMsg(getString(R.string.msg_player_locked_exit_hint))
         }
+        // 新版：顶部胶囊提示此时已经淡出了，按返回被拦下要再提示一遍怎么解锁（1.5 秒后再淡出）。
+        newPlayerUi?.showLockHint()
         return true
     }
 
@@ -6479,6 +6490,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 points.map { HighEnergyProgressBar.PointMark((it.posSec * 1000.0).toInt(), pointColor) }
             )
         }
+        // 圆屏下 seekbar 是 GONE 的，标记只设在它身上等于什么都不显示；
+        // 弧形进度按角度另画一份，两边共用同一批数据。
+        newPlayerUi?.arcProgress()?.let { arcView ->
+            arcView.setMarks(seekbar_progress.segmentMarks)
+            arcView.setPointMarks(seekbar_progress.jumpPointMarks)
+        }
     }
 
     /**
@@ -6773,6 +6790,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                         )
                     )
                     gesture_click_disabled = true
+                    // 新版：滑动空降开始时收起控件也是用户主动行为，暂停时同样要收。
+                    newPlayerUi?.requestManualHide()
                     hidecon.run()
                     swipe_seek_overlay.visibility = View.VISIBLE
                 }
@@ -7320,6 +7339,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     resource.getPixels(pixels, 0, width, 0, 0, width, height)
                     val color = CoverTintPolicy.fromPixels(pixels) ?: return
                     seekbar_progress.setAccentColor(color)
+                    // 新版：方屏进度行被自绘渲染器接管、圆屏走弧形进度，旧 setAccentColor 都画不到，
+                    // 封面色必须转交给新版控制器（覆盖主题进度色，语义仍是「封面取色优先」）。
+                    newPlayerUi?.setCoverAccent(color)
                 }
 
                 override fun onLoadCleared(placeholder: Drawable?) {
@@ -8542,7 +8564,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
 
         runOnUiThread {
             newPlayerUi?.let { ui ->
-                ui.showQualityPanel(getString(R.string.setting_player_btn_quality), qnStrList!!.toList(), qnValueList!!.indexOf(currentQuality)) { index ->
+                // 取流接口的 support_formats / accept_quality 里没有 vip 字段，徽标判据只能落在 qn 上：
+                // 复用 QualityAccessPolicy 既有的「已登录非大会员最高 1080P」线（qn > 80），与接口文档的 qn 表一致。
+                val vipFlags = qnValueList!!.map { QualityAccessPolicy.requiresVip(it) }
+                ui.showQualityPanel(getString(R.string.setting_player_btn_quality), qnStrList!!.toList(), qnValueList!!.indexOf(currentQuality), vipFlags) { index ->
                     if (index in qnValueList!!.indices && qnValueList!![index] != currentQuality) switchQuality(qnValueList!![index])
                 }
                 return@runOnUiThread

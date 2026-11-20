@@ -8,6 +8,7 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -19,8 +20,9 @@ import kotlin.math.sin
  * 圆屏贴表圈进度弧（对应设计稿 design/player-redesign-v2.html 的 `rArc`）。
  *
  * 设计稿口径：r=108、200°→340°（经过 270°，即屏幕下方那半圈）；描边 3、拖动 5；
- * 拇指半径 4（拖动 6），白填充 + #FF6699 描边；弧内侧 4–10dp 是弹幕热度刻度；
- * 沉浸态退化成 r=110 的白 16% 细线 + 粉色进度，不画刻度与拇指。
+ * 拇指半径 4（拖动 6），白填充 + 主题进度色描边；弧内侧 4–10dp 是弹幕热度刻度；
+ * 沉浸态退化成 r=110 的白 16% 细线 + 主题进度色，不画刻度与拇指。
+ * 已播色取 [ColorScheme.PLAYER_PROGRESS_FILL]（设计稿颜色表：跟主题走），封面取色可覆盖。
  * 角度按数学极坐标（3 点钟方向逆时针为正、y 轴向上）。
  *
  * Canvas.drawArc 的 0° 在正右、顺时针为正，所以数学角 θ 对应 Canvas 角 360-θ：
@@ -56,8 +58,7 @@ class PlayerArcProgressView @JvmOverloads constructor(
     private val progress = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
-        // 设计稿 rArc 的已播色写死 #FF6699，不跟主题主色走。
-        color = 0xffff6699.toInt()
+        color = ColorScheme.PLAYER_PROGRESS_FILL
     }
     private val heat = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -70,9 +71,19 @@ class PlayerArcProgressView @JvmOverloads constructor(
     }
     private val thumbStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        color = 0xffff6699.toInt()
+        color = ColorScheme.PLAYER_PROGRESS_FILL
     }
     private val arc = RectF()
+
+    /**
+     * 封面取色（G06）优先于主题色：与方屏 [PlayerNewProgressRenderer] 同口径，
+     * 由 Activity 的 applyCoverTint 喂进来。没取到封面色时保持 [ColorScheme.PLAYER_PROGRESS_FILL]。
+     */
+    fun setAccentColor(color: Int) {
+        progress.color = color
+        thumbStroke.color = color
+        invalidate()
+    }
 
     fun bind(seek: (Float, Boolean) -> Unit) { onSeek = seek }
 

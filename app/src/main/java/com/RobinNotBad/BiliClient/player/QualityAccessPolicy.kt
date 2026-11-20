@@ -42,6 +42,19 @@ object QualityAccessPolicy {
         quality > maxUnlockedQn(loggedIn, vip)
 
     /**
+     * 这一档**本身**要不要大会员（与当前账号是谁无关，新版清晰度面板据此挂「大会员」徽标）。
+     *
+     * 判据不是猜的：取流接口只回 `accept_quality` / `accept_description` 两个平行数组，
+     * `support_formats` 里也只有 quality / format / new_description / display_desc /
+     * superscript / codecs，**没有任何 vip 字段**（见 bilibili-API/docs/video/videostream_url.md）。
+     * 同一份文档的 qn 表把 100 / 112 / 116 / 120 / 125 / 126 / 127 / 129 全标成「大会员认证」，
+     * 而 ≤80 的档位只要登录（74 / 80）或完全不要认证——正好就是本文件已有的
+     * 「已登录非大会员最高 1080P」那条线，所以直接复用 [QN_1080P]，不另立阈值。
+     */
+    @JvmStatic
+    fun requiresVip(quality: Int): Boolean = quality > QN_1080P
+
+    /**
      * 清晰度面板要不要补一个「4K 超清」锁定项。
      *
      * 4K 是大会员专属，服务端对没有权限的账号**不会把 120 写进 accept_quality**（实测匿名请求

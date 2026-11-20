@@ -88,4 +88,21 @@ class QualityAccessPolicyTest {
         val with4k = intArrayOf(120, 80, 64, 32, 16)
         assertFalse(QualityAccessPolicy.needsLocked4kHint(with4k, loggedIn = false, vip = false))
     }
+
+    @Test
+    fun `大会员徽标判据就是已登录非大会员的那条线`() {
+        // 取流接口（accept_quality / support_formats）里没有 vip 字段，徽标只能按 qn 判。
+        // 判据复用 maxUnlockedQn(loggedIn=true, vip=false) = 1080P，不另立阈值。
+        val free = intArrayOf(16, 32, 64, 74, 80)
+        val vip = intArrayOf(100, 112, 116, 120, 125, 126, 127, 129)
+        free.forEach { assertFalse("qn=$it 不该挂大会员徽标", QualityAccessPolicy.requiresVip(it)) }
+        vip.forEach { assertTrue("qn=$it 该挂大会员徽标", QualityAccessPolicy.requiresVip(it)) }
+        // 与「锁不锁」保持同一条线：登录非大会员时锁住的档，正是要挂徽标的档。
+        (free + vip).forEach {
+            assertEquals(
+                QualityAccessPolicy.isLocked(it, loggedIn = true, vip = false),
+                QualityAccessPolicy.requiresVip(it),
+            )
+        }
+    }
 }
