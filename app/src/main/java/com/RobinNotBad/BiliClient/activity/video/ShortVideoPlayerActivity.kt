@@ -416,6 +416,9 @@ class ShortVideoPagerAdapter(
 
     var lastVisiblePosition = -1
 
+    /** 首帧回调：信息流据此收加载层，不依赖列表回调是否准时到达。 */
+    var onFirstFrame: (() -> Unit)? = null
+
     // 「只看 TA」续播：换 adapter 会重建播放器，进入时记下旧播放器的毫秒进度，
     // 对应页 onPrepared 后一次性 seek 回去（消费即清，不影响后续正常播放）
     private var initialSeekPosition = -1
@@ -590,6 +593,7 @@ class ShortVideoPagerAdapter(
                 isPlaying = false
                 playIcon.visibility = View.VISIBLE
                 buttonVideo?.setImageResource(R.drawable.btn_player_play)
+                newUi?.syncPlayback()
             }
             MsgUtil.showMsg(UiText.of("播放错误"))
         })
@@ -742,6 +746,8 @@ class ShortVideoPagerAdapter(
 
             isInitialized = true
 
+            // 复用 holder 的 newUi 可能已被 releasePlayer 置 null：按布局重建，别落回老链路
+            if (newUi == null) newUi = createNewUi()
             if (newUi == null) applyRoundInsets()
             newUi?.bind(item)
 
@@ -804,7 +810,7 @@ class ShortVideoPagerAdapter(
         init {
             gestureDetector = GestureDetector(activity, object : GestureDetector.SimpleOnGestureListener() {
                 override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                    if (newUi != null) newUi?.toggleControls() else toggleBottomControl()
+                    if (newUi != null) newUi?.onPageTap(e.x, e.y) else toggleBottomControl()
                     return true
                 }
 
@@ -820,62 +826,7 @@ class ShortVideoPagerAdapter(
                 }
             })
 
-            if (itemView.findViewById<View>(R.id.shortNewControls) != null) {
-                newUi = ShortVideoNewUi(itemView, activity, object : ShortVideoNewUi.Host {
-                    override fun isPlaying(): Boolean = this@PageHolder.isPlaying
-                    override fun pause() { this@PageHolder.pause() }
-                    override fun resume() { this@PageHolder.resume() }
-                    override fun seekTo(positionMs: Long) {
-                        playerBridge.seekTo(positionMs)
-                        danmakuManager?.seekTo(positionMs)
-                    }
-                    override fun cycleSpeed() { this@PageHolder.cycleSpeed() }
-                    override fun setSpeed(speed: Float) {
-                        currentSpeed = speed
-                        applySpeedToPlayers(speed)
-                        currentSpeedIndex = speedOptions.indexOf(speed).coerceAtLeast(0)
-                    }
-                    override fun toggleDanmaku(): Boolean {
-                        this@PageHolder.toggleDanmaku()
-                        return activity.isDanmakuVisible
-                    }
-                    override fun changeVolume(add: Boolean) { this@PageHolder.changeVolume(add) }
-                    override fun currentSpeed(): Float = this@PageHolder.currentSpeed
-                    override fun currentVolumePercent(): Int = this@PageHolder.volumePercent()
-                    override fun changeQuality(quality: Int) {
-                        val video = currentItem ?: return
-                        CenterThreadPool.run {
-                            try {
-                                video.videoUrl = ""
-                                video.currentQuality = quality
-                                // 走数据源：推荐流等价于原 fetchVideoUrl；作者流会补 cid 并返回富化副本
-                                val playable = feedSource.resolvePlayable(video, quality)
-                                mainHandler.post {
-                                    if (currentItem?.aid == video.aid) {
-                                        playerBridge.release()
-                                        playerReady = false
-                                        isPrepared = false
-                                        if (playable != null && playable.videoUrl.isNotEmpty()) {
-                                            if (playable !== video) currentItem = playable
-                                            initPlayer(playable)
-                                        } else {
-                                            MsgUtil.showMsg(activity.getString(R.string.uitext_shortvideoplayeractivity_002))
-                                        }
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                MsgUtil.err(UiText.of("切换清晰度："), e)
-                            }
-                        }
-                    }
-                    override fun switchVideo(offset: Int): Boolean = activity.switchCurrentVideo(offset)
-                    override fun enterAuthorMode(startItem: ShortVideoItem?) {
-                        activity.enterAuthorMode(startItem)
-                    }
-                    override fun exitAuthorMode() { activity.exitAuthorMode() }
-                    override fun isAuthorMode(): Boolean = activity.isAuthorModeActive()
-                })
-            }
+            newUi = createNewUi()
 
             scaleGestureDetector = ScaleGestureDetector(activity, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                 override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
@@ -963,6 +914,72 @@ class ShortVideoPagerAdapter(
             // 中心播放键属于画面层，不属于底栏按钮组：新版布局下 initBottomButtons() 不调用，
             // 少了这一句暂停后就再也点不回来（点击会穿透到 itemView 被当成「切常驻层」）。
             bindCenterPlayButton()
+        }
+
+        /**
+         * 新版 UI 门面：布局里有 shortNewControls 才建，老布局返回 null（老链路一字不动）。
+         *
+         * 回收/释放会把 newUi 置 null（[releasePlayer]），holder 复用到新一条时必须重建，
+         * 否则复用页的手势会落回老底栏链路（新布局里那些按钮不存在）——表现为
+         * 「单击没反应、静置不沉浸」。重建前 [ShortVideoNewUi.release] 已摘掉它插的画面层子 View。
+         */
+        private fun createNewUi(): ShortVideoNewUi? {
+            if (itemView.findViewById<View>(R.id.shortNewControls) == null) return null
+            return ShortVideoNewUi(itemView, activity, object : ShortVideoNewUi.Host {
+                override fun isPlaying(): Boolean = this@PageHolder.isPlaying
+                override fun pause() { this@PageHolder.pause() }
+                override fun resume() { this@PageHolder.resume() }
+                override fun togglePlayPause() { this@PageHolder.togglePlayPause() }
+                override fun seekTo(positionMs: Long) {
+                    playerBridge.seekTo(positionMs)
+                    danmakuManager?.seekTo(positionMs)
+                }
+                override fun cycleSpeed() { this@PageHolder.cycleSpeed() }
+                override fun setSpeed(speed: Float) {
+                    currentSpeed = speed
+                    applySpeedToPlayers(speed)
+                    currentSpeedIndex = speedOptions.indexOf(speed).coerceAtLeast(0)
+                }
+                override fun toggleDanmaku(): Boolean {
+                    this@PageHolder.toggleDanmaku()
+                    return activity.isDanmakuVisible
+                }
+                override fun changeVolume(add: Boolean) { this@PageHolder.changeVolume(add) }
+                override fun currentSpeed(): Float = this@PageHolder.currentSpeed
+                override fun currentVolumePercent(): Int = this@PageHolder.volumePercent()
+                override fun changeQuality(quality: Int) {
+                    val video = currentItem ?: return
+                    CenterThreadPool.run {
+                        try {
+                            video.videoUrl = ""
+                            video.currentQuality = quality
+                            // 走数据源：推荐流等价于原 fetchVideoUrl；作者流会补 cid 并返回富化副本
+                            val playable = feedSource.resolvePlayable(video, quality)
+                            mainHandler.post {
+                                if (currentItem?.aid == video.aid) {
+                                    playerBridge.release()
+                                    playerReady = false
+                                    isPrepared = false
+                                    if (playable != null && playable.videoUrl.isNotEmpty()) {
+                                        if (playable !== video) currentItem = playable
+                                        initPlayer(playable)
+                                    } else {
+                                        MsgUtil.showMsg(activity.getString(R.string.uitext_shortvideoplayeractivity_002))
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            MsgUtil.err(UiText.of("切换清晰度："), e)
+                        }
+                    }
+                }
+                override fun switchVideo(offset: Int): Boolean = activity.switchCurrentVideo(offset)
+                override fun enterAuthorMode(startItem: ShortVideoItem?) {
+                    activity.enterAuthorMode(startItem)
+                }
+                override fun exitAuthorMode() { activity.exitAuthorMode() }
+                override fun isAuthorMode(): Boolean = activity.isAuthorModeActive()
+            })
         }
 
         /**
@@ -1477,6 +1494,9 @@ class ShortVideoPagerAdapter(
                     }
 
                     startStateCollection()
+                    // 出帧即通知信息流收加载层；播放态同步进新版状态机（否则中心键/静置计时都按旧态走）
+                    onFirstFrame?.invoke()
+                    newUi?.syncPlayback()
                     // 异步加载弹幕
                     loadDanmaku(item)
                 }
@@ -1487,6 +1507,7 @@ class ShortVideoPagerAdapter(
                     isPlaying = false
                     buttonVideo?.setImageResource(R.drawable.btn_player_play)
                     playIcon.visibility = View.VISIBLE
+                    newUi?.syncPlayback()
                     danmakuManager?.pause()
                     activity.onVideoCompleted(boundPosition)
                 }
@@ -1694,7 +1715,11 @@ class ShortVideoPagerAdapter(
                     // 真值兜底：isPlaying 是「保持亮屏」的判据，必须跟播放器实际状态对齐。
                     // 只靠各处显式赋值会漏（例如 start() 被调用但播放器已经自己停了）。
                     val realPlaying = playerBridge.isPlaying
-                    if (realPlaying != isPlaying) isPlaying = realPlaying
+                    if (realPlaying != isPlaying) {
+                        isPlaying = realPlaying
+                        // 缓冲中的短暂停摆不算「暂停」：不据此弹中心键/控件层，等缓冲结束再对齐
+                        if (!st.isBuffering) newUi?.syncPlayback()
+                    }
                 }
             }
         }
@@ -1854,6 +1879,7 @@ class ShortVideoPagerAdapter(
                 isPlaying = true
                 buttonVideo?.setImageResource(R.drawable.btn_player_pause)
                 playIcon.visibility = View.GONE
+                newUi?.syncPlayback()
                 danmakuManager?.resume()
             }
         }
@@ -1883,6 +1909,7 @@ class ShortVideoPagerAdapter(
                     danmakuManager?.pause()
                 }
             }
+            newUi?.syncPlayback()
         }
 
         fun isPlaying(): Boolean {

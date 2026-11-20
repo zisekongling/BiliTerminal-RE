@@ -11,6 +11,7 @@ import androidx.viewpager2.widget.ViewPager2
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.model.ShortVideoItem
 import com.RobinNotBad.BiliClient.ui.shortvideo.ShortVideoAuthorPolicy
+import com.RobinNotBad.BiliClient.ui.shortvideo.ShortVideoLoadingPolicy
 import com.RobinNotBad.BiliClient.ui.shortvideo.ShortVideoNewUi
 import com.RobinNotBad.BiliClient.ui.widget.SwipePageLayout
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -58,6 +59,10 @@ class ShortVideoFeedFragment : Fragment() {
 
     /** 作者流播完最后一条、但下一页还在飞：等它回来再自动接续。 */
     private var pendingAdvanceAfterMore = false
+
+    /** 加载层判据的两份输入：本次加载是否失败、是否已经出过帧（见 [ShortVideoLoadingPolicy]）。 */
+    private var feedLoadFailed = false
+    private var firstFrameOut = false
 
     private val host: ShortVideoPlayerActivity
         get() = requireActivity() as ShortVideoPlayerActivity
@@ -143,9 +148,11 @@ class ShortVideoFeedFragment : Fragment() {
         pendingAdvanceAfterMore = false
         feedSource = source
         attachSourceCallbacks(source)
-        loadingLayout.visibility = View.GONE
+        feedLoadFailed = false
+        firstFrameOut = false
+        renderLoadingOverlay()
         errorLayout.visibility = View.GONE
-        val adapter = ShortVideoPagerAdapter(host, source, audioManager)
+        val adapter = newFeedAdapter(source)
         if (initialSeekMs > 0) adapter.requestInitialSeek(initialIndex, initialSeekMs)
         viewPager.adapter = adapter
         currentPageIndex = initialIndex
@@ -357,7 +364,8 @@ class ShortVideoFeedFragment : Fragment() {
             // 的回调打在一个已 detach 的 Fragment 上），所以三条回调都先过这道闸。
             if (!isAdded || source !== feedSource) return@load
             if (items.isNotEmpty()) {
-                loadingLayout.visibility = View.GONE
+                feedLoadFailed = false
+                renderLoadingOverlay()
                 errorLayout.visibility = View.GONE
 
                 // adapter 的 count 与本次插入通知必须落在同一个主线程 turn、同一个实例上：
@@ -365,7 +373,7 @@ class ShortVideoFeedFragment : Fragment() {
                 // getItemCount() 已经包含本批数据，start 就是本批的起点。
                 val adapter = feedAdapter
                 if (adapter == null) {
-                    viewPager.adapter = ShortVideoPagerAdapter(host, source, audioManager)
+                    viewPager.adapter = newFeedAdapter(source)
                 } else {
                     // 用范围插入代替 notifyDataSetChanged：避免 ViewPager2 重建全部页面并跳回第一页
                     val start = source.getItemCount() - items.size
@@ -384,13 +392,15 @@ class ShortVideoFeedFragment : Fragment() {
 
         source.onLoadError = err@{ msg ->
             if (!isAdded || source !== feedSource) return@err
+            feedLoadFailed = true
             if (source.getItemCount() == 0) {
-                loadingLayout.visibility = View.GONE
                 errorLayout.visibility = View.VISIBLE
                 errorText.text = msg
             } else {
+                // 已有内容时一次失败的刷新不该把转圈盖回正在播的画面上
                 MsgUtil.showMsg(msg)
             }
+            renderLoadingOverlay()
         }
 
         // 播到列表末尾时用相关推荐续接：成功后追加并切到下一条，失败就停住并提示
@@ -419,9 +429,30 @@ class ShortVideoFeedFragment : Fragment() {
     }
 
     private fun loadFeed() {
-        loadingLayout.visibility = View.VISIBLE
+        feedLoadFailed = false
+        firstFrameOut = false
+        renderLoadingOverlay()
         errorLayout.visibility = View.GONE
         loadingText.text = UiText.of("加载短视频...")
         feedSource.loadInitial()
     }
+
+    /** 加载层显隐唯一出口：有内容 / 已失败 / 已出帧，三者任一都不再盖转圈。 */
+    private fun renderLoadingOverlay() {
+        loadingLayout.visibility =
+            if (ShortVideoLoadingPolicy.keepLoading(feedSource.getItemCount(), feedLoadFailed, firstFrameOut)) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
+    }
+
+    /** 建 adapter 时挂首帧回调：出帧即收加载层，不等列表回调。 */
+    private fun newFeedAdapter(source: ShortVideoFeedSource): ShortVideoPagerAdapter =
+        ShortVideoPagerAdapter(host, source, audioManager).also { adapter ->
+            adapter.onFirstFrame = {
+                firstFrameOut = true
+                renderLoadingOverlay()
+            }
+        }
 }

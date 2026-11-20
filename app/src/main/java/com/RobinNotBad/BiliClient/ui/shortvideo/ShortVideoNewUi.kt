@@ -63,6 +63,8 @@ class ShortVideoNewUi(
         fun isPlaying(): Boolean
         fun pause()
         fun resume()
+        /** 中心键单击：暂停↔继续，复用宿主既有 togglePlayPause。 */
+        fun togglePlayPause()
         fun seekTo(positionMs: Long)
         fun cycleSpeed()
         fun setSpeed(speed: Float)
@@ -153,6 +155,14 @@ class ShortVideoNewUi(
         }
     }
 
+    // 持有引用以便 release 时摘掉：holder 复用会重建实例，旧实例不该再响应共享 root 的布局
+    private val layoutListener = View.OnLayoutChangeListener { _, left, top, right, bottom, oL, oT, oR, oB ->
+        if (right - left != oR - oL || bottom - top != oB - oT) {
+            updateMetrics(right - left, bottom - top)
+            applyLayout()
+        }
+    }
+
     init {
         val typed = root.context.obtainStyledAttributes(intArrayOf(android.R.attr.colorAccent))
         accent = typed.getColor(0, ShortVideoTheme.WHITE)
@@ -196,12 +206,7 @@ class ShortVideoNewUi(
             }
         })
         // 屏幕尺寸一变就按规格重摆；首次布局完成时也会触发一次。
-        root.addOnLayoutChangeListener { _, left, top, right, bottom, oL, oT, oR, oB ->
-            if (right - left != oR - oL || bottom - top != oB - oT) {
-                updateMetrics(right - left, bottom - top)
-                applyLayout()
-            }
-        }
+        root.addOnLayoutChangeListener(layoutListener)
         // 沉浸细线：pivotX=0 + scaleX 表达进度，逐帧只改缩放、不动 layoutParams。
         idleFill.pivotX = 0f
         idleFill.scaleX = 0f
@@ -283,6 +288,28 @@ class ShortVideoNewUi(
     fun toggleControls() {
         state.toggleControls(System.currentTimeMillis())
         renderControls()
+    }
+
+    /**
+     * 页面级单击落点（itemView 坐标系）。中心键热区与「单击切控件层」在圆屏中心重叠，
+     * 优先级交给 [ShortVideoTapPolicy]：暂停且落热区 = 播放/暂停，其余 = 切控件层。
+     */
+    fun onPageTap(x: Float, y: Float) {
+        val cx = if (playCenter.width > 0) playCenter.left + playCenter.width / 2f else root.width / 2f
+        val cy = if (playCenter.height > 0) playCenter.top + playCenter.height / 2f else root.height / 2f
+        val action = ShortVideoTapPolicy.route(
+            x, y,
+            centerKeyVisible = playCenter.visibility == View.VISIBLE,
+            centerX = cx, centerY = cy,
+            hotHalf = dp(ShortVideoTapPolicy.touchSize(ShortVideoLayoutSpec.playSize(metrics))) / 2f,
+            playing = state.playing,
+            overlayOpen = state.panelVisible || moreLayer.visibility == View.VISIBLE,
+        )
+        when (action) {
+            ShortVideoTapPolicy.Action.TOGGLE_PLAY_PAUSE -> host.togglePlayPause()
+            ShortVideoTapPolicy.Action.TOGGLE_CONTROLS -> toggleControls()
+            ShortVideoTapPolicy.Action.IGNORE -> Unit
+        }
     }
 
     fun onProgress(positionMs: Int, duration: Int, playing: Boolean) {
@@ -1503,12 +1530,19 @@ class ShortVideoNewUi(
     }
 
     fun syncPlayback() {
-        state.onPlayingChanged(host.isPlaying(), System.currentTimeMillis())
+        // 只在真变化时通知状态机：onPlayingChanged 会重置静置计时器，
+        // 无条件调用会让「静置 3 秒自动进沉浸」永远差最后一步。
+        val playing = host.isPlaying()
+        if (playing != state.playing) state.onPlayingChanged(playing, System.currentTimeMillis())
         renderControls()
     }
 
     fun release() {
         generation++
         handler.removeCallbacksAndMessages(null)
+        root.removeOnLayoutChangeListener(layoutListener)
+        // 画面层子 View 是本实例插进去的：holder 复用重建新实例前先摘掉，避免叠两层弧/细线
+        (arcProgress.parent as? ViewGroup)?.removeView(arcProgress)
+        (idleLine.parent as? ViewGroup)?.removeView(idleLine)
     }
 }
