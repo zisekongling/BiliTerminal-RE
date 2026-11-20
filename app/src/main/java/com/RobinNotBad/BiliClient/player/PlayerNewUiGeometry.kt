@@ -23,6 +23,9 @@ object PlayerNewUiGeometry {
     /** 圆屏中心键下方那行「当前 / 总长」：设计稿 top 72、行高 13，按实际直径缩放。 */
     fun roundProgressTextBand(sizeDp: Float): Band = Band(72f, 13f).scaled(sizeDp)
 
+    /** 圆屏直播态中心键下方那行「直播 pill + 在看人数」：设计稿 A2 top 70、行高 14，按实际直径缩放。 */
+    fun roundLiveBand(sizeDp: Float): Band = Band(70f, 14f).scaled(sizeDp)
+
     /**
      * 圆屏拖动预览三行（+mm:ss / 目标时间 / 共 mm:ss）的落点。
      *
@@ -102,7 +105,9 @@ object PlayerNewUiGeometry {
         if (cellH <= 0f || availableH <= 0f) return GRID_PAGE_SIZE
         val rowH = cellH + gapH
         // +gapH 是因为 n 行之间只有 n-1 个间隙。
-        val rows = ((availableH + gapH) / rowH).toInt().coerceAtLeast(1)
+        // +1e-3 行是浮点容差：可用高度恰等于 n 行时（网格 fit 的边界尺寸），
+        // 除法可能落在 2.9999998 上，不纠就会少算一行、把一页放得下的按钮拆成两页。
+        val rows = ((availableH + gapH) / rowH + 1e-3f).toInt().coerceAtLeast(1)
         return (rows * columns).coerceAtLeast(columns)
     }
 

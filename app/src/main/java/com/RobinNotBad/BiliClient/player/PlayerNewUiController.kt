@@ -74,6 +74,11 @@ class PlayerNewUiController(
      * 从布局里永久摘掉，表现就是**圆屏按钮凭空消失**。判据必须来自业务状态。
      */
     private val slotAvailable: (String) -> Boolean = { true },
+    /**
+     * 直播在看人数的原始串（Activity 的 `online_number`，由直播 WS 的 WATCHED_CHANGE 写入，
+     * 可能已带「万/亿」）。只在直播态由 [sync] 的定时镜像顺手刷新；非直播返回 null 即可。
+     */
+    private val liveOnlineRaw: () -> String? = { null },
 ) {
     private val overlay = FrameLayout(activity)
     private val buttons = FrameLayout(activity)
@@ -82,6 +87,12 @@ class PlayerNewUiController(
     private val gridTitle = TextView(activity)
     private val gridHint = TextView(activity)
     private val gridDots = FrameLayout(activity)
+    /** 「更多」面板的居中容器（网格[+点列行] + 提示），落点由 [PlayerNewUiFormSpec.gridFit] 算。 */
+    private var gridCenterBlock: LinearLayout? = null
+    /** 方屏面板右上角收起按钮（圆屏没有，设计稿 morePanel 口径）。 */
+    private var gridCollapse: ImageButton? = null
+    /** 最近一次算出的网格自适应几何；面板开着时尺寸变化要按它重摆。 */
+    private var currentFit: PlayerNewUiFormSpec.GridFit? = null
     /** 翻页手势刚翻过页时置真：随后的那次 click 不该把面板关掉。 */
     private var gridFlinged = false
     private val listHost = FrameLayout(activity)
@@ -114,6 +125,20 @@ class PlayerNewUiController(
 
     /** 方屏进度行的自绘渲染器；封面取色回来时要改它的已播色，所以留引用。 */
     private var progressRenderer: PlayerNewProgressRenderer? = null
+
+    /**
+     * 直播态（设计稿 A2）：直播没有进度概念——圆屏的弧、方屏的进度行整行让位给
+     * 「直播 pill + 在看人数」，中心键保留。由 Activity 在直播分支调 [setLiveMode] 开启，
+     * 本页生命周期内不会退出直播态，标志只置真。
+     */
+    private var liveNow = false
+    private val liveRow = LinearLayout(activity)
+    private val livePill = LinearLayout(activity)
+    private val livePillDot = View(activity)
+    private val livePillText = TextView(activity)
+    private val liveOnline = TextView(activity)
+    private var livePillBg: GradientDrawable? = null
+    private var liveDotBg: GradientDrawable? = null
 
     /** 当前是否锁定：锁定期间 closeList/closeGrid 不许把控制层又放出来。 */
     private var lockedNow = false
@@ -255,6 +280,44 @@ class PlayerNewUiController(
         idleTrack.visibility = View.GONE
         idleFill.visibility = View.GONE
 
+        // 直播态那行「直播 pill + 在看人数」（设计稿 A2 / live）：pill 是强调色 20% 底 +
+        // 强调色小圆点 + 「直播」二字，右边跟人数。落点与字号在 placeLiveRow() 里按屏形缩放，
+        // 这里只搭结构；非直播永远 GONE，老播放器分支根本不会走到本类。
+        liveRow.orientation = LinearLayout.HORIZONTAL
+        liveRow.gravity = Gravity.CENTER
+        liveRow.isBaselineAligned = false
+        livePill.orientation = LinearLayout.HORIZONTAL
+        livePill.gravity = Gravity.CENTER_VERTICAL
+        livePill.isBaselineAligned = false
+        livePillBg = GradientDrawable().apply {
+            cornerRadius = dp(999).toFloat()
+            setColor(accentWithAlpha(0x33))
+        }
+        livePill.background = livePillBg
+        liveDotBg = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(progressAccent)
+        }
+        livePillDot.background = liveDotBg
+        livePillText.apply {
+            text = activity.getString(R.string.player_live_pill)
+            setTextColor(accentSoft)
+            typeface = Typeface.DEFAULT_BOLD
+            includeFontPadding = false
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        livePill.addView(livePillDot, LinearLayout.LayoutParams(dp(5), dp(5)).apply { marginEnd = dp(4) })
+        livePill.addView(livePillText, LinearLayout.LayoutParams(-2, -2))
+        liveOnline.apply {
+            setTextColor(Color.WHITE)
+            includeFontPadding = false
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        liveRow.addView(livePill, LinearLayout.LayoutParams(-2, -2))
+        liveRow.addView(liveOnline, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
+        liveRow.visibility = View.GONE
+        overlay.addView(liveRow, FrameLayout.LayoutParams(-2, dp(16), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+
         buildGrid()
         // 设计稿 seek 态：整屏压暗 38%（顶栏与渐变要盖在它上面，所以插到最底层），
         // 中间三行「+02:16 / 目标时间 / 共 08:41」浮在最上层。
@@ -389,6 +452,84 @@ class PlayerNewUiController(
     }
 
     /**
+     * 进入直播态（设计稿 A2）：进度类元素全部让位，中心键下方（圆屏）/ 进度行位置（方屏）
+     * 换成「直播 pill + 在看人数」。
+     *
+     * 根因：旧实现 [setControlsVisible] 无条件把弧放出来，直播没有进度，弧就是一条空弧；
+     * 方屏则留着一条画不出进度的轨道。这里把弧 / 沉浸细线 / 进度行 / 圆屏时间行一起藏掉，
+     * 并在显隐切换里用 [liveNow] 守卫，自动隐藏再也不会把它们放回来。
+     *
+     * 中心键保留（设计稿 A2 有暂停键）：Activity 直播分支把 btn_control 置 GONE 发生在
+     * 控制器构造**之后**，所以本方法必须在那条分支里调，才能把中心键重新放出来。
+     */
+    fun setLiveMode(live: Boolean) {
+        if (liveNow == live) return
+        liveNow = live
+        if (!live) {
+            liveRow.visibility = View.GONE
+            return
+        }
+        arc?.visibility = View.GONE
+        idleTrack.visibility = View.GONE
+        idleFill.visibility = View.GONE
+        seekbar.visibility = View.GONE
+        elapsed.visibility = View.GONE
+        duration.visibility = View.GONE
+        progressText.visibility = View.GONE
+        play.visibility = View.VISIBLE
+        refreshLiveOnline()
+        placeLiveRow()
+        liveRow.visibility = if (shown) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * 直播行的落点与字号：圆屏按 [PlayerNewUiGeometry.roundLiveBand]（设计 top70 行高14）
+     * 随直径缩；方屏整行替换进度行——行高 16、中线仍在 progressCenterY（距底 58），
+     * 底部按钮不跳。pill 字号 9、人数 10，都乘形态/直径系数。
+     */
+    private fun placeLiveRow() {
+        if (!liveNow) return
+        val f = if (round) roundScale() else spec.scale
+        val band = if (round) PlayerNewUiGeometry.roundLiveBand(widthDp()) else null
+        val rowH = band?.height ?: spec.s(16f)
+        val top = band?.top ?: (spec.progressCenterY(heightDp()) - spec.s(8f))
+        livePillText.textSize = 9f * f
+        liveOnline.textSize = 10f * f
+        livePill.setPadding(dp(6f * f), dp(1f * f), dp(6f * f), dp(1f * f))
+        (livePillDot.layoutParams as? LinearLayout.LayoutParams)?.let {
+            it.width = dp(5f * f)
+            it.height = dp(5f * f)
+            it.marginEnd = dp(4f * f)
+            livePillDot.layoutParams = it
+        }
+        (liveOnline.layoutParams as? LinearLayout.LayoutParams)?.let {
+            it.marginStart = dp((if (round) 4f else 6f) * f)
+            liveOnline.layoutParams = it
+        }
+        (liveRow.layoutParams as? FrameLayout.LayoutParams)?.let {
+            it.width = -2
+            it.height = dp(rowH)
+            it.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            it.topMargin = dp(top)
+            liveRow.layoutParams = it
+        }
+    }
+
+    /**
+     * 刷新在看人数：WS 的 WATCHED_CHANGE 把已格式化的 text_large 写进 online_number，
+     * 这里经 [PlayerLivePolicy.onlineText] 整理（纯数字走 toWan）；拿不到 / 为 0 用兜底文案。
+     * 由 [sync] 的 400ms 镜像定时器驱动，直播没有 onlineTimer，不另起定时器。
+     */
+    private fun refreshLiveOnline() {
+        val formatted = PlayerLivePolicy.onlineText(liveOnlineRaw())
+        liveOnline.text = if (formatted == null) {
+            activity.getString(R.string.player_live_online_unknown)
+        } else {
+            activity.getString(R.string.player_live_online, formatted)
+        }
+    }
+
+    /**
      * 拖动进度时的预览（设计稿 seek 态）：按钮与中心键让位，只留顶栏、进度弧与中间三行文字。
      * 由 Activity 的 SeekBar 回调驱动，弧形拖动同样经过那条回调。
      */
@@ -397,8 +538,9 @@ class PlayerNewUiController(
             seekDim.visibility = View.GONE
             seekText.visibility = View.GONE
             buttons.visibility = if (shown) View.VISIBLE else View.GONE
-            // 圆屏那行「当前 / 总长」在 seek 态被三行预览替掉了，松手要还回来。
-            if (round) progressText.visibility = if (shown) View.VISIBLE else View.GONE
+            // 圆屏那行「当前 / 总长」在 seek 态被三行预览替掉了，松手要还回来（直播态没有这行）。
+            if (round) progressText.visibility = if (shown && !liveNow) View.VISIBLE else View.GONE
+            if (liveNow) liveRow.visibility = if (shown) View.VISIBLE else View.GONE
             if (seekPreviewShown) {
                 seekPreviewShown = false
                 // 松手：弹幕回来，同时重置自动隐藏计时（面板/拖动都不该被 4 秒自动收掉）。
@@ -416,6 +558,8 @@ class PlayerNewUiController(
         buttons.visibility = View.GONE
         // 设计稿 roundNew 的 seek 态不画中心键下方那行时间：留着会与「+mm:ss」挤在一起。
         if (round) progressText.visibility = View.GONE
+        // 直播态理论上不会触发拖动预览（没有进度），真触发了也让直播行先让位。
+        if (liveNow) liveRow.visibility = View.GONE
         seekDim.visibility = View.VISIBLE
         seekText.visibility = View.VISIBLE
         if (!seekPreviewShown) {
@@ -672,6 +816,10 @@ class PlayerNewUiController(
         progressRenderer?.setAccentColor(color)
         (idleFill.background as? GradientDrawable)?.setColor(color)
         idleFill.invalidate()
+        // 直播 pill 的底色（强调色 20%）与内点也跟封面取色走，设计稿 .pill 口径。
+        livePillBg?.setColor(accentWithAlpha(0x33))
+        liveDotBg?.setColor(color)
+        liveRow.invalidate()
     }
 
     /**
@@ -696,19 +844,22 @@ class PlayerNewUiController(
         overlay.visibility = View.VISIBLE
         top.visibility = if (visible) View.VISIBLE else View.GONE
         buttons.visibility = if (visible) View.VISIBLE else View.GONE
-        elapsed.visibility = if (visible && !round) View.VISIBLE else View.GONE
+        // 直播态：进度行 / 弧 / 沉浸细线 / 圆屏时间行一律不放出来（设计稿 A2），
+        // 那行位置由「直播 pill + 人数」顶着，见 setLiveMode。
+        elapsed.visibility = if (visible && !round && !liveNow) View.VISIBLE else View.GONE
         duration.visibility = elapsed.visibility
-        seekbar.visibility = if (visible && !round) View.VISIBLE else View.GONE
+        seekbar.visibility = if (visible && !round && !liveNow) View.VISIBLE else View.GONE
         // 整屏手势层（layout_control）永远不能 GONE：单击显隐、双击暂停、长按倍速、
         // 滑动 seek 全挂在它的监听器上，一旦隐藏就再没有 View 能接住触摸，
         // 控制层收起后单击唤不回来（死锁）。旧实现同样只隐藏它的子层，从不隐藏它本身。
         oldControl.visibility = View.VISIBLE
-        if (round) progressText.visibility = if (visible && !seekPreviewShown) View.VISIBLE else View.GONE
-        arc?.visibility = if (round && (visible || idleEnabled())) View.VISIBLE else View.GONE
+        if (round) progressText.visibility = if (visible && !seekPreviewShown && !liveNow) View.VISIBLE else View.GONE
+        arc?.visibility = if (round && !liveNow && (visible || idleEnabled())) View.VISIBLE else View.GONE
         arc?.setIdle(!visible)
-        arc?.isEnabled = visible
-        idleTrack.visibility = if (!round && !visible && idleEnabled()) View.VISIBLE else View.GONE
+        arc?.isEnabled = visible && !liveNow
+        idleTrack.visibility = if (!round && !visible && idleEnabled() && !liveNow) View.VISIBLE else View.GONE
         idleFill.visibility = idleTrack.visibility
+        liveRow.visibility = if (liveNow && visible) View.VISIBLE else View.GONE
         if (!visible) {
             closeGrid()
             closeList()
@@ -777,6 +928,8 @@ class PlayerNewUiController(
         // 取代原先每帧都跑的 OnPreDrawListener。
         applyDesignIcons()
         syncProgress()
+        // 直播人数没有独立定时器（直播 onlineTimer=null），借这条镜像心跳刷新。
+        if (liveNow) refreshLiveOnline()
     }
 
     /**
@@ -1147,8 +1300,15 @@ class PlayerNewUiController(
     /**
      * 「更多」分页网格（设计稿 morePanel）：不留卡片底，格子直接浮在画面上。
      *
-     * 圆屏：3×3 格 46×46、间距 4，整块 146×146 居中，标题「更多」在 y20、提示在 y196，
-     * 页码点竖排在右侧 x=204。方屏：格 64×58、间距 6、整块 204×186、标题左对齐 y16。
+     * 这里只搭**结构**，所有落点/字号/格尺寸由 [PlayerNewUiFormSpec.gridFit] 在
+     * [renderGridPage] 里按真实屏幕算（见 [applyGridChrome]）——192dp 小方屏整块等比缩、
+     * 圆屏整块落内接正方形且四角不切，热区恒 ≥24dp。结构沿用上一轮的居中容器：
+     *
+     * - 方屏：centerBlock(竖直, 内部 CENTER) 装 gridRow(网格 + 页码点横排) + 提示行；
+     *   收起按钮是 gridHost 的绝对定位子层（顶栏时钟下方，极矮屏挪右下角）。
+     * - 圆屏：centerBlock 装网格 + 提示行；页码点列直接挂 gridHost，绝对定位在网格右侧、
+     *   对**屏幕中心**竖直居中（设计稿 dy116.5），不跟着网格块走。
+     *
      * 翻页只走上下滑（播放页有右滑返回，横向翻页会抢手势）。
      */
     private fun buildGrid() {
@@ -1161,71 +1321,56 @@ class PlayerNewUiController(
         gridTitle.apply {
             text = activity.getString(R.string.player_more_panel_title)
             setTextColor(Color.WHITE)
-            textSize = if (round) 12f else 13f
             typeface = Typeface.DEFAULT_BOLD
             gravity = if (round) Gravity.CENTER else Gravity.START or Gravity.CENTER_VERTICAL
         }
-        gridHost.addView(gridTitle, if (round) FrameLayout.LayoutParams(-2, dp(16)).apply {
-            // 圆屏标题按文字宽度居中；写成 -1 加左右 margin 时文字会偏左半个 margin。
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            topMargin = dp(20)
-        } else FrameLayout.LayoutParams(-1, dp(spec.s(18f))).apply {
-            topMargin = dp(spec.s(16f)); leftMargin = dp(spec.s(18f)); rightMargin = dp(spec.s(18f))
-        })
+        // 初值只是占位：面板打开前 gridHost 是 GONE，首次 renderGridPage 会按 fit 全部重设。
+        gridHost.addView(gridTitle, FrameLayout.LayoutParams(-2, dp(16)))
         grid.orientation = LinearLayout.VERTICAL
         grid.gravity = Gravity.CENTER
-        // 网格 + 页码点 + 提示行装进一个**居中容器**，靠 FrameLayout 的 CENTER 自动定位，
-        // 不再手算 topMargin。之前用 `spec.gridTop(heightDp())` 算一次就固定下来：
-        // 高度是在 init/首次布局时取的，横屏后（或旋转后）不会重算，
-        // 面板就整块掉到屏幕下方被裁掉（真机截图可见）。
-        // 交给布局容器后，尺寸怎么变都由系统重新居中，不需要监听旋转。
-        val gridRow = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            isBaselineAligned = false
-        }
-        gridRow.addView(grid, LinearLayout.LayoutParams(dp(gridWidthDp()), dp(gridHeightDp())).apply {
-            gravity = Gravity.CENTER_VERTICAL
-        })
-        // 页码点列的宽高在 renderGridPage() 里按实际页数重算（热区 ≥24dp，见 spec.gridDots）；
-        // 这里先给个单页的初值。留白必须收窄：热区从 8dp 涨到 24dp 后，原来的 12dp 间距会把整块顶出表圈。
-        val dotsInit = spec.gridDots(1, gridHeightDp())
-        gridRow.addView(gridDots, LinearLayout.LayoutParams(dp(dotsInit.hot), dp(dotsInit.height)).apply {
-            marginStart = dp(spec.gridDotsMargin)
-            gravity = Gravity.CENTER_VERTICAL
-        })
         val centerBlock = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
+            // 容器自身高度 = 可用区域（标题区以下、底边距以上），内部 CENTER 让
+            // 「网格 + 提示」整组居中：行数变化只动网格顶边，整块中心不漂移。
+            gravity = Gravity.CENTER
         }
-        centerBlock.addView(gridRow, LinearLayout.LayoutParams(-2, -2).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-        })
+        if (round) {
+            centerBlock.addView(grid, LinearLayout.LayoutParams(-2, -2))
+            gridHost.addView(gridDots, FrameLayout.LayoutParams(dp(24), dp(24)))
+        } else {
+            val gridRow = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                isBaselineAligned = false
+            }
+            gridRow.addView(grid, LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER_VERTICAL })
+            gridRow.addView(gridDots, LinearLayout.LayoutParams(dp(24), dp(24)).apply {
+                marginStart = dp(2)
+                gravity = Gravity.CENTER_VERTICAL
+            })
+            centerBlock.addView(gridRow, LinearLayout.LayoutParams(-2, -2))
+        }
         gridHint.apply {
-            textSize = 9f
             setTextColor(0x99ffffff.toInt())
             gravity = Gravity.CENTER
         }
-        centerBlock.addView(gridHint, LinearLayout.LayoutParams(-2, dp(12)).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-            topMargin = dp(spec.s(12f))
-        })
+        centerBlock.addView(gridHint, LinearLayout.LayoutParams(-2, dp(12)))
         gridHost.addView(centerBlock, FrameLayout.LayoutParams(-2, -2).apply {
-            gravity = Gravity.CENTER
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
         })
-        // 方屏顶栏右侧的收起按钮（设计稿 ib(214,25)：中心 (214,25)、36dp 热区、图标 more）。
+        gridCenterBlock = centerBlock
+        // 方屏收起按钮（设计稿 ib(214,25)：三点图标 more）；落点/热区由 fit 算，
+        // 热区 ≥24dp 不缩，顶边压在顶栏时钟底边（32dp）以下，不压时钟。圆屏没有这个按钮。
         if (!round) {
-            gridHost.addView(ImageButton(activity).apply {
-                // 设计稿 ib(214,25,'more')：三点图标，不是旧的方框三横线（morehide）
+            gridCollapse = ImageButton(activity).apply {
                 setImageResource(R.drawable.ic_player_v2_more)
                 contentDescription = activity.getString(R.string.player_more_panel_collapse)
                 background = null
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
-                setPadding(dp(8), dp(8), dp(8), dp(8))
                 setOnClickListener { closeGrid() }
-            }, FrameLayout.LayoutParams(dp(36), dp(36)).apply {
-                gravity = Gravity.TOP or Gravity.END
-                rightMargin = dp(spec.s(8f)); topMargin = dp(spec.s(7f))
+            }
+            gridHost.addView(gridCollapse, FrameLayout.LayoutParams(dp(24), dp(24)).apply {
+                gravity = Gravity.TOP or Gravity.START
             })
         }
         overlay.addView(gridHost, FrameLayout.LayoutParams(-1, -1))
@@ -1322,68 +1467,148 @@ class PlayerNewUiController(
         })
     }
 
-    private fun gridCellWidth() = if (round) 46f else spec.gridCellW
-    private fun gridCellHeight() = if (round) 46f else spec.gridCellH
-    private fun gridGap() = if (round) 4f else spec.gridGap
-    private fun gridWidthDp() = gridCellWidth() * 3 + gridGap() * 2
+    /**
+     * 页数估计：按每页 9 格估，喂给 [PlayerNewUiFormSpec.gridFit] 约束点列。
+     * 实际行数 ≥3（fit 保证 3 行放得下），所以实际页数 ≤ 估计值，点列约束偏保守、安全。
+     */
+    private fun gridPageEstimate(): Int =
+        ((gridKeys.size + PlayerNewUiGeometry.GRID_PAGE_SIZE - 1) / PlayerNewUiGeometry.GRID_PAGE_SIZE).coerceAtLeast(1)
+
+    /** 当前网格几何：面板开着用最近一次算好的，没开过就按当前屏幕现算。 */
+    private fun gridFitNow(): PlayerNewUiFormSpec.GridFit =
+        currentFit ?: PlayerNewUiFormSpec.gridFit(spec, round, widthDp(), heightDp(), gridPageEstimate())
 
     /**
-     * 这一页最多放几格：按「标题下沿到提示行上沿」的可用高度算行数，3 列铺开。
+     * 这一页最多放几格：按 fit 给出的可用高度（标题区以下、提示区以上）算行数，3 列铺开。
      *
      * 用户要求「手机播放器一页展示全部的更多按钮」——固定 9 格分页在横屏/长屏上会把
      * 明明放得下的按钮硬拆成两页。改成按实际空间算：放得下就一页全给。
      */
     private fun gridPageSize(): Int {
-        val height = heightDp()
-        val top = gridTop()
-        val hintH = if (round) 12f else spec.s(12f)
-        val available = height - top - spec.gridHintTop(height) + spec.s(12f) - hintH
-        return PlayerNewUiGeometry.gridCapacity(gridCellHeight(), gridGap(), available)
+        val fit = gridFitNow()
+        return PlayerNewUiGeometry.gridCapacity(fit.cellH, fit.gap, fit.availH)
     }
 
-    private fun gridRows(): Int = (gridPageSize() / 3).coerceAtLeast(1)
-    private fun gridHeightDp() = gridCellHeight() * gridRows() + gridGap() * (gridRows() - 1)
-    private fun gridTop() = if (round) 42f else spec.gridTop(heightDp())
+    /**
+     * 把 fit 算出的面板「外壳」参数一次性落到视图上：标题、居中容器、网格本体、提示、
+     * 页码点列、收起按钮。格子内容由 [renderGridPage] 逐格重建。
+     *
+     * [gridH] 是**当前页实际行数**的网格高（可能不足 3 行）；居中容器会把「网格 + 提示」
+     * 整组在可用区域里居中，行数变化只动顶边、中心不漂移。
+     */
+    private fun applyGridChrome(fit: PlayerNewUiFormSpec.GridFit, pageCount: Int, gridH: Float) {
+        gridTitle.textSize = fit.titleText
+        (gridTitle.layoutParams as? FrameLayout.LayoutParams)?.let {
+            it.height = dp(fit.titleH)
+            it.topMargin = dp(fit.titleTop)
+            if (fit.round) {
+                // 圆屏标题按文字宽度居中；写成 -1 加左右 margin 时文字会偏左半个 margin。
+                it.width = -2
+                it.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                it.leftMargin = 0
+            } else {
+                // 方屏标题左对齐网格左缘，右缘不压收起按钮（fit 已扣好）。
+                it.width = dp(fit.titleWidth)
+                it.gravity = Gravity.TOP or Gravity.START
+                it.leftMargin = dp(fit.titleLeft)
+            }
+            gridTitle.layoutParams = it
+        }
+        gridCenterBlock?.let { block ->
+            (block.layoutParams as? FrameLayout.LayoutParams)?.let {
+                it.width = -2
+                it.height = dp(fit.regionH)
+                it.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                it.topMargin = dp(fit.regionTop)
+                block.layoutParams = it
+            }
+        }
+        (grid.layoutParams as? LinearLayout.LayoutParams)?.let {
+            it.width = dp(fit.gridW)
+            it.height = dp(gridH)
+            grid.layoutParams = it
+        }
+        gridHint.textSize = fit.hintText
+        (gridHint.layoutParams as? LinearLayout.LayoutParams)?.let {
+            it.height = dp(fit.hintH)
+            it.topMargin = dp(fit.hintGap)
+            gridHint.layoutParams = it
+        }
+        val dots = fit.dotsFor(pageCount)
+        if (fit.round) {
+            // 圆屏点列：gridHost 绝对定位，网格右侧、对屏幕中心竖直居中，四角不出表圈。
+            (gridDots.layoutParams as? FrameLayout.LayoutParams)?.let {
+                it.width = dp(dots.hot)
+                it.height = dp(dots.height)
+                it.gravity = Gravity.TOP or Gravity.START
+                it.leftMargin = dp(fit.dotsLeft)
+                it.topMargin = dp(fit.dotsTopFor(pageCount))
+                gridDots.layoutParams = it
+            }
+        } else {
+            // 方屏点列：行内 CENTER_VERTICAL，被收起按钮顶下去时靠 topMargin 额外下移。
+            (gridDots.layoutParams as? LinearLayout.LayoutParams)?.let {
+                it.width = dp(dots.hot)
+                it.height = dp(dots.height)
+                it.marginStart = dp(2f * fit.unit)
+                it.topMargin = dp(fit.dotsShiftFor(pageCount))
+                it.gravity = Gravity.CENTER_VERTICAL
+                gridDots.layoutParams = it
+            }
+        }
+        gridCollapse?.let { collapse ->
+            val icon = 20f * fit.unit
+            val pad = dp(((fit.collapseSize - icon) / 2f).coerceAtLeast(0f))
+            collapse.setPadding(pad, pad, pad, pad)
+            (collapse.layoutParams as? FrameLayout.LayoutParams)?.let {
+                it.width = dp(fit.collapseSize)
+                it.height = dp(fit.collapseSize)
+                it.gravity = Gravity.TOP or Gravity.START
+                it.leftMargin = dp(fit.collapseLeft)
+                it.topMargin = dp(fit.collapseTop)
+                collapse.layoutParams = it
+            }
+        }
+    }
 
     private fun renderGridPage() {
-        grid.removeAllViews()
-        gridDots.removeAllViews()
-        val pages = PlayerNewUiGeometry.pages(gridKeys, gridPageSize())
+        // 每次渲染都按真实屏幕重算 fit：旋转 / 分屏 / 小屏都不会再拿旧落点硬摆。
+        val fit = PlayerNewUiFormSpec.gridFit(spec, round, widthDp(), heightDp(), gridPageEstimate())
+        currentFit = fit
+        val pageSize = PlayerNewUiGeometry.gridCapacity(fit.cellH, fit.gap, fit.availH)
+        val pages = PlayerNewUiGeometry.pages(gridKeys, pageSize)
         if (pages.isEmpty()) { closeGrid(); return }
         gridPage = gridPage.coerceIn(0, pages.lastIndex)
-        val cellW = gridCellWidth()
-        val cellH = gridCellHeight()
-        val gap = gridGap()
-        for (rowIndex in 0 until gridRows()) {
+        val pageKeys = pages[gridPage]
+        val rows = ((pageKeys.size + PlayerNewUiGeometry.GRID_COLUMNS - 1) / PlayerNewUiGeometry.GRID_COLUMNS).coerceAtLeast(1)
+        val gridH = fit.cellH * rows + fit.gap * (rows - 1)
+        applyGridChrome(fit, pages.size, gridH)
+        grid.removeAllViews()
+        gridDots.removeAllViews()
+        for (rowIndex in 0 until rows) {
             val line = LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER
             }
             val perRow = PlayerNewUiGeometry.GRID_COLUMNS
             for (col in 0 until perRow) {
-                val key = pages[gridPage].getOrNull(rowIndex * perRow + col)
+                val key = pageKeys.getOrNull(rowIndex * perRow + col)
                 val primary = key?.let { slotOf(it) }
-                val cell: View = if (primary != null && key != null) gridCell(primary, key) else View(activity)
-                line.addView(cell, LinearLayout.LayoutParams(dp(cellW), dp(cellH)).apply {
-                    if (col > 0) marginStart = dp(gap)
+                val cell: View = if (primary != null && key != null) gridCell(primary, key, fit.unit) else View(activity)
+                line.addView(cell, LinearLayout.LayoutParams(dp(fit.cellW), dp(fit.cellH)).apply {
+                    if (col > 0) marginStart = dp(fit.gap)
                 })
             }
-            grid.addView(line, LinearLayout.LayoutParams(-2, dp(cellH)).apply { if (rowIndex > 0) topMargin = dp(gap) })
+            grid.addView(line, LinearLayout.LayoutParams(-2, dp(fit.cellH)).apply { if (rowIndex > 0) topMargin = dp(fit.gap) })
         }
-        // 页码点：设计稿竖排在网格右侧，选中那颗拉长成 12dp。
-        // 视觉点只有 8dp，手指点不中，所以每颗都套一个 ≥24dp 的可点热区（见 spec.gridDots）；
-        // 热区之间靠 spacing ≥ hot 保证互不重叠，点哪颗就跳哪页。
-        val dots = spec.gridDots(pages.size, gridHeightDp())
-        (gridDots.layoutParams as? LinearLayout.LayoutParams)?.let {
-            it.width = dp(dots.hot)
-            it.height = dp(dots.height)
-            gridDots.layoutParams = it
-        }
+        // 页码点：设计稿竖排在网格右侧，选中那颗拉长。视觉点随 fit 缩，
+        // 但每颗仍套 ≥24dp 的可点热区（fit.dots.hot），spacing ≥ hot 保证热区互不重叠。
+        val dots = fit.dotsFor(pages.size)
         pages.indices.forEach { index ->
             val active = index == gridPage
             val dot = View(activity).apply {
                 background = GradientDrawable().apply {
-                    cornerRadius = dp(4).toFloat()
+                    cornerRadius = dp(dots.dot / 2f).toFloat()
                     setColor(if (active) Color.WHITE else 0x59ffffff)
                 }
             }
@@ -1447,12 +1672,15 @@ class PlayerNewUiController(
         else -> 0
     }
 
-    /** 一格：图标 20dp + 名称 9sp（设计稿 .cell）。原按钮可能是文字按钮（±N 秒），那就把文字当图标位。 */
-    private fun gridCell(primary: View, key: String): View {
+    /**
+     * 一格：图标 20dp + 名称 9sp（设计稿 .cell），内部尺寸统一乘 [unit]（形态系数 × 网格 fit）。
+     * 原按钮可能是文字按钮（±N 秒），那就把文字当图标位。
+     */
+    private fun gridCell(primary: View, key: String, unit: Float): View {
         val cell = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(0x12ffffff) }
+            background = GradientDrawable().apply { cornerRadius = dp(10f * unit).toFloat(); setColor(0x12ffffff) }
             // 设计稿的格子带上 data-act="close"：点一格就执行并收起面板。
             setOnClickListener { primary.performClick(); closeGrid() }
             setOnLongClickListener { primary.performLongClick() }
@@ -1469,21 +1697,21 @@ class PlayerNewUiController(
                 if (key == PlayerButtons.SEEK_BACK) R.string.player_more_seek_back_glyph
                 else R.string.player_more_seek_forward_glyph
             )
-            textSize = 9f
+            textSize = 9f * unit
             setTextColor(if (on) accentSoft else Color.WHITE)
             gravity = Gravity.CENTER
         }
-        cell.addView(glyph, LinearLayout.LayoutParams(dp(20), dp(20)))
+        cell.addView(glyph, LinearLayout.LayoutParams(dp(20f * unit), dp(20f * unit)))
         val labelRes = moreLabelRes(key)
         cell.addView(TextView(activity).apply {
             text = if (labelRes != 0) activity.getString(labelRes)
             else PlayerButtons.byKey(key)?.let { activity.getString(it.nameRes) } ?: ""
-            textSize = 9f
+            textSize = 9f * unit
             setTextColor(if (on) accentSoft else Color.WHITE)
             gravity = Gravity.CENTER
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
-        }, LinearLayout.LayoutParams(-2, dp(15)).apply { topMargin = dp(4) })
+        }, LinearLayout.LayoutParams(-2, dp(15f * unit)).apply { topMargin = dp(4f * unit) })
         cell.contentDescription = primary.contentDescription
         return cell
     }
@@ -1584,6 +1812,10 @@ class PlayerNewUiController(
         } else {
             placeBottomAnchored()
         }
+        if (liveNow) placeLiveRow()
+        // 「更多」面板开着时尺寸变了（旋转 / 分屏）：重算 fit 整套重摆；
+        // 关着则下次打开时 renderGridPage 自然会按新尺寸算。
+        if (gridHost.visibility == View.VISIBLE) renderGridPage()
     }
 
     /**

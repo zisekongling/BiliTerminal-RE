@@ -112,6 +112,7 @@ import com.RobinNotBad.BiliClient.player.PlayerDisplayModePolicy
 import com.RobinNotBad.BiliClient.player.PlayerButtonSlots
 import com.RobinNotBad.BiliClient.player.PlayerButtons
 import com.RobinNotBad.BiliClient.player.PlayerNewUiController
+import com.RobinNotBad.BiliClient.player.PlayerLivePolicy
 import com.RobinNotBad.BiliClient.player.PlayerUiLayout
 import com.RobinNotBad.BiliClient.player.PlayerRequestPolicy
 import com.RobinNotBad.BiliClient.player.QualityAccessPolicy
@@ -1490,6 +1491,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             seekbar_progress.visibility = View.GONE
             seekbar_progress.isEnabled = false
             prepareDanmaku { it.prepareEmpty() }
+            // 新版直播态（设计稿 A2）：弧 / 进度行让位给「直播 pill + 人数」，中心键保留。
+            // 必须放在上面 btn_control 置 GONE 之后——setLiveMode 会把中心键重新放出来。
+            newPlayerUi?.setLiveMode(true)
         }
 
         layout_control.postDelayed({
@@ -1764,8 +1768,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 // 槽位「这条视频能不能用」——只管业务可用性，**不许读 view.visibility**：
                 // 控制层收起时 hidecon 会把 lock_btn / text_speed 置 GONE，那是暂时不显示，
                 // 拿它当判据会让按钮在一次重摆后永久消失（圆屏上整列空掉）。
-                { key -> slotAvailableFor(key) }
+                { key -> slotAvailableFor(key) },
+                // 直播在看人数：WS 的 WATCHED_CHANGE 写进 online_number（可能已带「万/亿」），
+                // 新版直播态那行「直播 pill + 人数」借镜像心跳刷新它。
+                { online_number }
             )
+            // 直播态新版界面：老播放器的 text_online 不动，新版把那行换成 pill + 人数，
+            // 旧 TextView 直接藏掉，避免两套人数叠在一起。
+            if (isLiveMode) text_online.visibility = View.GONE
             applyPlayerButtonLayout()
             return
         }
@@ -1814,7 +1824,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 { key -> SharedPreferencesUtil.getString(key, "") },
                 { key, value -> SharedPreferencesUtil.putString(key, value) },
             )
-            newUi.render(playerUiLayout, screen_round)
+            // 直播时底栏第 4 格（分 P）换成发弹幕（设计稿 BOTTOM_LIVE）；只改传给新版的副本，
+            // 存档 playerUiLayout 本身不动，退出直播回到点播还是用户摆的那套。
+            newUi.render(
+                if (isLiveMode) PlayerLivePolicy.withLiveBottomSend(playerUiLayout) else playerUiLayout,
+                screen_round
+            )
             btn_quality.tag = PlayerNewUiController.NEW_QUALITY_TAG
             btn_page_selector.tag = PlayerNewUiController.NEW_PAGES_TAG
             startMirrorSync()

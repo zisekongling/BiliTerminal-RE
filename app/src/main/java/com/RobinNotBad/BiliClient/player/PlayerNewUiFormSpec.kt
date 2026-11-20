@@ -1,6 +1,7 @@
 package com.RobinNotBad.BiliClient.player
 
 import com.RobinNotBad.BiliClient.util.SettingsKeys
+import kotlin.math.sqrt
 
 /**
  * 新版播放器方屏布局的几何规格（纯函数，可单测）。坐标单位 dp，原点在根布局左上角。
@@ -206,6 +207,209 @@ object PlayerNewUiFormSpec {
         val dotActive: Float,
         val height: Float,
     )
+
+    /**
+     * 「更多」九宫格整块的自适应落点（纯函数，可单测），见 [gridFit]。
+     *
+     * 只缩「网格一套」（格子、间距、标题/提示字号、页码点视觉），**不动全局 [Spec.scale]**，
+     * 顶栏、底栏、进度行等其余界面元素不受影响。所有字段单位 dp、原点根布局左上角。
+     */
+    data class GridFit(
+        /** 网格专属缩放（≤1），叠在形态系数之上。 */
+        val fitScale: Float,
+        /** 格子内部元素（图标 20 / 标签 9sp / 行高 15 / 间距 4 / 圆角 10）统一乘的系数。 */
+        val unit: Float,
+        val cellW: Float,
+        val cellH: Float,
+        val gap: Float,
+        /** 满 3 行网格块的宽高（实际行数更少时高度由调用方按行重算）。 */
+        val gridW: Float,
+        val gridH: Float,
+        val gridLeft: Float,
+        val gridTop: Float,
+        /** 居中容器（网格 + 提示）的可用竖直区域。 */
+        val regionTop: Float,
+        val regionH: Float,
+        /** 扣掉提示区后喂给 gridCapacity 算行数的高度。 */
+        val availH: Float,
+        val titleTop: Float,
+        val titleH: Float,
+        val titleText: Float,
+        val titleLeft: Float,
+        /** 标题宽度；圆屏为 -1 表示 wrap_content 居中。 */
+        val titleWidth: Float,
+        val hintGap: Float,
+        val hintH: Float,
+        val hintText: Float,
+        val dots: GridDots,
+        val dotsLeft: Float,
+        val dotsTop: Float,
+        /** 方屏页码点在行内 CENTER_VERTICAL 之外额外下移的量（躲收起按钮）。 */
+        val dotsShift: Float,
+        /** 收起按钮（仅方屏）：热区 ≥24dp 不缩；圆屏三个字段为 0。 */
+        val collapseSize: Float,
+        val collapseLeft: Float,
+        val collapseTop: Float,
+        /** 极矮屏（长条屏一类）收起按钮挪到右下角，否则它会把点列顶出提示区。 */
+        val collapseAtBottom: Boolean,
+        val round: Boolean,
+        val screenW: Float,
+        val screenH: Float,
+    ) {
+        /** 网格块竖直中心：与行数无关（行数变化只改 gridTop，中心不动）。 */
+        val gridCenterY get() = regionTop + (regionH - hintGap - hintH) / 2f
+
+        /** 按实际页数重算点列（spacing 不变，高度随页数）。 */
+        fun dotsFor(pageCount: Int): GridDots =
+            dots.copy(height = dots.spacing * pageCount.coerceAtLeast(1))
+
+        /** 实际页数下点列顶边：圆屏对屏中心居中，方屏对网格中心居中且不压收起按钮。 */
+        fun dotsTopFor(pageCount: Int): Float {
+            val h = dotsFor(pageCount).height
+            return if (round) screenH / 2f - h / 2f else maxOf(gridCenterY - h / 2f, dotsTopMin)
+        }
+
+        /** 方屏点列被收起按钮顶下去时的行内下移量。 */
+        fun dotsShiftFor(pageCount: Int): Float =
+            if (round) 0f else (dotsTopFor(pageCount) - (gridCenterY - dotsFor(pageCount).height / 2f)).coerceAtLeast(0f)
+
+        /** 方屏点列顶边的下限（收起按钮底边 + 2）；收起挪到底部时为 0。 */
+        val dotsTopMin: Float
+            get() = if (round || collapseAtBottom) 0f else collapseTop + collapseSize + 2f * unit
+    }
+
+    /**
+     * 「更多」九宫格在任意屏上的自适应几何。设计稿 `design/player-redesign-v2.html` morePanel()：
+     *
+     * - 方屏参考 240×280：格 64×58 / 间距 6 → 块 204×186；标题 top16 行高18 13sp；
+     *   提示 top244 行高12 9sp；收起 36dp 热区中心 (214,25)；页码点视觉 8dp、间距 12。
+     * - 圆屏参考 233dp：格 46×46 / 间距 4 → 块 146×146，left43.5 top42（内接正方形）；
+     *   标题 top20 行高16 12sp；提示 top196；**无收起按钮**；点列在网格右侧。
+     *
+     * 实测根因（本轮修复对象）：192dp 方屏格子不缩、右边裁掉 12dp、标题压第一格、收起压时钟、
+     * 页码点/提示出屏；233dp 圆屏网格中心 (106.5,104.5) 偏离屏中心 (116.5,116.5)，
+     * 左上角距圆心 118.8 > 半径 116.5 被表圈切掉。
+     *
+     * 做法：整块（含标题区/提示区/底边距）按 min(1, 各约束) 等比缩，只缩网格一套；
+     * 方屏 fitH = H/(280·u)、fitW = (W−热区)/(214·u)；圆屏 fitH = D/233，另加
+     * 「四角在表圈内」与「点列最坏情况在表圈内」两条约束。热区恒 ≥ [MIN_TOUCH_DP]，
+     * 只缩视觉点与间距。网格水平居中（圆屏对**屏幕中心**居中，修中心偏移），
+     * 竖直在「标题区以下、底边距以上」的区域里连提示一起居中。
+     *
+     * [pageCount] 传页数估计值（按每页 9 格估）；行数算出来 ≥3 时实际页数 ≤ 估计值，
+     * 点列约束偏保守、安全。实际页数确定后用 [GridFit.dotsFor] 等重算。
+     */
+    fun gridFit(spec: Spec, round: Boolean, width: Float, height: Float, pageCount: Int): GridFit {
+        val count = pageCount.coerceAtLeast(1)
+        val u = if (round) 1f else spec.scale
+        val hot = maxOf(MIN_TOUCH_DP, 24f * u)
+        val margin0 = 2f
+        // ---- 设计稿基准尺寸（未缩）----
+        val cw0 = if (round) 46f else 64f
+        val ch0 = if (round) 46f else 58f
+        val gap0 = if (round) 4f else 6f
+        val gw0 = cw0 * 3 + gap0 * 2
+        val gh0 = ch0 * 3 + gap0 * 2
+        val titleTop0 = if (round) 20f else 16f
+        val titleH0 = if (round) 16f else 18f
+        val titleGap0 = if (round) 6f else 12f
+        val hintGap0 = if (round) 8f else 12f
+        val hintH0 = 12f
+        val bottomPad0 = if (round) 25f else 24f
+        val titleZone0 = titleTop0 + titleH0 + titleGap0
+        val hintZone0 = hintGap0 + hintH0
+        val reserve0 = titleZone0 + hintZone0 + bottomPad0 // 圆 233 / 方 280 的竖直总预留
+
+        // ---- 缩放系数 ----
+        var fit = (height / (reserve0 * u + gh0 * u)).coerceAtMost(1f)
+        if (round) {
+            val r = width / 2f
+            val pad = 6f // 表圈内留 6dp，不贴圈
+            // 四角约束：网格中心比屏中心高 1.5·fit（设计 top42 的不对称预留），半对角线随之。
+            val halfDiag = sqrt((gw0 / 2f) * (gw0 / 2f) + (gh0 / 2f + 1.5f) * (gh0 / 2f + 1.5f))
+            fit = minOf(fit, ((r - pad) / halfDiag).coerceAtLeast(0.1f))
+            // 点列约束（最坏 spacing=hot）：点列右缘 x = 75·fit + hot，上下半高 hot·count/2。
+            val dotsHalf = hot * count / 2f
+            val room = (r - pad) * (r - pad) - dotsHalf * dotsHalf
+            val reach = if (room > 0f) sqrt(room) else 0f
+            fit = minOf(fit, ((reach - hot) / (gw0 / 2f + margin0)).coerceAtLeast(0.1f))
+        } else {
+            // 整行（网格 + 留白 + 点列热区）左右各留 4·u，热区不缩所以从屏宽里先扣掉。
+            fit = minOf(fit, ((width - hot) / ((gw0 + margin0 + 8f) * u)).coerceAtLeast(0.1f))
+        }
+
+        // ---- 缩放后的落点 ----
+        val cellW = cw0 * u * fit
+        val cellH = ch0 * u * fit
+        val gap = gap0 * u * fit
+        val gridW = cellW * 3 + gap * 2
+        val gridH = cellH * 3 + gap * 2
+        val titleZone = titleZone0 * u * fit
+        val hintZone = hintZone0 * u * fit
+        val bottomPad = bottomPad0 * u * fit
+        val regionTop = titleZone
+        val regionH = height - titleZone - bottomPad
+        // fit ≤ fitH 保证 3 行网格数学上放得下；max 只纠浮点噪声（边界尺寸上
+        // regionH-hintZone 可能比 gridH 小 1e-5，不纠就会把行数算成 2、页数估计失守）。
+        val availH = maxOf(regionH - hintZone, gridH)
+        val gridTop = regionTop + ((regionH - gridH - hintZone) / 2f).coerceAtLeast(0f)
+        val margin = margin0 * u * fit
+        // 圆屏网格对屏幕中心水平居中；方屏整行（网格+点列）居中。
+        val gridLeft = if (round) (width - gridW) / 2f else (width - (gridW + margin + hot)) / 2f
+        val titleTop = titleTop0 * u * fit
+        val titleH = titleH0 * u * fit
+        val hintGap = hintGap0 * u * fit
+        val hintH = hintH0 * u * fit
+        val hintTop = gridTop + gridH + hintGap
+
+        // ---- 收起按钮（方屏）：顶栏时钟底边 32·u 以下，热区 ≥24 不缩 ----
+        val collapseSize = if (round) 0f else maxOf(MIN_TOUCH_DP, 24f * u)
+        var collapseTop = if (round) 0f else maxOf(32f * u, titleTop + titleH)
+        // 极矮屏：收起在顶部会把点列顶进提示区，挪到右下角（仍在时钟底边以下）。
+        val dotsTopMinIfTop = collapseTop + collapseSize + 2f * u * fit
+        val collapseAtBottom = !round && dotsTopMinIfTop + hot * count > hintTop - 2f * u * fit
+        if (collapseAtBottom) collapseTop = height - collapseSize - 2f * u * fit
+        val collapseLeft = if (round) 0f else width - 4f * u - collapseSize
+        val dotsTopMin = if (round || collapseAtBottom) 0f else collapseTop + collapseSize + 2f * u * fit
+
+        // ---- 页码点：热区不缩，视觉与间距随 fit；圆屏再受表圈弦长约束 ----
+        val spacingCap = if (round) {
+            val r = width / 2f
+            val pad = 6f
+            val dx = (gw0 / 2f + margin0) * fit + hot // 点列右缘到屏中心的水平距离
+            val room = (r - pad) * (r - pad) - dx * dx
+            if (room > 0f) 2f * sqrt(room) / count else hot
+        } else {
+            (height - bottomPad - hintZone - dotsTopMin) / count
+        }
+        val spacing = maxOf(hot, minOf(gridH / count, hot * 1.5f, spacingCap))
+        val dots = GridDots(hot = hot, spacing = spacing, dot = 8f * u * fit, dotActive = 12f * u * fit, height = spacing * count)
+        val dotsLeft = gridLeft + gridW + margin
+        val gridCenterY = regionTop + (regionH - hintZone) / 2f
+        val dotsTop = if (round) height / 2f - dots.height / 2f else maxOf(gridCenterY - dots.height / 2f, dotsTopMin)
+        val dotsShift = if (round) 0f else (dotsTop - (gridCenterY - dots.height / 2f)).coerceAtLeast(0f)
+
+        // ---- 标题：方屏左对齐网格、右缘不压收起；圆屏 wrap 居中 ----
+        val titleRight = if (collapseAtBottom) width - 4f * u * fit else collapseLeft - 4f * u * fit
+        val titleWidth = if (round) -1f else (titleRight - gridLeft).coerceAtLeast(48f * u * fit)
+
+        return GridFit(
+            fitScale = fit,
+            unit = u * fit,
+            cellW = cellW, cellH = cellH, gap = gap,
+            gridW = gridW, gridH = gridH,
+            gridLeft = gridLeft, gridTop = gridTop,
+            regionTop = regionTop, regionH = regionH, availH = availH,
+            titleTop = titleTop, titleH = titleH,
+            titleText = (if (round) 12f else 13f) * u * fit,
+            titleLeft = gridLeft, titleWidth = titleWidth,
+            hintGap = hintGap, hintH = hintH, hintText = 9f * u * fit,
+            dots = dots, dotsLeft = dotsLeft, dotsTop = dotsTop, dotsShift = dotsShift,
+            collapseSize = collapseSize, collapseLeft = collapseLeft, collapseTop = collapseTop,
+            collapseAtBottom = collapseAtBottom,
+            round = round, screenW = width, screenH = height,
+        )
+    }
 
     val WATCH = Spec(FORM_WATCH, scale = 1f, playInRow = false, sideColumns = true, bottomMaxSlots = 5)
 

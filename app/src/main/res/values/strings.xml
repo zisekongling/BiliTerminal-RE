@@ -2711,6 +2711,9 @@
     <string name="player_lock_hint">已锁定 · 点锁图标解锁</string>
     <string name="player_quality_panel_hint">转表冠选择 · 点一下确认</string>
     <string name="player_seek_total">共 %1$s</string>
+    <string name="player_live_pill">直播</string>
+    <string name="player_live_online">%1$s人在看</string>
+    <string name="player_live_online_unknown">直播中</string>
     <string name="player_more_panel_title">更多</string>
     <string name="player_more_panel_collapse">收起</string>
     <string name="player_more_panel_page_dot">第 %1$d 页</string>
