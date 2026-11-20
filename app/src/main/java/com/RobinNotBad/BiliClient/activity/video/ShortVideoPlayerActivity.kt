@@ -33,7 +33,6 @@ import androidx.viewpager.widget.ViewPager
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.InstanceActivity
 import com.RobinNotBad.BiliClient.api.DanmakuApi
-import com.RobinNotBad.BiliClient.api.ShortVideoFeedApi
 import com.RobinNotBad.BiliClient.ui.shortvideo.ShortVideoNewUi
 import com.RobinNotBad.BiliClient.model.ShortVideoItem
 import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
@@ -49,7 +48,6 @@ import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
-import com.RobinNotBad.BiliClient.util.VideoPreloadManager
 import com.RobinNotBad.BiliClient.player.DanmakuManager
 import com.RobinNotBad.BiliClient.player.PlayerDefaults
 import com.RobinNotBad.BiliClient.player.IjkOption
@@ -239,6 +237,24 @@ class ShortVideoPlayerActivity : InstanceActivity() {
         return (pager.adapter as? ShortVideoShellAdapter)?.activeFeedFragment?.switchVideo(offset) == true
     }
 
+    /** 「只看 TA」进入：仅信息流页 + 新版 UI（老布局在 Fragment 里被 activeNewUi 闸住）。 */
+    internal fun enterAuthorMode(startItem: ShortVideoItem?) {
+        if (!::pager.isInitialized || currentShellPage() != 0) return
+        (pager.adapter as? ShortVideoShellAdapter)?.activeFeedFragment?.enterAuthorMode(startItem)
+    }
+
+    /** 「只看 TA」退出：回推荐流记住位置的下一条。 */
+    internal fun exitAuthorMode() {
+        if (!::pager.isInitialized || currentShellPage() != 0) return
+        (pager.adapter as? ShortVideoShellAdapter)?.activeFeedFragment?.exitAuthorMode()
+    }
+
+    /** 当前是否「只看 TA」；新版 UI 据此把 UP 行渲染成 chip。 */
+    internal fun isAuthorModeActive(): Boolean {
+        if (!::pager.isInitialized) return false
+        return (pager.adapter as? ShortVideoShellAdapter)?.activeFeedFragment?.isAuthorMode() == true
+    }
+
     /**
      * 表冠换条只在「新版 UI 激活」时接管，且抢在视图树分发之前——编码器事件沿焦点链下钻，
      * 挂在覆盖层上未必收得到；DecorView 兜底又只会滚容器不会换条。老布局 / 非信息流页 /
@@ -391,7 +407,7 @@ class ShortVideoShellAdapter(
 
 class ShortVideoPagerAdapter(
     private val activity: ShortVideoPlayerActivity,
-    private val preloadManager: VideoPreloadManager,
+    private val feedSource: ShortVideoFeedSource,
     private val audioManager: AudioManager
 ) : androidx.recyclerview.widget.RecyclerView.Adapter<ShortVideoPagerAdapter.PageHolder>() {
 
@@ -400,12 +416,33 @@ class ShortVideoPagerAdapter(
 
     var lastVisiblePosition = -1
 
+    // 「只看 TA」续播：换 adapter 会重建播放器，进入时记下旧播放器的毫秒进度，
+    // 对应页 onPrepared 后一次性 seek 回去（消费即清，不影响后续正常播放）
+    private var initialSeekPosition = -1
+    private var initialSeekMs = 0L
+
+    fun requestInitialSeek(position: Int, ms: Long) {
+        initialSeekPosition = position
+        initialSeekMs = ms
+    }
+
+    private fun consumeInitialSeek(position: Int): Long {
+        if (position != initialSeekPosition || initialSeekMs <= 0) return 0L
+        val ms = initialSeekMs
+        initialSeekPosition = -1
+        initialSeekMs = 0L
+        return ms
+    }
+
+    /** 当前活跃页的播放进度（毫秒）；进入「只看 TA」续播时读取。 */
+    fun currentPositionMs(): Long = activeHolder?.positionMs() ?: 0L
+
     fun closeCurrentPanel(): Boolean = holders[lastVisiblePosition]?.newUi?.closePanel() == true
 
     /** 当前活跃页的新版 UI；老布局返回 null，表冠换条据此不生效。 */
     fun activeNewUi(): ShortVideoNewUi? = holders[lastVisiblePosition]?.newUi
 
-    override fun getItemCount(): Int = preloadManager.getItemCount()
+    override fun getItemCount(): Int = feedSource.getItemCount()
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PageHolder {
         val view = LayoutInflater.from(parent.context)
@@ -414,7 +451,7 @@ class ShortVideoPagerAdapter(
     }
 
     override fun onBindViewHolder(holder: PageHolder, position: Int) {
-        val item = preloadManager.getItem(position) ?: return
+        val item = feedSource.getItem(position) ?: return
         holder.boundPosition = position
         holder.bind(item, position)
         holders[position] = holder
@@ -811,13 +848,19 @@ class ShortVideoPagerAdapter(
                             try {
                                 video.videoUrl = ""
                                 video.currentQuality = quality
-                                ShortVideoFeedApi.fetchVideoUrl(video, quality)
+                                // 走数据源：推荐流等价于原 fetchVideoUrl；作者流会补 cid 并返回富化副本
+                                val playable = feedSource.resolvePlayable(video, quality)
                                 mainHandler.post {
                                     if (currentItem?.aid == video.aid) {
                                         playerBridge.release()
                                         playerReady = false
                                         isPrepared = false
-                                        initPlayer(video)
+                                        if (playable != null && playable.videoUrl.isNotEmpty()) {
+                                            if (playable !== video) currentItem = playable
+                                            initPlayer(playable)
+                                        } else {
+                                            MsgUtil.showMsg(activity.getString(R.string.uitext_shortvideoplayeractivity_002))
+                                        }
                                     }
                                 }
                             } catch (e: Exception) {
@@ -826,6 +869,11 @@ class ShortVideoPagerAdapter(
                         }
                     }
                     override fun switchVideo(offset: Int): Boolean = activity.switchCurrentVideo(offset)
+                    override fun enterAuthorMode(startItem: ShortVideoItem?) {
+                        activity.enterAuthorMode(startItem)
+                    }
+                    override fun exitAuthorMode() { activity.exitAuthorMode() }
+                    override fun isAuthorMode(): Boolean = activity.isAuthorModeActive()
                 })
             }
 
@@ -1262,10 +1310,18 @@ class ShortVideoPagerAdapter(
             val item = currentItem ?: return
             if (item.videoUrl.isEmpty()) {
                 CenterThreadPool.run {
-                    val success = ShortVideoFeedApi.fetchVideoUrl(item)
+                    // 走数据源：推荐流就是原来的 fetchVideoUrl（返回原实例）；
+                    // 作者流条目没有 cid，先补 cid 再取流，可能返回富化副本
+                    val playable = try {
+                        feedSource.resolvePlayable(item)
+                    } catch (e: Exception) {
+                        Logu.e("ShortVideo", "取流异常 aid=${item.aid}: ${e.message}")
+                        null
+                    }
                     mainHandler.post {
-                        if (success && item.videoUrl.isNotEmpty()) {
-                            initPlayer(item)
+                        if (playable != null && playable.videoUrl.isNotEmpty()) {
+                            if (playable !== item && currentItem?.aid == item.aid) currentItem = playable
+                            initPlayer(playable)
                         } else {
                             lastBufferingVisible = false
                             bufferingIndicator.visibility = View.GONE
@@ -1278,6 +1334,16 @@ class ShortVideoPagerAdapter(
                 }
             } else {
                 initPlayer(item)
+            }
+        }
+
+        /** 当前播放进度（毫秒）；「只看 TA」续播保存位置用。播放器没起来时返回 0。 */
+        fun positionMs(): Long {
+            if (!playerReady) return 0L
+            return try {
+                playerBridge.currentPosition
+            } catch (e: Exception) {
+                videoNow.toLong()
             }
         }
 
@@ -1383,6 +1449,17 @@ class ShortVideoPagerAdapter(
                     applySpeedToPlayers(if (speedBoosted) boostSpeed else currentSpeed)
                     // 无极调音：新播放器要套用存档增益（换页/回收重建都走这里）
                     applyStoredVolumeGain()
+
+                    // 「只看 TA」续播：换源重建播放器后回到进入前的进度（一次性消费）。
+                    // 弹幕不用单独 seek：它跟的是媒体时钟（videoNow），状态收集会采到 seek 后的位置
+                    val initialSeek = consumeInitialSeek(boundPosition)
+                    if (initialSeek > 0) {
+                        try {
+                            playerBridge.seekTo(initialSeek)
+                        } catch (e: Exception) {
+                            Logu.e("ShortVideo", "只看 TA 续播定位失败: ${e.message}")
+                        }
+                    }
 
                     // 只有当前页面活跃时才自动播放，防止弱网延迟准备导致两个视频同时播放
                     if (isActive) {

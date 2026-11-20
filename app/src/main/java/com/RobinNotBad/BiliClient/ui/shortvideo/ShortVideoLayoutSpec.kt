@@ -345,4 +345,84 @@ object ShortVideoLayoutSpec {
      * 比常驻进度条（距底 14）更贴底边。圆屏不用它——沉浸时弧本身变细。
      */
     fun progressIdleOffsetFromBottom(m: Metrics): Float = m.s(6.25f)
+
+    // ==================== 「只看 TA」chip ====================
+    //
+    // 设计稿 .chip：圆屏居中、最宽 141dp；方屏左对齐、最宽 150dp。
+    // 头像圆 12 / 方 16，✕ 热区 16（图标 10），间距 5，内边距左 3 右 4 上下 2。
+
+    /** chip 总宽上限。 */
+    fun authorChipMaxWidth(m: Metrics): Float = m.s(if (m.round) 141f else 150f)
+
+    /** chip 里的头像直径。 */
+    fun authorChipAvatarSize(m: Metrics): Float = m.s(if (m.round) 12f else 16f)
+
+    /** chip 里 ✕ 的热区边长。 */
+    fun authorChipCloseSize(m: Metrics): Float = m.s(16f)
+
+    /** chip 里 ✕ 图标边长。 */
+    fun authorChipCloseIconSize(m: Metrics): Float = m.s(10f)
+
+    /** chip 内元素间距。 */
+    fun authorChipGap(m: Metrics): Float = m.s(5f)
+
+    /** chip 水平内边距（左 3 + 右 4 的合计口径，取均值 3.5 两侧对称）。 */
+    fun authorChipPaddingH(m: Metrics): Float = m.s(3.5f)
+
+    /** chip 竖直内边距。 */
+    fun authorChipPaddingV(m: Metrics): Float = m.s(2f)
+
+    // ==================== 作者卡面板 ====================
+    //
+    // 设计稿 authorBody：方屏 head 横排（头像 36 / 间距 9 / 名字 13sp / 副行 10sp /
+    // 关注钮 h24 padH9 text10）；圆屏 head 竖排居中（头像 30 / 名字 12sp / 副行 9sp，
+    // 关注钮单独一行 h22 text9 margin-top6）。副行圆屏只有「粉丝 · 投稿」，没有获赞。
+
+    /** 面板 head 头像直径。 */
+    fun authorHeadAvatarSize(m: Metrics): Float = m.s(if (m.round) 30f else 36f)
+
+    /** 方屏 head 头像与文字的间距。 */
+    fun authorHeadGap(m: Metrics): Float = m.s(9f)
+
+    /** 圆屏 head 竖排各元素间距。 */
+    fun authorHeadRoundGap(m: Metrics): Float = m.s(3f)
+
+    fun authorHeadNameSize(m: Metrics): Float = (if (m.round) 12f else 13f) * m.scale
+    fun authorHeadStatSize(m: Metrics): Float = (if (m.round) 9f else 10f) * m.scale
+
+    /** 关注按钮高度。 */
+    fun authorFollowHeight(m: Metrics): Float = m.s(if (m.round) 22f else 24f)
+
+    fun authorFollowTextSize(m: Metrics): Float = (if (m.round) 9f else 10f) * m.scale
+    fun authorFollowPaddingH(m: Metrics): Float = m.s(9f)
+
+    /** 圆屏关注钮单独一行的上边距。 */
+    fun authorFollowRoundMarginTop(m: Metrics): Float = m.s(6f)
+
+    /** 两个入口按钮行的上边距（圆 8 / 方 10）与按钮间距 6。 */
+    fun authorBtnsMarginTop(m: Metrics): Float = m.s(if (m.round) 8f else 10f)
+    fun authorBtnsGap(m: Metrics): Float = m.s(6f)
+
+    /** 入口按钮高度（圆 26 / 方 28）。 */
+    fun authorBtnHeight(m: Metrics): Float = m.s(if (m.round) 26f else 28f)
+
+    fun authorBtnTextSize(m: Metrics): Float = (if (m.round) 10f else 11f) * m.scale
+    fun authorBtnPaddingH(m: Metrics): Float = m.s(if (m.round) 9f else 10f)
+
+    /** 入口按钮里的播放小图标。 */
+    fun authorBtnIconSize(m: Metrics): Float = m.s(12f)
+
+    /** 「最新投稿 · 横滑看更多」标题字号与上下边距（圆 8/5、方 12/5）。 */
+    fun authorLatestTitleSize(m: Metrics): Float = 9f * m.scale
+    fun authorLatestMarginTop(m: Metrics): Float = m.s(if (m.round) 8f else 12f)
+    fun authorLatestMarginBottom(m: Metrics): Float = m.s(5f)
+
+    /** 投稿缩略图尺寸（圆 44×58 / 方 62×84）、间距 6、圆角 6。 */
+    fun authorThumbWidth(m: Metrics): Float = m.s(if (m.round) 44f else 62f)
+    fun authorThumbHeight(m: Metrics): Float = m.s(if (m.round) 58f else 84f)
+    fun authorThumbGap(m: Metrics): Float = m.s(6f)
+    fun authorThumbCorner(m: Metrics): Float = m.s(6f)
+
+    /** 缩略图上的播放量 / 「播放中」徽标字号。 */
+    fun authorThumbLabelSize(m: Metrics): Float = 8f * m.scale
 }

@@ -234,6 +234,19 @@
                 android:maxLines="1"
                 android:textColor="#F0E8EC"
                 android:textSize="11sp" />
+
+            <!-- 「只看 TA」chip 的 ✕：普通 UP 行里隐藏，尺寸/间距由 ShortVideoNewUi 按规格重设。
+                 整行可点退出，✕ 本身按装饰图处理（无障碍走整行） -->
+            <ImageView
+                android:id="@+id/shortNewAuthorClose"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginStart="5dp"
+                android:contentDescription="@null"
+                android:importantForAccessibility="no"
+                android:padding="3dp"
+                android:visibility="gone"
+                app:srcCompat="@drawable/ic_sv_x" />
         </LinearLayout>
 
         <TextView

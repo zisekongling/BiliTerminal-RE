@@ -2,21 +2,25 @@ package com.RobinNotBad.BiliClient.ui.shortvideo
 
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
+import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
+import androidx.core.widget.TextViewCompat
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.activity.video.JumpToPlayerActivity
@@ -24,6 +28,7 @@ import com.RobinNotBad.BiliClient.activity.video.ShortVideoPlayerActivity
 import com.RobinNotBad.BiliClient.activity.video.info.VideoInfoActivity
 import com.RobinNotBad.BiliClient.api.FavoriteApi
 import com.RobinNotBad.BiliClient.api.ReplyApi
+import com.RobinNotBad.BiliClient.api.SpaceStatApi
 import com.RobinNotBad.BiliClient.api.UserInfoApi
 import com.RobinNotBad.BiliClient.api.VideoInfoApi
 import com.RobinNotBad.BiliClient.api.WatchLaterApi
@@ -32,6 +37,7 @@ import com.RobinNotBad.BiliClient.model.FavoriteFolder
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.Reply
 import com.RobinNotBad.BiliClient.model.ShortVideoItem
+import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.ui.widget.CrownSourcePolicy
 import com.RobinNotBad.BiliClient.ui.widget.RotaryEncoderSupport
 import com.RobinNotBad.BiliClient.ui.widget.RotaryEventPolicy
@@ -69,6 +75,12 @@ class ShortVideoNewUi(
         fun currentVolumePercent(): Int
         /** 表冠换条：+1 下一条 / -1 上一条，复用竖向 pager 的既有翻页链路。 */
         fun switchVideo(offset: Int): Boolean
+        /** 「只看 TA」：null = 当前这条钉在第 0 位继续播；非 null = 从那条开始。 */
+        fun enterAuthorMode(startItem: ShortVideoItem?)
+        /** 退出「只看 TA」，回推荐流记住位置的下一条。 */
+        fun exitAuthorMode()
+        /** 当前是否「只看 TA」：UP 行据此渲染成 chip。 */
+        fun isAuthorMode(): Boolean
     }
 
     private val state = ShortVideoOverlayState()
@@ -90,6 +102,11 @@ class ShortVideoNewUi(
     private val moreFoot = root.findViewById<TextView>(R.id.shortNewMoreFoot)
     private val title = root.findViewById<TextView>(R.id.text_title)
     private val author = root.findViewById<TextView>(R.id.shortNewAuthor)
+    // 「只看 TA」chip 的 ✕（普通 UP 行里隐藏）；退出后按这两份快照还原普通行样式
+    private val authorClose = root.findViewById<ImageView>(R.id.shortNewAuthorClose)
+    private val authorRowDefaultBackground = authorRow.background
+    private val authorDefaultMarginStart =
+        (author.layoutParams as? LinearLayout.LayoutParams)?.marginStart ?: 0
     private val views = root.findViewById<TextView>(R.id.shortNewViews)
     private val progress = root.findViewById<SeekBar>(R.id.videoprogress)
     private val time = root.findViewById<TextView?>(R.id.text_progress)
@@ -230,7 +247,8 @@ class ShortVideoNewUi(
         favouriteFolderId = 0L
         state.bind(host.isPlaying(), false)
         title.text = item.title
-        author.text = item.authorName
+        // UP 行按当前模式渲染：普通 = 名字，「只看 TA」= chip（含 ✕）
+        renderAuthorRow()
         views.text = UiText.of("${item.viewCount} 播放 · ${item.danmakuCount} 弹幕")
         // 动作条上的计数：设计稿要求三格都带数字。评论/收藏数来自详情接口，
         // 拿不到时留空（不显示 0，避免看起来像"没有"）。
@@ -362,6 +380,8 @@ class ShortVideoNewUi(
         playCenter.setPadding(pad, pad, pad, pad)
         applyPanelShape()
         pendingPanelKind?.let { applyPanelHeight(it) }
+        // UP 行最后摆：「只看 TA」时要把 placeRow 给的整行宽改成 wrap 的胶囊
+        renderAuthorRow()
     }
 
     /** 方屏：顶部距顶、动作条贴右竖直一列、底部信息距底左对齐、进度条直线。 */
@@ -507,6 +527,108 @@ class ShortVideoNewUi(
             it.width = s
             it.height = s
             root.findViewById<View>(R.id.shortNewAvatar).layoutParams = it
+        }
+    }
+
+    /**
+     * UP 行两态渲染（bind 与每次布局都会调）：
+     * - 普通：头像 + 名字，整行点开作者卡；
+     * - 「只看 TA」：胶囊 chip = 小头像 + 「只看 {名字}」 + ✕，点任意处退出。
+     *   设计稿 .chip：20% 主色底 + 主色描边，圆屏居中 / 方屏左对齐，宽度 wrap 且名字截断，
+     *   整颗不超过规格上限（圆 141 / 方 150dp 随屏缩放）。
+     */
+    private fun renderAuthorRow() {
+        val current = item ?: return
+        val m = metrics
+        val row = authorRow as? LinearLayout ?: return
+        val avatarView = root.findViewById<ImageView>(R.id.shortNewAvatar)
+        if (host.isAuthorMode()) {
+            author.text = root.context.getString(R.string.text_sv_author_chip, current.authorName)
+            author.typeface = Typeface.DEFAULT_BOLD
+            authorClose.visibility = View.VISIBLE
+            // 设计稿 .chip .x：✕ 热区是黑 35% 的圆底
+            authorClose.background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0x59000000)
+            }
+            row.background = GradientDrawable().apply {
+                cornerRadius = dp(m.s(999f)).toFloat()
+                setColor(ShortVideoTheme.softAccentBackground(accent))
+                setStroke(dp(1f), accentLine)
+            }
+            val padH = dp(ShortVideoLayoutSpec.authorChipPaddingH(m))
+            val padV = dp(ShortVideoLayoutSpec.authorChipPaddingV(m))
+            row.setPadding(padH, padV, padH, padV)
+            row.gravity = Gravity.CENTER_VERTICAL
+            val chipAvatar = dp(ShortVideoLayoutSpec.authorChipAvatarSize(m))
+            (avatarView.layoutParams as? LinearLayout.LayoutParams)?.let {
+                it.width = chipAvatar
+                it.height = chipAvatar
+                avatarView.layoutParams = it
+            }
+            val gap = dp(ShortVideoLayoutSpec.authorChipGap(m))
+            (author.layoutParams as? LinearLayout.LayoutParams)?.let {
+                it.marginStart = gap
+                author.layoutParams = it
+            }
+            val closeSize = dp(ShortVideoLayoutSpec.authorChipCloseSize(m))
+            val closePad = dp(
+                (ShortVideoLayoutSpec.authorChipCloseSize(m) - ShortVideoLayoutSpec.authorChipCloseIconSize(m)) / 2f
+            )
+            (authorClose.layoutParams as? LinearLayout.LayoutParams)?.let {
+                it.width = closeSize
+                it.height = closeSize
+                it.marginStart = gap
+                authorClose.layoutParams = it
+            }
+            authorClose.setPadding(closePad, closePad, closePad, closePad)
+            author.maxWidth = dp(
+                ShortVideoAuthorPolicy.chipTextMaxWidth(
+                    ShortVideoLayoutSpec.authorChipMaxWidth(m),
+                    ShortVideoLayoutSpec.authorChipAvatarSize(m),
+                    ShortVideoLayoutSpec.authorChipCloseSize(m),
+                    ShortVideoLayoutSpec.authorChipGap(m),
+                    ShortVideoLayoutSpec.authorChipPaddingH(m) * 2f
+                )
+            ).coerceAtLeast(dp(20f))
+            // 胶囊宽度 wrap：方屏左对齐贴内容边距，圆屏水平居中；纵向中心仍落在 UP 行规格 y
+            val lp = row.layoutParams as? FrameLayout.LayoutParams ?: return
+            lp.width = ViewGroup.LayoutParams.WRAP_CONTENT
+            lp.gravity = if (m.round) Gravity.TOP or Gravity.CENTER_HORIZONTAL else Gravity.TOP or Gravity.START
+            lp.leftMargin = if (m.round) 0 else dp(ShortVideoLayoutSpec.contentInset(m))
+            lp.rightMargin = 0
+            val y = if (m.round) ShortVideoLayoutSpec.roundAuthorCenterY(m) else ShortVideoLayoutSpec.authorCenterY(m)
+            // post 到布局后：padding 改变后的高度才是准的，中心落点才不会偏
+            row.post {
+                lp.topMargin = dp(y) - row.height / 2
+                row.layoutParams = lp
+            }
+            row.setOnClickListener { host.exitAuthorMode() }
+            avatarView.setOnClickListener { host.exitAuthorMode() }
+            authorClose.setOnClickListener { host.exitAuthorMode() }
+        } else {
+            author.text = current.authorName
+            author.typeface = Typeface.DEFAULT
+            author.maxWidth = Integer.MAX_VALUE
+            authorClose.visibility = View.GONE
+            authorClose.background = null
+            row.background = authorRowDefaultBackground
+            row.setPadding(0, 0, 0, 0)
+            (author.layoutParams as? LinearLayout.LayoutParams)?.let {
+                it.marginStart = authorDefaultMarginStart
+                author.layoutParams = it
+            }
+            applyAvatar(if (m.round) ShortVideoLayoutSpec.roundAvatarSize(m) else ShortVideoLayoutSpec.avatarSize(m))
+            if (m.round) {
+                placeRowCentered(row, ShortVideoLayoutSpec.roundAuthorCenterY(m), ShortVideoLayoutSpec.roundAuthorMaxWidth(m))
+                row.gravity = Gravity.CENTER
+            } else {
+                placeRow(row, ShortVideoLayoutSpec.authorCenterY(m),
+                    ShortVideoLayoutSpec.contentInset(m), ShortVideoLayoutSpec.contentRightInset(m))
+                row.gravity = Gravity.CENTER_VERTICAL
+            }
+            row.setOnClickListener { showAuthor() }
+            avatarView.setOnClickListener { showAuthor() }
         }
     }
 
@@ -683,32 +805,298 @@ class ShortVideoNewUi(
         }
     }
 
+    /**
+     * 作者卡（设计稿 authorBody）：head（头像 / 名字 / 统计副行 / 关注）+ 两个入口
+     * （「TA 的短视频」原地换源、「进入空间」跳既有空间页）+「最新投稿」横滑缩略图。
+     *
+     * 数据四路各自兜底：getUserInfo（粉丝 / 关注态）、navnum（投稿数，无需登录）、
+     * upstat（获赞，需任意登录态，拿不到就隐藏该段）、arc/search 第一页（缩略图）。
+     * 任何一路失败都不弹错、不阻塞其余路。
+     */
     private fun showAuthor() {
         val current = item ?: return
-        openPanel(UiText.of("作者"), ShortVideoLayoutSpec.PanelKind.AUTHOR)
-        panelContent.addView(text(current.authorName.toString(), 18f))
-        val followButton: TextView = button(UiText.of("")) {}
+        val ctx = root.context
+        val m = metrics
+        val round = m.round
+        openPanel(ctx.getString(R.string.pagename_sv_author), ShortVideoLayoutSpec.PanelKind.AUTHOR)
+
+        // ---- head：方屏横排（头像 + 名字/副行 + 关注钮），圆屏竖排居中、关注钮单独一行 ----
+        val head = LinearLayout(ctx).apply {
+            orientation = if (round) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+            gravity = if (round) Gravity.CENTER_HORIZONTAL else Gravity.CENTER_VERTICAL
+        }
+        val headAvatarSize = dp(ShortVideoLayoutSpec.authorHeadAvatarSize(m))
+        val avatarView = ImageView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(headAvatarSize, headAvatarSize).apply {
+                if (!round) marginEnd = dp(ShortVideoLayoutSpec.authorHeadGap(m))
+            }
+            contentDescription = null
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        if (current.authorFace.isNotEmpty() && GlideUtil.canLoad(root)) {
+            GlideUtil.requestRound(avatarView, current.authorFace, R.mipmap.placeholder)
+        }
+        head.addView(avatarView)
+
+        val nameView = text(current.authorName, ShortVideoLayoutSpec.authorHeadNameSize(m)).apply {
+            setTypeface(typeface, Typeface.BOLD)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        val statView = text("", ShortVideoLayoutSpec.authorHeadStatSize(m), ShortVideoTheme.TEXT_SECONDARY)
+        val followButton = authorPillButton(
+            ctx.getString(if (followed) R.string.btn_sv_author_followed else R.string.btn_sv_author_follow),
+            ShortVideoLayoutSpec.authorFollowHeight(m),
+            ShortVideoLayoutSpec.authorFollowTextSize(m),
+            ShortVideoLayoutSpec.authorFollowPaddingH(m),
+            filled = true
+        ) {}
         followButton.setOnClickListener { followUser(followButton) }
-        refreshFollowButton(followButton)
-        panelContent.addView(followButton)
-        panelContent.addView(button(UiText.of("只看 TA")) { openAuthor() })
-        panelContent.addView(button(UiText.of("作者空间")) { openAuthor() })
-        loading()
-        if (current.authorMid > 0) load {
-            val info = UserInfoApi.getUserInfo(current.authorMid)
+
+        if (round) {
+            val gap = dp(ShortVideoLayoutSpec.authorHeadRoundGap(m))
+            nameView.layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = gap }
+            statView.layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = gap }
+            head.addView(nameView)
+            head.addView(statView)
+        } else {
+            val texts = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            texts.addView(nameView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            texts.addView(statView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            head.addView(texts)
+            head.addView(followButton)
+        }
+        panelContent.addView(head, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        if (round) {
+            val followRow = LinearLayout(ctx).apply { gravity = Gravity.CENTER_HORIZONTAL }
+            followRow.addView(followButton)
+            panelContent.addView(followRow, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(ShortVideoLayoutSpec.authorFollowRoundMarginTop(m)) })
+        }
+
+        // ---- 两个入口：方屏各占一半，圆屏居中排 ----
+        val btnH = ShortVideoLayoutSpec.authorBtnHeight(m)
+        val btnText = ShortVideoLayoutSpec.authorBtnTextSize(m)
+        val btnPad = ShortVideoLayoutSpec.authorBtnPaddingH(m)
+        val primary = authorPillButton(ctx.getString(R.string.btn_sv_author_videos), btnH, btnText, btnPad, filled = true) {
+            // 当前这条钉在第 0 位继续播（原地换源，不开新页面）
+            host.enterAuthorMode(null)
+        }
+        // 播放小图标：矢量必须走 AppCompat 加载（minSdk 19 原生 TextView 不认 vector）
+        StringUtil.getDrawable(ctx, R.drawable.ic_sv_play)?.let { icon ->
+            val iconSize = dp(ShortVideoLayoutSpec.authorBtnIconSize(m))
+            icon.setBounds(0, 0, iconSize, iconSize)
+            TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(primary, icon, null, null, null)
+            primary.compoundDrawablePadding = dp(m.s(4f))
+        }
+        val secondary = authorPillButton(ctx.getString(R.string.btn_sv_author_space), btnH, btnText, btnPad, filled = false) {
+            openAuthor()
+        }
+        val btns = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = if (round) Gravity.CENTER_HORIZONTAL else Gravity.NO_GRAVITY
+        }
+        if (round) {
+            btns.addView(primary)
+            btns.addView(secondary, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(btnH)
+            ).apply { marginStart = dp(ShortVideoLayoutSpec.authorBtnsGap(m)) })
+        } else {
+            btns.addView(primary, LinearLayout.LayoutParams(0, dp(btnH), 1f))
+            btns.addView(secondary, LinearLayout.LayoutParams(0, dp(btnH), 1f).apply {
+                marginStart = dp(ShortVideoLayoutSpec.authorBtnsGap(m))
+            })
+        }
+        panelContent.addView(btns, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(ShortVideoLayoutSpec.authorBtnsMarginTop(m)) })
+
+        // ---- 最新投稿：标题 + 横滑缩略图（第一条 = 播放中，带徽标与主色描边）----
+        val latestTitle = text(
+            ctx.getString(R.string.text_sv_author_latest),
+            ShortVideoLayoutSpec.authorLatestTitleSize(m),
+            ShortVideoTheme.TEXT_SECONDARY
+        ).apply { gravity = if (round) Gravity.CENTER_HORIZONTAL else Gravity.START }
+        panelContent.addView(latestTitle, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            topMargin = dp(ShortVideoLayoutSpec.authorLatestMarginTop(m))
+            bottomMargin = dp(ShortVideoLayoutSpec.authorLatestMarginBottom(m))
+        })
+        val thumbsRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        val thumbsScroll = HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(thumbsRow, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+        }
+        panelContent.addView(thumbsScroll, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+        val loadingView = loading()
+
+        if (current.authorMid <= 0) {
+            panelContent.removeView(loadingView)
+            return
+        }
+        load(showError = false) {
+            // 四路请求各自 try/catch：upstat 未登录拿不到 → likes=-1 → 副行隐藏获赞段，
+            // 不显示 0、不弹错；缩略图失败只影响横滑区，head 照常填充。
+            val info = try { UserInfoApi.getUserInfo(current.authorMid) } catch (e: Exception) { null }
+            val videoCount = SpaceStatApi.getVideoCount(current.authorMid)
+            val likes = SpaceStatApi.getLikes(current.authorMid)
+            val cards = ArrayList<VideoCard>()
+            val cardsOk = try {
+                UserInfoApi.getUserVideos(current.authorMid, 1, null, UserInfoApi.ORDER_PUBDATE, cards) == 0
+            } catch (e: Exception) {
+                false
+            }
             handler.post {
-                if (item?.aid == current.aid && state.panelVisible) {
+                if (item?.aid != current.aid || !state.panelVisible) return@post
+                panelContent.removeView(loadingView)
+                if (info != null) {
                     followed = info.followed
                     refreshFollowButton(followButton)
-                    panelContent.removeViewAt(panelContent.childCount - 1)
-                    panelContent.addView(text(UiText.of("${info.fans} 粉丝"), 12f, 0xB3FFFFFF.toInt()))
+                    if (info.name.isNotEmpty()) nameView.text = info.name
+                    if (info.avatar.isNotEmpty() && GlideUtil.canLoad(root)) {
+                        GlideUtil.requestRound(avatarView, info.avatar, R.mipmap.placeholder)
+                    }
+                }
+                val fansText = info?.let {
+                    ctx.getString(R.string.text_sv_author_stat_fans, StringUtil.toWan(it.fans.toLong()))
+                }
+                val videosText = if (videoCount >= 0) {
+                    ctx.getString(R.string.text_sv_author_stat_videos, videoCount)
+                } else null
+                // 圆屏副行按设计稿只有「粉丝 · 投稿」，没有获赞
+                val likesText = if (!round && likes >= 0) {
+                    ctx.getString(R.string.text_sv_author_stat_likes, StringUtil.toWan(likes))
+                } else null
+                statView.text = ShortVideoAuthorPolicy.statLine(fansText, videosText, likesText)
+                if (cardsOk) {
+                    val face = info?.avatar?.takeIf { it.isNotEmpty() } ?: current.authorFace
+                    val fetched = cards.map { ShortVideoAuthorPolicy.itemFromCard(it, current.authorMid, face) }
+                    buildAuthorThumbs(
+                        thumbsRow,
+                        ShortVideoAuthorPolicy.orderAuthorItems(current, fetched),
+                        current
+                    )
+                } else {
+                    thumbsScroll.visibility = View.GONE
+                    panelContent.addView(text(
+                        ctx.getString(R.string.msg_sv_author_list_failed), 12f, ShortVideoTheme.TEXT_SECONDARY
+                    ))
                 }
             }
         }
     }
 
+    /** 作者卡里的胶囊按钮：主色浅底（filled）或白 7% 底，高度 / 字号 / 内边距全从规格取。 */
+    private fun authorPillButton(
+        label: String,
+        height: Float,
+        textSizeSp: Float,
+        padH: Float,
+        filled: Boolean,
+        action: () -> Unit
+    ): TextView = TextView(root.context).apply {
+        text = label
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
+        setTextColor(if (filled) accentLine else Color.WHITE)
+        gravity = Gravity.CENTER
+        maxLines = 1
+        val p = dp(padH)
+        setPadding(p, 0, p, 0)
+        background = GradientDrawable().apply {
+            cornerRadius = dp(metrics.s(999f)).toFloat()
+            setColor(if (filled) ShortVideoTheme.softAccentBackground(accent) else 0x12FFFFFF)
+        }
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(height))
+        setOnClickListener { action() }
+    }
+
+    /** 最新投稿横滑条：封面 + 右下播放量；当前播放那条带「播放中」徽标与主色描边。 */
+    private fun buildAuthorThumbs(container: LinearLayout, list: List<ShortVideoItem>, current: ShortVideoItem) {
+        container.removeAllViews()
+        val m = metrics
+        val ctx = root.context
+        val w = dp(ShortVideoLayoutSpec.authorThumbWidth(m))
+        val h = dp(ShortVideoLayoutSpec.authorThumbHeight(m))
+        val corner = ShortVideoLayoutSpec.authorThumbCorner(m)
+        list.forEachIndexed { index, video ->
+            val isCurrent = video.aid == current.aid
+            val cell = FrameLayout(ctx).apply {
+                layoutParams = LinearLayout.LayoutParams(w, h).apply {
+                    if (index > 0) marginStart = dp(ShortVideoLayoutSpec.authorThumbGap(m))
+                }
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(corner).toFloat()
+                    setColor(0x33FFFFFF)
+                    if (isCurrent) setStroke(dp(2f), accentLine)
+                }
+                // 点缩略图 = 从这一条开始「只看 TA」
+                setOnClickListener { host.enterAuthorMode(video) }
+            }
+            val image = ImageView(ctx).apply {
+                layoutParams = FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                contentDescription = null
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            cell.addView(image)
+            if (isCurrent) {
+                val badge = text(ctx.getString(R.string.text_sv_author_playing), ShortVideoLayoutSpec.authorThumbLabelSize(m)).apply {
+                    setTypeface(typeface, Typeface.BOLD)
+                    // 主色恰好是白色时徽标文字改深色，否则白底白字看不见
+                    setTextColor(if (accent == ShortVideoTheme.WHITE) ShortVideoTheme.PANEL_BG else Color.WHITE)
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(m.s(3f)).toFloat()
+                        setColor(accent)
+                    }
+                    val p = dp(m.s(3f))
+                    setPadding(p, 0, p, 0)
+                }
+                cell.addView(badge, FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.TOP or Gravity.END
+                    topMargin = dp(m.s(3f))
+                    marginEnd = dp(m.s(3f))
+                })
+            }
+            if (video.viewCount.isNotEmpty()) {
+                val count = text(video.viewCount, ShortVideoLayoutSpec.authorThumbLabelSize(m)).apply {
+                    setShadowLayer(2f, 0f, 1f, Color.BLACK)
+                }
+                cell.addView(count, FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.BOTTOM or Gravity.START
+                    bottomMargin = dp(m.s(2f))
+                    marginStart = dp(m.s(3f))
+                })
+            }
+            if (video.cover.isNotEmpty() && GlideUtil.canLoad(root)) {
+                GlideUtil.request(image, video.cover, corner.toInt(), R.mipmap.placeholder)
+            }
+            container.addView(cell)
+        }
+    }
+
     private fun refreshFollowButton(button: TextView) {
-        button.text = UiText.of(if (followed) "已关注" else "关注")
+        button.text = root.context.getString(
+            if (followed) R.string.btn_sv_author_followed else R.string.btn_sv_author_follow
+        )
     }
 
     private fun followUser(button: TextView) {
@@ -720,8 +1108,8 @@ class ShortVideoNewUi(
                 button.isEnabled = true
                 if (code == 0) {
                     followed = !followed
-                    button.text = if (followed) UiText.of("已关注") else UiText.of("关注")
-                } else MsgUtil.showMsg(UiText.of("操作失败（$code）"))
+                    refreshFollowButton(button)
+                } else MsgUtil.showMsg(root.context.getString(R.string.msg_sv_operation_failed, code))
             }
         }
     }
