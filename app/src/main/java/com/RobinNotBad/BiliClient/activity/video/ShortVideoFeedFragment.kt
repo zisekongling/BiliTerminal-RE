@@ -10,6 +10,7 @@ import androidx.fragment.app.Fragment
 import androidx.viewpager2.widget.ViewPager2
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.model.ShortVideoItem
+import com.RobinNotBad.BiliClient.ui.shortvideo.ShortVideoNewUi
 import com.RobinNotBad.BiliClient.ui.widget.SwipePageLayout
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.UiText
@@ -60,6 +61,18 @@ class ShortVideoFeedFragment : Fragment() {
     fun isCurrentPlaying(): Boolean = feedAdapter?.isCurrentPlaying() == true
 
     fun closeCurrentPanel(): Boolean = feedAdapter?.closeCurrentPanel() == true
+
+    /** 当前活跃页的新版 UI；老布局返回 null，表冠换条据此不生效。 */
+    fun activeNewUi(): ShortVideoNewUi? = feedAdapter?.activeNewUi()
+
+    /** 新版表冠换条：±1 页，复用 onPageSelected 的暂停 / 备播链路；到边界返回 false。 */
+    fun switchVideo(offset: Int): Boolean {
+        if (!::viewPager.isInitialized) return false
+        val next = currentPageIndex + offset
+        if (next < 0 || next >= preloadManager.getItemCount()) return false
+        viewPager.setCurrentItem(next, true)
+        return true
+    }
 
     /**
      * 宿主的可用区域尺寸变了（旋转 / 界面边距 / 圆屏留白）：让各页按新尺寸重摆画面。

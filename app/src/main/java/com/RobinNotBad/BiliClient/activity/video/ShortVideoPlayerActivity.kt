@@ -233,6 +233,25 @@ class ShortVideoPlayerActivity : InstanceActivity() {
         return (pager.adapter as? ShortVideoShellAdapter)?.activeFeedFragment?.closeCurrentPanel() == true
     }
 
+    /** 新版表冠换条：仅信息流页生效，复用竖向 pager 的既有翻页链路；边界返回 false。 */
+    internal fun switchCurrentVideo(offset: Int): Boolean {
+        if (!::pager.isInitialized || currentShellPage() != 0) return false
+        return (pager.adapter as? ShortVideoShellAdapter)?.activeFeedFragment?.switchVideo(offset) == true
+    }
+
+    /**
+     * 表冠换条只在「新版 UI 激活」时接管，且抢在视图树分发之前——编码器事件沿焦点链下钻，
+     * 挂在覆盖层上未必收得到；DecorView 兜底又只会滚容器不会换条。老布局 / 非信息流页 /
+     * 用户关闭表冠时一律走 super，原分发链逐字节不变。
+     */
+    override fun dispatchGenericMotionEvent(ev: MotionEvent): Boolean {
+        if (::pager.isInitialized && currentShellPage() == 0) {
+            val ui = (pager.adapter as? ShortVideoShellAdapter)?.activeFeedFragment?.activeNewUi()
+            if (ui != null && ui.onRotaryEvent(ev)) return true
+        }
+        return super.dispatchGenericMotionEvent(ev)
+    }
+
     /**
      * 短视频首页根布局判出「右滑越过阈值」后的回调（系统右滑返回已在本页关闭，
      * 由 [SwipePageLayout] 自己跟手预览并触发退出）。
@@ -382,6 +401,9 @@ class ShortVideoPagerAdapter(
     var lastVisiblePosition = -1
 
     fun closeCurrentPanel(): Boolean = holders[lastVisiblePosition]?.newUi?.closePanel() == true
+
+    /** 当前活跃页的新版 UI；老布局返回 null，表冠换条据此不生效。 */
+    fun activeNewUi(): ShortVideoNewUi? = holders[lastVisiblePosition]?.newUi
 
     override fun getItemCount(): Int = preloadManager.getItemCount()
 
@@ -803,6 +825,7 @@ class ShortVideoPagerAdapter(
                             }
                         }
                     }
+                    override fun switchVideo(offset: Int): Boolean = activity.switchCurrentVideo(offset)
                 })
             }
 

@@ -54,3 +54,79 @@ class ShortVideoOverlayStateTest {
         assertFalse(state.favourite)
     }
 }
+
+/** 表冠换条的累积阈值：一格一条、单次封顶一条、关闭逃生口、余数清零。 */
+class ShortVideoRotaryPolicyTest {
+
+    @Test
+    fun disabledMultipleNeverAccumulates() {
+        // multiple ≤ 0 是用户显式关闭：原样返回，不累积也不切。
+        assertEquals(0.3f to 0, ShortVideoRotaryPolicy.feed(0.3f, -1f, 0f))
+        assertEquals(0.3f to 0, ShortVideoRotaryPolicy.feed(0.3f, -1f, -2f))
+    }
+
+    @Test
+    fun oneNotchSwitchesOneVideoForward() {
+        // 向下滚（轴值为负）= 往后翻，与 RotaryScrollView 同向。
+        val (acc, steps) = ShortVideoRotaryPolicy.feed(0f, -1f, 1f)
+        assertEquals(0f, acc, 0.0001f)
+        assertEquals(1, steps)
+    }
+
+    @Test
+    fun reverseDirectionSwitchesBack() {
+        val (acc, steps) = ShortVideoRotaryPolicy.feed(0f, 1f, 1f)
+        assertEquals(0f, acc, 0.0001f)
+        assertEquals(-1, steps)
+    }
+
+    @Test
+    fun fastSpinCapsAtOnePerEvent() {
+        // 滚轮 ROM 一格可能报 ±16：单次仍只切一条，加速交给事件数。
+        val (acc, steps) = ShortVideoRotaryPolicy.feed(0f, -16f, 8f)
+        assertEquals(0f, acc, 0.0001f)
+        assertEquals(1, steps)
+        var accumulated = 0f
+        var total = 0
+        repeat(5) {
+            val (next, step) = ShortVideoRotaryPolicy.feed(accumulated, -16f, 1f)
+            accumulated = next
+            total += step
+        }
+        assertEquals(5, total)
+    }
+
+    @Test
+    fun remainderAccumulatesThenClearsOnTrigger() {
+        val (a1, s1) = ShortVideoRotaryPolicy.feed(0f, -0.4f, 1f)
+        assertEquals(0.4f, a1, 0.0001f)
+        assertEquals(0, s1)
+        val (a2, s2) = ShortVideoRotaryPolicy.feed(a1, -0.4f, 1f)
+        assertEquals(0.8f, a2, 0.0001f)
+        assertEquals(0, s2)
+        // 第三格凑满 1.2：切一条并清零，不保留 0.2 余数把下一格提前触发。
+        val (a3, s3) = ShortVideoRotaryPolicy.feed(a2, -0.4f, 1f)
+        assertEquals(0f, a3, 0.0001f)
+        assertEquals(1, s3)
+        val (_, s4) = ShortVideoRotaryPolicy.feed(a3, -0.4f, 1f)
+        assertEquals(0, s4)
+    }
+
+    @Test
+    fun oppositeDirectionCancelsAccumulation() {
+        val (a1, _) = ShortVideoRotaryPolicy.feed(0f, -0.6f, 1f)
+        val (a2, s2) = ShortVideoRotaryPolicy.feed(a1, 0.6f, 1f)
+        assertEquals(0f, a2, 0.0001f)
+        assertEquals(0, s2)
+    }
+
+    @Test
+    fun sensitivityScalesTheThreshold() {
+        // 灵敏度 0.5：两格才凑满一条。
+        val (a1, s1) = ShortVideoRotaryPolicy.feed(0f, -1f, 0.5f)
+        assertEquals(0.5f, a1, 0.0001f)
+        assertEquals(0, s1)
+        val (_, s2) = ShortVideoRotaryPolicy.feed(a1, -1f, 0.5f)
+        assertEquals(1, s2)
+    }
+}

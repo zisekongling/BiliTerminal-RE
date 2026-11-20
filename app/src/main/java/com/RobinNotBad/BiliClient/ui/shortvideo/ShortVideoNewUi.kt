@@ -2,15 +2,19 @@ package com.RobinNotBad.BiliClient.ui.shortvideo
 
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import com.RobinNotBad.BiliClient.R
@@ -28,9 +32,13 @@ import com.RobinNotBad.BiliClient.model.FavoriteFolder
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.Reply
 import com.RobinNotBad.BiliClient.model.ShortVideoItem
+import com.RobinNotBad.BiliClient.ui.widget.CrownSourcePolicy
+import com.RobinNotBad.BiliClient.ui.widget.RotaryEncoderSupport
+import com.RobinNotBad.BiliClient.ui.widget.RotaryEventPolicy
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
@@ -59,6 +67,8 @@ class ShortVideoNewUi(
         fun currentSpeed(): Float
         /** 当前音量百分比（「更多」底注里显示）。 */
         fun currentVolumePercent(): Int
+        /** 表冠换条：+1 下一条 / -1 上一条，复用竖向 pager 的既有翻页链路。 */
+        fun switchVideo(offset: Int): Boolean
     }
 
     private val state = ShortVideoOverlayState()
@@ -96,6 +106,12 @@ class ShortVideoNewUi(
     private val panelTitle = root.findViewById<TextView>(R.id.shortNewPanelTitle)
     private val panelContent = root.findViewById<LinearLayout>(R.id.shortNewPanelContent)
     private val clock = root.findViewById<TextView>(R.id.shortNewClock)
+    private val topBar = root.findViewById<View>(R.id.top)
+    // 沉浸细线与圆屏进度弧挂在画面层（常驻层之外），常驻层 GONE 时它们仍要画。
+    private val idleFill = View(root.context)
+    private val idleLine = FrameLayout(root.context)
+    private val arcProgress = ShortVideoArcProgressView(root.context)
+    private var rotaryAccumulated = 0f
     private val accent: Int
     private val accentLine: Int
     private var item: ShortVideoItem? = null
@@ -152,10 +168,14 @@ class ShortVideoNewUi(
                     time?.text = StringUtil.toTime(value / 1000) + "/" + StringUtil.toTime(durationMs.toInt() / 1000)
                 }
             }
-            override fun onStartTrackingTouch(seekBar: SeekBar) {}
+            override fun onStartTrackingTouch(seekBar: SeekBar) {
+                state.onInteraction(System.currentTimeMillis())
+                applyProgressTrack(ShortVideoLayoutSpec.progressTrackHeightDragging(metrics))
+            }
             override fun onStopTrackingTouch(seekBar: SeekBar) {
                 host.seekTo(seekBar.progress.toLong())
                 state.onInteraction(System.currentTimeMillis())
+                applyProgressTrack(ShortVideoLayoutSpec.progressTrackHeight(metrics))
             }
         })
         // 屏幕尺寸一变就按规格重摆；首次布局完成时也会触发一次。
@@ -164,6 +184,27 @@ class ShortVideoNewUi(
                 updateMetrics(right - left, bottom - top)
                 applyLayout()
             }
+        }
+        // 沉浸细线：pivotX=0 + scaleX 表达进度，逐帧只改缩放、不动 layoutParams。
+        idleFill.pivotX = 0f
+        idleFill.scaleX = 0f
+        idleFill.setBackgroundColor(accentLine)
+        idleLine.alpha = 0.75f
+        idleLine.visibility = View.GONE
+        idleLine.setBackgroundColor(ShortVideoTheme.trackColor(accent))
+        idleLine.addView(idleFill, FrameLayout.LayoutParams(-1, -1))
+        arcProgress.visibility = View.GONE
+        arcProgress.setColors(accentLine, ShortVideoTheme.trackColor(accent))
+        // 与方屏 SeekBar 同语义：拖动中只刷新画面，松手才真正 seek。
+        arcProgress.bind { fraction, finished ->
+            state.onInteraction(System.currentTimeMillis())
+            if (finished) host.seekTo((fraction * durationMs).toLong())
+        }
+        (root as ViewGroup).let { group ->
+            // 插在中心键之前：盖过常驻层，但压在「更多」弹层与面板层下面。
+            val index = group.indexOfChild(playCenter)
+            group.addView(arcProgress, index, FrameLayout.LayoutParams(-1, -1))
+            group.addView(idleLine, index, FrameLayout.LayoutParams(0, 0))
         }
         handler.post(tick)
     }
@@ -197,6 +238,8 @@ class ShortVideoNewUi(
         commentsCount.text = ""
         favouriteCount.text = ""
         durationMs = item.duration * 1000L
+        arcProgress.setProgress(0, 0)
+        idleFill.scaleX = 0f
         if (item.authorFace.isNotEmpty() && GlideUtil.canLoad(root)) {
             GlideUtil.requestRound(root.findViewById(R.id.shortNewAvatar), item.authorFace, R.mipmap.placeholder)
         }
@@ -234,6 +277,8 @@ class ShortVideoNewUi(
             progress.max = duration.coerceAtLeast(0)
             progress.progress = positionMs.coerceIn(0, duration.coerceAtLeast(0))
             time?.text = StringUtil.toTime(positionMs / 1000) + "/" + StringUtil.toTime(duration / 1000)
+            arcProgress.setProgress(positionMs, duration.coerceAtLeast(0))
+            idleFill.scaleX = if (duration > 0) positionMs.toFloat() / duration else 0f
         }
     }
 
@@ -259,13 +304,19 @@ class ShortVideoNewUi(
         panelTitle.text = name
         panelContent.removeAllViews()
         scrim.visibility = View.VISIBLE
-        // 面板高度按类型算，宽度/圆角由规格决定；圆屏内缩避免四角被表圈切掉。
+        // 面板高度按类型算；圆屏是内缩居中的圆角方块，方屏贴底，统一走规格函数。
         applyPanelHeight(kind)
         (panel.layoutParams as? FrameLayout.LayoutParams)?.let {
-            it.width = dp(ShortVideoLayoutSpec.panelMaxWidth(metrics))
-            it.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            if (metrics.round) {
+                it.width = dp(ShortVideoLayoutSpec.roundPanelSize(metrics))
+                it.gravity = Gravity.CENTER
+            } else {
+                it.width = dp(ShortVideoLayoutSpec.panelMaxWidth(metrics))
+                it.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            }
             panel.layoutParams = it
         }
+        applyPanelShape()
         if (metrics.round) {
             val inset = ShortVideoLayoutSpec.roundPanelInset(metrics)
             scrim.setPadding(dp(inset), dp(inset), dp(inset), dp(inset))
@@ -281,15 +332,40 @@ class ShortVideoNewUi(
         playCenter.visibility = if (!state.playing) View.VISIBLE else View.GONE
         topScrim.visibility = controls.visibility
         bottomScrim.visibility = controls.visibility
+        // 进度弧 / 细线属于画面层：沉浸时圆屏弧变细、方屏留 1.5dp 细线（设置可关）；
+        // 开着面板时「只留画面」，两者都不画。
+        val idleProgress = !state.controlsVisible && !state.panelVisible && idleEnabled()
+        arcProgress.visibility =
+            if (metrics.round && !state.panelVisible && (state.controlsVisible || idleProgress)) View.VISIBLE else View.GONE
+        arcProgress.setIdle(!state.controlsVisible)
+        idleLine.visibility = if (!metrics.round && idleProgress) View.VISIBLE else View.GONE
     }
+
+    /** 沉浸细线开关，与长视频 PlayerNewUiController.idleEnabled() 同一口径（默认开）。 */
+    private fun idleEnabled(): Boolean =
+        SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_NEW_IDLE_PROGRESS, true)
 
     /**
      * 按 [ShortVideoLayoutSpec] 把常驻层各元素摆到位。屏幕尺寸一变就重摆。
      *
      * 所有坐标都从规格算出来，**不写死任何 dp**：换分辨率只换 [metrics]。
+     * 圆屏走极坐标分支（可用宽度随高度变化，直排会贴到表圈外），方屏走直线锚定分支。
      */
     private fun applyLayout() {
         val m = metrics
+        if (m.round) applyRoundLayout(m) else applySquareLayout(m)
+        applyActionContent(m)
+        // 中心播放键两形共用：⌀56、图标 24，padding 由规格推出而不是写死 16。
+        placeCentered(playCenter, ShortVideoLayoutSpec.playCenterX(m), ShortVideoLayoutSpec.playCenterY(m),
+            ShortVideoLayoutSpec.playSize(m))
+        val pad = dp((ShortVideoLayoutSpec.playSize(m) - ShortVideoLayoutSpec.playIconSize(m)) / 2f)
+        playCenter.setPadding(pad, pad, pad, pad)
+        applyPanelShape()
+        pendingPanelKind?.let { applyPanelHeight(it) }
+    }
+
+    /** 方屏：顶部距顶、动作条贴右竖直一列、底部信息距底左对齐、进度条直线。 */
+    private fun applySquareLayout(m: ShortVideoLayoutSpec.Metrics) {
         // 顶部一行：返回贴左、时钟居中、⋯ 贴右，纵向都在中线。
         placeCentered(backButton, ShortVideoLayoutSpec.backCenterX(m), ShortVideoLayoutSpec.topRowCenterY(m),
             ShortVideoLayoutSpec.touchSize(m))
@@ -297,6 +373,7 @@ class ShortVideoNewUi(
             ShortVideoLayoutSpec.touchSize(m))
         placeCentered(clock, ShortVideoLayoutSpec.clockCenterX(m), ShortVideoLayoutSpec.topRowCenterY(m), -1f)
         clock.setTextSize(TypedValue.COMPLEX_UNIT_SP, ShortVideoLayoutSpec.clockTextSize(m))
+        setHeight(topBar, ShortVideoLayoutSpec.topBarHeight(m))
 
         // 压暗渐变的高度。
         setHeight(topScrim, ShortVideoLayoutSpec.topScrimHeight(m))
@@ -313,67 +390,165 @@ class ShortVideoNewUi(
                 ShortVideoLayoutSpec.actionCellWidth(m) / 2f)
             actionBar.layoutParams = it
         }
+        // 格子是 FrameLayout（shortNewRight）的子 View，必须用 FrameLayout.LayoutParams；
+        // 格间距 44 ≠ 格高 40，逐格按中心 y 定位而不是堆叠。
         listOf(descriptionCell, commentsCell, favourite).forEachIndexed { index, cell ->
-            val h = if (index == 0) cellH else cellH
-            cell.layoutParams = (cell.layoutParams as? LinearLayout.LayoutParams)?.apply {
-                height = dp(h)
-                width = dp(ShortVideoLayoutSpec.actionCellWidth(m))
-            } ?: LinearLayout.LayoutParams(dp(ShortVideoLayoutSpec.actionCellWidth(m)), dp(h))
-        }
-        listOf(descriptionCount, commentsCount, favouriteCount).forEach {
-            it.setTextSize(TypedValue.COMPLEX_UNIT_SP, ShortVideoLayoutSpec.actionLabelSize(m))
-        }
-        // 图标尺寸同样按规格缩放：设计稿在 240 宽上是 20dp 图标，
-        // 手机上必须跟着放大，否则相对画面显得过小。
-        val actionIcon = dp(ShortVideoLayoutSpec.iconSize(m))
-        listOf(descriptionIcon, commentsIcon, favouriteIcon).forEach { icon ->
-            icon.layoutParams = (icon.layoutParams as? LinearLayout.LayoutParams)?.apply {
-                width = actionIcon; height = actionIcon
-            } ?: LinearLayout.LayoutParams(actionIcon, actionIcon)
+            cell.layoutParams = FrameLayout.LayoutParams(
+                dp(ShortVideoLayoutSpec.actionCellWidth(m)), dp(cellH)
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                topMargin = dp(actionYs[index] - barTop - cellH / 2f)
+            }
         }
 
         // 底部四行各自绝对定位：y 全部由规格给出（距底锚定），不靠容器堆叠。
         val leftInset = ShortVideoLayoutSpec.contentInset(m)
         val rightInset = ShortVideoLayoutSpec.contentRightInset(m)
         placeRow(authorRow, ShortVideoLayoutSpec.authorCenterY(m), leftInset, rightInset)
+        (authorRow as? LinearLayout)?.gravity = Gravity.CENTER_VERTICAL
         placeRow(title, ShortVideoLayoutSpec.titleTop(m), leftInset, rightInset, topAligned = true)
+        title.gravity = Gravity.START
         placeRow(views, ShortVideoLayoutSpec.viewsTop(m), leftInset, rightInset, topAligned = true)
+        views.gravity = Gravity.START
+        author.setTextSize(TypedValue.COMPLEX_UNIT_SP, ShortVideoLayoutSpec.authorTextSize(m))
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, ShortVideoLayoutSpec.titleTextSize(m))
+        views.setTextSize(TypedValue.COMPLEX_UNIT_SP, ShortVideoLayoutSpec.viewsTextSize(m))
+        applyAvatar(ShortVideoLayoutSpec.avatarSize(m))
+
+        // 进度条：热区整高 24dp，轨道粗细靠上下 padding 表达（拖动时加粗到 4dp）。
+        progress.visibility = View.VISIBLE
         placeRow(
             progress,
-            ShortVideoLayoutSpec.progressCenterY(m) - ShortVideoLayoutSpec.progressTrackHeight(m) / 2f,
+            ShortVideoLayoutSpec.progressCenterY(m) - ShortVideoLayoutSpec.progressTouchHeight(m) / 2f,
             ShortVideoLayoutSpec.progressInset(m),
             ShortVideoLayoutSpec.progressInset(m),
             topAligned = true,
         )
-        author.setTextSize(TypedValue.COMPLEX_UNIT_SP, ShortVideoLayoutSpec.authorTextSize(m))
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, ShortVideoLayoutSpec.titleTextSize(m))
-        views.setTextSize(TypedValue.COMPLEX_UNIT_SP, ShortVideoLayoutSpec.viewsTextSize(m))
+        applyProgressTrack(ShortVideoLayoutSpec.progressTrackHeight(m))
+        // 新布局没有独立的时长文字（设计稿把时长并进播放量那一行），这里按可空处理。
+        time?.setTextSize(TypedValue.COMPLEX_UNIT_SP, ShortVideoLayoutSpec.viewsTextSize(m))
+
+        // 沉浸细线：比方屏常驻进度条更贴底边（距底 6.25dp）。
+        val idleH = ShortVideoLayoutSpec.progressTrackHeightIdle(m)
+        (idleLine.layoutParams as? FrameLayout.LayoutParams)?.let {
+            it.gravity = Gravity.TOP or Gravity.START
+            it.width = dp(m.widthDp - 2f * ShortVideoLayoutSpec.progressInset(m))
+            it.height = dp(idleH)
+            it.leftMargin = dp(ShortVideoLayoutSpec.progressInset(m))
+            it.topMargin = dp(m.heightDp - ShortVideoLayoutSpec.progressIdleOffsetFromBottom(m) - idleH / 2f)
+            idleLine.layoutParams = it
+        }
+    }
+
+    /** 圆屏：顶部与动作条走极坐标，底部三行水平居中，进度改用贴表圈的弧。 */
+    private fun applyRoundLayout(m: ShortVideoLayoutSpec.Metrics) {
+        val (bx, by) = ShortVideoLayoutSpec.roundTopPoint(m, right = false)
+        placeCentered(backButton, bx, by, ShortVideoLayoutSpec.touchSize(m))
+        val (mx, my) = ShortVideoLayoutSpec.roundTopPoint(m, right = true)
+        placeCentered(moreButton, mx, my, ShortVideoLayoutSpec.touchSize(m))
+        placeCentered(clock, m.centerX, ShortVideoLayoutSpec.roundClockCenterY(m), -1f)
+        clock.setTextSize(TypedValue.COMPLEX_UNIT_SP, ShortVideoLayoutSpec.roundClockTextSize(m))
+        setHeight(topBar, ShortVideoLayoutSpec.roundTopBarHeight(m))
+        setHeight(topScrim, ShortVideoLayoutSpec.roundTopBarHeight(m))
+        setHeight(bottomScrim, ShortVideoLayoutSpec.roundBottomScrimHeight(m))
+
+        // 动作条三格不在同一竖直线上（27°/0°/-27°），逐格极坐标绝对定位。
+        (actionBar.layoutParams as? FrameLayout.LayoutParams)?.let {
+            it.gravity = Gravity.TOP or Gravity.START
+            it.topMargin = 0
+            it.rightMargin = 0
+            actionBar.layoutParams = it
+        }
+        val cellW = ShortVideoLayoutSpec.actionCellWidth(m)
+        val cellH = ShortVideoLayoutSpec.actionCellHeight(m)
+        listOf(descriptionCell, commentsCell, favourite).forEachIndexed { index, cell ->
+            val (x, y) = ShortVideoLayoutSpec.roundPoint(
+                m, ShortVideoLayoutSpec.roundActionRadius(m), ShortVideoLayoutSpec.ROUND_ACTION_ANGLES[index]
+            )
+            cell.layoutParams = FrameLayout.LayoutParams(dp(cellW), dp(cellH)).apply {
+                gravity = Gravity.TOP or Gravity.START
+                leftMargin = dp(x - cellW / 2f)
+                topMargin = dp(y - cellH / 2f)
+            }
+        }
+
+        // 底部三行：中线 y 由规格给出，水平居中（不是方屏的左对齐），宽度夹在弦宽内。
+        placeRowCentered(authorRow, ShortVideoLayoutSpec.roundAuthorCenterY(m), ShortVideoLayoutSpec.roundAuthorMaxWidth(m))
+        (authorRow as? LinearLayout)?.gravity = Gravity.CENTER
+        placeRowCentered(title, ShortVideoLayoutSpec.roundTitleCenterY(m), ShortVideoLayoutSpec.roundTitleMaxWidth(m))
+        title.gravity = Gravity.CENTER_HORIZONTAL
+        placeRowCentered(views, ShortVideoLayoutSpec.roundViewsCenterY(m), ShortVideoLayoutSpec.roundViewsMaxWidth(m))
+        views.gravity = Gravity.CENTER_HORIZONTAL
+        author.setTextSize(TypedValue.COMPLEX_UNIT_SP, ShortVideoLayoutSpec.roundAuthorTextSize(m))
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, ShortVideoLayoutSpec.roundTitleTextSize(m))
+        views.setTextSize(TypedValue.COMPLEX_UNIT_SP, ShortVideoLayoutSpec.roundViewsTextSize(m))
+        applyAvatar(ShortVideoLayoutSpec.roundAvatarSize(m))
+
+        // 圆屏不用直线 SeekBar，进度由 ShortVideoArcProgressView 贴表圈画（尺寸铺满，几何自理）。
+        progress.visibility = View.GONE
+    }
+
+    /** 动作条三格的计数与图标尺寸：两形同一套规格（计数 9sp、图标 20dp 按 scale）。 */
+    private fun applyActionContent(m: ShortVideoLayoutSpec.Metrics) {
+        listOf(descriptionCount, commentsCount, favouriteCount).forEach {
+            it.setTextSize(TypedValue.COMPLEX_UNIT_SP, ShortVideoLayoutSpec.actionLabelSize(m))
+        }
+        val actionIcon = dp(ShortVideoLayoutSpec.iconSize(m))
+        listOf(descriptionIcon, commentsIcon, favouriteIcon).forEach { icon ->
+            icon.layoutParams = (icon.layoutParams as? LinearLayout.LayoutParams)?.apply {
+                width = actionIcon; height = actionIcon
+            } ?: LinearLayout.LayoutParams(actionIcon, actionIcon)
+        }
+    }
+
+    private fun applyAvatar(size: Float) {
         (root.findViewById<View>(R.id.shortNewAvatar).layoutParams as? LinearLayout.LayoutParams)?.let {
-            val s = dp(ShortVideoLayoutSpec.avatarSize(m))
+            val s = dp(size)
             it.width = s
             it.height = s
             root.findViewById<View>(R.id.shortNewAvatar).layoutParams = it
         }
-        // 进度条：高度按规格。外层 FrameLayout 也跟着一起定高，否则轨道会被容器撑开。
+    }
+
+    /**
+     * 方屏进度条轨道粗细：热区整高不变（24dp），用上下 padding 把轨道夹在中间。
+     * 只在布局与拖动开始 / 结束时调，逐帧进度更新不动 layoutParams。
+     */
+    private fun applyProgressTrack(trackHeight: Float) {
+        val touch = ShortVideoLayoutSpec.progressTouchHeight(metrics)
+        val pad = dp(((touch - trackHeight) / 2f).coerceAtLeast(0f))
+        progress.setPadding(progress.paddingLeft, pad, progress.paddingRight, pad)
         (progress.layoutParams as? FrameLayout.LayoutParams)?.let {
-            it.height = dp(ShortVideoLayoutSpec.progressTrackHeight(m))
+            it.height = dp(touch)
             progress.layoutParams = it
         }
-        // 新布局没有独立的时长文字（设计稿把时长并进播放量那一行），这里按可空处理。
-        time?.setTextSize(TypedValue.COMPLEX_UNIT_SP, ShortVideoLayoutSpec.viewsTextSize(m))
+    }
 
-        // 中心播放键。
-        placeCentered(playCenter, ShortVideoLayoutSpec.playCenterX(m), ShortVideoLayoutSpec.playCenterY(m),
-            ShortVideoLayoutSpec.playSize(m))
-
-        // 面板：贴底、高度按规格、圆角。
+    /** 面板外形：方屏贴底、顶部圆角 18；圆屏内缩后居中圆角方块 181×181、圆角 28。 */
+    private fun applyPanelShape() {
+        val m = metrics
         (panel.layoutParams as? FrameLayout.LayoutParams)?.let {
-            it.height = dp(ShortVideoLayoutSpec.panelHeight(m, ShortVideoLayoutSpec.PanelKind.DETAIL))
-            it.width = dp(ShortVideoLayoutSpec.panelMaxWidth(m))
-            it.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            if (m.round) {
+                val size = dp(ShortVideoLayoutSpec.roundPanelSize(m))
+                it.width = size
+                it.height = size
+                it.gravity = Gravity.CENTER
+            } else {
+                it.width = dp(ShortVideoLayoutSpec.panelMaxWidth(m))
+                it.height = dp(ShortVideoLayoutSpec.panelHeight(m, pendingPanelKind ?: ShortVideoLayoutSpec.PanelKind.DETAIL))
+                it.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            }
             panel.layoutParams = it
         }
-        pendingPanelKind?.let { applyPanelHeight(it) }
+        val corner = dp(if (m.round) ShortVideoLayoutSpec.roundPanelCorner(m) else ShortVideoLayoutSpec.panelCorner(m)).toFloat()
+        panel.background = GradientDrawable().apply {
+            setColor(ShortVideoTheme.PANEL_BG)
+            cornerRadii = if (m.round) {
+                floatArrayOf(corner, corner, corner, corner, corner, corner, corner, corner)
+            } else {
+                floatArrayOf(corner, corner, corner, corner, 0f, 0f, 0f, 0f)
+            }
+        }
     }
 
     /** 当前面板类型：openPanel 时记下来，尺寸变化时按同一档重算高度。 */
@@ -382,9 +557,27 @@ class ShortVideoNewUi(
     private fun applyPanelHeight(kind: ShortVideoLayoutSpec.PanelKind) {
         pendingPanelKind = kind
         (panel.layoutParams as? FrameLayout.LayoutParams)?.let {
-            it.height = dp(ShortVideoLayoutSpec.panelHeight(metrics, kind))
+            // 圆屏面板是内缩居中的圆角方块，高度不随面板类型变。
+            it.height = dp(
+                if (metrics.round) ShortVideoLayoutSpec.roundPanelSize(metrics)
+                else ShortVideoLayoutSpec.panelHeight(metrics, kind)
+            )
             panel.layoutParams = it
         }
+    }
+
+    /** 圆屏底部行：水平居中、宽度夹在规格给的最宽内，纵向中心落在 y。 */
+    private fun placeRowCentered(view: View, y: Float, maxWidth: Float) {
+        val lp = view.layoutParams as? FrameLayout.LayoutParams ?: return
+        lp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        lp.leftMargin = 0
+        lp.rightMargin = 0
+        lp.width = dp(maxWidth)
+        val apply = {
+            lp.topMargin = dp(y) - view.height / 2
+            view.layoutParams = lp
+        }
+        if (view.height > 0) apply() else view.post { apply() }
     }
 
     /** 把一个视图的中心摆到 (x, y)；[size] 为负表示只摆中心、不改尺寸。 */
@@ -637,6 +830,8 @@ class ShortVideoNewUi(
         controls.visibility = View.GONE
         topScrim.visibility = View.GONE
         bottomScrim.visibility = View.GONE
+        arcProgress.visibility = View.GONE
+        idleLine.visibility = View.GONE
         moreFoot.text = UiText.of("音量 " + host.currentVolumePercent() + "% · 点空白处收起")
         buildMoreGrid()
     }
@@ -702,9 +897,9 @@ class ShortVideoNewUi(
     private fun buildMoreGrid() {
         val m = metrics
         val round = metrics.round
-        val cellW = if (round) m.s(46f) else m.s(64f)
-        val cellH = if (round) m.s(46f) else m.s(58f)
-        val gap = if (round) m.s(4f) else m.s(6f)
+        val cellW = ShortVideoLayoutSpec.moreCellWidth(m)
+        val cellH = ShortVideoLayoutSpec.moreCellHeight(m)
+        val gap = ShortVideoLayoutSpec.moreCellGap(m)
         val gridW = cellW * 3 + gap * 2
         val gridH = cellH * 3 + gap * 2
         moreGrid.removeAllViews()
@@ -886,6 +1081,37 @@ class ShortVideoNewUi(
         data.uploaderMid = current.authorMid
         activity.startActivity(Intent(activity, JumpToPlayerActivity::class.java)
             .putExtra("data", data).putExtra("download", 1))
+    }
+
+    /**
+     * 表冠事件入口：由 Activity.dispatchGenericMotionEvent 在视图树分发**之前**调用，
+     * 命中才消费。只接管编码器源（与 TutorialPagerActivity 同口径）；滚轮源的手感
+     * 由兼容模式与既有兜底统一治理，这里不重造。返回 false 时事件走原分发链，老布局不受影响。
+     */
+    fun onRotaryEvent(event: MotionEvent): Boolean {
+        if (CrownSourcePolicy.kindOf(event.action, event.source) != CrownSourcePolicy.ENCODER) return false
+        // 兼容模式 = 整体回退最后一个正式版的口径，不在这条新路上接管。
+        if (RotaryEncoderSupport.isCompatMode()) return false
+        // 总开关关闭或灵敏度填 0 时 multipleOf 返回 0：尊重用户关闭，交回原链路。
+        val multiple = RotaryEncoderSupport.multipleOf(SettingsKeys.UI_ROTATORY_SCROLL)
+        if (multiple <= 0f) return false
+        // 「更多」是一页放完的整屏弹层，没有可滚内容：吞掉，免得背后的信息流被滚走。
+        if (moreLayer.visibility == View.VISIBLE) return true
+        // 面板打开时表冠滚面板内容而不是换条。兜底 handlePage 的 DFS 会先命中信息流
+        // 的竖向 RecyclerView，盖不住面板，所以这里显式把事件交给面板的 ScrollView。
+        if (state.panelVisible) {
+            val scroll = panelContent.parent as? ScrollView ?: return true
+            if (!scroll.canScrollVertically(1) && !scroll.canScrollVertically(-1)) return true
+            return RotaryEncoderSupport.handle(scroll, event, multiple, false) { scroll.smoothScrollBy(0, it) }
+        }
+        val ratio = RotaryEventPolicy.rawScrollRatio(
+            event.getAxisValue(MotionEvent.AXIS_SCROLL),
+            event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+        )
+        val (accumulated, steps) = ShortVideoRotaryPolicy.feed(rotaryAccumulated, ratio, multiple)
+        rotaryAccumulated = accumulated
+        if (steps != 0) host.switchVideo(steps)
+        return true
     }
 
     fun syncPlayback() {
