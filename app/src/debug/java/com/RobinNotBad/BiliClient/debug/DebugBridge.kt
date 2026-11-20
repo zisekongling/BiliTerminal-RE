@@ -12,6 +12,8 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.view.InputDevice
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -169,6 +171,7 @@ class DebugBridge : BroadcastReceiver() {
             "crash" -> crash()
             "top" -> top()
             "view", "viewdump" -> viewDump(intent)
+            "rotary" -> rotary(intent)
             else -> "ERR: 未知命令 $cmd（用 --es cmd help 看命令表）"
         }
     }
@@ -202,6 +205,9 @@ class DebugBridge : BroadcastReceiver() {
         |  --es cmd crash                    在主线程抛一个测试异常，**主进程会立刻崩**。
         |                                   用于验证「崩溃 → ErrorCatch 带 ring_log → 崩溃页自动上报」整条链路
         |  --es cmd top                      当前前台 Activity
+        |  --es cmd rotary [--es steps 1] [--ef ratio -1] [--es gap 90]
+        |                                    合成表冠滚动事件（ACTION_SCROLL + SOURCE_ROTARY_ENCODER）。
+        |                                    模拟器没有表冠硬件源，靠它测表冠分支；ratio 负=往后翻
         |  --es cmd view [--es max 600] [--es all true]
         |                                    进程内控件树（0.1–0.2 s，替代 uiautomator 的 2.5 s）
         |                                    JSON：{activity,count,nodes[{cls,rid,text,desc,x,y,bounds,clickable,scroll,enabled}]}
@@ -761,6 +767,44 @@ class DebugBridge : BroadcastReceiver() {
     private fun top(): String {
         val activity = BiliTerminal.getCurrentActivity()
         return activity?.javaClass?.name ?: "<应用不在前台>"
+    }
+
+    /**
+     * 合成表冠事件。模拟器没有表冠硬件源（hw.rotaryInput=no），不注入
+     * ACTION_SCROLL + SOURCE_ROTARY_ENCODER 就永远走不到表冠分支。
+     * 只派发事件、不做业务判断，走 Activity 正常的 generic motion 分发链。
+     */
+    private fun rotary(intent: Intent): String {
+        val activity = BiliTerminal.getCurrentActivity() ?: return "ERR: 应用不在前台"
+        val steps = intent.getIntExtra("steps", 1).coerceIn(1, 40)
+        val ratio = intent.getFloatExtra("ratio", -1f)
+        val gapMs = intent.getIntExtra("gap", 90).coerceIn(20, 1000).toLong()
+        val handler = Handler(Looper.getMainLooper())
+        val down = android.os.SystemClock.uptimeMillis()
+        for (i in 0 until steps) {
+            handler.postDelayed({
+                val props = arrayOf(MotionEvent.PointerProperties().apply {
+                    id = 0
+                    toolType = MotionEvent.TOOL_TYPE_FINGER
+                })
+                val coords = arrayOf(MotionEvent.PointerCoords().apply {
+                    x = 0f
+                    y = 0f
+                    setAxisValue(MotionEvent.AXIS_SCROLL, ratio)
+                    setAxisValue(MotionEvent.AXIS_VSCROLL, ratio)
+                })
+                val ev = MotionEvent.obtain(
+                    down, android.os.SystemClock.uptimeMillis(), MotionEvent.ACTION_SCROLL,
+                    1, props, coords, 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_ROTARY_ENCODER, 0
+                )
+                try {
+                    activity.dispatchGenericMotionEvent(ev)
+                } finally {
+                    ev.recycle()
+                }
+            }, gapMs * i)
+        }
+        return "OK: 已向 ${activity.javaClass.simpleName} 派发 $steps 个表冠事件（ratio=$ratio，间隔 ${gapMs}ms）"
     }
 
     /**
