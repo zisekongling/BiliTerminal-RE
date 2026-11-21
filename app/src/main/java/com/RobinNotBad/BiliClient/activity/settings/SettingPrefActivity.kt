@@ -10,6 +10,7 @@ import com.RobinNotBad.BiliClient.adapter.SettingsAdapter
 import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.ui.widget.RotaryEncoderSupport
 import com.RobinNotBad.BiliClient.util.LongPressPrefs
+import com.RobinNotBad.BiliClient.util.SearchHistoryStore
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TopbarLongPressPrefs
@@ -68,6 +69,11 @@ class SettingPrefActivity : RefreshListActivity() {
             add(SettingSection("switch", "创作中心", SettingsKeys.CREATIVE_ENABLE, getString(R.string.desc_creative_enable), "true"))
             add(SettingSection("switch", "搜索建议", SettingsKeys.SEARCH_SUGGESTIONS_ENABLE,
                 getString(R.string.desc_search_suggestions_enable), "true"))
+            // 26.11.21 反馈：没有关闭搜索历史的入口。关掉即清空已有记录（用户口径：关了就不留），
+            // 所以这里在开关回调里补一次 clear()——只停止记录、旧记录还在列表里，等于关了个寂寞。
+            add(SettingSection("switch", "搜索历史", SettingsKeys.SEARCH_HISTORY_ENABLE,
+                getString(R.string.desc_search_history_enable), "true",
+                SettingsAdapter.SwitchExtra(onChange = { enabled -> if (!enabled) SearchHistoryStore.clear() })))
             add(SettingSection("switch", "默认搜索内容", SharedPreferencesUtil.SEARCH_DEFAULT_CONTENT_ENABLE,
                 getString(R.string.desc_search_default_content_enable), "false"))
             add(SettingSection("switch", "识别链接", SharedPreferencesUtil.LINK_ENABLE, getString(R.string.desc_link_enable), "true"))

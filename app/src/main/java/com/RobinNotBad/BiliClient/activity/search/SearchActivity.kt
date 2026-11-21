@@ -33,15 +33,13 @@ import com.RobinNotBad.BiliClient.adapter.SearchHistoryAdapter
 import com.RobinNotBad.BiliClient.adapter.SearchSuggestionsAdapter
 import com.RobinNotBad.BiliClient.api.SearchApi
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
+import com.RobinNotBad.BiliClient.util.SearchHistoryStore
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.TerminalDialog
-import com.RobinNotBad.BiliClient.util.JsonUtil
 import com.RobinNotBad.BiliClient.util.LinkUrlUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.ToolsUtil
-
-import org.json.JSONArray
-import org.json.JSONException
 
 import java.util.Objects
 
@@ -84,6 +82,9 @@ class SearchActivity : InstanceActivity() {
     // 慢响应返回时会覆盖新响应（建议乱序）；用令牌可以在回调落地时把过期结果整包丢掉。
     private var suggestionGeneration = 0
     private var suggestionsEnabled: Boolean = false
+
+    /** 「搜索历史」开关（26.11.21 反馈）。关掉时本页既不记录也不显示历史区，读写统一走 [SearchHistoryStore]。 */
+    private var historyEnabled: Boolean = true
     private var defaultSearchContent: String? = null
     private var defaultSearchContentEnabled: Boolean = false
 
@@ -107,7 +108,8 @@ class SearchActivity : InstanceActivity() {
 
             handler = Handler()
 
-            suggestionsEnabled = SharedPreferencesUtil.getBoolean("search_suggestions_enable", true)
+            suggestionsEnabled = SharedPreferencesUtil.getBoolean(SettingsKeys.SEARCH_SUGGESTIONS_ENABLE, true)
+            historyEnabled = SearchHistoryStore.isEnabled()
             defaultSearchContentEnabled = SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.SEARCH_DEFAULT_CONTENT_ENABLE, false)
 
             if (defaultSearchContentEnabled) {
@@ -219,14 +221,8 @@ class SearchActivity : InstanceActivity() {
                 }
             }
 
-            try {
-                searchHistory = JsonUtil.jsonToArrayList(
-                    JSONArray(SharedPreferencesUtil.getString(SharedPreferencesUtil.search_history, "[]")),
-                    false)
-            } catch (e: JSONException) {
-                runOnUiThread { MsgUtil.err(e) }
-                searchHistory = ArrayList()
-            }
+            // 开关关着时 store 直接返回空表，历史区因此不显示（解析失败也只记日志，不弹窗）
+            searchHistory = SearchHistoryStore.read()
             searchHistoryAdapter = SearchHistoryAdapter(this, searchHistory)
             // 回调里的 position 是列表变化前绑定的，点下去那一刻才算数：越界就当没点
             // （26.11.07 线上崩溃 #230：IndexOutOfBoundsException: Index: 1, Size: 1）
@@ -240,8 +236,7 @@ class SearchActivity : InstanceActivity() {
                 searchHistory.removeAt(position)
                 searchHistoryAdapter.notifyItemRemoved(position)
                 searchHistoryAdapter.notifyItemRangeChanged(position, searchHistory.size - position)
-                SharedPreferencesUtil.putString(SharedPreferencesUtil.search_history,
-                    JSONArray(searchHistory).toString())
+                SearchHistoryStore.save(searchHistory)
                 // 删空了就把「清空」入口一起收掉
                 refreshHistoryClearButton()
             }
@@ -519,11 +514,11 @@ class SearchActivity : InstanceActivity() {
                     keywordInput.clearFocus()
                 }
 
-                if (!searchHistory.contains(keyword)) {
+                // 开关关着时不记录（两个分支一起跳过），列表也就不动
+                if (historyEnabled && !searchHistory.contains(keyword)) {
                     try {
                         searchHistory.add(0, keyword)
-                        SharedPreferencesUtil.putString(SharedPreferencesUtil.search_history,
-                            JSONArray(searchHistory).toString())
+                        SearchHistoryStore.save(searchHistory)
                         runOnUiThread {
                             searchHistoryAdapter.notifyItemInserted(0)
                             searchHistoryAdapter.notifyItemRangeChanged(0, searchHistory.size)
@@ -534,13 +529,12 @@ class SearchActivity : InstanceActivity() {
                     } catch (e: Exception) {
                         runOnUiThread { MsgUtil.err(e) }
                     }
-                } else {
+                } else if (historyEnabled) {
                     try {
                         val pos = searchHistory.indexOf(keyword)
                         searchHistory.remove(keyword)
                         searchHistory.add(0, keyword)
-                        SharedPreferencesUtil.putString(SharedPreferencesUtil.search_history,
-                            JSONArray(searchHistory).toString())
+                        SearchHistoryStore.save(searchHistory)
                         runOnUiThread {
                             searchHistoryAdapter.notifyItemMoved(pos, 0)
                             searchHistoryAdapter.notifyItemRangeChanged(0, searchHistory.size)
@@ -647,6 +641,13 @@ class SearchActivity : InstanceActivity() {
 
     /** 历史 / 建议浮层统一从这里开关（浮层盖在列表上；排序图标在搜索框内部，两者不再抢地方）。 */
     private fun showHistoryDropdown() {
+        // 开关关掉后历史区整个不显示（26.11.21 反馈：没有关闭记录的地方）
+        if (!historyEnabled) {
+            historyRecyclerview.visibility = View.GONE
+            suggestionsRecyclerview.visibility = View.GONE
+            refreshHistoryClearButton()
+            return
+        }
         historyRecyclerview.visibility = View.VISIBLE
         suggestionsRecyclerview.visibility = View.GONE
         refreshHistoryClearButton()
@@ -672,7 +673,7 @@ class SearchActivity : InstanceActivity() {
      */
     private fun refreshHistoryClearButton() {
         if (!::historyClearButton.isInitialized || !::searchHistory.isInitialized) return
-        val show = historyRecyclerview.visibility == View.VISIBLE && searchHistory.isNotEmpty()
+        val show = historyEnabled && historyRecyclerview.visibility == View.VISIBLE && searchHistory.isNotEmpty()
         historyClearButton.visibility = if (show) View.VISIBLE else View.GONE
     }
 
@@ -696,8 +697,7 @@ class SearchActivity : InstanceActivity() {
         if (!::searchHistory.isInitialized) return
         val oldSize = searchHistory.size
         searchHistory.clear()
-        SharedPreferencesUtil.putString(SharedPreferencesUtil.search_history,
-            JSONArray(searchHistory).toString())
+        SearchHistoryStore.clear()
         // 用 range-removed 而不是 notifyDataSetChanged：本类的 @SuppressLint 只覆盖 onCreate，
         // 这里再引一次会多一条 lint 告警
         if (oldSize > 0) searchHistoryAdapter.notifyItemRangeRemoved(0, oldSize)

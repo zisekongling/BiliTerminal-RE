@@ -901,6 +901,7 @@
     <string name="btn_login_copy">复制</string>
     <string name="desc_one_triple">开启此选项后，在视频详情页长按点赞按钮可以进行一键三连操作</string>
     <string name="desc_search_suggestions_enable">打开此选项，在搜索页输入关键词时会自动显示搜索建议，关闭后仅显示搜索历史</string>
+    <string name="desc_search_history_enable">关闭后不再记录搜过的关键词，搜索页也不再显示搜索历史；已有的记录会在关闭时清空</string>
     <string name="desc_search_default_content_enable">打开此选项，搜索框会显示默认搜索内容作为占位符，未输入内容直接点击搜索时会搜索默认内容</string>
 
     <string name="desc_menu_enabled">已启用</string>
