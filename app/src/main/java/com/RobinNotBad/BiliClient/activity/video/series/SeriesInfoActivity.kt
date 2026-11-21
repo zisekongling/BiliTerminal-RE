@@ -22,7 +22,6 @@ import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.ToolsUtil
-import com.bumptech.glide.Glide
 import com.bumptech.glide.load.DecodeFormat
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
@@ -144,7 +143,11 @@ class SeriesInfoActivity : RefreshListActivity() {
                 holder.name.text = activity.seriesName
                 holder.desc.text = activity.seriesIntro.ifEmpty { UiText.of("这里没有简介哦") }
                 holder.playTimes.text = "共${activity.seriesTotal}"
-                Glide.with(context).asDrawable().load(GlideUtil.url_hq(activity.seriesCover))
+                // 26.11.21（崩溃 #390）：这里原来是 Glide.with(context)，而 context 就是本页 Activity。
+                // 页面已经 finish 时 Glide 4 会直接抛 IllegalArgumentException（You cannot start a load for
+                // a destroyed activity）——第一次 bind 就可能赶上（从详情页返回、列表在 onDestroy 后还刷新一次）。
+                // GlideUtil.with(view) 会判活并在必要时回落 Application 级，同时把请求绑到页面生命周期上。
+                GlideUtil.with(holder.cover).asDrawable().load(GlideUtil.url_hq(activity.seriesCover))
                     .apply(GlideUtil.thumbOptions(holder.cover))
                     .transition(GlideUtil.getTransitionOptions())
                     .placeholder(R.mipmap.placeholder)
