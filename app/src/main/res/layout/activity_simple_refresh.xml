@@ -49,7 +49,10 @@
 
         <!-- 列表筛选条：默认隐藏，只有需要分类的页面（如「稍后再看」的 全部/未看完）才在代码里
              设成 VISIBLE 并接管点击。和 loadMoreTip 一样放在列表外，避免改变业务 adapter 的
-             viewType 或 adapterPosition 语义。 -->
+             viewType 或 adapterPosition 语义。
+             26.11.21（反馈 #245）：三格一律单行 + 自动缩字（8sp~12sp）。小屏（OPPO Watch2 42mm）
+             三格分宽度只有 70dp 出头，「清除已看完」12sp 正好差一点就折行，折出的第二行会露到
+             SegmentedBarStyle 那条 32dp 的玻璃轨道外面——看起来就是「字掉出边框」。 -->
         <LinearLayout
             android:id="@+id/filterBar"
             android:layout_width="match_parent"
@@ -65,26 +68,38 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:ellipsize="end"
                 android:gravity="center"
+                android:maxLines="1"
                 android:minHeight="@dimen/segmented_bar_min"
                 android:paddingVertical="0dp"
                 android:background="?attr/selectableItemBackground"
                 android:text="@string/uitext_dynamicadapter_001"
+                android:textColor="?android:attr/textColorSecondary"
                 android:textSize="@dimen/text_body"
-                android:textColor="?android:attr/textColorSecondary" />
+                app:autoSizeMaxTextSize="@dimen/text_body"
+                app:autoSizeMinTextSize="8sp"
+                app:autoSizeStepGranularity="1sp"
+                app:autoSizeTextType="uniform" />
 
             <TextView
                 android:id="@+id/filterUnfinished"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:ellipsize="end"
                 android:gravity="center"
+                android:maxLines="1"
                 android:minHeight="@dimen/segmented_bar_min"
                 android:paddingVertical="0dp"
                 android:background="?attr/selectableItemBackground"
                 android:text="@string/text_activitysimplerefresh_05"
+                android:textColor="?android:attr/textColorSecondary"
                 android:textSize="@dimen/text_body"
-                android:textColor="?android:attr/textColorSecondary" />
+                app:autoSizeMaxTextSize="@dimen/text_body"
+                app:autoSizeMinTextSize="8sp"
+                app:autoSizeStepGranularity="1sp"
+                app:autoSizeTextType="uniform" />
 
             <!-- 「清除所有已看完」：只有「稍后再看」页会点亮（其它页面 findViewById 取到即为 gone）。
                  破坏性操作，点击后仍要走 TerminalDialog.confirm 二次确认。 -->
@@ -93,14 +108,20 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:ellipsize="end"
                 android:gravity="center"
+                android:maxLines="1"
                 android:minHeight="@dimen/segmented_bar_min"
                 android:paddingVertical="0dp"
                 android:background="?attr/selectableItemBackground"
                 android:text="@string/text_activitysimplerefresh_04"
-                android:textSize="@dimen/text_body"
                 android:textColor="?android:attr/textColorSecondary"
+                android:textSize="@dimen/text_body"
                 android:visibility="gone"
+                app:autoSizeMaxTextSize="@dimen/text_body"
+                app:autoSizeMinTextSize="8sp"
+                app:autoSizeStepGranularity="1sp"
+                app:autoSizeTextType="uniform"
                 tools:visibility="visible" />
 
         </LinearLayout>
