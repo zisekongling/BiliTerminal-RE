@@ -100,8 +100,7 @@ class DebugPopupSuppressionTest {
     @Test
     fun `每个自动弹窗调用点都还带着门`() {
         val missing = sites.filterNot { site ->
-            val file = File(site.path)
-            file.isFile && file.readText().contains(site.needle)
+            readSource(site.path)?.contains(site.needle) == true
         }
         assertTrue(
             buildString {
@@ -119,11 +118,24 @@ class DebugPopupSuppressionTest {
      */
     @Test
     fun `刻意保留的下载通知权限请求没有被门挡掉`() {
-        val file = File("src/main/java/com/RobinNotBad/BiliClient/activity/video/info/DownloadNotificationGate.kt")
-        assertTrue("找不到 ${file.path}，路径可能变了", file.isFile)
+        val path = "src/main/java/com/RobinNotBad/BiliClient/activity/video/info/DownloadNotificationGate.kt"
+        val text = readSource(path)
+        assertTrue("找不到 $path，路径可能变了", text != null)
         assertTrue(
             "下载时的通知权限请求是刻意保留的（要留着测权限流程），不要给它加 isAutoPopupSuppressed",
-            !file.readText().contains("isAutoPopupSuppressed")
+            text?.contains("isAutoPopupSuppressed") == false
         )
+    }
+
+    /**
+     * 读源码，并把行尾统一成 LF。
+     *
+     * 下面 [sites] 里有多行 needle（内部换行写成 LF），只比内容时工作副本的行尾不该影响结论：
+     * 26.11.21 在临时 worktree 里跑这套单测，三个多行调用点（私信拦截提示 / 播放页锁定说明 /
+     * 详情页滑动提示）全部误报成「门没了」，实际只是那棵工作副本是 CRLF。归一化后两种行尾等价。
+     */
+    private fun readSource(path: String): String? {
+        val file = File(path)
+        return if (file.isFile) file.readText().replace("\r\n", "\n") else null
     }
 }
