@@ -27,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 
 public class FollowApi {
@@ -351,7 +352,8 @@ public class FollowApi {
      *
      * 对应 `GET https://api.bilibili.com/x/relation/tag/user?fid=`，
      * 响应 `data` 是「分组 id → 分组名」的对象，且**只在用户不在默认分组时才出现**；
-     * 特别关注是 `tagid = -10`，调用方一般只处理 `tagid > 0` 的自建分组。
+     * 特别关注是 `tagid = -10`（见 {@link #TAG_SPECIAL_FOLLOW}），它和自建分组一样出现在这个响应里，
+     * 所以「他是否已经在特别关注里」不用额外请求（反馈 #266）。
      *
      * @return 分组列表（count 恒为 0，这个接口不返回人数）；接口失败抛异常
      */
@@ -375,6 +377,86 @@ public class FollowApi {
         return tagList;
     }
 
+    // ==================== 反馈 #266：长按「已关注」→ 特别关注 ====================
+
+    /**
+     * 「特别关注」这个系统分组的 tagid。
+     *
+     * <p>它**不在** {@link #getFollowTags()} 的返回里（`x/relation/tags` 只回自建分组），
+     * 但 {@link #getUserFollowTags(long)} 会把它当普通键回出来，`tags/addUsers` 也接受它
+     * （bilibili-API `docs/user/relation.md` 的示例参数就是 `tagids=-10,207542`），
+     * 所以「加入特别关注」和「加入自建分组」走的是同一个接口。
+     */
+    public static final int TAG_SPECIAL_FOLLOW = -10;
+
+    /** 「加入分组」菜单里的一项（反馈 #88 起有，反馈 #266 起多出「特别关注」）。 */
+    public static final class JoinGroupEntry {
+        /** 要加入的分组 id；{@link #create} 为 true 时无意义（固定 0） */
+        public final int tagid;
+        /** true 表示这是菜单末尾的「新建分组」动作，不是某个分组 */
+        public final boolean create;
+        /** 分组原名，用于「已经在「X」分组里了」「已加入「X」」这类提示 */
+        public final String name;
+        /** 菜单里显示的那一行（可能带「（已加入）」） */
+        public final String label;
+
+        public JoinGroupEntry(int tagid, boolean create, String name, String label) {
+            this.tagid = tagid;
+            this.create = create;
+            this.name = name;
+            this.label = label;
+        }
+    }
+
+    /**
+     * 组装「加入分组」菜单（纯函数，便于 JVM 单测）。
+     *
+     * <p>顺序固定为：**特别关注** → 自建分组（按接口返回顺序）→ 新建分组。
+     * 菜单条目与返回值一一对应，调用方用点击下标直接取。
+     *
+     * <p>只收 `tagid > 0` 的自建分组：`x/relation/tags` 理论上不会回 0 / -10，
+     * 但真回了一个也不该在菜单里出现第二次（特别关注已经单独占了顶部一行）。
+     *
+     * @param tags         {@link #getFollowTags()} 的结果
+     * @param joinedIds    {@link #getUserFollowTags(long)} 里他已在的分组 id（含 -10 表示已在特别关注）
+     * @param specialLabel 「特别关注」这一项的文案
+     * @param joinedFormat 「已加入」的格式串，如 `%1$s（已加入）`
+     * @param createLabel  「新建分组」这一项的文案
+     */
+    public static List<JoinGroupEntry> buildJoinGroupMenu(
+            List<FollowTag> tags,
+            Set<Integer> joinedIds,
+            String specialLabel,
+            String joinedFormat,
+            String createLabel) {
+        List<JoinGroupEntry> entries = new ArrayList<>();
+        boolean specialJoined = joinedIds != null && joinedIds.contains(TAG_SPECIAL_FOLLOW);
+        entries.add(new JoinGroupEntry(TAG_SPECIAL_FOLLOW, false, specialLabel,
+                joinGroupLabel(specialLabel, specialJoined, joinedFormat)));
+        if (tags != null) {
+            for (FollowTag tag : tags) {
+                if (tag == null || tag.tagid <= 0) continue;
+                boolean joined = joinedIds != null && joinedIds.contains(tag.tagid);
+                entries.add(new JoinGroupEntry(tag.tagid, false, tag.name,
+                        joinGroupLabel(tag.name, joined, joinedFormat)));
+            }
+        }
+        entries.add(new JoinGroupEntry(0, true, createLabel, createLabel));
+        return entries;
+    }
+
+    /**
+     * 菜单一行的文案：已在分组里的补一句「已加入」（纯函数）。
+     *
+     * <p>{@code joinedFormat} 为空时退化成直接拼「（已加入）」：调用方漏传不该让菜单变成空白项。
+     */
+    public static String joinGroupLabel(String name, boolean joined, String joinedFormat) {
+        String safeName = name == null ? "" : name;
+        if (!joined) return safeName;
+        if (joinedFormat == null || joinedFormat.isEmpty()) return safeName + "（已加入）";
+        return String.format(joinedFormat, safeName);
+    }
+
     /**
      * 把一个已关注的人**加入**若干关注分组（反馈 #88）。
      *
@@ -383,7 +465,7 @@ public class FollowApi {
      * 与 {@link #moveFollowTagUsers} 的区别：这里是**追加**，不会把他从原分组里移走，
      * 也不会取消关注——正是「长按已关注 → 加入分组」要的语义。
      *
-     * @param tagids 目标分组 id（只该传 tagid > 0 的自建分组）
+     * @param tagids 目标分组 id（自建分组用它的正数 id；「特别关注」用 {@link #TAG_SPECIAL_FOLLOW}）
      * @param fid    目标用户 mid
      * @return 服务端 code（0 成功）
      */
