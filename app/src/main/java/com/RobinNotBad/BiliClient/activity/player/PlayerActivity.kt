@@ -2010,7 +2010,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         }
 
         if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SCALE, true)) {
-            scaleGestureListener = ViewScaleGestureListener(layout_video)
+            scaleGestureListener = ViewScaleGestureListener(layout_video) { clampVideoOffset() }
             scaleGestureDetector = ScaleGestureDetector(this, scaleGestureListener!!)
 
             val doublemove_enabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_DOUBLEMOVE, true)
@@ -5003,29 +5003,38 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         }
     }
 
-    private fun videoMoveBy(dx: Float, dy: Float) {
-        var x = dx + layout_video.x
-        var y = dy + layout_video.y
-
-        val widthDelta = 0.5f * video_width * (layout_video.scaleX - 1f)
-        val heightDelta = 0.5f * video_height * (layout_video.scaleY - 1f)
-        val videoXMin = video_origX - widthDelta
-        val videoXMax = video_origX + widthDelta
-        val videoYMin = video_origY - heightDelta
-        val videoYMax = video_origY + heightDelta
-
-        if (x < videoXMin) x = videoXMin
-        if (x > videoXMax) x = videoXMax
-        if (y < videoYMin) y = videoYMin
-        if (y > videoYMax) y = videoYMax
+    /**
+     * 把画面按 [dx]/[dy] 移动，并夹回「放大后多出来的那部分」以内（边界算法见
+     * [PlayerZoomPolicy.offsetLimit]）。
+     *
+     * [trackGesture] 传 false 时只夹取、不置 [gesture_moved]：缩放过程中边界会跟着变，
+     * 需要重新夹一次，但那不是用户在拖画面。
+     */
+    private fun videoMoveBy(dx: Float, dy: Float, trackGesture: Boolean = true) {
+        val xLimit = PlayerZoomPolicy.offsetLimit(video_width, layout_video.scaleX)
+        val yLimit = PlayerZoomPolicy.offsetLimit(video_height, layout_video.scaleY)
+        val x = PlayerZoomPolicy.clampOffset(dx + layout_video.x, video_origX, xLimit)
+        val y = PlayerZoomPolicy.clampOffset(dy + layout_video.y, video_origY, yLimit)
 
         if (layout_video.x != x || layout_video.y != y) {
             layout_video.x = x
             layout_video.y = y
-            if (!gesture_moved && (abs(video_origX - x) > 5f || abs(video_origY - y) > 5f)) {
+            if (trackGesture && !gesture_moved &&
+                (abs(video_origX - x) > 5f || abs(video_origY - y) > 5f)
+            ) {
                 gesture_moved = true
             }
         }
+    }
+
+    /**
+     * 缩放比例变化后重新夹一次位移。
+     *
+     * 缩回 1 倍时边界半径是 0，画面会被拉回正中——这正是 26.11.21 反馈里「能把画面缩到屏幕外/
+     * 缩得很小」的那条：原边界算法只在拖动时算一次，缩小之后没人再夹。
+     */
+    private fun clampVideoOffset() {
+        videoMoveBy(0f, 0f, trackGesture = false)
     }
 
     private fun playerPause() {
@@ -5217,7 +5226,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         scaleFedByControlListener = false
         val handled = super.dispatchTouchEvent(ev)
         val cardOpen = ::layout_card_bg.isInitialized && layout_card_bg.visibility == View.VISIBLE
-        if (!cardOpen) {
+        // 锁定态不补喂（26.11.21 反馈：锁屏后仍能缩放）。遮罩把 layout_control 藏起来以后，
+        // 兜底投喂原样把双指事件交给 detector，等于绕过锁定；锁定的约定是「只留一个解锁图标」。
+        val locked = PlayerLockPolicy.isLocked(lockPhase)
+        if (!cardOpen && !locked) {
             val detector = scaleGestureDetector
             if (detector != null && !scaleFedByControlListener) {
                 detector.onTouchEvent(ev)

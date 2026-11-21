@@ -1,6 +1,8 @@
 package com.RobinNotBad.BiliClient.activity.player
 
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * 画面是否仍处于缩放状态。
@@ -15,8 +17,30 @@ import kotlin.math.abs
 object PlayerZoomPolicy {
     private const val SCALE_EPSILON = 0.001f
 
+    /** 缩放下限：1 倍就是原始大小，再小没有意义。 */
+    const val MIN_SCALE = 1f
+
+    /** 缩放上限。与 ViewScaleGestureListener 里原先写死的 5f 是同一个数，收在这里只留一处。 */
+    const val MAX_SCALE = 5f
+
     fun isZoomed(scaleX: Float, scaleY: Float): Boolean =
         abs(scaleX - 1f) > SCALE_EPSILON || abs(scaleY - 1f) > SCALE_EPSILON
+
+    /** 把缩放比例夹进 [MIN_SCALE]..[MAX_SCALE]。 */
+    fun clampScale(scale: Float): Float = max(MIN_SCALE, min(MAX_SCALE, scale))
+
+    /**
+     * 画面放大后中心点相对原始位置的可移动半径（像素）。
+     *
+     * 放大 s 倍时画面宽 w*s，比屏幕多出 w*(s-1)，居中放置后中心点左右各能挪一半——再往外挪
+     * 就会露出黑边。缩回 1 倍时半径是 0，也就是必须回到原位。
+     */
+    fun offsetLimit(videoSize: Int, scale: Float): Float =
+        0.5f * videoSize * (max(MIN_SCALE, scale) - 1f)
+
+    /** 把 [value] 夹进「以 [center] 为中心、半径 [limit]」的区间。 */
+    fun clampOffset(value: Float, center: Float, limit: Float): Float =
+        max(center - limit, min(center + limit, value))
 }
 
 /**

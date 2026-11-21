@@ -1,10 +1,18 @@
 package com.RobinNotBad.BiliClient.activity.player
 
 import android.view.View
-import kotlin.math.max
-import kotlin.math.min
 
-class ViewScaleGestureListener(private val view: View) : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+/**
+ * 双指捏合缩放。
+ *
+ * [onScaleChanged] 在每次缩放比例真的变了之后回调一次：缩放会改变画面可移动的边界
+ * （见 [PlayerZoomPolicy.offsetLimit]），宿主必须跟着把位移重新夹一次，否则放大后捏回原大小，
+ * 画面会留在屏幕外的位置（26.11.21 反馈：锁屏也能缩、还能把画面缩到屏幕外）。
+ */
+class ViewScaleGestureListener(
+    private val view: View,
+    private val onScaleChanged: () -> Unit = {}
+) : ScaleGestureDetector.SimpleOnScaleGestureListener() {
 
     @JvmField var scaling: Boolean = false
 
@@ -35,10 +43,10 @@ class ViewScaleGestureListener(private val view: View) : ScaleGestureDetector.Si
         val scaleFactor = detector.getScaleFactor()
 
         val currentScale = view.scaleX
-        var newScale = currentScale * scaleFactor
-        newScale = max(1f, min(5f, newScale))
+        val newScale = PlayerZoomPolicy.clampScale(currentScale * scaleFactor)
         view.scaleX = newScale
         view.scaleY = newScale
+        onScaleChanged()
 
         return true
     }
