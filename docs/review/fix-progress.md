@@ -18,6 +18,23 @@
 
 ## 1. 当前版本状态
 
+- **26.11.21 玻璃质感预设三档（用户点名）**：
+  - **来路**：用户反馈「开启玻璃质感后，卡片 / 按钮有两种形态（接近主题色 / 接近背景色），可有人不喜欢」。要求加「玻璃质感预设」三档：主次分明（现有观感，默认）/ 稳扎稳打（全部统一成接近背景色）/ 晶莹剔透（全部统一成主题色）。三项口径由用户拍板：① 只统一**未选中**控件，选中态在任何档位都保留主题色淡底；② 晶莹剔透下卡片与按钮**完全同色**（不额外加浓）；③ 设置行**常驻**在玻璃开关正下方（不随开关隐藏）。
+  - **根因/缺口**：玻璃质感只有「开 / 关」两态，形态写死在 `themes_glass.xml` 的 `GlassOverlay.<X>` 里——`materialCardViewStyle` 取 card 色、`materialButtonStyle` 取 fill 色（主色淡底）、`choiceCardColor`=card、`actionCardColor`=fill、`secondaryButtonTint`=中性白，用户没有「全背景色」或「全主题色」可选。
+  - **改法（改 8 / 新增 9）**：
+    - 新增 `ui/appearance/GlassPreset.kt`：`KEY = SettingsKeys.UI_GLASS_PRESET`、`BALANCED = "balanced"`（默认）/ `STEADY = "steady"` / `CRYSTAL = "crystal"`、`VALUES` / `DISPLAY_NAMES`（主次分明 / 稳扎稳打 / 晶莹剔透）、`normalize` / `current`。只管档位名，不给颜色判据——判据只有一处 `GlassStyle.surfaces`，色值真源仍在资源。
+    - 改 `util/SettingsKeys.kt`：新增 `UI_GLASS_PRESET = "ui_glass_preset"`。
+    - 改 `res/values/themes_glass.xml`（209 → 433 行）：7 套主题各加 `CardStyle<X>.GlassVivid`（parent `CardStyle<X>.Glass`，卡片改主色淡底）与 `ButtonStyle<X>.GlassQuiet`（parent `ButtonStyle<X>.Glass`，按钮改 `glass_btn_bg_quiet_*` + 柔描边），再加 14 个覆盖层 `GlassPresetOverlay.<X>.<Steady|Crystal>`（`parent=""`，写全 6 个槽位：`materialCardViewStyle` / `materialButtonStyle` / `choiceCardColor` / `actionCardColor` / `actionCardStroke` / `secondaryButtonTint`）。
+    - 新增 7 个 `res/color/glass_btn_bg_quiet_<theme>.xml`：selector，`state_enabled=false` → `@color/glass_btn_bg_disabled`，否则 `@color/glass_card_*`。
+    - 改 `ui/appearance/GlassStyle.kt`：`applyTo` 先叠基础覆盖层、再叠 `presetOverlayResId(themeKey)`；新增 `presetOverlayResId(themeKey, preset = GlassPreset.current())`（balanced / 未知 → null）、`class Surfaces` 与 `surfaces(preset, card, stroke, fill, fillStroke)`（晶莹剔透：常态 = fill + 柔描边、选中 = `accentFill(fill)` + 亮描边）、`accentFill(fill)`（alpha 翻倍、封顶 0xFF）；`panelBackground` / `choiceBackground` 改走 `surfaces()`，pressed 与 selected 各建一份 Drawable 实例（不共用）。
+    - 改 `ui/appearance/AppearanceManager.kt`：`Appearance` 加 `glassPreset` 字段、`snapshot()` 读 `GlassPreset.current()`、新增 `setGlassPreset(value)`（normalize 后同步落盘 + `bumpVersion()`）。
+    - 改 `activity/settings/SettingGroupActivity.kt`：玻璃开关正下方加 `listChoose(玻璃质感预设, GlassPreset.KEY / DEFAULT / DISPLAY_NAMES / VALUES)`，回调 `setGlassPreset` + `recreate()`。
+    - 改 `activity/settings/SettingsIndex.kt`：加设置搜索条目，highlight 与页内 `SettingSection.name` 逐字一致。
+    - 改 `res/values/strings.xml`：`setting_index_glass_preset` / `desc_setting_index_glass_preset` / `desc_setting_glass_preset`（长描述写明三档含义、「选中项任何档位保留主题色淡底」、「需先开启上方玻璃质感」）。
+    - 新增 `app/src/test/java/com/RobinNotBad/BiliClient/ui/appearance/GlassPresetTest.kt`（14 例：默认档、normalize 未知/大小写回落、current 跟随存档、VALUES 与 DISPLAY_NAMES 等长且首项为默认、KEY 指向 SettingsKeys、`presetOverlayResId` 对 7 套主题各返回互不相同的非零样式而 balanced/垃圾值为 null、三档 `surfaces` 合并结果、`accentFill` 翻倍与封顶）；`AppearanceManagerTest.kt` 补 4 处（落盘 + 版本 +1、写入前规整、快照默认值与保存后读取）。
+  - **口径（有意的取舍）**：① **选中态不参与统一**——`choiceBackground` 的 selected 在稳扎稳打仍是主色淡底、晶莹剔透再浓一档；否则「我选了哪个」看不出来（用户拍板）；② 晶莹剔透下卡片与按钮**完全同色**（用户口径），代价是两者只剩描边浓淡可辨；③ 预设行**常驻**而非随开关隐藏：能先设好再开开关，也少一层条件重建；④ `ui/appearance/SegmentedBarStyle.kt`（排序 / 筛选的「玻璃光晕分段条」）不跟随预设——它本就自己派生颜色、不受玻璃开关控制；⑤ 播放器不继承 `BaseActivity`、不叠覆盖层，分 P / 字幕 / 互动选项走的是 `choiceBackground`，所以那里只有「选中 / 未选中」跟着预设走，没有卡片与按钮的槽位。
+  - **L0（26.11.21 本机）**：首轮 `:app:assembleDebug :app:testStandardDebugUnitTest` **编译失败**——`SettingGroupActivity.kt:542-545 Unresolved reference 'GlassPreset'`（漏 import，已补）；次轮 3,203 例 1 失败，失败是**新测试自己写错**（`AppearanceManagerTest.kt:149` 留了一条与 146 行矛盾的 `assertEquals(GlassPreset.DEFAULT, snapshot.glassPreset)`，已删）；`:app:testStandardDebugUnitTest` → **BUILD SUCCESSFUL in 8s**，3,202 例 0 失败（`GlassPresetTest` 14 例、`AppearanceManagerTest` 13 例全绿）；`:app:testCoexistDebugUnitTest :app:assembleDebug` → **BUILD SUCCESSFUL in 10s**（134 tasks）。另：`themes_glass.xml` 的注释分隔线里写了连续短横线，AAPT 报「注释中不允许出现字符串 "--"」，已删。
+  - **未验证（L2 / 待人工）**：① 三档实际观感（主次分明应与改动前逐像素一致、稳扎稳打应无一处主色淡底、晶莹剔透应无一处米白卡片）；② 七套主题 × 亮/暗两种模式下 `GlassVivid` / `GlassQuiet` 的描边与文字对比度（尤其晶莹剔透下浅色主题的按钮文字）；③ 选中态在晶莹剔透下「再浓一档」是否够显眼；④ 代码侧背景（楼中楼预览框、「UP主觉得很赞」、用户列表行、私信列表行、播放器分 P / 字幕选择）在稳扎稳打下是否与周围卡片一致；⑤ 设置页多一行后「圆角」标题的上方间距。
 - **26.11.21 控制台反馈 #266「长按已关注 → 特别关注」+ #264「搜索彩蛋反复弹」**：
   - **来路**：控制台两条新反馈（都是 26.11.21 当天）。#266（hesc sl8541e_1h10 / 26.11.09）「那个长按关注分组能不能加个特别关注啊」；#264（samsung wiseul / 26.11.16，category 选了 suggestion、实为 bug）「在搜索时触发彩蛋后退去会留在搜索界面，再点搜索又会弹出彩蛋，陷入循环了」。三项口径由用户拍板（AAB）：入口 = 长按「已关注」的「加入分组」菜单顶部加一项；**只做加入、不做取消**；#264 = 命中彩蛋就清空输入框。
   - **根因**：① #266 —— `adapter/dynamic/UserDynamicAdapter.kt` 的 `showFollowGroupPicker` 刻意只列 `tagid > 0` 的自建分组（注释明写「默认分组与特别关注不是「加入分组」的语义」），特别关注（`tagid = -10`）因此没有任何入口；② #264 —— `activity/search/SearchActivity.kt` 的 `searchKeyword` 命中彩蛋后只 `MsgUtil.showText` 就 `return`，输入框里那个词还留着（`lastKeyword` 也不动），彩蛋页返回后每次点搜索都命中同一个词。
@@ -1395,6 +1412,8 @@
 > **26.11.11 自动跳过广告片段（SponsorBlock）的验收步骤与判据见 [`manual-test-guide-261111-sponsorblock.md`](manual-test-guide-261111-sponsorblock.md)（S01~S06）。**
 
 > **26.11.18 六批修复（崩溃 #366/#367/#368/#369/#370/#371、反馈 #197/#211/#223/#224/#225/#228）的验收步骤与判据见 [`manual-test-guide-261118.md`](manual-test-guide-261118.md)（H01~H08，8 条约 25 分钟）**，每条与 §1 里对应的「未验证（L2）」一一对应；其中 #370 需要一台 Android 8.0/8.1 设备，H05/H06 需要 OPPO Watch 4 Pro 与小米手表那两类表冠/机型。
+
+- [ ] **26.11.21 玻璃质感预设三档真机未验（L2，只能看画面）**：L0 已过（`:app:testStandardDebugUnitTest` 3,203 例 0 失败、`:app:testCoexistDebugUnitTest :app:assembleDebug` BUILD SUCCESSFUL，见 §1 首条）。需确认：①「设置 → 外观」玻璃开关正下方多出的「玻璃质感预设」一行能选中三档、选完回上层再进来仍是选中那档；②「主次分明」与改动前逐像素一致（卡片米白 / 深灰、按钮与选中项主色淡底）；③「稳扎稳打」下卡片、按钮、三连卡片、用户列表行、私信列表行、楼中楼预览框、「UP主觉得很赞」全部变成背景色形态，主题色只剩描边，没有一处主色淡底；④「晶莹剔透」下上述全部变主色淡底，亮色主题（尤其 B 站粉 / 知乎蓝 / 爱奇艺绿）的按钮文字与描边仍清楚；⑤选中项在三种档位下都能一眼看出（稳扎稳打是主色淡底、晶莹剔透更浓一档）；⑥关掉玻璃质感开关后三档都不生效；⑦七套主题 × 亮 / 暗各扫一遍。
 
 - [ ] **26.11.18 表情页仍漏还 Glide 资源（待修，未开单）**：`app/src/main/java/com/RobinNotBad/BiliClient/activity/EmoteActivity.kt:110` 的 `.submit().get()` 取完图没有 `manager.clear(future)`，与 §1「表情 Glide 资源泄漏」修的是**同一个 EngineKey**（表情 URL）——虽然本轮把 `EmoteUtil` 侧的租约全部归还了，这一处仍会在反复进出表情页时留下 acquired 计数。判据同崩溃 #366 那批（`Cannot recycle a resource while it is still acquired`）。
 

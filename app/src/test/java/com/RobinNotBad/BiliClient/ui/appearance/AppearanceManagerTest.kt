@@ -77,6 +77,26 @@ class AppearanceManagerTest {
     }
 
     @Test
+    fun setGlassPreset_persistsAndBumpsVersion() {
+        AppearanceManager.setGlassPreset(GlassPreset.CRYSTAL)
+        assertEquals(
+            "预设写入必须落盘，否则 recreate() 后读回默认档",
+            GlassPreset.CRYSTAL, GlassPreset.current()
+        )
+        assertEquals(
+            "预设写入必须递增外观版本号，否则其它页面带着旧样式继续存在",
+            AppearanceManager.INITIAL_VERSION + 1, AppearanceManager.version()
+        )
+    }
+
+    @Test
+    fun setGlassPreset_normalizesBeforeSaving() {
+        AppearanceManager.setGlassPreset("garbage")
+        // 落盘的就是合法值，设置页不会显示空白、覆盖层也不会映射到不存在的档位
+        assertEquals(GlassPreset.DEFAULT, GlassPreset.current())
+    }
+
+    @Test
     fun everyWriteBumpsVersion_independently() {
         AppearanceManager.setTheme(ColorScheme.THEME_IQIYI_GREEN)
         AppearanceManager.setCornerRadius(CornerStyle.ROUNDED)
@@ -110,6 +130,7 @@ class AppearanceManagerTest {
         assertEquals(ColorScheme.THEME_DEFAULT, snapshot.themeKey)
         assertEquals(CornerStyle.DEFAULT, snapshot.cornerRadius)
         assertEquals("", snapshot.fontPath)
+        assertEquals(GlassPreset.DEFAULT, snapshot.glassPreset)
         assertEquals(AppearanceManager.INITIAL_VERSION, snapshot.version)
     }
 
@@ -118,9 +139,11 @@ class AppearanceManagerTest {
         AppearanceManager.setTheme(ColorScheme.THEME_PURPLE_FANTASY)
         AppearanceManager.setCornerRadius(CornerStyle.ROUNDED)
         AppearanceManager.setFontPath(fontPath)
+        AppearanceManager.setGlassPreset(GlassPreset.STEADY)
 
         val snapshot = AppearanceManager.snapshot()
         assertEquals(ColorScheme.THEME_PURPLE_FANTASY, snapshot.themeKey)
+        assertEquals(GlassPreset.STEADY, snapshot.glassPreset)
         assertEquals(CornerStyle.ROUNDED, snapshot.cornerRadius)
         assertEquals(fontPath, snapshot.fontPath)
         assertEquals(AppearanceManager.version(), snapshot.version)

@@ -320,6 +320,10 @@ object SettingsIndex {
             text(R.string.desc_setting_index_glass_components)
         ) { a -> openGroup(a, GROUP_APPEARANCE, groupAppearance, text(R.string.setting_index_glass_components)) }
         list += Entry(
+            text(R.string.setting_index_glass_preset),
+            text(R.string.desc_setting_index_glass_preset)
+        ) { a -> openGroup(a, GROUP_APPEARANCE, groupAppearance, text(R.string.setting_index_glass_preset)) }
+        list += Entry(
             text(R.string.settingtext_settinggroupactivity_035),
             text(R.string.settingtext_settingsindex_016)
         ) { a -> openGroup(a, GROUP_APPEARANCE, groupAppearance, text(R.string.settingtext_settinggroupactivity_035)) }

@@ -30,6 +30,7 @@ import com.RobinNotBad.BiliClient.ui.widget.IslandPolicy
 import com.RobinNotBad.BiliClient.ui.widget.TopbarHeightPolicy
 import com.RobinNotBad.BiliClient.ui.appearance.CornerStyle
 import com.RobinNotBad.BiliClient.ui.appearance.FontStyle
+import com.RobinNotBad.BiliClient.ui.appearance.GlassPreset
 import com.RobinNotBad.BiliClient.ui.appearance.GlassStyle
 import com.RobinNotBad.BiliClient.ui.appearance.ImmersiveMode
 import com.RobinNotBad.BiliClient.ui.appearance.RoundListSwitchPolicy
@@ -534,6 +535,21 @@ class SettingGroupActivity : RefreshListActivity() {
         switch(getString(R.string.setting_index_glass_components), getString(R.string.desc_setting_glass_components), SettingsKeys.UI_GLASS_COMPONENTS, GlassStyle.DEFAULT) { isChecked ->
             AppearanceManager.setGlassComponents(isChecked)
             recreate()
+        }
+        // 预设行常驻（不随开关隐藏）：关掉玻璃质感时改它不会立刻有变化，但用户可以先把形态定好。
+        listChoose(
+            getString(R.string.setting_index_glass_preset),
+            getString(R.string.desc_setting_glass_preset),
+            GlassPreset.KEY,
+            GlassPreset.DEFAULT,
+            GlassPreset.DISPLAY_NAMES,
+            GlassPreset.VALUES
+        ) { oldValue, newValue ->
+            if (oldValue != newValue) {
+                // 走门面写入：落盘 + 递增外观版本号，其它页面在 onResume 时自动重建
+                AppearanceManager.setGlassPreset(newValue)
+                recreate()
+            }
         }
 
         title("圆角")

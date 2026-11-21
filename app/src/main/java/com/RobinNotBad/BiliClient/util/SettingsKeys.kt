@@ -83,6 +83,11 @@ object SettingsKeys {
     const val UI_AMBIENT_GLOW_SOURCE = "ui_ambient_glow_source"
     /** 玻璃质感组件（卡片 / 按钮半透明化）开关，见 `ui/appearance/GlassStyle`。 */
     const val UI_GLASS_COMPONENTS = "ui_glass_components"
+    /**
+     * 玻璃质感的形态预设（"balanced" 主次分明 / "steady" 稳扎稳打 / "crystal" 晶莹剔透），
+     * 见 `ui/appearance/GlassPreset`。只在 [UI_GLASS_COMPONENTS] 开启时才有视觉作用。
+     */
+    const val UI_GLASS_PRESET = "ui_glass_preset"
     /** 暗色 / 亮色模式（"dark" / "light"），见 `ui/appearance/ColorMode`。 */
     const val UI_COLOR_MODE = "ui_color_mode"
     /**
