@@ -18,6 +18,13 @@
 
 ## 1. 当前版本状态
 
+- **26.11.21 崩溃 #390：系列页封面加载撞 Glide「destroyed activity」——`Glide.with(context)` 换成 `GlideUtil.with(view)`**：
+  - **来路**：控制台崩溃 #390（`26.11.12` 包，2026-11-20 23:41）。栈顶是混淆帧 `a1.e.onBindViewHolder`，用本机 `app/build/outputs/mapping/coexistRelease/mapping.txt` 反查 = `SeriesInfoActivity$SeriesVideoAdapter`；这是那一批 31 条里**唯一「代码里仍然存在」**的崩溃（其余都是旧包已修 / 自测噪音 / 非我方 / 信息不足）。
+  - **根因**：`activity/video/series/SeriesInfoActivity.kt:147` 原来是 `Glide.with(context).asDrawable().load(...)`，而 `context` 就是本页 Activity（adapter 构造参数）。Glide 4 的 `Glide.with(activity)` 内部 `assertNotDestroyed(activity)`，页面 finish / 销毁之后抛 `IllegalArgumentException: You cannot start a load for a destroyed activity`；列表在页面销毁后仍可能收到一次 bind（弱网、低性能设备把这个时间窗拉长）。
+  - **改法**：换成 `GlideUtil.with(holder.cover)`（`util/GlideUtil.java:240`：沿 View 找宿主 Activity、判活失败回落 Application 级，顺带把请求绑到页面生命周期上，解决「离开页面后还继续下载解码」），同时删掉不再使用的 `import com.bumptech.glide.Glide`。
+  - **同类未改（本轮没动）**：`activity/video/collection/CollectionInfoActivity.kt:313` 与 `:457`、`adapter/user/ElectricUserAdapter.kt:33`、`adapter/dynamic/DynamicHolder.kt:631` 仍写着 `Glide.with(context)`，改法相同；等有崩溃报告再动，避免本轮摊子铺大。
+  - **L0**：独立 worktree `outputs/worktrees/wt-fixfive` 上 `:app:assembleDebug :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest` → **BUILD SUCCESSFUL in 54s**。
+  - **未验证（L1/L2）**：真机上「进系列页 → 立刻返回」反复刷不再崩——崩溃是概率事件，静态层面只能确认这条路已经不存在 `Glide.with(activity)`。
 - **26.11.21 反馈 #248：推荐页「登录了还是老重复」——刷新把 fresh_idx 归 1，而同一进程 `uniq_id` 不变、参数一样接口就返回同一批，改成游标往后跳一段 + bvid／标题双判重**：
   - **来路**：控制台反馈 #248（`bug`，`26.11.18-beta.1`，日志里只有一堆连不上 `rebitterminal` 域名的 `SocketTimeoutException`，与推荐无关）。用户原话：「登录了推荐还是很多重复」。
   - **根因**：`api/RecommendApi.java:58-108` 请求 `x/web-interface/wbi/index/top/feed/rcmd`，请求里的 `uniq_id` 取自进程内**静态** `Random`（`:29`），进程活多久它就不变；接口对「参数完全相同」的两次请求返回同一批（26.11.06 实测两次 30 条的 bvid 交集 30、顺序也一致）。旧的 `activity/video/RecommendActivity.kt` 下拉刷新把 `nextPage` 归 `RecommendPagePolicy.FIRST_PAGE`(=1) 再按同样的 `fresh_type` 请求，于是刷新拿回的就是刚才那批。
