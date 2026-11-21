@@ -71,7 +71,13 @@ android {
 
     defaultConfig {
         applicationId "com.RobinNotBad.BiliClient"
-        minSdk 19
+        // ⚠ 26.11.21 暂时回到 21（Android 5.0），不是终点：okhttp 4.12.0 的
+        // okhttp3.internal.platform.AndroidPlatform.<clinit> 在 Build.VERSION.SDK_INT < 21 时
+        // 主动 throw IllegalStateException("Expected Android API level 21+ but was ...")，
+        // 类初始化失败后所有 OkHttp 调用都会 NoClassDefFoundError: okhttp3/internal/platform/Platform
+        // （issue #35 的崩溃栈就是这个）。真要恢复 4.4 必须先换掉 OkHttp 4（降到 3.12.x），
+        // 改造面与风险见 docs/architecture-map.md §1.1，进度见台账「恢复 Android 4.4（API 19）兼容」。
+        minSdk 21
         targetSdk 34
         versionCode appVersionCode
         versionName appVersionName
@@ -185,7 +191,10 @@ android {
             buildConfigField "boolean", "BETA", String.valueOf(appChannel != 'stable')
             buildConfigField "String", "UPDATE_CHANNEL", "\"${appChannel}\""
             buildConfigField "String", "VERSION_NAME_BASE", "\"${appVersionDate}\""
-            signingConfig signingConfigs.debug
+            // 26.11.19 起 debug 与正式版用**同一份签名**：真机上 debug 包才能直接覆盖已装的正式版
+            // （否则 INSTALL_FAILED_UPDATE_INCOMPATIBLE，联调只能卸载重装、丢登录态）。
+            // local.properties 没配 KEY_PATH 时回落到默认 debug 签名，公开仓库仍能独立编译。
+            signingConfig signingConfigs.release.storeFile != null ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
             shrinkResources false
 
@@ -351,6 +360,8 @@ dependencies {
     // minSdk 19 的硬约束：appcompat 1.7.0 / fragment-ktx 1.8.0 的 AAR 自身 minSdkVersion 是 21，
     // 清单合并会直接失败。1.6.1 / 1.6.2 是仍声明 minSdk 14 的最后一代，故钉在这里。
     // 想升回 1.7.0 / 1.8.0 必须先把 minSdk 提回 21。依据见 docs/architecture-map.md §1.1。
+    // 26.11.21 minSdk 已暂时回到 21，升级的前置条件满足，但这次只做 minSdk 一件事，
+    // 升 appcompat / fragment 留到恢复 4.4 那轮一起评估（它们会牵动主题与控件行为）。
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.12.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
@@ -380,7 +391,9 @@ dependencies {
 
     // minSdk 19（< 21）时 ART 还不支持原生多 dex，必须靠 multidex 库 + Application.attachBaseContext
     // 里的 MultiDex.install()（见 BiliTerminal.kt）。AGP 只会自动带上 2.0.0，这里显式钉 2.0.1。
-    // 若日后 minSdk 提回 21，这一条和 BiliTerminal 里的 install() 都要一起删掉。
+    // 26.11.21 minSdk 暂时回到 21 后，这条与 install() 其实已经多余，但**先留着**：
+    // 恢复 4.4 时要原样加回来，现在删掉只会在下一次恢复时多踩一轮「忘了加」的坑。
+    // 等到 OkHttp 降级真正落地、4.4 恢复那一轮再决定删不删（见 docs/architecture-map.md §1.1）。
     implementation 'androidx.multidex:multidex:2.0.1'
     // 注：androidx.asynclayoutinflater、protobuf-javalite、geetest sensebot 全工程零引用，已移除
 

@@ -18,6 +18,13 @@
 
 ## 1. 当前版本状态
 
+- **26.11.21 minSdk 19 → 21（Android 5.0）：4.4 兼容暂停，issue #35**（用户拍板「暂时改成 5.0，等期中考试结束后再恢复」）：
+  - **来路**：issue #35 报 4.4 设备上一联网就崩。**不是本轮改出来的问题**——`okhttp:4.12.0` 这一行自 2026-10-30 `a7fb06be` 起就在 `app/build.gradle` 里（`git log -S` 唯一命中），minSdk 19 是 26.10.10 落的，所以 19 这段**从来没有一个版本在 4.4 上真跑通过**。
+  - **根因（字节码级，不是推测）**：`okhttp3.internal.platform.AndroidPlatform.<clinit>` 里有 `if (Platform.isAndroid && Build.VERSION.SDK_INT < 21) throw IllegalStateException("Expected Android API level 21+ but was " + SDK_INT)`（d8 反汇编：`041506 const-string` / `041522 new-instance` / `041534 throw`）。类初始化抛错后，之后**每一次** OkHttp 调用都是 `NoClassDefFoundError: okhttp3/internal/platform/Platform`——线上崩溃栈正是这个。
+  - **改法（只动 4 个文件，一行代码）**：`app/build.gradle` 的 `defaultConfig.minSdk 19 → 21` + 就地注释说明原因与恢复路径；`readme.md`（徽章 `android-4.4%2B` → `5.0%2B`、系统要求段改写、无人看护的「4.4~6.0 未真机验证」提示改成 5.0 起）；`docs/architecture-map.md` §1 顶部加 26.11.21 状态说明（含上面的字节码证据与 okhttp 3.12 改造面），§1.1 标题标注「转为恢复 4.4 时的作业清单」；本节。**`appcompat`/`fragment-ktx` 的降级钉子与 `multidex` 依赖都没动**——前者升级会牵动主题与控件行为，后者删了下次恢复要重踩一遍，两件事都随 4.4 恢复那一轮一起处理。
+  - **未验证**：本机无 API 19/20/21 模拟器与真机，L0 只有 `assembleDebug` + 单测（minSdk 变更是编译期约束，单测覆盖不到 4.4 运行期）。4.4/5.0 实机行为仍是空白。
+  - **后续（已在任务台账登记）**：恢复 4.4 的唯一现实路径是 OkHttp 降到 3.12.x——3.12.13 的 `AndroidPlatform.buildIfSupported` 只判 `Platform.isAndroid` + `Class.forName("com.android.org.conscrypt.SSLParametersImpl")`，无 SDK 闸，`peekBody`/`callTimeout` 也都还在；代价是 125 处 okhttp4 Kotlin 属性写法（57 个 .kt 文件）与 okhttp 3.x 已 EOL。
+
 - **26.11.21 推荐流补齐：APP 源 / 混合推荐 / X 式重排 / 屏蔽作者 + 「弹窗标题跑马灯」（用户点名，对齐 `github.com/jiuyang5354/bilibili-margin`）**：
   - **来路**：用户本轮要求「克隆这个仓库，参考这个项目，完善我们的 APP 端推荐，同时完善那个混合推荐模块的召回与排序逻辑，混合推荐部分也一并补齐实现，同时做一个 X 式重排功能（对齐此仓库），同时对齐此仓库，在推荐页面长按弹出的菜单中加入「屏蔽作者」等操作（设置中有地方列出被屏蔽的作者）…交互样式与本项目保持一致。另外对于本项目的长按弹窗做一个新的设置，默认开启-弹窗标题跑马灯」。四项决策（用户拍板）：APP 源 = 手机推荐流与网页推荐流一起请求再合流，**无凭据时无论选什么都降级 WEB**；屏蔽作者 = 本地黑名单 + 同时提交 B 站「不想看此 UP 主」（reason=4）；X 式重排**默认关闭**；「推荐源」默认仍是网页源。
   - **根因/缺口**：设置里「推荐源」三个选项（`util/SharedPreferencesUtil.java:83-87`）**只有设置页在写、全仓没有读取方**——死设置；推荐页只调 `RecommendApi.getRecommend` 一条网页流，既没有混合，也没有任何按用户的排序（`RecommendPagePolicy` 只管分页游标与去重）。
