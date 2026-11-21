@@ -18,6 +18,41 @@
 
 ## 1. 当前版本状态
 
+- **26.11.21 反馈 #248：推荐页「登录了还是老重复」——刷新把 fresh_idx 归 1，而同一进程 `uniq_id` 不变、参数一样接口就返回同一批，改成游标往后跳一段 + bvid／标题双判重**：
+  - **来路**：控制台反馈 #248（`bug`，`26.11.18-beta.1`，日志里只有一堆连不上 `rebitterminal` 域名的 `SocketTimeoutException`，与推荐无关）。用户原话：「登录了推荐还是很多重复」。
+  - **根因**：`api/RecommendApi.java:58-108` 请求 `x/web-interface/wbi/index/top/feed/rcmd`，请求里的 `uniq_id` 取自进程内**静态** `Random`（`:29`），进程活多久它就不变；接口对「参数完全相同」的两次请求返回同一批（26.11.06 实测两次 30 条的 bvid 交集 30、顺序也一致）。旧的 `activity/video/RecommendActivity.kt` 下拉刷新把 `nextPage` 归 `RecommendPagePolicy.FIRST_PAGE`(=1) 再按同样的 `fresh_type` 请求，于是刷新拿回的就是刚才那批。
+  - **改法（1 改 1 扩 1 单测）**：
+    - `util/RecommendPagePolicy.kt`：新增 `const val REFRESH_STEP_MAX: Int = 8`、`@JvmStatic fun refreshPage(current: Int, step: Int): Int = current.coerceAtLeast(FIRST_PAGE) + step.coerceIn(1, REFRESH_STEP_MAX)`、`@JvmStatic fun titleKey(card: VideoCard?): String?`（`upMid <= 0` 或标题空白返回 `null`，否则 `"<upMid>|<trim 后的标题>"`）；`filterNewCards` 加三参重载（bvid 与标题键**双判重**、两个集合都登记），两参版保留给搜索页。
+    - `activity/video/RecommendActivity.kt`：新增 `loadedTitles`；`refreshRecommend()` 里改成 `nextPage = RecommendPagePolicy.refreshPage(nextPage, Random.nextInt(1, RecommendPagePolicy.REFRESH_STEP_MAX + 1))`，`loadedBvids` / `loadedTitles` 一起 `clear()`；`addRecommend()` 改调三参版。
+    - 新增单测 `app/src/test/java/com/RobinNotBad/BiliClient/util/RecommendPagePolicyTest.kt`（**16 例**）：`refreshPage` 的最小页钳位、步长钳位（0／负数／超过 8）、`titleKey` 的空标题／空 upMid／大小写与前后空白归一、三参判重覆盖「同 bvid 不同标题」「同 UP 同标题不同 bvid」「空 bvid 丢弃」。
+  - **口径（有意的取舍）**：① 刷新走「游标步进」而不是给 `uniq_id` 加随机——后者要改请求体，且会让同一进程内的**翻页**也失去连续性；② 标题键只在「同 UP + 同标题」同时成立时才算重复，避免把不同 UP 的同名视频误杀；③ 步进上限 8 是为了不让刷一下就跳到很深的页（推荐接口深页质量明显下降）。
+  - **L0（26.11.21，HEAD `34083f1c` 的独立 worktree `outputs/worktrees/wt-fixfive`，只拷进本轮 8 个文件）**：`:app:assembleDebug :app:testStandardDebugUnitTest :app:testCoexistDebugUnitTest` → **BUILD SUCCESSFUL in 2m44s**，新增的 `RecommendPagePolicyTest` 16 例 0 失败。**为什么在 worktree 跑**：主工作区还有另一 lane（bilibili-margin 推荐召回／X 式重排那条）未提交的 WIP，`compileStandardDebugKotlin` 报 8 条 `Unresolved reference` 直接红，与本轮无关。
+  - **未验证（L2）**：真机上连刷几次观感是否真的换一批、标题判重会不会把「同 UP 同一视频换了封面」误杀——只能靠人看。
+- **26.11.21 反馈 #245：稍后再看页「清除已看完」在 42mm 表上折成两行、露出分段条的玻璃轨道——三格统一 `maxLines=1` + 自动缩字**：
+  - **来路**：控制台反馈 #245（OPPO Watch2 42mm）。用户附图描述：稍后再看页顶部分段条里只有「清除已看完」换行、下半截露在边框外。
+  - **根因**：`res/layout/activity_simple_refresh.xml` 三个格（`filterAll` / `filterUnfinished` / `clearWatched`）都是 `layout_width=0dp` + `layout_weight=1` + `minHeight=@dimen/segmented_bar_min` 的 `TextView`，**没有 `maxLines` / `singleLine`**，屏幕一窄文字就折行；而底色不是 TextView 自己的，是 `ui/appearance/SegmentedBarStyle.kt:63` `BAR_HEIGHT_DP = 32f`、`:404-414` 按 32dp 固定高度居中画的那块轨道——文字高到 32dp 以上就必然冒出轨道。
+  - **改法**：三格各加 `android:maxLines="1"` + `android:ellipsize="end"` + `app:autoSizeTextType="uniform"` / `autoSizeMaxTextSize=@dimen/text_body`(12sp) / `autoSizeMinTextSize=8sp` / `autoSizeStepGranularity=1sp`。**不改文案、不改轨道高度**（改高度会牵连所有用 `SegmentedBarStyle` 的分段条）；这套 autoSize 写法抄的是仓库既有惯例 `res/values/styles.xml:46-53` 的 `ButtonStyleBase`（注释写明 API 19 起由 appcompat 兼容实现，故不额外引库）。
+  - **L0**：随本轮 worktree 一起 `assembleDebug` + 两个 flavor 单测通过（布局改动由 `processStandardDebugResources` / `processCoexistDebugResources` 覆盖）。
+  - **未验证（L2）**：42mm 屏上缩到 8sp 后「清除已看完」是否还读得清、三格宽度是否仍均衡——只能靠人看。
+- **26.11.21 反馈 #261：直播发弹幕时锁定／更多那排按钮浮在输入卡片上面——把整组遮罩 `card_bg` 提到新版 overlay 之后**：
+  - **来路**：控制台反馈 #261（`26.11.18-beta.6`，直播场景）。用户原话：屏幕锁定按钮在输入框上面。
+  - **根因**：卡片本来就都挂在全屏遮罩 `R.id.card_bg` 下（`res/layout/activity_player.xml:579-584` 是 `#70000000` 的 `RelativeLayout`，`:619` 起的 `danmaku_send_card` 等都是它的子 View），而新版控制层的 overlay 是 `player/PlayerNewUiController.kt:360` 用 `root.addView(overlay, …)` 加进 `root_layout` 的**最后一个**子 View——层级上恒压在 `card_bg` 之上，锁定／更多那排按钮于是浮在卡片表面。旧界面没这个问题，因为它没有这层 overlay。
+  - **改法**：`activity/player/PlayerActivity.kt` 的 `initButtonSlots()` 里新版界面分支（`if (PLAYER_UI_NEW)` 内、`:1780` 附近）加一句 `layout_card_bg.bringToFront()`——把**整组**遮罩提到最上层，一次修好字幕／发弹幕／跳转／分P／清晰度／看点所有卡片；卡片可见期间那排按钮被遮罩压住，与旧界面行为一致。**没有**去改 `PlayerNewUiController` 的层级（那是另一 lane 正在改的文件），也没有逐卡片 `bringToFront()`（会漏掉后加的卡片）。
+  - **L0**：随本轮 worktree 一起通过 `assembleDebug` + 两个 flavor 单测。
+  - **未验证（L2）**：真机／模拟器上点开各张卡片时那排按钮是否确实被遮罩压住、关闭卡片后是否恢复——看画面才能判。
+- **26.11.21 反馈 #237：误点「检查更新」就出不去——开过「禁用返回键」时顶部返回与系统返回一起失灵；「已是最新」一闪就关页改成留在本页**：
+  - **来路**：控制台反馈 #237。用户原话：误点检查更新进得去出不来；追问后补充页顶返回按钮也没反应。
+  - **根因（两件叠在一起）**：① `activity/settings/UpdateActivity.kt:113` 顶部返回直接调 `onBackPressed()`，而 `:442-451` 的 `onBackPressed()` 在非强制更新时**转调 `super.onBackPressed()`**；用户在设置里开了「禁用返回键」（`util/SettingsKeys.kt` 的 `BACK_DISABLE`）后，`BaseActivity.kt:292-294` 的 `onBackPressed()` 直接把返回吞掉 ⇒ 两条路一起死，页面成死胡同。② 已是最新时走 `:239-251`：`MsgUtil.showMsg(...)` 一句话 + `finish()`，提示和关页同时发生，用户只看到闪一下，反而以为点错了。
+  - **改法**：`onBackPressed()` 里非强制更新一律 `finish()`（不再转调 `super`，强制更新仍走 `exitApp()`）；新增 `showLatestInfo()`——已是最新时**留在本页**，标题写「当前已是最新版（通道名）」（沿用 `text_update_latest_channel`），正文用 `UpdateHistoryActivity.parseVersions` 解析本机更新日志里**当前版本**那一段（与更新日志页同源，不另写解析规则），按钮从「下载」换成「知道了」→ `finish()`；取不到日志时兜底文案 `text_update_no_log`，新增文案 `text_update_no_log` / `btn_update_latest_close` 进 `values/strings.xml`。
+  - **L0**：随本轮 worktree 一起通过 `assembleDebug` + 两个 flavor 单测。
+  - **未验证（L2）**：手表小屏上「当前版本更新说明」那段排版是否可读、滚动是否顺手；「禁用返回键」开启状态下顶部返回的观感——只能靠人看。
+- **26.11.21 反馈 #222：华为表验签失败后安装包「消失」——不再删包，先另存 Download、存不成改名留证**：
+  - **来路**：控制台反馈 #222（`other`）。用户报告：华为表上更新包要 V2 签名，验签失败之后包就不见了，手里什么都没有。
+  - **根因**：`util/UpdateManager.kt:501-506` 验签不通过就 `result.delete()` 直接删缓存包——而「另存到 Download」那步（`ApkDownloadStore.saveToDownloads`）排在验签**之后**（`:508-523`），验签一失败根本走不到。华为表上验签失败往往不是包的问题（应用被系统／商店重签后「当前应用签名」与官方包天然对不上），于是用户既装不上、也留不下文件。
+  - **改法**：新增 `keepRejectedPackage(context, file, versionName)`——验签失败时先 `ApkDownloadStore.saveToDownloads(...)` 另存到系统 Download（成功就把缓存那份删掉），没存成（老系统没权限／MediaStore 拒收）就**改名**成 `bili_terminal_update_rejected.apk` 留证。两条路都保证缓存目录里**不再有** `APK_FILE_NAME`：否则断点续传按它的长度当「已下载字节数」，会把新内容接在错包后面产出一个永远装不上的文件。提示文案同时带原因与另存路径（新增 `text_update_verify_failed_kept`）；`cleanup` 里连 rejected 那份一起清。
+  - **口径**：不改成「验签失败也能装」——验签是防中间人篡改的安全阀（见 `docs/agents/security.md`），这里只保证**文件不丢**、用户能自己点开装。
+  - **L0**：随本轮 worktree 一起通过 `assembleDebug` + 两个 flavor 单测。
+  - **未验证（L1/L2）**：华为表真机上走一遍验签失败路径，确认 Download 里确实落下了包、提示里的路径可点开——需要设备与一次失败的下载，交给人测。
 - **26.11.20 反馈 #254：旧版分过文件夹的缓存「夹卡写着 N 个、点进去一条都没有」——夹名归属改成「记录优先、元数据兜底」并当场自愈**：
   - **来路**：控制台反馈 #254（`bug`，`version_code 26111816` / `26.11.18-beta.6`，OPPO OWW212，sdk 30）。用户原话：「旧版本分过文件夹的已缓存视频现在只剩文件夹了，在外面看还能看见文件夹里有几个视频，点进文件夹就是空的，在系统文件管理器里能看见视频」。追问后补充：「缓存里每一页都刷过了，自动刷新也开了，没用；文件管理器里 `folder_info` 也看了，文件夹数据存在里面、视频也没删，但缓存页的文件夹点进去就是没视频」。日志侧只有两条连不上 `rebitterminal` 域名的 `SocketTimeoutException`，与本条无关。
   - **根因（两份记录、一处判据）**：夹的成员同时存在两个地方——`.folders_info.json` 的 `videoTitles`（夹卡上的「N 个视频」由 `activity/video/local/LocalFolderListActivity.kt:260` 的 `countExistingTitles` 数它、夹页扫描白名单由 `LocalListActivity.kt:773` 的 `folderScanTitles` 读它）与每个视频目录里 `.video_meta.json` 的 `folderName`（夹内页的可见判据 `adapter/video/CacheListAdapter.kt:263` 只认它）。两边一旦分叉——老版本只在 json 里写过归属、夹名被改过、`FolderManager.renameFolder` / `addVideoToFolder` 走的 `VideoMetaManager.updateFolderName(videoDirName, …)` 是按「缓存根 / 标题」拼目录、目录名与标题对不上就**静默 return 什么都不写**（`:108` 实测）——就变成卡片有数字、点进去 0 条，底栏跟着整条收掉。仓库自己 11-15 那份 `docs/review/manual-test-guide-261115-cache-folder-multiselect.md:43` 已经写明这个根因与改法，只是没落地；本轮就是把它落地。
