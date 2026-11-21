@@ -15,11 +15,15 @@ import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.PerformanceManager
 import com.RobinNotBad.BiliClient.util.RecommendPagePolicy
 import com.RobinNotBad.BiliClient.util.RecommendPagePolicy.FIRST_PAGE
+import kotlin.random.Random
 
 //推荐页面
 //2023-07-13
 //26.11.06 批次 3（task-16）：补上分页游标（ps + fresh_idx），
 //否则「参数不变 → 服务端返回同一批」会让下拉加载更多变成重复追加。
+//26.11.21（反馈 #248）：下拉刷新不再把 fresh_idx 归 1——同一进程里 uniq_id 不变，
+//参数一样就返回同一批（实测 30/30 条 bvid 与顺序一致），刷新等于白刷。
+//改成把游标往后跳一段（RecommendPagePolicy.refreshPage）；同时按 bvid +（UP、标题）双重判重。
 //26.11.07：游标保留，但本页按**无底流**处理——不再判「到底」、不再置 bottom。
 //原因：26.11.06 的到底判据拿「过滤掉广告/番剧卡之后的可用条数」跟「请求页大小」比，
 //一页 20 条里只要有一张非 av 卡就判成到底；父类收到 bottom = true 后会弹
@@ -32,6 +36,9 @@ class RecommendActivity : RefreshMainActivity() {
     private var firstRefresh = true
     private var freshType = RecommendPagePolicy.DEFAULT_FRESH_TYPE
     private val loadedBvids = mutableSetOf<String>()
+
+    /** 「同 UP + 同标题」的二次判重键，见 [RecommendPagePolicy.titleKey]。 */
+    private val loadedTitles = mutableSetOf<String>()
 
     /** 下一页要请求的页码（对应接口的 fresh_idx）；下拉刷新时归 1。 */
     private var nextPage = FIRST_PAGE
@@ -72,8 +79,14 @@ class RecommendActivity : RefreshMainActivity() {
     // 原来的 @SuppressLint("NotifyDataSetChanged") 与两处 Log.e("debug") 都是残留，已清掉。
     private fun refreshRecommend() {
         freshType = RecommendPagePolicy.DEFAULT_FRESH_TYPE
-        nextPage = FIRST_PAGE
+        // 26.11.21（#248）：刷新要换一批，就不能退回第 1 页——接口对相同参数返回同一批，
+        // 刷新退回 1 等于把刚才那批再拿一遍。往后跳一段随机步数。
+        nextPage = RecommendPagePolicy.refreshPage(
+            nextPage,
+            Random.nextInt(1, RecommendPagePolicy.REFRESH_STEP_MAX + 1)
+        )
         loadedBvids.clear()
+        loadedTitles.clear()
         // 兜底：本页不判到底，但父类的 bottom 可能是上一版本/别处留下的
         bottom = false
         ++loadGeneration
@@ -110,7 +123,7 @@ class RecommendActivity : RefreshMainActivity() {
                     // 否则会永远卡在同一个 fresh_idx 上反复拿到同一批内容。
                     nextPage = RecommendPagePolicy.nextPage(requestPage)
                     // 按 bvid 去重：服务端偶尔会给回已出现过的卡片（翻页边界/推荐池重叠）
-                    val newItems = RecommendPagePolicy.filterNewCards(list, loadedBvids)
+                    val newItems = RecommendPagePolicy.filterNewCards(list, loadedBvids, loadedTitles)
                     if (newItems.isEmpty()) {
                         // 去重后没有新内容：这一页大概率是回绕到旧内容了。
                         // 26.11.07 起**不**把它当成「到底」——游标已经在上面前进过，

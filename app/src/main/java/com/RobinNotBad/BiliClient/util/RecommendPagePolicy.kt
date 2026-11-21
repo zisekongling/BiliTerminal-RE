@@ -69,6 +69,25 @@ object RecommendPagePolicy {
     fun nextPage(current: Int): Int = current.coerceAtLeast(FIRST_PAGE) + 1
 
     /**
+     * 下拉刷新时游标往后跳的最大步数。
+     *
+     * 26.11.21（反馈 #248「登录了推荐还是很多重复」）：接口对「参数完全相同的两次请求」返回同一批
+     * （26.11.06 实测：连打两次 30/30 条、bvid 交集 30、顺序一致），而进程内的 uniq_id 又是固定的，
+     * 所以刷新如果照旧把 `fresh_idx` 归 1，拿回来的就是刚才那一批——用户看到的就是「刷了还是这些」。
+     * 把游标往后推才是真正换一批（深翻没有空页信号，见类注释）。
+     */
+    const val REFRESH_STEP_MAX: Int = 8
+
+    /**
+     * 刷新后的起始页：在当前页之后跳 [step] 页，[step] 夹在 1..[REFRESH_STEP_MAX]。
+     *
+     * 负数/0 也按 1 步算：刷新**必须**换一批，不能退回原页。
+     */
+    @JvmStatic
+    fun refreshPage(current: Int, step: Int): Int =
+        current.coerceAtLeast(FIRST_PAGE) + step.coerceIn(1, REFRESH_STEP_MAX)
+
+    /**
      * 按 bvid 去重：保留 [seen] 里没有的卡片，并把它们登记进 [seen]。
      *
      * 空 bvid 直接丢弃（广告卡没有 bvid，不能进列表也不该占位）。
@@ -81,6 +100,50 @@ object RecommendPagePolicy {
             val bvid: String = card.bvid ?: ""
             if (bvid.isEmpty()) continue
             if (seen.add(bvid)) fresh.add(card)
+        }
+        return fresh
+    }
+
+    /**
+     * 「同 UP + 同标题」的二次判重键（反馈 #248）。
+     *
+     * bvid 只能挡住「同一条视频被服务端重复下发」；同一个 UP 把同一条内容重投（换 bvid）、
+     * 或者推荐池里换了稿件号再推一次，bvid 全不一样，用户看到的就是「又是这个视频」。
+     *
+     * UP 未知（`owner.mid` 缺失 → [VideoCard.upMid] = 0）时返回 null：不同 UP 撞同名视频太常见，
+     * 拿标题当全局键会把不相干的内容也滤掉。
+     */
+    @JvmStatic
+    fun titleKey(card: VideoCard?): String? {
+        if (card == null) return null
+        if (card.upMid <= 0L) return null
+        val title: String = card.title?.trim() ?: ""
+        if (title.isEmpty()) return null
+        return card.upMid.toString() + "|" + title
+    }
+
+    /**
+     * bvid + (UP, 标题) 双重判重：两个集合都会登记命中的卡片。
+     *
+     * 顺序与 [filterNewCards] 的单键版一致，两个集合都由调用方持有（刷新换批时自行 clear）。
+     */
+    @JvmStatic
+    fun filterNewCards(
+        cards: List<VideoCard>?,
+        seen: MutableSet<String>,
+        seenTitles: MutableSet<String>
+    ): List<VideoCard> {
+        if (cards.isNullOrEmpty()) return emptyList()
+        val fresh = ArrayList<VideoCard>(cards.size)
+        for (card in cards) {
+            val bvid: String = card.bvid ?: ""
+            if (bvid.isEmpty()) continue
+            if (bvid in seen) continue
+            val key = titleKey(card)
+            if (key != null && key in seenTitles) continue
+            seen.add(bvid)
+            if (key != null) seenTitles.add(key)
+            fresh.add(card)
         }
         return fresh
     }

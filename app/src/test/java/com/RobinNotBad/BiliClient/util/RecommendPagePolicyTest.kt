@@ -20,6 +20,12 @@ class RecommendPagePolicyTest {
 
     private fun card(bvid: String): VideoCard = VideoCard().apply { this.bvid = bvid }
 
+    private fun video(bvid: String, upMid: Long, title: String): VideoCard = VideoCard().apply {
+        this.bvid = bvid
+        this.upMid = upMid
+        this.title = title
+    }
+
     // ---- 参数构造与夹取 ----
 
     @Test
@@ -83,6 +89,74 @@ class RecommendPagePolicyTest {
         val fresh = RecommendPagePolicy.filterNewCards(listOf(card(""), card("BV9")), seen)
         assertEquals("空 bvid 不算卡片", listOf("BV9"), fresh.map { it.bvid })
         assertFalse("空 bvid 不登记", seen.contains(""))
+    }
+
+    // ---- 下拉刷新换页（反馈 #248） ----
+
+    @Test
+    fun refreshPage_jumpsForwardAndClampsStep() {
+        assertEquals("步进 1", 2, RecommendPagePolicy.refreshPage(1, 1))
+        assertEquals("超过上限按上限", 1 + RecommendPagePolicy.REFRESH_STEP_MAX, RecommendPagePolicy.refreshPage(1, 999))
+        assertEquals("0 步按 1 步算（刷新必须换一批）", 2, RecommendPagePolicy.refreshPage(1, 0))
+        assertEquals("负数同样按 1 步", 2, RecommendPagePolicy.refreshPage(1, -5))
+        assertEquals("非法页码按第 1 页算", 2, RecommendPagePolicy.refreshPage(0, 1))
+    }
+
+    @Test
+    fun refreshPage_neverStaysOnTheSamePage() {
+        for (step in -5..20) {
+            assertTrue(
+                "刷新后必须离开当前页（step=$step）",
+                RecommendPagePolicy.refreshPage(7, step) > 7
+            )
+        }
+    }
+
+    // ---- 同 UP + 同标题二次判重（反馈 #248） ----
+
+    @Test
+    fun filterNewCards_dropsSameTitleReuploadFromSameUp() {
+        val seen = mutableSetOf<String>()
+        val titles = mutableSetOf<String>()
+        RecommendPagePolicy.filterNewCards(listOf(video("BV1", 42L, "某视频")), seen, titles)
+        val second = RecommendPagePolicy.filterNewCards(listOf(video("BV2", 42L, "某视频")), seen, titles)
+        assertTrue("同一 UP 重投同标题，bvid 不同也算重复", second.isEmpty())
+        assertEquals("第一条进过 seen", setOf("BV1"), seen)
+    }
+
+    @Test
+    fun filterNewCards_keepsSameTitleFromDifferentUp() {
+        val seen = mutableSetOf<String>()
+        val titles = mutableSetOf<String>()
+        RecommendPagePolicy.filterNewCards(listOf(video("BV1", 42L, "某视频")), seen, titles)
+        val second = RecommendPagePolicy.filterNewCards(listOf(video("BV2", 7L, "某视频")), seen, titles)
+        assertEquals("不同 UP 撞标题不判重", listOf("BV2"), second.map { it.bvid })
+    }
+
+    @Test
+    fun filterNewCards_skipsTitleKeyWhenUpUnknown() {
+        val seen = mutableSetOf<String>()
+        val titles = mutableSetOf<String>()
+        RecommendPagePolicy.filterNewCards(listOf(video("BV1", 0L, "某视频")), seen, titles)
+        val second = RecommendPagePolicy.filterNewCards(listOf(video("BV2", 0L, "某视频")), seen, titles)
+        assertEquals("UP 未知时不按标题判重", listOf("BV2"), second.map { it.bvid })
+        assertTrue("没有登记任何标题键", titles.isEmpty())
+    }
+
+    @Test
+    fun filterNewCards_stillDedupesByBvidWithTitleKeys() {
+        val seen = mutableSetOf<String>()
+        val titles = mutableSetOf<String>()
+        RecommendPagePolicy.filterNewCards(listOf(video("BV1", 42L, "A")), seen, titles)
+        val second = RecommendPagePolicy.filterNewCards(listOf(video("BV1", 8L, "B")), seen, titles)
+        assertTrue("同 bvid 换了标题也还是同一条", second.isEmpty())
+    }
+
+    @Test
+    fun titleKey_ignoresBlankTitle() {
+        assertEquals("标题为空不生成键", null, RecommendPagePolicy.titleKey(video("BV1", 42L, "   ")))
+        assertEquals("UP 为 0 不生成键", null, RecommendPagePolicy.titleKey(video("BV1", 0L, "x")))
+        assertEquals("键是 mid|标题", "42|x", RecommendPagePolicy.titleKey(video("BV1", 42L, " x ")))
     }
 
     @Test
