@@ -18,6 +18,17 @@
 
 ## 1. 当前版本状态
 
+- **26.11.21 控制台反馈 #266「长按已关注 → 特别关注」+ #264「搜索彩蛋反复弹」**：
+  - **来路**：控制台两条新反馈（都是 26.11.21 当天）。#266（hesc sl8541e_1h10 / 26.11.09）「那个长按关注分组能不能加个特别关注啊」；#264（samsung wiseul / 26.11.16，category 选了 suggestion、实为 bug）「在搜索时触发彩蛋后退去会留在搜索界面，再点搜索又会弹出彩蛋，陷入循环了」。三项口径由用户拍板（AAB）：入口 = 长按「已关注」的「加入分组」菜单顶部加一项；**只做加入、不做取消**；#264 = 命中彩蛋就清空输入框。
+  - **根因**：① #266 —— `adapter/dynamic/UserDynamicAdapter.kt` 的 `showFollowGroupPicker` 刻意只列 `tagid > 0` 的自建分组（注释明写「默认分组与特别关注不是「加入分组」的语义」），特别关注（`tagid = -10`）因此没有任何入口；② #264 —— `activity/search/SearchActivity.kt` 的 `searchKeyword` 命中彩蛋后只 `MsgUtil.showText` 就 `return`，输入框里那个词还留着（`lastKeyword` 也不动），彩蛋页返回后每次点搜索都命中同一个词。
+  - **改法（改 3 / 新增 1 测）**：
+    - 改 `api/FollowApi.java`：新增 `TAG_SPECIAL_FOLLOW = -10`、纯数据类 `JoinGroupEntry{tagid, create, name, label}`、纯函数 `buildJoinGroupMenu(tags, joinedIds, specialLabel, joinedFormat, createLabel)`（顺序固定「特别关注 → 自建分组 → 新建分组」，只收 `tagid > 0` 的自建分组）与 `joinGroupLabel(name, joined, joinedFormat)`（格式串为空时退化成拼「（已加入）」）。`addFollowTagUsers` 的 `@param tagids` 同步写明可用 `-10`。
+    - 改 `adapter/dynamic/UserDynamicAdapter.kt`：`showFollowGroupMenu` 改成用 `buildJoinGroupMenu` 组装菜单，点击按下标取 `JoinGroupEntry`，`create` 项走新建分组、`tagid in joined` 只提示、其余调 `joinFollowGroupNow`（不为特别关注新增请求：是否已加入由 `getUserFollowTags` 顺带给出的 `-10` 判定）。
+    - 改 `activity/search/SearchActivity.kt`：新增 `showSearchEgg(content)`——先 `clearFocus` 再 `setText("")`（顺序有意：`afterTextChanged` 里「空关键词 + 有焦点」会弹历史面板）、作废未返回的建议请求、`hideDropdowns`，然后才 `showText`；四处彩蛋分支统一走它，用户下一次点搜索走的是「还没输入内容喵~」那条正常路径。
+    - 新增 `app/src/test/java/com/RobinNotBad/BiliClient/api/FollowApiJoinGroupMenuTest.kt`（**15 例**）：菜单顺序、自建分组保持接口顺序、非正数 id 过滤（`-10` 只出现一次）、`tags == null` 只剩两项、下标 → tagid 映射（防止点「特别关注」加进别的分组）、`create` 项、已加入文案、格式串空退化、分组名 null 不崩。
+  - **口径（有意的取舍）**：① 第一版**只做加入**：取消特别关注要走 `moveUsers(-10 → 0)`，它会不会连带清掉自建分组归属没验证，不做；② 菜单标题仍是「加入分组」，特别关注只是菜单里的一项（不新开入口、不加二级页面）；③ 加入特别关注后**不**就地改 `userInfo.specialFollow`——该 adapter（用户资料头部）不显示特别关注徽章，徽章在 `UserListAdapter` / `FollowGroupAdapter` 里，下次进列表自然是最新的；④ 清空输入框时**不**写 `lastKeyword`：那个词没被真正搜索，不该进「同词再点不重复请求」的比较。
+  - **L0（26.11.21 本机）**：`./gradlew.bat :app:testStandardDebugUnitTest :app:assembleDebug --console=plain` 首轮 3186 例 1 失败，失败是**新测试自己写错**（断言 `-10` 出现 2 次，实为 1 次），改正后 `:app:testStandardDebugUnitTest` → BUILD SUCCESSFUL in 11s；`:app:testCoexistDebugUnitTest :app:assembleDebug` → BUILD SUCCESSFUL in 11s（134 tasks）。编译只留既有告警（`SearchActivity.kt:109` Handler 弃用）。
+  - **未验证（L2 / 待人工）**：① 真机长按「已关注」看菜单首项是否「特别关注」、已在特别关注时是否显示「（已加入）」；② 点「特别关注」后提示「已加入「特别关注」」，以及关注列表的分组模式里这个人是否真的进了特别关注（服务端 `tagids=-10` 的实际效果只有真机能确认）；③ 搜索彩蛋页返回后输入框是否为空、再点搜索是否不再循环；④ 方屏与圆屏下这个菜单的行高 / 可读性（菜单项多了一行）。
 - **26.11.21 圆屏适配下评论区操作行整体居中（用户点名：视频评论区 + 楼中楼详情页）**：
   - **来路**：用户要求「圆屏适配开启后，将评论区的点赞点踩回复按钮居中显示」。两个口径由用户拍板：① 整行（赞数 / 点踩 / 翻译 / 删除 / 回复）**合成一组整体水平居中**，不是「点赞簇居中 + 回复往内收」；② 视频评论区与楼中楼详情页**都改**。
   - **根因/缺口**：`res/layout/cell_reply_list.xml` 的操作行原本是「赞数 start 贴 parent、回复 end 贴 parent」的两端排布。圆屏适配（`RoundInsets.compute` + `paddingH_percent=5` / `paddingV_percent=3`）只把**矩形内容区**收进去，圆屏的弧线切的却是这块矩形的四角——于是左右两端正好压线：赞数被切掉一截、回复的半个字看不见。
