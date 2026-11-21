@@ -1,0 +1,398 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    短视频新版界面（设计稿 design/short-video-redesign.html）。
+
+    两条硬约束，改动前务必看清：
+
+    1. 根节点的 id 必须是 shortVideoRoot，**不能是 videoContainer**。
+       PageHolder.initPlayer() 会 `videoContainer.removeAllViews()` 再塞一个 TextureView；
+       若 videoContainer 就是根本身，这一步会把弹幕、封面、播放键全清掉，
+       紧接着 `findViewById(R.id.danmakuView)!!` 拿到 null 抛 NPE（曾导致「播放初始化失败」）。
+
+    2. 这里的尺寸只是**初始值**。真正的落点由 ShortVideoLayoutSpec 在运行时按屏幕算出来
+       （右侧动作条贴边居中、底部信息距底锚定、顶部一行距顶），所以不要往
+       layout_* 里写任何"看起来刚好"的魔法数字——那些数字只在 240×280 上成立。
+
+    结构（自上而下）：
+      画面层      videoContainer / coverImage / danmakuView / 压暗渐变
+      常驻层      top(返回/时钟/⋯) · action(简介/评论/收藏) · bottom(UP行/标题/播放量/进度)
+      中心键      playCenter（仅暂停时显示）
+      面板层      panelScrim → panel(贴底，内部由代码填内容)
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/shortVideoRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/black">
+
+    <!-- 画面：TextureView 由代码 addView 进来，这里只留容器 -->
+    <FrameLayout
+        android:id="@+id/videoContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <ImageView
+        android:id="@+id/coverImage"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:importantForAccessibility="no"
+        android:scaleType="centerCrop" />
+
+    <master.flame.danmaku.ui.widget.DanmakuView
+        android:id="@+id/danmakuView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- 上/下压暗渐变：只在常驻层显示时可见，高度由代码按规格设置 -->
+    <View
+        android:id="@+id/shortNewTopScrim"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:background="@drawable/short_video_scrim_top"
+        android:importantForAccessibility="no" />
+
+    <View
+        android:id="@+id/shortNewBottomScrim"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_gravity="bottom"
+        android:background="@drawable/short_video_scrim_bottom"
+        android:importantForAccessibility="no" />
+
+    <ProgressBar
+        android:id="@+id/bufferingIndicator"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_gravity="center"
+        android:visibility="gone" />
+
+    <!-- 常驻层：显隐由 ShortVideoNewUi 统一控制 -->
+    <FrameLayout
+        android:id="@+id/shortNewControls"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <!--
+            顶部容器保留 id=top：PageHolder 用它做圆屏留白（applyRoundInsets）
+            与双击顶栏伪装，这两处按 id 取，改名会静默失效。
+        -->
+        <FrameLayout
+            android:id="@+id/top"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <!-- 顶层三个热区：绝对定位由代码设置 margin -->
+            <ImageView
+                android:id="@+id/shortNewBack"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@null"
+                android:importantForAccessibility="no"
+                android:padding="8dp"
+                app:srcCompat="@drawable/ic_sv_back" />
+
+            <TextView
+                android:id="@+id/shortNewClock"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#F0E8EC"
+                android:textSize="11sp" />
+
+            <ImageView
+                android:id="@+id/shortNewMore"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@null"
+                android:importantForAccessibility="no"
+                android:padding="8dp"
+                app:srcCompat="@drawable/ic_sv_more" />
+        </FrameLayout>
+        <!--
+            右侧动作条：简介 / 评论 / 收藏。铺满常驻层的定位层，三格由代码逐个摆位：
+            方屏竖直一列（x 贴右、y=110/154/198 比例），圆屏走极坐标
+            （r=shortSide/2*0.77，27°/0°/-27°）——圆屏三格不在同一竖直线上，
+            所以不能用 LinearLayout 整条排，必须逐格绝对定位。
+        -->
+        <FrameLayout
+            android:id="@+id/shortNewRight"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <LinearLayout
+                android:id="@+id/shortNewDescription"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <ImageView
+                    android:id="@+id/shortNewDescriptionIcon"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:contentDescription="@null"
+                    android:importantForAccessibility="no"
+                    app:srcCompat="@drawable/ic_sv_info" />
+
+                <TextView
+                    android:id="@+id/shortNewDescriptionCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:maxLines="1"
+                    android:textColor="#F0E8EC"
+                    android:textSize="9sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/shortNewComments"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <ImageView
+                    android:id="@+id/shortNewCommentsIcon"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:contentDescription="@null"
+                    android:importantForAccessibility="no"
+                    app:srcCompat="@drawable/ic_sv_cmt" />
+
+                <TextView
+                    android:id="@+id/shortNewCommentsCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:maxLines="1"
+                    android:textColor="#F0E8EC"
+                    android:textSize="9sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/shortNewFavourite"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <ImageView
+                    android:id="@+id/shortNewFavouriteIcon"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:contentDescription="@null"
+                    android:importantForAccessibility="no"
+                    app:srcCompat="@drawable/ic_sv_star" />
+
+                <TextView
+                    android:id="@+id/shortNewFavouriteCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:maxLines="1"
+                    android:textColor="#F0E8EC"
+                    android:textSize="9sp" />
+            </LinearLayout>
+        </FrameLayout>
+
+        <!--
+            底部四行：UP 行 / 标题 / 播放量 / 进度条。
+            **各自绝对定位**（由 ShortVideoLayoutSpec 按距底锚定算 y），
+            不再放进 LinearLayout 用固定间距堆叠——那样实际位置由内容高度决定，
+            与设计稿标注的 y=212/228/246/266 对不上，换屏后偏差更大。
+        -->
+        <LinearLayout
+            android:id="@+id/shortNewAuthorRow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/shortNewAvatar"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:background="@drawable/short_video_avatar_ring"
+                android:contentDescription="@null"
+                android:importantForAccessibility="no"
+                android:padding="1dp"
+                app:srcCompat="@mipmap/placeholder" />
+
+            <TextView
+                android:id="@+id/shortNewAuthor"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#F0E8EC"
+                android:textSize="11sp" />
+
+            <!-- 「只看 TA」chip 的 ✕：普通 UP 行里隐藏，尺寸/间距由 ShortVideoNewUi 按规格重设。
+                 整行可点退出，✕ 本身按装饰图处理（无障碍走整行） -->
+            <ImageView
+                android:id="@+id/shortNewAuthorClose"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginStart="5dp"
+                android:contentDescription="@null"
+                android:importantForAccessibility="no"
+                android:padding="3dp"
+                android:visibility="gone"
+                app:srcCompat="@drawable/ic_sv_x" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/text_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="#F0E8EC"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/shortNewViews"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:textColor="#B0A0AA"
+            android:textSize="10sp" />
+
+        <SeekBar
+            android:id="@+id/videoprogress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="2dp" />
+    </FrameLayout>
+
+    <!-- 中心播放键：只在暂停时显示（设计稿要求「中心键仅暂停」） -->
+    <ImageView
+        android:id="@+id/playIcon"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:layout_gravity="center"
+        android:background="@drawable/short_video_center_button_bg"
+        android:contentDescription="@null"
+        android:importantForAccessibility="no"
+        android:padding="16dp"
+        android:visibility="gone"
+        app:srcCompat="@drawable/btn_player_play" />
+
+    <!--
+        「更多」：设计稿是**整屏压暗 84% + 3×3 网格**，不是底部弹层
+        （见 design/short-video-redesign.html 的 moreBody）。这里单独一层，
+        打开时只留网格，常驻层整层不画。
+    -->
+    <FrameLayout
+        android:id="@+id/shortNewMoreLayer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <View
+            android:id="@+id/shortNewMoreDim"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#D6000000" />
+
+        <TextView
+            android:id="@+id/shortNewMoreTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#F0E8EC"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <ImageView
+            android:id="@+id/shortNewMoreClose"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@null"
+            android:importantForAccessibility="no"
+            android:padding="8dp"
+            app:srcCompat="@drawable/ic_sv_more" />
+
+        <LinearLayout
+            android:id="@+id/shortNewMoreGrid"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+        <TextView
+            android:id="@+id/shortNewMoreFoot"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:textColor="#99FFFFFF"
+            android:textSize="9sp" />
+    </FrameLayout>
+
+    <!-- 面板层：贴底，内容由代码填充 -->
+    <FrameLayout
+        android:id="@+id/shortNewPanelScrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/shortNewPanel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:background="@drawable/short_video_panel_bg"
+            android:orientation="vertical"
+            android:paddingHorizontal="14dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="14dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:id="@+id/shortNewPanelClose"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@null"
+                    android:importantForAccessibility="no"
+                    android:padding="6dp"
+                    app:srcCompat="@drawable/arrow_back_overlay" />
+
+                <TextView
+                    android:id="@+id/shortNewPanelTitle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:layout_weight="1"
+                    android:textColor="#F0E8EC"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <ScrollView
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_marginTop="4dp"
+                android:layout_weight="1"
+                android:fillViewport="true">
+
+                <LinearLayout
+                    android:id="@+id/shortNewPanelContent"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+            </ScrollView>
+        </LinearLayout>
+    </FrameLayout>
+</FrameLayout>

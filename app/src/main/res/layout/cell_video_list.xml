@@ -15,7 +15,9 @@
 
         <!-- 封面行改成 ConstraintLayout：原实现把 app:layout_constraintDimensionRatio 写在 LinearLayout 里，
              完全失效，行高因此由每张图自己的比例决定 —— 列表滚动时高度持续抖动（CLS）。
-             现在封面固定 48% 宽 + 16:9，标题区吃剩余宽度。 -->
+             现在封面固定 42% 宽 + 16:9，标题区吃剩余宽度。
+             26.11.17 由 48% 收到 42%、标题降到 text_caption：手表上封面偏大、标题一行只放得下几个字
+             （用户反馈 #208「推荐页封面和字体有点太大了，标题显示字数太少」）。 -->
         <androidx.constraintlayout.widget.ConstraintLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -23,7 +25,9 @@
             android:layout_marginBottom="4dp">
 
             <ImageView
+                android:contentDescription="@null"
                 android:id="@+id/img_cover"
+                android:importantForAccessibility="no"
                 android:layout_width="0dp"
                 android:layout_height="0dp"
                 android:scaleType="centerCrop"
@@ -32,7 +36,7 @@
                 app:layout_constraintDimensionRatio="16:9"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toTopOf="parent"
-                app:layout_constraintWidth_percent="0.48" />
+                app:layout_constraintWidth_percent="0.42" />
 
             <TextView
                 android:id="@+id/text_title"
@@ -42,7 +46,7 @@
                 android:ellipsize="end"
                 android:maxLines="2"
                 android:text="@string/text_cellsettingtitle_01"
-                android:textSize="@dimen/text_body"
+                android:textSize="@dimen/text_caption"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toEndOf="@id/img_cover"
@@ -61,7 +65,7 @@
                 android:id="@+id/text_viewcount"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:drawableStart="@drawable/icon_play_12"
+                app:drawableStartCompat="@drawable/icon_play_12"
                 android:singleLine="true"
                 android:text="@string/text_cellvideolist_01"
                 android:textSize="@dimen/text_caption" />
@@ -71,7 +75,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="4dp"
-                android:drawableStart="@drawable/icon_person"
+                app:drawableStartCompat="@drawable/icon_person"
                 android:singleLine="true"
                 android:text="@string/text_celluplist_01"
                 android:textSize="@dimen/text_caption" />

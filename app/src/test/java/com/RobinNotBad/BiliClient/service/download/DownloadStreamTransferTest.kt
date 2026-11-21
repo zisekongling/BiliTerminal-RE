@@ -214,6 +214,36 @@ class DownloadStreamTransferTest {
                 { true }, { true }) { _, _ -> }.code)
     }
 
+    @Test
+    fun 续传时累计字节含断点之前的量() {
+        // 前 5 字节已经在磁盘上，这次只从第 6 字节往后写 5 字节
+        val output = ByteArrayOutputStream()
+        var reported = 0L
+        val result = DownloadStreamTransfer.copy(ByteArrayInputStream(ByteArray(5)), output, 10L,
+            { true }, { false }, startBytes = 5L, onBytesWritten = { total, _ -> reported = total })
+        assertEquals(DownloadPathSpec.NORMAL, result.code)
+        assertEquals(10L, result.downloadedBytes)
+        assertEquals(10L, reported)
+        assertEquals(5, output.size())
+    }
+
+    @Test
+    fun 续传后仍少字节要判网络错误() {
+        val result = DownloadStreamTransfer.copy(ByteArrayInputStream(ByteArray(3)), ByteArrayOutputStream(), 10L,
+            { true }, { false }, startBytes = 5L, onBytesWritten = { _, _ -> })
+        assertEquals(DownloadPathSpec.ERR_NETWORK, result.code)
+        assertEquals(8L, result.downloadedBytes)
+    }
+
+    @Test
+    fun 续传时服务器多给字节也不能写坏文件() {
+        val output = ByteArrayOutputStream()
+        val result = DownloadStreamTransfer.copy(ByteArrayInputStream(ByteArray(6)), output, 10L,
+            { true }, { false }, startBytes = 5L, onBytesWritten = { _, _ -> })
+        assertEquals(DownloadPathSpec.ERR_NETWORK, result.code)
+        assertEquals(0, output.size())
+    }
+
     private fun copy(input: InputStream, expected: Long): DownloadStreamTransfer.Result =
         DownloadStreamTransfer.copy(input, ByteArrayOutputStream(), expected,
             { true }, { false }) { _, _ -> }

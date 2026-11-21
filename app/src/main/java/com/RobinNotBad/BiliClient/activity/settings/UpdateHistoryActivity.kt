@@ -9,6 +9,7 @@ import android.widget.TextView
 import com.RobinNotBad.BiliClient.BuildConfig
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
+import com.RobinNotBad.BiliClient.ui.appearance.SegmentedBarStyle
 import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.google.android.material.tabs.TabLayout
 
@@ -114,8 +115,10 @@ class UpdateHistoryActivity : BaseActivity() {
                 context.resources.getStringArray(R.array.update_log_current),
                 context.resources.getStringArray(R.array.update_history_log)
             )
-            // beta 包的 versionName 形如「26.09.24-BETA1」，比对前先砍掉后缀
-            val current = BuildConfig.VERSION_NAME.substringBefore('-')
+            // 更新日志的锚点只有日期（三通道共用同一份当日日志，见 docs/version-channels.md §3），
+            // 所以比对要用 VERSION_NAME_BASE 而不是砍后缀：`26.11.08-beta.1` 要砍，`26.11.08.1`
+            // 这种同日重发的稳定版后缀也要砍，`substringBefore('-')` 只处理得了前者。
+            val current = BuildConfig.VERSION_NAME_BASE
             val index = versions.indexOfFirst { it.version == current }
             return if (index >= 0) index else 0
         }
@@ -141,6 +144,9 @@ class UpdateHistoryActivity : BaseActivity() {
             for (entry in versions) {
                 tabs.addTab(tabs.newTab().setText(entry.version))
             }
+            // 版本页签：玻璃轨道 + 选中格子的主色胶囊（设计稿 E 方案）。
+            // 必须在 addTab 之后调用，否则 tabCount 还是 0，一格胶囊都画不出来。
+            SegmentedBarStyle.styleTabs(tabs)
 
             if (versions.isEmpty()) {
                 // 数组为空时不加监听器，直接给兜底文案
@@ -186,7 +192,7 @@ class UpdateHistoryActivity : BaseActivity() {
         // 版本标题
         container.addView(
             TextView(this).apply {
-                text = "Re：哔哩终端 " + entry.version
+                text = "RE：哔哩终端 " + entry.version
                 textSize = 14f
                 setTypeface(typeface, Typeface.BOLD)
                 setPadding(0, ToolsUtil.dp2px(8f), 0, ToolsUtil.dp2px(2f))

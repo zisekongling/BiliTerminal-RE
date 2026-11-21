@@ -10,6 +10,7 @@ import android.widget.EditText
 import android.widget.TextView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
+import com.RobinNotBad.BiliClient.util.view.TextButtonColors
 import com.google.android.material.button.MaterialButton
 
 class InputDialogActivity : BaseActivity() {
@@ -68,6 +69,12 @@ class InputDialogActivity : BaseActivity() {
             setResult(RESULT_CANCELED)
             finish()
         }
+
+        // 老框架（API 21/22）解析不了 TextButton 状态列表里的 ?attr，会退成框架哨兵红
+        TextButtonColors.apply(
+            findViewById(R.id.btn_confirm),
+            findViewById(R.id.btn_cancel)
+        )
     }
 
     override fun onBackPressed() {

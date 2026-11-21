@@ -2,15 +2,21 @@ package com.RobinNotBad.BiliClient.activity.video.local
 
 import com.RobinNotBad.BiliClient.util.UiText
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.widget.TextViewCompat
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.InputDialogActivity
 import com.RobinNotBad.BiliClient.activity.ListDialogActivity
@@ -19,26 +25,134 @@ import com.RobinNotBad.BiliClient.activity.video.info.VideoInfoActivity
 import com.RobinNotBad.BiliClient.activity.base.InstanceActivity
 import com.RobinNotBad.BiliClient.adapter.video.CacheListAdapter
 import com.RobinNotBad.BiliClient.api.PlayerApi
+import com.RobinNotBad.BiliClient.model.LocalPlaylistEntry
 import com.RobinNotBad.BiliClient.model.LocalVideo
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.VideoMeta
 import com.RobinNotBad.BiliClient.model.VideoFolder
 import com.RobinNotBad.BiliClient.service.download.DownloadPathSpec
+import com.RobinNotBad.BiliClient.util.CacheAudioRepair
+import com.RobinNotBad.BiliClient.util.CacheChangeSignal
+import com.RobinNotBad.BiliClient.util.CacheDeletePlan
+import com.RobinNotBad.BiliClient.util.CacheFolderResolver
 import com.RobinNotBad.BiliClient.util.CacheListOrderStore
+import com.RobinNotBad.BiliClient.util.CacheMediaPolicy
+import com.RobinNotBad.BiliClient.util.CacheMigrator
+import com.RobinNotBad.BiliClient.util.CachePageSources
 import com.RobinNotBad.BiliClient.util.CachePathResolver
+import com.RobinNotBad.BiliClient.util.CacheTreeSignature
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.DanmakuFileFetcher
+import com.RobinNotBad.BiliClient.util.ExternalCacheRoots
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.FolderManager
+import com.RobinNotBad.BiliClient.util.FolderPagePrefs
 import com.RobinNotBad.BiliClient.util.LocalListSort
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import com.RobinNotBad.BiliClient.util.PageOrderStore
+import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.VideoMetaManager
 import com.RobinNotBad.BiliClient.util.VirtualCollectionStart
+import com.RobinNotBad.BiliClient.util.view.ScrollRetractDecider
 import java.io.File
+import java.lang.ref.WeakReference
 
-class LocalListActivity : InstanceActivity() {
+/**
+ * 「缓存页自动刷新」关着时复用的一份扫描结果（反馈 #211）。
+ *
+ * 存的是**扫描产物**而不是 UI 状态：两个列表各是拷出来的 ArrayList，灌回
+ * [LocalListActivity.folderList]/[LocalListActivity.videoList] 时整份替换，所以快照与当前列表
+ * 不会互相牵连（适配器侧 [com.RobinNotBad.BiliClient.adapter.video.CacheListAdapter.setData] 也只是
+ * 存引用 + rebuildFlatList，见 CacheListAdapter.kt:179-185）。
+ */
+private class ScanSnapshot(
+    /**
+     * 扫描时用的缓存根路径。
+     *
+     * 不能恢复成「当前 getVideoDownloadPath()」：用户可能已经改过缓存路径，而删除是按条目来自哪个根
+     * 拼路径的（见 [LocalListActivity.rootAtLoad] 的说明，反馈 #58），用新根拼就会去删不存在的路径。
+     */
+    val rootPath: String,
+    /** 这份快照属于哪个文件夹页（顶层缓存页是空串）。 */
+    val folderPageName: String,
+    /** 扫描之前算的指纹（[CacheTreeSignature.of]），进页面时重算一次与它比。 */
+    val signature: Long,
+    /**
+     * 扫描时的 [com.RobinNotBad.BiliClient.util.CacheChangeSignal] 版本。
+     *
+     * 恢复快照后仍要记回 [LocalListActivity.cacheVersionAtLoad]：快照只代表「扫那次」的磁盘，之后
+     * 别处删过缓存（详情页长按清缓存）时，靠 [com.RobinNotBad.BiliClient.util.CacheChangeSignal] 的版本号
+     * 让 onResume 补一次重扫，而不是相信快照（反馈 #162）。
+     */
+    val cacheVersion: Long,
+    val folders: List<VideoFolder>,
+    val videos: List<LocalVideo>
+)
+
+open class LocalListActivity : InstanceActivity() {
+
+    companion object {
+        /**
+         * 当前存活的缓存顶层页。
+         *
+         * [InstanceActivity] 记的「最近创建的实例」会被文件夹页顶掉，而文件夹页一关就销毁了；
+         * 不还回去的话 `BiliTerminal.getInstanceActivityOnTop()` 会指向一个已销毁的页面——
+         * 长按顶栏切栏目时就不会再顺手关掉缓存页（旧主页留在返回栈里），下载完成也刷不到它。
+         * 所以文件夹页销毁时把「最近实例」还给下面这层缓存页。
+         */
+        private var cachePageRef: WeakReference<LocalListActivity>? = null
+
+        /** 底部条收放动画时长（毫秒）。与顶部工具条同款：手表屏小，收放要快，拖久了像卡顿。 */
+        private const val BAR_ANIM_MS = 180L
+
+        /**
+         * 「缓存页自动刷新」关着时最多留几份扫描结果（反馈 #211）。
+         *
+         * 键是「缓存根路径 + 文件夹页名」，顶层缓存页与每个文件夹页各一份，互不覆盖；上限只是别让
+         * 换过几次缓存路径、翻过很多夹的机器把旧结果一直攥在内存里——反正指纹对不上就会重扫，留着也没用。
+         */
+        private const val SNAPSHOT_LIMIT = 4
+
+        /**
+         * 见 [SNAPSHOT_LIMIT]。
+         *
+         * 淘汰不用 removeEldestEntry 覆写：Kotlin 里覆写 java.util 的 protected 方法签名有类型映射坑，
+         * 本仓 [com.RobinNotBad.BiliClient.util.ReplyStateStore] 已经踩过一次并改成手动淘汰，这里沿用同一写法。
+         * 它是进程级静态表，而缓存页与文件夹页（都是本类，两层可以同时存活）各自在 `CenterThreadPool`
+         * 的后台线程里读写，[LinkedHashMap] 本身不是线程安全的，所以两处访问都套了 `synchronized`。
+         */
+        private val scanSnapshots = LinkedHashMap<String, ScanSnapshot>()
+
+        /**
+         * 「这次用的是上次结果」提示本进程只弹一次。
+         *
+         * 关掉自动刷新的用户往往是「文件夹点来点去」的重度用户（反馈 #211 原话是「点开一个卡一次」），
+         * 每次进页面都弹一条 Snackbar 等于把卡顿换成了打扰。第一次讲清楚「下拉 = 手动刷新」就够了，
+         * 之后静默沿用（本进程内不再弹，重启进程才会再出现一次）。
+         */
+        private var manualHintShown = false
+
+        /**
+         * 结束「本地缓存」这一整条页面链（缓存页 → 文件夹页）。
+         *
+         * 菜单切换栏目（`MenuActivity.killAndJump`）只 finish 当时的顶层实例：顶层是文件夹页时，
+         * 下面的缓存页会留在返回栈里，从新栏目返回就掉回一张没人要的旧缓存页。父子关系只有这里知道，
+         * 所以判据放这里，调用方不必判断 `isFolderPage`。
+         *
+         * @return true = 顶层是文件夹页，已经连缓存页一起收掉；false = 不是这条链，调用方按原来的
+         *         单层 finish 处理。
+         */
+        @JvmStatic
+        fun finishLocalCacheChain(top: InstanceActivity?): Boolean {
+            if (top !is LocalFolderActivity) return false
+            val cachePage = cachePageRef?.get()
+            top.finish()
+            if (cachePage != null && cachePage !== top && !cachePage.isDestroyed) cachePage.finish()
+            return true
+        }
+    }
 
     private lateinit var swipeRefreshLayout: SwipeRefreshLayout
     private lateinit var recyclerView: RecyclerView
@@ -46,6 +160,28 @@ class LocalListActivity : InstanceActivity() {
     private val folderList = ArrayList<VideoFolder>()
     private val videoList = ArrayList<LocalVideo>()
     private var adapter: CacheListAdapter? = null
+
+    /**
+     * 本页展示的文件夹名；空串表示这是缓存顶层页。
+     *
+     * 缓存页与文件夹页共用这一份列表实现（文件夹页见 [LocalFolderActivity]）：顶层页画文件夹区 +
+     * 未分类视频，文件夹页只画该夹内的视频。以前文件夹是同一个 Activity 里可来回切的
+     * `adapter.currentFolderName` 状态，右滑 / 返回退出文件夹只能就地把整张表重建一遍，
+     * 大列表上会卡；改成独立页面后退出就是 `finish()`，不碰缓存页的列表。
+     */
+    private val folderPageName: String by lazy {
+        intent.getStringExtra(LocalFolderActivity.EXTRA_FOLDER_NAME).orEmpty()
+    }
+
+    private val isFolderPage: Boolean get() = folderPageName.isNotEmpty()
+
+    /**
+     * 文件夹页里发生过改动（删 / 移走视频、重扫到下载完成等），退回缓存页时要让它重扫。
+     *
+     * 缓存页保留着自己那份扫描结果，不重扫就会一直显示已经不存在的条目；反过来没改动就不重扫，
+     * 免得每次退回都把整表重绑一遍封面（那正是本反馈里「退出时卡住」的观感来源）。
+     */
+    private var folderPageDirty = false
 
     // 对话框回调存储
     private var pendingListCallback: ((Int) -> Unit)? = null
@@ -69,6 +205,26 @@ class LocalListActivity : InstanceActivity() {
         }
     }
 
+    /**
+     * 打开文件夹页；它带着 [RESULT_OK] 回来才说明里面删过 / 移走过视频，缓存页才需要重扫。
+     *
+     * 不能无条件 `refresh()`：退出文件夹时缓存页要立刻可用，重扫会把整表重绑一遍封面，
+     * 用户看到的还是「退出时卡一下」。
+     */
+    private val folderLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) refresh()
+    }
+
+    /**
+     * 顶部「文件夹 N」入口 → 独立文件夹页（设置里打开 `FolderPagePrefs.ENABLE` 后才有这一行）。
+     *
+     * 那页改的是同一份 `.folders_info.json`（改名 / 拆散 / 排序 / 新建），所以带 [RESULT_OK] 回来时
+     * 本页必须重扫：入口上写着文件夹数量，不重扫就一直显示旧数字。
+     */
+    private val folderListLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) refreshAfterExternalChange()
+    }
+
     private var started: Boolean = false
 
     /** 进页面时用的目录是否处于降级状态；onResume 据此判断「用户刚授完权回来，要换回正式目录」。 */
@@ -85,6 +241,14 @@ class LocalListActivity : InstanceActivity() {
     private var rootAtLoad: String? = null
 
     /**
+     * 进页面时「缓存页文件夹入口」开关（[FolderPagePrefs]）的状态。
+     *
+     * 这个开关决定本页是「文件夹平铺在缓存页」还是「顶部一行文件夹入口 + 独立文件夹页」，
+     * 用户从设置回来时它可能已经变了，onResume 据此决定要不要重排整张表。
+     */
+    private var folderPageEnabledAtLoad: Boolean = false
+
+    /**
      * 最近一次扫描用的根目录对象。
      *
      * 删除必须按「这个条目是哪个根扫出来的」下手，而不是「当前 getVideoDownloadPath() 是哪个」：
@@ -92,6 +256,24 @@ class LocalListActivity : InstanceActivity() {
      * 「删一个不存在的路径」的老坑（反馈 #58）。
      */
     private var scannedRoot: File? = null
+
+    /**
+     * 上一次重扫时 [CacheChangeSignal] 的版本号（反馈 #162）。
+     *
+     * 详情页「长按清缓存」删的是磁盘文件，那时最上层是详情页，本页的 [refreshAfterExternalChange]
+     * 够不着；而 [onResume] 只认降级状态 / 根目录 / 文件夹入口开关，文件变了它不会重扫。于是条目
+     * 赖着不走、计数（`VideoFolder.getVideoCount()`）虚高、封面文件已删显示成黑块。记下扫描时的版本号，
+     * 回来时对不上就重扫。
+     */
+    private var cacheVersionAtLoad: Long = 0L
+
+    /**
+     * 本轮扫描发现的「音轨分离」缓存目录（`video.mp4` + `audio.m4a` 并存，反馈 #231）。
+     *
+     * 扫描本身只读，收集起来等整页扫完再一次性交给 [CacheAudioRepair]：合并耗时几秒到几十秒，
+     * 不能挂在扫描路径上；而且排进队列即刻返回，列表照旧显示这一条。
+     */
+    private val pendingAudioRepairDirs = LinkedHashSet<File>()
 
     // ===================== 多选（26.11.02） =====================
 
@@ -107,6 +289,9 @@ class LocalListActivity : InstanceActivity() {
     private lateinit var multiSelectBar: View
     private lateinit var textSelectedCount: TextView
     private lateinit var btnMultiSelect: TextView
+
+    /** 多选态的「全选 / 全不选」（26.11.11，反馈 #94）。 */
+    private lateinit var btnMultiSelectAll: TextView
     private lateinit var btnMultiOperate: TextView
     private lateinit var btnMultiExit: TextView
 
@@ -135,21 +320,42 @@ class LocalListActivity : InstanceActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_simple_main_refresh)
 
+        // 记下这层缓存页，文件夹页销毁时把「最近实例」还回来（见 companion 里的 cachePageRef）
+        if (!isFolderPage) cachePageRef = WeakReference(this)
+
         recyclerView = findViewById(R.id.recyclerView)
         swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout)
+        // 下拉刷新 = 真正的重扫（[refresh] → loadData），也是「自动刷新」关掉之后唯一的手动刷新入口。
+        // 注意本类继承 InstanceActivity 而**不是** RefreshListActivity（同目录的文件夹列表页才是），
+        // 所以没有基类的 setOnRefreshListener、也没有 RefreshListActivity.kt:96 那句
+        // `swipeRefreshLayout.isEnabled = false`——这里直接给字段挂 listener 就是本类的正确写法，
+        // 不要"顺手改成基类方法"（26.11.18 试过，编译不过）。
         swipeRefreshLayout.setOnRefreshListener { refresh() }
 
         val pageName = findViewById<TextView>(R.id.pageName)
-        pageName.text = UiText.of("缓存")
+        if (isFolderPage) {
+            pageName.text = folderPageName
+            // 文件夹页是二级页：顶栏箭头指向「退回缓存页」，点它就是 finish。
+            // 图标走 TextViewCompat + StringUtil.getDrawable：传资源 id 的重载是原生加载，
+            // API<21 遇到矢量箭头会崩
+            TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                pageName, StringUtil.getDrawable(pageName.context, R.drawable.arrow_back), null, null, null
+            )
+        } else {
+            pageName.text = UiText.of("缓存")
+        }
 
         setupSelectionBar()
 
-        findViewById<View>(R.id.top).setOnClickListener {
-            if (adapter?.currentFolderName?.isNotEmpty() == true) {
-                exitFolder()
-            } else {
-                menuClick.run()
+        // 底部条随列表收回：判据与顶部工具条共用 ScrollRetractDecider（见 handleSelectionBarScroll）
+        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                handleSelectionBarScroll(dy)
             }
+        })
+
+        findViewById<View>(R.id.top).setOnClickListener {
+            if (isFolderPage) finish() else menuClick.run()
         }
 
         // 判据是「真正写入时目录能不能写」，不是「有没有 MANAGE_EXTERNAL_STORAGE」：
@@ -160,10 +366,29 @@ class LocalListActivity : InstanceActivity() {
             MsgUtil.showMsg(UiText.of("存储目录当前不可写，下载会失败"))
         }
         fallbackAtLoad = FileUtil.isVideoFallbackActive()
+        folderPageEnabledAtLoad = FolderPagePrefs.enabled()
 
         CenterThreadPool.run {
             runOnUiThread { swipeRefreshLayout.setRefreshing(true) }
-            loadData()
+            // 反馈 #211「每次点开缓存文件夹都自动刷新、一卡 5 秒」的根因就在下面这一行以前无条件跑
+            // loadData()：每次进页面（新建本 Activity，onCreate 必然走这里）都要整盘扫一遍——
+            // 文件夹页先按 .folders_info.json 过滤出本夹的目录名（folderScanTitles），再逐个目录 list()、
+            // 读 .quality、按候选路径找封面（scanVideos），外部根还要各读一遍对方的索引（appendExternalSources），
+            // 最后适配器整表重绑、每张封面重新从磁盘解码
+            // （CacheListAdapter.kt:179-185）。
+            // 开关「设置 → 缓存与下载 → 缓存选项 → 缓存页自动刷新」默认仍是 true，所以默认行为不变；
+            // 关掉后先看能不能沿用上次结果（restoreScanSnapshot 会先验磁盘指纹，真下过新视频仍会重扫）。
+            val reusedSnapshot = !FolderPagePrefs.autoRefresh() && restoreScanSnapshot()
+            if (reusedSnapshot) {
+                // 用户会怀疑「到底刷没刷」，顺手把「下拉 = 手动刷新」讲清楚；
+                // 但只在本进程第一次复用时弹，之后静默（见 manualHintShown）
+                if (!manualHintShown) {
+                    manualHintShown = true
+                    runOnUiThread { MsgUtil.showMsg(getString(R.string.storage_refresh_manual_hint)) }
+                }
+            } else {
+                loadData()
+            }
             setupAdapter()
             started = true
         }
@@ -181,6 +406,19 @@ class LocalListActivity : InstanceActivity() {
             fallbackAtLoad = fallback
             rootAtLoad = rootNow
             refresh()
+            return
+        }
+        // 详情页长按清过缓存、或别处改过磁盘文件（反馈 #162）：条目 / 计数 / 封面都得重扫才对得上
+        if (CacheChangeSignal.snapshot() != cacheVersionAtLoad) {
+            refresh()
+            return
+        }
+        // 用户可能刚从「设置 → 高级与实验」把「缓存页文件夹入口」拨过：它决定本页有没有顶部
+        // 「文件夹 N」入口、文件夹分区还铺不铺在本页，所以必须重排整张表才看得到（不必重启）
+        val folderPageEnabled = FolderPagePrefs.enabled()
+        if (folderPageEnabled != folderPageEnabledAtLoad) {
+            folderPageEnabledAtLoad = folderPageEnabled
+            refresh()
         }
     }
 
@@ -191,41 +429,195 @@ class LocalListActivity : InstanceActivity() {
 
         // 扫描视频（根目录只取一次：getVideoDownloadPath 会顺带维护 .nomedia，扫描和后续解析必须同一个根）
         val root = FileUtil.getVideoDownloadPath()
+        // 「自动刷新」关着时靠这个指纹判断磁盘有没有变过（反馈 #211，见 CacheTreeSignature）。
+        // 必须在扫描**之前**算：扫描过程中才发生的改动会让指纹偏掉，下次进页面宁可再扫一遍，
+        // 也不要把半新半旧的结果当成「缓存没变」留着。
+        val signatureAtStart = CacheTreeSignature.of(root)
         // 记下这次真正扫描的是哪个根，onResume 才能判断「根目录换了要重扫」
         rootAtLoad = root.path
         scannedRoot = root
+        // 记下扫描开始时的缓存改动版本：扫描期间 / 之后别处改了文件，回来时好重扫（反馈 #162）
+        cacheVersionAtLoad = CacheChangeSignal.snapshot()
         videoList.clear()
-        scanVideos(root)
+        // 文件夹页整页只显示这一个夹的条目，全量扫等于把机器上所有缓存的目录都 stat + 读一遍
+        // 元数据：夹多、缓存多时每次点进来都要卡几秒（反馈 #211）。所以夹页只扫记录里属于本夹的
+        // 那些目录名（见 folderScanTitles）；缓存根页仍全量扫。
+        val onlyTitles = if (isFolderPage) folderScanTitles(root) else null
+        scanVideos(root, onlyTitles = onlyTitles)
+
+        // 别的分支的缓存目录：包名改没改都认，判据只看目录里有没有成品（见 ExternalCacheRoots）
+        appendExternalSources(root, onlyTitles)
+
+        // 兜底：夹记录不全（被清过、目录名对不上）时宁可慢一点也不能显示成空夹
+        if (isFolderPage && onlyTitles != null && videoList.isEmpty()) {
+            scanVideos(root)
+            appendExternalSources(root, null)
+        }
 
         // 加载每个视频的元数据（目录要按实际落盘位置解析，不能假设「根/标题」）
+        // 注意顺序：外部条目的夹名要等这一轮读完（含退回元数据那条路）才全，建夹必须在它之后
+        //
+        // 夹名归属按「记录优先、元数据兜底」解析（反馈 #254）：夹卡上的「N 个视频」、夹的封面、
+        // 夹页扫描白名单全部取自 .folders_info.json，而夹内页的可见判据取的是 .video_meta.json 的
+        // folderName。两边一旦不一致（老版本只往 json 里写过归属、改夹名时目录没找到、
+        // 手改过 json），就变成「外面写着 N 个、点进去一条都没有」。所以这里让记录当主口径，
+        // 并把不一致的两边顺手写回一致——只在这一轮写一次，盘面一致后不再写。
+        val folderNames = HashSet<String>(folderList.size * 2)
+        for (folder in folderList) {
+            val name = folder.name
+            if (!name.isNullOrEmpty()) folderNames.add(name)
+        }
+        val recordIndex = CacheFolderResolver.titleIndex(folderList)
+        val recordHeals = HashMap<String, MutableList<String>>()
         for (video in videoList) {
             try {
-                val videoDir = resolveVideoDir(root, video)
-                val meta = VideoMetaManager.readMeta(videoDir)
-                video.folderName = meta.folderName
+                // 目录先解析出来复用：自愈要写到这条目录上，不能按「根/标题」再猜一次
+                val dir = resolveVideoDir(rootOf(video), video)
+                val meta = VideoMetaManager.readMeta(dir)
+                if (video.externalRoot.isNullOrEmpty()) {
+                    val recordName = recordIndex[FileUtil.stringToFile(video.title)] ?: ""
+                    val resolved = CacheFolderResolver.resolve(recordName, meta.folderName, folderNames)
+                    video.folderName = resolved
+                    if (CacheFolderResolver.needsMetaHeal(resolved, meta.folderName, folderNames)) {
+                        VideoMetaManager.updateFolderNameIn(dir, resolved)
+                    }
+                    if (CacheFolderResolver.needsRecordHeal(resolved, recordName)) {
+                        recordHeals.getOrPut(resolved) { ArrayList() }.add(video.title)
+                    }
+                } else {
+                    video.folderName = ""
+                    // 对方根目录没有 .folders_info.json（或被删过）时，退回到这条视频自己的元数据
+                    if (video.externalFolder.isNullOrEmpty()) {
+                        video.externalFolder = meta.folderName
+                    }
+                }
                 video.aid = meta.aid
                 video.cid = meta.cid
             } catch (_: Exception) {}
         }
 
+        // 元数据里有夹名、夹记录里没有这条标题：补进 .folders_info.json（整批读一次写一次）
+        var recordHealCount = 0
+        if (recordHeals.isNotEmpty()) recordHealCount = FolderManager.adoptTitles(recordHeals)
+
+        // 对方的文件夹在本机侧先建一份，再让外部条目归进去（见 ensureExternalFolders）
+        ensureExternalFolders()
+
         // 未分类视频没有「列表本身」可以写顺序，单独存在 SharedPreferences 里，按缓存根目录分键。
         // 必须在第一次 setData 之前读出来，否则进页面会先按扫描顺序画一遍再跳一下。
         unclassifiedOrder = CacheListOrderStore.load(root.path)
+
+        // 存一份本次结果，供「自动刷新」关着时下次进页面直接复用（反馈 #211）。
+        // 自愈刚写过 .folders_info.json 的话指纹已经变了，按当前盘面重算一次，
+        // 免得下次进页面把这份刚存下的结果当成「缓存变过」白扫一遍
+        val snapshotSignature = if (recordHealCount > 0) CacheTreeSignature.of(root) else signatureAtStart
+        saveScanSnapshot(root, snapshotSignature)
+
+        // 整页扫完再排后台重封装（反馈 #231）：这一步不阻塞、不改上面的列表
+        flushAudioRepairs(root)
     }
 
-    private fun scanVideos(folder: File) {
+    /**
+     * 把这一轮扫到的双文件目录交给 [CacheAudioRepair] 后台重封装（反馈 #231）。
+     *
+     * 只认本机下载根下的目录：外部缓存根属于别的分支，替换/删除那里的文件等于改别人的数据
+     * （扫描侧已经挡了一道，这里再按绝对路径核一遍，防止有人把外部目录塞进来）。
+     * 队列自己去重、跳过正在播放的目录，重复调用没有副作用。
+     */
+    private fun flushAudioRepairs(root: File) {
+        if (pendingAudioRepairDirs.isEmpty()) return
+        val rootPrefix = root.absolutePath + File.separator
+        val dirs = pendingAudioRepairDirs.filter { it.absolutePath.startsWith(rootPrefix) }
+        pendingAudioRepairDirs.clear()
+        if (dirs.isNotEmpty()) CacheAudioRepair.enqueueAll(dirs)
+    }
+
+    /**
+     * 尽量沿用上次扫描结果，跳过整盘重扫（反馈 #211 的「可选自动刷新」）。
+     *
+     * 判据只有一条：磁盘指纹（[CacheTreeSignature.of]）与快照记的一致。一致说明缓存目录的条目集合
+     * 与 .folders_info.json 都没动过，直接灌回上次结果；不一致（下过新视频 / 删过缓存 / 挪过文件夹 /
+     * 换过缓存路径）就返回 false，让调用方照常 [loadData] 重扫——这就是「关掉自动刷新后仍然看得见
+     * 新下载」的兜底，也是不能只认开关的原因：只认开关的话，用户关掉自动刷新、下完视频再进页面
+     * 就只剩旧列表，会以为缓存丢了。
+     *
+     * 指纹的盲区（往已存在的视频目录里重下、文件系统只记到秒时的同秒删建）写在 CacheTreeSignature
+     * 的 KDoc 里；这两种情况用户下拉一次即可，而 [refresh] 不看开关，永远是真重扫。
+     *
+     * @return true = 已把快照灌回 [folderList]/[videoList]，调用方不要再 [loadData]；
+     *         false = 没有可用快照或缓存已变，调用方按老路重扫。
+     */
+    private fun restoreScanSnapshot(): Boolean {
+        val root = FileUtil.getVideoDownloadPath()
+        // 快照表是进程级静态表：缓存页与文件夹页（同一类，两层同时存活）各自在自己的后台线程里读写，
+        // LinkedHashMap 不是线程安全的，裸读写可能丢条目甚至把链表搞坏，所以每次访问都加锁
+        val snapshot = synchronized(scanSnapshots) { scanSnapshots[snapshotKey(root)] } ?: return false
+        if (snapshot.signature != CacheTreeSignature.of(root)) return false
+        folderList.clear()
+        folderList.addAll(snapshot.folders)
+        videoList.clear()
+        videoList.addAll(snapshot.videos)
+        // 排序不跟快照走：拖拽排序写在 SharedPreferences（CacheListOrderStore），别的页面也可能改它，
+        // 现读一次最省事，也避免「快照里存着旧顺序、进页面先跳一下」的观感
+        unclassifiedOrder = CacheListOrderStore.load(root.path)
+        // 根目录与缓存改动版本照快照记回去：删除按「条目来自哪个根」拼路径，版本号供 onResume 比对
+        rootAtLoad = snapshot.rootPath
+        scannedRoot = File(snapshot.rootPath)
+        cacheVersionAtLoad = snapshot.cacheVersion
+        return true
+    }
+
+    /** 快照键：缓存根 + 文件夹页名（顶层缓存页是空串）。同一个根下每个夹各有一份，互不覆盖。 */
+    private fun snapshotKey(root: File): String = root.path + "|" + folderPageName
+
+    /** 存下这次扫描的结果，供「自动刷新」关着时下次进页面直接复用（反馈 #211）。 */
+    private fun saveScanSnapshot(root: File, signature: Long) {
+        val snapshot = ScanSnapshot(
+            rootPath = root.path,
+            folderPageName = folderPageName,
+            signature = signature,
+            cacheVersion = cacheVersionAtLoad,
+            folders = ArrayList(folderList),
+            videos = ArrayList(videoList)
+        )
+        // 同上：静态表，写入也要加锁；淘汰最老的那份也在锁内做（按插入顺序，先来的先丢）
+        synchronized(scanSnapshots) {
+            scanSnapshots[snapshotKey(root)] = snapshot
+            if (scanSnapshots.size > SNAPSHOT_LIMIT) {
+                val iterator = scanSnapshots.keys.iterator()
+                if (iterator.hasNext()) {
+                    iterator.next()
+                    iterator.remove()
+                }
+            }
+        }
+    }
+
+    /**
+     * 扫一个根目录下的缓存视频，结果追加进 [videoList]。
+     *
+     * @param externalRoot 非空 = 这是别的分支的目录（只读来源）。扫出来的条目记下这个根，
+     *        之后删除 / 写元数据 / 写续播都靠它避让，不再按「当前下载根」硬算 —— 那个根跟这条
+     *        条目根本没关系。
+     * @param onlyTitles 非空 = 只认这些目录名（文件夹页用，见 [folderScanTitles]）。名字按
+     *        [FileUtil.stringToFile] 的口径比较，磁盘上的目录名本来就是清洗过的。
+     */
+    private fun scanVideos(folder: File, externalRoot: String? = null, onlyTitles: Set<String>? = null) {
         val files = folder.listFiles() ?: return
 
         for (video in files) {
-            if (video.isDirectory) {
+            if (video.isDirectory && (onlyTitles == null || FileUtil.stringToFile(video.name) in onlyTitles)) {
                 val localVideo = LocalVideo()
                 localVideo.title = video.name
+                localVideo.externalRoot = externalRoot
                 localVideo.cover = File(video, DownloadPathSpec.FILE_COVER).toString()
                 localVideo.pageList = ArrayList()
                 localVideo.danmakuFileList = ArrayList()
                 localVideo.videoFileList = ArrayList()
                 localVideo.sizeList = ArrayList()
                 localVideo.qualityList = ArrayList()
+                // 每页落在哪个根（反馈 #217）：合集可能一半在本机根、一半在别的分支的旧缓存根里
+                localVideo.pageRootList = ArrayList()
 
                 val qualityFile = File(video, DownloadPathSpec.FILE_QUALITY)
                 val qualityStr = if (qualityFile.exists()) {
@@ -235,20 +627,23 @@ class LocalListActivity : InstanceActivity() {
                 val videoFile = File(video, DownloadPathSpec.FILE_VIDEO)
                 val audioFile = File(video, DownloadPathSpec.FILE_AUDIO)
                 val danmakuFile = File(video, DownloadPathSpec.FILE_DANMAKU)
-                val tempMergeFile = File(video, "video_merged_temp.mp4")
+                val tempMergeFile = File(video, CacheMediaPolicy.FILE_VIDEO_MERGED_TEMP)
 
-                // 优先使用合并后的视频文件，其次视频流，最后音频流
-                val mediaFile = if (videoFile.exists()) videoFile
-                    else if (tempMergeFile.exists()) {
-                        // 合并临时文件存在，重命名为正式文件
-                        if (tempMergeFile.renameTo(videoFile)) videoFile
-                        else tempMergeFile
-                    }
-                    else (if (audioFile.exists()) audioFile else null)
+                // 优先使用合并后的视频文件，其次视频流，最后音频流。
+                // 认哪些文件名、下载中算不算缓存，统一问 CacheMediaPolicy（反馈 #164：与「已下载」判据同源）
+                val dirNames = video.list()?.toList()
+                val mediaName = CacheMediaPolicy.pickMediaName(dirNames)
+                val mediaFile = when (mediaName) {
+                    null -> null
+                    // 合并临时文件存在：能转正就转正（与改动前一致），转不了就当它本身是成品
+                    CacheMediaPolicy.FILE_VIDEO_MERGED_TEMP ->
+                        // 外部目录只读：转正就是改别人分支的文件，转不了就当它本身是成品
+                        if (externalRoot == null && tempMergeFile.renameTo(videoFile)) videoFile else tempMergeFile
+                    else -> File(video, mediaName)
+                }
 
                 if (mediaFile != null) {
-                    val mark = File(video, DownloadPathSpec.FILE_DOWNLOADING)
-                    if (mark.exists()) continue
+                    if (CacheMediaPolicy.isDownloading(dirNames)) continue
 
                     localVideo.sizeList.add(mediaFile.length())
                     // 「按更新时间」排序用（反馈 #94）：没有独立的更新时间字段，取媒体文件 mtime；
@@ -260,6 +655,8 @@ class LocalListActivity : InstanceActivity() {
                     // 如果合并失败，video.mp4和audio.m4a同时存在，把audio.m4a也加入列表供播放器使用
                     if (videoFile.exists() && audioFile.exists() && mediaFile == videoFile) {
                         localVideo.videoFileList.add(audioFile.toString())
+                        // 反馈 #231：这种双文件播放时只能 1 倍速，排进后台重封装（外部根只读，绝不排）
+                        if (externalRoot == null) pendingAudioRepairDirs.add(video)
                     }
 
                     if (qualityStr == DownloadPathSpec.TYPE_AUDIO_ONLY || (audioFile.exists() && !videoFile.exists())) {
@@ -285,54 +682,58 @@ class LocalListActivity : InstanceActivity() {
                             PageOrderStore.read(video)
                         )
                         val dirByName = pageDirs.associateBy { it.name }
-                        for (name in orderedNames) {
-                            val page = dirByName[name] ?: continue
-                            if (page.isDirectory) {
-                                val mark = File(page, DownloadPathSpec.FILE_DOWNLOADING)
-                                if (mark.exists()) continue
-
-                                val pageVideoFile = File(page, DownloadPathSpec.FILE_VIDEO)
-                                val pageAudioFile = File(page, DownloadPathSpec.FILE_AUDIO)
-                                val pageDanmakuFile = File(page, DownloadPathSpec.FILE_DANMAKU)
-                                val pageTempMergeFile = File(page, "video_merged_temp.mp4")
-                                val pageMediaFile = if (pageVideoFile.exists()) pageVideoFile
-                                    else if (pageTempMergeFile.exists()) {
-                                        if (pageTempMergeFile.renameTo(pageVideoFile)) pageVideoFile
-                                        else pageTempMergeFile
-                                    }
-                                    else (if (pageAudioFile.exists()) pageAudioFile else null)
-
-                                if (pageMediaFile != null) {
-                                    localVideo.pageList.add(page.name)
-                                    localVideo.sizeList.add(pageMediaFile.length())
-                                    // 合集取「最近修改的那一页」当更新时间（反馈 #94 的「按更新时间」排序）
-                                    if (pageMediaFile.lastModified() > localVideo.lastModified) {
-                                        localVideo.lastModified = pageMediaFile.lastModified()
-                                    }
-                                    localVideo.videoFileList.add(pageMediaFile.toString())
-                                    localVideo.danmakuFileList.add(pageDanmakuFile.toString())
-
-                                    // 如果合并失败，video.mp4和audio.m4a同时存在，把audio.m4a也加入列表
-                                    if (pageVideoFile.exists() && pageAudioFile.exists() && pageMediaFile == pageVideoFile) {
-                                        localVideo.videoFileList.add(pageAudioFile.toString())
-                                    }
-
-                                    val pageQualityFile = File(page, DownloadPathSpec.FILE_QUALITY)
-                                    if (pageQualityFile.exists()) {
-                                        try {
-                                            val pqnStr = pageQualityFile.readText().trim()
-                                            if (pqnStr == DownloadPathSpec.TYPE_AUDIO_ONLY) {
-                                                localVideo.qualityList.add(UiText.of("仅音频"))
-                                            } else {
-                                                val pqn = pqnStr.toInt()
-                                                val label = LocalVideo.getQualityLabel(pqn)
-                                                if (label.isNotEmpty()) localVideo.qualityList.add(label)
-                                                else localVideo.qualityList.add("")
-                                            }
-                                        } catch (_: Exception) { localVideo.qualityList.add("") }
-                                    } else { localVideo.qualityList.add("") }
-                                }
+                        // 反馈 #164：「这一页缓存好了没有」也走同一套判据（有成品且不在下载中），
+                        // 不再每页各写一遍 exists() / 标记判断，免得与「已下载」提示走偏
+                        val scannedPages = CacheMediaPolicy.pagesWithMedia(orderedNames) { name ->
+                            dirByName[name]?.list()?.toList()
+                        }
+                        for (scannedPage in scannedPages) {
+                            val page = dirByName[scannedPage.name] ?: continue
+                            val pageVideoFile = File(page, DownloadPathSpec.FILE_VIDEO)
+                            val pageAudioFile = File(page, DownloadPathSpec.FILE_AUDIO)
+                            val pageDanmakuFile = File(page, DownloadPathSpec.FILE_DANMAKU)
+                            val pageTempMergeFile = File(page, CacheMediaPolicy.FILE_VIDEO_MERGED_TEMP)
+                            val pageMediaFile = if (scannedPage.mediaName == CacheMediaPolicy.FILE_VIDEO_MERGED_TEMP) {
+                                // 合并临时文件存在：能转正就转正，转不了就当它本身是成品
+                                // （外部目录只读，绝不动别人分支的文件）
+                                if (externalRoot == null && pageTempMergeFile.renameTo(pageVideoFile)) pageVideoFile else pageTempMergeFile
+                            } else {
+                                File(page, scannedPage.mediaName)
                             }
+
+                            localVideo.pageList.add(page.name)
+                            // 这一页真正落在哪个根：空串 = 本机下载根，否则是那个外部根。删除、写弹幕、
+                            // 写续播都按它判断（见 CachePageSources），不再拿整条条目的 externalRoot 一刀切
+                            localVideo.pageRootList?.add(externalRoot ?: "")
+                            localVideo.sizeList.add(pageMediaFile.length())
+                            // 合集取「最近修改的那一页」当更新时间（反馈 #94 的「按更新时间」排序）
+                            if (pageMediaFile.lastModified() > localVideo.lastModified) {
+                                localVideo.lastModified = pageMediaFile.lastModified()
+                            }
+                            localVideo.videoFileList.add(pageMediaFile.toString())
+                            localVideo.danmakuFileList.add(pageDanmakuFile.toString())
+
+                            // 如果合并失败，video.mp4和audio.m4a同时存在，把audio.m4a也加入列表
+                            if (pageVideoFile.exists() && pageAudioFile.exists() && pageMediaFile == pageVideoFile) {
+                                localVideo.videoFileList.add(pageAudioFile.toString())
+                                // 反馈 #231：按「这一页」的根判断，本机根才排重封装
+                                if (externalRoot == null) pendingAudioRepairDirs.add(page)
+                            }
+
+                            val pageQualityFile = File(page, DownloadPathSpec.FILE_QUALITY)
+                            if (pageQualityFile.exists()) {
+                                try {
+                                    val pqnStr = pageQualityFile.readText().trim()
+                                    if (pqnStr == DownloadPathSpec.TYPE_AUDIO_ONLY) {
+                                        localVideo.qualityList.add(UiText.of("仅音频"))
+                                    } else {
+                                        val pqn = pqnStr.toInt()
+                                        val label = LocalVideo.getQualityLabel(pqn)
+                                        if (label.isNotEmpty()) localVideo.qualityList.add(label)
+                                        else localVideo.qualityList.add("")
+                                    }
+                                } catch (_: Exception) { localVideo.qualityList.add("") }
+                            } else { localVideo.qualityList.add("") }
                         }
                         localVideo.calcTotalSize()
                         if (localVideo.videoFileList.size > 0) videoList.add(localVideo)
@@ -342,15 +743,134 @@ class LocalListActivity : InstanceActivity() {
         }
     }
 
+    /**
+     * 追加「别的分支的缓存目录」里的视频（只读）。
+     *
+     * 目录怎么找、为什么不认包名，见 [ExternalCacheRoots]。这里只做两件事：
+     * 挨个扫（判据、多 P 折叠、画质文本全部复用 [scanVideos]，不另写一套），
+     * 以及**按标题去重** —— 从那个分支导入到本机的视频会同时出现在两边，列两遍最容易
+     * 让人以为「没导干净」，所以本机已有同标题时保留本机那条。合集之间是例外：
+     * 同名的两边都是合集时按**页**合并（见 [CachePageSources.mergePages]），因为番剧与多 P
+     * 合集的落盘结构是「父目录 + 集名子目录」，改过缓存位置之后同一季的集常常一半在这边、
+     * 一半留在那边，整条丢掉就是「第一季点开只有 6、7 两集」（反馈 #217）。
+     */
+    private fun appendExternalSources(mainRoot: File, onlyTitles: Set<String>? = null) {
+        // 标题 → 已在 videoList 里的下标。以前这里只记标题（HashSet），同名条目一律丢掉 ——
+        // 反馈 #217 / #214 的根因就在这里：番剧与合集的落盘结构是「季名父目录 + 集名子目录」，
+        // 改过缓存位置后一半集在本机根、一半留在旧根（判成外部来源），整条丢掉就只剩本机那几集。
+        // 现在合集之间按**页**合并（页名重复才跳过），其它情况仍按老规矩只留本机那条。
+        val indexByTitle = HashMap<String, Int>()
+        for (index in videoList.indices) {
+            val title = videoList[index].title
+            if (!title.isNullOrEmpty() && !indexByTitle.containsKey(title)) indexByTitle[title] = index
+        }
+        for (dir in ExternalCacheRoots.candidateRoots(mainRoot)) {
+            // scanVideos 只往 videoList 尾巴追加，记下起点就能只处理这一批
+            val before = videoList.size
+            scanVideos(dir, dir.path, onlyTitles)
+            // 对方也按文件夹整理过：把它的 .folders_info.json 读成「标题 → 夹名」，
+            // 只用来显示和迁移时还原分类，不写进本机的 folderName（见 LocalVideo.externalFolder）
+            val folderIndex = CacheMigrator.folderIndex(dir)
+            var i = before
+            while (i < videoList.size) {
+                val video = videoList[i]
+                val title = video.title
+                if (title.isNullOrEmpty()) {
+                    videoList.removeAt(i)
+                    continue
+                }
+                val existing = indexByTitle[title]
+                if (existing == null) {
+                    video.externalFolder = CacheMigrator.folderOf(folderIndex, title)
+                    indexByTitle[title] = i
+                    i++
+                    continue
+                }
+                // 同名：两边都是合集就按页并到本机那条尾巴上（页根一起记，删除 / 写弹幕才知道
+                // 这几页不能按本机根算）；并进去之后外部这条不再单独显示（存量下标不受影响：
+                // existing 一定小于 i，removeAt(i) 不会让它左移）
+                videoList.getOrNull(existing)?.let { CachePageSources.mergePages(it, video) }
+                videoList.removeAt(i)
+            }
+        }
+    }
+
+    /**
+     * 文件夹页要扫的目录名集合，返回 null 表示不限（按全量扫）。
+     *
+     * 记录的来源有两个：本机 `.folders_info.json`（[FolderManager.getFolderVideos]），以及别的
+     * 分支的缓存根（[CacheMigrator.folderIndex]，只要夹名对得上的）。本机记录存的是原始标题，
+     * 磁盘目录名是清洗过的，所以统一按 [FileUtil.stringToFile] 归一。
+     *
+     * **记录为空时返回 null**：夹记录可能被清过或从来就没写过，这时宁可全量扫慢一点，
+     * 也不能把一个还有内容的夹显示成空的。
+     */
+    private fun folderScanTitles(root: File): Set<String>? {
+        val titles = HashSet<String>()
+        for (title in FolderManager.getFolderVideos(folderPageName)) {
+            if (title.isNotEmpty()) titles.add(FileUtil.stringToFile(title))
+        }
+        for (external in ExternalCacheRoots.candidateRoots(root)) {
+            for ((title, name) in CacheMigrator.folderIndex(external)) {
+                if (name == folderPageName) titles.add(title)
+            }
+        }
+        return titles.ifEmpty { null }
+    }
+
+    /**
+     * 对方的文件夹在本机侧先建一份（口径：有文件夹数据就先建夹，点进去就能播）。
+     *
+     * 只建夹、**不写本机的视频记录**：这些条目仍然是外部只读条目，夹内成员靠
+     * `video.folderName` 过滤（见 [orderedVideosInFolder]）；等用户把它们「迁移到本应用」时，
+     * [FolderManager.ensureFolderAndAdd] 才会把夹记录正式补上。
+     *
+     * 必须在元数据读完**之后**调用：外部条目的夹名可能来自对方根目录的 .folders_info.json，
+     * 也可能来自它自己的元数据（见 loadData），后者只有这一轮读完才知道。
+     */
+    private fun ensureExternalFolders() {
+        val wanted = ArrayList<String>()
+        for (video in videoList) {
+            if (video.externalRoot.isNullOrEmpty()) continue
+            val name = video.externalFolder
+            if (!name.isNullOrEmpty()) wanted.add(name)
+        }
+        if (wanted.isEmpty()) return
+        val existing = HashSet<String>(folderList.size * 2)
+        for (folder in folderList) existing.add(folder.name)
+        // 夹名不合法 / 建夹失败的不会进 existing，那些条目最后留在未分类，不会凭空消失
+        for (name in CacheMigrator.foldersToCreate(existing, wanted)) {
+            if (FolderManager.createFolder(name)) {
+                folderList.add(VideoFolder(name))
+                existing.add(name)
+            }
+        }
+        for (video in videoList) {
+            if (video.externalRoot.isNullOrEmpty()) continue
+            val name = video.externalFolder
+            video.folderName = if (!name.isNullOrEmpty() && existing.contains(name)) name else ""
+        }
+    }
+
+    /** 这条条目是哪个根扫出来的：外部只读来源有自己的根，其余用本次扫描的本机根。 */
+    private fun rootOf(video: LocalVideo): File =
+        video.externalRoot?.takeIf { it.isNotEmpty() }?.let { File(it) } ?: currentScanRoot()
+
     @SuppressLint("NotifyDataSetChanged")
     private fun setupAdapter() {
         adapter = CacheListAdapter(this)
 
         // 文件夹操作回调
-        adapter!!.onFolderClick = { idx -> enterFolder(idx) }
+        adapter!!.onFolderClick = { idx -> openFolder(idx) }
         adapter!!.onNewFolderClick = { showNewFolderDialog() }
+        // 顶部「文件夹 N」入口（仅开关打开时存在）：用 launcher 起独立页，回来能重扫
+        adapter!!.onFolderListClick = {
+            folderListLauncher.launch(Intent(this, LocalFolderListActivity::class.java))
+        }
         adapter!!.onFolderMenu = { idx -> showFolderMenu(idx) }
-        adapter!!.onBackFromFolder = { exitFolder() }
+        // 分区标题「返回」只在文件夹页出现（顶层没有）。文件夹页是独立页面，返回就是 finish，
+        // 不再在同一个 Activity 里把整张表换回顶层。
+        adapter!!.onBackFromFolder = { if (isFolderPage) finish() }
 
         adapter!!.onVideoMenu = { idx -> showVideoMenu(idx) }
         adapter!!.onVideoPlayInVirtualCollection = { folderName, videoIdx -> playVirtualCollection(folderName, videoIdx) }
@@ -364,7 +884,7 @@ class LocalListActivity : InstanceActivity() {
         adapter!!.onOrderDragFinished = { foldersChanged, videosChanged ->
             persistOrderChange(foldersChanged, videosChanged)
         }
-        adapter!!.setData(folderList, videoList)
+        adapter!!.setData(folderList, videoList, folderPageName)
 
         runOnUiThread {
             recyclerView.layoutManager = getLayoutManager()
@@ -473,15 +993,28 @@ class LocalListActivity : InstanceActivity() {
     private fun menuTitle(title: String): String =
         if (title.length <= 12) title else title.take(12) + "…"
 
-    /** 长按文件夹：重命名 / 拆散。 */
+    /**
+     * 长按文件夹：整夹迁移（只有整夹都是外部条目时才给）/ 重命名 / 拆散。
+     *
+     * 夹内成员按 `video.folderName` 过滤（见 [orderedVideosInFolder]）。整夹都是外部条目时
+     * 才值得整夹搬：混了本机条目就只搬一部分，剩下的还得留在这儿，不如让用户进夹后自己勾。
+     */
     private fun showFolderMenu(folderIndex: Int) {
         if (folderIndex < 0 || folderIndex >= folderList.size) return
         val folder = folderList[folderIndex]
-        val items = listOf(UiText.of("重命名"), UiText.of("拆散文件夹"))
+        val members = videoList.filter { it.folderName == folder.name }
+        val externalOnly = members.isNotEmpty() && members.all { !it.externalRoot.isNullOrEmpty() }
+        val items = ArrayList<String>(3)
+        if (externalOnly) items.add(UiText.fmt("迁移整个文件夹到本应用（%1\$d 条）", members.size))
+        items.add(UiText.of("重命名"))
+        items.add(UiText.of("拆散文件夹"))
+        // 多出来的那一项在最前面，后两项的下标整体后移一位
+        val offset = if (externalOnly) 1 else 0
         TerminalDialog.menu(this, menuTitle(folder.name), items) { which ->
-            when (which) {
-                0 -> showRenameDialog(folderIndex)
-                1 -> showDisbandConfirmDialog(folderIndex)
+            when {
+                which < offset -> confirmMigrate(members)
+                which - offset == 0 -> showRenameDialog(folderIndex)
+                else -> showDisbandConfirmDialog(folderIndex)
             }
         }.show()
     }
@@ -490,6 +1023,14 @@ class LocalListActivity : InstanceActivity() {
     private fun showVideoMenu(videoIndex: Int) {
         if (videoIndex < 0 || videoIndex >= videoList.size) return
         val video = videoList[videoIndex]
+        if (!video.externalRoot.isNullOrEmpty()) {
+            // 别的分支的目录只读（见 LocalVideo.externalRoot）：删除 / 换分辨率 / 更新弹幕全都要往
+            // 对方目录写文件，所以这里只有一条路——把它搬进本应用，搬完就是本机条目，功能自然齐全。
+            TerminalDialog.menu(this, menuTitle(video.title), listOf(UiText.of("迁移到本应用"))) {
+                confirmMigrate(listOf(video))
+            }.show()
+            return
+        }
         val isInFolder = adapter?.currentFolderName?.isNotEmpty() == true
         val items = listOf(
             UiText.of("更新弹幕"),
@@ -509,33 +1050,99 @@ class LocalListActivity : InstanceActivity() {
         }.show()
     }
 
+    // ===================== 迁移（别的分支 → 本应用） =====================
+    //
+    // 外部条目只读（见 LocalVideo.externalRoot）：想删、想换分辨率、想进文件夹，都得先「搬过来」。
+    // 搬 = 把对方目录里那条视频目录整个挪到本机下载根（[CacheMigrator]），并把它在对方所属的
+    // 文件夹在本机还原一份（[FolderManager.ensureFolderAndAdd]）。搬完源目录里就没有了，所以先确认。
+
+    private fun confirmMigrate(videos: List<LocalVideo>) {
+        val targets = videos.filter { !it.externalRoot.isNullOrEmpty() }
+        if (targets.isEmpty()) return
+        val message = if (targets.size == 1) {
+            getString(R.string.msg_cache_migrate_confirm_one, targets[0].title ?: "")
+        } else {
+            getString(R.string.msg_cache_migrate_confirm_many, targets.size)
+        }
+        TerminalDialog.confirm(this, UiText.of("迁移到本应用"), message, UiText.of("迁移")) {
+            performMigrate(targets)
+        }.show()
+    }
+
+    /**
+     * 真的搬：整目录挪进本机 + 还原对方的文件夹分类。
+     *
+     * 失败只算「这条没搬成」，源目录原封不动；搬成了但源目录没删干净的单独提示一句，
+     * 免得用户以为那个分支里已经没这份缓存了。
+     */
+    private fun performMigrate(videos: List<LocalVideo>) {
+        if (videos.isEmpty()) return
+        MsgUtil.showMsg(UiText.of("正在迁移..."))
+        CenterThreadPool.run {
+            val destRoot = FileUtil.getVideoDownloadPath()
+            var moved = 0
+            var failed = 0
+            var leftover = 0
+            var foldered = 0
+            for (video in videos) {
+                val rootPath = video.externalRoot
+                if (rootPath.isNullOrEmpty()) continue
+                val source = resolveVideoDir(File(rootPath), video)
+                val result = CacheMigrator.moveDir(source, destRoot)
+                val dest = result.dest
+                if (dest == null) {
+                    failed++
+                    continue
+                }
+                moved++
+                if (!result.sourceCleaned) leftover++
+                // 落地目录名可能与标题不同（重名时加了后缀），文件夹记录要按实际目录名写，
+                // VideoMetaManager.updateFolderName 也是按目录名找的
+                val folderName = video.externalFolder ?: ""
+                if (folderName.isNotEmpty() && FolderManager.ensureFolderAndAdd(dest.name, folderName)) {
+                    foldered++
+                }
+            }
+            runOnUiThread {
+                exitSelectionMode()
+                markFolderPageDirty()
+                refresh()
+                when {
+                    failed > 0 -> MsgUtil.showMsgLong(
+                        getString(R.string.msg_cache_migrated_with_failed, moved, failed)
+                    )
+                    leftover > 0 -> MsgUtil.showMsgLong(
+                        getString(R.string.msg_cache_migrated_leftover, moved, leftover)
+                    )
+                    foldered > 0 -> MsgUtil.showMsg(
+                        getString(R.string.msg_cache_migrated_foldered, moved, foldered)
+                    )
+                    else -> MsgUtil.showMsg(getString(R.string.msg_cache_migrated, moved))
+                }
+            }
+        }
+    }
+
     // ===================== 文件夹操作 =====================
 
-    private fun enterFolder(folderIndex: Int) {
+    /**
+     * 打开文件夹：起一个独立的 [LocalFolderActivity]，不再在缓存页里就地换 scope。
+     *
+     * 以前是把当前 Activity 的适配器切到夹内，退出文件夹只能整表重建回顶层；右滑 / 返回时那一下
+     * 重建（含封面重读）就是反馈里的「退出卡住」。独立页面有自己的返回栈，退出 = finish。
+     * 需要带回什么：夹里删过 / 移走过视频，`folderLauncher` 收到 [RESULT_OK] 才重扫缓存页。
+     */
+    private fun openFolder(folderIndex: Int) {
         if (folderIndex < 0 || folderIndex >= folderList.size) return
         if (sortMode) exitSortMode()
         if (selectionMode) exitSelectionMode()
-        // 顶层搜索匹配的是「文件夹名」，把词带进夹内就变成按视频标题过滤，用户看到空列表会以为
-        // 文件夹是空的。想搜夹内视频，进来后再点「搜索」。
-        if (searchKeyword.isNotEmpty()) applySearchKeyword("")
         val folder = folderList[folderIndex]
-        adapter?.setData(folderList, videoList, folder.name)
-        val pageName = findViewById<TextView>(R.id.pageName)
-        pageName?.text = folder.name
-        // 进文件夹后顶栏那个箭头点下去是"退出文件夹"，用返回箭头表达。
-        pageName?.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.arrow_back, 0, 0, 0)
-        updateSelectionBar()
-    }
-
-    private fun exitFolder() {
-        if (sortMode) exitSortMode()
-        if (selectionMode) exitSelectionMode()
-        adapter?.setData(folderList, videoList, "")
-        val pageName = findViewById<TextView>(R.id.pageName)
-        pageName?.text = UiText.of("缓存")
-        // 回到顶层：箭头点下去打开菜单，恢复成朝下的箭头。
-        pageName?.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.arrow_down, 0, 0, 0)
-        updateSelectionBar()
+        val intent = Intent(this, LocalFolderActivity::class.java)
+            .putExtra(LocalFolderActivity.EXTRA_FOLDER_NAME, folder.name)
+        // 菜单页名靠这个 extra 决定（InstanceActivity.menuClick / MenuActivity）：不透传的话，
+        // 从文件夹页长按顶栏打开的菜单不再标「缓存」，killAndJump 里 name != from 也会恒真。
+        getIntent().getStringExtra("from")?.let { intent.putExtra("from", it) }
+        folderLauncher.launch(intent)
     }
 
     private fun showNewFolderDialog() {
@@ -579,7 +1186,7 @@ class LocalListActivity : InstanceActivity() {
         TerminalDialog.confirm(
             this,
             UiText.of("拆散文件夹"),
-            "视频会移回未分类区域。",
+            UiText.of("视频会移回未分类区域。"),
             UiText.of("拆散")
         ) {
             disbandFolder(folderIndex)
@@ -591,10 +1198,6 @@ class LocalListActivity : InstanceActivity() {
         val folder = folderList[folderIndex]
         CenterThreadPool.run {
             if (FolderManager.deleteFolder(folder.name)) {
-                // 如果正在查看该文件夹内部，退出
-                if (adapter?.currentFolderName == folder.name) {
-                    runOnUiThread { exitFolder() }
-                }
                 runOnUiThread {
                     MsgUtil.showMsg(UiText.of("文件夹已拆散"))
                     refresh()
@@ -624,7 +1227,7 @@ class LocalListActivity : InstanceActivity() {
                     runOnUiThread { MsgUtil.showMsg(UiText.of("弹幕地址获取失败")) }
                 }
             } catch (e: Exception) {
-                runOnUiThread { MsgUtil.showMsg("弹幕更新失败: ${e.message}") }
+                runOnUiThread { MsgUtil.showMsg(UiText.fmt("弹幕更新失败: %1\$s", e.message)) }
             }
         }
     }
@@ -650,8 +1253,8 @@ class LocalListActivity : InstanceActivity() {
         val danmakuUrl = playerData.danmakuUrl
         if (danmakuUrl.isEmpty()) return false
 
-        // 下载弹幕到本地
-        val videoDir = resolveVideoDir(currentScanRoot(), video)
+        // 下载弹幕到本地（外部条目按它自己的根算：写进对方目录是不允许的，调用方已经拦下了）
+        val videoDir = resolveVideoDir(rootOf(video), video)
         val danmakuFile = File(videoDir, DownloadPathSpec.FILE_DANMAKU)
         downloadDanmakuFile(danmakuUrl, danmakuFile)
 
@@ -659,6 +1262,9 @@ class LocalListActivity : InstanceActivity() {
         if (video.pageList != null && video.pageList!!.isNotEmpty()) {
             for (i in 0 until video.pageList!!.size) {
                 val pageName = video.pageList!![i]
+                // 混合来源的合集（反馈 #217）：外部分支里那几页写不得——那是在别人的数据上动手，
+                // 只更新落在本机根下的页
+                if (CachePageSources.rootOfPage(video, i).isNotEmpty()) continue
                 val pageDir = File(videoDir, pageName)
                 val pageDanmakuFile = File(pageDir, DownloadPathSpec.FILE_DANMAKU)
 
@@ -678,16 +1284,10 @@ class LocalListActivity : InstanceActivity() {
     }
 
     private fun downloadDanmakuFile(url: String, file: File) {
-        NetWorkUtil.get(url).use { response ->
-            // 不判状态码时，404/412 的错误页会被当成弹幕正文写进 danmaku.xml，
-            // 用户看到的是「更新成功」但播放时依旧没有弹幕 —— 和下载服务里的
-            // 审计 M11-f 是同一类坑，改成失败即抛出、由上层提示「弹幕更新失败」。
-            if (!response.isSuccessful) throw java.io.IOException("HTTP " + response.code)
-            val body = response.body ?: throw java.io.IOException("empty body")
-            val data = NetWorkUtil.decompress(body.bytes())
-            if (data.isEmpty()) throw java.io.IOException("empty danmaku")
-            file.writeBytes(data)
-        }
+        // 统一走 DanmakuFileFetcher：非 2xx 时 404/412 的错误页会被当成弹幕正文写进 danmaku.xml，
+        // 用户看到的是「更新成功」但播放时依旧没有弹幕 —— 和下载服务里的审计 M11-f 是同一类坑，
+        // 现在失败即抛 IOException、由上层提示「弹幕更新失败」（调研清单第 1 条收口 4 份副本）。
+        DanmakuFileFetcher.fetchToFile(url, file)
     }
 
     /**
@@ -727,59 +1327,47 @@ class LocalListActivity : InstanceActivity() {
     }
 
     /**
-     * 虚拟合集播放：将文件夹内所有视频组成为合集，传入播放器实现连续播放
+     * 虚拟合集播放：把文件夹内的缓存视频组成**两层嵌套**的连播，与在线收藏夹的虚拟合集同构。
+     *
+     * ```
+     * 根层   [视频A] [视频B(3个P)] [视频C]
+     *                       └─ 选集卡片「进入分P（3）」→ [P1] [P2] [P3]，播完/返回回根层
+     * ```
+     *
+     * 根层一项 = 夹里的一个缓存视频（[LocalPlaylistEntry]），多P 的那一项才能"进得去"。
+     * 播放器按 [LocalPlaylistEntry.EXTRA_LOCAL_PLAYLIST] 里的文件组换页/换条。
+     *
+     * 26.11.13 之前根层每条只塞了一个文件（`pagenames.add(v.title)` + 取第一个 mp4），
+     * `LocalVideo.pageList` 完全没用上，于是文件夹里的多P 缓存只能播 P1（用户报的问题）。
+     *
      * @param folderName 文件夹名称
      * @param startVideoIdx 点击的视频在 videoList 中的索引（作为合集的起始播放位置）
      */
     private fun playVirtualCollection(folderName: String, startVideoIdx: Int) {
-        // 构建合集的分页数据
-        val pagenames = ArrayList<String>()
-        val videoUrlList = ArrayList<String>()
-        val danmakuUrlList = ArrayList<String>()
-        // 与 videoUrlList 一一对应的外部音轨（DASH 双文件的 audio.m4a；单文件为空串）。
-        // 原先只取 mp4 主文件，没合并过的 DASH 缓存在文件夹里播放就没有声音（反馈 #51）。
-        val audioUrlList = ArrayList<String>()
-        // 合集各条在 videoList（全量列表）里的下标，顺序即合集顺序
+        // 根层条目表（顺序即合集顺序）与各条在 videoList（全量列表）里的下标
+        val entries = ArrayList<LocalPlaylistEntry>()
         val collectionIndices = ArrayList<Int>()
         var folderCount = 0
 
-        // 一次遍历同时决定"合集有哪些条"与"四条列表的第几项"：
-        // 没有文件的条目整条不进合集。原先只跳过 videoUrlList、pagenames 照加，
-        // 四条列表长度就不一致了，起播下标会指到别的视频上（反馈 #104）。
+        // 一次遍历同时决定"合集有哪些条"与"按钮下标换算表"：
+        // 没有文件的条目整条不进合集，否则下标会指到别的视频上（反馈 #104）。
         for ((i, v) in videoList.withIndex()) {
             if (v.folderName != folderName) continue
             folderCount++
 
-            val files = v.videoFileList
-            if (files.isNullOrEmpty()) continue
-
+            // 归一逻辑（扁平文件表 → 每页一组）在模型里做成纯函数，单测盖得到
+            val entry = LocalPlaylistEntry.build(
+                v.title, v.pageList, v.videoFileList, v.danmakuFileList, v.cover
+            ) ?: continue
+            entries.add(entry)
             collectionIndices.add(i)
-            pagenames.add(v.title)
-
-            // 单文件或 DASH 双文件
-            if (files.size == 1) {
-                videoUrlList.add(files[0])
-                audioUrlList.add("")
-            } else {
-                // 取第一个 mp4 作为主文件，同目录的 m4a 作为外部音轨
-                videoUrlList.add(files.firstOrNull { it.endsWith(".mp4") } ?: files[0])
-                audioUrlList.add(files.firstOrNull { it.endsWith(".m4a") } ?: "")
-            }
-
-            // 弹幕文件
-            val danmakuFiles = v.danmakuFileList
-            if (!danmakuFiles.isNullOrEmpty()) {
-                danmakuUrlList.add(danmakuFiles[0])
-            } else {
-                danmakuUrlList.add("")
-            }
         }
 
         if (folderCount == 0) {
             MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_004))
             return
         }
-        if (collectionIndices.isEmpty()) {
+        if (entries.isEmpty()) {
             MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_033))
             return
         }
@@ -792,28 +1380,37 @@ class LocalListActivity : InstanceActivity() {
             return
         }
 
-        // 构建 PlayerData，传入所有分页信息
+        // 根层每一条都有至少一页（LocalPlaylistEntry.build 已过滤），起播取它的第一页
+        val startMedia = entries[startPageIndex].mediaAt(0)
+        if (startMedia == null) {
+            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_033))
+            return
+        }
+
+        // 构建 PlayerData。根层的 pagenames 是各条标题（= 选集卡片与自动连播用的"集"），
+        // 换条时读哪个文件由 local_playlist 里那条自己的 mediaAt 决定。
         val playerData = PlayerData(PlayerData.TYPE_LOCAL)
         playerData.title = getString(R.string.uitext_locallistactivity_035, folderName)
         // 起播地址必须跟 currentPageIndex 走同一个下标（反馈 #51）：原先固定取 [0]，
-        // 点 P2 时选集高亮在 P2、实际播的却是 P1
-        playerData.videoUrl = videoUrlList[startPageIndex]
-        playerData.danmakuUrl = danmakuUrlList[startPageIndex]
-        playerData.pagenames = pagenames
+        // 点第 2 条时选集高亮在第 2 条、实际播的却是第 1 条
+        playerData.videoUrl = startMedia.videoFile
+        playerData.danmakuUrl = startMedia.danmakuFile
+        playerData.pagenames = entries.mapTo(ArrayList()) { it.title }
         playerData.cids = ArrayList() // 本地视频不需要cid
         playerData.currentPageIndex = startPageIndex
 
         try {
             val player = PlayerApi.jumpToPlayer(playerData)
-            // 额外传入视频 / 弹幕 / 外部音轨列表，用于本地分页切换
-            player.putExtra("videoFileList", videoUrlList)
-            player.putExtra("danmakuFileList", danmakuUrlList)
-            player.putExtra("audioFileList", audioUrlList)
-            if (audioUrlList[startPageIndex].isNotEmpty()) {
-                player.putExtra("audio_track_url", audioUrlList[startPageIndex])
+            // 根层条目表：播放器靠它判断「这条有几个P / 能否进入分P 层」并换到正确的文件
+            player.putExtra(LocalPlaylistEntry.EXTRA_LOCAL_PLAYLIST, entries)
+            // 合集标题另传一份纯文件夹名：playerData.title 带「合集」后缀，只适合播放页标题
+            player.putExtra(LocalPlaylistEntry.EXTRA_LOCAL_PLAYLIST_TITLE, folderName)
+            // DASH 未合并的缓存：主文件只有视频轨，起播这一页的声音在这条外部音轨里
+            if (startMedia.audioFile.isNotEmpty()) {
+                player.putExtra("audio_track_url", startMedia.audioFile)
             }
             startActivity(player)
-            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_032, folderName, collectionIndices.size))
+            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_032, folderName, entries.size))
         } catch (e: Exception) {
             MsgUtil.err(e)
         }
@@ -826,7 +1423,7 @@ class LocalListActivity : InstanceActivity() {
         TerminalDialog.confirm(
             this,
             UiText.of("删除视频"),
-            "此操作不可恢复。",
+            UiText.of("此操作不可恢复。"),
             UiText.of("删除")
         ) {
             performDelete(video)
@@ -847,6 +1444,10 @@ class LocalListActivity : InstanceActivity() {
      * 逐个删；只要还有候选目录残留就明确提示失败（含目录名），成功才提示成功；两种情况都强制重扫。
      */
     private fun performDelete(video: LocalVideo) {
+        if (!video.externalRoot.isNullOrEmpty()) {
+            MsgUtil.showMsgLong(getString(R.string.msg_cache_external_readonly))
+            return
+        }
         CenterThreadPool.run {
             val failed = deleteVideoFiles(video)
 
@@ -859,6 +1460,7 @@ class LocalListActivity : InstanceActivity() {
                     MsgUtil.showMsgLong(getString(R.string.msg_cache_delete_failed, failed.name))
                 }
                 // 不管成败都重扫：成功要让条目立刻消失，失败要让用户看到它确实还在（而不是骗他删掉了）
+                markFolderPageDirty()
                 refresh()
             }
         }
@@ -872,18 +1474,35 @@ class LocalListActivity : InstanceActivity() {
      * 顺手把它移出文件夹等于又加一次意外）。
      */
     private fun deleteVideoFiles(video: LocalVideo): File? {
-        val root = scannedRoot ?: FileUtil.getVideoDownloadPath()
-        val existingDirs = videoDirCandidates(root, video).filter { it.isDirectory }
-        var remaining: File? = null
-        for (dir in existingDirs) {
-            // 一个删不掉也继续删其它候选（同一部视频可能同时存在清洗前/后的两份目录）
-            if (!FileUtil.deleteFolderRecursively(dir) && remaining == null) remaining = dir
+        // 外部目录只读：删掉的是别的分支的缓存，对方未必知道，一律不动
+        if (!video.externalRoot.isNullOrEmpty()) return File(video.externalRoot)
+
+        // 一条合集可能拆在几个根上（反馈 #217：本机几集 + 旧缓存根的几集），所以按页根分组算。
+        // 但只删本机根那一组：外部那几页属于别的分支的目录，与「外部条目只读」同一条红线
+        // （见 [LocalVideo.externalRoot]），不动它们；删完刷新时它们会以外部条目的形式重新出现。
+        val localRootPath = rootOf(video).path
+        val targets = CachePageSources.deleteTargets(video, localRootPath)
+        var firstFailed: File? = null
+        var partial = false
+        for (target in targets) {
+            if (target.rootPath != localRootPath) continue
+            // 删除计划与详情页共用一份（反馈 #162）：候选目录怎么定位、真实结果怎么分级都收在
+            // CacheDeletePlan 里，这里只做「摘文件夹记录 + 返回第一个失败目录」这两件本页的事
+            val result = CacheDeletePlan.execute(target.rootPath, video.title, target.mediaFilePath)
+            if (result.outcome == CacheDeletePlan.Outcome.PARTIAL_FAILED) {
+                partial = true
+                if (firstFailed == null) firstFailed = result.firstFailedDir
+            }
         }
 
         // 用 removeVideoFromAllFolders 而不是 removeVideoFromFolder——文件夹里存的标题可能是
         // 早期版本写入的原始标题，与磁盘目录名（清洗过）只差几个全角符号，按原文匹配会漏。
-        if (remaining == null) FolderManager.removeVideoFromAllFolders(video.title)
-        return remaining
+        // 判据与原来一致：没有「删不掉的候选目录」就算这条删掉了（含一个候选都没找到的情况，
+        // 那条本来就已经不在磁盘上，正好顺手摘掉记录）。
+        if (!partial) {
+            FolderManager.removeVideoFromAllFolders(video.title)
+        }
+        return firstFailed
     }
 
     private fun showMoveToFolderDialog(videoIndex: Int) {
@@ -896,13 +1515,16 @@ class LocalListActivity : InstanceActivity() {
             return
         }
 
-        val folderNames = folders.map { "${it.name} (${it.getVideoCount()}个视频)" }.toTypedArray()
+        val folderNames = folders.map {
+            UiText.fmt("%1\$s (%2\$d个视频)", it.name, it.getVideoCount())
+        }.toTypedArray()
 
-        showListDialog("移动到文件夹", folderNames.toList()) { which ->
+        showListDialog(UiText.of("移动到文件夹"), folderNames.toList()) { which ->
             CenterThreadPool.run {
                 if (FolderManager.addVideoToFolder(video.title, folders[which].name)) {
                     runOnUiThread {
-                        MsgUtil.showMsg("已移动到「${folders[which].name}」")
+                        MsgUtil.showMsg(UiText.fmt("已移动到「%1\$s」", folders[which].name))
+                        markFolderPageDirty()
                         refresh()
                     }
                 }
@@ -918,6 +1540,7 @@ class LocalListActivity : InstanceActivity() {
             if (FolderManager.removeVideoFromFolder(video.title)) {
                 runOnUiThread {
                     MsgUtil.showMsg(UiText.of("已移出文件夹"))
+                    markFolderPageDirty()
                     refresh()
                 }
             }
@@ -935,6 +1558,7 @@ class LocalListActivity : InstanceActivity() {
         multiSelectBar = findViewById(R.id.multiSelectBar)
         textSelectedCount = findViewById(R.id.textSelectedCount)
         btnMultiSelect = findViewById(R.id.btnMultiSelect)
+        btnMultiSelectAll = findViewById(R.id.btnMultiSelectAll)
         btnMultiOperate = findViewById(R.id.btnMultiOperate)
         btnMultiExit = findViewById(R.id.btnMultiExit)
         btnSort = findViewById(R.id.btnSort)
@@ -942,6 +1566,7 @@ class LocalListActivity : InstanceActivity() {
         btnSearchClear = findViewById(R.id.btnSearchClear)
 
         btnMultiSelect.setOnClickListener { enterSelectionMode() }
+        btnMultiSelectAll.setOnClickListener { toggleSelectAllVisible() }
         btnMultiExit.setOnClickListener { exitSelectionMode() }
         btnMultiOperate.setOnClickListener { showBatchMenu() }
         btnSort.setOnClickListener { if (sortMode) exitSortMode() else enterSortMode() }
@@ -974,12 +1599,19 @@ class LocalListActivity : InstanceActivity() {
             return
         }
 
+        // 从「整条藏起来」变回可见时先把高度还原：收回时被压成 0 的高度会留在 LayoutParams 上，
+        // 不还原就是一条 0 高度、点不到的隐形条
+        val wasHidden = multiSelectBar.visibility != View.VISIBLE
         multiSelectBar.visibility = View.VISIBLE
+        // 多选 / 排序 / 搜索中用户正在用这条，收起来就点不到了（与顶部条「别把正在用的操作条放进来」
+        // 同一考虑）；搜索中尤其如此——列表可能一条都没有，底部「清除」是唯一出口
+        if (wasHidden || selectionMode || sortMode || searchKeyword.isNotEmpty()) expandSelectionBarNow()
         if (sortMode) {
             // 排序模式只需要「提示 + 完成」两个东西：左边复用计数 TextView 显示提示，右边「排序」变「完成」
             textSelectedCount.visibility = View.VISIBLE
             textSelectedCount.text = getString(R.string.text_cache_sort_hint)
             btnMultiSelect.visibility = View.GONE
+            btnMultiSelectAll.visibility = View.GONE
             btnMultiOperate.visibility = View.GONE
             btnMultiExit.visibility = View.GONE
             btnSort.visibility = View.VISIBLE
@@ -995,6 +1627,7 @@ class LocalListActivity : InstanceActivity() {
             btnMultiOperate.visibility = View.GONE
             btnMultiExit.visibility = View.GONE
             btnMultiSelect.visibility = if (canSelect) View.VISIBLE else View.GONE
+            btnMultiSelectAll.visibility = View.GONE
             btnSort.visibility = if (canSelect) View.VISIBLE else View.GONE
             btnSearch.visibility = if (canSelect) View.VISIBLE else View.GONE
             btnSearchClear.visibility = if (searchKeyword.isNotEmpty()) View.VISIBLE else View.GONE
@@ -1005,6 +1638,13 @@ class LocalListActivity : InstanceActivity() {
         textSelectedCount.visibility = View.VISIBLE
         textSelectedCount.text = UiText.fmt("已选 %1\$d 项", count)
         btnMultiSelect.visibility = View.GONE
+        // 全选 / 全不选（反馈 #94）：只作用于「当前看得见」的条目——搜索过滤后就是过滤结果那几条
+        btnMultiSelectAll.visibility = View.VISIBLE
+        btnMultiSelectAll.text = if (isAllVisibleSelected()) {
+            getString(R.string.btn_unselect_all)
+        } else {
+            getString(R.string.btn_select_all)
+        }
         btnMultiOperate.visibility = View.VISIBLE
         btnMultiExit.visibility = View.VISIBLE
         btnSort.visibility = View.GONE
@@ -1014,6 +1654,134 @@ class LocalListActivity : InstanceActivity() {
         btnMultiOperate.alpha = if (count == 0) 0.5f else 1f
     }
 
+    // ---------- 底部条随列表收回（26.11.14 反馈） ----------
+
+    /** 底部条的自然高度。条是 wrap_content，压成 0 之后就量不出来了，所以要记第一次量到的值。 */
+    private var selectionBarHeight = 0
+
+    /** 底部条当前是否处于收回状态。 */
+    private var selectionBarCollapsed = false
+
+    /** 正在跑的收放动画；新手势到来时先取消，免得两条动画抢同一个 height。 */
+    private var selectionBarAnimator: ValueAnimator? = null
+
+    /** 同向累计的滚动量，交给 [ScrollRetractDecider] 判断，避免手一抖条就来回闪。 */
+    private var selectionBarAccum = 0
+
+    /**
+     * 列表滚动时把底部条收走，滚回顶部再展开。
+     *
+     * 「多选 / 排序 / 搜索」这一排和列表不是一个整体（布局里它是 [R.id.swipeRefreshLayout] 的兄弟
+     * 节点，见 activity_simple_main_refresh.xml 的注释），不手动收就会一直钉在屏幕底部吃掉一行高度
+     * ——正是反馈里的「这一常驻栏太占底下的空间」（26.11.14）。判据复用顶部工具条那套
+     * [ScrollRetractDecider]：累计到阈值才动、**只有滚不动了（回到顶部）才展开**，否则条的高度一变
+     * 就把列表内容顶走、和手指打架（26.10.05 的现场）。动画本身在单测里跑不了（View 全是 Android
+     * 桩），所以判断留在纯函数里、这里只负责照着做。
+     *
+     * 多选 / 排序 / 搜索中**不参与**收回：用户正在用这条（与顶部条「别把正在用的操作条放进来」
+     * 同一考虑）。搜索中更得留着——列表可能一条都没有，「清除」是退出去的唯一出口。
+     */
+    private fun handleSelectionBarScroll(dy: Int) {
+        if (!::multiSelectBar.isInitialized) return
+        if (multiSelectBar.visibility != View.VISIBLE || selectionMode || sortMode) return
+        if (searchKeyword.isNotEmpty()) return
+        selectionBarAccum += dy
+        when (ScrollRetractDecider.action(
+            accumulated = selectionBarAccum,
+            collapsed = selectionBarCollapsed,
+            canScrollUp = recyclerView.canScrollVertically(-1)
+        )) {
+            ScrollRetractDecider.COLLAPSE -> {
+                selectionBarAccum = 0
+                animateSelectionBar(collapse = true)
+            }
+
+            ScrollRetractDecider.EXPAND -> {
+                selectionBarAccum = 0
+                animateSelectionBar(collapse = false)
+            }
+        }
+    }
+
+    /** 收回（高度压到 0 并淡出）或展开。单条，不用像顶部工具条那样多条同步。 */
+    private fun animateSelectionBar(collapse: Boolean) {
+        if (collapse == selectionBarCollapsed) return
+        val natural = naturalSelectionBarHeight()
+        if (natural <= 0) return
+
+        // 先摘掉引用再 cancel：cancel() 会**同步**回调旧动画的 onAnimationEnd，
+        // 那时它若还指着旧动画，收尾就会把刚定下的新状态改回去
+        stopSelectionBarAnimator()
+
+        selectionBarCollapsed = collapse
+        val animator = ValueAnimator.ofFloat(if (collapse) 0f else 1f, if (collapse) 1f else 0f)
+        animator.duration = BAR_ANIM_MS
+        animator.addUpdateListener { animation ->
+            val fraction = animation.animatedValue as Float
+            setSelectionBarHeight((natural * (1f - fraction)).toInt())
+            multiSelectBar.alpha = 1f - fraction
+        }
+        animator.addListener(object : AnimatorListenerAdapter() {
+            override fun onAnimationEnd(animation: Animator) {
+                // 被新手势取消掉的旧动画不要收尾，否则会把新状态改成旧的
+                if (selectionBarAnimator !== animation) return
+                selectionBarAnimator = null
+                if (collapse) {
+                    // 收完只留 0 高度，不设 GONE：可见性归 updateSelectionBar 管，
+                    // 这里替它做主（GONE）会和「本该显示」的状态打架
+                    setSelectionBarHeight(0)
+                    multiSelectBar.alpha = 0f
+                } else {
+                    expandSelectionBarNow()
+                }
+            }
+        })
+        selectionBarAnimator = animator
+        animator.start()
+    }
+
+    /**
+     * 立刻还原成自然高度（不带动画，幂等）。
+     *
+     * 用在「用户要操作这条」和「条刚从隐藏变回可见」两种场合：收回的高度留在 LayoutParams 上，
+     * 不还原就是一条 0 高度、点不到的隐形条。
+     */
+    private fun expandSelectionBarNow() {
+        stopSelectionBarAnimator()
+        selectionBarCollapsed = false
+        selectionBarAccum = 0
+        multiSelectBar.alpha = 1f
+        resetSelectionBarHeight()
+    }
+
+    private fun stopSelectionBarAnimator() {
+        val running = selectionBarAnimator
+        selectionBarAnimator = null
+        running?.cancel()
+    }
+
+    /** 把条的高度改成指定值（保留其它 LayoutParams）。 */
+    private fun setSelectionBarHeight(height: Int) {
+        val lp = multiSelectBar.layoutParams ?: return
+        lp.height = height
+        multiSelectBar.layoutParams = lp
+    }
+
+    /** 还原成 `wrap_content`。 */
+    private fun resetSelectionBarHeight() {
+        val lp = multiSelectBar.layoutParams ?: return
+        lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
+        multiSelectBar.layoutParams = lp
+    }
+
+    /** 条的自然高度：只在它正常显示时量得到，所以第一次量到就缓存。 */
+    private fun naturalSelectionBarHeight(): Int {
+        if (selectionBarHeight > 0) return selectionBarHeight
+        val measured = if (multiSelectBar.height > 0) multiSelectBar.height else multiSelectBar.measuredHeight
+        if (measured > 0) selectionBarHeight = measured
+        return measured
+    }
+
     private fun hasSelectableItems(): Boolean {
         val inFolder = adapter?.currentFolderName ?: ""
         return if (inFolder.isEmpty()) {
@@ -1021,6 +1789,61 @@ class LocalListActivity : InstanceActivity() {
         } else {
             videoList.any { it.folderName == inFolder }
         }
+    }
+
+    // ---------- 全选 / 全不选（26.11.11，反馈 #94） ----------
+
+    /**
+     * 当前列表里「看得见、能勾」的条目：顶层是未分类视频（一条都没有时退化成全部文件夹），
+     * 文件夹内是夹内视频；搜索中只算匹配关键词的那几条（与适配器 `LocalListSort.matches` 同一口径）。
+     *
+     * 顶层为什么不同时勾文件夹和视频：批量操作一次只做同类（[showBatchMenu] 遇到混选直接
+     * 提示「先取消一种」），一次勾满两类会让用户点「操作」先吃一句拒绝。所以视频优先，
+     * 一条未分类视频都没有时才勾文件夹。
+     */
+    private fun visibleSelectableItems(): Pair<Set<String>, Set<String>> {
+        val inFolder = adapter?.currentFolderName ?: ""
+        val folders = LinkedHashSet<String>()
+        val videos = LinkedHashSet<String>()
+        if (inFolder.isEmpty()) {
+            for (video in videoList) {
+                if (!video.folderName.isNullOrEmpty()) continue
+                if (LocalListSort.matches(video.title, searchKeyword)) videos.add(video.title)
+            }
+            if (videos.isEmpty()) {
+                for (folder in folderList) {
+                    if (LocalListSort.matches(folder.name, searchKeyword)) folders.add(folder.name)
+                }
+            }
+        } else {
+            for (video in videoList) {
+                if (video.folderName != inFolder) continue
+                if (LocalListSort.matches(video.title, searchKeyword)) videos.add(video.title)
+            }
+        }
+        return folders to videos
+    }
+
+    private fun isAllVisibleSelected(): Boolean {
+        val (folders, videos) = visibleSelectableItems()
+        if (folders.isEmpty() && videos.isEmpty()) return false
+        return selectedFolderNames.containsAll(folders) && selectedVideoTitles.containsAll(videos)
+    }
+
+    /** 全选 / 全不选：已经全勾中时清空勾选，否则把看得见的条目一次勾上。 */
+    private fun toggleSelectAllVisible() {
+        if (!selectionMode) return
+        val (folders, videos) = visibleSelectableItems()
+        if (folders.isEmpty() && videos.isEmpty()) return
+        if (selectedFolderNames.containsAll(folders) && selectedVideoTitles.containsAll(videos)) {
+            selectedFolderNames.clear()
+            selectedVideoTitles.clear()
+        } else {
+            selectedFolderNames.addAll(folders)
+            selectedVideoTitles.addAll(videos)
+        }
+        adapter?.notifyDataSetChanged()
+        updateSelectionBar()
     }
 
     private fun enterSelectionMode() {
@@ -1091,30 +1914,46 @@ class LocalListActivity : InstanceActivity() {
         }
 
         val inFolder = adapter?.currentFolderName?.isNotEmpty() == true
-        val items = if (selectedFolderNames.isNotEmpty()) {
-            listOf(UiText.of("拆散文件夹"))
+        // 勾选里混了外部条目：它们唯一能做的就是「迁移到本应用」（见 LocalVideo.externalRoot），
+        // 所以菜单第一条按需给出来，其余批量操作照旧只作用于本机条目
+        val externalSelected = if (selectedFolderNames.isEmpty()) {
+            selectedVideos().filter { !it.externalRoot.isNullOrEmpty() }
         } else {
-            listOf(
-                UiText.of("删除视频"),
-                UiText.of("更新弹幕"),
-                if (inFolder) UiText.of("移出文件夹") else UiText.of("添加到文件夹")
+            emptyList()
+        }
+        val ops = ArrayList<Pair<String, () -> Unit>>()
+        if (selectedFolderNames.isNotEmpty()) {
+            ops.add(UiText.of("拆散文件夹") to { confirmBatchDisband() })
+        } else {
+            if (externalSelected.isNotEmpty()) {
+                ops.add(
+                    UiText.fmt("迁移到本应用（%1\$d 条）", externalSelected.size) to {
+                        confirmMigrate(externalSelected)
+                    }
+                )
+            }
+            ops.add(UiText.of("删除视频") to { confirmBatchDelete() })
+            ops.add(UiText.of("更新弹幕") to { performBatchUpdateDanmaku() })
+            ops.add(
+                (if (inFolder) UiText.of("移出文件夹") else UiText.of("添加到文件夹")) to {
+                    if (inFolder) performBatchRemoveFromFolder() else showBatchMoveDialog()
+                }
             )
         }
-        val danger = if (selectedFolderNames.isEmpty()) setOf(0) else emptySet<Int>()
+        // 危险项只有「删除视频」；它在不在第 0 位取决于有没有外部条目可迁移
+        val danger = if (selectedFolderNames.isEmpty()) {
+            setOf(if (externalSelected.isNotEmpty()) 1 else 0)
+        } else {
+            emptySet<Int>()
+        }
 
         TerminalDialog.menu(
             this,
             UiText.fmt("已选 %1\$d 项", count),
-            items,
+            ops.map { it.first },
             danger = danger
         ) { which ->
-            when {
-                selectedFolderNames.isNotEmpty() -> confirmBatchDisband()
-                which == 0 -> confirmBatchDelete()
-                which == 1 -> performBatchUpdateDanmaku()
-                inFolder -> performBatchRemoveFromFolder()
-                else -> showBatchMoveDialog()
-            }
+            ops.getOrNull(which)?.second?.invoke()
         }.show()
     }
 
@@ -1136,19 +1975,33 @@ class LocalListActivity : InstanceActivity() {
     private fun performBatchDelete() {
         val videos = selectedVideos()
         if (videos.isEmpty()) return
+        // 外部条目只读（见 LocalVideo.externalRoot）：整批都是外部的就当没这回事，混选里跳过它们，
+        // 免得「删除」按到别的分支的数据上、对方还不知道
+        val targets = videos.filter { it.externalRoot.isNullOrEmpty() }
+        val skipped = videos.size - targets.size
+        if (targets.isEmpty()) {
+            MsgUtil.showMsgLong(getString(R.string.msg_cache_external_readonly))
+            return
+        }
         CenterThreadPool.run {
             var ok = 0
             var failed = 0
-            for (video in videos) {
+            for (video in targets) {
                 if (deleteVideoFiles(video) == null) ok++ else failed++
             }
             runOnUiThread {
                 exitSelectionMode()
+                markFolderPageDirty()
                 refresh()
-                if (failed == 0) {
-                    MsgUtil.showMsg(UiText.fmt("已删除 %1\$d 条", ok))
-                } else {
-                    MsgUtil.showMsgLong(UiText.fmt("已删除 %1\$d 条，%2\$d 条失败", ok, failed))
+                when {
+                    failed == 0 && skipped == 0 -> MsgUtil.showMsg(UiText.fmt("已删除 %1\$d 条", ok))
+                    failed == 0 -> MsgUtil.showMsg(
+                        getString(R.string.msg_cache_deleted_skipped_external, ok, skipped)
+                    )
+                    skipped == 0 -> MsgUtil.showMsgLong(UiText.fmt("已删除 %1\$d 条，%2\$d 条失败", ok, failed))
+                    else -> MsgUtil.showMsgLong(
+                        getString(R.string.msg_cache_deleted_failed_skipped_external, ok, failed, skipped)
+                    )
                 }
             }
         }
@@ -1157,7 +2010,8 @@ class LocalListActivity : InstanceActivity() {
     // ---------- 批量更新弹幕 ----------
 
     private fun performBatchUpdateDanmaku() {
-        val videos = selectedVideos()
+        // 外部目录只读：更新弹幕要往对方目录写 danmaku.xml，与删除同一口径，跳过
+        val videos = selectedVideos().filter { it.externalRoot.isNullOrEmpty() }
         if (videos.isEmpty()) return
         MsgUtil.showMsg(UiText.of("正在更新弹幕..."))
         CenterThreadPool.run {
@@ -1185,8 +2039,14 @@ class LocalListActivity : InstanceActivity() {
     // ---------- 批量移动到文件夹 / 移出文件夹 ----------
 
     private fun showBatchMoveDialog() {
-        val titles = selectedVideoTitles.toList()
-        if (titles.isEmpty()) return
+        // 外部条目只读（见 LocalVideo.externalRoot）：文件夹记录是按标题存的，把对方的标题写进来
+        // 只会在本机凭空造出一条「夹里有、列表里没有」的记录，以后同名的本机视频还会被它拽进夹里
+        val externalTitles = videoList.filter { !it.externalRoot.isNullOrEmpty() }.map { it.title }.toSet()
+        val titles = selectedVideoTitles.filter { !externalTitles.contains(it) }
+        if (titles.isEmpty()) {
+            MsgUtil.showMsgLong(getString(R.string.msg_cache_external_move_blocked))
+            return
+        }
 
         val folders = FolderManager.getAllFolders()
         if (folders.isEmpty()) {
@@ -1194,13 +2054,16 @@ class LocalListActivity : InstanceActivity() {
             return
         }
 
-        val folderNames = folders.map { "${it.name} (${it.getVideoCount()}个视频)" }
-        showListDialog("移动到文件夹", folderNames) { which ->
+        val folderNames = folders.map {
+            UiText.fmt("%1\$s (%2\$d个视频)", it.name, it.getVideoCount())
+        }
+        showListDialog(UiText.of("移动到文件夹"), folderNames) { which ->
             val target = folders.getOrNull(which) ?: return@showListDialog
             CenterThreadPool.run {
                 for (title in titles) FolderManager.addVideoToFolder(title, target.name)
                 runOnUiThread {
                     exitSelectionMode()
+                    markFolderPageDirty()
                     refresh()
                     MsgUtil.showMsg(UiText.fmt("已移动到「%1\$s」", target.name))
                 }
@@ -1215,6 +2078,7 @@ class LocalListActivity : InstanceActivity() {
             for (title in titles) FolderManager.removeVideoFromFolder(title)
             runOnUiThread {
                 exitSelectionMode()
+                markFolderPageDirty()
                 refresh()
                 MsgUtil.showMsg(UiText.of("已移出文件夹"))
             }
@@ -1278,11 +2142,12 @@ class LocalListActivity : InstanceActivity() {
     }
 
     private fun readVideoMeta(video: LocalVideo): VideoMeta {
-        return VideoMetaManager.readMeta(resolveVideoDir(currentScanRoot(), video))
+        return VideoMetaManager.readMeta(resolveVideoDir(rootOf(video), video))
     }
 
     fun refresh() {
-        if (!started) return
+        // 页面正在退出（例如切栏目时整条链被收掉）就不要再起后台扫描：结果只会打在一张要销毁的页面上
+        if (!started || isFinishing) return
         CenterThreadPool.run {
             runOnUiThread { swipeRefreshLayout.setRefreshing(true) }
             loadData()
@@ -1296,9 +2161,30 @@ class LocalListActivity : InstanceActivity() {
                 // 重扫后可能有条目已经不在了（删掉 / 被移走）：勾选集合跟着收缩，底部计数才不会虚高
                 pruneSelection()
                 updateSelectionBar()
+                // 重扫完再强制展开一次：收起 / 展开全靠滚动事件驱动，而「列表内容整批换掉」未必
+                // 产生滚动事件，条就会停在 0 高度（RefreshListActivity 顶部条也记过同一条教训）
+                if (::multiSelectBar.isInitialized && multiSelectBar.visibility == View.VISIBLE) {
+                    expandSelectionBarNow()
+                }
                 swipeRefreshLayout.setRefreshing(false)
             }
         }
+    }
+
+    /**
+     * 外部入口（下载完成、分 P 页删除）改了缓存数据后调用：重扫本页，并记下「有改动」。
+     *
+     * 与 [refresh] 分开：[refresh] 本身不代表数据变了（下拉刷新、onResume 里换根目录都不是），
+     * 只有真正改过数据的路径才该让缓存页在退回时重扫，否则「有改动才重扫」的口径就失效了。
+     */
+    fun refreshAfterExternalChange() {
+        markFolderPageDirty()
+        refresh()
+    }
+
+    /** 文件夹页里真的改了数据（删 / 移走视频等）：退回缓存页时要让它重扫。顶层页不需要。 */
+    private fun markFolderPageDirty() {
+        if (isFolderPage) folderPageDirty = true
     }
 
     @Deprecated("Deprecated in Java")
@@ -1313,11 +2199,31 @@ class LocalListActivity : InstanceActivity() {
             exitSelectionMode()
             return
         }
-        if (adapter?.currentFolderName?.isNotEmpty() == true) {
-            exitFolder()
-        } else {
-            super.onBackPressed()
+        // 文件夹页与缓存顶层页都走这里：右滑 / 返回键就是离开本页，
+        // 不再需要在同一个 Activity 里把列表换回顶层（那正是反馈里「退出卡住」的来源）
+        super.onBackPressed()
+    }
+
+    /**
+     * 文件夹页带着「有没有改动」退回缓存页。
+     *
+     * 右滑返回、返回键、顶栏箭头、点分区标题最后都走 [finish]，所以结果在这里统一设置，
+     * 不用在每条退出路径上各写一遍：有改动才让缓存页重扫，没改动就直接显示它原来那张表。
+     */
+    override fun finish() {
+        if (isFolderPage && folderPageDirty) setResult(RESULT_OK)
+        super.finish()
+    }
+
+    override fun onDestroy() {
+        // 文件夹页关掉后，把「最近实例」还给下面那层缓存页：菜单切换、下载完成都靠
+        // BiliTerminal.getInstanceActivityOnTop() 找当前缓存页，留着已销毁的文件夹页会让它们全部落空。
+        // 必须确认「最近实例」还是自己：切栏目 / recreate() 时新页面会先登记自己，
+        // 这里再无条件写回缓存页就会把新页面的登记覆盖掉（DownloadService 会去刷那张不可见的页）。
+        if (isFolderPage && BiliTerminal.getInstanceActivityOnTop() === this) {
+            cachePageRef?.get()?.takeIf { !it.isDestroyed }?.let { BiliTerminal.setInstance(it) }
         }
+        super.onDestroy()
     }
 
     // ===================== 对话框辅助方法 =====================

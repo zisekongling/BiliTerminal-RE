@@ -206,4 +206,228 @@
         <item name="materialCardViewStyle">@style/CardStyleTerminal.Glass</item>
         <item name="materialButtonStyle">@style/ButtonStyleTerminal.Glass</item>
     </style>
+
+    <!-- ============================================================================
+         「玻璃质感预设」专用样式（26.11.21）
+         基础覆盖层（上面那套 GlassOverlay.<X>）给的是默认档「主次分明」：
+         卡片 = 背景色形态（glass_card_*），按钮 / 三连卡片 / 选中 = 主题色形态（glass_btn_bg_fill_*）。
+         下面每套主题补两档：
+         - ButtonStyle<X>.GlassQuiet → 「稳扎稳打」：按钮也降成卡片色，描边换柔和的 glass_stroke_*；
+         - CardStyle<X>.GlassVivid   → 「晶莹剔透」：卡片也升成主色淡底，描边同样用柔和的（大面积用
+           60% 亮边会像被框住的按钮）。
+         再由 GlassPresetOverlay.<X>.<Steady|Crystal> 把四个 attr 与两个组件样式一并改掉。
+         默认档不叠这一层，所以它对老用户零影响、零开销。
+         ⚠️ 第二层的 applyStyle 会覆盖同名项，所以每个覆盖层都写全六个槽位，方便逐行对照，
+            不靠「跟基础层求差集」来读。
+         ============================================================================ -->
+
+    <!-- B站粉 -->
+    <style name="CardStyle.GlassVivid" parent="CardStyle.Glass">
+        <item name="cardBackgroundColor">@color/glass_btn_bg_fill_pink</item>
+    </style>
+
+    <style name="ButtonStyle.GlassQuiet" parent="ButtonStyle.Glass">
+        <item name="backgroundTint">@color/glass_btn_bg_quiet_pink</item>
+        <item name="strokeColor">@color/glass_stroke_pink</item>
+    </style>
+
+    <!-- 稳扎稳打：卡片、动作卡片、次要按钮全部 = 卡片色；按钮换成 GlassQuiet -->
+    <style name="GlassPresetOverlay.Pink.Steady" parent="">
+        <item name="choiceCardColor">@color/glass_card_pink</item>
+        <item name="actionCardColor">@color/glass_card_pink</item>
+        <item name="actionCardStroke">@color/glass_stroke_pink</item>
+        <item name="secondaryButtonTint">@color/glass_card_pink</item>
+        <item name="materialCardViewStyle">@style/CardStyle.Glass</item>
+        <item name="materialButtonStyle">@style/ButtonStyle.GlassQuiet</item>
+    </style>
+
+    <!-- 晶莹剔透：卡片、选择卡片、次要按钮全部 = 主色淡底；按钮保持 Glass（本来就是主题色形态） -->
+    <style name="GlassPresetOverlay.Pink.Crystal" parent="">
+        <item name="choiceCardColor">@color/glass_btn_bg_fill_pink</item>
+        <item name="actionCardColor">@color/glass_btn_bg_fill_pink</item>
+        <item name="actionCardStroke">@color/glass_btn_stroke_pink</item>
+        <item name="secondaryButtonTint">@color/glass_btn_bg_fill_pink</item>
+        <item name="materialCardViewStyle">@style/CardStyle.GlassVivid</item>
+        <item name="materialButtonStyle">@style/ButtonStyle.Glass</item>
+    </style>
+
+    <!-- 知乎蓝 -->
+    <style name="CardStyleZhihu.GlassVivid" parent="CardStyleZhihu.Glass">
+        <item name="cardBackgroundColor">@color/glass_btn_bg_fill_zhihu</item>
+    </style>
+
+    <style name="ButtonStyleZhihu.GlassQuiet" parent="ButtonStyleZhihu.Glass">
+        <item name="backgroundTint">@color/glass_btn_bg_quiet_zhihu</item>
+        <item name="strokeColor">@color/glass_stroke_zhihu</item>
+    </style>
+
+    <!-- 稳扎稳打：卡片、动作卡片、次要按钮全部 = 卡片色；按钮换成 GlassQuiet -->
+    <style name="GlassPresetOverlay.Zhihu.Steady" parent="">
+        <item name="choiceCardColor">@color/glass_card_zhihu</item>
+        <item name="actionCardColor">@color/glass_card_zhihu</item>
+        <item name="actionCardStroke">@color/glass_stroke_zhihu</item>
+        <item name="secondaryButtonTint">@color/glass_card_zhihu</item>
+        <item name="materialCardViewStyle">@style/CardStyleZhihu.Glass</item>
+        <item name="materialButtonStyle">@style/ButtonStyleZhihu.GlassQuiet</item>
+    </style>
+
+    <!-- 晶莹剔透：卡片、选择卡片、次要按钮全部 = 主色淡底；按钮保持 Glass（本来就是主题色形态） -->
+    <style name="GlassPresetOverlay.Zhihu.Crystal" parent="">
+        <item name="choiceCardColor">@color/glass_btn_bg_fill_zhihu</item>
+        <item name="actionCardColor">@color/glass_btn_bg_fill_zhihu</item>
+        <item name="actionCardStroke">@color/glass_btn_stroke_zhihu</item>
+        <item name="secondaryButtonTint">@color/glass_btn_bg_fill_zhihu</item>
+        <item name="materialCardViewStyle">@style/CardStyleZhihu.GlassVivid</item>
+        <item name="materialButtonStyle">@style/ButtonStyleZhihu.Glass</item>
+    </style>
+
+    <!-- 爱奇艺绿 -->
+    <style name="CardStyleIQIYI.GlassVivid" parent="CardStyleIQIYI.Glass">
+        <item name="cardBackgroundColor">@color/glass_btn_bg_fill_iqiyi</item>
+    </style>
+
+    <style name="ButtonStyleIQIYI.GlassQuiet" parent="ButtonStyleIQIYI.Glass">
+        <item name="backgroundTint">@color/glass_btn_bg_quiet_iqiyi</item>
+        <item name="strokeColor">@color/glass_stroke_iqiyi</item>
+    </style>
+
+    <!-- 稳扎稳打：卡片、动作卡片、次要按钮全部 = 卡片色；按钮换成 GlassQuiet -->
+    <style name="GlassPresetOverlay.IQIYI.Steady" parent="">
+        <item name="choiceCardColor">@color/glass_card_iqiyi</item>
+        <item name="actionCardColor">@color/glass_card_iqiyi</item>
+        <item name="actionCardStroke">@color/glass_stroke_iqiyi</item>
+        <item name="secondaryButtonTint">@color/glass_card_iqiyi</item>
+        <item name="materialCardViewStyle">@style/CardStyleIQIYI.Glass</item>
+        <item name="materialButtonStyle">@style/ButtonStyleIQIYI.GlassQuiet</item>
+    </style>
+
+    <!-- 晶莹剔透：卡片、选择卡片、次要按钮全部 = 主色淡底；按钮保持 Glass（本来就是主题色形态） -->
+    <style name="GlassPresetOverlay.IQIYI.Crystal" parent="">
+        <item name="choiceCardColor">@color/glass_btn_bg_fill_iqiyi</item>
+        <item name="actionCardColor">@color/glass_btn_bg_fill_iqiyi</item>
+        <item name="actionCardStroke">@color/glass_btn_stroke_iqiyi</item>
+        <item name="secondaryButtonTint">@color/glass_btn_bg_fill_iqiyi</item>
+        <item name="materialCardViewStyle">@style/CardStyleIQIYI.GlassVivid</item>
+        <item name="materialButtonStyle">@style/ButtonStyleIQIYI.Glass</item>
+    </style>
+
+    <!-- 紫色空灵 -->
+    <style name="CardStylePurpleFantasy.GlassVivid" parent="CardStylePurpleFantasy.Glass">
+        <item name="cardBackgroundColor">@color/glass_btn_bg_fill_purple_fantasy</item>
+    </style>
+
+    <style name="ButtonStylePurpleFantasy.GlassQuiet" parent="ButtonStylePurpleFantasy.Glass">
+        <item name="backgroundTint">@color/glass_btn_bg_quiet_purple_fantasy</item>
+        <item name="strokeColor">@color/glass_stroke_purple_fantasy</item>
+    </style>
+
+    <!-- 稳扎稳打：卡片、动作卡片、次要按钮全部 = 卡片色；按钮换成 GlassQuiet -->
+    <style name="GlassPresetOverlay.PurpleFantasy.Steady" parent="">
+        <item name="choiceCardColor">@color/glass_card_purple_fantasy</item>
+        <item name="actionCardColor">@color/glass_card_purple_fantasy</item>
+        <item name="actionCardStroke">@color/glass_stroke_purple_fantasy</item>
+        <item name="secondaryButtonTint">@color/glass_card_purple_fantasy</item>
+        <item name="materialCardViewStyle">@style/CardStylePurpleFantasy.Glass</item>
+        <item name="materialButtonStyle">@style/ButtonStylePurpleFantasy.GlassQuiet</item>
+    </style>
+
+    <!-- 晶莹剔透：卡片、选择卡片、次要按钮全部 = 主色淡底；按钮保持 Glass（本来就是主题色形态） -->
+    <style name="GlassPresetOverlay.PurpleFantasy.Crystal" parent="">
+        <item name="choiceCardColor">@color/glass_btn_bg_fill_purple_fantasy</item>
+        <item name="actionCardColor">@color/glass_btn_bg_fill_purple_fantasy</item>
+        <item name="actionCardStroke">@color/glass_btn_stroke_purple_fantasy</item>
+        <item name="secondaryButtonTint">@color/glass_btn_bg_fill_purple_fantasy</item>
+        <item name="materialCardViewStyle">@style/CardStylePurpleFantasy.GlassVivid</item>
+        <item name="materialButtonStyle">@style/ButtonStylePurpleFantasy.Glass</item>
+    </style>
+
+    <!-- 五彩斑斓 -->
+    <style name="CardStyleRainbow.GlassVivid" parent="CardStyleRainbow.Glass">
+        <item name="cardBackgroundColor">@color/glass_btn_bg_fill_rainbow</item>
+    </style>
+
+    <style name="ButtonStyleRainbow.GlassQuiet" parent="ButtonStyleRainbow.Glass">
+        <item name="backgroundTint">@color/glass_btn_bg_quiet_rainbow</item>
+        <item name="strokeColor">@color/glass_stroke_rainbow</item>
+    </style>
+
+    <!-- 稳扎稳打：卡片、动作卡片、次要按钮全部 = 卡片色；按钮换成 GlassQuiet -->
+    <style name="GlassPresetOverlay.Rainbow.Steady" parent="">
+        <item name="choiceCardColor">@color/glass_card_rainbow</item>
+        <item name="actionCardColor">@color/glass_card_rainbow</item>
+        <item name="actionCardStroke">@color/glass_stroke_rainbow</item>
+        <item name="secondaryButtonTint">@color/glass_card_rainbow</item>
+        <item name="materialCardViewStyle">@style/CardStyleRainbow.Glass</item>
+        <item name="materialButtonStyle">@style/ButtonStyleRainbow.GlassQuiet</item>
+    </style>
+
+    <!-- 晶莹剔透：卡片、选择卡片、次要按钮全部 = 主色淡底；按钮保持 Glass（本来就是主题色形态） -->
+    <style name="GlassPresetOverlay.Rainbow.Crystal" parent="">
+        <item name="choiceCardColor">@color/glass_btn_bg_fill_rainbow</item>
+        <item name="actionCardColor">@color/glass_btn_bg_fill_rainbow</item>
+        <item name="actionCardStroke">@color/glass_btn_stroke_rainbow</item>
+        <item name="secondaryButtonTint">@color/glass_btn_bg_fill_rainbow</item>
+        <item name="materialCardViewStyle">@style/CardStyleRainbow.GlassVivid</item>
+        <item name="materialButtonStyle">@style/ButtonStyleRainbow.Glass</item>
+    </style>
+
+    <!-- 经典灰 -->
+    <style name="CardStyleClassicGray.GlassVivid" parent="CardStyleClassicGray.Glass">
+        <item name="cardBackgroundColor">@color/glass_btn_bg_fill_classic_gray</item>
+    </style>
+
+    <style name="ButtonStyleClassicGray.GlassQuiet" parent="ButtonStyleClassicGray.Glass">
+        <item name="backgroundTint">@color/glass_btn_bg_quiet_classic_gray</item>
+        <item name="strokeColor">@color/glass_stroke_classic_gray</item>
+    </style>
+
+    <!-- 稳扎稳打：卡片、动作卡片、次要按钮全部 = 卡片色；按钮换成 GlassQuiet -->
+    <style name="GlassPresetOverlay.ClassicGray.Steady" parent="">
+        <item name="choiceCardColor">@color/glass_card_classic_gray</item>
+        <item name="actionCardColor">@color/glass_card_classic_gray</item>
+        <item name="actionCardStroke">@color/glass_stroke_classic_gray</item>
+        <item name="secondaryButtonTint">@color/glass_card_classic_gray</item>
+        <item name="materialCardViewStyle">@style/CardStyleClassicGray.Glass</item>
+        <item name="materialButtonStyle">@style/ButtonStyleClassicGray.GlassQuiet</item>
+    </style>
+
+    <!-- 晶莹剔透：卡片、选择卡片、次要按钮全部 = 主色淡底；按钮保持 Glass（本来就是主题色形态） -->
+    <style name="GlassPresetOverlay.ClassicGray.Crystal" parent="">
+        <item name="choiceCardColor">@color/glass_btn_bg_fill_classic_gray</item>
+        <item name="actionCardColor">@color/glass_btn_bg_fill_classic_gray</item>
+        <item name="actionCardStroke">@color/glass_btn_stroke_classic_gray</item>
+        <item name="secondaryButtonTint">@color/glass_btn_bg_fill_classic_gray</item>
+        <item name="materialCardViewStyle">@style/CardStyleClassicGray.GlassVivid</item>
+        <item name="materialButtonStyle">@style/ButtonStyleClassicGray.Glass</item>
+    </style>
+
+    <!-- 经典终端 -->
+    <style name="CardStyleTerminal.GlassVivid" parent="CardStyleTerminal.Glass">
+        <item name="cardBackgroundColor">@color/glass_btn_bg_fill_terminal</item>
+    </style>
+
+    <style name="ButtonStyleTerminal.GlassQuiet" parent="ButtonStyleTerminal.Glass">
+        <item name="backgroundTint">@color/glass_btn_bg_quiet_terminal</item>
+        <item name="strokeColor">@color/glass_stroke_terminal</item>
+    </style>
+
+    <!-- 稳扎稳打：卡片、动作卡片、次要按钮全部 = 卡片色；按钮换成 GlassQuiet -->
+    <style name="GlassPresetOverlay.Terminal.Steady" parent="">
+        <item name="choiceCardColor">@color/glass_card_terminal</item>
+        <item name="actionCardColor">@color/glass_card_terminal</item>
+        <item name="actionCardStroke">@color/glass_stroke_terminal</item>
+        <item name="secondaryButtonTint">@color/glass_card_terminal</item>
+        <item name="materialCardViewStyle">@style/CardStyleTerminal.Glass</item>
+        <item name="materialButtonStyle">@style/ButtonStyleTerminal.GlassQuiet</item>
+    </style>
+
+    <!-- 晶莹剔透：卡片、选择卡片、次要按钮全部 = 主色淡底；按钮保持 Glass（本来就是主题色形态） -->
+    <style name="GlassPresetOverlay.Terminal.Crystal" parent="">
+        <item name="choiceCardColor">@color/glass_btn_bg_fill_terminal</item>
+        <item name="actionCardColor">@color/glass_btn_bg_fill_terminal</item>
+        <item name="actionCardStroke">@color/glass_btn_stroke_terminal</item>
+        <item name="secondaryButtonTint">@color/glass_btn_bg_fill_terminal</item>
+        <item name="materialCardViewStyle">@style/CardStyleTerminal.GlassVivid</item>
+        <item name="materialButtonStyle">@style/ButtonStyleTerminal.Glass</item>
+    </style>
 </resources>

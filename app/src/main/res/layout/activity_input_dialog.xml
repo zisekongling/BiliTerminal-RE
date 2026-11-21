@@ -47,28 +47,40 @@
             android:textSize="11sp"
             android:visibility="gone" />
 
-        <LinearLayout
+        <!--
+          按钮区（26.11.14 改，同 #161 弹窗按钮改版）：原来是一行横向 LinearLayout + 两个右对齐的
+          窄 MaterialButton，这类手表 ROM 存在「点按钮判定到旁边」的输入偏移（#54 实测、#161 的
+          「点取消却是删除」），窄按钮并排就必然会点到隔壁。改成**每个按钮独占一整行、纵向堆叠**，
+          行内任意横向位置都是同一个动作，偏移不再有害；顺带消掉左侧那片死区（`gravity="end"` 把
+          两个窄按钮都挤在行尾，行首那一大片点是空的）。
+
+          代价是按钮区从一行变两行，页面多占约 48dp——根是 RotaryScrollView，放不下时可以滚，
+          短屏上要人看一眼会不会把输入框挤小。
+        -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="8dp"
+            android:alpha="0.18"
+            android:background="?attr/colorOnSurface" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_cancel"
+            android:text="@string/btn_cancel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="5dp"
-            android:orientation="horizontal"
-            android:gravity="end">
+            android:alpha="0.65"
+            android:gravity="center"
+            android:minHeight="@dimen/dialog_item_min_height"
+            style="@style/Widget.Material3.Button.TextButton" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_cancel"
-                android:text="@string/btn_cancel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:alpha="0.65"
-                style="@style/Widget.Material3.Button.TextButton" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_confirm"
-                android:text="@string/uitext_favoritevideolistactivity_016"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                style="@style/Widget.Material3.Button.TextButton" />
-        </LinearLayout>
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_confirm"
+            android:text="@string/uitext_favoritevideolistactivity_016"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:minHeight="@dimen/dialog_item_min_height"
+            style="@style/Widget.Material3.Button.TextButton" />
     </LinearLayout>
 </com.RobinNotBad.BiliClient.ui.widget.RotaryScrollView>

@@ -152,15 +152,22 @@ class SubscriptionApiTest {
         assertEquals("data=null 不崩溃", 0, SubscriptionApi.parseFolderFavState(null))
     }
 
-    /** `x/space/fav/season/list` 的 `data.info.fav_state`；info 缺失也不能崩。 */
+    /**
+     * `x/space/fav/season/list` 的 `data.info.fav_state`。
+     *
+     * <p>「字段不存在」必须回 -1 而不是 0——调用方靠这个区分「未订阅」和「服务端没给」，
+     * 后者要回退翻「我的订阅」列表去查，前者不能回退。
+     */
     @Test
-    fun parseSeasonFavState_readsInfoFavState() {
+    fun parseSeasonFavStateOrUnknown_keepsUnknownApartFromUnsubscribed() {
         assertEquals("info.fav_state=1 已订阅", 1,
-            SubscriptionApi.parseSeasonFavState(JSONObject("""{"info":{"fav_state":1},"medias":[]}""")))
+            SubscriptionApi.parseSeasonFavStateOrUnknown(JSONObject("""{"info":{"fav_state":1},"medias":[]}""")))
         assertEquals("info.fav_state=0 未订阅", 0,
-            SubscriptionApi.parseSeasonFavState(JSONObject("""{"info":{"fav_state":0}}""")))
-        assertEquals("没有 info 按未订阅", 0,
-            SubscriptionApi.parseSeasonFavState(JSONObject("""{"medias":[]}""")))
-        assertEquals("data=null 不崩溃", 0, SubscriptionApi.parseSeasonFavState(null))
+            SubscriptionApi.parseSeasonFavStateOrUnknown(JSONObject("""{"info":{"fav_state":0}}""")))
+        assertEquals("没有 info = 未知", -1,
+            SubscriptionApi.parseSeasonFavStateOrUnknown(JSONObject("""{"medias":[]}""")))
+        assertEquals("info 里没有 fav_state = 未知", -1,
+            SubscriptionApi.parseSeasonFavStateOrUnknown(JSONObject("""{"info":{"id":1}}""")))
+        assertEquals("data=null = 未知", -1, SubscriptionApi.parseSeasonFavStateOrUnknown(null))
     }
 }

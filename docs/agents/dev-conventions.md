@@ -26,6 +26,8 @@
 - 新增设置子页面有两种形态，**先想清楚用哪种**：
   1. **独立 Activity**（如「菜单设置」「我的页面设置」）——有自定义交互/独立布局时用，改三处：`SettingGroupActivity` 对应分组加 `nav`、`SettingsIndex` 加可搜索条目、`AndroidManifest.xml` 注册。
   2. **本页的另一个 `group_type` 分组**——只是若干列表项、无自定义交互时用（如 `GROUP_APPEARANCE`「外观设置」），只需：`buildContent` 加分支 + 写一个 `buildXxxGroup()` + 在上级分组加 `nav` + `SettingsIndex` 加条目。**不需要新 Activity、manifest、布局**。对用户同样是独立一屏。
+- **页面里出现 `list_choose`（点进去选一项）时，必须覆写 `onActivityResult` 并调 `applyListChooseResult(requestCode, resultCode, data, sections) { adapter?.notifyItemChanged(it) }`**：值由那个函数写回存档，不写这个回调就是「点了没反应」，而且行上的当前值是按存档重算的，看起来会永远停在旧值（26.11.14 的「跳过设置」就是这么坏的）。`sections` 要当字段持有，位置与列表一一对应。
+- **给设置行加参考色**用 `SwitchExtra(swatchColor = …)`（switch 行）——它用 `SwitchMaterial` 自己的 compound drawable 在开关文字左边贴一颗 10dp 圆角方块，不改布局；传 0（默认）就清掉 drawable 与内边距，没有颜色概念的行不会多出缩进。**`SwitchExtra` 的参数顺序把 `onChange` 放最后**：全仓既有写法都是尾随 lambda `SwitchExtra { … }`，lambda 绑定最后一个参数，顺序一动就全站编译不过；按名字传色块要用 `SwitchExtra(swatchColor = …)`，按名字传回调要写 `SwitchExtra(onChange = …)`。色值统一由纯函数提供（如 `SponsorSkipPolicy.markColor()`），保证设置页与进度条一致。**布局里新增装饰性 `ImageView` 必须同时写 `contentDescription="@null"` 与 `importantForAccessibility="no"`**——`ui/a11y/LayoutAccessibilityTest` 会拦，缺一个就是 `decorativeImagesAreHiddenFromAccessibility` 失败。
 
 ## 按钮文字与行内对齐（26.11.02 起，写按钮必读）
 
@@ -34,6 +36,13 @@
 - **写死字号的小按钮**用 `app:autoSizeMaxTextSize="<原字号>"` 把上限钉回原值（`activity_captcha_webview.xml` 的 16/9/16sp 缩放键、`activity_image_picker.xml` 与 `activity_send_dynamic.xml` 的 12sp、`cell_subtitle.xml` 与 `activity_feedback.xml` 的 13sp）；**程序化创建的按钮**用 `setAutoSizeTextTypeUniformWithConfiguration(7, 原字号, 1, TypedValue.COMPLEX_UNIT_SP)`（见 `TutorialManagerActivity` 的 11sp 按钮）。
 - **同一行放两个以上按钮的横向 `LinearLayout` 必须写 `android:baselineAligned="false"`**：默认按文字基线对齐，一旦两颗按钮字号/行数不同就会整体上下错开，看起来就是「按钮对不齐」。
 - 自测口径：系统「字体大小」调到最大（或 `adb shell settings put system font_scale 2.0`）后，按钮文字要么单行、要么按上面的例外显式多行；同一行按钮的上下边缘必须齐平。
+
+## 顶栏（`@id/top` / `@id/pageName`，26.11.19 起写页面必读）
+
+- **标题必须写右边界**：给 `@id/pageName` 加 `android:layout_toStartOf="@id/timeText"`（右侧是时钟 / 灵动岛胶囊那一格），或右侧那个控件的 id（如 `activity_setting_player_ui` 的 `@id/btnFull`）。少了它，RelativeLayout 拿整屏宽度当上界量标题，文字只要比「屏宽 − 左内距」短就按文字宽排完、**永远不触发省略号**，长标题会压到右侧按钮上（26.11.19 用户截图：设置子页「播放器界面（实验性）」压住「完整设置」）或从时钟底下穿过去。
+- 省略号本身由 `BaseActivity.setRound()` 在运行时补（`maxLines = 1` + `TruncateAt.END`）；布局里再写一条 `android:ellipsize="end"` 是为了不依赖 `onStart` 那次调用。只写 `android:lines="1"` 是**裁断**、没有省略号。
+- **灵动岛不需要额外留白**：`TopbarIsland.applyStyle()` 把 `@id/timeText` **自己**的 `layoutParams.width` 改成胶囊宽度（72dp，小屏按屏宽 31% 封顶），胶囊背景就画在时钟身上——所以「收在 `@id/timeText` 左边」等于「收在胶囊左边」。
+- **守卫单测** `app/src/test/java/com/RobinNotBad/BiliClient/ui/TopbarTitleRoomTest.kt`：每份带 `@id/pageName` 的布局都必须有 `layout_toStartOf` / `layout_toLeftOf`，且被引用的 id 在同一份文件里存在；新页漏写直接红。
 
 ## 外观设置
 
@@ -49,9 +58,20 @@
 - **新增浅色图标**：跑 `python tools/appearance/gen_light_mode.py` 生成亮色版（`drawable-notnight/` 中性深灰 + `drawable-notnight-v21/` 按主题正文色着色）；压在主色 / 视频 / 通知上、两种模式都必须是白色的图标加进脚本的 `EXCLUDE`。
 - **压在视频 / 图片上的图标与文字**用 `*_overlay` 图标与 `@color/overlay_icon` / `overlay_text`（没有亮色覆盖，永远浅色）。
 - 代码设色用 `ColorScheme` 的 getter（已按模式切换）；**播放器里**（`PlayerActivity` 是 `forceDark` 上下文）用 `ColorScheme.darkColors()`。
+- **`?attr` 不能写进「颜色状态列表 / drawable XML」里**：两者都只在 **API 23+** 才解析主题属性，API 19–22 的机器上会静默退成框架哨兵红 `#FFFF0000`（`ColorStateList.DEFAULT_COLOR`，`android/content/res/ColorStateList.java:151`），表现是控件整块变纯红、文字与底色同色看不见（26.11.09 的弹窗按钮事故就是这么来的；`<shape>` 里的 `?attr` 在 API 19 上更直接抛 `UnsupportedOperationException`，见 `docs/review/fix-progress.md` §1）。要用主题色只有两条路：布局里直接写 `android:textColor="?attr/colorPrimary"`（属性位上的 `?attr` 各版本都能解析），或代码里 `theme.resolveAttribute` 取单色再 `setTextColor` / `backgroundTintList`。Material 文字按钮样式（M2 / M3 一样）自带的就是 attr 状态列表，老设备必须用这两条兜住，封装见 `util/view/TextButtonColors`。
 - 不要在 `values-notnight` 覆盖 `terminal_bgblack` / `bgblack`：冷启动窗口按**系统** uiMode 绘制，覆盖会让暗色用户在手表上闪白。
 - **只做手动切换，不做「跟随系统」**（产品决定）：手表系统几乎固定报非夜间，跟随系统在手表上等于永远亮色。别加 `MODE_NIGHT_FOLLOW_SYSTEM` 或按时间自动切换。
 - 切换模式只走设置页的「颜色模式」：`AppearanceManager.setColorMode` → 刷新 `BiliTerminal.context` → `ColorMode.applyGlobal()`（AppCompat 自动重建页面）。
+
+## 图标 / 矢量图（26.11.09 起，写界面必读）
+
+`app/build.gradle` 有 `vectorDrawables { useSupportLibrary true }`（`minSdk 19` 必须这样：关掉它就会因为 `drawable/` 与 `drawable-v21/` 同名双份撞 `Duplicate resources` 编不过），所以 AAPT **不生成** pre-21 的 PNG 兜底，`<vector>` 只能由 AppCompat 的 `VectorDrawableCompat` 解析。由此三条硬规矩：
+
+- **布局里引用矢量图只能用 Compat 属性**：`app:srcCompat`（`ImageView` / `ImageButton`）、`app:drawableStartCompat` / `drawableEndCompat` / `drawableLeftCompat` / …（`TextView` 家族）。**绝不能写** `android:src` / `android:drawableStart` / `android:background` / `android:thumb` / selector 里的 `android:drawable`——这些在 API<21 由控件构造函数原生加载，直接抛 `Resources$NotFoundException: … invalid drawable tag vector`（26.11.09 扫码登录页事故：`fragment_qr_login.xml` 的 `android:src="@drawable/icon_help"`，教程走完进登录页必崩）。
+- **半自定义控件的基类要选 AppCompat 的**（`AppCompatTextView` / `AppCompatImageView`…），否则 Compat 属性被控制器静默忽略、图标根本不显示（`ui/widget/MarqueeTextView` 26.11.09 就因此换了基类）。
+- **原生 `Activity` 没有 AppCompat 控件工厂**（`activity/player/PlayerActivity` 是 `Activity()` + `android:Theme.Black`）：Compat 属性被静默忽略、原生属性 pre-21 会崩 ⇒ 那里的图标控件用 `ui/widget/VectorImageView.kt` 的 `VectorImageView` / `VectorImageButton`（自己读 `app:srcCompat`，并把 `setImageResource` 覆写成走 `AppCompatResources`），新增图标按钮沿用它们。
+
+代码侧同理：加载图标用 `AppCompatResources.getDrawable`（统一入口是 `util/StringUtil.java` 的 `getDrawable`），**不要用** `ContextCompat.getDrawable` / `ResourcesCompat.getDrawable`（pre-21 走原生路径会抛）；给 TextView 设左右图标用 `TextViewCompat.setCompoundDrawables*WithIntrinsicBounds(view, drawable…)`，别传资源 id。守这条线的是单测 `app/src/test/java/com/RobinNotBad/BiliClient/ui/VectorDrawableCompatTest.kt`（白名单只剩 `drawable/player_selector_progress`，它只在 API≥21 才加载）。
 
 ## 弹窗
 

@@ -1,0 +1,7 @@
+{
+  "identity": {"uuid": "49dea48b-b67a-45fb-88ef-e6afc75898f5"},
+  "tasks": {
+    "20261121-1121-b979-恢复-android-4-4-api-19-兼容": {"category": "兼容改造", "created": "2026-11-21 11:21:06", "creator": "49dea48b-b67a-45fb-88ef-e6afc75898f5", "creator_name": "紫色空灵", "finished": null, "owner": "49dea48b-b67a-45fb-88ef-e6afc75898f5", "owner_name": "紫色空灵", "started": "2026-11-21 11:21:06", "status": "doing", "tags": ["兼容性", "OkHttp", "minSdk", "发版"], "title": "恢复 Android 4.4（API 19）兼容", "updated": "2026-11-21 11:25:08", "worklog": "worklog/202611/21-1121-b979-恢复-android-4-4-api-19-兼容.md"}
+  },
+  "version": "20261022000000"
+}

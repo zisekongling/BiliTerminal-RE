@@ -4,8 +4,8 @@
 
 轻量的第三方 B 站 Android 客户端，基于哔哩终端 BiliClient 2.7.0 的改版分支
 
-[![Version](https://img.shields.io/badge/version-26.11.06-blue)](https://github.com/zisekongling/BiliTerminal-RE)
-[![Android](https://img.shields.io/badge/android-4.4%2B-green)]()
+[![Version](https://img.shields.io/badge/version-26.11.07-blue)](https://github.com/zisekongling/BiliTerminal-RE)
+[![Android](https://img.shields.io/badge/android-5.0%2B-green)]()
 [![Language](https://img.shields.io/badge/language-Kotlin%20%2F%20Java-orange)]()
 [![License](https://img.shields.io/badge/license-GPL%20v3-red)]()
 
@@ -22,13 +22,17 @@
 ## 界面预览
 
 <div align="center">
-  <img src="png/推荐.png" width="32%" alt="推荐页" />
-  <img src="png/短视频.png" width="32%" alt="短视频" />
-  <img src="png/视频详情页.png" width="32%" alt="视频详情页" />
+  <img src="png/01-推荐.png" width="32%" alt="推荐页：抬腕就能刷 B 站" />
+  <img src="png/02-视频详情页.png" width="32%" alt="视频详情页：封面简介一眼看清" />
+  <img src="png/03-评论页.png" width="32%" alt="评论区：带图也能看" />
   <br/>
-  <img src="png/账密登录.png" width="32%" alt="账密登录" />
-  <img src="png/设置页面.png" width="32%" alt="设置页面" />
-  <img src="png/投票页.png" width="32%" alt="投票页" />
+  <img src="png/04-热搜榜.png" width="32%" alt="热搜榜：实时热搜随手一看" />
+  <img src="png/05-外观设置.png" width="32%" alt="外观设置：7 套主题随心切换" />
+  <img src="png/06-搜索排序.png" width="32%" alt="搜索排序：结果排序一点就换" />
+  <br/>
+  <img src="png/07-计算器伪装.png" width="32%" alt="伪装与安全：双击标题秒变计算器" />
+  <img src="png/08-蓝牙伪装.png" width="32%" alt="伪装与安全：一键假装蓝牙断开" />
+  <img src="png/09-反馈与建议.png" width="32%" alt="反馈与建议：有问题直接说" />
 </div>
 
 ---
@@ -174,11 +178,13 @@
 
 ## 系统要求
 
-- **Android 4.4（API 19）及以上**
+- **Android 5.0（API 21）及以上**
 
-原版哔哩终端曾支持 Android 4.0.4；本分支经 Kotlin 重构后一度要求 Android 7.0，26.10.10 起一路下调到 **Android 4.4**（Wear OS 手表上普遍可用的最低版本）。再往下的 Android 4.3 及更早版本请使用原版哔哩终端或手表版。
+原版哔哩终端曾支持 Android 4.0.4；本分支经 Kotlin 重构后一度要求 Android 7.0，26.10.10 起一路下调到 **Android 4.4**。
 
-> Android 4.4~6.0（API 19~23）的兼容结论全部来自静态审计、依赖元数据与 lint，**尚未在真机上验证过**；遇到问题欢迎反馈。
+**26.11.21 起暂时回到 Android 5.0（API 21）**：项目用的 OkHttp 4.12.0 在 API 21 以下会主动抛异常（类初始化阶段就失败，之后所有网络请求都是 `NoClassDefFoundError`，见 issue #35），而全工程一百多处调用是按 OkHttp 4 的写法写的，换成 OkHttp 3.12.x 要一次性改完并做真机验证，这件事留到期中考试之后再做。Android 4.4（API 19/20）的用户请先停留在 26.11.21 之前的版本。再往下的 Android 4.3 及更早版本请使用原版哔哩终端或手表版。
+
+> Android 5.0 起的兼容结论同样来自静态审计、依赖元数据与 lint，**尚未在真机上逐档验证过**；遇到问题欢迎反馈。
 
 ---
 
@@ -207,6 +213,7 @@
 
 - 本项目借鉴了 [WearBili](https://github.com/SpaceXC/WearBili) 和 [腕上哔哩](https://github.com/luern0313/WristBilibili) 的部分开源代码和它们收集的部分 API，界面曾使用 WearBili 的布局（现已重做）。
 - 本次版本开发过程中，参考了第三方 [BiliTerminal](https://github.com/PianoEthan/BiliTerminal) 仓库（本地参考目录 `BiliTerminal`）的实现，包括但不限于**评论带图发送**、更新机制等功能的实现思路，特此感谢该仓库作者。
+- 播放页的**广告片段标注**（SponsorBlock）功能，其标注数据与接口来自 [BilibiliSponsorBlock](https://github.com/hanydd/BilibiliSponsorBlock)，感谢作者 hanydd 与该项目的标注社区。本项目只做客户端读取，**不包含**该项目的源码，也不代表它的立场。
 - 番剧「播放来源」的**选源交互**与第三方弹幕接入的思路参考了 [Kazumi](https://github.com/Predidit/Kazumi)，感谢其作者的开源工作（同样以 GPL v3 开源）。本项目**未包含** Kazumi 的源码，相关功能只在可选的构建期注入里生效，公开构建不含这部分实现。
 
 > 除此之外本项目与其他第三方 B 站浏览软件无任何关系，谢绝在无关评论区提及终端，谢谢喵。

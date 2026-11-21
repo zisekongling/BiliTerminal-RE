@@ -8,6 +8,7 @@
     android:layout_height="wrap_content">
 
     <ImageView
+        android:contentDescription="@string/a11y_view_user"
         android:id="@+id/replyAvatar"
         android:layout_width="40dp"
         android:layout_height="40dp"
@@ -81,6 +82,7 @@
         app:layout_constraintTop_toBottomOf="@id/imageCard" />
 
     <ImageView
+        android:contentDescription="@string/a11y_reply_dislike"
         android:id="@+id/dislikeBtn"
         android:layout_width="wrap_content"
         android:layout_height="0dp"
@@ -88,7 +90,7 @@
         android:adjustViewBounds="true"
         android:alpha="0.7"
         android:scaleType="centerInside"
-        android:src="@drawable/icon_dislike"
+        app:srcCompat="@drawable/icon_dislike"
         app:layout_constraintBottom_toBottomOf="@+id/likes"
         app:layout_constraintStart_toEndOf="@+id/likes"
         app:layout_constraintTop_toTopOf="@+id/likes"
@@ -104,7 +106,7 @@
         android:alpha="0.7"
         android:contentDescription="@string/text_reply_translate"
         android:scaleType="centerInside"
-        android:src="@drawable/icon_translate"
+        app:srcCompat="@drawable/icon_translate"
         app:layout_constraintBottom_toBottomOf="@+id/likes"
         app:layout_constraintStart_toEndOf="@+id/dislikeBtn"
         app:layout_constraintTop_toTopOf="@+id/likes"

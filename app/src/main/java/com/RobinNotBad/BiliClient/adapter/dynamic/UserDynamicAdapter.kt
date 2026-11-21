@@ -20,6 +20,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.constraintlayout.widget.ConstraintSet
+import androidx.core.widget.TextViewCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
@@ -245,6 +246,7 @@ class UserDynamicAdapter(
             }
 
             GlideUtil.with(this.userAvatar).asDrawable().load(GlideUtil.url(userInfo.avatar))
+                .apply(GlideUtil.thumbOptionsCover(this.userAvatar))
                 .transition(GlideUtil.getTransitionOptions())
                 .placeholder(R.mipmap.akari)
                 .error(R.mipmap.akari)
@@ -398,7 +400,7 @@ class UserDynamicAdapter(
 
         }
 
-        // ==================== 反馈 #88：长按「已关注」→ 加入关注分组 ====================
+        // ============ 反馈 #88：长按「已关注」→ 加入关注分组（#266 起含特别关注） ============
 
         /**
          * 拉分组与「他已经在哪些分组里」，然后回主线程弹菜单。
@@ -409,8 +411,8 @@ class UserDynamicAdapter(
         private fun showFollowGroupPicker(context: Context, userInfo: UserInfo) {
             CenterThreadPool.run {
                 try {
-                    // 只列自建分组：默认分组（0）与特别关注（-10）不是「加入分组」的语义，
-                    // 特别关注还有单独的接口与入口（关注列表的分组模式）。
+                    // getFollowTags 只回自建分组；「特别关注」（tagid = -10）由下面的
+                    // buildJoinGroupMenu 单独补在菜单顶部，不需要额外请求。
                     val tags = FollowApi.getFollowTags().filter { it.tagid > 0 }
                     val joined = FollowApi.getUserFollowTags(userInfo.mid).map { it.tagid }.toSet()
                     CenterThreadPool.runOnUiThread {
@@ -428,31 +430,32 @@ class UserDynamicAdapter(
             tags: List<FollowTag>,
             joined: Set<Int>
         ) {
-            val items = ArrayList<String>(tags.size + 1)
-            for (tag in tags) {
-                items.add(
-                    if (tag.tagid in joined) UiText.fmt("%1\$s（已加入）", tag.name)
-                    else tag.name
-                )
-            }
-            items.add(UiText.of("新建分组"))
-            val newGroupIndex = items.size - 1
+            // 反馈 #266：菜单顶部补一行「特别关注」。特别关注是系统分组（tagid = -10），
+            // 不在 x/relation/tags 的返回里，但 tags/addUsers 接受这个 id，
+            // 「他是否已经在特别关注里」由 getUserFollowTags 顺带给出，所以不用额外请求。
+            val entries = FollowApi.buildJoinGroupMenu(
+                tags,
+                joined,
+                UiText.of("特别关注"),
+                "%1\$s（已加入）",
+                UiText.of("新建分组")
+            )
 
             TerminalDialog.menu(
                 context = context,
                 title = UiText.of("加入分组"),
-                items = items
+                items = entries.map { it.label }
             ) { which ->
-                if (which == newGroupIndex) {
+                val entry = entries.getOrNull(which) ?: return@menu
+                if (entry.create) {
                     showCreateGroupThenJoin(context, userInfo)
                     return@menu
                 }
-                val tag = tags.getOrNull(which) ?: return@menu
                 // 已经在里面就不必再发一次请求，直接告诉用户（服务端对重复加入也不报错，但白跑一趟）
-                if (tag.tagid in joined) {
-                    MsgUtil.showMsg(UiText.fmt("已经在「%1\$s」分组里了", tag.name))
+                if (entry.tagid in joined) {
+                    MsgUtil.showMsg(UiText.fmt("已经在「%1\$s」分组里了", entry.name))
                 } else {
-                    CenterThreadPool.run { joinFollowGroupNow(userInfo, tag.tagid, tag.name) }
+                    CenterThreadPool.run { joinFollowGroupNow(userInfo, entry.tagid, entry.name) }
                 }
             }.show()
         }
@@ -535,14 +538,17 @@ class UserDynamicAdapter(
                                 if (electric_expand) {
                                     this.electricUserList.visibility = View.VISIBLE
                                     this.electricPanelDivider.visibility = View.VISIBLE
-                                    this.electricPanelHeader.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                                        0, 0, R.drawable.arrow_up, 0
+                                    // 箭头是矢量，传资源 id 的重载在 API<21 是原生加载会崩，走 Compat
+                                    TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                                        this.electricPanelHeader, null, null,
+                                        StringUtil.getDrawable(context, R.drawable.arrow_up), null
                                     )
                                 } else {
                                     this.electricUserList.visibility = View.GONE
                                     this.electricPanelDivider.visibility = View.GONE
-                                    this.electricPanelHeader.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                                        0, 0, R.drawable.arrow_down, 0
+                                    TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                                        this.electricPanelHeader, null, null,
+                                        StringUtil.getDrawable(context, R.drawable.arrow_down), null
                                     )
                                 }
                             }

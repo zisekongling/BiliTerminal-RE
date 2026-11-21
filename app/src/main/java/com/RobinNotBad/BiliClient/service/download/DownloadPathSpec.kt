@@ -48,10 +48,30 @@ internal object DownloadPathSpec {
      */
     const val FILE_VIDEO_MERGING = "video_merging.tmp"
 
+    /**
+     * 断点续传存档的后缀：临时文件旁边记一份"已经下到哪"，如 `video_new.mp4.resume`。
+     *
+     * 存档只在两种情况下存在：正在下载（含暂停、崩溃前）、或者下载失败等用户重试。
+     * 临时文件一旦被替换成成品，存档立刻删掉——它只描述"这个临时文件下到哪了"。
+     */
+    const val SUFFIX_RESUME = ".resume"
+
+    /** 续传存档文件名：`video_new.mp4` → `video_new.mp4.resume` */
+    fun resumeNameFor(tempFileName: String): String = tempFileName + SUFFIX_RESUME
+
     // ---------- 下载类型与任务类型（写进数据库的字面量） ----------
 
     /** download_type：仅下载音频 */
     const val TYPE_AUDIO_ONLY = "audio_only"
+
+    /**
+     * download_type：番剧（pgc）剧集。
+     *
+     * 落盘结构与多 P 视频完全一致（季名当父目录、集名当子目录，成品是单个 video.mp4），
+     * 这个类型只用于「取流走番剧接口」这一件事——真正的开关是下载表里的 epid 列
+     * （见 [com.RobinNotBad.BiliClient.model.DownloadSection.isBangumi]）。
+     */
+    const val TYPE_VIDEO_PGC = "video_pgc"
 
     /** 下载表 type 列：单 P 视频 */
     const val TASK_VIDEO_SINGLE = "video_single"

@@ -21,11 +21,14 @@ import com.RobinNotBad.BiliClient.api.SubscriptionApi
 import com.RobinNotBad.BiliClient.model.Collection
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.model.VideoInfo
+import com.RobinNotBad.BiliClient.player.CollectionResumePolicy
+import com.RobinNotBad.BiliClient.player.CollectionResumeStore
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
+import com.RobinNotBad.BiliClient.util.subscriptionErrorText
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.ToolsUtil
@@ -37,10 +40,16 @@ import com.bumptech.glide.request.RequestOptions
 
 class CollectionInfoActivity : RefreshListActivity() {
 
+    private var fromAid = -1L
+    private var loadedCollection: Collection? = null
+    private var resumeAid = -1L
+    private var cardAdapter: CardAdapter? = null
+    private var sectionAdapter: SectionAdapter? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val fromAid = intent.getLongExtra("fromVideo", -1)
+        fromAid = intent.getLongExtra("fromVideo", -1)
         setPageName(UiText.of("合集详情"))
         // 失败后可点空态重试（失败结果不入缓存，重建即重新请求）
         setOnEmptyRetry { recreate() }
@@ -56,29 +65,29 @@ class CollectionInfoActivity : RefreshListActivity() {
                 }
 
                 val adapter: RecyclerView.Adapter<RecyclerView.ViewHolder>
+                // 定位目标 = 「上次在这个合集里看的那一集」，没有记录/记录失效时回落到入口视频。
+                // 两个分支都要定位：以前只有 SectionAdapter 会滚，从「收藏的合集」那种
+                // 只有 cards 的形态进来时永远停在顶部（反馈 #105 / #108）。
                 if (collection.sections == null && collection.cards != null) {
-                    adapter = CardAdapter(this, collection)
+                    cardAdapter = CardAdapter(this, collection) { resumeAid }
+                    sectionAdapter = null
+                    adapter = cardAdapter!!
                 } else if (collection.sections != null) {
-                    adapter = SectionAdapter(this, collection, recyclerView)
-                    val sections = collection.sections!!
-                    var pos = 1
-                    for (section in sections) {
-                        pos++
-                        val episodes = section.episodes
-                        for (episode in episodes) {
-                            pos++
-                            if (episode.aid == fromAid) {
-                                recyclerView.layoutManager?.scrollToPosition(--pos)
-                            }
-                        }
-                    }
+                    sectionAdapter = SectionAdapter(this, collection, recyclerView) { resumeAid }
+                    cardAdapter = null
+                    adapter = sectionAdapter!!
                 } else {
                     finish()
                     return@onSuccess
                 }
 
+                loadedCollection = collection
+                resumeAid = resolveResumeAid(collection, fromAid)
                 hideEmptyView()
                 setAdapter(adapter)
+                // 定位放在 setAdapter 之后：scrollToPosition 只是登记「下次布局时滚到哪」，
+                // 先于 setAdapter 调用虽然也能生效，但那就依赖布局时序了；数据就位再登记更稳。
+                scrollToResumePosition()
                 setRefreshing(false)
                 setupSubscribeBar(collection)
             }.onFailure { error ->
@@ -90,6 +99,76 @@ class CollectionInfoActivity : RefreshListActivity() {
                 MsgUtil.err(error)
             }
         }
+    }
+
+    /**
+     * 回到合集页时，只有「上次看到的那一集」真的变了才重新定位。
+     *
+     * <p>观看动作发生在别的页面（详情页 / 分页 / 播放器内换集），观看记录因此可能已经变了；
+     * 但用户自己滑到第 20 集、接个电话再回来时记录没变，不能也被拽回第 5 集。
+     * 首次进入时数据还没回来，这里是 no-op，等 observer 回调里再定位。
+     */
+    override fun onResume() {
+        super.onResume()
+        val collection = loadedCollection ?: return
+        val target = resolveResumeAid(collection, fromAid)
+        if (target == resumeAid) return
+        resumeAid = target
+        // 「上次看到」标记画在列表项上，目标变了要重画那一行
+        cardAdapter?.notifyDataSetChanged()
+        sectionAdapter?.notifyDataSetChanged()
+        scrollToResumePosition()
+    }
+
+    /** 把列表滚到「上次看到的那一集」；没有数据 / 记录失效 / 不在本合集时不动。 */
+    private fun scrollToResumePosition() {
+        val position = cardAdapter?.findCardPosition(resumeAid)
+            ?: sectionAdapter?.findEpisodePosition(resumeAid)
+            ?: -1
+        if (position >= 0) recyclerView.layoutManager?.scrollToPosition(position)
+    }
+
+    /**
+     * 进入合集页时该定位到哪一集。
+     *
+     * 判定逻辑全部在 [CollectionResumePolicy]（纯函数，有单测）：这里只负责把
+     * 「本地记录」和「本合集现有的 aid」两样现实数据喂进去。
+     * `ugc_season` 拿不到 id 时退到全局的「最近一次在无 id 合集里看到哪一集」。
+     */
+    private fun resolveResumeAid(collection: Collection, fromAid: Long): Long {
+        val seasonId = collection.id.toLong()
+        val memberAids = displayedAids(collection)
+        if (seasonId <= 0) {
+            return CollectionResumePolicy.resolveFallbackAid(
+                fromAid = fromAid,
+                lastPlayedAid = CollectionResumeStore.lastPlayed(),
+                memberAids = memberAids
+            )
+        }
+        return CollectionResumePolicy.resolveTargetAid(
+            fromAid = fromAid,
+            seasonId = seasonId,
+            record = CollectionResumeStore.read(seasonId),
+            memberAids = memberAids
+        )
+    }
+
+    /**
+     * 合集里**列表上真能看到**的全部 aid（按展示顺序）。
+     *
+     * 刻意不用 [Collection.toPlaylist]：它会剔掉 cid 缺失的条目（播放列表没有 cid 就没法取流），
+     * 但这里只关心「这一集在不在列表上」——那些条目列表照样会画出来，用播放列表的筛选结果
+     * 去判断会让它们上面的记录静默失效，功能看起来像没生效。
+     */
+    private fun displayedAids(collection: Collection): List<Long> {
+        val aids = ArrayList<Long>()
+        val sections = collection.sections
+        if (sections != null) {
+            for (section in sections) for (episode in section.episodes) aids.add(episode.aid)
+        } else {
+            collection.cards?.forEach { aids.add(it.aid) }
+        }
+        return aids
     }
 
     // ==================== 合集订阅 ====================
@@ -141,7 +220,7 @@ class CollectionInfoActivity : RefreshListActivity() {
 
     private fun updateSubToggle() {
         subToggle?.text = getString(
-            if (isSubscribed) R.string.text_sub_toggle_subscribed else R.string.text_sub_toggle_subscribe
+            if (isSubscribed) R.string.msg_sub_subscribed else R.string.text_sub_toggle_subscribe
         )
     }
 
@@ -175,7 +254,7 @@ class CollectionInfoActivity : RefreshListActivity() {
                         isSubscribed = subscribe
                         updateSubToggle()
                         MsgUtil.showMsg(
-                            getString(if (subscribe) R.string.msg_sub_subscribed else R.string.msg_sub_unsubscribed)
+                            getString(if (subscribe) R.string.msg_sub_subscribed else R.string.msg_subscription_cancelled)
                         )
                     } else {
                         MsgUtil.showMsg(subscriptionErrorText(code))
@@ -188,17 +267,11 @@ class CollectionInfoActivity : RefreshListActivity() {
         }
     }
 
-    private fun subscriptionErrorText(code: Int): String = when (code) {
-        -101 -> getString(R.string.msg_subscription_need_login)
-        -111 -> getString(R.string.msg_subscription_csrf_invalid)
-        -400 -> getString(R.string.msg_subscription_bad_request)
-        11010 -> getString(R.string.msg_subscription_content_gone)
-        else -> getString(R.string.msg_subscription_failed_with_code, code)
-    }
-
     class CardAdapter(
         private val context: Context,
-        private val collection: Collection
+        private val collection: Collection,
+        /** 当前「上次看到」的那一集；每次绑定都重读，页面在前台时记录变了也能重画标记。 */
+        private val resumeAidProvider: () -> Long
     ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
         private val data: List<VideoCard> = collection.cards!!
@@ -226,11 +299,19 @@ class CollectionInfoActivity : RefreshListActivity() {
                     TerminalContext.getInstance().enterVideoDetailPage(context, videoCard.aid, videoCard.bvid)
                 }
                 holder.showVideoCard(videoCard, context)
+                if (videoCard.aid == resumeAidProvider()) {
+                    // 用 Spannable 拼接而不是直接加点字：showVideoCard 可能给标题套了颜色 span
+                    holder.title.text = TextUtils.concat(
+                        context.getString(R.string.uitext_collectioninfoactivity_004) + " ",
+                        holder.title.text
+                    )
+                }
             } else if (holder is CollectionInfoHolder) {
                 holder.name.text = collection.title
                 holder.desc.text = if (TextUtils.isEmpty(collection.intro)) UiText.of("这里没有简介哦") else collection.intro
                 holder.playTimes.text = UiText.fmt(UiText.of("共%1\$s"), collection.view)
                 Glide.with(context).asDrawable().load(GlideUtil.url_hq(collection.cover))
+                    .apply(GlideUtil.thumbOptions(holder.cover))
                     .transition(GlideUtil.getTransitionOptions())
                     .placeholder(R.mipmap.placeholder)
                     .error(R.mipmap.placeholder)
@@ -250,6 +331,16 @@ class CollectionInfoActivity : RefreshListActivity() {
             return data.size + 1
         }
 
+        /**
+         * 目标 aid 在 Adapter 里的 item 下标；-1 表示这集不在本合集里。
+         *
+         * position 0 是合集信息卡，数据从 1 开始——与 [onBindViewHolder] 里的 `position - 1` 对应。
+         */
+        fun findCardPosition(aid: Long): Int {
+            val index = data.indexOfFirst { it.aid == aid }
+            return if (index < 0) -1 else index + 1
+        }
+
         class CollectionInfoHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             val name: TextView = itemView.findViewById(R.id.name)
             val desc: TextView = itemView.findViewById(R.id.desc)
@@ -261,7 +352,9 @@ class CollectionInfoActivity : RefreshListActivity() {
     class SectionAdapter(
         private val context: Context,
         private val collection: Collection,
-        private val recyclerView: RecyclerView
+        private val recyclerView: RecyclerView,
+        /** 当前「上次看到」的那一集；每次绑定都重读，页面在前台时记录变了也能重画标记。 */
+        private val resumeAidProvider: () -> Long
     ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
         private val data: List<Collection.Section> = collection.sections!!
@@ -304,6 +397,25 @@ class CollectionInfoActivity : RefreshListActivity() {
             return 1
         }
 
+        /**
+         * 目标 aid 在 Adapter 里的 item 下标；-1 表示这集不在本合集里。
+         *
+         * 必须与 [getTypes] 的排布同构（每节先占一个标题位，再逐集占位；position 0 是合集信息卡），
+         * 所以 types 里的第 i 位对应 Adapter 的 `i + 1`。放在 Adapter 内部而不是调用侧手搓累加：
+         * 排布规则一改这里跟着改，否则会静默滚到别的集上。
+         */
+        fun findEpisodePosition(aid: Long): Int {
+            var index = 0
+            for (section in data) {
+                index++ // 节标题
+                for (episode in section.episodes) {
+                    if (episode.aid == aid) return index + 1
+                    index++
+                }
+            }
+            return -1
+        }
+
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
             return when (viewType) {
                 -1 -> {
@@ -331,11 +443,19 @@ class CollectionInfoActivity : RefreshListActivity() {
                     TerminalContext.getInstance().enterVideoDetailPage(context, videoCard.aid, videoCard.bvid)
                 }
                 holder.showVideoCard(videoCard, context)
+                if (videoCard.aid == resumeAidProvider()) {
+                    // 用 Spannable 拼接而不是直接加点字：showVideoCard 可能给标题套了颜色 span
+                    holder.title.text = TextUtils.concat(
+                        context.getString(R.string.uitext_collectioninfoactivity_004) + " ",
+                        holder.title.text
+                    )
+                }
             } else if (holder is CollectionInfoHolder) {
                 holder.name.text = collection.title
                 holder.desc.text = if (TextUtils.isEmpty(collection.intro)) UiText.of("这里没有简介哦") else collection.intro
                 holder.playTimes.text = UiText.fmt(UiText.of("共%1\$s"), collection.view)
                 Glide.with(context).asDrawable().load(GlideUtil.url_hq(collection.cover))
+                    .apply(GlideUtil.thumbOptions(holder.cover))
                     .transition(GlideUtil.getTransitionOptions())
                     .placeholder(R.mipmap.placeholder)
                     .error(R.mipmap.placeholder)

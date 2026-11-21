@@ -16,6 +16,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -26,6 +27,14 @@ import java.util.concurrent.TimeUnit
 object UpdateManager {
 
     private const val APK_FILE_NAME = "bili_terminal_update.apk"
+
+    /**
+     * 校验没通过、又没能另存到 Download 的包改用的文件名（26.11.21，反馈 #222）。
+     *
+     * 换名而不是留在原路径：断点续传按 [APK_FILE_NAME] 的长度当「已下载字节数」，
+     * 把一份错包留在原地，下一次下载会把新内容接在它后面，产出一个永远装不上的文件。
+     */
+    private const val REJECTED_APK_FILE_NAME = "bili_terminal_update_rejected.apk"
 
 /** 内测 `.txt` 的体积上限：公告式展示只该读小文件，超过这个量级一律报错。 */
 private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
@@ -263,6 +272,9 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
             if (apkFile?.exists() == true) {
                 apkFile.delete()
             }
+            // 校验被拒、又没另存成功的那份也一起清掉（见 [keepRejectedPackage]），
+            // 否则它会一直躺在缓存目录里占空间，用户也没法从界面上看到它。
+            File(apkFile?.parentFile ?: return, REJECTED_APK_FILE_NAME).takeIf { it.exists() }?.delete()
         } catch (e: Exception) {
         }
     }
@@ -275,47 +287,127 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
      * 两者都是公开仓库，读 release **不需要 token**。
      * 注意：这里不再读 123pan 上单独部署的 config.json —— 版本信息以发行版本身为准，
      * 少一处要人工同步的远端文件（历史上它就漂移过）。
+     *
+     * 三通道（见 `docs/version-channels.md` §5）下每条源有两种取法：
+     * - 稳定版走 `/releases/latest`，响应小但**必须校验 tag 不带后缀**；
+     * - 测试版 / 实验版走 `/releases?per_page=N`，自己按 tag 后缀过滤后取 `versionCode` 最大的一条。
      */
-    private val releaseSources = listOf(
-        "Gitee" to "https://gitee.com/api/v5/repos/zisekongling/bili-terminal-re/releases/latest",
-        "GitHub" to "https://api.github.com/repos/zisekongling/BiliTerminal-RE/releases/latest"
+    private val releaseApis = listOf(
+        "Gitee" to "https://gitee.com/api/v5/repos/zisekongling/bili-terminal-re/releases",
+        "GitHub" to "https://api.github.com/repos/zisekongling/BiliTerminal-RE/releases"
     )
 
+    /**
+     * 列表模式的每页条数。
+     *
+     * 实验版一天可能发好几次，30 条足够覆盖最近几天；再大也没意义——响应体里每条都带完整更新日志，
+     * 手表上网时是在给启动路径加负担。
+     */
+    private const val RELEASE_LIST_PAGE_SIZE = 30
+
+    /** 内部信号：`/releases/latest` 返回的那条其实不是稳定版（说明该源不排除预发布）。 */
+    private class NotStableReleaseException(val tag: String) :
+        IOException("latest 指向的不是稳定版（tag=$tag）")
+
+    /** 更新检查当前用的通道（用户在设置里选的，没选过就跟着当前这个包的通道走）。 */
+    fun currentChannel(): String = UpdateChannel.current()
+
+    /**
+     * 用户切换了更新通道。
+     *
+     * 除了记下新通道，还要清掉「上一个通道选出的那条版本」留下的状态：不清的话，beta 发过一条
+     * `forceUpdate`、用户切回 stable 之后，那条强制更新仍然会拦启动（`forceUpdateBlocking` 是
+     * 内存标志 + SP 一起判的），可 stable 通道里根本没有那个版本。
+     */
+    fun onChannelChanged(newChannel: String) {
+        UpdateChannel.save(newChannel)
+        cachedConfig = null
+        BiliTerminal.clearForceUpdate()
+        SharedPreferencesUtil.removeValue("update_last_new_version")
+    }
+
     private fun doFetchUpdateConfig(): UpdateConfig {
+        val channel = currentChannel()
         val errors = ArrayList<String>()
-        for ((name, url) in releaseSources) {
+        for ((name, base) in releaseApis) {
             try {
-                return fetchRelease(url)
+                return fetchRelease(base, channel)
             } catch (e: Exception) {
-                Logu.e(TAG, "从 $name 取发行版信息失败：${e.message}")
+                Logu.e(TAG, "从 $name 取发行版信息失败（通道 $channel）：${e.message}")
                 errors.add("$name：${e.message}")
             }
         }
         throw IOException("所有更新源都失败（${errors.joinToString("；")}）")
     }
 
-    private fun fetchRelease(url: String): UpdateConfig {
+    private fun fetchRelease(base: String, channel: String): UpdateConfig {
+        if (channel == UpdateChannel.STABLE) {
+            // 快路径：latest 只有一条、体积小。但万一这个源不过滤预发布，拿到的就是测试版包，
+            // 把它推给稳定用户是最坏的事故——所以校验不过就改走列表，绝不将错就错。
+            try {
+                return fetchLatest("$base/latest", channel)
+            } catch (e: NotStableReleaseException) {
+                Logu.w(TAG, "$base 的 latest 不是稳定版（tag=${e.tag}），改走发行版列表")
+            }
+        }
+        return fetchBestFromList(base, channel)
+    }
+
+    /** 检查更新统一走 checkClient（20s callTimeout 总闸），下载走 okHttpClient（见 checkClient 注释）。 */
+    private fun fetchBody(url: String): String {
         val request = Request.Builder().url(url).get().build()
         // use{} 保证失败分支抛异常时连接也归还（OkHttp 只在 body 读到 EOF 时才自动归还）
-        // 检查更新走 checkClient（20s callTimeout 总闸），下载走 okHttpClient（见 checkClient 注释）
         return checkClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IOException("服务器响应错误: ${response.code}")
             }
-            val body = response.body?.string() ?: throw IOException("响应体为空")
-            parseRelease(body)
+            response.body?.string() ?: throw IOException("响应体为空")
         }
     }
 
+    private fun fetchLatest(url: String, channel: String): UpdateConfig {
+        val json = JSONObject(fetchBody(url))
+        val tag = json.optString("tag_name", "")
+        if (!UpdateChannel.accepts(channel, tag)) throw NotStableReleaseException(tag)
+        return buildConfig(json, tag)
+    }
+
     /**
-     * 解析发行版 JSON（Gitee / GitHub 字段形状一致）→ [UpdateConfig]。
+     * 列表模式：拉最近的发行版，按渠道过滤后取最新的一条。
+     *
+     * **不能依赖接口返回顺序**：Gitee 的 `/releases` 实测是升序、GitHub 是降序，两者相反，
+     * 只能按 `versionCode` 自己比（比较逻辑在 [UpdateChannel.bestOf]）。
+     */
+    private fun fetchBestFromList(base: String, channel: String): UpdateConfig {
+        val body = fetchBody("$base?per_page=$RELEASE_LIST_PAGE_SIZE&page=1")
+        if (body.trimStart().startsWith("{")) {
+            // 限流 / 鉴权失败时 GitHub 回的是对象而不是数组，报错要说清是这一层，别让人去猜解析器
+            throw IOException("发行版列表接口返回了对象而非数组（可能被限流）：${body.take(120)}")
+        }
+        val array = JSONArray(body)
+        val candidates = ArrayList<UpdateChannel.Candidate>()
+        val byTag = HashMap<String, JSONObject>()
+        for (i in 0 until array.length()) {
+            val obj = array.optJSONObject(i) ?: continue
+            val tag = obj.optString("tag_name", "")
+            if (!UpdateChannel.accepts(channel, tag)) continue
+            val code = UpdateRelease.parseMeta(obj.optString("body", ""), tag).versionCode
+            if (code <= 0) continue
+            candidates.add(UpdateChannel.Candidate(tag, code))
+            byTag[tag] = obj
+        }
+        val best = UpdateChannel.bestOf(candidates, channel)
+            ?: throw IOException("发行版列表里没有「$channel」通道可用的版本（共 ${array.length()} 条）")
+        return buildConfig(byTag.getValue(best.tag), best.tag)
+    }
+
+    /**
+     * 把一条 release JSON（Gitee / GitHub 字段形状一致）解析成 [UpdateConfig]。
      *
      * 版本号优先取 CI 写进 Release 说明的机器可读元数据，缺失时按 tag 推算；
      * 下载直链按设备 ABI 从附件里挑（Gitee 还会自动带 `{tag}.zip` 源码归档，必须按精确文件名匹配）。
      */
-    private fun parseRelease(jsonStr: String): UpdateConfig {
-        val json = JSONObject(jsonStr)
-        val tag = json.optString("tag_name", "")
+    private fun buildConfig(json: JSONObject, tag: String): UpdateConfig {
         val body = json.optString("body", "")
         val meta = UpdateRelease.parseMeta(body, tag)
 
@@ -324,18 +416,7 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
             throw IOException("无法确定发行版版本号（tag=「$tag」，且 Release 说明里没有元数据）")
         }
 
-        val assetsJson = json.optJSONArray("assets")
-        val assets = ArrayList<UpdateRelease.ReleaseAsset>()
-        if (assetsJson != null) {
-            for (i in 0 until assetsJson.length()) {
-                val a = assetsJson.optJSONObject(i) ?: continue
-                val name = a.optString("name", "")
-                val downloadUrl = a.optString("browser_download_url", "")
-                if (name.isNotEmpty() && downloadUrl.isNotEmpty()) {
-                    assets.add(UpdateRelease.ReleaseAsset(name, downloadUrl))
-                }
-            }
-        }
+        val assets = parseAssets(json)
         // Build.SUPPORTED_ABIS 是 API 21 的静态字段，minSdk 19 上直接读会 NoSuchFieldError，
         // 统一走 TerminalApi.supportedAbis()（内部有 SDK_INT 闸 + CPU_ABI 回落）。
         // 共存版必须只认自己那套附件名（app-coexist-*），否则会下到普通版、被 ApkVerifier 拒装。
@@ -356,12 +437,37 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
         return config
     }
 
+    private fun parseAssets(json: JSONObject): List<UpdateRelease.ReleaseAsset> {
+        val assetsJson = json.optJSONArray("assets") ?: return emptyList()
+        val assets = ArrayList<UpdateRelease.ReleaseAsset>()
+        for (i in 0 until assetsJson.length()) {
+            val a = assetsJson.optJSONObject(i) ?: continue
+            val name = a.optString("name", "")
+            val downloadUrl = a.optString("browser_download_url", "")
+            if (name.isNotEmpty() && downloadUrl.isNotEmpty()) {
+                assets.add(UpdateRelease.ReleaseAsset(name, downloadUrl))
+            }
+        }
+        return assets
+    }
+
+    /**
+     * 下载更新包，验签通过后交给 [onComplete]。
+     *
+     * 26.11.18 起，验签通过后还会**另存一份**到系统 Download（[ApkDownloadStore]），文件名带版本号：
+     *
+     * @param versionName 版本号，只用于拼 Download 里的文件名；null 时用「未知版本」兜底
+     * @param onSaved     另存成功后的回调，参数是给用户看的路径（Download/RE哔哩终端-26.11.17.apk）。
+     *                    另存失败不会回调，也不影响更新本身的任何一步
+     */
     fun downloadApk(
         url: String,
         context: Context,
         onProgress: (DownloadProgress) -> Unit,
         onComplete: (File) -> Unit,
-        onError: (String) -> Unit
+        onError: (String) -> Unit,
+        versionName: String? = null,
+        onSaved: (String) -> Unit = {}
     ) {
         downloadCanceled = false
         CenterThreadPool.run {
@@ -400,14 +506,40 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
 
                 val result = writeResponseToFile(response, existingFile, onProgress)
 
-                // 26.10.04 批次 4（E6）：交给系统安装器之前先自查包名与签名。
-                // 不通过就删掉文件（继续留残片会被下次的 Range 续传当成"已下载一部分"，永远修不好），
-                // 并把中文原因交给调用方展示。
+                // 26.10.04 批次 4（E6）：交给系统安装器之前先自查包名与签名，不通过就把中文原因交给调用方展示。
+                // 26.11.21（反馈 #222）：**不再直接删包**——华为表上验签失败往往不是包的问题（商店/系统重签后
+                // 「当前应用签名」与官方包天然对不上），删掉只会让用户手里什么都没有。改为尽量另存到系统
+                // Download 供用户自己装，同时把缓存里那份清掉或改名，让下一次续传从零开始。
                 val verifyResult = ApkVerifier.verify(context, result)
                 if (!verifyResult.ok) {
-                    result.delete()
-                    CenterThreadPool.runOnUiThread { onError(context.getString(R.string.text_update_verify_failed, verifyResult.message)) }
+                    val keptPath = keepRejectedPackage(context, result, versionName)
+                    CenterThreadPool.runOnUiThread {
+                        onError(
+                            if (keptPath != null) {
+                                context.getString(R.string.text_update_verify_failed_kept, verifyResult.message, keptPath)
+                            } else {
+                                context.getString(R.string.text_update_verify_failed, verifyResult.message)
+                            }
+                        )
+                    }
                     return@run
+                }
+
+                // 26.11.18：验签通过后另存一份到系统 Download，方便用户在文件管理器里找到这个包。
+                // 缓存里那份继续留着（续传、静默更新的「已下载」判断、存储空间页都靠它），
+                // 所以这里只复制不移动；复制失败只记日志，绝不能挡住安装。
+                try {
+                    val savedPath = ApkDownloadStore.saveToDownloads(
+                        context,
+                        result,
+                        ApkDownloadStore.fileName(versionName, BuildConfig.COEXIST)
+                    )
+                    if (savedPath != null) {
+                        Logu.i(TAG, "安装包已另存到 " + savedPath)
+                        CenterThreadPool.runOnUiThread { onSaved(savedPath) }
+                    }
+                } catch (e: Exception) {
+                    Logu.e(TAG, "另存到下载目录失败：" + e.message)
                 }
 
                 CenterThreadPool.runOnUiThread { onComplete(result) }
@@ -418,6 +550,45 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
                 CenterThreadPool.runOnUiThread { onError(context.getString(R.string.text_update_download_error, e.message)) }
             }
         }
+    }
+
+    /**
+     * 校验没通过的包怎么处理（26.11.21，反馈 #222「验签失败安装包就消失了」）。
+     *
+     * 顺序：先尽量另存到系统 Download（用户反馈里要的就是「文件一直在本地」），存成了就把缓存那份删掉；
+     * 没存成（老系统没权限 / MediaStore 拒收）就就地改名成 [REJECTED_APK_FILE_NAME] 留证。
+     * 两条路都要让缓存目录里**不再有** [APK_FILE_NAME]，否则下一次 Range 续传会把新内容接在错包后面。
+     *
+     * @return 另存成功时给用户看的路径（Download/RE哔哩终端-26.11.17.apk），没存成返回 null
+     */
+    private fun keepRejectedPackage(context: Context, file: File, versionName: String?): String? {
+        val savedPath = try {
+            ApkDownloadStore.saveToDownloads(
+                context,
+                file,
+                ApkDownloadStore.fileName(versionName, BuildConfig.COEXIST)
+            )
+        } catch (e: Exception) {
+            Logu.e(TAG, "校验未通过的包另存失败：" + e.message)
+            null
+        }
+        if (savedPath != null) {
+            // Download 里已经有一份了，缓存这份没必要再留
+            if (!file.delete()) Logu.w(TAG, "校验未通过的缓存包删不掉：" + file.absolutePath)
+            return savedPath
+        }
+        val target = File(file.parentFile, REJECTED_APK_FILE_NAME)
+        try {
+            if (target.exists()) target.delete()
+            if (!file.renameTo(target)) {
+                file.copyTo(target, overwrite = true)
+                file.delete()
+            }
+            Logu.i(TAG, "校验未通过的包保留在：" + target.absolutePath)
+        } catch (e: Exception) {
+            Logu.e(TAG, "校验未通过的包改名失败：" + e.message)
+        }
+        return null
     }
 
     @Throws(IOException::class, CancellationException::class)

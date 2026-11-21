@@ -15,6 +15,7 @@ import com.RobinNotBad.BiliClient.api.AppInfoApi
 import com.RobinNotBad.BiliClient.service.download.DownloadPathSpec
 import com.RobinNotBad.BiliClient.util.ApkVerifier
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.DanmakuFileFetcher
 import com.RobinNotBad.BiliClient.util.DownloadWakeLock
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.Logu
@@ -22,8 +23,6 @@ import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import com.RobinNotBad.BiliClient.util.PictureMediaStore
 import okhttp3.Response
-import okio.buffer
-import okio.sink
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -358,35 +357,19 @@ class DownloadActivity : BaseActivity() {
     private fun downdanmu(danmaku: String, danmakuFile: File): Boolean {
         val existedBefore = danmakuFile.exists()
         try {
-            val response: Response = NetWorkUtil.get(danmaku,
-                if (noBiliHeaders) AppInfoApi.customHeaders else NetWorkUtil.webHeaders)
-            // 非 2xx 时 body 是错误页/JSON，以前照样解压写进 danmaku.xml，播放器解析出来是空弹幕，
-            // 用户只会觉得"这个视频的弹幕丢了"
-            if (abortOnHttpError(response, danmakuFile, !existedBefore, R.string.text_danmaku_download_failed)) {
-                return false
-            }
-            var bufferedSink: okio.BufferedSink? = null
-            try {
-                if (!existedBefore) danmakuFile.createNewFile()
-                touchedFiles.add(danmakuFile)
-                val sink = danmakuFile.sink()
-                val decompressBytes = NetWorkUtil.decompress(response.body!!.bytes())
-                bufferedSink = sink.buffer()
-                bufferedSink.write(decompressBytes)
-                bufferedSink.close()
-            } catch (e: Exception) {
-                e.printStackTrace()
-                // 解压/写盘失败也要还连接，别让半截响应一直占着 OkHttp 连接池
-                try { response.close() } catch (_: Exception) {}
-                finish()
-                return false
-            } finally {
-                bufferedSink?.close()
-            }
-            response.body?.close()
-            response.close()
+            // 统一走 DanmakuFileFetcher：非 2xx 抛 IOException（404/412 错误页不再落盘），
+            // 这条链路以前是 abortOnHttpError 单独判的，收口后与另外三份副本同一套判定
+            val data = DanmakuFileFetcher.fetch(
+                danmaku,
+                if (noBiliHeaders) AppInfoApi.customHeaders else NetWorkUtil.webHeaders
+            )
+            if (!existedBefore) danmakuFile.createNewFile()
+            touchedFiles.add(danmakuFile)
+            danmakuFile.writeBytes(data)
             return true
         } catch (e: IOException) {
+            // 覆盖已有成品前就失败的话，旧文件没被动过，不能误删（同 abortOnHttpError 的口径）
+            if (!existedBefore) danmakuFile.delete()
             runOnUiThread { MsgUtil.showMsg(getString(R.string.text_danmaku_download_failed)) }
             finish()
             e.printStackTrace()

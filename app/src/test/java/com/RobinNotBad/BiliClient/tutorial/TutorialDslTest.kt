@@ -104,11 +104,23 @@ class TutorialDslTest {
 
     @Test
     fun registry_videoInfoPageHasSingleMergedTutorial() {
-        val list = Tutorials.forPage(VideoInfoActivity::class.java)
+        val list = Tutorials.forPage(VideoInfoActivity::class.java).filter { it.isFullScreen }
 
         assertEquals("零碎问题已合并进同一篇，应只剩一篇", 1, list.size)
         assertEquals("video_main", list[0].id)
         assertEquals("合并后应为三页", 3, list[0].pageCount)
+    }
+
+    @Test
+    fun registry_forPageAlsoReturnsThatPagesHints() {
+        // 5 个宿主页的左右翻页提示现在也由注册表声明：BaseActivity 按同一份数据同时分流
+        // 「全屏教程」与「页面滑动提示」，页面本身不用再调用任何教程 API。
+        val list = Tutorials.forPage(VideoInfoActivity::class.java)
+
+        assertEquals("视频详情页 = 一篇全屏教程 + 一条翻页提示", 2, list.size)
+        assertEquals(1, list.count { it.isFullScreen })
+        assertEquals(1, list.count { it.kind == TutorialKind.HINT })
+        assertEquals("hint_video_info", list.first { it.kind == TutorialKind.HINT }.id)
     }
 
     @Test
@@ -126,7 +138,7 @@ class TutorialDslTest {
     fun registry_articleTutorialIsWiredToOpusInfoPage() {
         // 旧实现里 tutorial_article 是孤儿：内容写好了但全工程没有任何调用点。
         // 迁移后由注册表集中触发，这里锁住这个回归。
-        val list = Tutorials.forPage(OpusInfoActivity::class.java)
+        val list = Tutorials.forPage(OpusInfoActivity::class.java).filter { it.isFullScreen }
 
         assertEquals(1, list.size)
         assertEquals("article", list[0].id)

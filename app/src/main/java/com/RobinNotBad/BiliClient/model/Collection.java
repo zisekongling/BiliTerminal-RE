@@ -160,6 +160,55 @@ public class Collection implements Parcelable, Serializable {
     };
 
     /**
+     * 交给播放器的轻量副本：**剥掉每集的 {@link Episode#arc}**，其余原样保留。
+     *
+     * <p>每一集的 arc 都是一份完整 {@code VideoInfo}，几百上千集的合集光是这一项就上兆，
+     * 塞进 Intent 会直接撞 binder 事务上限（崩溃 #201）。播放器只要 aid / cid / 标题
+     * （见 {@link #toPlaylist}），arc 是合集详情页画卡片用的，走不到播放器那条路。
+     * 改完不原地修改入参，返回新对象——同一个 Collection 实例详情页还要接着用。
+     */
+    public Collection slimForTransfer() {
+        Collection copy = new Collection();
+        copy.id = id;
+        copy.title = title;
+        copy.cover = cover;
+        copy.intro = intro;
+        copy.mid = mid;
+        copy.view = view;
+        // cards 是「收藏的合集」那种来源，条目本身就是轻量 VideoCard，直接共用即可
+        copy.cards = cards;
+        if (sections != null) {
+            copy.sections = new ArrayList<>(sections.size());
+            for (Section section : sections) {
+                if (section == null) continue;
+                Section slimSection = new Section();
+                slimSection.season_id = section.season_id;
+                slimSection.id = section.id;
+                slimSection.title = section.title;
+                slimSection.type = section.type;
+                if (section.episodes != null) {
+                    slimSection.episodes = new ArrayList<>(section.episodes.size());
+                    for (Episode episode : section.episodes) {
+                        if (episode == null) continue;
+                        Episode slimEpisode = new Episode();
+                        slimEpisode.season_id = episode.season_id;
+                        slimEpisode.section_id = episode.section_id;
+                        slimEpisode.id = episode.id;
+                        slimEpisode.aid = episode.aid;
+                        slimEpisode.cid = episode.cid;
+                        slimEpisode.title = episode.title;
+                        slimEpisode.bvid = episode.bvid;
+                        // arc 刻意不带：它才是体积的全部来源
+                        slimSection.episodes.add(slimEpisode);
+                    }
+                }
+                copy.sections.add(slimSection);
+            }
+        }
+        return copy;
+    }
+
+    /**
      * 合集里的一集，只留"当播放列表条目"要用的三个字段。
      *
      * 独立于 [Episode] 是因为它要跨两种来源：`ugc_season` 来的走 `sections[].episodes[]`，

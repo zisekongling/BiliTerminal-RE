@@ -10,6 +10,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.listener.OnItemLongClickListener
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 
 class VideoCardAdapter(
@@ -20,6 +21,27 @@ class VideoCardAdapter(
     var longClickListener: OnItemLongClickListener? = null
     /** 自定义点击监听器，如果设置了则覆盖默认的视频详情页跳转行为 */
     var onItemClickListener: ((Int, VideoCard) -> Unit)? = null
+
+    /**
+     * 「减少推荐」动作本体，由信息流页面注入（[VideoCardMenu.Action.REDUCE_RECOMMEND]）。
+     *
+     * 为什么不在这个适配器里实现：这个动作依赖「这条卡片在信息流里的位置」与 track 信息
+     * （同一条卡片在别的地方出现时带的 track 参数并不相同），适配器只拿得到 [VideoCard]，
+     * 拿不到那些上下文。目前只有 [com.RobinNotBad.BiliClient.activity.video.RecommendActivity]
+     * 的首页推荐流会注入；不设置（null）时菜单里不出现这一项——排行、搜索、UP 主空间
+     * 这类列表本来也没有推荐可减。
+     */
+    var onReduceRecommend: ((VideoCard) -> Unit)? = null
+
+    /**
+     * 「屏蔽作者」动作本体，由信息流页面注入（[VideoCardMenu.Action.BLOCK_AUTHOR]）。
+     *
+     * 名单本身写在 [com.RobinNotBad.BiliClient.util.recommend.BlockedAuthorStore]（持久化 + 依赖
+     * 上下文），菜单里点一下就落库了；这里拿到的回调只负责**页面侧的事**：把该作者的卡片从当前
+     * 列表里立刻移除，不用等下拉刷新。不设置（null）时菜单里不出现这一项——排行、搜索、收藏夹
+     * 这些列表屏蔽了也改变不了什么，给个按钮只会误导。
+     */
+    var onBlockAuthor: ((VideoCard) -> Unit)? = null
 
     /**
      * 多选模式：进入后列表项可以勾选/取消（收藏夹多选删除用）。
@@ -38,17 +60,19 @@ class VideoCardAdapter(
      * 关掉「同一项内容变化」的动画。
      *
      * <h3>为什么必须关</h3>
-     * 多选态的暗/亮是靠 [VideoCardHolder.applySelection] 直接写 `itemView.alpha` 实现的
-     * （选中 1f、未选中 0.45f），而勾选/取消勾选走的是 `notifyItemChanged(position)`。
-     * `RecyclerView` 默认挂 `DefaultItemAnimator`，它处理 `notifyItemChanged` 的方式是
-     * **另建一个 ViewHolder 做交叉淡入**（`canReuseUpdatedViewHolder` 在
-     * `supportsChangeAnimations = true` 时返回 false），并在动画收尾把新布局的 alpha 设成 1。
-     * 于是：勾选（目标本来就是 1f）看不出问题，**取消勾选（目标是 0.45f）会被静默改回 1f**——
-     * 表现出来正是真机上反馈的「取消选择后条目不会再次暗下去」。
+     * 多选态的样式靠 [VideoCardHolder.applySelection] 直接改标题文字（引导符 + 主色），
+     * 勾选/取消勾选走的是 `notifyItemChanged(position)`。`RecyclerView` 默认挂
+     * `DefaultItemAnimator`，它处理 `notifyItemChanged` 的方式是**另建一个 ViewHolder 做交叉淡入**
+     * （`canReuseUpdatedViewHolder` 在 `supportsChangeAnimations = true` 时返回 false）。
+     * 于是每次勾选都是一次「旧样式渐隐 + 新样式渐显」：手表屏小、条目又高，淡入期间能明显看到
+     * 两句标题叠在一起，快速连点几下更是拖影；而弹窗里的多选是点击即变，两边观感对不上。
      *
      * `supportsChangeAnimations = false` 让 `RecyclerView` 复用原 ViewHolder、不做交叉淡入，
-     * `applySelection` 写下的 alpha 才能留到下一帧。只影响「内容变化」这一类动画，
+     * `applySelection` 写下的样式直接落到这一帧。只影响「内容变化」这一类动画，
      * 增删/移动动画不受影响。
+     *
+     * （26.11.11 反馈 #140 之前这里是 `itemView.alpha` 压暗，会被动画收尾改回 1f；
+     * 改成 glyph + 主色之后 alpha 这条因果没了，但「交叉淡入导致样式滞后」的理由仍然成立。）
      */
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         super.onAttachedToRecyclerView(recyclerView)
@@ -77,21 +101,27 @@ class VideoCardAdapter(
         holder.showVideoCard(videoCard, context)
         holder.bindClick(videoCard, context, position, object : View.OnLongClickListener {
             override fun onLongClick(v: View): Boolean {
-                // 页面显式注册的长按行为优先于「快速缓存」这个全局便利功能。
+                // 页面显式注册的长按行为优先于「长按快捷操作」这个全局便利功能。
                 // 稍后再看 / 收藏夹等页面的「长按两次删除」是原版终端就有的功能，之前被快速缓存顶掉，
                 // 表现为长按只会弹出缓存清晰度选择页、删除功能消失（issue #2）。
                 if (longClickListener != null) {
                     longClickListener!!.onItemLongClick(position)
                     return true
                 }
-                // 没有自定义长按的浏览类列表（推荐 / 排行 / 搜索等）才回落到快速缓存。
-                // 私有功能产出的卡片（没有 B 站 aid/cid）由门面判断跳过。
-                val quickMode = SharedPreferencesUtil.getBoolean("cache_quick_mode", true)
-                if (quickMode && videoCard.type != "live" && !OptionalFeatures.skipQuickCache(videoCard)) {
-                    VideoQuickCache.handle(context, videoCard)
-                    return true
-                }
-                return false
+                // 没有自定义长按的浏览类列表（推荐 / 排行 / 搜索等）才回落到「操作菜单」。
+                // 26.11.08 起这条回落路径不再是「直接快速缓存」：长按先弹菜单，
+                // 缓存只是菜单里的一项（VideoCardMenu.Action.CACHE），旧链路本身没变。
+                // 私有功能产出的卡片（没有 B 站 aid/cid）由门面判断跳过；直播间卡片没有投稿 aid。
+                if (!SharedPreferencesUtil.getBoolean(SettingsKeys.CACHE_QUICK_MODE, true)) return false
+                if (videoCard.type == "live" || OptionalFeatures.skipQuickCache(videoCard)) return false
+                return VideoCardMenu.show(
+                    context,
+                    videoCard,
+                    reduceRecommendAvailable = onReduceRecommend != null,
+                    onReduceRecommend = { onReduceRecommend?.invoke(videoCard) },
+                    blockAuthorAvailable = onBlockAuthor != null,
+                    onBlockAuthor = { onBlockAuthor?.invoke(videoCard) }
+                )
             }
         })
         // 如果设置了自定义点击监听器，覆盖默认行为

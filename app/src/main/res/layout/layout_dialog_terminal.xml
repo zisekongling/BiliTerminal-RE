@@ -54,23 +54,30 @@
     </ScrollView>
 
     <!--
-      固定底栏（可选）。默认 GONE = 老行为：按钮跟在正文末尾、随正文一起滚——
-      菜单/单选/确认框的正文都很短，用不着它。
+      按钮区。**永远在滚动区外面**（反馈 #161 / #54 / #125）：按钮跟着正文滚会被顶到
+      看不见的地方，而启动时的隐私说明又不允许返回键关掉，点不到按钮 = 用户彻底卡住。
+      滚动区高度不够时由 Sheet.prepareLayout() 先舍提示行再舍标题行，这里**永远不参与压缩**。
 
-      启用时（见 TerminalDialog.Sheet 的 bottomButtonBar 参数）按钮挪到滚动区**外面**，
-      因为正文一长按钮就会被顶到看不见的地方，而这类弹窗（启动时的隐私说明）又不允许
-      返回键关掉，点不到按钮 = 用户彻底卡住。底栏在滚动区外，滚动区高度不够时由
-      Sheet.prepareLayout() 先舍提示行再舍标题行，底栏本身**永远不参与压缩**。
+      26.11.13 起按钮改成**整行宽的纵向堆叠行**（见 TerminalDialog.Sheet.addButton）：
+      原来是一行横向 LinearLayout、两个窄 TextView 右对齐，在「命中区相对视觉整体偏移」的
+      设备上（#54 实测「点按钮会判定到旁边的位置」）会点到隔壁的按钮——「点取消却执行删除」
+      就是这么来的。整行堆叠后横向偏移不再改变选中的是哪个动作。
+      分割线放在这里而不是每行里：只画一条，且行高才是可点区域。
     -->
     <LinearLayout
         android:id="@+id/terminal_dialog_buttons"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="end"
-        android:paddingStart="@dimen/dialog_item_padding_h"
-        android:paddingEnd="@dimen/dialog_item_padding_h"
-        android:visibility="gone" />
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="?attr/colorOnSurface"
+            android:alpha="0.18" />
+
+    </LinearLayout>
 
     <TextView
         android:id="@+id/terminal_dialog_hint"

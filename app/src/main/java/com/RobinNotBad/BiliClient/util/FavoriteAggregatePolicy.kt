@@ -40,7 +40,7 @@ object FavoriteAggregatePolicy {
         val folderName: String,
     )
 
-    /** 聚合结果；folderCount 是参与聚合的收藏夹数，failedFolderCount 是其中读取失败的个数 */
+    /** 聚合结果；folderCount 是**真正取到内容**的收藏夹数，failedFolderCount 是读取失败的个数（两者相加才是请求过的夹数） */
     data class Result(
         val items: List<AggregateItem>,
         val folderCount: Int,
@@ -87,10 +87,12 @@ object FavoriteAggregatePolicy {
         val sorted = merged.values.sortedWith(
             compareByDescending<AggregateItem> { it.favTimeSec }.thenBy { it.folderMediaId }
         )
+        // 失败的夹一条都没贡献，不能算进「来自 N 个收藏夹」里，否则汇总文案会自相矛盾
+        val failedFolderCount = pages.count { it.failed }
         return Result(
             items = sorted.take(maxItems.coerceAtLeast(0)),
-            folderCount = pages.size,
-            failedFolderCount = pages.count { it.failed },
+            folderCount = pages.size - failedFolderCount,
+            failedFolderCount = failedFolderCount,
         )
     }
 }

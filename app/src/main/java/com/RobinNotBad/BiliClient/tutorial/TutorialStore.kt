@@ -10,9 +10,12 @@ import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
  * 旧管理页就是自己拼 `tutorial_ver_<旧 tag>`，而教程系统按 id 读，两个键对不上，
  * 于是「通过教程」之后教程照样弹、「清除进度」也清不掉（审计 P1-1）。
  *
- * 页面滑动提示（[TutorialKind.HINT] 的遗留实现）用另一套键 `tutorial_pager_<目标页类名>`，
+ * 页面滑动提示（[TutorialKind.HINT]）沿用旧实现的键 `tutorial_pager_<目标页类名>`，
  * 值取反（`false` = 看过），历史格式不能改，否则老用户会重新看到提示；
  * 故这里保留原键值语义，只包一层 [isHintShown]，免得每个调用方都要自己记「取反」这件事。
+ *
+ * 对调用方来说不再需要区分两种教程：HINT 在 [isRead] / [markRead] / [clear] 里按自己的键读写，
+ * 全屏教程走 `tutorial_ver_<id>`。管理页与触发链路都只认这套 API。
  */
 object TutorialStore {
 
@@ -28,15 +31,29 @@ object TutorialStore {
     /** 旧键迁移的完成标记，语义见 [migrateLegacyKeys]。 */
     private const val LEGACY_MIGRATED_FLAG = "tutorial_legacy_migrated"
 
-    /** 是否已读过该教程的当前版本。 */
-    fun isRead(tutorial: Tutorial): Boolean = readVersion(tutorial.id) >= tutorial.version
+    /** 是否已读过该教程的当前版本（HINT 看「提示是否展示过」）。 */
+    fun isRead(tutorial: Tutorial): Boolean = when (tutorial.kind) {
+        TutorialKind.HINT -> isHintShown(hintKeyPageOf(tutorial))
+        else -> readVersion(tutorial.id) >= tutorial.version
+    }
 
     /** 已读版本号；没读过返回 -1。 */
     fun readVersion(id: String): Int = SharedPreferencesUtil.getInt(keyOf(id), -1)
 
-    /** 标记为已读（写入当前版本号）。 */
+    /** 标记为已读（全屏教程写当前版本号，HINT 写「提示已展示」）。 */
     fun markRead(tutorial: Tutorial) {
-        SharedPreferencesUtil.putInt(keyOf(tutorial.id), tutorial.version)
+        when (tutorial.kind) {
+            TutorialKind.HINT -> markHintShown(hintKeyPageOf(tutorial))
+            else -> SharedPreferencesUtil.putInt(keyOf(tutorial.id), tutorial.version)
+        }
+    }
+
+    /** 清除某篇教程的进度，下次进到对应页面会重新展示（HINT 会重新出现那层提示）。 */
+    fun clear(tutorial: Tutorial) {
+        when (tutorial.kind) {
+            TutorialKind.HINT -> clearHint(hintKeyPageOf(tutorial))
+            else -> clear(tutorial.id)
+        }
     }
 
     /**
@@ -59,18 +76,12 @@ object TutorialStore {
     // ==================== 页面滑动提示（HINT） ====================
 
     /**
-     * 已知的滑动提示宿主页。
-     *
-     * 键就是目标页的 `Activity` 类名，与 `TutorialHelper.showPagerTutorial(activity, …)` 的调用点一致。
-     * 新加宿主页时记得同步这里，否则管理页会漏掉它（`SearchActivity` 是自己单独实现的一份，也算进来了）。
+     * HINT 教程的存储键用「目标页类名」而不是教程 id——这是旧实现的存档格式
+     * （`tutorial_pager_<页类名>`），改了老用户会重新看到提示。
+     * 因此宿主页由注册表里的 `target` 决定，这里只负责取它的类名。
      */
-    val HINT_PAGES = listOf(
-        "SearchActivity",
-        "VideoInfoActivity",
-        "UserInfoActivity",
-        "OpusInfoActivity",
-        "DynamicInfoActivity",
-    )
+    private fun hintKeyPageOf(tutorial: Tutorial): String =
+        tutorial.target.simpleName ?: tutorial.id
 
     /** 页面滑动提示的存储键。 */
     fun hintKeyOf(page: String): String = HINT_PREFIX + page
@@ -87,11 +98,6 @@ object TutorialStore {
     /** 重置该页的滑动提示，下次进页面会重新显示。 */
     fun clearHint(page: String) {
         SharedPreferencesUtil.removeValue(hintKeyOf(page))
-    }
-
-    /** 重置所有已知页面的滑动提示。 */
-    fun clearAllHints() {
-        HINT_PAGES.forEach { clearHint(it) }
     }
 
     // ==================== 旧键迁移 ====================

@@ -19,6 +19,7 @@ import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.net.URLEncoder;
 import java.util.List;
 import java.util.Objects;
 import java.util.zip.GZIPInputStream;
@@ -181,10 +182,24 @@ public class UserInfoApi {
     }
 
 
+    /** 空间投稿排序档位：与 web 端 `order` 参数一致 */
+    public static final String ORDER_PUBDATE = "pubdate";   // 最新发布
+    public static final String ORDER_CLICK = "click";       // 最多播放
+    public static final String ORDER_STOW = "stow";         // 最多收藏
+
+    /** 空间投稿：保持旧行为（按发布时间倒序、不带关键词） */
     public static int getUserVideos(long mid, int page, String searchKeyword, List<VideoCard> videoList) throws IOException, JSONException {
-        String url = "https://api.bilibili.com/x/space/wbi/arc/search?";
-        url += "keyword=" + searchKeyword + "&mid=" + mid + "&order_avoided=true&order=pubdate&pn=" + page
-                + "&ps=40&tid=0&web_location=333.999";
+        return getUserVideos(mid, page, searchKeyword, ORDER_PUBDATE, videoList);
+    }
+
+    /**
+     * 空间投稿：空间内关键词搜索 + 指定排序。
+     *
+     * <p>order 只认白名单（见 [normalizeOrder]）：它直接拼进 WBI 签名串，
+     * 放开任意输入等于让调用方改请求结构。
+     */
+    public static int getUserVideos(long mid, int page, String searchKeyword, String order, List<VideoCard> videoList) throws IOException, JSONException {
+        String url = buildUserVideoUrl(mid, page, searchKeyword, order);
         JSONObject all = NetWorkUtil.getJson(ConfInfoApi.signWBI(DmImgParamUtil.getDmImgParamsUrl(url)));
         if (all.has("data") && !all.isNull("data")) {
             JSONObject data = all.getJSONObject("data");
@@ -207,6 +222,61 @@ public class UserInfoApi {
                 return 0;
             } else return -1;
         } else return -1;
+    }
+
+    /**
+     * 排序参数白名单：只放行「最多播放 / 最多收藏」，其余（含 null / 空串 / 用户乱传）一律回落
+     * 到「最新发布」。这个值会被拼进 WBI 签名串，不能让它承载任意内容。
+     *
+     * <p>纯函数，见 `UserInfoApiTest`。
+     */
+    public static String normalizeOrder(String order) {
+        if (ORDER_CLICK.equals(order) || ORDER_STOW.equals(order)) return order;
+        return ORDER_PUBDATE;
+    }
+
+    /**
+     * 空间投稿列表的请求地址。
+     *
+     * <p>keyword **必须在签名前先编码**：含 `&` / `=` 的关键词会破坏 query 结构，也会让 WBI
+     * 签名与服务端重算的参数串对不上（服务端校验的就是编码后的参数串，与 web 端一致）。
+     *
+     * <p>纯函数，见 `UserInfoApiTest`。
+     */
+    public static String buildUserVideoUrl(long mid, int page, String searchKeyword, String order) throws IOException {
+        String safeOrder = normalizeOrder(order);
+        return "https://api.bilibili.com/x/space/wbi/arc/search?"
+                + "keyword=" + encodeKeyword(searchKeyword)
+                + "&mid=" + mid
+                + "&order_avoided=true&order=" + safeOrder
+                + "&pn=" + page
+                + "&ps=40&tid=0&web_location=333.999";
+    }
+
+    /**
+     * 关键词编码，口径对齐 WBI 签名要的 `encodeURIComponent`，**不是**表单编码。
+     *
+     * <p>为什么不能直接用 `URLEncoder.encode`：它是 `application/x-www-form-urlencoded`——
+     * 空格编成 `+`、`~ ! ' ( )` 也各自编成 `%XX`，而 WBI 的服务端是「解码出原值 →
+     * `encodeURIComponent` 重编码 → 比 md5」。差异项会让签名串对不上，服务端回 -352
+     * 「风控校验失败」，用户看到的就是「加载失败」。26.11.07 用脚本按仓库 signWBI 的
+     * 算法对 `space/wbi/arc/search` 实测：`a~b` 用 `a%7Eb` 签 → -352，用 `a~b` 签 → 签名通过
+     * （服务端返回业务码而非风控码）。
+     *
+     * <p>`URLEncoder` 编出来的其余部分（中文 / 结构字符 / 大写十六进制）与 `encodeURIComponent`
+     * 一致，所以这里只把差异项掰回来即可。
+     *
+     * <p>纯函数，见 `UserInfoApiTest`。
+     */
+    public static String encodeKeyword(String keyword) throws IOException {
+        if (keyword == null || keyword.isEmpty()) return "";
+        return URLEncoder.encode(keyword, "UTF-8")
+                .replace("+", "%20")     // 表单编码的空格 -> encodeURIComponent 的 %20
+                .replace("%7E", "~")
+                .replace("%21", "!")
+                .replace("%27", "'")
+                .replace("%28", "(")
+                .replace("%29", ")");
     }
 
 

@@ -29,6 +29,10 @@
          视觉尺寸不变，不影响紧凑观感） -->
     <dimen name="touch_min">48dp</dimen>
 
+    <!-- 分段条 / 页签的行高。比 touch_min 矮 8dp：整条横条本身是一个可拖动控件
+         （SegmentedBarStyle.installDrag），不需要每格各自 48dp 才点得准。 -->
+    <dimen name="segmented_bar_min">40dp</dimen>
+
     <!-- 卡片 -->
     <dimen name="card_padding">8dp</dimen>
     <dimen name="card_padding_horizontal">12dp</dimen>

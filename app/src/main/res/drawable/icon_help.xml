@@ -1,11 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 帮助 / 教程入口图标。tint 与路径填充原本都写死纯白（tint 等于「不着色」），现改用蒙版白
+     语义色 @color/vector_icon_mask：将来要让图标跟随主题色，只改这一处引用即可。
+     注意：路径填充也必须用语义色而不是 @android:color/white —— tools/appearance/gen_light_mode.py
+     靠匹配字面白色生成亮色版，若这里留着字面白，重跑脚本会把亮色版的 tint 保留成白色、只把填充染深，
+     结果得到一个「白上白」不可见的图标；用 @color 引用后脚本会跳过本文件，沿用已有的亮色版。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24"
-    android:tint="#FFFFFF">
+    android:tint="@color/vector_icon_mask">
     <path
-        android:fillColor="@android:color/white"
+        android:fillColor="@color/vector_icon_mask"
         android:pathData="M11,18h2v-2h-2v2zM12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM12,20c-4.41,0 -8,-3.59 -8,-8s3.59,-8 8,-8 8,3.59 8,8 -3.59,8 -8,8zM12,6c-2.21,0 -4,1.79 -4,4h2c0,-1.1 0.9,-2 2,-2s2,0.9 2,2c0,2 -3,1.75 -3,5h2c0,-2.25 3,-2.5 3,-5 0,-2.21 -1.79,-4 -4,-4z"/>
 </vector>

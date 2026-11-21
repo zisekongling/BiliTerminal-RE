@@ -63,6 +63,25 @@
                 android:textSize="13sp"
                 android:inputType="textMultiLine" />
 
+            <!-- 换行：手表输入法把回车当「完成」，只能靠点这里往光标处插一个换行 -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/newline"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="35dp"
+                    app:drawableEndCompat="@drawable/arrow_forward"
+                    android:layout_marginHorizontal="8dp"
+                    android:gravity="center_vertical"
+                    android:text="@string/btn_newline"
+                    android:textAlignment="textEnd"
+                    android:textSize="13sp"
+                    android:visibility="visible"
+                    tools:ignore="RtlCompat" />
+            </com.google.android.material.card.MaterialCardView>
+
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/emote"
                 android:layout_width="match_parent"

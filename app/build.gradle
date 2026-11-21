@@ -3,7 +3,38 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
-int betaVer = 0
+// ── 版本号（三通道：稳定 / 测试 / 实验）────────────────────────────────────
+// 口径与理由见 docs/version-channels.md §2：
+//   versionCode = YYMMDD × 100 + 渠道码 × 10 + 当日序号   （stable=0, beta=1, exp=2）
+//   versionName = tag，两者完全相等
+//
+// 唯一手写项是下面的日期；渠道与序号走 Gradle 参数，不手算：
+//   ./gradlew :app:assembleRelease                         → 26.11.14 / 26111400
+//   ./gradlew :app:assembleRelease -Pseq=1                 → 26.11.14.1 / 26111401
+//   ./gradlew :app:assembleRelease -Pchannel=beta -Pseq=2  → 26.11.14-beta.2 / 26111412
+//   ./gradlew :app:assembleRelease -Pchannel=exp  -Pseq=1  → 26.11.14-exp.1 / 26111421
+def appVersionDate = "26.11.18"
+def appChannel = (project.findProperty('channel') ?: 'stable').toString().trim()
+def appChannelCode = [stable: 0, beta: 1, exp: 2][appChannel]
+def appSeq = (project.findProperty('seq') ?: (appChannel == 'stable' ? '0' : '1')).toString().trim().toInteger()
+
+if (!(appVersionDate ==~ /\d{2}\.\d{2}\.\d{2}/)) {
+    throw new GradleException("appVersionDate 必须是 YY.MM.DD，当前是：${appVersionDate}")
+}
+if (appChannelCode == null) {
+    throw new GradleException("-Pchannel 只能是 stable / beta / exp，收到：${appChannel}")
+}
+if (appSeq < 0 || appSeq > 9) {
+    throw new GradleException("-Pseq 必须是 0~9（同日同渠道最多 10 次），收到：${appSeq}")
+}
+if (appChannel != 'stable' && appSeq < 1) {
+    throw new GradleException("beta / exp 通道的 -Pseq 从 1 开始（0 只留给稳定版）")
+}
+
+def appVersionCode = appVersionDate.replaceAll('\\.', '').toInteger() * 100 + appChannelCode * 10 + appSeq
+def appVersionName = appVersionDate + (appChannel == 'stable'
+        ? (appSeq > 0 ? ".${appSeq}" : "")
+        : "-${appChannel}.${appSeq}")
 
 // ── 可选私有功能源码（不入库）──────────────────────────────────────────────
 // 私有功能的源码/资源/清单放在仓库根目录的 private/ 下，已被 .gitignore 排除，永不进公开仓库。
@@ -40,14 +71,16 @@ android {
 
     defaultConfig {
         applicationId "com.RobinNotBad.BiliClient"
-        minSdk 19
+        // ⚠ 26.11.21 暂时回到 21（Android 5.0），不是终点：okhttp 4.12.0 的
+        // okhttp3.internal.platform.AndroidPlatform.<clinit> 在 Build.VERSION.SDK_INT < 21 时
+        // 主动 throw IllegalStateException("Expected Android API level 21+ but was ...")，
+        // 类初始化失败后所有 OkHttp 调用都会 NoClassDefFoundError: okhttp3/internal/platform/Platform
+        // （issue #35 的崩溃栈就是这个）。真要恢复 4.4 必须先换掉 OkHttp 4（降到 3.12.x），
+        // 改造面与风险见 docs/architecture-map.md §1.1，进度见台账「恢复 Android 4.4（API 19）兼容」。
+        minSdk 21
         targetSdk 34
-        versionCode 2611061
-        versionName "26.11.06"
-
-        if (betaVer) {
-            versionName += "-BETA" + betaVer
-        }
+        versionCode appVersionCode
+        versionName appVersionName
 
         multiDexEnabled true
 
@@ -92,14 +125,6 @@ android {
         }
     }
 
-    // 纯 JVM 单测里 android.jar 是桩：`android.util.Log` 之类未 mock 的框架方法默认直接抛
-    // 「not mocked」。AccountManager 在拒绝串号时会落一条 `Logu.w` 诊断（真机要留档），
-    // 于是那两条拒绝路径的用例在 JVM 下必炸。让桩方法返回默认值（false/0/null）既保留
-    // 生产侧日志，又能让凭证逻辑（日志之外的代码）继续被断言。
-    testOptions {
-        unitTests.returnDefaultValues = true
-    }
-
     signingConfigs {
         release {
             def localProps = project.rootProject.file("local.properties")
@@ -140,7 +165,9 @@ android {
 
     buildTypes {
         release {
-            buildConfigField "boolean", "BETA", String.valueOf(betaVer > 0)
+            buildConfigField "boolean", "BETA", String.valueOf(appChannel != 'stable')
+            buildConfigField "String", "UPDATE_CHANNEL", "\"${appChannel}\""
+            buildConfigField "String", "VERSION_NAME_BASE", "\"${appVersionDate}\""
             buildConfigField "boolean", "LOG_DEBUG", "false"
             shrinkResources true
             minifyEnabled true
@@ -161,8 +188,13 @@ android {
             crunchPngs false
         }
         debug {
-            buildConfigField "boolean", "BETA", String.valueOf(betaVer > 0)
-            signingConfig signingConfigs.debug
+            buildConfigField "boolean", "BETA", String.valueOf(appChannel != 'stable')
+            buildConfigField "String", "UPDATE_CHANNEL", "\"${appChannel}\""
+            buildConfigField "String", "VERSION_NAME_BASE", "\"${appVersionDate}\""
+            // 26.11.19 起 debug 与正式版用**同一份签名**：真机上 debug 包才能直接覆盖已装的正式版
+            // （否则 INSTALL_FAILED_UPDATE_INCOMPATIBLE，联调只能卸载重装、丢登录态）。
+            // local.properties 没配 KEY_PATH 时回落到默认 debug 签名，公开仓库仍能独立编译。
+            signingConfig signingConfigs.release.storeFile != null ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
             shrinkResources false
 
@@ -328,6 +360,8 @@ dependencies {
     // minSdk 19 的硬约束：appcompat 1.7.0 / fragment-ktx 1.8.0 的 AAR 自身 minSdkVersion 是 21，
     // 清单合并会直接失败。1.6.1 / 1.6.2 是仍声明 minSdk 14 的最后一代，故钉在这里。
     // 想升回 1.7.0 / 1.8.0 必须先把 minSdk 提回 21。依据见 docs/architecture-map.md §1.1。
+    // 26.11.21 minSdk 已暂时回到 21，升级的前置条件满足，但这次只做 minSdk 一件事，
+    // 升 appcompat / fragment 留到恢复 4.4 那轮一起评估（它们会牵动主题与控件行为）。
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.12.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
@@ -357,7 +391,9 @@ dependencies {
 
     // minSdk 19（< 21）时 ART 还不支持原生多 dex，必须靠 multidex 库 + Application.attachBaseContext
     // 里的 MultiDex.install()（见 BiliTerminal.kt）。AGP 只会自动带上 2.0.0，这里显式钉 2.0.1。
-    // 若日后 minSdk 提回 21，这一条和 BiliTerminal 里的 install() 都要一起删掉。
+    // 26.11.21 minSdk 暂时回到 21 后，这条与 install() 其实已经多余，但**先留着**：
+    // 恢复 4.4 时要原样加回来，现在删掉只会在下一次恢复时多踩一轮「忘了加」的坑。
+    // 等到 OkHttp 降级真正落地、4.4 恢复那一轮再决定删不删（见 docs/architecture-map.md §1.1）。
     implementation 'androidx.multidex:multidex:2.0.1'
     // 注：androidx.asynclayoutinflater、protobuf-javalite、geetest sensebot 全工程零引用，已移除
 
@@ -377,7 +413,10 @@ dependencies {
 // versionName / versionCode 分散在多处，全靠人工同步，历史上已实际漂移过两次
 //（readme badge 停在 26.09.07、docs/FEATURES.md 停在 26.08.14）：
 //   1. 本文件 defaultConfig —— 唯一真正决定安装包版本的地方
-//   2. app/src/main/res/values/strings.xml 的更新日志锚点「【<versionName> 本次更新】」—— 用户可见
+//   2. app/src/main/res/values/strings.xml 的更新日志锚点「【<日期> 本次更新】」—— 用户可见
+//
+// 锚点只带日期、不带渠道后缀（见 docs/version-channels.md §3）：三条通道共用同一份当日日志标题，
+// 否则每发一次 beta / exp 都要再改一遍 strings.xml。
 //
 // 注：更新检查已改为直接读 Gitee / GitHub 的发行版（见 util/UpdateManager.kt 与
 // 发版工作流 .github/workflows/build-release.yml），版本号由发版工作流从本文件读出来、
@@ -396,11 +435,12 @@ tasks.register('verifyVersionConsistency') {
     // 显式声明输入，保证配置缓存命中时不会拿旧值
     inputs.property('versionName', expectName)
     inputs.property('versionCode', expectCode)
+    inputs.property('versionDate', appVersionDate)
     inputs.file(stringsFile)
 
     doLast {
         def problems = []
-        def anchor = "【${expectName} 本次更新】"
+        def anchor = "【${appVersionDate} 本次更新】"
 
         // 2) 更新日志锚点：关于页的「本次更新」标题必须跟着版本号走
         if (!stringsFile.getText('UTF-8').contains(anchor)) {

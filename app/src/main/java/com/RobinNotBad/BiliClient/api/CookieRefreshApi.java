@@ -61,13 +61,18 @@ public class CookieRefreshApi {
     public static String getRefreshCsrf(String CorrespondPath) throws IOException {
         if (Objects.equals(CorrespondPath, "")) return "";
         String url = "https://www.bilibili.com/correspond/1/" + CorrespondPath;
-        Response response = NetWorkUtil.get(url);
-        if (response.body() != null) {
-            Document document = Jsoup.parse(response.body().string());
-            if (document.select("#1-name").size() > 0)
-                return document.select("#1-name").get(0).text();
-            else return "";
-        } else return "";
+        // 响应用 try-with-resources 收掉：这是「每次冷启动 + 每 30 分钟」都会走的高频路径。
+        // 注意别把这条改动说成「修了一个连接泄漏」——OkHttp 读完 body 就会归还连接，不 close 并不
+        // 会漏到连接池耗尽；真正需要 close 的是不读 body 就 return 的异常路径（解析中途抛异常时
+        // 连接不归还），以及全仓 NetWorkUtil 返回裸 Response 的统一写法。
+        try (Response response = NetWorkUtil.get(url)) {
+            if (response.body() != null) {
+                Document document = Jsoup.parse(response.body().string());
+                if (document.select("#1-name").size() > 0)
+                    return document.select("#1-name").get(0).text();
+                else return "";
+            } else return "";
+        }
     }
 
     /**
@@ -114,12 +119,14 @@ public class CookieRefreshApi {
         //请求一个新的cookie
         String url = "https://passport.bilibili.com/x/passport-login/web/cookie/refresh";
         String args = "csrf=" + NetWorkUtil.getInfoFromCookie("bili_jct", cookies_old) + "&refresh_csrf=" + RefreshCsrf + "&source=main_web&refresh_token=" + refreshTokenOld;
-        Response response = NetWorkUtil.post(url, args, NetWorkUtil.webHeaders);
-        if (response.body() == null) {
-            Logu.e("Cookie刷新失败", "刷新接口返回空响应");
-            return RefreshResult.RETRY;
+        JSONObject result;
+        try (Response response = NetWorkUtil.post(url, args, NetWorkUtil.webHeaders)) {
+            if (response.body() == null) {
+                Logu.e("Cookie刷新失败", "刷新接口返回空响应");
+                return RefreshResult.RETRY;
+            }
+            result = new JSONObject(response.body().string());
         }
-        JSONObject result = new JSONObject(response.body().string());
         int code = result.optInt("code", -1);
         if (code == -101) {
             // 服务端明确判定会话/口令失效：这是唯一可以引导用户重新登录的信号
@@ -166,12 +173,11 @@ public class CookieRefreshApi {
 
         //使老的Cookie失效（用**旧的** refresh_token，按文档语义）
         int confirmCode;
-        try {
-            Response confirm = NetWorkUtil.post(
-                    "https://passport.bilibili.com/x/passport-login/web/confirm/refresh",
-                    "csrf=" + NetWorkUtil.getInfoFromCookie("bili_jct", cookiesNew)
-                            + "&refresh_token=" + refreshTokenOld,
-                    NetWorkUtil.webHeaders);
+        try (Response confirm = NetWorkUtil.post(
+                "https://passport.bilibili.com/x/passport-login/web/confirm/refresh",
+                "csrf=" + NetWorkUtil.getInfoFromCookie("bili_jct", cookiesNew)
+                        + "&refresh_token=" + refreshTokenOld,
+                NetWorkUtil.webHeaders)) {
             if (confirm.body() == null) {
                 Logu.e("Cookie刷新失败", "确认刷新返回空响应");
                 return RefreshResult.RETRY;

@@ -1,7 +1,6 @@
 package com.RobinNotBad.BiliClient.service
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
@@ -10,110 +9,91 @@ import org.junit.Test
  * 这批逻辑原本就没在 DownloadService 里，但没有单测覆盖：
  * 总进度算错只会让进度条停在半路（不报错、不影响文件），速度算错只会显示奇怪数字，
  * 都属于"没人报 bug 但用户看得见"的问题，所以在这里钉住语义。
+ *
+ * 改造后**总进度按字节算**（原来是按任务个数），见 [DownloadBatchStats] 类注释。
+ * 速度采样器已搬到 `service.download.SpeedSampler`，测试在 SpeedSamplerTest。
  */
 class DownloadBatchStatsTest {
+
+    private companion object {
+        const val MB = 1024L * 1024L
+    }
 
     // ---------- DownloadBatchStats ----------
 
     @Test
-    fun overallProgress_没有任何任务时为0() {
+    fun overallProgress_没有任何字节时返回0() {
         val stats = DownloadBatchStats()
-        assertEquals(0f, stats.overallProgress(0f, 0, 0), 0f)
-        assertEquals("没有任务但传了进度和，除以 0 前必须先返回", 0f, stats.overallProgress(1f, 0, 0), 0f)
+        assertEquals(0f, stats.overallProgress(0L, 0L, 0), 0f)
+        assertEquals("没有分母时不能算比例", 0f, stats.overallProgress(MB, 0L, 0), 0f)
     }
 
     @Test
-    fun overallProgress_失败项目视作终态不卡进度条() {
+    fun overallProgress_完成与失败都算终态() {
         val stats = DownloadBatchStats()
-        stats.recordSuccess()
+        stats.recordSuccess(100L)
         stats.recordFailure()
-        assertEquals("完成 1 + 失败 1，两项都算做完", 1f, stats.overallProgress(0f, 0, 0), 1e-6f)
+        assertEquals("完成的任务已 100% 下完，进度就是满的",
+            1f, stats.overallProgress(0L, 0L, 0), 1e-6f)
         assertEquals(1, stats.completed)
         assertEquals(1, stats.failed)
     }
 
     @Test
-    fun overallProgress_进行中与等待中一起进分母() {
+    fun overallProgress_按字节而不是按任务个数() {
+        // 已下完一个 100MB 的任务，另一个 100MB 的任务下了一半
         val stats = DownloadBatchStats()
-        stats.recordSuccess()
-        stats.recordFailure()
-        // 总工作量 = 1 完成 + 1 失败 + 2 进行中 + 1 等待 = 5
-        // 已完成单位 = 1 + 1 + 1.5 = 3.5 → 0.7
-        assertEquals(0.7f, stats.overallProgress(1.5f, 2, 1), 1e-6f)
+        stats.recordSuccess(100 * MB)
+        // 改造前：两个任务各算一份 → 1.0/2 = 0.5；按字节：(100+50)/(100+100) = 0.75
+        assertEquals(0.75f, stats.overallProgress(50 * MB, 100 * MB, 0), 1e-6f)
     }
 
     @Test
-    fun overallProgress_进行中进度和会被夹到合法范围() {
+    fun overallProgress_小文件不会拖住大文件() {
+        // 一个 500MB 的视频下完，一个 3MB 的音频刚开始（0 字节）
         val stats = DownloadBatchStats()
-        assertEquals("进度和超过进行中项目数（每项最多 1）要夹回 2", 1f,
-            stats.overallProgress(10f, 2, 0), 1e-6f)
-        assertEquals("负数进度夹回 0，不能把总量算成负的", 0f,
-            stats.overallProgress(-5f, 2, 0), 1e-6f)
+        stats.recordSuccess(500 * MB)
+        val progress = stats.overallProgress(0L, 3 * MB, 0)
+        assertEquals("500/(500+3) ≈ 0.994", 500.0 / 503.0, progress.toDouble(), 1e-6)
+    }
+
+    @Test
+    fun overallProgress_排队任务用已完成任务的平均大小估分母() {
+        // 完成一个 1000 字节的任务、失败一个 → 平均 500 字节
+        val stats = DownloadBatchStats()
+        stats.recordSuccess(1000L)
+        stats.recordFailure()
+        // 分母 = 已完成 1000 + 排队 2 × 500 = 2000，分子 = 1000
+        assertEquals(0.5f, stats.overallProgress(0L, 0L, 2), 1e-6f)
+    }
+
+    @Test
+    fun overallProgress_没有已完成任务时不给排队任务凭空造分母() {
+        val stats = DownloadBatchStats()
+        assertEquals("一个都还没下完，没有平均大小可用",
+            0f, stats.overallProgress(0L, 0L, 3), 0f)
     }
 
     @Test
     fun overallProgress_结果恒在0到1之间() {
         val stats = DownloadBatchStats()
-        stats.recordSuccess()
-        assertEquals(1f, stats.overallProgress(0f, 0, 0), 0f)
-        assertEquals(1f, stats.overallProgress(99f, 0, 0), 1e-6f)
+        stats.recordSuccess(100L)
+        assertEquals("已下字节远超总字节（探测偏小）也要夹住",
+            1f, stats.overallProgress(999L, 100L, 0), 1e-6f)
+        val fresh = DownloadBatchStats()
+        assertEquals("负数已下字节按 0 处理", 0f, fresh.overallProgress(-5L, 100L, 0), 1e-6f)
     }
 
     @Test
     fun reset_清空完成与失败计数() {
         val stats = DownloadBatchStats()
-        stats.recordSuccess()
-        stats.recordSuccess()
+        stats.recordSuccess(100L)
+        stats.recordSuccess(200L)
         stats.recordFailure()
         stats.reset()
         assertEquals(0, stats.completed)
         assertEquals(0, stats.failed)
-        assertEquals("清空后没有任务", 0f, stats.overallProgress(0f, 0, 0), 0f)
-    }
-
-    // ---------- SpeedSampler ----------
-
-    @Test
-    fun speedSampler_前两次采样数据不足返回null() {
-        val sampler = SpeedSampler()
-        sampler.reset(0L)
-        // DownloadService 里 resetSpeedSampling 紧跟 resetDownloadedBytes，
-        // 所以第一次采样传进来的一定是 0 字节
-        assertNull("首次采样必须返回 null（由调用方回退到上一次显示值）", sampler.sample(0L, 1000L))
-        // 第二次采样：上一次记下的基准是 0，仍然没有可用的分母
-        assertNull("基准为 0 时不能拿它当分母", sampler.sample(1000L, 2000L))
-        // 第三次采样：基准 1000、间隔 1s
-        assertEquals(1000L, sampler.sample(2000L, 3000L))
-    }
-
-    @Test
-    fun speedSampler_间隔过短返回null() {
-        val sampler = SpeedSampler()
-        sampler.reset(0L)
-        sampler.sample(1000L, 1000L)
-        assertNull("0.2s 间隔太短，速度会剧烈抖动", sampler.sample(2000L, 1200L))
-        assertEquals("0.8s 间隔可用：(3000-2000)/0.8 = 1250", 1250L, sampler.sample(3000L, 2000L))
-    }
-
-    @Test
-    fun speedSampler_字节数没增长时返回0而不是负数() {
-        val sampler = SpeedSampler()
-        sampler.reset(0L)
-        sampler.sample(5000L, 0L)
-        sampler.sample(5000L, 1000L)
-        assertEquals("字节数不变时速度为 0", 0L, sampler.sample(5000L, 2000L))
-        assertEquals("已下载字节总数被清零（如服务重启）时不能算出负数", 0L, sampler.sample(100L, 3000L))
-    }
-
-    @Test
-    fun speedSampler_reset后重新进入数据不足状态() {
-        val sampler = SpeedSampler()
-        sampler.reset(0L)
-        sampler.sample(1000L, 0L)
-        sampler.sample(2000L, 1000L)
-        assertEquals(1000L, sampler.sample(3000L, 2000L))
-        sampler.reset(3000L)
-        assertNull("reset 后基准归零，要重新攒够两次采样", sampler.sample(4000L, 4000L))
+        assertEquals("清空后字节也归零", 0f, stats.overallProgress(0L, 0L, 0), 0f)
     }
 
     // ---------- formatDownloadSpeed ----------

@@ -252,8 +252,10 @@
 | 从 A 移到 B | `POST /x/relation/tags/moveUsers` | `beforeTagids` / `afterTagids` / `fids` / `csrf` |
 
 - **`addUsers` 是追加语义，`moveUsers` 是移动语义**：前者不会把他从原分组移走、也不取关；后者会。两组字段名完全不同（`tagids` vs `beforeTagids`/`afterTagids`），写错只会在真机上收到 `-400`，看不出是拼写问题——所以两个字段组装都抽成纯函数并钉了单测（`FollowApiAddUsersTest` 里有一条「加入与移动是两组不同的字段名」的对照断言）。
-- **默认分组与特别关注不进「加入分组」菜单**：`tagid=0` 是默认分组（加入它等于没加），`-10` 是特别关注（有独立接口/入口）。弹窗只列 `tagid > 0` 的自建分组。
+- **默认分组不进「加入分组」菜单，特别关注进（26.11.21 按反馈 #266 改）**：`tagid=0` 是默认分组（加入它等于没加），弹窗只列 `tagid > 0` 的自建分组；`-10` 是特别关注，`tags/addUsers` 的 `tagids` 直接接受它（bilibili-API `docs/user/relation.md` 的示例参数就是 `tagids=-10,207542`），所以菜单**顶部**单列一项「特别关注」，与自建分组走同一个接口；「他是否已在特别关注里」由 `x/relation/tag/user?fid=` 顺带给出（`-10` 是普通键），不用额外请求。
 - **新建分组后拿不到 tagid**：`POST /x/relation/tag/create` 的响应按文档 `data.tagid` 会回新 id，但当前实现只取 `code`；加入前按名字回查一次 `GET /x/relation/tags` 拿 tagid（服务端保证分组名唯一，重名会回 22106），比猜接口稳。
+- **列表项的关系字段（26.11.07 核实）**：`GET /x/relation/followings` 与 `/x/relation/followers` 的 `list[]` 里，`attribute == 6` 是互相关注、`special == 1` 是「**列表主体**特别关注了这一条」。两者都只对「看自己的列表」有意义（看别人的列表时主体是对方）；`attribute` 的 `128` 是**已拉黑**，不是特别关注（兄弟仓库 `cyq-Re-BiliTerminal` 的 `FollowApi` 注释写成「128=特别关注」是错的）。分组明细 `GET /x/relation/tag` 的 `special` 恒为 0。
+- **分组明细的 `attribute` 也恒为 0（26.11.08 核实，bug 修复）**：`GET /x/relation/tag` 的 `data[]` 里每条只有 `mid` / `uname` / `face` / `sign` 这类展示字段，`attribute` 恒 0、`special` 恒 0、`tag` 恒 null（bilibili-API `docs/user/relation.md` 的字段表已注明）。所以**不能**用它判断「谁和我互关」——按 `attribute == 6` 判会让分组视图的互关徽章永远不亮（而普通关注/粉丝列表是正常的，容易误判成偶发）。要用 `GET /x/relation/relations?fids=<逗号分隔 mid>` 批量补：`data` 是「mid → `{mid, attribute, mtime, tag, special}`」的对象，`attribute` 语义与关系列表一致（`6` 互关、`2` 单关、`0` 无关系、`128` 已拉黑）。一页 20 个成员一次请求即可（实现按 50 个一块，见 `api/FollowApi.fillMutualFollow` / `relationBatchUrl` / `applyRelationAttributes`，`FollowGroupMutualFollowTest` 8 例）。**接口失败只是不标徽章，不影响分组列表本身**。
 
 ## 12. `view_points` 的 `type` 是「分段类型」，不是「片头/片尾类型」（26.11.05，反馈 #99 / #34）
 
@@ -278,3 +280,89 @@
 3. **`confirm/refresh` 的语义是「让旧 `refresh_token` 对应的 Cookie 失效」**，它必须带**旧的** `refresh_token` 与**新** Cookie 里的 `bili_jct`。因此 confirm 之前必须先核对新 Cookie 真的落到本地了（至少 `SESSDATA` 非空、`DedeUserID` 与当前 mid 一致），否则「旧会话被作废 + 本地还是旧的」= 必掉登录。
 
 实现侧对应 `api/CookieRefreshApi.refreshCookie()` 返回的 `RefreshResult{OK, RETRY, NEED_LOGIN}`：只有刷新接口返回 `-101` 才算 `NEED_LOGIN`；`86095`（refresh_csrf 错 / 口令与 Cookie 不匹配）之类只算 `RETRY`，**不得**清本地凭证。
+
+**26.11.16 补充（对照兄弟仓库 cyq114514/Re-BiliTerminal 同一文件后核实）**：
+
+4. **这套 Web 刷新只适用于 Web（扫码）登录**。`refresh_token` 在 `SharedPreferencesUtil` 里只有一个键，但它是**两套不通用**的口令：扫码登录写的是 Web 口令，`oauth2/refresh_token`（APP/TV 登录，见 `api/AppTokenRefreshApi`）写的是 APP 口令。拿 APP 口令去调 `web/cookie/refresh` 只会拿到 `86095`，最坏情况还会拿到 `-101` —— 而 `-101` 是会清登录态的那一档。所以**有 `access_key` 的账号一律走 `AppTokenRefreshApi`，不要进 Web 刷新**。分流放在**调用点**：`util/CookieRefreshScheduler.refreshNow()` 与 `activity/SplashActivity.proceedSplashFlow()` 都先判 `access_key`；`checkCookieRefresh()` 自己不再判一次（26.11.16 曾在它内部加过一道 `access_key` 早退守卫，但 `proceedSplashFlow()` 早已分流、它是唯一调用点，那段守卫永远不会执行，已在同一轮里删掉）。
+5. **三个响应都该关，但这是卫生改动、不是修了一个泄漏**：`getRefreshCsrf()`、`cookie/refresh`、`confirm/refresh` 都是高频路径（每次冷启动 + `CookieRefreshScheduler` 每 30 分钟一次）。OkHttp 的 `Response` 只要 `body().string()` 读完就会把连接还回连接池，所以「不 close ⇒ 每次登录检测泄漏一条连接 ⇒ 池耗尽 ⇒ 所有请求失败」这条推理**不成立**（26.11.16 一开始就是这么写的，已纠正）。真正需要 close 的是**不读 body 就 return 的异常路径**（解析中途抛异常时连接不归还），以及仓库既有写法统一——`NetWorkUtil.get/post` 返回裸 `okhttp3.Response`，全仓已有十余处用 try-with-resources 收它。
+6. **两边的轮换流程本身是一致的**（我方的 `RefreshResult{OK,RETRY,NEED_LOGIN}` 与兄弟仓库的 `CookieRefreshResult{OK, REFRESH_RETRYABLE, REFRESH_REJECTED, CSRF_MISMATCH, CONFIRM_FAILED, …}` 只是档位名称不同）：只有 `-101` 判失效，`-111`（csrf 校验失败，本地 `bili_jct` 与 Cookie 不一致就会命中）与 `86095` 都按可重试处理。兄弟仓库额外做的「confirm 失败回滚 Cookie」我们不需要——我们先落新 `refresh_token`、新 Cookie 已由拦截器落盘，confirm 失败时新旧两侧都有效。
+
+## 14. 番剧索引 / 推荐 / 动态筛选条件（26.11.07 实测）
+
+番剧分区页（`activity/video/BangumiActivity`）的三个数据源，两个接口都**无 WBI、Cookie 可选**（未登录能拿到完整结果）：
+
+| 用途 | 接口 | 关键参数 |
+| --- | --- | --- |
+| 索引 / 推荐 | `GET /pgc/season/index/result` | `season_type=1`（番剧）、`type=1`、`order`（排序 field）、`sort=0`、`page`/`pagesize`、9 个筛选字段 |
+| 筛选条件 | `GET /pgc/season/index/condition` | `season_type=1`、`type=0` |
+
+实测结论（26.11.07 本机直连，`code=0`）：
+
+1. **响应字段与仓库里的旧快照对不上**：`data.list[]` 的 `score`（评分，字符串，未开分是 `"0.0"`）与 `order`（**当前排序指标的展示文案**，字符串）才是现役字段；旧文档里的 `rating` / `styles` / `order` 对象已不存在。`has_next` / `total` / `num` / `size` 照旧。
+2. **`order` 的含义随排序指标变**：`order=3`（最多追番）时是 `"762.3万追番"`，`order=4`（最高评分）时是 `"9.9分"`。所以卡片副标题不能无条件显示 `score`——没开分（`0.0`）时要退回 `order` 文案。
+3. **筛选条件必须从 `condition` 接口拿，不要硬编码**：它下发 `order[]`（5 项排序：综合 `8` / 最多追番 `3` / 最多播放 `2` / 最近更新 `0` / 最高评分 `4`）与 `filter[]` 9 组（地区 / 风格 / 类型 / 付费 / 配音 / 版权 / 状态 / 年份 / 季度）。每组的 `values[].keyword` 才是 query 值，第一项固定是 `-1`（全部）。
+4. **`year` 的 keyword 是区间串**（`[2026,2027)`、`[1990,2000)`），必须原样透传；`area` 的「国产」是 `1,6,7` 这种逗号列表，也别自己拆。
+5. **到底判据**：`has_next` 之外再看 `page * pagesize < total`——深翻过 `total/pagesize` 时 `has_next` 可能仍是 1。请求失败（`-412` 风控、HTML 错误页）必须抛异常，**不能**返回空页：空页会被上层当成「到底了」，页码永久停在半截。
+6. **`media_id` 缺省时退回 `season_id`**：列表项两者通常相等，但个别条目只给其一；拿 `0` 去开详情页会得到空页。
+
+## 15. 空间投稿 `space/wbi/arc/search`：关键词编码口径与排序档位（26.11.07）
+
+用户主页「TA 的投稿」的空间内搜索与排序用这条接口（`api/UserInfoApi.getUserVideos`）：
+
+| 参数 | 值 | 说明 |
+| --- | --- | --- |
+| `keyword` | 关键词（已编码，见下） | 服务端过滤；空串 = 不过滤（「全部投稿」） |
+| `mid` | UP 主 uid | |
+| `order` | `pubdate` / `click` / `stow` | 最新发布 / 最多播放 / 最多收藏；`order_avoided=true` 一起带 |
+| `pn` / `ps` | 页码 / 40 | |
+| `tid=0`、`web_location=333.999` | 固定 | 与 web 端一致，参与 WBI 签名 |
+
+**关键词编码口径（重要）**：必须按 `encodeURIComponent` 编码，**不能直接用 `URLEncoder.encode`（表单编码）**。本仓库 `ConfInfoApi.signWBI` 先把整串 URL 用 `Uri.encode(url, "@#&=*+-_.,:!?()/~'%")` 过一遍——`%` 在保留集合里，已编码的 `%XX` 会原样留下；而服务端是「解码出原值 → `encodeURIComponent` 重编码 → 比 md5」。所以：
+
+- 中文 / `&` / `=` / `#` / `+`：`URLEncoder` 与 `encodeURIComponent` 一致，没问题；
+- 空格：表单编码给 `+`，`+` 在保留集合里原样留下 → 签名串是 `+`、服务端算的是 `%20`，对不上；
+- `~ ! ' ( )`：表单编码各自编成 `%7E` / `%21` / `%27` / `%28` / `%29`，同样对不上。
+
+**实测（26.11.07 本机脚本按仓库 `signWBI` 的算法直连接口）**：`a~b` 用 `a%7Eb` 签 → `-352`「风控校验失败」；用 `a~b`（原样，`~` 在 `Uri.encode` 保留集合里）签 → 签名通过（返回业务码）。中文先编码成 `%E4%B8%AD%E6%96%87` 签 → 签名通过。**`-352` 是签名 / 风控失败，`-403`「访问权限不足」是登录态问题**——两者要分清，别把 `-403` 当成签名错。对策写在 `UserInfoApi.encodeKeyword`（把表单编码的差异项掰回 `encodeURIComponent` 口径），`UserInfoApiTest` 5 例钉住。
+
+**探测环境说明**：上述探测无登录 Cookie、未带 `dm_img_*` 参数，所以只比较「是不是 `-352`」这一层；App 内（有登录态与 Cookie）这条接口正常返回列表，已由 384×384 手表模拟器截图与 `assembleDebug` 验证。
+
+## 16. `durl` 分段与「已下线」自相矛盾；`msgfeed/like` 无文档可比（26.11.11）
+
+**`durl` 是数组、可能是分段清单，但官方文档对「还在不在」自相矛盾。** `bilibili-API/docs/video/videostream_url.md` 里 `:157` / `:258-264` / `:339-480` 明确给出 `durl` 是数组、多段时每段各有 `order` / `length` / `size`，甚至给了 4 段的实例响应；但同一份文档 `:1915` 又写「FLV 多段已下线，现在都是单段」。本机**没有抓到真实响应体**（无可用登录态做 `playurl`，也无可复现的目标视频），所以这条只到「代码侧原来只取 `durl[0]`、全仓无分段遍历」这一步：
+
+- 现状：`PlayerApi` 起播仍只用 `durl[0]`（`videoUrl`），但**完整清单已解析进 `PlayerData.videoSegments`**（`api/PlayerApi.java:170 parseDurlSegments`，三处取 URL 的调用点都走它），下载链路按清单分段下载 + 拼接，播放链路不用。
+- 口径：遇到「下完只有第一段长」这类反馈时，**先让用户提供失败任务的失败原因文案**（本批已把 HTTP 码 / 收到 x/y 字节 / 段号显示到列表），再判是不是分段问题——也可能是 CDN 403 或传输截断，别一口咬定多段。
+
+**`x/msgfeed/like`（收到的赞）没有被 `bilibili-API/` 收录，实测也拿不到真身。** 无登录 Cookie 直接请求返回 `-101`（账号未登录），而该接口的字段位置在仓库代码里三处互相矛盾：
+
+- `getLikeMsg` 从 `data.total.items` 取列表（`:113-115`），游标却按 `data.cursor` 取（`:204-207`）；
+- 分页参数照抄了「回复我的」的 `reply_time`（`:107-108`），而点赞页自己用的是 `like_time`；
+- `checkMessageUnread()`（`:68-74`）只累加 at + reply，不含 like。
+
+本批按「`data.total.*` 优先、`data.*` 回落」的**双形态**实现（`parseLikeItems` / `parseLikeCursor` / `likePageQuery` + `like_time`），好处是**推错也不弄坏本来正常的那条路径**。下次有登录态时请抓一次真实响应体补进本节：确认 items 与 cursor 到底在哪一层、`like_time` 是不是游标键。
+
+**搜索风控回退（legacy `x/web-interface/search/type`）也要带 `seid`**：`SearchApi` 的风控回退分支原先没带 `seid`，容易继续被判定为可疑请求；本批抽了 `appendSeid` 统一拼（首页空串、翻页带上一页返回值）。
+
+## 17. 直播发弹幕 `msg/send` 的参数口径；私信只收 `msg_type` 1/2/5（26.11.11）
+
+**直播发弹幕（`POST https://api.live.bilibili.com/msg/send`，`bilibili-API/docs/live/danmaku.md:1701-1828`）**：必要参数 `csrf` / `roomid` / `msg` / `rnd` / `fontsize` / `color`，非必要 `mode` / `bubble` / `room_type` / `jumpfrom` / `reply_*` / `statistics` / `csrf_token`；`w_rid` 与 `wts` 文档标非必要，只要求 `csrf` 与 `bili_jct` 相同。返回码：`0` 成功、`-101` 未登录、`-111` csrf 失效、`-400` 参数错、`1003212` 超长、`10031` 频率过快；再叠加 `docs/bilibili-api-notes.md` §3 的 `-352` / `-412` 风控。实现（`api/LiveDanmakuApi.java`）按此拼固定顺序 body、`csrf` 与 `csrf_token` 同值都给、Referer 用 `https://live.bilibili.com/`。
+
+- **签名口径改以 PiliPlus 实测为准（26.11.11 用户指定参考）**：`PiliPlus/lib/http/live.dart:36-78` 的 `LiveHttp.sendLiveMsg` 在 **query 上带 `web_location=444.8` 并走 wbi 签名**（`WbiSign.makSign`），body 还固定带 `room_type=0` / `jumpfrom=0` / `reply_mid=0` / `reply_attr=0` / `replay_dmid=''` / `reply_type=0` / `reply_uname=''` / `statistics={"appId":100,"platform":5}`。所以「文档说 w_rid 非必要」只说明不签名不会被**直接**判错，不代表 web 端就是这么发的；本仓库据此改成签名 + 补齐上述字段（`signedSendUrl()` 调 `ConfInfoApi.signWBI`，取密钥失败退回未签名 URL 照发）。`statistics` 里 `appId:100` / `platform:5` = web 端。
+- **`@某人` 走 reply 参数而不是明文**：PiliPlus 把编辑器里的 `at` 片段单独抽成 `reply_mid`（被 @ 的 uid）+ `replay_dmid`（对方那条弹幕 id），正文里不含 `@名字`。本 App 没有 @ 入口，故这两个字段恒为 `0` / 空串；将来加 @ 功能要照这个形状传。
+- **未验证**：本机无登录 Cookie，没有实发过一条；`20` 字上限是从产品口径写死的（文档只给「获取可发弹幕配置」的颜色与模式，不给字数），真实阈值靠 `1003212` 兜底。
+- **风控口径仍是推测**：若真机报 `-352` / `-412`，第一优先把 Referer 从 `https://live.bilibili.com/` 回退成 `NetWorkUtil.webHeaders` 原样；再看 `web_location` 与 `statistics` 是否反而要换成 App 端口径（PiliPlus 能过不等于本 App 一定过）。
+- **成功后给轻提示**（`strings.xml` 的 `msg_live_danmaku_sent`，措辞「弹幕已发送」）：PiliPlus 走 `SmartDialog.showToast('发送成功')`。原先打算完全静默（理由是「直播间会把本人的 `DANMU_MSG` 推回来」），但那条推送在弱网下可能延迟甚至丢，静默会让用户不知道到底发没发出去，故改为一行 toast。
+
+**私信发送（`POST /web_im/v1/web_im/send_msg`，`bilibili-API/docs/message/private_msg.md:1811-1852`）只支持 `msg[msg_type]` 为 1 / 2 / 5**（文字 / 图片 / 撤回），文档原文如此；分享卡片是 `msg_type=7`（`private_msg_content.md:81-111`，字段 `author/headline/id/source/thumb/title/bvid/url`，`source=5` 为视频），因此**发视频卡片这条路在文档层面就不通**，错误码 `21035`「该类消息暂时无法发送」是预期。本批 (#133) 因此把「转发给好友」实现成 **文字消息** `{"content":"标题\nhttps://www.bilibili.com/video/BV…"}`（`PrivateMsgApi.buildTextContent` 用 `JSONObject` 组装防引号注入）。
+
+- **未验证**：本机无登录态，没能实测 `msg_type=7` 究竟是不是必被 `21035` 拒；下次有登录态请抓一次真实响应体——若竟然能发成卡片，可把降级顺序翻过来。
+- 其他错误码备忘：`21007` 太长、`21015` 未绑手机、`21026` 不能发自己、`21047` 对方未关注时最多 1 条、`25003` 隐私设置、`25005` 拉黑。
+
+## 18. 硬币流水 `x/member/web/coin/log`：`delta` 是 num，别用 `getInt`（26.11.14，反馈）
+
+`CoinLogApi.getCoinLog` 以前写的是 `item.getInt("delta")`，`CoinLog.delta` 也是 `int`。这条接口的 `delta` 是 **num**：`bilibili-API/docs/login/member_center.md` 的样本里，打赏类记录既有 `-1`，也有 `0.1` / `0.2`（同一个 `x/member/web/coin/log` 的 `data.list`，`reason` 都是「给视频 … 打赏」）。
+
+- **后果**：`org.json` 的 `getInt` 走 `Number.intValue()`，小数被**截断**（不是四舍五入），打赏那笔于是显示成 `0`——就是用户看到的「给视频打赏显示的硬币变化数为零」。同一行代码对 `0.9` 也给 `0`，所以以前对所有「小数变化量」都是错的，不只是打赏。
+- **修法**：解析改 `item.getDouble("delta")`、模型 `delta` 改 `double`，显示交给纯函数 `util/CoinLogDelta.kt`：整数照旧（`+1` / `-1` / `0`）、小数不论正负一律**原样**显示（`+0.1` / `-0.1`）、`0` 与 `-0.0` 归一成 `0`。全程 `BigDecimal` 精确算术，不走二进制浮点。
+- **为什么不按正负推单位（26.11.16 纠正）**：第一版曾假定「支出不可能是小数硬币，所以负的小数是以 0.1 枚为单位记账」，把 `-0.1` 显示成 `-1`。这条推断**没有任何样本支撑**——该接口样本里出现过的 `delta` 只有整数支出（`-1`）与小数收入（`0.1` / `0.2`），一条负小数都没有。「硬币只有整数枚」是推理，不是接口事实。现已删掉这条换算：真出现负小数时按原值显示，宁可显示接口给的数，也不显示一个自己编出来的 10 倍数字。若将来有登录态实测证明单位确实是 0.1 枚，再连同样本一起记回来。

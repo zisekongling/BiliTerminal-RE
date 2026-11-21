@@ -27,6 +27,12 @@ local.properties
 hs_err_pid*.log
 replay_pid*.log
 
+# 本机构建日志（gradlew 重定向产物，不许进库；先例：PR #20 误提交 16 个 build-*.log）
+/build_*.txt
+build-*.log
+/release.log
+/test_log.txt
+
 # 临时克隆参考仓库
 /BiliTerminal_clone/
 
@@ -44,9 +50,13 @@ config.json
 # 代理/编辑器脚手架目录（.dsh/）
 # 内容是真机排障产物：uiautomator 层级转储、设备截图、勘察输出 CSV、
 # 上游项目 tarball、一次性脚本、日志。**不是项目代码**，不入库。
-# 注：.dsh/skills/rebili-version-release/SKILL.md 是已跟踪文件，
-# gitignore 不影响已跟踪文件，它继续留在版本控制里。
-.dsh/
+# 例外：本仓库自己的工作流技能（.dsh/skills/rebili-*，发版与反馈排查）属于团队知识，正常入库；
+# 第三方技能集（matt pocock 那套等）仍不入库。先忽略 .dsh 下一层再逐级放行，
+# 这样新增 rebili-* 技能不需要 git add -f。
+.dsh/*
+!.dsh/skills/
+.dsh/skills/*
+!.dsh/skills/rebili-*/
 # Python 脚本产物（.github/scripts/ 下会跑 py_compile）
 __pycache__/
 *.pyc
@@ -72,6 +82,16 @@ __pycache__/
 server/
 # 控制台的设计文档同理（描述的正是 server/ 那套东西）
 docs/superpowers/specs/2026-10-14-console-v2-design.md
+
+# 界面设计稿（26.11.18 起统一放仓库根 design/，**不入库**）
+# 收的是「动手做界面之前先画出来的那类稿子」：可交互 HTML 预览、原型、截图，以及配套的
+# 文字 spec 草稿 —— 例如短视频播放器交互、播放器界面重设计那种一整套（HTML 稿 + 说明）。
+# 这类稿子迭代快、常有 v1/v2/v3 并存、单份 HTML 就几百 KB，进仓库只会让发版 diff 失真：
+# 先例是 26.11.18 的播放器重设计稿，入库（0e385912）后又要整体撤掉（0b74ce8c）。
+# 定稿后的取舍、验收口径与踩到的坑要回迁 docs/ 的活文档（architecture-map.md /
+# FEATURES.md / review/fix-progress.md / agents/*），过程稿本身留本机即可。
+# 新克隆 / CI 里没有 design/ 属预期，别当成缺文件；也别在 docs/ 下另建一个同名目录。
+/design/
 
 防止IDE配置误入版本库的配置目录
 .vscode/
@@ -102,3 +122,8 @@ bin/
 # 公共仓库里只有 util/OptionalFeatures 这个反射门面和几处条件注册，看不到实现。
 # 同理用护栏忽略，防止一次 `git add -A` 把私有源码推上 GitHub。
 /private/
+
+# 本机联调工作区（.local/）：adb 走查脚本、各分辨率×DPI 的对照截图、gradlew 重定向出来的
+# 构建日志（shots/ 与 scratch/）。都是「这一轮验证的证据」，不是客户端代码，体积还会随
+# 每轮截图涨；与 design/、outputs/ 同理用护栏忽略，防止一次 `git add -A` 就带进去。
+/.local/

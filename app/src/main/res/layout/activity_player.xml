@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    本页由原生 Activity（android:Theme.Black）承载，布局走系统 inflater，AppCompat 的控件工厂
+    与 app:srcCompat 都不生效；矢量图必须用 VectorImageButton / VectorImageView 自读 app:srcCompat
+    （原因见 ui/widget/VectorImageView.kt 的类注释）。新增图标按钮请沿用这两个类。
+-->
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -18,10 +23,24 @@
         android:layout_centerInParent="true" />
 
 
-    <master.flame.danmaku.ui.widget.DanmakuView
-        android:id="@+id/sv_danmaku"
+    <!--
+        弹幕包一层容器：DanmakuView 是普通 View（不是 SurfaceView），而根布局 clipChildren=false，
+        滚出画布的弹幕会画到自身 bounds 之外（滚到画面外的字会漏到顶栏/黑边上）。
+        新版播放器把这个容器收成视频画面大小，容器的裁剪就顺手把弹幕关在画面内；
+        旧版容器仍是全屏，行为不变。
+    -->
+    <FrameLayout
+        android:id="@+id/danmaku_container"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:clipChildren="true"
+        android:clipToPadding="true">
+
+        <master.flame.danmaku.ui.widget.DanmakuView
+            android:id="@+id/sv_danmaku"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+    </FrameLayout>
 
     <RelativeLayout
         android:id="@+id/audio_only_layout"
@@ -160,7 +179,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginVertical="4dp"
                 android:layout_toStartOf="@+id/clock_layout"
-                android:drawableStart="@drawable/arrow_back"
+                app:drawableStartCompat="@drawable/arrow_back"
                 android:text="@string/pagename_player"
                 android:textColor="?android:attr/textColorPrimary"
                 android:textSize="12sp" />
@@ -200,6 +219,12 @@
             android:clipToPadding="false"
             android:orientation="vertical">
 
+            <!--
+                进度条保持 26.11.02 的 20dp 高：26.11.07 把热区放大到 48dp（@dimen/touch_min）+ 上下
+                各 14dp 内边距，波形本身没变，只是把底栏从 59dp 撑到 94dp —— 大屏上整条底栏看起来被
+                「拉粗」，与 11.02 差别明显。热区放大已在 26.11.08 整批回退（用户口径：全设备统一回
+                11.02 尺寸），要恢复请连字幕上下边距（PlayerActivity 的 subtitle 边距常量）一起改。
+            -->
             <com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
                 android:id="@+id/videoprogress"
                 style="@style/Widget.AppCompat.SeekBar"
@@ -210,7 +235,6 @@
                 android:paddingEnd="14dp"
                 android:progressTint="?attr/colorPrimary"
                 android:secondaryProgressTint="@color/player_progress_bg"
-                android:thumb="@drawable/player_selector_progress"
                 android:thumbOffset="8dp"
                 tools:targetApi="lollipop" />
 
@@ -238,62 +262,67 @@
             </HorizontalScrollView>
 
             <!--
-                底部按钮行（26.11.06 起可自定义）：中间是播放/暂停（不可自定义），
-                两侧各一个槽位容器，各最多 3 格；容器本身是横向滚动条，装不下时横向滑。
+                底部按钮行（26.11.06 起可自定义）：左槽位 + 播放/暂停（不可自定义）+ 右槽位，各最多 3 格。
                 按钮本体都在最外层隐藏的 button_pool 里，运行时由 PlayerButtonSlots 搬进来。
+
+                **整行作为一个整体居中**（26.11.08 回退）：26.11.07 把两侧槽位改成 `weight="1"` +
+                `fillViewport="true"` 平分屏幕宽度，宽屏上两侧的不可见视口各占半屏（411dp 竖屏 →
+                每侧 178dp），按钮簇被推到离播放键很远的位置，看起来就是「按钮被摊开、底栏错位」。
+                现在按 11.02 的口径：整行 width=wrap_content，外面套一条 fillViewport 的滚动条 ——
+                按钮少时靠 `gravity="center"` 整体居中，按钮多到装不下时整行横向滚动，不会两头被裁。
             -->
             <RelativeLayout
                 android:id="@+id/bottom_buttons"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <LinearLayout
-                    android:id="@+id/bottom_row"
-                    android:layout_width="wrap_content"
+                <HorizontalScrollView
+                    android:id="@+id/bottom_scroll"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_centerInParent="true"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
+                    android:fillViewport="true"
+                    android:scrollbars="none">
 
-                    <HorizontalScrollView
-                        android:id="@+id/bottom_left_scroll"
+                    <LinearLayout
+                        android:id="@+id/bottom_row"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginEnd="6dp"
-                        android:scrollbars="none">
+                        android:gravity="center"
+                        android:orientation="horizontal">
 
                         <LinearLayout
                             android:id="@+id/bottom_left_slots"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
+                            android:gravity="center_vertical|end"
                             android:orientation="horizontal" />
-                    </HorizontalScrollView>
 
-                    <ImageButton
-                        android:id="@+id/button_video"
-                        android:layout_width="32dp"
-                        android:layout_height="37dp"
-                        android:adjustViewBounds="true"
-                        android:background="?android:attr/selectableItemBackground"
-                        android:scaleType="fitCenter"
-                        android:src="@drawable/btn_player_play" />
-
-                    <HorizontalScrollView
-                        android:id="@+id/bottom_right_scroll"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="6dp"
-                        android:scrollbars="none">
+                        <!--
+                            32dp × 37dp、无内边距，与 26.11.02 完全一致（图标 fitCenter 铺满格子，
+                            圆形底盘直径 ≈ 32dp）。26.11.07 把格子放大到 44dp 时加了 6/3 内边距让图标
+                            保持原尺寸，26.11.08 回退格子尺寸却漏删了内边距 —— 图标只剩 20×31dp，
+                            用户报「暂停按钮变小了」。**别再往里加内边距**，要放大热区就连格子一起改。
+                        -->
+                        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+                            android:contentDescription="@string/setting_player_ui_label_play"
+                            android:id="@+id/button_video"
+                            android:layout_width="32dp"
+                            android:layout_height="37dp"
+                            android:layout_marginStart="3dp"
+                            android:layout_marginEnd="3dp"
+                            android:adjustViewBounds="true"
+                            android:background="?android:attr/selectableItemBackground"
+                            android:scaleType="fitCenter"
+                            app:srcCompat="@drawable/btn_player_play" />
 
                         <LinearLayout
                             android:id="@+id/bottom_right_slots"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
+                            android:gravity="center_vertical|start"
                             android:orientation="horizontal" />
-                    </HorizontalScrollView>
-                </LinearLayout>
+                    </LinearLayout>
+                </HorizontalScrollView>
 
             </RelativeLayout>
 
@@ -346,10 +375,15 @@
 
         </LinearLayout>
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:contentDescription="@string/a11y_player_debug"
             android:id="@+id/btn_debug"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:layout_alignParentLeft="true"
             android:layout_above="@+id/bottom_control"
             android:layout_marginStart="4dp"
@@ -357,7 +391,7 @@
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitCenter"
-            android:src="@drawable/icon_debug"
+            app:srcCompat="@drawable/icon_debug"
             android:visibility="gone" />
 
         <LinearLayout
@@ -371,9 +405,10 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent">
 
-            <ImageView
+            <com.RobinNotBad.BiliClient.ui.widget.VectorImageView
+                android:contentDescription="@null"
                 android:id="@+id/circle"
-
+                android:importantForAccessibility="no"
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:layout_gravity="center" />
@@ -440,6 +475,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginHorizontal="26dp"
+                android:minHeight="@dimen/touch_min"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
                 android:indeterminate="false"
                 android:max="7"
                 android:progress="2"
@@ -518,9 +556,11 @@
             android:layout_height="wrap_content"
             android:layout_marginHorizontal="20dp"
             android:layout_marginTop="6dp"
+            android:minHeight="@dimen/touch_min"
             android:indeterminate="false"
             android:max="100"
-            android:paddingVertical="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:progress="100" />
 
         <TextView
@@ -610,12 +650,96 @@
             <Button
                 android:id="@+id/danmaku_send"
                 android:layout_width="match_parent"
-                android:layout_height="35dp"
+                android:layout_height="@dimen/touch_min"
                 android:layout_marginHorizontal="6dp"
                 android:layout_marginBottom="6dp"
                 android:background="@drawable/background_card_borderless"
                 android:gravity="center"
                 android:text="@string/btn_send" />
+
+        </LinearLayout>
+
+        <!--
+            「跳到指定时间」的页内输入卡片（26.11.14）。
+            结构与「发送弹幕」一模一样：遮罩 card_bg + 居中卡片 + 单行输入框 + 整行按钮。
+            这么做的原因：以前这里另开 InputDialogActivity，播放页被盖住 → Surface 销毁，
+            回来要重新挂载才可能出画；手表上那条恢复路径不一定成，用户看到的是「跳完了视频流没了」。
+            留在本页就没有这个来回。
+        -->
+        <LinearLayout
+            android:id="@+id/jump_time_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:layout_marginHorizontal="6dp"
+            android:background="@drawable/background_card"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="4dp"
+                android:layout_marginTop="4dp"
+                android:paddingHorizontal="3dp"
+                android:text="@string/text_player_jump_to_time"
+                android:textSize="14sp" />
+
+            <EditText
+                android:id="@+id/jump_time_edit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="4dp"
+                android:hint="@string/hint_player_jump_to_time"
+                android:maxLength="10"
+                android:maxLines="1"
+                android:singleLine="true"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textColorHint="#88ffffff" />
+
+            <Button
+                android:id="@+id/jump_time_confirm"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/touch_min"
+                android:layout_marginHorizontal="6dp"
+                android:layout_marginBottom="6dp"
+                android:background="@drawable/background_card_borderless"
+                android:gravity="center"
+                android:text="@string/btn_player_jump_time" />
+
+        </LinearLayout>
+
+        <!--
+            通用动作卡片（26.11.15）：睡眠定时 / 投币 / 收藏共用这一张。
+            标题与里面的按钮都由 PlayerActivity 在代码里填——收藏夹有几个、定时给几档，
+            都是运行时才知道的，写死在 XML 里就会僵。样式沿用「跳到指定时间」那张卡片：
+            半透明底 + 居中 + 整行按钮。
+        -->
+        <LinearLayout
+            android:id="@+id/action_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:layout_marginHorizontal="6dp"
+            android:background="@drawable/background_card"
+            android:orientation="vertical"
+            android:paddingHorizontal="4dp"
+            android:paddingVertical="4dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/action_card_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="3dp"
+                android:textSize="14sp" />
+
+            <LinearLayout
+                android:id="@+id/action_card_options"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:orientation="vertical" />
 
         </LinearLayout>
 
@@ -740,98 +864,148 @@
         android:orientation="vertical"
         android:visibility="gone">
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:contentDescription="@string/setting_player_btn_quality"
             android:id="@+id/button_quality"
-            android:layout_width="32dp"
-            android:layout_height="37dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitCenter"
-            android:src="@drawable/icon_menu" />
+            app:srcCompat="@drawable/icon_menu" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:contentDescription="@string/setting_player_btn_sound_cut"
             android:id="@+id/button_sound_cut"
-            android:layout_width="32dp"
-            android:layout_height="37dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitCenter"
             android:src="@mipmap/soundcut" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:contentDescription="@string/setting_player_btn_sound_add"
             android:id="@+id/button_sound_add"
-            android:layout_width="32dp"
-            android:layout_height="37dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitCenter"
             android:src="@mipmap/soundadd" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:contentDescription="@string/setting_player_btn_page_selector"
             android:id="@+id/button_page_selector"
-            android:layout_width="32dp"
-            android:layout_height="37dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitCenter"
-            android:src="@drawable/icon_folder"
+            app:srcCompat="@drawable/icon_folder"
             android:visibility="gone" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:contentDescription="@string/setting_player_btn_danmaku_send"
             android:id="@+id/danmaku_send_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
-            android:src="@drawable/send" />
+            app:srcCompat="@drawable/send" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:contentDescription="@string/setting_player_btn_subtitle"
             android:id="@+id/subtitle_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
             android:src="@mipmap/subtitle_off" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:contentDescription="@string/setting_player_btn_loop"
             android:id="@+id/loop_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
             android:src="@mipmap/loopoff" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:contentDescription="@string/setting_player_btn_audio_only"
             android:id="@+id/audio_only_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
-            android:src="@drawable/icon_play_16"
+            app:srcCompat="@drawable/icon_play_16"
             android:visibility="gone" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:contentDescription="@string/setting_player_btn_auto_next"
             android:id="@+id/auto_next_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
-            android:src="@drawable/icon_auto_next_off"
+            app:srcCompat="@drawable/icon_auto_next_off"
             android:visibility="gone" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:contentDescription="@string/setting_player_btn_viewpoint"
             android:id="@+id/viewpoint_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
-            android:src="@drawable/icon_folder"
+            app:srcCompat="@drawable/icon_folder"
             android:visibility="gone" />
 
         <TextView
@@ -852,15 +1026,19 @@
             直播没有时间点概念，显隐由 onPrepared 的直播分支统一控制。
             26.11.06 起按钮画图标（lucide clock-fading），文字只留作无障碍描述与输入框标题。
         -->
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:id="@+id/jump_time_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:contentDescription="@string/text_player_jump_to_time"
             android:scaleType="fitXY"
-            android:src="@drawable/icon_player_clock_fading"
+            app:srcCompat="@drawable/icon_player_clock_fading"
             android:visibility="gone" />
 
         <!--
@@ -869,44 +1047,62 @@
             显隐由 updateQueueModeButton() 统一算。
             26.11.06 起按钮画图标（lucide corner-down-right），当前模式写进 contentDescription。
         -->
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:id="@+id/queue_mode_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:contentDescription="@string/player_queue_btn_label"
             android:scaleType="fitXY"
-            android:src="@drawable/icon_player_corner_down_right"
+            app:srcCompat="@drawable/icon_player_corner_down_right"
             android:visibility="gone" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:contentDescription="@string/setting_player_btn_danmaku"
             android:id="@+id/danmaku_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
             android:src="@mipmap/danmakuoff" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:contentDescription="@string/setting_player_btn_rotate"
             android:id="@+id/rotate_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:scaleType="fitXY"
             android:src="@mipmap/rotate" />
 
-        <ImageButton
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
             android:id="@+id/lock_btn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:adjustViewBounds="true"
             android:background="?android:attr/selectableItemBackground"
             android:contentDescription="@string/desc_player_lock_locked"
             android:scaleType="fitXY"
-            android:src="@drawable/icon_player_unlock" />
+            app:srcCompat="@drawable/icon_player_unlock" />
 
         <TextView
             android:id="@+id/text_speed"
@@ -922,6 +1118,133 @@
             android:textColor="?android:attr/textColorPrimary"
             android:textSize="14sp"
             android:visibility="gone" />
+
+        <!--
+            G02 ±N 秒快退 / 快进（26.11.13，对应兄弟分支 cyq 的 player_seek_buttons）：
+            文字按钮，步长可配置（见 PlayerSeekStepPolicy），文字由 PlayerActivity 按设置写进
+            text（如 «10s / 10s»）。与倍速一样算「文字类」槽位：宽度交给文字自己、高度用格子高。
+            默认不摆进可见槽位，收在右侧「更多」组里，老用户升级后布局不变。
+        -->
+        <TextView
+            android:id="@+id/text_seek_back"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/setting_player_btn_seek_back"
+            android:paddingVertical="5dp"
+            android:shadowColor="#000000"
+            android:shadowDx="2.0"
+            android:shadowDy="0.0"
+            android:shadowRadius="3.0"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/text_seek_forward"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/setting_player_btn_seek_forward"
+            android:paddingVertical="5dp"
+            android:shadowColor="#000000"
+            android:shadowDx="2.0"
+            android:shadowDy="0.0"
+            android:shadowRadius="3.0"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <!--
+            26.11.15：睡眠定时 / 点赞 / 投币 / 收藏 / 下载 / 上一个 / 下一个。
+            七个都是「点一下就有动作」的按钮，默认不进任何槽位（收在「更多」收纳格里），
+            所以一律 visibility=gone，摆进槽位时由 PlayerButtonSlots 及其影子负责显示。
+            点赞与睡眠定时的图标会在运行时换（已赞/未赞、定时是否生效），
+            因此本体必须用 VectorImageButton：它的 setImageResource 能解析矢量图。
+        -->
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:id="@+id/btn_sleep_timer"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:padding="10dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/setting_player_btn_sleep_timer"
+            android:scaleType="fitXY"
+            android:visibility="gone"
+            app:srcCompat="@drawable/icon_time" />
+
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:id="@+id/btn_like"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:padding="10dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/setting_player_btn_like"
+            android:scaleType="fitXY"
+            android:visibility="gone"
+            app:srcCompat="@drawable/icon_like_0" />
+
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:id="@+id/btn_coin"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:padding="10dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/setting_player_btn_coin"
+            android:scaleType="fitXY"
+            android:visibility="gone"
+            app:srcCompat="@drawable/icon_coin_0" />
+
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:id="@+id/btn_favorite"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:padding="10dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/setting_player_btn_favorite"
+            android:scaleType="fitXY"
+            android:visibility="gone"
+            app:srcCompat="@drawable/icon_fav_0" />
+
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:id="@+id/btn_download"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:padding="10dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/setting_player_btn_download"
+            android:scaleType="fitXY"
+            android:visibility="gone"
+            app:srcCompat="@drawable/icon_download" />
+
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:id="@+id/btn_prev_video"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:padding="10dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/setting_player_btn_prev_video"
+            android:scaleType="fitXY"
+            android:visibility="gone"
+            app:srcCompat="@drawable/icon_player_prev" />
+
+        <com.RobinNotBad.BiliClient.ui.widget.VectorImageButton
+            android:id="@+id/btn_next_video"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:padding="10dp"
+            android:adjustViewBounds="true"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="@string/setting_player_btn_next_video"
+            android:scaleType="fitXY"
+            android:visibility="gone"
+            app:srcCompat="@drawable/icon_player_next" />
 
     </LinearLayout>
 

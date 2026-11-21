@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 面板底色 #161319 97%，圆角只在上沿。始终深色，不随主题变（主题只改强调色） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="#F7161319" />
+    <corners
+        android:topLeftRadius="18dp"
+        android:topRightRadius="18dp" />
+</shape>

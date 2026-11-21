@@ -7,11 +7,21 @@ package com.RobinNotBad.BiliClient.util
  * - `myspace_main`：主列表顺序；
  * - `myspace_more`：更多列表顺序。
  *
- * 不变式：两份列表互斥，且并集恰好等于 [ALL_ITEMS]。任一非法（未知 key、重复、漏项）
- * 就整体回退默认并写回，避免半截配置把功能入口弄丢。
+ * 不变式：两份列表互斥，且并集恰好等于 [ALL_ITEMS]。
  *
  * 固定项不参与存储：用户卡片固定在最顶部，[KEY_MORE_BUTTON]（更多按钮）与
  * [KEY_LOGOUT]（退出登录）永远排在最后两位。
+ *
+ * <h3>容错口径：逐级放宽，绝不为了一处问题把整份布局清零</h3>
+ *
+ * - 未知 key（对应功能已删）：只丢它；
+ * - 跨列表重复：以主列表为准，从「更多」里去掉；
+ * - 漏项（**版本升级新增了入口**）：按 [ALL_ITEMS] 的顺序追加到主列表末尾；
+ * - 归一化结果与存储值不同就写回一次，老用户的自定义顺序与分区留住。
+ *
+ * 26.11.07 之前漏项走的是「整体回退默认」：那一版给 [ALL_ITEMS] 加了 `subscription`，
+ * 于是所有把入口挪进「更多」列表的老用户一升级就被静默重置成默认布局（自定义顺序与
+ * 分区一起没了）。仓里 `MenuConfig` 加 `exit` 时用的是同一套思路，两份配置现在口径一致。
  *
  * 纯 Kotlin 对象，无 Android 框架依赖，可 JVM 单测。
  */
@@ -43,9 +53,13 @@ object MySpaceConfig {
 
     fun serialize(keys: List<String>): String = keys.joinToString(";")
 
-    /** 解析单个列表串；空白视为空列表（合法），出现未知 key 或重复返回 null。 */
+    /**
+     * 严格解析：出现未知 key 或重复返回 null。
+     *
+     * 只用于「要写进存储前」的自我校验；读配置请用 [resolve]（它不会把老用户的布局判死）。
+     */
     fun parseList(raw: String?): List<String>? {
-        val keys = raw?.split(";")?.filter { it.isNotBlank() } ?: emptyList()
+        val keys = splitRaw(raw)
         val seen = HashSet<String>()
         for (key in keys) {
             if (key !in ALL_ITEMS || !seen.add(key)) return null
@@ -53,24 +67,40 @@ object MySpaceConfig {
         return keys
     }
 
-    /** 解析两份列表；必须互斥且并集完整，否则返回 null。 */
-    fun resolve(mainRaw: String?, moreRaw: String?): Layout? {
-        val main = parseList(mainRaw) ?: return null
-        val more = parseList(moreRaw) ?: return null
-        // 总数不多不少：多 = 跨列表重复，少 = 漏项
-        if (main.size + more.size != ALL_ITEMS.size) return null
+    /** 容错解析：丢掉未知 key 与重复项（重复只保留首次出现的位置），其余顺序不动。 */
+    fun parseListLenient(raw: String?): List<String> {
+        val seen = HashSet<String>()
+        return splitRaw(raw).filter { it in ALL_ITEMS && seen.add(it) }
+    }
+
+    private fun splitRaw(raw: String?): List<String> =
+        raw?.split(';')?.filter { it.isNotBlank() } ?: emptyList()
+
+    /**
+     * 归一化两份列表：主列表优先去重，漏项按 [ALL_ITEMS] 顺序补到主列表末尾。
+     *
+     * 不返回 null——任何输入都能归一化出一份合法布局（最差就是 [DEFAULT]）。
+     * 读到一对互不重复、并集完整的值时原样返回，所以正常配置不会被改动。
+     */
+    fun resolve(mainRaw: String?, moreRaw: String?): Layout {
+        val main = parseListLenient(mainRaw).toMutableList()
+        val inMain = HashSet(main)
+        val more = parseListLenient(moreRaw).filter { inMain.add(it) }
         val union = HashSet(main)
         union.addAll(more)
-        if (union.size != ALL_ITEMS.size) return null
+        main += ALL_ITEMS.filter { it !in union }
         return Layout(main, more)
     }
 
-    /** 读取布局；缺失或非法时回退默认并写回。 */
+    /** 读取布局；与归一化结果不同就写回一次（补新入口、丢未知 key），绝不清零。 */
     fun load(readString: (String) -> String?, writeString: (String, String) -> Unit): Layout {
-        val resolved = resolve(readString(KEY_MAIN), readString(KEY_MORE))
-        if (resolved != null) return resolved
-        save(DEFAULT, writeString)
-        return DEFAULT
+        val mainRaw = readString(KEY_MAIN)
+        val moreRaw = readString(KEY_MORE)
+        val layout = resolve(mainRaw, moreRaw)
+        if (serialize(layout.main) != mainRaw.orEmpty() || serialize(layout.more) != moreRaw.orEmpty()) {
+            save(layout, writeString)
+        }
+        return layout
     }
 
     /** 保存布局。 */

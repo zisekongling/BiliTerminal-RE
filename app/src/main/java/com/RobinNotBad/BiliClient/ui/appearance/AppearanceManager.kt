@@ -60,6 +60,8 @@ object AppearanceManager {
         val ambientGlow: Boolean,
         val ambientGlowSource: String,
         val glassComponents: Boolean,
+        /** 玻璃质感预设档位（[GlassPreset.BALANCED] / [GlassPreset.STEADY] / [GlassPreset.CRYSTAL]）。 */
+        val glassPreset: String,
         val version: Int
     )
 
@@ -88,6 +90,7 @@ object AppearanceManager {
         ambientGlow = AmbientGlow.isEnabled(),
         ambientGlowSource = AmbientGlow.currentSource(),
         glassComponents = GlassStyle.isEnabled(),
+        glassPreset = GlassPreset.current(),
         version = version()
     )
 
@@ -140,6 +143,12 @@ object AppearanceManager {
     /** 写入玻璃质感组件开关。组件样式在创建页面时决定，所以同样靠版本号让其它页面重建。 */
     fun setGlassComponents(enabled: Boolean) {
         SharedPreferencesUtil.putBooleanSync(GlassStyle.KEY, enabled)
+        bumpVersion()
+    }
+
+    /** 写入玻璃质感预设档位（已规整到合法值）。与开关一样在创建页面时决定样式，靠版本号让其它页面重建。 */
+    fun setGlassPreset(value: String) {
+        SharedPreferencesUtil.putStringSync(GlassPreset.KEY, GlassPreset.normalize(value))
         bumpVersion()
     }
 

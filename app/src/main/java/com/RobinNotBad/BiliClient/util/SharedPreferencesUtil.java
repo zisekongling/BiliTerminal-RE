@@ -2,6 +2,8 @@ package com.RobinNotBad.BiliClient.util;
 
 import android.content.SharedPreferences;
 
+import com.RobinNotBad.BiliClient.BuildConfig;
+
 /**
  * 被 luern0313 创建于 2020/5/4.
  * #以下代码部分来源于腕上哔哩的开源项目，有修改。感谢开源者做出的贡献！
@@ -20,6 +22,27 @@ public class SharedPreferencesUtil {
      * 用来区分「menu_enabled 里没有 exit」是升级前的老数据，还是用户自己关掉了退出项。
      */
     public static final String MENU_EXIT_STATE = "menu_exit_state";
+    /**
+     * 用户在「菜单设置」里保存过菜单配置时，记下当时「番剧分区」是启用还是关闭（"1"/"0"，缺省=没保存过）。
+     * 用来区分「menu_enabled 里没有 bangumi」是老数据（需要回填）还是用户自己关掉了。
+     *
+     * @see com.RobinNotBad.BiliClient.util.MenuConfig
+     */
+    public static final String MENU_BANGUMI_STATE = "menu_bangumi_state";
+    /**
+     * 可选私有菜单项（如私有功能「扫一扫」）的显隐保存标记键**前缀**，完整键 = 前缀 + 菜单 key。
+     * 用户在「菜单设置」里保存过配置时逐项写入 "1"/"0"（缺省 = 没保存过）。
+     * 用来区分「menu_enabled 里没有这个可选 key」是新装了私有功能（要回填）还是用户自己关掉的（不要回填）。
+     *
+     * @see com.RobinNotBad.BiliClient.util.MenuConfig
+     */
+    public static final String MENU_OPTIONAL_STATE_PREFIX = "menu_optional_state_";
+    /**
+     * 主菜单底部是否固定显示「更多」按钮（缺省 = 显示）。
+     * 这个按钮只负责展开/收起「未启用」的菜单项，与 {@link #MENU_ENABLED} 里的启用状态无关：
+     * 未启用的项不进主列表，只在展开区里出现。
+     */
+    public static final String MENU_MORE_BUTTON = "menu_more_button";
     public static final String SEARCH_CATEGORY_SORT = "search_category_sort";
     public static final String SEARCH_CATEGORY_ARTICLE_SHOW = "search_category_article_show";
     public static final String SEARCH_CATEGORY_USER_SHOW = "search_category_user_show";
@@ -51,6 +74,12 @@ public class SharedPreferencesUtil {
     public static final String PLAYER_MEDIA_SESSION_ENABLE = "player_media_session_enable";
     public static final String RECENT_UP_DISPLAY_ENABLE = "recent_up_display_enable";
     public static final String AUTO_UPDATE_CHECK_ENABLE = "auto_update_check_enable";
+    /**
+     * 更新检查的通道：`stable` / `beta` / `exp`（三通道方案，见 `docs/version-channels.md`）。
+     * 读写**统一走** `util/UpdateChannel.kt`（`current()` / `save()`），别在调用点手写默认值——
+     * 默认值是「没选过就跟着当前这个包的通道走」，写死成 `stable` 会让 beta 包收不到 beta。
+     */
+    public static final String UPDATE_CHANNEL = "update_channel";
     public static final String RECOMMEND_DEDUP_ENABLE = "recommend_dedup_enable";
     public static final String RECOMMEND_SOURCE = "recommend_source";
     public static final String RECOMMEND_SOURCE_WEB = "recommend_source_web";
@@ -97,6 +126,21 @@ public class SharedPreferencesUtil {
         return sharedPreferences;
     }
 
+    /**
+     * 类型保险丝的 Debug 取证：同一个 key 被别的类型写过时记一行，方便现场（用户日志）定位
+     * 「谁写错了类型」。只在 Debug 包打日志——Release 保持静默，避免刷屏；也不记值本身。
+     *
+     * @param expected 读取方期望的类型名，如 "String"
+     */
+    private static void logTypeFuse(String key, String expected) {
+        if (!BuildConfig.DEBUG) return;
+        Object actual = sharedPreferences.getAll().get(key);
+        Logu.w("SharedPreferencesUtil", "类型不匹配，已回落默认值：key=" + key
+                + " 期望=" + expected
+                + " 实际=" + (actual == null ? "null" : actual.getClass().getSimpleName())
+                + "（写入方与读取方用的不是同一种类型，属调用方 bug）");
+    }
+
     public static String getString(String key, String def) {
         // sharedPreferences 由 Application.onCreate 赋值，静态初始化或早期调用可能早于赋值，
         // 直接解引用会 NPE。未就绪时返回调用方传入的默认值（BiliTerminal.kt 有 getString(key, null)
@@ -108,6 +152,7 @@ public class SharedPreferencesUtil {
         try {
             return sharedPreferences.getString(key, def);
         } catch (ClassCastException e) {
+            logTypeFuse(key, "String");
             return def;
         }
     }
@@ -123,6 +168,7 @@ public class SharedPreferencesUtil {
         try {
             return sharedPreferences.getInt(key, def);
         } catch (ClassCastException e) {
+            logTypeFuse(key, "Int");
             return def;
         }
     }
@@ -137,6 +183,7 @@ public class SharedPreferencesUtil {
         try {
             return sharedPreferences.getLong(key, def);
         } catch (ClassCastException e) {
+            logTypeFuse(key, "Long");
             return def;
         }
     }
@@ -151,6 +198,7 @@ public class SharedPreferencesUtil {
         try {
             return sharedPreferences.getBoolean(key, def);
         } catch (ClassCastException e) {
+            logTypeFuse(key, "Boolean");
             return def;
         }
     }
@@ -169,6 +217,7 @@ public class SharedPreferencesUtil {
         try {
             return sharedPreferences.getFloat(key, def);
         } catch (ClassCastException e) {
+            logTypeFuse(key, "Float");
             return def;
         }
     }
@@ -194,6 +243,16 @@ public class SharedPreferencesUtil {
     /** 保存菜单启用列表。 */
     public static void saveMenuEnabled(java.util.List<String> enabled) {
         MenuConfig.INSTANCE.saveEnabled(enabled, (key, value) -> { SharedPreferencesUtil.putString(key, value); return kotlin.Unit.INSTANCE; });
+    }
+
+    /** 主菜单底部的「更多」按钮是否显示（缺省 = 显示）。 */
+    public static boolean loadMenuMoreButton() {
+        return getBoolean(MENU_MORE_BUTTON, true);
+    }
+
+    /** 保存主菜单底部「更多」按钮的显隐。 */
+    public static void saveMenuMoreButton(boolean show) {
+        putBoolean(MENU_MORE_BUTTON, show);
     }
 
     /** 读取启动页 key（缺省=推荐；已存值失效时立即改回默认并写回）。 */

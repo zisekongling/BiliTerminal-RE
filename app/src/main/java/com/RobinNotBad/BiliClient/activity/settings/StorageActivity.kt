@@ -120,7 +120,7 @@ class StorageActivity : BaseActivity() {
             this,
             getString(R.string.storage_confirm_title),
             getString(R.string.storage_confirm_images)
-        ) { clearImages() }
+        ) { clearImages() }.show()
     }
 
     private fun clearImages() {
@@ -141,7 +141,7 @@ class StorageActivity : BaseActivity() {
             this,
             getString(R.string.storage_confirm_title),
             getString(R.string.storage_confirm_temp)
-        ) { clearTemp() }
+        ) { clearTemp() }.show()
     }
 
     private fun clearTemp() {
@@ -162,7 +162,7 @@ class StorageActivity : BaseActivity() {
             this,
             getString(R.string.storage_confirm_title),
             getString(R.string.storage_confirm_apk)
-        ) { deleteApk() }
+        ) { deleteApk() }.show()
     }
 
     private fun deleteApk() {

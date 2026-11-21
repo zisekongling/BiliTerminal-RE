@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 「稳扎稳打」档的玻璃按钮底色：与卡片同色（glass_card_*），让按钮和卡片看起来是同一种材质。
+     禁用态仍用中性的 glass_btn_bg_disabled，避免「看起来能点」。 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="false" android:color="@color/glass_btn_bg_disabled" />
+    <item android:color="@color/glass_card_zhihu" />
+</selector>

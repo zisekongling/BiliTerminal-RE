@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 只为给控件提供一个**圆形轮廓**，本身不着色（solid 全透明）。
+     配合 android:clipToOutline="true" + android:outlineProvider="background" 把子视图裁成圆：
+     Glide 的 circleCrop 只作用于真正加载出来的图，placeholder / error 图不过裁剪，会短暂显示方图。
+     不要给它加颜色——一旦上色，就会成为下一轮的「头像旁边有边」。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="@android:color/transparent" />
+</shape>

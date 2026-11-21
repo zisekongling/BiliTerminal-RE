@@ -18,6 +18,52 @@ object SettingsKeys {
     const val DPI = "dpi"
     const val DENSITY = "density"
     const val UI_ROUND = "player_ui_round"
+    /**
+     * 顶栏灵动岛（26.11.08 新增，26.11.08 晚些时候与「圆屏适配」解耦）：把顶栏的时钟位改成
+     * 轮流显示播放中 / 下载中 / 未读 / 电量 / 公告的信息岛，空闲时显示时间。
+     *
+     * **它自己的开关**，与 [UI_ROUND] 互不影响（早先的实现硬绑在圆屏适配里，没有独立键；
+     * 老用户的迁移口径见 `ui/widget/IslandPolicy.resolveEnabled`）。
+     */
+    const val TOPBAR_ISLAND = "topbar_island_enable"
+    // ---- 灵动岛信息筛选与轮换（26.11.14，设置页「灵动岛设置」二级页）----
+    // 五个分类开关：关掉哪一类，那一类就不再占用胶囊（它自己的数据照常采集，只是不显示）。
+    // 默认全开——默认行为与 26.11.11 之前一致，用户不需要先去设置里"启用"任何东西。
+    /** 后台播放中一直显示（常驻，不轮换）。 */
+    const val ISLAND_PLAYING = "topbar_island_playing"
+    /** 下载中一直显示进度（常驻，不轮换）。 */
+    const val ISLAND_DOWNLOADING = "topbar_island_downloading"
+    /** 收到新消息时短暂弹出（短播，不参与轮换池）。 */
+    const val ISLAND_UNREAD = "topbar_island_unread"
+    /** 在时间右侧并排显示电量图标（基础状态）。 */
+    const val ISLAND_BATTERY = "topbar_island_battery"
+    /** 新公告 / 新版本时短暂弹出（短播，不参与轮换池）。 */
+    const val ISLAND_ANNOUNCEMENT = "topbar_island_announcement"
+    /**
+     * 轮换间隔（毫秒，**以字符串存**：设置页的 listChoose 统一按字符串存值）。
+     *
+     * `"0"` = 不轮换（默认：常驻事件一直占着胶囊，与「播放中一直显示」的口径一致）；
+     * 其余为常驻事件与「时间 + 电量」交替显示的间隔。非法值由 [IslandPolicy.rotateMsOf] 兜回 0。
+     */
+    const val ISLAND_ROTATE = "topbar_island_rotate"
+    /**
+     * 顶栏最小高度（dp，0 = 跟随内容，与改动前完全一致）。
+     *
+     * 三套顶栏手势（单击 / 长按 / 双击）都装在整条 `R.id.top` 上，所以 top 一变高，
+     * 可点范围自动跟着变，不需要额外的 TouchDelegate。换算、上下限与「什么时候竖直居中」
+     * 统一在 `ui/widget/TopbarHeightPolicy`，不要在别处写死数值。
+     */
+    const val TOPBAR_HEIGHT = "topbar_height"
+    /**
+     * 沉浸式全屏（26.11.14）：隐藏状态栏与导航栏，页面 / 画面铺满整块屏幕。
+     *
+     * 默认**开**——用户 26.11.14 拍板「所有页面都隐藏状态栏和导航栏」（起因是播放页底部那条
+     * 手表三键导航栏黑边）。手表上导航栏是主要返回手段，全屏后边缘手势可能要多划一次，
+     * 所以这个开关就是回退路径：关掉即恢复「导航栏可见」的旧行为。
+     *
+     * 落窗逻辑统一在 `ui/appearance/ImmersiveMode`，不要在页面里各写一份。
+     */
+    const val UI_IMMERSIVE_FULLSCREEN = "ui_immersive_fullscreen"
     const val THEME = "theme_selector"
     const val UI_LANDSCAPE = "ui_landscape"
     const val SPLASH_TEXT = "ui_splashtext"
@@ -37,6 +83,11 @@ object SettingsKeys {
     const val UI_AMBIENT_GLOW_SOURCE = "ui_ambient_glow_source"
     /** 玻璃质感组件（卡片 / 按钮半透明化）开关，见 `ui/appearance/GlassStyle`。 */
     const val UI_GLASS_COMPONENTS = "ui_glass_components"
+    /**
+     * 玻璃质感的形态预设（"balanced" 主次分明 / "steady" 稳扎稳打 / "crystal" 晶莹剔透），
+     * 见 `ui/appearance/GlassPreset`。只在 [UI_GLASS_COMPONENTS] 开启时才有视觉作用。
+     */
+    const val UI_GLASS_PRESET = "ui_glass_preset"
     /** 暗色 / 亮色模式（"dark" / "light"），见 `ui/appearance/ColorMode`。 */
     const val UI_COLOR_MODE = "ui_color_mode"
     /**
@@ -51,6 +102,13 @@ object SettingsKeys {
      * 非法值由 `BackgroundImage.coerceScrimPercent` 兜回默认。
      */
     const val UI_BACKGROUND_SCRIM = "appearance_background_scrim"
+    /**
+     * 是否关闭全局页面转场动画（默认 false = 保留动画）。
+     *
+     * 手表小屏上转场那 200ms 什么都不能做，所以给一个总开关。执行层在 `util/PageMotion`：
+     * 命中时压掉窗口动画（`windowAnimations`）与 `overridePendingTransition`。
+     */
+    const val UI_DISABLE_PAGE_TRANSITIONS = "ui_disable_page_transitions"
 
     // ==================== 详情页设置 ====================
     const val FAV_SINGLE = "fav_single"
@@ -60,6 +118,27 @@ object SettingsKeys {
     const val RELATED_ENABLE = "related_enable"
     const val LIVE_BY_GUEST = "live_by_guest"
     const val LIKE_ONE_TRIPLE = "like_one_triple"
+    /**
+     * 详情页动作区是否显示「笔记」按钮（默认关）。
+     *
+     * 26.11.07：用户要求把「视频笔记」入口藏起来，所以从「未登录才藏」改成「开关说了算」。
+     * 判据在 `DetailEntryPrefs.isNoteEntryEnabled()`。
+     */
+    const val DETAIL_NOTE_ENTRY = "detail_note_entry"
+    /**
+     * 详情页动作区是否插私有功能的「分享到其他设备」整行（默认开）。
+     *
+     * 键必须留在公共侧：私有构建只是被注入源码，读的是这同一个 SharedPreferences。
+     * 判据在 `DetailEntryPrefs.isShareRowEnabled()`。
+     */
+    const val DETAIL_SHARE_ROW = "detail_share_row"
+    /**
+     * 详情页动作区「点赞 / 投币 / 收藏」卡片是否画那一圈主色描边（默认开）。
+     *
+     * 反馈 #112：描边色取 `?attr/actionCardStroke`，B站粉与经典终端两套主题下都是 #FF6699，
+     * 有用户觉得那圈粉边看着不舒服。判据在 `DetailEntryPrefs.isLikeCardRingEnabled()`。
+     */
+    const val DETAIL_LIKE_CARD_RING = "detail_like_card_ring"
 
     // ==================== 偏好设置 ====================
     const val COPY_ENABLE = "copy_enable"
@@ -94,6 +173,12 @@ object SettingsKeys {
     const val DISGUISE_CODE = "disguise_code"
     const val CREATIVE_ENABLE = "creative_enable"
     const val SEARCH_SUGGESTIONS_ENABLE = "search_suggestions_enable"
+
+    /**
+     * 「搜索历史」开关（默认开）。关掉后不再记录、已有记录清空、搜索页不再显示历史区，
+     * 读写统一走 [SearchHistoryStore]。
+     */
+    const val SEARCH_HISTORY_ENABLE = "search_history_enable"
     const val BACK_DISABLE = "back_disable"
     const val SAVE_BAN_GALLERY = "save_ban_gallery"
     const val IMAGE_REQUEST_JPG = "image_request_jpg"
@@ -101,6 +186,10 @@ object SettingsKeys {
     const val UI_ROTATORY_ENABLE = "ui_rotatory_enable"
     const val UI_ROTATORY_RECYCLER = "ui_rotatory_recycler"
     const val UI_ROTATORY_SCROLL = "ui_rotatory_scroll"
+    /** 表冠兼容模式：开启后表冠的手感完全回退到 26.11.16.4（最后一个正式版）。 */
+    const val UI_ROTATORY_COMPAT = "ui_rotatory_compat"
+    /** 兼容模式的「自动判定已跑过」标记，见 `RotaryEncoderSupport.maybeAutoEnableCompat`。 */
+    const val UI_ROTATORY_COMPAT_AUTO = "ui_rotatory_compat_auto"
 
     // ==================== 通知 ====================
     /**
@@ -108,6 +197,13 @@ object SettingsKeys {
      * `util/MsgNotifier.shouldNotify`。
      */
     const val PRIVATE_MSG_NOTIFY_ENABLE = "private_msg_notify_enable"
+    /**
+     * 进私信页时那句「私信有可能被拦截」的提示开关（反馈 #121，默认**开**＝仍然提示）。
+     *
+     * 这句提示是给首次用终端发私信的人看的，老用户每次进会话都被弹一次就成了噪音；
+     * 关掉只影响这句提示，私信收发本身不受影响。读取点见 `activity/message/PrivateMsgActivity`。
+     */
+    const val PRIVATE_MSG_INTERCEPT_TIP_ENABLE = "private_msg_intercept_tip_enable"
     /**
      * 追番更新提醒开关。打开应用时对比追番列表的最新集快照，有变化才提醒一次；
      * 纯逻辑见 `util/BangumiUpdateChecker.findUpdated`，项目不做后台定时检查。
@@ -123,12 +219,54 @@ object SettingsKeys {
     const val CACHE_DEFAULT_QUALITY = "cache_default_quality"
     const val FORCE_HIGH_QUALITY = "force_high_quality_options"
     const val SAVE_PATH_VIDEO = "save_path_video"
+    /** 上次进程**实际**落盘的缓存根（可能是降级目录）。进程重启后靠它沿用同一个根，见 FileUtil.resolveVideoDownloadDir。 */
+    const val SAVE_PATH_VIDEO_ACTIVE = "save_path_video_active"
     const val SAVE_PATH_PICTURES = "save_path_pictures"
 
     // ==================== 高级与实验 ====================
     const val DEV_PLAYER_ROTATE_SOFTWARE = "dev_player_rotate_software"
     const val PLAYER_SHOW_VIEWPOINTS = "player_show_viewpoints"
     const val PLAYER_INTERACTION_DEBUG = "player_interaction_debug"
+    /** 实验性新版播放界面；默认关闭，普通与短视频播放器共用。 */
+    const val PLAYER_UI_NEW = "player_ui_new"
+    /** 新版播放器在控件隐藏时保留细进度线。 */
+    const val PLAYER_UI_NEW_IDLE_PROGRESS = "player_ui_new_idle_progress"
+
+    /**
+     * 播放器界面形态，手动切换（26.11.19，用户要求不做自动分档）：
+     * [PLAYER_FORM_WATCH] 手表 / [PLAYER_FORM_PHONE] 手机 / [PLAYER_FORM_STRIP] 长条屏。
+     * 三套布局差异大（坐标写死在手表参考系上直接套会出界），所以各自独立实现。
+     */
+    const val PLAYER_UI_FORM = "player_ui_form"
+    const val PLAYER_FORM_WATCH = "watch"
+    const val PLAYER_FORM_PHONE = "phone"
+    const val PLAYER_FORM_STRIP = "strip"
+    /**
+     * 确认型弹窗的按钮形态：true（默认）= 左「取消」右「确定」并排一行、各占一半宽度；
+     * false = 26.11.13 起的整行宽纵向堆叠。
+     *
+     * <p>反馈 #199（小天才 Z8，dpi320）：**手表窗口太小**——纵向两条 44dp 共 88dp，而按钮区
+     * 不参与 `DialogSizing` 的高度压缩，预算不够时被切掉的正好是后添加的确认键，用户只看到
+     * 「取消」。并排后按钮区只剩一条 44dp。读取点在
+     * [com.RobinNotBad.BiliClient.util.TerminalDialog.Sheet] 的 `rowMode()`。
+     */
+    const val DIALOG_BUTTON_ROW = "dialog_button_row"
+    /**
+     * 弹窗标题跑马灯：true（默认）= 标题最多一行，超出走跑马灯滚动；false = 允许多行完整显示
+     * （26.11.21 之前的行为，标题会把弹窗顶部撑高）。
+     *
+     * <p>只影响 [com.RobinNotBad.BiliClient.util.TerminalDialog] 里标题 TextView 的显示方式，
+     * 不改弹窗高度预算：`DialogSizing` 仍按「标题一行」估算，超长标题不再额外吃掉列表高度。
+     * 读取点在 `TerminalDialog.Sheet#applyTitleMarquee`。
+     */
+    const val DIALOG_TITLE_MARQUEE = "dialog_title_marquee"
+
+    // ==================== 推荐流 ====================
+    /**
+     * 「X 式重排」开关，**默认关闭**（它会打乱平台原本的排序，属于用户主动选择的功能）。
+     * 读取统一走 `util/recommend/RecommendPrefs.rerankEnabled`，别在调用点写死默认值。
+     */
+    const val RECOMMEND_RERANK_ENABLE = "recommend_rerank_enable"
 
     // ==================== 播放器 ====================
     /** 当前选择的播放器（null / terminalPlayer / mtvPlayer / aliangPlayer）。 */
@@ -154,6 +292,15 @@ object SettingsKeys {
     const val PLAYER_DOUBLETAP_SEEK = "player_doubletap_seek"
     const val PLAYER_SWIPE_SEEK = "player_swipe_seek"
     /**
+     * 播放页的返回键（外部返回 / 侧键 / 表冠返回）直接退出，**默认开**。
+     *
+     * 反馈 #117 / #135 / #139②：此前只要开了 [PLAYER_SWIPE_SEEK]，`PlayerActivity.onBackPressed`
+     * 就把返回键吞掉，[BACK_DISABLE] 再吞一次，用户在播放页里退不出去、看起来就是卡死。
+     * 开着时这两道拦都不生效（锁定态仍单独拦截）；关掉时回到旧语义。
+     * 见 `PlayerActivity.onBackPressed` / `PlayerActivity.onCreate` 的 noSwipe 取值。
+     */
+    const val PLAYER_BACK_KEY_EXIT = "player_back_key_exit"
+    /**
      * 左右滑动调进度的灵敏度倍率（存字符串档位，如 "1.0"）。
      *
      * 反馈 #94a：手表 dpi 降低后，横滑一点点就会快进很多。换算与档位表统一在
@@ -166,6 +313,14 @@ object SettingsKeys {
     /** 双击有缩放时优先复位；保留旧键兼容已保存的开关，不再还原屏幕方向。 */
     const val PLAYER_DOUBLETAP_RESTORE_SCREEN = "player_doubletap_restore_screen"
     const val PLAYER_DOUBLETAP_SEEK_SECONDS = "player_doubletap_seek_seconds"
+    /**
+     * ±N 秒快退/快进按钮的步长（秒，26.11.13）。
+     *
+     * 与双击快进用的 [PLAYER_DOUBLETAP_SEEK_SECONDS] 分开：那个是手势、默认 10 秒且用户可能
+     * 已经调过，按钮步长要能独立设（想「轻点 5 秒、双击 10 秒」）。取值范围见
+     * `player/PlayerSeekStepPolicy.kt`。
+     */
+    const val PLAYER_SEEK_STEP_SECONDS = "player_seek_step_seconds"
     /** 旧「洗脑循环」开关；已被 [PLAYER_DEFAULT_LOOP] 取代，仅用于迁移默认模式。 */
     const val PLAYER_LOOP = "player_loop"
     const val PLAYER_BACKGROUND = "player_background"
@@ -196,6 +351,53 @@ object SettingsKeys {
      */
     const val PLAYER_SKIP_OP_ED_MODE = "player_skip_op_ed_mode"
     /**
+     * 老版的 SponsorBlock 总档位（0=关 … 5=自定义）。
+     *
+     * 26.11.14 起被逐类别三档取代，**只在迁移时读一次**（见 `player/SponsorSkipPrefs.kt` 的
+     * `modes()`），之后不再写。别删这个键：留着才能让从老版本升上来的存档折算对。
+     */
+    const val PLAYER_SPONSOR_BLOCK_MODE = "player_sponsor_block_mode"
+    /**
+     * SponsorBlock 逐类别三档的键前缀，完整键是「前缀 + 类别 id」（如
+     * `player_sponsor_block_skip_mode_sponsor`），值为 0=关闭、1=询问我、2=自动跳转。
+     * 读写与默认值见 `player/SponsorSkipPrefs.kt`，判据见 `player/SponsorSkipPolicy.kt`。
+     */
+    const val PLAYER_SPONSOR_BLOCK_SKIP_MODE_PREFIX = "player_sponsor_block_skip_mode_"
+    /**
+     * 「老总档位已经折算成逐类别三档」的标记。没有它就说明是老存档，读一遍旧档位折算后写回。
+     */
+    const val PLAYER_SPONSOR_BLOCK_SKIP_MODE_MIGRATED = "player_sponsor_block_skip_mode_migrated"
+    /**
+     * 进度条上画不画「待会儿要跳的片段」（琥珀色/按类别配色的条子），默认 true。
+     *
+     * 与三档**无关**：关掉它照样按三档跳，只是不画；三档全关但这里开着，条子照画（只显示不跳）。
+     */
+    const val PLAYER_SPONSOR_BLOCK_MARKS_ENABLED = "player_sponsor_block_marks_enabled"
+    /** 进度条上画不画「精彩时刻」的蓝色小三角，默认 true，与上一条各自独立。 */
+    const val PLAYER_SPONSOR_BLOCK_MARKS_POI_ENABLED = "player_sponsor_block_marks_poi_enabled"
+    /**
+     * 进度条条子要标出哪些类别，完整键是「前缀 + 类别 id」，一类别一个布尔值，默认全开。
+     *
+     * 这是「标记」自己的类别集合，不跟 `PLAYER_SPONSOR_BLOCK_SKIP_MODE_PREFIX` 联动。
+     */
+    const val PLAYER_SPONSOR_BLOCK_MARK_CAT_PREFIX = "player_sponsor_block_mark_cat_"
+    /**
+     * SponsorBlock 自定义档的逐类别勾选键前缀，完整键是「前缀 + 类别 id」（如
+     * `player_sponsor_block_cat_sponsor`），一类别一个布尔值。
+     * 默认勾选 = 「推荐」档的五个类别；`poi_highlight` 永远不可勾（跳转点不是广告）。
+     * 读写见 `player/SponsorSkipPrefs.kt`。
+     */
+    const val PLAYER_SPONSOR_BLOCK_CAT_PREFIX = "player_sponsor_block_cat_"
+    /**
+     * 本地「不准」忽略集的键前缀，完整键是「前缀 + cid」，值是逗号分隔的上游标注 UUID。
+     * 用户在播放页按「不准」时记一条，这一条以后不再自动跳过；读写见 `player/SponsorSkipPrefs.kt`。
+     */
+    const val PLAYER_SPONSOR_BLOCK_IGNORE_PREFIX = "player_sponsor_block_ignore_"
+    /**
+     * 上面那些忽略键的 cid 索引（逗号分隔，最近使用的在最后）。只用于「清除全部」与 cid 数封顶。
+     */
+    const val PLAYER_SPONSOR_BLOCK_IGNORE_INDEX = "player_sponsor_block_ignore_index"
+    /**
      * 长按后上下划切换上一条/下一条视频，默认开。判据见 `player/LongPressSwitchPolicy.kt`。
      */
     const val PLAYER_LONGPRESS_SWITCH = "player_longpress_switch"
@@ -215,6 +417,39 @@ object SettingsKeys {
     const val PLAYER_DANMAKU_SIZE = "player_danmaku_size"
     const val PLAYER_DANMAKU_TRANSPARENCY = "player_danmaku_transparency"
     const val PLAYER_DANMAKU_SPEED = "player_danmaku_speed"
+    /**
+     * 短视频弹幕单独配置（26.11.14）：短视频页默认不再沿用长视频那套弹幕档位。
+     *
+     * 手表屏 400~466px，而上面的默认档是「15 行 + 允许重叠」，短视频偏偏又是弹幕极密的场景
+     * （用户反馈原话「鬼畜弹幕」）。这里给短视频一份独立存档，默认值取更保守的 6 行 / 不重叠。
+     * **它不覆盖也不改动长视频那几项**：开关关掉时短视频照旧走 [PLAYER_DANMAKU_MAXLINE] /
+     * [PLAYER_DANMAKU_ALLOW_OVERLAP]，读档与取值都在 `player/ShortVideoDanmakuPolicy.kt`。
+     */
+    const val SHORTVIDEO_DANMAKU_SEPARATE = "shortvideo_danmaku_separate"
+    const val SHORTVIDEO_DANMAKU_MAXLINE = "shortvideo_danmaku_maxline"
+    const val SHORTVIDEO_DANMAKU_ALLOW_OVERLAP = "shortvideo_danmaku_allowoverlap"
+    /**
+     * 短视频音量键改调**系统媒体音量**（反馈 #191，默认关＝保持现在的 App 内增益）。
+     *
+     * 关着的时候音量键调的是 ijk 软件增益（0~100%，1% 一档，不影响其它应用）；
+     * 打开后改成调手表的系统媒体音量，退出本 App 后音量变化对其它应用同样有效。
+     * 两种模式的步进/百分比换算都在 `player/PlayerVolumePolicy`，读取点见
+     * `activity/video/ShortVideoPlayerActivity` 的 changeVolume（每次按下现读，改完即生效）。
+     */
+    const val SHORTVIDEO_SYSTEM_VOLUME = "shortvideo_system_volume"
+    /**
+     * 弹幕磁盘缓存上限（list_choose 存字符串，单位 MB）。
+     *
+     * 读写都在 util/DanmakuDiskCache，登记在这里只为「设置键集中一处」，
+     * 别在业务类里另起同义键名。
+     */
+    const val PLAYER_DANMAKU_CACHE_MAX_MB = "player_danmaku_cache_max_mb"
+    /**
+     * 弹幕屏蔽词（G01，26.11.13）：一段自由文本，逗号/顿号/分号/空白分隔，命中的弹幕不显示。
+     *
+     * 解析与判定在 player/DanmakuBlockWordPolicy，登记在这里只为「设置键集中一处」。
+     */
+    const val PLAYER_DANMAKU_BLOCK_WORDS = "player_danmaku_block_words"
     const val PLAYER_SUBTITLE_AUTOSHOW = "player_subtitle_autoshow"
     const val PLAYER_SUBTITLE_AI_ALLOWED = "player_subtitle_ai_allowed"
     const val PLAYER_SUBTITLE_DELTA = "player_subtitle_delta"
@@ -359,6 +594,16 @@ object SettingsKeys {
 
     /** 用户已就哪个版本的隐私说明表过态（同意或不同意都算）。 */
     const val PRIVACY_PROMPTED_VERSION = "terminal_privacy_prompted_version"
+
+    /**
+     * 静默下载更新（26.11.16 新增）。**默认关**。
+     *
+     * 打开后启动检查发现新版本时不弹更新页，而是在 Wi-Fi 下后台把安装包下完，
+     * 下完再弹一次「新版本已下载」提示，用户点「立即安装」才交给系统安装器。
+     * 移动网络下不做静默（见 `BiliTerminal.trySilentUpdateDownload`）：
+     * 用户没同意过的事情里，最不该替人决定的就是「用你的流量下 8MB」。
+     */
+    const val SILENT_UPDATE_DOWNLOAD = "terminal_silent_update_download"
 
     // ==================== 调试 ====================
     const val DEV_LOGV = "dev_logv"

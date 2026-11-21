@@ -1,23 +1,37 @@
 package com.RobinNotBad.BiliClient.activity.settings
 
+import android.Manifest
+import android.content.Intent
 import android.graphics.PorterDuff
 import android.graphics.drawable.LayerDrawable
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import android.annotation.SuppressLint
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
+import com.RobinNotBad.BiliClient.BuildConfig
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.model.UpdateConfig
+import com.RobinNotBad.BiliClient.util.ApkDownloadStore
 import com.RobinNotBad.BiliClient.util.BetaUpdate
+import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import com.RobinNotBad.BiliClient.util.UpdateChannel
 import com.RobinNotBad.BiliClient.util.UpdateManager
+import com.RobinNotBad.BiliClient.util.WeiseMarket
 import java.io.File
 
 class UpdateActivity : BaseActivity() {
+
+    private companion object {
+        const val TAG = "微思下载"
+    }
 
     private lateinit var tipTitle: TextView
     private lateinit var versionNameText: TextView
@@ -33,11 +47,22 @@ class UpdateActivity : BaseActivity() {
     private lateinit var cancelDownloadBtn: View
     private lateinit var retryBtn: View
     private lateinit var descScroll: View
+    private lateinit var weseeBtn: View
 
     private var updateConfig: UpdateConfig? = null
     private var isDownloading: Boolean = false
     private var downloadFinished: Boolean = false
     private var downloadedFile: File? = null
+
+    /**
+     * Android 9 及以下的存储权限申请（26.11.18：更新包另存到 Download 需要它）。
+     *
+     * 拿到与否都不改变下载流程——没给只是那份拷贝不落 Download，缓存里照旧、安装照旧（见 [ApkDownloadStore]）。
+     */
+    private val storagePermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (!granted) Logu.i(TAG, "未授予存储权限，本次不另存到 Download")
+        }
 
     /** 内测模式：非空表示本页是从「长按检查更新 → 输入内测码」进来的。 */
     private var betaCode: String? = null
@@ -67,6 +92,7 @@ class UpdateActivity : BaseActivity() {
         cancelDownloadBtn = findViewById(R.id.cancel_download_btn)
         retryBtn = findViewById(R.id.retry_btn)
         descScroll = findViewById(R.id.desc_scroll)
+        weseeBtn = findViewById(R.id.wesee_btn)
 
         cancelBtn.setOnClickListener { finish() }
         downloadBtn.setOnClickListener { startDownload() }
@@ -214,8 +240,10 @@ class UpdateActivity : BaseActivity() {
                     updateConfig = config
                     showUpdateInfo()
                 } else {
-                    MsgUtil.showMsg(getString(R.string.text_update_latest))
-                    finish()
+                    // 26.11.21（反馈 #237）：已是最新时不再「弹一句就关页」。
+                    // 用户特意点了「检查更新」却只看到一闪而过的提示、页面自己关掉，
+                    // 会以为点错了或检查没跑；改成留在本页展示**当前版本**的更新说明。
+                    showLatestInfo()
                 }
                 kotlin.Unit
             },
@@ -226,6 +254,49 @@ class UpdateActivity : BaseActivity() {
                 kotlin.Unit
             }
         )
+    }
+
+    /**
+     * 「已是最新」时的页面形态（26.11.21，反馈 #237）。
+     *
+     * 和 [showUpdateInfo] 共用同一套控件，只把动作从「下载」换成「返回」：
+     * 标题带上通道名（三通道下「已是最新」本身有歧义，不写通道用户会以为检查坏了），
+     * 正文放本机更新日志里**当前版本**那一段，来源与更新日志页一致（见 [UpdateHistoryActivity]）。
+     */
+    @SuppressLint("SetTextI18n")
+    private fun showLatestInfo() {
+        tipTitle.text = getString(
+            R.string.text_update_latest_channel,
+            getString(UpdateChannel.nameRes(UpdateManager.currentChannel()))
+        )
+        versionNameText.text =
+            getString(R.string.text_update_version, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
+        contentText.text = currentVersionLog()
+
+        descScroll.visibility = View.VISIBLE
+        buttonContainer.visibility = View.VISIBLE
+        progressContainer.visibility = View.GONE
+        downloadBtn.visibility = View.GONE
+        retryBtn.visibility = View.GONE
+        cancelDownloadBtn.visibility = View.GONE
+        weseeBtn.visibility = View.GONE
+        (cancelBtn as TextView).text = getString(R.string.btn_update_latest_close)
+        cancelBtn.setOnClickListener { finish() }
+    }
+
+    /**
+     * 本机更新日志里**当前版本**那一段的正文；取不到时给一句兜底文案。
+     *
+     * 数据源是 strings.xml 的 `update_log_current`（首行是「【26.11.18 本次更新】」这类标题），
+     * 解析复用 [UpdateHistoryActivity.parseVersions]，不另写一份规则。
+     */
+    private fun currentVersionLog(): String {
+        val versions = UpdateHistoryActivity.parseVersions(
+            resources.getStringArray(R.array.update_log_current),
+            emptyArray()
+        )
+        val lines = versions.firstOrNull()?.lines.orEmpty().filter { it.isNotBlank() }
+        return if (lines.isEmpty()) getString(R.string.text_update_no_log) else lines.joinToString("\n")
     }
 
     @SuppressLint("SetTextI18n")
@@ -247,6 +318,73 @@ class UpdateActivity : BaseActivity() {
             (cancelBtn as TextView).text = getString(R.string.btn_cancel)
             cancelBtn.setOnClickListener { finish() }
         }
+
+        // 26.11.16：去微思下载只有在「商店版本号 == 本次检测到的版本号」且剪贴板可写时才露出来，
+        // 校验要走一次网络，放在后台，这里只是发个探查
+        setupWeiseDownload()
+    }
+
+    /**
+     * 「去微思下载」（26.11.16，仅共存版）。
+     *
+     * 两个条件都成立才显示按钮：
+     * 1. 微思商店那条应用的 versionCode（接口里的 `verid`）与本次检测到的更新版本号**完全一致**——
+     *    商店上的包是人手动传的，落后一版时点进去会把用户「更新」回旧版本，比不给按钮更糟；
+     * 2. 剪贴板可写——这个按钮的约定动作是「复制链接 + 跳商店」，写不进去就不显示。
+     *
+     * 查版本号是网络请求，放后台；写剪贴板必须在主线程，所以分两段切回来。
+     */
+    private fun setupWeiseDownload() {
+        weseeBtn.visibility = View.GONE
+        if (!BuildConfig.COEXIST) return
+        val config = updateConfig ?: return
+        val targetVersion = config.versionCode
+        if (targetVersion <= 0) return
+        CenterThreadPool.run {
+            val verid = WeiseMarket.fetchVerid()
+            if (!WeiseMarket.versionMatches(verid, targetVersion)) {
+                Logu.i(TAG, "商店版本 $verid 与更新版本 $targetVersion 不一致，不显示去微思下载")
+                return@run
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (weseeBtn.visibility == View.VISIBLE) return@runOnUiThread
+                // 能不能写剪贴板只能试着写一次（部分 ROM 会静默失败），顺便就把链接放进去了
+                if (!WeiseMarket.copyPageUrl(this)) {
+                    Logu.w(TAG, "剪贴板不可写，不显示去微思下载")
+                    return@runOnUiThread
+                }
+                weseeBtn.visibility = View.VISIBLE
+                weseeBtn.setOnClickListener { openWeise() }
+            }
+        }
+    }
+
+    /**
+     * 把商店链接再写一遍剪贴板（防被别处覆盖），然后打开微思商店。
+     *
+     * 商店**没有**注册 apk.wysteam.cn 的 VIEW 过滤器（26.11.16 实测只落到浏览器），
+     * 所以这里按包名显式启动；本机没装商店才退回浏览器，并明确告诉用户「链接已复制」。
+     */
+    private fun openWeise() {
+        WeiseMarket.copyPageUrl(this)
+        val marketIntent = WeiseMarket.buildOpenIntent(this)
+        // 装了商店就以商店为准；没装、或商店本身起不来（包坏了 / 被禁用）才退浏览器
+        if (marketIntent != null && startQuietly(marketIntent)) return
+        if (startQuietly(WeiseMarket.buildBrowserFallbackIntent())) {
+            MsgUtil.showMsg(getString(R.string.msg_weise_open_browser))
+        } else {
+            MsgUtil.showMsg(getString(R.string.msg_weise_open_failed))
+        }
+    }
+
+    /** 起一个 Activity，失败只记日志不抛——调用方自己决定怎么兜。 */
+    private fun startQuietly(intent: Intent): Boolean = try {
+        startActivity(intent)
+        true
+    } catch (e: Exception) {
+        Logu.w(TAG, "启动失败：" + e.message)
+        false
     }
 
     private fun startDownload() {
@@ -260,6 +398,16 @@ class UpdateActivity : BaseActivity() {
             MsgUtil.showMsg(getString(R.string.msg_update_no_download_url))
             return
         }
+        // 26.11.18：更新包要另存一份到系统 Download。Android 10+ 走 MediaStore 免权限；
+        // Android 6–9 得先拿到 WRITE_EXTERNAL_STORAGE，这里问一次——用户拒绝也**照常下载安装**，
+        // 只是那份拷贝不落 Download（用户 26.11.18 选定：申请一次、拒绝才跳过）。
+        // 放在开始下载之前问，是因为下载要几十秒到几分钟，等权限回来基本赶得上复制那一刻。
+        if (Build.VERSION.SDK_INT in Build.VERSION_CODES.M until Build.VERSION_CODES.Q &&
+            !ApkDownloadStore.canSave(this)
+        ) {
+            storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+
         isDownloading = true
         downloadFinished = false
 
@@ -307,6 +455,11 @@ class UpdateActivity : BaseActivity() {
                 cancelDownloadBtn.visibility = View.GONE
                 retryBtn.visibility = View.VISIBLE
                 kotlin.Unit
+            },
+            versionName = updateConfig?.versionName,
+            onSaved = { path ->
+                // 只在真的存下来了才提示，且不打断安装流程（这条 Toast 会和「下载完成」前后脚出现）
+                MsgUtil.showMsg(getString(R.string.msg_update_saved_to_download, path))
             }
         )
     }
@@ -324,6 +477,14 @@ class UpdateActivity : BaseActivity() {
         android.os.Process.killProcess(android.os.Process.myPid())
     }
 
+    /**
+     * 本页**必须始终能退出**（26.11.21，反馈 #237）。
+     *
+     * 用户在设置里开了「禁用返回键」（[SettingsKeys.BACK_DISABLE]）时，
+     * [BaseActivity.onBackPressed] 会直接把返回吞掉；本页顶部返回按钮又转调 onBackPressed()，
+     * 于是系统返回与顶部返回**一起失灵**，页面成了死胡同。这里不再转调 super：
+     * 非强制更新时直接 finish()，强制更新仍走 [exitApp]。
+     */
     override fun onBackPressed() {
         if (updateConfig != null && updateConfig!!.isForceUpdate) {
             exitApp()
@@ -331,7 +492,7 @@ class UpdateActivity : BaseActivity() {
             if (isDownloading) {
                 UpdateManager.cancelDownload()
             }
-            super.onBackPressed()
+            finish()
         }
     }
 

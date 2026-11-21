@@ -48,7 +48,7 @@ public class RecommendApi {
      *     <li>{@code fresh_idx} 生效：固定其它参数时 idx=1/2/3 三批两两 bvid 交集为 0；</li>
      *     <li>{@code brush} 单独改无效（同 idx 下 brush=1 与 brush=2 是同一批），故不下发；</li>
      *     <li>{@code fresh_type} 单独改也无效（3/4/不传 相同），只为兼容保留原值；</li>
-     *     <li>深翻没有空页信号（idx=120 仍返回满页），「到底」由调用方按「本页不足」判断。</li>
+     *     <li>深翻没有空页信号（idx=120 仍返回满页）；推荐页按无底流处理，**不**判「到底」。</li>
      * </ul>
      *
      * @param freshType 原来的 fresh_type（保留兼容，实测不影响内容）
@@ -93,7 +93,17 @@ public class RecommendApi {
             String title = card.getString("title");
             String upName = card.getJSONObject("owner").getString("name");
             String view = StringUtil.toWan(card.getJSONObject("stat").getInt("view")) + "观看";
-            videoCardList.add(new VideoCard(title, upName, view, cover, card.optLong("id", 0L), bvid));
+            // 「减少推荐（不感兴趣）」要的两个定位参数：track_id 是这一条推荐的追踪号（可空），
+            // mid 是 UP 主 mid（owner.mid，缺失/异常时按 0=未知处理，不能拿去当「不想看此 UP 主」的依据）。
+            // 两者都不参与下面的过滤判据，只是顺手带上，供 VideoCardMenu 的「减少推荐」用。
+            String trackId = card.optString("track_id", "");
+            long upMid = 0L;
+            JSONObject owner = card.optJSONObject("owner");
+            if (owner != null) upMid = owner.optLong("mid", 0L);
+            VideoCard videoCard = new VideoCard(title, upName, view, cover, card.optLong("id", 0L), bvid);
+            videoCard.trackId = trackId;
+            videoCard.upMid = upMid;
+            videoCardList.add(videoCard);
         }
     }
 

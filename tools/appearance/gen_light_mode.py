@@ -228,11 +228,11 @@ open(ROOT + "values-notnight/colors_glass.xml", "w").write("\n".join(g))
 
 # ---------------------------------------------------------------- drawable-notnight：图标改深色
 ICON_DARK = "#3A3438"
-EXCLUDE = {  # 压在主色 / 视频 / 通知上的白图标，以及靠颜色覆盖就能变色的 7 个 v21 着色图标
+EXCLUDE = {  # 压在主色 / 视频 / 通知上的白图标，以及靠颜色覆盖就能变色的 8 个 v21 着色图标
     "send", "article_fav_cover", "btn_player_play", "btn_player_pause", "player_tv_white", "icon_debug",
     "icon_audio_only_off", "icon_auto_next_off", "icon_player_lock", "icon_player_unlock", "ic_episode_playing",
     "icon_announcement", "icon_download", "icon_home", "icon_nav_dynamic", "icon_nav_media",
-    "icon_nav_trending", "icon_update",
+    "icon_nav_trending", "icon_update", "icon_sort_filter",
 }
 LIGHT_RE = re.compile(r'((?:fillColor|strokeColor|tint)=")(#(?:[0-9a-fA-F]{2})?(?:ebe0e2|EBE0E2|fff|FFF|ffffff|FFFFFF)|@android:color/white)(")')
 made, multi = [], []

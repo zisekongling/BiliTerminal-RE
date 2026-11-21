@@ -6,7 +6,9 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.graphics.drawable.Drawable;
 import android.os.Looper;
+import android.util.DisplayMetrics;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ImageView;
 
 import com.RobinNotBad.BiliClient.BiliTerminal;
@@ -16,6 +18,7 @@ import com.bumptech.glide.RequestManager;
 import com.bumptech.glide.TransitionOptions;
 import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.resource.bitmap.DownsampleStrategy;
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.bumptech.glide.request.RequestOptions;
@@ -30,8 +33,21 @@ public class GlideUtil {
     private static final DrawableCrossFadeFactory CROSS_FADE_FACTORY =
             new DrawableCrossFadeFactory.Builder(300).setCrossFadeEnabled(true).build();
 
+    /**
+     * 这条图片地址能不能拼 `@0e_75q_640w.webp` 这种缩放后缀。
+     *
+     * 26.11.06 起改成按主机白名单判定（[ImageRequestPolicy.supportsResizeSuffix]，纯函数、有单测）：
+     * 以前是「凡是 http 图片都拼」，站外地址会被拼坏——关于页「赞赏」那张 gitee 收款码被拼成
+     * `ma.jpg@0e_75q_640w.webp`，直接 404、图空白。gif 本来也不能拼，已经带过 `@` 的别重复拼。
+     */
+    private static boolean canAppendResizeSuffix(String url) {
+        return !url.endsWith("gif")
+                && !url.contains("@")
+                && ImageRequestPolicy.supportsResizeSuffix(url);
+    }
+
     public static String url(String url) {
-        if (!url.startsWith("http") || url.endsWith("gif") || url.contains("@") || url.contains("afdian"))
+        if (!canAppendResizeSuffix(url))
             return url;
         final int quality = PerformanceManager.getImageQuality();
         final int maxWidth = PerformanceManager.getImageMaxWidth();
@@ -61,7 +77,7 @@ public class GlideUtil {
     }
 
     private static String hqUrl(String url, int maxWidth) {
-        if (!url.startsWith("http") || url.endsWith("gif") || url.contains("@") || url.contains("afdiancdn.com"))
+        if (!canAppendResizeSuffix(url))
             return url;
         final int quality = PerformanceManager.getHqImageQuality();
         if (SharedPreferencesUtil.getBoolean("image_request_jpg", false)) {
@@ -82,6 +98,7 @@ public class GlideUtil {
     public static void request(ImageView view, String url, int placeholder) {
         if (!canLoad(view)) return;
         Glide.with(view).asDrawable().load(url(url))
+                .apply(thumbOptions(view))
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                 .format(DecodeFormat.PREFER_RGB_565)
                 .transition(GlideUtil.getTransitionOptions())
@@ -93,6 +110,8 @@ public class GlideUtil {
     public static void requestRound(ImageView view, String url, int placeholder) {
         if (!canLoad(view)) return;
         Glide.with(view).asDrawable().load(url(url))
+                // 圆形头像走 circleCrop（先裁方再填满），降采样必须用 cover 语义，见 thumbOptionsCover
+                .apply(thumbOptionsCover(view))
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                 .format(DecodeFormat.PREFER_RGB_565)
                 .transition(GlideUtil.getTransitionOptions())
@@ -105,6 +124,7 @@ public class GlideUtil {
     public static void request(ImageView view, String url, int roundCorners, int placeholder) {
         if (!canLoad(view)) return;
         Glide.with(view).asDrawable().load(url(url))
+                .apply(thumbOptions(view))
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                 .format(DecodeFormat.PREFER_RGB_565)
                 .transition(GlideUtil.getTransitionOptions())
@@ -112,6 +132,73 @@ public class GlideUtil {
                 .error(safePlaceholder(placeholder))
                 .apply(RequestOptions.bitmapTransform(new RoundedCorners(ToolsUtil.dp2px(roundCorners))))
                 .into(view);
+    }
+
+    /**
+     * 列表 / 缩略图请求的**尺寸约束**：按控件尺寸算出解码目标，并把降采样策略钉成 fits-inside。
+     *
+     * <p>26.11.15 两条线上崩溃都是「解码尺寸不受控」，而不是某一张图特别大：
+     * <ul>
+     *   <li>{@code OutOfMemoryError: Failed to allocate a 262156 byte allocation}——列表行布局里
+     *   那张 256px 占位图每次建行都要重新按原分辨率解一次（正好 256×256×4+12 = 262156），
+     *   当时进程只剩 209KB 可用；</li>
+     *   <li>{@code Canvas: trying to draw too large(116761824 bytes) bitmap}——栈在 crossfade 的
+     *   {@code TransitionDrawable.draw}，一张 5400×5400 的位图被直接拿去画。</li>
+     * </ul>
+     *
+     * <p>Glide 里唯一能钉死「解码出多大位图」的开关是 {@code override(宽, 高)}：不给它，
+     * 解码尺寸就取决于 target 解析结果，控件尚未测量、布局又是 {@code wrap_content} 时会退化成
+     * 原图。尺寸换算交给 {@link ThumbSizePolicy}（纯函数、有单测），定不下来时**不加 override**，
+     * 退回 Glide 的默认行为，不赌一个尺寸。
+     *
+     * <p>降采样选 {@code CENTER_INSIDE}：解出的位图整张落在 override 框内（fits-inside），
+     * 与这些控件默认的 {@code FIT_CENTER} 以及 {@code RoundedCorners} 变换语义一致——等比缩小
+     * 之后由 ImageView 铺开，裁剪比例不变，也不会像 {@code CENTER_OUTSIDE} 那样比需要的多解一圈像素。
+     */
+    public static RequestOptions thumbOptions(View view) {
+        return thumbOptions(view, DownsampleStrategy.CENTER_INSIDE);
+    }
+
+    /**
+     * 同 {@link #thumbOptions(View)}，但降采样用 {@code CENTER_OUTSIDE}（cover 语义）。
+     *
+     * <p>只给 {@code circleCrop} 这类「先裁成方形再填满控件」的用法：{@code CENTER_INSIDE} 会先按
+     * 短边把位图缩小，再被 circleCrop 放大回控件尺寸，头像直接糊掉。解出的位图仍被 override 框
+     * （即控件尺寸）夹住，不会解出比控件更大的图。
+     */
+    public static RequestOptions thumbOptionsCover(View view) {
+        return thumbOptions(view, DownsampleStrategy.CENTER_OUTSIDE);
+    }
+
+    private static RequestOptions thumbOptions(View view, DownsampleStrategy strategy) {
+        RequestOptions options = new RequestOptions().downsample(strategy);
+        int[] size = targetPixels(view);
+        if (size[0] > 0 && size[1] > 0) {
+            options = options.override(size[0], size[1]);
+        }
+        return options;
+    }
+
+    /**
+     * 把控件尺寸取出来交给纯函数 {@link ThumbSizePolicy} 换算出解码目标像素。
+     *
+     * <p>返回 {@code [0, 0]} 表示尺寸定不下来（未测量、布局又是 wrap_content，或屏幕尺寸拿不到），
+     * 此时**不要 override**。
+     */
+    private static int[] targetPixels(View view) {
+        if (view == null) return new int[]{0, 0};
+        DisplayMetrics metrics = view.getResources().getDisplayMetrics();
+        ViewGroup.LayoutParams params = view.getLayoutParams();
+        // 测量值包含自身 padding，图片实际可用区域要扣掉
+        int measuredWidth = view.getMeasuredWidth() - view.getPaddingLeft() - view.getPaddingRight();
+        int measuredHeight = view.getMeasuredHeight() - view.getPaddingTop() - view.getPaddingBottom();
+        return ThumbSizePolicy.targetPixels(
+                measuredWidth,
+                measuredHeight,
+                params != null ? params.width : 0,
+                params != null ? params.height : 0,
+                metrics.widthPixels,
+                metrics.heightPixels);
     }
 
     /**

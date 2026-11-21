@@ -76,8 +76,9 @@ data class TutorialPage(
  * @param pages   分页内容；[TutorialKind.HINT] 为空。
  * @param descriptionRes 管理页用的一句短描述（字符串资源 id）。`null` = 没写，管理页不显示描述。
  *               放这里是让「一篇教程的全部元信息」只有注册表一个来源，管理页不用再维护一份平行数组。
- * @param hintText  HINT 类型的提示文案。
- * @param hintViewId HINT 类型要显示提示的目标 View id。
+ * @param hintTextRes HINT 类型的提示文案模板（字符串资源 id，含页数占位符 `%d`）。
+ *               **存资源 id 而不是解析后的字符串**：注册表要能在纯 JVM 单测里构造，拿不到 Context。
+ * @param hintViewId HINT 类型要显示提示的目标 View id（宿主页布局里的那层提示文字）。
  */
 data class Tutorial(
     val id: String,
@@ -88,7 +89,7 @@ data class Tutorial(
     val pages: List<TutorialPage> = emptyList(),
     val imageRes: Int? = null,
     val descriptionRes: Int? = null,
-    val hintText: String? = null,
+    val hintTextRes: Int? = null,
     val hintViewId: Int? = null,
     /** 底部附加按钮；`null` = 只有「已阅」。 */
     val action: TutorialAction? = null,

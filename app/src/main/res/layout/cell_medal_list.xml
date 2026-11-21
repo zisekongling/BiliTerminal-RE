@@ -13,7 +13,9 @@
         android:padding="6dp">
 
         <ImageView
+            android:contentDescription="@null"
             android:id="@+id/avatar"
+            android:importantForAccessibility="no"
             android:layout_height="0dp"
             android:layout_width="0dp"
             android:adjustViewBounds="true"

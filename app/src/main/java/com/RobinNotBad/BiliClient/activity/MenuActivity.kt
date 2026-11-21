@@ -24,6 +24,7 @@ import com.RobinNotBad.BiliClient.activity.search.SearchActivity
 import com.RobinNotBad.BiliClient.activity.settings.SettingMainActivity
 import com.RobinNotBad.BiliClient.activity.settings.login.LoginActivity
 import com.RobinNotBad.BiliClient.activity.user.MySpaceActivity
+import com.RobinNotBad.BiliClient.activity.video.BangumiActivity
 import com.RobinNotBad.BiliClient.activity.video.HotSearchActivity
 import com.RobinNotBad.BiliClient.activity.video.PopularActivity
 import com.RobinNotBad.BiliClient.activity.video.PreciousActivity
@@ -32,11 +33,11 @@ import com.RobinNotBad.BiliClient.activity.video.RecommendActivity
 import com.RobinNotBad.BiliClient.activity.video.ShortVideoPlayerActivity
 import com.RobinNotBad.BiliClient.activity.video.TimelineActivity
 import com.RobinNotBad.BiliClient.activity.video.local.LocalListActivity
-import com.RobinNotBad.BiliClient.util.PerformanceManager
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.MenuConfig
+import com.RobinNotBad.BiliClient.util.MessageUnreadRefresh
+import com.RobinNotBad.BiliClient.util.MessageUnreadRefresher
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
-import com.bumptech.glide.Glide
 import com.google.android.material.button.MaterialButton
 import java.util.LinkedHashMap
 
@@ -46,11 +47,22 @@ class MenuActivity : BaseActivity() {
     private var dynamicButton: MaterialButton? = null
     private var messageButton: MaterialButton? = null
 
+    /**
+     * 未读刷新回到主线程后的回调。
+     *
+     * <p>必须是**稳定的同一个对象**：它既是回调也可能是观察者表里的键，
+     * `MessageUnreadRefresher.unobserve` 按标识移除它。写成字段而不是每次现造 lambda，
+     * 就是为了 onPause 里能撤干净（否则静态表会留住已销毁的 Activity）。
+     */
+    private val unreadObserver: (Int) -> Unit = { total -> applyMessageButtonText(total) }
+
     companion object {
         val btnNames: Map<String, Pair<String, Class<out InstanceActivity>>> = LinkedHashMap<String, Pair<String, Class<out InstanceActivity>>>().apply {
             put("recommend", Pair(UiText.of("推荐"), RecommendActivity::class.java))
             put("short_video", Pair(UiText.of("短视频"), ShortVideoPlayerActivity::class.java))
             put("popular", Pair(UiText.of("热门"), PopularActivity::class.java))
+            // 番剧分区（推荐 / 追番 / 索引 + 动态筛选，26.11.07 新增）
+            put(MenuConfig.BANGUMI, Pair(UiText.of("番剧"), BangumiActivity::class.java))
             put("precious", Pair(UiText.of("入站必刷"), PreciousActivity::class.java))
             put("ranking", Pair(UiText.of("全站排行榜"), RankingActivity::class.java))
             put("hotsearch", Pair(UiText.of("热搜"), HotSearchActivity::class.java))
@@ -110,68 +122,169 @@ class MenuActivity : BaseActivity() {
 
         findViewById<android.view.View>(R.id.top).setOnClickListener { finish() }
 
-        var btnList: MutableList<String> = SharedPreferencesUtil.loadMenuEnabled().toMutableList()
+        menuLayout = findViewById(R.id.menu_layout)
+        menuScroll = findViewById(R.id.menu_scroll)
+        hiddenGroup = findViewById(R.id.menu_hidden_group)
+        hiddenButtons = findViewById(R.id.menu_hidden_buttons)
+
+        buildMenu()
+
+        Log.e("debug", "MenuActivity onCreate in: ${System.currentTimeMillis() - time}")
+    }
+
+    // ==================== 菜单按钮构建 ====================
+
+    private lateinit var menuLayout: LinearLayout
+    private lateinit var menuScroll: com.RobinNotBad.BiliClient.ui.widget.RotaryScrollView
+    private lateinit var hiddenGroup: LinearLayout
+    private lateinit var hiddenButtons: LinearLayout
+
+    /** 列表末尾那个「更多 / 收起」按钮（由 [buildMenu] 现造，没有可折叠项时是 null）。 */
+    private var moreButton: MaterialButton? = null
+
+    /** 本轮的「继续播放」意图（构建按钮与点击回调共用一份，避免每次点都重算）。 */
+    private var resumeIntent: Intent? = null
+
+    /** 折叠区当前是否展开（纯界面状态，不持久化；重建按钮时保留）。 */
+    private var hiddenExpanded = false
+
+    /**
+     * 按当前配置重建整套按钮：主列表 → 折叠区 → 末尾的「更多」。
+     *
+     * <p>为什么要重建而不是只在 onCreate 建一次：菜单排序页保存后回到菜单，若栈里这个
+     * MenuActivity 实例还活着（长按顶栏回菜单用的是 CLEAR_TOP|SINGLE_TOP，不会重建），
+     * 页面上留着的还是旧顺序/旧显隐——用户改完编排回来一看「没变」，就是反馈 #86 那种现象。
+     * 所以 onResume 里干脆无条件重建一次：十几枚 MaterialButton 的重排开销可以忽略，
+     * 比对指纹那种判据反而容易留缝。
+     */
+    private fun buildMenu() {
+        val enabledMenu = SharedPreferencesUtil.loadMenuEnabled()
+        val loggedIn = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) != 0L
+        resumeIntent = PlayerApi.buildResumeIntent(this)
 
         // 会话哨兵：上次有没看完的视频时，主页顶部给一个「继续播放」入口。
         // 这里刻意不做「一启动就续播」——手表上打开应用往往是想去别处，被播放器抢前台很烦；
         // 菜单项既不打扰又比藏在二级页好找。会话在 PlayerApi.buildResumeIntent 里做过期/过短过滤。
-        val resumeIntent: Intent? = PlayerApi.buildResumeIntent(this)
-        if (resumeIntent != null) btnList.add(0, "resume")
+        //
+        // 26.11.07：这一项和「退出」同待遇，进菜单配置（见 MenuConfig.RESUME）——默认不启用，
+        // 用户想留就在「菜单设置」里打开；启用且有会话时依旧置顶，没会话时连空位都不留。
+        val btnList = ArrayList(enabledMenu)
+        btnList.remove(MenuConfig.RESUME)
+        if (resumeIntent != null && MenuConfig.RESUME in enabledMenu) btnList.add(0, MenuConfig.RESUME)
 
-        if (SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) == 0L) {
+        if (!loggedIn) {
             btnList.add(0, "login")
             btnList.remove("dynamic")
             btnList.remove("message")
             btnList.remove("myspace")
         }
 
-        val layout = findViewById<LinearLayout>(R.id.menu_layout)
-        val params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        val showMore = SharedPreferencesUtil.loadMenuMoreButton()
+        val hidden = hiddenCandidates(enabledMenu, loggedIn)
 
-        for (btn in btnList) {
-            val materialButton = MaterialButton(this)
-            when (btn) {
-                "login" -> materialButton.text = UiText.of("登录")
-                MenuConfig.EXIT -> materialButton.text = getString(R.string.btn_exit)
-                "resume" -> materialButton.text = getString(R.string.player_queue_resume_last)
-                "dynamic" -> {
-                    var btnText = btnNames[btn]!!.first
-                    if (btn == "dynamic") {
-                        dynamicButton = materialButton
-                        val updateNum = SharedPreferencesUtil.getInt(SharedPreferencesUtil.DYNAMIC_UPDATE_NUM, 0)
-                        if (updateNum > 0) {
-                            btnText = "$btnText ($updateNum)"
-                        }
-                    }
-                    materialButton.text = btnText
-                }
-                "message" -> {
-                    var messageBtnText = btnNames[btn]!!.first
-                    messageButton = materialButton
-                    val messageUpdateNum = SharedPreferencesUtil.getInt(SharedPreferencesUtil.MESSAGE_UPDATE_NUM, 0)
-                    if (messageUpdateNum > 0) {
-                        messageBtnText = "$messageBtnText ($messageUpdateNum)"
-                    }
-                    materialButton.text = messageBtnText
-                }
-                else -> materialButton.text = btnNames[btn]!!.first
+        val params = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+
+        dynamicButton = null
+        messageButton = null
+        moreButton = null
+
+        menuLayout.removeAllViews()
+        for (key in btnList) menuLayout.addView(createButton(key, hiddenItem = false), params)
+
+        // 折叠区排在主列表之后（同一滚动区里），展开时滚到它
+        if (hidden.isEmpty()) hiddenExpanded = false
+        hiddenButtons.removeAllViews()
+        for (key in hidden) hiddenButtons.addView(createButton(key, hiddenItem = true), params)
+        hiddenGroup.visibility = if (hiddenExpanded) View.VISIBLE else View.GONE
+        menuLayout.addView(hiddenGroup)
+
+        // 「更多」就是列表里的最后一个普通按钮：尺寸、行高、滚动行为都跟上面那些完全一样，
+        // 只是落在列表末尾（要翻到底才看得见），不是浮在屏幕上的悬浮条。
+        if (showMore && hidden.isNotEmpty()) {
+            val more = MaterialButton(this)
+            more.text = getString(if (hiddenExpanded) R.string.btn_menu_more_collapse else R.string.btn_menu_more)
+            more.setOnClickListener { toggleHidden() }
+            menuLayout.addView(more, params)
+            moreButton = more
+        }
+    }
+
+    /**
+     * 可折叠的隐藏项：配置里未启用、且当前确实能渲染出来的菜单 key。
+     *
+     * <p>过滤口径与主列表一致——没登录时「动态/消息/我的」进不去，不该在折叠区里出现；
+     * 「继续播放」只有存在会话时才有意义；固定项本来就不会被藏，天然不在其中。
+     */
+    private fun hiddenCandidates(enabledMenu: List<String>, loggedIn: Boolean): List<String> =
+        MenuConfig.disabledFrom(enabledMenu).filter { key ->
+            when (key) {
+                MenuConfig.EXIT -> true
+                MenuConfig.RESUME -> resumeIntent != null
+                "dynamic", "message", "myspace" -> loggedIn && btnNames.containsKey(key)
+                else -> btnNames.containsKey(key)
             }
-            // 「退出」是动作项：点了直接收摊，不走 killAndJump（它要往页面栈里跳）
-            // 「继续播放」也是动作项：拉起上次的会话后收掉主页，语义同 killAndJump 的主页切换
-            materialButton.setOnClickListener {
-                when {
-                    btn == MenuConfig.EXIT -> exitAppCompletely()
-                    btn == "resume" -> {
-                        if (resumeIntent != null) startActivity(resumeIntent)
-                        finish()
-                    }
-                    else -> killAndJump(btn)
-                }
-            }
-            layout.addView(materialButton, params)
         }
 
-        Log.e("debug", "MenuActivity onCreate in: ${System.currentTimeMillis() - time}")
+    /**
+     * 展开 / 收起未启用项。
+     *
+     * <p>折叠区插在主列表末尾那个「更多」按钮之前，展开后列表变长、按钮被顶到更下面，
+     * 所以顺手滚到折叠区顶部——否则手表一屏只有四个按钮，用户点了「更多」看不到任何变化。
+     */
+    private fun toggleHidden() {
+        hiddenExpanded = !hiddenExpanded
+        hiddenGroup.visibility = if (hiddenExpanded) View.VISIBLE else View.GONE
+        moreButton?.text = getString(if (hiddenExpanded) R.string.btn_menu_more_collapse else R.string.btn_menu_more)
+        if (hiddenExpanded) {
+            hiddenGroup.post {
+                if (!isFinishing && !isDestroyed) menuScroll.smoothScrollTo(0, hiddenGroup.top)
+            }
+        }
+    }
+
+    /**
+     * 造一个菜单按钮。「退出」「继续播放」是动作项，不走 [killAndJump]（它要往页面栈里跳）。
+     *
+     * @param hiddenItem 折叠区里的按钮：不接管动态/消息的未读文案刷新（那两个只能有一个实例）
+     */
+    private fun createButton(btn: String, hiddenItem: Boolean): MaterialButton {
+        val materialButton = MaterialButton(this)
+        when (btn) {
+            "login" -> materialButton.text = UiText.of("登录")
+            MenuConfig.EXIT -> materialButton.text = getString(R.string.btn_exit)
+            MenuConfig.RESUME -> materialButton.text = getString(R.string.player_queue_resume_last)
+            "dynamic" -> {
+                var btnText = btnNames[btn]!!.first
+                if (!hiddenItem) {
+                    dynamicButton = materialButton
+                    val updateNum = SharedPreferencesUtil.getInt(SharedPreferencesUtil.DYNAMIC_UPDATE_NUM, 0)
+                    if (updateNum > 0) {
+                        btnText = "$btnText ($updateNum)"
+                    }
+                }
+                materialButton.text = btnText
+            }
+            "message" -> {
+                if (!hiddenItem) messageButton = materialButton
+                materialButton.text =
+                    messageLabel(SharedPreferencesUtil.getInt(SharedPreferencesUtil.MESSAGE_UPDATE_NUM, 0))
+            }
+            else -> materialButton.text = btnNames[btn]?.first ?: btn
+        }
+        materialButton.setOnClickListener {
+            when {
+                btn == MenuConfig.EXIT -> exitAppCompletely()
+                btn == MenuConfig.RESUME -> {
+                    resumeIntent?.let { startActivity(it) }
+                    finish()
+                }
+                else -> killAndJump(btn)
+            }
+        }
+        return materialButton
     }
 
     override fun onStart() {
@@ -182,6 +295,11 @@ class MenuActivity : BaseActivity() {
     override fun onResume() {
         super.onResume()
         Log.e("debug", "MenuActivity onResume in: ${System.currentTimeMillis() - time}")
+        // 从「菜单设置」改完编排回来：这个实例可能压根没重建过（长按顶栏回菜单走
+        // CLEAR_TOP|SINGLE_TOP，栈里有实例就直接复用），留着旧的按钮顺序就是用户报的
+        // 「拖完回到菜单顺序没变」。所以每次回到前台都无条件按存档重排一次——
+        // 按钮总共十几枚 MaterialButton，重排的开销可以忽略，胜过任何「指纹比对」的判据缺口。
+        buildMenu()
         if (dynamicButton != null) {
             var btnText = btnNames["dynamic"]!!.first
             val updateNum = SharedPreferencesUtil.getInt(SharedPreferencesUtil.DYNAMIC_UPDATE_NUM, 0)
@@ -191,13 +309,36 @@ class MenuActivity : BaseActivity() {
             dynamicButton!!.text = btnText
         }
         if (messageButton != null) {
-            var messageBtnText = btnNames["message"]!!.first
-            val messageUpdateNum = SharedPreferencesUtil.getInt(SharedPreferencesUtil.MESSAGE_UPDATE_NUM, 0)
-            if (messageUpdateNum > 0) {
-                messageBtnText = "$messageBtnText ($messageUpdateNum)"
-            }
-            messageButton!!.text = messageBtnText
+            updateMessageButtonText()
         }
+        // 未读提示（E）：回到菜单时做一次性的增量刷新——先把 SP 里的值画上（同步、无闪烁），
+        // 再让刷新器决定这次要不要真的发请求（最小间隔 5 秒 + 单飞，判据在 MessageUnreadRefresh 里）。
+        // 未登录 / 关了「消息数量检查」时刷新器内部直接返回；全程没有后台定时器。
+        MessageUnreadRefresher.refreshOnMenuResume(unreadObserver)
+    }
+
+    override fun onPause() {
+        // 刷新是异步回来的，本页不再前台就撤掉回调，别让静态观察者表留住已销毁的 Activity
+        MessageUnreadRefresher.unobserve(unreadObserver)
+        super.onPause()
+    }
+
+    /** 「消息」按钮的文案：无未读时是按钮名，有未读时是「消息 (3)」。 */
+    private fun messageLabel(count: Int): String = MessageUnreadRefresh.formatCountLabel(
+        btnNames["message"]!!.first,
+        count,
+        getString(R.string.social_menu_unread_label)
+    )
+
+    /** 把未读数画到按钮上。异步回调进来时页面可能已经在收尾，先判活再写 View。 */
+    private fun applyMessageButtonText(count: Int) {
+        if (isFinishing || isDestroyed) return
+        messageButton?.text = messageLabel(count)
+    }
+
+    /** 按 SP 里当前的未读数刷新按钮文案（进消息页会清零，所以返回菜单要重读）。 */
+    private fun updateMessageButtonText() {
+        applyMessageButtonText(SharedPreferencesUtil.getInt(SharedPreferencesUtil.MESSAGE_UPDATE_NUM, 0))
     }
 
     private fun killAndJump(name: String) {
@@ -209,18 +350,28 @@ class MenuActivity : BaseActivity() {
             // 其余菜单项仍按既有语义当成主页切换：旧主页不再保留。
             if (name !in MenuConfig.OPTIONAL_ITEMS) {
                 val instance = BiliTerminal.getInstanceActivityOnTop()
-                if (instance != null && instance.lifecycle.currentState != Lifecycle.State.DESTROYED)
-                    instance.finish()
+                if (instance != null && instance.lifecycle.currentState != Lifecycle.State.DESTROYED) {
+                    // 缓存页 → 文件夹页是一条链，切栏目要把整条链收掉，否则文件夹页下面那张
+                    // 缓存页会留在返回栈里（父子关系与判据都在 LocalListActivity 内部）。
+                    if (!LocalListActivity.finishLocalCacheChain(instance)) instance.finish()
+                }
             }
 
             val intent = Intent()
             intent.setClass(this@MenuActivity, btnNames[name]!!.second)
             intent.putExtra("from", name)
             startActivity(intent)
-            // 在低性能设备上更积极地清理Glide内存
-            if (PerformanceManager.isLowPerfDevice()) {
-                Glide.get(BiliTerminal.context!!).clearMemory()
-            }
+            // 26.11.09：这里原来在低性能设备上 `Glide.get(...).clearMemory()`（「更积极地清理Glide内存」）。
+            // 已去掉，与 VideoInfoActivity 那次是同一个理由：
+            // 1) 真正占内存的是正在显示 / 还在请求里的位图，它们在 ActiveResources 与请求里（acquired > 0），
+            //    MemoryCache 清不到；MemoryCache 本身也有 LruResourceCache 上限，不会无界增长；
+            // 2) 清空的时机最糟：紧接着 startActivity 开的这一页就要加载一批图片，缓存被清空只会让它们
+            //    重新下载解码，淘汰（onItemEvicted → Engine.onResourceRemoved → forceNextFrame 投递）
+            //    反而更密；
+            // 3) 这条分支只在低性能设备上走，而低性能手表正是崩溃
+            //    `Cannot recycle a resource while it is still acquired` 的集中人群。
+            // 旧页面已经在上面被 finish，它的位图会随请求清理自然释放；系统内存紧张时 Glide 自己会走
+            // LruResourceCache.trimMemory。
         } else {
             when (name) {
                 "login" -> {

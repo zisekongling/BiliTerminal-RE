@@ -3,11 +3,12 @@
     android:height="24dp"
     android:viewportWidth="960"
     android:viewportHeight="960">
-    <!-- 倍速：双三角「快进」造型，与右侧竖排 PNG 图标同为 24dp 方块 -->
+    <!-- 倍速：双三角「快进」造型，与右侧竖排 PNG 图标同为 24dp 方块。
+         压在视频画面上，必须纯白 → 走语义色 @color/player_icon_on_scrim。 -->
     <path
-        android:fillColor="#ffffff"
+        android:fillColor="@color/player_icon_on_scrim"
         android:pathData="M150,250 L430,480 L150,710 Z" />
     <path
-        android:fillColor="#ffffff"
+        android:fillColor="@color/player_icon_on_scrim"
         android:pathData="M450,250 L730,480 L450,710 Z" />
 </vector>

@@ -5,11 +5,15 @@
 ## 命令
 
 ```bash
-./gradlew.bat :app:assembleDebug                 # 编译验证（无 CI，以此为准；两个 flavor 都编）
+./gradlew.bat :app:assembleDebug                 # 编译验证（两个 flavor 都编）；CI 也跑它
 ./gradlew.bat :app:testStandardDebugUnitTest     # 纯 JVM 单测（普通版）
 ./gradlew.bat :app:testCoexistDebugUnitTest      # 纯 JVM 单测（共存版，同源码）
 ./gradlew.bat :app:assembleRelease               # 正式包（R8 + ABI 分包，两个 flavor 都出）
 ```
+
+**CI 实际跑什么**（`.github/workflows/ci.yml` 的 `build-and-test` job；push / PR 到 `main` 与手工触发都会跑）：依次是 `:app:verifyVersionConsistency` → `:app:assembleDebug` → `:app:testStandardDebugUnitTest` → `:app:testCoexistDebugUnitTest`（两个 flavor 共用同一份 `app/src/test`，但构建配置不同，都要绿——coexist 以前从没进过 CI）→ `:app:assembleRelease`（unsigned 冒烟：CI 不写签名材料；验 R8 + `shrinkResources` + `keep.pro`，两个 flavor × 3 ABI 分包 + 通用包）。发版链在 `build-release.yml`，只跑 `testStandardDebugUnitTest` + 签名 `assembleRelease`（前面还有 `verify-version` 硬校验 tag ↔ 版本号）。本地仍按下面这几条自己先过一遍。
+
+**曾经的「测试版构建」属性已拔出**：`-PtestBuild=<name>` 那套（`BuildConfig.TEST_BUILD` / `util/TestBuild.kt` / `player/PlaybackDiag.kt` / `Logu` 的诊断期放大 / `ErrorCatch` 的带额度快照）在 2026-11-08 随「部分设备点播卡顿」专项收尾**整体删除**，`app/build.gradle` 里现在没有这个属性，传了也没有任何效果。要再出临时测试包，按 `docs/archive/superpowers/specs/2026-11-07-test-build-framework.md` §4 的清单重建。
 
 ## 单测任务名与产物
 
@@ -34,14 +38,26 @@
 ## 多模块与工具链
 
 - 多模块 `:app` / `:ijkplayer-java` / `:DanmakuFlameMaster` / `:brotlij`（后三个别乱动）。
-- Gradle 8.11.1、AGP 8.5.2、Kotlin 2.0.0、JDK 17、minSdk 19 / compileSdk 34、`resConfigs 'zh'`。
+- Gradle 8.14.5（`gradle/wrapper/gradle-wrapper.properties`）、AGP 8.5.2、Kotlin 2.0.0、JDK 17、minSdk 19 / compileSdk 34、`resConfigs 'zh'`。
 - 降 minSdk 时必须先看 `docs/architecture-map.md` §1.1 的兼容清单（依赖版本下限、`Build.SUPPORTED_ABIS`、`res/drawable-v21` 双份资源等）。
 
 ## 环境坑（gradle.properties 等）
 
 - `gradle.properties` **不再写死** `org.gradle.java.home`（26.10.20 起；旧版指向 `C:\Program Files\Java\jdk-17`，换台机器/换 JDK 发行版就报 `Value '...' given for org.gradle.java.home Gradle property is invalid`，整个构建起不来）——本机 JVM 不是 JDK 17 时在**用户级** `~/.gradle/gradle.properties` 里设，或让 `JAVA_HOME` 指向 17。
-- 代理配置在第 94-97 行**是注释状态**；`compileSdk 34` 需要 `platforms/android-34` + `build-tools/34.0.0`（缺了 AGP 自动下载，licenses 已接受时），`sdk.dir` 写在 gitignore 的 `local.properties`，release 签名也读它。
+- 代理配置在第 97-101 行**是注释状态**；`compileSdk 34` 需要 `platforms/android-34` + `build-tools/34.0.0`（缺了 AGP 自动下载，licenses 已接受时），`sdk.dir` 写在 gitignore 的 `local.properties`，release 签名也读它。
+- **堆配置按通用开发机取值，别照顶配工作站写**（26.11.10 起）：`org.gradle.jvmargs` 4 G、`kotlin.daemon.jvmargs` 2 G、`org.gradle.workers.max=4`。旧值是 8 G / 8 G / 8，两个 daemon 叠加出十几个 G 的虚拟内存——在 2 核 / 7941 MiB 的小机器上构建时 `java` 被内核 OOM killer 杀掉（total-vm 11.7 G、anon-rss 2.85 G），连带把宿主的 `dsh-web.service` 一起拖死、机器重启两次。**内存更小的机器不要改这个文件**，用用户级 `~/.gradle/gradle.properties` 或 `./gradlew -Dorg.gradle.jvmargs=-Xmx1500m` 覆盖。
+- **不要在 SSH 别名 `HK` 那台小服务器上编译本仓库**（2 核 / 7.9 G，常驻 2 个 Halo 容器 + 灵灵 + nginx，磁盘 29 G）：出包在本地开发机或 GitHub Actions 上做。确实要在这种小机器上验证时先 `free -m` 看余量，并加 `--max-workers=1 -Dorg.gradle.jvmargs=-Xmx1500m -Dkotlin.daemon.jvmargs=-Xmx1024m`；构建完顺手 `rm -rf ~/.gradle` 回收磁盘（一次全量构建的缓存就是 1 G 量级）。
+- **两 flavor 并行编译会伪装成「语法错」**（26.11.14 实测）：`assembleDebug` 报 `> Task :app:compileCoexistDebugKotlin` + `Compilation error. See log for more details`，报告里**没有一行 `e:` 错误**——真因是 Kotlin daemon 拿不到内存（单独跑 `:app:compileStandardDebugKotlin` 才看到 `e: Daemon compilation failed: Not enough memory to run compilation. Try to increase it via 'gradle.properties'`）。`org.gradle.parallel=true` 下两个 flavor 的编译同时抢 4 G daemon + 2 G kotlin daemon，本机 31 G 内存但只剩 5.5 G 可用时必挂。**判据**：报编译错但输出里找不到 `^e: .*\.kt:` 行，就先怀疑内存；**解法**：加 `--no-parallel --max-workers=2` 重跑（同族历史记录见 `docs/review/fix-progress.md` 里「`--max-workers=1` 绕开两 flavor 并行 OOM」那条）。
 - 依赖仓库已在 `settings.gradle` 前置 aliyun 的 `google`/`public`/`gradle-plugin` 镜像；`copyApkToDesktop` 未挂在 `assembleRelease` 上，需手动跑。
+
+## 同工作区并发构建（多个会话同时改这个仓库）
+
+26.11.15 实测：两个 agent 会话在**同一个工作区**同时跑 gradle（各一条 `assembleDebug`），会撞两类错误，**都不是代码问题**，改代码只会白跑：
+
+- `:app:processStandardDebugResources` 失败：`…\compile_and_runtime_not_namespaced_r_class_jar\standardDebug\processStandardDebugResources\R.jar: 另一个程序正在使用此文件，进程无法访问。`——两个构建同时写同一份 R jar。
+- `:app:compileStandardDebugKotlin` 失败：`java.lang.OutOfMemoryError: Java heap space`，或退化成 `Not enough memory to run compilation`——`kotlin.daemon.jvmargs` 的 2 G 被两个 daemon 摊薄。
+
+**判据**：报错路径落在 `app/build/` 里、且 `Get-Process java` 能看到不止一组 gradle wrapper + daemon。**解法**：串行。先确认没有别的构建在跑——`Get-ChildItem app/build -Recurse -File | Sort-Object LastWriteTime -Descending | Select-Object -First 3` 看最近一两分钟还有没有新产物——再单独跑一次。多个会话共用一个工作树时**显式约定「谁先跑、跑完回一句」**，别凭感觉并发。顺带：并发会话还会互相 `git stash` / `git add -A` 卷走对方在制品，见 `docs/agents/workflow.md`「同一个工作树上有多个会话」。
 
 ## build cache 回放陈旧资源
 
@@ -63,6 +79,60 @@
 
 - 报 `org.jetbrains.kotlin.util.FileAnalysisException … FileNotFoundException: app\build\tmp\kotlin-classes\debug\…\Xxx.class`（某个 class 被删了但增量状态没更新）：`clean` 后重建解决。
 - **同一个坏状态的第二种长相（26.10.21 实测，更坑）**：某个 flavor 的 Kotlin 模块元数据被写成空文件，单测编译报一堆 `Unresolved reference`（顶层函数 / DSL / 扩展函数全解析不到，**类却能正常解析**），看着像主源码真的删了符号。判据是 `app/build/tmp/kotlin-classes/<flavor>Debug/META-INF/app_<flavor>Debug.kotlin_module` 的大小——正常 233 字节左右，坏的时候只有 24 字节。只删该 flavor 的 `kotlin-classes/<flavor>Debug` 与 `build/kotlin/compile<Flavor>DebugKotlin` 后重编即可恢复，不必整包 clean。
+- **同一个坏状态的第三种长相（26.11.14 实测，最隐蔽：类丢了但构建全绿）**：`:app:dexBuilderStandardDebug` 报 `UP-TO-DATE`，可它的产物目录 `app/build/intermediates/project_dex_archive/<variant>/dexBuilder<Variant>/out/` 里少了某些类（本次是 `com/RobinNotBad/BiliClient/BiliTerminal.dex`），于是 APK 能装上、一启动就崩：
+
+  ```text
+  java.lang.RuntimeException: Unable to instantiate application com.RobinNotBad.BiliClient.BiliTerminal
+  Caused by: java.lang.ClassNotFoundException: Didn't find class "com.RobinNotBad.BiliClient.BiliTerminal" on path: DexPathList[[zip file ".../base.apk"], ...]
+  ```
+
+  而 `assembleDebug` / 单测**依旧全部 BUILD SUCCESSFUL**，源码侧也查不出问题（`BiliTerminal.kt` 在、被 git 跟踪、`AndroidManifest.xml` 里 `android:name=".BiliTerminal"`、`build.gradle` 没有对它的 exclude，`kotlin-classes/standardDebug/` 下 `BiliTerminal.class` 还是刚编出来的）。
+
+  **判据（两步都做，缺一会误判）**：
+
+  1. `dexdump -f classes.dex`（dexdump 在 `%ANDROID_HOME%\build-tools\<ver>\dexdump.exe`，不在 PATH）里搜 `Class descriptor  : 'Lcom/RobinNotBad/BiliClient/BiliTerminal;` —— 坏的时候零命中；同时对照搜 `Lcom/RobinNotBad/BiliClient/activity/SplashActivity;`，它有命中才说明检索方法本身没问题。
+  2. `Get-ChildItem app\build\intermediates -Recurse -Filter 'BiliTerminal*.dex'` 零命中，但同样的过滤在 `app\build\tmp\kotlin-classes\<variant>\com\RobinNotBad\BiliClient\` 下能找到 `BiliTerminal.class`（16645 字节、魔数 `CA FE BA BE`，说明编译环节正常）——丢在「编译之后、dex 化之时」。
+
+  **修法**：`./gradlew.bat :app:dexBuilderStandardDebug --rerun-tasks` 后重跑 `:app:assembleStandardDebug` 即可，不必整包 clean，也不必删 `kotlin-classes`（删了也不会好，因为毛病在 dexBuilder 的产物里）。修好后 archive 里出现 `BiliTerminal*.dex`、`classes.dex` 里出现该类定义，`adb install -r` 后启动正常。
+
+- **第四种长相（26.11.15 实测，丢的是伴生类，症状变成「卡启动页」）**：coexist flavor 的 `classes2.dex` 里少了 `com/RobinNotBad/BiliClient/activity/MenuActivity$Companion`，而 `MenuActivity;` 和它的 `$$ExternalSyntheticLambda*` 都在。`dexBuilderCoexistDebug` / `mergeDexCoexistDebug` / `packageCoexistDebug` / `assembleCoexistDebug` **全报 UP-TO-DATE 或 SUCCESSFUL**，APK 也装得上，但一启动就永久停在启动页「欢迎使用 RE:哔哩终端」：
+
+  ```text
+  W/System.err: java.lang.NoClassDefFoundError: Failed resolution of:
+                Lcom/RobinNotBad/BiliClient/activity/MenuActivity$Companion;
+      at com.RobinNotBad.BiliClient.activity.MenuActivity.<clinit>(Unknown Source:0)
+      at com.RobinNotBad.BiliClient.activity.SplashActivity.proceedSplashFlow$lambda$11(SplashActivity.kt:364)
+  ```
+
+  **为什么一点提示都没有**：这句 `MenuActivity.btnNames[startActivityKey]` 包在 `SplashActivity.proceedSplashFlow()` 的 `catch (e: Exception)` 里（`SplashActivity.kt:446`，本意是「任何失败都退化成进本地列表页」），可 `NoClassDefFoundError` 是 `Error` 不是 `Exception`——接不住，`CenterThreadPool` 里的协程静默死掉，既不弹错也不跳页，界面就停在 splash 文案上。
+
+  **判据**：`dexdump -l plain classes2.dex | Select-String "Class descriptor" | Select-String MenuActivity`——好的包里有一条 `MenuActivity$Companion;`，坏的没有；同时对照**同版本的 standard flavor APK**（一定有）。旁证：坏包体积明显偏小（本次 coexist arm64 14.6 MB，修好后 19.4 MB）。
+
+  **修法**：删 `app\build\intermediates\project_dex_archive\coexistDebug\`、`app\build\intermediates\dex\coexistDebug\`、`dex_archive_input_jar_hashes\coexistDebug\`、`legacy_multidex_main_dex_list\coexistDebug\`、`dex_number_of_buckets_file\coexistDebug\` 后重跑 `:app:assembleCoexistDebug`（等价于 `--rerun-tasks`，但只重跑该 flavor 的 dex 链，51 秒出包），再用 dexdump 复核命中后再 `adb install -r`。
+
+## 改主类构造参数后单测 `NoSuchMethodError`
+
+改了某个主源码类（尤其是 `data class`）的**构造参数个数 / 类型**后，单测可能整批炸在同一条构造调用上，例如 26.11.14 改 `SponsorBlockApi.RawSegment`（7 参 → 10 参，尾部带默认值）后，`SponsorSkipPolicyTest.kt:30` 的 14 个用例全报：
+
+```text
+java.lang.NoSuchMethodError: 'void com.RobinNotBad.BiliClient.api.SponsorBlockApi$RawSegment.<init>(...)'
+  at com.RobinNotBad.BiliClient.player.SponsorSkipPolicyTest.<init-or-test>(SponsorSkipPolicyTest.kt:30)
+```
+
+这不是源码错，是**两份产物不同步 + build cache 回放**叠加：
+
+1. 两个 flavor 各有自己的 `app/build/tmp/kotlin-classes/<flavor>Debug/`。只编了 `standardDebug` 时，`coexistDebug` 那份还是上一次（旧 ABI）的 class；单测编译任务的 classpath 能同时看到两份，于是按**旧 ABI** 生成了直调构造的字节码，运行时找不到方法。
+2. `:app:compileStandardDebugUnitTestKotlin` 若命中缓存会 `FROM-CACHE`（日志里 `> Task :app:compileStandardDebugUnitTestKotlin FROM-CACHE`），把**改 ABI 之前**的旧测试字节码原样吐回来，表现为「明明改了源码，跑的还是老测试」。
+
+**判断**：`javap -p app/build/tmp/kotlin-classes/standardDebug/<包路径>/SponsorBlockApi\$RawSegment.class` 看构造签名，与 `coexistDebug` 那份对比——新的那侧会带 `int mask` + `DefaultConstructorMarker` 合成构造。
+
+**修法（两步缺一不可）**：
+
+```bash
+./gradlew.bat :app:compileCoexistDebugKotlin                 # 让两个 flavor 的 class 一致
+rm -rf app/build/tmp/kotlin-classes/standardDebugUnitTest     # 丢掉按旧 ABI 编出来的测试产物
+./gradlew.bat :app:testStandardDebugUnitTest --no-build-cache
+```
 
 ## VS Code 的 Java 语言服务器（不是编译问题）
 

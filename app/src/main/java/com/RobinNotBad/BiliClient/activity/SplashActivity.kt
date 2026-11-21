@@ -57,6 +57,28 @@ class SplashActivity : Activity() {
         }
     }
 
+    /**
+     * 按【最终】行数先把文字区高度定住，再开始打字机。
+     *
+     * 为什么：开屏文字块是垂直居中的（`activity_splash.xml`），而打字机是逐字往上贴的——文字区
+     * 从 0 行长到 N 行，每多一行整块就往上挪半行，开屏时能看到文字在屏上跳动。留出最终高度的
+     * 空白后，文字只在框内长出来，整块不再移动。
+     *
+     * 26.11.16 撤掉开屏图标后这段仍需要：居中对象从「图标 + 文字」变成文字自己，跳动来源没变。
+     *
+     * 行数按换行符算（设置项 `ui_splashtext` 支持换行）。单行过长被自动折行时会略超预留高度，
+     * 那时最多还有一行以内的位移，不再单独处理。
+     *
+     * `lineHeight` 只含行距，不含 `includeFontPadding` 给出的首行上留白与末行下留白，直接乘行数
+     * 会比实际高度小几个像素（实测两行差 13px），那点差值仍然会让文字块挪一下，所以把这两段补上。
+     */
+    private fun reserveTypewriterHeight() {
+        val lineCount = splashText.lines().size.coerceAtLeast(1)
+        val fontPadding = (splashTextView.totalPaddingTop - splashTextView.paddingTop) +
+            (splashTextView.totalPaddingBottom - splashTextView.paddingBottom)
+        splashTextView.minHeight = splashTextView.lineHeight * lineCount + fontPadding
+    }
+
     private fun startTypewriter(text: String) {
         typewriterRunning = true
         typewriterIndex = 0
@@ -87,12 +109,16 @@ class SplashActivity : Activity() {
 
         splashTextView = findViewById(R.id.splashText)
         splashText = SharedPreferencesUtil.getString("ui_splashtext", "欢迎使用\nRE:哔哩终端")
+        reserveTypewriterHeight()
         startTypewriter(splashText)
 
         // F4：在这里（而不是进主流程之后）判一次版本，是因为下面可能为了 UETool 悬浮窗权限
         // 直接 return、稍后由 onActivityResult 再走一遍 proceedSplashFlow；判定结果用字段记住，
         // 保证"升级后首次启动弹更新日志"只算一次。
-        pendingUpdateLog = shouldShowUpdateLogAfterUpgrade()
+        // Debug 包不弹更新日志（见 BiliTerminal.isAutoPopupSuppressed）。这里短路后
+        // shouldShowUpdateLogAfterUpgrade() 不会执行，也就不会写回 last_version 键——
+        // 将来换装正式包仍按「升级」处理，无害。
+        pendingUpdateLog = !BiliTerminal.isAutoPopupSuppressed() && shouldShowUpdateLogAfterUpgrade()
 
         // Debug 构建下：若未授予悬浮窗权限，先跳去授权再继续启动流程，确保 UETool 能显示
         if (ensureUEToolOverlayPermission()) return
@@ -110,10 +136,21 @@ class SplashActivity : Activity() {
      * 强制用户重新登录"的根因。
      */
     private fun hasLocalSession(): Boolean {
+        // 只认 SESSDATA：唯一调用点是 checkCookieRefresh()，而它只在「没有 access_key」的 Web
+        // 登录分支里被调用（分流见 proceedSplashFlow()）。TV/APP 登录的账号拿的是 access_key，
+        // Cookie 里本来就可能没有 SESSDATA，压根走不到这里来判断登录态。
         val cookie = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "")
         return NetWorkUtil.getInfoFromCookie("SESSDATA", cookie).isNotEmpty()
     }
 
+    /**
+     * Web（扫码）登录的 Cookie 刷新。
+     *
+     * 调用点 [proceedSplashFlow] 已经按 `access_key` 分流——TV/APP 登录走 [AppTokenRefreshApi]，
+     * 只有「没有 access_key」的 Web 登录账号才会走到这里。**不要在本方法里再加一次 access_key
+     * 判断**：26.11.16 加过一次，因为调用点早已分流，那段守卫永远不会执行（「refresh_token 是两套
+     * 不通用口令」这件事已经在分流处解决了）。
+     */
     @Throws(IOException::class)
     private fun checkCookieRefresh() {
         // CookieRefreshApi.cookieInfo() 内部直接 `result.getJSONObject("data")`，
@@ -318,7 +355,10 @@ class SplashActivity : Activity() {
      * 用户就卡在闪屏上了。
      */
     private fun proceedSplashFlowWithPrivacyGate() {
-        if (!TerminalApi.needsPrivacyConsent()) {
+        // Debug 包不弹隐私说明：直接进主流程（见 BiliTerminal.isAutoPopupSuppressed）。
+        // 注意这**不是**替用户点「同意」——consent 不落盘，hasPrivacyConsent 仍为 false，
+        // 匿名统计照旧不上报。
+        if (BiliTerminal.isAutoPopupSuppressed() || !TerminalApi.needsPrivacyConsent()) {
             proceedSplashFlow()
             return
         }
@@ -409,7 +449,17 @@ class SplashActivity : Activity() {
                                 // 该接口会同时刷新 access_token 与 cookies；Web 登录走 web cookie 刷新。
                                 if (SharedPreferencesUtil.getString(SharedPreferencesUtil.access_key, "").isNotEmpty()) {
                                     try {
-                                        AppTokenRefreshApi.refreshAppToken()
+                                        // 结果分三档：只有 NEED_LOGIN（服务端明确说 refresh_token 失效）
+                                        // 才清登录态，与下面 Web 那条一致；RETRY 一律保留凭证等退避重试
+                                        when (AppTokenRefreshApi.refreshAppToken()) {
+                                            AppTokenRefreshApi.RefreshResult.OK -> Unit
+                                            AppTokenRefreshApi.RefreshResult.NEED_LOGIN -> {
+                                                MsgUtil.showMsgLong(UiText.of("登录信息过期，请重新登录！"))
+                                                resetLogin("APP token 刷新返回 -101（refresh_token 已失效）")
+                                            }
+                                            AppTokenRefreshApi.RefreshResult.RETRY ->
+                                                Log.e("Splash", "APP token 刷新未成功，保留本地登录态")
+                                        }
                                     } catch (e: Exception) {
                                         Log.e("Splash", "APP token刷新失败: ${e.message}")
                                     }

@@ -4,19 +4,20 @@
     android:viewportWidth="24"
     android:viewportHeight="24">
     <!-- 26.11.06 换用用户提供的 lucide「clock-fading」图标（播放页的「跳到指定时间」按钮）。
-         原 SVG 是 currentColor + 2px 描边，播放页背景是深色，这里统一改成白色描边。
+         原 SVG 是 currentColor + 2px 描边。播放页背景是深色视频画面，图标必须保持纯白，
+         故描边统一走语义色 @color/player_icon_on_scrim（亮暗两套同值），别在这里写死色值。
          六段都是同一段时钟弧的碎片（越走越淡），弧线用绝对坐标 A 命令写死，端点与 24×24 视口一一对应。 -->
     <path
         android:fillColor="#00000000"
         android:pathData="M12,2 A10,10 0 0 1 19.38,18.75"
-        android:strokeColor="#ffffff"
+        android:strokeColor="@color/player_icon_on_scrim"
         android:strokeLineCap="round"
         android:strokeWidth="2" />
     <!-- 指针：12,6 → 12,12 → 16,14 -->
     <path
         android:fillColor="#00000000"
         android:pathData="M12,6 L12,12 L16,14"
-        android:strokeColor="#ffffff"
+        android:strokeColor="@color/player_icon_on_scrim"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:strokeWidth="2" />
@@ -24,25 +25,25 @@
     <path
         android:fillColor="#00000000"
         android:pathData="M2.5,8.875 A10,10 0 0 0 2,11.875"
-        android:strokeColor="#ffffff"
+        android:strokeColor="@color/player_icon_on_scrim"
         android:strokeLineCap="round"
         android:strokeWidth="2" />
     <path
         android:fillColor="#00000000"
         android:pathData="M2.83,16 A10,10 0 0 0 5.26,19.4"
-        android:strokeColor="#ffffff"
+        android:strokeColor="@color/player_icon_on_scrim"
         android:strokeLineCap="round"
         android:strokeWidth="2" />
     <path
         android:fillColor="#00000000"
         android:pathData="M4.636,5.235 A10,10 0 0 1 5.527,4.378"
-        android:strokeColor="#ffffff"
+        android:strokeColor="@color/player_icon_on_scrim"
         android:strokeLineCap="round"
         android:strokeWidth="2" />
     <path
         android:fillColor="#00000000"
         android:pathData="M8.644,21.42 A10,10 0 0 0 16.275,21.04"
-        android:strokeColor="#ffffff"
+        android:strokeColor="@color/player_icon_on_scrim"
         android:strokeLineCap="round"
         android:strokeWidth="2" />
 </vector>

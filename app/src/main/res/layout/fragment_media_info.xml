@@ -25,10 +25,12 @@
             tools:src="@mipmap/placeholder" />
 
         <ImageView
+            android:contentDescription="@null"
+            android:importantForAccessibility="no"
             android:layout_height="0dp"
             android:layout_width="wrap_content"
             android:adjustViewBounds="true"
-            android:src="@drawable/icon_bv"
+            app:srcCompat="@drawable/icon_bv"
             android:alpha="0.5"
             app:layout_constraintTop_toTopOf="@+id/indexShow"
             app:layout_constraintStart_toStartOf="parent"
@@ -149,10 +151,12 @@
                 app:layout_constraintEnd_toStartOf="@+id/icon_evaluate_arrow" />
 
             <ImageView
+                android:contentDescription="@null"
                 android:id="@+id/icon_evaluate_arrow"
+                android:importantForAccessibility="no"
                 android:layout_width="24dp"
                 android:layout_height="24dp"
-                android:src="@drawable/arrow_down"
+                app:srcCompat="@drawable/arrow_down"
                 android:rotation="0"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintTop_toTopOf="parent"
@@ -200,10 +204,12 @@
                 app:layout_constraintEnd_toStartOf="@+id/icon_staff_arrow" />
 
             <ImageView
+                android:contentDescription="@null"
                 android:id="@+id/icon_staff_arrow"
+                android:importantForAccessibility="no"
                 android:layout_width="24dp"
                 android:layout_height="24dp"
-                android:src="@drawable/arrow_down"
+                app:srcCompat="@drawable/arrow_down"
                 android:rotation="0"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintTop_toTopOf="parent"
@@ -268,7 +274,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginHorizontal="4dp"
                     android:layout_marginTop="4dp"
-                    android:drawableEnd="@drawable/arrow_forward"
+                    app:drawableEndCompat="@drawable/arrow_forward"
                     android:paddingHorizontal="3dp"
                     android:text="@string/text_fragmentmediainfo_01"
                     android:textSize="14sp"
@@ -292,8 +298,8 @@
             </androidx.constraintlayout.widget.ConstraintLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 播放与追番并排：两个都是填充按钮、同款式（26.10.11 用户要求统一样式，别把追番改回描边），
-             追番只靠文字「追番 / 已追番」区分状态；宽度各占一半（手表屏窄，做成两行会把播放键挤出首屏） -->
+        <!-- 播放 / 追番并排：两个都是填充按钮、同款式（26.10.11 用户要求统一样式，别把追番改回描边），
+             追番只靠文字「追番 / 已追番」区分状态 -->
         <LinearLayout
             android:id="@+id/btnRow"
             android:layout_width="match_parent"
@@ -320,5 +326,17 @@
                 android:layout_weight="1"
                 android:text="@string/uitext_dynamicactivity_007" />
         </LinearLayout>
+
+        <!-- 番剧缓存单独占一行（26.11.15 用户要求：和播放/追番挤一行时位置不对）。
+             单独成行后宽度够，文字不会被挤成一点点；点开是全屏的番剧缓存页 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_cache"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/uitext_bangumiinfofragment_025"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/btnRow" />
     </androidx.constraintlayout.widget.ConstraintLayout>
 </com.RobinNotBad.BiliClient.ui.widget.RotaryNestedScrollView>

@@ -27,6 +27,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.SortedSet;
 import java.util.TreeSet;
 
@@ -243,24 +244,44 @@ public class Danmakus implements IDanmakus {
         }
     }
 
+    /**
+     * 取第一条。
+     *
+     * <p>「判空 → 取值」不是原子的：另一个线程（切进度时主线程的 {@code DrawTask#removeAllDanmakus}）
+     * 完全可能在这两步之间把 {@code items} 清空，这时 {@code SortedSet#first()} 抛
+     * {@code NoSuchElementException}、{@code ArrayList#get(0)} 抛 {@code IndexOutOfBoundsException}。
+     * 控制台崩溃 #362 就是前者（栈 {@code Danmakus.last ← DrawTask.seek}）。
+     * 这里退回 null —— 所有调用方本来就按「可能为空」处理（{@code DrawTask.seek} 自己就判了 null）。
+     */
     @Override
     public BaseDanmaku first() {
-        if (items != null && !items.isEmpty()) {
-            if (mSortType == ST_BY_LIST) {
-                return ((ArrayList<BaseDanmaku>) items).get(0);
+        try {
+            if (items != null && !items.isEmpty()) {
+                if (mSortType == ST_BY_LIST) {
+                    return ((ArrayList<BaseDanmaku>) items).get(0);
+                }
+                return ((SortedSet<BaseDanmaku>) items).first();
             }
-            return ((SortedSet<BaseDanmaku>) items).first();
+        } catch (NoSuchElementException | IndexOutOfBoundsException e) {
+            return null;
         }
         return null;
     }
 
+    /**
+     * 取最后一条。为什么 try/catch 兜底、为什么不加锁：见 {@link #first()} 的注释（同一次崩溃 #362）。
+     */
     @Override
     public BaseDanmaku last() {
-        if (items != null && !items.isEmpty()) {
-            if (mSortType == ST_BY_LIST) {
-                return ((ArrayList<BaseDanmaku>) items).get(items.size() - 1);
+        try {
+            if (items != null && !items.isEmpty()) {
+                if (mSortType == ST_BY_LIST) {
+                    return ((ArrayList<BaseDanmaku>) items).get(items.size() - 1);
+                }
+                return ((SortedSet<BaseDanmaku>) items).last();
             }
-            return ((SortedSet<BaseDanmaku>) items).last();
+        } catch (NoSuchElementException | IndexOutOfBoundsException e) {
+            return null;
         }
         return null;
     }

@@ -6,7 +6,10 @@ import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.text.TextUtils
+import android.graphics.Color
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -17,11 +20,15 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.SimpleItemAnimator
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.video.local.DownloadListActivity
+import com.RobinNotBad.BiliClient.activity.video.local.LocalFolderListActivity
 import com.RobinNotBad.BiliClient.activity.video.local.LocalPageChooseActivity
 import com.RobinNotBad.BiliClient.api.PlayerApi
+import com.RobinNotBad.BiliClient.model.LocalPlaylistEntry
 import com.RobinNotBad.BiliClient.model.LocalVideo
 import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.model.VideoFolder
+import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
+import com.RobinNotBad.BiliClient.util.FolderPagePrefs
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.LocalListSort
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -34,6 +41,7 @@ import java.util.Locale
 
 /**
  * 统一缓存列表适配器，管理以下项目类型：
+ * - 「文件夹 N」入口（仅设置里打开 `FolderPagePrefs.ENABLE` 时出现，点它进独立文件夹页）
  * - 下载列表入口
  * - 文件夹区域标题
  * - 文件夹项（点击进入、长按弹功能菜单）
@@ -63,9 +71,16 @@ class CacheListAdapter(
         private const val TYPE_VIDEO_ITEM = 5
         private const val TYPE_EMPTY_TIP = 6
 
-        /** 多选前缀：勾上用 ✓，未勾用全角空格占位（与收藏夹多选同一套视觉，见 VideoCardHolder）。 */
-        private const val PREFIX_SELECTED = "✓ "
-        private const val PREFIX_UNSELECTED = "　 "
+        /**
+         * 「文件夹 N」入口行（26.11.13，设置里打开 `FolderPagePrefs.ENABLE` 后才出现）。
+         *
+         * 加在末尾而不是插在中间：中间那些 0~6 的类型序是历史约定，别动。
+         */
+        private const val TYPE_GOTO_FOLDERS = 7
+
+        /** 多选态标题前的引导符，与 `TerminalDialog` / `VideoCardHolder` / `DownloadAdapter` 同一套（反馈 #140）。 */
+        private const val GLYPH_SELECTED = "▸"
+        private const val GLYPH_UNSELECTED = "›"
     }
 
     // 数据
@@ -124,6 +139,14 @@ class CacheListAdapter(
 
     var onFolderClick: ((Int) -> Unit)? = null
     var onNewFolderClick: (() -> Unit)? = null
+
+    /**
+     * 点「文件夹 N」入口行（仅 [FolderPagePrefs] 开关打开时有这一行）。
+     *
+     * 不接的话（默认 null）适配器自己 `startActivity` 去独立文件夹页；接了就完全交给 Activity，
+     * 由它用 `registerForActivityResult` 起页并在回来时重扫——缓存页的未分类分区也可能被改到。
+     */
+    var onFolderListClick: (() -> Unit)? = null
     var onBackFromFolder: (() -> Unit)? = null
     var onVideoPlayInVirtualCollection: ((String, Int) -> Unit)? = null
 
@@ -259,15 +282,24 @@ class CacheListAdapter(
         visibleVideoCount = visibleVideos.size
 
         if (currentFolderName.isEmpty()) {
+            // 「缓存页文件夹入口」开关（默认关）：开 = 顶部只留一行「文件夹 N」，文件夹分区与
+            // 「新建文件夹」全搬到独立文件夹页去；关 = 下面这堆一行都不变，与改动前完全一致。
+            // 每次重建都现读开关，改完设置回来（重扫时）就生效，不需要重启。
+            val folderPageEnabled = FolderPagePrefs.enabled()
+            if (folderPageEnabled) {
+                flatItems.add(FlatItem(TYPE_GOTO_FOLDERS))
+            }
             flatItems.add(FlatItem(TYPE_GOTO_DOWNLOAD))
 
-            // 文件夹区域：标题只在这一区至少有一条命中时才画
-            if (visibleFolders.isNotEmpty()) {
-                flatItems.add(FlatItem(TYPE_SECTION_FOLDER_HEADER))
-                for (i in visibleFolders) flatItems.add(FlatItem(TYPE_FOLDER_ITEM, folderIndex = i))
-            }
+            if (!folderPageEnabled) {
+                // 文件夹区域：标题只在这一区至少有一条命中时才画
+                if (visibleFolders.isNotEmpty()) {
+                    flatItems.add(FlatItem(TYPE_SECTION_FOLDER_HEADER))
+                    for (i in visibleFolders) flatItems.add(FlatItem(TYPE_FOLDER_ITEM, folderIndex = i))
+                }
 
-            flatItems.add(FlatItem(TYPE_ACTION_NEW_FOLDER))
+                flatItems.add(FlatItem(TYPE_ACTION_NEW_FOLDER))
+            }
 
             // 「未分类视频」：不搜索时保持原样（标题 + 标题下的空态行，空态放这里是因为浮层
             // 会和「新建文件夹」按钮重合，且不参与滚动，见 26.10.20 用户反馈）；
@@ -279,7 +311,14 @@ class CacheListAdapter(
                 flatItems.add(FlatItem(TYPE_SECTION_VIDEO_HEADER))
                 flatItems.add(FlatItem(TYPE_EMPTY_TIP))
             }
-            if (searchKeyword.isNotEmpty() && visibleFolders.isEmpty() && visibleVideos.isEmpty()) {
+            // 开关打开时文件夹不在本页画，搜索是否命中文件夹也就跟本页无关了：
+            // 只看视频有没有命中，免得「只命中文件夹」时补一句误导人的「没有匹配的缓存」。
+            val nothingMatched = if (folderPageEnabled) {
+                visibleVideos.isEmpty()
+            } else {
+                visibleFolders.isEmpty() && visibleVideos.isEmpty()
+            }
+            if (searchKeyword.isNotEmpty() && nothingMatched) {
                 flatItems.add(FlatItem(TYPE_EMPTY_TIP))
             }
         } else {
@@ -434,6 +473,10 @@ class CacheListAdapter(
                 val view = LayoutInflater.from(context).inflate(R.layout.cell_video_folder, parent, false)
                 FolderItemHolder(view)
             }
+            TYPE_GOTO_FOLDERS -> {
+                val view = LayoutInflater.from(context).inflate(R.layout.cell_goto, parent, false)
+                FolderEntryHolder(view)
+            }
             TYPE_ACTION_NEW_FOLDER -> {
                 val view = LayoutInflater.from(context).inflate(R.layout.cell_action_button, parent, false)
                 ActionButtonHolder(view)
@@ -457,6 +500,23 @@ class CacheListAdapter(
             TYPE_GOTO_DOWNLOAD -> {
                 // 排序模式是「专心的整理态」：入口类点击先不响应，免得拖到一半跳去下载列表
                 (holder as GotoHolder).show(context) { !sortMode }
+            }
+            TYPE_GOTO_FOLDERS -> {
+                // 文件夹数量取的是「全部文件夹」，不是搜索命中数：这一行是进独立页的入口，
+                // 搜索的是视频/夹名，入口上的总数不该跟着过滤变。
+                val entry = holder as FolderEntryHolder
+                entry.show(context.getString(R.string.text_cache_folder_entry, folderList.size))
+                entry.itemView.setOnClickListener {
+                    // 排序模式里入口先不响应（与「下载列表」入口同一口径），免得拖到一半跳页
+                    if (sortMode) return@setOnClickListener
+                    val callback = onFolderListClick
+                    if (callback != null) {
+                        // 接了回调就完全交给 Activity：它用 launcher 起页并在回来时重扫
+                        callback.invoke()
+                    } else {
+                        context.startActivity(Intent(context, LocalFolderListActivity::class.java))
+                    }
+                }
             }
             TYPE_SECTION_FOLDER_HEADER -> {
                 (holder as SectionHeaderHolder).apply {
@@ -506,12 +566,20 @@ class CacheListAdapter(
         }
     }
 
+    /** 本页实际扫到、归在 [folderName] 名下的条目数（理由见 bindFolderItem 里那段注释）。 */
+    private fun scannedVideoCount(folderName: String): Int =
+        videoList.count { it.folderName == folderName }
+
     private fun bindFolderItem(holder: FolderItemHolder, folderIndex: Int) {
         if (folderIndex < 0 || folderIndex >= folderList.size) return
         val folder = folderList[folderIndex]
 
         holder.folderName.text = folder.name
-        holder.folderCount.text = "${folder.getVideoCount()}个视频"
+        // 计数按「本次真扫到的条目」算，不用 VideoFolder.getVideoCount()：那个数字来自
+        // .folders_info.json 的记录条数，外部（文件管理器 / 另一台设备 / 卸载重装）删掉目录后
+        // 记录不会跟着变，于是夹上写「5个视频」、点进去只有 4 条（反馈 #209）。
+        // 夹内列表本来就按 video.folderName 过滤，两边同源，数字才和点进去看到的一致。
+        holder.folderCount.text = "${scannedVideoCount(folder.name)}个视频"
         applySelection(holder, holder.folderName, selectionMode && selectedFolderNames.contains(folder.name))
 
         // 多选 / 排序两种「临时态」进入和退出都只翻字段、不重绑列表（重绑会重读封面、明显闪一下），
@@ -562,21 +630,56 @@ class CacheListAdapter(
     }
 
     /**
-     * 画勾选态：勾中项正常亮度 + 前缀「✓ 」，未勾项压暗 + 全角空格占位。
+     * 每个标题 / 文件夹名 TextView 的「常态文字色」。
+     *
+     * 多选时会被改成主色，退出多选要还原；不能现读 `currentTextColor`（会读到上一次留下的主色），
+     * 而这两类行各用各的 TextView（文件夹行、视频行），所以按 view 各记一份。
+     * 用弱引用键：holder 被回收后条目自然消失，不会把 View 一直吊着。
+     */
+    private val normalLabelColors = java.util.WeakHashMap<TextView, Int>()
+
+    private fun normalColorOf(label: TextView): Int =
+        normalLabelColors.getOrPut(label) { label.currentTextColor }
+
+    /**
+     * 画勾选态：与 `TerminalDialog` 单/多选列表同一套视觉——标题前一个引导符，
+     * 选中是 `▸` 且标题走主色，未选中是 `›` 且标题保持常态色（反馈 #140）。
      *
      * 不用复选框：`cell_video_local.xml` 里那个 `checkbox_select` 会把内容整体右移，
-     * 而收藏夹多选是「压暗 + 勾号」这一套，两个页面用同一种视觉更不容易看懵。
+     * 而视频列表多选是「引导符 + 主色」这一套，几个页面用同一种视觉更不容易看懵。
      *
-     * 前缀不需要剥离：每次绑定都先 setText 原始标题（[VideoItemHolder.showVideo] / 上面文件夹那行），
-     * 再进来加前缀，holder 复用不会把前缀叠起来。
+     * 也不再整卡压暗：那会把封面和时长一起弄灰，暗色主题下更是糊成一片。
+     *
+     * 前缀通常不需要剥离（每次绑定都先 setText 原始标题：`VideoItemHolder.showVideo` / 文件夹那行），
+     * 但列表局部刷新时可能复用 holder 而没重绑，这里先剥一次兜底。
      */
     private fun applySelection(holder: RecyclerView.ViewHolder, label: TextView, selected: Boolean) {
+        val normal = normalColorOf(label)
+        if (label.text?.startsWith(GLYPH_SELECTED) == true || label.text?.startsWith(GLYPH_UNSELECTED) == true) {
+            label.text = label.text.subSequence(2, label.text.length)
+        }
+        holder.itemView.alpha = 1f
         if (!selectionMode) {
-            holder.itemView.alpha = 1f
+            label.setTextColor(normal)
             return
         }
-        holder.itemView.alpha = if (selected) 1f else 0.5f
-        label.text = TextUtils.concat(if (selected) PREFIX_SELECTED else PREFIX_UNSELECTED, label.text)
+
+        val glyph = if (selected) GLYPH_SELECTED else GLYPH_UNSELECTED
+        // 未选中引导符按常态色压到 70% 不透明度，等价于 TerminalDialog 的 secondaryColor()
+        val glyphColor = if (selected) {
+            ColorScheme.PRIMARY
+        } else {
+            Color.argb(179, Color.red(normal), Color.green(normal), Color.blue(normal))
+        }
+        val builder = SpannableStringBuilder(glyph).append(' ').append(label.text ?: "")
+        builder.setSpan(
+            ForegroundColorSpan(glyphColor),
+            0,
+            glyph.length,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        label.text = builder
+        label.setTextColor(if (selected) ColorScheme.PRIMARY else normal)
     }
 
     private fun playVideo(video: LocalVideo) {
@@ -592,48 +695,61 @@ class CacheListAdapter(
             return
         }
 
-        if (video.videoFileList != null && video.videoFileList!!.size == 1) {
-            val playerData = PlayerData(PlayerData.TYPE_LOCAL)
-            playerData.videoUrl = video.videoFileList!![0]
-            if (video.danmakuFileList != null && video.danmakuFileList!!.isNotEmpty()) {
-                playerData.danmakuUrl = video.danmakuFileList!![0]
-            }
-            playerData.title = video.title
-            try {
-                val player = PlayerApi.jumpToPlayer(playerData)
-                if (playerData.videoUrl.endsWith("audio.m4a")) {
-                    player.putExtra("audio_only", true)
-                }
-                context.startActivity(player)
-            } catch (e: ActivityNotFoundException) {
-                MsgUtil.showMsg(UiText.of("跳转失败"))
-            }
-        } else if (video.videoFileList != null && video.videoFileList!!.size == 2) {
-            // DASH双文件：video.mp4 + audio.m4a
-            val videoUrl = video.videoFileList!!.firstOrNull { it.endsWith(".mp4") } ?: video.videoFileList!![0]
-            val audioUrl = video.videoFileList!!.firstOrNull { it.endsWith(".m4a") } ?: ""
-            val playerData = PlayerData(PlayerData.TYPE_LOCAL)
-            playerData.videoUrl = videoUrl
-            if (video.danmakuFileList != null && video.danmakuFileList!!.isNotEmpty()) {
-                playerData.danmakuUrl = video.danmakuFileList!![0]
-            }
-            playerData.title = video.title
-            try {
-                val player = PlayerApi.jumpToPlayer(playerData)
-                if (audioUrl.isNotEmpty()) {
-                    player.putExtra("audio_track_url", audioUrl)
-                }
-                context.startActivity(player)
-            } catch (e: ActivityNotFoundException) {
-                MsgUtil.showMsg(UiText.of("跳转失败"))
-            }
-        } else if (video.videoFileList != null && video.videoFileList!!.size > 2) {
+        // 反馈 #164：以前这里按**扁平文件数**猜布局——1 个当单文件、2 个当 DASH 双文件、
+        // 更多才开选页。问题在于「两个已缓存的分 P、每页各一个合并好的 mp4」也正好是 2 个文件，
+        // 于是被当成一页的 video+audio：第 2 集永远点不到，还会被当音轨塞给第 1 集配音。
+        // 现在先用 LocalPlaylistEntry 按**页目录名**折叠出「页」，页数 >1 一律进选页。
+        val entry = LocalPlaylistEntry.build(
+            video.title,
+            video.pageList,
+            video.videoFileList,
+            video.danmakuFileList,
+            video.cover
+        )
+        if (entry == null) {
+            MsgUtil.showMsg(UiText.of("没有可播放的缓存文件"))
+            return
+        }
+
+        if (entry.pageCount() > 1) {
             val intent = Intent(context, LocalPageChooseActivity::class.java)
-            intent.putExtra("pageList", video.pageList)
+            intent.putExtra("pageList", entry.pageNames)
             intent.putExtra("videoFileList", video.videoFileList)
             intent.putExtra("danmakuFileList", video.danmakuFileList)
             intent.putExtra("title", video.title)
+            // 每页各自落在哪个根（反馈 #217 / #214）：选页页要用它决定「这一页在哪个目录」
+            // 以及「这一页能不能删」——外部那几页只播不删。
+            // 必须**按页名对齐**再传：entry.pageNames 会丢掉一个文件都没有的页，
+            // 直接转发 video.pageRootList 会让根错位（页根一错，删的就是别的页的目录）
+            val pageRoots = ArrayList<String>(entry.pageNames.size)
+            for (pageName in entry.pageNames) {
+                val index = video.pageList?.indexOf(pageName) ?: -1
+                pageRoots.add(if (index >= 0) video.pageRootList?.getOrNull(index).orEmpty() else "")
+            }
+            intent.putStringArrayListExtra("pageRootList", pageRoots)
+            intent.putExtra("externalRoot", video.externalRoot)
             context.startActivity(intent)
+            return
+        }
+
+        // 单页：直接起播这一页的主文件；DASH 未合并时把外部音轨一起带上
+        val media = entry.mediaAt(0) ?: return
+        val playerData = PlayerData(PlayerData.TYPE_LOCAL)
+        playerData.videoUrl = media.videoFile
+        if (media.danmakuFile.isNotEmpty()) playerData.danmakuUrl = media.danmakuFile
+        playerData.title = video.title
+        try {
+            val player = PlayerApi.jumpToPlayer(playerData)
+            if (media.audioFile.isNotEmpty()) {
+                player.putExtra("audio_track_url", media.audioFile)
+            } else if (media.videoFile.endsWith("audio.m4a")) {
+                player.putExtra("audio_only", true)
+            }
+            // 别的分支目录里的缓存：只播，不往对方目录写续播位置（同名 extra 在 PlayerActivity 读）
+            if (!video.externalRoot.isNullOrEmpty()) player.putExtra("external_read_only", true)
+            context.startActivity(player)
+        } catch (e: ActivityNotFoundException) {
+            MsgUtil.showMsg(UiText.of("跳转失败"))
         }
     }
 
@@ -653,6 +769,20 @@ class CacheListAdapter(
             itemView.setOnClickListener {
                 if (clickEnabled()) context.startActivity(Intent(context, DownloadListActivity::class.java))
             }
+        }
+    }
+
+    /**
+     * 「文件夹 N」入口行（设置里打开 [FolderPagePrefs.ENABLE] 才有）。
+     *
+     * 复用 `cell_goto` 的样式：与下面那条「下载列表」入口同一行观感，只换文案；
+     * 点它进独立文件夹页，本页就不再铺文件夹分区。
+     */
+    class FolderEntryHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        private val textView: TextView = itemView.findViewById(R.id.text)
+
+        fun show(label: String) {
+            textView.text = label
         }
     }
 
@@ -690,9 +820,22 @@ class CacheListAdapter(
             val size = String.format(Locale.CHINA, "%.1f", video.size / 1000000f) + "MB"
             val qualityTag = if (video.qualityList != null && video.qualityList!!.isNotEmpty())
                 " [" + video.qualityList!![0] + "]" else ""
-            extra.text = size + qualityTag
+            // 反馈 #164：合集在列表里只有一条，不标页数用户会以为后面几集没缓存上。
+            // 页数以磁盘上真扫到的 pageList 为准（下载中/没成品的那页不算）。
+            val pageTag = if (video.pageList != null && video.pageList!!.size > 1)
+                " · " + UiText.fmt("共%1\$sP", video.pageList!!.size) else ""
+            // 只读的「外部」来源（别的分支的目录，见 util/ExternalCacheRoots）：必须标出来，
+            // 否则用户会以为这条能删、能换分辨率，长按发现菜单少了一大半
+            // 外部条目再带上它在对方分支所属的夹：用户能看出这条搬过来会落到哪个分组
+            val externalTag = if (!video.externalRoot.isNullOrEmpty()) {
+                val externalFolder = video.externalFolder
+                " · " + itemView.context.getString(R.string.cache_external_tag) +
+                    if (!externalFolder.isNullOrEmpty()) " · " + externalFolder else ""
+            } else ""
+            extra.text = size + qualityTag + pageTag + externalTag
             try {
                 GlideUtil.with(cover).asDrawable().load(video.cover)
+                    .apply(GlideUtil.thumbOptions(cover))
                     .transition(GlideUtil.getTransitionOptions())
                     .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(5f))))
                     .diskCacheStrategy(DiskCacheStrategy.NONE)

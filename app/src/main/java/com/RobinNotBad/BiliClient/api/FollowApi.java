@@ -1,5 +1,7 @@
 package com.RobinNotBad.BiliClient.api;
 
+import android.util.Log;
+
 import com.RobinNotBad.BiliClient.R;
 
 import com.RobinNotBad.BiliClient.BiliTerminal;
@@ -19,11 +21,13 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 
 public class FollowApi {
@@ -50,6 +54,20 @@ public class FollowApi {
         return selfList && attribute == 6;
     }
 
+    /**
+     * 纯函数：这一条是否该标「特别关注」。
+     *
+     * <p>B 站 `x/relation/*` 列表项的 `special`：1 表示「**列表主体**特别关注了这一条」。
+     * 与互关同一口径：只有查看自己的关注/粉丝列表时才等价于「我特别关注了 TA」；
+     * 看别人的列表时它表示「那个人特别关注了 TA」，对当前用户没有意义，不能标。
+     *
+     * <p>注意别把 `attribute` 的 128 当成特别关注——那是「已拉黑」（见 bilibili-API
+     * `docs/user/relation.md` §关系列表对象），特别关注只看 `special` 字段。
+     */
+    public static boolean isSpecialFollow(boolean selfList, int special) {
+        return selfList && special == 1;
+    }
+
     /** 当前登录账号的 mid（未登录为 0）。抽出来只为让上面的纯函数不碰 SharedPreferences。 */
     private static long currentLoginMid() {
         return SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0);
@@ -73,6 +91,7 @@ public class FollowApi {
                 String sign = userInfo.getString("sign");
                 UserInfo user = new UserInfo(uid, name, avatar, sign, 0, 0, 0, true, "", 0, "", userInfo.optLong("mtime", 0), 0);
                 user.mutualFollow = isMutualFollow(selfList, userInfo.optInt("attribute", 0));
+                user.specialFollow = isSpecialFollow(selfList, userInfo.optInt("special", 0));
                 userList.add(user);
             }
             return 0;
@@ -97,6 +116,7 @@ public class FollowApi {
                 String sign = userInfo.getString("sign");
                 UserInfo user = new UserInfo(uid, name, avatar, sign, 0, 0, 0, true, "", 0, "", userInfo.optLong("mtime", 0), 0);
                 user.mutualFollow = isMutualFollow(selfList, userInfo.optInt("attribute", 0));
+                user.specialFollow = isSpecialFollow(selfList, userInfo.optInt("special", 0));
                 userList.add(user);
             }
             return 0;
@@ -128,6 +148,7 @@ public class FollowApi {
         JSONArray data = callback.getJSONArray("data");
         if (data.length() == 0) return 1;
         else {
+            List<UserInfo> pageUsers = new ArrayList<>();
             for (int i = 0; i < data.length(); i++) {
                 JSONObject userInfo = data.getJSONObject(i);
                 String name = userInfo.getString("uname");
@@ -135,12 +156,98 @@ public class FollowApi {
                 String avatar = userInfo.getString("face");
                 String sign = userInfo.getString("sign");
                 UserInfo user = new UserInfo(uid, name, avatar, sign, 0, 0, 0, true, "", 0, "", 0);
-                // 分组列表只能查自己的（接口没有 vmid 参数），所以主体恒为当前账号
-                user.mutualFollow = isMutualFollow(true, userInfo.optInt("attribute", 0));
-                userList.add(user);
+                // 分组明细接口的 attribute **恒为 0**（bilibili-API docs/user/relation.md 已注明），
+                // special 同样恒为 0，所以这个接口问不出「谁和我互关」——当场按 attribute 判
+                // 会让分组视图永远不亮徽章。互关统一在下面用批量关系接口补（26.11.08 修）。
+                pageUsers.add(user);
             }
+            userList.addAll(pageUsers);
+            fillMutualFollow(pageUsers);
             return 0;
         }
+    }
+
+    // ==================== 分组视图的互关标记（26.11.08） ====================
+
+    /** 批量关系接口一次带多少个 mid（一页 20，留余量；接口本身对成员数量无限制） */
+    public static final int RELATION_BATCH_SIZE = 50;
+
+    /**
+     * 用批量关系接口给一批用户补「互关」标记。
+     *
+     * <p>`GET /x/relation/tag`（分组明细）返回的 `attribute` 恒为 0，所以分组视图里
+     * 「谁和我互关」只能回来问 `GET /x/relation/relations?fids=`（[关系列表对象] 之外的
+     * 那一份「批量查询用户与自己关系」）。一页 20 个 mid 一次请求解决。
+     *
+     * <p>**接口失败只是这批不标徽章，不抛异常**：徽章是装饰信息，不该让多出来的一个请求
+     * 把整个分组页打挂（分组页的主内容——成员列表——已经拿到了）。
+     *
+     * <p>只补 {@link UserInfo#mutualFollow}，不碰 {@link UserInfo#specialFollow}：
+     * 「特别关注」本身就是一个系统分组（tagid = -10），分组视图里再给每个成员标一遍是重复。
+     */
+    public static void fillMutualFollow(List<UserInfo> users) {
+        if (users == null || users.isEmpty()) return;
+        for (int from = 0; from < users.size(); from += RELATION_BATCH_SIZE) {
+            List<UserInfo> chunk = users.subList(from, Math.min(from + RELATION_BATCH_SIZE, users.size()));
+            try {
+                JSONObject callback = NetWorkUtil.getJson(relationBatchUrl(chunk));
+                if (callback.optInt("code", -1) != 0) continue;
+                applyRelationAttributes(chunk, callback.optJSONObject("data"));
+            } catch (Exception e) {
+                Log.w("FollowApi", "批量查询互关状态失败，本次分组不显示互关徽章", e);
+            }
+        }
+    }
+
+    /**
+     * 组装批量关系查询的 URL（纯函数，便于单测钉住 `fids` 的逗号拼法）。
+     *
+     * <p>跳过 mid <= 0 的项：占位行（如本地构造的 -1）不该被拼进请求。
+     */
+    public static String relationBatchUrl(List<UserInfo> users) {
+        List<Long> fids = new ArrayList<>();
+        if (users != null) {
+            for (UserInfo user : users) {
+                if (user != null && user.mid > 0) fids.add(user.mid);
+            }
+        }
+        return "https://api.bilibili.com/x/relation/relations?fids=" + joinMids(fids);
+    }
+
+    /**
+     * 把批量关系接口的 `data`（`{用户 mid: 关系属性对象}`）写进用户列表（纯函数，便于 JVM 单测）。
+     *
+     * <p>单看 `data` 里没有的那一条，一律保持 `mutualFollow = false`：批量接口不回它，
+     * 说明它不在「我关注的人」里，本来也不可能是互关。
+     *
+     * @return 实际命中（拿到 attribute 并写过）的条数
+     */
+    public static int applyRelationAttributes(List<UserInfo> users, JSONObject data) {
+        if (users == null || users.isEmpty() || data == null) return 0;
+
+        Map<Long, Integer> attributes = new HashMap<>();
+        Iterator<String> keys = data.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            JSONObject relation = data.optJSONObject(key);
+            if (relation == null) continue;
+            try {
+                attributes.put(Long.parseLong(key), relation.optInt("attribute", 0));
+            } catch (NumberFormatException ignored) {
+                // 键不是 mid（理论上不会发生）：跳过而不是让整个徽章功能失效
+            }
+        }
+
+        int applied = 0;
+        for (UserInfo user : users) {
+            if (user == null) continue;
+            Integer attribute = attributes.get(user.mid);
+            if (attribute == null) continue;
+            // 分组明细只能查自己的分组（接口没有 vmid 参数），所以列表主体恒为当前账号
+            user.mutualFollow = isMutualFollow(true, attribute);
+            applied++;
+        }
+        return applied;
     }
 
     // ==================== 分组增删改（26.10.04 批次 7 的 C21） ====================
@@ -245,7 +352,8 @@ public class FollowApi {
      *
      * 对应 `GET https://api.bilibili.com/x/relation/tag/user?fid=`，
      * 响应 `data` 是「分组 id → 分组名」的对象，且**只在用户不在默认分组时才出现**；
-     * 特别关注是 `tagid = -10`，调用方一般只处理 `tagid > 0` 的自建分组。
+     * 特别关注是 `tagid = -10`（见 {@link #TAG_SPECIAL_FOLLOW}），它和自建分组一样出现在这个响应里，
+     * 所以「他是否已经在特别关注里」不用额外请求（反馈 #266）。
      *
      * @return 分组列表（count 恒为 0，这个接口不返回人数）；接口失败抛异常
      */
@@ -269,6 +377,86 @@ public class FollowApi {
         return tagList;
     }
 
+    // ==================== 反馈 #266：长按「已关注」→ 特别关注 ====================
+
+    /**
+     * 「特别关注」这个系统分组的 tagid。
+     *
+     * <p>它**不在** {@link #getFollowTags()} 的返回里（`x/relation/tags` 只回自建分组），
+     * 但 {@link #getUserFollowTags(long)} 会把它当普通键回出来，`tags/addUsers` 也接受它
+     * （bilibili-API `docs/user/relation.md` 的示例参数就是 `tagids=-10,207542`），
+     * 所以「加入特别关注」和「加入自建分组」走的是同一个接口。
+     */
+    public static final int TAG_SPECIAL_FOLLOW = -10;
+
+    /** 「加入分组」菜单里的一项（反馈 #88 起有，反馈 #266 起多出「特别关注」）。 */
+    public static final class JoinGroupEntry {
+        /** 要加入的分组 id；{@link #create} 为 true 时无意义（固定 0） */
+        public final int tagid;
+        /** true 表示这是菜单末尾的「新建分组」动作，不是某个分组 */
+        public final boolean create;
+        /** 分组原名，用于「已经在「X」分组里了」「已加入「X」」这类提示 */
+        public final String name;
+        /** 菜单里显示的那一行（可能带「（已加入）」） */
+        public final String label;
+
+        public JoinGroupEntry(int tagid, boolean create, String name, String label) {
+            this.tagid = tagid;
+            this.create = create;
+            this.name = name;
+            this.label = label;
+        }
+    }
+
+    /**
+     * 组装「加入分组」菜单（纯函数，便于 JVM 单测）。
+     *
+     * <p>顺序固定为：**特别关注** → 自建分组（按接口返回顺序）→ 新建分组。
+     * 菜单条目与返回值一一对应，调用方用点击下标直接取。
+     *
+     * <p>只收 `tagid > 0` 的自建分组：`x/relation/tags` 理论上不会回 0 / -10，
+     * 但真回了一个也不该在菜单里出现第二次（特别关注已经单独占了顶部一行）。
+     *
+     * @param tags         {@link #getFollowTags()} 的结果
+     * @param joinedIds    {@link #getUserFollowTags(long)} 里他已在的分组 id（含 -10 表示已在特别关注）
+     * @param specialLabel 「特别关注」这一项的文案
+     * @param joinedFormat 「已加入」的格式串，如 `%1$s（已加入）`
+     * @param createLabel  「新建分组」这一项的文案
+     */
+    public static List<JoinGroupEntry> buildJoinGroupMenu(
+            List<FollowTag> tags,
+            Set<Integer> joinedIds,
+            String specialLabel,
+            String joinedFormat,
+            String createLabel) {
+        List<JoinGroupEntry> entries = new ArrayList<>();
+        boolean specialJoined = joinedIds != null && joinedIds.contains(TAG_SPECIAL_FOLLOW);
+        entries.add(new JoinGroupEntry(TAG_SPECIAL_FOLLOW, false, specialLabel,
+                joinGroupLabel(specialLabel, specialJoined, joinedFormat)));
+        if (tags != null) {
+            for (FollowTag tag : tags) {
+                if (tag == null || tag.tagid <= 0) continue;
+                boolean joined = joinedIds != null && joinedIds.contains(tag.tagid);
+                entries.add(new JoinGroupEntry(tag.tagid, false, tag.name,
+                        joinGroupLabel(tag.name, joined, joinedFormat)));
+            }
+        }
+        entries.add(new JoinGroupEntry(0, true, createLabel, createLabel));
+        return entries;
+    }
+
+    /**
+     * 菜单一行的文案：已在分组里的补一句「已加入」（纯函数）。
+     *
+     * <p>{@code joinedFormat} 为空时退化成直接拼「（已加入）」：调用方漏传不该让菜单变成空白项。
+     */
+    public static String joinGroupLabel(String name, boolean joined, String joinedFormat) {
+        String safeName = name == null ? "" : name;
+        if (!joined) return safeName;
+        if (joinedFormat == null || joinedFormat.isEmpty()) return safeName + "（已加入）";
+        return String.format(joinedFormat, safeName);
+    }
+
     /**
      * 把一个已关注的人**加入**若干关注分组（反馈 #88）。
      *
@@ -277,7 +465,7 @@ public class FollowApi {
      * 与 {@link #moveFollowTagUsers} 的区别：这里是**追加**，不会把他从原分组里移走，
      * 也不会取消关注——正是「长按已关注 → 加入分组」要的语义。
      *
-     * @param tagids 目标分组 id（只该传 tagid > 0 的自建分组）
+     * @param tagids 目标分组 id（自建分组用它的正数 id；「特别关注」用 {@link #TAG_SPECIAL_FOLLOW}）
      * @param fid    目标用户 mid
      * @return 服务端 code（0 成功）
      */

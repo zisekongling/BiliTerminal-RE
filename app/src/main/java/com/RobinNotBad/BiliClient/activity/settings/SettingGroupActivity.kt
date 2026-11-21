@@ -14,6 +14,7 @@ import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.BuildConfig
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.FeedbackActivity
+import com.RobinNotBad.BiliClient.activity.ImagePickerActivity
 import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
 import com.RobinNotBad.BiliClient.activity.feedback.FeedbackListActivity
 import com.RobinNotBad.BiliClient.activity.settings.login.AccountSwitchActivity
@@ -25,25 +26,47 @@ import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.ui.appearance.AmbientGlow
 import com.RobinNotBad.BiliClient.ui.appearance.AppearanceManager
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
+import com.RobinNotBad.BiliClient.ui.widget.IslandPolicy
+import com.RobinNotBad.BiliClient.ui.widget.TopbarHeightPolicy
 import com.RobinNotBad.BiliClient.ui.appearance.CornerStyle
 import com.RobinNotBad.BiliClient.ui.appearance.FontStyle
+import com.RobinNotBad.BiliClient.ui.appearance.GlassPreset
 import com.RobinNotBad.BiliClient.ui.appearance.GlassStyle
+import com.RobinNotBad.BiliClient.ui.appearance.ImmersiveMode
+import com.RobinNotBad.BiliClient.ui.appearance.RoundListSwitchPolicy
 import com.RobinNotBad.BiliClient.util.Aria2Util
 import com.RobinNotBad.BiliClient.util.BetaUpdate
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.DisguisePrefs
+import com.RobinNotBad.BiliClient.util.FeedbackUnread
 import com.RobinNotBad.BiliClient.util.FileUtil
+import com.RobinNotBad.BiliClient.util.FolderPagePrefs
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
+import com.RobinNotBad.BiliClient.util.OptionalFeatures
+import com.RobinNotBad.BiliClient.util.PageMotion
 import com.RobinNotBad.BiliClient.util.PerformanceManager
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.TerminalReportPrefs
+import com.RobinNotBad.BiliClient.util.UiScaleInput
+import com.RobinNotBad.BiliClient.util.UpdateChannel
+import com.RobinNotBad.BiliClient.util.UpdateManager
 import com.RobinNotBad.BiliClient.util.VirtualCollectionPrefs
+import com.RobinNotBad.BiliClient.util.recommend.BlockedAuthorStore
+import com.RobinNotBad.BiliClient.util.recommend.RecommendPrefs
 
 /** 「外观设置」分组的 group_type 取值。`SettingsIndex` 里跳转该分组时也用这个常量。 */
 const val GROUP_APPEARANCE = "appearance"
+
+/**
+ * 「灵动岛设置」分组的 group_type 取值（26.11.14）。
+ *
+ * <p>用户要求 5 个信息筛选开关 + 轮换间隔收进一个独立分区，并且老的总开关
+ * `TOPBAR_ISLAND` 也搬进来——**同一设置项只挂一处**，所以它不再出现在「布局适配」页。
+ */
+const val GROUP_ISLAND = "island"
 
 /**
  * 「反馈与统计」分组的 group_type 取值。`SettingsIndex` 里跳转该分组时也用这个常量。
@@ -59,6 +82,27 @@ const val GROUP_NOTIFY = "notify"
 
 /** 「伪装与安全」分组的 group_type 取值（issue #22）。`SettingsIndex` / `SettingMainActivity` 共用。 */
 const val GROUP_DISGUISE = "disguise"
+
+/**
+ * 「番剧设置」分组的 group_type 取值（26.11.07）。
+ *
+ * <p>用户要求「番剧设置加到设置页里」：原先两个入口只长在换源面板 / 播放页里，
+ * 不触发一次换源就根本找不到。现在按其它分组的形态挂到第一层级，点进去是两行
+ * 「管理源」「管理弹幕」。
+ *
+ * <p>两个子页面**都在私有注入里**，所以整组只在 [OptionalFeatures.thirdPartySettingsAvailable]
+ * 为 true 时出现——公开构建不显示，否则入口点了没反应。
+ */
+const val GROUP_BANGUMI = "bangumi"
+
+/**
+ * 「屏蔽的作者」子页的 group_type 取值（26.11.21，对齐 bilibili-margin 的「不看该作者」）。
+ *
+ * <p>名单存在本地（[com.RobinNotBad.BiliClient.util.recommend.BlockedAuthorStore]），入口在
+ * 「高级与实验 → 推荐」里；按既有约定做成**本页的另一个 group_type**，不需要独立 Activity
+ * 与清单注册（这页只有若干行「点一下解除屏蔽」，没有任何自定义交互）。
+ */
+const val GROUP_RECOMMEND_BLOCK = "recommend_block"
 
 /**
  * 分组设置页：统一使用声明式 SettingSection 列表 + SettingsAdapter 渲染。
@@ -99,8 +143,10 @@ class SettingGroupActivity : RefreshListActivity() {
     }
 
     /**
-     * 背景图选择。与字体同一套做法：`ACTION_GET_CONTENT` 拿到临时读权限，立刻把图拷进
-     * `filesDir/appearance/`（[BackgroundImage.install]），拷完就不需要原 URI 了。
+     * 背景图选择。走内置选图页（反馈 #53；与私信 / 带图评论 / 发动态 / 换头像同一套），
+     * 页内仍可退回系统选择器，结果格式与 `ACTION_GET_CONTENT` 相同（`data.data` 为 content Uri）。
+     * 拿到图后立刻拷进 `filesDir/appearance/`（[BackgroundImage.install]），拷完就不需要原 URI 了，
+     * 所以**不申请存储权限**（内置选图页自己按需申请读图权限）。
      * 拷完要 `recreate()`，因为窗口背景是在 `onCreate` 里画的。
      */
     private val backgroundPickerLauncher = registerForActivityResult(
@@ -141,14 +187,8 @@ class SettingGroupActivity : RefreshListActivity() {
         setAdapter(adapter!!)
         setRefreshing(false)
 
-        // 从全局搜索跳转进来时，滚动定位到目标设置项
-        val highlight = intent.getStringExtra("highlight")
-        if (!highlight.isNullOrEmpty()) {
-            val index = sections.indexOfFirst { it.name == highlight }
-            if (index >= 0) {
-                recyclerView.post { recyclerView.scrollToPosition(index) }
-            }
-        }
+        // 从全局搜索跳转进来时，滚动定位到目标设置项并高亮（与另外 4 个设置页共用基类实现）
+        scrollToHighlight(sections, intent.getStringExtra("highlight"))
     }
 
     private fun buildContent(groupType: String) {
@@ -157,9 +197,12 @@ class SettingGroupActivity : RefreshListActivity() {
             "ui" -> buildUIGroup()
             "layout" -> buildLayoutGroup()
             GROUP_APPEARANCE -> buildAppearanceGroup()
+            GROUP_ISLAND -> buildIslandGroup()
             GROUP_NOTIFY -> buildNotifyGroup()
             GROUP_DISGUISE -> buildDisguiseGroup()
             GROUP_FEEDBACK -> buildFeedbackGroup()
+            GROUP_BANGUMI -> buildBangumiGroup()
+            GROUP_RECOMMEND_BLOCK -> buildBlockedAuthorsGroup()
             "content" -> buildContentGroup()
             "download" -> buildDownloadGroup()
             "lab" -> buildLabGroup()
@@ -196,7 +239,7 @@ class SettingGroupActivity : RefreshListActivity() {
     }
 
     private fun switch(name: String, desc: String?, key: String, default: Boolean, onChange: ((Boolean) -> Unit)? = null) {
-        val extra = if (onChange != null) SettingsAdapter.SwitchExtra(onChange) else null
+        val extra = if (onChange != null) SettingsAdapter.SwitchExtra(onChange = onChange) else null
         sections.add(SettingSection("switch", name, key, desc ?: "", default.toString(), extra))
     }
 
@@ -312,18 +355,48 @@ class SettingGroupActivity : RefreshListActivity() {
             SharedPreferencesUtil.putFloat(SettingsKeys.DPI, 1.0f)
             SharedPreferencesUtil.putInt(SettingsKeys.DENSITY, -1)
             SharedPreferencesUtil.putBoolean(SettingsKeys.UI_ROUND, false)
+            // 灵动岛已迁到「外观 → 灵动岛设置」，这个按钮不再顺手把它关掉。
+            SharedPreferencesUtil.putInt(SettingsKeys.TOPBAR_HEIGHT, TopbarHeightPolicy.DEFAULT_DP)
+            SharedPreferencesUtil.putBoolean(SettingsKeys.UI_IMMERSIVE_FULLSCREEN, true)
             refresh()
+            ImmersiveMode.apply(this)
             MsgUtil.showMsg(getString(R.string.msg_settinggroupactivity_002))
         }
         button("查看预览") {
             startActivity(Intent(this, UIPreviewActivity::class.java))
         }
 
+        // 沉浸式全屏（26.11.14）：隐藏状态栏与导航栏。默认开（用户拍板「所有页面都隐藏」），
+        // 关掉即恢复「导航栏可见」的旧行为。手表上导航栏是主要返回手段，全屏后边缘手势可能要多划
+        // 一次，这个开关就是那条回退路径；改完立即作用到当前这页（存取由 SettingsAdapter 负责，
+        // 这里只做联动）。
+        switch(
+            getString(R.string.setting_immersive_fullscreen),
+            getString(R.string.desc_setting_immersive_fullscreen),
+            SettingsKeys.UI_IMMERSIVE_FULLSCREEN,
+            true
+        ) { ImmersiveMode.apply(this) }
+
         switch("圆屏适配", getString(R.string.desc_setting_ui_round), SettingsKeys.UI_ROUND, false) { isChecked ->
-            SharedPreferencesUtil.putInt(SettingsKeys.PADDING_H, if (isChecked) 5 else 0)
-            SharedPreferencesUtil.putInt(SettingsKeys.PADDING_V, if (isChecked) 3 else 0)
+            applyRoundMode(isChecked)
             refresh()
             if (isChecked) MsgUtil.showMsg(getString(R.string.msg_settinggroupactivity_003))
+        }
+        // 顶栏灵动岛（26.11.08 曾暂时关闭并隐藏入口，26.11.09 恢复）：
+        // 26.11.14 起连同 5 个筛选开关、轮换间隔一起搬进「外观 → 灵动岛设置」，
+        // 这里不再挂第二份（同一设置项两处各挂一份会互相覆盖）。
+        // 顶栏高度（26.11.11）：最小高度语义，0 = 跟随内容（默认，与改动前一致）。
+        // 手势都装在整条 top 上，所以可点范围会跟着高度一起变；播放器页 / 短视频页自带顶栏，不接。
+        input(
+            getString(R.string.setting_topbar_height),
+            getString(R.string.desc_setting_topbar_height),
+            SettingsKeys.TOPBAR_HEIGHT,
+            "input_int",
+            TopbarHeightPolicy.DEFAULT_DP.toString()
+        ) { value ->
+            UiScaleInput.parseTopbarHeight(value)?.let {
+                SharedPreferencesUtil.putInt(SettingsKeys.TOPBAR_HEIGHT, TopbarHeightPolicy.clampDp(it))
+            }
         }
         input("界面大小", getString(R.string.desc_setting_ui), SettingsKeys.DPI, "input_float", "1.0") { value ->
             try {
@@ -360,6 +433,36 @@ class SettingGroupActivity : RefreshListActivity() {
     }
 
     /**
+     * 打开 / 关闭「圆屏适配」（`player_ui_round`）的**全部**副作用：开关本身 + 配套边距。
+     *
+     * 本页的「圆屏适配」开关与「实验室 → 圆屏列表」的联动都走这里，别各写一份。
+     * 边距不是可选项：`RoundInsets.compute` 只按「界面边距」的百分比算留白，圆屏开关本身
+     * 只多让出底部 3%，只写 `putBoolean` 的话页面几乎看不出变化——那正是「开了和没开一样」
+     * 的一半来源。
+     */
+    private fun applyRoundMode(enabled: Boolean) {
+        SharedPreferencesUtil.putBoolean(SettingsKeys.UI_ROUND, enabled)
+        SharedPreferencesUtil.putInt(SettingsKeys.PADDING_H, if (enabled) 5 else 0)
+        SharedPreferencesUtil.putInt(SettingsKeys.PADDING_V, if (enabled) 3 else 0)
+    }
+
+    /**
+     * 「实验室 → 圆屏列表」开关的联动（反馈 #172）。
+     *
+     * 打开「圆屏列表」时顺带打开「圆屏适配」——后者是 `RoundListEffect.isEnabled` 的前置条件，
+     * 用户只开前者时效果恒不生效。**关掉「圆屏列表」不回退「圆屏适配」**（用户可能本来就要圆屏）。
+     * 判据在 [RoundListSwitchPolicy]（纯函数，有单测），这里只负责写盘与提示。
+     *
+     * 两个开关分处「实验室」与「布局适配」两页，本页没有第二行需要同步刷新，所以不调 `refresh()`。
+     */
+    private fun onRoundListToggled(enabled: Boolean) {
+        val roundMode = SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROUND, false)
+        if (!RoundListSwitchPolicy.turnsOnRoundMode(roundMode, enabled)) return
+        applyRoundMode(true)
+        MsgUtil.showMsg(getString(R.string.msg_round_list_enable_round_mode))
+    }
+
+    /**
      * 「外观设置」分组：外观三模块的设置项集中在此。
      *
      * **为什么不做成独立 Activity**：本仓库的「独立设置子页面」有两种形态——
@@ -373,7 +476,7 @@ class SettingGroupActivity : RefreshListActivity() {
     private fun buildAppearanceGroup() {
         title("配色")
         listChoose(
-            "颜色模式",
+            getString(R.string.setting_index_color_mode),
             getString(R.string.desc_setting_color_mode),
             ColorMode.KEY,
             ColorMode.DEFAULT,
@@ -412,7 +515,7 @@ class SettingGroupActivity : RefreshListActivity() {
         }
         // 开关本身由 SettingsAdapter 落盘；这里再走门面写一次，为的是递增外观版本号，
         // 让返回栈里的其它页面在 onResume 时一起重建
-        switch("弥散光晕", getString(R.string.desc_setting_ambient_glow), SettingsKeys.UI_AMBIENT_GLOW, AmbientGlow.DEFAULT) { isChecked ->
+        switch(getString(R.string.setting_index_ambient_glow), getString(R.string.desc_setting_ambient_glow), SettingsKeys.UI_AMBIENT_GLOW, AmbientGlow.DEFAULT) { isChecked ->
             AppearanceManager.setAmbientGlow(isChecked)
             recreate()
         }
@@ -429,9 +532,24 @@ class SettingGroupActivity : RefreshListActivity() {
                 recreate()
             }
         }
-        switch("玻璃质感", getString(R.string.desc_setting_glass_components), SettingsKeys.UI_GLASS_COMPONENTS, GlassStyle.DEFAULT) { isChecked ->
+        switch(getString(R.string.setting_index_glass_components), getString(R.string.desc_setting_glass_components), SettingsKeys.UI_GLASS_COMPONENTS, GlassStyle.DEFAULT) { isChecked ->
             AppearanceManager.setGlassComponents(isChecked)
             recreate()
+        }
+        // 预设行常驻（不随开关隐藏）：关掉玻璃质感时改它不会立刻有变化，但用户可以先把形态定好。
+        listChoose(
+            getString(R.string.setting_index_glass_preset),
+            getString(R.string.desc_setting_glass_preset),
+            GlassPreset.KEY,
+            GlassPreset.DEFAULT,
+            GlassPreset.DISPLAY_NAMES,
+            GlassPreset.VALUES
+        ) { oldValue, newValue ->
+            if (oldValue != newValue) {
+                // 走门面写入：落盘 + 递增外观版本号，其它页面在 onResume 时自动重建
+                AppearanceManager.setGlassPreset(newValue)
+                recreate()
+            }
         }
 
         title("圆角")
@@ -502,6 +620,99 @@ class SettingGroupActivity : RefreshListActivity() {
             AppearanceManager.setBackgroundScrim(BackgroundImage.coerceScrimPercent(value))
             recreate()
         }
+
+        // 全局转场动画开关（O7）：手表小屏上转场那 200ms 什么都做不了，给一个总开关。
+        // 回调里立刻 apply 一次，让「打开这个开关」当下的这一页也马上生效（其余页面由
+        // BaseActivity 的 onCreate/onResume 统一处理，见 util/PageMotion）。
+        title(getString(R.string.appearance_page_motion_title))
+        switch(
+            getString(R.string.appearance_page_motion_name),
+            getString(R.string.appearance_page_motion_desc),
+            SettingsKeys.UI_DISABLE_PAGE_TRANSITIONS,
+            false
+        ) { _ ->
+            // SettingsAdapter 是先写 prefs 再回调，所以这里读到的已经是新值
+            PageMotion.apply(this)
+        }
+
+        // 「灵动岛设置」入口（26.11.14）：总开关 + 5 个信息筛选开关 + 轮换间隔独立成一屏。
+        // 老的总开关原在「布局适配」页，已整体搬过来，两处不再各挂一份。
+        if (IslandPolicy.FEATURE_ENABLED) {
+            title(getString(R.string.setting_topbar_island))
+            nav(
+                R.drawable.icon_announcement,
+                getString(R.string.setting_topbar_island),
+                getString(R.string.island_setting_entrance_desc)
+            ) {
+                startActivity(Intent(this, SettingGroupActivity::class.java).apply {
+                    putExtra("group_type", GROUP_ISLAND)
+                    putExtra("group_title", getString(R.string.setting_topbar_island))
+                })
+            }
+        }
+    }
+
+    /**
+     * 「灵动岛设置」二级页（26.11.14，入口在「外观设置」页末尾）。
+     *
+     * 三层优先级由 `IslandPolicy` 管：播放/下载常驻，未读/公告/低电短播，平时时间 + 电量并排。
+     * 这里只管「显示哪几类」与「轮换多少秒」，状态机规则一律不进设置页。
+     */
+    private fun buildIslandGroup() {
+        title(getString(R.string.island_setting_section_switch))
+        switch(
+            getString(R.string.setting_topbar_island),
+            getString(R.string.desc_setting_topbar_island),
+            SettingsKeys.TOPBAR_ISLAND,
+            false
+        )
+
+        title(getString(R.string.island_setting_section_filter))
+        switch(
+            getString(R.string.island_setting_playing),
+            getString(R.string.island_setting_playing_desc),
+            SettingsKeys.ISLAND_PLAYING,
+            true
+        )
+        switch(
+            getString(R.string.island_setting_downloading),
+            getString(R.string.island_setting_downloading_desc),
+            SettingsKeys.ISLAND_DOWNLOADING,
+            true
+        )
+        switch(
+            getString(R.string.island_setting_unread),
+            getString(R.string.island_setting_unread_desc),
+            SettingsKeys.ISLAND_UNREAD,
+            true
+        )
+        switch(
+            getString(R.string.island_setting_battery),
+            getString(R.string.island_setting_battery_desc),
+            SettingsKeys.ISLAND_BATTERY,
+            true
+        )
+        switch(
+            getString(R.string.island_setting_announcement),
+            getString(R.string.island_setting_announcement_desc),
+            SettingsKeys.ISLAND_ANNOUNCEMENT,
+            true
+        )
+
+        title(getString(R.string.island_setting_section_rotate))
+        listChoose(
+            getString(R.string.island_setting_rotate_name),
+            getString(R.string.island_setting_rotate_desc),
+            SettingsKeys.ISLAND_ROTATE,
+            IslandPolicy.ROTATE_DEFAULT_MS.toString(),
+            listOf(
+                getString(R.string.island_setting_rotate_off),
+                getString(R.string.island_setting_rotate_3s),
+                getString(R.string.island_setting_rotate_5s),
+                getString(R.string.island_setting_rotate_10s)
+            ),
+            IslandPolicy.ROTATE_OPTIONS_MS.map { it.toString() }
+        )
     }
 
     /** 打开文件管理器挑选字体文件。 */
@@ -529,14 +740,18 @@ class SettingGroupActivity : RefreshListActivity() {
         recreate()
     }
 
-    /** 打开文件管理器挑选背景图。 */
+    /**
+     * 打开内置选图页挑选背景图（页内「系统选择器」仍可退回原来的 `ACTION_GET_CONTENT`）。
+     *
+     * **不要再直接拉 `ACTION_GET_CONTENT`**：手表上它多半落到文件管理器，要从存储根目录
+     * 一层层点进 DCIM / Pictures，缩略图很小甚至没有——背景图这一入口漏掉了 #53 的统一改造，
+     * 26.11.07 之后补齐。
+     */
     private fun pickBackgroundImage() {
         try {
-            val intent = Intent(Intent.ACTION_GET_CONTENT)
-            intent.type = "image/*"
-            intent.addCategory(Intent.CATEGORY_OPENABLE)
-            backgroundPickerLauncher.launch(intent)
+            backgroundPickerLauncher.launch(ImagePickerActivity.intent(this))
         } catch (e: Throwable) {
+            // 选图页就在本包内，正常不会触发；留兜底避免个别 ROM 的 Activity 启动限制
             MsgUtil.showMsg(getString(R.string.appearance_background_no_picker))
         }
     }
@@ -660,23 +875,37 @@ class SettingGroupActivity : RefreshListActivity() {
             rebuild("download")
         }
         input("并行下载视频数", getString(R.string.desc_parallel_download), SettingsKeys.PARALLEL_DOWNLOAD_VIDEOS, "input_int", Aria2Util.DEFAULT_PARALLEL_DOWNLOAD_VIDEOS.toString())
-        if (SharedPreferencesUtil.getBoolean(SettingsKeys.CACHE_QUICK_MODE, true)) {
-            listChoose(
-                getString(R.string.cache_default_quality),
-                getString(R.string.cache_default_quality_desc),
-                SettingsKeys.CACHE_DEFAULT_QUALITY,
-                "dialog",
-                listOf(
-                    getString(R.string.cache_quality_highest),
-                    getString(R.string.cache_quality_720p),
-                    getString(R.string.cache_quality_360p),
-                    getString(R.string.cache_quality_audio_only),
-                    getString(R.string.cache_quality_dialog)
-                ),
-                listOf("highest", "64", "16", "audio_only", "dialog")
-            )
-        }
+        // 26.11.08：这项不再跟着「启用长按快捷操作」开关隐藏——长按菜单里的「缓存到本地」
+        // 和收藏夹的批量下载（FavoriteAggregatePolicy）都读它，关掉长按快捷操作的人照样要设画质。
+        listChoose(
+            getString(R.string.cache_default_quality),
+            getString(R.string.cache_default_quality_desc),
+            SettingsKeys.CACHE_DEFAULT_QUALITY,
+            "dialog",
+            listOf(
+                getString(R.string.cache_quality_highest),
+                getString(R.string.cache_quality_720p),
+                getString(R.string.cache_quality_360p),
+                getString(R.string.cache_quality_audio_only),
+                getString(R.string.cache_quality_dialog)
+            ),
+            listOf("highest", "64", "16", "audio_only", "dialog")
+        )
         switch("强制高分辨率选项", getString(R.string.desc_force_high_quality), SettingsKeys.FORCE_HIGH_QUALITY, true)
+        // 反馈 #211：缓存页 / 文件夹页每次进入都在 onCreate 里整盘重扫（LocalListActivity.onCreate 的
+        // CenterThreadPool.run、LocalFolderListActivity.onCreate 的 loadFolders），夹一多、缓存一多
+        // 就要卡好几秒。用户要的是「可选自动刷新」，所以这里给一个开关，默认仍为自动
+        // （FolderPagePrefs.DEFAULT_AUTO_REFRESH = true，既有行为不变），
+        // 不想等的人自己关掉；关掉后进页面先比一次缓存树指纹（util/FolderPagePrefs.kt 的 CacheTreeSignature），
+        // 指纹没变就用上次结果，真下过新视频仍会重扫，另有下拉刷新兜底。
+        // 放在「缓存与下载 → 缓存选项」而不是「高级与实验」：它直接影响缓存页的打开速度，
+        // 是普通用户会主动来找的开关，不该埋在实验区。
+        switch(
+            getString(R.string.storage_refresh_auto_title),
+            getString(R.string.storage_refresh_auto_desc),
+            FolderPagePrefs.AUTO_REFRESH,
+            FolderPagePrefs.DEFAULT_AUTO_REFRESH
+        )
 
         title("存储路径")
         // 「存储空间」页（批次 1 移植）：统计图片缓存 / 临时文件 / 更新安装包占用，按白名单清理。
@@ -708,14 +937,18 @@ class SettingGroupActivity : RefreshListActivity() {
             "高性能模式",
             getString(R.string.desc_high_performance),
             PerformanceManager.KEY_HIGH_PERFORMANCE_MODE,
-            false
+            // 用户设过就显示他设的值，没设过才显示设备自动判定的结果。
+            // 26.11.08 前这里是写死的 false，而引擎侧却按「高档 || 开关」算，
+            // 于是高档设备上开关显示「关」、实际一直按高档跑，怎么关都没用。
+            PerformanceManager.isEffectiveHighPerf()
         ) { isChecked ->
             PerformanceManager.setHighPerformanceMode(isChecked)
-            if (isChecked && PerformanceManager.getCurrentPerfLevel() != PerformanceManager.PERF_LEVEL_HIGH) {
-                MsgUtil.showMsg(getString(R.string.msg_settinggroupactivity_007))
-            } else if (!isChecked) {
-                MsgUtil.showMsg(getString(R.string.msg_settinggroupactivity_008))
-            }
+            MsgUtil.showMsg(
+                getString(
+                    if (isChecked) R.string.msg_settinggroupactivity_007
+                    else R.string.msg_settinggroupactivity_008
+                )
+            )
         }
 
         title("推荐")
@@ -732,8 +965,30 @@ class SettingGroupActivity : RefreshListActivity() {
                 SharedPreferencesUtil.RECOMMEND_SOURCE_BOTH
             )
         )
+        // X 式重排（26.11.21，对齐参考实现 rank.ts）：默认**关**，用户自己去开。
+        // 关着时推荐页与以前完全一样（只多一层屏蔽过滤），开了才读历史画像重排。
+        switch(
+            getString(R.string.setting_recommend_rerank),
+            getString(R.string.desc_recommend_rerank),
+            SettingsKeys.RECOMMEND_RERANK_ENABLE,
+            RecommendPrefs.RERANK_DEFAULT
+        )
+
+        nav(
+            R.drawable.icon_person,
+            getString(R.string.setting_blocked_authors),
+            getString(R.string.desc_blocked_authors)
+        ) {
+            startActivity(Intent(this, SettingGroupActivity::class.java).apply {
+                putExtra("group_type", GROUP_RECOMMEND_BLOCK)
+                putExtra("group_title", getString(R.string.setting_blocked_authors))
+            })
+        }
 
         title("功能开关")
+        // 26.11.22 起新版播放器下线观察：三个入口（新版播放器 / 沉浸细进度线 / 界面形态）已整体移除，
+        // 强制走旧播放器。判据收在 player/PlayerUiSwitch.kt 的总闸里，留着 player_ui_new=true 的
+        // 旧存档一律不生效。恢复入口前先看那份文件顶部的说明。
         switch("新版弹幕获取方式", getString(R.string.desc_new_danmaku_api), SharedPreferencesUtil.NEW_DANMAKU_API, true)
         switch("私信未读标记", getString(R.string.desc_private_msg_unread_badge_enable), SharedPreferencesUtil.PRIVATE_MSG_UNREAD_BADGE_ENABLE, false)
         // 虚拟合集拆成两个独立功能（26.11.01，用户要求）：
@@ -751,7 +1006,37 @@ class SettingGroupActivity : RefreshListActivity() {
             VirtualCollectionPrefs.CLICK_PLAY,
             VirtualCollectionPrefs.DEFAULT_CLICK_PLAY
         )
-        switch("圆屏列表", getString(R.string.desc_ui_round_list_effect), SettingsKeys.UI_ROUND_LIST_EFFECT, false)
+        switch(
+            getString(R.string.setting_index_round_list),
+            getString(R.string.desc_ui_round_list_effect),
+            SettingsKeys.UI_ROUND_LIST_EFFECT,
+            false
+        ) { isChecked -> onRoundListToggled(isChecked) }
+        // 缓存页的文件夹从列表里搬到独立页（26.11.13；26.11.17 起默认开）：关着是原来的样子，
+        // 开着缓存页顶部只多一行「文件夹 N」，点它进独立文件夹页
+        switch(
+            "缓存页文件夹入口",
+            getString(R.string.desc_cache_folder_page),
+            FolderPagePrefs.ENABLE,
+            FolderPagePrefs.DEFAULT_ENABLE
+        )
+        // 确认型弹窗的按钮形态（26.11.17，默认开）。反馈 #199（小天才 Z8，dpi320）：手表窗口
+        // 太矮时纵向两条 44dp 会把后添加的「确定」切出屏幕，用户只看到「取消」。关掉回到
+        // 26.11.13 起的上下堆叠。读取点在 util/TerminalDialog.kt 的 Sheet.renderButtons()。
+        switch(
+            getString(R.string.setting_dialog_button_row),
+            getString(R.string.desc_dialog_button_row),
+            SettingsKeys.DIALOG_BUTTON_ROW,
+            true
+        )
+        // 弹窗标题跑马灯（26.11.21，默认开）。读取点在 util/TerminalDialog.kt 的
+        // Sheet.applyTitleMarquee()：标题最多一行，放不下就横向滚动。
+        switch(
+            getString(R.string.setting_dialog_title_marquee),
+            getString(R.string.desc_dialog_title_marquee),
+            SettingsKeys.DIALOG_TITLE_MARQUEE,
+            true
+        )
 
         title("播放器兼容")
         switch("播放器旋屏兼容方案", getString(R.string.desc_player_rotate_software), SettingsKeys.DEV_PLAYER_ROTATE_SOFTWARE, false)
@@ -783,6 +1068,42 @@ class SettingGroupActivity : RefreshListActivity() {
                 true
             }
         )
+        // 26.11.16 静默下载（默认关）：开了以后启动检查到更新就在 Wi-Fi 下先把安装包下好，
+        // 下完才弹「已下载」，用户点确认再安装。蜂窝网络与下载失败都退回原来的更新页。
+        switch(
+            getString(R.string.setting_silent_update),
+            getString(R.string.desc_setting_silent_update),
+            SettingsKeys.SILENT_UPDATE_DOWNLOAD,
+            false
+        )
+        // 三通道（docs/version-channels.md §5）：没选过的人默认测试版（26.11.08 用户拍板），
+        // 装实验包的人默认实验版，显式选过的值优先——默认规则全在 UpdateChannel.current() 里，
+        // 这里只把它的结果当 defaultValue 显示，别在这儿另写一份。
+        // 选项是渠道名的中文名，落盘存英文值（stable/beta/exp）——那三个字符串同时是 tag
+        // 后缀与后台上报字段，必须与 CI 保持一致。
+        listChoose(
+            getString(R.string.setting_update_channel),
+            getString(R.string.desc_update_channel),
+            SharedPreferencesUtil.UPDATE_CHANNEL,
+            UpdateChannel.current(),
+            listOf(
+                getString(R.string.update_channel_stable),
+                getString(R.string.update_channel_beta),
+                getString(R.string.update_channel_exp)
+            ),
+            UpdateChannel.ALL
+        ) { _, value ->
+            val channel = UpdateChannel.normalize(value)
+            // 切通道要连带清掉「上一条强制更新」与「已提示过的版本」，否则换了通道还在被旧通道的
+            // 规则拦着（原因见 UpdateManager.onChannelChanged 注释）。
+            UpdateManager.onChannelChanged(channel)
+            MsgUtil.showMsg(
+                getString(
+                    R.string.msg_update_channel_changed,
+                    getString(UpdateChannel.nameRes(channel))
+                )
+            )
+        }
         nav(R.drawable.icon_announcement, "公告列表", "查看哔哩终端发布公告") {
             startActivity(Intent(this, AnnouncementsActivity::class.java))
         }
@@ -854,7 +1175,8 @@ class SettingGroupActivity : RefreshListActivity() {
         nav(
             R.drawable.icon_announcement,
             getString(R.string.feedback_mine_entry_title),
-            getString(R.string.feedback_mine_entry_desc)
+            // 26.11.16：有开发者新回复时在描述后追加「· N 条新回复」（缓存值，打开列表会重算）
+            getString(R.string.feedback_mine_entry_desc) + FeedbackUnread.badgeSuffix()
         ) {
             startActivity(Intent(this, FeedbackListActivity::class.java))
         }
@@ -886,8 +1208,74 @@ class SettingGroupActivity : RefreshListActivity() {
     }
 
     /**
+     * 「番剧设置」分组（26.11.07）：管理源 / 管理弹幕两行。
+     *
+     * <p>两页本身在私有注入里（第三方番剧源、第三方弹幕），公开构建下整组直接跳过，
+     * 不留空分组。行名与 [SettingsIndex] 里的搜索条目取同一批字符串资源，
+     * 全局搜索点进来才能按 highlight 定位（见 [SettingsIndex] 的注释）。
+     */
+    private fun buildBangumiGroup() {
+        if (!OptionalFeatures.thirdPartySettingsAvailable) return
+        nav(
+            R.drawable.icon_bangumi,
+            getString(R.string.setting_bangumi_source_entry),
+            getString(R.string.desc_setting_bangumi_source_entry)
+        ) {
+            OptionalFeatures.openThirdPartySourceSettings(this)
+        }
+        nav(
+            R.drawable.icon_danmaku,
+            getString(R.string.setting_bangumi_danmaku_entry),
+            getString(R.string.desc_setting_bangumi_danmaku_entry)
+        ) {
+            OptionalFeatures.openThirdPartyDanmakuSettings(this)
+        }
+    }
+
+    /**
      * 开发者工具分组 —— 仅在 Debug 构建下显示
      */
+    /**
+     * 「屏蔽的作者」子页（26.11.21）。
+     *
+     * <p>列表直接来自 [BlockedAuthorStore]：它只是 SharedPreferences 里的一段 JSON，没有网络请求，
+     * 所以不需要 [CenterThreadPool]（这页秒开）。点一行弹确认框解除屏蔽——**只解除本地名单**，
+     * 当初顺带发给 B 站的那条「不想看此 UP 主」不会撤回（接口侧没有对应撤回语义，也没必要）。
+     *
+     * <p>名单为空时给一行说明性标题，免得用户看到一个纯空页，以为哪坏了。
+     */
+    private fun buildBlockedAuthorsGroup() {
+        val blocked = BlockedAuthorStore.list()
+        if (blocked.isEmpty()) {
+            title(getString(R.string.text_blocked_authors_empty))
+            return
+        }
+        title(getString(R.string.setting_blocked_authors))
+        for (author in blocked) {
+            val displayName = if (author.name.isEmpty()) author.mid.toString() else author.name
+            nav(
+                R.drawable.icon_person,
+                displayName,
+                getString(R.string.desc_blocked_authors_item, author.mid.toString())
+            ) {
+                TerminalDialog.confirm(
+                    this,
+                    title = getString(R.string.btn_blocked_authors_unblock),
+                    message = displayName
+                ) {
+                    val removed = BlockedAuthorStore.unblock(author.mid)
+                    MsgUtil.showMsg(
+                        getString(
+                            if (removed) R.string.msg_blocked_authors_unblocked
+                            else R.string.msg_blocked_authors_unblock_failed
+                        )
+                    )
+                    rebuild(GROUP_RECOMMEND_BLOCK)
+                }.show()
+            }
+        }
+    }
+
     private fun buildDevGroup() {
         // TestActivity 只应存在于 Debug 包：这里用编译期常量而非运行期判断，
         // release 下 R8 会把整个分支折叠掉，类随之被 strip（清单声明在 src/debug）。

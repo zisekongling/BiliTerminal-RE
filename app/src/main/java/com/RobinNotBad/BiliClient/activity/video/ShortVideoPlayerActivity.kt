@@ -33,11 +33,12 @@ import androidx.viewpager.widget.ViewPager
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.InstanceActivity
 import com.RobinNotBad.BiliClient.api.DanmakuApi
-import com.RobinNotBad.BiliClient.api.ShortVideoFeedApi
+import com.RobinNotBad.BiliClient.ui.shortvideo.ShortVideoNewUi
 import com.RobinNotBad.BiliClient.model.ShortVideoItem
 import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
 import com.RobinNotBad.BiliClient.ui.widget.SwipePageLayout
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.DanmakuFileFetcher
 import com.RobinNotBad.BiliClient.util.DisguiseGesture
 import com.RobinNotBad.BiliClient.util.DisguisePrefs
 import com.RobinNotBad.BiliClient.util.Logu
@@ -47,13 +48,16 @@ import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
-import com.RobinNotBad.BiliClient.util.VideoPreloadManager
 import com.RobinNotBad.BiliClient.player.DanmakuManager
 import com.RobinNotBad.BiliClient.player.PlayerDefaults
 import com.RobinNotBad.BiliClient.player.IjkOption
 import com.RobinNotBad.BiliClient.player.IjkPlayerBridge
 import com.RobinNotBad.BiliClient.player.PlayerState
+import com.RobinNotBad.BiliClient.player.PlayerUiSwitch
 import com.RobinNotBad.BiliClient.player.PlayerVolumePolicy
+import com.RobinNotBad.BiliClient.player.ShortVideoDanmakuPolicy
+import com.RobinNotBad.BiliClient.player.ShortVideoSurfaceAction
+import com.RobinNotBad.BiliClient.player.ShortVideoSurfaceRebindPolicy
 import com.bumptech.glide.Glide
 import master.flame.danmaku.ui.widget.DanmakuView
 import kotlinx.coroutines.CoroutineScope
@@ -210,6 +214,7 @@ class ShortVideoPlayerActivity : InstanceActivity() {
     }
 
     override fun onBackPressed() {
+        if (closeCurrentNewPanel()) return
         // 在右侧详情/评论/相关推荐页时，返回先回到短视频首页，而不是直接退出本页
         if (::pager.isInitialized && pager.currentItem > 0) {
             pager.setCurrentItem(0, true)
@@ -220,6 +225,49 @@ class ShortVideoPlayerActivity : InstanceActivity() {
 
     /** 外壳当前页号（0 = 信息流，1~3 = 详情/评论/相关推荐）；页面还没建好时按 0。 */
     internal fun currentShellPage(): Int = if (::pager.isInitialized) pager.currentItem else 0
+
+    /** 新版面板优先消费返回键；老版不挂控制器，行为完全不变。 */
+    internal fun closeCurrentNewPanel(): Boolean {
+        if (currentShellPage() != 0) return false
+        return (pager.adapter as? ShortVideoShellAdapter)?.activeFeedFragment?.closeCurrentPanel() == true
+    }
+
+    /** 新版表冠换条：仅信息流页生效，复用竖向 pager 的既有翻页链路；边界返回 false。 */
+    internal fun switchCurrentVideo(offset: Int): Boolean {
+        if (!::pager.isInitialized || currentShellPage() != 0) return false
+        return (pager.adapter as? ShortVideoShellAdapter)?.activeFeedFragment?.switchVideo(offset) == true
+    }
+
+    /** 「只看 TA」进入：仅信息流页 + 新版 UI（老布局在 Fragment 里被 activeNewUi 闸住）。 */
+    internal fun enterAuthorMode(startItem: ShortVideoItem?) {
+        if (!::pager.isInitialized || currentShellPage() != 0) return
+        (pager.adapter as? ShortVideoShellAdapter)?.activeFeedFragment?.enterAuthorMode(startItem)
+    }
+
+    /** 「只看 TA」退出：回推荐流记住位置的下一条。 */
+    internal fun exitAuthorMode() {
+        if (!::pager.isInitialized || currentShellPage() != 0) return
+        (pager.adapter as? ShortVideoShellAdapter)?.activeFeedFragment?.exitAuthorMode()
+    }
+
+    /** 当前是否「只看 TA」；新版 UI 据此把 UP 行渲染成 chip。 */
+    internal fun isAuthorModeActive(): Boolean {
+        if (!::pager.isInitialized) return false
+        return (pager.adapter as? ShortVideoShellAdapter)?.activeFeedFragment?.isAuthorMode() == true
+    }
+
+    /**
+     * 表冠换条只在「新版 UI 激活」时接管，且抢在视图树分发之前——编码器事件沿焦点链下钻，
+     * 挂在覆盖层上未必收得到；DecorView 兜底又只会滚容器不会换条。老布局 / 非信息流页 /
+     * 用户关闭表冠时一律走 super，原分发链逐字节不变。
+     */
+    override fun dispatchGenericMotionEvent(ev: MotionEvent): Boolean {
+        if (::pager.isInitialized && currentShellPage() == 0) {
+            val ui = (pager.adapter as? ShortVideoShellAdapter)?.activeFeedFragment?.activeNewUi()
+            if (ui != null && ui.onRotaryEvent(ev)) return true
+        }
+        return super.dispatchGenericMotionEvent(ev)
+    }
 
     /**
      * 短视频首页根布局判出「右滑越过阈值」后的回调（系统右滑返回已在本页关闭，
@@ -360,7 +408,7 @@ class ShortVideoShellAdapter(
 
 class ShortVideoPagerAdapter(
     private val activity: ShortVideoPlayerActivity,
-    private val preloadManager: VideoPreloadManager,
+    private val feedSource: ShortVideoFeedSource,
     private val audioManager: AudioManager
 ) : androidx.recyclerview.widget.RecyclerView.Adapter<ShortVideoPagerAdapter.PageHolder>() {
 
@@ -369,22 +417,56 @@ class ShortVideoPagerAdapter(
 
     var lastVisiblePosition = -1
 
-    override fun getItemCount(): Int = preloadManager.getItemCount()
+    /** 首帧回调：信息流据此收加载层，不依赖列表回调是否准时到达。 */
+    var onFirstFrame: (() -> Unit)? = null
+
+    // 「只看 TA」续播：换 adapter 会重建播放器，进入时记下旧播放器的毫秒进度，
+    // 对应页 onPrepared 后一次性 seek 回去（消费即清，不影响后续正常播放）
+    private var initialSeekPosition = -1
+    private var initialSeekMs = 0L
+
+    fun requestInitialSeek(position: Int, ms: Long) {
+        initialSeekPosition = position
+        initialSeekMs = ms
+    }
+
+    private fun consumeInitialSeek(position: Int): Long {
+        if (position != initialSeekPosition || initialSeekMs <= 0) return 0L
+        val ms = initialSeekMs
+        initialSeekPosition = -1
+        initialSeekMs = 0L
+        return ms
+    }
+
+    /** 当前活跃页的播放进度（毫秒）；进入「只看 TA」续播时读取。 */
+    fun currentPositionMs(): Long = activeHolder?.positionMs() ?: 0L
+
+    fun closeCurrentPanel(): Boolean = holders[lastVisiblePosition]?.newUi?.closePanel() == true
+
+    /** 当前活跃页的新版 UI；老布局返回 null，表冠换条据此不生效。 */
+    fun activeNewUi(): ShortVideoNewUi? = holders[lastVisiblePosition]?.newUi
+
+    override fun getItemCount(): Int = feedSource.getItemCount()
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PageHolder {
+        // 与普通播放器同一个判据：总闸关着就恒用老布局（老布局里没有 shortNewControls，
+        // createNewUi() 因此始终返回 null，下面整条老链路原样跑）。
         val view = LayoutInflater.from(parent.context)
-            .inflate(R.layout.fragment_short_video_page, parent, false)
+            .inflate(
+                if (PlayerUiSwitch.isNewUiEnabled()) R.layout.fragment_short_video_page_new else R.layout.fragment_short_video_page,
+                parent, false
+            )
         return PageHolder(view, audioManager, activity)
     }
 
     override fun onBindViewHolder(holder: PageHolder, position: Int) {
-        val item = preloadManager.getItem(position) ?: return
+        val item = feedSource.getItem(position) ?: return
         holder.boundPosition = position
         holder.bind(item, position)
         holders[position] = holder
         // 顶栏在分页 item 里（不在 Activity 的视图树上），BaseActivity 那边装不到。
         // 每次绑定时重算一次：用户可能在设置里把开关关掉了，已装上的触摸层不会自己消失。
-        holder.syncDisguiseGesture()
+        if (!holder.isNewUi()) holder.syncDisguiseGesture()
     }
 
     override fun onViewRecycled(holder: PageHolder) {
@@ -462,9 +544,8 @@ class ShortVideoPagerAdapter(
     @Suppress("ClickableViewAccessibility")
     inner class PageHolder(
         itemView: View,
-        // 短视频音量已改走 ijk 软件增益（无极调音），不再需要系统 AudioManager。
-        // 参数保留是为了不动上层 ShortVideoFeedFragment 的构造链（该文件不属于本次改动范围）。
-        @Suppress("UNUSED_PARAMETER") audioManager: AudioManager,
+        // 反馈 #191：开关打开时音量键改调系统媒体音量，这个 AudioManager 又要用上了。
+        private val audioManager: AudioManager,
         private val activity: ShortVideoPlayerActivity
     ) : androidx.recyclerview.widget.RecyclerView.ViewHolder(itemView) {
 
@@ -479,28 +560,33 @@ class ShortVideoPagerAdapter(
         private val playIcon: ImageView = itemView.findViewById(R.id.playIcon)
         private val top: View = itemView.findViewById(R.id.top)
         private val textTitle: TextView = itemView.findViewById(R.id.text_title)
-        private val bottomControl: View = itemView.findViewById(R.id.bottom_control)
-        private val videoProgress: HighEnergyProgressBar = itemView.findViewById(R.id.videoprogress)
-        private val textProgress: TextView = itemView.findViewById(R.id.text_progress)
-        private val buttonVideo: ImageButton = itemView.findViewById(R.id.button_video)
-        private val buttonSoundCut: ImageButton = itemView.findViewById(R.id.button_sound_cut)
-        private val buttonSoundAdd: ImageButton = itemView.findViewById(R.id.button_sound_add)
-        private val buttonSpeed: TextView = itemView.findViewById(R.id.button_speed)
-        private val buttonDanmaku: ImageButton = itemView.findViewById(R.id.button_danmaku)
-        private val showSound: TextView = itemView.findViewById(R.id.showsound)
-        private val speedBoostHint: TextView = itemView.findViewById(R.id.text_speed_boost)
+        // 下面这 8 个控件**只有老版布局**有；新版布局（fragment_short_video_page_new）
+        // 用 shortNew* 那一套 id，取不到。写成非空类型会在 inflate 时直接抛
+        // `findViewById(...) must not be null`（用户反馈「短视频播放器依旧报错」）。
+        // 一律改成可空，调用点都在 newUi == null 分支里，安全调用即可。
+        private val bottomControl: View? = itemView.findViewById(R.id.bottom_control)
+        private val videoProgress: SeekBar? = itemView.findViewById(R.id.videoprogress)
+        private val textProgress: TextView? = itemView.findViewById(R.id.text_progress)
+        private val buttonVideo: ImageButton? = itemView.findViewById(R.id.button_video)
+        private val buttonSoundCut: ImageButton? = itemView.findViewById(R.id.button_sound_cut)
+        private val buttonSoundAdd: ImageButton? = itemView.findViewById(R.id.button_sound_add)
+        private val buttonSpeed: TextView? = itemView.findViewById(R.id.button_speed)
+        private val buttonDanmaku: ImageButton? = itemView.findViewById(R.id.button_danmaku)
+        private val showSound: TextView? = itemView.findViewById(R.id.showsound)
+        private val speedBoostHint: TextView? = itemView.findViewById(R.id.text_speed_boost)
+        internal var newUi: ShortVideoNewUi? = null
 
         // 圆屏适配前的原始 padding：圆屏下要在布局原有留白基础上再收进来，
         // 关掉开关时按这份快照还原（[applyRoundInsets] 可重复调用）
         private val baseTopPadding =
             intArrayOf(top.paddingLeft, top.paddingTop, top.paddingRight, top.paddingBottom)
         private val baseProgressPadding = intArrayOf(
-            videoProgress.paddingLeft, videoProgress.paddingTop,
-            videoProgress.paddingRight, videoProgress.paddingBottom
+            videoProgress?.paddingLeft ?: 0, videoProgress?.paddingTop ?: 0,
+            videoProgress?.paddingRight ?: 0, videoProgress?.paddingBottom ?: 0
         )
         private val baseProgressTextPadding = intArrayOf(
-            textProgress.paddingLeft, textProgress.paddingTop,
-            textProgress.paddingRight, textProgress.paddingBottom
+            textProgress?.paddingLeft ?: 0, textProgress?.paddingTop ?: 0,
+            textProgress?.paddingRight ?: 0, textProgress?.paddingBottom ?: 0
         )
 
         private val playerBridge = IjkPlayerBridge(onError = { what, _ ->
@@ -512,7 +598,8 @@ class ShortVideoPagerAdapter(
                 // KEEP_SCREEN_ON（画面已经不动了却一直不熄屏）
                 isPlaying = false
                 playIcon.visibility = View.VISIBLE
-                buttonVideo.setImageResource(R.drawable.btn_player_play)
+                buttonVideo?.setImageResource(R.drawable.btn_player_play)
+                newUi?.syncPlayback()
             }
             MsgUtil.showMsg(UiText.of("播放错误"))
         })
@@ -520,6 +607,27 @@ class ShortVideoPagerAdapter(
         private var stateJob: Job? = null
         private var playerReady = false
         private var textureView: TextureView? = null
+
+        /**
+         * 当前 [textureView] 的 SurfaceTexture 包出来的 Surface。
+         *
+         * 同一个 SurfaceTexture 只建一个：`Surface(st)` 是 native 句柄的包装，对象被 GC 不会
+         * 归还 native 资源，每次 surface 回调都新建一个就会持续泄漏（`PlayerSurfaceBinder`
+         * 的 `obtainTextureSurface` 记的是同一个坑）。换纹理或解绑时 release。
+         */
+        private var textureSurface: Surface? = null
+        private var textureSurfaceToken: SurfaceTexture? = null
+
+        /**
+         * 这个 holder 的 surface 丢了还没补上过一帧。
+         *
+         * 页面滑走时 TextureView 会摘掉 surface（[TextureView.SurfaceTextureListener.onSurfaceTextureDestroyed]
+         * → `setSurface(null)`），滑回来是一个新的 SurfaceTexture。此时播放器往往已经是
+         * prepared 的**暂停**状态：mediacodec 拿到新 surface 不会主动重绘上一帧，暂停中也不再
+         * 产新帧，于是整页停在纯黑（封面在 prepare 时已隐藏，页底是黑色）——反馈 #167
+         * 「回滑之后视频就黑了」。这个标记就是「该页需要重新出帧」的判据。
+         */
+        private var needsRepaint = false
         private var danmakuView: DanmakuView? = null
         private var danmakuManager: DanmakuManager? = null
         private var currentItem: ShortVideoItem? = null
@@ -558,7 +666,7 @@ class ShortVideoPagerAdapter(
          * `@Volatile`：主线程写、弹幕渲染线程（媒体时钟的 isPlaying 回调）读。
          */
         @Volatile
-        private var isPlaying = false
+        internal var isPlaying = false
             set(value) {
                 field = value
                 activity.syncKeepScreenOn()
@@ -584,6 +692,15 @@ class ShortVideoPagerAdapter(
         private val maxScale = 3.0f
 
         private var isScaling = false
+
+        /** 双指拖动后的画面位移（px）。只有放大到 1 倍以上才有意义（反馈 #129）。 */
+        private var translateX = 0f
+        private var translateY = 0f
+
+        /** 双指拖动时上一帧的手指重心；[panning] 为 false 表示当前没在拖。 */
+        private var lastFocusX = 0f
+        private var lastFocusY = 0f
+        private var panning = false
 
         var isInitialized = false
             private set
@@ -613,6 +730,8 @@ class ShortVideoPagerAdapter(
 
         fun bind(item: ShortVideoItem, position: Int) {
             // bind 只保留与条目数据相关的内容：监听器、手势检测器已在 init 里随 holder 只建一次
+            // holder 被复用到另一条视频时，把上一条的缩放 / 位移一起还原（反馈 #129）
+            if (currentItem !== item) resetScale()
             currentItem = item
 
             if (item.cover.isNotEmpty()) {
@@ -624,6 +743,7 @@ class ShortVideoPagerAdapter(
                     Glide.with(activity)
                         .asDrawable()
                         .load(GlideUtil.url_hq(item.cover))
+                        .apply(GlideUtil.thumbOptions(coverImage))
                         .into(coverImage)
                 }
             }
@@ -632,12 +752,13 @@ class ShortVideoPagerAdapter(
 
             isInitialized = true
 
-            applyRoundInsets()
+            // 复用 holder 的 newUi 可能已被 releasePlayer 置 null：按布局重建，别落回老链路
+            if (newUi == null) newUi = createNewUi()
+            if (newUi == null) applyRoundInsets()
+            newUi?.bind(item)
 
-            if (activity.isBottomControlVisible) {
-                bottomControl.visibility = View.VISIBLE
-            } else {
-                bottomControl.visibility = View.GONE
+            if (newUi == null) {
+                bottomControl?.visibility = if (activity.isBottomControlVisible) View.VISIBLE else View.GONE
             }
         }
 
@@ -657,20 +778,20 @@ class ShortVideoPagerAdapter(
             if (round) {
                 val padding = activity.roundPadding
                 top.setPadding(padding * 7, padding, padding * 7, 0)
-                videoProgress.setPadding(
+                videoProgress?.setPadding(
                     padding * 4, baseProgressPadding[1], padding * 4, baseProgressPadding[3]
                 )
-                textProgress.setPadding(
+                textProgress?.setPadding(
                     padding * 3, baseProgressTextPadding[1],
                     baseProgressTextPadding[2], baseProgressTextPadding[3]
                 )
             } else {
                 top.setPadding(baseTopPadding[0], baseTopPadding[1], baseTopPadding[2], baseTopPadding[3])
-                videoProgress.setPadding(
+                videoProgress?.setPadding(
                     baseProgressPadding[0], baseProgressPadding[1],
                     baseProgressPadding[2], baseProgressPadding[3]
                 )
-                textProgress.setPadding(
+                textProgress?.setPadding(
                     baseProgressTextPadding[0], baseProgressTextPadding[1],
                     baseProgressTextPadding[2], baseProgressTextPadding[3]
                 )
@@ -695,7 +816,7 @@ class ShortVideoPagerAdapter(
         init {
             gestureDetector = GestureDetector(activity, object : GestureDetector.SimpleOnGestureListener() {
                 override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                    toggleBottomControl()
+                    if (newUi != null) newUi?.onPageTap(e.x, e.y) else toggleBottomControl()
                     return true
                 }
 
@@ -710,6 +831,8 @@ class ShortVideoPagerAdapter(
                     startSpeedBoost()
                 }
             })
+
+            newUi = createNewUi()
 
             scaleGestureDetector = ScaleGestureDetector(activity, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                 override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
@@ -729,6 +852,13 @@ class ShortVideoPagerAdapter(
 
                 override fun onScaleEnd(detector: ScaleGestureDetector) {
                     isScaling = false
+                    // 缩回原始比例时位移一起归零，否则画面会偏在一角；否则再按边界收一次，
+                    // 免得松手时停在「画面被拖出边缘」的位置上（反馈 #129）
+                    if (currentScale <= minScale) {
+                        translateX = 0f
+                        translateY = 0f
+                    }
+                    applyScale()
                     itemView.parent?.requestDisallowInterceptTouchEvent(false)
                 }
             })
@@ -740,6 +870,9 @@ class ShortVideoPagerAdapter(
 
                 scaleGestureDetector?.onTouchEvent(event)
                 gestureDetector?.onTouchEvent(event)
+                // 双指拖动平移（反馈 #129）：放大后用两根手指搓动画面看边角。
+                // 只认 ≥2 根手指，单指上下滑照旧交给竖向 pager 翻视频，两者不抢手势。
+                handleTwoFingerPan(event)
                 // 长按加速是「按住生效」：抬手、被父容器打断（CANCEL）、或第二根手指按下
                 // （开始捏合缩放）都要立刻还原倍速，否则会一直停在 3 倍速上。
                 when (event.actionMasked) {
@@ -755,7 +888,7 @@ class ShortVideoPagerAdapter(
                 true
             }
 
-            top.setOnClickListener {
+            if (newUi == null) top.setOnClickListener {
                 // 短视频是 InstanceActivity 的「菜单入口页」：顶栏点击的语义是「展开主菜单」，
                 // 而不是 finish 掉本页。原来直接 finish() 会把整个页面关掉——短视频作为启动页时
                 // 更是直接退出应用。改用基类统一的 menuClick（与推荐/热门/排行榜等页面一致）。
@@ -770,7 +903,7 @@ class ShortVideoPagerAdapter(
             // 双击顶栏伪装：短视频的顶栏在分页 item 里（不在 Activity 的视图树上），
             // BaseActivity 那边找不到，必须在这里按 item 装。
             // 先装一次，之后每次 onBindViewHolder 由 [syncDisguiseGesture] 重算（开关可能被关掉）。
-            syncDisguiseGesture()
+            if (newUi == null) syncDisguiseGesture()
 
             // 可用区域尺寸变化后重摆画面：`adjustVideoSize()` 在区域还是 0 时会早退，
             // 而 prepare 往往早于本页完成布局（尤其是慢机型），只在 onPrepared 算一次会
@@ -778,38 +911,123 @@ class ShortVideoPagerAdapter(
             itemView.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
                 if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
                     adjustVideoSize()
+                    // 画面尺寸变了，缩放/位移的可拖范围跟着变，按新尺寸重新夹一次（反馈 #129）
+                    applyScale()
                 }
             }
 
-            initBottomButtons()
+            if (newUi == null) initBottomButtons()
+            // 中心播放键属于画面层，不属于底栏按钮组：新版布局下 initBottomButtons() 不调用，
+            // 少了这一句暂停后就再也点不回来（点击会穿透到 itemView 被当成「切常驻层」）。
+            bindCenterPlayButton()
+        }
+
+        /**
+         * 新版 UI 门面：布局里有 shortNewControls 才建，老布局返回 null（老链路一字不动）。
+         *
+         * 回收/释放会把 newUi 置 null（[releasePlayer]），holder 复用到新一条时必须重建，
+         * 否则复用页的手势会落回老底栏链路（新布局里那些按钮不存在）——表现为
+         * 「单击没反应、静置不沉浸」。重建前 [ShortVideoNewUi.release] 已摘掉它插的画面层子 View。
+         */
+        private fun createNewUi(): ShortVideoNewUi? {
+            if (itemView.findViewById<View>(R.id.shortNewControls) == null) return null
+            return ShortVideoNewUi(itemView, activity, object : ShortVideoNewUi.Host {
+                override fun isPlaying(): Boolean = this@PageHolder.isPlaying
+                override fun pause() { this@PageHolder.pause() }
+                override fun resume() { this@PageHolder.resume() }
+                override fun togglePlayPause() { this@PageHolder.togglePlayPause() }
+                override fun seekTo(positionMs: Long) {
+                    playerBridge.seekTo(positionMs)
+                    danmakuManager?.seekTo(positionMs)
+                }
+                override fun cycleSpeed() { this@PageHolder.cycleSpeed() }
+                override fun setSpeed(speed: Float) {
+                    currentSpeed = speed
+                    applySpeedToPlayers(speed)
+                    currentSpeedIndex = speedOptions.indexOf(speed).coerceAtLeast(0)
+                }
+                override fun toggleDanmaku(): Boolean {
+                    this@PageHolder.toggleDanmaku()
+                    return activity.isDanmakuVisible
+                }
+                override fun changeVolume(add: Boolean) { this@PageHolder.changeVolume(add) }
+                override fun currentSpeed(): Float = this@PageHolder.currentSpeed
+                override fun currentVolumePercent(): Int = this@PageHolder.volumePercent()
+                override fun changeQuality(quality: Int) {
+                    val video = currentItem ?: return
+                    CenterThreadPool.run {
+                        try {
+                            video.videoUrl = ""
+                            video.currentQuality = quality
+                            // 走数据源：推荐流等价于原 fetchVideoUrl；作者流会补 cid 并返回富化副本
+                            val playable = feedSource.resolvePlayable(video, quality)
+                            mainHandler.post {
+                                if (currentItem?.aid == video.aid) {
+                                    playerBridge.release()
+                                    playerReady = false
+                                    isPrepared = false
+                                    if (playable != null && playable.videoUrl.isNotEmpty()) {
+                                        if (playable !== video) currentItem = playable
+                                        initPlayer(playable)
+                                    } else {
+                                        MsgUtil.showMsg(activity.getString(R.string.uitext_shortvideoplayeractivity_002))
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            MsgUtil.err(UiText.of("切换清晰度："), e)
+                        }
+                    }
+                }
+                override fun switchVideo(offset: Int): Boolean = activity.switchCurrentVideo(offset)
+                override fun enterAuthorMode(startItem: ShortVideoItem?) {
+                    activity.enterAuthorMode(startItem)
+                }
+                override fun exitAuthorMode() { activity.exitAuthorMode() }
+                override fun isAuthorMode(): Boolean = activity.isAuthorModeActive()
+            })
+        }
+
+        /**
+         * 中心播放键的点击。
+         *
+         * 只给这个 56dp 图标装监听：页面级 GestureDetector 那条链（单击切底栏、
+         * 双击播放暂停、长按三倍速、双指缩放）一律不动。
+         */
+        private fun bindCenterPlayButton() {
+            // 三角只在暂停/播完时可见，此时点它就是「继续播」；[resume] 里已经处理了
+            // 「播到结尾」的情形（先 seekTo(0) 再 start），所以直接复用 togglePlayPause。
+            playIcon.setOnClickListener {
+                togglePlayPause()
+            }
         }
 
         private fun initBottomButtons() {
-            buttonVideo.setOnClickListener {
+            buttonVideo?.setOnClickListener {
                 controlVideo()
             }
 
-            buttonDanmaku.setImageResource(if (isDanmakuVisible) R.mipmap.danmakuon else R.mipmap.danmakuoff)
-            buttonDanmaku.setOnClickListener {
+            buttonDanmaku?.setImageResource(if (isDanmakuVisible) R.mipmap.danmakuon else R.mipmap.danmakuoff)
+            buttonDanmaku?.setOnClickListener {
                 toggleDanmaku()
             }
 
-            buttonSoundAdd.setOnClickListener {
+            buttonSoundAdd?.setOnClickListener {
                 changeVolume(true)
             }
 
-            buttonSoundCut.setOnClickListener {
+            buttonSoundCut?.setOnClickListener {
                 changeVolume(false)
             }
 
-            buttonSpeed.setOnClickListener {
+            buttonSpeed?.setOnClickListener {
                 cycleSpeed()
             }
 
-            videoProgress.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            videoProgress?.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar, position: Int, fromUser: Boolean) {
                     if (fromUser) {
-                        textProgress.text = StringUtil.toTime(position / 1000) + "/" + progressStr
+                        textProgress?.text = StringUtil.toTime(position / 1000) + "/" + progressStr
                     }
                 }
 
@@ -828,10 +1046,10 @@ class ShortVideoPagerAdapter(
             })
         }
 
-        private fun cycleSpeed() {
+        internal fun cycleSpeed() {
             currentSpeedIndex = (currentSpeedIndex + 1) % speedOptions.size
             currentSpeed = speedOptions[currentSpeedIndex]
-            buttonSpeed.text = "${currentSpeed}x"
+            buttonSpeed?.text = "${currentSpeed}x"
 
             applySpeedToPlayers(currentSpeed)
         }
@@ -843,7 +1061,7 @@ class ShortVideoPagerAdapter(
          * （见 `docs/architecture-map.md` §7.51）。只设播放器的话，2x 下媒体时间每秒推进 2000ms
          * 而弹幕时钟按 1x 追，越播越落后；3x 更是完全追不上。
          */
-        private fun applySpeedToPlayers(speed: Float) {
+        internal fun applySpeedToPlayers(speed: Float) {
             playerBridge.setSpeed(speed)
             danmakuManager?.setSpeed(speed)
         }
@@ -858,38 +1076,38 @@ class ShortVideoPagerAdapter(
             if (speedBoosted || isScaling) return
             speedBoosted = true
             applySpeedToPlayers(boostSpeed)
-            buttonSpeed.text = "${boostSpeed}x"
+            buttonSpeed?.text = "${boostSpeed}x"
 
             hideVolumeRunnable?.let { mainHandler.removeCallbacks(it) }
-            speedBoostHint.text = activity.getString(R.string.text_shortvideoplayer_speed_boost)
-            speedBoostHint.visibility = View.VISIBLE
+            speedBoostHint?.text = activity.getString(R.string.text_shortvideoplayer_speed_boost)
+            speedBoostHint?.visibility = View.VISIBLE
         }
 
         private fun endSpeedBoost() {
             if (!speedBoosted) return
             speedBoosted = false
             applySpeedToPlayers(currentSpeed)
-            buttonSpeed.text = "${currentSpeed}x"
-            speedBoostHint.visibility = View.GONE
+            buttonSpeed?.text = "${currentSpeed}x"
+            speedBoostHint?.visibility = View.GONE
         }
 
         /**
          * 切换弹幕显示/隐藏
          */
-        private fun toggleDanmaku() {
+        internal fun toggleDanmaku() {
             isDanmakuVisible = !isDanmakuVisible
             if (isDanmakuVisible) {
                 danmakuManager?.show()
-                buttonDanmaku.setImageResource(R.mipmap.danmakuon)
+                buttonDanmaku?.setImageResource(R.mipmap.danmakuon)
             } else {
                 danmakuManager?.hide()
-                buttonDanmaku.setImageResource(R.mipmap.danmakuoff)
+                buttonDanmaku?.setImageResource(R.mipmap.danmakuoff)
             }
             // 「播放默认值 → 弹幕 = 沿用上次」的记录位，与长视频共用
             SharedPreferencesUtil.putBoolean(SettingsKeys.PLAYER_LAST_DANMAKU, isDanmakuVisible)
         }
 
-        private fun togglePlayPause() {
+        internal fun togglePlayPause() {
             if (playerBridge.isPlaying) {
                 pause()
             } else {
@@ -897,7 +1115,7 @@ class ShortVideoPagerAdapter(
             }
         }
 
-        private fun controlVideo() {
+        internal fun controlVideo() {
             if (isPlaying) {
                 pause()
             } else {
@@ -909,12 +1127,20 @@ class ShortVideoPagerAdapter(
         }
 
         /**
-         * 音量键/按钮：调「无极调音」的软件增益（0–100%），不再动系统媒体音量。
+         * 音量键/按钮。
          *
+         * 默认（反馈 #191 的开关关着）调「无极调音」的软件增益（0–100%），不动系统媒体音量：
          * 0% 是真静音（采样乘 0），再按 + 从 0 恢复；静音/恢复语义与长视频播放器完全一致。
          * 手表系统媒体音量只有很少几档，软件增益是 1% 一档，才调得出 30% 这种档位。
+         *
+         * 开关打开后改成调手表的系统媒体音量——这才是 #191 要的：在本 App 里调完，退出后
+         * 别的应用也一起变。每次按下都现读开关，改完即生效，不用重进页面。
          */
-        private fun changeVolume(addOrCut: Boolean) {
+        internal fun changeVolume(addOrCut: Boolean) {
+            if (systemVolumeEnabled()) {
+                changeSystemVolume(addOrCut)
+                return
+            }
             val next = PlayerVolumePolicy.step(
                 volumeGainPercent,
                 if (addOrCut) 1 else -1,
@@ -923,13 +1149,49 @@ class ShortVideoPagerAdapter(
             applyVolumeGain(next)
             // 与长视频共用存档键：在短视频里调完，回到长视频播放器也是同一档
             SharedPreferencesUtil.putInt(PlayerVolumePolicy.KEY_GAIN_PERCENT, next)
+            showVolumePercent(next)
+        }
 
-            showSound.visibility = View.VISIBLE
-            showSound.text = activity.getString(R.string.player_port_volume_percent, next)
+        /** 开关打开时走这条路：直接改系统媒体音量，一档就是系统的一档。 */
+        private fun changeSystemVolume(addOrCut: Boolean) {
+            val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            if (max <= 0) return
+            val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+            val next = PlayerVolumePolicy.stepStream(current, max, if (addOrCut) 1 else -1)
+            if (next != current) {
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
+            }
+            showVolumePercent(PlayerVolumePolicy.streamPercent(next, max))
+        }
 
+        /** 音量提示条：显示 3 秒后自动收起（两种模式共用）。 */
+        private fun showVolumePercent(percent: Int) {
+            showSound?.visibility = View.VISIBLE
+            showSound?.text = activity.getString(R.string.player_port_volume_percent, percent)
             hideVolumeRunnable?.let { mainHandler.removeCallbacks(it) }
-            hideVolumeRunnable = Runnable { showSound.visibility = View.GONE }
+            hideVolumeRunnable = Runnable { showSound?.visibility = View.GONE }
             mainHandler.postDelayed(hideVolumeRunnable!!, 3000)
+        }
+
+        /** 反馈 #191 的开关（每次现读，改完即生效）。 */
+        private fun systemVolumeEnabled(): Boolean =
+            SharedPreferencesUtil.getBoolean(SettingsKeys.SHORTVIDEO_SYSTEM_VOLUME, false)
+
+        /**
+         * 当前音量百分比，给「更多」网格的底注显示。
+         *
+         * 两种音量模式下的「当前音量」不是同一个东西：系统音量模式读的是系统档位，
+         * App 增益模式读的是存档的增益值。显示时按当前模式取，与按下音量键的实际效果一致。
+         */
+        internal fun volumePercent(): Int {
+            if (systemVolumeEnabled()) {
+                val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                if (max <= 0) return 0
+                return PlayerVolumePolicy.streamPercent(
+                    audioManager.getStreamVolume(AudioManager.STREAM_MUSIC), max
+                )
+            }
+            return volumeGainPercent
         }
 
         /** 把 [percent] 打到当前播放器的软件增益上，并记到本页字段。 */
@@ -941,6 +1203,13 @@ class ShortVideoPagerAdapter(
 
         /** 起播时把存档增益打到新播放器上（每个分页 holder 各自一份播放器）。 */
         private fun applyStoredVolumeGain() {
+            if (systemVolumeEnabled()) {
+                // 系统音量模式下 App 增益固定满格：否则「系统 100% × 上次在 App 里调到 40%」
+                // 会变成双重衰减，用户把系统音量拉满还是小声。存档里的增益不动——切回
+                // 「App 内增益」模式时照旧按用户上次填的值走。
+                applyVolumeGain(PlayerVolumePolicy.MAX_PERCENT)
+                return
+            }
             volumeGainPercent = PlayerVolumePolicy.sanitize(
                 SharedPreferencesUtil.getInt(
                     PlayerVolumePolicy.KEY_GAIN_PERCENT,
@@ -950,12 +1219,79 @@ class ShortVideoPagerAdapter(
             applyVolumeGain(volumeGainPercent)
         }
 
+        /**
+         * 双指拖动平移（反馈 #129）。
+         *
+         * 直接把「两根手指重心」的位移累加到画面上：捏合改比例、这里改位移，两条路互不干扰。
+         * 单指一律不参与——竖向 pager 的「上下滑切视频」必须保持原样，
+         * 所以只在第二根手指按下的那一刻起接管，手指一少就立刻放手。
+         */
+        private fun handleTwoFingerPan(event: MotionEvent) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    lastFocusX = focusOf(event) { i -> event.getX(i) }
+                    lastFocusY = focusOf(event) { i -> event.getY(i) }
+                    // 先认下「两根手指」这件事；能不能真的平移看当前的缩放倍数，
+                    // 缩放往往在按下之后才发生，所以这里不能只在捏合前放行
+                    panning = true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    val fx = focusOf(event) { i -> event.getX(i) }
+                    val fy = focusOf(event) { i -> event.getY(i) }
+                    if (panning && event.pointerCount >= 2 && currentScale > minScale) {
+                        // 先抢在 pager 之前吃掉这次拖动，否则画面没动、视频先翻页了
+                        itemView.parent?.requestDisallowInterceptTouchEvent(true)
+                        translateX += fx - lastFocusX
+                        translateY += fy - lastFocusY
+                        applyScale()
+                    }
+                    lastFocusX = fx
+                    lastFocusY = fy
+                }
+
+                // 少一根手指就不再平移：剩下的那根要还给「上下滑切视频」
+                MotionEvent.ACTION_POINTER_UP -> panning = false
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> panning = false
+            }
+        }
+
+        private inline fun focusOf(event: MotionEvent, axis: (Int) -> Float): Float {
+            var sum = 0f
+            for (i in 0 until event.pointerCount) sum += axis(i)
+            return sum / event.pointerCount.coerceAtLeast(1)
+        }
+
+        /** 画面回到原始比例、居中（holder 复用换条目时调用）。 */
+        private fun resetScale() {
+            currentScale = minScale
+            translateX = 0f
+            translateY = 0f
+            panning = false
+            applyScale()
+        }
+
+        /**
+         * 把缩放与位移写进 TextureView 的变换矩阵。
+         *
+         * 缩放绕画面中心做，位移是屏幕像素；放大后内容比可视区多出来的那一半
+         * （[(currentScale] - 1) × 尺寸 / 2）就是能拖动的上限，越界直接夹住，
+         * 保证拖到头时画面边缘不会离开表盘（反馈 #129）。
+         */
         private fun applyScale() {
             textureView?.let { view ->
+                val w = view.width.toFloat()
+                val h = view.height.toFloat()
+                if (w <= 0f || h <= 0f) return@let
+                // coerceAtLeast 兜底：currentScale 理论上不小于 1，真缩到 1 以下时上限会是负数，
+                // 而 coerceIn(min, max) 在 min > max 时会直接抛 IllegalArgumentException
+                val maxTx = (currentScale - 1f).coerceAtLeast(0f) * w / 2f
+                val maxTy = (currentScale - 1f).coerceAtLeast(0f) * h / 2f
+                translateX = translateX.coerceIn(-maxTx, maxTx)
+                translateY = translateY.coerceIn(-maxTy, maxTy)
                 val matrix = Matrix()
-                val pivotX = view.width / 2f
-                val pivotY = view.height / 2f
-                matrix.setScale(currentScale, currentScale, pivotX, pivotY)
+                matrix.setScale(currentScale, currentScale, w / 2f, h / 2f)
+                matrix.postTranslate(translateX, translateY)
                 view.setTransform(matrix)
             }
         }
@@ -967,7 +1303,7 @@ class ShortVideoPagerAdapter(
         }
 
         private fun toggleBottomControl() {
-            if (bottomControl.visibility == View.VISIBLE) {
+            if (bottomControl?.visibility == View.VISIBLE) {
                 hideBottomControl()
             } else {
                 showBottomControl()
@@ -975,19 +1311,19 @@ class ShortVideoPagerAdapter(
         }
 
         private fun showBottomControl() {
-            bottomControl.visibility = View.VISIBLE
+            bottomControl?.visibility = View.VISIBLE
             activity.isBottomControlVisible = true
 
             hideBottomRunnable?.let { mainHandler.removeCallbacks(it) }
             hideBottomRunnable = Runnable {
-                bottomControl.visibility = View.GONE
+                bottomControl?.visibility = View.GONE
                 activity.isBottomControlVisible = false
             }
             mainHandler.postDelayed(hideBottomRunnable!!, 10000)
         }
 
         private fun hideBottomControl() {
-            bottomControl.visibility = View.GONE
+            bottomControl?.visibility = View.GONE
             activity.isBottomControlVisible = false
             hideBottomRunnable?.let { mainHandler.removeCallbacks(it) }
             hideBottomRunnable = null
@@ -997,10 +1333,18 @@ class ShortVideoPagerAdapter(
             val item = currentItem ?: return
             if (item.videoUrl.isEmpty()) {
                 CenterThreadPool.run {
-                    val success = ShortVideoFeedApi.fetchVideoUrl(item)
+                    // 走数据源：推荐流就是原来的 fetchVideoUrl（返回原实例）；
+                    // 作者流条目没有 cid，先补 cid 再取流，可能返回富化副本
+                    val playable = try {
+                        feedSource.resolvePlayable(item)
+                    } catch (e: Exception) {
+                        Logu.e("ShortVideo", "取流异常 aid=${item.aid}: ${e.message}")
+                        null
+                    }
                     mainHandler.post {
-                        if (success && item.videoUrl.isNotEmpty()) {
-                            initPlayer(item)
+                        if (playable != null && playable.videoUrl.isNotEmpty()) {
+                            if (playable !== item && currentItem?.aid == item.aid) currentItem = playable
+                            initPlayer(playable)
                         } else {
                             lastBufferingVisible = false
                             bufferingIndicator.visibility = View.GONE
@@ -1016,8 +1360,22 @@ class ShortVideoPagerAdapter(
             }
         }
 
+        /** 当前播放进度（毫秒）；「只看 TA」续播保存位置用。播放器没起来时返回 0。 */
+        fun positionMs(): Long {
+            if (!playerReady) return 0L
+            return try {
+                playerBridge.currentPosition
+            } catch (e: Exception) {
+                videoNow.toLong()
+            }
+        }
+
         private fun initPlayer(item: ShortVideoItem) {
             if (playerReady) return
+
+            // 新建播放器 = 新的 surface 生命周期：上一条（或上一次挂载）丢过的 surface 不算数，
+            // 否则第一次挂载就会被判成「丢过 surface」而多 seek 一次
+            needsRepaint = false
 
             // 与 lastBufferingVisible 同步，避免状态收集因“值相同”而不再纠正可见性
             lastBufferingVisible = true
@@ -1047,12 +1405,15 @@ class ShortVideoPagerAdapter(
                         override fun onSurfaceTextureAvailable(
                             st: SurfaceTexture, w: Int, h: Int
                         ) {
-                            playerBridge.setSurface(Surface(st))
+                            bindTextureSurface(st)
                         }
 
                         override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
                         override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                            // 先让播放器松手，再放掉我们自己包出来的 Surface
                             playerBridge.setSurface(null)
+                            needsRepaint = true
+                            releaseTextureSurface()
                             return true
                         }
 
@@ -1073,24 +1434,29 @@ class ShortVideoPagerAdapter(
                         { isPrepared && isPlaying }
                     )
                 }
-                danmakuManager?.init()
+                // 短视频弹幕默认不跟长视频共用「15 行 + 允许重叠」，改用独立的一份保守档
+                // （开关与取值都在 player/ShortVideoDanmakuPolicy；关掉开关这里就是 null = 照旧）
+                danmakuManager?.init(ShortVideoDanmakuPolicy.overrideOrNull())
                 // 每条视频都会新建 DanmakuManager（默认可见），要把当前开关带过去；
                 // prepare 前的 hide() 只记状态，真正隐藏由 DanmakuManager.prepared() 补上
                 if (!isDanmakuVisible) danmakuManager?.hide()
                 // 相邻页可能在用户切换开关之前就 bind 过，图标以开播这一刻为准
-                buttonDanmaku.setImageResource(if (isDanmakuVisible) R.mipmap.danmakuon else R.mipmap.danmakuoff)
+                buttonDanmaku?.setImageResource(if (isDanmakuVisible) R.mipmap.danmakuon else R.mipmap.danmakuoff)
                 // 弹幕 View 是 initPlayer 里才取到的，此时补一次圆屏留白（bind 时它还可能是 null）
-                applyRoundInsets()
+                if (newUi == null) applyRoundInsets()
 
                 playerBridge.setOnPrepared {
                     isPrepared = true
+                    // prepare 完成时还没有 surface（页面还没上屏，或 surface 已被摘掉）：
+                    // 等它真的挂上来时要强制出一帧，否则 mediacodec 没有输出目标，起来就是黑的
+                    if (textureSurface == null) needsRepaint = true
                     val st = playerBridge.state.value
                     videoAll = st.duration.toInt()
                     progressStr = StringUtil.toTime(videoAll / 1000)
                     // 换了视频要复位进度去重标记，否则新视频的文本要等整秒变化才刷新
                     videoNowLast = -1
                     videoNowLastSec = -1
-                    videoProgress.max = videoAll
+                    if (newUi == null) videoProgress?.max = videoAll
 
                     lastBufferingVisible = false
                     bufferingIndicator.visibility = View.GONE
@@ -1100,26 +1466,43 @@ class ShortVideoPagerAdapter(
                     // 尺寸从 state 现取（含旋转角）：prepare 时容器元数据没带分辨率的话，
                     // 这里会先按退化比例摆好，等 setOnVideoSizeChanged 补上尺寸再纠正。
                     applyVideoSizeFromState(st)
-                    applySpeedToPlayers(currentSpeed)
+                    // 长按三倍速可能在本条 prepare 之前就按下了：这时直接下发 currentSpeed
+                    // 会把正在生效的 boost 压回 1x，按钮还停在 3.0x（假倍速）。所以按
+                    // speedBoosted 现状决定下发哪个值。
+                    applySpeedToPlayers(if (speedBoosted) boostSpeed else currentSpeed)
                     // 无极调音：新播放器要套用存档增益（换页/回收重建都走这里）
                     applyStoredVolumeGain()
+
+                    // 「只看 TA」续播：换源重建播放器后回到进入前的进度（一次性消费）。
+                    // 弹幕不用单独 seek：它跟的是媒体时钟（videoNow），状态收集会采到 seek 后的位置
+                    val initialSeek = consumeInitialSeek(boundPosition)
+                    if (initialSeek > 0) {
+                        try {
+                            playerBridge.seekTo(initialSeek)
+                        } catch (e: Exception) {
+                            Logu.e("ShortVideo", "只看 TA 续播定位失败: ${e.message}")
+                        }
+                    }
 
                     // 只有当前页面活跃时才自动播放，防止弱网延迟准备导致两个视频同时播放
                     if (isActive) {
                         playerBridge.start()
                         isPlaying = true
-                        buttonVideo.setImageResource(R.drawable.btn_player_pause)
+                        buttonVideo?.setImageResource(R.drawable.btn_player_pause)
                         // 不在这里 resume 弹幕：此刻 `loadDanmaku(item)` 还没跑，
                         // `DanmakuManager.resume()` 会因 isPrepared=false 直接返回（空操作）。
                         // 弹幕真正的起播由 `DanmakuManager.prepared()` 回调负责。
                     } else {
                         // 页面不活跃，暂停准备就绪
                         isPlaying = false
-                        buttonVideo.setImageResource(R.drawable.btn_player_play)
+                        buttonVideo?.setImageResource(R.drawable.btn_player_play)
                         playIcon.visibility = View.VISIBLE
                     }
 
                     startStateCollection()
+                    // 出帧即通知信息流收加载层；播放态同步进新版状态机（否则中心键/静置计时都按旧态走）
+                    onFirstFrame?.invoke()
+                    newUi?.syncPlayback()
                     // 异步加载弹幕
                     loadDanmaku(item)
                 }
@@ -1128,8 +1511,9 @@ class ShortVideoPagerAdapter(
                     // 不再循环当前条：交给 Activity 决定「切下一条 / 相关推荐续接 / 停下」
                     // （旧实现是 seekTo(0) 无限循环同一条，与手机版行为不一致）
                     isPlaying = false
-                    buttonVideo.setImageResource(R.drawable.btn_player_play)
+                    buttonVideo?.setImageResource(R.drawable.btn_player_play)
                     playIcon.visibility = View.VISIBLE
+                    newUi?.syncPlayback()
                     danmakuManager?.pause()
                     activity.onVideoCompleted(boundPosition)
                 }
@@ -1151,6 +1535,96 @@ class ShortVideoPagerAdapter(
                 isPlaying = false
                 MsgUtil.showMsg(UiText.of("播放器初始化失败"))
             }
+        }
+
+        /**
+         * 把 [st] 包出来的 Surface 挂到播放器上，再按 [ShortVideoSurfaceRebindPolicy] 决定要不要
+         * 「强制出帧 / 接着播」。
+         *
+         * 幂等：页面滑回来时「surface 回调」与「onPageSelected → setActive(true)」的先后顺序
+         * 并不确定，两条路径最终都落到这里。重复调用不会重复建 Surface，也不会重复 seek。
+         */
+        private fun bindTextureSurface(st: SurfaceTexture) {
+            if (textureSurfaceToken !== st) {
+                // 换了纹理：先把旧包装从播放器上摘下来再释放，
+                // 否则播放器可能还在持有一个已被 release 的 Surface
+                playerBridge.setSurface(null)
+                releaseTextureSurface()
+                textureSurface = Surface(st)
+                textureSurfaceToken = st
+            }
+            val surface = textureSurface ?: return
+            playerBridge.setSurface(surface)
+
+            val action = ShortVideoSurfaceRebindPolicy.decide(
+                hasTexture = true,
+                needsRepaint = needsRepaint,
+                isPrepared = isPrepared,
+                isActive = isActive,
+                // 横滑到详情页时宿主不在第 0 页：这一页就算重新拿到 surface 也不许自己起播
+                // （否则详情页背景音会响，破坏「滑去详情页暂停」这个既有行为）
+                feedVisible = activity.currentShellPage() == 0
+            )
+            // 先落标记再执行动作：repaint 里的 play() 不能再走一次「补 surface」
+            needsRepaint = false
+
+            when (action) {
+                ShortVideoSurfaceAction.ATTACH_REPAINT ->
+                    repaintAfterSurfaceRebind(startAfter = false)
+
+                ShortVideoSurfaceAction.ATTACH_REPAINT_AND_START ->
+                    repaintAfterSurfaceRebind(startAfter = true)
+
+                ShortVideoSurfaceAction.ATTACH_ONLY,
+                ShortVideoSurfaceAction.NONE -> Unit
+            }
+        }
+
+        /**
+         * 幂等入口：确保「该往哪画」这件事当前是接好的。
+         *
+         * 由 [setActive] 在页面变活跃时调用。正常情况下 surface 回调已经处理过，这里直接返回；
+         * 只有回调顺序被打乱（surface 就绪早于 / 晚于页面活跃）时才真去补一次，
+         * 避免「播放器在播、画面却全黑、也没有任何回调能救回来」这种状态。
+         */
+        fun ensureSurfaceReady() {
+            val st = textureView?.surfaceTexture ?: return
+            val bound = textureSurface
+            // 已经挂在同一个 SurfaceTexture 上且没丢过：不重复 setSurface（重复会触发一次 flush）
+            if (bound != null && textureSurfaceToken === st && !needsRepaint) return
+            bindTextureSurface(st)
+        }
+
+        /**
+         * 换过 surface 之后强制出一帧。
+         *
+         * 只 `setSurface` 是不够的：mediacodec 的输出链路在换 surface 后不会主动重绘上一帧，
+         * 而暂停中的播放器更是一个新帧都不解 —— 页面就停在纯黑（封面在 prepare 时已隐藏，
+         * 页底是 `@android:color/black`）。长视频那边同样是重挂后 seek 回当前位置强制出画面
+         * （`PlayerActivity` 的 `onSurfaceReattached`）。
+         */
+        private fun repaintAfterSurfaceRebind(startAfter: Boolean) {
+            if (!isPrepared) return
+            // 以播放器真实位置为准，拿不到时才退回最近一次采样值
+            val target = playerBridge.currentPosition.takeIf { it > 0L } ?: videoNow.toLong()
+            try {
+                playerBridge.seekTo(target)
+                danmakuManager?.seekTo(target)
+            } catch (e: Exception) {
+                Logu.e("ShortVideo", "重挂 surface 后强制出帧失败: ${e.message}")
+            }
+            if (startAfter) play()
+        }
+
+        /** 放掉当前 Surface 包装；SurfaceTexture 本身归 TextureView 管，这里不碰。 */
+        private fun releaseTextureSurface() {
+            try {
+                textureSurface?.release()
+            } catch (e: Exception) {
+                Logu.e("ShortVideo", "释放 Surface 异常: ${e.message}")
+            }
+            textureSurface = null
+            textureSurfaceToken = null
         }
 
         /**
@@ -1194,20 +1668,16 @@ class ShortVideoPagerAdapter(
         /** 旧版 XML 弹幕回退路径。 */
         private fun loadDanmakuFromXml(danmakuUrl: String) {
             if (danmakuUrl.isEmpty()) return
-            val response = NetWorkUtil.get(danmakuUrl, NetWorkUtil.webHeaders)
-            val body = response.body
-            if (body != null) {
-                // 解压弹幕数据
-                val decompressed = NetWorkUtil.decompress(body.bytes())
-                val inputStream = java.io.ByteArrayInputStream(decompressed)
-                // 必须回主线程：DanmakuManager.createParser 内部用的是进程级单例
-                // BiliDanmakuLoader（dataSource 是它的实例字段），并发调用会互相覆盖；
-                // 真正的 XML 解析是懒执行的，在 DanmakuView 自己的渲染线程上做，不在这里
-                mainHandler.post {
-                    danmakuManager?.loadFromXmlInput(inputStream)
-                }
+            // 统一走 DanmakuFileFetcher：非 2xx / 空正文直接抛 IOException，由上层 catch 记日志；
+            // 旧实现不判状态码，404/412 的 HTML 错误页会被解压后喂给解析器（调研清单第 1 条）
+            val decompressed = DanmakuFileFetcher.fetch(danmakuUrl, NetWorkUtil.webHeaders)
+            val inputStream = java.io.ByteArrayInputStream(decompressed)
+            // 必须回主线程：DanmakuManager.createParser 内部用的是进程级单例
+            // BiliDanmakuLoader（dataSource 是它的实例字段），并发调用会互相覆盖；
+            // 真正的 XML 解析是懒执行的，在 DanmakuView 自己的渲染线程上做，不在这里
+            mainHandler.post {
+                danmakuManager?.loadFromXmlInput(inputStream)
             }
-            response.close()
         }
 
         private fun startStateCollection() {
@@ -1235,11 +1705,12 @@ class ShortVideoPagerAdapter(
                             videoNow = pos
                             // 进度条每 250ms 刷（要平滑），但文本一秒才变一次，
                             // 所以只在整秒变化时才做字符串拼接与 setText
-                            videoProgress.progress = pos
+                            if (newUi != null) newUi?.onProgress(pos, videoAll, isPlaying)
+                            else videoProgress?.progress = pos
                             val sec = pos / 1000
                             if (sec != videoNowLastSec) {
                                 videoNowLastSec = sec
-                                textProgress.text = StringUtil.toTime(sec) + "/" + progressStr
+                                if (newUi == null) textProgress?.text = StringUtil.toTime(sec) + "/" + progressStr
                             }
                         }
                     }
@@ -1250,7 +1721,11 @@ class ShortVideoPagerAdapter(
                     // 真值兜底：isPlaying 是「保持亮屏」的判据，必须跟播放器实际状态对齐。
                     // 只靠各处显式赋值会漏（例如 start() 被调用但播放器已经自己停了）。
                     val realPlaying = playerBridge.isPlaying
-                    if (realPlaying != isPlaying) isPlaying = realPlaying
+                    if (realPlaying != isPlaying) {
+                        isPlaying = realPlaying
+                        // 缓冲中的短暂停摆不算「暂停」：不据此弹中心键/控件层，等缓冲结束再对齐
+                        if (!st.isBuffering) newUi?.syncPlayback()
+                    }
                 }
             }
         }
@@ -1349,6 +1824,8 @@ class ShortVideoPagerAdapter(
          * 但**已装上的触摸层不会自动消失**，所以关闭时还要显式 `detach`——
          * 否则单击顶栏会一直多等一个双击判定窗口。
          */
+        fun isNewUi(): Boolean = newUi != null
+
         fun syncDisguiseGesture() {
             if (DisguisePrefs.isEnabled()) DisguiseGesture.install(activity, top)
             else DisguiseGesture.detach(top)
@@ -1362,9 +1839,13 @@ class ShortVideoPagerAdapter(
                 isPlaying = false
                 return
             }
+            // 起播前把画面通道再确认一次：回滑回来时 surface 可能刚被摘掉或还没挂上，
+            // 直接 start() 只会播出声音、画面停在黑帧（反馈 #167）
+            ensureSurfaceReady()
             playerBridge.start()
             isPlaying = true
-            buttonVideo.setImageResource(R.drawable.btn_player_pause)
+            newUi?.syncPlayback()
+            buttonVideo?.setImageResource(R.drawable.btn_player_pause)
             playIcon.visibility = View.GONE
             danmakuManager?.resume()
         }
@@ -1376,8 +1857,9 @@ class ShortVideoPagerAdapter(
                 Logu.e("ShortVideo", "暂停播放器异常: ${e.message}")
             }
             isPlaying = false
+            newUi?.syncPlayback()
             try {
-                buttonVideo.setImageResource(R.drawable.btn_player_play)
+                buttonVideo?.setImageResource(R.drawable.btn_player_play)
                 playIcon.visibility = View.VISIBLE
             } catch (e: Exception) {
                 Logu.e("ShortVideo", "更新UI异常: ${e.message}")
@@ -1391,6 +1873,9 @@ class ShortVideoPagerAdapter(
 
         fun resume() {
             if (isPrepared) {
+                // 手动点播放 / 回前台续播：surface 可能还没挂回来，先补好通道再 start，
+                // 否则只有声音没有画面（反馈 #167）
+                ensureSurfaceReady()
                 // 已经播到结尾（自动接续失败停住的情况）：先回到开头，否则 start() 会立刻再次触发完成
                 if (videoAll > 0 && videoNow >= videoAll - 250) {
                     playerBridge.seekTo(0)
@@ -1398,8 +1883,9 @@ class ShortVideoPagerAdapter(
                 }
                 playerBridge.start()
                 isPlaying = true
-                buttonVideo.setImageResource(R.drawable.btn_player_pause)
+                buttonVideo?.setImageResource(R.drawable.btn_player_pause)
                 playIcon.visibility = View.GONE
+                newUi?.syncPlayback()
                 danmakuManager?.resume()
             }
         }
@@ -1410,10 +1896,13 @@ class ShortVideoPagerAdapter(
         fun setActive(active: Boolean) {
             isActive = active
             if (active) {
+                // 回滑回到这一页：它的 surface 可能已经随页面 detach 被摘掉，
+                // 这里先把画面通道补好再决定起播，否则 start() 出的是黑帧（反馈 #167）
+                ensureSurfaceReady()
                 if (isPrepared && !isPlaying) {
                     playerBridge.start()
                     isPlaying = true
-                    buttonVideo.setImageResource(R.drawable.btn_player_pause)
+                    buttonVideo?.setImageResource(R.drawable.btn_player_pause)
                     playIcon.visibility = View.GONE
                     danmakuManager?.resume()
                 }
@@ -1421,11 +1910,12 @@ class ShortVideoPagerAdapter(
                 if (isPlaying) {
                     playerBridge.pause()
                     isPlaying = false
-                    buttonVideo.setImageResource(R.drawable.btn_player_play)
+                    buttonVideo?.setImageResource(R.drawable.btn_player_play)
                     playIcon.visibility = View.VISIBLE
                     danmakuManager?.pause()
                 }
             }
+            newUi?.syncPlayback()
         }
 
         fun isPlaying(): Boolean {
@@ -1433,6 +1923,8 @@ class ShortVideoPagerAdapter(
         }
 
         fun releasePlayer() {
+            newUi?.release()
+            newUi = null
             stateJob?.cancel()
             stateJob = null
 
@@ -1450,6 +1942,8 @@ class ShortVideoPagerAdapter(
                 Logu.e("ShortVideo", "释放播放器异常: ${e.message}")
             }
             playerReady = false
+            releaseTextureSurface()
+            needsRepaint = false
             textureView = null
             isPrepared = false
             isPlaying = false
@@ -1492,6 +1986,13 @@ class ShortVideoPagerAdapter(
             IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 1),
             IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1),
             IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "opensles", 0),
+            // 倍速必须开 soundtouch：ijk 的变速是靠 soundtouch 拉伸音轨、让音轨时钟加速，
+            // 视频再跟着音轨时钟走；不开时 setSpeed 只改了 pf_playback_rate 这个属性，
+            // 实际播放仍是 1x（长按三倍速失效、按钮却显示 3.0x 就是它）。stock ijkplayer
+            // 里 `soundtouch` 默认 0（bilibili/ijkplayer `ff_ffplay_options.h`：
+            // `{ "soundtouch", "SoundTouch: enable", OPTION_INT(0, 0, 1) }`），长视频
+            // PlayerActivity 一直是显式设 1 的，短视频这份选项列表此前漏了。
+            IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "soundtouch", 1),
             IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 5),
             IjkOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 0),
             IjkOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "analyzeduration", 1),

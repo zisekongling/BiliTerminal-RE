@@ -57,14 +57,14 @@ public class FileUtil {
     private static final int DELETE_MAX_DEPTH = 32;
 
     /**
-     * 递归删除目录/文件，兼容旧调用点、**忽略删除结果**。
+     * 递归删除目录/文件，**返回是否真的删干净**（语义与 [deleteFolderRecursively] 一致）。
      *
-     * 新代码（尤其"用户点了删除要立刻知道成不成"的地方）请用 [deleteFolderRecursively]：
-     * 本方法存在只是为了让旧调用点（视频详情页清缓存 / 下载列表 / 分 P 选择页等）不改签名，
-     * 语义已换成同一套可靠实现。
+     * 反馈 #162：签名原来是 void，删没删掉的结果就丢在这一层，于是视频详情页长按清缓存无论成败
+     * 都提示「已清除」——用户看到提示成功、回缓存页条目还在。现在把真实结果交出去；
+     * 新代码请直接用 [deleteFolderRecursively]，本方法保留只是为了不改旧调用点的写法。
      */
-    public static void deleteFolder(File folder) {
-        deleteFolderRecursively(folder);
+    public static boolean deleteFolder(File folder) {
+        return deleteFolderRecursively(folder);
     }
 
     /**
@@ -375,25 +375,55 @@ public class FileUtil {
         File configured = getConfiguredVideoDownloadPath();
         File fallback = getFallbackVideoDownloadPath();
         boolean wasFallback = videoFallbackActive;
+        // 上次进程**实际**用的是哪个根（落盘在 save_path_video_active）。
+        // videoFallbackActive 只活在内存里，而每次更新都会把进程重启一次，于是降级期间写下的
+        // 缓存重启后既不会被搬回、也不会被扫描 —— 反馈 #187「每一次更新以后缓存全被重置」。
+        String savedDir = SharedPreferencesUtil.getString(SettingsKeys.SAVE_PATH_VIDEO_ACTIVE, "");
+        boolean fallbackIsSaved = StoragePathPolicy.sameDir(savedDir, fallback.getAbsolutePath());
+        boolean sameRoot = StoragePathPolicy.sameDir(configured.getAbsolutePath(), fallback.getAbsolutePath());
 
         if (canWriteDirectory(configured)) {
-            if (wasFallback) {
-                videoFallbackActive = false;
+            videoFallbackActive = false;
+            boolean fallbackHasContent = StoragePathPolicy.hasRealContent(listNames(fallback));
+            boolean configuredHasContent = StoragePathPolicy.hasRealContent(listNames(configured));
+            // 除了「本进程刚从降级态回来」，还要认「上次进程用的是降级目录」，
+            // 否则进程一重启就永远搬不回来；正式目录空、降级目录有货时也直接搬回（老用户的一次性找回）。
+            // 同一个目录时绝不做移动（会自己搬给自己）。
+            if (!sameRoot && StoragePathPolicy.shouldReclaimFallback(
+                    wasFallback, fallbackIsSaved, fallbackHasContent, configuredHasContent)) {
                 int moved = mergeMoveDirectoryContents(fallback, configured);
-                Logu.d("storage-perm", "正式目录恢复可写，搬回 " + moved + " 项缓存 -> " + configured);
+                Logu.d("storage-perm", "正式目录可写，搬回 " + moved + " 项缓存 -> " + configured);
             }
+            rememberActiveVideoDir(configured);
             return configured;
         }
 
         if (canWriteDirectory(fallback)) {
             videoFallbackActive = true;
-            if (!wasFallback) showStorageMsg(context, R.string.msg_storage_fallback, fallback.getAbsolutePath());
+            // 只有「本次进程第一次降级、且上次也不是降级」才提示一句，避免每次启动都弹
+            if (!wasFallback && !fallbackIsSaved) {
+                showStorageMsg(context, R.string.msg_storage_fallback, fallback.getAbsolutePath());
+            }
+            rememberActiveVideoDir(fallback);
             return fallback;
         }
 
         videoFallbackActive = false;
         showStorageMsg(context, R.string.msg_storage_unavailable);
         return null;
+    }
+
+    /**
+     * 记下本次进程实际使用的缓存根，供下次启动（尤其是更新后的那次重启）沿用。
+     *
+     * 写失败不影响本次使用，只是下次启动会重新判一次可写性。
+     */
+    private static void rememberActiveVideoDir(File dir) {
+        try {
+            SharedPreferencesUtil.putString(SettingsKeys.SAVE_PATH_VIDEO_ACTIVE, dir.getAbsolutePath());
+        } catch (Exception e) {
+            Log.w("storage-perm", "记录实际缓存根失败：" + e.getClass().getSimpleName());
+        }
     }
 
     /**

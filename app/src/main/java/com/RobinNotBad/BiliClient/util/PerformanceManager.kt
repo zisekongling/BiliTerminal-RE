@@ -31,8 +31,25 @@ object PerformanceManager {
     @Volatile
     private var currentPerfLevel: Int = PERF_LEVEL_MEDIUM
 
+    /**
+     * 用户显式开启的高性能模式（只代表**用户的意图**，不再由自动判定写入）。
+     *
+     * 26.11.08 修正：旧实现探测到高档设备时会把 `high_performance_mode` 直接写成 true，
+     * 于是用户从没碰过开关却看到它是「开」的；在高档机上再关一次又会被
+     * `currentPerfLevel == PERF_LEVEL_HIGH` 兜回开，等于那个开关根本关不掉。
+     * 现在拆成两个来源：[userSetHighPerf] 记录「用户设过没有」，[autoDetectedHighPerf]
+     * 记录「设备自动判定的默认值」，用户一旦设过就完全听用户的。
+     */
     @Volatile
     private var highPerformanceMode: Boolean = false
+
+    /** 用户是否在设置里设过「高性能模式」（存档键存在即算设过）。 */
+    @Volatile
+    private var userSetHighPerf: Boolean = false
+
+    /** 设备自动判定为高档（只用于「用户没设过」时的默认值）。 */
+    @Volatile
+    private var autoDetectedHighPerf: Boolean = false
 
     @Volatile
     private var initialized: Boolean = false
@@ -124,9 +141,12 @@ object PerformanceManager {
             initialized = true
 
             // 检查用户是否已手动设置高性能模式
-            if (SharedPreferencesUtil.sharedPreferences.contains(KEY_HIGH_PERFORMANCE_MODE)) {
+            userSetHighPerf = SharedPreferencesUtil.sharedPreferences.contains(KEY_HIGH_PERFORMANCE_MODE)
+            if (userSetHighPerf) {
                 highPerformanceMode = SharedPreferencesUtil.getBoolean(KEY_HIGH_PERFORMANCE_MODE, false)
             }
+            // 自动判定的结果单独记一个键（见 KEY_PERFORMANCE_AUTO_DETECTED 的注释）
+            autoDetectedHighPerf = SharedPreferencesUtil.getBoolean(KEY_PERFORMANCE_AUTO_DETECTED, false)
 
             if (SharedPreferencesUtil.sharedPreferences.contains(KEY_DEVICE_PERFORMANCE_LEVEL)) {
                 // 有缓存：直接读，零硬件探测
@@ -155,14 +175,14 @@ object PerformanceManager {
             currentPerfLevel = level
             SharedPreferencesUtil.putInt(KEY_DEVICE_PERFORMANCE_LEVEL, level)
 
-            // 高性能设备自动启用高性能模式（用户手动设过就不覆盖）
-            if (level == PERF_LEVEL_HIGH && !SharedPreferencesUtil.sharedPreferences.contains(KEY_HIGH_PERFORMANCE_MODE)) {
-                highPerformanceMode = true
-                SharedPreferencesUtil.putBoolean(KEY_HIGH_PERFORMANCE_MODE, true)
-            }
+            // 自动判定的结果只写自动判定键，**不碰用户开关**：
+            // 旧实现这里会把 high_performance_mode 报成 true，用户看到开关是「开」却不是自己开的，
+            // 而高档机上那个开关又被 isEffectiveHighPerf 兜回开，等于关不掉。
+            autoDetectedHighPerf = level == PERF_LEVEL_HIGH
+            SharedPreferencesUtil.putBoolean(KEY_PERFORMANCE_AUTO_DETECTED, autoDetectedHighPerf)
 
             applyPerformanceSettings()
-            Logu.i("PerformanceManager", "后台检测完成: perfLevel=$level, score=$score, highPerfMode=$highPerformanceMode")
+            Logu.i("PerformanceManager", "后台检测完成: perfLevel=$level, score=$score, autoHighPerf=$autoDetectedHighPerf, userSet=$userSetHighPerf")
         } catch (e: Exception) {
             // 检测失败保持中档即可，不影响使用
             Logu.e("PerformanceManager", "性能检测失败: ${e.message}")
@@ -170,10 +190,14 @@ object PerformanceManager {
     }
 
     /**
-     * 设置高性能模式
+     * 设置高性能模式（用户在设置页拨开关）。
+     *
+     * 一旦调用过，[userSetHighPerf] 即为 true，此后完全听用户的：
+     * 高档设备上关掉它，[isEffectiveHighPerf] 就真的返回 false（26.11.08 修正）。
      */
     fun setHighPerformanceMode(enabled: Boolean) {
         highPerformanceMode = enabled
+        userSetHighPerf = true
         SharedPreferencesUtil.putBoolean(KEY_HIGH_PERFORMANCE_MODE, enabled)
         applyPerformanceSettings()
         Logu.i("PerformanceManager", "高性能模式: $enabled")
@@ -200,9 +224,31 @@ object PerformanceManager {
     fun isLowPerfDevice(): Boolean = isLowPerfLevel(currentPerfLevel, highPerformanceMode)
 
     /**
+     * 「高性能模式实际生效没有」（纯函数，便于 JVM 单测）
+     *
+     * 26.11.08 修正的规则：**用户设过就完全听用户的**——高档设备上把开关关掉就是真的关掉；
+     * 只有「用户从没设过」时才用设备自动判定的默认值兜着。
+     * 旧实现是 `highPerformanceMode || level == HIGH`，导致高档机上那个开关怎么关都无效。
+     *
+     * @param userSet     用户在设置页设过没有（存档键是否存在）
+     * @param userEnabled 用户设成的值（[userSet] 为 false 时忽略）
+     * @param autoDetected 设备自动判定是否为高档
+     */
+    @JvmStatic
+    fun effectiveHighPerf(userSet: Boolean, userEnabled: Boolean, autoDetected: Boolean): Boolean =
+        if (userSet) userEnabled else autoDetected
+
+    /**
      * 是否高性能设备或启用了高性能模式
      */
-    fun isEffectiveHighPerf(): Boolean = highPerformanceMode || currentPerfLevel == PERF_LEVEL_HIGH
+    fun isEffectiveHighPerf(): Boolean =
+        effectiveHighPerf(userSetHighPerf, highPerformanceMode, autoDetectedHighPerf)
+
+    /**
+     * 用户在设置页有没有设过「高性能模式」。
+     * 设置页用它决定开关该显示什么：没设过时显示自动判定的结果，设过之后显示用户自己的值。
+     */
+    fun isHighPerfUserSet(): Boolean = userSetHighPerf
 
     /**
      * 应用性能设置 - 根据性能等级调整运行时参数

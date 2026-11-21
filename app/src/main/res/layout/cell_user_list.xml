@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 优化：替换 MaterialCardView + ConstraintLayout 为单层 FrameLayout，减少布局嵌套和渲染开销 -->
+<!-- 不设 android:elevation：这张卡是全 App 唯一手绘卡底的列表项（@drawable/bg_card_rounded 的
+     solid @color/card_dark 不透明），再加上 2dp 抬高，在自定义背景（照片）下卡底会整块盖住照片、
+     阴影还会沿轮廓透出一圈暗边，被反馈成「关注的人列表头像有黑色边框」（边框颜色随主题变，因为
+     card_dark 就是主题卡色）。其它页面的列表项都没有抬高，这里对齐它们。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -8,7 +12,6 @@
     android:background="@drawable/bg_card_rounded"
     android:foreground="?attr/selectableItemBackground"
     android:clipToOutline="true"
-    android:elevation="2dp"
     android:outlineProvider="background">
 
     <LinearLayout
@@ -19,7 +22,9 @@
         android:padding="8dp">
 
         <ImageView
+            android:contentDescription="@null"
             android:id="@+id/userAvatar"
+            android:importantForAccessibility="no"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:layout_marginEnd="6dp"
@@ -33,8 +38,8 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
-            <!-- 昵称与「互关」徽章同一行：徽章只在查看自己的关注/粉丝/分组列表时出现，
-                 由 UserListAdapter 按 UserInfo.mutualFollow 每次 bind 重置显隐 -->
+            <!-- 昵称与「互关 / 特别关注」徽章同一行：徽章只在查看自己的关注/粉丝/分组列表时出现，
+                 由 UserListAdapter 按 UserInfo.mutualFollow / specialFollow 每次 bind 重置显隐 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -52,6 +57,19 @@
                     android:textSize="14sp"
                     android:textColor="?android:attr/textColorPrimary"
                     android:text="NappuHidda" />
+
+                <!-- 特别关注徽章：B 站 special == 1，金色与「互关」区分；
+                     亮色模式的金色由绑定处按 ColorScheme.getGold() 修正 -->
+                <TextView
+                    android:id="@+id/specialBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:alpha="0.9"
+                    android:text="@string/social_special_follow_badge"
+                    android:textColor="@color/gold"
+                    android:textSize="10sp"
+                    android:visibility="gone" />
 
                 <TextView
                     android:id="@+id/mutualBadge"

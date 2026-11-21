@@ -16,5 +16,4 @@
     <string name="player_queue_empty">当前没有可连播的列表</string>
     <!-- 会话哨兵：主页「继续播放」入口（有上次未看完的会话时才出现） -->
     <string name="player_queue_resume_last">继续播放</string>
-    <string name="player_queue_resume_desc">上次看到：%1$s</string>
 </resources>

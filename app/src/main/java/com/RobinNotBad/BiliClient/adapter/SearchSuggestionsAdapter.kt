@@ -34,10 +34,13 @@ class SearchSuggestionsAdapter(
             return
         holder.show(suggestionsList[position])
 
+        // 同 SearchHistoryAdapter：位置在点击那一刻重新取，不用绑定时的捕获值
+        // （建议列表每轮请求都会 clear + addAll，旧下标很容易过期）
         holder.itemView.setOnClickListener {
-            if (clickListener != null) {
-                clickListener!!.onItemClick(position)
-            }
+            val pos = holder.bindingAdapterPosition
+            if (pos == RecyclerView.NO_POSITION || pos >= suggestionsList.size)
+                return@setOnClickListener
+            clickListener?.onItemClick(pos)
         }
     }
 

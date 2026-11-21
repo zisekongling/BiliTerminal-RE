@@ -48,6 +48,12 @@ class SettingPlayerChooseActivity : BaseActivity() {
                 startActivity(Intent(this, SettingPlayerUiActivity::class.java))
             }
 
+            // 26.11.14：跳过设置（片头片尾 + 广告片段逐类别三档）也是单独一页，
+            // 按用户要求排在「播放器界面」与「清晰度」之间。
+            findViewById<View>(R.id.skip_choose).setOnClickListener {
+                startActivity(Intent(this, SettingSkipActivity::class.java))
+            }
+
             cardViewList = ArrayList()
             cardViewList.add(terminalPlayer)
             cardViewList.add(mtvPlayer)

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  zoom_btn_bg 的 API21+ 版本：底色跟随主题主色。
+  ⚠️ 与 drawable/zoom_btn_bg.xml（API<21 的具体颜色兜底版）**改动要同步**，
+  原因见 drawable/dialog_background.xml 的注释（API<21 不支持 <shape> 里的主题属性）。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="?attr/colorPrimary" />
+</shape>

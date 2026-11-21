@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  验证码 WebView 页右下角缩放按钮的圆形底。
+  原为写死的 B站旧蓝 #00a1d6，与 7 套主题都不一致；API21+ 改随主题主色（见 drawable-v21/zoom_btn_bg.xml）。
+
+  ⚠️ minSdk=19：本文件（drawable/，API<21 也取它）**不能**写 ?attr/ 颜色，
+  KitKat 的 GradientDrawable.inflate 遇到主题属性会抛
+  UnsupportedOperationException("Can't convert to color: type=0x2") 并导致 App 崩溃，
+  详见 drawable/dialog_background.xml 的注释。这里用默认（B站粉）主题主色兜底。
+-->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
-    <!-- 原为写死的 B站旧蓝 #00a1d6，与 7 套主题都不一致；改随主题主色 -->
-    <solid android:color="?attr/colorPrimary" />
+    <solid android:color="@color/pink_brand" />
 </shape>

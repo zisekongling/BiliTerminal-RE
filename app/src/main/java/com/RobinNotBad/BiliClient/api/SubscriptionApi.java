@@ -295,18 +295,19 @@ public class SubscriptionApi {
                 .put("ps", 1);
         JSONObject result = NetWorkUtil.getJson(url);
         int code = result.optInt("code", -1);
-        if (code != 0) return new Pair<>(code, 0);
+        if (code == 0) {
+            JSONObject data = result.optJSONObject("data");
+            int state = parseSeasonFavStateOrUnknown(data);
+            if (state >= 0) return new Pair<>(0, state);
+        }
 
-        JSONObject data = result.optJSONObject("data");
-        int state = data == null ? -1 : parseSeasonFavStateOrUnknown(data);
-        if (state >= 0) return new Pair<>(0, state);
-
-        // 服务端没给 fav_state：回退查「我的订阅」列表
+        // 服务端没给 fav_state，或这一步本身就失败了：都要回退查「我的订阅」列表。
+        // 这一步失败不等于「这个合集不存在于订阅里」，直接按未订阅返回会把已订阅的合集显示成可订阅。
         return new Pair<>(0, isInSubscriptions(TYPE_SEASON, seasonId) ? 1 : 0);
     }
 
     /** 读 {@code info.fav_state}；字段不存在返回 -1（用于区分「未订阅」和「服务端没给」）。 */
-    private static int parseSeasonFavStateOrUnknown(JSONObject data) {
+    public static int parseSeasonFavStateOrUnknown(JSONObject data) {
         if (data == null) return -1;
         JSONObject info = data.optJSONObject("info");
         if (info == null || !info.has("fav_state")) return -1;
@@ -335,11 +336,4 @@ public class SubscriptionApi {
         return false;
     }
 
-    /** 从 {@code space/fav/season/list} 的 data 里读 {@code info.fav_state}（纯函数，可单测）。 */
-    public static int parseSeasonFavState(JSONObject data) throws JSONException {
-        if (data == null) return 0;
-        JSONObject info = data.optJSONObject("info");
-        if (info == null) return 0;
-        return info.optInt("fav_state", 0);
-    }
 }

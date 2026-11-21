@@ -38,6 +38,16 @@ public class VideoCard implements Parcelable, Serializable {
      * 否则音频的 auid、合集的 id 会被当成视频 avid 发出去。
      */
     public int favType = 2;
+    /**
+     * 推荐流里的 track_id，用于「减少推荐（不感兴趣）」；非推荐流来源的卡片为空串。
+     * 它与 aid 一起构成 dislike 接口的定位参数（见 {@code FeedbackApi.dislike}）。
+     */
+    public String trackId = "";
+    /**
+     * UP 主 mid（接口的 {@code owner.mid}），用于「减少推荐」；0 表示未知。
+     * 0 时仍可发请求（服务端按 aid 定位），但「不想看此 UP 主」这类按 UP 主生效的原因就用不了。
+     */
+    public long upMid = 0;
 
     public VideoCard(String title, String upName, String view, String cover, long aid, String bvid, String type) {
         this.title = title;
@@ -87,6 +97,8 @@ public class VideoCard implements Parcelable, Serializable {
         duration = in.readLong();
         // 与 writeToParcel 末尾一一对应：新增字段一律追加在最后，顺序错位不会崩，只会静默串数据
         favType = in.readInt();
+        trackId = in.readString();
+        upMid = in.readLong();
     }
 
     public static final Creator<VideoCard> CREATOR = new Creator<>() {
@@ -122,5 +134,8 @@ public class VideoCard implements Parcelable, Serializable {
         parcel.writeInt(progress);
         parcel.writeLong(duration);
         parcel.writeInt(favType);
+        // 「减少推荐」的定位参数，追加在最后（与构造器读取顺序一致）
+        parcel.writeString(trackId);
+        parcel.writeLong(upMid);
     }
 }

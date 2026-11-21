@@ -15,7 +15,9 @@
         android:paddingBottom="8dp">
 
         <ImageView
+            android:contentDescription="@null"
             android:id="@+id/img_cover"
+            android:importantForAccessibility="no"
             android:layout_width="0dp"
             android:layout_height="0dp"
             android:layout_marginStart="8dp"
@@ -38,7 +40,9 @@
             app:layout_constraintGuide_percent="0.48" />
 
         <ImageView
+            android:contentDescription="@null"
             android:id="@+id/imageView3"
+            android:importantForAccessibility="no"
             android:layout_width="wrap_content"
             android:layout_height="0dp"
             android:layout_marginTop="1dp"
@@ -49,10 +53,12 @@
             app:layout_constraintStart_toStartOf="@+id/img_cover"
             app:layout_constraintTop_toTopOf="@+id/text_viewcount"
             app:layout_constraintVertical_bias="0.5"
-            android:src="@drawable/icon_play_12" />
+            app:srcCompat="@drawable/icon_play_12" />
 
         <ImageView
+            android:contentDescription="@null"
             android:id="@+id/avatarIcon"
+            android:importantForAccessibility="no"
             android:layout_width="wrap_content"
             android:layout_height="0dp"
             android:layout_marginStart="4dp"
@@ -63,7 +69,7 @@
             app:layout_constraintBottom_toBottomOf="@+id/text_upname"
             app:layout_constraintStart_toEndOf="@+id/text_viewcount"
             app:layout_constraintTop_toTopOf="@+id/text_upname"
-            android:src="@drawable/icon_person" />
+            app:srcCompat="@drawable/icon_person" />
 
         <TextView
             android:id="@+id/text_viewcount"

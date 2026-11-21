@@ -24,11 +24,28 @@
 - PR 合并后再删分支；`main` 上不要留半成品。
 - 没落在上面的改动（改文案、修崩溃、补文档）**照旧直接推 `main`**，不走 PR。
 
-## 改完必须自测
+## 一次改动的标准流程（26.11.06 起，带预算）
 
-- **改完必须自测，不许只说"应该没问题"**（26.10.22 起）：本机常驻 **MuMu 模拟器**（`adb connect 127.0.0.1:7555`，Android 15 / x86_64，`adb root` 可用 → 用 `app-coexist-x86-debug.apk`）。
-- 凡涉及播放器 / 网络 / UI 时序的改动，改完自己装包、跑一遍、看日志与截图，把实测结论（日志原文、关键截图、未复现的原因）写进 `docs/review/fix-progress.md`。**"编译通过 + 单测绿"只证明纯函数没写错，不证明功能可用**（见 `docs/archive/review/device-test-plan.md` 〇节）。测法见 `docs/review/agent-test-guide.md`。
-- **MuMu 的坑（26.10.27 更新）**：活动会落在 `display 14/15/16...` 等**副屏**（每次启动新建一个，`dumpsys window displays | grep mDisplayId` 查）。26.10.27 实测 **`screencap -d <id>` 对任何 display 都回 `Failed to take screenshot. Status: -2`**（root 也一样），所以副屏上**截不了图**；`screencap -d 0` 拍到的是桌面。可行替代：**`uiautomator dump --display <displayId>` 拿控件树与 bounds**（文字/位置/状态都能验），配合 **`input -d <displayId> tap/swipe/motionevent`** 驱动；**`input` 不带 `-d` 一律落在桌面**。长按用 `input -d <id> motionevent DOWN x y` → sleep 1s → `motionevent UP x y`（`swipe x y x y 1200` 同点同终点会被当成滚动）。
+| 步 | 做什么 | 预算 | 卡住去哪 |
+| --- | --- | --- | --- |
+| 1 定位 | `grep` 关键字找文件，只读 1~3 个真正要改的文件 | ≤5 分钟 | 找不到入口 → `docs/architecture-map.md` §9 API 映射表 / §3 导航 |
+| 2 读上下文 | `AGENTS.md` + 上表里对应的**那一份**分册，按 § 读 | ≤10 分钟 | — |
+| 3 改 | 一次只做一件事，边改边编译 | 按改动规模 | 构建怪错误 → `docs/agents/build.md` |
+| 4 自测 | L0 必做；L1 只在判据可读时做，**两轮上限** | 见 `docs/agents/testing.md` §3 | 两轮不过 → 写交接单交人 |
+| 5 提交 | `git show --stat` 核对后 push 到 `main` | ≤2 分钟 | — |
+| 6 落文档 | `docs/review/fix-progress.md` **一行** + 该改的分册 | ≤3 分钟 | 落点表见 `docs/agents/docs.md` |
+
+- **一次改动不许整份读三份以上大文档**：`docs/architecture-map.md`（≈9.6 万 token）、`docs/review/fix-progress.md`（≈15.9 万 token）、`docs/FEATURES.md`（≈3.4 万 token）都按 § 查，永远不要从头读到尾。`fix-progress.md` 平时只需 §1（当前状态）与 §2（未完成待办），§3/§4/§5 是历史，用 `grep` 反查。
+- **需要人测的，提交之后立刻把交接单给出去**，不要攒到发版前一次性堆 30 条。
+
+## 改完必须自测（分三级，细则见 `docs/agents/testing.md`）
+
+- **改完必须自测，不许只说"应该没问题"**。但"自测"按证据形态分三级，**不是每个改动都要上模拟器**：
+  - **L0 静态**（每个改动）：`assembleDebug` + 相关单测。**"编译通过 + 单测绿"只证明纯函数没写错，不证明功能可用**（见 `docs/archive/review/device-test-plan.md` 〇节）。
+  - **L1 设备可观测**（判据能落在日志 / 控件树 / 产物结构时）：用调试桥拿证据，**两轮上限**，两轮不过就停。命令见 `docs/review/agent-test-guide.md`。
+  - **L2 人工验收**（画面、声音、手感、主观取舍、登录态写操作、长链路多步交互）：**写交接单交给人**，模板见 `docs/agents/testing.md` §5，范本是 `docs/review/manual-test-guide-261106.md`。
+- 判据是"错了 AI 能不能靠读东西发现自己错了"，不是"改动行数少不小"。**必须实测的典型**：`FLAG_KEEP_SCREEN_ON` 的写法、`View` 级 `keepScreenOn` 能否清掉、弹幕时钟接没接上——这些只能靠 `dumpsys` / 日志在设备上确认。**交给人的典型**：颜色、字有没有被切、音轨、跟手、掉帧。
+- MuMu 的环境坑（副屏 `display 14/15/16...`、`screencap -d <id>` 对任何 display 都回 `Status: -2`、`input` 不带 `-d` 落桌面）统一记在 `docs/review/agent-test-guide.md` §6，别在这里再抄一遍。
 
 ## 提交后、打 tag 前必须核对提交内容（26.11.06 事故）
 
@@ -38,7 +55,20 @@
 - 合完 PR / 解完冲突之后尤其危险：`git merge` 自动合并成功的文件本来就躺在工作区里，此时任何一次「顺手全加」都会把它们裹进一个不相干的提交。合完 PR 应当**先独立提交一次 merge 结果**，再动别的。
 - 理由：提交历史是这个仓库唯一的追溯依据，`fix-progress.md` 与 `README` 都靠它反查「这版到底改了什么」。一条名不副实的提交，比一次构建失败更难发现。
 
-## 小改动不必上模拟器
+## 同一个工作树上有多个会话（26.11.15 实测）
 
-- **小改动不必上模拟器**（26.10.22 收）：文案/注释、单文件小逻辑、日志收敛、纯常量调整这类**不碰播放器状态机与线程时序**的改动，跑通 `assembleDebug`（至少 `compileCoexistDebugKotlin`）+ 相关单测即可直接提交。
-- 判据是"错了会不会只有真机才看得出来"，不是"改动行数少"。反过来的例子：`FLAG_KEEP_SCREEN_ON` 的写法、`View` 级 `keepScreenOn` 能否清掉、弹幕时钟接没接上——这些**只能**靠 `dumpsys` / 日志在设备上确认，属于必须实测的类别。
+本机同时开多个 agent 会话改同一个仓库时，所有人共用一个工作树（同一份 index、同一份 `app/build`）。26.11.15 一次真实事故：会话 A 为「隔离对方未提交的 WIP」跑 `git stash push -m ... -- <4 个路径>`，把同一文件里**自己刚加的字符串**一起存走了；会话 B 随后 `git add -A` 提交，把 A 的 `AccountManager.java` 卷进 B 的提交；A 的构建报 `Unresolved reference 'text_account_export_all'`，追了半天以为是资源链路问题。
+
+规矩：
+
+- **不要对整树或跨会话路径 `git stash` / `git checkout --` / `git reset`**。确需暂存只 `git stash push -- <自己的具体路径>`，并且当场用完就 pop/drop。
+- **提交一律 `git add <显式路径>...`**，永远不要 `git add -A`（理由见上一节 26.11.06 事故）。
+- 两个会话都可能改的同一份文件（`strings.xml`、`docs/FEATURES.md`、`docs/review/fix-progress.md` 是重灾区），提交前先 `git status` 看一眼是不是 `MM`，并**口头约定由谁提交**——一个人提交、另一个人事后增量补，别各交一半。
+- 构建**串行**：共用 `app/build`，两个 gradle 同时跑会锁 `R.jar` 并让 Kotlin daemon OOM，判据与解法见 `docs/agents/build.md`「同工作区并发构建」。
+- 收尾时各自 `git show --stat <sha>` 核对：卷进别人文件不可怕，**没人发现才可怕**。
+
+## 提交前检查行尾抖动（26.11.09）
+
+- **症状**：`git diff --stat` 显示某个 `.java` / `.kt` 文件几百行改动，而实际只加了几行——这是**工作区被转成 CRLF、索引里是 LF**（本仓库 `.java`、`.kt`、布局文件都是 LF；注意 `strings.xml` 是 CRLF，别一起归）。
+- **成因**：编辑器 / 自动化改写工具按平台默认换行整文件重写。26.11.09 这次一个 `edit` 操作就把 `api/PlayerApi.java`（2459 行）与 `model/PlayerData.java`（396 行）整份翻成 CRLF，`docs/copy-inventory/STRINGS-MIGRATION.md` 坑 17 也记过同一现象。
+- **判据与修法**：`git ls-files --eol -- <file>`（看 `w/crlf` 就是要修的那个）；`git diff --numstat` 与 `git diff -w --numstat` 数量差得远就是行尾抖动；用 `[System.IO.File]::ReadAllText` 读、`-replace "`r`n","`n"` 归一，再以 UTF-8 无 BOM 写回。

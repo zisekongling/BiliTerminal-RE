@@ -5,7 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import com.RobinNotBad.BiliClient.util.MsgUtil
 
-class DownloadSqlHelper(context: Context?) : SQLiteOpenHelper(context, "download.db", null, 4) {
+class DownloadSqlHelper(context: Context?) : SQLiteOpenHelper(context, "download.db", null, 6) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("create table download(id INTEGER primary key autoincrement," +
                 "type TEXT," +
@@ -17,7 +17,19 @@ class DownloadSqlHelper(context: Context?) : SQLiteOpenHelper(context, "download
                 "child TEXT," +
                 "cover TEXT," +
                 "download_type TEXT DEFAULT 'video'," +
-                "audio_url TEXT)")
+                "audio_url TEXT," +
+                // 分段下载清单（JSON，见 service/download/DownloadSegmentPlan.toJson）：
+                // 多段 durl 的下载要靠它跨"暂停/重启 App"记住每段地址与字节数（反馈 #87/#90）。
+                "segments TEXT," +
+                // 上次失败的可读原因（HTTP 码 / 第几段失败 / 校验不过），列表直接显示给用户。
+                "fail_reason TEXT," +
+                // 版本 6（番剧缓存）：番剧下载要用 pgc 接口取流，而那个接口只认 epid/cid/aid，
+                // 季与季类型决定心跳上报与取流参数，三个值必须跨"暂停/重启"活着，
+                // 否则任务恢复时只能退回投稿视频接口（必失败）。
+                // 非番剧任务这三列恒为 0 / NULL，读取侧按"不是番剧"处理。
+                "epid BIGINT DEFAULT 0," +
+                "season_id BIGINT DEFAULT 0," +
+                "season_type INTEGER DEFAULT 0)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -35,6 +47,28 @@ class DownloadSqlHelper(context: Context?) : SQLiteOpenHelper(context, "download
                     // 以前这里建一次新表，等于把用户的历史下载记录（任务列表、续传进度、元数据）全部删掉 ——
                     // 这正是本次改动要避免的数据丢失。宁可让新字段暂时读不到（个别下载功能报错、可在日志里
                     // 看到原因），也绝不主动删除用户数据。
+                    MsgUtil.err(e)
+                }
+            }
+            // 版本 5（反馈 #87/#90）：多个分段清单列与失败原因列。老记录这两列是 NULL，
+            // 读取侧按"没有清单 / 没有原因"处理（见 DownloadSection 的 cursor 兼容写法）。
+            if (oldVersion < 5) {
+                try {
+                    db.execSQL("ALTER TABLE download ADD COLUMN segments TEXT")
+                    db.execSQL("ALTER TABLE download ADD COLUMN fail_reason TEXT")
+                } catch (e: Throwable) {
+                    // 同上面的原则：ALTER 失败也绝不 drop table，宁可新列读不到。
+                    MsgUtil.err(e)
+                }
+            }
+            // 版本 6（番剧缓存）：番剧任务的 epid / season_id / season_type。老记录这三列是 0，
+            // 读取侧（DownloadSection）按"不是番剧"处理，已排队的投稿任务不受影响。
+            if (oldVersion < 6) {
+                try {
+                    db.execSQL("ALTER TABLE download ADD COLUMN epid BIGINT DEFAULT 0")
+                    db.execSQL("ALTER TABLE download ADD COLUMN season_id BIGINT DEFAULT 0")
+                    db.execSQL("ALTER TABLE download ADD COLUMN season_type INTEGER DEFAULT 0")
+                } catch (e: Throwable) {
                     MsgUtil.err(e)
                 }
             }

@@ -161,46 +161,116 @@ public class PrivateMsgApi {
         return userMap;
     }
 
+    /** 会话列表默认页大小。接口 size 上限是 100（见 bilibili-API/docs/message/private_msg.md:260）。 */
+    public static final int SESSIONS_PAGE_SIZE = 20;
+
+    /** 一页会话：服务端给的会话 + 还有没有下一页（`data.has_more`）。 */
+    public static class SessionsPage {
+        public final ArrayList<PrivateMsgSession> sessions;
+        public final boolean hasMore;
+
+        public SessionsPage(ArrayList<PrivateMsgSession> sessions, boolean hasMore) {
+            this.sessions = sessions;
+            this.hasMore = hasMore;
+        }
+    }
+
     public static ArrayList<PrivateMsgSession> getSessionsList(int size)
             throws IOException, JSONException {
-        String url =
-                "https://api.vc.bilibili.com/session_svr/v1/session_svr/get_sessions?session_type=1&size=" + size;
-        return parseSessionsList(NetWorkUtil.getJson(url));
+        return getSessionsPage(size, 0).sessions;
+    }
+
+    /**
+     * 拉一页会话（反馈 #166：只加载十几个就不加载了）。
+     *
+     * <p>接口事实（bilibili-API/docs/message/private_msg.md:258-260、280-281）：`get_sessions`
+     * 用 `end_ts`（**微秒级**时间戳）当游标往前翻，`size` 默认 20、上限 100，响应里
+     * `data.has_more` 表示还有没有下一页。原来客户端只调一次 size=20、也从来不看 has_more，
+     * 所以永远只有二十来条。
+     *
+     * @param size  本页条数
+     * @param endTs 游标：上一页里最老的会话 `session_ts`（微秒）。传 0 表示拉第一页。
+     */
+    public static SessionsPage getSessionsPage(int size, long endTs)
+            throws IOException, JSONException {
+        JSONObject root = NetWorkUtil.getJson(buildSessionsUrl(size, endTs));
+        return new SessionsPage(parseSessionsList(root), parseSessionsHasMore(root));
+    }
+
+    /** 拼会话列表 URL（纯函数，便于单测）；endTs 才决定带不带翻页游标。 */
+    static String buildSessionsUrl(int size, long endTs) {
+        StringBuilder url = new StringBuilder(
+                "https://api.vc.bilibili.com/session_svr/v1/session_svr/get_sessions?session_type=")
+                .append(SESSION_TYPE_USER).append("&size=").append(size);
+        if (endTs > 0) url.append("&end_ts=").append(endTs);
+        return url.toString();
+    }
+
+    /** 响应里的 `data.has_more`（纯解析，便于 JVM 单测）。缺字段视为没有更多。 */
+    public static boolean parseSessionsHasMore(JSONObject root) {
+        if (root == null || root.isNull("data")) return false;
+        JSONObject data = root.optJSONObject("data");
+        return data != null && data.optInt("has_more", 0) == 1;
     }
 
     /**
      * 解析会话列表响应（纯解析，便于 JVM 单测）。
      *
-     * <p>account_info 仅在系统会话中出现（见 bilibili-API/docs/message/private_msg.md），
-     * 系统会话不是普通私信，需要过滤掉。用 isNull 判断同时覆盖"字段缺失"和"值为 null"两种情况；
-     * 旧写法 {@code !has && isNull} 恒等于 {@code !has}，会把 account_info 显式为 null 的普通会话一起丢弃。
+     * <p>26.11.20：**不再丢弃系统会话**。get_sessions 用的 session_type=1 语义本来就是「用户与系统」，
+     * UP主小助手 / 系统通知 / 客服这些官方会话本来就在 session_list 里；以前按 account_info 把它们
+     * 过滤掉之后，single_unread 里 biz_msg_* / custom_unread 那部分未读照样被算进主菜单角标，
+     * 可 App 里没有任何入口能点进去读掉 → 角标只涨不退（用户反馈「一直有消息消除不掉」）。
      */
     public static ArrayList<PrivateMsgSession> parseSessionsList(JSONObject root) throws JSONException {
         ArrayList<PrivateMsgSession> sessionList = new ArrayList<>();
         if (root == null || root.isNull("data")) {
             return sessionList;
         }
-        JSONArray sessions = root.getJSONObject("data").getJSONArray("session_list");
+        // 用 opt 系列而不是 get：没有会话时服务端会把 session_list 直接给 null
+        // （bilibili-API/docs/message/private_msg.md:280），getJSONArray 会抛 JSONException，
+        // 翻到最后一页时正好会撞上。
+        JSONObject data = root.optJSONObject("data");
+        if (data == null) return sessionList;
+        JSONArray sessions = data.optJSONArray("session_list");
+        if (sessions == null) return sessionList;
         for (int i = 0; i < sessions.length(); ++i) {
-            PrivateMsgSession session = new PrivateMsgSession();
-            JSONObject sessionJson = sessions.getJSONObject(i);
-            session.talkerUid = sessionJson.getLong("talker_id");
-
-            if (!sessionJson.isNull("last_msg")) {
-                session.contentType = sessionJson.getJSONObject("last_msg").getInt("msg_type");
-                String content = sessionJson.getJSONObject("last_msg").getString("content");
-
-                if (content.endsWith("}") && content.startsWith("{"))
-                    session.content = new JSONObject(content);
-            }
-
-            session.unread = sessionJson.getInt("unread_count");
-            session.topTs = sessionJson.optLong("top_ts", 0);
-
-            if (sessionJson.isNull("account_info"))
-                sessionList.add(session);
+            sessionList.add(parseSession(sessions.getJSONObject(i)));
         }
         return sessionList;
+    }
+
+    /**
+     * 解析单条会话（纯解析，便于 JVM 单测）。
+     *
+     * <p>普通会话与系统会话共用同一套字段，差别只在 account_info（仅系统会话有）、
+     * system_msg_type 与 biz_msg_unread_count（通知类未读，角标要看 unreadTotal()）。
+     */
+    public static PrivateMsgSession parseSession(JSONObject sessionJson) throws JSONException {
+        PrivateMsgSession session = new PrivateMsgSession();
+        session.talkerUid = sessionJson.getLong("talker_id");
+
+        JSONObject lastMsg = sessionJson.optJSONObject("last_msg");
+        if (lastMsg != null) {
+            session.contentType = lastMsg.optInt("msg_type", 0);
+            String content = lastMsg.optString("content", "");
+
+            if (content.endsWith("}") && content.startsWith("{"))
+                session.content = new JSONObject(content);
+        }
+
+        // opt 而不是 get：系统会话不一定带 unread_count，缺字段按 0 算
+        session.unread = sessionJson.optInt("unread_count", 0);
+        session.bizUnread = sessionJson.optInt("biz_msg_unread_count", 0);
+        session.systemMsgType = sessionJson.optInt("system_msg_type", 0);
+        JSONObject accountInfo = sessionJson.optJSONObject("account_info");
+        if (accountInfo != null) {
+            session.accountName = accountInfo.optString("name", "");
+            session.accountAvatar = accountInfo.optString("pic_url", "");
+        }
+        session.topTs = sessionJson.optLong("top_ts", 0);
+        // 微秒级的会话时间戳，翻页时当 end_ts 游标用（#166）
+        session.sessionTs = sessionJson.optLong("session_ts", 0);
+        return session;
     }
 
     public static ArrayList<PrivateMsgSession> getNewSessionsList(long beginTs, int size, int build, String mobiApp)
@@ -228,21 +298,8 @@ public class PrivateMsgApi {
             if (data.has("session_list") && !data.isNull("session_list")) {
                 JSONArray sessions = data.getJSONArray("session_list");
                 for (int i = 0; i < sessions.length(); ++i) {
-                    PrivateMsgSession session = new PrivateMsgSession();
-                    JSONObject sessionJson = sessions.getJSONObject(i);
-                    session.talkerUid = sessionJson.getLong("talker_id");
-
-                    if (!sessionJson.isNull("last_msg")) {
-                        session.contentType = sessionJson.getJSONObject("last_msg").getInt("msg_type");
-                        String content = sessionJson.getJSONObject("last_msg").getString("content");
-
-                        if (content.endsWith("}") && content.startsWith("{"))
-                            session.content = new JSONObject(content);
-                    }
-
-                    session.unread = sessionJson.getInt("unread_count");
-                    session.topTs = sessionJson.optLong("top_ts", 0);
-                    sessionList.add(session);
+                    // 与 get_sessions 共用同一条解析，免得两处各写一遍、慢慢跑偏
+                    sessionList.add(parseSession(sessions.getJSONObject(i)));
                 }
             }
         }
@@ -267,6 +324,64 @@ public class PrivateMsgApi {
         // 不再以 Log.e 输出私信内容与完整请求头（含 Cookie），避免凭证/隐私进 logcat
         Logu.i("发送私信结果: " + result.optInt("code"));
         return result;
+    }
+
+    /** 视频链接前缀：拼私信正文与「失败回退复制」共用，避免两处各写一遍拼出不同链接。 */
+    public static final String VIDEO_LINK_PREFIX = "https://www.bilibili.com/video/";
+
+    /** 私信正文里标题最多保留的字符数（超出截断加省略号），防止长标题把 2000 字节上限顶穿。 */
+    public static final int VIDEO_SHARE_TITLE_MAX = 60;
+
+    /**
+     * 拼视频完整链接（纯函数）。
+     *
+     * <p>私信正文和「发送失败时复制链接」走同一个函数，免得两处各拼一次、拼出两种链接。
+     * bvid 为空时返回空串，调用方据此跳过「复制链接」这一步。
+     */
+    public static String buildVideoLink(String bvid) {
+        return (bvid == null || bvid.isEmpty()) ? "" : VIDEO_LINK_PREFIX + bvid;
+    }
+
+    /**
+     * 组装「把视频发给好友」的私信正文（纯函数，见 PrivateMsgApiTest）。
+     *
+     * <p>为什么发文本而不是分享卡片：发送私信的文档
+     * （{@code bilibili-API/docs/message/private_msg.md}「发送私信（web端）」）明确写着
+     * 「仅支持发送 msg[msg_type] 为 1、2 或 5 的私信」；卡片是 {@code msg_type=7}
+     * （{@code private_msg_content.md}「分享消息」），不在支持范围内，硬发只会拿到
+     * 21035「该类消息暂时无法发送」。所以这里退一步用 {@code msg_type=1} 发
+     * 「标题 + 完整链接」——对方点链接照样能打开视频，也不至于静默失败。
+     *
+     * <p>正文里只有标题和链接，不带任何中文前缀：本方法要能被 JVM 单测直接调用，
+     * 而纯函数读不到 strings.xml（见 docs/agents/dev-conventions.md）。
+     *
+     * @param title 视频标题，可为 null
+     * @param bvid  BV 号；为空时只发标题，避免拼出半截链接
+     */
+    public static String buildVideoShareText(String title, String bvid) {
+        String safeTitle = title == null ? "" : title.trim();
+        if (safeTitle.length() > VIDEO_SHARE_TITLE_MAX)
+            safeTitle = safeTitle.substring(0, VIDEO_SHARE_TITLE_MAX) + "…";
+        String link = buildVideoLink(bvid);
+        if (link.isEmpty()) return safeTitle;
+        if (safeTitle.isEmpty()) return link;
+        return safeTitle + "\n" + link;
+    }
+
+    /**
+     * 组装 {@code msg_type=1} 的 content：接口只认 {@code {"content":"..."}} 这一种结构
+     * （{@code private_msg_content.md}「文字消息」）。
+     *
+     * <p>用 JSONObject 序列化而不是手拼字符串，标题里带引号/换行也不会拼出非法 JSON。
+     */
+    public static String buildTextContent(String text) {
+        JSONObject content = new JSONObject();
+        try {
+            content.put("content", text == null ? "" : text);
+        } catch (JSONException ignored) {
+            // put 一个 String 不会失败，这里只是满足受检异常签名
+        }
+        return content.toString();
     }
 
     /** 撤回有效期：B 站只允许撤回 120 秒内发出的私信（private_msg_content.md「撤回消息」）。 */

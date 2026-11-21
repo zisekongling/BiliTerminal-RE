@@ -27,7 +27,12 @@ class CookieRefreshPolicyTest {
     @Test
     fun minGapMs_失败一次后按首次退避() {
         assertEquals(CookieRefreshPolicy.FIRST_RETRY_MS, CookieRefreshPolicy.minGapMs(1))
-        assertEquals(5 * min, CookieRefreshPolicy.minGapMs(1))
+        // 换一个口径：失败一次后的重试间隔必须**短于**健康间隔——失败后应当更早重试而不是更晚。
+        // （不再重复断言 minGapMs(1) 的具体数值，那条由下面的「每次失败翻倍」钉住。）
+        assertTrue(
+            "首次退避不能长于健康间隔，否则偶发失败一次就会让刷新比正常时更稀疏",
+            CookieRefreshPolicy.minGapMs(1) < CookieRefreshPolicy.minGapMs(0)
+        )
     }
 
     @Test

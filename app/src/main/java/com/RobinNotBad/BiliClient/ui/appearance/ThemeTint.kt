@@ -62,7 +62,9 @@ object ThemeTint {
     /** 未激活态：原样设置图标（本就是中性暖白），并撤掉 [setActiveIcon] 垫的光晕。 */
     @JvmStatic
     fun setInactiveIcon(view: ImageView, @DrawableRes resId: Int) {
-        view.setImageResource(resId)
+        // 不能直接 setImageResource：它的实现取决于 view 是否 AppCompatImageView，
+        // 传进来的可能只是原生 ImageView，那样在 API<21 加载矢量会崩
+        view.setImageDrawable(AppCompatResources.getDrawable(view.context, resId))
         if (view.background is GlowDotDrawable) ViewCompat.setBackground(view, null)
     }
 

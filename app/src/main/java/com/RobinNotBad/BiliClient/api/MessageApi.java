@@ -11,6 +11,7 @@ import com.RobinNotBad.BiliClient.util.NetWorkUtil;
 import com.RobinNotBad.BiliClient.util.OptionalFeatures;
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -55,6 +56,43 @@ public class MessageApi {
         return item == null ? -1 : item.optInt("business_id", -1);
     }
 
+    /**
+     * like 流的 items 容器。真实响应是 {@code data.total.items} —— 比 reply 流的
+     * {@code data.items} 多包了一层 {@code total}（26.11.11 反馈 #150 的根因之一：
+     * 上游接口按这个结构返回，代码却按 reply 的结构取）。
+     * 顺手兼容只有 {@code data.items} 的形态：都取不到时返回空数组而不是抛异常，
+     * 免得一整个点赞页空白。纯函数，见 MessageApiTest。
+     */
+    public static JSONArray parseLikeItems(JSONObject data) {
+        if (data == null) return new JSONArray();
+        JSONObject total = data.optJSONObject("total");
+        JSONArray items = total == null ? null : total.optJSONArray("items");
+        if (items == null) items = data.optJSONArray("items");
+        return items == null ? new JSONArray() : items;
+    }
+
+    /**
+     * like 流的游标，与 items 同层，同样两处都认（{@code data.total.cursor} 优先，
+     * 回落 {@code data.cursor}）。原来只按 {@code data.cursor} 取，取不到就是 null，
+     * 列表页拿到 null 游标后再也不翻页。取不到返回 null。纯函数，见 MessageApiTest。
+     */
+    public static JSONObject parseLikeCursor(JSONObject data) {
+        if (data == null) return null;
+        JSONObject total = data.optJSONObject("total");
+        JSONObject cursor = total == null ? null : total.optJSONObject("cursor");
+        return cursor != null ? cursor : data.optJSONObject("cursor");
+    }
+
+    /**
+     * like 流的翻页参数。游标时间字段是 {@code like_time}，{@code reply_time} 是 reply 流的，
+     * 原来照抄过来，服务端认不出这个参数，第二页拿回来的还是第一页的内容。
+     * 首页（id/time 未给）返回空串。纯函数，见 MessageApiTest。
+     */
+    public static String likePageQuery(long id, long time) {
+        if (id <= 0 || time <= 0) return "";
+        return String.format("&id=%s&like_time=%s", id, time);
+    }
+
     public static JSONObject getUnread() throws IOException, JSONException {
         JSONObject data = getUnreadData();
         JSONObject jsonObject = new JSONObject();
@@ -65,12 +103,22 @@ public class MessageApi {
         return jsonObject;
     }
 
-    public static int checkMessageUnread() throws IOException, JSONException {
-        JSONObject data = getUnreadData();
+    /**
+     * 「消息」入口的未读角标数：@（回复我的）+ 回复 + 点赞，缺字段按 0 算。
+     * 原来漏了点赞（{@code like}），点赞再多角标也不涨，用户以为没有新点赞（26.11.11 反馈 #150）。
+     * 纯函数，见 MessageApiTest。
+     */
+    public static int sumUnread(JSONObject data) {
+        if (data == null) return 0;
         int total = 0;
         total += data.optInt("at", 0);
         total += data.optInt("reply", 0);
+        total += data.optInt("like", 0);
         return total;
+    }
+
+    public static int checkMessageUnread() throws IOException, JSONException {
+        return sumUnread(getUnreadData());
     }
 
     public static int checkPrivateMsgUnread() throws IOException, JSONException {
@@ -103,16 +151,16 @@ public class MessageApi {
 
     public static Pair<MessageCard.Cursor, List<MessageCard>> getLikeMsg(long id, long time)
             throws IOException, JSONException {
-        String url = "https://api.bilibili.com/x/msgfeed/like?platform=web&build=0&mobi_app=web";
-        if (id > 0 && time > 0)
-            url += String.format("&id=%s&reply_time=%s", id, time);
+        String url = "https://api.bilibili.com/x/msgfeed/like?platform=web&build=0&mobi_app=web"
+                + likePageQuery(id, time);
         JSONObject all = NetWorkUtil.getJson(url);
         if (all.has("data") && !all.isNull("data")) {
+            JSONObject data = all.getJSONObject("data");
             // 所有消息
             ArrayList<MessageCard> totalArray = new ArrayList<>();
-            for (int i = 0; i < all.getJSONObject("data").getJSONObject("total").getJSONArray("items").length(); i++) {
-                JSONObject object = ((JSONObject) all.getJSONObject("data").getJSONObject("total").getJSONArray("items")
-                        .get(i));
+            JSONArray items = parseLikeItems(data);
+            for (int i = 0; i < items.length(); i++) {
+                JSONObject object = ((JSONObject) items.get(i));
                 MessageCard likeInfo = new MessageCard();
 
                 ArrayList<UserInfo> userList = new ArrayList<>();
@@ -201,7 +249,7 @@ public class MessageApi {
                 totalArray.add(likeInfo);
             }
 
-            JSONObject cursor = all.getJSONObject("data").optJSONObject("cursor");
+            JSONObject cursor = parseLikeCursor(data);
             return new Pair<>(cursor == null ? null
                     : new MessageCard.Cursor(cursor.optBoolean("is_end", true), cursor.optLong("id", -1),
                     cursor.optLong("time", -1)),

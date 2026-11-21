@@ -10,6 +10,7 @@ import com.RobinNotBad.BiliClient.adapter.SettingsAdapter
 import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.ui.widget.RotaryEncoderSupport
 import com.RobinNotBad.BiliClient.util.LongPressPrefs
+import com.RobinNotBad.BiliClient.util.SearchHistoryStore
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TopbarLongPressPrefs
@@ -68,6 +69,11 @@ class SettingPrefActivity : RefreshListActivity() {
             add(SettingSection("switch", "创作中心", SettingsKeys.CREATIVE_ENABLE, getString(R.string.desc_creative_enable), "true"))
             add(SettingSection("switch", "搜索建议", SettingsKeys.SEARCH_SUGGESTIONS_ENABLE,
                 getString(R.string.desc_search_suggestions_enable), "true"))
+            // 26.11.21 反馈：没有关闭搜索历史的入口。关掉即清空已有记录（用户口径：关了就不留），
+            // 所以这里在开关回调里补一次 clear()——只停止记录、旧记录还在列表里，等于关了个寂寞。
+            add(SettingSection("switch", "搜索历史", SettingsKeys.SEARCH_HISTORY_ENABLE,
+                getString(R.string.desc_search_history_enable), "true",
+                SettingsAdapter.SwitchExtra(onChange = { enabled -> if (!enabled) SearchHistoryStore.clear() })))
             add(SettingSection("switch", "默认搜索内容", SharedPreferencesUtil.SEARCH_DEFAULT_CONTENT_ENABLE,
                 getString(R.string.desc_search_default_content_enable), "false"))
             add(SettingSection("switch", "识别链接", SharedPreferencesUtil.LINK_ENABLE, getString(R.string.desc_link_enable), "true"))
@@ -86,6 +92,10 @@ class SettingPrefActivity : RefreshListActivity() {
                 getString(R.string.desc_recent_up_display_enable), "true"))
             add(SettingSection("switch", "私信自动已读", SharedPreferencesUtil.PRIVATE_MSG_AUTO_READ_ENABLE,
                 getString(R.string.desc_private_msg_auto_read_enable), "true"))
+            // 反馈 #121：进私信页那句「私信有可能被拦截」的提示，默认仍然显示
+            add(SettingSection("switch", getString(R.string.settingtext_settingprefactivity_033),
+                SettingsKeys.PRIVATE_MSG_INTERCEPT_TIP_ENABLE,
+                getString(R.string.desc_private_msg_intercept_tip), "true"))
             add(SettingSection("switch", "夜深了", SharedPreferencesUtil.NIGHT_REMINDER_ENABLE,
                 getString(R.string.desc_night_reminder), "true"))
             add(SettingSection("switch", "后台自动检查更新", SharedPreferencesUtil.AUTO_UPDATE_CHECK_ENABLE,
@@ -96,8 +106,10 @@ class SettingPrefActivity : RefreshListActivity() {
             add(SettingSection("switch", "禁止视频在相册中显示", SettingsKeys.SAVE_BAN_GALLERY, getString(R.string.desc_ban_gallery), "true"))
             add(SettingSection("switch", "请求JPG格式图片", SettingsKeys.IMAGE_REQUEST_JPG,
                 getString(R.string.desc_img_request_jpg), "false"))
+            // 默认值必须与消费方 ImageAutoLoadScrollListener 一致（那边是 getBoolean(..., true)）：
+            // 写 "false" 时界面显示「关」、实际却按「开」在省图，用户会以为图片加载不出来（26.11.08 修）。
             add(SettingSection("switch", "翻动时不加载图片", SettingsKeys.IMAGE_NO_LOAD_ONSCROLL,
-                getString(R.string.desc_img_no_load_onscroll), "false"))
+                getString(R.string.desc_img_no_load_onscroll), "true"))
             add(SettingSection("switch", "异步加载布局", SharedPreferencesUtil.ASYNC_INFLATE_ENABLE,
                 getString(R.string.desc_async_inflate_enable), "true"))
             add(SettingSection("switch", "新提示信息显示方式", SharedPreferencesUtil.SNACKBAR_ENABLE,
@@ -110,10 +122,20 @@ class SettingPrefActivity : RefreshListActivity() {
             add(SettingSection("title", "表冠适配", "", "", ""))
             add(SettingSection("switch", "启用表冠适配", SettingsKeys.UI_ROTATORY_ENABLE,
                 getString(R.string.setting_lab_ui_rotatory), "false"))
-            add(SettingSection("input_float", "表冠适配灵敏度（Recycler）", SettingsKeys.UI_ROTATORY_RECYCLER, "",
-                RotaryEncoderSupport.DEFAULT_MULTIPLE))
-            add(SettingSection("input_float", "表冠适配灵敏度（Scroll）", SettingsKeys.UI_ROTATORY_SCROLL, "",
-                RotaryEncoderSupport.DEFAULT_MULTIPLE))
+            // 26.11.18（反馈 #235 复测）：旧基准被 ROM 压成 1px 时，用户会把灵敏度填到几百才转得动；
+            // 基准修回 64dp 之后同一个值就变成「每格满屏」（#235「一滑到底」）。这里先把越界的历史值
+            // 就地收回 0.2–8，保证设置页显示的数字就是真正生效的数字（读取侧也收，见 sensitivityOf）。
+            RotaryEncoderSupport.normalizeSensitivity(SettingsKeys.UI_ROTATORY_RECYCLER)
+            RotaryEncoderSupport.normalizeSensitivity(SettingsKeys.UI_ROTATORY_SCROLL)
+            // 反馈 #243：OPPO Watch 4 Pro 那类「表冠被报成鼠标滚轮」的机器，App 侧的手感怎么调都是猜；
+            // 这个开关把表冠整体退回 26.11.16.4（最后一个正式版）的旧行为。默认关闭，但首次踩到
+            // 滚轮源或异常基准会自动打开一次（见 RotaryEncoderSupport.maybeAutoEnableCompat）。
+            add(SettingSection("switch", "表冠兼容模式", SettingsKeys.UI_ROTATORY_COMPAT,
+                getString(R.string.desc_ui_rotatory_compat), "false"))
+            add(SettingSection("input_float", "表冠适配灵敏度（Recycler）", SettingsKeys.UI_ROTATORY_RECYCLER,
+                getString(R.string.desc_ui_rotatory_sensitivity), RotaryEncoderSupport.DEFAULT_MULTIPLE))
+            add(SettingSection("input_float", "表冠适配灵敏度（Scroll）", SettingsKeys.UI_ROTATORY_SCROLL,
+                getString(R.string.desc_ui_rotatory_sensitivity), RotaryEncoderSupport.DEFAULT_MULTIPLE))
         }
 
         recyclerView.setHasFixedSize(true)

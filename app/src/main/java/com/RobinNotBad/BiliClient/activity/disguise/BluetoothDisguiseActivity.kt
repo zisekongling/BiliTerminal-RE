@@ -17,6 +17,17 @@ import com.RobinNotBad.BiliClient.util.Logu
  * （`Theme.BiliClient.Disguise.Dialog`），底下的页面会透出来再压一层暗色，
  * 观感就是「系统提示框盖在当前画面上」。
  *
+ * <h3>为什么清单里没有 android:screenOrientation（崩溃 #370）</h3>
+ * 这一页必须是**半透明**窗口（`Theme.BiliClient.Disguise.Dialog`），而 Android 8.0/8.1 有一条校验：
+ * 声明了固定方向的 activity 必须同时是「全屏不透明」的窗口，否则系统在 framework 的
+ * `Activity.onCreate` 里（即下面 [onCreate] 的 `super.onCreate` 那一行）直接抛
+ * `IllegalStateException: Only fullscreen opaque activities can request orientation`。
+ * 所以 `AndroidManifest.xml` 里这一条**故意不写** `android:screenOrientation`，
+ * 完整取舍（为什么不改主题、为什么不受「私有 Activity 必须 locked」那条约束）见清单里的注释。
+ *
+ * 去掉方向不影响本页布局：`activity_disguise_bluetooth.xml` 是 match_parent 的遮罩 + 居中的
+ * wrap_content 卡片，圆屏留白由 [applyDisguiseRoundPadding] 按屏幕短边算，与方向无关。
+ *
  * <h3>所有交互都是假的</h3>
  * 「重新连接」只把正文换成"正在重新连接…"，1.5 秒后换回「连接失败」；「取消」什么也不做。
  * 不做任何真实蓝牙操作——本应用根本没有蓝牙权限，也不能因为伪装去申请。

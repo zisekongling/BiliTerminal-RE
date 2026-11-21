@@ -17,24 +17,34 @@ import android.provider.Settings
 import androidx.multidex.MultiDex
 import com.RobinNotBad.BiliClient.activity.SplashActivity
 import com.RobinNotBad.BiliClient.activity.base.InstanceActivity
+import com.RobinNotBad.BiliClient.activity.feedback.FeedbackDetailActivity
+import com.RobinNotBad.BiliClient.activity.feedback.FeedbackListActivity
 import com.RobinNotBad.BiliClient.activity.settings.UpdateActivity
 import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
 import com.RobinNotBad.BiliClient.api.DynamicApi
-import com.RobinNotBad.BiliClient.api.MessageApi
+import com.RobinNotBad.BiliClient.api.TerminalApi
 import com.RobinNotBad.BiliClient.model.UpdateConfig
+import com.RobinNotBad.BiliClient.player.PlayerDisplayModePolicy
 import com.RobinNotBad.BiliClient.tutorial.TutorialStore
 import com.RobinNotBad.BiliClient.util.BangumiUpdateChecker
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.CookieRefreshScheduler
+import com.RobinNotBad.BiliClient.util.CrashReporter
 import com.RobinNotBad.BiliClient.util.CrashTrail
+import com.RobinNotBad.BiliClient.util.FeedbackUnread
 import com.RobinNotBad.BiliClient.util.Logu
-import com.RobinNotBad.BiliClient.util.MsgNotifier
+import com.RobinNotBad.BiliClient.util.MessageUnreadRefresh
+import com.RobinNotBad.BiliClient.util.MessageUnreadRefresher
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
+import com.RobinNotBad.BiliClient.util.NetworkPlaybackQuality
+import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.PerformanceManager
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
+import com.RobinNotBad.BiliClient.util.TerminalDialog
+import com.RobinNotBad.BiliClient.util.UiScaleInput
 import com.RobinNotBad.BiliClient.util.UpdateManager
 import me.ele.uetool.UETool
 import org.json.JSONException
@@ -123,6 +133,31 @@ class BiliTerminal : Application() {
         private var pendingAutoOpenUpdate: UpdateConfig? = null
 
         /**
+         * 静默下载完成、等着问用户「现在装吗」的版本（26.11.16）。
+         *
+         * 与 [pendingAutoOpenUpdate] 同样的道理：静默下载可能在启动页期间就下完了，
+         * 那一刻弹窗会被随后的首屏盖住，所以先记下、等前台页就绪再问。
+         */
+        @Volatile
+        private var pendingSilentInstall: UpdateConfig? = null
+
+        /**
+         * 静默下载那次另存到 Download 的路径（26.11.18）。
+         *
+         * 只活在本进程里：进程重启后即使安装包还在缓存里，也确实说不出它当初存到 Download 的哪个位置，
+         * 那时提示词退回不带路径的旧文案（不编造路径）。
+         */
+        @Volatile
+        private var silentSavedPath: String? = null
+
+        /** 启动时查到的「我的反馈」新回复条数，等首屏就绪后提示一次（26.11.16）。 */
+        @Volatile
+        private var pendingFeedbackUnread: Int = 0
+
+        /** 静默下载已下完的版本号；用来避免同一版本反复下载（文件还在就不重下）。 */
+        private const val KEY_SILENT_UPDATE_VERSION = "silent_update_version_code"
+
+        /**
          * 记下「发现新版本（非强制）」并尝试立刻打开更新页。
          *
          * 「一个版本只自动跳一次」由调用方按 `update_last_new_version` 过滤（该键在更新页
@@ -176,25 +211,52 @@ class BiliTerminal : Application() {
          * 参数/返回保持可空：旧 Java 版无 `@Nullable`/`@NonNull` 注解，是平台类型，
          * 而 `SplashActivity.attachBaseContext` 把入参声明成了 `Context?`。写成非空会编译失败。
          *
+         * **密度与字号在这里一次算清**（反馈 #225）。这里以前只认「界面大小」倍数，
+         * 绝对 DPI 留给 `BaseActivity.onCreate` 里的 `setDensity` 事后补，于是同一个进程里
+         * 两套答案：页面按绝对值、Application context（Toast / `ToolsUtil.dp2px`）按倍数，
+         * 表现为「有的字跟界面缩放走、有的跟着系统 DPI 走」。现在两边都问
+         * `UiScaleInput.resolveDensityDpi`，并且**在任何主题 / DecorView 创建之前**
+         * （`attachBaseContext` 早于 `onCreate` 的 `setTheme`）就定型，
+         * 不再出现「页面渲染到一半才改密度」那种一半新一半旧的情况。
+         *
          * @param old The origin context.
+         * @param forceDark 强制暗色（`SplashActivity` / `PlayerActivity` 用导航栏配色时传 true）
          */
         @JvmStatic
         @JvmOverloads
         fun getFitDisplayContext(old: Context?, forceDark: Boolean = false): Context? {
-            val dpiTimes = SharedPreferencesUtil.getFloat("dpi", 1.0F)
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR1) return old
             if (old == null) return null
-            val dpiChanged = DPI_FORCE_CHANGE || dpiTimes != 1.0F
+            // 基线取 old 自己的 displayMetrics：它是系统发给这个 context 的原始值，本应用还没动过，
+            // 所以反复调用（Application / 每个 Activity / Splash / Player）不会把倍数乘两次。
+            val baseDensityDpi = old.resources.displayMetrics.densityDpi
+            val targetDensityDpi = UiScaleInput.resolveDensityDpi(
+                baseDensityDpi,
+                SharedPreferencesUtil.getInt(SettingsKeys.DENSITY, -1),
+                SharedPreferencesUtil.getFloat(SettingsKeys.DPI, 1.0F)
+            )
+            val densityChanged = targetDensityDpi != baseDensityDpi
+            // DPI_FORCE_CHANGE 是「刚在设置里改过界面大小」的一次性标记（SettingGroupActivity
+            // 的「界面大小」分支置位）：那条通路只写盘、不重建 context，所以即使换算结果恰好
+            // 与基线相同也要重建一次，否则改了没反应。语义与改造前一致。
+            val needRebuild = DPI_FORCE_CHANGE || densityChanged
             // 暗色 / 亮色模式：由我们决定 uiMode 的夜间位（亮色命中 -notnight 资源），见 ColorMode。
             // 手表系统普遍报 NIGHT_NO，所以暗色模式也必须显式写 NIGHT_YES。
             val night = ColorMode.nightBits(forceDark)
             val nightMatches = (old.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == night
-            if (!dpiChanged && nightMatches) return old
+            if (!needRebuild && nightMatches) return old
             return try {
-                val displayMetrics = old.resources.displayMetrics
                 // 拷贝一份再改：此前直接改 resources.configuration（宿主 Resources 的活配置对象）
                 val configuration = Configuration(old.resources.configuration)
-                if (dpiChanged) configuration.densityDpi = (displayMetrics.densityDpi * dpiTimes).toInt()
+                configuration.densityDpi = targetDensityDpi
+                // 字号与密度**同进同退**：应用一旦接管了密度，sp 的换算基准也得跟着接管，
+                // 否则页面里的 sp（Activity 的 Resources，已被压成 1f）与 `ToolsUtil.sp2px` /
+                // Toast 正文（Application context，仍是系统 fontScale）之间会再差一个系统
+                // 字体缩放倍数——这正是 #225「大小不统一」的另一半来源。
+                // 没有接管密度时**不动** fontScale：这类用户本来就该跟系统字号走
+                // （`docs/agents/dev-conventions.md` 要求自测时把系统字体调到最大，
+                // 说明跟系统字号是有意的默认行为）。
+                if (densityChanged) configuration.fontScale = 1f
                 configuration.uiMode = (configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or night
                 old.createConfigurationContext(configuration)
             } catch (e: Exception) {
@@ -216,6 +278,34 @@ class BiliTerminal : Application() {
          */
         @JvmStatic
         fun isDebugBuild(): Boolean = BuildConfig.DEBUG
+
+        /**
+         * 是否抑制「自动弹出的教程与信息提示」。
+         *
+         * Debug 构建下返回 true：调试包每次冷启动都会被一串弹窗按固定顺序糊满屏幕
+         * （更新日志 → 公告 → 全屏教程 → 隐私说明 → 免责声明），手测与页面自动化都得先
+         * 手动点掉它们才看得到目标页——`docs/review/fix-progress.md` §1 那条
+         * 「26.11.16 反馈页顶栏补返回箭头（#174）」的 L1 就是因为「首启弹窗串行占屏」
+         * 没能在模拟器里打开目标页。这里收一个统一门面，各调用点自己判一次。
+         *
+         * 命中范围（括号里是调用点）：
+         * - 教程：全屏 GUIDE / NOTICE 与页面滑动 HINT（BaseActivity.autoTriggerTutorial）；
+         *   「设置 → 教程」里的教程管理页走的是点击，不经过这里，debug 下仍能手动看；
+         * - 启动信息：升级后的更新日志页（SplashActivity）、自建公告（TerminalApi.checkAnnouncement）、
+         *   免责声明与「夜深了」提醒（AppInfoApi.showStartupNotices）、BETA 通道包的警告
+         *   （AppInfoApi.check，那一行用的 ToolsUtil.isDebugBuild 判的其实是「非 stable 通道」）；
+         * - 隐私说明闸门（SplashActivity.proceedSplashFlowWithPrivacyGate）：debug 直接进主流程。
+         *   刻意**不写**「已同意」——匿名统计因此仍按未同意处理，不会上报；
+         * - 首次使用引导：播放器片头片尾跳过引导（PlayerActivity.maybeShowSkipGuide）、
+         *   视频详情页第一次点播放时的说明（VideoInfoFragment.playClick）。
+         *
+         * 不在范围内、刻意保留：强制更新拦截（功能性拦截，不是弹窗）、首启初始化向导
+         * （SetupUIActivity，整页向导）、下载时请求通知权限（系统能力，测权限流程要用）。
+         *
+         * 与 [isDebugBuild] 一样用 BuildConfig.DEBUG（编译期常量），Release 里整段被折叠掉。
+         */
+        @JvmStatic
+        fun isAutoPopupSuppressed(): Boolean = BuildConfig.DEBUG
 
         /**
          * UETool 悬浮窗请求码（入口 Activity onActivityResult 使用）。
@@ -393,6 +483,20 @@ class BiliTerminal : Application() {
             // 教程系统重构：一次性把旧键迁移到新 id（旧系统拿数组下标当 tag 且错位，详见 docs/tutorial-system-redesign.md）
             TutorialStore.migrateLegacyKeys()
 
+            // 播放器「显示方式」旧存档迁移：早期设置页按布尔写、播放器按字符串读，
+            // 老用户的存档是 Boolean，`getString` 会撞 SharedPreferencesUtil 的类型保险丝拿到空串、
+            // 静默回落默认值（用户观感就是「设置失效」）。这里在启动时一次性改成规范字符串，
+            // 已经是规范串或认不出来的原样不动（迁移规则见 PlayerDisplayModePolicy.migrateLegacy）。
+            val displayRaw = SharedPreferencesUtil.sharedPreferences?.all?.get(SettingsKeys.PLAYER_DISPLAY)
+            val displayMigrated = PlayerDisplayModePolicy.migrateLegacy(displayRaw)
+            // Debug 包留一行取证：现场（用户日志/调试桥 logs）能看到这个键当初是什么类型、有没有迁成功
+            if (BuildConfig.DEBUG) {
+                Logu.d("BiliTerminal", "显示方式存档：raw=${displayRaw?.javaClass?.simpleName} 迁移结果=$displayMigrated")
+            }
+            if (displayMigrated != null) {
+                SharedPreferencesUtil.putString(SettingsKeys.PLAYER_DISPLAY, displayMigrated)
+            }
+
             // 初始化性能管理器 - 设备检测与自适应优化
             PerformanceManager.init(this)
 
@@ -442,6 +546,10 @@ class BiliTerminal : Application() {
                     // 26.10.25：检查更新结果可能在启动页期间就返回，那时不能直接跳更新页
                     // （会被启动页随后的首屏盖住），挂起到这里——首屏 resumed 后再打开。
                     tryShowAutoOpenUpdatePage()
+                    // 26.11.16：静默下载完成的提示、以及「我的反馈有新回复」的提示，
+                    // 同样要等前台页就绪——启动页期间弹出来会被首屏盖掉。
+                    tryPromptSilentInstall()
+                    tryPromptFeedbackUnread()
                 }
 
                 override fun onActivityPaused(activity: Activity) {}
@@ -455,11 +563,21 @@ class BiliTerminal : Application() {
 
             applyLogSwitches()
 
+            // 26.11.20（崩溃记录加固）：上次崩溃如果赶上网络不通、或者用户在崩溃页那 3 秒窗口里点了
+            // 「退出」，报告已经落在 filesDir/crash_pending/ 里，这里在后台补传最多 3 条。
+            // 隐私同意与「自动上报」开关的判定在 retryPending 内部——关掉开关就一个字节都不往外发。
+            CenterThreadPool.run { CrashReporter.retryPending(context) }
+
             // #60 老是掉登录：原先只有 SplashActivity 在启动时刷一次 Cookie，而手表常年不冷启动，
             // 进程一直活着就再也没人续期 SESSDATA。这里起一条进程级后台调度（每 5 分钟扫一次，
             // 真正发请求的间隔由 CookieRefreshPolicy 决定：正常 30 分钟，失败指数退避封顶 4 小时），
             // 不阻塞主线程、不引入 WorkManager。放在 context == null 块内，保证一个进程只起一次。
             CookieRefreshScheduler.start()
+
+            // 私有功能在后台静默预热自己的数据（现在是第三方片源规则的静默检查/同步）。
+            // 门面只调一声就返回：拉不拉、多久拉一次、要不要发请求都由私有侧自己决定并自带节流；
+            // 没有私有功能时是空操作。同样放在 context == null 块内，一个进程只叫一次。
+            OptionalFeatures.warmUpOptionalData()
 
             if (SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.DYNAMIC_UPDATE_CHECK_ENABLE, true)
                 && SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) != 0L
@@ -477,30 +595,16 @@ class BiliTerminal : Application() {
                 }
             }
 
-            if (SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.MESSAGE_UPDATE_CHECK_ENABLE, true)
-                && SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) != 0L
+            // 未读检查（E）：判据（登录态 / 开关 / 最小间隔 / 单飞）全在 MessageUnreadRefresh 里，
+            // 这里只在冷启动踢一脚；回到菜单时的增量刷新由 MenuActivity.onResume 触发。
+            // 仍然**不起后台定时器**——手表上后台唤醒的耗电代价远大于「晚几秒看到角标」。
+            // 检查失败保留旧值不清零的语义也搬进了 MessageUnreadRefresher.fetch（理由同上）。
+            if (MessageUnreadRefresh.shouldCheck(
+                    SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.MESSAGE_UPDATE_CHECK_ENABLE, true),
+                    SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0)
+                )
             ) {
-                CenterThreadPool.run {
-                    try {
-                        // 先记下上次的未读数：只有"变多了"才弹通知（见 MsgNotifier.shouldNotify）
-                        val previousUnread = SharedPreferencesUtil.getInt(SharedPreferencesUtil.MESSAGE_UPDATE_NUM, 0)
-                        val messageUnread = MessageApi.checkMessageUnread()
-                        val privateMsgUnread = MessageApi.checkPrivateMsgUnread()
-                        val totalUnread = messageUnread + privateMsgUnread
-                        SharedPreferencesUtil.putInt(SharedPreferencesUtil.MESSAGE_UPDATE_NUM, totalUnread)
-
-                        val notifyEnabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PRIVATE_MSG_NOTIFY_ENABLE, true)
-                        if (MsgNotifier.shouldNotify(previousUnread, totalUnread, notifyEnabled)) {
-                            context?.let { MsgNotifier.notifyNewMessages(it, privateMsgUnread, messageUnread) }
-                        }
-                    } catch (e: IOException) {
-                        // 检查失败不再把未读数清零：清零会让下一次成功检查把"老未读"当成新增未读，
-                        // 网络抖一次就重复弹通知。保留上次已知值，既不误报也不丢提示。
-                        Logu.w("BiliTerminal", "未读检查失败: ${e.message}")
-                    } catch (e: JSONException) {
-                        Logu.w("BiliTerminal", "未读检查失败: ${e.message}")
-                    }
-                }
+                CenterThreadPool.run { MessageUnreadRefresher.checkOnStartup() }
             }
 
             // C16：追番更新提醒。只在这里检查（用户拍板不做后台定时），失败保持旧快照不清空。
@@ -519,6 +623,9 @@ class BiliTerminal : Application() {
             }
 
             checkAppUpdate()
+            // 26.11.16：开发者回复后用户完全不知情（反馈详情只能自己点进去看），
+            // 所以启动时拉一次「我的反馈」算未读，首屏弹一次提示。
+            checkFeedbackReplies()
         }
     }
 
@@ -562,7 +669,15 @@ class BiliTerminal : Application() {
                                 val lastNewVersion = SharedPreferencesUtil.getInt("update_last_new_version", 0)
                                 // 26.10.25 用户要求：发现新版本时不再只弹一条 Toast（手表上很容易错过），
                                 // 而是直接跳到「检查更新/下载」页，用户点「下载更新」即可。
-                                if (UpdateManager.shouldAutoOpenUpdatePage(
+                                // 26.11.16 静默下载（默认关）：开关打开且当前是 Wi-Fi 时，
+                                // 先把包下好再弹「已下载」，否则保持原来的「直接跳更新页」。
+                                // 26.11.19 debug 包不弹任何自动提示：连「发现新版本直接跳更新页」也一并免掉，
+                                // 否则自动化刚进主页就被拽去更新页；静默下载完成后那条「已下载」提示同理。
+                                // 强制更新拦截走上面的 if 分支，是功能性拦截，不受这道门影响。
+                                val suppressAutoTips = isAutoPopupSuppressed()
+                                if (!suppressAutoTips
+                                    && !trySilentUpdateDownload(config)
+                                    && UpdateManager.shouldAutoOpenUpdatePage(
                                         config,
                                         UpdateManager.getCurrentVersion(),
                                         lastNewVersion
@@ -579,6 +694,163 @@ class BiliTerminal : Application() {
                 )
             } catch (e: Exception) {
             }
+        }
+    }
+
+    /**
+     * 静默下载（26.11.16 新增，默认关，开关在「设置 → 关于 → 静默下载更新」）。
+     *
+     * <p>返回 true 表示这次更新由静默流程接管，调用方不要再走「发现新版本就跳更新页」那条路。
+     * 三个前提：
+     * 1. 开关打开（默认关——不替用户决定要不要往缓存里塞一个 APK）；
+     * 2. 当前是 Wi-Fi——蜂窝下绝不偷偷下安装包，花的是用户的钱，直接退回原来的弹页流程；
+     * 3. 更新地址有效。
+     *
+     * <p>下完之后不自动拉起安装器（用户拍板：先提示「已下载」，点了确认再装）。下载失败的
+     * 处理是「退回更新页」，用户至少还能手动重试，不会因为静默流程挂了就永远看不到更新。
+     */
+    private fun trySilentUpdateDownload(config: UpdateConfig): Boolean {
+        if (!SharedPreferencesUtil.getBoolean(SettingsKeys.SILENT_UPDATE_DOWNLOAD, false)) return false
+        val ctx = context ?: return false
+        if (NetworkPlaybackQuality.detectKind(ctx) != NetworkPlaybackQuality.NetworkKind.WIFI) {
+            Logu.i("静默更新", "当前不是 Wi-Fi，跳过静默下载")
+            return false
+        }
+        val url = config.downloadUrl
+        if (url.isNullOrBlank()) return false
+
+        // 上一次已经下完（进程被杀、或用户当时没点安装）：文件还在就不重下一遍，直接提示装
+        if (SharedPreferencesUtil.getInt(KEY_SILENT_UPDATE_VERSION, 0) == config.versionCode) {
+            val apk = UpdateManager.currentUpdatePackageFile()
+            if (apk != null) {
+                promptInstallDownloadedApk(config)
+                return true
+            }
+            // 包被清掉了（存储空间页删过、或系统清了缓存）：按没下过处理
+            SharedPreferencesUtil.putInt(KEY_SILENT_UPDATE_VERSION, 0)
+        }
+
+        Logu.i("静默更新", "开始静默下载 " + config.versionName)
+        silentSavedPath = null
+        UpdateManager.downloadApk(
+            url = url,
+            context = ctx,
+            onProgress = { },
+            onComplete = { file ->
+                SharedPreferencesUtil.putInt(KEY_SILENT_UPDATE_VERSION, config.versionCode)
+                Logu.i("静默更新", "静默下载完成：" + file.absolutePath)
+                promptInstallDownloadedApk(config)
+            },
+            onError = { msg ->
+                Logu.w("静默更新", "静默下载失败，退回更新页：" + msg)
+                requestAutoOpenUpdatePage(config)
+            },
+            versionName = config.versionName,
+            onSaved = { path ->
+                silentSavedPath = path
+                Logu.i("静默更新", "安装包已另存到 " + path)
+            }
+        )
+        return true
+    }
+
+    /** 静默下载完成：先记下，再立刻试一次（可能正卡在启动页，那就等首屏就绪）。 */
+    private fun promptInstallDownloadedApk(config: UpdateConfig) {
+        pendingSilentInstall = config
+        tryPromptSilentInstall()
+    }
+
+    /**
+     * 前台页就绪时提示「新版本已下载」。
+     *
+     * <p>用户点「立即安装」才拉起系统安装器——这是用户明确要求的交互：静默下载省掉的是
+     * 「等下载」，不是「装不装」这个决定。已经在更新页时不弹（那页自己有下载与进度，叠一个
+     * 「已下载」只会互相打脸）。
+     */
+    private fun tryPromptSilentInstall() {
+        val config = pendingSilentInstall ?: return
+        val activity = getCurrentActivity() ?: return
+        if (activity is SplashActivity) return
+        pendingSilentInstall = null
+        if (activity is UpdateActivity) return
+        val apk = UpdateManager.currentUpdatePackageFile()
+        if (apk == null) {
+            Logu.w("静默更新", "静默下载的安装包不见了，退回更新页")
+            requestAutoOpenUpdatePage(config)
+            return
+        }
+        // 有另存路径就说清楚在哪儿（用户要的就是「装完还能在文件管理器里找到」），没有就用旧文案
+        val savedPath = silentSavedPath
+        val message = if (savedPath.isNullOrBlank()) {
+            activity.getString(R.string.msg_silent_update_ready_body, config.versionName)
+        } else {
+            activity.getString(R.string.msg_silent_update_ready_body_saved, config.versionName, savedPath)
+        }
+        try {
+            TerminalDialog.confirm(
+                context = activity,
+                title = activity.getString(R.string.msg_silent_update_ready_title),
+                message = message,
+                confirmText = activity.getString(R.string.btn_silent_update_install),
+                cancelText = activity.getString(R.string.btn_cancel),
+                confirmIsDanger = false,
+                onConfirm = { UpdateManager.installApk(activity, apk) }
+            ).show()
+        } catch (e: Exception) {
+            Logu.w("静默更新", "提示安装失败：" + e.message)
+        }
+    }
+
+    /**
+     * 启动时查一次「我的反馈」有没有开发者新回复（26.11.16）。
+     *
+     * <p>用户的原话是「我回复了但用户不知道」——手表上没有可靠的通知权限，所以按用户拍板的方案
+     * 走站内提示：首屏弹一次、「我的反馈」入口显示条数、列表项标「新回复」。
+     * 失败一律静默：这只是提醒，不能因为它挂了影响启动。
+     */
+    private fun checkFeedbackReplies() {
+        CenterThreadPool.run {
+            try {
+                val list = TerminalApi.getMyFeedback()
+                val unread = FeedbackUnread.refreshCount(list)
+                if (unread > 0) {
+                    CenterThreadPool.runOnUiThread {
+                        pendingFeedbackUnread = unread
+                        tryPromptFeedbackUnread()
+                    }
+                }
+            } catch (e: Exception) {
+                Logu.w("反馈提醒", "启动检查反馈回复失败：" + e.message)
+            }
+        }
+    }
+
+    /** 前台页就绪时弹一次「有 N 条新回复」；用户已在反馈页里就不打扰。 */
+    private fun tryPromptFeedbackUnread() {
+        val count = pendingFeedbackUnread
+        if (count <= 0) return
+        val activity = getCurrentActivity() ?: return
+        if (activity is SplashActivity) return
+        pendingFeedbackUnread = 0
+        if (activity is FeedbackListActivity || activity is FeedbackDetailActivity) return
+        try {
+            TerminalDialog.confirm(
+                context = activity,
+                title = activity.getString(R.string.msg_feedback_unread_title),
+                message = activity.getString(R.string.msg_feedback_unread_body, count),
+                confirmText = activity.getString(R.string.btn_feedback_unread_open),
+                cancelText = activity.getString(R.string.btn_cancel),
+                confirmIsDanger = false,
+                onConfirm = {
+                    try {
+                        activity.startActivity(Intent(activity, FeedbackListActivity::class.java))
+                    } catch (e: Exception) {
+                        Logu.w("反馈提醒", "打开我的反馈失败：" + e.message)
+                    }
+                }
+            ).show()
+        } catch (e: Exception) {
+            Logu.w("反馈提醒", "弹出反馈提醒失败：" + e.message)
         }
     }
 }

@@ -8,6 +8,7 @@
     android:layout_height="wrap_content">
 
     <ImageView
+        android:contentDescription="@string/a11y_view_user"
         android:id="@+id/avatar"
         android:layout_width="0dp"
         android:layout_height="0dp"

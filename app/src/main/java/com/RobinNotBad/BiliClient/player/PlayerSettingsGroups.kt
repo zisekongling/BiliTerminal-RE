@@ -1,16 +1,25 @@
 package com.RobinNotBad.BiliClient.player
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.player.PlayerLongPressPolicy
 import com.RobinNotBad.BiliClient.activity.player.PlayerSwipeSeekScalePolicy
+import com.RobinNotBad.BiliClient.activity.player.PlayerZoomDiagnostics
+import com.RobinNotBad.BiliClient.activity.player.PlayerZoomLastSnapshot
+import com.RobinNotBad.BiliClient.activity.settings.SettingSkipActivity
 import com.RobinNotBad.BiliClient.adapter.SettingsAdapter
 import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.util.DanmakuDiskCache
+import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
-import com.RobinNotBad.BiliClient.util.UiText
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * 内置播放器的设置项分组表。
@@ -30,6 +39,9 @@ object PlayerSettingsGroups {
 
     /** 播放默认值：开播时自动应用的一组初值。 */
     const val DEFAULTS = "defaults"
+
+    /** 自动跳过：片头片尾与 SponsorBlock 广告片段（26.11.11 从「画面与显示」拆出）。 */
+    const val SKIP = "skip"
 
     /** 画面与显示：进度条、人数、缩放。 */
     const val DISPLAY = "display"
@@ -55,8 +67,14 @@ object PlayerSettingsGroups {
      */
     data class Group(val key: String, val title: String, val sections: List<SettingSection>)
 
-    /** 三态项的显示名与取值，顺序一一对应。 */
-    private val triStateNames = listOf(UiText.of("开"), "关", "沿用上次")
+    /** 三态项的显示名（顺序与 [triStateValues] 一一对应；文案见 strings.xml 的 setting_player_option_*）。 */
+    private fun triStateNames(context: Context) = listOf(
+        context.getString(R.string.setting_player_option_on),
+        context.getString(R.string.setting_player_option_off),
+        context.getString(R.string.setting_player_option_last)
+    )
+
+    /** 三态项的取值，顺序与 [triStateNames] 一一对应。 */
     private val triStateValues = listOf(
         SettingsKeys.PLAYER_DEFAULT_MODE_ON,
         SettingsKeys.PLAYER_DEFAULT_MODE_OFF,
@@ -81,7 +99,7 @@ object PlayerSettingsGroups {
         SettingsAdapter.ListChooseHolder.ListChooseExtra(displayNames, actualValues)
     )
 
-    /** 全部七组，顺序即「完整设置」页的顺序。每次调用都重新生成（含读存档的默认值迁移）。 */
+    /** 全部八组，顺序即「完整设置」页的顺序。每次调用都重新生成（含读存档的默认值迁移）。 */
     fun build(context: Context): List<Group> {
         // 「播放默认值」各项的默认模式统一由**旧开关**迁移而来，保证升级后行为不变：
         // 旧开关为 true → 默认「开」，否则「关」。（旧键仍在 SettingsKeys 里，标了 legacy）
@@ -89,13 +107,23 @@ object PlayerSettingsGroups {
             SettingsKeys.PLAYER_DEFAULT_MODE_ON else SettingsKeys.PLAYER_DEFAULT_MODE_OFF
         val audioOnlyDefault = if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_AUDIO_ONLY, false))
             SettingsKeys.PLAYER_DEFAULT_MODE_ON else SettingsKeys.PLAYER_DEFAULT_MODE_OFF
-        val orientationDefault = if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_AUTOLANDSCAPE, false))
-            SettingsKeys.PLAYER_DEFAULT_ORIENTATION_LANDSCAPE else SettingsKeys.PLAYER_DEFAULT_ORIENTATION_PORTRAIT
+        // 反馈 #117：口径必须与 PlayerActivity.defaultOrientationMode() 完全一致，否则设置页
+        // 「默认值」标签显示竖屏、实际播放却横屏（或反过来）。两个旧开关都算：
+        // - player_autolandscape：旧「默认横屏」，本来就是为它准备的迁移来源；
+        // - ui_landscape（设置页「横屏模式」）：旧实现里它会把播放器一起强制横屏，26.11.x 播放器
+        //   方向自成一套后这条被丢掉了，迁移回来才不会让老用户升级后一律竖屏。
+        // 这里只是「用户还没显式选过播放方向时」的默认值，选过就以存档为准。
+        val orientationDefault =
+            if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_AUTOLANDSCAPE, false) ||
+                SharedPreferencesUtil.getBoolean(SettingsKeys.UI_LANDSCAPE, false)
+            ) SettingsKeys.PLAYER_DEFAULT_ORIENTATION_LANDSCAPE
+            else SettingsKeys.PLAYER_DEFAULT_ORIENTATION_PORTRAIT
 
         return listOf(
             Group(GESTURE, context.getString(R.string.setting_player_group_gesture), gesture(context)),
             Group(DEFAULTS, context.getString(R.string.setting_player_group_defaults),
                 defaults(context, loopDefault, audioOnlyDefault, orientationDefault)),
+            Group(SKIP, context.getString(R.string.setting_player_group_skip), skip(context)),
             Group(DISPLAY, context.getString(R.string.setting_player_group_display), display(context)),
             Group(DECODE, context.getString(R.string.setting_player_group_decode), decode(context)),
             Group(DANMAKU, context.getString(R.string.setting_player_group_danmaku), danmaku(context)),
@@ -123,7 +151,8 @@ object PlayerSettingsGroups {
     }
 
     private fun gesture(context: Context) = listOf(
-        SettingSection("switch", "长按倍速", SettingsKeys.PLAYER_LONGCLICK, "", "true"),
+        SettingSection("switch", context.getString(R.string.setting_player_longpress_boost),
+            SettingsKeys.PLAYER_LONGCLICK, "", "true"),
         // #61：长按加速的**倍率**。上面那个开关管「允不允许长按加速」，这一项管「加速到几倍」。
         // 存档键/档位/默认值全部来自 PlayerLongPressPolicy（播放页每次长按重读，改完即生效）。
         listChoose(
@@ -134,7 +163,8 @@ object PlayerSettingsGroups {
             PlayerLongPressPolicy.displayNames,
             PlayerLongPressPolicy.storedValues
         ),
-        SettingSection("switch", "双击快进快退", SettingsKeys.PLAYER_DOUBLETAP_SEEK, "", "false"),
+        SettingSection("switch", context.getString(R.string.setting_player_doubletap_seek),
+            SettingsKeys.PLAYER_DOUBLETAP_SEEK, "", "false"),
         // task-14 ③：长按倍速期间上下划切视频（上划=下一条）。默认开，无连播队列时静默。
         SettingSection("switch",
             context.getString(R.string.player_s_longpress_switch_name),
@@ -150,8 +180,15 @@ object PlayerSettingsGroups {
             LongPressSwitchPolicy.hintDisplayNames,
             LongPressSwitchPolicy.hintStoredValues
         ),
-        SettingSection("switch", "左右滑动控制进度", SettingsKeys.PLAYER_SWIPE_SEEK,
-            "在视频区域左右滑动快进/快退（未缩放视频时生效）", "false"),
+        SettingSection("switch", context.getString(R.string.setting_player_swipe_seek),
+            SettingsKeys.PLAYER_SWIPE_SEEK, context.getString(R.string.desc_setting_player_swipe_seek), "false"),
+        // 反馈 #117 / #135 / #139②：播放页退不出去的根治开关。
+        // **默认关**（26.11.14 按用户要求从默认开改成默认关；[PlayerActivity.backKeyExitEnabled]
+        // 的兜底值必须同步改成 false，两处不一致会表现为「设置页显示关、实际按开走」）。
+        // 放在「左右滑动控制进度」下面是有意的：两者互相影响（开着滑动调进度时返回键曾被吞掉），
+        // 用户改完上面那项、发现退不出去，一眼就能看到这一项。关掉即回到旧语义（含 noSwipe 主题）。
+        SettingSection("switch", context.getString(R.string.setting_player_back_key_exit),
+            SettingsKeys.PLAYER_BACK_KEY_EXIT, context.getString(R.string.desc_player_back_key_exit), "false"),
         // 反馈 #94a：手表 dpi 低时横滑一点点就跨过很长一段，倍率交给用户自己调。
         // 档位/默认值/换算都在 PlayerSwipeSeekScalePolicy 里，播放页每次横滑重读存档。
         listChoose(
@@ -162,11 +199,21 @@ object PlayerSettingsGroups {
             PlayerSwipeSeekScalePolicy.displayNames,
             PlayerSwipeSeekScalePolicy.storedValues
         ),
-        SettingSection("switch", "有缩放时，双击优先恢复缩放", SettingsKeys.PLAYER_DOUBLETAP_RESTORE_SCREEN,
+        SettingSection("switch", context.getString(R.string.setting_player_doubletap_restore_scale),
+            SettingsKeys.PLAYER_DOUBLETAP_RESTORE_SCREEN,
             context.getString(R.string.desc_player_doubletap_restore_scale), "false"),
-        SettingSection("input_int", "快进快退秒数", SettingsKeys.PLAYER_DOUBLETAP_SEEK_SECONDS, "", "10"),
-        SettingSection("switch", "后台/熄屏继续播放", SettingsKeys.PLAYER_BACKGROUND,
-            "退到后台或熄屏时继续播放，并挂出通知栏遥控", "false")
+        SettingSection("input_int", context.getString(R.string.setting_player_doubletap_seek_seconds),
+            SettingsKeys.PLAYER_DOUBLETAP_SEEK_SECONDS, "", "10"),
+        // G02：±N 秒快退/快进按钮的步长（3–120 秒，越界由 PlayerSeekStepPolicy 兜回来）
+        SettingSection("input_int", context.getString(R.string.player_port_seek_step_name),
+            SettingsKeys.PLAYER_SEEK_STEP_SECONDS,
+            context.getString(R.string.player_port_seek_step_desc), "10"),
+        SettingSection("switch", context.getString(R.string.setting_player_background),
+            SettingsKeys.PLAYER_BACKGROUND, context.getString(R.string.desc_setting_player_background), "false"),
+        // 反馈 #191：短视频的音量键默认仍调 App 内增益（1% 一档），想要联动系统音量的人打开这一项。
+        SettingSection("switch", context.getString(R.string.player_port_system_volume_name),
+            SettingsKeys.SHORTVIDEO_SYSTEM_VOLUME,
+            context.getString(R.string.player_port_system_volume_desc), "false")
     )
 
     private fun defaults(
@@ -175,40 +222,56 @@ object PlayerSettingsGroups {
         audioOnlyDefault: String,
         orientationDefault: String
     ) = listOf(
-        listChoose("弹幕", SettingsKeys.PLAYER_DEFAULT_DANMAKU,
-            "开播时的弹幕开关；「沿用上次」= 上次退出播放器时的实际状态",
-            SettingsKeys.PLAYER_DEFAULT_MODE_LAST, triStateNames, triStateValues),
-        listChoose("听视频模式", SettingsKeys.PLAYER_DEFAULT_AUDIO_ONLY,
+        listChoose(context.getString(R.string.setting_player_default_danmaku),
+            SettingsKeys.PLAYER_DEFAULT_DANMAKU,
+            context.getString(R.string.desc_setting_player_default_danmaku),
+            SettingsKeys.PLAYER_DEFAULT_MODE_LAST, triStateNames(context), triStateValues),
+        listChoose(context.getString(R.string.setting_player_default_audio_only),
+            SettingsKeys.PLAYER_DEFAULT_AUDIO_ONLY,
             context.getString(R.string.desc_audio_only),
-            audioOnlyDefault, triStateNames, triStateValues),
-        listChoose("循环播放", SettingsKeys.PLAYER_DEFAULT_LOOP,
-            "单集播放结束后循环重播当前视频",
-            loopDefault, triStateNames, triStateValues),
-        listChoose("自动连播", SettingsKeys.PLAYER_DEFAULT_AUTONEXT,
-            "多分P视频播完当前分P后自动播下一个",
-            SettingsKeys.PLAYER_DEFAULT_MODE_OFF, triStateNames, triStateValues),
-        listChoose("倍速", SettingsKeys.PLAYER_DEFAULT_SPEED,
-            "开播时的播放速度；「沿用上次」= 上次用过的倍速",
+            audioOnlyDefault, triStateNames(context), triStateValues),
+        listChoose(context.getString(R.string.setting_player_default_loop),
+            SettingsKeys.PLAYER_DEFAULT_LOOP,
+            context.getString(R.string.desc_setting_player_default_loop),
+            loopDefault, triStateNames(context), triStateValues),
+        listChoose(context.getString(R.string.setting_player_default_autonext),
+            SettingsKeys.PLAYER_DEFAULT_AUTONEXT,
+            context.getString(R.string.desc_setting_player_default_autonext),
+            SettingsKeys.PLAYER_DEFAULT_MODE_OFF, triStateNames(context), triStateValues),
+        listChoose(context.getString(R.string.setting_player_default_speed),
+            SettingsKeys.PLAYER_DEFAULT_SPEED,
+            context.getString(R.string.desc_setting_player_default_speed),
             "1.0",
-            listOf("0.5x", "0.75x", "1.0x", "1.25x", "1.5x", "1.75x", "2.0x", "3.0x", UiText.of("沿用上次")),
+            listOf(
+                "0.5x", "0.75x", "1.0x", "1.25x", "1.5x", "1.75x", "2.0x", "3.0x",
+                context.getString(R.string.setting_player_option_last)
+            ),
             listOf("0.5", "0.75", "1.0", "1.25", "1.5", "1.75", "2.0", "3.0", SettingsKeys.PLAYER_DEFAULT_MODE_LAST)),
-        listChoose("字幕", SettingsKeys.PLAYER_DEFAULT_SUBTITLE,
-            "中文 = 开播自动选中文字幕（优先人工，其次 AI）；自行选择 = 是否弹出选择框由下方「自动弹出字幕选择」决定",
+        listChoose(context.getString(R.string.setting_player_default_subtitle),
+            SettingsKeys.PLAYER_DEFAULT_SUBTITLE,
+            context.getString(R.string.desc_setting_player_default_subtitle),
             SettingsKeys.PLAYER_DEFAULT_SUBTITLE_MANUAL,
-            listOf(UiText.of("中文"), "自行选择"),
+            listOf(
+                context.getString(R.string.setting_player_option_subtitle_zh),
+                context.getString(R.string.setting_player_option_subtitle_manual)
+            ),
             listOf(SettingsKeys.PLAYER_DEFAULT_SUBTITLE_ZH, SettingsKeys.PLAYER_DEFAULT_SUBTITLE_MANUAL)),
-        listChoose("屏幕方向", SettingsKeys.PLAYER_DEFAULT_ORIENTATION,
-            "播放器的默认屏幕方向；「按视频分辨率选择」= 视频宽大于高则横屏",
+        listChoose(context.getString(R.string.setting_player_default_orientation),
+            SettingsKeys.PLAYER_DEFAULT_ORIENTATION,
+            context.getString(R.string.desc_setting_player_default_orientation),
             orientationDefault,
-            listOf(UiText.of("默认横屏"), "竖屏", "按视频分辨率选择"),
+            listOf(
+                context.getString(R.string.setting_player_option_orientation_landscape),
+                context.getString(R.string.setting_player_option_orientation_portrait),
+                context.getString(R.string.setting_player_option_orientation_auto)
+            ),
             listOf(
                 SettingsKeys.PLAYER_DEFAULT_ORIENTATION_LANDSCAPE,
                 SettingsKeys.PLAYER_DEFAULT_ORIENTATION_PORTRAIT,
                 SettingsKeys.PLAYER_DEFAULT_ORIENTATION_AUTO
             )),
-        SettingSection("switch", "从历史位置播放", SettingsKeys.PLAYER_FROM_LAST,
-            context.getString(R.string.desc_fromlast),
-            "true")
+        SettingSection("switch", context.getString(R.string.setting_player_from_last),
+            SettingsKeys.PLAYER_FROM_LAST, context.getString(R.string.desc_fromlast), "true")
     )
 
     private fun display(context: Context): List<SettingSection> {
@@ -220,59 +283,110 @@ object PlayerSettingsGroups {
             SettingsKeys.PLAYER_UI_SHOW_BATTERY, "", "true"))
         out.add(SettingSection("switch", context.getString(R.string.setting_player_ui_show_clock),
             SettingsKeys.PLAYER_UI_SHOW_CLOCK, "", "true"))
-        out.add(SettingSection("switch", "显示实时人数", SettingsKeys.PLAYER_SHOW_ONLINE,
-            context.getString(R.string.desc_showonline),
+        out.add(SettingSection("switch", context.getString(R.string.setting_player_show_online),
+            SettingsKeys.PLAYER_SHOW_ONLINE, context.getString(R.string.desc_showonline),
             "false"))
-        out.add(SettingSection("switch", "视频可缩放", SettingsKeys.PLAYER_SCALE,
-            context.getString(R.string.desc_scale), "true"))
-        out.add(SettingSection("switch", "缩放时可移动", SettingsKeys.PLAYER_DOUBLEMOVE,
-            context.getString(R.string.desc_doublemove),
+        out.add(SettingSection("switch", context.getString(R.string.setting_player_scale),
+            SettingsKeys.PLAYER_SCALE, context.getString(R.string.desc_scale), "true"))
+        out.add(SettingSection("switch", context.getString(R.string.setting_player_double_move),
+            SettingsKeys.PLAYER_DOUBLEMOVE, context.getString(R.string.desc_doublemove),
             "true"))
-        out.add(SettingSection("switch", "显示高能进度条", SettingsKeys.PLAYER_HIGH_ENERGY,
-            context.getString(R.string.desc_player_high_energy), "false"))
-        // 「自动跳过片头片尾」26.10.10 紧急撤回、26.10.22 恢复；task-14 起由布尔开关改成五档
-        // （关/仅头/仅尾/都跳/询问），旧布尔键只在迁移时读，判据见 player/SkipOpEdPolicy。
-        if (SkipOpEdPrefs.FEATURE_ENABLED) {
-            out.add(listChoose(
-                context.getString(R.string.player_s_skip_mode_name),
-                SettingsKeys.PLAYER_SKIP_OP_ED_MODE,
-                context.getString(R.string.player_s_skip_mode_desc),
-                SkipOpEdPrefs.currentMode().toString(),
-                listOf(
-                    context.getString(R.string.player_s_skip_mode_off),
-                    context.getString(R.string.player_s_skip_mode_op),
-                    context.getString(R.string.player_s_skip_mode_ed),
-                    context.getString(R.string.player_s_skip_mode_both),
-                    context.getString(R.string.player_s_skip_mode_ask)
-                ),
-                listOf(
-                    SkipOpEdPolicy.MODE_OFF.toString(),
-                    SkipOpEdPolicy.MODE_OP.toString(),
-                    SkipOpEdPolicy.MODE_ED.toString(),
-                    SkipOpEdPolicy.MODE_BOTH.toString(),
-                    SkipOpEdPolicy.MODE_ASK.toString()
+        out.add(SettingSection("switch", context.getString(R.string.setting_player_high_energy),
+            SettingsKeys.PLAYER_HIGH_ENERGY, context.getString(R.string.desc_player_high_energy), "false"))
+        // 缩放诊断的「一键取证」入口（反馈 #128 / #102）。只在「互动视频调试」打开时出现：
+        // 这是给复现问题后收集现场用的，正常用户不需要，也不该在设置里多出一行看不懂的东西。
+        // 复制的内容由 PlayerZoomDiagnostics.report() 拼装，快照是播放页留的最后一次现场。
+        if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_INTERACTION_DEBUG, false)) {
+            out.add(
+                SettingSection(
+                    "nav",
+                    context.getString(R.string.player_zoom_dump_name),
+                    "",
+                    context.getString(R.string.desc_player_zoom_dump),
+                    "",
+                    SettingsAdapter.NavExtra(R.drawable.icon_menu, { view -> copyZoomDump(view.context) })
                 )
-            ))
+            )
         }
         return out
     }
 
+    /** 把播放器缩放相关的状态拼成一段文本放进剪贴板，用户直接贴给开发者。 */
+    private fun copyZoomDump(context: Context) {
+        val saved = PlayerZoomDiagnostics.Saved(
+            scaleEnabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SCALE, true),
+            // 取**原始**存档字符串：播放器读 player_display 用的是布尔，两者对不上时要看得见
+            displayValue = SharedPreferencesUtil.getString(SettingsKeys.PLAYER_DISPLAY, ""),
+            doubleMoveEnabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_DOUBLEMOVE, true)
+        )
+        val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+        val text = PlayerZoomDiagnostics.report(saved, PlayerZoomLastSnapshot.last, stamp)
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(
+            ClipData.newPlainText(context.getString(R.string.player_zoom_dump_name), text)
+        )
+        MsgUtil.showMsg(context.getString(R.string.msg_player_zoom_dump_copied))
+    }
+
+    /**
+     * 「自动跳过」：片头片尾与广告片段这两个数据源的跳过设置，26.11.14 起整体搬进二级页
+     * [com.RobinNotBad.BiliClient.activity.settings.SettingSkipActivity]。
+     *
+     * 搬走的理由有两层：一是 SponsorBlock 从「六档 + 自定义勾选」改成**逐类别三档**后，
+     * 光类别就有十行，塞在播放器长列表里会淹没其它设置；二是片头片尾与广告片段本来就是
+     * 同一种事（到点跳走）的两个数据源，放同一页才看得出「番剧走片头片尾、普通投稿走社区
+     * 标注」的区别。入口在「选择播放器」页的「播放器界面」与「清晰度」之间。
+     *
+     * 这里留一行指向它，免得从「完整设置」进来的人找不到（老用户记得这个分组在这）。
+     */
+    private fun skip(context: Context): List<SettingSection> = listOf(
+        SettingSection(
+            "nav",
+            context.getString(R.string.player_skip_page_name),
+            "",
+            context.getString(R.string.player_skip_page_desc),
+            "",
+            SettingsAdapter.NavExtra(R.drawable.icon_menu, { view ->
+                view.context.startActivity(
+                    Intent(view.context, SettingSkipActivity::class.java)
+                )
+            })
+        )
+    )
     private fun decode(context: Context) = listOf(
-        SettingSection("choose", "显示方式", SettingsKeys.PLAYER_DISPLAY,
+        // 显示方式：**必须走 list_choose（按字符串存）**。
+        // 这一行以前是 `choose`（两选一 RadioButton，写的是布尔），而播放器按字符串读
+        // （PlayerActivity 的 getString(PLAYER_DISPLAY) → PlayerDisplayModePolicy），
+        // `SharedPreferencesUtil.getString` 撞类型保险丝就静默回落 sdk 默认值——不管用户选哪项
+        // 都不生效，26.11.16「播放器设置失效」的根因之一（模拟器已复现：存档里是 Boolean，
+        // 按 string 读抛 ClassCastException）。老存档由 BiliTerminal 启动时一次性迁移。
+        listChoose(
+            context.getString(R.string.setting_player_display_mode),
+            SettingsKeys.PLAYER_DISPLAY,
             context.getString(R.string.desc_display),
-            (Build.VERSION.SDK_INT < 26).toString(),
-            arrayOf("TextureView", "SurfaceView")),
-        SettingSection("choose", "解码方式", SettingsKeys.PLAYER_CODEC,
-            context.getString(R.string.desc_videocodec), "true",
-            arrayOf(UiText.of("硬件解码"), "软件解码")),
-        SettingSection("choose", "音频输出", SettingsKeys.PLAYER_AUDIO,
-            context.getString(R.string.desc_audiocodec), "false",
+            PlayerDisplayModePolicy.defaultFor(Build.VERSION.SDK_INT),
+            listOf(
+                context.getString(R.string.setting_player_display_option_texture),
+                context.getString(R.string.setting_player_display_option_surface)
+            ),
+            listOf(PlayerDisplayModePolicy.TEXTURE_VIEW, PlayerDisplayModePolicy.SURFACE_VIEW)
+        ),
+        SettingSection("choose", context.getString(R.string.setting_player_codec),
+            SettingsKeys.PLAYER_CODEC, context.getString(R.string.desc_videocodec), "true",
+            arrayOf(
+                context.getString(R.string.setting_player_option_codec_hw),
+                context.getString(R.string.setting_player_option_codec_sw)
+            )),
+        SettingSection("choose", context.getString(R.string.setting_player_audio_output),
+            SettingsKeys.PLAYER_AUDIO, context.getString(R.string.desc_audiocodec), "false",
             arrayOf("OpenSles", "AudioTrack"))
     )
 
     private fun danmaku(context: Context) = listOf(
-        SettingSection("switch", "弹幕允许重叠", SettingsKeys.PLAYER_DANMAKU_ALLOW_OVERLAP, "", "true"),
-        SettingSection("switch", "合并重复弹幕", SettingsKeys.PLAYER_DANMAKU_MERGE_DUPLICATE, "", "false"),
+        SettingSection("switch", context.getString(R.string.setting_player_danmaku_allow_overlap),
+            SettingsKeys.PLAYER_DANMAKU_ALLOW_OVERLAP, "", "true"),
+        SettingSection("switch", context.getString(R.string.setting_player_danmaku_merge_duplicate),
+            SettingsKeys.PLAYER_DANMAKU_MERGE_DUPLICATE, "", "false"),
         // 弹幕数量保护：超过阈值不自动加载（可在播放器里点弹幕按钮强制加载）。
         // 判据/阈值在 player/DanmakuLoadPolicy，这里只落开关。
         SettingSection("switch",
@@ -280,9 +394,18 @@ object PlayerSettingsGroups {
             DanmakuLoadPolicy.KEY_PROTECT,
             context.getString(R.string.player_port_danmaku_guard_desc, DanmakuLoadPolicy.AUTO_LOAD_LIMIT),
             DanmakuLoadPolicy.DEFAULT_PROTECT.toString()),
-        SettingSection("switch", "强制为滚动弹幕", SettingsKeys.PLAYER_DANMAKU_FORCE_R2L,
+        SettingSection("switch", context.getString(R.string.setting_player_danmaku_force_r2l),
+            SettingsKeys.PLAYER_DANMAKU_FORCE_R2L,
             context.getString(R.string.desc_danmaku_force_r2l), "false"),
-        SettingSection("switch", "显示直播弹幕发送者", SettingsKeys.PLAYER_DANMAKU_SHOW_SENDER,
+        // G01 弹幕屏蔽词：一段自由文本，命中的弹幕不显示。
+        // 解析与判定在 player/DanmakuBlockWordPolicy，生效粒度是「下一次加载弹幕」
+        // （与「本人弹幕边框」一致：快照在 configureAndPrepare 里拍一次）。
+        SettingSection("input_string",
+            context.getString(R.string.player_port_danmaku_block_words_name),
+            SettingsKeys.PLAYER_DANMAKU_BLOCK_WORDS,
+            context.getString(R.string.player_port_danmaku_block_words_desc), ""),
+        SettingSection("switch", context.getString(R.string.setting_player_danmaku_show_sender),
+            SettingsKeys.PLAYER_DANMAKU_SHOW_SENDER,
             context.getString(R.string.desc_danmaku_showsender), "true"),
         // 本人弹幕边框（批次 3）：按登录 mid 的 CRC32 比对弹幕发送者，给自己的弹幕描一圈主题色。
         // 判定与染色在 player/DanmakuSelfStylePolicy + DanmakuManager；开关/换肤在下次 prepare 生效。
@@ -299,10 +422,36 @@ object PlayerSettingsGroups {
             LiveDanmakuFactorPolicy.displayNames,
             LiveDanmakuFactorPolicy.storedValues
         ),
-        SettingSection("input_int", "弹幕最大行数", SettingsKeys.PLAYER_DANMAKU_MAXLINE, "", "10"),
-        SettingSection("input_float", "弹幕字号大小", SettingsKeys.PLAYER_DANMAKU_SIZE, "", "0.7"),
-        SettingSection("input_float", "弹幕不透明度", SettingsKeys.PLAYER_DANMAKU_TRANSPARENCY, "", "0.5"),
-        SettingSection("input_float", "弹幕速度", SettingsKeys.PLAYER_DANMAKU_SPEED, "", "1.0"),
+        // 行数默认值与 DanmakuManager.init() 里读设置的默认值（15）保持一致：
+        // 26.11.08 前这里是 10、引擎是 15，且引擎还会按设备档位再压到 6/10/15，
+        // 用户看到的值与实际生效值可以对不上。档位封顶已撤掉，两处统一为 15。
+        SettingSection("input_int", context.getString(R.string.setting_player_danmaku_maxline),
+            SettingsKeys.PLAYER_DANMAKU_MAXLINE, "", "15"),
+        // 短视频弹幕单独配置（26.11.14）：短视频页默认不再沿用上面的「行数 / 允许重叠」。
+        // 手表屏只有 400~466px、短视频弹幕又特别密，默认档给 6 行且不重叠；关掉开关就
+        // 完全回到长视频那一套。取值与钳制在 player/ShortVideoDanmakuPolicy，这里只落三项存档。
+        // **这不是按性能偷偷压行数**——值是用户自己填的，长视频那两项不受影响。
+        SettingSection("switch",
+            context.getString(R.string.setting_player_danmaku_shortvideo_separate),
+            SettingsKeys.SHORTVIDEO_DANMAKU_SEPARATE,
+            context.getString(R.string.desc_player_danmaku_shortvideo_separate), "true"),
+        SettingSection("input_int",
+            context.getString(R.string.setting_player_danmaku_shortvideo_maxline),
+            SettingsKeys.SHORTVIDEO_DANMAKU_MAXLINE,
+            context.getString(R.string.desc_player_danmaku_shortvideo_items),
+            ShortVideoDanmakuPolicy.DEFAULT_MAX_LINES.toString()),
+        SettingSection("switch",
+            context.getString(R.string.setting_player_danmaku_shortvideo_allow_overlap),
+            SettingsKeys.SHORTVIDEO_DANMAKU_ALLOW_OVERLAP,
+            "", ShortVideoDanmakuPolicy.DEFAULT_ALLOW_OVERLAP.toString()),
+        SettingSection("input_float", context.getString(R.string.setting_player_danmaku_size),
+            SettingsKeys.PLAYER_DANMAKU_SIZE, "", "0.7"),
+        SettingSection("input_float", context.getString(R.string.setting_player_danmaku_transparency),
+            SettingsKeys.PLAYER_DANMAKU_TRANSPARENCY, "", "0.5"),
+        // 文案 26.11.08 由「弹幕速度」改成「弹幕停留时长」：这个值直接喂给 DFM 的 Duration 倍率，
+        // 越大停留越久（Duration.java: value = initial * factor），叫「速度」会让人越调越反。
+        SettingSection("input_float", context.getString(R.string.setting_player_danmaku_speed),
+            SettingsKeys.PLAYER_DANMAKU_SPEED, context.getString(R.string.desc_player_danmaku_speed), "1.0"),
         // 弹幕磁盘缓存上限（批次 2）：按 cid+360s 分段缓存弹幕，回看/重进视频不再重复请求。
         // LRU 淘汰与原子写在 util/DanmakuDiskCache；这里只落档位（存字符串 MB 数，与
         // LiveDanmakuFactorPolicy 等 list_choose 项同一套落盘格式）。
@@ -317,14 +466,16 @@ object PlayerSettingsGroups {
     )
 
     private fun subtitle(context: Context) = listOf(
-        SettingSection("switch", "自动弹出字幕选择", SettingsKeys.PLAYER_SUBTITLE_AUTOSHOW,
+        SettingSection("switch", context.getString(R.string.setting_player_subtitle_autoshow),
+            SettingsKeys.PLAYER_SUBTITLE_AUTOSHOW,
             context.getString(R.string.desc_subtitle_autoshow), "true"),
-        SettingSection("switch", "允许仅AI字幕", SettingsKeys.PLAYER_SUBTITLE_AI_ALLOWED,
+        SettingSection("switch", context.getString(R.string.setting_player_subtitle_ai_allowed),
+            SettingsKeys.PLAYER_SUBTITLE_AI_ALLOWED,
             context.getString(R.string.desc_subtitle_ai_allowed), "false"),
-        SettingSection("input_float", "字幕校准", SettingsKeys.PLAYER_SUBTITLE_DELTA,
-            "将字幕提前/退后一段时间，从而与视频对齐", "0.3"),
-        SettingSection("input_int", "字幕字号大小", SettingsKeys.PLAYER_SUBTITLE_SIZE,
-            context.getString(R.string.desc_player_subtitle_size),
+        SettingSection("input_float", context.getString(R.string.setting_player_subtitle_delta),
+            SettingsKeys.PLAYER_SUBTITLE_DELTA, context.getString(R.string.desc_setting_player_subtitle_delta), "0.3"),
+        SettingSection("input_int", context.getString(R.string.setting_player_subtitle_size),
+            SettingsKeys.PLAYER_SUBTITLE_SIZE, context.getString(R.string.desc_player_subtitle_size),
             SettingsKeys.PLAYER_SUBTITLE_SIZE_DEFAULT.toString())
     )
 
@@ -337,7 +488,8 @@ object PlayerSettingsGroups {
      * 免得用户升级回来看到旧值被清空而疑惑。
      */
     private fun toolbar(context: Context) = listOf(
-        SettingSection("input_float", "互动选项字体大小", SettingsKeys.PLAYER_INTERACTION_CHOICE_SIZE, "",
+        SettingSection("input_float", context.getString(R.string.setting_player_interaction_choice_size),
+            SettingsKeys.PLAYER_INTERACTION_CHOICE_SIZE, "",
             SettingsKeys.PLAYER_INTERACTION_CHOICE_SIZE_DEFAULT.toString())
     )
 }

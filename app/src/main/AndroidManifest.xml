@@ -18,6 +18,8 @@
          只在点开选图页时申请，拒绝后退回系统选择器，不影响发图。 -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- 26.11.18：更新包另存到系统 Download 在 Android 9 及以下也要这枚权限（10+ 走 MediaStore 不需要）。
+         申请点只多一个「更新页开始下载前」，拒绝也不影响下载安装，只是那份拷贝不落 Download。 -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
@@ -176,12 +178,6 @@
             android:label="@string/uitext_feedbackdetailactivity_002"
             android:screenOrientation="locked" />
         <activity
-            android:name=".activity.TutorialActivity"
-            android:exported="false"
-            android:label="@string/pagename_tutorial"
-            android:screenOrientation="locked"
-            android:theme="@style/Theme.NoSwipe.AppCompat" />
-        <activity
             android:name=".tutorial.TutorialPagerActivity"
             android:exported="false"
             android:label="@string/pagename_tutorial"
@@ -229,6 +225,35 @@
                 <data
                     android:host="b23.tv"
                     android:scheme="https" />
+            </intent-filter>
+        </activity>
+        <!-- 外部视频入口：全应用第二个有意导出的 Activity。
+             导出理由：要在文件管理器 / 相册 / 分享菜单里作为「打开方式」被第三方拉起，
+             exported=false 就收不到 ACTION_VIEW / ACTION_SEND。
+             安全边界：只接本地文件（content / file 且类型为 video/*），不接 http(s)——
+             否则任何网页链接都能把本应用拉起来。页面自己不解码，交给内置播放器，
+             且只读取调用方主动授权的那个 Uri（见 ExternalVideoActivity 注释）。 -->
+        <activity
+            android:name=".activity.player.ExternalVideoActivity"
+            android:exported="true"
+            android:label="@string/pagename_external_video"
+            android:screenOrientation="locked">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.OPENABLE" />
+
+                <data android:mimeType="video/*" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:mimeType="video/*" />
             </intent-filter>
         </activity>
         <activity
@@ -303,6 +328,16 @@
             android:label="@string/uitext_locallistactivity_018"
             android:screenOrientation="locked" />
         <activity
+            android:name=".activity.video.local.LocalFolderActivity"
+            android:exported="false"
+            android:label="@string/pagename_localfolder"
+            android:screenOrientation="locked" />
+        <activity
+            android:name=".activity.video.local.LocalFolderListActivity"
+            android:exported="false"
+            android:label="@string/pagename_localfolderlist"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.DownloadActivity"
             android:exported="false"
             android:label="@string/label_activity_no_19"
@@ -328,6 +363,16 @@
             android:label="@string/pagename_settingterminalplayeractivity_001"
             android:screenOrientation="locked" />
         <activity
+            android:name=".activity.settings.SettingSkipActivity"
+            android:exported="false"
+            android:label="@string/player_skip_page_name"
+            android:screenOrientation="locked" />
+        <activity
+            android:name=".activity.settings.SettingMarkCategoryActivity"
+            android:exported="false"
+            android:label="@string/player_mark_page_name"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.settings.UIPreviewActivity"
             android:exported="false"
             android:label="@string/label_activity_no_18"
@@ -346,6 +391,11 @@
             android:name=".activity.settings.login.SpecialLoginActivity"
             android:exported="false"
             android:label="@string/pagename_login_special"
+            android:screenOrientation="locked" />
+        <activity
+            android:name=".activity.settings.login.ExportAllAccountsActivity"
+            android:exported="false"
+            android:label="@string/pagename_export_all_accounts"
             android:screenOrientation="locked" />
         <activity
             android:name=".activity.user.FollowUsersActivity"
@@ -410,6 +460,11 @@
             android:name=".activity.video.QualityChooserActivity"
             android:exported="false"
             android:label="@string/text_activityliveinfo_10"
+            android:screenOrientation="locked" />
+        <activity
+            android:name=".activity.video.BangumiCacheActivity"
+            android:exported="false"
+            android:label="@string/uitext_bangumicache_001"
             android:screenOrientation="locked" />
         <activity
             android:name=".activity.settings.SettingQualityActivity"
@@ -632,6 +687,11 @@
             android:launchMode="singleTask"
             android:screenOrientation="locked" />
         <activity
+            android:name=".activity.video.BangumiActivity"
+            android:exported="false"
+            android:label="@string/pagename_bangumi"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.video.PreciousActivity"
             android:exported="false"
             android:label="@string/uitext_preciousactivity_001"
@@ -686,6 +746,12 @@
             android:exported="false"
             android:label="@string/pagename_private_message"
             android:screenOrientation="locked" />
+        <!-- 选好友页（反馈 #133）：只能由详情页的「发给好友」拉起，不导出 -->
+        <activity
+            android:name=".activity.message.ChooseFriendActivity"
+            android:exported="false"
+            android:label="@string/pagename_choose_friend"
+            android:screenOrientation="locked" />
         <activity
             android:name=".activity.user.favorite.FavouriteOpusListActivity"
             android:exported="false"
@@ -702,11 +768,40 @@
             android:label="@string/text_disguise_calc_label"
             android:screenOrientation="locked"
             android:theme="@style/Theme.BiliClient.Disguise" />
+        <!--
+          「蓝牙已断开」伪装（半透明浮层）：**刻意不声明 android:screenOrientation**。
+
+          崩溃 #370（sdk=26 / Android 8.0.0 / HUAWEI LEO-DLXXU，26.11.17 系列包，main 线程）：
+          启动即崩 `IllegalStateException: Only fullscreen opaque activities can request orientation`。
+          堆栈里的抛出点是 framework 的 `Activity.onCreate(Activity.java:986)`（下面
+          `super.onCreate(savedInstanceState)` 那一行）——系统在 super.onCreate 里就按清单声明的方向
+          施加一次方向，一发现窗口不是「全屏不透明」直接抛。
+
+          触发要两条同时成立：
+          1. 这里写了固定方向（原来就是 android:screenOrientation="locked"）；
+          2. 该 activity 的主题是 Theme.BiliClient.Disguise.Dialog，里面有 windowIsTranslucent=true
+             （res/values/themes.xml），窗口因此被判定为半透明。
+          而且只在 targetSdkVersion ≥ 26 的老系统上拦（本工程 targetSdk=34，见 app/build.gradle:75）；
+          8.1 之后这条校验被放宽，本仓库控制台至今只有这 1 条（total=1）——所以开发机、模拟器
+          永远不会暴露它，它才一直躺在清单里。
+
+          为什么选「去掉方向」而不是「把主题改成不透明」：半透明是这一款伪装的**全部意义**
+          （底下的页面要透出来，再压一层暗色遮罩，才像「系统提示框盖在当前画面上」，见
+          themes.xml 与 activity_disguise_bluetooth.xml 里的注释）；改成不透明等于只让老机型
+          换一副长相，伪装效果正好在最需要它的老设备上失效。而方向对这一页没有任何用处：
+          它是居中的一张卡片浮层，圆屏留白也按屏幕短边算（DisguiseRoundPadding），
+          转屏顶多让它跟着转，不会裁切。
+
+          **别再把 android:screenOrientation="locked" 加回来。** 仓库另一条规矩
+          「私有 Activity 必须 android:screenOrientation="locked"」只约束 private/ 仓库里那些被
+          反射调用的页面（AGENTS.md「私有仓库的规矩」）；本页是公开代码、直接继承 AppCompatActivity，
+          不受那条约束。这里的缺失是有意的，不是漏写。
+          exported="false" 仍然是红线，保持不变。
+        -->
         <activity
             android:name=".activity.disguise.BluetoothDisguiseActivity"
             android:exported="false"
             android:label="@string/text_disguise_bt_title"
-            android:screenOrientation="locked"
             android:theme="@style/Theme.BiliClient.Disguise.Dialog" />
         <activity
             android:name=".activity.SplashActivity"

@@ -17,17 +17,32 @@ package com.RobinNotBad.BiliClient.player
  * - 段顺序固定为 左 / 右 / 底部左 / 底部右；
  * - 空段表示该区域没有槽位（合法）。
  *
- * **为什么不用 JSON**：JVM 单测里 `org.json` 是 Android 的桩实现（`testOptions.unitTests
- * .returnDefaultValues = true` 下只返回默认值、不真解析），JSON 化的布局没法在单测里验证；
- * 而且仓库里同类的「用户自定义布局」`util/MySpaceConfig.kt` 用的就是分隔符串，格式风格保持一致。
+ * **为什么不用 JSON**：仓库里同类的「用户自定义布局」`util/MySpaceConfig.kt` 用的就是分隔符串，
+ * 两份配置格式风格保持一致；分隔符串在 JVM 单测里也不需要额外依赖就能逐字验证
+ * （`org.json` 在单测里是可用的——`testImplementation 'org.json:json'`——但没必要为四个区域引入它）。
  *
  * ## 容错口径
  *
  * - **结构非法**（段数不对、版本不认识、花括号不配对）→ 整体回退默认布局（与 MySpaceConfig 一致，
  *   宁可回到默认，也不要把用户按钮弄丢一半）；
  * - **单个 key 没登记**（旧版本删掉的按钮、手改脏的数据）→ 只丢这个 key，其余保留；
- * - **组里有效 key 少于 2 个** → 1 个降级成单按钮，0 个整组丢弃；
+ * - **组里有效 key 只剩 1 个** → 仍然保留成组，不降级成单按钮（用户是先建组再往里放成员的，
+ *   中途必然出现单成员组；悄悄拆掉组会让他刚建的组消失）；**0 个也保留**，空组就是「收纳格」
+ *   （见下）；
  * - **超出容量** → 截到 [Region.capacity]。
+ *
+ * ## 收纳格＝空组（26.11.15 统一）
+ *
+ * 摆进槽位的「组」有两种状态，共用 [Slot.Group] 这一个类型、播放页里也共用同一条渲染与展开路径：
+ *
+ * - **有成员**：固定展开这 [Slot.Group.keys]，与改造前完全一样；
+ * - **没成员（空组）**：自动收纳「注册表里没有摆进任何槽位（含组）的按钮」，即原来那个独立的
+ *   「更多」收纳格。
+ *
+ * 统一的原因：收纳格与组在播放页长得、点着都一样（都是一格 `morehide` 图标 + 一条展开条），
+ * 只有在设置页里是两套东西（收纳格不能改成组、组也不能自动收纳，两个入口、两种卡片）。现在
+ * 「加一组按钮」就是加一个空组，往里加成员就成了固定组——概念只剩一种，且组里 0 个 / 1 个按钮
+ * 都仍然是一个格子，不会被拆散。老存档里独立的 `more` 单格与 `{more}` 组在解析时迁移成空组。
  */
 object PlayerUiLayout {
 
@@ -45,7 +60,7 @@ object PlayerUiLayout {
         BOTTOM_RIGHT(3)
     }
 
-    /** 一格内容：单个按钮，或一排可横向滚动的按钮。 */
+    /** 一格内容：单个按钮，或一排可横向滚动的按钮（空组＝收纳格）。 */
     sealed class Slot {
         data class Button(val key: String) : Slot()
         data class Group(val keys: List<String>) : Slot()
@@ -137,6 +152,32 @@ object PlayerUiLayout {
         }
     }
 
+    /** 已经摆进槽位的全部 key（组内成员算已摆放；空组不贡献任何 key）。 */
+    fun placedKeys(layout: Layout): Set<String> {
+        val placed = HashSet<String>()
+        for (region in Region.values()) {
+            for (slot in slots(layout, region)) {
+                when (slot) {
+                    is Slot.Button -> placed.add(slot.key)
+                    is Slot.Group -> placed.addAll(slot.keys)
+                }
+            }
+        }
+        return placed
+    }
+
+    /**
+     * 还没摆进任何槽位的按钮 key，按候选列表（[PlayerButtons.ALL]）顺序——也就是一个**空组
+     * （收纳格）展开时该收的东西**。多个空组各自展开的都是这一份清单。
+     *
+     * 播放页拿它算收纳内容，再按「本播放器里真有这个按钮的真身」过一遍；
+     * 设置页只把收纳格当普通的一格展示（成员是动态的，不逐条列出来）。
+     */
+    fun unplacedKeys(layout: Layout): List<String> {
+        val placed = placedKeys(layout)
+        return PlayerButtons.ALL.map { it.key }.filter { it !in placed }
+    }
+
     // ==================== 编解码 ====================
 
     /** 编码成存储串。 */
@@ -185,17 +226,33 @@ object PlayerUiLayout {
         for (tokenRaw in text.split(',')) {
             val token = tokenRaw.trim()
             if (token.isEmpty()) return null
+            // 老存档里独立的「更多」单格：收纳格现在就是「空的一组按钮」，顺手迁移成空组，
+            // 不然用户升级后这一格会连同里面的收纳内容一起消失。
+            if (token == PlayerButtons.MORE) {
+                slots += Slot.Group(emptyList())
+                continue
+            }
             if (token.startsWith("{")) {
                 if (!token.endsWith("}") || token.length < 2) return null
-                val keys = token.substring(1, token.length - 1)
+                val rawKeys = token.substring(1, token.length - 1)
                     .split('+')
                     .map { it.trim() }
+                val keys = rawKeys
                     .filter { PlayerButtons.isKnown(it) }
-                when (keys.size) {
-                    0 -> Unit
-                    // 只留 1 个按钮也保留成「组」：用户是先建组、再往组里加成员的，
-                    // 中途必然出现单成员组，这时候不能悄悄降级成单按钮。
-                    else -> slots += Slot.Group(keys)
+                    // 收纳格（空组）不能再被放进组里当成员：它没有真身，组里只会渲染出一个
+                    // 点不动的死格子。旧版设置页写出过 `{more}`，这里统一清掉。
+                    .filterNot { it == PlayerButtons.MORE }
+                    // 同一按钮在组里出现两次会渲染出两个影子，点了互相抢状态，去重。
+                    .distinct()
+                when {
+                    // 有成员 → 固定组，与改造前完全一样（只留 1 个也仍然是组：用户是先建组、
+                    // 再往组里加成员的，中途必然出现单成员组，不能悄悄降级成单按钮）。
+                    keys.isNotEmpty() -> slots += Slot.Group(keys)
+                    // 空组＝收纳格：`{}` 是合法存档，老存档的 `{more}` 也迁到这里。
+                    rawKeys.all { it.isEmpty() } || PlayerButtons.MORE in rawKeys ->
+                        slots += Slot.Group(emptyList())
+                    // 只认识 0 个成员的脏数据（`{nosuch}`）仍然丢掉：别凭空给用户多出一格。
+                    else -> Unit
                 }
             } else {
                 if (!PlayerButtons.isKnown(token)) continue

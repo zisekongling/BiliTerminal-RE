@@ -24,6 +24,7 @@ import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.api.EmoteApi
 import com.RobinNotBad.BiliClient.model.Emote
 import com.RobinNotBad.BiliClient.model.EmotePackage
+import com.RobinNotBad.BiliClient.ui.appearance.SegmentedBarStyle
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomGridManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
@@ -42,7 +43,11 @@ class EmoteActivity : BaseActivity() {
         val loading = findViewById<ImageView>(R.id.loading)
         val tabLayout = findViewById<TabLayout>(R.id.tl_tab)
         val viewPager = findViewById<ViewPager>(R.id.viewPager)
-        tabLayout.setBackgroundColor(com.RobinNotBad.BiliClient.ui.appearance.ColorScheme.getPlayerBg(this))
+        // TabLayout 刻意不设背景色，让它继承页面主题底色（正例见 UpdateHistoryActivity 的 TabLayout：
+        // 全工程只有它另一个 TabLayout，也从不设背景，天然跟主题）。
+        // 原先这里用 ColorScheme.getPlayerBg() 刷底色，那是**播放器的纯黑播放区**颜色，
+        // 在全部 7 套主题里恒为 0xFF000000（亮色模式也照抄暗色表），于是知乎蓝这类浅底色主题下
+        // 表情标题栏成了一条突兀的黑带（反馈 #113）。默认主题看不出来，是因为页面底色本身就是黑。
         val onScrollListener = object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 super.onScrolled(recyclerView, dx, dy)
@@ -84,6 +89,8 @@ class EmoteActivity : BaseActivity() {
                         }
                     })
                     tabLayout.tabIconTint = null
+                    // 表情分类页签：玻璃轨道 + 选中格子的主色胶囊（设计稿 E 方案）
+                    SegmentedBarStyle.styleTabs(tabLayout)
                     val count = tabLayout.tabCount
 
                     CenterThreadPool.run {
@@ -256,7 +263,11 @@ class EmoteActivity : BaseActivity() {
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
             val emote = emotePackage.emotes[position]
             if (holder is Holder) {
-                Glide.with(context).asDrawable()
+                // 26.11.16 崩溃 #356：这里原本是 Glide.with(context)，context 是 requireContext() 给的
+                // Activity，面板销毁后仍被复用的行再绑一次就抛「You cannot start a load for a
+                // destroyed activity」。改走 GlideUtil.with(view)：宿主 Activity 还活着就绑它的生命周期，
+                // 已销毁 / 正在 finish 时回落 Application 级，与 UserListAdapter 同一套防护。
+                GlideUtil.with(holder.itemView).asDrawable()
                     .transition(GlideUtil.getTransitionOptions())
                     .load(GlideUtil.url(emote.url))
                     .into(holder.itemView)

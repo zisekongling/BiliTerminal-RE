@@ -31,7 +31,7 @@ fun tutorial(
     version: Int,
     target: Class<out Activity>,
     kind: TutorialKind,
-    hintText: String? = null,
+    hintTextRes: Int? = null,
     hintViewId: Int? = null,
     imageRes: Int? = null,
     descriptionRes: Int? = null,
@@ -49,7 +49,7 @@ fun tutorial(
         pages = scope.pages,
         imageRes = imageRes,
         descriptionRes = descriptionRes,
-        hintText = hintText,
+        hintTextRes = hintTextRes,
         hintViewId = hintViewId,
         action = action,
     )

@@ -92,7 +92,14 @@ class ViewPointAdapter : RecyclerView.Adapter<ViewPointAdapter.ViewPointHolder>(
             if (currentIndex < 0 || viewPoints == null || currentIndex >= viewPoints!!.size)
                 return
             val viewPoint = viewPoints!![currentIndex]
-            val timeStr = StringUtil.toTime(viewPoint.from) + "-" + StringUtil.toTime(viewPoint.to)
+            // 起点终点相同的条目是"跳转点"（SponsorBlock 的精彩时刻）：写成 `01:15` 就够，
+            // 写成 `01:15-01:15` 只会让人以为那是一段零长度的片段
+            val timeStr =
+                if (viewPoint.to <= viewPoint.from) {
+                    StringUtil.toTime(viewPoint.from)
+                } else {
+                    StringUtil.toTime(viewPoint.from) + "-" + StringUtil.toTime(viewPoint.to)
+                }
             val displayText = viewPoint.content + "\n" + timeStr
             button.text = displayText
 

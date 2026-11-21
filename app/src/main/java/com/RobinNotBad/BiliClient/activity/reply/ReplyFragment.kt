@@ -60,6 +60,11 @@ class ReplyFragment : RefreshListFragment() {
     @Volatile
     private var isEnd: Boolean = false
 
+    // 空页用尽后的冷却截止时间（毫秒时间戳）。这段时间里继续往下滚不发请求，
+    // 过后允许用户自己再试一次——见 [continueLoading] 里的空页分支注释。
+    @Volatile
+    private var retryCooldownUntil: Long = 0L
+
     // 已经进过列表的 rpid。翻页/下拉刷新时服务端会把同一条评论再吐一遍（置顶、游标回退、
     // 刚发完评论服务端列表还没稳定都会出现），不去重就会出现两条一样的评论、位号整体错位。
     // 用同步 Set：写入在主线程，翻页过滤在后台线程。
@@ -87,6 +92,10 @@ class ReplyFragment : RefreshListFragment() {
         // 连续空页的容忍次数。服务端偶发返回空页就判定"到底了"会丢内容，
         // 但无限重试又会造成请求风暴，所以两者取一个上限
         private const val MAX_EMPTY_PAGES = 5
+
+        // 空页用尽后的冷却时长。不能直接封口（那就是 #171「评论只翻得动三四条」），
+        // 也不能立刻再打一轮（那就是请求风暴），所以冷却这么久再放行一次重试
+        private const val EMPTY_PAGE_COOLDOWN_MS = 15_000L
         fun newInstance(aid: Long, type: Int): ReplyFragment {
             val fragment = ReplyFragment()
             val args = Bundle()
@@ -262,6 +271,13 @@ class ReplyFragment : RefreshListFragment() {
             return
         }
 
+        // 上一轮空页用尽后的冷却期内直接撤退：不发请求，也不改 bottom，
+        // 冷却结束后用户再往下滚就会真的重试（见下面空页分支的注释）
+        if (System.currentTimeMillis() < retryCooldownUntil) {
+            setRefreshing(false)
+            return
+        }
+
         // 记下本次加载的世代号与截止时间。世代号用于丢弃过期响应，截止时间用于给重试兜底，
         // 两者共同保证既不会用旧数据覆盖新列表，也不会因为重试把请求打爆
         val generation = loadGeneration
@@ -294,6 +310,15 @@ class ReplyFragment : RefreshListFragment() {
                     if (result == ReplyApi.PAGE_EMPTY) {
                         // 服务端偶发空页：带着原游标重试同一页，重试次数和总时长都受上面的循环条件约束
                         emptyPages++
+                        // 空页正是 #171「翻不动」的直接征兆（部分会话第 2 页起恒返回空页而 code=0），
+                        // 把判定依据一起打出来，线上再有人报就能直接看出是不是这条路
+                        Log.w(
+                            "debug",
+                            "reply-empty-page n=" + emptyPages +
+                                " cursorLen=" + pagination.length +
+                                " sort=" + sort + " replyType=" + replyType +
+                                " loaded=" + (replyList?.size ?: 0)
+                        )
                         continue
                     }
 
@@ -354,16 +379,22 @@ class ReplyFragment : RefreshListFragment() {
                     return@run
                 }
 
-                // 走到这里说明是空页用尽或超时退出。这里一定要复位加载状态并封口，
-                // 否则滚动监听会不停地再次触发加载，形成请求风暴
+                // 走到这里说明是空页用尽或超时退出——**这并不等于真的没有更多评论**。
+                // 26.11.16 之前这里直接 isEnd = bottom = true，等于把"这一页拉不出来"判成"到底了"，
+                // 父类 RefreshListFragment 的 !bottom 守卫（:66 / :77）随即永久挡住翻页，
+                // 除下拉刷新外没有任何恢复路径——反馈 #171「评论区只能翻到三四条」就是这么来的
+                // （服务端对部分会话第 2 页起恒返回空页，code 仍是 0）。
+                // 现在改成"冷却"：不封口，但冷却期内 [continueLoading] 直接撤退，
+                // 滚动监听既不会打出请求风暴，冷却结束后用户还能自己再试一次。
+                if (generation == loadGeneration) {
+                    retryCooldownUntil = System.currentTimeMillis() + EMPTY_PAGE_COOLDOWN_MS
+                }
                 runOnUiThread {
                     if (generation != loadGeneration) return@runOnUiThread
-                    isEnd = true
-                    bottom = true
                     setRefreshing(false)
                 }
                 if (generation == loadGeneration && emptyPages >= MAX_EMPTY_PAGES)
-                    MsgUtil.showMsgLong(UiText.of("暂时没有更多评论了"))
+                    MsgUtil.showMsgLong(UiText.of("评论加载不出来，稍后下拉重试"))
             } catch (e: Exception) {
                 // 异常路径同样要复位加载状态并回退页码，这是父类"加载完必须 setRefreshing(false)"的硬约定
                 runOnUiThread {
@@ -467,6 +498,7 @@ class ReplyFragment : RefreshListFragment() {
         pagination = ""
         isEnd = false
         bottom = false
+        retryCooldownUntil = 0L
         this.aid = aid
         account = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0L)
         // 整表刷新：上一轮见过的 rpid 全部作废，否则第一页会被自己的历史记录判成"重复"

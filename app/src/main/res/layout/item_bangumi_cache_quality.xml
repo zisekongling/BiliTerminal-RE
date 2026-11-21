@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  番剧缓存页列表的第 0 行：清晰度入口「清晰度：1080P ›」。
+
+  26.11.17 从 activity_bangumi_cache.xml 里搬过来——原先它是顶栏下面一条**固定**的横栏，
+  手表屏本来就窄，固定栏一直占着一行高度，滚到下面的季列表时它纯属浪费；用户要求
+  「不要固定在顶部」，于是改成列表的一行，跟着列表一起滚走。
+
+  整行点击 = 打开全屏清晰度页（只回填、不当场下载）；具体由
+  BangumiCacheAdapter.QualityHolder 挂点击。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?attr/selectableItemBackground"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="12dp"
+    android:paddingTop="6dp"
+    android:paddingEnd="12dp"
+    android:paddingBottom="6dp">
+
+    <TextView
+        android:id="@+id/text_quality"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:lines="1"
+        android:textSize="@dimen/text_subtitle"
+        tools:text="清晰度：1080P" />
+
+    <TextView
+        android:id="@+id/quality_arrow"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:text="›"
+        android:textSize="@dimen/text_subtitle"
+        tools:ignore="HardcodedText" />
+
+</LinearLayout>

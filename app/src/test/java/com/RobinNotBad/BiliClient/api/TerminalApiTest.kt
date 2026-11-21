@@ -43,7 +43,7 @@ class TerminalApiTest {
     fun buildPingPayload_carriesInstallIdAndDevice() {
         val payload = TerminalApi.buildPingPayload(
             "abc123", 2610090, "26.10.09", false, 34, "Xiaomi", "diting", "arm64-v8a",
-            "devkey123", false
+            "devkey123", false, "stable"
         )
         assertEquals("abc123", payload.getString("install_id"))
         assertEquals(2610090, payload.getInt("version_code"))
@@ -55,11 +55,12 @@ class TerminalApiTest {
         assertEquals("arm64-v8a", payload.getString("abi"))
         assertEquals("设备键必须带上（同机两版去重靠它）", "devkey123", payload.getString("device_key"))
         assertFalse("普通版 is_coexist 应为 false", payload.getBoolean("is_coexist"))
+        assertEquals("通道必须原样上报（后台按它分三通道统计）", "stable", payload.getString("channel"))
     }
 
     @Test
     fun buildPingPayload_nullStringsBecomeEmpty() {
-        val payload = TerminalApi.buildPingPayload(null, 0, null, true, 0, null, null, null, null, true)
+        val payload = TerminalApi.buildPingPayload(null, 0, null, true, 0, null, null, null, null, true, null)
         assertEquals("install_id 为 null 时应落成空串", "", payload.getString("install_id"))
         assertEquals("", payload.getString("version_name"))
         assertEquals("", payload.getString("brand"))
@@ -68,6 +69,7 @@ class TerminalApiTest {
         assertEquals("device_key 为 null 时应落成空串而不是 null", "", payload.getString("device_key"))
         assertTrue("beta 应为 true", payload.getBoolean("is_beta"))
         assertTrue("共存版 is_coexist 应为 true", payload.getBoolean("is_coexist"))
+        assertEquals("channel 为 null 时应落成空串（服务端按「没报就保留」处理）", "", payload.getString("channel"))
     }
 
     // ---------- 反馈载荷 ----------

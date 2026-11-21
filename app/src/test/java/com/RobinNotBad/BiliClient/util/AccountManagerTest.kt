@@ -8,6 +8,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.json.JSONObject
 
 /**
  * 多账号凭据管理 [AccountManager] 的纯 JVM 测试。
@@ -112,6 +113,17 @@ class AccountManagerTest {
     }
 
     @Test
+    fun applyCredentials_rejectsCookieWithoutDedeUserId() {
+        // Cookie 里连 DedeUserID 都没有时无法核对身份，以前会直接放行（空值放水）
+        assertFalse(
+            "Cookie 里没有 DedeUserID 时不能写凭据",
+            AccountManager.applyCredentials(8L, "", "SESSDATA=sess; bili_jct=csrf", "rt", "ak", "")
+        )
+        assertEquals(0L, SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0))
+        assertTrue(AccountManager.getAccounts().isEmpty())
+    }
+
+    @Test
     fun applyCredentials_rejectsInvalidArguments() {
         assertFalse(AccountManager.applyCredentials(0L, "", cookiesOf(1L), "rt", "ak", ""))
         assertFalse(AccountManager.applyCredentials(-1L, "", cookiesOf(1L), "rt", "ak", ""))
@@ -149,6 +161,47 @@ class AccountManagerTest {
     }
 
     // ==================== 导出：当前账号用实时凭证覆盖快照 ====================
+
+    // ---------- 单条导出（26.11.02 的三字段格式，特殊登录页「查看登录信息」用） ----------
+
+    @Test
+    fun exportCurrentAccount_notLoggedIn_returnsEmptyString() {
+        assertEquals("", AccountManager.exportCurrentAccount())
+    }
+
+    @Test
+    fun exportCurrentAccount_isExactlyThreeFieldSingleAccountJson() {
+        apply(1L, accessKey = "ak-1")
+
+        val exported = AccountManager.exportCurrentAccount()
+        assertTrue("导出内容不能为空", exported.isNotEmpty())
+
+        val json = JSONObject(exported)
+        assertEquals(
+            "必须是 11.02 的三字段格式：不能夹带 mid / name，也不能是多账号信封",
+            setOf("cookies", "refresh_token", "access_key"),
+            json.keys().asSequence().toSet()
+        )
+        assertEquals(cookiesOf(1L), json.getString("cookies"))
+        assertEquals("rt-1", json.getString("refresh_token"))
+        assertEquals("ak-1", json.getString("access_key"))
+
+        // 回环：导出 → 导入侧解析必须是单账号（Batch 会让特殊登录页走「只进列表不切号」那条路）
+        val parsed = SpecialLoginParser.parseAny(exported)
+        assertTrue("单条导出必须被 parseAny 读成 Single：$parsed", parsed is SpecialLoginParser.ParseResult.Single)
+        assertEquals(1L, (parsed as SpecialLoginParser.ParseResult.Single).account.mid)
+    }
+
+    @Test
+    fun exportCurrentAccount_onlyExportsCurrentAccount() {
+        apply(1L, accessKey = "ak-1")
+        apply(2L, accessKey = "ak-2")
+
+        val parsed = SpecialLoginParser.parseAny(AccountManager.exportCurrentAccount())
+
+        assertTrue(parsed is SpecialLoginParser.ParseResult.Single)
+        assertEquals("只导出当前账号，不能把 1 号也带上", 2L, (parsed as SpecialLoginParser.ParseResult.Single).account.mid)
+    }
 
     @Test
     fun exportAllAccounts_empty_returnsEmptyString() {

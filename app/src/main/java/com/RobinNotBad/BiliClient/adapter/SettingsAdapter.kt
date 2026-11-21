@@ -14,6 +14,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import android.graphics.drawable.GradientDrawable
 import android.widget.ImageView
 import android.widget.RadioButton
 import android.widget.TextView
@@ -24,6 +25,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ListChooseActivity
 import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import com.RobinNotBad.BiliClient.util.view.SettingsHighlight
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.switchmaterial.SwitchMaterial
 import java.io.Serializable
@@ -35,6 +37,22 @@ class SettingsAdapter(
 
     private var listChooseLauncher: ActivityResultLauncher<Intent>? = null
     var onSettingChanged: ((String, Boolean) -> Unit)? = null
+
+    /**
+     * 全局搜索命中的行（[RecyclerView.NO_POSITION] = 没有）。
+     *
+     * 只是「哪一行该高亮」的记号，绑到这一行时由 [SettingsHighlight] 播一次动画，
+     * 播完自动还原，不需要再回来清它。滚动定位在
+     * [com.RobinNotBad.BiliClient.activity.base.RefreshListActivity.scrollToHighlight]。
+     */
+    private var highlightPosition: Int = RecyclerView.NO_POSITION
+
+    /** 标出全局搜索命中的那一行；已经绑上去的 view 要立即重绑才看得到高亮。 */
+    fun highlight(position: Int) {
+        if (position < 0 || position >= list.size) return
+        highlightPosition = position
+        notifyItemChanged(position)
+    }
 
     fun setListChooseLauncher(launcher: ActivityResultLauncher<Intent>) {
         this.listChooseLauncher = launcher
@@ -49,7 +67,20 @@ class SettingsAdapter(
 
     class ButtonExtra(val onClick: (View) -> Unit)
 
-    class SwitchExtra(val onChange: (Boolean) -> Unit)
+    /**
+     * switch 行的附加参数。
+     *
+     * 参数顺序刻意把 [onChange] 放最后：全仓既有调用都是尾随 lambda 写法
+     * `SwitchExtra { … }`，lambda 绑定到最后一个参数，顺序一动就全部编译不过。
+     *
+     * [swatchColor]：名字左边的参考色（26.11.14）。非 0 才在开关文字左边画一颗圆角小方块，
+     * 颜色就是这一项在播放页进度条上的颜色（与 `SponsorSkipPolicy.markColor()` 同值）。
+     * 目前只有「标记哪些类别」页用到——那一页每一行就是一个类别，色块说明这条会画成什么色。
+     */
+    class SwitchExtra(
+        val swatchColor: Int = 0,
+        val onChange: (Boolean) -> Unit = { _ -> }
+    )
 
     class InputExtra(val save: (String) -> Unit)
 
@@ -93,6 +124,9 @@ class SettingsAdapter(
             TYPE_TITLE -> return TitleHolder(
                 LayoutInflater.from(this.context).inflate(R.layout.cell_setting_title, parent, false)
             )
+            TYPE_NOTE -> return NoteHolder(
+                LayoutInflater.from(this.context).inflate(R.layout.cell_setting_note, parent, false)
+            )
             else -> return SwitchHolder(
                 LayoutInflater.from(this.context).inflate(R.layout.cell_setting_switch, parent, false)
             )
@@ -112,6 +146,7 @@ class SettingsAdapter(
         // ClassCastException: NavHolder cannot be cast to SwitchHolder 并让设置页报错。
         when (holder) {
             is TitleHolder -> holder.bind(settingSection)
+            is NoteHolder -> holder.bind(settingSection)
             is DividerHolder -> {}
             is ChooseHolder -> holder.bind(settingSection)
             is InputHolder -> holder.bind(settingSection)
@@ -124,6 +159,10 @@ class SettingsAdapter(
             }
             else -> {}
         }
+
+        // 搜索命中的目标行：绑定时播一次主色高亮。非目标行也要调——复用过来的 itemView
+        // 上可能还带着上一行的高亮样式，得在这里还回去。
+        SettingsHighlight.bind(holder.itemView, position == highlightPosition)
     }
 
     override fun getItemCount(): Int {
@@ -144,6 +183,9 @@ class SettingsAdapter(
         const val TYPE_DIVIDER = 8
         const val TYPE_TITLE = 9
 
+        /** 一段说明文字（灰色小字，不可点、不是分组标题）。26.11.15 起供播放器界面设置页的区首说明用。 */
+        const val TYPE_NOTE = 10
+
         /** list_choose 用 [ListChooseActivity] 选值时的请求码；承接结果的页面统一走 applyListChooseResult。 */
         const val REQUEST_CODE_LIST_CHOOSE = 1001
 
@@ -158,7 +200,8 @@ class SettingsAdapter(
             "nav" to TYPE_NAV,
             "button" to TYPE_BUTTON,
             "divider" to TYPE_DIVIDER,
-            "title" to TYPE_TITLE
+            "title" to TYPE_TITLE,
+            "note" to TYPE_NOTE
         )
     }
 
@@ -201,6 +244,7 @@ class SettingsAdapter(
                 desc.visibility = View.VISIBLE
             }
             switchMaterial.text = SettingText.resolve(itemView.context, settingSection.name)
+            bindSwatch((settingSection.extra as? SwitchExtra)?.swatchColor ?: 0)
             switchMaterial.setOnCheckedChangeListener(null)
             switchMaterial.isChecked = SharedPreferencesUtil.getBoolean(
                 settingSection.id,
@@ -215,6 +259,31 @@ class SettingsAdapter(
                 (settingSection.extra as? SwitchExtra)?.onChange?.invoke(isChecked)
             }
         }
+
+        /**
+         * 画开关文字左边那颗参考色方块：圆角小方，颜色就是这一项在播放页进度条上的颜色。
+         *
+         * 用 [SwitchMaterial] 自己的 compound drawable 实现，不动布局——开关文字本来就是
+         * `switchMaterial.text`，色块只要贴在它左边即可。`color == 0` 时清掉 drawable 与内边距，
+         * 免得绝大多数没有颜色概念的 switch 行凭空多出一段缩进。
+         */
+        private fun bindSwatch(color: Int) {
+            val density = itemView.resources.displayMetrics.density
+            if (color == 0) {
+                switchMaterial.setCompoundDrawablesRelativeWithIntrinsicBounds(0, 0, 0, 0)
+                switchMaterial.compoundDrawablePadding = 0
+                return
+            }
+            val size = (10 * density).toInt()
+            val drawable = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(color)
+                cornerRadius = size / 3f
+                setSize(size, size)
+            }
+            switchMaterial.setCompoundDrawablesRelativeWithIntrinsicBounds(drawable, null, null, null)
+            switchMaterial.compoundDrawablePadding = (6 * density).toInt()
+        }
     }
 
     class ChooseHolder(@androidx.annotation.NonNull itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -222,6 +291,9 @@ class SettingsAdapter(
         val vanilla: RadioButton = itemView.findViewById(R.id.setting_choose_vanilla)
         val name: TextView = itemView.findViewById(R.id.setting_choose_name)
         val desc: TextView = itemView.findViewById(R.id.setting_choose_desc)
+
+        /** 当前这一次 bind 绑的是哪个键；监听器里据此跳过「别的行留下的旧监听器」触发。 */
+        private var boundId: String? = null
 
         fun bind(settingSection: SettingSection) {
             if (SettingText.resolve(itemView.context, settingSection.desc).isNullOrEmpty())
@@ -235,6 +307,12 @@ class SettingsAdapter(
             chocola.text = SettingText.resolve(itemView.context, strings[0])
             vanilla.text = SettingText.resolve(itemView.context, strings[1])
 
+            // RecyclerView 复用：上一行留下的监听器还挂在同一个 RadioButton 上，直接给
+            // isChecked 赋值会触发它，把**上一行的键**写成这一行的值（跨键污染）。
+            // 26.10.18 的 InputHolder 就是这个坑（滚到底把所有行写成最后一行），这里对齐
+            // SwitchHolder.bind 的做法：先摘监听器、再回填界面、最后装本行监听器。
+            chocola.setOnCheckedChangeListener(null)
+            boundId = settingSection.id
             val value = SharedPreferencesUtil.getBoolean(
                 settingSection.id,
                 settingSection.defaultValue.toBoolean()
@@ -243,6 +321,8 @@ class SettingsAdapter(
             vanilla.isChecked = !value
 
             chocola.setOnCheckedChangeListener { _, isChecked ->
+                // 兜底：万一还是被旧监听器串到了别的行，宁可本次不写，也不污染存档
+                if (boundId != settingSection.id) return@setOnCheckedChangeListener
                 SharedPreferencesUtil.putBoolean(settingSection.id, isChecked)
             }
         }
@@ -343,6 +423,17 @@ class SettingsAdapter(
 
         fun bind(settingSection: SettingSection) {
             titleText.text = SettingText.resolve(itemView.context, settingSection.name)
+        }
+    }
+
+    /** 说明文字：用 description 而不是 name，方便和其它 Holder 一样把长句放进 desc 字段。 */
+    class NoteHolder(@androidx.annotation.NonNull itemView: View) : RecyclerView.ViewHolder(itemView) {
+        private val noteText: TextView = itemView as TextView
+
+        fun bind(settingSection: SettingSection) {
+            val text = SettingText.resolve(itemView.context, settingSection.desc)
+            noteText.text = text
+            noteText.visibility = if (text.isNullOrEmpty()) View.GONE else View.VISIBLE
         }
     }
 

@@ -334,7 +334,9 @@ public class ReplyTranslateApi {
 
         byte[] frame = wrapGrpcFrame(encodeTranslateRequest(type, oid, rpids));
         RequestBody requestBody = RequestBody.create(MediaType.parse("application/grpc"), frame);
-        Request.Builder builder = new Request.Builder()
+        // 走 NetWorkUtil 的构造函数拿带账号代际标签的 Builder：这条 gRPC 请求不经过
+        // NetWorkUtil 的通用发送方法，自己 new 出来的请求没有标签，代际隔离对它失效。
+        Request.Builder builder = NetWorkUtil.newTaggedRequestBuilder()
                 .url(GRPC_URL)
                 .post(requestBody)
                 .addHeader("te", "trailers")

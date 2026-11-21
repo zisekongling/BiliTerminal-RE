@@ -13,6 +13,7 @@ import android.widget.TextView
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.InstanceActivity
+import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.google.android.material.card.MaterialCardView
 
 class SettingMainActivity : InstanceActivity() {
@@ -48,11 +49,33 @@ class SettingMainActivity : InstanceActivity() {
             buildGroups()
             return
         }
+        var hit = 0
         for (entry in entries) {
-            if (entry.name.contains(q) || entry.desc.contains(q)) {
+            // name / desc 是界面上能看到的字，keywords 是「用户口语里的另一种叫法」（26.11.15 新增，
+            // 见 SettingsIndex.Entry）。三处都忽略大小写，省得为了搜「density」去猜大小写。
+            if (entry.name.contains(q, ignoreCase = true) ||
+                entry.desc.contains(q, ignoreCase = true) ||
+                entry.keywords.contains(q, ignoreCase = true)
+            ) {
                 addResult(entry)
+                hit++
             }
         }
+        // 反馈 #213：一条都没命中时以前什么都不加，removeAllViews() 之后整块空白，
+        // 用户看不出是「没搜到」还是「界面卡了」。
+        if (hit == 0) addNoResult()
+    }
+
+    /**
+     * 搜索无结果时的占位行（反馈 #213）。
+     *
+     * <p>复用缓存页那行空态（[R.layout.cell_empty_tip]）：随列表一起滚动、颜色走系统主题，
+     * 不另造一套样式，也不挡住搜索框。
+     */
+    private fun addNoResult() {
+        val tip = layoutInflater.inflate(R.layout.cell_empty_tip, settingsContainer, false) as TextView
+        tip.text = getString(R.string.text_setting_search_empty)
+        settingsContainer.addView(tip)
     }
 
     /** 添加一条搜索结果卡片，点击跳转到对应设置页/分组并定位。 */
@@ -71,9 +94,11 @@ class SettingMainActivity : InstanceActivity() {
         buildAccountGroup()
         buildUIGroup()
         buildContentGroup()
+        buildBangumiGroup()
         buildNotifyGroup()
         buildDisguiseGroup()
         buildDownloadGroup()
+        buildMigrationGroup()
         buildLabGroup()
         buildAboutGroup()
         buildDevGroup()
@@ -87,7 +112,8 @@ class SettingMainActivity : InstanceActivity() {
         title: String,
         desc: String,
         groupType: String,
-        target: Class<*>? = null
+        target: Class<*>? = null,
+        onClick: (() -> Unit)? = null
     ) {
         val header = layoutInflater.inflate(R.layout.cell_group_header, settingsContainer, false) as MaterialCardView
         header.findViewById<ImageView>(R.id.group_icon).setImageResource(iconRes)
@@ -97,7 +123,10 @@ class SettingMainActivity : InstanceActivity() {
         header.findViewById<ImageView>(R.id.group_arrow).setImageResource(R.drawable.arrow_forward)
 
         header.setOnClickListener {
-            if (target != null) {
+            if (onClick != null) {
+                // 私有注入里的页面：公开侧拿不到那个 Class，只能走 OptionalFeatures 门面
+                onClick()
+            } else if (target != null) {
                 startActivity(Intent(this, target))
             } else {
                 val intent = Intent(this, SettingGroupActivity::class.java)
@@ -152,6 +181,39 @@ class SettingMainActivity : InstanceActivity() {
     }
 
     /**
+     * 「番剧设置」分组（26.11.07）。
+     *
+     * <p>两个子页面（管理源 / 管理弹幕）都在私有注入里，所以整张卡片按
+     * [OptionalFeatures.thirdPartySettingsAvailable] 条件挂载——公开构建下设置页与从前完全一致。
+     */
+    private fun buildBangumiGroup() {
+        if (!OptionalFeatures.thirdPartySettingsAvailable) return
+        addGroup(
+            R.drawable.icon_bangumi,
+            getString(R.string.setting_bangumi_group),
+            getString(R.string.desc_setting_bangumi_group),
+            GROUP_BANGUMI
+        )
+    }
+
+    /**
+     * 「数据迁移」分组（26.11）。
+     *
+     * <p>整页都在私有注入里（private/），所以按 [OptionalFeatures.migrationAvailable] 条件挂载；
+     * 公开构建下设置页与从前完全一致。点击直接拉起私有 Activity，不走 SettingGroupActivity。
+     */
+    private fun buildMigrationGroup() {
+        if (!OptionalFeatures.migrationAvailable) return
+        addGroup(
+            R.drawable.icon_folder,
+            getString(R.string.setting_migration_entry),
+            getString(R.string.desc_setting_migration_entry),
+            // 这个分组 id 不会被用到（点击走 onClick 直接起私有页），只为占位
+            "migration"
+        ) { OptionalFeatures.openMigration(this) }
+    }
+
+    /**
      * 「通知设置」分组。
      *
      * 用户反馈「各种新加的通知应该在设置里新增一个大类-通知设置来关闭他」。原先这些开关埋在
@@ -174,7 +236,7 @@ class SettingMainActivity : InstanceActivity() {
      */
     private fun buildDisguiseGroup() {
         addGroup(
-            R.drawable.icon_person,
+            R.drawable.icon_disguise,
             getString(R.string.text_setting_disguise_group),
             getString(R.string.desc_setting_disguise_index),
             GROUP_DISGUISE

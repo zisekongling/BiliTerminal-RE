@@ -37,6 +37,13 @@ class CatchActivity : BaseActivity() {
 
     private var openStack: Boolean = false
 
+    /**
+     * 崩溃页一打开就先存下来的那份报告（见 [CrashReporter.prepare]）。
+     * 3 秒后按用户最终勾选重写并上传；为 null 说明落盘失败，那时 [CrashReporter.upload] 会自己再存一次。
+     */
+    @Volatile
+    private var preparedFile: java.io.File? = null
+
     @SuppressLint("MissingInflatedId", "SetTextI18n")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,6 +95,16 @@ class CatchActivity : BaseActivity() {
             // **不能立刻读勾选状态并上报**：页面渲染完成之前用户看不到勾选框，同步读到的
             // 永远是 XML 默认值，等于「可取消」是句空话（26.10.16 真机实测发现）。
             // 所以延后一小段，给用户一个真正能生效的取消窗口。
+            //
+            // 26.11.20（崩溃记录加固）：**页面一打开就先落盘一份**，不等这 3 秒。用户在这 3 秒里点
+            // 「退出」是直接 killProcess 的，原先那条报告连组装的机会都没有——用户看到的正是
+            // 「崩溃了，但后台一条记录都没有」。落盘用不带日志的版本（用户还没决定要不要附带），
+            // 3 秒后 upload 再按当时的勾选重写它。
+            CenterThreadPool.run {
+                preparedFile = CrashReporter.prepare(
+                    applicationContext, exception, message, crashThread, stack, trail, uptime
+                )
+            }
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                 if (isDestroyed) return@postDelayed
                 // 在主线程读勾选状态：CenterThreadPool 里读 View 状态不是线程安全的。
@@ -96,14 +113,22 @@ class CatchActivity : BaseActivity() {
                 autoStatusView.text = UiText.of("正在自动上报错误报告…")
                 CenterThreadPool.run {
                     val res = CrashReporter.upload(
-                        this@CatchActivity, exception, message, crashThread, stack, trail, ringLogToSend, uptime
+                        this@CatchActivity, exception, message, crashThread, stack, trail, ringLogToSend, uptime,
+                        preparedFile
                     )
                     runOnUiThread {
                         if (isDestroyed) return@runOnUiThread
-                        autoStatusView.text = if (res.code >= 0)
-                            "已自动上报错误报告\n报错ID：${res.code}\n如需补充说明请到「设置 - 关于 - 反馈与建议」"
-                        else
-                            "自动上报失败：${res.message}\n（可在「设置 - 关于与帮助」里关闭自动上报）"
+                        // 「没发出去但东西留着」要跟「什么都没留下」分开说：前者是 CODE_SAVED_LOCALLY，
+                        // 报告已经在本机，下次启动自动重试，用户不用做任何事。
+                        autoStatusView.text = when {
+                            res.code >= 0 ->
+                                "已自动上报错误报告\n报错ID：${res.code}\n如需补充说明请到「设置 - 关于 - 反馈与建议」"
+                            res.code == CrashReporter.CODE_SAVED_LOCALLY -> UiText.of(
+                                "网络暂时不通，报告已保存到本机\n下次启动会自动重试上传\n（可在「设置 - 关于与帮助」里关闭自动上报）"
+                            )
+                            else ->
+                                "自动上报失败：${res.message}\n（可在「设置 - 关于与帮助」里关闭自动上报）"
+                        }
                     }
                 }
             }, AUTO_REPORT_DELAY_MS)

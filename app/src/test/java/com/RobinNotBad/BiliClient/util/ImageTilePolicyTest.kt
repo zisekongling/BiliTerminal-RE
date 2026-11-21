@@ -61,12 +61,21 @@ class ImageTilePolicyTest {
         assertTrue(ImageTilePolicy.isTileableMime("image/webp"))
         // 大小写不该影响判断
         assertTrue(ImageTilePolicy.isTileableMime("IMAGE/PNG"))
-        // 拿不到 MIME 时按「可以试」处理（真解不了由 BigImageView 回退整图兜住）
-        assertTrue(ImageTilePolicy.isTileableMime(null))
-        assertTrue(ImageTilePolicy.isTileableMime(""))
         // 动图必须走整图，否则只显示第一帧
         assertFalse(ImageTilePolicy.isTileableMime("image/gif"))
+        // 大小写归一也要在「拒绝」这一侧同样成立，否则 IMAGE/GIF 会被当成静态图分块
+        assertFalse(ImageTilePolicy.isTileableMime("IMAGE/GIF"))
         assertFalse(ImageTilePolicy.isTileableMime("video/mp4"))
+    }
+
+    @Test
+    fun MIME缺失时兜底放行_这是兜底不是正确性() {
+        // 注意：下面两条断言钉的是**兜底取值**，不是「MIME 未知就能分块」这条正确性结论。
+        // 设计意图：拿不到 MIME（null/空串）时无法判断格式，一律返回 true 让调用方按静态图去试分块，
+        // 真正解不出来时由 BigImageView 回退整图兜住。之所以要钉住 true：
+        // 一旦改成返回 false，所有 MIME 缺失的图都会静默退回整图解码——大图在手表上直接 OOM。
+        assertTrue("未知 MIME 走兜底放行，必须返回 true", ImageTilePolicy.isTileableMime(null))
+        assertTrue("空串 MIME 走兜底放行，必须返回 true", ImageTilePolicy.isTileableMime(""))
     }
 
     // ---------- 适配倍率 ----------
@@ -292,6 +301,117 @@ class ImageTilePolicyTest {
         assertEquals(2, ImageTilePolicy.degradedSample(0))
         assertEquals(2, ImageTilePolicy.degradedSample(-5))
         assertEquals(ImageTilePolicy.MAX_SAMPLE_SIZE, ImageTilePolicy.degradedSample(100))
+    }
+
+    // ---------- 铺块层序列（长图无限加载的回归） ----------
+
+    @Test
+    fun 铺块层只会越来越糊不会比当前倍率更细() {
+        // 采样率越大 = 越糊。序列必须从「当前倍率该有的档位」起步、逐级 ×2，
+        // 绝不能出现比起点更小的采样率——那正是 26.11.14 长图 bug 的根：
+        // 一路解到采样率 1，块数涨到缓存装不下，屏上的块被反复挤掉 → 无限加载。
+        assertEquals(listOf(1, 2, 4, 8, 16, 32), ImageTilePolicy.fallbackSamples(1))
+        assertEquals(listOf(2, 4, 8, 16, 32), ImageTilePolicy.fallbackSamples(2))
+        assertEquals(listOf(4, 8, 16, 32), ImageTilePolicy.fallbackSamples(4))
+        // 已经是最粗的档位：没有更糊的兜底层，只解这一层
+        assertEquals(listOf(32), ImageTilePolicy.fallbackSamples(32))
+        // 非法输入被夹进合法区间，且至少含一项
+        assertEquals(listOf(1, 2, 4, 8, 16, 32), ImageTilePolicy.fallbackSamples(0))
+        assertEquals(listOf(1, 2, 4, 8, 16, 32), ImageTilePolicy.fallbackSamples(-7))
+        assertEquals(listOf(32), ImageTilePolicy.fallbackSamples(1000))
+        ImageTilePolicy.fallbackSamples(3).let { samples ->
+            assertTrue("必须从 allowed 起步", samples.first() >= 3)
+            assertEquals("必须严格递增", samples, samples.sorted().distinct())
+        }
+    }
+
+    @Test
+    fun 长图整图适配时一轮只铺三块() {
+        // 1024×20000 的长图塞进 400×400 的手表屏：适配倍率 0.02 → 采样率 32（块盖 8192 源像素）
+        val scale = ImageTilePolicy.fitScale(1024, 20000, 400, 400)
+        assertEquals(0.02f, scale, 0.0001f)
+        val sample = ImageTilePolicy.sampleSizeFor(scale)
+        assertEquals(32, sample)
+        val visible = ImageTilePolicy.visibleRect(1024, 20000, 400, 400, scale, 0f, 0f)
+        val prefetch = ImageTilePolicy.prefetchRect(visible, 1024, 20000)
+        var total = 0
+        for (layer in ImageTilePolicy.fallbackSamples(sample)) {
+            val target = if (layer == sample) prefetch else visible
+            total += ImageTilePolicy.tileCount(
+                target, 1024, 20000, ImageTilePolicy.tileSourcePx(layer)
+            )
+        }
+        // 修好之前这里会是 434 块（远大于 24 块的缓存上限 → 无限重解）
+        assertEquals(3, total)
+    }
+
+    // ---------- 块数统计与缓存容量约束 ----------
+
+    @Test
+    fun 块数与切块结果一致() {
+        val cases = listOf(
+            ImageTilePolicy.TileRect(300, 300, 700, 700) to 256,
+            ImageTilePolicy.TileRect(0, 0, 600, 600) to 256,
+            ImageTilePolicy.TileRect(0, 0, 1024, 20000) to 8192,
+            ImageTilePolicy.TileRect(0, 0, 1024, 20000) to 256,
+            ImageTilePolicy.TileRect(2000, 2000, 2100, 2100) to 256
+        )
+        for ((area, tile) in cases) {
+            val rects = ImageTilePolicy.tileRects(area, 1000, 1000, tile)
+            val count = ImageTilePolicy.tileCount(area, 1000, 1000, tile)
+            assertEquals(
+                "面积 $area / 块 $tile：计数口径必须与切块一致",
+                rects.size.toLong(),
+                count.toLong()
+            )
+        }
+    }
+
+    @Test
+    fun 块数按对齐后的桶计算() {
+        // 块起点对齐到 256 的整数倍：从 300 起算，实际用到 256 和 512 两个桶（不是 300/512 两块）
+        val misaligned = ImageTilePolicy.TileRect(300, 300, 700, 700)
+        assertEquals(4, ImageTilePolicy.tileCount(misaligned, 1000, 1000, 256))
+        assertEquals(4, ImageTilePolicy.tileRects(misaligned, 1000, 1000, 256).size)
+        // 刚好对齐时桶数就等于算术商，边界那块不会被多算
+        val aligned = ImageTilePolicy.TileRect(0, 0, 512, 512)
+        assertEquals(4, ImageTilePolicy.tileCount(aligned, 1000, 1000, 256))
+        // 图片边界裁掉尾部的那块仍然算一块
+        val clamped = ImageTilePolicy.TileRect(0, 0, 999, 999)
+        assertEquals(16, ImageTilePolicy.tileCount(clamped, 999, 999, 256))
+        assertEquals(16, ImageTilePolicy.tileRects(clamped, 999, 999, 256).size)
+        // 参数非法时一块都不切
+        assertEquals(0, ImageTilePolicy.tileCount(
+            ImageTilePolicy.TileRect(0, 0, 0, 0), 999, 999, 256
+        ))
+        assertEquals(0, ImageTilePolicy.tileCount(
+            ImageTilePolicy.TileRect(0, 0, 100, 100), 0, 999, 256
+        ))
+    }
+
+    @Test
+    fun 块数超缓存容量时采样率往粗退() {
+        // 一屏 1024×20000 全可见、要按采样率 1 解 → 316 块，远超 24 块的缓存
+        val visible = ImageTilePolicy.TileRect(0, 0, 1024, 20000)
+        val sample = ImageTilePolicy.sampleWithinTileBudget(visible, 1024, 20000, 1, 24)
+        assertTrue("必须退到能装进缓存的档位，实际 $sample", sample > 1)
+        assertTrue(
+            "退到的档位得真的装得下",
+            ImageTilePolicy.tileCount(visible, 1024, 20000, ImageTilePolicy.tileSourcePx(sample)) <= 24
+        )
+        // 装得下时原样返回，绝不变细
+        assertEquals(8, ImageTilePolicy.sampleWithinTileBudget(
+            ImageTilePolicy.TileRect(0, 0, 1024, 2000), 1024, 2000, 8, 24
+        ))
+        // 容量参数无效（<=0）时不动采样率
+        assertEquals(1, ImageTilePolicy.sampleWithinTileBudget(visible, 1024, 20000, 1, 0))
+        // 退到最粗仍装不下：返回上限，由调用方决定是否回退整图
+        assertEquals(
+            ImageTilePolicy.MAX_SAMPLE_SIZE,
+            ImageTilePolicy.sampleWithinTileBudget(
+                ImageTilePolicy.TileRect(0, 0, 100000, 100000), 100000, 100000, 1, 24
+            )
+        )
     }
 
     // ---------- 矩形基础行为 ----------

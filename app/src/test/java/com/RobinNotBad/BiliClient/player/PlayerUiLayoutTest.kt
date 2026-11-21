@@ -15,7 +15,8 @@ import org.junit.Test
  * 2. 单个未知 key 只丢自己，不连坐（旧版本删按钮、手改脏数据都会走到这条路）；
  * 3. 组里全部 key 都不认识才丢整组；只剩 1 个也保留成组（建组中途的合法状态）；
  * 4. 超容量截断，不能让脏数据把 5 格变 50 格；
- * 5. 默认布局的编码串是稳定值——它同时是「没存过」的落盘内容，格式一改就得同步 [DEFAULT_SERIALIZED]。
+ * 5. 默认布局能原样往返编解码——[DEFAULT_SERIALIZED] 只是「落盘格式快照」（写回路径的用例对照它），
+ *    真正的行为断言是 encode 之后还能 parse 回同一份布局。
  */
 class PlayerUiLayoutTest {
 
@@ -25,7 +26,7 @@ class PlayerUiLayoutTest {
         /** 默认布局的规范编码串（改格式或改默认布局都必须同步这里）。 */
         const val DEFAULT_SERIALIZED =
             "1;lock,speed;danmaku,rotate," +
-                "{danmaku_send+subtitle+loop+audio_only+auto_next+viewpoint+video_info+jump_time+queue_mode};" +
+                "{danmaku_send+subtitle+loop+audio_only+auto_next+viewpoint+video_info+jump_time+queue_mode+seek_back+seek_forward};" +
                 "quality,sound_cut;sound_add,page_selector"
     }
 
@@ -62,8 +63,11 @@ class PlayerUiLayoutTest {
     }
 
     @Test
-    fun `default serialized form is stable`() {
-        assertEquals(DEFAULT_SERIALIZED, layout.encode(layout.default()))
+    fun `default layout survives encode parse round trip`() {
+        // 行为口径：encode 出来的串必须能原样 parse 回去（默认布局里含一个组，正好覆盖组的编解码）。
+        // 落盘串的具体字面量见 [DEFAULT_SERIALIZED]，那是格式快照，不是行为断言。
+        val d = layout.default()
+        assertEquals(d, layout.parse(layout.encode(d)))
     }
 
     @Test
@@ -72,7 +76,9 @@ class PlayerUiLayoutTest {
         assertEquals(
             listOf(
                 "danmaku_send", "subtitle", "loop", "audio_only", "auto_next",
-                "viewpoint", "video_info", "jump_time", "queue_mode"
+                "viewpoint", "video_info", "jump_time", "queue_mode",
+                // 26.11.13：±N 秒两个文字按钮默认收在组里，不占可见槽位
+                "seek_back", "seek_forward"
             ),
             group.keys
         )
@@ -179,13 +185,28 @@ class PlayerUiLayoutTest {
     }
 
     @Test
-    fun `overflow is truncated to capacity`() {
+    fun `overflow is truncated from the tail`() {
+        // 只断 size 是不够的：从**头部**截断同样能得到正确长度，却会把用户排在前面的按钮全砍掉。
+        // 这里把「保住靠前的、从尾部丢弃」这条口径连具体槽位一起钉住。
         val sixButtons = "lock,speed,danmaku,rotate,subtitle,loop"
-        assertEquals(PlayerUiLayout.Region.LEFT.capacity, layout.parse("1;$sixButtons;;;").left.size)
+        assertEquals(
+            listOf<PlayerUiLayout.Slot>(
+                PlayerUiLayout.Slot.Button("lock"),
+                PlayerUiLayout.Slot.Button("speed"),
+                PlayerUiLayout.Slot.Button("danmaku"),
+                PlayerUiLayout.Slot.Button("rotate"),
+                PlayerUiLayout.Slot.Button("subtitle")
+            ),
+            layout.parse("1;$sixButtons;;;").left
+        )
         val fiveBottom = "quality,sound_cut,sound_add,page_selector,lock"
         assertEquals(
-            PlayerUiLayout.Region.BOTTOM_LEFT.capacity,
-            layout.parse("1;;;$fiveBottom;").bottomLeft.size
+            listOf<PlayerUiLayout.Slot>(
+                PlayerUiLayout.Slot.Button("quality"),
+                PlayerUiLayout.Slot.Button("sound_cut"),
+                PlayerUiLayout.Slot.Button("sound_add")
+            ),
+            layout.parse("1;;;$fiveBottom;").bottomLeft
         )
     }
 
@@ -211,6 +232,73 @@ class PlayerUiLayoutTest {
         val twice = layout.add(layout.default(), PlayerUiLayout.Region.LEFT, PlayerUiLayout.Slot.Button("lock"))
         assertEquals(2, twice.left.count { it == PlayerUiLayout.Slot.Button("lock") })
         assertEquals(twice, layout.parse(layout.encode(twice)))
+    }
+
+    @Test
+    fun `empty group is the collector and survives round trip`() {
+        // 26.11.15 统一：收纳格＝空组。它对布局格式而言就是一格普通槽位，可单格、可多份。
+        val twice = layout.add(layout.default(), PlayerUiLayout.Region.LEFT, PlayerUiLayout.Slot.Group(emptyList()))
+        val thrice = layout.add(twice, PlayerUiLayout.Region.RIGHT, PlayerUiLayout.Slot.Group(emptyList()))
+        assertEquals(1, twice.left.count { it == PlayerUiLayout.Slot.Group(emptyList()) })
+        assertEquals(1, thrice.right.count { it == PlayerUiLayout.Slot.Group(emptyList()) })
+        // 空组落盘就是 `{}`（老存档的 `more` 也读成它）
+        assertTrue(layout.encode(thrice).contains("{}"))
+        assertEquals(thrice, layout.parse(layout.encode(thrice)))
+    }
+
+    @Test
+    fun `empty group token parses as collector`() {
+        val parsed = layout.parse("1;{};;;")
+        assertEquals(listOf<PlayerUiLayout.Slot>(PlayerUiLayout.Slot.Group(emptyList())), parsed.left)
+    }
+
+    @Test
+    fun `legacy more slot migrates to empty group`() {
+        // 老存档里独立的「更多」单格：不迁移成空组的话，这一格连同里面的收纳内容一起消失
+        val parsed = layout.parse("1;more;;;")
+        assertEquals(listOf<PlayerUiLayout.Slot>(PlayerUiLayout.Slot.Group(emptyList())), parsed.left)
+    }
+
+    @Test
+    fun `more inside a group is dropped on parse`() {
+        // 收纳格没有真身：组里再套一个「更多」在播放页拿不到可展开的东西。
+        // 旧版设置页能从「更多」格改成一组写出 {more}，所以解析这一层直接清掉。
+        val parsed = layout.parse("1;{lock+more};;;")
+        assertEquals(listOf<PlayerUiLayout.Slot>(PlayerUiLayout.Slot.Group(listOf("lock"))), parsed.left)
+    }
+
+    @Test
+    fun `group made only of more becomes the collector`() {
+        // 老存档的 {more}＝那个年代的空收纳格，跟 {} 是同一个东西
+        val parsed = layout.parse("1;{more};;;")
+        assertEquals(listOf<PlayerUiLayout.Slot>(PlayerUiLayout.Slot.Group(emptyList())), parsed.left)
+    }
+
+    @Test
+    fun `unplaced keys are what the collector would show`() {
+        // 收纳格展开的内容＝没摆进布局的按钮；空组自己不算「已摆放」
+        val layout0 = layout.default()
+        val placed = layout.placedKeys(layout0)
+        assertTrue("lock" in placed)
+        assertTrue("loop" in placed) // 默认右列那组里的成员
+        val unplaced = layout.unplacedKeys(layout0)
+        // 默认布局没摆出去的只有 26.11.15 那 7 个动作类按钮 + 收藏等零散项
+        assertTrue("like" in unplaced)
+        assertTrue("sleep_timer" in unplaced)
+        assertTrue(unplaced.none { it in placed })
+        // 加一个空组不会改变这份清单
+        val withCollector = layout.add(layout0, PlayerUiLayout.Region.LEFT, PlayerUiLayout.Slot.Group(emptyList()))
+        assertEquals(unplaced, layout.unplacedKeys(withCollector))
+    }
+
+    @Test
+    fun `duplicate member inside a group is collapsed`() {
+        // 同一按钮在组里出现两次会渲染出两个影子、互相抢状态，解析时去重只留一份
+        val parsed = layout.parse("1;{lock+lock+speed};;;")
+        assertEquals(
+            listOf<PlayerUiLayout.Slot>(PlayerUiLayout.Slot.Group(listOf("lock", "speed"))),
+            parsed.left
+        )
     }
 
     @Test
@@ -305,10 +393,26 @@ class PlayerUiLayoutTest {
     }
 
     @Test
-    fun `registry keys are unique and lowercase`() {
+    fun `registry keys are unique`() {
+        // 重名会让 byKey 静默吞掉后一个按钮：布局里放出来的其实是另一个按钮，用户找不到它。
         val keys = PlayerButtons.ALL.map { it.key }
-        assertEquals(keys.size, keys.toSet().size)
-        keys.forEach { assertTrue(it, it.isNotBlank() && it.none(Char::isUpperCase)) }
+        assertEquals("候选列表里不能有重名 key：$keys", keys.size, keys.toSet().size)
+    }
+
+    @Test
+    fun `every registered key survives a layout round trip`() {
+        // 比「key 全小写」更有行为意义的口径：注册表里的每个 key 都必须能编进布局串再原样解析回来。
+        // key 里混进分隔符（; , + {}）、带首尾空格、大小写与注册表不一致，都会在这里被抓住——
+        // 在界面上表现为「点了添加按钮，布局里却什么都没出现」。
+        PlayerButtons.ALL.forEach { button ->
+            val single = PlayerUiLayout.Layout(
+                left = listOf(PlayerUiLayout.Slot.Button(button.key)),
+                right = emptyList(),
+                bottomLeft = emptyList(),
+                bottomRight = emptyList()
+            )
+            assertEquals(button.key, single, layout.parse(layout.encode(single)))
+        }
     }
 
     @Test

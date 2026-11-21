@@ -168,6 +168,19 @@ public class SearchApi {
         }
     }
 
+    /**
+     * 回退到旧接口时把 wbi 那条拿到的 seid 一起带上。
+     *
+     * seid 是「本次搜索会话」的凭据：不带它时服务端每次翻页都当成一轮全新搜索，
+     * 同一批结果会在页与页之间反复出现（26.11.11 反馈 #148 的重复来源之一）。
+     * 拿不到 seid 就原样返回 URL。纯函数，见 SearchApiTest。
+     */
+    static String appendSeid(String url, String seid) {
+        if (url == null) return null;
+        if (seid == null || seid.isEmpty()) return url;
+        return url + "&seid=" + seid;
+    }
+
     /** 旧接口（非 wbi 签名）。风控只拦 wbi 那条，退到这里一般还能拿到结果——26.10.24 实测。 */
     private static String legacySearchTypeUrl(String keyword, int page, String type, String order)
             throws UnsupportedEncodingException {
@@ -175,12 +188,12 @@ public class SearchApi {
         url += "page=" + page +
                 "&keyword=" + URLEncoder.encode(keyword, "UTF-8") + "&search_type=" + type;
         if (order != null && !order.isEmpty()) url += "&order=" + order;
-        return url;
+        return appendSeid(url, getSeid(keyword));
     }
 
     private static String legacySearchAllUrl(String keyword, int page) throws UnsupportedEncodingException {
-        return "https://api.bilibili.com/x/web-interface/search/all/v2?page=" + page +
-                "&keyword=" + URLEncoder.encode(keyword, "UTF-8");
+        return appendSeid("https://api.bilibili.com/x/web-interface/search/all/v2?page=" + page +
+                "&keyword=" + URLEncoder.encode(keyword, "UTF-8"), getSeid(keyword));
     }
 
     private static boolean hasResult(JSONObject data) {

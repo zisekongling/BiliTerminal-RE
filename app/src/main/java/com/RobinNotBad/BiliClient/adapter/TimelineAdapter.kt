@@ -62,6 +62,7 @@ class TimelineAdapter(
 
                 val coverUrl = GlideUtil.url_hq(episode.cover)
                 GlideUtil.with(cover).asDrawable().load(coverUrl)
+                    .apply(GlideUtil.thumbOptions(cover))
                     .placeholder(R.mipmap.placeholder)
                     .error(R.mipmap.placeholder)
                     .format(DecodeFormat.PREFER_RGB_565)

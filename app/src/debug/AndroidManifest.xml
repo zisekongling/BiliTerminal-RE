@@ -8,8 +8,15 @@
   release APK 里既不注册也不含该类代码。
 
   DebugBridge 是给 AI agent / 自动化脚本用的可编程控制通道（26.10.14），同理只在此声明。
+
+  26.11.19：debug 包把主清单里**每一个非导出页面**都开放给 adb 直接拉起（见文件末尾的
+  长清单）。为什么要开：手表上的 UI 自动化又慢又不可靠，而「先点主页 → 再点某个入口 →
+  才能到目标页」的路径里任何一次弹窗或布局变化都会让脚本卡住；能 `am start -n <包>/.某个页`
+  直接进页面，验证成本差一个数量级。安全边界仍然是 android.permission.DUMP（签名级权限，
+  第三方应用拿不到、adb shell 持有、本应用自己放行），规则见 docs/agents/security.md。
 -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!--
       审计 M12-c：SYSTEM_ALERT_WINDOW 只用于 Debug 版的 UETool 悬浮窗调试菜单，
@@ -44,6 +51,259 @@
             android:name=".debug.DebugBridge"
             android:exported="true"
             android:permission="android.permission.DUMP" />
+
+        <!--
+          ===== 全部页面开放给 adb（26.11.19，仅 debug）=====
+
+          下面每一条对应主清单里一个 android:exported="false" 的 <activity>，只做三件事：
+          把 exported 翻成 true、挂上 DUMP 权限、用 tools:replace 压掉主清单的 false。
+          主清单里的原生属性（label / screenOrientation / configChanges…）由清单合并保留，
+          所以这里不需要也不应该重复声明。
+
+          - 顺序与 app/src/main/AndroidManifest.xml 一致，新增页面时照着补一行；
+            DebugActivityExportTest 会核对「主清单一共有多少非导出页面、debug 清单就漏了多少」，
+            漏一条当场红。
+          - 已导出的三个页面（SplashActivity / GetIntentActivity / ExternalVideoActivity）
+            **不列在这里**：SplashActivity 是 LAUNCHER，给它挂 DUMP 会让桌面图标拉不起 debug 包；
+            另两个 release 本来就导出，保持原样。
+          - 同 UID 启动不受权限检查，所以应用内部导航完全不受影响；受影响的是「其他应用」，
+            它们本来就进不来（DUMP 是签名级权限）。
+        -->
+
+        <activity android:name=".activity.vote.VoteInfoActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.local.DownloadListActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.series.SeriesInfoActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.series.UserSeriesActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.EmoteActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.collection.CollectionInfoActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.live.LiveInfoActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.live.FollowLiveActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.live.RecommendLiveActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.FollowingBangumisActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.SponsorActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.UpdateHistoryActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.CatchActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.FeedbackActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.feedback.FeedbackListActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.feedback.FeedbackDetailActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".tutorial.TutorialPagerActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.AnnouncementsActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.ListChooseActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.player.PlayerActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.article.OpusInfoActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.note.NoteActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.SettingPrefActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.SettingRepliesActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.SettingInfoActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.SettingMenuActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.SettingMySpaceActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.SettingSearchActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.SearchSortActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.local.LocalPageChooseActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.local.LocalListActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.local.LocalFolderActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.local.LocalFolderListActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.DownloadActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.dynamic.DynamicInfoActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.dynamic.DynamicActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.dynamic.DynamicTopicActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.SettingTerminalPlayerActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.SettingSkipActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.SettingMarkCategoryActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.UIPreviewActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.setup.SetupUIActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.setup.IntroductionActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.login.SpecialLoginActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.login.ExportAllAccountsActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.FollowUsersActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.message.MessageActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.message.MessageSettingsActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.message.NoticeActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.ShowTextActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.CopyTextActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.info.AddFavoriteActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.SettingPlayerChooseActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.SettingPlayerUiActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.JumpToPlayerActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.reply.WriteReplyActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.dynamic.send.SendDynamicActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.QualityChooserActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.BangumiCacheActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.SettingQualityActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.HistoryActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.LoginRecordActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.CoinLogActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.ExpLogActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.WatchLaterActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.favorite.FavoriteVideoListActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.favorite.FavoriteFolderListActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.favorite.FavoriteFolderEditActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.favorite.FavoriteFolderCreateActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.subscription.SubscriptionListActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.subscription.SubSeasonDetailActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.info.UserInfoActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.ImageViewerActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.ImagePickerActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.DialogActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.ConfirmDialogActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.ListDialogActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.InputDialogActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.InteractionDebugActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.reply.ReplyInfoActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.MultiPageActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.MySpaceActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.MySpaceMoreActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.MedalWallActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.VipActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.AboutActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.OpenSourceActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.SettingMainActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.SettingGroupActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.StorageActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.TutorialManagerActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.TodoListActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.UpdateActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.EditSignActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.EditProfileActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.EditUserInfoActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.CreativeCenterActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.search.SearchActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.HotSearchActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.info.VideoInfoActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.MenuActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.BangumiActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.PreciousActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.PopularActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.RankingActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.ShortVideoPlayerActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.RecommendActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.video.TimelineActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.login.QRLoginHelpActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.login.LoginActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.login.AccountSwitchActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.settings.login.CaptchaWebViewActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.message.PrivateMsgActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.message.ChooseFriendActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.user.favorite.FavouriteOpusListActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.disguise.CalculatorDisguiseActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
+        <activity android:name=".activity.disguise.BluetoothDisguiseActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
 
     </application>
 

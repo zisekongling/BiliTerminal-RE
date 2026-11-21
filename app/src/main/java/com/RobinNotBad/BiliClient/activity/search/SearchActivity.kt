@@ -33,15 +33,13 @@ import com.RobinNotBad.BiliClient.adapter.SearchHistoryAdapter
 import com.RobinNotBad.BiliClient.adapter.SearchSuggestionsAdapter
 import com.RobinNotBad.BiliClient.api.SearchApi
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
+import com.RobinNotBad.BiliClient.util.SearchHistoryStore
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.TerminalDialog
-import com.RobinNotBad.BiliClient.util.JsonUtil
 import com.RobinNotBad.BiliClient.util.LinkUrlUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.ToolsUtil
-
-import org.json.JSONArray
-import org.json.JSONException
 
 import java.util.Objects
 
@@ -49,6 +47,9 @@ class SearchActivity : InstanceActivity() {
     private var lastKeyword = "≠~`"
     private lateinit var historyRecyclerview: RecyclerView
     private lateinit var suggestionsRecyclerview: RecyclerView
+
+    /** 历史浮层右上角的「清空」入口（26.11.11 反馈 #123：只有长按删单条，没有一键清空）。 */
+    private lateinit var historyClearButton: TextView
     lateinit var searchHistoryAdapter: SearchHistoryAdapter
     lateinit var searchSuggestionsAdapter: SearchSuggestionsAdapter
     lateinit var viewPager: ViewPager2
@@ -81,11 +82,11 @@ class SearchActivity : InstanceActivity() {
     // 慢响应返回时会覆盖新响应（建议乱序）；用令牌可以在回调落地时把过期结果整包丢掉。
     private var suggestionGeneration = 0
     private var suggestionsEnabled: Boolean = false
+
+    /** 「搜索历史」开关（26.11.21 反馈）。关掉时本页既不记录也不显示历史区，读写统一走 [SearchHistoryStore]。 */
+    private var historyEnabled: Boolean = true
     private var defaultSearchContent: String? = null
     private var defaultSearchContentEnabled: Boolean = false
-
-    var tutorial_show: Boolean = false
-    var classname: String? = null
 
     // 搜索类别动态列表：根据用户设置动态管理启用的搜索类别及排序
     private lateinit var categoryList: ArrayList<String>
@@ -102,15 +103,13 @@ class SearchActivity : InstanceActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        classname = javaClass.simpleName
-        tutorial_show = SharedPreferencesUtil.getBoolean("tutorial_pager_$classname", true)
-
         asyncInflate(R.layout.activity_search) { _, _ ->
-            // 教程改由 BaseActivity 按 Tutorials 注册表集中触发
+            // 教程（含这页的左右翻页提示）改由 BaseActivity 按 Tutorials 注册表集中触发
 
             handler = Handler()
 
-            suggestionsEnabled = SharedPreferencesUtil.getBoolean("search_suggestions_enable", true)
+            suggestionsEnabled = SharedPreferencesUtil.getBoolean(SettingsKeys.SEARCH_SUGGESTIONS_ENABLE, true)
+            historyEnabled = SearchHistoryStore.isEnabled()
             defaultSearchContentEnabled = SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.SEARCH_DEFAULT_CONTENT_ENABLE, false)
 
             if (defaultSearchContentEnabled) {
@@ -136,6 +135,8 @@ class SearchActivity : InstanceActivity() {
             searchBar = findViewById(R.id.searchbar)
             historyRecyclerview = findViewById(R.id.history_recyclerview)
             suggestionsRecyclerview = findViewById(R.id.suggestions_recyclerview)
+            historyClearButton = findViewById(R.id.history_clear_button)
+            historyClearButton.setOnClickListener { showClearHistoryConfirm() }
 
             viewPager.offscreenPageLimit = maxOf(1, categoryList.size - 1)
             viewPager.isUserInputEnabled = true
@@ -179,11 +180,6 @@ class SearchActivity : InstanceActivity() {
                         // 而空关键词时分类页没有任何内容可滚，收起后再也没有事件把搜索框拉回来
                         // （反馈 #42：输入框隐藏，只能切到别的页面再切回搜索）。搜索框的显隐只由
                         // 列表真实滚动驱动，见 onScrolled()。
-                        if (tutorial_show) {
-                            tutorial_show = false
-                            findViewById<View>(R.id.text_tutorial_pager).visibility = View.GONE
-                            SharedPreferencesUtil.putBoolean("tutorial_pager_$classname", false)
-                        }
                         lastPosition = position
                     }
                     super.onPageScrolled(position, positionOffset, positionOffsetPixels)
@@ -225,23 +221,24 @@ class SearchActivity : InstanceActivity() {
                 }
             }
 
-            try {
-                searchHistory = JsonUtil.jsonToArrayList(
-                    JSONArray(SharedPreferencesUtil.getString(SharedPreferencesUtil.search_history, "[]")),
-                    false)
-            } catch (e: JSONException) {
-                runOnUiThread { MsgUtil.err(e) }
-                searchHistory = ArrayList()
-            }
+            // 开关关着时 store 直接返回空表，历史区因此不显示（解析失败也只记日志，不弹窗）
+            searchHistory = SearchHistoryStore.read()
             searchHistoryAdapter = SearchHistoryAdapter(this, searchHistory)
-            searchHistoryAdapter.setOnClickListener { position -> keywordInput.setText(searchHistory[position]) }
+            // 回调里的 position 是列表变化前绑定的，点下去那一刻才算数：越界就当没点
+            // （26.11.07 线上崩溃 #230：IndexOutOfBoundsException: Index: 1, Size: 1）
+            searchHistoryAdapter.setOnClickListener { position ->
+                if (position < 0 || position >= searchHistory.size) return@setOnClickListener
+                keywordInput.setText(searchHistory[position])
+            }
             searchHistoryAdapter.setOnLongClickListener { position ->
+                if (position < 0 || position >= searchHistory.size) return@setOnLongClickListener
                 MsgUtil.showMsg(UiText.of("删除成功"))
                 searchHistory.removeAt(position)
                 searchHistoryAdapter.notifyItemRemoved(position)
                 searchHistoryAdapter.notifyItemRangeChanged(position, searchHistory.size - position)
-                SharedPreferencesUtil.putString(SharedPreferencesUtil.search_history,
-                    JSONArray(searchHistory).toString())
+                SearchHistoryStore.save(searchHistory)
+                // 删空了就把「清空」入口一起收掉
+                refreshHistoryClearButton()
             }
             historyRecyclerview.layoutManager = CustomLinearManager(this)
             historyRecyclerview.adapter = searchHistoryAdapter
@@ -250,10 +247,12 @@ class SearchActivity : InstanceActivity() {
                 historyRecyclerview.isFocusableInTouchMode = true
                 historyRecyclerview.requestFocus()
             }
+            refreshHistoryClearButton()
 
             searchSuggestions = ArrayList()
             searchSuggestionsAdapter = SearchSuggestionsAdapter(this, searchSuggestions)
             searchSuggestionsAdapter.setOnClickListener { position ->
+                if (position < 0 || position >= searchSuggestions.size) return@setOnClickListener
                 val suggestion = searchSuggestions[position]
                 // 中文输入法还在组词（composing）状态时直接 setText，会把组合区的半成品和整词叠加，出现串字；
                 // 先清掉组合态再整词替换
@@ -449,28 +448,50 @@ class SearchActivity : InstanceActivity() {
         }
     }
 
+    /**
+     * 弹出搜索彩蛋，并把输入框清空（反馈 #264）。
+     *
+     * 原先命中彩蛋只 showText 就 return，输入框里那个词还留着；彩蛋页按返回回到搜索页后，
+     * 用户再点一次搜索又会命中同一个词 —— 彩蛋反复弹、搜索永远执行不了。
+     * 这里顺手清空输入框，下一次点击走的是「还没输入内容喵~」那条正常路径。
+     *
+     * 先 clearFocus 再置空：afterTextChanged 里「空关键词 + 有焦点」会把历史面板弹出来，
+     * 彩蛋刚关掉就盖一层历史浮层，看起来像是搜索坏了。
+     */
+    private fun showSearchEgg(content: String) {
+        runOnUiThread {
+            keywordInput.clearFocus()
+            keywordInput.setText("")
+            // 作废还没返回的建议请求：否则它回来会把建议卡片重新盖在页面上
+            suggestionGeneration++
+            if (suggestionRunnable != null) handler.removeCallbacks(suggestionRunnable!!)
+            hideDropdowns()
+        }
+        MsgUtil.showText(UiText.of("特殊彩蛋"), content)
+    }
+
     @SuppressLint("NotifyDataSetChanged")
     fun searchKeyword(str: String) {
         var keyword = str
         if (keyword.contains("Robin") || keyword.contains("robin")) {
             if (keyword.contains("撅")) {
-                MsgUtil.showText(UiText.of("特殊彩蛋"), getString(R.string.egg_special))
+                showSearchEgg(getString(R.string.egg_special))
                 return
             }
             if (keyword.contains("纳西妲")) {
-                MsgUtil.showText(UiText.of("特殊彩蛋"), getString(R.string.egg_robin_nahida))
+                showSearchEgg(getString(R.string.egg_robin_nahida))
                 return
             }
         }
         for (s in specialList) {
             if (keyword.contains(s)) {
-                MsgUtil.showText(UiText.of("特殊彩蛋"), getString(R.string.egg_warmwords_warmworld))
+                showSearchEgg(getString(R.string.egg_warmwords_warmworld))
                 return
             }
         }
         // 「紫色空灵」（RE 版主开发者）的专属彩蛋：要求同时带角色名，避免单搜开发者名误触
         if (keyword.contains("紫色空灵") && keyword.contains("纳西妲")) {
-            MsgUtil.showText(UiText.of("特殊彩蛋"), getString(R.string.egg_zisekongling_nahida))
+            showSearchEgg(getString(R.string.egg_zisekongling_nahida))
             return
         }
 
@@ -515,30 +536,32 @@ class SearchActivity : InstanceActivity() {
                     keywordInput.clearFocus()
                 }
 
-                if (!searchHistory.contains(keyword)) {
+                // 开关关着时不记录（两个分支一起跳过），列表也就不动
+                if (historyEnabled && !searchHistory.contains(keyword)) {
                     try {
                         searchHistory.add(0, keyword)
-                        SharedPreferencesUtil.putString(SharedPreferencesUtil.search_history,
-                            JSONArray(searchHistory).toString())
+                        SearchHistoryStore.save(searchHistory)
                         runOnUiThread {
                             searchHistoryAdapter.notifyItemInserted(0)
                             searchHistoryAdapter.notifyItemRangeChanged(0, searchHistory.size)
                             historyRecyclerview.scrollToPosition(0)
+                            // 第一次搜索后历史才从空变非空，「清空」入口要跟着出现
+                            refreshHistoryClearButton()
                         }
                     } catch (e: Exception) {
                         runOnUiThread { MsgUtil.err(e) }
                     }
-                } else {
+                } else if (historyEnabled) {
                     try {
                         val pos = searchHistory.indexOf(keyword)
                         searchHistory.remove(keyword)
                         searchHistory.add(0, keyword)
-                        SharedPreferencesUtil.putString(SharedPreferencesUtil.search_history,
-                            JSONArray(searchHistory).toString())
+                        SearchHistoryStore.save(searchHistory)
                         runOnUiThread {
                             searchHistoryAdapter.notifyItemMoved(pos, 0)
                             searchHistoryAdapter.notifyItemRangeChanged(0, searchHistory.size)
                             historyRecyclerview.scrollToPosition(0)
+                            refreshHistoryClearButton()
                         }
                     } catch (e: Exception) {
                         runOnUiThread { MsgUtil.err(e) }
@@ -561,14 +584,6 @@ class SearchActivity : InstanceActivity() {
                     report(e)
                 }
                 refreshing = false
-
-                if (tutorial_show) {
-                    runOnUiThread {
-                        val textView = findViewById<TextView>(R.id.text_tutorial_pager)
-                        textView.visibility = View.VISIBLE
-                        textView.text = getString(R.string.tutorial_pager, categoryList.size - 1)
-                    }
-                }
             }
         }
     }
@@ -648,18 +663,68 @@ class SearchActivity : InstanceActivity() {
 
     /** 历史 / 建议浮层统一从这里开关（浮层盖在列表上；排序图标在搜索框内部，两者不再抢地方）。 */
     private fun showHistoryDropdown() {
+        // 开关关掉后历史区整个不显示（26.11.21 反馈：没有关闭记录的地方）
+        if (!historyEnabled) {
+            historyRecyclerview.visibility = View.GONE
+            suggestionsRecyclerview.visibility = View.GONE
+            refreshHistoryClearButton()
+            return
+        }
         historyRecyclerview.visibility = View.VISIBLE
         suggestionsRecyclerview.visibility = View.GONE
+        refreshHistoryClearButton()
     }
 
     private fun showSuggestionsDropdown() {
         historyRecyclerview.visibility = View.GONE
         suggestionsRecyclerview.visibility = View.VISIBLE
+        refreshHistoryClearButton()
     }
 
     private fun hideDropdowns() {
         historyRecyclerview.visibility = View.GONE
         suggestionsRecyclerview.visibility = View.GONE
+        refreshHistoryClearButton()
+    }
+
+    /**
+     * 「清空」入口跟着历史浮层与记录条数走：只有历史浮层在显示、且确实有记录时才露出来。
+     *
+     * 早于历史加载（`searchHistory` 还没初始化）或控件还没 inflate 时直接跳过——
+     * `showHistoryDropdown()` 在 `asyncInflate` 里比历史读取更早被调用。
+     */
+    private fun refreshHistoryClearButton() {
+        if (!::historyClearButton.isInitialized || !::searchHistory.isInitialized) return
+        val show = historyEnabled && historyRecyclerview.visibility == View.VISIBLE && searchHistory.isNotEmpty()
+        historyClearButton.visibility = if (show) View.VISIBLE else View.GONE
+    }
+
+    /** 清空全部搜索记录前的二次确认（26.11.11 反馈 #123：一键清空，多选不在本批范围）。 */
+    private fun showClearHistoryConfirm() {
+        // TerminalDialog 只负责拼装，**不会自己 show**，这里必须调 .show()
+        TerminalDialog.confirm(
+            context = this,
+            title = getString(R.string.uitext_searchactivity_010),
+            message = getString(R.string.uitext_searchactivity_011),
+            confirmText = getString(R.string.uitext_searchactivity_009),
+            cancelText = getString(R.string.btn_cancel),
+            confirmIsDanger = true
+        ) {
+            clearSearchHistory()
+        }.show()
+    }
+
+    /** 清空搜索历史：内存列表、本地存储、列表 UI 三处一起清，清完立刻刷新入口显隐。 */
+    private fun clearSearchHistory() {
+        if (!::searchHistory.isInitialized) return
+        val oldSize = searchHistory.size
+        searchHistory.clear()
+        SearchHistoryStore.clear()
+        // 用 range-removed 而不是 notifyDataSetChanged：本类的 @SuppressLint 只覆盖 onCreate，
+        // 这里再引一次会多一条 lint 告警
+        if (oldSize > 0) searchHistoryAdapter.notifyItemRangeRemoved(0, oldSize)
+        refreshHistoryClearButton()
+        MsgUtil.showMsg(getString(R.string.uitext_searchactivity_012))
     }
 
     /**

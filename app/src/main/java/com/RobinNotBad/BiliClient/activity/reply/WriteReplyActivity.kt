@@ -19,12 +19,16 @@ import com.RobinNotBad.BiliClient.activity.EmoteActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.api.ApiErrorText
 import com.RobinNotBad.BiliClient.api.EmoteApi
+import com.RobinNotBad.BiliClient.api.ImageApi
+import com.RobinNotBad.BiliClient.api.PrivateMsgApi
 import com.RobinNotBad.BiliClient.api.ReplyApi
 import com.RobinNotBad.BiliClient.event.ReplyEvent
+import com.RobinNotBad.BiliClient.model.PrivateMessage
 import com.RobinNotBad.BiliClient.model.Reply
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import com.RobinNotBad.BiliClient.util.view.TextInsertion
 import com.google.android.material.card.MaterialCardView
 import org.greenrobot.eventbus.EventBus
 import org.json.JSONArray
@@ -59,10 +63,24 @@ class WriteReplyActivity : BaseActivity() {
         private const val PNG_MAX_SIZE = 8L * 1024 * 1024
         // 压缩时的最长边上限，避免手表直接解码原图就 OOM
         private const val MAX_COMPRESS_EDGE = 2048
+
+        /**
+         * 私信模式的接收方 uid。
+         *
+         * 写私信和写评论的界面、表情、选图、发送流程几乎一样，所以共用这一个页面：
+         * 带了这个 extra（> 0）就是「写私信」，否则照旧是写评论。
+         */
+        const val EXTRA_PRIVATE_UID = "private_uid"
     }
 
     private lateinit var editText: EditText
     private lateinit var imageText: TextView
+
+    /** 私信模式的接收方 uid；0 表示这个页面是写评论。 */
+    private var privateUid: Long = 0L
+
+    private val isPrivateMsg: Boolean
+        get() = privateUid > 0L
 
     private val emoteLauncher: ActivityResultLauncher<Intent> = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val code = result.resultCode
@@ -79,11 +97,20 @@ class WriteReplyActivity : BaseActivity() {
         val code = result.resultCode
         val data = result.data
         if (code == RESULT_OK && data != null && data.data != null) {
-            if (imageList.size >= 9) {
+            // 私信一条消息只能带一张图：再选一张是**替换**，所以私信不按上限拦截——
+            // 弹一句「只能发一张」再把刚选的图丢掉，等于让人多点一次才能换图；评论才按 9 张拦
+            if (!isPrivateMsg && imageList.size >= ImageApi.MAX_IMAGE_COUNT) {
                 MsgUtil.showMsg(UiText.of("最多只能添加9张图片喵~"))
                 return@registerForActivityResult
             }
-            addImage(data.data!!)
+            val uri = data.data!!
+            // 私信一条消息只能带一张图，且图片在点发送时才压才传（见 sendPrivate），
+            // 所以这里只是把选中的图替换进来，不预上传
+            if (isPrivateMsg) {
+                imageList.clear()
+                imageList.add(uri.toString())
+                updateImageText()
+            } else addImage(uri)
         }
     }
 
@@ -123,10 +150,22 @@ class WriteReplyActivity : BaseActivity() {
         val replyType = intent.getIntExtra("replyType", ReplyApi.REPLY_TYPE_VIDEO)
         val parentSender = intent.getStringExtra("parentSender")
         val pos = intent.getIntExtra("pos", -1)
+        privateUid = intent.getLongExtra(EXTRA_PRIVATE_UID, 0L)
 
         editText = findViewById(R.id.editText)
         imageText = findViewById(R.id.imageText)
         val send = findViewById<MaterialCardView>(R.id.send)
+
+        if (isPrivateMsg) {
+            // 复用同一个页面：只换标题与输入提示，发送链路在 sendPrivate 里单独走
+            findViewById<TextView>(R.id.pageName).setText(R.string.pagename_write_private)
+            editText.hint = getString(R.string.hint_private_message)
+        }
+
+        // 手表输入法把回车当「完成 / 下一项」，打不出换行，只能靠这张卡往光标处插一个
+        findViewById<android.view.View>(R.id.newline).setOnClickListener {
+            TextInsertion.insertNewline(editText)
+        }
 
         if (parentSender != null && parentSender.isNotEmpty()) {
             editText.setText("回复 @$parentSender :")
@@ -134,6 +173,11 @@ class WriteReplyActivity : BaseActivity() {
         }
 
         send.setOnClickListener {
+            // 私信没有 pictures 参数、也不走评论接口，整条链路都在 sendPrivate 里
+            if (isPrivateMsg) {
+                sendPrivate()
+                return@setOnClickListener
+            }
             if (SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.cookie_refresh, true)) {
                 if (sending) {
                     MsgUtil.showMsg(UiText.of("正在发送中"))
@@ -220,29 +264,109 @@ class WriteReplyActivity : BaseActivity() {
         }
 
         findViewById<android.view.View>(R.id.emote).setOnClickListener {
-            emoteLauncher.launch(Intent(this, EmoteActivity::class.java).putExtra("from", EmoteApi.BUSINESS_REPLY))
+            // 表情包分业务：私信要 IM 的，评论用 reply 的，不然发出去是另一个表情集
+            val business = if (isPrivateMsg) EmoteApi.BUSINESS_IM else EmoteApi.BUSINESS_REPLY
+            emoteLauncher.launch(Intent(this, EmoteActivity::class.java).putExtra("from", business))
         }
 
         // 图片评论只对「一级评论」开放：B 站的楼中楼回复（root/parent 非 0）不支持 pictures 参数，
         // 传了也会被服务端忽略。早先这里的图片入口对楼中楼同样显示，用户选图、等压缩上传、
         // 发出去却没有图，白等一场还以为是发送失败。所以按 rpid/parent 判一级评论，
         // 不是一级评论就把入口整个收起来（imageText 一并隐藏，否则会留一个孤零零的「图片」）。
+        // 私信不受这条限制——私信接口本来就带图，只是上限一张。
         val isRootCommentBox = rpid == 0L && parent == 0L
         val imageEntry = findViewById<android.view.View>(R.id.image)
-        if (!isRootCommentBox) {
+        if (!isPrivateMsg && !isRootCommentBox) {
             imageEntry.visibility = android.view.View.GONE
             imageText.visibility = android.view.View.GONE
         } else imageEntry.setOnClickListener {
             // 不再按大会员前置拦截：图片评论的权限由服务端判定，客户端拦只会把
             // 「服务端其实允许」的用户挡在门外（26.11.02 用户点名：发图不需要大会员）。
             // 真正被拒时服务端会回错误码，发送失败分支会把码/原话展示出来。
-            if (imageList.size >= 9) {
+            // 私信一张图是「替换」，所以不做上限拦截；评论满 9 张才提示
+            if (!isPrivateMsg && imageList.size >= ImageApi.MAX_IMAGE_COUNT) {
                 MsgUtil.showMsg(UiText.of("最多只能添加9张图片喵~"))
             } else {
                 // 内置选图页（反馈 #53），页内可退回系统选择器
                 imageLauncher.launch(ImagePickerActivity.intent(this))
             }
         }
+    }
+
+    /**
+     * 私信发送。
+     *
+     * 与评论的关键差别：私信接口没有 pictures 参数，一条消息只能带一张图，所以这里是
+     * 「先压图先上传 → 发图片消息 → 再发文字消息」，图传不上去就整条不发——
+     * 半截发出去（图没发、字发了）用户更难收拾。
+     */
+    private fun sendPrivate() {
+        if (!SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.cookie_refresh, true)) {
+            MsgUtil.showDialog(getString(R.string.text_cannot_send), getString(R.string.msg_cookie_refresh_failed), -1)
+            return
+        }
+        if (sending) {
+            MsgUtil.showMsg(UiText.of("正在发送中"))
+            return
+        }
+        sending = true
+        CenterThreadPool.run {
+            try {
+                val text = editText.text.toString()
+                val imageUri = imageList.firstOrNull()
+                if (text.isEmpty() && imageUri == null) {
+                    runOnUiThread { MsgUtil.showMsg(UiText.of("还没输入内容呢~")) }
+                    return@run
+                }
+                runOnUiThread { MsgUtil.showMsg(UiText.of("正在发送…")) }
+                val sender = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0L)
+
+                if (imageUri != null) {
+                    runOnUiThread { MsgUtil.showMsg(UiText.of("正在上传图片喵…")) }
+                    val prepared = ImageApi.prepareImage(this@WriteReplyActivity, Uri.parse(imageUri))
+                    val uploaded = ImageApi.uploadImage(
+                        prepared.data, prepared.fileName, prepared.mimeType, ImageApi.BIZ_MESSAGE
+                    ).getOrThrow()
+                    val content = PrivateMsgApi.buildImageContentOfKb(
+                        uploaded.url, uploaded.width, uploaded.height, uploaded.size,
+                        PrivateMsgApi.imageTypeOf(prepared.mimeType)
+                    )
+                    val error = privateSend(sender, PrivateMessage.TYPE_PIC, content.toString())
+                    if (error != null) {
+                        runOnUiThread { MsgUtil.showMsg(getString(R.string.uitext_writereplyactivity_024, error)) }
+                        return@run
+                    }
+                }
+
+                if (text.isNotEmpty()) {
+                    val content = JSONObject().put("content", text).toString()
+                    val error = privateSend(sender, PrivateMessage.TYPE_TEXT, content)
+                    if (error != null) {
+                        runOnUiThread { MsgUtil.showMsg(getString(R.string.uitext_writereplyactivity_024, error)) }
+                        return@run
+                    }
+                }
+
+                runOnUiThread {
+                    MsgUtil.showMsg(UiText.of("发送成功"))
+                    // 私信页收到 RESULT_OK 就重拉一次消息列表，用户不用自己刷新
+                    setResult(RESULT_OK)
+                    finish()
+                }
+            } catch (e: Exception) {
+                runOnUiThread { MsgUtil.err(e) }
+            } finally {
+                sending = false
+            }
+        }
+    }
+
+    /** 发一条私信消息；成功返回 null，失败返回给用户看的原因。 */
+    private fun privateSend(senderUid: Long, msgType: Int, content: String): String? {
+        val result = PrivateMsgApi.sendMsg(senderUid, privateUid, msgType, System.currentTimeMillis() / 1000, content)
+        val code = result.optInt("code", -1)
+        if (code == 0) return null
+        return result.optString("message").ifEmpty { code.toString() }
     }
 
     private fun addImage(uri: Uri) {

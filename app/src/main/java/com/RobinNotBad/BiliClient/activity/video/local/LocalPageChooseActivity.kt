@@ -21,6 +21,7 @@ import com.RobinNotBad.BiliClient.model.PlayerData
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.FileUtil
+import com.RobinNotBad.BiliClient.util.LocalPageFileIndexPolicy
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import java.io.File
 
@@ -54,21 +55,63 @@ class LocalPageChooseActivity : BaseActivity() {
         val videoFileList = intent.getStringArrayListExtra("videoFileList")!!
         val danmakuFileList = intent.getStringArrayListExtra("danmakuFileList")!!
 
+        // 每一页各自落在哪个根（反馈 #217 / #214）：空串 = 本机下载根，非空 = 外部只读来源。
+        // 老调用方不带这两个 extra（那时一条条目只可能在同一根上），这时靠 externalRoot 兜底：
+        // 整条外部 → 每一页都算外部；其余 → 每一页都算本机。
+        val pageRootList = intent.getStringArrayListExtra("pageRootList")
+        val externalRoot = intent.getStringExtra("externalRoot")?.takeIf { it.isNotEmpty() }
+        val pageRoots = ArrayList<String>(pageList.size)
+        for (i in pageList.indices) {
+            pageRoots.add(pageRootList?.getOrNull(i)?.takeIf { it.isNotEmpty() } ?: externalRoot ?: "")
+        }
+
         // 构建每个分页的播放文件映射，处理DASH双文件情况。
         // 必须可变：删掉一个分 P 后列表会变短，映射要跟着重建，否则点剩下的分 P 会播到已删除的文件。
-        var pageMediaFiles = buildPageMediaFiles(pageList, videoFileList, title)
+        var pageMediaFiles = buildPageMediaFiles(pageList, videoFileList, title, pageRoots)
 
         val adapter = PageChooseAdapter(this, pageList)
         adapter.onItemClickListener = OnItemClickListener { position ->
+            // 删除跑在后台线程：列表可能已经短了而 RecyclerView 还没重绑，旧行上的下标就是越界值
+            // （与 26.11.07 线上崩溃 #230 同形，见 docs/review/fix-progress.md）
+            val mediaInfo = pageMediaFiles.getOrNull(position)
+            val pageTitle = pageList.getOrNull(position)
+            if (mediaInfo == null || pageTitle == null) return@OnItemClickListener
             val playerData = PlayerData(PlayerData.TYPE_LOCAL)
-            val mediaInfo = pageMediaFiles[position]
             playerData.videoUrl = mediaInfo.first
             if (position < danmakuFileList.size) {
                 playerData.danmakuUrl = danmakuFileList[position]
             }
-            playerData.title = pageList[position]
+            playerData.title = pageTitle
+            // 反馈 #178：多P 缓存选集之后应该顺着 P2、P3 自己播下去。
+            // 播放器的「自动下一P」只认 pagenames（见 PlayerActivity 的 onCompletionListener：
+            // `auto_next_enabled && hasMultiplePages() && currentPageIndex < pagenames.size - 1`），
+            // 以前这里只塞了当前这一P 的文件，播放器不知道后面还有P，播完就停。
+            val multiPage = pageList.size > 1
+            if (multiPage) {
+                playerData.pagenames = ArrayList(pageList)
+                playerData.cids = ArrayList() // 本地缓存没有 cid，换P 直接按文件切
+                playerData.currentPageIndex = position
+            }
             try {
                 val player = PlayerApi.jumpToPlayer(playerData)
+                if (multiPage) {
+                    // 播放器换P 走的是「老路径」（PlayerActivity#resolveLocalPageMedia），
+                    // 三条列表按**同一页下标**取文件。所以这里必须给按页对齐的表，
+                    // 不能把缓存页传进来的扁平表原样转交：DASH 未合并的页在扁平表里占两个下标，
+                    // 一错位 P3 就会被播成 P2 的音轨（与 #164 / #51 同形）。
+                    player.putStringArrayListExtra(
+                        "videoFileList",
+                        ArrayList(pageMediaFiles.map { it.first })
+                    )
+                    player.putStringArrayListExtra(
+                        "audioFileList",
+                        ArrayList(pageMediaFiles.map { it.second })
+                    )
+                    player.putStringArrayListExtra(
+                        "danmakuFileList",
+                        ArrayList(pageList.indices.map { danmakuFileList.getOrElse(it) { "" } })
+                    )
+                }
                 if (mediaInfo.first.endsWith("audio.m4a")) {
                     player.putExtra("audio_only", true)
                 }
@@ -89,7 +132,12 @@ class LocalPageChooseActivity : BaseActivity() {
                 longClickPosition = -1
                 // 要删的目录名用点击这一刻的快照：删除跑在后台线程，期间列表可能已被刷新
                 val pageName = pageList.getOrNull(position)
-                if (pageName != null) {
+                val pageRoot = pageRoots.getOrNull(position) ?: ""
+                if (pageName != null && pageRoot.isNotEmpty()) {
+                    // 外部来源的页只播不删（与缓存页「外部条目只读」同一条红线）：
+                    // 删的是另一个分支的缓存目录，对方未必知道（反馈 #217 / #214）
+                    MsgUtil.showMsgLong(getString(R.string.msg_cache_external_readonly))
+                } else if (pageName != null) {
                     CenterThreadPool.run {
                         val videoPath = File(FileUtil.getVideoDownloadPath(), title)
                         val pagePath = File(videoPath, pageName)
@@ -114,25 +162,43 @@ class LocalPageChooseActivity : BaseActivity() {
 
                         // 只有在磁盘上真的删掉了才从模型里摘：失败时保持列表原样，用户能看到它确实还在
                         if (failure == null) {
+                            // 双文件页（video.mp4 + audio.m4a 同时存在）在 videoFileList 里占两个下标，
+                            // 旧实现只 removeAt(position) 一项：删中间页会把 audio.m4a 留给下一页、
+                            // 点剩下的分 P 就播到已删文件。这里按目录名找出该页的全部下标，
+                            // 再从大到小删（调研清单第 7 条 B2）。
+                            val fileIndices = LocalPageFileIndexPolicy.indicesOfPage(videoFileList, pageName)
+                                .ifEmpty {
+                                    val fallback = LocalPageFileIndexPolicy.fallbackStartIndex(
+                                        position, pageList.size, videoFileList.size
+                                    )
+                                    if (fallback >= 0) listOf(fallback) else emptyList()
+                                }
+                            for (i in LocalPageFileIndexPolicy.removalOrder(fileIndices)) {
+                                if (i in videoFileList.indices) videoFileList.removeAt(i)
+                            }
                             if (position in pageList.indices) pageList.removeAt(position)
-                            if (position in videoFileList.indices) videoFileList.removeAt(position)
                             if (position in danmakuFileList.indices) danmakuFileList.removeAt(position)
+                            // 每页的根与其它三条「每页一项」的列表同增同减，否则页根会错位
+                            if (position in pageRoots.indices) pageRoots.removeAt(position)
                             deleted = true
                         }
 
                         runOnUiThread {
                             if (failure == null) {
                                 adapter.notifyItemRemoved(position)
-                                adapter.notifyItemRangeChanged(0, (pageList.size - position).coerceAtLeast(0))
+                                // 起点必须是被删的那一项：删掉下标 p（长度 n → n-1）后要重绑的是
+                                // p..n-2，从 0 起取「size - position」个只覆盖 0..n-2-p，尾段 holder
+                                // 不重绑、仍握着旧 position，点它就是越界（同 #230 的成因）
+                                adapter.notifyItemRangeChanged(position, (pageList.size - position).coerceAtLeast(0))
                                 // 列表短了一项，分页→播放文件的映射要一起重建
-                                pageMediaFiles = buildPageMediaFiles(pageList, videoFileList, title)
+                                pageMediaFiles = buildPageMediaFiles(pageList, videoFileList, title, pageRoots)
                                 MsgUtil.showMsg(UiText.of("删除成功"))
                                 // 缓存页还停在旧列表上（它是本页下面那层），直接让它重扫——别只靠
                                 // onDestroy 的通知：用户删完立刻退出时后台删除可能还没跑完，
                                 // 通知就漏了，缓存页会一直显示已经删掉的条目（与 #58 同一类现象）。
                                 val listPage = BiliTerminal.getInstanceActivityOnTop()
                                 if (listPage is LocalListActivity && !listPage.isDestroyed) {
-                                    listPage.refresh()
+                                    listPage.refreshAfterExternalChange()
                                     // 已经直接通知过上层了，onDestroy 里不必再刷一次
                                     deleted = false
                                 }
@@ -152,7 +218,21 @@ class LocalPageChooseActivity : BaseActivity() {
 
         recyclerView.layoutManager = CustomLinearManager(this)
         recyclerView.adapter = adapter
+        // 崩溃 #351（OPPO OWW202 / 26.11.01）：长按删分 P 时先 notifyItemRemoved(position)（:171）、
+        // 再 notifyItemRangeChanged(position, ...)（:175），这两次通知之间 adapter 的记账处于中间态；
+        // GapWorker 的预取正是在这个窗口里按旧位置去预取，tryGetViewHolderForPositionByDeadline
+        // 取不到对应 holder 就直接抛「Inconsistency detected. Invalid view holder adapter position」。
+        // 它崩在预取回调里，CustomLinearManager.onLayoutChildren 的 try/catch（只包布局）兜不到。
+        // 本页列表只有几个分 P，预取换不来滑动手感，关掉这条路径没有任何代价。
+        // 必须写在 :202 之后：那之前 layoutManager 还是 null，赋值会静默失效。
+        recyclerView.layoutManager?.isItemPrefetchEnabled = false
     }
+
+    /**
+     * 一季/一部合集的落盘父目录：[root] 为空串时是本机下载根下的 [title]，否则是那个外部根下的 [title]。
+     */
+    private fun videoRootDir(root: String, title: String): File =
+        if (root.isEmpty()) File(FileUtil.getVideoDownloadPath(), title) else File(root, title)
 
     /**
      * 构建分页媒体文件映射，处理DASH双文件（video.mp4 + audio.m4a）情况
@@ -161,13 +241,16 @@ class LocalPageChooseActivity : BaseActivity() {
     private fun buildPageMediaFiles(
         pageList: ArrayList<String>,
         videoFileList: ArrayList<String>,
-        title: String
+        title: String,
+        pageRoots: List<String>
     ): List<Pair<String, String>> {
         val result = mutableListOf<Pair<String, String>>()
-        val workPath = FileUtil.getVideoDownloadPath()
 
-        for (pageName in pageList) {
-            val pageDir = File(File(workPath, title), pageName)
+        for (i in pageList.indices) {
+            val pageName = pageList[i]
+            // 每一页按**自己的根**定位：改过缓存位置之后，同一季的集分落在两个根上，
+            // 一律按本机根拼路径会让外部那几页永远走「兼容旧格式」那条兜底（反馈 #217 / #214）
+            val pageDir = File(videoRootDir(pageRoots.getOrNull(i) ?: "", title), pageName)
             val videoFile = File(pageDir, "video.mp4")
             val audioFile = File(pageDir, "audio.m4a")
 
@@ -179,8 +262,10 @@ class LocalPageChooseActivity : BaseActivity() {
             } else if (audioFile.exists()) {
                 result.add(Pair(audioFile.toString(), ""))
             } else {
-                // 兼容旧格式：直接从列表取
-                val idx = result.size
+                // 兼容旧格式：直接从列表取。优先按目录名反查（双文件页占两项也不会错位），
+                // 匹配不到才退回「第几页 = 第几项」的老口径（调研清单第 7 条 B2）
+                val idx = LocalPageFileIndexPolicy.indicesOfPage(videoFileList, pageName).firstOrNull()
+                    ?: result.size
                 if (idx < videoFileList.size) {
                     result.add(Pair(videoFileList[idx], ""))
                 } else {
@@ -194,7 +279,7 @@ class LocalPageChooseActivity : BaseActivity() {
     override fun onDestroy() {
         val instance = BiliTerminal.getInstanceActivityOnTop()
         if (deleted && instance is LocalListActivity && !instance.isDestroyed)
-            instance.refresh()
+            instance.refreshAfterExternalChange()
         super.onDestroy()
     }
 }

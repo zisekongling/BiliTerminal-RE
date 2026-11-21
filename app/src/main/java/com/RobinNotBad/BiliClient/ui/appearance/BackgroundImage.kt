@@ -21,9 +21,10 @@ import java.io.File
  *
  * 设计取舍：
  *
- * - **只存一份**：选中的图在 [install] 里拷进 `filesDir/appearance/background.img`，不留 URI、
- *   不申请存储权限（`ACTION_GET_CONTENT` 给的临时读权限出了回调就没了，普通 URI 存不下来）。
- *   不用 cacheDir 是因为「设置 → 存储空间」页允许清临时文件，把用户精挑的图放那儿会被一键清掉。
+ * - **只存一份**：选中的图在 [install] 里拷进 `filesDir/appearance/background.img`，不留 URI。
+ *   本类**不申请存储权限**：读图权限由内置选图页（`activity/ImagePickerActivity.kt`）按需申请，
+ *   拷完就不再需要原 URI。不用 cacheDir 是因为「设置 → 存储空间」页允许清临时文件，
+ *   把用户精挑的图放那儿会被一键清掉。
  * - **解码只做一次**：[drawable] 里有「路径+大小+修改时间」做键的内存缓存，并且用
  *   `inSampleSize` 按最长边 [DECODE_MAX_DIM] 降采样、`RGB_565` 省内存。没有这张缓存，
  *   每次进 Activity 都会把原图整张解进内存，手表端很容易 OOM。

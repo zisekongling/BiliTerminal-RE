@@ -39,7 +39,9 @@ public class DrawTask implements IDrawTask {
     
     protected final AbsDisplayer mDisp;
 
-    protected IDanmakus danmakuList;
+    // volatile：它在解析线程（prepare → loadDanmakus）里写、在绘制/控制线程里读，
+    // 不加的话另一个线程可能一直看着旧引用甚至是 null（切集/切 P 时最常见）。
+    protected volatile IDanmakus danmakuList;
 
     protected BaseDanmakuParser mParser;
 
@@ -199,8 +201,23 @@ public class DrawTask implements IDrawTask {
         }
     }
 
+    /**
+     * 取某一时刻的可见弹幕。
+     *
+     * **必须 synchronized**：本方法会经 {@code danmakuList.subnew()} 遍历弹幕列表的
+     * {@code TreeSet} 子集视图（`Danmakus.subset()` 返回 `subSet` 视图，`new ArrayList<>()` 要遍历
+     * 它的 size/iterator）。而列表的结构性修改全在持本对象锁的方法里发生
+     * （{@link #addDanmaku}、{@link #removeAllDanmakus}、{@link #removeUnusedLiveDanmakusIn}、
+     * {@link #draw}）。它却是唯一从 UI 线程被直接调用的读取入口
+     * （`DanmakuView.getCurrentVisibleDanmakus()` → `DrawHandler` → 本方法），
+     * 不持锁就会与绘制/解析线程撞成 ConcurrentModificationException。
+     * 26.11.07 线上 3 例崩溃即此路径（弹幕量 > 5000 时点击「弹幕时间戳空降」必现概率显著升高）。
+     *
+     * 同文件 {@code CacheManagingDrawTask.prepareCaches()} 对同一调用的 try/catch 重试是缓存线程侧的
+     * 兜底，不能替代这里的互斥——那边读读竞争不致命，这边读写在同一个 TreeSet 上。
+     */
     @Override
-    public IDanmakus getVisibleDanmakusOnTime(long time) {
+    public synchronized IDanmakus getVisibleDanmakusOnTime(long time) {
         long beginMills = time - mContext.mDanmakuFactory.MAX_DANMAKU_DURATION - 100;
         long endMills = time + mContext.mDanmakuFactory.MAX_DANMAKU_DURATION;
         IDanmakus subDanmakus = danmakuList.subnew(beginMills, endMills);
@@ -231,8 +248,17 @@ public class DrawTask implements IDrawTask {
             mRenderer.clear();
     }
 
+    /**
+     * 跳到指定时间点。
+     *
+     * <p>加 {@code synchronized} 是为了跟 {@link #removeAllDanmakus(boolean)} / {@link #addDanmaku(BaseDanmaku)}
+     * 互斥：它们都在这个实例锁上，而 seek 却跑在弹幕控制线程（{@code DanmakuView} 的 handler 线程）上。
+     * 不加的话「判空 → 取 last()」中间可能被主线程清空，{@code Danmakus.last()} 直接抛
+     * {@code NoSuchElementException}（控制台崩溃 #362：thread=DFM Handler Thread，栈为
+     * {@code Danmakus.last ← DrawTask.seek ← CacheManagingDrawTask.seek}）。
+     */
     @Override
-    public void seek(long mills) {
+    public synchronized void seek(long mills) {
         reset();
         mContext.mGlobalFlagValues.updateVisibleFlag();
         mContext.mGlobalFlagValues.updateFirstShownFlag();

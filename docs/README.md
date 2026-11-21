@@ -8,12 +8,14 @@
 
 | 你要做的事 | 读这份 | 说明 |
 | --- | --- | --- |
-| 改任何非平凡代码 | [`../AGENTS.md`](../AGENTS.md) → [`architecture-map.md`](architecture-map.md) | AGENTS 是每次都要遵守的最小约定 + 按场景索引；领域细则在 [`agents/`](agents/)；架构地图是真实分层 + 逐条坑 |
-| 找「现在的状态 / 还没做的事」 | [`review/fix-progress.md`](review/fix-progress.md) | **唯一活台账**：当前版本状态、未完成待办（§2，含播放器合并 / 弱网 / 下载链路的剩余项与 §2.4 视觉技术债）、26.10.22 起的状态快照、历史章节索引 |
+| 改任何非平凡代码 | [`../AGENTS.md`](../AGENTS.md) → [`architecture-map.md`](architecture-map.md) | AGENTS 是每次都要遵守的最小约定 + 按场景索引；领域细则在 [`agents/`](agents/)；架构地图是真实分层 + 逐条坑。**两份都别整份读**：架构地图 ≈9.6 万 token，按 `AGENTS.md` 里的阅读预算表只读你那几节；§7 坑点库 58 个小节 ≈5.3 万 token，用 grep 定位单个 `§7.x` |
+| 找「现在的状态 / 还没做的事」 | [`review/fix-progress.md`](review/fix-progress.md) | **唯一活台账**：当前版本状态、未完成待办（§2，含播放器合并 / 弱网 / 下载链路的剩余项与 §2.4 视觉技术债）、26.10.22 起的状态快照、历史章节索引。**平时只读 §1 + §2**（全文件 ≈15.9 万 token，快照区是流水，按关键词 grep） |
+| 决定这条测试该不该自己跑 / 改完怎么验证 / 交接给人测 | [`agents/testing.md`](agents/testing.md) | **验证分工的唯一判据**：AI 能读文字与数字（日志、控件树、落盘文件、状态码），读不了画面 / 声音 / 手感。三级验证 L0/L1/L2、L1 两轮止损预算、AI 不做的事清单、人测交接单模板、结论写回哪里 |
 | 改网络 / 接口 / 风控相关 | [`bilibili-api-notes.md`](bilibili-api-notes.md) | 接口常识与风控硬约束（错误码语义、取流有效期、弹幕协议取舍） |
-| 发版前上真机 | [`review/real-device-regression-checklist.md`](review/real-device-regression-checklist.md) | 与发行版同维护的回归清单（249 条），每条的来源小节都标在标题里 |
-| 用 adb / AI agent 驱动 Debug 包测试 | [`review/agent-test-guide.md`](review/agent-test-guide.md) | 调试桥（可编程控制通道）命令表、日志与 HTTP 追踪、UETool 干扰规避、用哪个 flavor |
-| 找不懂代码的人验收新功能 | [`review/manual-test-guide-261106.md`](review/manual-test-guide-261106.md) | 给普通用户写的手工测试指南：34 条用例，每条给「怎么做 / 应该看到 / 不算 bug」，按不登录、登录后、特殊条件分三部分 |
+| 改版本号 / 发版 / 更新检查 / 官网同步 | [`version-channels.md`](version-channels.md) → [`agents/release.md`](agents/release.md) | **三通道口径的唯一事实源**：编码公式、Gradle 参数、tag 对照、客户端选版、上报字段、站点过滤。改版本号规则先改它 |
+| 发版前上真机 | [`review/real-device-regression-checklist.md`](review/real-device-regression-checklist.md) | 与发行版同维护的回归清单（260 条），每条的来源小节都标在标题里 |
+| 用 adb / AI agent 驱动 Debug 包测试 | [`review/agent-test-guide.md`](review/agent-test-guide.md) → [`agents/testing.md`](agents/testing.md) | 前者是调试桥（可编程控制通道）命令表、日志与 HTTP 追踪、UETool 干扰规避、用哪个 flavor；后者决定**哪些测试值得让 AI 跑、哪些直接交给人** |
+| 找不懂代码的人验收新功能 | [`review/manual-test-guide-261106.md`](review/manual-test-guide-261106.md) | 人机双轨的手工验收清单：34 条用例，每条给「怎么做 / 应该看到 / 不算 bug」，末尾再标「AI 断言 / AI 半自动 / AI 判不了」——AI 能自己验的 7 条直接跑，另 14 条只验一半，13 条必须人做；§0 是 AI 起步的三条命令与取证方式 |
 | 写新功能 | [`superpowers/plans/2026-08-27-new-features-roadmap.md`](superpowers/plans/2026-08-27-new-features-roadmap.md) | 功能 backlog（含实测过的接口地址、判据与仍未落地项） |
 | 改播放器 / 弱网 / 下载 | [`architecture-map.md`](architecture-map.md) §7.4 / §7.27 / §7.54 + [`review/fix-progress.md`](review/fix-progress.md) §2.2 | 现状与坑看架构地图，剩余待办看台账；原合并方案、弱网调研、下载排查与引擎方案已归档（ijkplayer 选项语义与 `.so` 实测仍可在 `archive/superpowers/specs/` 里查） |
 | 改教程系统 | [`tutorial-system-redesign.md`](tutorial-system-redesign.md) | 重做进行中，旧链路未删完——**动之前先读它** |
@@ -34,8 +36,9 @@
 | [`agents/dev-conventions.md`](agents/dev-conventions.md) | 列表页 / 菜单 / 横滑翻页 / 设置项与子页面 / 外观设置 / 弹窗 / 伪装页 / 排序分区 / 请求解析分离 / 用户可见文案 | 写界面与功能时 |
 | [`agents/security.md`](agents/security.md) | exported、https 与明文白名单、allowBackup、调试页只进 Debug、DUMP 权限、调试开关即改即生效 | 动清单 / 网络 / 备份 / 调试入口时 |
 | [`agents/build.md`](agents/build.md) | 构建任务名与 flavor、build_tui.py、adb / 模拟器、工具链、gradle.properties、build cache 回放、增量编译坏掉、量体积与 APK 构成、原生库 | 构建 / 单测 / 装包 / 构建报怪错时 |
-| [`agents/release.md`](agents/release.md) | Release 说明硬要求、relay 中转、附件名白名单、老客户端 config.json、build_only | 发版 / 改更新日志时 |
-| [`agents/workflow.md`](agents/workflow.md) | 小步提交、一律推 main 与 commit 格式、改完必须自测（MuMu）、小改动不必上模拟器的判据 | 准备提交 / 准备说"应该没问题"时 |
+| [`agents/release.md`](agents/release.md) | Release 说明硬要求、relay 中转、附件名白名单、老客户端 config.json、build_only、三通道发版规则 | 发版 / 改更新日志时 |
+| [`agents/workflow.md`](agents/workflow.md) | 一次改动的标准流程（带时间预算）、小步提交、一律推 main 与 commit 格式、改完必须验证的三级判据（L0/L1/L2，细则在 `testing.md`） | 准备提交 / 准备说"应该没问题"时 |
+| [`agents/testing.md`](agents/testing.md) | **验证分工**：唯一判据（结论能不能被机器读出来）、L0 静态 / L1 设备可观测 / L2 人工验收、L1 两轮止损预算（≤10 分钟、≤15 条 adb 命令）、AI 不做的事、人测交接单模板、结论落点 | 改完要验证 / 想上模拟器 / 决定交不交给人测时 |
 | [`agents/pitfalls.md`](agents/pitfalls.md) | 仍存在的已知坑：API 重复解析、跨包 id、notifyItemRangeInserted、通知 ID、下载锁、播放器 / 弹幕 / 保亮屏 / 原生库 / 主线程判活、伪装与顶栏手势 | 改这些易踩区之前 |
 | [`agents/docs.md`](agents/docs.md) | 改完同步文档的落点表、markdownlint 命令与豁免、copy-inventory 逐字素材 | 每个改动收尾时 |
 
@@ -43,21 +46,36 @@
 
 | 文件 | 内容 | 维护时机 |
 | --- | --- | --- |
-| [`architecture-map.md`](architecture-map.md) | 架构通读：§6 网络层、§7 改前必查的坑（7.1–7.55）、§8 UI 基建与外观、§9 API 层映射（48 个文件）、§10 检查清单 | 改架构 / 基建 / 新增基类时 |
+| [`architecture-map.md`](architecture-map.md) | 架构分层地图（342,142 字节 / 2,116 行 ≈9.9 万 token，**按 § 查不通读**）：§6 网络层、§7 改前必查的坑（65 个 7.x 小节，≈5.5 万 token，**只 grep 不通读**）、§8 UI 基建与外观、§9 API 层映射（48 个文件，读到 `1941–2050` 即可）、§10 检查清单 | 改架构 / 基建 / 新增基类时 |
+| [`version-channels.md`](version-channels.md) | **三通道（稳定 / 测试 / 实验）口径**：`versionCode` 编码公式、`versionName` 与 tag 对照、Gradle 参数与 BuildConfig 字段、工作流规则、客户端选版、上报契约、官网过滤 | 改版本号规则 / 发版工作流 / 更新检查 / 官网同步时 |
 | [`optional-features.md`](optional-features.md) | 可选私有功能机制：`private/` 目录、AGP 四处注入点、`OptionalFeatures` 反射门面、现有挂点、本地开发与 CI 注入（不写私有功能的实现细节） | 新增/调整「不进公开仓库」的功能、改 `app/build.gradle` 的 `hasPrivateFeature`、动发版注入步骤时 |
 | [`FEATURES.md`](FEATURES.md) | 用户可见功能总表（20 章） | 新增用户可见功能时 |
 | [`bilibili-api-notes.md`](bilibili-api-notes.md) | 接口与风控常识（来源与可信度、速查表、11 条硬约束、值得做/不做） | 核实出新接口结论时 |
-| [`review/fix-progress.md`](review/fix-progress.md) | 活台账：当前状态 + 未完成待办 + 26.10.22 起的快照（更早的 §3.0~§3.51 已归档）+ 历史章节索引 | 修完 bug / 关掉待办 / 每轮真机验证后 |
-| [`review/real-device-regression-checklist.md`](review/real-device-regression-checklist.md) | 发版前真机回归清单（249 条，含第十三节视觉面；条目只增不改，失效就地标注作废） | 每个发行版 |
+| [`review/fix-progress.md`](review/fix-progress.md) | 活台账（≈15.9 万 token）：当前状态 + 未完成待办 + 26.10.22 起的快照（更早的 §3.0~§3.51 已归档）+ 历史章节索引。**平时只读 §1 §2，别整份读**（文件开头有逐节行号表） | 修完 bug / 关掉待办 / 每轮真机验证后 |
+| [`review/real-device-regression-checklist.md`](review/real-device-regression-checklist.md) | 发版前真机回归清单（260 条，唯一编号 1–258；含第十三节视觉面；条目只增不改，失效就地标注作废） | 每个发行版 |
 | [`review/agent-test-guide.md`](review/agent-test-guide.md) | Debug 包的 agent 测试手册：调试桥命令、可观测性设施、已知限制与设计原则 | 增删调试能力 / 调试桥命令时 |
-| [`review/manual-test-guide-261106.md`](review/manual-test-guide-261106.md) | 面向普通用户的手工测试指南：26.11.06 新增功能的 34 条用例（无技术术语，含「不算 bug」与已知限制） | 找人验收新功能 / 自己按步骤过一遍时 |
+| [`review/manual-test-guide-261106.md`](review/manual-test-guide-261106.md) | 人机双轨的验收清单：26.11.06 新增功能的 34 条用例（无技术术语，含「不算 bug」与已知限制），每条另标 AI 能不能断言（7 条可断言 / 14 条半自动 / 13 条只能人判） | 找人验收新功能 / 自己按步骤过一遍 / 想知道某条该不该交给 AI 时 |
+| [`review/manual-test-guide-261107-tutorial-hint.md`](review/manual-test-guide-261107-tutorial-hint.md) | 26.11.07 教程翻页提示迁移的验收单（5 条，约 8 分钟）：5 个宿主页的提示文字与页数、出现/收起的时机、管理页通过/清除、老存档不重弹；每条带 `AI 断言` 的可执行取证命令 | 验收教程收尾这次改动 / 下一个拿到设备的 agent 直接照做时 |
+| [`review/manual-test-guide-261108-a11y.md`](review/manual-test-guide-261108-a11y.md) | 26.11.08 无障碍描述与播放器热区的验收单（7 条，约 19 分钟）：读屏念什么、图标大小是否没变、热区手感，以及**自定义布局左列放 3 个以上按键是否压住进度条 / 拖不动**（26.11.08 修的回归，H05 是重点）；每条带 `AI 断言` | 验收 a11y 与热区 / 复现左列回归 / 判 TalkBack 读数时 |
+| [`review/manual-test-guide-261108-opus-danmaku.md`](review/manual-test-guide-261108-opus-danmaku.md) | 26.11.08 专栏段落富文本与弹幕下载失败语义的验收单（6 条，约 15 分钟）：段落里的 @ 与链接能不能点、点得准不准、跳得对不对；弹幕地址失效时应报失败而不是「成功但没弹幕」 | 验收专栏富文本 / 弹幕下载 / 判点击命中时 |
+| [`review/manual-test-guide-261108-bangumi.md`](review/manual-test-guide-261108-bangumi.md) | 26.11.08 番剧分区页的验收单（7 条，约 18 分钟）：菜单入口与老用户回填、推荐/追番/索引三个页签、筛选弹窗与条件生效、翻到底与失败态、圆屏排版 | 验收番剧分区页 / 改该页筛选或翻页时 |
+| [`review/manual-test-guide-261108-player-wide-layout.md`](review/manual-test-guide-261108-player-wide-layout.md) | 26.11.08 播放器宽屏布局回退的验收单（6 条，约 10 分钟）：宽屏底栏厚度与整体居中、左右列紧凑贴边、底栏放满时整行横向滚动、「更多」图标不再 1.19× 拉长、横屏 / 分屏 / 平板、字幕与底栏间隙；每条带 `AI 半自动` 断言 dp 数字 | 验收宽屏播放器布局 / 复现「按钮被拉开」时 |
+| [`review/manual-test-guide-261111-feedback-batch.md`](review/manual-test-guide-261111-feedback-batch.md) | 26.11.11 反馈批次（17 条）的验收单（P01~P31，五组）：播放器退出链 / 弹幕 / 横屏、下载分段与失败原因、消息与搜索、专栏正文与合集续看、UI 小修五连；每条给「步骤 / 期望 / 打勾」，末尾列「本批不做、别当回归报」 | 验收这批反馈 / 判「退不出去」「下载只有一截」这类报障是否真的好了时 |
+| [`review/manual-test-guide-261114-exp6.md`](review/manual-test-guide-261114-exp6.md) | 26.11.14-exp.6 的补测单（八组 A~H、约 40 分钟）：三档跳过设置与「跳过设置」二级页、询问我的行为、老存档折算、进度条条子与时间括号、详情页「广告」胶囊，附 6 条带真实标注的测试视频与 `adb logcat` 判据 | 拿到 exp.6 包做验收 / 复现「条子看不到」或「括号不对」时 |
+| [`review/test-plan-261108.md`](review/test-plan-261108.md) | **26.11.08 测试包总计划**：release 普通版 + debug 共存版两个包的构成与装法、`tag 26.11.07.1..HEAD` 67 个提交的范围口径、**≈70 条人测项的分组总表（域 / 来源提交 / 条数 / 时长 / 优先级 / 详细交接单）**、P0 冒烟 10 条、快修回归与文案走查、明确不测的存量老账 | 拿到这两个测试包时 / 想知道「这轮到底要测哪些」时 |
 | [`review/compare-with-re-biliterminal-261024.md`](review/compare-with-re-biliterminal-261024.md) | 与同源分支 `cyq114514/Re-BiliTerminal`（1.2.3fix）的六维对比审计：91 条问题（P0×2 / P1×20 / P2×69）、定量总表、P0–P2 路线图、四轮核验；**按目标设备口径（旧版安卓手表）评分** | 再次对比 / 排期取建议时；结论基于 2026-10-24 双方 HEAD |
 | [`review/fork-comparison-2026-11-06.md`](review/fork-comparison-2026-11-06.md) | 三个兄弟分支（Revival / PianoEthan / cyq 1.3.0）与我们的功能增量对比、实现质量优化、不建议照搬清单与三批实施路线；分报告在 `review/forks/` | 排期移植 / 参考兄弟分支实现时；结论基于 2026-11-06 双方 HEAD |
+| [`review/fork-comparison-2026-11-20.md`](review/fork-comparison-2026-11-20.md) | **复核版**：实测三仓自 11-13 起 **0 个新提交**、逐条坐标仍有效；核对首批 9 项已落地且被新版播放器接住；把「还没做」的收成 R1–R19（各带现状坐标与成本）、第二批/第三批/大件排期与 4 个待拍板决策 | 想知道「还剩什么没移植、先做哪个」时读这份；逐条差异的来龙去脉仍查 11-13 版 |
+| [`review/fork-comparison-2026-11-13.md`](review/fork-comparison-2026-11-13.md) | **本轮（26.11.13 HEAD）三仓再对比**：G01–G32 去重后的差距总表（含成本/手表价值）、O1–O11 优化项、16 条不建议移植、**§5「已核对推翻的误报」**（大弹幕量保护与未读计数我方其实已有）、三批排期（小成本批量 / 动链路 / 单独立项）与 8 条待验；逐仓原始清单在 `review/forks/2026-11-13/` | 决定「从兄弟分支移植什么」时先读这份；逐仓细节按 `forks/2026-11-13/{revival,piano-ethan,cyq}.md` 查 |
 | [`superpowers/plans/2026-08-27-new-features-roadmap.md`](superpowers/plans/2026-08-27-new-features-roadmap.md) | 功能路线图 + 从各报告回迁的仍未落地项 | 排期 / 落地后 |
 | [`superpowers/specs/2026-10-20-menu-start-page.md`](superpowers/specs/2026-10-20-menu-start-page.md) | 菜单启动页与菜单设置说明改造：需求、验收标准、存储键与行结构设计 | 改菜单设置 / 启动流程时 |
 | [`superpowers/specs/2026-10-21-short-video-feed-protocol.md`](superpowers/specs/2026-10-21-short-video-feed-protocol.md) | 竖屏短视频取流协议修订：参数约定、会话级分页状态、横屏过滤、跨批去重、降级池与验收标准 | 改短视频取流 / 排查短视频页内容异常时 |
 | [`superpowers/specs/2026-10-22-disguise-mode.md`](superpowers/specs/2026-10-22-disguise-mode.md) | 伪装与安全：双击顶栏触发、两种样式与各自退出方式、三个存储键、手势层三个接线点、验收标准与已知取舍 | 改伪装页 / 顶栏双击手势时 |
-| [`tutorial-system-redesign.md`](tutorial-system-redesign.md) | 教程系统重做（含 §五 待办 4 项） | 动教程时 |
+| [`superpowers/specs/2026-10-25-dash-merge-single-file.md`](superpowers/specs/2026-10-25-dash-merge-single-file.md) | DASH 下载改合并单文件：合并时机、失败回退保留双文件、端到端待登录实测 | 改下载合并 / 排查双文件缓存时 |
+| [`superpowers/specs/2026-11-06-player-ui-custom-layout.md`](superpowers/specs/2026-11-06-player-ui-custom-layout.md) | 播放器界面设置（假播放器）与按钮自定义布局：槽位模型、七组设置、默认布局与验收标准；**已实施** | 改播放器按钮 / 播放器界面设置时 |
+| [`specs/feedback-261111.md`](specs/feedback-261111.md) | **26.11.11 未处理反馈需求整理**：控制台 36 条待处理反馈逐条核实到 `file:line`、附开发者拍板结论（做 / 不做 / 暂缓 / 待验证）、实现要点与验收口径；接手反馈排期时先读这份 | 接手反馈修复 / 想知道某条反馈查到了哪一步时 |
+| [`archive/superpowers/specs/2026-11-07-test-build-framework.md`](archive/superpowers/specs/2026-11-07-test-build-framework.md) | **已拔出（26.11.08）留档配方**：测试版构建框架 —— `-PtestBuild=<name>` → `BuildConfig.TEST_BUILD`（编译期常量，普通包零影响）→ probe 会话（`begin/event/metric/finishAndUpload`）→ 复用崩溃通道「模拟崩溃」进管理台崩溃表；含加新测试版本的照抄清单、一键拔出三步、管理台认法与隐私红线 | 下次要给某个线上疑难问题出测试包抓真机现场时（按 §4 重建） |
+| [`tutorial-system-redesign.md`](tutorial-system-redesign.md) | 教程系统重做（**已完成**：注册表驱动 + 旧链路已删；§五 记录迁移明细，剩余待办只有强制声明清单） | 动教程时 |
 | [`copy-inventory/README.md`](copy-inventory/README.md) | 全仓文案清单总索引（7 份、1012 条：`A` 应用身份 / `L` 更新日志 / `T` 教程 / `S` 设置项 / `U` 页面静态文案 / `M` 运行时提示 / `E` 彩蛋） | 改文案时按需打开对应那一份，改完在「改写」栏回填 |
 | [`copy-inventory/GUIDE.md`](copy-inventory/GUIDE.md) | 文案改写指南：同一句话的多出处、四种改法、十条红线、手表字数常识、自查清单、FAQ、**怎么把新文案交给 agent** | **动手改文案前先读这一份**，比总索引更先看 |
 | [`copy-inventory/DUPLICATES.md`](copy-inventory/DUPLICATES.md) | 重复文案报告：16 组同一句话的多处位置（逐字相同的 8 组 + 措辞不一致的 8 组 + 刻意保留的 4 类） | 改任何一句之前查它，避免改一处漏一处 |

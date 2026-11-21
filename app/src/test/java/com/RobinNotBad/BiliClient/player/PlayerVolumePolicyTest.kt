@@ -114,4 +114,34 @@ class PlayerVolumePolicyTest {
         assertEquals(0.3f, pair.first, delta)
         assertEquals(pair.first, pair.second, delta)
     }
+    @Test
+    fun 系统音量步进按一档加减并在两端停住() {
+        assertEquals(6, PlayerVolumePolicy.stepStream(5, 15, 1))
+        assertEquals(4, PlayerVolumePolicy.stepStream(5, 15, -1))
+        // 到顶再按 + 不绕回 0：手表系统音量只有十几档，绕回等于「按一下静音」
+        assertEquals(15, PlayerVolumePolicy.stepStream(15, 15, 1))
+        assertEquals(0, PlayerVolumePolicy.stepStream(0, 15, -1))
+    }
+
+    @Test
+    fun 系统音量步进方向为零时原样返回且不越界() {
+        assertEquals(5, PlayerVolumePolicy.stepStream(5, 15, 0))
+        assertEquals(15, PlayerVolumePolicy.stepStream(99, 15, 0))
+    }
+
+    @Test
+    fun 系统音量上限非法时按零处理() {
+        // 个别设备的 STREAM_MUSIC 会返回 0，调用方据此跳过，不能算出负数档位
+        assertEquals(0, PlayerVolumePolicy.stepStream(3, 0, 1))
+        assertEquals(0, PlayerVolumePolicy.stepStream(3, -1, -1))
+    }
+
+    @Test
+    fun 系统音量档位换算成百分比用于回显() {
+        assertEquals(0, PlayerVolumePolicy.streamPercent(0, 15))
+        assertEquals(100, PlayerVolumePolicy.streamPercent(15, 15))
+        assertEquals(33, PlayerVolumePolicy.streamPercent(5, 15))
+        // 上限非法时不显示「0/0」算出的垃圾值，直接按 0% 回显
+        assertEquals(0, PlayerVolumePolicy.streamPercent(3, 0))
+    }
 }

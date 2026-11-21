@@ -23,6 +23,7 @@ import com.RobinNotBad.BiliClient.api.VoteApi
 import com.RobinNotBad.BiliClient.model.VoteInfo
 import com.RobinNotBad.BiliClient.model.VoteOption
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
@@ -224,6 +225,7 @@ class VoteInfoActivity : BaseActivity() {
                 thumb.visibility = View.VISIBLE
                 Glide.with(this)
                     .load(option.img_url)
+                    .apply(GlideUtil.thumbOptionsCover(thumb))
                     .apply(RequestOptions().format(DecodeFormat.PREFER_RGB_565).centerCrop())
                     .transition(DrawableTransitionOptions.withCrossFade())
                     .into(thumb)

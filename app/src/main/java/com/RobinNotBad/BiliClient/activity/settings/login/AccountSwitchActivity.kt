@@ -9,6 +9,7 @@ import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.widget.TextViewCompat
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.SplashActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
@@ -20,6 +21,7 @@ import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.bumptech.glide.Glide
 import com.bumptech.glide.RequestManager
@@ -124,6 +126,7 @@ class AccountSwitchActivity : BaseActivity() {
 
         addNewAccountCard()
         addImportCard()
+        addExportAllCard()
     }
 
     private fun addEmptyHint() {
@@ -148,6 +151,7 @@ class AccountSwitchActivity : BaseActivity() {
         accountList.addView(card)
         addNewAccountCard()
         addImportCard()
+        addExportAllCard()
     }
 
     private fun createAccountCard(account: AccountManager.AccountInfo): View {
@@ -223,14 +227,14 @@ class AccountSwitchActivity : BaseActivity() {
                 val displayName = if (savedName != null && savedName.isNotEmpty()) savedName else "UID:" + account.mid
                 TerminalDialog.confirm(
                     context = this,
-                    title = "删除账号",
-                    message = "确定要删除账号 $displayName 吗？\n删除后需重新登录才能恢复。",
-                    confirmText = "删除"
+                    title = getString(R.string.accountswitch_delete_title),
+                    message = getString(R.string.accountswitch_delete_message, displayName),
+                    confirmText = getString(R.string.accountswitch_delete_confirm)
                 ) {
                     if (AccountManager.removeAccount(account.mid)) {
                         MsgUtil.showMsg(getString(R.string.msg_accountswitchactivity_002))
                     } else {
-                        MsgUtil.showMsg(getString(R.string.msg_accountswitchactivity_003))
+                        MsgUtil.showMsg(getString(R.string.msg_accountswitchactivity_005))
                     }
                     refreshAccountList()
                 }.show()
@@ -277,7 +281,10 @@ class AccountSwitchActivity : BaseActivity() {
         text.text = getString(R.string.text_account_add_new)
         text.textAlignment = View.TEXT_ALIGNMENT_TEXT_START
         text.textSize = 13f
-        text.setCompoundDrawablesWithIntrinsicBounds(0, 0, R.drawable.arrow_forward, 0)
+        // 传资源 id 的重载是原生加载，API<21 遇到矢量箭头会崩，统一走 Compat
+        TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(
+            text, null, null, StringUtil.getDrawable(text.context, R.drawable.arrow_forward), null
+        )
         card.addView(text)
 
         card.setOnClickListener {
@@ -312,11 +319,48 @@ class AccountSwitchActivity : BaseActivity() {
         text.text = getString(R.string.text_account_import)
         text.textAlignment = View.TEXT_ALIGNMENT_TEXT_START
         text.textSize = 13f
-        text.setCompoundDrawablesWithIntrinsicBounds(0, 0, R.drawable.arrow_forward, 0)
+        TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(
+            text, null, null, StringUtil.getDrawable(text.context, R.drawable.arrow_forward), null
+        )
         card.addView(text)
 
         card.setOnClickListener {
             startActivity(Intent(this, SpecialLoginActivity::class.java))
+        }
+
+        accountList.addView(card)
+    }
+
+    /**
+     * 「导出全部账号数据」入口。
+     *
+     * <p>与上面的「导入账号数据」对称：搬家用的是一个文件来回，只给导入不给导出等于单行道。
+     * 点进去是独立的 [ExportAllAccountsActivity]——特殊登录页那套单条导出保持不变。
+     */
+    private fun addExportAllCard() {
+        val card = MaterialCardView(this)
+        card.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+
+        val text = TextView(this)
+        text.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            (35 * resources.displayMetrics.density).toInt()
+        )
+        text.setPadding(16, 0, 16, 0)
+        text.gravity = Gravity.CENTER_VERTICAL
+        text.text = getString(R.string.text_account_export_all)
+        text.textAlignment = View.TEXT_ALIGNMENT_TEXT_START
+        text.textSize = 13f
+        TextViewCompat.setCompoundDrawablesRelativeWithIntrinsicBounds(
+            text, null, null, StringUtil.getDrawable(text.context, R.drawable.arrow_forward), null
+        )
+        card.addView(text)
+
+        card.setOnClickListener {
+            startActivity(Intent(this, ExportAllAccountsActivity::class.java))
         }
 
         accountList.addView(card)

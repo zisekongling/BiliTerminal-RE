@@ -13,9 +13,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.drawable.AnimationDrawable
+import android.graphics.drawable.Drawable
 import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaSession
@@ -25,6 +27,8 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.SpannableString
+import android.text.Spanned
 import android.util.DisplayMetrics
 import android.util.TypedValue
 import android.view.GestureDetector
@@ -37,6 +41,7 @@ import android.view.TextureView
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -48,6 +53,9 @@ import android.widget.SeekBar
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.Glide
+import com.bumptech.glide.request.target.CustomTarget
+import com.bumptech.glide.request.transition.Transition
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.InputDialogActivity
@@ -58,27 +66,39 @@ import com.RobinNotBad.BiliClient.adapter.QualitySelectorAdapter
 import com.RobinNotBad.BiliClient.adapter.ViewPointAdapter
 import com.RobinNotBad.BiliClient.api.ConfInfoApi
 import com.RobinNotBad.BiliClient.api.DanmakuApi
+import com.RobinNotBad.BiliClient.api.FavoriteApi
 import com.RobinNotBad.BiliClient.api.HistoryApi
 import com.RobinNotBad.BiliClient.api.InteractionVideoApi
+import com.RobinNotBad.BiliClient.api.LikeCoinFavApi
+import com.RobinNotBad.BiliClient.api.LiveDanmakuApi
 import com.RobinNotBad.BiliClient.api.PlayerApi
+import com.RobinNotBad.BiliClient.api.SponsorBlockApi
 import com.RobinNotBad.BiliClient.api.UserInfoApi
 import com.RobinNotBad.BiliClient.api.VideoInfoApi
 import com.RobinNotBad.BiliClient.event.SnackEvent
 import com.RobinNotBad.BiliClient.model.HighEnergyData
 import com.RobinNotBad.BiliClient.model.InteractionVideoData
 import com.RobinNotBad.BiliClient.model.Collection
+import com.RobinNotBad.BiliClient.model.LocalPageMedia
+import com.RobinNotBad.BiliClient.model.LocalPlaylistEntry
 import com.RobinNotBad.BiliClient.model.PlayerData
+import com.RobinNotBad.BiliClient.model.Stats
 import com.RobinNotBad.BiliClient.model.Subtitle
 import com.RobinNotBad.BiliClient.model.SubtitleLink
 import com.RobinNotBad.BiliClient.model.VideoInfo
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.model.ViewPoint
 import com.RobinNotBad.BiliClient.player.AudioFocusPolicy
+import com.RobinNotBad.BiliClient.player.CoverTintPolicy
 import com.RobinNotBad.BiliClient.player.DanmakuLoadPolicy
+import com.RobinNotBad.BiliClient.player.DanmakuDensityHighEnergy
+import com.RobinNotBad.BiliClient.player.PlayerSeekStepPolicy
 import com.RobinNotBad.BiliClient.player.DanmakuXmlCounter
 import com.RobinNotBad.BiliClient.player.DanmakuManager
 import com.RobinNotBad.BiliClient.player.DanmakuStreamLoader
+import com.RobinNotBad.BiliClient.player.DanmakuWindow
 import com.RobinNotBad.BiliClient.player.BangumiProgressStore
+import com.RobinNotBad.BiliClient.player.CollectionResumeStore
 import com.RobinNotBad.BiliClient.player.PlayQueue
 import com.RobinNotBad.BiliClient.player.PlayQueueItem
 import com.RobinNotBad.BiliClient.player.PlayQueueMode
@@ -88,29 +108,43 @@ import com.RobinNotBad.BiliClient.player.PlaySessionStore
 import com.RobinNotBad.BiliClient.player.PlayerQueueAuthorPolicy
 import com.RobinNotBad.BiliClient.player.IjkNativeLibs
 import com.RobinNotBad.BiliClient.player.PlayerDefaults
+import com.RobinNotBad.BiliClient.player.PlayerDisplayModePolicy
 import com.RobinNotBad.BiliClient.player.PlayerButtonSlots
 import com.RobinNotBad.BiliClient.player.PlayerButtons
+import com.RobinNotBad.BiliClient.player.PlayerNewUiController
+import com.RobinNotBad.BiliClient.player.PlayerUiSwitch
+import com.RobinNotBad.BiliClient.player.PlayerLivePolicy
 import com.RobinNotBad.BiliClient.player.PlayerUiLayout
 import com.RobinNotBad.BiliClient.player.PlayerRequestPolicy
+import com.RobinNotBad.BiliClient.player.QualityAccessPolicy
 import com.RobinNotBad.BiliClient.player.LocalAudioTrackPolicy
 import com.RobinNotBad.BiliClient.player.PlayerSurfaceBinder
 import com.RobinNotBad.BiliClient.player.PlayerVolumePolicy
 import com.RobinNotBad.BiliClient.player.SkipCancelPolicy
 import com.RobinNotBad.BiliClient.player.SkipOpEdPrefs
 import com.RobinNotBad.BiliClient.player.SkipOpEdPolicy
+import com.RobinNotBad.BiliClient.player.SponsorCategoryLabels
+import com.RobinNotBad.BiliClient.player.SponsorSkipPolicy
+import com.RobinNotBad.BiliClient.player.SponsorSkipPrefs
 import com.RobinNotBad.BiliClient.player.LongPressSwitchPolicy
 import com.RobinNotBad.BiliClient.player.DanmakuTimestampPolicy
 import com.RobinNotBad.BiliClient.player.ViewPointSkip
 import com.RobinNotBad.BiliClient.player.SurfaceTarget
+import com.RobinNotBad.BiliClient.service.DownloadService
 import com.RobinNotBad.BiliClient.service.PlaybackService
 import com.RobinNotBad.BiliClient.ui.widget.BatteryView
 import com.RobinNotBad.BiliClient.ui.widget.HighEnergyProgressBar
+import com.RobinNotBad.BiliClient.ui.widget.RadiusBackgroundSpan
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
+import com.RobinNotBad.BiliClient.util.CacheAudioRepair
+import com.RobinNotBad.BiliClient.util.CachePathResolver
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.CookieDomainPolicy
-import com.RobinNotBad.BiliClient.util.DeviceProfile
+import com.RobinNotBad.BiliClient.util.DanmakuFileFetcher
 import com.RobinNotBad.BiliClient.util.DisguiseGesture
 import com.RobinNotBad.BiliClient.util.DisguisePrefs
+import com.RobinNotBad.BiliClient.util.ExternalCacheRoots
+import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.LocalVideoProgress
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -118,6 +152,7 @@ import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import com.RobinNotBad.BiliClient.util.NetworkPlaybackQuality
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
+import com.RobinNotBad.BiliClient.ui.appearance.ImmersiveMode
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
@@ -133,9 +168,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
-import okio.BufferedSink
-import okio.buffer
-import okio.sink
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
@@ -148,10 +180,11 @@ import java.io.IOException
 import java.util.Locale
 import java.util.Timer
 import java.util.TimerTask
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.regex.Pattern
 import kotlin.math.abs
 
-class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
+class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeatures.ResolveHintHost {
     // @Volatile：PlaybackService 的定时线程会读它（见下方「后台播放服务（PlaybackService）状态桥」），
     // 不加的话主线程写的值不保证被服务线程看见。
     @Volatile
@@ -198,8 +231,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private lateinit var bottom_group_scroll: HorizontalScrollView
     private lateinit var bottom_group_slots: LinearLayout
     private var buttonSlots: PlayerButtonSlots? = null
+    private var newPlayerUi: PlayerNewUiController? = null
     private lateinit var card_subtitle: LinearLayout
     private lateinit var card_danmaku_send: LinearLayout
+    /** 「跳到指定时间」的页内输入卡片（QQ#9；26.11.14 从独立 Activity 改成与发弹幕同构的卡片）。 */
+    private lateinit var card_jump_time: LinearLayout
+    private lateinit var jump_time_edit: EditText
     private lateinit var card_page_selector: LinearLayout
     private lateinit var card_quality_selector: LinearLayout
     private lateinit var card_viewpoint_selector: LinearLayout
@@ -232,6 +269,40 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private lateinit var text_progress: TextView
     /** 连播队列按钮：图标按钮，当前模式写在 contentDescription 里（见 [updateQueueModeButton]）。 */
     private lateinit var queue_mode_btn: ImageButton
+    /**
+     * G02 ±N 秒快退 / 快进按钮（26.11.13）。
+     *
+     * 文字按钮：格子里的文字是「«10s / 10s»」，步长来自设置 [SettingsKeys.PLAYER_SEEK_STEP_SECONDS]，
+     * 每次 [refreshSeekButtons] 重算。直播没有时间点，onPrepared 的直播分支统一置 GONE。
+     */
+    private lateinit var seek_back_btn: TextView
+    private lateinit var seek_forward_btn: TextView
+
+    /**
+     * 26.11.15 新增的 7 个动作类按钮：睡眠定时 / 点赞 / 投币 / 收藏 / 下载 / 上一个 / 下一个。
+     *
+     * 它们没有可调设置，点一下直接产生动作（或弹出本页共用的一张 [action_card]）。
+     * 默认都不占槽位——收在「更多」收纳格里，用户想固定住再自己摆出来。
+     */
+    private lateinit var btn_sleep_timer: ImageButton
+    private lateinit var btn_like: ImageButton
+    private lateinit var btn_coin: ImageButton
+    private lateinit var btn_favorite: ImageButton
+    private lateinit var btn_download: ImageButton
+    private lateinit var btn_prev_video: ImageButton
+    private lateinit var btn_next_video: ImageButton
+
+    /** 睡眠定时 / 投币 / 收藏共用的那张卡片（标题与按钮行都在代码里填）。 */
+    private lateinit var action_card: LinearLayout
+    private lateinit var action_card_title: TextView
+    private lateinit var action_card_options: LinearLayout
+
+    /** 点赞状态：`null` 表示还没查过 relation 接口，第一次点会先查再写。 */
+    private var liked: Boolean? = null
+
+    /** 睡眠定时：剩下的分钟数（0 = 没设定）与那次待执行的暂停任务。 */
+    private var sleepTimerMinutes: Int = 0
+    private var sleepTimerRunnable: Runnable? = null
     private lateinit var text_online: TextView
     private lateinit var text_volume: TextView
     private lateinit var loading_text0: TextView
@@ -360,6 +431,21 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var audioPlayer: android.media.MediaPlayer? = null // 外部音频播放器
 
     /**
+     * 当前这份本地缓存是不是「音轨分离」——此刻倍速被锁在 1x（反馈 #231）。
+     *
+     * 为什么必须锁：双文件的音频挂在第二路 [android.media.MediaPlayer] 上，而倍速只作用在主播放器的
+     * 视频流（IJK 的 setSpeed），音轨仍按原速走。用户报的就是「倍速下音画不同步」。
+     * 锁的判定与解除全在 [initAudioTrack] 里（每次重建都重新算一遍），其余入口只读它。
+     */
+    private var externalAudioSpeedLocked = false
+
+    /** 「已锁 1 倍速」的提示只弹一次，别让切清晰度这种重建反复打扰。 */
+    private var externalAudioSpeedHintShown = false
+
+    /** 锁之前用户选的倍速档位（speed_values 下标）；-1 = 没记过。解锁时还回去。 */
+    private var speedBeforeExternalAudioLock = -1
+
+    /**
      * 外挂音轨此刻是否真的在跑（由 [syncExternalAudioPlayback] / [playerPause] 维护）。
      *
      * 为什么不用 `MediaPlayer.isPlaying`：那是每次都要走 binder 的调用，而这个标志在
@@ -381,6 +467,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         private const val STATE_POSITION = "player_state_position"
 
         /**
+         * 看点卡片里「SponsorBlock 精彩时刻点」这一行的 [ViewPoint.type]。
+         *
+         * 取负数是刻意的：B 站自己的 `view_points` 用 1（片头）/2（片尾）等正数，
+         * 负数不会再撞上以后新增的类型，也不会被 [ViewPointSkip.buildSegments] 的
+         * `type` 判断误当成片头片尾。
+         */
+        private const val VIEWPOINT_TYPE_POI = -1
+
+        /**
          * 「先跳播放页、再解析备用片源」的 Intent 标记（由私有侧设置）。
          *
          * 置位时 Intent 里没有 url，本页会先进入载入中，再让私有侧异步解析出地址。
@@ -397,6 +492,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
         /** 自动恢复的最多次数，超过就只提示、交回给用户手动重试 */
         private const val MAX_STALL_RETRY = 3
+
+        /**
+         * 弹幕整条链路都失败后的自动重试次数上限。
+         *
+         * 弱网下弹幕接口往往先失败、过一会儿又能通（26.11.21 反馈：视频和弹幕都在放，界面却一直
+         * 弹「网络错误」）。改成静默重试，恢复后能自己把这几分钟的弹幕补回来。
+         */
+        private const val DANMAKU_RETRY_LIMIT = 3
+
+        /** 两次弹幕重试的间隔，与 DanmakuStreamLoader 的冷却时间取同一个量级。 */
+        private const val DANMAKU_RETRY_DELAY_MS = 20_000L
 
         /** 两次自动恢复之间的最小间隔，避免刚重建完又被判停滞 */
         private const val STALL_RETRY_COOLDOWN_MS = 15_000L
@@ -422,6 +528,37 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
          * 而不限频时，媒体时钟真没接上会变成每 250ms（一个采样周期）一条。
          */
         private const val DANMAKU_DRIFT_LOG_INTERVAL_MS = 5_000L
+
+        /**
+         * 播放位置「回跳」告警阈值（毫秒，反馈 #215）。
+         *
+         * 正常播放位置只会单调前进；用户自己拖进度条走的是 [seekToVideo]，那条路会先把
+         * [video_now] 同步到目标位置。所以播放器报出来的位置比上一帧还小这么多，只可能是
+         * 播放器自身往回跳（解码器重定位、缓存文件索引异常、看门狗重建后的续播点）。
+         */
+        private const val POSITION_BACKJUMP_ALERT_MS = 3_000
+
+        /** 回跳 / seek 落点告警的最小间隔（毫秒），真出问题时也不至于每 250ms 刷一条。 */
+        private const val POSITION_BACKJUMP_LOG_INTERVAL_MS = 3_000L
+
+        /** seek 之后隔多久去实测落点（毫秒）。IJK 的 seek 是异步的，太早取到的还是旧位置。 */
+        private const val SEEK_LANDING_CHECK_MS = 1_500L
+
+        /**
+         * G07「高能条本地兜底」等弹幕装载的时间（毫秒）。
+         *
+         * 高能数据在页面初始化早期就请求，而弹幕要等播放器 prepare、DFM 再 prepare 之后才装载完；
+         * 取太早只会拿到空快照。一次性延迟，不做轮询——没有数据的视频也不该被反复吵。
+         */
+        private const val DENSITY_FALLBACK_DELAY_MS = 6_000L
+
+        /**
+         * G06「封面取色」的采样边长（像素）。
+         *
+         * 只为了取一个颜色，解 48×48 就够了：投票算法对分辨率不敏感，
+         * 而封面原图动辄 1080p，解全尺寸再多缩一遍纯属浪费手表的内存和电。
+         */
+        private const val COVER_TINT_SAMPLE_PX = 48
 
         /**
          * 「点弹幕空降」允许的最大按压时长（毫秒）。
@@ -477,14 +614,6 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         private const val CHANNEL_MEDIA_CONTROL = "channel_media_control"
 
         /**
-         * 「跳到指定时间」输入框的请求码（QQ#9）。
-         *
-         * 本页继承的是原生 `Activity`（不是 ComponentActivity），拿不到 Activity Result API，
-         * 只能用 `startActivityForResult` + [onActivityResult]；与 [InputDialogActivity] 的旧调用方一致。
-         */
-        private const val REQUEST_CODE_JUMP_TO_TIME = 1002
-
-        /**
          * 播放会话哨兵的周期落盘间隔（毫秒）。
          *
          * 与本地续播位置同频：都靠 250ms 定时器节流，最大丢失量 15 秒；比每次位置变化都写盘
@@ -510,6 +639,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var video_now_last: Int = 0
     /** 上次打印弹幕时钟偏差的时间（弹幕跟随媒体时钟的体检日志，见 progressChange）。 */
     private var danmakuDriftLogMs: Long = 0
+
+    /** 上次打印「播放位置回跳」告警的时间（反馈 #215 的现场证据，见 progressChange）。 */
+    private var positionBackjumpLogMs: Long = 0
     private var lastMediaSessionSecond: Int = -1 // 上次上报 MediaSession 的整秒数，用于抑制重复 Binder IPC
     private var progress_history: Long = 0
     private var progress_str: String = ""
@@ -527,6 +659,19 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      * 播放器内切P 时由 [doSwitchPage] 重新计算。
      */
     private var localMediaDir: File? = null
+
+    /**
+     * 这条本地视频是从**别的分支的缓存目录**里直接播的（缓存页的「外部」条目）。
+     *
+     * 只读来源：续播位置照旧读（那是对方自己写的），但**绝不回写** —— 写进去就是改了别人分支
+     * 的数据，而且对方下次启动会看到一个它没存过的进度。由 CacheListAdapter 起播时带
+     * \`external_read_only\` 标记。
+     */
+    private var externalReadOnly = false
+
+    /** 「别的分支的缓存根」绝对路径（第一次判「这一页能不能写」时算一遍并缓存）。 */
+    private var externalCacheRootPaths: List<String>? = null
+
     /** 上次落盘的本地续播位置（毫秒）；-1 表示本次会话还没写过，用于跨路径去重。 */
     private var lastSavedLocalProgressMs: Long = -1L
     /** 上次落盘的墙钟时刻，用于周期落盘的 15 秒节流。 */
@@ -557,6 +702,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
     private var scaleGestureDetector: ScaleGestureDetector? = null
     private var scaleGestureListener: ViewScaleGestureListener? = null
+    /** 这一串触摸事件是否已经由 layout_control 的监听器喂给 [scaleGestureDetector]（见 [dispatchTouchEvent]）。 */
+    private var scaleFedByControlListener: Boolean = false
+    /** 「缩放已关闭」的提示每次进播放页只弹一次。 */
+    private var scaleOffHintShown: Boolean = false
     private var doubleTapGestureDetector: GestureDetector? = null
     private var previousX: Float = 0f
     private var previousY: Float = 0f
@@ -569,6 +718,21 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var video_origY: Float = 0f
     private var timestamp_click: Long = 0
     private var onLongClick: Boolean = false
+
+    // ==================== 缩放诊断（反馈 #128 / #102） ====================
+    // 这两位用户报的是「捏合有时候能放大、有时候没反应，换显示方式也一样」，代码里的缩放链路是完整的，
+    // 找不出必然失效的分支，所以这一轮**只加观测、不改行为**：开关沿用「互动视频调试」
+    // （[SettingsKeys.PLAYER_INTERACTION_DEBUG]），关掉时一行都不打；拼装与判读在
+    // [PlayerZoomDiagnostics]（纯函数，有 JVM 单测），这里只负责读现场、打日志、留快照。
+    /** 这次事件被哪个分支提前 return 抢走了（点弹幕空降 / 长按切视频），没被抢走为 null。 */
+    private var zoomDiagSwallowedBy: PlayerTouchBranch? = null
+    /** 最近一次 MOVE 落在哪个分支。 */
+    private var zoomDiagBranch: PlayerTouchBranch = PlayerTouchBranch.NONE
+    /** 上一条 MOVE 日志的时间：MOVE 按 [zoomDiagMoveLogIntervalMs] 节流，避免每个 MOVE 一条。 */
+    private var zoomDiagLastMoveLogAt: Long = 0L
+    /** 上一次打过的状态签名：听视频 / 锁定这类状态变化只在真正变化时打一条。 */
+    private var zoomDiagLastStateKey: String = ""
+    private val zoomDiagMoveLogIntervalMs = 800L
 
     // ==================== 长按后纵向划切视频（task-14 ③） ====================
     /** 长按已触发后，是否已经开始记录「切视频划动」的起点。 */
@@ -773,6 +937,27 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private var enterableMultiPage: VideoInfo? = null
 
     /**
+     * 本地缓存文件夹连播的**根层条目表**（见 [LocalPlaylistEntry]）；null = 不是文件夹连播。
+     *
+     * <p>本地这条链与在线收藏夹是**同构的两层**，区别只是本地没有服务端可查：
+     * 根层一项 = 夹里的一个缓存视频（[pagenames] 就是各条标题），某一项本身是多P 时，
+     * 选集卡片上多一行「进入分P（N）」，点进去才换成它的 P1..Pn。
+     *
+     * <p>26.11.13 之前没有这一层：根层每条只有「一个标题 + 一个文件」，
+     * `LocalVideo.pageList` 完全没用上，于是文件夹里的多P 缓存只能播 P1。
+     */
+    private var localPlaylist: ArrayList<LocalPlaylistEntry>? = null
+
+    /** 正在看某一项的分P 层时 = 该项在 [localPlaylist] 里的下标；-1 = 当前在根层 */
+    private var localLayerIndex = -1
+
+    /** 从分P 层返回根层时要回到的根层下标（自动连播时 = 它的下一项） */
+    private var localRootResumeIndex = -1
+
+    /** 根层当前这条能不能"进入分P"（页数 > 1）；null = 进不去 */
+    private var enterableLocalEntry: LocalPlaylistEntry? = null
+
+    /**
      * 重算"当前这条能不能进得去"。**必须在主线程调用**（选集卡片直接读这两个字段）。
      *
      * <p>合集优先于分P：合集是外层"一系列视频"，分P 是内层"一个视频的段落"。
@@ -852,15 +1037,145 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      */
     private var pendingSeekIsAutoSkip: Boolean = false
 
+    /**
+     * SponsorBlock（第三方社区标注的广告/推广片段）的状态机。
+     *
+     * 与 [skipDecider] **结构相同但各自独立**：数据源不同（`view_points` vs bsbsb.top）、
+     * 片段语义不同（片头片尾 vs 11 类广告），生命周期相同（换P 时两个都要 reset）。
+     * 不能共用同一个实例：`SkipDecider` 的「已处理集合」和代次是全局的，混用会让
+     * 同秒数的广告片段被片头判定吃掉，迟到响应也会互相作废。
+     */
+    private val sponsorDecider = SkipDecider()
+
+    /** 当前视频的 BV 号；空串表示入口没带，加载片段时按 aid 现查一次（见 [resolveBvid]）。 */
+    private var bvid: String = ""
+
+    /** SponsorBlock 原始标注（未按档位过滤）。档位中途改变时用它重新生成片段表，不必再发一次请求。 */
+    private var sponsorRawSegments: List<SponsorBlockApi.RawSegment> = emptyList()
+
+    /**
+     * 本次播放内存里的「不准」记录（26.11.14）。
+     *
+     * 正常数据会落存档（`SponsorSkipPrefs.ignoreSegment`，按 UUID）；这里装的是**上游没给 UUID**
+     * 的老标注的兜底，键见 [sponsorSegmentKey]。换P 时随 [sponsorDecider] 一起清空。
+     */
+    private val sponsorSessionIgnores = HashSet<String>()
+
+    /**
+     * 本次播放内存里已经点过的「精彩时刻」点（26.11.14）。
+     *
+     * 键见 [sponsorPoiKey]。按用户要求只记在**本次播放**里：跳过/点过一次，这个点就不再出现在
+     * 看点列表与进度条上，退出重进则重新出现（不做跨会话落盘，避免"看过的视频永远没有精彩时刻"）。
+     */
+    private val sponsorPoiSeen = HashSet<String>()
+
+    /** 本 P 还没点过的高能跳转点（[SponsorSkipPolicy.highlights] 的结果减去 [sponsorPoiSeen]）。 */
+    private var sponsorPoiHighlights: List<SponsorSkipPolicy.Highlight> = emptyList()
+
+    /**
+     * 「询问我」档的片段表（26.11.14 起逐类别三档）。
+     *
+     * 与 [sponsorDecider] 里那张区分开：那些是「自动跳转」的类别，到点直接跳；这张只是
+     * 到点问一句，用户不点就继续播，所以不交给 decider（否则会被记成已处理）。
+     */
+    private var sponsorAskSegments: List<ViewPointSkip.Segment> = emptyList()
+
+    /**
+     * 进度条上要画的条子（26.11.14 起与跳过策略解耦）。
+     *
+     * 数据源是**标记自己的类别集合**（[SponsorSkipPrefs.markCategories]），不是上面那两张跳转表：
+     * 三档全关时这张表照样有内容（只显示不跳），标记全不勾时这张表为空但照样跳（只跳不显示）。
+     * 每条带自己的颜色，见 [SponsorSkipPolicy.markColor]。
+     */
+    private var sponsorMarkSegments: List<SponsorSkipPolicy.MarkedSegment> = emptyList()
+
+    /**
+     * 本次播放里已经问过的片段（键见 [sponsorSegmentKey]）。
+     *
+     * 「询问」档不点就继续播，这一集合保证同一段只弹一次提示，不会 250ms 弹一条。
+     * 与片头片尾的 `askedSkipKeys` 分开：两套片段的键空间不同，混在一起会互相顶掉。
+     */
+    private val sponsorAskedKeys = HashSet<String>()
+
+    /** 已经为哪个 cid 生成过整片标签胶囊（0 = 还没生成），每 P 只算一次。 */
+    private var sponsorFullBadgeCid: Long = 0L
+
+    /** 整片标签胶囊的文字（已本地化、已去重）；空串 = 顶栏不挂胶囊。 */
+    private var sponsorFullBadgeText: String = ""
+
+    /**
+     * 本 P 会被跳掉的片段总时长（毫秒），0 = 没有可跳的片段。
+     *
+     * 数据源就是 [sponsorDecider] 里那张**已按档位过滤**的表，所以用户改档位、点「不准」
+     * 之后这个数会跟着变。进度条右侧的括号 `01:43 (1:34)` 用它算「扣掉广告后的时长」。
+     */
+    private var sponsorSavedMs: Long = 0L
+
+    /**
+     * 顶栏标题的**原始文本**（不含 SponsorBlock 整片胶囊）。
+     *
+     * [text_title] 显示的是「胶囊 + 原标题」，而别处会把标题当数据读走（分享、会话恢复、
+     * 听视频模式的窗口标题）——都读这个字段，免得「广告」两个字混进标题串里。
+     */
+    private var playerTitleRaw: String = ""
+
+    /** 已经为哪个 cid 发起过查询（0 = 还没发起）。用于「每P 只查一次」，失败时归零以便重试。 */
+    private var sponsorLoadCid: Long = 0L
+
+    /**
+     * 当前片段表是按哪套类别生成的（空串 = 还没生成过）。
+     *
+     * 存的是**类别集合的签名**（排序后逗号连接）而不是档位数字：自定义档下用户在同一个
+     * 档位里改勾选，只比档位数字会漏掉这些改动、导致片段表停在旧集合上。
+     */
+    private var sponsorSegmentsKey: String = ""
+
+    /** 上次查询失败的冷却截止时刻（`SystemClock.elapsedRealtime()`），避免对方挂掉时每 250ms 重试一次。 */
+    private var sponsorRetryAfterMs: Long = 0L
+
     private var eventBusInit = false
 
     @JvmField var liveWebSocket: WebSocket? = null
     private var okHttpClient: OkHttpClient? = null
     private var subtitle_selected = -1
 
+    /**
+     * 字幕下载的代次号：每发起一次 [getSubtitle] 自增，回来时对不上就丢弃。
+     *
+     * 没有它的时候，一次慢请求（自动中文字幕那条尤其慢）可能在用户已经选了「不显示字幕」之后才回来，
+     * 把刚关掉的字幕又塞回屏幕 —— 用户看到的就是「关了还是有字幕」（反馈 #202）。
+     */
+    private val subtitleLoadToken = AtomicInteger(0)
+
+    /**
+     * 用户在这一P里显式关过字幕（选了「不显示字幕」）。
+     *
+     * 换画质 / 换线路会重建播放器、重新 prepare 并再跑一次 [maybeAutoSubtitle]，
+     * 没有这个标记就会把用户刚关掉的字幕按设置自动打开。换P / 换视频时清掉（新的一P仍按默认值来）。
+     */
+    private var subtitleUserOff = false
+
+    /**
+     * 「播放页返回键直接退出」是否开启（**默认关**，见 [SettingsKeys.PLAYER_BACK_KEY_EXIT]）。
+     *
+     * 26.11.14 按用户要求把默认值从开改成关：默认回到「旧语义」——开着「左右滑动控制进度」时
+     * 返回键仍会被吞掉、窗口右滑也不退出（见 [onBackPressed] 与 [onCreate] 里的 noSwipe 注释）。
+     * 这个默认值必须与 [com.RobinNotBad.BiliClient.player.PlayerSettingsGroups] 里那条
+     * SettingSection 的 defaultValue 保持一致（设置页开关的初值读的是那一份）。
+     */
+    private fun backKeyExitEnabled(): Boolean =
+        SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_BACK_KEY_EXIT, false)
+
     override fun onBackPressed() {
         // 触摸锁定期间不允许离开播放页：先把锁定按钮点出来作为反馈（再点它才解锁）
         if (interceptLockedExit()) return
+        // 反馈 #117 / #135 / #139②：以前这里是「开了左右滑动控制进度就吞掉返回键」，再叠一道
+        // 全局「禁用返回键」，两条都开着时播放页就彻底退不出去（表现为卡死）。默认开的开关让
+        // 外部返回键 / 侧键 / 表冠返回直接退出，两个旧开关都不再拦；关掉时保持旧语义。
+        if (backKeyExitEnabled()) {
+            super.onBackPressed()
+            return
+        }
         // 开启「左右滑动控制进度」时视频页屏蔽返回键：否则系统返回 / 手表自带右滑返回会在滑动调进度时
         // 直接退出播放器（issue #1）。蓝牙/表冠的返回键、系统级返回都走这里。
         if (swipeSeekEnabled) return
@@ -894,7 +1209,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (danmaku_url.isNotEmpty()) Logu.v("弹幕", danmaku_url)
         Logu.v("视频", video_url)
         Logu.v("标题", title)
-        text_title!!.text = title
+        setPlayerTitle(title)
         videoTitle = title
         // 从根目录层起播时，Intent 的 title 就是收藏夹名（见 FavoriteVideoListActivity
         // 的 "$folderName（虚拟合集）"）；返回嵌套层时会被覆盖成返回栈里的 title
@@ -905,6 +1220,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         mid = intent.getLongExtra("mid", 0)
         // 作者 mid 与登录 mid 是两个 extra：缺了（旧 Intent / 外部入口）就留 0，点连播时按 aid 现查
         uploaderMid = intent.getLongExtra("uploader_mid", 0)
+        // BV 号：SponsorBlock 查询只认它（播放接口只给 aid/cid）。
+        // 详情页入口由 PlayerApi.buildTerminalPlayerIntent 带上；历史/缓存/番剧等入口没有，
+        // 加载片段时会按 aid 现查一次（缺了只是查不到，不影响播放）。
+        bvid = intent.getStringExtra("bvid").orEmpty()
         // 番剧心跳的三个维度。PlayerApi.jumpToPlayer 没有传，由 JumpToPlayerActivity.jump() 补进 Intent；
         // 缺了它们就退化成投稿上报，番剧观看记录不会被更新
         epid = intent.getLongExtra("epid", 0)
@@ -961,6 +1280,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 后面的续播逻辑（onPrepared 里那段）与在线视频完全共用。
         if (!isOnlineVideo) {
             localMediaDir = File(video_url!!).absoluteFile.parentFile
+            externalReadOnly = intent.getBooleanExtra("external_read_only", false)
             if (progress_history <= 0) {
                 val savedMs = localMediaDir?.let { VideoMetaManager.readResumeMs(it) } ?: 0L
                 if (savedMs > 0) {
@@ -996,6 +1316,21 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             updateEnterable(intent.getParcelableExtra("enterable_info"))
         }
 
+        // 本地缓存文件夹连播（LocalListActivity.playVirtualCollection）：根层条目表随 Intent 进来。
+        // 上面那段 pagenames 只是"各条标题"，这里多出来的是「每条自己的 P1..Pn 各读哪个文件」——
+        // 本地文件没法像在线那样按 aid/cid 现取，只能构建合集时一起带进来。
+        @Suppress("DEPRECATION", "UNCHECKED_CAST")
+        val localEntries = intent.getSerializableExtra(LocalPlaylistEntry.EXTRA_LOCAL_PLAYLIST)
+            as? ArrayList<LocalPlaylistEntry>
+        if (localEntries != null) {
+            localPlaylist = localEntries
+            // 根层标题：playerData.title 带「合集」后缀，只适合播放页标题，卡片上要纯文件夹名
+            rootTitle = intent.getStringExtra(LocalPlaylistEntry.EXTRA_LOCAL_PLAYLIST_TITLE)
+                ?: videoTitle
+            enterableLocalEntry = localEntries.getOrNull(currentPageIndex)
+                ?.takeIf { it.pageCount() > 1 }
+        }
+
         initialEdgeId = intent.getLongExtra("edgeId", 0)
         if (initialEdgeId > 0) {
             currentEdgeId = initialEdgeId
@@ -1027,18 +1362,20 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         val theme = SharedPreferencesUtil.getString(ColorScheme.PREF_KEY_THEME, ColorScheme.THEME_DEFAULT)
         // 主题映射统一在 ColorScheme.themeResId（此前这里复制了一份与 BaseActivity 相同的 when）
         //
-        // 播放页**无条件**关掉系统窗口层的右滑返回（android:windowSwipeToDismiss）：
-        // 手表自带的右滑返回在窗口层直接 finish()，不走 onBackPressed，应用根本收不到，
-        // 表现为「看视频时手指一划就退出播放器」，且会顺手把「左右滑动控制进度」的手势抢走（issue #1）。
-        // 此前只在「左右滑动控制进度」或全局「禁用返回键」开启时才换 noSwipe 主题，
-        // 于是两个开关都关着时右滑返回照常生效——26.10.22 起改为无条件。
+        // 系统窗口层的右滑返回（android:windowSwipeToDismiss）在两层之间权衡：
+        // - 开着它（noSwipe = false）时，手表自带的「右滑返回」直接 finish 播放页，用户有退路；
+        //   代价是窗口层会抢走横滑手势（放大后拖不动画面，与 issue #1 同一个成因）。
+        // - 关着它（noSwipe = true）时横滑全归播放页自己用，代价是「右滑退出」这条退路消失。
         //
-        // 这里只换窗口属性（*.NoSwipe.AppCompat 相对主主题只多 windowSwipeToDismiss=false，
-        // 配色/圆角/字体完全一致），**不碰任何触摸分发**：滑动调进度、双击、长按倍速、
-        // 捏合缩放与拖动画面仍由本类自己的手势逻辑处理，语义不变。
-        // 退出播放页仍有顶栏返回按钮与返回键（onBackPressed），右滑只是不再生效。
+        // 26.10.22 起曾**无条件**关掉它，于是两个开关都关着的用户连右滑都退不出去（#117/#135/#139②）。
+        // 现在按「播放页返回键直接退出」开关取值（该开关 26.11.14 起默认关，所以默认就是下面第一条）：
+        // - 开关关着（默认）→ 与 26.10.22 之后一致：noSwipe = true（放大后可拖动、右滑不退出）；
+        // - 开关开着 且 开了「左右滑动控制进度」→ 仍然 noSwipe = true：横滑得留给滑动调进度（issue #1），
+        //   这时退出走返回键（见 onBackPressed），不会被困住；
+        // - 开关开着 且 没开滑动调进度 → 不再关窗口右滑返回，给手表「右滑退出」这条退路。
         swipeSeekEnabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SWIPE_SEEK, false)
-        setTheme(ColorScheme.themeResId(theme, noSwipe = true))
+        val noSwipe = swipeSeekEnabled || !backKeyExitEnabled()
+        setTheme(ColorScheme.themeResId(theme, noSwipe = noSwipe))
         super.onCreate(savedInstanceState)
 
         // 「播放默认值 → 屏幕方向」：横屏/竖屏立即生效；「按视频分辨率选择」要先拿到视频宽高
@@ -1052,12 +1389,21 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (SharedPreferencesUtil.getBoolean("dev_player_rotate_software", false) && screen_landscape) {
             MsgUtil.showMsg(UiText.of("不支持默认横屏！"))
             screen_landscape = false
+            // 走软件旋屏兼容方案时不能要求系统转屏，但方向必须**显式**钉成竖屏：
+            // 原来这个分支什么都不设，页面会沿用设备当前方向，和 screen_landscape=false 打架
+            // （布局按竖屏算、窗口却是横的），横屏播放表现就更乱了（反馈 #117）。
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         } else {
             requestedOrientation = if (screen_landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
 
         setContentView(R.layout.activity_player)
+        // 沉浸式全屏（26.11.14）：播放页不是 BaseActivity，得在这一页单独接一次。
+        // 只压掉状态栏是不够的——手表底部的三键导航栏原来单独占一条黑边，隐藏后画面才铺到屏幕底边。
+        // 开关关着时内部会把系统栏放回来，与改造前一致；控制栏单点击唤出 / 长按倍速 / 拖动进度条
+        // 都走各自的触摸事件，不受系统栏显隐影响。
+        ImmersiveMode.apply(this)
         findview()
         if (!getExtras()) {
             finish()
@@ -1141,6 +1487,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         initLockUi()
         // QQ#9：菜单里的「跳到指定时间」只接线，显隐等 onPrepared 拿到时长后再定（直播不显示）
         initJumpToTimeButton()
+        // G02：±N 秒快退/快进（文字按钮，步长来自设置；显隐同样等 onPrepared）
+        initSeekButtons()
+        // 26.11.15：睡眠定时 / 点赞 / 投币 / 收藏 / 下载 / 上一个 / 下一个（默认收在「更多」里）
+        initActionButtons()
         autohideReset()
 
         initSeekbars()
@@ -1153,6 +1503,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             seekbar_progress.visibility = View.GONE
             seekbar_progress.isEnabled = false
             prepareDanmaku { it.prepareEmpty() }
+            // 新版直播态（设计稿 A2）：弧 / 进度行让位给「直播 pill + 人数」，中心键保留。
+            // 必须放在上面 btn_control 置 GONE 之后——setLiveMode 会把中心键重新放出来。
+            newPlayerUi?.setLiveMode(true)
         }
 
         layout_control.postDelayed({
@@ -1164,6 +1517,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                         btn_audio_only.visibility = View.GONE
                         btn_auto_next.visibility = View.GONE
                         btn_page_selector.visibility = View.GONE
+                        // 26.11.21（反馈 #262）：直播没有字幕轨，CC 按钮点了只会静默无反应，直接不给入口
+                        refreshSubtitleButton()
                     }
                     setDisplay()
                     return@run
@@ -1187,6 +1542,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     else
                         hasDanmaku = false
                 }
+
+                // 26.11.21（反馈 #262）：第三方直链（在线但没有 aid/cid）同样点不出字幕，按钮按需隐藏
+                runOnUiThread { refreshSubtitleButton() }
 
                 if (!destroyed) maybeAutoSubtitle()
 
@@ -1223,6 +1581,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         layout_card_bg = findViewById(R.id.card_bg)
         card_subtitle = findViewById(R.id.subtitle_card)
         card_danmaku_send = findViewById(R.id.danmaku_send_card)
+        card_jump_time = findViewById(R.id.jump_time_card)
+        jump_time_edit = findViewById(R.id.jump_time_edit)
         card_page_selector = findViewById(R.id.page_selector_card)
         card_quality_selector = findViewById(R.id.quality_selector_card)
         card_viewpoint_selector = findViewById(R.id.viewpoint_selector_card)
@@ -1245,6 +1605,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         btn_quality = findViewById(R.id.button_quality)
         btn_viewpoint = findViewById(R.id.viewpoint_btn)
         seekbar_progress = findViewById(R.id.videoprogress)
+        applyCoverTint()
         swipe_seek_overlay = findViewById(R.id.swipe_seek_overlay)
         swipe_seek_text = findViewById(R.id.swipe_seek_text)
         loading_text0 = findViewById(R.id.loading_text0)
@@ -1277,6 +1638,19 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         btn_video_info = findViewById(R.id.video_info_btn)
         jump_time_btn = findViewById(R.id.jump_time_btn)
         queue_mode_btn = findViewById(R.id.queue_mode_btn)
+        seek_back_btn = findViewById(R.id.text_seek_back)
+        seek_forward_btn = findViewById(R.id.text_seek_forward)
+
+        btn_sleep_timer = findViewById(R.id.btn_sleep_timer)
+        btn_like = findViewById(R.id.btn_like)
+        btn_coin = findViewById(R.id.btn_coin)
+        btn_favorite = findViewById(R.id.btn_favorite)
+        btn_download = findViewById(R.id.btn_download)
+        btn_prev_video = findViewById(R.id.btn_prev_video)
+        btn_next_video = findViewById(R.id.btn_next_video)
+        action_card = findViewById(R.id.action_card)
+        action_card_title = findViewById(R.id.action_card_title)
+        action_card_options = findViewById(R.id.action_card_options)
 
         button_pool = findViewById(R.id.button_pool)
         left_column_slots = findViewById(R.id.left_column_slots)
@@ -1289,24 +1663,166 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         bottom_right_slots = findViewById(R.id.bottom_right_slots)
         bottom_group_scroll = findViewById(R.id.bottom_group_scroll)
         bottom_group_slots = findViewById(R.id.bottom_group_slots)
+        isolateSharedBackgrounds(findViewById(R.id.root_layout))
         initButtonSlots()
+        // 新版播放器把弹幕视口收进视频画面。设计稿的顶栏 / 底栏渐变要压在弹幕之上，但弹幕是
+        // 独立 Surface，普通 View 盖不住它（「更多」面板同样只能靠 hide() 绕开），所以只能让
+        // 弹幕本身不出画面。画面一变（换视频、捏合、圆/方屏切换）就重新对齐一次。
+        layout_video.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> applyNewUiDanmakuViewport() }
 
         // 字幕字号来自设置页，这里先按存档刷一次；之后每次 onResume 再刷（改完设置返回即生效）
         applySubtitleTextSize()
     }
 
     /**
+     * 把「被多个控件共用同一个实例」的背景拆开，一个控件一份。
+     *
+     * 用户反馈 #207（加载中点播放区的暂停键，画面里**两个**按钮一起出按下动画）真正的机制在这里：
+     * 布局里这批按钮的背景都写 `?android:attr/selectableItemBackground`，而主题属性取到的
+     * `Drawable` 是 **Resources 里缓存的那一个实例**——十几个按钮共用同一份 `RippleDrawable`。
+     * 按下其中任意一个（或被同一个实例的容器按下），`setState(pressed)` 落在共享实例上，
+     * 于是所有用这份背景的按钮一起画按下态，看起来就是「两个键同时按下」。
+     *
+     * 修法只做「拆共用」，不碰视觉：同一份 `ConstantState` 第一次出现时保持原样，后面再遇到的
+     * 控件各自 `newDrawable().mutate()` 一份独立实例（位图仍共享，不额外占内存）。因此按钮的
+     * 外观、ripple 颜色、圆角一个都不变，只是按下态不再串台。
+     *
+     * **别再改成「加载中把按钮 clickable 关掉」**：26.11.17 试过一版（当晚已撤），用户复看反而
+     * 变成四个按钮一起亮。原因是 `ViewGroup.dispatchSetPressed()` 只把按下态传给**自己不可点**
+     * 的子控件——AOSP 原话「Children that are clickable on their own should not show a pressed
+     * state when their parent view does」。整屏的 `layout_control` 挂了 `setOnClickListener`
+     * （`PlayerActivity.kt:2001`），点视频区域它自己会按下；按钮一旦不可点，就全都收下这个按下态。
+     */
+    private fun isolateSharedBackgrounds(root: View?) {
+        if (root == null) return
+        val seen = HashMap<Drawable.ConstantState, Drawable>()
+        fun walk(view: View) {
+            val bg = view.background
+            if (bg != null) {
+                val state = bg.constantState
+                if (state != null) {
+                    if (seen.containsKey(state)) {
+                        // newDrawable 返回 null 时保持原样：宁可继续共用，也不能把背景弄丢
+                        val isolated = state.newDrawable(view.resources)?.mutate()
+                        if (isolated != null) view.background = isolated
+                    } else {
+                        seen[state] = bg
+                    }
+                }
+            }
+            if (view is ViewGroup) {
+                for (i in 0 until view.childCount) walk(view.getChildAt(i))
+            }
+        }
+        walk(root)
+    }
+
+    /**
      * 接线「按钮按用户布局摆放」。
      *
-     * 左右两列是竖排图标（28dp，列内自下而上堆），底部是 32×37 的横排；组展开条挂在
-     * 同一侧的列旁边（右侧在左、左侧在右、底部在按钮行上方），所以四个区各自带一个展开条。
+     * 左右两列是竖排图标，底部是横排；组展开条挂在同一侧的列旁边（右侧在左、左侧在右、
+     * 底部在按钮行上方），所以四个区各自带一个展开条。
+     *
+     * **尺寸（26.11.08 回退到 11.02 口径；用户口径：全设备统一，不做屏宽分支）**：
+     * 底部行的格子 32×37dp、相邻 6dp；左右两列格子 28×28dp、贴屏幕边缘、竖向 0 间距。
+     * 26.11.07 曾把底部格子放大到 44dp、两列宽度 48dp 并按可用高度放大到 48dp，窄手表上确实更
+     * 好按，但**宽屏上整条底栏与按钮簇都被撑大**，与 11.02 差别一眼可见（宽屏回归的主因之一），
+     * 现在整批收回，格子尺寸就是 [initButtonSlots] 里 bind 的那几个数，没有按屏宽/可用高度分支。
+     *
+     * 每个区传三样东西：槽位容器、展开条**外壳**（ScrollView，显隐打在它身上）、展开条**内层**
+     * （装按钮的 LinearLayout）。外壳在 XML 里默认 GONE，两种都要给——只给内层的话点了「更多」
+     * 什么也弹不出来。
      */
     private fun initButtonSlots() {
+        // 圆屏判定必须先落到 screen_round 上：新版控制器把屏形固化进构造参数
+        // （尺寸、半径、弧进度全按它算，构造后不再更新），而 onCreate 里 screen_round
+        // 的赋值在 initButtonSlots 之后，不在这里补读一次就会拿到默认的 false，
+        // 于是圆屏手表按方屏布局摆按钮，底栏（y=252dp）直接掉到屏幕外。
+        screen_round = SharedPreferencesUtil.getBoolean("player_ui_round", false)
+        // 判据只有一个入口（[PlayerUiSwitch]）：总闸关着时这里恒为 false，设备上残留的
+        // player_ui_new=true 一律不算数，走的还是下面那套旧按钮池。
+        if (PlayerUiSwitch.isNewUiEnabled()) {
+            newPlayerUi = PlayerNewUiController(
+                this, findViewById(R.id.root_layout), button_pool, screen_round,
+                layout_control, layout_top, bottom_buttons, findViewById(R.id.left_control), right_control,
+                btn_control, seekbar_progress, text_progress, { key -> buttonViewById(key) },
+                { showQualitySelectorCard() }, { showPageSelectorCard() },
+                { currentQualityLabel() },
+                { key ->
+                    // 「更多」面板的开启态：设计稿只把这些画成粉色，判据沿用播放页自己的开关状态。
+                    when (key) {
+                        PlayerButtons.SUBTITLE -> subtitles != null && !subtitleUserOff
+                        PlayerButtons.AUTO_NEXT -> auto_next_enabled
+                        PlayerButtons.LOOP -> loop_enabled
+                        else -> false
+                    }
+                },
+                // 弹幕画在独立 surface 上，遮罩压不住它：面板开着就先把它藏起来。
+                // 面板是模态的（设计稿里点格子或点空白才关），顺带把 4 秒自动隐藏停掉，否则面板会自己消失。
+                {
+                    shown -> if (shown) {
+                        mDanmakuView?.hide()
+                        layout_control.removeCallbacks(hidecon)
+                    } else {
+                        mDanmakuView?.show()
+                        if (!PlayerLockPolicy.isLocked(lockPhase)) autohideReset()
+                    }
+                },
+                // 圆弧 seek 的起止回调：与 seekbar_progress 的 onStart/StopTrackingTouch 同判据同链路
+                {
+                    isSeeking = true
+                    newPlayerUi?.setSeekPreview(true, seekbar_progress.progress.toLong(), video_now.toLong(), video_all.toLong())
+                },
+                { pos ->
+                    isSeeking = false
+                    newPlayerUi?.setSeekPreview(false, 0L, 0L, 0L)
+                    if (isPrepared && !destroyed) {
+                        seekToVideo(pos.toLong())
+                        autohideReset()
+                    }
+                },
+                // 中心键的播放/暂停图标与弹幕按钮的高亮都按这两个真实状态取。
+                { isPlaying },
+                { isDanmakuVisible },
+                // 槽位「这条视频能不能用」——只管业务可用性，**不许读 view.visibility**：
+                // 控制层收起时 hidecon 会把 lock_btn / text_speed 置 GONE，那是暂时不显示，
+                // 拿它当判据会让按钮在一次重摆后永久消失（圆屏上整列空掉）。
+                { key -> slotAvailableFor(key) },
+                // 直播在看人数：WS 的 WATCHED_CHANGE 写进 online_number（可能已带「万/亿」），
+                // 新版直播态那行「直播 pill + 人数」借镜像心跳刷新它。
+                { online_number }
+            )
+            // 直播态新版界面：老播放器的 text_online 不动，新版把那行换成 pill + 人数，
+            // 旧 TextView 直接藏掉，避免两套人数叠在一起。
+            if (isLiveMode) text_online.visibility = View.GONE
+            // 26.11.21（反馈 #261）：新版控制层的 overlay 是 root_layout 的**最后一个**子 View
+            // （PlayerNewUiController 构造末尾 root.addView(overlay)），于是它恒压在 XML 里定义的
+            // 遮罩 card_bg 之上——直播点「发弹幕」时，锁定/更多那排按钮就浮在输入卡片上面。
+            // 把 card_bg 整组提到 overlay 之后（卡片全是它的子 View），一次修好字幕/发弹幕/跳转/
+            // 分P/清晰度/看点所有卡片；卡片可见期间那排按钮被遮罩压住，与旧界面行为一致。
+            layout_card_bg.bringToFront()
+            applyPlayerButtonLayout()
+            return
+        }
         val slots = PlayerButtonSlots(this, button_pool) { key -> buttonViewById(key) }
-        slots.bind(PlayerUiLayout.Region.LEFT, left_column_slots, left_group_slots, 28f, 28f)
-        slots.bind(PlayerUiLayout.Region.RIGHT, right_column_slots, right_group_slots, 28f, 28f)
-        slots.bind(PlayerUiLayout.Region.BOTTOM_LEFT, bottom_left_slots, bottom_group_slots, 32f, 37f)
-        slots.bind(PlayerUiLayout.Region.BOTTOM_RIGHT, bottom_right_slots, bottom_group_slots, 32f, 37f)
+        // 左右两列：28×28dp，与 11.02 一致（图标与格子同大，不额外留内边距）。
+        slots.bind(
+            PlayerUiLayout.Region.LEFT, left_column_slots, left_group_scroll, left_group_slots,
+            28f, 28f, 28f, 28f, PlayerButtonSlots.IconAlign.START
+        )
+        slots.bind(
+            PlayerUiLayout.Region.RIGHT, right_column_slots, right_group_scroll, right_group_slots,
+            28f, 28f, 28f, 28f, PlayerButtonSlots.IconAlign.END
+        )
+        // 底部两区：32×37dp，左右各 3dp 外边距 → 相邻按钮之间 6dp（11.02 的间距）
+        slots.bind(
+            PlayerUiLayout.Region.BOTTOM_LEFT, bottom_left_slots, bottom_group_scroll, bottom_group_slots,
+            32f, 37f, 32f, 37f, marginHorizontalDp = 3f
+        )
+        slots.bind(
+            PlayerUiLayout.Region.BOTTOM_RIGHT, bottom_right_slots, bottom_group_scroll, bottom_group_slots,
+            32f, 37f, 32f, 37f, marginHorizontalDp = 3f
+        )
         buttonSlots = slots
         // 展开/收起组会改变两侧列高，中线要重新对齐
         slots.onLayoutChanged = { alignLeftControlToRight() }
@@ -1314,7 +1830,37 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     /** 按存档的布局重摆按钮；设置页改完布局回来，onResume 会再走一遍。 */
+    /**
+     * 新版底栏的清晰度槽位显示文字（设计稿画的是「720P」，不是那个三横线图标）。
+     * 取当前 qn 在 [qnStrList] 里的名字，只留分辨率那一段（「1080P 高清」→「1080P」）。
+     */
+    private fun currentQualityLabel(): String? {
+        val names = qnStrList ?: return null
+        val values = qnValueList ?: return null
+        val index = values.indexOf(currentQuality)
+        if (index < 0 || index >= names.size) return null
+        return names[index].substringBefore(' ').trim().takeIf { it.isNotEmpty() }
+    }
+
     private fun applyPlayerButtonLayout() {
+        val newUi = newPlayerUi
+        if (newUi != null) {
+            playerUiLayout = PlayerUiLayout.load(
+                { key -> SharedPreferencesUtil.getString(key, "") },
+                { key, value -> SharedPreferencesUtil.putString(key, value) },
+            )
+            // 直播时底栏第 4 格（分 P）换成发弹幕（设计稿 BOTTOM_LIVE）；只改传给新版的副本，
+            // 存档 playerUiLayout 本身不动，退出直播回到点播还是用户摆的那套。
+            newUi.render(
+                if (isLiveMode) PlayerLivePolicy.withLiveBottomSend(playerUiLayout) else playerUiLayout,
+                screen_round
+            )
+            btn_quality.tag = PlayerNewUiController.NEW_QUALITY_TAG
+            btn_page_selector.tag = PlayerNewUiController.NEW_PAGES_TAG
+            startMirrorSync()
+            if (lockPhase != PlayerLockPolicy.Phase.UNLOCKED) applyLockPhase(lockPhase)
+            return
+        }
         val slots = buttonSlots ?: return
         val layout = PlayerUiLayout.load(
             { key -> SharedPreferencesUtil.getString(key, "") },
@@ -1327,6 +1873,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (lockPhase != PlayerLockPolicy.Phase.UNLOCKED) applyLockPhase(lockPhase)
         // 列高变了（组的展开条、格数），左右两列的中线要重新对齐
         alignLeftControlToRight()
+        // 重摆之后影子可能刚出现/刚消失，对齐定时器要跟着重新判断
+        startMirrorSync()
     }
 
     // ==================== 锁定按钮的临时落脚点 ====================
@@ -1339,7 +1887,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      * 贴边摆；解锁后再按用户布局摆回去（[applyPlayerButtonLayout]）。
      */
     private fun parkLockButton() {
+        newPlayerUi?.closeTransientPanels()
         if (lock_btn.parent === lock_holder) return
+        // 新版按设计稿 lockView 摆：锁图标留在自己那一格（左列 r=94 θ=155 的位置），
+        // 底下 34dp 圆底由 PlayerNewUiController 画；这里原地停靠，不再贴边。
+        if (newPlayerUi != null && parkLockButtonInPlace()) return
         val gravity = lockButtonGravity()
         val side = ToolsUtil.dp2px(4f)
         // 贴在底部时要躲开底部的按钮行，别压在一起
@@ -1349,6 +1901,26 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         lock_btn.layoutParams = lp
         (lock_btn.parent as? ViewGroup)?.removeView(lock_btn)
         lock_holder.addView(lock_btn)
+    }
+
+    /** 新版锁定态：把按钮原地搬到遮罩层（坐标不变），成功返回 true。 */
+    private fun parkLockButtonInPlace(): Boolean {
+        val w = lock_btn.width
+        val h = lock_btn.height
+        if (w <= 0 || h <= 0) return false
+        val here = IntArray(2)
+        val holder = IntArray(2)
+        lock_btn.getLocationOnScreen(here)
+        lock_holder.getLocationOnScreen(holder)
+        // 还没量过位置（0,0）时退回贴边兜底，否则锁图标会跑到左上角
+        if (here[0] == 0 && here[1] == 0) return false
+        val lp = FrameLayout.LayoutParams(w, h)
+        lp.leftMargin = here[0] - holder[0]
+        lp.topMargin = here[1] - holder[1]
+        lock_btn.layoutParams = lp
+        (lock_btn.parent as? ViewGroup)?.removeView(lock_btn)
+        lock_holder.addView(lock_btn)
+        return true
     }
 
     /** 解锁后把锁定按钮还给布局（重新摆一遍所有按钮最省事，也就一次 requestLayout 的量）。 */
@@ -1391,9 +1963,18 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         PlayerButtons.JUMP_TIME -> jump_time_btn
         PlayerButtons.QUEUE_MODE -> queue_mode_btn
         PlayerButtons.QUALITY -> btn_quality
+        PlayerButtons.SEEK_BACK -> seek_back_btn
+        PlayerButtons.SEEK_FORWARD -> seek_forward_btn
         PlayerButtons.SOUND_CUT -> findViewById(R.id.button_sound_cut)
         PlayerButtons.SOUND_ADD -> findViewById(R.id.button_sound_add)
         PlayerButtons.PAGE_SELECTOR -> btn_page_selector
+        PlayerButtons.SLEEP_TIMER -> btn_sleep_timer
+        PlayerButtons.LIKE -> btn_like
+        PlayerButtons.COIN -> btn_coin
+        PlayerButtons.FAVORITE -> btn_favorite
+        PlayerButtons.DOWNLOAD -> btn_download
+        PlayerButtons.PREV_VIDEO -> btn_prev_video
+        PlayerButtons.NEXT_VIDEO -> btn_next_video
         else -> null
     }
 
@@ -1406,6 +1987,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (doubleTapSeekEnabled) {
             doubleTapGestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
                 override fun onDoubleTap(e: MotionEvent): Boolean {
+                    // 缩放诊断：双击也被手势层收走，落分支时要能看出来（只是字段赋值）
+                    zoomDiagBranch = PlayerTouchBranch.DOUBLE_TAP
                     if (ijkPlayer != null && isPrepared && !isLiveMode) {
                         val x = e.x
                         val viewWidth = layout_control.width.toFloat()
@@ -1441,14 +2024,28 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         }
 
         if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SCALE, true)) {
-            scaleGestureListener = ViewScaleGestureListener(layout_video)
+            // 锁定态连「双击后再拖动」的单指快速缩放也不许（26.11.21 反馈）：判据交给监听器，
+            // 触摸投喂路径以后再多一条也绕不过同一道门。
+            scaleGestureListener = ViewScaleGestureListener(
+                layout_video,
+                onScaleChanged = { clampVideoOffset() },
+                allowed = { PlayerLockPolicy.scaleAllowed(lockPhase) }
+            )
             scaleGestureDetector = ScaleGestureDetector(this, scaleGestureListener!!)
 
             val doublemove_enabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_DOUBLEMOVE, true)
 
             layout_control.setOnTouchListener { v, event ->
+                // 缩放诊断（反馈 #128 / #102）：开关打开时才收集现场；关掉时只多一次
+                // SharedPreferences 读取和几个字段赋值，不拼字符串、不打日志。
+                val zoomDiag = zoomDiagOn()
+                if (zoomDiag && event.actionMasked == MotionEvent.ACTION_DOWN) zoomDiagOnGestureDown()
                 // task-14 ②③：点弹幕空降 / 长按后纵向划切视频，先于缩放与横滑判定处理。
-                if (handlePlayerTouchExtras(event)) return@setOnTouchListener true
+                if (handlePlayerTouchExtras(event)) {
+                    // 被前面的分支提前 return 抢走了——「捏合没轮到判定」正是要留的证据
+                    if (zoomDiag) zoomDiagOnGestureEnd()
+                    return@setOnTouchListener true
+                }
                 if (doubleTapSeekEnabled && doubleTapGestureDetector != null) {
                     doubleTapGestureDetector!!.onTouchEvent(event)
                 }
@@ -1457,6 +2054,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 val singleTouch = pointerCount == 1
                 val doubleTouch = pointerCount == 2
 
+                scaleFedByControlListener = true
                 scaleGestureDetector!!.onTouchEvent(event)
                 val gesture_scaling = scaleGestureListener!!.scaling
 
@@ -1467,20 +2065,37 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                         if (singleTouch) {
                             if (gesture_scaling) {
                                 videoMoveBy(0f, 0f)
-                            } else if (!handleSwipeSeekTouch(event) &&
-                                (!isVideoZoomed() || doublemove_enabled)
-                            ) {
-                                // 单指拖动只为查看放大后的画面：未缩放时 videoMoveBy 会被夹回原位，
-                                // 缩放后则取决于「缩放时可移动」。以前这里判 gesture_scaled，
-                                // 那个标志松手就复位，导致关掉「缩放时可移动」后仍能拖动。
-                                val currentX = event.getX(0)
-                                val currentY = event.getY(0)
-                                val deltaX = currentX - previousX
-                                val deltaY = currentY - previousY
-                                if (deltaX != 0f || deltaY != 0f) {
-                                    videoMoveBy(deltaX, deltaY)
-                                    previousX = currentX
-                                    previousY = currentY
+                                if (zoomDiag) {
+                                    zoomDiagBranch = PlayerTouchBranch.SCALE
+                                    zoomDiagLogMove()
+                                }
+                            } else {
+                                // 诊断要知道横滑门闸有没有吃掉这次 MOVE，所以先把结果存下来再判。
+                                // 语义与原来的短路写法完全一致：只在「这一轮没在捏合」时才调它。
+                                val seekHandled = handleSwipeSeekTouch(event)
+                                if (!seekHandled &&
+                                    (!isVideoZoomed() || doublemove_enabled)
+                                ) {
+                                    // 单指拖动只为查看放大后的画面：未缩放时 videoMoveBy 会被夹回原位，
+                                    // 缩放后则取决于「缩放时可移动」。以前这里判 gesture_scaled，
+                                    // 那个标志松手就复位，导致关掉「缩放时可移动」后仍能拖动。
+                                    val currentX = event.getX(0)
+                                    val currentY = event.getY(0)
+                                    val deltaX = currentX - previousX
+                                    val deltaY = currentY - previousY
+                                    if (deltaX != 0f || deltaY != 0f) {
+                                        videoMoveBy(deltaX, deltaY)
+                                        previousX = currentX
+                                        previousY = currentY
+                                    }
+                                    if (zoomDiag) {
+                                        zoomDiagBranch = PlayerTouchBranch.DRAG
+                                        zoomDiagLogMove()
+                                    }
+                                } else if (zoomDiag) {
+                                    zoomDiagBranch =
+                                        if (seekHandled) PlayerTouchBranch.SWIPE_SEEK else PlayerTouchBranch.NONE
+                                    zoomDiagLogMove()
                                 }
                             }
                         }
@@ -1493,6 +2108,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                                 videoMoveBy(deltaX, deltaY)
                                 previousX = currentX
                                 previousY = currentY
+                            }
+                            if (zoomDiag && !gesture_scaling) {
+                                zoomDiagBranch = PlayerTouchBranch.DRAG
+                                zoomDiagLogMove()
                             }
                         }
                     }
@@ -1526,14 +2145,28 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
                 if (!gesture_click_disabled && (gesture_moved || gesture_scaled)) {
                     gesture_click_disabled = true
+                    // 新版：手势结束后的收起同样是用户主动行为，暂停时也要生效。
+                    newPlayerUi?.requestManualHide()
                     hidecon.run()
+                }
+
+                // 每次手势只打一条摘要（不是每个 MOVE 一条）
+                if (zoomDiag && (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL)) {
+                    zoomDiagOnGestureEnd()
                 }
 
                 false
             }
         } else {
             layout_control.setOnTouchListener { _, motionEvent ->
-                if (handlePlayerTouchExtras(motionEvent)) return@setOnTouchListener true
+                // 缩放开关关着时手势层根本没建 ScaleGestureDetector，这里同样留一条现场，
+                // 免得「设置里看着是开的、实际没生效」这种情况完全没证据。
+                val zoomDiag = zoomDiagOn()
+                if (zoomDiag && motionEvent.actionMasked == MotionEvent.ACTION_DOWN) zoomDiagOnGestureDown()
+                if (handlePlayerTouchExtras(motionEvent)) {
+                    if (zoomDiag) zoomDiagOnGestureEnd()
+                    return@setOnTouchListener true
+                }
                 if (doubleTapSeekEnabled && doubleTapGestureDetector != null) {
                     doubleTapGestureDetector!!.onTouchEvent(motionEvent)
                 }
@@ -1542,6 +2175,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     motionEvent.action == MotionEvent.ACTION_CANCEL
                 ) {
                     endLongPressBoost()
+                    if (zoomDiag) zoomDiagOnGestureEnd()
                 }
                 false
             }
@@ -1552,7 +2186,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             else clickUI()
         }
         layout_control.setOnLongClickListener {
-            if (SharedPreferencesUtil.getBoolean("player_longclick", true) && ijkPlayer != null && isPlaying && !isLiveMode) {
+            // 反馈 #231：音轨分离的缓存不能加速，长按加速一并关掉（否则声音会掉队）
+            if (SharedPreferencesUtil.getBoolean("player_longclick", true) && ijkPlayer != null && isPlaying &&
+                !isLiveMode && !externalAudioSpeedLocked
+            ) {
                 if (!onLongClick && !gesture_click_disabled) {
                     hidecon.run()
                     // #61：倍率来自设置页，每次长按重读（改完即生效），默认 3.0 与改造前一致
@@ -1586,7 +2223,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         } else {
             timestamp_click = nowTimestamp
             if (layout_top.visibility == View.GONE) showcon()
-            else hidecon.run()
+            else {
+                // 新版：单击属于用户主动收起，暂停时也得收得掉（常驻只针对自动隐藏）。
+                newPlayerUi?.requestManualHide()
+                hidecon.run()
+            }
         }
     }
 
@@ -1619,6 +2260,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun showcon() {
         // 锁定期间控制栏必须整体保持隐藏，任何「显示控制栏」的路径都在这里被挡掉
         if (PlayerLockPolicy.isLocked(lockPhase)) return
+        if (newPlayerUi != null) {
+            newPlayerUi?.setControlsVisible(true)
+            if (isPrepared && !isLiveMode && !isAudioOnlyMode) {
+                text_speed.visibility = View.VISIBLE
+                updateDebugButtonVisibility()
+            }
+            lock_btn.visibility = View.VISIBLE
+            setSubtitleBottomMargin(SUBTITLE_MARGIN_BOTTOM_CONTROLBAR_DP)
+            autohideReset()
+            return
+        }
         right_control.visibility = View.VISIBLE
         layout_top.visibility = View.VISIBLE
         bottom_buttons.visibility = View.VISIBLE
@@ -1662,6 +2314,18 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private val hidecon = Runnable {
         // 锁定期间由锁定状态自己管显隐，别让自动隐藏去动控制栏（会顶掉浮现中的锁定按钮）
         if (PlayerLockPolicy.isLocked(lockPhase)) return@Runnable
+        newPlayerUi?.let { ui ->
+            // 设计稿 NOTES.paused：暂停时控件常驻，自动隐藏会被新版控制器拒掉。
+            // 被拒就整段跳过——否则倍速文字 / 锁定按钮 / 字幕边距被连带收掉，画面上只剩一半控件。
+            if (!ui.setControlsVisible(false)) return@Runnable
+            if (isPrepared && !isAudioOnlyMode) {
+                text_speed.visibility = View.GONE
+                btn_debug.visibility = View.GONE
+            }
+            lock_btn.visibility = View.GONE
+            setSubtitleBottomMargin(SUBTITLE_MARGIN_BOTTOM_COLLAPSED_DP)
+            return@Runnable
+        }
         right_control.visibility = View.GONE
         layout_top.visibility = View.GONE
         bottom_buttons.visibility = View.GONE
@@ -1699,23 +2363,41 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun initLockUi() {
         lock_overlay.setOnClickListener { onLockScreenTap() }
         lock_btn.setOnClickListener { onLockButtonClick() }
+        // 两列的格子数、组展开条都会改它们的高度与位置，布局一变就重新对齐一次。
+        // 比较的是窗口坐标里两条列的中线（两列不在同一个 parent 下，raw top 不可比）；
+        // translationY 不改 layout bounds，不会自激。
+        left_control.addOnLayoutChangeListener(alignOnLayoutChange)
+        right_control.addOnLayoutChangeListener(alignOnLayoutChange)
         alignLeftControlToRight()
     }
+
+    private val alignOnLayoutChange =
+        View.OnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (top != oldTop || bottom != oldBottom) applyLeftControlAlignment()
+        }
 
     /**
      * 把左侧按钮列对齐到右侧竖列（弹幕/旋转/更多）的竖向中线。
      *
      * 右列的上下锚点（`top` 与 `bottom_control`）都在 `control_layout` 内部，位于 root 层的
-     * `left_control` 够不到它们，所以这里量一次两条列的中线差、用 translationY 平移。
-     * 一旦量到就不再重复——顶栏/底栏高度变化会触发重新布局，那时会重新量。
+     * `left_control` 够不到它们，所以这里量两条列在**窗口坐标**里的中线差、用 translationY 平移。
+     * 列高可变（格子数、组展开），因此布局变化时由 [alignOnLayoutChange] 重新量，不是一次性的。
      */
     private fun alignLeftControlToRight() {
-        left_control.post {
-            if (left_control.height <= 0 || right_control.height <= 0) return@post
-            val dy = (right_control.top + right_control.bottom) / 2f -
-                    (left_control.top + left_control.bottom) / 2f
-            left_control.translationY = dy
-        }
+        left_control.post { applyLeftControlAlignment() }
+    }
+
+    /** 按「两条列中线差」平移左列；量不到（还没布局）就跳过。 */
+    private fun applyLeftControlAlignment() {
+        if (left_control.height <= 0 || right_control.height <= 0) return
+        val leftLoc = IntArray(2)
+        val rightLoc = IntArray(2)
+        left_control.getLocationInWindow(leftLoc)
+        right_control.getLocationInWindow(rightLoc)
+        val dy = (rightLoc[1] + right_control.height / 2f) -
+                (leftLoc[1] + left_control.height / 2f)
+        // getLocationInWindow 已经把当前 translationY 算进去，所以这里加的是差值
+        left_control.translationY += dy
     }
 
     /** 浮现中的锁定按钮到点自动隐去。 */
@@ -1757,6 +2439,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         mainHandler?.removeCallbacks(hideLockIcon)
         when (target) {
             PlayerLockPolicy.Phase.UNLOCKED -> {
+                newPlayerUi?.setLocked(false)
                 lock_overlay.visibility = View.GONE
                 // 整条控制栏在锁定时被藏掉，解锁时连 button 组一起恢复，再走既有的 4 秒自动隐藏
                 layout_control.visibility = View.VISIBLE
@@ -1764,6 +2447,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 // 图标画的是「当前状态」：未锁定＝开锁，锁定＝闭锁（26.10.21 用户反馈原先把状态画反了）
                 lock_btn.setImageResource(R.drawable.icon_player_unlock)
                 lock_btn.contentDescription = getString(R.string.desc_player_lock_locked)
+                // 锁定态把按钮压暗了，解锁后恢复不透明（它在控制栏里，本来就随时可点）
+                lock_btn.alpha = 1f
                 // 锁定时锁定按钮被临时搬到了遮罩层，解锁先按用户布局摆回它的格子，再显示控制栏，
                 // 这样图标一出现就在自己的格子里，不会先在右边闪一下
                 unparkLockButton()
@@ -1773,11 +2458,18 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             }
 
             PlayerLockPolicy.Phase.LOCKED_HIDDEN -> {
+                newPlayerUi?.setLocked(true)
                 lock_overlay.visibility = View.VISIBLE
                 layout_control.visibility = View.GONE
                 // 左列在 control_layout 外面，锁定时要单独藏，否则用户摆进去的按钮会浮在遮罩上
                 left_control.visibility = View.GONE
-                lock_btn.visibility = View.GONE
+                // 反馈 #139②：以前这里把锁定按钮彻底 GONE，锁定后画面毫无反馈，用户以为卡死。
+                // 现在按钮压暗常驻（还要搬到遮罩层上，否则摆在被藏掉的 control_layout 里就点不到）。
+                parkLockButton()
+                lock_btn.visibility = View.VISIBLE
+                // 设计稿 lockView 把锁定态画成常亮（34dp 圆底 + 开锁图标），不再有「点一下才亮」；
+                // 旧版播放器保持原来的压暗（防烧屏），两版互不影响。
+                lock_btn.alpha = if (newPlayerUi != null) 1f else PlayerLockPolicy.IDLE_ICON_ALPHA
                 // 倍速文字现在挂在左侧列里，不随 control_layout 一起隐藏，得单独收掉
                 text_speed.visibility = View.GONE
                 // 锁定时控制栏整体 GONE 而字幕仍显示，底下没了控制栏占位，字幕要下沉到低位
@@ -1787,12 +2479,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             }
 
             PlayerLockPolicy.Phase.LOCKED_ICON_VISIBLE -> {
+                newPlayerUi?.setLocked(true)
                 lock_overlay.visibility = View.VISIBLE
                 layout_control.visibility = View.GONE
                 left_control.visibility = View.GONE
                 // 锁定按钮搬到遮罩之上：它可能被摆在被藏起来的 control_layout 里，留原处就点不到
                 parkLockButton()
                 lock_btn.visibility = View.VISIBLE
+                lock_btn.alpha = 1f
                 text_speed.visibility = View.GONE
                 // 锁定时控制栏整体 GONE 而字幕仍显示，底下没了控制栏占位，字幕要下沉到低位
                 setSubtitleBottomMargin(SUBTITLE_MARGIN_BOTTOM_COLLAPSED_DP)
@@ -1800,71 +2494,531 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 lock_btn.contentDescription = getString(R.string.desc_player_lock_unlocked)
             }
         }
+        // 锁定瞬间可能正好捏到一半：手势层之后收不到事件，把「正在缩放」标志清掉，
+        // 免得解锁后的第一串单指拖动被当成上一轮缩放的尾巴。
+        if (!PlayerLockPolicy.scaleAllowed(target)) scaleGestureListener?.scaling = false
         if (autoHideMs > 0L) mainHandler?.postDelayed(hideLockIcon, autoHideMs)
+        // 锁定/解锁改了 control_layout 的可见性，正是「捏合没反应」的可疑时机，状态变了留一条
+        zoomDiagTraceState("lock")
     }
 
     private fun showLockHintIfNeeded() {
+        // 26.11.19 debug 包不弹任何自动提示：锁定说明只弹一次，早退必须放在记账（putBoolean）之前——
+        // 否则调试包会把「已提示过」的位置吃掉，换回 release 包就再也不弹了。
+        if (BiliTerminal.isAutoPopupSuppressed()) return
         if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_LOCK_HINT_SHOWN, false)) return
         SharedPreferencesUtil.putBoolean(SettingsKeys.PLAYER_LOCK_HINT_SHOWN, true)
         MsgUtil.showMsg(getString(R.string.msg_player_lock_hint))
     }
 
     /**
-     * 锁定期间尝试离开播放页：拦住，并让锁定按钮短暂浮现作为反馈。
+     * 锁定期间尝试离开播放页：拦住，并让锁定按钮浮现作为反馈。
+     *
+     * 反馈 #139②：只把按钮亮起来还不够——用户按了返回没反应，第一反应仍是「卡死了」。
+     * 所以压暗态被按出返回时额外弹一条文字提示，明确告诉用户现在是「锁定」、怎么解锁。
      *
      * @return true 表示这次退出已被拦下，调用方必须直接返回。
      */
     private fun interceptLockedExit(): Boolean {
         if (!PlayerLockPolicy.shouldSwallowExit(lockPhase)) return false
+        val before = lockPhase
         applyLockPhase(PlayerLockPolicy.phaseAfterExitAttempt(lockPhase), PlayerLockPolicy.EXIT_HINT_MS)
+        // 只在「从压暗常驻转成浮现」这一下提示，连按返回键不会刷屏
+        if (before == PlayerLockPolicy.Phase.LOCKED_HIDDEN) {
+            MsgUtil.showMsg(getString(R.string.msg_player_locked_exit_hint))
+        }
+        // 新版：顶部胶囊提示此时已经淡出了，按返回被拦下要再提示一遍怎么解锁（1.5 秒后再淡出）。
+        newPlayerUi?.showLockHint()
         return true
     }
 
     // ==================== 精确空降（QQ 反馈 #9） ====================
 
     /**
-     * 接线「跳到指定时间」：点开输入框，回来由 [onActivityResult] 解析并 seek。
+     * 接线「跳到指定时间」：点开的是**页内输入卡片**（与「发送弹幕」同一套逻辑），确认后直接 seek。
+     *
+     * 为什么不再是另开 Activity（26.11.14 改）：以前这里 `startActivityForResult` 打开
+     * [InputDialogActivity]，播放页被盖住时 Surface 会被销毁，回来必须重新挂载并 seek 才可能出画；
+     * 手表上这条恢复路径不一定成功，用户看到的就是「时间输完了、跳过去了，视频流没了」——
+     * 和「离开播放器再回来画面消失」的既有毛病叠在一起，这个功能就完全没法用。
+     * 卡片留在本页，Surface 不销毁，也就没有恢复问题。
      *
      * 显隐不在这里定：直播没有「时间点」概念，等 onPrepared 拿到 duration 后再按 [isLiveMode] 决定。
      */
     private fun initJumpToTimeButton() {
-        jump_time_btn.setOnClickListener {
-            val intent = Intent(this, InputDialogActivity::class.java)
-            intent.putExtra("title", getString(R.string.text_player_jump_to_time))
-            intent.putExtra("hint", getString(R.string.hint_player_jump_to_time))
-            // 预填当前播放位置：手表上从头敲一串时间太费劲，给个「当前位置」当底稿再改更省事。
-            // 位置取 video_now 而不是 ijkPlayer.currentPosition —— 后者在 seek 落地前仍返回旧值
-            // （见 seekToVideo 的注释），而 video_now 是已经对齐过的媒体时钟。
-            // 0 位置（未 prepare / 直播）不预填，保持空框 + 提示语。
-            // 光标按 InputDialogActivity 的既有行为落在末尾（不整串选中），方便接着往后补位。
-            val prefill = PlayerJumpTimePolicy.prefillText(video_now.toLong())
-            if (prefill != null) intent.putExtra("initial_text", prefill)
-            startActivityForResult(intent, REQUEST_CODE_JUMP_TO_TIME)
-        }
+        jump_time_btn.setOnClickListener { showJumpTimeCard() }
+        findViewById<View>(R.id.jump_time_confirm).setOnClickListener { confirmJumpTime() }
     }
 
     /**
-     * 接「跳到指定时间」的输入。
+     * 打开「跳到指定时间」卡片：遮罩 + 卡片，并预填当前播放位置。
      *
-     * 校验放在这里而不是 [InputDialogActivity] 里：那个弹窗是通用输入框（新建文件夹等也在用），
-     * 不该认识「时间格式」这件事。非法输入提示后原地不动；合法但越界钳到末尾并明确告知，
-     * 免得用户输入 99:99 却停在结尾、看起来像没生效。
+     * 预填的意义：手表上从头敲一串时间太费劲，给个「当前位置」当底稿再改更省事
+     * （见 [PlayerJumpTimePolicy.prefillText]）。位置取 `video_now` 而不是 `ijkPlayer.currentPosition`
+     * ——后者在 seek 落地前仍返回旧值（见 [seekToVideo] 的注释），而 `video_now` 是已对齐的媒体时钟。
+     * 0 位置（未 prepare / 直播）不预填，保持空框 + 提示语。
      */
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_CODE_JUMP_TO_TIME || resultCode != RESULT_OK) return
+    private fun showJumpTimeCard() {
+        // 同一时刻只留一张卡片：与「发送弹幕」互斥，否则两张卡片会叠在屏幕正中
+        card_danmaku_send.visibility = View.GONE
+        layout_card_bg.visibility = View.VISIBLE
+        card_jump_time.visibility = View.VISIBLE
+        jump_time_edit.setText(PlayerJumpTimePolicy.prefillText(video_now.toLong()).orEmpty())
+        // 光标落在末尾（不整串选中），方便接着往后补位，与旧 InputDialogActivity 的行为一致
+        jump_time_edit.setSelection(jump_time_edit.text.length)
+        autohideReset()
+    }
+
+    /**
+     * 确认「跳到指定时间」。
+     *
+     * 校验规则与旧的 [InputDialogActivity] 路径保持一致：非法输入提示后**卡片留在原地**（方便改错），
+     * 合法但越界钳到末尾并明确告知，免得用户输入 99:99 却停在结尾、看起来像没生效。
+     */
+    private fun confirmJumpTime() {
         // 直播/未 prepare 时 duration<=0，没有「时间点」概念；菜单虽然已隐藏，这里再兜一次时序缝隙
         val durationMs = ijkPlayer?.duration ?: 0L
-        if (durationMs <= 0L) return
-        val seconds = PlayerJumpTimePolicy.parseToSeconds(data?.getStringExtra("input_text"))
+        if (durationMs <= 0L) {
+            hideAllCards()
+            return
+        }
+        val seconds = PlayerJumpTimePolicy.parseToSeconds(jump_time_edit.text.toString())
         if (seconds == null) {
             MsgUtil.showMsg(getString(R.string.msg_player_jump_invalid))
             return
         }
         val targetMs = PlayerJumpTimePolicy.clampMs(seconds * 1000L, durationMs) ?: return
         if (seconds * 1000L > durationMs) MsgUtil.showMsg(getString(R.string.msg_player_jump_out_of_range))
+        hideAllCards()
         seekToPosition(targetMs)
         autohideReset()
+    }
+
+    /**
+     * 收起遮罩与所有页内卡片（字幕 / 发弹幕 / 跳转时间 / 分P / 清晰度 / 看点）。
+     *
+     * 点遮罩、以及任何一张卡片确认之后都走这里，避免以后再加卡片时漏掉一处隐藏（漏了就会
+     * 留下半透明的卡片压着画面）。
+     */
+    private fun hideAllCards() {
+        newPlayerUi?.closeTransientPanels()
+        layout_card_bg.visibility = View.GONE
+        card_subtitle.visibility = View.GONE
+        card_danmaku_send.visibility = View.GONE
+        card_jump_time.visibility = View.GONE
+        card_page_selector.visibility = View.GONE
+        card_quality_selector.visibility = View.GONE
+        card_viewpoint_selector.visibility = View.GONE
+        // 26.11.15：睡眠定时 / 投币 / 收藏共用这张，漏掉它就会留一层半透明卡片压着画面
+        if (::action_card.isInitialized) action_card.visibility = View.GONE
+    }
+
+    /**
+     * G02：接线「±N 秒快退 / 快进」两个文字按钮（兄弟分支 cyq 的 `player_seek_buttons`）。
+     *
+     * 为什么单独做按钮而不是只靠手势：手表屏幕小，双击左右半边找不准；按住左右半边又是长按倍速。
+     * 步长跟设置走（[SettingsKeys.PLAYER_SEEK_STEP_SECONDS]），点击时不弹提示——快进快退的手感
+     * 就该是「按了就走」，位置由进度条与时间文字自己更新。
+     *
+     * 显隐不在这里定：直播没有时间点，由 onPrepared 与「跳到指定时间」一起置 GONE/可见。
+     */
+    private fun initSeekButtons() {
+        seek_back_btn.setOnClickListener { seekByStep(-PlayerSeekStepPolicy.load()) }
+        seek_forward_btn.setOnClickListener { seekByStep(PlayerSeekStepPolicy.load()) }
+        refreshSeekButtons()
+    }
+
+    // ==================== 动作类按钮：睡眠定时 / 点赞 / 投币 / 收藏 / 下载 / 上一个 / 下一个 ====================
+
+    /**
+     * 接线 7 个动作类按钮（26.11.15）。
+     *
+     * 显隐不在这里定：它们是「点了才有用」的按钮，摆进槽位就该看得见。能不能用由点击时判断——
+     * 直播、本地文件、未登录会直接给一句提示。这样不会出现「设置页摆了按钮、播放页却一片空白」，
+     * 也不会让 slot 渲染逻辑再多一套隐藏规则。
+     */
+    private fun initActionButtons() {
+        btn_sleep_timer.setOnClickListener { showSleepTimerCard() }
+        btn_like.setOnClickListener { toggleLike() }
+        btn_coin.setOnClickListener { showCoinCard() }
+        btn_favorite.setOnClickListener { showFavoriteCard() }
+        btn_download.setOnClickListener { startDownloadCurrentVideo() }
+        btn_prev_video.setOnClickListener { playPreviousVideo() }
+        btn_next_video.setOnClickListener { playNextVideo() }
+        refreshSleepTimerIcon()
+        refreshLikeIcon()
+    }
+
+    /** 点赞 / 投币 / 收藏 / 下载只对在线视频有意义：直播没有稿件，本地文件没有 aid。 */
+    private fun canUseVideoActions(): Boolean {
+        if (!isOnlineVideo || isLiveMode || aid <= 0) {
+            MsgUtil.showMsg(getString(R.string.player_action_unavailable))
+            return false
+        }
+        return true
+    }
+
+    /** 这些动作都要 Cookie；未登录时接口只会返回空结果，先说清楚原因。 */
+    private fun ensureLoggedIn(): Boolean {
+        if (SharedPreferencesUtil.getLong("mid", 0) != 0L) return true
+        MsgUtil.showMsg(getString(R.string.player_action_need_login))
+        return false
+    }
+
+    /**
+     * 动作类按钮共用的页内卡片。
+     *
+     * 睡眠定时 / 投币 / 收藏都只有「标题 + 若干整行按钮」，给它们各写一张 XML 卡片会让
+     * `activity_player.xml` 再涨两百行，而三者永远不同时出现，所以共用一个壳子，
+     * 行内容在代码里填（收藏夹有几个、定时给几档，都是运行时才知道的）。
+     */
+    private fun showActionCard(title: CharSequence) {
+        // 先全关：同一时刻只留一张卡片，否则两张会叠在屏幕正中
+        hideAllCards()
+        action_card_title.text = title
+        action_card_options.removeAllViews()
+        layout_card_bg.visibility = View.VISIBLE
+        action_card.visibility = View.VISIBLE
+        autohideReset()
+    }
+
+    /** 往当前动作卡片里加一整行按钮，样式跟「跳到指定时间」的确认键一致。 */
+    private fun addActionRow(text: CharSequence, enabled: Boolean = true, onClick: () -> Unit) {
+        val row = Button(this)
+        row.text = text
+        row.textSize = 13f
+        row.isAllCaps = false
+        row.gravity = Gravity.CENTER
+        row.isEnabled = enabled
+        row.alpha = if (enabled) 1f else 0.6f
+        row.setBackgroundResource(R.drawable.background_card_borderless)
+        row.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            resources.getDimensionPixelSize(R.dimen.touch_min)
+        )
+        if (enabled) row.setOnClickListener { onClick() }
+        action_card_options.addView(row)
+    }
+
+    // ---------- 睡眠定时 ----------
+
+    /**
+     * 睡眠定时卡片。
+     *
+     * 为什么要这个按钮：手表场景基本是躺着戴耳机听，听完一集就睡着，没人会再抬手点暂停——
+     * 让它自己停，比什么播放增强都实用。档位取整刻钟，够细又不用滑条。
+     */
+    private fun showSleepTimerCard() {
+        showActionCard(getString(R.string.player_action_card_sleep_timer))
+        for (minutes in intArrayOf(15, 30, 60, 90)) {
+            addActionRow(getString(R.string.player_sleep_timer_minutes, minutes)) {
+                startSleepTimer(minutes)
+                hideAllCards()
+            }
+        }
+        if (sleepTimerMinutes > 0) {
+            addActionRow(getString(R.string.player_sleep_timer_off)) {
+                cancelSleepTimer()
+                MsgUtil.showMsg(getString(R.string.player_sleep_timer_cancelled))
+                hideAllCards()
+            }
+        }
+    }
+
+    private fun startSleepTimer(minutes: Int) {
+        cancelSleepTimer()
+        sleepTimerMinutes = minutes
+        val task = Runnable {
+            sleepTimerRunnable = null
+            sleepTimerMinutes = 0
+            refreshSleepTimerIcon()
+            if (isPlaying) {
+                playerPause()
+                updateMediaSessionPlaybackState()
+            }
+            MsgUtil.showMsg(getString(R.string.player_sleep_timer_fired))
+        }
+        sleepTimerRunnable = task
+        mainHandler?.postDelayed(task, minutes * 60_000L)
+        refreshSleepTimerIcon()
+        MsgUtil.showMsg(getString(R.string.player_sleep_timer_set, minutes))
+    }
+
+    private fun cancelSleepTimer() {
+        sleepTimerRunnable?.let { mainHandler?.removeCallbacks(it) }
+        sleepTimerRunnable = null
+        sleepTimerMinutes = 0
+        refreshSleepTimerIcon()
+    }
+
+    /** 定时生效时换成「走时」图标，一眼能看出它还开着。影子靠 400ms 的镜像同步跟着换。 */
+    private fun refreshSleepTimerIcon() {
+        if (!::btn_sleep_timer.isInitialized) return
+        btn_sleep_timer.setImageResource(
+            if (sleepTimerMinutes > 0) R.drawable.icon_player_clock_fading else R.drawable.icon_time
+        )
+    }
+
+    // ---------- 点赞 ----------
+
+    /**
+     * 点赞：一键切换。
+     *
+     * 状态口径：第一次点先查 `archive/relation`（[liked] 还是 `null` 的时候），之后按本地值翻转，
+     * 这样「点一下就变」的手感不用等网络，且不会出现「连点两下把赞点掉又点回来还显示已赞」。
+     */
+    private fun toggleLike() {
+        if (!canUseVideoActions() || !ensureLoggedIn()) return
+        val targetAid = aid
+        CenterThreadPool.run {
+            val code: Int = try {
+                val current = liked ?: queryLiked().also { liked = it }
+                LikeCoinFavApi.like(targetAid, if (current) 0 else 1)
+            } catch (e: Exception) {
+                MsgUtil.err(UiText.of("点赞"), e)
+                -1
+            }
+            if (code == 0) liked = liked != true
+            val ok = code == 0
+            val nowLiked = liked == true
+            runOnUiThread {
+                if (destroyed) return@runOnUiThread
+                refreshLikeIcon()
+                MsgUtil.showMsg(
+                    getString(
+                        when {
+                            !ok -> R.string.player_action_failed
+                            nowLiked -> R.string.player_like_done
+                            else -> R.string.player_like_cancelled
+                        }
+                    )
+                )
+            }
+        }
+    }
+
+    /** 查「当前账号是否已点赞」。`getVideoStats` 要求 VideoInfo 带 stats 对象，这里现造一个壳。 */
+    private fun queryLiked(): Boolean {
+        val probe = VideoInfo()
+        probe.aid = aid
+        probe.stats = Stats()
+        val result = LikeCoinFavApi.getVideoStats(probe)
+        if (result.code != 0) return false
+        return probe.stats.liked
+    }
+
+    private fun refreshLikeIcon() {
+        if (!::btn_like.isInitialized) return
+        btn_like.setImageResource(if (liked == true) R.drawable.icon_like_1 else R.drawable.icon_like_0)
+    }
+
+    // ---------- 投币 ----------
+
+    private fun showCoinCard() {
+        if (!canUseVideoActions() || !ensureLoggedIn()) return
+        showActionCard(getString(R.string.player_action_card_coin))
+        addActionRow(getString(R.string.player_coin_one)) {
+            hideAllCards()
+            sendCoin(1)
+        }
+        addActionRow(getString(R.string.player_coin_two)) {
+            hideAllCards()
+            sendCoin(2)
+        }
+    }
+
+    private fun sendCoin(multiply: Int) {
+        val targetAid = aid
+        CenterThreadPool.run {
+            val code: Int = try {
+                LikeCoinFavApi.coin(targetAid, multiply)
+            } catch (e: Exception) {
+                MsgUtil.err(UiText.of("投币"), e)
+                -1
+            }
+            runOnUiThread {
+                if (destroyed) return@runOnUiThread
+                MsgUtil.showMsg(
+                    getString(if (code == 0) R.string.player_coin_done else R.string.player_action_failed)
+                )
+            }
+        }
+    }
+
+    // ---------- 收藏 ----------
+
+    /**
+     * 收藏卡片：列出「我的收藏夹」并标出这个视频已经在哪些夹子里。
+     *
+     * 用的是 `x/v3/fav/folder/created/list-all?rid=` 一次拉全（[FavoriteApi.getFavoriteState]），
+     * 不先取用户信息再拼地址——手表上一次请求就能出结果，少一轮等待。
+     */
+    private fun showFavoriteCard() {
+        if (!canUseVideoActions() || !ensureLoggedIn()) return
+        showActionCard(getString(R.string.player_action_card_favorite))
+        addActionRow(getString(R.string.player_favorite_loading), enabled = false) {}
+        val targetAid = aid
+        CenterThreadPool.run {
+            val names = ArrayList<String>()
+            val fids = ArrayList<Long>()
+            val mediaIds = ArrayList<Long>()
+            val states = ArrayList<Boolean>()
+            val counts = ArrayList<Int>()
+            val maxCounts = ArrayList<Int>()
+            val ok: Boolean = try {
+                FavoriteApi.getFavoriteState(targetAid, names, fids, mediaIds, states, counts, maxCounts)
+                true
+            } catch (e: Exception) {
+                MsgUtil.err(UiText.of("收藏夹"), e)
+                false
+            }
+            runOnUiThread {
+                // 读列表期间用户可能已经把卡片关掉/换成别的卡片，别把迟到结果塞进去
+                if (destroyed || !::action_card.isInitialized || action_card.visibility != View.VISIBLE) return@runOnUiThread
+                action_card_options.removeAllViews()
+                if (!ok || names.isEmpty()) {
+                    addActionRow(getString(R.string.player_favorite_empty), enabled = false) {}
+                    return@runOnUiThread
+                }
+                names.forEachIndexed { index, name ->
+                    val collected = states.getOrElse(index) { false }
+                    val mediaId = mediaIds.getOrElse(index) { 0L }
+                    addActionRow(
+                        if (collected) getString(R.string.player_favorite_in_folder, name) else name
+                    ) {
+                        hideAllCards()
+                        toggleFavorite(targetAid, mediaId, collected)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun toggleFavorite(targetAid: Long, mediaId: Long, collected: Boolean) {
+        CenterThreadPool.run {
+            val code: Int = try {
+                if (collected) FavoriteApi.deleteFavorite(targetAid, mediaId)
+                else FavoriteApi.addFavorite(targetAid, mediaId)
+            } catch (e: Exception) {
+                MsgUtil.err(UiText.of("收藏"), e)
+                -1
+            }
+            runOnUiThread {
+                if (destroyed) return@runOnUiThread
+                MsgUtil.showMsg(
+                    getString(
+                        when {
+                            code != 0 -> R.string.player_action_failed
+                            collected -> R.string.player_favorite_cancelled
+                            else -> R.string.player_favorite_done
+                        }
+                    )
+                )
+            }
+        }
+    }
+
+    // ---------- 下载 ----------
+
+    /**
+     * 下载当前这一集：走 [DownloadService] 的后台下载队列，和详情页「下载」按钮完全同一条链路。
+     *
+     * 为什么不用 [DownloadActivity] 那条老的前台链路：它要我们先把 `video_url` / `danmaku_url` 摘到手，
+     * 而这两个地址是带时效签名的 —— 用户可能压根没等到起播就点了，或者地址已经过期；
+     * 后台队列则是自己按 aid/cid 取流、失败能续传、还能在通知栏看到进度，手表上更合适。
+     *
+     * 封面是唯一拿不到的东西：`PlayerApi.jumpToPlayer` 不往播放页塞 `cover`，所以先看 Intent，
+     * 没有就按 aid 补查一次（与 [resolveBvid] 同一口径，只查一次、不落缓存 —— 封面只有下载时用得上）。
+     */
+    private fun startDownloadCurrentVideo() {
+        if (!canUseVideoActions()) return
+        val targetAid = aid
+        val targetCid = cid
+        val parentTitle = playerTitleRaw.ifBlank { "av$targetAid" }
+        val multiPage = hasMultiplePages()
+        val names = pagenames
+        val pageIndex = currentPageIndex
+        val childTitle = if (multiPage && names != null && pageIndex in names.indices) names[pageIndex] else ""
+        // 按当前清晰度入队；没定过清晰度就用设置里的起播默认值，别拿 0 去请求（0 等于「最低」）
+        val qn = if (currentQuality > 0) currentQuality else startupDefaultQn()
+        val cachedCover = intent?.getStringExtra("cover").orEmpty()
+        CenterThreadPool.run {
+            val cover = cachedCover.ifEmpty {
+                try {
+                    VideoInfoApi.getVideoInfo(targetAid)?.cover.orEmpty()
+                } catch (e: Exception) {
+                    Logu.w("Download", "查封面失败: " + e.message)
+                    ""
+                }
+            }
+            if (cover.isEmpty()) {
+                runOnUiThread {
+                    if (!destroyed) MsgUtil.showMsg(getString(R.string.player_download_need_cover))
+                }
+                return@run
+            }
+            if (childTitle.isNotEmpty()) {
+                // 分P/合集：带上父标题，落盘结构与详情页下载的多P目录一致
+                DownloadService.startDownload(parentTitle, childTitle, targetAid, targetCid, cover, qn, "video", "")
+            } else {
+                DownloadService.startDownload(parentTitle, targetAid, targetCid, cover, qn, "video", "")
+            }
+        }
+    }
+
+    // ---------- 上一个 / 下一个 ----------
+
+    /**
+     * 上一个 / 下一个：与耳机线控完全同一条路径（顺序见媒体会话的 onSkipToNext/onSkipToPrevious）。
+     *
+     * 为什么要有按钮：手表上滑动手势容易误触，耳机线控又常被外套挡住；
+     * 把「切集」固定成一个格子，追番/听播单时就不用去找系统播放器控件了。
+     */
+    private fun playNextVideo() {
+        if (playNextFromQueue()) return
+        val names = pagenames
+        if (names != null && hasMultiplePages() && currentPageIndex < names.size - 1) {
+            switchToPage(currentPageIndex + 1)
+            return
+        }
+        MsgUtil.showMsg(getString(R.string.player_switch_no_next))
+    }
+
+    private fun playPreviousVideo() {
+        if (playPreviousFromQueue()) return
+        if (hasMultiplePages() && currentPageIndex > 0) {
+            switchToPage(currentPageIndex - 1)
+            return
+        }
+        MsgUtil.showMsg(getString(R.string.player_switch_no_prev))
+    }
+
+    /** 按设置刷新两个按钮上的文字与无障碍描述（设置页改完步长回来要重算）。 */
+    private fun refreshSeekButtons() {
+        if (!::seek_back_btn.isInitialized || !::seek_forward_btn.isInitialized) return
+        val step = PlayerSeekStepPolicy.load()
+        seek_back_btn.text = PlayerSeekStepPolicy.label(getString(R.string.player_port_seek_label_back), step)
+        seek_forward_btn.text = PlayerSeekStepPolicy.label(getString(R.string.player_port_seek_label_forward), step)
+        seek_back_btn.contentDescription =
+            getString(R.string.setting_player_btn_seek_back) + " " + step + "s"
+        seek_forward_btn.contentDescription =
+            getString(R.string.setting_player_btn_seek_forward) + " " + step + "s"
+    }
+
+    /**
+     * 相对当前位置跳 [deltaSeconds] 秒（负数=快退），自动夹进 `[0, duration]`。
+     *
+     * 时长未知（直播 / 未 prepare）直接不动：夹到 0 或末尾会看起来像「点了没反应」或「莫名跳走」。
+     */
+    private fun seekByStep(deltaSeconds: Int) {
+        val durationMs = ijkPlayer?.duration ?: 0L
+        val target = PlayerJumpTimePolicy.clampMs(
+            PlayerSeekStepPolicy.offsetMs(video_now.toLong(), deltaSeconds),
+            durationMs
+        ) ?: return
+        if (target == video_now.toLong()) return
+        seekToPosition(target, true)
+        Logu.d("±N秒", (if (deltaSeconds < 0) "快退 " else "快进 ") + deltaSeconds + "s → " + target + "ms")
     }
 
     /**
@@ -1922,8 +3076,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_frame", 48)
             ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", 48)
         } else {
-            // 硬解默认值：用户显式设过 player_codec 就听用户的；没设过则按设备档位
-            // （低端机 DeviceProfile.preferSoftwareDecode=true → 默认软解，避免花屏/绿屏）
+            // 硬解默认值：用户显式设过 player_codec 就听用户的，没设过就是硬解。
+            // 26.11.07 曾按设备档位默认软解，真机实测低端机软解 720P 只有 14~17fps，是那一版
+            // 「有些设备放视频卡顿」的根因（详见 hardwareDecodeEnabled 的注释）。
             ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec",
                 if (hardwareDecodeEnabled()) 1 else 0)
             ijkPlayer!!.setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", 48)
@@ -2057,11 +3212,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     /**
      * 私有侧更新「备用片源解析到哪一步了」的提示（26.11.06）。
      *
-     * <p>以前解析进度显示在独立的等待页里；现在解析就在本页载入界面上跑，私有侧通过
-     * [OptionalFeatures.updateThirdPartyResolveHint] 把「正在打开剧集页…」「正在嗅探播放地址…」
-     * 这类文案推过来，用户看到的是播放器自己的载入动画 + 一行状态，不再中途跳页。
+     * <p>以前这段进度显示在独立的等待页里；现在就在本页载入界面上跑，用户看到的是播放器自己的
+     * 载入动画 + 一行状态文案，不再中途跳页。文案由 [OptionalFeatures.updateThirdPartyResolveHint]
+     * 推过来，为空时显示默认的「解析中」。
      */
-    fun updateResolveHint(text: CharSequence?) {
+    override fun showResolveHint(text: CharSequence?) {
+        updateResolveHint(text)
+    }
+
+    private fun updateResolveHint(text: CharSequence?) {
         if (destroyed) return
         runOnUiThread {
             if (destroyed || isFinishing) return@runOnUiThread
@@ -2164,6 +3323,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 ijkPlayer!!.start()
             } else if (auto_next_enabled && hasMultiplePages() && currentPageIndex < pagenames!!.size - 1) {
                 switchToPage(currentPageIndex + 1)
+            } else if (auto_next_enabled && localPlaylist != null && localLayerIndex >= 0) {
+                // 本地文件夹连播：某一项的分P 全放完了 → 弹回根层接着放下一条。
+                // 和在线「合集放完弹回收藏夹」是同一件事，所以同样受自动连播开关管。
+                returnToLocalRoot(advance = true)
             } else if (auto_next_enabled && returnPlaylist != null) {
                 // 合集放完了 → 弹回收藏夹接着放。跟"自动下一P"一样属于自动前进，所以同样受
                 // auto_next_enabled 管；关掉自动播放的用户不该被这里偷偷换掉播放列表。
@@ -2253,13 +3416,19 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     /**
-     * 迁移旧「默认横屏」开关：开 → 横屏，关/未设置 → 竖屏（与升级前的行为一致）。
+     * 新设置项 [SettingsKeys.PLAYER_DEFAULT_ORIENTATION] 还没被写过时，用它算默认方向。
      *
-     * 只在新的 [SettingsKeys.PLAYER_DEFAULT_ORIENTATION] 还没被写过时充当默认值。
+     * 迁移两个旧开关（反馈 #117「内测版无法横屏播放」的成因）：
+     * - `player_autolandscape`：旧「默认横屏」，本来就是为它准备的；
+     * - `ui_landscape`（设置页「横屏模式」）：**旧实现里它会把播放器一起强制横屏**，26.11.x 把
+     *   播放器方向改成自己的一套之后这条被丢掉了 —— 开了「横屏模式」的用户升级后发现播放页
+     *   一律竖屏，于是报「无法横屏播放」。这里在**没有显式选择过**播放方向时把它承接回来
+     *   （显式选择过就以用户的选择为准，不再受全局横屏牵制）。
      */
     private fun defaultOrientationMode(): String =
-        if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_AUTOLANDSCAPE, false))
-            SettingsKeys.PLAYER_DEFAULT_ORIENTATION_LANDSCAPE
+        if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_AUTOLANDSCAPE, false) ||
+            SharedPreferencesUtil.getBoolean(SettingsKeys.UI_LANDSCAPE, false)
+        ) SettingsKeys.PLAYER_DEFAULT_ORIENTATION_LANDSCAPE
         else SettingsKeys.PLAYER_DEFAULT_ORIENTATION_PORTRAIT
 
     /**
@@ -2395,7 +3564,23 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             override fun run() {
                 if (isPrepared && isPlaying && !isSeeking && !destroyed) {
                     // 取不到播放器时保持上次位置，避免进度条突然跳回 0
+                    val previousVideoNow = video_now
                     video_now = ijkPlayer?.currentPosition?.toInt() ?: video_now
+                    // 反馈 #215：缓存视频拖完进度条后"画面自己跳回"。用户拖动走 seekToVideo，会把
+                    // video_now 同步到目标；所以播放器报出来的位置**倒退**只能是播放器自己往回跳
+                    // （解码器重定位、缓存文件索引异常、停下看门狗重建后的续播点）。这条日志会进
+                    // 崩溃报告带的内存日志缓冲，用户下次带日志反馈就能直接定案。
+                    if (video_now < previousVideoNow - POSITION_BACKJUMP_ALERT_MS) {
+                        val backjumpNow = android.os.SystemClock.elapsedRealtime()
+                        if (backjumpNow - positionBackjumpLogMs >= POSITION_BACKJUMP_LOG_INTERVAL_MS) {
+                            positionBackjumpLogMs = backjumpNow
+                            Logu.w(
+                                "播放位置回跳",
+                                "从 " + previousVideoNow + "ms 退到 " + video_now + "ms"
+                                    + "（playerError=" + playerError + " 本地=" + !isOnlineVideo + "）"
+                            )
+                        }
+                    }
                     // #41：每轮都校正一次外挂音轨的播放/暂停状态（静音即暂停）。
                     // 幂等且只在状态不一致时动手，250ms 一次的开销可以忽略。
                     syncExternalAudioPlayback()
@@ -2451,6 +3636,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                             text_online.text = online_number
                         } else {
                             seekbar_progress.progress = video_now
+                            newPlayerUi?.syncProgress()
                         }
                         if (subtitles == null) text_subtitle.visibility = View.GONE
 
@@ -2459,6 +3645,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                         }
                         // 复用同一个 250ms 主线程定时器做片头/片尾判定，不另起 Timer
                         maybeAutoSkipOpEd(currSec.toDouble())
+                        // SponsorBlock 同理（广告片段是另一个数据源，判定与片头片尾完全分开）
+                        maybeAutoSkipSponsor(currSec.toDouble())
                         if (subtitles != null) showSubtitle(currSec + subtitle_delta)
 
                         // 只在整秒变化时上报，避免每 250ms 一次 MediaSession Binder IPC
@@ -2610,6 +3798,27 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     /**
+     * 这个目录是不是落在**别的分支的缓存根**里（缓存页的「外部」来源，见 LocalVideo.externalRoot）。
+     *
+     * 条目级只读标记（[externalReadOnly]）挡不住混合来源的合集：反馈 #217 里同一部番剧一半集在
+     * 本机根、一半在改存储位置之前的旧根，条目本身不再整体算「外部」，于是每 15 秒就往别人数据里
+     * 写一次续播位置。这里按**这一页实际落在哪**判断：在本机根下就允许写，否则看它是不是某个
+     * 外部候选根。
+     */
+    private fun isUnderExternalCacheRoot(dir: File): Boolean {
+        val ownRoot = FileUtil.getVideoDownloadPath().absolutePath
+        val path = dir.absolutePath
+        // 本机根优先：候选根是「Android/media/任意包名下的子目录」，本机根嵌套在其中很常见，
+        // 不先判本机根会把能写的页也判成只读
+        if (CachePathResolver.isUnderRoot(ownRoot, path)) return false
+        val roots = externalCacheRootPaths ?: ExternalCacheRoots
+            .candidateRoots(File(ownRoot))
+            .map { it.absolutePath }
+            .also { externalCacheRootPaths = it }
+        return roots.any { CachePathResolver.isUnderRoot(it, path) }
+    }
+
+    /**
      * 把本地视频当前播放位置写进它所在目录的 `.video_meta.json`。
      *
      * 本地视频没有服务端历史可上报（[maybeReportProgress] 的第一行就把它们挡掉了），
@@ -2624,9 +3833,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      */
     private fun saveLocalProgressNow(reason: String) {
         if (isOnlineVideo || isLiveMode) return
+        // 外部只读来源（别的分支的目录）：读可以，写就是动别人的数据
+        if (externalReadOnly) return
         // 还没 prepare 完就退出时 video_now 还是 0，写下去会把已有的续播位置清掉
         if (destroyed || !isPrepared) return
         val dir = localMediaDir ?: return
+        // 混合来源的合集（反馈 #217）：条目本身不再整体算「外部」，但外部分支那几页同样写不得
+        if (isUnderExternalCacheRoot(dir)) return
         // 同理：刚进页面还没播就退出（位置 0）不该覆盖上次看到的位置
         if (!finishWatching && video_now <= 0) return
         val durationMs = video_all.toLong()
@@ -2686,6 +3899,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         return true
     }
 
+    /**
+     * 进度上报连续失败的次数。
+     *
+     * 只用来给日志降噪：弱网下每 20 秒失败一次，前几次按 warn 记，之后降到 debug。
+     * 上报失败不影响观看，所以不再弹窗（26.11.21 反馈）。
+     */
+    @Volatile
+    private var progressReportFailCount = 0
+
     /** 上报的前置检查：aid/cid 有没有、以及当前到底登没登录。 */
     private fun canReportProgress(): Boolean {
         if (aid == 0L || cid == 0L) return false
@@ -2724,8 +3946,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 } else {
                     HistoryApi.reportHistory(fAid, fCid, progressSec)
                 }
+                progressReportFailCount = 0
             } catch (e: Exception) {
-                MsgUtil.err(UiText.of("进度上报："), e)
+                // 不弹窗：上报只是记录观看进度，失败不该打断观看。原实现每次失败都 MsgUtil.err，
+                // 弱网下就成了「视频照放、弹窗一直弹」的那条反馈（26.11.21）。
+                progressReportFailCount++
+                if (progressReportFailCount <= 3) {
+                    Logu.w("进度上报", "失败：" + e.message)
+                } else {
+                    Logu.d("进度上报", "仍失败（第 " + progressReportFailCount + " 次）：" + e.message)
+                }
             }
         }
     }
@@ -2762,10 +3992,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
     private fun getSubtitle(subtitleUrl: String) {
         if (subtitleUrl.isEmpty()) return
+        val token = subtitleLoadToken.incrementAndGet()
         try {
-            subtitles = if (isOnlineVideo) PlayerApi.getSubtitle(subtitleUrl)
+            val loaded = if (isOnlineVideo) PlayerApi.getSubtitle(subtitleUrl)
             else PlayerApi.getSubtitle(File(subtitleUrl))
 
+            // 拉取期间用户可能已经选了「不显示字幕」或换了别的轨：这时的结果必须丢掉，
+            // 否则晚回来的旧请求会把刚关掉的字幕又打开（反馈 #202）
+            if (token != subtitleLoadToken.get()) return
+
+            subtitles = loaded
             if (subtitles == null) return
 
             subtitle_count = subtitles!!.size
@@ -2852,6 +4088,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      * 三个调用点原本都跑在 `CenterThreadPool` 后台线程里，这里不做线程切换。
      */
     private fun maybeAutoSubtitle() {
+        // 用户在这一P里已经选了「不显示字幕」：换画质/换线路会再走一遍这里，不能再自动打开（反馈 #202）
+        if (subtitleUserOff) return
         val mode = SharedPreferencesUtil.getString(
             SettingsKeys.PLAYER_DEFAULT_SUBTITLE, SettingsKeys.PLAYER_DEFAULT_SUBTITLE_MANUAL
         )
@@ -2872,7 +4110,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun downSubtitle(fromBtn: Boolean, autoChinese: Boolean = false) {
         // 第三方源直链播放（没有 aid/cid）在 B 站没有对应视频，字幕接口只会返回没有 data 的响应，
         // 进而抛 JSONException 弹「数据解析错误」——这种场景直接跳过，本地文件字幕仍走下面的 File 分支。
-        if (isOnlineVideo && (aid <= 0L || cid <= 0L)) return
+        if (isOnlineVideo && (aid <= 0L || cid <= 0L)) {
+            // 按钮已按 [canUseSubtitle] 藏起来，这里只兜底：新版界面被用户摆到槽位、或状态切换瞬间点到的，要有反馈
+            if (fromBtn) MsgUtil.showMsg(UiText.of("本视频无字幕"))
+            return
+        }
         try {
             if (subtitleLinks == null) {
                 subtitleLinks = if (isOnlineVideo) PlayerApi.getSubtitleLinks(aid, cid)
@@ -2911,14 +4153,33 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     adapter.setOnItemClickListener { index ->
                         layout_card_bg.visibility = View.GONE
                         card_subtitle.visibility = View.GONE
+                        // 26.11.16 崩溃 #352（ArrayIndexOutOfBoundsException: length=2, index=2）：
+                        // 选择框是异步弹出来的，弹窗还挂着的时候切 P / 换视频，subtitleLinks 会被换成
+                        // 更短的数组、或直接置 null（见本文件置 null 的两处），此时回调里再解引用就崩。
+                        // 用弹窗那一刻的列表快照，并对 index 再核一次边界；不匹配就当这次点击作废。
+                        val links = subtitleLinks
+                        if (links == null || index < 0 || index >= links.size) {
+                            return@setOnItemClickListener
+                        }
                         subtitle_selected = index
 
-                        if (subtitleLinks!![index].id == -1L) {
+                        if (links[index].id == -1L) {
+                            // 「不显示字幕」：除了清数据，还要把已经在屏幕上的那行立刻抹掉。
+                            // 250ms 定时器只在播放进度变化时才跑（暂停时 video_now 不变），
+                            // 所以以前暂停着选「不显示」会一直挂着最后一句字幕（反馈 #202）
                             subtitles = null
+                            subtitle_count = 0
                             subtitle_shown_index = -1
+                            text_subtitle.visibility = View.GONE
+                            // 记住「用户自己关的」，换画质/换线路不要再自动开回来；
+                            // 同时作废还在路上的字幕请求，避免它回来把字幕塞回去
+                            subtitleUserOff = true
+                            subtitleLoadToken.incrementAndGet()
                             btn_subtitle.setImageResource(R.mipmap.subtitle_off)
-                        } else
-                            CenterThreadPool.run { getSubtitle(subtitleLinks!![index].url) }
+                        } else {
+                            subtitleUserOff = false
+                            CenterThreadPool.run { getSubtitle(links[index].url) }
+                        }
                     }
                     subtitleRecycler.layoutManager = CustomLinearManager(this, LinearLayoutManager.HORIZONTAL, false)
                     subtitleRecycler.setHasFixedSize(true)
@@ -2942,30 +4203,55 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         else downdanmuOld()
     }
 
+    /** 弹幕重试已经失败的次数与它对应的 cid（换视频就重新计数）。 */
+    private var danmakuRetryCount = 0
+    private var danmakuRetryCid = 0L
+
+    private val danmakuRetryRunnable = Runnable {
+        if (destroyed) return@Runnable
+        // 换了分P/换了视频，这次重试已经没有意义（新的一轮会自己拉）
+        if (danmakuRetryCid != cid) return@Runnable
+        Logu.d("弹幕", "第 " + danmakuRetryCount + " 次重试拉取弹幕")
+        CenterThreadPool.run { loadDanmakuWithGuard() }
+    }
+
+    /**
+     * 弹幕整条链路都失败后按固定间隔再试几次。
+     *
+     * 26.11.21 反馈：弱网时弹幕会一直失败并反复弹「网络错误」，但网络一恢复其实就没问题了。
+     * 这里把「失败」从弹窗改成静默重试；重试上限见 [DANMAKU_RETRY_LIMIT]。
+     */
+    private fun scheduleDanmakuRetry() {
+        if (danmakuRetryCid != cid) {
+            danmakuRetryCid = cid
+            danmakuRetryCount = 0
+        }
+        if (!hasDanmaku) return
+        if (danmakuRetryCount >= DANMAKU_RETRY_LIMIT) {
+            Logu.w("弹幕", "重试 " + DANMAKU_RETRY_LIMIT + " 次仍失败，不再自动重试")
+            return
+        }
+        danmakuRetryCount++
+        mainHandler?.let {
+            it.removeCallbacks(danmakuRetryRunnable)
+            it.postDelayed(danmakuRetryRunnable, DANMAKU_RETRY_DELAY_MS)
+        }
+    }
+
     private fun downdanmuOld() {
         try {
-            // use{} 保证 createNewFile()/sink() 抛异常提前跳出时连接也归还
-            NetWorkUtil.get(danmaku_url, NetWorkUtil.webHeaders).use { response ->
-                var bufferedSink: BufferedSink? = null
-                try {
-                    if (!danmakuFile!!.exists()) danmakuFile!!.createNewFile()
-                    val sink = danmakuFile!!.sink()
-                    val decompressBytes = NetWorkUtil.decompress(response.body!!.bytes())
-                    bufferedSink = sink.buffer()
-                    bufferedSink!!.write(decompressBytes)
-                    bufferedSink!!.close()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                } finally {
-                    bufferedSink?.close()
-                }
-            }
+            // 统一走 DanmakuFileFetcher：非 2xx（B 站 CDN 的 404/412 错误页）直接抛 IOException，
+            // 不再把错误页当弹幕正文写进 danmaku.xml（调研清单第 1 条，原实现漏判状态码）
+            DanmakuFileFetcher.fetchToFile(danmaku_url, danmakuFile!!, NetWorkUtil.webHeaders)
             // 旧接口没有「先查总数」的轻量查询，只能对刚落盘的 XML 做流式计数：
             // 超阈值立即停（DanmakuXmlCounter），命中保护就不再把整份 XML 交给 DFM。
             if (applyXmlDanmakuGuard()) return
             prepareDanmaku { it.loadFromXmlFile(danmakuFile!!.toString()) }
         } catch (e: Exception) {
-            runOnUiThread { MsgUtil.err(e) }
+            // 不再弹窗（26.11.21 反馈）：弹幕拿不到不影响看视频，弹窗只会盖住画面。
+            // 记日志 + 后台重试，真拿不到时画面上就是没有弹幕，比反复弹窗清楚。
+            Logu.w("弹幕", "旧版弹幕获取失败：" + e.message)
+            scheduleDanmakuRetry()
         }
     }
 
@@ -3003,8 +4289,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             }
         } catch (e: Exception) {
             e.printStackTrace()
+            // 回退是自动的，不必再弹 toast 打扰（26.11.21 反馈）；旧版接口若也失败会自己排重试。
             Logu.e("新版弹幕", "获取失败: " + e.message + "，回退到旧版接口")
-            runOnUiThread { MsgUtil.toast(UiText.of("新版弹幕获取失败，使用旧版接口")) }
             CenterThreadPool.run { downdanmuOld() }
         }
     }
@@ -3161,6 +4447,28 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     /** 重新绑定弹幕视图与弹幕管理器（弹幕视图在切分页/切互动分支后会重新取一次引用）。 */
+    /**
+     * 把弹幕视口收进视频画面（仅新版播放器）。弹幕按容器尺寸分配轨道，
+     * 缩到画面大小后它就不会滚过顶栏与底栏了。
+     *
+     * 收的是 [R.id.danmaku_container] 而不是 DanmakuView 本身：DanmakuView 是普通 View，
+     * 根布局又是 clipChildren=false，滚出画布的弹幕会被画到自身 bounds 之外（画面左右黑边上
+     * 能看到半条弹幕）。给容器设画面尺寸 + clipChildren=true，裁剪就落在容器上。
+     */
+    private fun applyNewUiDanmakuViewport() {
+        if (newPlayerUi == null) return
+        if (!::layout_video.isInitialized) return
+        val container = findViewById<View>(R.id.danmaku_container) ?: return
+        val width = layout_video.width
+        val height = layout_video.height
+        if (width <= 0 || height <= 0) return
+        val params = container.layoutParams
+        if (params != null && params.width == width && params.height == height) return
+        container.layoutParams = RelativeLayout.LayoutParams(width, height).apply {
+            addRule(RelativeLayout.CENTER_IN_PARENT, RelativeLayout.TRUE)
+        }
+    }
+
     private fun bindDanmakuView() {
         mDanmakuView = findViewById(R.id.sv_danmaku)
         danmakuManager = DanmakuManager(mDanmakuView!!, isLiveMode).also { manager ->
@@ -3183,6 +4491,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         danmakuStreamLoader = DanmakuStreamLoader().also {
             it.setLoadPolicy(if (thirdPartyDanmaku) null else danmakuLoadPolicy)
         }
+        // 弹幕关闭再打开会重建视图，视口要重新收进画面（onCreate 时布局还没算完）
+        if (::layout_video.isInitialized) layout_video.post { applyNewUiDanmakuViewport() }
     }
 
     /** 释放弹幕视图与管理器。 */
@@ -3487,6 +4797,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     /** 落盘当前百分比。拖动过程中不写，松手/关闭面板时各写一次。 */
     private fun persistVolumeGain() {
         SharedPreferencesUtil.putInt(PlayerVolumePolicy.KEY_GAIN_PERCENT, volumeGainPercent)
+        audioDiagLog("gain-saved")
     }
 
     /**
@@ -3527,13 +4838,26 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      * 所以尺寸计算必须走 [PlayerScreenMetricsPolicy.screenSize]（真旋转时**不能**再互换，
      * 那种情况 `DisplayMetrics` 本身已经是横屏值）。
      */
+    /**
+     * 「显示方式」设置现在是否要求用 TextureView。
+     *
+     * 存档是**字符串**（设置页「显示方式」按字符串写 `"TextureView"` / `"SurfaceView"`），
+     * 以前这里按布尔读，`SharedPreferencesUtil` 把类型转换异常吞成默认值，于是这个开关从来没生效过。
+     * 取值口径统一在 [PlayerDisplayModePolicy] 里（纯函数、有单测）。
+     */
+    private fun usesTextureView(): Boolean =
+        PlayerDisplayModePolicy.useTextureView(
+            SharedPreferencesUtil.getString(SettingsKeys.PLAYER_DISPLAY, ""),
+            Build.VERSION.SDK_INT
+        )
+
     private fun softwareRotate() {
         refreshScreenMetrics(swapIfSoftwareLandscape = true)
 
         if (isPrepared && !destroyed)
             runOnUiThread {
                 applySoftwareRotationLayout()
-                if (!SharedPreferencesUtil.getBoolean("player_display", Build.VERSION.SDK_INT < 26))
+                if (!usesTextureView())
                     MsgUtil.showMsg(UiText.of("请切换为TextureView才能支持软件旋屏！"))
             }
         changeVideoSize()
@@ -3614,29 +4938,181 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun isVideoZoomed(): Boolean =
         PlayerZoomPolicy.isZoomed(layout_video.scaleX, layout_video.scaleY)
 
-    private fun videoMoveBy(dx: Float, dy: Float) {
-        var x = dx + layout_video.x
-        var y = dy + layout_video.y
+    // ==================== 缩放诊断（反馈 #128 / #102） ====================
+    // 观测代码只在这里和触摸链的几个 if 里，判读与拼装全在 PlayerZoomDiagnostics（纯函数、有单测）。
+    // 开关没开时这些函数连字符串都不拼，只有一次 SharedPreferences 读取。
 
-        val widthDelta = 0.5f * video_width * (layout_video.scaleX - 1f)
-        val heightDelta = 0.5f * video_height * (layout_video.scaleY - 1f)
-        val videoXMin = video_origX - widthDelta
-        val videoXMax = video_origX + widthDelta
-        val videoYMin = video_origY - heightDelta
-        val videoYMax = video_origY + heightDelta
+    /** 诊断开关：沿用「互动视频调试」，不新造开关。 */
+    private fun zoomDiagOn(): Boolean =
+        SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_INTERACTION_DEBUG, false)
 
-        if (x < videoXMin) x = videoXMin
-        if (x > videoXMax) x = videoXMax
-        if (y < videoYMin) y = videoYMin
-        if (y > videoYMax) y = videoYMax
+    private fun zoomDiagVisibility(view: View): String = when (view.visibility) {
+        View.VISIBLE -> "VISIBLE"
+        View.GONE -> "GONE"
+        View.INVISIBLE -> "INVISIBLE"
+        else -> "UNKNOWN(${view.visibility})"
+    }
+
+    /** 设置里的存档值。显示方式取**原始字符串**：播放器读它用的是布尔，两者对不上时要看得见。 */
+    private fun zoomDiagSaved(): PlayerZoomDiagnostics.Saved =
+        PlayerZoomDiagnostics.Saved(
+            scaleEnabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SCALE, true),
+            displayValue = SharedPreferencesUtil.getString(SettingsKeys.PLAYER_DISPLAY, ""),
+            doubleMoveEnabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_DOUBLEMOVE, true),
+        )
+
+    private fun zoomDiagSnapshot(): PlayerZoomDiagnostics.Snapshot =
+        PlayerZoomDiagnostics.Snapshot(
+            detectorCreated = scaleGestureDetector != null,
+            audioOnly = isAudioOnlyMode,
+            locked = PlayerLockPolicy.isLocked(lockPhase),
+            videoVisibility = zoomDiagVisibility(layout_video),
+            controlVisibility = zoomDiagVisibility(layout_control),
+            zoomed = isVideoZoomed(),
+            scaleX = layout_video.scaleX,
+            scaleY = layout_video.scaleY,
+            scaleBeginCount = scaleGestureListener?.diagBeginCount ?: 0,
+            scaleCount = scaleGestureListener?.diagScaleCount ?: 0,
+            scaleEndCount = scaleGestureListener?.diagEndCount ?: 0,
+            scaleIgnoredCount = scaleGestureListener?.diagIgnoredByGoneCount ?: 0,
+            branch = zoomDiagBranch,
+            swallowedBy = zoomDiagSwallowedBy,
+        )
+
+    /** 每轮手势开始：清上一轮的分支与计数器，留一份快照给设置页的「复制诊断信息」。 */
+    private fun zoomDiagOnGestureDown() {
+        zoomDiagBranch = PlayerTouchBranch.NONE
+        zoomDiagSwallowedBy = null
+        zoomDiagLastMoveLogAt = 0L
+        scaleGestureListener?.resetDiagCounters()
+        val snapshot = zoomDiagSnapshot()
+        PlayerZoomLastSnapshot.last = snapshot
+        Logu.i("zoom_diag", PlayerZoomDiagnostics.downLine(zoomDiagSaved(), snapshot))
+    }
+
+    /** MOVE 按 800ms 节流：一次拖动只留几条，不刷屏。 */
+    private fun zoomDiagLogMove() {
+        if (!zoomDiagOn()) return
+        val now = System.currentTimeMillis()
+        if (zoomDiagLastMoveLogAt != 0L && now - zoomDiagLastMoveLogAt < zoomDiagMoveLogIntervalMs) return
+        zoomDiagLastMoveLogAt = now
+        Logu.i("zoom_diag", PlayerZoomDiagnostics.moveLine(zoomDiagSnapshot()))
+    }
+
+    /** 每轮手势结束只打一条摘要，并刷新给设置页读的快照。 */
+    private fun zoomDiagOnGestureEnd() {
+        val snapshot = zoomDiagSnapshot()
+        PlayerZoomLastSnapshot.last = snapshot
+        Logu.i("zoom_diag", PlayerZoomDiagnostics.summaryLine(zoomDiagSaved(), snapshot))
+        zoomDiagBranch = PlayerTouchBranch.NONE
+        zoomDiagSwallowedBy = null
+    }
+
+    /**
+     * 状态变化（切听视频、锁屏、控件显隐）留痕：只在关键字段真的变了时打一条，
+     * 免得每个事件都刷一行。
+     */
+    private fun zoomDiagTraceState(reason: String) {
+        if (!zoomDiagOn()) return
+        val snapshot = zoomDiagSnapshot()
+        val key = "${snapshot.audioOnly}|${snapshot.locked}|${snapshot.videoVisibility}|" +
+            "${snapshot.controlVisibility}|${snapshot.detectorCreated}"
+        if (key == zoomDiagLastStateKey) return
+        zoomDiagLastStateKey = key
+        PlayerZoomLastSnapshot.last = snapshot
+        Logu.i(
+            "zoom_diag",
+            "[zoom] STATE $reason ${PlayerZoomDiagnostics.fieldLine(snapshot)} | " +
+                PlayerZoomDiagnostics.savedLine(zoomDiagSaved())
+        )
+    }
+
+    // ==================== 音频输出诊断（反馈 #182） ====================
+    // 「仅音频模式连蓝牙，音量只有别家一半」在代码里找不到成因：软件增益默认 100%
+    // （PlayerVolumePolicy.DEFAULT_PERCENT），音量键走的是系统 STREAM_MUSIC，外挂音轨用的同一增益。
+    // 剩下的只可能在系统音量档位、蓝牙绝对音量、音频焦点这几层，都只能现场读。
+    // 开关沿用「互动视频调试」，与缩放诊断同一把，关掉时连快照都不读（见 audioDiagLog）。
+
+    private fun audioDiagOn(): Boolean =
+        SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_INTERACTION_DEBUG, false)
+
+    /** 读输出设备类型；API 23 以下没有 getDevices，给空表（诊断行里显示成 —）。 */
+    private fun audioDiagOutputTypes(): List<Int> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return emptyList()
+        return try {
+            val manager = audioManager ?: return emptyList()
+            manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { it.type }
+        } catch (e: Exception) {
+            // 个别 ROM 的 AudioManager 会抛异常，读不到就记一条，不能影响播放
+            Logu.w("audio_diag", "读取输出设备失败：${e.message}")
+            emptyList()
+        }
+    }
+
+    private fun audioDiagSnapshot(): PlayerAudioDiagnostics.Snapshot {
+        val systemVolume = try {
+            audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: -1
+        } catch (e: Exception) {
+            -1
+        }
+        val systemVolumeMax = try {
+            audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: -1
+        } catch (e: Exception) {
+            -1
+        }
+        return PlayerAudioDiagnostics.Snapshot(
+            gainPercent = volumeGainPercent,
+            systemVolume = systemVolume,
+            systemVolumeMax = systemVolumeMax,
+            audioFocus = hasAudioFocus,
+            audioOnly = isAudioOnlyMode,
+            externalTrack = audioPlayer != null,
+            outputTypes = audioDiagOutputTypes(),
+        )
+    }
+
+    /** 打一条音频现场。开关没开时一次 SharedPreferences 读取就返回。 */
+    private fun audioDiagLog(reason: String) {
+        if (!audioDiagOn()) return
+        try {
+            Logu.i("audio_diag", PlayerAudioDiagnostics.line(reason, audioDiagSnapshot()))
+        } catch (e: Exception) {
+            Logu.w("audio_diag", "音频诊断记录失败：${e.message}")
+        }
+    }
+
+    /**
+     * 把画面按 [dx]/[dy] 移动，并夹回「放大后多出来的那部分」以内（边界算法见
+     * [PlayerZoomPolicy.offsetLimit]）。
+     *
+     * [trackGesture] 传 false 时只夹取、不置 [gesture_moved]：缩放过程中边界会跟着变，
+     * 需要重新夹一次，但那不是用户在拖画面。
+     */
+    private fun videoMoveBy(dx: Float, dy: Float, trackGesture: Boolean = true) {
+        val xLimit = PlayerZoomPolicy.offsetLimit(video_width, layout_video.scaleX)
+        val yLimit = PlayerZoomPolicy.offsetLimit(video_height, layout_video.scaleY)
+        val x = PlayerZoomPolicy.clampOffset(dx + layout_video.x, video_origX, xLimit)
+        val y = PlayerZoomPolicy.clampOffset(dy + layout_video.y, video_origY, yLimit)
 
         if (layout_video.x != x || layout_video.y != y) {
             layout_video.x = x
             layout_video.y = y
-            if (!gesture_moved && (abs(video_origX - x) > 5f || abs(video_origY - y) > 5f)) {
+            if (trackGesture && !gesture_moved &&
+                (abs(video_origX - x) > 5f || abs(video_origY - y) > 5f)
+            ) {
                 gesture_moved = true
             }
         }
+    }
+
+    /**
+     * 缩放比例变化后重新夹一次位移。
+     *
+     * 缩回 1 倍时边界半径是 0，画面会被拉回正中——这正是 26.11.21 反馈里「能把画面缩到屏幕外/
+     * 缩得很小」的那条：原边界算法只在拖动时算一次，缩小之后没人再夹。
+     */
+    private fun clampVideoOffset() {
+        videoMoveBy(0f, 0f, trackGesture = false)
     }
 
     private fun playerPause() {
@@ -3713,6 +5189,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     private fun handleAudioFocusChange(change: Int) {
         if (!AudioFocusPolicy.shouldPause(change)) return
         hasAudioFocus = false
+        audioDiagLog("focus-loss")
         runOnUiThread {
             if (destroyed || isFinishing) return@runOnUiThread
             if (isPlaying) playerPause()
@@ -3740,6 +5217,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         screen_width = displayMetrics.widthPixels
         screen_height = displayMetrics.heightPixels
         changeVideoSize()
+
+        // 新版控制层的所有落点都锚在屏幕边缘（距底 58 / 28 / 8），屏幕一转向这些值就全变了。
+        // 不在这里重排的话，竖屏时按 800+dp 高度算出来的底栏在横屏（380dp）下会整体落到屏幕外——
+        // 实测横屏下进度行在 y≈680dp、整个 overlay 只剩上半截可见。老版走 XML 布局自适应，不需要。
+        newPlayerUi?.let {
+            findViewById<View>(R.id.root_layout)?.post { applyPlayerButtonLayout() }
+        }
 
         Logu.v("旋转屏幕结束")
     }
@@ -3785,6 +5269,57 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (!isLiveMode && isPrepared) outState.putInt(STATE_POSITION, video_now)
     }
 
+    /**
+     * 起「影子对齐 / 空组格刷新」定时器；没有影子也没有组格就什么都不挂。
+     *
+     * 从前是 onResume 无条件挂 400ms 轮询：只摆了一份按钮的机器上影子集合是空的，
+     * 每次唤醒都在空转。现在只在真有影子或组格（空组格要动态显隐）时才有定时器，
+     * 布局变了（[applyPlayerButtonLayout]）也会重新判断一次。
+     */
+    private fun startMirrorSync() {
+        mirrorSyncTimer?.let { mainHandler?.removeCallbacks(it) }
+        mirrorSyncTimer = null
+        if (newPlayerUi == null && buttonSlots?.hasMirrors() != true && buttonSlots?.hasGroups() != true) return
+        mirrorSyncTimer = object : Runnable {
+            override fun run() {
+                buttonSlots?.syncMirrors()
+                newPlayerUi?.sync()
+                mainHandler?.postDelayed(this, MIRROR_SYNC_INTERVAL_MS)
+            }
+        }.also { mainHandler?.postDelayed(it, MIRROR_SYNC_INTERVAL_MS) }
+    }
+
+    /**
+     * 缩放的兜底入口（反馈 #184 / #128 / #102）。
+     *
+     * 手势判定原本只挂在 `layout_control` 的 OnTouchListener 上，而 View 的 OnTouchListener 只有
+     * 在「这一串事件由它自己处理」时才会被调用——第一根手指只要落在按钮、进度条、横向滚动区
+     * 这些可点击子视图上，监听器整串都收不到，两根手指都按在屏幕上也不会被认成捏合。手表屏小、
+     * 底部按钮区占比大，于是表现成「有时完全没反应，换个位置捏又能用」。
+     *
+     * 这里在 Activity 层补一次投喂：凡是没被上面的监听器喂过的事件都补喂给 detector，保证手势层
+     * 能看到完整的多指序列。卡片打开时（[layout_card_bg] 的遮罩）不补喂，免得捏合穿透到视频上。
+     */
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        scaleFedByControlListener = false
+        val handled = super.dispatchTouchEvent(ev)
+        val cardOpen = ::layout_card_bg.isInitialized && layout_card_bg.visibility == View.VISIBLE
+        // 锁定态不补喂（26.11.21 反馈：锁屏后仍能缩放）。遮罩把 layout_control 藏起来以后，
+        // 兜底投喂原样把双指事件交给 detector，等于绕过锁定；锁定的约定是「只留一个解锁图标」。
+        val locked = PlayerLockPolicy.isLocked(lockPhase)
+        if (!cardOpen && !locked) {
+            val detector = scaleGestureDetector
+            if (detector != null && !scaleFedByControlListener) {
+                detector.onTouchEvent(ev)
+            } else if (detector == null && ev.pointerCount >= 2 && !scaleOffHintShown) {
+                // 缩放开关关着时手势层根本没建，捏合完全没反应也没有任何提示，这里补一条说明。
+                scaleOffHintShown = true
+                MsgUtil.showMsg(getString(R.string.player_scale_off_hint))
+            }
+        }
+        return handled
+    }
+
     override fun onPause() {
         super.onPause()
         Logu.v("onPause")
@@ -3811,6 +5346,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     override fun onResume() {
         super.onResume()
         Logu.v("onResume")
+        // 沉浸式全屏：从设置页 /「关于」等页面回来时系统栏可能已经重新出现，这里按开关状态再压一次；
+        // 开关刚被关掉时这一步也负责把导航栏放回来。
+        ImmersiveMode.apply(this)
         // 回到前台后通知栏遥控没有存在意义，服务持有的弱引用也不再需要
         PlaybackService.stop(this)
         // 设置页里改完「字幕字号大小」返回播放页立即生效。
@@ -3818,14 +5356,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (::text_subtitle.isInitialized) applySubtitleTextSize()
         // 设置页里改完按钮布局返回播放页立即生效（不这样就得重启播放页）
         if (::button_pool.isInitialized) applyPlayerButtonLayout()
-        // 同一个按钮放多份时，影子要跟真身的状态走；回到前台就开始定时对齐
-        mirrorSyncTimer?.let { mainHandler?.removeCallbacks(it) }
-        mirrorSyncTimer = object : Runnable {
-            override fun run() {
-                buttonSlots?.syncMirrors()
-                mainHandler?.postDelayed(this, MIRROR_SYNC_INTERVAL_MS)
-            }
-        }.also { mainHandler?.postDelayed(it, MIRROR_SYNC_INTERVAL_MS) }
+        // 设置页里改完「快退/快进步长」返回播放页立即生效：按钮上的文字就是步长
+        if (::seek_back_btn.isInitialized) refreshSeekButtons()
+        // 同一个按钮放多份时，影子要跟真身的状态走；回到前台就开始定时对齐（没有影子就不挂）
+        startMirrorSync()
         // #31：回前台重新应用画面尺寸/比例/旋转。载入中切后台再回来时，Surface 重建、
         // 窗口几何也可能已经变了，而画面区域是手算出来的（不随布局自适应），不重算就会歪。
         // 只重排布局，不动播放状态——后台播放、MediaSession、切清晰度都不受影响。
@@ -3874,6 +5408,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         destroyed = true
         // 锁定按钮自动隐去的延时任务要撤掉，别在 Activity 销毁后再去动 View
         mainHandler?.removeCallbacks(hideLockIcon)
+        // 弹幕重试同理：销毁后再拉一次只会在已释放的弹幕视图上落地
+        mainHandler?.removeCallbacks(danmakuRetryRunnable)
+        // 睡眠定时的任务同理：留着会在页面销毁后调 playerPause() 去碰已释放的播放器
+        cancelSleepTimer()
 
         // 无论哪种退出原因（用户返回、被系统回收、后台通知里点"关闭"），
         // 后台播放服务与它的常驻通知都不能留存。
@@ -3888,10 +5426,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         surfaceBinder = null
 
         releaseDanmaku()
-        ijkPlayer?.release()
+        // 反馈 #117：ijkPlayer.release() 会等在 native 层收尾（部分片源/机型上很慢），留在主线程
+        // 就是把 ANR 风险挂在销毁链上——用户点退出后画面卡住、最后被系统判 ANR。搬到短命后台线程，
+        // 主线程不等它：页面已经销毁，释放结果没人要；线程只持有播放器实例本身，跑完即退，
+        // 不引用 Activity，所以不会把已销毁的页面吊在内存里（无新泄漏）。
+        val playerToRelease = ijkPlayer
         ijkPlayer = null
+        releaseIjkPlayerAsync(playerToRelease)
         releaseAudioTrack()
-
+        // 页面没了就不再「正在播放」：缓存页可以照常重封装这个目录了（见 CacheAudioRepair）
+        CacheAudioRepair.setPlayingDir(null)
         if (isOnlineVideo && danmakuFile != null && danmakuFile!!.exists())
             danmakuFile!!.delete()
 
@@ -3923,6 +5467,26 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         }
 
         super.onDestroy()
+    }
+
+    /**
+     * 在后台线程释放播放器，主线程不等（反馈 #117）。
+     *
+     * 用独立 Thread 而不是 `CenterThreadPool`：退出时线程池里可能排着一串网络请求，
+     * 播放器的 native 资源会迟迟不释放；这里要的是「立刻开始释放」。
+     * 线程体内只捕获 `player` 本身，不捕获 `this`，跑完即退。
+     */
+    private fun releaseIjkPlayerAsync(player: IjkMediaPlayer?) {
+        if (player == null) return
+        Thread({
+            try {
+                player.release()
+                Logu.v("播放器", "后台释放播放器完成")
+            } catch (t: Throwable) {
+                // 已销毁的播放器在 native 层抛异常不奇怪，别让线程带着异常死掉、也别外传
+                Logu.e("播放器", "后台释放播放器失败：${t.message}")
+            }
+        }, "ijk-player-release").start()
     }
 
     private fun cancelAllTimers() {
@@ -4181,7 +5745,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         btn_rotate.visibility = View.VISIBLE
 
         screen_round = SharedPreferencesUtil.getBoolean("player_ui_round", false)
-        if (screen_round) {
+        if (screen_round && !PlayerUiSwitch.isNewUiEnabled()) {
             val padding = (screen_width * 0.03).toInt()
 
             val progressParams = seekbar_progress.layoutParams as LinearLayout.LayoutParams
@@ -4196,9 +5760,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
             right_control.setPadding(0, 0, padding, 0)
 
-            val danmakuParams = mDanmakuView!!.layoutParams as RelativeLayout.LayoutParams
-            danmakuParams.setMargins(0, padding * 3, 0, padding * 3)
-            mDanmakuView!!.layoutParams = danmakuParams
+            // 新版把 DanmakuView 包进了 danmaku_container（FrameLayout），这里只能用 MarginLayoutParams：
+            // 强转 RelativeLayout.LayoutParams 会在手机/旧版共存路径上抛 ClassCastException（26.11.19 真机崩溃）。
+            val danmakuParams = mDanmakuView!!.layoutParams as? ViewGroup.MarginLayoutParams
+            if (danmakuParams != null) {
+                danmakuParams.setMargins(0, padding * 3, 0, padding * 3)
+                mDanmakuView!!.layoutParams = danmakuParams
+            }
 
             text_subtitle.maxWidth = (screen_width * 0.65).toInt()
 
@@ -4222,6 +5790,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             textClockParams.topMargin = padding / 4
             textClock.layoutParams = textClockParams
         }
+
+        // 顶部标题栏三件套开关（26.11.08 接线）：这三个键 26.11.06 就加进设置页了，
+        // 但一直没有读取方——拨上拨下都只是往存档里写了个布尔值，顶栏照旧全显示。
+        // 默认 true，与「补开关之前恒显示」的行为一致；这里只管用户不想看的那一半，
+        // 「取不到电量」导致的 GONE 在上面初始化时已经处理过，不在这里翻回 VISIBLE。
+        if (!SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_SHOW_TITLE, true))
+            text_title!!.visibility = View.GONE
+        if (!SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_SHOW_CLOCK, true))
+            findViewById<View>(R.id.clock_layout).visibility = View.GONE
+        if (!SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_SHOW_BATTERY, true))
+            batteryView.visibility = View.GONE
 
         if (!SharedPreferencesUtil.getBoolean("player_show_online", false) || aid == 0L || cid == 0L)
             text_online.visibility = View.GONE
@@ -4251,7 +5830,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             onSurfaceLost = { detachSurface() }
         )
         surfaceBinder = binder
-        if (SharedPreferencesUtil.getBoolean("player_display", Build.VERSION.SDK_INT < 26)) {
+        if (usesTextureView()) {
             textureView = TextureView(this)
             binder.bindTextureView(textureView!!)
             layout_video.addView(textureView, params)
@@ -4282,25 +5861,28 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             true
         }
 
-        layout_card_bg.setOnClickListener {
-            layout_card_bg.visibility = View.GONE
-            card_subtitle.visibility = View.GONE
-            card_danmaku_send.visibility = View.GONE
-            card_page_selector.visibility = View.GONE
-            card_quality_selector.visibility = View.GONE
-            card_viewpoint_selector.visibility = View.GONE
-        }
+        layout_card_bg.setOnClickListener { hideAllCards() }
         btn_danmaku_send.setOnClickListener {
+            // 两张输出型卡片（发弹幕 / 跳转时间）互斥：同时可见会叠在屏幕正中
+            card_jump_time.visibility = View.GONE
             layout_card_bg.visibility = View.VISIBLE
             card_danmaku_send.visibility = View.VISIBLE
         }
         findViewById<View>(R.id.danmaku_send).setOnClickListener {
             val editText = findViewById<EditText>(R.id.danmaku_send_edit)
-            if (editText.text.toString().isEmpty()) {
-                MsgUtil.showMsg(UiText.of("不能发送空弹幕喵"))
+            val text = editText.text.toString()
+            if (text.trim().isEmpty()) {
+                MsgUtil.showMsg(getString(R.string.msg_player_danmaku_empty))
             } else {
                 layout_card_bg.visibility = View.GONE
                 card_danmaku_send.visibility = View.GONE
+
+                // 直播与录播是两个完全不同的接口：#156 之前直播页只有 WebSocket 收弹幕、
+                // 没有任何发送路径，点这里会走去视频弹幕接口（拿 aid/cid 当直播房间号用，必失败）
+                if (isLiveMode) {
+                    sendLiveDanmaku(editText, text)
+                    return@setOnClickListener
+                }
 
                 CenterThreadPool.run {
                     try {
@@ -4326,20 +5908,97 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         }
     }
 
+    /**
+     * 发送直播文本弹幕（反馈 #156）。
+     *
+     * 与录播弹幕的三点不同：
+     * 1. 接口不同：走 [LiveDanmakuApi] 的 `api.live.bilibili.com/msg/send`，参数是 roomid / msg /
+     *    csrf 那一套，没有 progress；录播是 `api.bilibili.com/x/v2/dm/post`。
+     * 2. 字数上限不同：直播间是 20 字（录播是 100 字），本地先挡一道，服务端 1003212 再兜底。
+     * 3. **不做本地回显**：直播间会用 WebSocket 把刚发的弹幕以 DANMU_MSG 推回来，这里再
+     *    `addDanmaku` 一次屏幕上就会出现两条一模一样的。录播没有这个回推，所以才要手动补。
+     *
+     * 文案全部来自 strings.xml。**成功后清空输入框并给一句轻提示**（对齐 PiliPlus 的 toast 口径）：
+     * 直播间虽然会用自己的 DANMU_MSG 把弹幕推回来，但网络差时那条可能延迟甚至丢，静默成功会让
+     * 用户完全不知道到底发出去没有；这里是一行 toast，不弹窗、不挡画面。
+     */
+    private fun sendLiveDanmaku(editText: EditText, text: String) {
+        when (LiveDanmakuApi.checkText(text)) {
+            LiveDanmakuApi.TextCheck.EMPTY -> {
+                MsgUtil.showMsg(getString(R.string.msg_player_danmaku_empty))
+                return
+            }
+
+            LiveDanmakuApi.TextCheck.TOO_LONG -> {
+                MsgUtil.showMsg(getString(R.string.msg_live_danmaku_too_long, LiveDanmakuApi.MAX_TEXT_LENGTH))
+                return
+            }
+
+            else -> {}
+        }
+
+        CenterThreadPool.run {
+            val result = LiveDanmakuApi.send(aid, text)
+            when (result.kind) {
+                LiveDanmakuApi.Kind.SUCCESS -> runOnUiThread {
+                    if (!destroyed) editText.setText("")
+                    MsgUtil.showMsg(getString(R.string.msg_live_danmaku_sent))
+                }
+
+                LiveDanmakuApi.Kind.LOCAL_THROTTLED -> {
+                    val remainMs = LiveDanmakuApi.remainingThrottleMs(System.currentTimeMillis())
+                    val seconds = ((remainMs + 999) / 1000).coerceAtLeast(1L)
+                    MsgUtil.showMsg(getString(R.string.msg_live_danmaku_throttled, seconds))
+                }
+
+                LiveDanmakuApi.Kind.TOO_LONG -> MsgUtil.showMsg(
+                    getString(R.string.msg_live_danmaku_too_long, LiveDanmakuApi.MAX_TEXT_LENGTH)
+                )
+
+                LiveDanmakuApi.Kind.NOT_LOGGED_IN -> MsgUtil.showMsg(
+                    getString(R.string.msg_live_danmaku_not_logged_in)
+                )
+
+                LiveDanmakuApi.Kind.CSRF_INVALID -> MsgUtil.showMsg(
+                    getString(R.string.msg_live_danmaku_csrf_invalid)
+                )
+
+                LiveDanmakuApi.Kind.RATE_LIMITED -> MsgUtil.showMsg(
+                    getString(R.string.msg_live_danmaku_rate_limited)
+                )
+
+                LiveDanmakuApi.Kind.RISK_CONTROL -> MsgUtil.showMsg(
+                    getString(R.string.msg_live_danmaku_risk_control)
+                )
+
+                else -> {
+                    // 服务端原话优先（多数是中文），没有就退回错误码
+                    val detail = if (result.message.isEmpty()) result.code.toString() else result.message
+                    MsgUtil.showMsg(getString(R.string.msg_live_danmaku_failed, detail))
+                }
+            }
+        }
+    }
+
     private fun initSeekbars() {
         seekbar_progress.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             @SuppressLint("SetTextI18n")
             override fun onProgressChanged(seekBar: SeekBar, position: Int, fromUser: Boolean) {
                 // SeekBar 回调本身就在主线程，无需再 runOnUiThread
-                if (!isLiveMode) text_progress.text = StringUtil.toTime(position / 1000) + "/" + progress_str
+                // 有可跳片段时格式是 `00:31 / 01:43 (1:34)`，见 formatProgressText
+                if (!isLiveMode) updateProgressText(position)
+                // 新版拖动预览（设计稿 seek 态）：弧形拖动同样经过这里（它改的是同一个 SeekBar）。
+                if (isSeeking) newPlayerUi?.setSeekPreview(true, position.toLong(), video_now.toLong(), video_all.toLong())
             }
 
             override fun onStartTrackingTouch(seekBar: SeekBar) {
                 isSeeking = true
+                newPlayerUi?.setSeekPreview(true, seekBar.progress.toLong(), video_now.toLong(), video_all.toLong())
             }
 
             override fun onStopTrackingTouch(seekBar: SeekBar) {
                 isSeeking = false
+                newPlayerUi?.setSeekPreview(false, 0L, 0L, 0L)
                 if (isPrepared && !destroyed) {
                     // 统一走 seekToVideo：它同时 seek 视频、弹幕、外部音频轨，并压住
                     // progressChange 的偏差校正。原来这里只 seek 了视频（和弹幕），DASH 双文件
@@ -4353,6 +6012,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
         seekbar_speed.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar, position: Int, fromUser: Boolean) {
+                if (fromUser && externalAudioSpeedLocked) {
+                    // 反馈 #231：音轨分离的缓存加速只会让声音掉队，直接拒绝并弹回 1x。
+                    // 改 progress 会再触发一次 fromUser=false 的回调，那一支负责把提示文字与
+                    // 播放器速度一起按回去。
+                    seekBar.progress = speedNormalIndex
+                    MsgUtil.showMsg(UiText.of(getString(R.string.msg_player_external_audio_speed_rejected)))
+                    return
+                }
                 if (fromUser) {
                     text_newspeed.text = speed_strs[position]
                     text_speed.text = speed_strs[position]
@@ -4375,6 +6042,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     }
                 }
                 speedTimer!!.schedule(timerTask, 200)
+                // #143：倍速一变，DFM 的绘制/缓存窗口还按旧速率推进，新速率下弹幕会「稀」得
+                // 很明显（用户报的「倍速后弹幕变少」）。松手时按当前播放位置重建一次时间轴。
+                // 放在 onStopTrackingTouch 而不是 onProgressChanged：拖动过程中会连续回调，
+                // 每次都重建等于反复清屏。
+                rebuildDanmakuTimeline(video_now.toLong())
             }
         })
     }
@@ -4383,9 +6055,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      * 兜住平台「回车推进焦点」自己抛的 ISE（线上崩溃 #66，成因见 [EditorEnterKeyGuard]）。
      *
      * 播放页**不继承 BaseActivity**（直接 extends Activity，见类声明），所以基类那层
-     * dispatchKeyEvent 兜底覆盖不到它；而播放页恰好有单行输入框 `danmaku_send_edit`
-     * （`activity_player.xml`，singleLine + 无 OnEditorActionListener），正是平台那条
-     * `shouldAdvanceFocusOnEnter()` 为真的形态，必须单独兜一次。
+     * dispatchKeyEvent 兜底覆盖不到它；而播放页恰好有单行输入框 `danmaku_send_edit` 与
+     * `jump_time_edit`（`activity_player.xml`，都是 singleLine + 无 OnEditorActionListener），
+     * 正是平台那条 `shouldAdvanceFocusOnEnter()` 为真的形态，必须单独兜一次。
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         return try {
@@ -4449,6 +6121,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      * @param userInitiated 见 [seekToPosition]：默认 true。自动跳过自身调用时必须传 false。
      */
     private fun seekToVideo(position: Long, userInitiated: Boolean = true) {
+        // #143：跳转前后要比较「是否跨了分段」，所以必须在 markSeekTarget 改掉 video_now 之前取。
+        val previousPosition = video_now.toLong()
         // 用户手动拖进片头/片尾就算「已处理」，否则下一轮定时器会立刻把他弹走。
         // 自动跳过自己调用时不标记（userInitiated=false），两路不互相污染。
         onUserSeekTo(position, userInitiated)
@@ -4458,10 +6132,33 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         pendingSeekIsAutoSkip = false
 
         ijkPlayer?.seekTo(position)
+        // 反馈 #215：IJK 的 seek 是异步的，落点有没有生效只能过一会儿再看。1.5 秒后实测一次，
+        // 偏离目标就留一条 W 日志（进崩溃报告带的内存缓冲），把"松手后跳到别的点"这类投诉变成证据。
+        mainHandler?.postDelayed({
+            if (!destroyed) {
+                val actual = try {
+                    ijkPlayer?.currentPosition ?: -1L
+                } catch (_: Exception) {
+                    -1L
+                }
+                if (actual >= 0 && Math.abs(actual - position) > POSITION_BACKJUMP_ALERT_MS) {
+                    Logu.w(
+                        "进度条 seek 落点",
+                        "目标 " + position + "ms，1.5s 后实际 " + actual + "ms"
+                            + "（userInitiated=" + userInitiated + " 本地=" + !isOnlineVideo + "）"
+                    )
+                }
+            }
+        }, SEEK_LANDING_CHECK_MS)
         if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.seekTo(position)
-        // 跳转可能跨过整个窗口（片头 → 片尾），让窗口加载器立刻核对并补拉目标位置附近的段落。
-        // 必须在 mDanmakuView.seekTo 之后：否则补进来的段会被 DFM 的 seek 清掉。
-        danmakuStreamLoader?.ensureWindow(position)
+        // #143：跳转之后弹幕必须按新位置重新对轴。
+        // - 跨段（片头 → 片尾这种）：只「补缺段」不够，DFM 的绘制子集与缓存窗口还钉在旧位置，
+        //   补进来的段进不了当前窗口，用户看到的就是「跳过去之后弹幕明显变少」——整体重建；
+        // - 同段内的小幅拖动（双击快进 10 秒）：旧窗口的段还有效，增量补即可（重建会闪一下白）。
+        // 两个分支都必须在 mDanmakuView.seekTo 之后：否则新灌的段会被 DFM 的 seek 清掉。
+        val rebuilt = DanmakuWindow.needsTimelineRebuild(previousPosition, position) &&
+            rebuildDanmakuTimeline(position)
+        if (!rebuilt) danmakuStreamLoader?.ensureWindow(position)
         // #41：先按静音策略校正外挂音轨的播放/暂停状态，再做 seek。
         // 静音状态下这条音轨此时已经暂停，`MediaPlayer.seekTo` 落在一个停止的播放器上，
         // 不存在"seek 重建输出缓冲、音量回到默认 1.0 而漏出一声"的窗口——
@@ -4476,6 +6173,28 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             // seek 未完成时 currentPosition 还停在旧位置，这时再校正等于同一位置 seek 两遍。
             audioResyncSuppressMs = android.os.SystemClock.elapsedRealtime() + AUDIO_RESYNC_COOLDOWN_MS
         }
+    }
+
+    /**
+     * #143：按新时间窗重建弹幕时间轴（远跳 / 改倍速后调）。
+     *
+     * 只「补缺段」不够：DFM 的绘制子集与缓存窗口都还钉在旧位置，补进来的段进不了当前窗口，
+     * 用户看到的就是「跳转或改倍速之后弹幕明显变少」。这里先清掉视图里属于旧窗口的弹幕
+     * （`clearDanmakusOnScreen` 摘掉正在滚的，`removeAllDanmakus` 清内部列表），
+     * 再让窗口加载器按新位置重灌一遍——命中磁盘缓存的段是同步读，不额外发请求。
+     *
+     * 必须在主线程调用（seek 链路与倍速滑条本来就在主线程）。
+     *
+     * @return true = 已重建；false = 窗口加载器接管不了（首窗口未交付 / 已回退整段接口），**没有清屏**
+     */
+    private fun rebuildDanmakuTimeline(position: Long): Boolean {
+        val view = mDanmakuView
+        if (!hasDanmaku || view == null) return false
+        // 清屏前必须先确认有人能补：否则这一清就是把弹幕全清没了。
+        if (danmakuStreamLoader?.canRebuildWindow() != true) return false
+        try { view.clearDanmakusOnScreen() } catch (_: Exception) {}
+        try { view.removeAllDanmakus(true) } catch (_: Exception) {}
+        return danmakuStreamLoader?.rebuildWindow(position) == true
     }
 
     /**
@@ -4613,6 +6332,492 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     /**
+     * 自动跳过 SponsorBlock 标注的广告/推广片段（第三方社区数据，见 [SponsorSkipPolicy]）。
+     *
+     * 判定链路与 [maybeAutoSkipOpEd] 完全平行，但**数据源、档位、去重集合都是另一套**：
+     * - 片段从 bsbsb.top 按 BVID 查（[loadSponsorSegments]），懒加载：全部类别都是「关闭」时一次请求都不发；
+     * - 只处理 `actionType == "skip"` 的片段：类别为「自动跳转」的直接跳（`SponsorSkipPolicy.buildSegments`），
+     *   类别为「询问我」的单独成表，到点只弹一次提示（26.11.14 起的逐类别三档）；
+     * - 跳过的片段记在自己的 [sponsorDecider] 里，不与片头片尾互相干扰。
+     *
+     * 与片头片尾共用 [skipQuietUntilMs] 静默期：刚跳过一次就等 IJK 的异步 seek 落地，
+     * 否则 `video_now` 回弹到旧位置会被再判一次（「跳完又跳回去」）。
+     */
+    private fun maybeAutoSkipSponsor(positionSec: Double) {
+        // 26.11.14 起标记与跳过解耦：只要「标记」还开着就得拉数据，否则关掉三档的人
+        // 连进度条上的条子都看不到（[SponsorSkipPrefs.needsSegments] 已含总开关判断）
+        if (!SponsorSkipPrefs.needsSegments()) {
+            // 三个开关全关了：把已经画上去的条子和三角擦掉。否则播放途中关掉它们，
+            // 旧色块会一直留在进度条上（这里只清派生出来的展示数据，原始标注 [sponsorRawSegments]
+            // 留着——重新打开开关时 applySponsorLevel 会按新签名重建，不必再发一次请求）
+            if (sponsorMarkSegments.isNotEmpty() || sponsorPoiHighlights.isNotEmpty() ||
+                sponsorDecider.segments.isNotEmpty() || sponsorAskSegments.isNotEmpty()
+            ) {
+                sponsorMarkSegments = emptyList()
+                sponsorPoiHighlights = emptyList()
+                sponsorAskSegments = emptyList()
+                sponsorDecider.applyLoaded(emptyList())
+                sponsorSavedMs = 0L
+                updateSponsorMarks()
+                refreshViewPointButton()
+                refreshProgressText()
+            }
+            return
+        }
+        ensureSponsorSegments()
+        // 三档全关但标记开着：数据够画条子，没有任何段可跳
+        if (!SponsorSkipPrefs.isEnabled()) return
+        if (android.os.SystemClock.elapsedRealtime() < skipQuietUntilMs) return
+        // 「自动跳转」的类别：直接跳走
+        if (ViewPointSkip.segmentAt(positionSec, sponsorDecider.segments) != null) {
+            val decided = sponsorDecider.decide(positionSec) ?: return
+            Logu.d("SponsorBlock", "跳过 " + decided.content + " " + decided.fromSec + "s -> " + decided.toSec + "s")
+            // 落点在右端点之外，不会再被自己判定（与片头片尾同一口径）
+            seekToPosition((decided.toSec * 1000.0).toLong(), userInitiated = false)
+            showSponsorUndoSnack(decided)
+            return
+        }
+        // 「询问我」的类别：问一句，不点就继续播（26.11.14 起的逐类别三档）
+        val askSegment = ViewPointSkip.segmentAt(positionSec, sponsorAskSegments) ?: return
+        // 同一段只问一次：不点也不再弹，免得 250ms 一条
+        if (sponsorAskedKeys.add(sponsorSegmentKey(askSegment))) showSponsorAskSnack(askSegment)
+    }
+
+    /**
+     * 「询问我」档的提示：检测到这类片段，问用户跳不跳。
+     *
+     * 与片头片尾那套同一个形态（下方一条提示 + 一个「跳过」按钮），刻意不记进
+     * [sponsorDecider] 的已处理集合：用户不点就继续播，点了才 seek 到片段末尾。
+     */
+    private fun showSponsorAskSnack(segment: ViewPointSkip.Segment) {
+        val label = sponsorCategoryLabel(segment.content)
+        val action = MsgUtil.Action(UiText.of(getString(R.string.player_s_skip_action)), View.OnClickListener {
+            seekToPosition((segment.toSec * 1000.0).toLong(), userInitiated = false)
+        })
+        val anchor = findViewById<View>(android.R.id.content) ?: return
+        MsgUtil.createSnack(
+            anchor,
+            UiText.of(getString(R.string.player_sb_ask_skip, label)),
+            Snackbar.LENGTH_LONG,
+            action
+        ).show()
+    }
+
+    /**
+     * 保证「当前这一P 的片段表」已经就绪：没查过就查，三档改了就用缓存的原始数据重建。
+     *
+     * 两个分支都会先做一次廉价比较，250ms 调一次也不会有额外开销；也正因为是懒加载，
+     * 用户不开这个功能时播放器不会为它发出任何第三方请求。
+     */
+    private fun ensureSponsorSegments() {
+        // 直播、本地文件、番剧（没有 bvid）都不查：SponsorBlock 只有 UGC 投稿稿件
+        if (!isOnlineVideo || aid <= 0 || cid <= 0 || isLiveMode || isPgcPlayback()) return
+        if (sponsorLoadCid != cid) {
+            if (android.os.SystemClock.elapsedRealtime() < sponsorRetryAfterMs) return
+            loadSponsorSegments()
+            return
+        }
+        applySponsorLevel()
+    }
+
+    /**
+     * 查一次当前 cid 的标注（后台线程，失败静默）。
+     *
+     * 查询键是 **BVID 的 SHA-256 前缀**而不是 BVID 本身：服务端因此不知道用户在看的哪个视频
+     * （见 [SponsorBlockApi] 的类注释）。幂等：同一 cid 只查一次，失败则记一分钟冷却后重试。
+     */
+    private fun loadSponsorSegments() {
+        val requestAid = aid
+        val requestCid = cid
+        val token = sponsorDecider.beginLoad(requestAid, requestCid)
+        sponsorLoadCid = requestCid
+        CenterThreadPool.run {
+            try {
+                val bv = resolveBvid()
+                if (bv.isEmpty()) {
+                    // 拿不到 bvid 是**可重试**的失败（按 aid 查一次详情，网络一抖就空）：
+                    // 必须把 sponsorLoadCid 放回去，否则这一 P 会被当成"已经查过"，之后永远不再试
+                    Logu.w("SponsorBlock", "拿不到 bvid，稍后重试 aid=" + requestAid)
+                    runOnUiThread {
+                        sponsorLoadCid = 0L
+                        sponsorRetryAfterMs = android.os.SystemClock.elapsedRealtime() + 3_000L
+                    }
+                    return@run
+                }
+                // 用会抛异常的版本：真正的网络失败要能走到下面的 catch 去安排重试，
+                // 而 404（这个视频没有标注）依然返回空表、不重试
+                val raw = SponsorBlockApi.fetchSegmentsOrThrow(bv, requestCid)
+                runOnUiThread {
+                    if (destroyed) return@runOnUiThread
+                    // 换P/换集期间到的响应直接丢（与片头片尾同一个代次判据）
+                    if (sponsorDecider.isStale(token, aid, cid)) {
+                        Logu.d("SponsorBlock", "丢弃过期的响应 cid=" + requestCid)
+                        return@runOnUiThread
+                    }
+                    sponsorRawSegments = raw
+                    // force：签名只看「设置」不看数据，光换 raw 不会让签名变化。不强制重建的话，
+                    // 250ms 定时器在响应回来之前已经用空表算过一次签名，这里会直接早退，
+                    // 结果是「条子不画、也不跳」——这就是「有的时候能跳过」那个偶发问题的根因。
+                    applySponsorLevel(force = true)
+                    applySponsorFullBadge(requestCid)
+                    Logu.d(
+                        "SponsorBlock",
+                        "cid=" + requestCid + " 原始标注 " + raw.size + " 条，可跳 " + sponsorDecider.segments.size +
+                            " 段，白名单 " + SponsorSkipPrefs.effectiveCategories().size + " 类" +
+                            "，总时长 " + (video_all / 1000) + "s"
+                    )
+                }
+            } catch (e: Exception) {
+                Logu.w("SponsorBlock", "查询失败: " + e.javaClass.simpleName + " " + e.message)
+                runOnUiThread {
+                    // 失败不打扰用户（这是第三方锦上添花的数据），但冷却别设太长：
+                    // 一次超时就让整片在接下来一分钟都查不到，用户看到的就是「第一次加载不出来」
+                    sponsorLoadCid = 0L
+                    sponsorRetryAfterMs = android.os.SystemClock.elapsedRealtime() + 15_000L
+                }
+            }
+        }
+    }
+
+    /**
+     * 用缓存的原始标注按**当前逐类别三档**重新生成片段表（自动一张、询问一张）；签名没变时直接返回。
+     *
+     * 先过滤出「是否真的有过可跳片段」再交给 [SkipDecider]：`applyLoaded` 只在片段内容
+     * 真的变了时才清已处理集合，所以「播放中把档位调宽」不会把刚跳过的广告重新跳一遍。
+     *
+     * 比较用的是**类别集合的签名**而不是任何"当前档位"数字：同一档位里反复改类别、点「不准」、
+     * 点掉一个精彩时刻，都只体现为集合变化，比数字会漏。
+     */
+    /**
+     * @param force 强制重建。标注刚拉到（[sponsorRawSegments] 从空变成有）时必须为 true：
+     *   签名只覆盖「设置」不覆盖数据，否则会拿空表算出的旧签名直接早退，条子不画、也不跳。
+     */
+    private fun applySponsorLevel(force: Boolean = false) {
+        val autoCats = SponsorSkipPrefs.autoCategories()
+        val askCats = SponsorSkipPrefs.askCategories()
+        val markCats = SponsorSkipPrefs.markCategories()
+        val marksOn = SponsorSkipPrefs.isMarksEnabled()
+        val poiOn = SponsorSkipPrefs.isPoiMarksEnabled()
+        val ignored = sponsorIgnoreSet()
+        // 签名 = 自动集合 + 询问集合 + 忽略集 + 已点过的精彩时刻 + 标记那一套（开关与类别）+ 原始标注条数：
+        // 任何一项变了都要重建（改三档、点「不准」、点掉精彩时刻、改标记设置、标注到位都会走到这里）
+        val key = autoCats.sorted().joinToString(",") + "|" +
+            askCats.sorted().joinToString(",") + "|" +
+            ignored.sorted().joinToString(",") + "|" +
+            sponsorPoiSeen.sorted().joinToString(",") + "|" +
+            marksOn + "|" + poiOn + "|" + markCats.sorted().joinToString(",") +
+            "|raw=" + sponsorRawSegments.size
+        if (!force && key == sponsorSegmentsKey) return
+        sponsorSegmentsKey = key
+        val duration = video_all / 1000.0
+        val segments = SponsorSkipPolicy.buildSegments(
+            sponsorRawSegments,
+            autoCats,
+            cid,
+            duration,
+            ignored,
+        ).filterNot { sponsorSegmentKey(it) in ignored }
+        sponsorAskSegments = SponsorSkipPolicy.buildSegments(
+            sponsorRawSegments,
+            askCats,
+            cid,
+            duration,
+            ignored,
+        ).filterNot { sponsorSegmentKey(it) in ignored }
+        sponsorDecider.applyLoaded(segments)
+        // 括号算「自动跳转 + 询问我」两类的总和：两类互斥（同一个类别只有一个档位），
+        // 而「询问我」的片段点了跳过同样是省掉的时间，与条子画什么保持一致
+        sponsorSavedMs = (SponsorSkipPolicy.savedSeconds(segments) +
+            SponsorSkipPolicy.savedSeconds(sponsorAskSegments)) * 1000L
+        // 条子用的是「标记」自己的类别集合，与上面两张跳转表无关——这正是"只显示不跳"的实现
+        sponsorMarkSegments = if (marksOn) {
+            SponsorSkipPolicy.markSegments(sponsorRawSegments, markCats, cid, duration, ignored)
+        } else {
+            emptyList()
+        }
+        sponsorPoiHighlights = if (poiOn) {
+            SponsorSkipPolicy
+                .highlights(sponsorRawSegments, cid, duration)
+                .filterNot { sponsorPoiKey(it) in sponsorPoiSeen }
+        } else {
+            emptyList()
+        }
+        updateSponsorMarks()
+        refreshViewPointButton()
+        refreshProgressText()
+    }
+
+    /**
+     * 当前的忽略集 = 存档里的（按 UUID，跨次播放有效）+ 本次播放内存里的（见 [sponsorSessionIgnores]）。
+     */
+    private fun sponsorIgnoreSet(): Set<String> =
+        if (sponsorSessionIgnores.isEmpty()) {
+            SponsorSkipPrefs.ignoredUuids(cid)
+        } else {
+            SponsorSkipPrefs.ignoredUuids(cid) + sponsorSessionIgnores
+        }
+
+    /**
+     * 片段的内存忽略键：`类别|起点|终点`。
+     *
+     * 只有上游**没给 UUID** 的老标注才用得上——那种片段没法落存档（下次播放还是同一串数字，
+     * 但没有 id 可认），就只在本次播放里不跳。正常数据一律按 UUID 记，见 [markSponsorWrong]。
+     */
+    private fun sponsorSegmentKey(segment: ViewPointSkip.Segment): String =
+        segment.content + "|" + segment.fromSec + "|" + segment.toSec
+
+    /**
+     * 把「这一 P 会被自动跳过的片段」标到进度条上（26.11.14）。
+     *
+     * 数据源是 [sponsorMarkSegments]（按**标记自己的类别集合**过滤出来、每条自带颜色），
+     * 与「跳不跳」的那两张表无关：三档全关、标记开着时，进度条上照样有条子但不跳；
+     * 反过来标记关着、三档开着时，什么也不画（条子和三角各有独立开关）。
+     *
+     * 片头片尾（[skipDecider]）不画：番剧的片头片尾本来就是全片都有，标上去等于给每条进度条
+     * 加两条固定色块，反而看不出重点。
+     */
+    private fun updateSponsorMarks() {
+        val marks = sponsorMarkSegments
+        val points = sponsorPoiHighlights
+        // 这一条是"进度条上为什么什么都没有"唯一的判据：三档或标记开着、标注也拿到了，
+        // 但标出来的段数为 0，看一眼日志就知道是白名单没覆盖还是进度条那一层没画
+        Logu.d(
+            "SponsorBlock",
+            "进度条标记 段=" + marks.size + " 点=" + points.size +
+                " 标记开=" + SponsorSkipPrefs.isMarksEnabled() +
+                " 三角开=" + SponsorSkipPrefs.isPoiMarksEnabled() +
+                " 标记类别=" + SponsorSkipPrefs.markCategories().size +
+                " max=" + (if (::seekbar_progress.isInitialized) seekbar_progress.max else -1)
+        )
+        if (marks.isEmpty()) {
+            seekbar_progress.clearMarks()
+        } else {
+            seekbar_progress.setMarks(
+                marks.map { marked ->
+                    HighEnergyProgressBar.Mark(
+                        (marked.segment.fromSec * 1000.0).toInt(),
+                        (marked.segment.toSec * 1000.0).toInt(),
+                        marked.color,
+                    )
+                }
+            )
+        }
+        // 精彩时刻用「点」的色（亮蓝）：与条子区分开——一个是"别看这里"，一个是"这里值得看"，
+        // 同色会让人以为这些点也会被自动跳掉
+        if (points.isEmpty()) {
+            seekbar_progress.clearPointMarks()
+        } else {
+            val pointColor = SponsorSkipPolicy.markColor(SponsorSkipPolicy.CAT_POI_HIGHLIGHT)
+            seekbar_progress.setPointMarks(
+                points.map { HighEnergyProgressBar.PointMark((it.posSec * 1000.0).toInt(), pointColor) }
+            )
+        }
+        // 圆屏下 seekbar 是 GONE 的，标记只设在它身上等于什么都不显示；
+        // 弧形进度按角度另画一份，两边共用同一批数据。
+        newPlayerUi?.arcProgress()?.let { arcView ->
+            arcView.setMarks(seekbar_progress.segmentMarks)
+            arcView.setPointMarks(seekbar_progress.jumpPointMarks)
+        }
+    }
+
+    /**
+     * 进度条时间文案：`00:31 / 01:43`，有可跳片段时补一个括号 `00:31 / 01:43 (1:34)`。
+     *
+     * 括号里是**扣掉本 P 广告之后的时长**（[sponsorSavedMs]），不是"还剩多久"：用户在进度条
+     * 上看的是"这片刻完广告实际多长"，跳完之后自己看到的片子就是括号里那个数。
+     */
+    private fun formatProgressText(positionMs: Int): String {
+        val current = StringUtil.toTime(positionMs / 1000)
+        val saved = sponsorSavedMs
+        val totalMs = video_all.toLong()
+        if (saved <= 0L || totalMs <= saved) return current + "/" + progress_str
+        return getString(
+            R.string.player_sb_progress_saved,
+            current,
+            progress_str,
+            StringUtil.toTime(((totalMs - saved) / 1000L).toInt()),
+        )
+    }
+
+    /**
+     * 写一次进度时间。新版圆屏按设计稿排成一行 `03:12 / 08:41`（后半段 60% 不透明），
+     * 其余情况沿用原格式（`03:12/08:41`，有可跳片段时带括号）。
+     */
+    private fun updateProgressText(positionMs: Int) {
+        val controller = newPlayerUi
+        if (controller != null && screen_round) {
+            val saved = sponsorSavedMs
+            val totalMs = video_all.toLong()
+            val suffix = if (saved > 0L && totalMs > saved)
+                " (" + StringUtil.toTime(((totalMs - saved) / 1000L).toInt()) + ")" else ""
+            text_progress.text = controller.roundProgressText(
+                StringUtil.toTime(positionMs / 1000),
+                progress_str,
+                suffix,
+            )
+            return
+        }
+        text_progress.text = formatProgressText(positionMs)
+    }
+
+    /** 片段表变了就重画一次时间文案（暂停时没有 250ms tick，不主动刷会停在旧的括号上）。 */
+    private fun refreshProgressText() {
+        if (!::text_progress.isInitialized) return
+        if (isLiveMode) return
+        updateProgressText(seekbar_progress.progress)
+    }
+
+    /** 一个精彩时刻点的内存键：`类别@秒`。只活一次播放，不做跨会话落盘。 */
+    private fun sponsorPoiKey(highlight: SponsorSkipPolicy.Highlight): String =
+        highlight.category + "@" + highlight.posSec
+
+    /**
+     * 记下「这个精彩时刻点过了」，并立刻把列表与进度条上的三角刷掉。
+     *
+     * 续走 [applySponsorLevel]（已点集合进了它的签名），不重新发请求——原始标注还在内存里。
+     */
+    private fun markSponsorPoiSeen(highlight: SponsorSkipPolicy.Highlight) {
+        sponsorPoiSeen.add(sponsorPoiKey(highlight))
+        applySponsorLevel()
+    }
+
+    /** 当前视频的 BVID：Intent 带了就用，没带就按 aid 现查一次（结果缓存到 [bvid]）。 */
+    private fun resolveBvid(): String {
+        if (bvid.isNotEmpty()) return bvid
+        if (aid <= 0) return ""
+        return try {
+            val info = VideoInfoApi.getVideoInfo(aid)
+            val resolved = info?.bvid.orEmpty()
+            if (resolved.isNotEmpty()) bvid = resolved
+            resolved
+        } catch (e: Exception) {
+            Logu.w("SponsorBlock", "按 aid 查 bvid 失败: " + e.message)
+            ""
+        }
+    }
+
+    /**
+     * 整片标注 → 顶栏标题前的胶囊（26.11.14 第二轮）。
+     *
+     * `actionType == full` 表示「整片都是恰饭」之类的整体标签，上游给的区间固定是 `[0,0]`——
+     * 不是一个能跳的区间，所以它**不进片段表、不改变任何跳过行为**，只在顶栏挂一枚胶囊，
+     * 让人一眼知道这片的性质（原先是一闪而过的 Snack，看过就没了）。
+     *
+     * 不看档位：这类标注描述的是片子本身，与用户选了哪档要跳哪些类别无关。
+     * 每 P 只算一次（`sponsorFullBadgeCid` 换了才重算）。
+     */
+    private fun applySponsorFullBadge(requestCid: Long) {
+        if (requestCid == sponsorFullBadgeCid) return
+        sponsorFullBadgeCid = requestCid
+        val labels = SponsorSkipPolicy.fullVideoCategories(
+            sponsorRawSegments,
+            requestCid,
+            video_all / 1000.0,
+        )
+        val text = labels.joinToString("/") { sponsorCategoryLabel(it) }
+        if (text == sponsorFullBadgeText) return
+        sponsorFullBadgeText = text
+        renderPlayerTitle()
+    }
+
+    /** 设置顶栏标题（原始文本），胶囊状态由 [sponsorFullBadgeText] 决定，见 [renderPlayerTitle]。 */
+    private fun setPlayerTitle(raw: String?) {
+        playerTitleRaw = raw.orEmpty()
+        renderPlayerTitle()
+    }
+
+    /**
+     * 把「整片标签胶囊 + 原标题」画进顶栏 [text_title]。
+     *
+     * 样式直接复用视频详情页标题前那枚胶囊（`VideoInfoFragment.getTitleSpan`）：同样的
+     * [RadiusBackgroundSpan]（白字 + 主题色底），只是这里囊的是「广告/自我推广」这类整片标注。
+     * 全仓并没有「互动视频/联合投稿」的独立图标，那枚胶囊就是它们的视觉形态。
+     *
+     * 注意 [text_title] 的 `drawableStartCompat` 是返回箭头，所以胶囊要留一个前导空格，
+     * span 从 0 开始才盖得住底色。
+     */
+    private fun renderPlayerTitle() {
+        // text_title 是 @JvmField 可空字段（不是 lateinit），没初始化完就什么都别画
+        val view = text_title ?: return
+        val title = playerTitleRaw
+        val badge = sponsorFullBadgeText
+        if (badge.isEmpty() || title.isEmpty()) {
+            view.text = title
+            return
+        }
+        val raw = " $badge $title"
+        val span = SpannableString(UiText.of(raw))
+        span.setSpan(
+            RadiusBackgroundSpan(
+                0,
+                resources.getDimension(R.dimen.card_round).toInt(),
+                Color.WHITE,
+                ColorScheme.PRIMARY,
+            ),
+            0,
+            badge.length + 2,
+            Spanned.SPAN_INCLUSIVE_EXCLUSIVE,
+        )
+        view.text = span
+    }
+
+    /**
+     * 跳过后给一次反悔机会，文案带上被跳过的类别（广告/自我推广/三连提醒……）。
+     *
+     * 26.11.14 起按钮从「撤回」改成「不准」：**一次动作同时做两件事**——把人送回被跳过的地方，
+     * 并把这一条记进本地忽略集（这一 P 以后不再跳它）。
+     *
+     * 为什么合成一个动作而不是并排两个：Snackbar 只有一个 action 位，手表屏也放不下第二个按钮；
+     * 而"点撤回"这件事的真实意图九成就是"这条不该跳"。只想看一遍、下次仍要跳的场景，
+     * 用户直接拖进度条也能看（拖进去的片段会被记为已处理，本次不会再弹走）。
+     */
+    private fun showSponsorUndoSnack(segment: ViewPointSkip.Segment) {
+        val label = sponsorCategoryLabel(segment.content)
+        val action = MsgUtil.Action(UiText.of(getString(R.string.player_sb_wrong)), View.OnClickListener {
+            // 期间又跳过别的片段、或用户自己拖过进度，这条记录就过期了
+            if (!sponsorDecider.isUndoValid(segment)) return@OnClickListener
+            sponsorDecider.clearUndo()
+            markSponsorWrong(segment)
+            seekToPosition((segment.fromSec * 1000.0).toLong())
+            MsgUtil.showMsg(UiText.of(getString(R.string.player_sb_wrong_done, label)))
+        })
+        val anchor = findViewById<View>(android.R.id.content) ?: return
+        MsgUtil.createSnack(
+            anchor,
+            UiText.of(getString(R.string.player_sb_skipped, label)),
+            Snackbar.LENGTH_LONG,
+            action
+        ).show()
+    }
+
+    /**
+     * 记录「这条不准」：落存档（有 UUID 时）+ 立刻重建片段表，让这条从可跳列表里消失。
+     *
+     * 重建走 [applySponsorLevel]（忽略集进了它的签名），不重新发请求——原始标注还在内存里。
+     */
+    private fun markSponsorWrong(segment: ViewPointSkip.Segment) {
+        val uuid = sponsorUuidOf(segment)
+        if (uuid.isEmpty()) {
+            // 上游没给 UUID 的老标注：只能本次播放内存忽略，落不了存档
+            sponsorSessionIgnores.add(sponsorSegmentKey(segment))
+            Logu.d("SponsorBlock", "标注没有 UUID，只在本次播放内忽略")
+        } else {
+            SponsorSkipPrefs.ignoreSegment(cid, uuid)
+        }
+        applySponsorLevel()
+    }
+
+    /** 片段表里的一条 → 上游原始标注的 UUID（找不到或上游没给时为空串）。 */
+    private fun sponsorUuidOf(segment: ViewPointSkip.Segment): String =
+        sponsorRawSegments.firstOrNull {
+            it.category == segment.content && it.fromSec == segment.fromSec && it.toSec == segment.toSec
+        }?.uuid.orEmpty()
+
+    /** 类别 id → 中文名（映射在 [SponsorCategoryLabels] 里，与设置页的勾选列表共一份）。 */
+    private fun sponsorCategoryLabel(category: String): String =
+        getString(SponsorCategoryLabels.nameRes(category))
+
+    /**
      * 用户主动拖动/按键跳转时，把落点所在的片头/片尾标记成「已处理」。
      *
      * 用户主动拖进片头，说明他就是想看看片头，不能被下一轮定时器又弹走。
@@ -4627,6 +6832,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 自动跳过自己传 false 进来时一律不算「用户反悔」。
         if (!userInitiated) return
         skipDecider.onUserSeek(positionMs)
+        // 广告片段同理：用户主动拖进某段广告里，就当他想看这一段
+        sponsorDecider.onUserSeek(positionMs)
     }
 
     /**
@@ -4641,6 +6848,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 总开关为假（再次紧急撤回）时连引导都不能出现：引导上带「开启」按钮，点了会往存档里写 true，
         // 等于给了用户一条绕过闸门的路（虽然闸门仍然拦得住，但弹一条已经下线的功能提示本身就是骚扰）。
         if (!SkipOpEdPrefs.FEATURE_ENABLED) return
+        // Debug 包不弹首次引导（见 BiliTerminal.isAutoPopupSuppressed）。早退放在写
+        // PLAYER_SKIP_OP_ED_GUIDED 之前，debug 里不会把「已引导」记账位吃掉。
+        if (BiliTerminal.isAutoPopupSuppressed()) return
         val enabled = skipOpEdEnabled()
         if (!SkipOpEdPrefs.shouldShowGuide(
                 skipDecider.segments.isNotEmpty(),
@@ -4702,6 +6912,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                         )
                     )
                     gesture_click_disabled = true
+                    // 新版：滑动空降开始时收起控件也是用户主动行为，暂停时同样要收。
+                    newPlayerUi?.requestManualHide()
                     hidecon.run()
                     swipe_seek_overlay.visibility = View.VISIBLE
                 }
@@ -4779,8 +6991,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
      * 拖动松手那一帧被当成点击。返回 true 表示这次触摸已被消费，调用方必须直接 return true。
      */
     private fun handlePlayerTouchExtras(event: MotionEvent): Boolean {
-        if (handleLongPressSwitchTouch(event)) return true
-        return handleDanmakuTimeJumpTap(event)
+        // 缩放诊断（反馈 #128 / #102）：这两个分支跑在缩放判定之前，谁把事件抢走了要留痕，
+        // 否则「捏合没反应」在日志里看不出是被前一个分支吞掉的。只是字段赋值，不影响返回值。
+        if (handleLongPressSwitchTouch(event)) {
+            zoomDiagSwallowedBy = PlayerTouchBranch.LONG_PRESS_SWITCH
+            return true
+        }
+        if (handleDanmakuTimeJumpTap(event)) {
+            zoomDiagSwallowedBy = PlayerTouchBranch.DANMAKU_TAP
+            return true
+        }
+        return false
     }
 
     /**
@@ -4866,7 +7087,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 if (abs(event.x - danmakuTapDownX) > slop || abs(event.y - danmakuTapDownY) > slop) return false
                 val view = mDanmakuView ?: return false
                 if (!view.isPrepared) return false
-                val hit = findTappedDanmaku(view.currentVisibleDanmakus, event.x, event.y)
+                val hit = findTappedDanmaku(readVisibleDanmakus(view), event.x, event.y)
                     ?: return false
                 val match = DanmakuTimestampPolicy.find(hit.text) ?: return false
                 gesture_click_disabled = true
@@ -4879,6 +7100,24 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             }
         }
         return false
+    }
+
+    /**
+     * 读「当前可见弹幕集」，读不到就当没有。
+     *
+     * DFM 的渲染线程（`DrawTask.getVisibleDanmakusOnTime`）会在同一份 `Danmakus` 上增删条目，
+     * 而 `Danmakus.subnew` 内部要对底下的 TreeSet 做 size()/toArray()——与渲染线程并发时直接抛
+     * ConcurrentModificationException（线上崩溃 #340：`PlayerActivity.handleDanmakuTimeJumpTap`
+     * ← `DanmakuView.getCurrentVisibleDanmakus`，DJI RC 2 / 26.11.07）。
+     * 这条路径只是判断「这一下点到了哪条弹幕」，读失败就当作没点中，绝不让一次点击把播放器带崩。
+     */
+    private fun readVisibleDanmakus(view: IDanmakuView): IDanmakus? {
+        return try {
+            view.currentVisibleDanmakus
+        } catch (e: RuntimeException) {
+            Logu.w("danmaku", "读取可见弹幕失败，本次点击不参与空降: ${e.javaClass.simpleName}")
+            null
+        }
     }
 
     /** 在被点到坐标上找一条可见弹幕；DFM 的命中判定是矩形包围盒，与它自己的 touch helper 一致。 */
@@ -4922,12 +7161,58 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         }
     }
 
+    /** 1 倍速在 speed_values 里的下标：音轨分离的缓存只能停在这一档。 */
+    private val speedNormalIndex: Int
+        get() = speed_values.indexOfFirst { abs(it - 1.0F) < 0.001F }.takeIf { it >= 0 } ?: 2
+
+    /**
+     * 反馈 #231：音轨分离的缓存把倍速锁在 1x。
+     *
+     * **必须在外部音轨起播之后调用**：onPrepared 里先套了「默认倍速 / 本次会话的倍速」，
+     * 提前锁会被它盖回去。锁的动作只是把滑条按回 1x 档再重新应用——走 [applySpeedFromSeekbar]
+     * 而不是直接 setSpeed(1f)，是为了让提示文字、弹幕速度与播放器三者一致（本来就一起改的）。
+     */
+    private fun lockSpeedForExternalAudio() {
+        externalAudioSpeedLocked = true
+        val current = seekbar_speed.progress
+        if (current != speedNormalIndex) {
+            if (speedBeforeExternalAudioLock < 0) speedBeforeExternalAudioLock = current
+            seekbar_speed.progress = speedNormalIndex
+            applySpeedFromSeekbar()
+        }
+        if (!externalAudioSpeedHintShown) {
+            externalAudioSpeedHintShown = true
+            MsgUtil.showMsg(UiText.of(getString(R.string.msg_player_external_audio_speed_locked)))
+        }
+        Logu.d("AudioTrack", "音轨分离的缓存已锁定 1 倍速")
+    }
+
+    /**
+     * 解除上面的锁定，并把锁之前用户选的倍速还回去。
+     *
+     * 不把这段并进 [releaseAudioTrack]：那个方法在 onDestroy 里也会走，那时再回头调
+     * [applySpeedFromSeekbar] 会去碰正在释放的播放器。调用点都是「下一次要重新判定」的地方。
+     */
+    private fun unlockExternalAudioSpeed() {
+        if (!externalAudioSpeedLocked) return
+        externalAudioSpeedLocked = false
+        val restore = speedBeforeExternalAudioLock
+        speedBeforeExternalAudioLock = -1
+        if (restore in 0 until speed_values.size && restore != seekbar_speed.progress) {
+            seekbar_speed.progress = restore
+            applySpeedFromSeekbar()
+        }
+    }
+
     /**
      * 主播放器已解析媒体后，确认主文件没有音轨才使用外部音频。
      * 直接使用 IJK 的轨道元数据，不再额外打开文件扫描，也不删除任何缓存文件。
      */
     private fun initAudioTrack(mediaPlayer: IMediaPlayer) {
         releaseAudioTrack()
+        // 反馈 #231：每次重建都重新判定。这一份可能是单文件（能倍速），也可能换了文件、
+        // 内置音轨重新出现——先解锁并把用户原来的倍速还回去，确认真要外挂音轨时再锁。
+        unlockExternalAudioSpeed()
         val url = audioTrackUrl?.takeIf { it.isNotBlank() } ?: return
         val audioFile = File(url)
         val fileUsable = audioFile.isFile && audioFile.canRead() && audioFile.length() > 0L
@@ -4976,6 +7261,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 if (audioPlayer === failedPlayer) {
                     Logu.e("AudioTrack", "外部音频播放失败：$what/$extra")
                     releaseAudioTrack()
+                    // 没有外挂音轨了就不该再锁 1x（反馈 #231）
+                    unlockExternalAudioSpeed()
                     if (!destroyed) MsgUtil.showMsg(UiText.of("本地音频播放失败，请重新载入"))
                 }
                 true
@@ -4991,10 +7278,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 externalAudioRunning = true
             }
             Logu.d("AudioTrack", "已启用唯一的外部音频轨道，增益=$gain，静音=${isAudiblySilent()}")
+            // 反馈 #231：外挂音轨是第二路 MediaPlayer，主播放器一加速它就掉队，只能锁 1x。
+            // 放在这里而不是函数开头：此刻 onPrepared 的默认倍速已经套过，锁住才不会又被盖掉。
+            lockSpeedForExternalAudio()
         } catch (e: Exception) {
             Logu.e("AudioTrack", "音频轨道初始化失败: ${e.message}")
             releaseAudioTrack()
         }
+        audioDiagLog("audio-track")
     }
 
     private fun toggleAudioOnlyMode() {
@@ -5065,6 +7356,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             updateAudioOnlyButton()
             updateAudioOnlyUI()
             MsgUtil.showMsg(if (isAudioOnlyMode) UiText.of("已切换到听视频模式") else UiText.of("已切换到普通模式"))
+            audioDiagLog("audio-only")
         }
     }
 
@@ -5082,7 +7374,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 layout_audio_only.visibility = View.VISIBLE
                 mDanmakuView?.setVisibility(View.GONE)
                 if (text_audio_title != null) {
-                    val title = text_title!!.text.toString()
+                    val title = playerTitleRaw
                     text_audio_title.text = if (title.isEmpty()) UiText.of("听视频模式") else title
                 }
             } else {
@@ -5093,6 +7385,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 layout_audio_only.visibility = View.GONE
                 if (mDanmakuView != null && isDanmakuVisible) mDanmakuView!!.setVisibility(View.VISIBLE)
             }
+            // 听视频模式会把 layout_video 设成 GONE（此时捏合必然被监听器忽略），状态变化留一条
+            zoomDiagTraceState("audio_only")
         }
     }
 
@@ -5139,6 +7433,45 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         return SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.SNACKBAR_ENABLE, true)
     }
 
+    /**
+     * G06：封面取色，把视频封面里最有代表性的颜色染到高能曲线 / 进度条上。
+     *
+     * 封面地址来自 `intent` 的 `cover`（由 `PlayerApi.jumpToPlayer` 塞入），取不到就什么都不做——
+     * 直播、本地视频、第三方源都没有这个 extra，此时保持主题主色，行为与以前完全一致。
+     *
+     * 为什么用 Glide 解一张 48×48 的小图：取色算法对分辨率不敏感，而封面原图常常是 1080p，
+     * 为了一个颜色去解全尺寸纯属浪费手表的内存。解析失败（无网 / 图挂了）也只是静默保持原色。
+     */
+    private fun applyCoverTint() {
+        val cover = intent?.getStringExtra("cover")
+        if (cover.isNullOrEmpty()) return
+
+        Glide.with(applicationContext)
+            .asBitmap()
+            .load(cover)
+            .override(COVER_TINT_SAMPLE_PX, COVER_TINT_SAMPLE_PX)
+            .centerCrop()
+            .into(object : CustomTarget<Bitmap>() {
+                override fun onResourceReady(resource: Bitmap, transition: Transition<in Bitmap>?) {
+                    if (destroyed) return
+                    val width = resource.width
+                    val height = resource.height
+                    if (width <= 0 || height <= 0) return
+                    val pixels = IntArray(width * height)
+                    resource.getPixels(pixels, 0, width, 0, 0, width, height)
+                    val color = CoverTintPolicy.fromPixels(pixels) ?: return
+                    seekbar_progress.setAccentColor(color)
+                    // 新版：方屏进度行被自绘渲染器接管、圆屏走弧形进度，旧 setAccentColor 都画不到，
+                    // 封面色必须转交给新版控制器（覆盖主题进度色，语义仍是「封面取色优先」）。
+                    newPlayerUi?.setCoverAccent(color)
+                }
+
+                override fun onLoadCleared(placeholder: Drawable?) {
+                    // 页面销毁时 Glide 会回调这里，不需要收尾动作
+                }
+            })
+    }
+
     private fun loadHighEnergyData() {
         if (!SharedPreferencesUtil.getBoolean("player_high_energy", false)) {
             Logu.d("高能进度条", "功能已禁用")
@@ -5156,18 +7489,70 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 if (data != null && data.hasValidData()) {
                     runOnUiThread {
                         if (!destroyed) {
-                            seekbar_progress.setHighEnergyData(data.events, data.stepSec)
+                            applyHighEnergyCurve(data.events, data.stepSec)
                             Logu.d("高能进度条", "数据加载成功并设置到进度条")
                         }
                     }
                 } else {
                     Logu.w("高能进度条", "未获取到有效数据")
+                    // G07（26.11.13）：官方接口拿不到数据时不再让曲线整片空白，
+                    // 改用本地已加载弹幕的密度兜底（见 applyDensityHighEnergyFallback）。
+                    applyDensityHighEnergyFallback()
                 }
             } catch (e: Exception) {
                 Logu.e("高能进度条", "加载失败: " + e.message)
                 e.printStackTrace()
+                applyDensityHighEnergyFallback()
             }
         }
+    }
+
+    /**
+     * G07：高能曲线的**本地兜底**（弹幕密度）。
+     *
+     * 官方 `pbp/data` 对不少视频返回空/失败，旧实现只是打日志，进度条上那条曲线就没了。
+     * 这里用已经加载进内存的弹幕时间点自己算一条密度曲线——弹幕密集的段落基本就是高能片段。
+     *
+     * **时序**：高能数据在 `:1249` 就请求了，而弹幕要等 prepare 之后才陆续装载，
+     * 所以这里延迟 [DENSITY_FALLBACK_DELAY_MS] 再取快照（一次性，不轮询、不重试）。
+     * 样本不够（弹幕太少 / 时长未知）就直接放弃：画一条噪声曲线比空白更误导。
+     */
+    private fun applyDensityHighEnergyFallback() {
+        mainHandler?.postDelayed({
+            if (destroyed) return@postDelayed
+            try {
+                val times = danmakuManager?.loadedDanmakuTimes() ?: LongArray(0)
+                val durationSec = video_all / 1000
+                val curve = DanmakuDensityHighEnergy.build(
+                    times.toList(), durationSec, DanmakuDensityHighEnergy.STEP_SEC
+                )
+                if (curve == null) {
+                    Logu.d(
+                        "高能进度条",
+                        "本地兜底跳过：弹幕 " + times.size + " 条 / 时长 " + durationSec + "s 不满足条件"
+                    )
+                    return@postDelayed
+                }
+                applyHighEnergyCurve(curve, DanmakuDensityHighEnergy.STEP_SEC)
+                Logu.d(
+                    "高能进度条",
+                    "本地兜底生效：弹幕 " + times.size + " 条，曲线 " + curve.size + " 个桶"
+                )
+            } catch (e: Exception) {
+                Logu.e("高能进度条", "本地兜底失败: " + e.message)
+            }
+        }, DENSITY_FALLBACK_DELAY_MS)
+    }
+
+    /**
+     * 高能曲线的统一入口：方屏进度条与圆屏弧共用同一份数据。
+     *
+     * 圆屏下 [seekbar_progress] 被藏起来、只靠弧形进度显示，不把曲线同步过去的话
+     * 弧内侧的热度刻度会一直停在设计稿的示意波形上。
+     */
+    private fun applyHighEnergyCurve(events: FloatArray, stepSec: Int) {
+        seekbar_progress.setHighEnergyData(events, stepSec)
+        newPlayerUi?.arcProgress()?.setHeat(events)
     }
 
     // ------------------------------------------------------------------ 连播队列
@@ -5470,6 +7855,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         multiPageTitle = null
         enterableCollection = null
         enterableMultiPage = null
+        clearLocalPlaylistLayer()
         val uploaderName = cards.firstOrNull { !it.upName.isNullOrEmpty() }?.upName
         if (!uploaderName.isNullOrEmpty()) rootTitle = uploaderName
         pagenames = ArrayList(items.map { it.title })
@@ -5485,12 +7871,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 用户明确点了「连播」：本次会话自动前进，即使用户全局关了「自动连播」（不改全局设置）
         auto_next_enabled = true
         updateAutoNextButton()
-        // 列表换了，选集按钮/自动下一P 按钮要重新可见（与 onPrepared 里那段显隐逻辑一致）
-        if (hasMultiplePages()) {
-            btn_page_selector.visibility = View.VISIBLE
-            btn_page_selector.setOnClickListener { showPageSelectorCard() }
-            btn_auto_next.visibility = View.VISIBLE
-        }
+        // 列表换了，选集按钮/自动下一P 按钮要重新可见。规则集中在 refreshPageNavButtons
+        // （onPrepared、本函数、本地文件夹连播进出分P 层共用同一套；漏绑监听就是「看得见、点不动」）
+        refreshPageNavButtons()
         updateQueueModeButton()
         persistQueueToken()
         MsgUtil.showMsg(getString(R.string.player_queue_loaded, items.size.toString(), queueModeLabel(playQueue!!.mode)))
@@ -5552,34 +7935,117 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         Logu.d("播放会话", "$reason → ${session.title} ${session.positionMs}ms")
     }
 
-    // ------------------------------------------------------------------ 设备档位（DeviceProfile）
+    // ------------------------------------------------------------------ 起播默认值（清晰度 / 解码）
 
     /**
-     * 起播默认清晰度：用户显式配过网络分档（PLAY_QN/PLAY_QN_WIFI/PLAY_QN_MOBILE 任一 >0）时
-     * 以网络分档为主、但不超过设备档位上限；都没配过时直接用设备档位（低端机默认 720P）。
+     * 起播默认清晰度：只听用户配置（`NetworkPlaybackQuality.defaultQn`）。
+     *
+     * 26.11.07 这里曾用 `DeviceProfile.playQn` 给低端机封顶 360P，26.11.08 撤掉——除了下面这个
+     * 兜底位，主链路根本走不到（详情页 `JumpToPlayerActivity` 先用 `NetworkPlaybackQuality`
+     * 定好 qn，经 `currentQuality` extra 传进来），等于「用户设的清晰度被静默改写」，而
+     * 低端机真正的卡顿原因不是清晰度，是解码方式（见 [hardwareDecodeEnabled]）。
      */
-    private fun startupDefaultQn(): Int {
-        val networkQn = NetworkPlaybackQuality.defaultQn(this)
-        val profile = DeviceProfile.resolve(this)
-        val userConfigured = SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN, -1) > 0 ||
-            SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN_WIFI, -1) > 0 ||
-            SharedPreferencesUtil.getInt(SettingsKeys.PLAY_QN_MOBILE, -1) > 0
-        return if (userConfigured) minOf(networkQn, profile.playQn) else profile.playQn
-    }
+    private fun startupDefaultQn(): Int = NetworkPlaybackQuality.defaultQn(this)
 
-    /** 硬解默认值：用户显式设过 `player_codec` 就听用户的，没设过按设备档位。 */
+    /**
+     * 硬解默认值：**默认恒为硬解**，用户显式设过 `player_codec` 就听用户的。
+     *
+     * 不要在这里加任何「按设备性能自动软解」的逻辑：26.11.07 曾让低端档
+     * （`DeviceProfile.preferSoftwareDecode`）默认软解，真机诊断实测同一台 1GB 手表软解 720P
+     * 只画得出 14~17fps（源 30fps，硬解同机 30fps），成了「有些设备放视频卡顿、上个版本没有」
+     * 的根因；而「软解防花屏」在控制台全量反馈里没有任何证据。软解只能由用户在
+     * 「渲染与解码 → 解码方式」里显式选择。
+     */
     private fun hardwareDecodeEnabled(): Boolean =
-        SharedPreferencesUtil.getBoolean("player_codec", !DeviceProfile.resolve(this).preferSoftwareDecode)
+        SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_CODEC, true)
 
     private fun hasMultiplePages(): Boolean = pagenames != null && pagenames!!.size > 1
 
+    /**
+     * 字幕按钮在这条视频上有没有意义（26.11.21，反馈 #262）。
+     *
+     * 直播没有字幕轨；第三方直链（在线播放但没有 aid/cid）在 B 站也没有对应稿件，字幕接口只会返回空数据。
+     * 这两种情况下 [downSubtitle] 只能静默 return，按钮留在那里就是「点了没反应」——用户报的正是这个：
+     * 直播页 CC 按钮就在发送弹幕按钮右边，点下去什么都不发生。
+     *
+     * 旧版界面按它直接隐藏按钮（[refreshSubtitleButton]），新版界面交给 [slotAvailableFor] 把槽位留空；
+     * **不要**改判据去读 `btn_subtitle.visibility`——那个值会随控制栏自动隐藏一起变。
+     */
+    private fun canUseSubtitle(): Boolean =
+        !isLiveMode && (!isOnlineVideo || (aid > 0L && cid > 0L))
+
+    /** 按 [canUseSubtitle] 同步旧版界面的 CC 按钮；新版界面的槽位由 [slotAvailableFor] 自己过滤。 */
+    private fun refreshSubtitleButton() {
+        if (!::btn_subtitle.isInitialized) return
+        btn_subtitle.visibility = if (canUseSubtitle()) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * 槽位在这条视频上能不能用（新版控制层摆位前过滤不可用槽位时用）。
+     *
+     * **只读业务状态，绝不读 `view.visibility`**：控制栏自动收起时 `hidecon` 会把
+     * lock_btn / text_speed 置 GONE，那是「暂时不显示」；若拿它当「这条视频用不上」的判据，
+     * 一次重摆（旋转、回前台）之后按钮就会被永久摘掉——圆屏上看到的就是整列按钮消失。
+     *
+     * 这里的口径与 [refreshPageNavButtons]、[onPrepared] 里那些显隐分支保持一致：
+     * 直播没有清晰度/选集/片头片尾，本地文件没有清晰度。
+     */
+    private fun slotAvailableFor(key: String): Boolean = when (key) {
+        // 直播：没有清晰度与选集，其余（音量/弹幕/倍速/锁定）都在。
+        PlayerButtons.QUALITY -> isOnlineVideo && !isLiveMode
+        PlayerButtons.SUBTITLE -> canUseSubtitle()
+        PlayerButtons.PAGE_SELECTOR -> canOpenPageSelector()
+        PlayerButtons.AUTO_NEXT -> hasMultiplePages()
+        PlayerButtons.AUDIO_ONLY -> !isLocalAudioFile
+        else -> true
+    }
+
+    /**
+     * 选集按钮要不要露出来：有分页，**或者有能进入/返回的层**（本地文件夹连播）。
+     *
+     * 只看 [hasMultiplePages] 不够：只装了一个多P 视频的文件夹，根层只有 1 条，
+     * 按钮不露出来就永远进不到这个视频的 P2..Pn——正是用户报的"文件夹里的多P只能看P1"那个场景。
+     */
+    private fun canOpenPageSelector(): Boolean =
+        hasMultiplePages() ||
+            (localPlaylist != null && (localLayerIndex >= 0 || enterableLocalEntry != null))
+
+    /**
+     * 同步「选集 / 自动下一P」两个按钮（onPrepared、UP 主投稿队列、本地文件夹连播进出层共用）。
+     *
+     * 本地文件夹连播进出分P 层会整份换掉 [pagenames]，按钮显隐必须跟着重算，
+     * 否则从"根层只有 1 条视频的文件夹"进入分P 后会看不到选集按钮。
+     */
+    private fun refreshPageNavButtons() {
+        if (canOpenPageSelector()) {
+            btn_page_selector.visibility = View.VISIBLE
+            btn_page_selector.setOnClickListener { showPageSelectorCard() }
+        } else {
+            btn_page_selector.visibility = View.GONE
+        }
+        // 「自动下一P」只在真有分页时才有意义（进入/返回层时它的含义随层变化）
+        if (hasMultiplePages()) {
+            btn_auto_next.visibility = View.VISIBLE
+            updateAutoNextButton()
+            btn_auto_next.setOnClickListener { toggleAutoNext() }
+        } else {
+            btn_auto_next.visibility = View.GONE
+        }
+    }
+
     private fun showPageSelectorCard() {
-        if (!hasMultiplePages()) return
+        // 只有 1 条、但那条能进入分P 时也要能打开（见 canOpenPageSelector）
+        if (!canOpenPageSelector()) return
 
         runOnUiThread {
             val pageSelectorRecycler = findViewById<RecyclerView>(R.id.page_selector_list)
+            // pagenames 可能真的是 null：本地文件夹根层只有 1 条、但那条能进分P 时，
+            // canOpenPageSelector 靠 enterableLocalEntry 放行（见 :7272），这一层根本没有"页"可列，
+            // 只能经下面的 nest 入口往里进。早先这里直接 pagenames!! 就是那条 NPE 崩溃
+            // （控制台 #350/#349，PlayerActivity.showPageSelectorCard$lambda）。
+            val names: ArrayList<String> = pagenames ?: arrayListOf()
             val adapter = PageSelectorAdapter()
-            adapter.setData(pagenames!!, currentPageIndex)
+            adapter.setData(names, currentPageIndex)
             adapter.setOnItemClickListener { index ->
                 layout_card_bg.visibility = View.GONE
                 card_page_selector.visibility = View.GONE
@@ -5590,15 +8056,26 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
             // 标题要说清"现在在哪一层"：同一个"第 3 集"，在收藏夹连播里、在合集里、
             // 在多P视频的分P 里指的是完全不同的东西
-            val size = pagenames!!.size
+            val size = names.size
             // 层级标题 + 位置后缀：「合集 · 名字（3/12）」这类文案不再硬编码，
             // 前缀复用 UiText 里已有的「合集 · %s」，位置后缀是共享模板（三种层级都用）。
-            val pagePosition = getString(R.string.text_player_page_position, currentPageIndex + 1, size)
-            findViewById<TextView>(R.id.page_selector_title).text = when {
+            // 没有页可列时（上面的 null 兜底）不写「（1/0）」这种怪文案。
+            val pagePosition =
+                if (size <= 0) "" else getString(R.string.text_player_page_position, currentPageIndex + 1, size)
+            val pageTitle = when {
                 collectionId != 0L ->
                     UiText.fmt(UiText.of("合集 · %s"), collectionTitle ?: "") + pagePosition
                 multiPageAid != 0L ->
                     getString(R.string.text_player_multi_page_prefix, multiPageTitle ?: "") + pagePosition
+                // 本地文件夹连播的两层（与在线收藏夹同构）：
+                // 分P 层标题写"这一项的名字"，根层标题写文件夹名
+                localPlaylist != null && localLayerIndex >= 0 ->
+                    getString(
+                        R.string.text_player_multi_page_prefix,
+                        localPlaylist!![localLayerIndex].title
+                    ) + pagePosition
+                localPlaylist != null ->
+                    "${rootTitle ?: videoTitle ?: UiText.of("文件夹连播")}" + pagePosition
                 isVirtualCollectionMode ->
                     "${rootTitle ?: videoTitle ?: UiText.of("收藏夹连播")}" + pagePosition
                 else -> UiText.of("选择分P")
@@ -5609,6 +8086,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             //  · 在根目录层、且当前这条是"文件夹"（多P / 属于合集）→「进入分P / 进入合集」
             // **进入必须由用户点这里**，不自动（见 enterableCollection 的注释）。
             val nestEntry = findViewById<TextView>(R.id.page_selector_nest)
+            // 本地文件夹连播正在某一项的分P 层里：这一层没有"再往里"的东西，只留返回
+            val inLocalLayer = localPlaylist != null && localLayerIndex >= 0
             val enterable = when {
                 returnPlaylist != null -> null
                 enterableCollection != null -> getString(
@@ -5618,18 +8097,40 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 )
                 enterableMultiPage != null ->
                     getString(R.string.text_player_enter_multi_page, enterableMultiPage!!.cids.size)
+                localPlaylist != null && enterableLocalEntry != null ->
+                    getString(R.string.text_player_enter_multi_page, enterableLocalEntry!!.pageCount())
                 else -> null
             }
-            nestEntry.visibility = if (returnPlaylist != null || enterable != null) View.VISIBLE else View.GONE
-            nestEntry.text = if (returnPlaylist != null) getString(R.string.text_player_back_to_root) else enterable
-            nestEntry.setOnClickListener {
+            nestEntry.visibility =
+                if (returnPlaylist != null || inLocalLayer || enterable != null) View.VISIBLE else View.GONE
+            nestEntry.text = when {
+                returnPlaylist != null -> getString(R.string.text_player_back_to_root)
+                inLocalLayer -> getString(R.string.text_player_back_to_root)
+                else -> enterable
+            }
+            val onNestClick: () -> Unit = {
                 layout_card_bg.visibility = View.GONE
                 card_page_selector.visibility = View.GONE
                 if (returnPlaylist != null) {
                     returnToCallerPlaylist(advance = false)
+                } else if (inLocalLayer) {
+                    returnToLocalRoot(advance = false)
+                } else if (localPlaylist != null && enterableLocalEntry != null) {
+                    enterLocalLayer(localPlaylist!!.indexOf(enterableLocalEntry!!))
                 } else {
                     enterCurrentNestLayer()
                 }
+            }
+            nestEntry.setOnClickListener { onNestClick() }
+            newPlayerUi?.let { ui ->
+                val rows = names.toMutableList()
+                if (nestEntry.visibility == View.VISIBLE) rows += nestEntry.text.toString()
+                ui.showList(pageTitle, rows, currentPageIndex) { index ->
+                    if (index < names.size) {
+                        if (index != currentPageIndex) switchToPage(index)
+                    } else onNestClick()
+                }
+                return@runOnUiThread
             }
 
             layout_card_bg.visibility = View.VISIBLE
@@ -5652,7 +8153,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         currentPageIndex = pageIndex
         val newTitle = pagenames!![pageIndex]
 
-        MsgUtil.showMsg(UiText.fmt(UiText.of("切换到 P%1\$s"), pageIndex + 1))
+        // 换一P可能换稿件（番剧/合集每集 aid 不同），点赞的缓存状态跟着作废，
+        // 下一次点「点赞」会重新查 relation，不会拿上一集的「已赞」去取消这一集。
+        liked = null
+        refreshLikeIcon()
+
+        // 本地文件夹连播的根层切的是"下一条视频"，说「切换到 P2」会让人以为在切分P
+        if (localPlaylist != null && localLayerIndex < 0) {
+            MsgUtil.showMsg(newTitle)
+        } else {
+            MsgUtil.showMsg(UiText.fmt(UiText.of("切换到 P%1\$s"), pageIndex + 1))
+        }
 
         if (isOnlineVideo) {
             switchToOnlinePage(pageIndex, newTitle)
@@ -5701,6 +8212,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     playerData.cid = cidValue
                 }
 
+                // 合集续看：切到合集里的另一集同样算「看到了这一集」。原先只有详情页按播放
+                // 那一刻会写记录，播放器内换集 / 收藏夹连播一路看下去时记录一直停在旧的一集。
+                // 真实多P 换的是同一个 aid，不必写。
+                videoInfoForEnter?.collection?.let {
+                    // 拿不到 ugc_season.id 的合集由 save 内部写降级槽
+                    CollectionResumeStore.save(it.id.toLong(), playerData.aid)
+                }
+
                 playerData.title = newTitle
                 playerData.mid = mid
                 // 先按"当前作者"带过去；真正的作者在下面 runOnUiThread 里按新条目定稿
@@ -5711,6 +8230,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 playerData.currentPageIndex = currentPageIndex
 
                 PlayerApi.getVideo(playerData, false)
+
+                // 反馈 #151/#152：播放器内「下一集」/队列切集**不经过** JumpToPlayerActivity，
+                // 所以从播放器一路连看下去时，合集详情页的续看位置会一直停在最初进来那一集。
+                // 取流成功就补记一次：真实合集用 collectionId（= ugc_season.id，与
+                // VideoInfoFragment / JumpToPlayerActivity 的写入口径一致）；收藏夹虚拟合集与
+                // UP 主投稿队列没有合集身份，collectionId 为 0，此时只写「最后一次起播」降级槽。
+                // 放在后台线程里（本函数整体在 CenterThreadPool.run 里），写的是同步 SharedPreferences。
+                CollectionResumeStore.save(collectionId, playerData.aid)
 
                 runOnUiThread {
                     if (destroyed) return@runOnUiThread
@@ -5729,8 +8256,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                         uploaderMid = settledUploaderMid
                         updateQueueModeButton()
                     }
-                    // 在 UI 线程落地"这条能不能进得去"，供选集卡片画那一行（见 enterableCollection）
-                    updateEnterable(videoInfoForEnter)
+                    // 在 UI 线程落地"这条能不能进得去"，供选集卡片画那一行（见 enterableCollection）。
+                    // 真实多P 换P 不会重新取 videoInfo（null），此时列表根本没变，要保留原来的
+                    // 「进入合集」判断；虚拟合集换条目则一定会重新取，拿不到时按普通条目清空。
+                    if (videoInfoForEnter != null || isVirtualCollectionMode)
+                        updateEnterable(videoInfoForEnter)
                     // 在线切 P 没有外挂音轨（26.10.27 架构下在线取流是合一 MP4），传空即可
                     doSwitchPage(newTitle, playerData.videoUrl, playerData.danmakuUrl, "", pageIndex)
                 }
@@ -5778,6 +8308,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 已经进层了，选集卡片那一行该换成「← 返回主合集」
         enterableCollection = null
         enterableMultiPage = null
+        clearLocalPlaylistLayer()
         pagenames = ArrayList(items.map { it.title })
         cids = ArrayList(items.map { it.aid })
         isVirtualCollectionMode = true
@@ -5835,6 +8366,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 已经进层了，选集卡片那一行该换成「← 返回主合集」
         enterableCollection = null
         enterableMultiPage = null
+        clearLocalPlaylistLayer()
         pagenames = ArrayList(videoInfo.pagenames)
         cids = ArrayList(videoInfo.cids)
         isVirtualCollectionMode = false
@@ -5904,25 +8436,119 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     /**
-     * 切换到本地虚拟合集的指定分页
+     * 切换到本地播放的指定分页。
+     *
+     * 两种来源共用这里：
+     * 1. **本地文件夹连播**（[localPlaylist] 非空）：`pageIndex` 在当前这一层（根层 = 各条，
+     *    分P 层 = 某一项的 P1..Pn）的 pagenames 里，文件组由 [LocalPlaylistEntry.mediaAt] 给出；
+     * 2. 老入口（单条多P 由 `LocalPageChooseActivity` 起播，或只有三条扁平列表的旧调用）：
+     *    仍按 intent 里 `videoFileList` / `danmakuFileList` / `audioFileList` 的同下标取。
      */
     private fun switchToLocalPage(pageIndex: Int, newTitle: String) {
-        // 从 intent 中获取视频文件和弹幕文件列表
-        val videoFileList = intent.getStringArrayListExtra("videoFileList") ?: return
+        val media = resolveLocalPageMedia(pageIndex) ?: return
+        // 换条/换页都重算一次"这条能不能进入分P"：自动连播切到下一条时若不重算，
+        // 选集卡片上会留着上一条的「进入分P」，点进去播的是错的视频
+        if (localPlaylist != null) {
+            enterableLocalEntry = if (localLayerIndex >= 0) {
+                null
+            } else {
+                localPlaylist!!.getOrNull(pageIndex)?.takeIf { it.pageCount() > 1 }
+            }
+        }
+        runOnUiThread {
+            doSwitchPage(newTitle, media.videoFile, media.danmakuFile, media.audioFile, pageIndex)
+        }
+    }
+
+    /**
+     * 按**当前所在的层**算出 [pageIndex] 这一页该读哪几个文件；取不到返回 null（调用方直接不动）。
+     *
+     * 根层与分P 层的下标语义不同：根层 `pageIndex` 数的是"夹里第几条"，分P 层数的是"这条的第几个P"。
+     * 混用会把 P3 播成第 3 条视频——这正是多P 只能看 P1 那类问题的近亲，所以下标语义集中在这里判。
+     */
+    private fun resolveLocalPageMedia(pageIndex: Int): LocalPageMedia? {
+        val playlist = localPlaylist
+        if (playlist != null) {
+            val entry = if (localLayerIndex >= 0) {
+                playlist.getOrNull(localLayerIndex)
+            } else {
+                playlist.getOrNull(pageIndex)
+            } ?: return null
+            return entry.mediaAt(if (localLayerIndex >= 0) pageIndex else 0)
+        }
+
+        // 老路径：三条扁平列表按同下标取（DASH 双文件页在这一层就是一页一条，见 LocalPageChooseActivity）
+        val videoFileList = intent.getStringArrayListExtra("videoFileList") ?: return null
+        if (pageIndex < 0 || pageIndex >= videoFileList.size) return null
         val danmakuFileList = intent.getStringArrayListExtra("danmakuFileList")
         // 双文件（合并失败/未合并的 DASH）缓存还会带一份与外挂音轨对齐的列表：
         // 切 P 时必须跟着换，否则新一 P 只剩视频轨、直接没声音（反馈 #51 的另一半）
         val audioFileList = intent.getStringArrayListExtra("audioFileList")
+        return LocalPageMedia(
+            videoFile = videoFileList[pageIndex],
+            audioFile = audioFileList?.getOrElse(pageIndex) { "" } ?: "",
+            danmakuFile = danmakuFileList?.getOrElse(pageIndex) { "" } ?: ""
+        )
+    }
 
-        if (pageIndex < 0 || pageIndex >= videoFileList.size) return
+    /**
+     * 丢掉"本地文件夹连播"这条会话的全部第二层状态。
+     *
+     * 一旦换到在线会话（进合集 / 进分P / 按 UP 主连播），[localPlaylist] 那套条目就失效了：
+     * 留着的话选集卡片的 nestEntry 会照旧显示「进入分P」，点下去把本地文件塞进在线会话。
+     * 今天这几条路对本地播放都进不去（`canLoadUploaderQueue` 对 `!isOnline` 返回 false），
+     * 属于防御性清理，代价为零。
+     */
+    private fun clearLocalPlaylistLayer() {
+        localPlaylist = null
+        localLayerIndex = -1
+        localRootResumeIndex = -1
+        enterableLocalEntry = null
+    }
 
-        val videoUrl = videoFileList[pageIndex]
-        val danmakuUrl = danmakuFileList?.getOrElse(pageIndex) { "" } ?: ""
-        val audioUrl = audioFileList?.getOrElse(pageIndex) { "" } ?: ""
+    /**
+     * 进入本地文件夹连播里某一项的**分P 层**（用户点选集卡片的「进入分P（N）」）。
+     *
+     * 与在线 [enterMultiPageLayer] 对称：根层位置记进 [localRootResumeIndex]，这一项播完再弹回根层。
+     * 进入仍然**必须用户点**，不自动——理由同 [enterableCollection] 的注释。
+     */
+    private fun enterLocalLayer(entryIndex: Int) {
+        val playlist = localPlaylist ?: return
+        val entry = playlist.getOrNull(entryIndex) ?: return
+        if (!entry.isPlayable()) return
 
-        runOnUiThread {
-            doSwitchPage(newTitle, videoUrl, danmakuUrl, audioUrl, pageIndex)
-        }
+        reportProgressNow(true, UiText.of("进入分P前"))
+        localRootResumeIndex = currentPageIndex.coerceIn(0, playlist.size - 1)
+        localLayerIndex = entryIndex
+        enterableLocalEntry = null
+        // 分P 层播的是这一项自己的 P1..Pn；根层标题留在 rootTitle 里给返回后显示
+        pagenames = ArrayList(entry.pageNames.subList(0, entry.pageCount()))
+        currentPageIndex = 0
+        refreshPageNavButtons()
+        MsgUtil.showMsg(getString(R.string.msg_player_entered_multi_page, entry.title))
+        switchToLocalPage(0, pagenames!![0])
+    }
+
+    /**
+     * 从分P 层弹回本地文件夹连播的根层。
+     *
+     * @param advance true = 这一项播完了自动前进到下一条（受自动连播开关管）；
+     *                false = 用户点「← 返回主合集」，原地回到进来时那一条
+     */
+    private fun returnToLocalRoot(advance: Boolean) {
+        val playlist = localPlaylist ?: return
+        if (localLayerIndex < 0) return
+
+        val resumeIndex = (localRootResumeIndex + if (advance) 1 else 0)
+            .coerceIn(0, playlist.size - 1)
+        reportProgressNow(true, UiText.of("返回根层前"))
+        localLayerIndex = -1
+        localRootResumeIndex = -1
+        pagenames = playlist.mapTo(ArrayList()) { it.title }
+        currentPageIndex = resumeIndex
+        enterableLocalEntry = playlist.getOrNull(resumeIndex)?.takeIf { it.pageCount() > 1 }
+        refreshPageNavButtons()
+        switchToLocalPage(resumeIndex, pagenames!![resumeIndex])
     }
 
     /**
@@ -5938,6 +8564,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         if (destroyed) return
 
         releaseAudioTrack()
+        // 上一页的锁定随音轨一起作废，新一P 由 onPrepared → initAudioTrack 重新判定（反馈 #231）
+        unlockExternalAudioSpeed()
+        // 换了文件就是新的一次起播，锁 1x 的提示该重新说一遍
+        externalAudioSpeedHintShown = false
         // 新分页不能继续复用上一页的外部音轨，但要用**本页**的音轨（没有则置空）
         audioTrackUrl = newAudioTrackUrl.takeIf { it.isNotEmpty() }
         ijkPlayer?.stop()
@@ -5949,8 +8579,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         // 切P 后本地视频的目录与落盘去重都要跟着换：每个分P 各有自己的 `.video_meta.json`，
         // 沿用上一P 的目录会把这一P 的位置写进别人的文件
         localMediaDir = if (newVideoUrl.contains("http")) null else File(newVideoUrl).absoluteFile.parentFile
+        // 正在播放的目录随之换人：缓存页的「双文件机会式重封装」据此跳过它（见 CacheAudioRepair）
+        CacheAudioRepair.setPlayingDir(localMediaDir)
         lastSavedLocalProgressMs = -1L
-        text_title!!.text = newTitle
+        setPlayerTitle(newTitle)
         videoTitle = newTitle
 
         loading_info.visibility = View.VISIBLE
@@ -5967,6 +8599,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         subtitles = null
         subtitleLinks = null
         subtitle_selected = -1
+        // 新的一P从头按默认值来：上一P 里「用户关了字幕」的标记不能带过来，
+        // 还在路上的字幕请求也要作废（否则它回来会显示在这一P 上）
+        subtitleUserOff = false
+        subtitleLoadToken.incrementAndGet()
+        // 26.11.16 崩溃 #352 的同源问题：字幕选择框要是还开着，它挂着的是上一P 的列表，
+        // 点下去会加载上一P 的字幕（回调已加边界保护，不会崩，但行为仍是错的）。换P 统一收起卡片。
+        hideAllCards()
         viewPoints = null
         viewPointAdapter = null
         btn_viewpoint.visibility = View.GONE
@@ -5978,6 +8617,27 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         skipQuietUntilMs = 0L
         // 「询问」档的已问集合跟着上一次 reset 一起清，保证每集都能重新问一次
         askedSkipKeys.clear()
+        // SponsorBlock 的标注是「按 cid」的，换P 后旧表整张作废
+        // （`sponsorLoadCid = 0` 同时让下一次定时器 tick 重新去查新的一P）。
+        sponsorDecider.reset()
+        sponsorRawSegments = emptyList()
+        sponsorSessionIgnores.clear()
+        sponsorFullBadgeCid = 0L
+        sponsorFullBadgeText = ""
+        sponsorPoiSeen.clear()
+        sponsorPoiHighlights = emptyList()
+        sponsorAskSegments = emptyList()
+        sponsorMarkSegments = emptyList()
+        sponsorAskedKeys.clear()
+        sponsorSavedMs = 0L
+        sponsorLoadCid = 0L
+        sponsorSegmentsKey = ""
+        sponsorRetryAfterMs = 0L
+        // 进度条上的片段标记也是按 cid 画的，跟着一起清（否则新一P 会带着上一P 的色块起播）
+        if (::seekbar_progress.isInitialized) {
+            seekbar_progress.clearMarks()
+            seekbar_progress.clearPointMarks()
+        }
 
         interactionData = null
         currentEdgeId = 0
@@ -6045,6 +8705,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         }
 
         runOnUiThread {
+            newPlayerUi?.let { ui ->
+                // 取流接口的 support_formats / accept_quality 里没有 vip 字段，徽标判据只能落在 qn 上：
+                // 复用 QualityAccessPolicy 既有的「已登录非大会员最高 1080P」线（qn > 80），与接口文档的 qn 表一致。
+                val vipFlags = qnValueList!!.map { QualityAccessPolicy.requiresVip(it) }
+                ui.showQualityPanel(getString(R.string.setting_player_btn_quality), qnStrList!!.toList(), qnValueList!!.indexOf(currentQuality), vipFlags) { index ->
+                    if (index in qnValueList!!.indices && qnValueList!![index] != currentQuality) switchQuality(qnValueList!![index])
+                }
+                return@runOnUiThread
+            }
             val qualitySelectorRecycler = findViewById<RecyclerView>(R.id.quality_selector_list)
             val adapter = QualitySelectorAdapter()
             adapter.setData(qnStrList!!, qnValueList!!, currentQuality)
@@ -6072,7 +8741,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 val playerData = PlayerData()
                 playerData.aid = aid
                 playerData.cid = cid
-                playerData.title = text_title!!.text.toString()
+                playerData.title = playerTitleRaw
                 playerData.mid = mid
                 playerData.uploaderMid = uploaderMid
                 playerData.qn = newQuality
@@ -6172,11 +8841,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     skipDecider.applyLoaded(segments)
 
                     if (viewPoints != null && viewPoints!!.isNotEmpty()) {
-                        // 只开了自动跳过的用户不需要这个按钮
-                        if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SHOW_VIEWPOINTS, true)) {
-                            btn_viewpoint.visibility = View.VISIBLE
-                            btn_viewpoint.setOnClickListener { showViewPointSelectorCard() }
-                        }
+                        // 按钮显隐统一由 refreshViewPointButton 决定：内容来源除了 B站分段
+                        // 还有 SponsorBlock 精彩时刻，两处各判一次早晚会漂
+                        refreshViewPointButton()
                         Logu.d("视频分段", "成功加载 " + viewPoints!!.size + " 个分段")
                         // 引导只在 PGC 上弹：UGC 的分段不是片头片尾，在这里引导「自动跳过」
                         // 等于邀请用户去踩反馈 #99 那个坑
@@ -6193,25 +8860,37 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     private fun showViewPointSelectorCard() {
-        if (viewPoints == null || viewPoints!!.isEmpty()) return
+        val list = buildViewPointDisplayList()
+        if (list.isEmpty()) return
 
         runOnUiThread {
             val viewPointRecycler = findViewById<RecyclerView>(R.id.viewpoint_selector_list)
             if (viewPointAdapter == null) {
                 viewPointAdapter = ViewPointAdapter()
-                viewPointAdapter!!.setData(viewPoints!!)
                 viewPointAdapter!!.setOnItemClickListener { index ->
                     layout_card_bg.visibility = View.GONE
                     card_viewpoint_selector.visibility = View.GONE
-                    if (index >= 0 && index < viewPoints!!.size) {
-                        val vp = viewPoints!![index]
+                    // 点击回调给的是"当时那一行"，而精彩时刻会在点过之后从列表里消失、
+                    // 让后面的行整体前移，所以在回调里重新取一次当前列表再按下标访问
+                    val current = buildViewPointDisplayList()
+                    if (index >= 0 && index < current.size) {
+                        val vp = current[index]
                         seekToPosition(vp.from * 1000L)
                         MsgUtil.showMsg(UiText.of("跳转到: ") + vp.content)
+                        if (isPoiViewPoint(vp)) {
+                            // 点过的精彩时刻本次播放不再出现，进度条上那个小三角一起消失
+                            sponsorPoiHighlights
+                                .firstOrNull { it.posSec.toInt() == vp.from }
+                                ?.let { markSponsorPoiSeen(it) }
+                        }
                     }
                 }
                 viewPointRecycler.layoutManager = CustomLinearManager(this, LinearLayoutManager.HORIZONTAL, false)
                 viewPointRecycler.adapter = viewPointAdapter
             }
+            // 每次打开都重灌一次数据：B站的分段是异步到的、精彩时刻还会随点击减少，
+            // 只在首次 setData 会让卡片停在旧列表上（改了 B站分段也看不到）
+            viewPointAdapter!!.setData(list)
             if (isPrepared) {
                 // 看点列表只需要"当前第几秒"这种整秒粒度，直接用 video_now，不必摸 native 锁
                 val currentPos = video_now / 1000
@@ -6220,6 +8899,53 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             layout_card_bg.visibility = View.VISIBLE
             card_viewpoint_selector.visibility = View.VISIBLE
         }
+    }
+
+    /** 这一行是不是 SponsorBlock 的精彩时刻点（而不是 B 站自己的分段/片头片尾）。 */
+    private fun isPoiViewPoint(point: ViewPoint): Boolean = point.type == VIEWPOINT_TYPE_POI
+
+    /**
+     * 看点卡片要显示的合并列表 = B站分段（`view_points`）+ 还没点过的精彩时刻。
+     *
+     * 为什么不把精彩时刻直接塞进 [viewPoints]：那批数据同时喂给 [ViewPointSkip.buildSegments]
+     * 判断片头片尾，混进"区间为空"的点会让片头片尾判定多出一堆无用片段（`to > from` 一滤虽然
+     * 能挡住，但那是在靠下游兜底）。这里只在**展示**时合并，数据源各归各。
+     *
+     * 精彩时刻排在最后：它是"额外发现"，不该把用户看惯的章节顺序打乱。
+     */
+    private fun buildViewPointDisplayList(): List<ViewPoint> {
+        val base = viewPoints.orEmpty()
+        if (sponsorPoiHighlights.isEmpty()) return base
+        val pois = sponsorPoiHighlights.map {
+            ViewPoint(
+                sponsorCategoryLabel(it.category),
+                it.posSec.toInt(),
+                it.posSec.toInt(),
+                VIEWPOINT_TYPE_POI,
+                "",
+                "",
+            )
+        }
+        return base + pois
+    }
+
+    /**
+     * 按「有没有可列的内容」决定看点按钮显隐。
+     *
+     * 26.11.14：内容来源从"只有 B站分段"变成"分段 **或** 精彩时刻"，所以不能再用
+     * `loadViewPoints` 里那句一次性判断——只查 SponsorBlock 的场景（UGC、没有章节的投稿）
+     * 也要能点开这个按钮。
+     */
+    private fun refreshViewPointButton() {
+        if (!::btn_viewpoint.isInitialized) return
+        if (!SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SHOW_VIEWPOINTS, true)) {
+            // 只开了自动跳过的用户不需要这个按钮
+            btn_viewpoint.visibility = View.GONE
+            return
+        }
+        val hasContent = !viewPoints.isNullOrEmpty() || sponsorPoiHighlights.isNotEmpty()
+        btn_viewpoint.visibility = if (hasContent) View.VISIBLE else View.GONE
+        if (hasContent) btn_viewpoint.setOnClickListener { showViewPointSelectorCard() }
     }
 
     private fun loadInteractionVideo() {
@@ -6515,7 +9241,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     cid = targetCid
                     video_url = playerData.videoUrl
                     danmaku_url = playerData.danmakuUrl
-                    text_title!!.text = newData.title
+                    setPlayerTitle(newData.title)
                     videoTitle = newData.title
                     currentEdgeId = newData.edgeId
 
@@ -6535,6 +9261,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                     subtitles = null
                     subtitleLinks = null
                     subtitle_selected = -1
+                    // 同上：换分P 后重新按默认值来，并作废还在路上的字幕请求
+                    subtitleUserOff = false
+                    subtitleLoadToken.incrementAndGet()
+                    // 同上（#352）：换互动分P 时也把还开着的字幕选择框收起来
+                    hideAllCards()
                     viewPoints = null
                     viewPointAdapter = null
                     btn_viewpoint.visibility = View.GONE
@@ -6597,8 +9328,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
     }
 
     private fun getTargetQuality(): Int {
-        // 默认清晰度按「当前网络」取：移动数据/Wi-Fi 可各配一档（NetworkPlaybackQuality），
-        // 再按设备档位封顶（DeviceProfile.playQn：低端机 720P、中端 1080P、高端不降）。
+        // 默认清晰度按「当前网络」取：移动数据/Wi-Fi 可各配一档（NetworkPlaybackQuality）。
+        // 26.11.08 起不再按设备档位封顶——那一层在主链路本来也不生效（见 startupDefaultQn）。
         val defaultQn = startupDefaultQn()
         if (qnValueList == null || qnValueList!!.isEmpty()) return if (currentQuality > 0) currentQuality else defaultQn
 
@@ -6691,6 +9422,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         isPrepared = true
         video_all = ijkPlayer!!.duration.toInt()
 
+        // G03（26.11.13）：真实时长到这一刻才知道，立刻回填给弹幕窗口加载器。
+        // downdanmuNew() 是在 prepare 之前跑的，那时 ijkPlayer.duration 还是 0，
+        // 只能退回 3600s 的估计值；而总分段数 = ceil(时长/360)，估计值偏小会让
+        // 1 小时以上视频的后半段永远落在窗口之外（表现为「后半段一条弹幕都没有」）。
+        // 这里只管回填，已加载的分段不会重拉（见 DanmakuStreamLoader.updateDuration）。
+        if (video_all > 0) danmakuStreamLoader?.updateDuration(video_all / 1000)
+
         // 起播即申请音频焦点（幂等：切清晰度/重试会重建播放器再走一次本回调）。
         requestAudioFocusForPlayback()
 
@@ -6760,16 +9498,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
                 btn_audio_only.visibility = View.VISIBLE
             }
 
-            if (hasMultiplePages()) {
-                btn_page_selector.visibility = View.VISIBLE
-                btn_page_selector.setOnClickListener { showPageSelectorCard() }
-                btn_auto_next.visibility = View.VISIBLE
-                updateAutoNextButton()
-                btn_auto_next.setOnClickListener { toggleAutoNext() }
-            } else {
-                btn_page_selector.visibility = View.GONE
-                btn_auto_next.visibility = View.GONE
-            }
+            // 有分页才显示「选集 / 自动下一P」（规则与切换分P 层时共用 refreshPageNavButtons）
+            refreshPageNavButtons()
 
             if (isOnlineVideo) {
                 btn_quality.visibility = View.VISIBLE
@@ -6780,6 +9510,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
             // QQ#9：非直播才有「跳到指定时间」；直播在下面的 else 分支统一隐藏
             jump_time_btn.visibility = View.VISIBLE
+            // G02：±N 秒同理——直播没有可跳的时间轴
+            seek_back_btn.visibility = View.VISIBLE
+            seek_forward_btn.visibility = View.VISIBLE
         } else {
             btn_loop.visibility = View.GONE
             btn_audio_only.visibility = View.GONE
@@ -6787,6 +9520,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             btn_auto_next.visibility = View.GONE
             btn_quality.visibility = View.GONE
             jump_time_btn.visibility = View.GONE
+            seek_back_btn.visibility = View.GONE
+            seek_forward_btn.visibility = View.GONE
         }
         // 连播按钮：有队列时显示当前模式（顺序/倒序/随机/单曲），没有队列但有 UP 主时显示「连播」，
         // 点一下懒加载 UP 主投稿当队列。显隐与文案都在 updateQueueModeButton 里统一算。
@@ -6794,6 +9529,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
 
         seekbar_progress.max = video_all
         progress_str = StringUtil.toTime(video_all / 1000)
+        // 标注可能在起播前就到了（250ms 定时器比 prepare 更早开始跑），那时进度条的 max 还是 0，
+        // 记下的标记要等 max 变成真实时长才画得出来；这里再落一次，保证时长一就绪就能看见
+        updateSponsorMarks()
+        // 同理，括号里的"有效时长"也要等总时长就绪才算得出来
+        refreshProgressText()
 
         if (isAudioOnlyMode) updateAudioOnlyUI()
 
@@ -6841,11 +9581,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         progressChange()
         onlineChange()
 
+        // 上报「正在放的本地目录」：缓存页的后台重封装要避开它（替换/删除正在读的文件会出事）。
+        // 在线播放 / 直播时 localMediaDir 为 null，等于「没有要避让的目录」。
+        CacheAudioRepair.setPlayingDir(localMediaDir)
         // 判断实际轨道，含内嵌音轨时禁止再启动第二路音频；重复 prepared 也不会遗留旧实例。
         initAudioTrack(mediaPlayer)
         // 新建的 IjkMediaPlayer/外部音轨默认增益都是 1.0，必须把用户记忆的「无极调音」重新打上去，
         // 否则换清晰度、切 P、出错重试之后音量会跳回满格。
         applyVolumeGain()
+        // 每次 prepare（含切清晰度/切 P/重试）留一份音频现场：反馈 #182 靠这一行才看得出
+        // 起播那一刻增益、系统音量档位与输出设备是什么。
+        audioDiagLog("prepared")
 
         if (isPlaying) {
             ijkPlayer!!.start()
@@ -6886,7 +9632,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
         savePlaySessionNow("退出前")
         if (ijkPlayer != null) {
             val result = Intent()
-            result.putExtra("progress", ijkPlayer!!.currentPosition.toInt())
+            // 反馈 #117（P0）：这里原来读 ijkPlayer!!.currentPosition，是取原生锁的 JNI 调用，
+            // seek/缓冲/解码异常时可能长时间不返回——主线程卡在这儿就是「点了返回没反应、最后 ANR」。
+            // 与 reportProgressNow 同一口径：用 progressChange 每 250ms 刷新的 video_now，
+            // 差半秒对回传进度无影响，且**完全不碰 ijk**，退出链零等待。
+            result.putExtra("progress", video_now)
             // 回传最终观看的 cid：播放器内可以切分P，上一页若沿用"进入时"的旧 cid，
             // 就会拿新P的进度去覆盖旧P的历史记录，把正确的续播位置冲掉
             result.putExtra("cid", cid)
@@ -6894,7 +9644,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener {
             result.putExtra("isPlaying", isPlaying)
             result.putExtra("isDanmakuEnabled", !isDanmakuVisible)
             result.putExtra("quality", currentQuality)
-            Logu.d("进度回传", ijkPlayer!!.currentPosition.toString())
+            Logu.d("进度回传", video_now.toString())
             setResult(RESULT_OK, result)
         } else setResult(RESULT_CANCELED)
         super.finish()

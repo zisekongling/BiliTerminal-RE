@@ -10,6 +10,9 @@ import androidx.fragment.app.Fragment
 import androidx.viewpager2.widget.ViewPager2
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.model.ShortVideoItem
+import com.RobinNotBad.BiliClient.ui.shortvideo.ShortVideoAuthorPolicy
+import com.RobinNotBad.BiliClient.ui.shortvideo.ShortVideoLoadingPolicy
+import com.RobinNotBad.BiliClient.ui.shortvideo.ShortVideoNewUi
 import com.RobinNotBad.BiliClient.ui.widget.SwipePageLayout
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.UiText
@@ -38,7 +41,15 @@ class ShortVideoFeedFragment : Fragment() {
     private lateinit var errorText: TextView
     private lateinit var audioManager: AudioManager
 
-    private val preloadManager = VideoPreloadManager(preloadCount = 3)
+    // 推荐流数据源：整个 Fragment 生命周期保持存活。「只看 TA」期间也不释放——
+    // 推荐列表与 StoryFeedPager 的 display_id / track_id / seenAids 原地保留，退出不重拉第一页。
+    private val recommendSource = RecommendFeedSource(VideoPreloadManager(preloadCount = 3))
+
+    // 当前生效的数据源：推荐 / 作者。翻页逻辑只认接口，换源 = 换实现 + 换 adapter。
+    private var feedSource: ShortVideoFeedSource = recommendSource
+
+    // 进入「只看 TA」前记住的推荐流位置，退出时落到它的下一条
+    private var authorSavedIndex = 0
 
     private var currentPageIndex = 0
     private var wasPlayingWhenPaused = false
@@ -46,18 +57,118 @@ class ShortVideoFeedFragment : Fragment() {
     /** 「播完且列表已到底」时等相关推荐回来再切页；用户中途自己滑走的作废。 */
     private var pendingAdvanceAfterRelated = false
 
+    /** 作者流播完最后一条、但下一页还在飞：等它回来再自动接续。 */
+    private var pendingAdvanceAfterMore = false
+
+    /** 加载层判据的两份输入：本次加载是否失败、是否已经出过帧（见 [ShortVideoLoadingPolicy]）。 */
+    private var feedLoadFailed = false
+    private var firstFrameOut = false
+
     private val host: ShortVideoPlayerActivity
         get() = requireActivity() as ShortVideoPlayerActivity
 
     /** 当前这条短视频；右侧详情/评论/相关推荐按它渲染。 */
     val currentShortVideo: ShortVideoItem?
-        get() = preloadManager.getItem(currentPageIndex)
+        get() = feedSource.getItem(currentPageIndex)
 
     private val feedAdapter: ShortVideoPagerAdapter?
         get() = viewPager.adapter as? ShortVideoPagerAdapter
 
     /** 当前活跃那页是否真的在播放；宿主据此决定要不要保持亮屏。 */
     fun isCurrentPlaying(): Boolean = feedAdapter?.isCurrentPlaying() == true
+
+    fun closeCurrentPanel(): Boolean = feedAdapter?.closeCurrentPanel() == true
+
+    /** 当前活跃页的新版 UI；老布局返回 null，表冠换条据此不生效。 */
+    fun activeNewUi(): ShortVideoNewUi? = feedAdapter?.activeNewUi()
+
+    /** 新版表冠换条：±1 页，复用 onPageSelected 的暂停 / 备播链路；到边界返回 false。 */
+    fun switchVideo(offset: Int): Boolean {
+        if (!::viewPager.isInitialized) return false
+        val next = currentPageIndex + offset
+        if (next < 0 || next >= feedSource.getItemCount()) {
+            // 「只看 TA」到底：提示一下，不自动回推荐流（设计稿口径）
+            if (offset > 0 && isAuthorMode() && feedSource.isExhausted()) {
+                MsgUtil.showMsg(getString(R.string.msg_sv_author_end))
+            }
+            return false
+        }
+        viewPager.setCurrentItem(next, true)
+        return true
+    }
+
+    /** 当前是否处于「只看 TA」作者流。 */
+    fun isAuthorMode(): Boolean = feedSource !== recommendSource
+
+    /**
+     * 进入「只看 TA」：原地换数据源，不开新页面、不动 ViewPager2 结构。
+     *
+     * @param startItem null 或就是当前这条 → 当前条钉在第 0 位、记住播放进度继续播；
+     *                  作者卡缩略图点进来的某条 → 从那条开始。
+     *
+     * 只在**新版 UI** 生效（老布局 [activeNewUi] 为 null，直接返回，老链路逐字节不变）。
+     */
+    fun enterAuthorMode(startItem: ShortVideoItem?) {
+        if (!::viewPager.isInitialized || !isAdded) return
+        if (activeNewUi() == null) return
+        if (isAuthorMode()) return
+        val current = currentShortVideo ?: return
+        if (current.authorMid <= 0) return
+        val continuing = startItem == null || startItem.aid == current.aid
+        authorSavedIndex = currentPageIndex
+        // 续播进度：换 adapter 会重建播放器，用保存的毫秒数在 onPrepared 里 seek 回去
+        val seekMs = if (continuing) feedAdapter?.currentPositionMs() ?: 0L else 0L
+        val seed = if (continuing) current else startItem!!
+        bindSource(AuthorFeedSource(current.authorMid, seed), 0, seekMs)
+        MsgUtil.showMsg(
+            getString(
+                if (continuing) R.string.msg_sv_author_only_current else R.string.msg_sv_author_only_from,
+                current.authorName
+            )
+        )
+    }
+
+    /** 退出「只看 TA」：回推荐流记住位置的下一条，推荐列表原地还在、不重拉。 */
+    fun exitAuthorMode() {
+        if (!::viewPager.isInitialized || !isAdded) return
+        if (!isAuthorMode()) return
+        val old = feedSource
+        val target = ShortVideoAuthorPolicy.exitRestoreIndex(authorSavedIndex, recommendSource.getItemCount())
+        bindSource(recommendSource, target, 0L)
+        old.release()
+        MsgUtil.showMsg(getString(R.string.msg_sv_author_exit))
+    }
+
+    /**
+     * 换数据源并重建 adapter（整列表替换必须换新 adapter，不能 notify 旧实例）。
+     * 推荐流期间 [recommendSource] 的列表与分页游标一直活着，这里只是重新挂上去。
+     */
+    private fun bindSource(source: ShortVideoFeedSource, initialIndex: Int, initialSeekMs: Long) {
+        pendingAdvanceAfterRelated = false
+        pendingAdvanceAfterMore = false
+        feedSource = source
+        attachSourceCallbacks(source)
+        feedLoadFailed = false
+        firstFrameOut = false
+        renderLoadingOverlay()
+        errorLayout.visibility = View.GONE
+        val adapter = newFeedAdapter(source)
+        if (initialSeekMs > 0) adapter.requestInitialSeek(initialIndex, initialSeekMs)
+        viewPager.adapter = adapter
+        currentPageIndex = initialIndex
+        if (initialIndex > 0) viewPager.setCurrentItem(initialIndex, false)
+        viewPager.post {
+            if (!isAdded || feedSource !== source) return@post
+            val a = feedAdapter ?: return@post
+            // layout 期间 onPageSelected 可能已经跑过（备播已完成）；没跑到的在这里兜底
+            if (a.lastVisiblePosition != initialIndex) {
+                source.onSwipeToIndex(initialIndex)
+                host.onFeedAnchorChanged()
+                a.lastVisiblePosition = initialIndex
+                a.setupPlayerAtPosition(initialIndex)
+            }
+        }
+    }
 
     /**
      * 宿主的可用区域尺寸变了（旋转 / 界面边距 / 圆屏留白）：让各页按新尺寸重摆画面。
@@ -125,67 +236,19 @@ class ShortVideoFeedFragment : Fragment() {
 
         view.findViewById<TextView>(R.id.retryButton).setOnClickListener { loadFeed() }
 
-        preloadManager.onItemsLoaded = load@{ items ->
-            // 预加载是后台线程拉数据、回主线程才回调的，这中间用户可能已经退出页面。
-            // 不判 isAdded 时旧代码会在这里抛
-            // "Fragment ... not attached to an activity"（线上实测 4 例：loadInitial/loadRelated
-            // 的回调打在一个已 detach 的 Fragment 上），所以三条回调都先过这道闸。
-            if (!isAdded) return@load
-            if (items.isNotEmpty()) {
-                loadingLayout.visibility = View.GONE
-                errorLayout.visibility = View.GONE
-
-                val adapter = feedAdapter
-                if (adapter == null) {
-                    viewPager.adapter = ShortVideoPagerAdapter(host, preloadManager, audioManager)
-                } else {
-                    // 用范围插入代替 notifyDataSetChanged：避免 ViewPager2 重建全部页面并跳回第一页
-                    val start = preloadManager.getItemCount() - items.size
-                    if (start >= 0) adapter.notifyItemRangeInserted(start, items.size)
-                }
-                // 第一批内容到位后，右侧详情页才有 aid 可用
-                host.onFeedAnchorChanged()
-            }
-        }
-
-        preloadManager.onLoadError = err@{ msg ->
-            if (!isAdded) return@err
-            if (preloadManager.getItemCount() == 0) {
-                loadingLayout.visibility = View.GONE
-                errorLayout.visibility = View.VISIBLE
-                errorText.text = msg
-            } else {
-                MsgUtil.showMsg(msg)
-            }
-        }
-
-        // 播到列表末尾时用相关推荐续接：成功后追加并切到下一条，失败就停住并提示
-        preloadManager.onRelatedLoaded = related@{ items ->
-            if (!isAdded) return@related
-            if (items.isEmpty()) {
-                pendingAdvanceAfterRelated = false
-                MsgUtil.showMsg(getString(R.string.text_shortvideoplayer_no_more))
-            } else {
-                val start = preloadManager.getItemCount() - items.size
-                if (start >= 0) feedAdapter?.notifyItemRangeInserted(start, items.size)
-                if (pendingAdvanceAfterRelated) {
-                    pendingAdvanceAfterRelated = false
-                    val next = currentPageIndex + 1
-                    if (next < preloadManager.getItemCount()) {
-                        viewPager.setCurrentItem(next, true)
-                    }
-                }
-            }
-        }
+        attachSourceCallbacks(recommendSource)
 
         viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
-                // 用户在等相关推荐回来时自己滑走了：取消自动接续，免得稍后又被强制跳页
+                // 用户在等续接回来时自己滑走了：取消自动接续，免得稍后又被强制跳页
                 if (pendingAdvanceAfterRelated && position != currentPageIndex) {
                     pendingAdvanceAfterRelated = false
                 }
+                if (pendingAdvanceAfterMore && position != currentPageIndex) {
+                    pendingAdvanceAfterMore = false
+                }
                 currentPageIndex = position
-                preloadManager.onSwipeToIndex(position)
+                feedSource.onSwipeToIndex(position)
                 host.onFeedAnchorChanged()
 
                 val adapter = feedAdapter
@@ -206,7 +269,13 @@ class ShortVideoFeedFragment : Fragment() {
             }
         })
 
-        loadFeed()
+        // 作者流视图重建（横滑去详情页再回来）：列表还在就原样重挂，不重拉；
+        // 推荐流保持旧行为走 loadFeed()
+        if (isAuthorMode() && feedSource.getItemCount() > 0) {
+            bindSource(feedSource, currentPageIndex.coerceIn(0, feedSource.getItemCount() - 1), 0L)
+        } else {
+            loadFeed()
+        }
     }
 
     override fun onResume() {
@@ -237,7 +306,8 @@ class ShortVideoFeedFragment : Fragment() {
     }
 
     override fun onDestroy() {
-        preloadManager.release()
+        recommendSource.release()
+        if (feedSource !== recommendSource) feedSource.release()
         super.onDestroy()
     }
 
@@ -256,24 +326,133 @@ class ShortVideoFeedFragment : Fragment() {
         if (feedAdapter == null) return
 
         val next = currentPageIndex + 1
-        if (next < preloadManager.getItemCount()) {
+        if (next < feedSource.getItemCount()) {
             viewPager.setCurrentItem(next, true)
             return
         }
 
-        val anchorAid = preloadManager.getItem(currentPageIndex)?.aid ?: 0L
+        // 「只看 TA」：不拉相关推荐、不自动回推荐流。到底提示；下一页还在飞就等它回来接续
+        if (!feedSource.supportsRelated) {
+            if (feedSource.isExhausted()) {
+                MsgUtil.showMsg(getString(R.string.msg_sv_author_end))
+            } else {
+                pendingAdvanceAfterMore = true
+                feedSource.loadMore()
+            }
+            return
+        }
+
+        val anchorAid = feedSource.getItem(currentPageIndex)?.aid ?: 0L
         if (anchorAid <= 0) {
             MsgUtil.showMsg(getString(R.string.text_shortvideoplayer_no_more))
             return
         }
         pendingAdvanceAfterRelated = true
-        preloadManager.loadRelated(anchorAid)
+        feedSource.loadRelated(anchorAid)
+    }
+
+    /**
+     * 给数据源挂三条回调。闭包捕获的是**传入的 source**而不是 feedSource：
+     * 换源后旧数据源的在飞请求回来时，`source !== feedSource` 直接丢弃通知
+     * （数据仍追加进旧源自己的列表，推荐流状态因此原地保留）。
+     */
+    private fun attachSourceCallbacks(source: ShortVideoFeedSource) {
+        source.onItemsLoaded = load@{ items ->
+            // 预加载是后台线程拉数据、回主线程才回调的，这中间用户可能已经退出页面。
+            // 不判 isAdded 时旧代码会在这里抛
+            // "Fragment ... not attached to an activity"（线上实测 4 例：loadInitial/loadRelated
+            // 的回调打在一个已 detach 的 Fragment 上），所以三条回调都先过这道闸。
+            if (!isAdded || source !== feedSource) return@load
+            if (items.isNotEmpty()) {
+                feedLoadFailed = false
+                renderLoadingOverlay()
+                errorLayout.visibility = View.GONE
+
+                // adapter 的 count 与本次插入通知必须落在同一个主线程 turn、同一个实例上：
+                // 数据源已在同一 turn 里把 items 追加进列表后才回调，所以此刻
+                // getItemCount() 已经包含本批数据，start 就是本批的起点。
+                val adapter = feedAdapter
+                if (adapter == null) {
+                    viewPager.adapter = newFeedAdapter(source)
+                } else {
+                    // 用范围插入代替 notifyDataSetChanged：避免 ViewPager2 重建全部页面并跳回第一页
+                    val start = source.getItemCount() - items.size
+                    if (start >= 0) adapter.notifyItemRangeInserted(start, items.size)
+                }
+                // 第一批内容到位后，右侧详情页才有 aid 可用
+                host.onFeedAnchorChanged()
+                // 作者流播完最后一条时等的下一页到了：自动接续
+                if (pendingAdvanceAfterMore) {
+                    pendingAdvanceAfterMore = false
+                    val next = currentPageIndex + 1
+                    if (next < source.getItemCount()) viewPager.setCurrentItem(next, true)
+                }
+            }
+        }
+
+        source.onLoadError = err@{ msg ->
+            if (!isAdded || source !== feedSource) return@err
+            feedLoadFailed = true
+            if (source.getItemCount() == 0) {
+                errorLayout.visibility = View.VISIBLE
+                errorText.text = msg
+            } else {
+                // 已有内容时一次失败的刷新不该把转圈盖回正在播的画面上
+                MsgUtil.showMsg(msg)
+            }
+            renderLoadingOverlay()
+        }
+
+        // 播到列表末尾时用相关推荐续接：成功后追加并切到下一条，失败就停住并提示
+        source.onRelatedLoaded = related@{ items ->
+            if (!isAdded || source !== feedSource) return@related
+            if (items.isEmpty()) {
+                pendingAdvanceAfterRelated = false
+                MsgUtil.showMsg(getString(R.string.text_shortvideoplayer_no_more))
+            } else {
+                // 先取 adapter 再算 start，并用同一个实例通知：原来直接用 feedAdapter?.xxx，
+                // 取实例与通知之间若 adapter 被换过（如视图重建），插入通知会打到已废弃的旧 adapter 上，
+                // 留下来的新 adapter 数量涨了却没收到通知，ViewPager2 下一次 layout 就会判不一致。
+                // start 用「当前总数 - 本批条数」反推，因为数据源已在同一 turn 里追加完。
+                val adapter = feedAdapter
+                val start = source.getItemCount() - items.size
+                if (adapter != null && start >= 0) adapter.notifyItemRangeInserted(start, items.size)
+                if (pendingAdvanceAfterRelated) {
+                    pendingAdvanceAfterRelated = false
+                    val next = currentPageIndex + 1
+                    if (next < source.getItemCount()) {
+                        viewPager.setCurrentItem(next, true)
+                    }
+                }
+            }
+        }
     }
 
     private fun loadFeed() {
-        loadingLayout.visibility = View.VISIBLE
+        feedLoadFailed = false
+        firstFrameOut = false
+        renderLoadingOverlay()
         errorLayout.visibility = View.GONE
         loadingText.text = UiText.of("加载短视频...")
-        preloadManager.loadInitial()
+        feedSource.loadInitial()
     }
+
+    /** 加载层显隐唯一出口：有内容 / 已失败 / 已出帧，三者任一都不再盖转圈。 */
+    private fun renderLoadingOverlay() {
+        loadingLayout.visibility =
+            if (ShortVideoLoadingPolicy.keepLoading(feedSource.getItemCount(), feedLoadFailed, firstFrameOut)) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
+    }
+
+    /** 建 adapter 时挂首帧回调：出帧即收加载层，不等列表回调。 */
+    private fun newFeedAdapter(source: ShortVideoFeedSource): ShortVideoPagerAdapter =
+        ShortVideoPagerAdapter(host, source, audioManager).also { adapter ->
+            adapter.onFirstFrame = {
+                firstFrameOut = true
+                renderLoadingOverlay()
+            }
+        }
 }

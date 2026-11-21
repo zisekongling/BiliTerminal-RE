@@ -81,6 +81,33 @@ class SpecialLoginParserTest {
     }
 
     @Test
+    fun parse_jsonNullTokens_areTreatedAsMissing() {
+        // org.json 的 optString 对 JSON null 返回字符串 "null"，若不挡掉，
+        // 会把字面量 "null" 存成 Cookie / refresh_token（看着有值，实则每次鉴权都失败）
+        val nullCookies = SpecialLoginParser.parse(
+            "{\"cookies\":null,\"refresh_token\":\"rt\"}"
+        )
+        assertTrue("cookies 是 JSON null 应判缺失：$nullCookies", nullCookies is SpecialLoginParser.Result.Failure)
+
+        val nullToken = SpecialLoginParser.parse(
+            "{\"cookies\":\"DedeUserID=1\",\"refresh_token\":null}"
+        )
+        assertTrue("refresh_token 是 JSON null 应判缺失：$nullToken", nullToken is SpecialLoginParser.Result.Failure)
+    }
+
+    @Test
+    fun parse_jsonNullOptionalFields_becomeEmptyOrNull() {
+        val result = SpecialLoginParser.parse(
+            "{\"cookies\":\"DedeUserID=1\",\"refresh_token\":\"rt\",\"access_key\":null,\"name\":null,\"avatar\":null}"
+        )
+        assertTrue(result is SpecialLoginParser.Result.Success)
+        result as SpecialLoginParser.Result.Success
+        assertEquals("字面量 null 不能当 access_key 存下来", null, result.accessKey)
+        assertEquals("", result.name)
+        assertEquals("", result.avatar)
+    }
+
+    @Test
     fun parse_failureMessagesAreNotEmpty() {
         val cases = listOf(
             "",

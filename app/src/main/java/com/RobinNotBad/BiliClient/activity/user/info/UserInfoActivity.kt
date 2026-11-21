@@ -15,7 +15,6 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.adapter.dynamic.DynamicHolder
 import com.RobinNotBad.BiliClient.adapter.viewpager.ViewPagerFragmentAdapter
-import com.RobinNotBad.BiliClient.helper.TutorialHelper
 
 class UserInfoActivity : BaseActivity() {
 
@@ -63,8 +62,6 @@ class UserInfoActivity : BaseActivity() {
         updatePageName(viewPager.currentItem)
 
         findViewById<View>(R.id.loading).visibility = View.GONE
-
-        TutorialHelper.showPagerTutorial(this, 4)
 
     }
 

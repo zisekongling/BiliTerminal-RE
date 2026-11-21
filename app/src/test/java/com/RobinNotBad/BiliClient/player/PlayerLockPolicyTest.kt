@@ -37,6 +37,15 @@ class PlayerLockPolicyTest {
     }
 
     @Test
+    fun scale_onlyAllowedWhenUnlocked() {
+        // 锁定态连「双击后再拖动」的单指快速缩放也不许：判据只认未锁定
+        assertTrue(PlayerLockPolicy.scaleAllowed(Phase.UNLOCKED))
+        for (phase in listOf(Phase.LOCKED_HIDDEN, Phase.LOCKED_ICON_VISIBLE)) {
+            assertFalse(PlayerLockPolicy.scaleAllowed(phase))
+        }
+    }
+
+    @Test
     fun lockButton_whileIconVisible_unlocks() {
         assertEquals(Phase.UNLOCKED, PlayerLockPolicy.phaseAfterLockButtonClick(Phase.LOCKED_ICON_VISIBLE))
     }

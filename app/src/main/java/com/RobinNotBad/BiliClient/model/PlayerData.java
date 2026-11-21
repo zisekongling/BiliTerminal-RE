@@ -22,6 +22,17 @@ public class PlayerData implements Parcelable {
     public long aid;
     public long cid;
     /**
+     * 这条视频的 BV 号（{@code BV1xxxxxxxxx}），空串表示入口不知道。
+     *
+     * <p>**为什么要有它**：SponsorBlock 的查询键是 BVID（哈希接口也是对它做 SHA-256），
+     * 而 B 站播放接口只给 aid/cid。以前播放器里的 {@code bvid} 只能从
+     * {@code enterable_info} 里抠（还只在多P 时才带），UGC 视频基本拿不到
+     * （见 {@code PlayerActivity#loadHighEnergyData} 的同名局部变量）。
+     *
+     * <p>由 {@code VideoInfo.toPlayerData} 填，随 Intent 进播放器；为空时播放器按 aid 现查一次。
+     */
+    public String bvid = "";
+    /**
      * **当前登录账号**的 mid，不是视频作者。
      *
      * <p>它只用来回答「我是谁」：直播弹幕握手包的 {@code uid}、以及各入口
@@ -83,6 +94,16 @@ public class PlayerData implements Parcelable {
     public int currentPageIndex = 0;
     public DashData dashData; // DASH格式数据
     public String audioUrl = ""; // 单独的音频URL（用于仅音频下载）
+    // 视频 / 音频流的候选线路（主线路在前，playurl 的 backup_url 备用线路按序去重追加）。
+    // 只给下载器用：主线路在某台设备/某个视频上持续掐断时换线重试（反馈 #136）。
+    // 和 dashData 一样不参与 Parcel —— 它是"这一次取流"的附属信息，跨 Intent / 存盘后本就过期，
+    // 需要的一方重新取流即可（见 PlayerApi#rememberUrlCandidates）。
+    public ArrayList<String> videoUrlCandidates = new ArrayList<>();
+    public ArrayList<String> audioUrlCandidates = new ArrayList<>();
+    // 老接口（合一的 MP4/flv）的**完整分段清单**（反馈 #87/#90）：服务端会把一份较大的文件切成
+    // 多段 durl，下载器要按 order 逐段下载再拼接，只下第 0 段就是一个能打开但短了的残片。
+    // 与 videoUrlCandidates 同样是"这一次取流"的附属信息，不参与 Parcel。
+    public ArrayList<DownloadSegment> videoSegments = new ArrayList<>();
     // 直播专用：进入播放器前已经把全部可选地址排好序（见 util/live/LiveStreamSelector）。
     // 直播流"连接还在、但长时间没有数据"时，播放器按这个顺序换 CDN / 换 HLS 重连，
     // 不必回头再请求一次取流接口（也就不会因为请求失败而彻底没得救）。
@@ -126,6 +147,8 @@ public class PlayerData implements Parcelable {
         enterableInfo = in.readParcelable(VideoInfo.class.getClassLoader());
         // 新字段一律追加在末尾：read/write 顺序必须严格一致，插在中间会把后面所有字段读错位
         uploaderMid = in.readLong();
+        bvid = in.readString();
+        if (bvid == null) bvid = "";
         // dashData不序列化，下载时会重新获取
     }
 
@@ -171,9 +194,13 @@ public class PlayerData implements Parcelable {
         dest.writeInt(seasonType);
         dest.writeStringList(liveUrlCandidates);
         dest.writeInt(virtualCollection ? 1 : 0);
-        dest.writeParcelable(enterableInfo, flags);
+        // 合集信息必须**瘦身**再进 Parcel（崩溃 #201）：它每一集都挂着完整 VideoInfo（arc），
+        // 965 集的合集能到 750KB，随 Intent 过 binder 时撞上事务上限，播放页根本起不来。
+        // 播放器只读 collection 与 cids（见 VideoInfo#slimForTransfer 的注释），arc 留着没用。
+        dest.writeParcelable(enterableInfo == null ? null : enterableInfo.slimForTransfer(), flags);
         // 新字段一律追加在末尾（见构造函数里的同一处注释）
         dest.writeLong(uploaderMid);
+        dest.writeString(bvid);
         // dashData不序列化，下载时会重新获取
     }
 

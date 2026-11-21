@@ -1,6 +1,7 @@
 package com.RobinNotBad.BiliClient.player
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -95,6 +96,29 @@ class DanmakuWindowTest {
         assertEquals(listOf(2), DanmakuWindow.missing(setOf(1, 3), 1..3))
         assertTrue(DanmakuWindow.missing(setOf(1, 2, 3), 1..3).isEmpty())
         assertTrue("窗口外的已加载段不影响结果", DanmakuWindow.missing(setOf(1, 2, 3, 99), 1..3).isEmpty())
+    }
+
+    // ------------------------------------------------------------ needsTimelineRebuild
+
+    @Test
+    fun `同段内的小幅跳转只增量补窗口`() {
+        // 双击快进 10 秒、拖一点点：旧窗口的段还有效，重建会白闪一下。
+        assertFalse(DanmakuWindow.needsTimelineRebuild(0L, 30_000L))
+        assertFalse(DanmakuWindow.needsTimelineRebuild(350_000L, 359_999L))
+    }
+
+    @Test
+    fun `跨段的跳转必须重建时间轴`() {
+        assertTrue("359999ms → 360000ms 已进第 2 段", DanmakuWindow.needsTimelineRebuild(359_999L, 360_000L))
+        assertTrue("片头拖到片尾", DanmakuWindow.needsTimelineRebuild(0L, 1_800_000L))
+        assertTrue("往回拖同样重建", DanmakuWindow.needsTimelineRebuild(1_800_000L, 0L))
+    }
+
+    @Test
+    fun `分段时长可配且未知的前位置按第 1 段处理`() {
+        assertFalse("负值按 0 处理，不会误判成跨段", DanmakuWindow.needsTimelineRebuild(-1L, 10_000L))
+        assertTrue(DanmakuWindow.needsTimelineRebuild(0L, 120_000L, 60))
+        assertFalse(DanmakuWindow.needsTimelineRebuild(0L, 59_999L, 60))
     }
 
     @Test

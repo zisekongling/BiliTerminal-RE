@@ -53,7 +53,7 @@ class SubscriptionFolderAdapter(
             R.string.text_subscription_meta,
             context.getString(
                 if (item.isSeason) R.string.text_subscription_type_season
-                else R.string.text_subscription_type_folder
+                else R.string.uitext_favoritevideolistactivity_011
             ),
             item.mediaCount
         )
@@ -62,6 +62,7 @@ class SubscriptionFolderAdapter(
 
         GlideUtil.with(holder.cover).asDrawable()
             .load(GlideUtil.url_hq(item.cover))
+            .apply(GlideUtil.thumbOptions(holder.cover))
             .transition(GlideUtil.getTransitionOptions())
             .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(5f))))
             .format(DecodeFormat.PREFER_RGB_565)

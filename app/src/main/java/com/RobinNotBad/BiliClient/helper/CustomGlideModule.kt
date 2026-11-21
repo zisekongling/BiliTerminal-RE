@@ -1,6 +1,8 @@
 package com.RobinNotBad.BiliClient.helper
 
 import android.content.Context
+import android.util.Log
+import com.RobinNotBad.BiliClient.BuildConfig
 import com.RobinNotBad.BiliClient.util.ImageRequestPolicy
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import com.RobinNotBad.BiliClient.util.PerformanceManager
@@ -28,6 +30,16 @@ class CustomGlideModule : AppGlideModule() {
         val diskCacheSizeMB = PerformanceManager.getGlideDiskCacheSizeMB()
         val memoryCacheSizeMB = PerformanceManager.getGlideMemoryCacheSizeMB()
         val memoryCacheSizeBytes = memoryCacheSizeMB.toLong() * 1024 * 1024
+
+        // 26.11.09：只在 Debug 包里把 Glide 自己的日志开到 VERBOSE。
+        // 用途是排查线上崩溃 `Cannot recycle a resource while it is still acquired`：那条崩溃是
+        // 「延迟回收」（ResourceRecycler 投递到主线程队列）里命中 acquired > 0，现场没有异常可抓，
+        // 只能靠 Glide 自己的 Engine 日志看「从 cache 取到 / 放回 cache / 被淘汰」的先后顺序。
+        // 用 BuildConfig.DEBUG（编译期常量）而不是运行期开关：Release 里这段会被 R8 折叠，
+        // 发布包既不打这些日志、也没有任何运行期开销。
+        if (BuildConfig.DEBUG) {
+            builder.setLogLevel(Log.VERBOSE)
+        }
 
         builder.setDiskCache(InternalCacheDiskCacheFactory(context, diskCacheSizeMB * 1024 * 1024))
             .setMemoryCache(com.bumptech.glide.load.engine.cache.LruResourceCache(memoryCacheSizeBytes))

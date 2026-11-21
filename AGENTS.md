@@ -6,9 +6,41 @@
 
 **与用户交流、代码注释、文档一律中文。**
 
-## 先读架构地图
+## 多提问
 
-改任何非平凡代码前先读 **`docs/architecture-map.md`**：真实分层、基类体系、API 层映射表、UI 模板、逐条坑点。其他参考：**`docs/README.md`（文档总索引）**、`bilibili-API/`（B 站接口文档快照）、`docs/bilibili-api-notes.md`（接口与风控常识，改 API 前读）、`docs/FEATURES.md`（用户可见功能总表）、`docs/review/agent-test-guide.md`（**用 adb / agent 驱动 Debug 包测试的手册**，加调试能力前先读）、`docs/superpowers/specs/`（功能设计文档，写新功能前读）、`docs/tutorial-system-redesign.md`（教程系统重做中——**改教程前先读它**）。**`docs/archive/` 里全是历史资料，记录的是当时、不是现状**，别照着它改代码。
+**先问清楚再动手**：问一句几秒钟，猜错要返工一轮。下面这些岔路口先停下来问用户：
+
+| 该问的情形 | 长什么样 |
+| --- | --- |
+| 需求有歧义 | 一句话能读出两种做法；没说清改哪个页面 / 哪个 flavor / 哪个版本 |
+| 取舍是主观的 | 文案措辞、交互手感、功能放哪个入口、旧行为留不留 |
+| 动作不可逆或对外 | 删代码删文件、改清单与网络白名单、发版、向第三方仓库提交、动 `private/` |
+| 影响面看不全 | 会牵连多处调用或多个 flavor；代码与文档冲突、分不清该信谁 |
+| 只有人能判 | L2 人工验收项（看画面 / 听声音 / 判手感），替用户拍板不如问一句 |
+
+**怎么问**：一次问全，不挤牙膏；每题给 2–3 个具体选项，标出推荐哪个和理由，让用户一句话就能定；能自己查的（源码、文档、`git log`）先查完，提问时把查到的结论一起写上。
+
+需求已明确、只剩动手的活（改文案、跑测试、修编译错）直接做——提问留给上面那类真岔路口。
+
+## 先读架构地图（按 § 查，别整份读）
+
+`docs/architecture-map.md` 实测 **342,142 字节 / 2,116 行 ≈ 9.9 万 token**（26.11.08 复核）——整份读完就是十万 token 量级，一次任务里绝大部分是浪费。按下面这张表只读你需要的那几节（行号是 26.11.08 复核值，文件改版后仍会漂移，对不上就用 `grep -n "^## N\."` 重新定位）：
+
+| 你要干什么 | 只读这几节 | token |
+| --- | --- | --- |
+| 第一次进仓库、要搞清分层 | §1 `10–175` + §10 `2108–2116` | ≈6.0k |
+| 新增页面 / 改列表 / 改 UI 模板 | §8 `1543–1940` + §3 `223–303` | ≈13.8k |
+| 改 API 解析 / 找某接口在哪个文件 | §9 `1941–2050` + §6 `364–674` | ≈14.5k |
+| 改播放器 / 弹幕 / 下载 | §7.4 `713–796` + §7.27 `1104–1127` + §7.51 `1403–1416` + §7.54 `1439–1450`（动亮屏 / 顶栏再加 §7.52 `1417–1424`、§7.53 `1425–1438`，+1.5k） | ≈9.5k |
+| 撞到某个具体坑 | 先 `grep -n "关键词" docs/architecture-map.md` 命中单个 `§7.x` 再读 | 1–3k |
+
+三条铁律：
+
+- **§7 是坑点库，不是必读章节**：`675–1542` 行、65 个 `### 7.x`、≈5.5 万 token，**永远不要通读**，用 grep 定位到那一节。
+- **`§9` 末尾三节（7.56 收藏夹管理页 / 7.57 播放器内切 1080P / 7.59 外置卷 FileProvider，`2051–2107`，≈6.5k token）是误放在那里的坑点**，不是 API 映射——读 §9 读到 `1941–2050` 就够，那三节按坑点单独 grep（文内两处已标交叉引用）。
+- **`docs/review/fix-progress.md` 平时只读 §1 + §2**（§1 `19–164` ≈17.9k、§2 `165–338` ≈12.7k）；`§3` 起 `339–1671` 行是历史流水（≈9.2 万 token），只有要查「某轮改动到底怎么改的」才按关键词 grep 进去。
+
+其他参考：`docs/README.md`（文档总索引）、`bilibili-API/`（B 站接口文档快照，**197 份 / 5.5MB，按接口名 grep 单份，别通读**）、`docs/bilibili-api-notes.md`（接口与风控常识，改 API 前读）、`docs/FEATURES.md`（用户可见功能总表，≈3.4 万 token，按章 grep）、`docs/superpowers/specs/`（功能设计文档，只读与你这次改动相关的那一份）、`docs/tutorial-system-redesign.md`（教程系统重做中——**改教程前先读它**，全份仅 2.4k，可以整读）。**`docs/archive/` 里全是历史资料，记录的是当时、不是现状**，别照着它改代码。
 
 ## 分册索引（按"我正在做什么"读）
 
@@ -20,6 +52,7 @@
 | 构建 / 单测 / 装包 / 遇到构建怪错误 | `docs/agents/build.md` |
 | 发版 / 更新日志 / Release 说明 | `docs/agents/release.md` |
 | 准备提交、准备说"应该没问题" | `docs/agents/workflow.md` |
+| 改完要验证、想上模拟器、判断这条测试该不该交给人工 | `docs/agents/testing.md` |
 | 改 API 解析 / 播放器 / 弹幕 / 下载等易踩区 | `docs/agents/pitfalls.md` |
 | 收尾（改文档、跑 markdownlint） | `docs/agents/docs.md` |
 
@@ -27,7 +60,7 @@
 
 - RE:哔哩终端（ReBiliClient），第三方 B 站**手表**安卓客户端，`main` 分支。
 - 典型 vibe coding 产物：代码大量由 AI 生成。**改动前先读源码核实，注释和文档都可能是错的。**
-- 版本号按 YY.MM.DD（`app/build.gradle`）。
+- 版本号按 YY.MM.DD，分**稳定 / 测试 / 实验**三通道：`app/build.gradle` 里只手写 `appVersionDate`，`versionCode` / `versionName` 全部由它派生（命令行 `-Pchannel=stable|beta|exp`、`-Pseq=N`）。口径与发版规则见 [`docs/version-channels.md`](docs/version-channels.md)，**改版本号规则先改那份文档**。
 
 ## 架构（三条与直觉相反的）
 
@@ -39,8 +72,13 @@
 
 - 网络请求包在 `CenterThreadPool.run { }` 里。
 - **小步提交**：改动切成能独立验证的小步（`assembleDebug` + 相关单测通过）再做下一步，别一次堆大量改动。**做完自己 commit + push 到 `main`**，不等催；commit message 与 co-author 格式见 `docs/agents/workflow.md`。**例外**：动到私有功能 / 开源边界的改动（新增或搬迁逆向产物、改 `private/` 机制、清公开侧残留）**开分支开发、最后交 PR**，见下一节。
-- **改完必须自测，不许只说"应该没问题"**：涉及播放器 / 网络 / UI 时序的改动装到 MuMu 模拟器（`adb connect 127.0.0.1:7555`）跑一遍，把实测结论写进 `docs/review/fix-progress.md`；纯文案 / 单文件小逻辑跑通 `assembleDebug` + 单测即可（判据见 `docs/agents/workflow.md`）。
+- **改完必须验证，不许只说"应该没问题"**，分三级（细则、预算、止损与交接单模板见 `docs/agents/testing.md`）：
+  - **L0 静态**：每个改动都做——`assembleDebug` + 相关单测绿。只证明纯函数没写错，**不证明功能能用**。
+  - **L1 设备可观测**：结论能用**文字/数字读出来**时做（日志原文、控件树文字与 bounds、落盘文件结构、HTTP 状态码），用 Debug 包 + `adb`/调试桥跑；**两轮上限，每轮 ≤10 分钟**，测不出来立刻止损写交接单，别反复试。
+  - **L2 人工验收**：结论只能靠**看画面 / 听声音 / 判手感 / 主观取舍**时，**不要自己上模拟器硬试**——写交接单交给人，并在 `docs/review/fix-progress.md` 记「未验证：<项>」。
+- **不许攒交接单**：需要人测的改动提交后立刻给交接单，别攒到发版前一次堆几十条。
 - 用户可见文案一律进 `app/src/main/res/values/strings.xml`（写法与纯函数例外见 `docs/agents/dev-conventions.md`）。
+- **界面设计稿进 `design/`（已 gitignore）**：可交互 HTML 预览、原型、截图与配套的文字 spec 草稿（短视频播放器、播放器界面重设计那类一整套）都写这里，不进版本库；定稿后的取舍 / 验收口径 / 踩到的坑回迁 `docs/` 的活文档。
 - 不轻易引入新第三方库；**一切功能优先考虑手表端**，手机等设备只是顺便适配。
 - **改完同步文档**：修 bug / 关待办 → `docs/review/fix-progress.md`；改架构 / 基建 → `docs/architecture-map.md`；新增用户可见功能 → `docs/FEATURES.md`；接口 / 风控结论 → `docs/bilibili-api-notes.md`；本文件描述的内容变了 → 改对应分册。改任何 `.md` 后跑 `npx --yes markdownlint-cli2 "AGENTS.md" "readme.md" "docs/**/*.md" "!docs/archive/**"`，**要求 0 错误**（规则、豁免与逐字素材示例见 `docs/agents/docs.md`）。
 
@@ -105,7 +143,7 @@
 ## 构建
 
 ```bash
-./gradlew.bat :app:assembleDebug                 # 编译验证（无 CI，以此为准；两个 flavor 都编）
+./gradlew.bat :app:assembleDebug                 # 本地编译验证（两个 flavor 都编）；CI 也跑这一步
 ./gradlew.bat :app:testStandardDebugUnitTest     # 纯 JVM 单测（普通版）
 ./gradlew.bat :app:testCoexistDebugUnitTest      # 纯 JVM 单测（共存版，同源码）
 ./gradlew.bat :app:assembleRelease               # 正式包（R8 + ABI 分包，两个 flavor 都出）

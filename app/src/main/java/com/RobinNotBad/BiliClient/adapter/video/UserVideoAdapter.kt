@@ -15,8 +15,10 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.video.series.UserSeriesActivity
 import com.RobinNotBad.BiliClient.adapter.dynamic.DynamicHolder
 import com.RobinNotBad.BiliClient.model.VideoCard
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
+import com.RobinNotBad.BiliClient.util.view.LongPressDelay
 
 class UserVideoAdapter(
     val context: Context,
@@ -62,12 +64,11 @@ class UserVideoAdapter(
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
                         longPressRunnable = Runnable {
-                            val quickMode = SharedPreferencesUtil.getBoolean("cache_quick_mode", true)
-                            if (quickMode && videoCard.type != "live") {
-                                VideoQuickCache.handle(context, videoCard)
+                            if (SharedPreferencesUtil.getBoolean(SettingsKeys.CACHE_QUICK_MODE, true) && videoCard.type != "live") {
+                                VideoCardMenu.show(context, videoCard)
                             }
                         }
-                        v.postDelayed(longPressRunnable, 200)
+                        v.postDelayed(longPressRunnable, LongPressDelay.CARD_MS)
                         false
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {

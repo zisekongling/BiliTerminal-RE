@@ -17,6 +17,7 @@ import com.RobinNotBad.BiliClient.api.TerminalApi
 import com.RobinNotBad.BiliClient.model.FeedbackItem
 import com.RobinNotBad.BiliClient.model.FeedbackReply
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.FeedbackUnread
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.TimeUtil
@@ -70,6 +71,9 @@ class FeedbackDetailActivity : BaseActivity() {
         }
         if (data.replies == null) data.replies = ArrayList()
         item = data
+        // 26.11.16：打开详情就算「看过」这条反馈的开发者回复——水位线推到最新一条，
+        // 「我的反馈」列表上的「新回复」标签与设置入口的计数随之下一次刷新消失。
+        FeedbackUnread.markSeen(data)
 
         asyncInflate(R.layout.activity_feedback_detail) { _, _ ->
             setPageName(UiText.of("反馈详情"))

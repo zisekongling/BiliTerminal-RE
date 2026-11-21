@@ -1,5 +1,6 @@
 package com.RobinNotBad.BiliClient.activity.video.info
 
+import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.ui.appearance.ThemeTint
 import com.RobinNotBad.BiliClient.util.UiText
 
@@ -34,6 +35,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseFragment
 import com.RobinNotBad.BiliClient.activity.dynamic.send.SendDynamicActivity
+import com.RobinNotBad.BiliClient.activity.message.ChooseFriendActivity
 import com.RobinNotBad.BiliClient.activity.note.NoteActivity
 import com.RobinNotBad.BiliClient.activity.search.SearchActivity
 import com.RobinNotBad.BiliClient.activity.settings.SettingPlayerChooseActivity
@@ -50,14 +52,25 @@ import com.RobinNotBad.BiliClient.api.EmoteApi
 import com.RobinNotBad.BiliClient.api.HistoryApi
 import com.RobinNotBad.BiliClient.api.LikeCoinFavApi
 import com.RobinNotBad.BiliClient.api.PlayerApi
+import com.RobinNotBad.BiliClient.api.PrivateMsgApi
+import com.RobinNotBad.BiliClient.api.SponsorBlockApi
 import com.RobinNotBad.BiliClient.api.VideoInfoApi
 import com.RobinNotBad.BiliClient.api.WatchLaterApi
 import com.RobinNotBad.BiliClient.model.PlayerData
+import com.RobinNotBad.BiliClient.model.PrivateMessage
 import com.RobinNotBad.BiliClient.model.VideoInfo
+import com.RobinNotBad.BiliClient.player.CollectionResumeStore
+import com.RobinNotBad.BiliClient.player.SponsorSkipPolicy
+import com.RobinNotBad.BiliClient.player.SponsorSkipPrefs
 import com.RobinNotBad.BiliClient.ui.widget.RadiusBackgroundSpan
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
+import com.RobinNotBad.BiliClient.util.CacheChangeSignal
+import com.RobinNotBad.BiliClient.util.CacheDeletePlan
+import com.RobinNotBad.BiliClient.util.CacheMediaPolicy
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.DetailEntryPrefs
 import com.RobinNotBad.BiliClient.util.FileUtil
+import com.RobinNotBad.BiliClient.util.FolderManager
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -66,6 +79,7 @@ import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
+import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
@@ -83,10 +97,15 @@ class VideoInfoFragment : BaseFragment() {
 
     private val favLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { o ->
         val code = o.resultCode
-        if (code == RESULT_ADDED) {
-            ThemeTint.setActiveIcon(fav, R.drawable.icon_fav_1)
-        } else if (code == RESULT_DELETED) {
-            ThemeTint.setInactiveIcon(fav, R.drawable.icon_fav_0)
+        // 反馈 #204：这里原先只换图标、没改 videoInfo.stats.favoured。而详情页的 VideoInfo 是
+        // TerminalContext 的 LRU 里那**同一个对象**（util/TerminalContext.java:308-313 缓存命中时
+        // 直接返回缓存实例），退出重进命中的还是它，于是图标按旧的 favoured=false 渲染——
+        // 表现就是"收藏后退出重进，收藏符号消失（实际已收藏）"。
+        // 所以图标和状态位必须一起改，缓存里的对象才会跟着对。
+        if (code == RESULT_ADDED || code == RESULT_DELETED) {
+            val info = videoInfo ?: return@registerForActivityResult
+            info.stats.favoured = code == RESULT_ADDED
+            ThemeTint.setToggleIcon(fav, info.stats.favoured, R.drawable.icon_fav_1, R.drawable.icon_fav_0)
         }
     }
 
@@ -138,6 +157,81 @@ class VideoInfoFragment : BaseFragment() {
         }
     }
 
+    /**
+     * 选好友页的回传（反馈 #133）：拿到 uid 就把视频当文本私信发出去。
+     *
+     * 只认 RESULT_OK + data，用户直接返回就当没选，不弹任何提示。
+     */
+    private val chooseFriendLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@registerForActivityResult
+        val data = result.data ?: return@registerForActivityResult
+        val uid = data.getLongExtra(ChooseFriendActivity.EXTRA_UID, 0L)
+        if (uid <= 0L) return@registerForActivityResult
+        // 昵称只用于「已发送给 xxx」，拿不到时留空也不影响发送
+        sendVideoToFriend(uid, data.getStringExtra(ChooseFriendActivity.EXTRA_NAME).orEmpty())
+    }
+
+    /**
+     * 转发到动态：让发送页知道这是一次「转发视频」——显示视频预览卡、隐藏「添加图片」入口，
+     * 否则 normalPublish 会判定为普通动态，用户选的图会被静默丢弃。
+     * SendDynamicActivity.onDestroy 会把该上下文清回 null。
+     */
+    private fun relayToDynamic() {
+        val info = videoInfo ?: return
+        TerminalContext.getInstance().setForwardContent(info)
+        val intent = Intent()
+        intent.setClass(requireContext(), SendDynamicActivity::class.java)
+        writeDynamicLauncher.launch(intent)
+    }
+
+    /** 转发到好友：先选人，选完由 [chooseFriendLauncher] 回传 uid 再发。 */
+    private fun relayToFriend() {
+        val intent = Intent()
+        intent.setClass(requireContext(), ChooseFriendActivity::class.java)
+        chooseFriendLauncher.launch(intent)
+    }
+
+    /**
+     * 把视频以「标题 + 链接」文本私信发给好友（反馈 #133）。
+     *
+     * 发文本而不是分享卡片：接口只接受 `msg_type` 1/2/5，卡片是 7（会被回 21035），
+     * 见 [PrivateMsgApi.buildVideoShareText]。失败不静默——能拼出链接就先复制，
+     * 用户至少还有一条能把视频发出去的路。
+     */
+    private fun sendVideoToFriend(uid: Long, name: String) {
+        val info = videoInfo ?: return
+        CenterThreadPool.run {
+            try {
+                val result = PrivateMsgApi.sendMsg(
+                    SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 114514),
+                    uid,
+                    PrivateMessage.TYPE_TEXT,
+                    System.currentTimeMillis() / 1000,
+                    PrivateMsgApi.buildTextContent(
+                        PrivateMsgApi.buildVideoShareText(info.title, info.bvid)
+                    )
+                )
+                CenterThreadPool.runOnUiThread {
+                    if (result.optInt("code", -1) == 0) {
+                        MsgUtil.showMsg(UiText.of(getString(R.string.msg_video_relay_to_friend_success, name)))
+                    } else {
+                        copyVideoLinkAndHint(info.bvid)
+                    }
+                }
+            } catch (e: Exception) {
+                CenterThreadPool.runOnUiThread { copyVideoLinkAndHint(info.bvid) }
+                MsgUtil.err(e)
+            }
+        }
+    }
+
+    /** 发送失败的回退：复制视频链接 + 提示（链接拼不出来就只提示）。 */
+    private fun copyVideoLinkAndHint(bvid: String?) {
+        val link = PrivateMsgApi.buildVideoLink(bvid)
+        if (link.isNotEmpty()) StringUtil.copyText(requireContext(), link)
+        MsgUtil.showMsg(UiText.of(getString(R.string.msg_video_relay_to_friend_failed_copied)))
+    }
+
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -175,6 +269,17 @@ class VideoInfoFragment : BaseFragment() {
     private lateinit var like: ImageView
     private lateinit var coin: ImageView
     private lateinit var fav: ImageView
+    /**
+     * 标题前那个「广告」胶囊的文字；null 表示这条视频没有广告标注（或还没查出来）。
+     *
+     * 详情页的标注是**后到**的（要额外发一次 SponsorBlock 请求），所以不能在
+     * `getTitleSpan()` 里现算，只能先渲染原样标题、拿到结果再重渲染一次。
+     */
+    private var sponsorBadge: String? = null
+
+    /** 标题 TextView 的字段引用：`getTitleSpan()` 的第一次渲染在 `initView` 里，之后胶囊到货还要再渲染一次。 */
+    private var titleView: TextView? = null
+
     private var coinAdd = 0
     private var descExpand = false
     private var tagsExpand = false
@@ -278,6 +383,7 @@ class VideoInfoFragment : BaseFragment() {
 
         val cover = rootview.findViewById<ImageView>(R.id.img_cover)
         val title = rootview.findViewById<TextView>(R.id.text_title)
+        titleView = title
         description = rootview.findViewById(R.id.description)
         tagsText = rootview.findViewById(R.id.tags)
         val exclusiveTip = rootview.findViewById<MaterialCardView>(R.id.exclusiveTip)
@@ -302,6 +408,11 @@ class VideoInfoFragment : BaseFragment() {
         val coinLabel = rootview.findViewById<TextView>(R.id.coin_label)
         val favLabel = rootview.findViewById<TextView>(R.id.fav_label)
         val collectionCard = rootview.findViewById<MaterialCardView>(R.id.collection)
+        val likeCoinFavCard = rootview.findViewById<MaterialCardView>(R.id.like_coin_fav)
+        // 反馈 #112：动作区卡片外面那圈 1dp 描边取 ?attr/actionCardStroke，B站粉与经典终端主题下
+        // 都是 #FF6699，有用户觉得扎眼。开关关掉时把描边宽度归零——底色与文字色都不动。
+        // 描边是 XML 属性，只能在运行时改，所以这里必须有引用。
+        if (!DetailEntryPrefs.isLikeCardRingEnabled()) likeCoinFavCard.strokeWidth = 0
 
         // 点赞/投币/收藏卡片改为「surface 底 + 主色 1dp 描边」：
         // 原布局用 ?attr/colorPrimary 亮粉打底，标签文字走主题近白色，对比度约 2.1:1（低于 AA 4.5:1）；
@@ -321,6 +432,7 @@ class VideoInfoFragment : BaseFragment() {
         }
 
         Glide.with(getAppContext()).asDrawable().load(GlideUtil.url_hq(videoInfo!!.cover)).placeholder(R.mipmap.placeholder)
+            .apply(GlideUtil.thumbOptions(cover))
             .transition(GlideUtil.getTransitionOptions())
             .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(4f))).sizeMultiplier(0.85f).skipMemoryCache(true).dontAnimate())
             .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
@@ -401,6 +513,7 @@ class VideoInfoFragment : BaseFragment() {
 
         title.text = getTitleSpan()
         StringUtil.setCopy(title, videoInfo!!.title)
+        loadSponsorBadge()
 
         if (videoInfo!!.argueMsg.isNotEmpty()) {
             exclusiveTipLabel.text = videoInfo!!.argueMsg
@@ -565,23 +678,48 @@ class VideoInfoFragment : BaseFragment() {
         }
 
         download.setOnClickListener { downloadClick() }
+        // 反馈 #162：这条路径真的会删用户的缓存文件，结果必须按「删没删掉」分级提示。
+        // 旧写法按「根目录 + 标题」硬拼路径、`deleteFolder` 又吞掉返回值，
+        // 于是删的是一个不存在的目录也报「已清除」，缓存页的条目 / 计数 / 封面全是旧的。
         download.setOnLongClickListener {
+            val ctx = context ?: return@setOnLongClickListener true
+            val title = videoInfo?.title
+            if (title.isNullOrEmpty()) return@setOnLongClickListener true
             CenterThreadPool.run {
-                val downPath = FileUtil.getVideoDownloadPath(videoInfo!!.title, null)
-                FileUtil.deleteFolder(downPath)
-                MsgUtil.showMsg(UiText.of("已清除此视频的缓存文件夹"))
+                // 详情页拿不到落盘文件名，没有 mediaFilePath 可用：多 P 合集靠
+                // CachePathResolver 的「根/标题」候选命中合集根目录，删掉整部合集
+                val result = CacheDeletePlan.execute(FileUtil.getVideoDownloadPath().path, title)
+
+                // 文件真的没了才摘文件夹记录：失败时视频还在磁盘上，顺手移出文件夹等于又加一次意外
+                if (result.ok) FolderManager.removeVideoFromAllFolders(title)
+                // 缓存页压在返回栈下面、onResume 不会因为文件变了而重扫，靠这个信号让它回去时重扫，
+                // 否则就是「文件删了条目还在、计数虚高、封面一块黑」
+                if (result.outcome != CacheDeletePlan.Outcome.NOT_FOUND) CacheChangeSignal.markChanged()
+
+                val message = CacheDeletePlan.messageOf(result)
+                val text = if (message.arg == null) ctx.getString(message.resId)
+                else ctx.getString(message.resId, message.arg)
+                // 失败 / 部分失败的文案带原因，手表屏窄，用长提示（与缓存列表页的删除一致）
+                if (result.ok) MsgUtil.showMsg(text) else MsgUtil.showMsgLong(text)
             }
             true
         }
 
         relay.setOnClickListener {
-            // 让发送页知道这是一次"转发视频"：显示视频预览卡、隐藏"添加图片"入口，
-            // 否则 normalPublish 会判定为普通动态，用户选的图会被静默丢弃。
-            // SendDynamicActivity.onDestroy 会把该上下文清回 null。
-            TerminalContext.getInstance().setForwardContent(videoInfo)
-            val intent = Intent()
-            intent.setClass(requireContext(), SendDynamicActivity::class.java)
-            writeDynamicLauncher.launch(intent)
+            // 反馈 #133：转发有两个去处，先问一句再办事（原先点一下直接进动态发送页）
+            // 26.11.15：`TerminalDialog.menu` 只负责搭好弹窗，**显示要调用方自己 show()**
+            // （其它 20 多处调用点都是 `}.show()`）。这里当初漏了，`create()` 出来的对话框
+            // 一直没 attach 到窗口，于是「点转发什么都不发生」，看着就是按钮点不动。
+            TerminalDialog.menu(
+                requireContext(),
+                title = getString(R.string.text_video_relay_title),
+                items = listOf(
+                    getString(R.string.text_video_relay_to_dynamic),
+                    getString(R.string.text_video_relay_to_friend)
+                )
+            ) { index ->
+                if (index == 0) relayToDynamic() else relayToFriend()
+            }.show()
         }
         relay.setOnLongClickListener {
             StringUtil.copyText(requireContext(), "https://www.bilibili.com/" + videoInfo!!.bvid)
@@ -594,13 +732,25 @@ class VideoInfoFragment : BaseFragment() {
                 try {
                     val cid = if (videoInfo!!.cids != null && videoInfo!!.cids!!.isNotEmpty()) videoInfo!!.cids!![0] else 0L
                     val upMid = if (videoInfo!!.staff != null && videoInfo!!.staff!!.isNotEmpty()) videoInfo!!.staff!![0].mid else 0L
-                    val conclusion = VideoInfoApi.getVideoConclusion(videoInfo!!.aid, videoInfo!!.bvid, cid, upMid)
-                    if (conclusion != null) {
-                        MsgUtil.showText(UiText.of("视频摘要 - ") + videoInfo!!.title, conclusion)
-                    } else {
-                        MsgUtil.showMsg(UiText.of("获取视频摘要失败"))
+                    // 反馈 #127：以前不管哪种情况都只弹「获取视频摘要失败」，用户分不清是被风控、
+                    // 这个视频没有摘要，还是网络出了问题。现在按结果分别给文案。
+                    val result = VideoInfoApi.getVideoConclusion(videoInfo!!.aid, videoInfo!!.bvid, cid, upMid)
+                    when (result.kind) {
+                        VideoInfoApi.ConclusionKind.OK ->
+                            MsgUtil.showText(UiText.of("视频摘要 - ") + videoInfo!!.title, result.text)
+
+                        VideoInfoApi.ConclusionKind.NO_SUMMARY ->
+                            MsgUtil.showMsg(UiText.of("这个视频还没有 AI 摘要"))
+
+                        VideoInfoApi.ConclusionKind.REJECTED ->
+                            MsgUtil.showMsg(conclusionRejectedText(result))
+
+                        VideoInfoApi.ConclusionKind.FAILED ->
+                            MsgUtil.showMsg(UiText.of("获取视频摘要失败"))
                     }
                 } catch (e: Exception) {
+                    // 网络异常 / 响应根本解析不出来：MsgUtil.err 已按 IOException / JSONException
+                    // 分别给「网络错误」「数据解析错误」，比统一一句「获取摘要失败」更能说明问题。
                     MsgUtil.err(e)
                 }
             }
@@ -617,18 +767,29 @@ class VideoInfoFragment : BaseFragment() {
         // 可选私有功能的挂点：在动作区插一整行按钮（插在「笔记」之前）。
         // 公共构建里 OptionalFeatures 是空操作，这里连按钮都不会出现；私有构建才插入。
         // 不跟下面的未登录隐藏逻辑走：这个入口不依赖登录态。
-        OptionalFeatures.attachDetailActionRow(
-            rootview.findViewById(R.id.video_actions),
-            note,
-            videoInfo!!.bvid ?: "",
-            videoInfo!!.aid,
-            videoInfo!!.title ?: ""
-        )
+        //
+        // 26.11.07：做成开关（用户要求藏起来）——只有设置里「分享到其他设备」开关打开时才挂，
+        // 否则连反射都不做（公开构建读到的这份配置永远不会被用到）。
+        // 26.11.08：默认值翻成开（用户要求改回默认显示），开关仍在，关掉即不显示。
+        if (DetailEntryPrefs.isShareRowEnabled()) {
+            OptionalFeatures.attachDetailActionRow(
+                rootview.findViewById(R.id.video_actions),
+                note,
+                videoInfo!!.bvid ?: "",
+                videoInfo!!.aid,
+                videoInfo!!.title ?: ""
+            )
+        }
 
         if (SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) == 0L) {
             addWatchlater.visibility = View.GONE
             relay.visibility = View.GONE
             videoSummary.visibility = View.GONE
+            note.visibility = View.GONE
+        } else if (!DetailEntryPrefs.isNoteEntryEnabled()) {
+            // 26.11.07：登录态下也默认不显示「笔记」——用户要求把这个入口藏起来，
+            // 想用就在「设置 → 内容与浏览 → 详情页设置」里打开（默认关）。
+            // 点击监听与 NoteActivity 都还在，只是没有入口。
             note.visibility = View.GONE
         }
 
@@ -721,13 +882,38 @@ class VideoInfoFragment : BaseFragment() {
         }
     }
 
-    private fun getTitleSpan(): SpannableString {
-        var string: String? = null
+    /**
+     * 「AI 摘要被接口拒绝」的文案（反馈 #127）。
+     *
+     * 风控（-352/-412）沿用本页点赞/投币那两句同款提示，用户认得；其余情况把服务端原始码带上，
+     * 否则用户报障时说不清是哪一种拒绝。服务端偶尔会给一句中文原因（message），有就一起显示。
+     */
+    private fun conclusionRejectedText(result: VideoInfoApi.ConclusionResult): String = when {
+        result.code == -352 || result.code == -412 -> UiText.of("当前请求触发B站风控")
+        result.code == -101 -> UiText.of("还没有登录喵~")
+        result.message.isNotEmpty() -> UiText.fmt(
+            UiText.of("获取视频摘要被拒绝：%1\$s（错误码 %2\$s）"),
+            result.message,
+            result.code
+        )
 
-        if (videoInfo!!.upowerExclusive) string = UiText.of("充电专属")
-        else if (videoInfo!!.isSteinGate) string = UiText.of("互动视频")
-        else if (videoInfo!!.is360) string = UiText.of("全景视频")
-        else if (videoInfo!!.isCooperation) string = UiText.of("联合投稿")
+        else -> UiText.fmt(UiText.of("获取视频摘要被拒绝（错误码 %1\$s）"), result.code)
+    }
+
+    /**
+     * 标题前那个胶囊：**只放一个**。
+     *
+     * 「广告」优先于「充电专属 / 互动视频 / 全景视频 / 联合投稿」——它回答的是"进去会不会
+     * 被喂广告"，比那四个都更影响"点不点播放"这个决定；手表屏一行也塞不下两个胶囊。
+     * 文字由 [loadSponsorBadge] 异步填进来，没查到就是 null，走原来的那四个。
+     */
+    private fun getTitleSpan(): SpannableString {
+        var string: String? = sponsorBadge
+
+        if (string == null && videoInfo!!.upowerExclusive) string = UiText.of("充电专属")
+        else if (string == null && videoInfo!!.isSteinGate) string = UiText.of("互动视频")
+        else if (string == null && videoInfo!!.is360) string = UiText.of("全景视频")
+        else if (string == null && videoInfo!!.isCooperation) string = UiText.of("联合投稿")
 
         if (string == null) return SpannableString(videoInfo!!.title)
 
@@ -735,6 +921,43 @@ class VideoInfoFragment : BaseFragment() {
         val badgeBG = RadiusBackgroundSpan(0, resources.getDimension(R.dimen.card_round).toInt(), Color.WHITE, ColorScheme.PRIMARY)
         titleStr.setSpan(badgeBG, 0, string.length + 2, Spanned.SPAN_INCLUSIVE_EXCLUSIVE)
         return titleStr
+    }
+
+    /**
+     * 查一次这条视频的广告标注，给标题前补「广告」/「含广告」胶囊。
+     *
+     * 只在用户还想要这个功能时才请求（[SponsorSkipPrefs.needsSegments]：三档、条子、三角
+     * 任一项开着）。26.11.14 起标记与跳过解耦，所以判据从「开着自动跳过」放宽成「还开着
+     * 任何一项」——只显示条子不跳的人，详情页也该看到这颗胶囊。
+     *
+     * 失败、没标注、上游返回空——一律静默：详情页的首要任务是让人读到简介，不该为一个
+     * 装饰性标记弹错。
+     *
+     * cid 传 0（任意分 P 的标注都算数）、总时长传 0（不校验版本）：这里回答的是"这条视频
+     * 有没有广告"，而不是"这个 P 从第几秒跳到第几秒"。
+     */
+    private fun loadSponsorBadge() {
+        val info = videoInfo ?: return
+        val bvidOfVideo = info.bvid ?: ""
+        if (bvidOfVideo.isEmpty()) return
+        if (!SponsorSkipPrefs.needsSegments()) return
+        CenterThreadPool.run {
+            val badge = try {
+                SponsorSkipPolicy.adBadge(SponsorBlockApi.fetchSegments(bvidOfVideo), 0L, 0.0)
+            } catch (e: Exception) {
+                Logu.w("SponsorBlock", "详情页广告标注查询失败: " + e.message)
+                SponsorSkipPolicy.BADGE_NONE
+            }
+            if (badge == SponsorSkipPolicy.BADGE_NONE) return@run
+            CenterThreadPool.runOnUiThread {
+                if (!isAdded) return@runOnUiThread
+                sponsorBadge = when (badge) {
+                    SponsorSkipPolicy.BADGE_FULL -> getString(R.string.player_sb_badge_full)
+                    else -> getString(R.string.player_sb_badge_partial)
+                }
+                titleView?.text = getTitleSpan()
+            }
+        }
     }
 
     private fun getDescSpan(tags: String): SpannableStringBuilder {
@@ -760,7 +983,9 @@ class VideoInfoFragment : BaseFragment() {
     }
 
     private fun playClick() {
-        if (SharedPreferencesUtil.getBoolean("first_play", true)) {
+        // Debug 包不弹「第一次点播放」的说明（见 BiliTerminal.isAutoPopupSuppressed）：
+        // 既不弹窗也不吞掉这次点击，直接往下走正常起播。
+        if (!BiliTerminal.isAutoPopupSuppressed() && SharedPreferencesUtil.getBoolean("first_play", true)) {
             SharedPreferencesUtil.putBoolean("first_play", false)
 
             if (SharedPreferencesUtil.getBoolean("cover_play_enable", true))
@@ -780,7 +1005,11 @@ class VideoInfoFragment : BaseFragment() {
             return
         }
 
-        Glide.get(getAppContext()).clearMemory()
+        // 26.11.13：删掉原先这一行无条件的 `Glide.get(getAppContext()).clearMemory()`（起播前腾内存）。
+        // 清空内存缓存会让 Glide 把「仍被请求占用」的资源也排队回收，线上 02 版（26110902）
+        // 「Cannot recycle a resource while it is still acquired」占了崩溃的大头；
+        // 26.11.09 之后的 460736b0 已按同样理由删掉另外三处，这是同类里最后两处之一。
+        // Glide 内存缓存本身容量有限（按设备档位算，几 MB 量级），腾出来的那点内存不抵这条触发路径的风险。
         // #83：多P 视频「续到上次那个P」——服务端 last_play_cid 指向本稿件的某个分P、
         // 且 last_play_time > 0 时，直接把那一P 交给播放器起播：进度由 PlayerApi 按
         // last_play_cid 采纳（见 adoptLastPlayTime），不再让用户每次都重选一遍。
@@ -789,12 +1018,27 @@ class VideoInfoFragment : BaseFragment() {
         val resumeIndex = MultiPageResumePolicy.resumePageIndex(
             videoInfo!!.cids, data.cidHistory, data.lastPlayTimeMs
         )
+
+        // 记下「这个合集上次看的是哪一集」，供合集详情页进入时自动定位（反馈 #105 / #108）。
+        // 位置选在这里：首播教程、数据未就绪等早退分支都已经 return 过了，没真起播就不该留记录；
+        // 三条起播分支（直起、续到上次那P、进分P 选择页）也都在下面，一次覆盖。
+        // seasonId 取 ugc_season.id（= Collection.id），不要拿 PlayerData.seasonId——那是番剧的季。
+        videoInfo!!.collection?.let { collection ->
+            // 拿不到 ugc_season.id 时 save 会写「最近一次」降级槽，不在这里拦掉
+            CollectionResumeStore.save(collection.id.toLong(), videoInfo!!.aid)
+            // 把 videoInfo 一起交给播放器：多P 时选集卡片靠它显示「进入合集」那一行，
+            // 跳转页也靠它写合集续看记录（只有一P 的一集同样属于合集）。
+            data.enterableInfo = videoInfo
+        }
+
         when {
             videoInfo!!.pagenames.size == 1 -> PlayerApi.startGettingUrl(data)
             resumeIndex > 0 -> {
                 val resumeData = videoInfo!!.toPlayerData(resumeIndex)
                 // 带上"有没有上次记录"的原值：播放器之外还要用它（当前没有消费方，但别丢信息）
                 resumeData.lastPlayTimeMs = data.lastPlayTimeMs
+                // 与 direct 分支同理：属于合集的这一集要让播放器能「进入合集」
+                if (videoInfo!!.collection != null) resumeData.enterableInfo = videoInfo
                 // timeStamp 归零：让 JumpToPlayerActivity 真正重拉一次 playurl，
                 // 续播位置由服务端按这个分P 现算（缓存十分钟的旧进度不能用）
                 resumeData.timeStamp = 0
@@ -824,10 +1068,15 @@ class VideoInfoFragment : BaseFragment() {
     private fun startDownloadFlow() {
         val downPath = FileUtil.getVideoDownloadPath(videoInfo!!.title, null)
 
-        if (downPath.exists() && videoInfo!!.pagenames.size == 1) {
-            val fileSign = File(downPath, ".DOWNLOADING")
+        // 反馈 #164：单 P 这里以前判「目录存不存在」。目录里只剩封面/一次失败的残留时也会说
+        // 「已下载完成」，缓存页里却看不到这个视频——和 MultiPageActivity 的分 P 判定一起改成
+        // 与缓存列表同一套判据（有成品才算已下载，正在下载才算排队，其余放行重下）。
+        val downNames = downPath.list()?.toList()
+        if (videoInfo!!.pagenames.size == 1 &&
+            (CacheMediaPolicy.isDownloading(downNames) || CacheMediaPolicy.isCachedFolder(downNames))
+        ) {
             MsgUtil.showMsg(
-                if (fileSign.exists()) UiText.of("已在下载队列\n如有异常，长按可清空文件")
+                if (CacheMediaPolicy.isDownloading(downNames)) UiText.of("已在下载队列\n如有异常，长按可清空文件")
                 else UiText.of("已下载完成")
             )
         } else {

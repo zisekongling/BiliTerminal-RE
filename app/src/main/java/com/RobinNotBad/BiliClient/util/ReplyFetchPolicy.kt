@@ -164,7 +164,8 @@ class LocalReplyCache(
      * 补入顺序：按发送先后插到下标 0，最终结果与发送顺序一致
      * （先发的在上、后发的在下），连续发两条时不会看起来像是被随机打乱。
      *
-     * @return 真正补进去的评论（调用方据此把它们也登记进「已加载 rpid」，防止翻页再拉一遍）
+     * @return 真正补进去的评论，**顺序与它们在 target 里的最终顺序一致**（先发的在前）；
+     * 调用方据此把它们也登记进「已加载 rpid」，防止翻页再拉一遍
      */
     @Synchronized
     fun mergeInto(target: MutableList<Reply>, nowMs: Long): List<Reply> {
@@ -182,15 +183,18 @@ class LocalReplyCache(
             }
         }
 
-        val inserted = ArrayList<Reply>(replies.size)
+        // 从队尾往队头插到 target 最前面，最终顺序才是「先发的在上」；inserted 是 push 顺序，
+        // 刚好与最终顺序相反，返回前翻回来，别让调用方拿到一个倒序的列表。
+        val pushed = ArrayList<Reply>(replies.size)
         for (i in replies.indices.reversed()) {
             val reply = replies[i]
             if (reply.rpid <= 0 || existing.contains(reply.rpid)) continue
             target.add(0, reply)
             existing.add(reply.rpid)
-            inserted.add(reply)
+            pushed.add(reply)
         }
-        return inserted
+        pushed.reverse()
+        return pushed
     }
 
     /** 当前缓存条数（已过窗口的会先被清掉）。 */

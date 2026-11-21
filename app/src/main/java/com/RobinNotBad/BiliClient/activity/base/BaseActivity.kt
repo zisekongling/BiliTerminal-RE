@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
-import android.content.res.Resources
 import android.os.Build
 import android.os.Bundle
 import android.text.TextUtils
@@ -33,10 +32,13 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.MenuActivity
 import com.RobinNotBad.BiliClient.activity.dynamic.DynamicActivity
 import com.RobinNotBad.BiliClient.event.SnackEvent
+import com.RobinNotBad.BiliClient.tutorial.TutorialHints
 import com.RobinNotBad.BiliClient.tutorial.TutorialPagerActivity
 import com.RobinNotBad.BiliClient.tutorial.TutorialStore
 import com.RobinNotBad.BiliClient.tutorial.Tutorials
 import com.RobinNotBad.BiliClient.ui.widget.RotaryEncoderSupport
+import com.RobinNotBad.BiliClient.ui.widget.TopbarHeightPolicy
+import com.RobinNotBad.BiliClient.ui.widget.TopbarIsland
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomGridManager
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.ui.appearance.AppearanceApplier
@@ -44,15 +46,18 @@ import com.RobinNotBad.BiliClient.ui.appearance.AppearanceManager
 import com.RobinNotBad.BiliClient.ui.appearance.RoundListEffect
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.ui.appearance.GlassStyle
+import com.RobinNotBad.BiliClient.ui.appearance.ImmersiveMode
 import com.RobinNotBad.BiliClient.util.AsyncLayoutInflaterX
 import com.RobinNotBad.BiliClient.util.DisguiseGesture
 import com.RobinNotBad.BiliClient.util.DisguisePrefs
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.PageMotion
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.RobinNotBad.BiliClient.util.TopbarLongPressPrefs
+import com.RobinNotBad.BiliClient.util.UiScaleInput
 import com.RobinNotBad.BiliClient.util.ViewCapabilityProbe
 import com.RobinNotBad.BiliClient.util.view.EditorEnterKeyGuard
 import com.RobinNotBad.BiliClient.util.view.RoundInsets
@@ -127,12 +132,21 @@ open class BaseActivity : AppCompatActivity() {
             )
         )
 
-        setRequestedOrientation(
-            if (SharedPreferencesUtil.getBoolean("ui_landscape", false))
-                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            else
-                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        )
+        // 「横屏模式」只是偏好：Android 8.0 起，窗口不是全屏（分屏 / 悬浮 / 部分手表 ROM 的
+        // 卡片式窗口）时调 setRequestedOrientation 会抛 IllegalStateException
+        // 「Only fullscreen activities can request orientation」，异常直接打在 onCreate，
+        // 页面连开都开不了（26.11.09 反馈：华为 LEO-DLXXU 打开收藏夹分 P 列表连崩 8 次）。
+        // 拿不到方向就按系统当前方向走，不能因此让页面打不开。
+        try {
+            setRequestedOrientation(
+                if (SharedPreferencesUtil.getBoolean("ui_landscape", false))
+                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                else
+                    ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            )
+        } catch (e: IllegalStateException) {
+            Logu.w("BaseActivity", "设置屏幕方向失败（窗口非全屏），按系统方向显示：${e.message}")
+        }
 
         super.onCreate(savedInstanceState)
 
@@ -158,7 +172,9 @@ open class BaseActivity : AppCompatActivity() {
             SharedPreferencesUtil.getInt(SettingsKeys.PADDING_V, 0),
             SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROUND, false)
         )
-        if (insets.left != 0 || insets.top != 0) {
+        // 判据必须用 isEmpty：圆屏适配只让出底部（extraBottom）而「界面边距」留默认 0 时，
+        // left/top 都是 0，旧写法会把整段跳过，底部补偿与窗口尺寸一起失效。
+        if (!insets.isEmpty) {
             Logu.d("debug", "调整边距")
             window_width = scrW - insets.left - insets.right
             window_height = scrH - insets.top - insets.bottom
@@ -177,9 +193,18 @@ open class BaseActivity : AppCompatActivity() {
 
         applySystemBarInsets()
 
-        val density = SharedPreferencesUtil.getInt("density", -1)
-        if (density >= 72) {
-            setDensity(density)
+        // 沉浸式全屏（26.11.14）：隐藏状态栏与导航栏。开关关着时这里把系统栏放回来，
+        // 与改造前完全一致，所以不需要在外面判开关。
+        ImmersiveMode.apply(this)
+
+        // 密度：目标值由 BiliTerminal.getFitDisplayContext 在 attachBaseContext 时就已经算好并
+        // 交给本页的 Resources（.kt:113），正常路径上这里只是个校验 —— resources 已是目标值，
+        // setDensity 第一行就早退。留着它是为了兜两种边角：createConfigurationContext 失败回落
+        // 旧 context 的机型，以及 attach 之后设置又被改过（设置页改完不重建页面）。
+        // 阈值与设置页写盘处共用 UiScaleInput.DENSITY_MIN，不再各写一个 72。
+        val absoluteDensity = SharedPreferencesUtil.getInt(SettingsKeys.DENSITY, -1)
+        if (absoluteDensity >= UiScaleInput.DENSITY_MIN) {
+            setDensity(absoluteDensity)
         }
 
         installRotaryFallback()
@@ -187,6 +212,10 @@ open class BaseActivity : AppCompatActivity() {
         // 圆屏列表效果（实验性）：开关关闭时内部直接 return，零开销。
         // 设置在 onCreate 读取，改开关后重新进入页面生效。
         RoundListEffect.install(this)
+
+        // 全局转场动画开关（O7）：关闭时压掉窗口动画并改写 overridePendingTransition。
+        // 开关默认关闭，此时 PageMotion.apply 什么都不做，既有行为不变。
+        PageMotion.apply(this)
     }
 
     /**
@@ -230,6 +259,9 @@ open class BaseActivity : AppCompatActivity() {
      * 系统栏（状态栏/导航栏/刘海）下方。此前全工程没有任何 insets 处理，结果是贴底控件与列表
      * 最后一项被导航栏压住。这里把系统栏 inset 叠加到**窗口根**已有的 padding 上；用户自定义的
      * 「界面边距」自 26.11.02 起加在内容容器上（见 [applyUserPadding]），两者互不覆盖。
+     *
+     * 26.11.14 起系统栏默认被 [ImmersiveMode] 隐藏，此时 systemBars() 的 inset 应为 0，
+     * 内容不该再被顶一截——判据见方法内注释。
      */
     private fun applySystemBarInsets() {
         val root = window.decorView.rootView
@@ -238,10 +270,14 @@ open class BaseActivity : AppCompatActivity() {
         val baseRight = root.paddingRight
         val baseBottom = root.paddingBottom
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
-            // 同时消费 displayCutout：横屏/挖孔机型上系统可能把内容排进刘海区域
-            val bars = insets.getInsets(
+            // 沉浸式全屏开着时系统栏是隐藏的，按语义 systemBars() 的 inset 就是 0；但个别 ROM
+            // （含 HarmonyOS 兼容层）在栏隐藏后仍会报回栏高，真照它加 padding 就等于在底部
+            // 留一条空白——所以这里按开关显式只取 displayCutout（横屏/挖孔仍要避让）。
+            val types = if (ImmersiveMode.isEnabled())
+                WindowInsetsCompat.Type.displayCutout()
+            else
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
-            )
+            val bars = insets.getInsets(types)
             view.setPadding(
                 baseLeft + bars.left,
                 baseTop + bars.top,
@@ -268,6 +304,11 @@ open class BaseActivity : AppCompatActivity() {
      * 这里挂在 **DecorView** 上：`ViewRootImpl` 总是先把事件派给 DecorView，而 DecorView 只在
      * 所有子 View 都没处理时才调用自己的 `onGenericMotionEvent` 监听器，
      * 因此不会与控件级监听器重复滚动。
+     *
+     * 26.11.07.1 起这条兜底**不再受总开关限制**（issue #21：Wear OS 5 上大部分界面失去系统滚动）：
+     * 开关关闭时它用默认灵敏度补位，开关开启时用用户灵敏度。之所以不会「叠加」，是因为
+     * `Rotary*` 控件在框架滚过之后会把事件吃掉（[RotaryEncoderSupport.handleSystemFirst]），
+     * 事件根本没机会冒泡到这里；能走到这里的都是「框架一点没动」的情况。
      */
     private fun installRotaryFallback() {
         val decor = window?.decorView ?: return
@@ -341,6 +382,63 @@ open class BaseActivity : AppCompatActivity() {
                     MsgUtil.err(UiText.of("圆屏适配执行错误："), e)
                 }
             }
+        }
+        // 顶栏高度是独立设置项（默认 0 = 跟随内容），开没开圆屏都要跑
+        applyTopbarHeight()
+    }
+
+    /**
+     * 「顶栏高度」设置项（`SettingsKeys.TOPBAR_HEIGHT`，26.11.11 新增）。
+     *
+     * <h3>为什么是最小高度</h3>
+     * 50 份布局里的 `R.id.top` 都是 `wrap_content`，内容也不都只有标题和时钟
+     * （`activity_setting_player_ui` 还多一个 btnFull）。写死高度会在小屏 / 大字号下压扁内容，
+     * 所以这里只设 `minimumHeight`：0 = 不干预（默认，与改动前像素级一致），大于 0 才补空白。
+     *
+     * <h3>为什么触摸范围不用额外代码</h3>
+     * 三套顶栏手势（单击 `setTopbarExit`、长按 `setupTopbarLongPressToHome`、双击伪装
+     * [DisguiseGesture]）都装在整条 `R.id.top` 上，top 一变高，可点区域自动跟着变。
+     *
+     * <h3>为什么放在 [setRound] 末尾</h3>
+     * 这是「top 一定已经 inflate 完」的两个落点之一：普通布局在 `onStart` 走一次，
+     * asyncInflate 的页面在 inflate 回调里补走一次（见 [asyncInflate]）。
+     */
+    private fun applyTopbarHeight() {
+        val topBar = findViewById<View>(R.id.top) ?: return
+        val rawDp = SharedPreferencesUtil.getInt(SettingsKeys.TOPBAR_HEIGHT, TopbarHeightPolicy.DEFAULT_DP)
+        val minHeightPx = TopbarHeightPolicy.resolveMinHeightPx(rawDp, resources.displayMetrics.density)
+        if (topBar.minimumHeight != minHeightPx) {
+            topBar.minimumHeight = minHeightPx
+            topBar.requestLayout()
+        }
+        val center = TopbarHeightPolicy.shouldCenterVertically(
+            minHeightPx,
+            SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROUND, false)
+        )
+        applyTopbarVerticalCenter(topBar, center)
+    }
+
+    /**
+     * 顶栏加高后把子 View（标题 / 时钟 / btnFull）竖直居中；关掉设置时再摘掉规则。
+     *
+     * **为什么圆屏模式不居中**：圆屏适配已经按「时钟在上、标题在下」排好版
+     * （[setRound] 给标题算了一个按屏高比例的 topMargin），再叠 `CENTER_VERTICAL`
+     * 会让两者重叠。顶栏高度在圆屏下只从下方补空白，不影响原有排版。
+     *
+     * 只在「当前状态与目标状态不一致」时才改 layoutParams：默认值下每页 `onStart`
+     * 都会走这里，无脑重设会白触发一次重布局。
+     */
+    private fun applyTopbarVerticalCenter(topBar: View, center: Boolean) {
+        if (topBar !is ViewGroup) return
+        for (i in 0 until topBar.childCount) {
+            val child = topBar.getChildAt(i)
+            // 只处理能加 RelativeLayout 规则的容器；其余父容器（理论上已不存在）原样不动
+            val params = child.layoutParams as? RelativeLayout.LayoutParams ?: continue
+            val centered = params.getRules()?.get(RelativeLayout.CENTER_VERTICAL) != null
+            if (centered == center) continue
+            if (center) params.addRule(RelativeLayout.CENTER_VERTICAL)
+            else params.removeRule(RelativeLayout.CENTER_VERTICAL)
+            child.layoutParams = params
         }
     }
 
@@ -424,6 +522,8 @@ open class BaseActivity : AppCompatActivity() {
         super.onStart()
         if (this !is InstanceActivity) setTopbarExit()
         setRound()
+        // 圆屏适配下把顶栏时钟换成灵动岛；非圆屏开关关闭时内部立即 detach。
+        TopbarIsland.attach(this)
         if (eventBusEnabled() && !eventBusInit) {
             EventBus.getDefault().register(this)
             eventBusInit = true
@@ -431,6 +531,12 @@ open class BaseActivity : AppCompatActivity() {
         autoTriggerTutorial()
         setupTopbarLongPressToHome()
         setupTopbarDoubleTapDisguise()
+    }
+
+    override fun onStop() {
+        // 页面不可见后灵动岛定时器必须停：手表上不能留每秒唤醒。
+        TopbarIsland.detach(this)
+        super.onStop()
     }
 
     /**
@@ -443,13 +549,18 @@ open class BaseActivity : AppCompatActivity() {
      * 手势本身受 `SettingsKeys.TOPBAR_LONG_PRESS_MODE`（`util/TopbarLongPressPrefs`）控制：
      * 只有「全部页面」模式下普通页面才打开菜单列表；其余模式监听器**仍然安装**，
      * 只是在按下的回调里返回 true 把手势吞掉。
+     *
+     * 吞手势同样不能让顶栏震一下（反馈 #153）：`View.performLongClick()` 只要监听器返回 true
+     * 就会 `performHapticFeedback(LONG_PRESS)`，框架不区分「真执行了动作」还是「只是把长按吃掉」。
+     * 所以震动开关必须提前按「本页是否响应」同步，见下方 [syncTopbarLongPressHaptic]。
      */
     private fun setupTopbarLongPressToHome() {
+        val topBar = findViewById<View>(R.id.top) ?: return
+        syncTopbarLongPressHaptic(topBar)
         // 子类自己接管顶栏长按（视频详情页的「关闭所有详情页」）时，基类不安装通用监听器。
         // 不能只靠 hasOnLongClickListeners() 探测：部分手表框架没有这个方法，探测失败（返回 null）
         // 时这里会覆盖掉子类刚装好的监听器，视频详情页的长按就会莫名变成「打开菜单」。
         if (handlesTopbarLongPress()) return
-        val topBar = findViewById<View>(R.id.top) ?: return
         // 同上：这个 hasOnLongClickListeners() 就是在手表上抛 NoSuchMethodError 的那个方法
         val installed = ViewCapabilityProbe.probeBoolean(topBar, "hasOnLongClickListeners") { name, e ->
             Logu.d("view-probe", "$name 在本机不可用，已降级：${e.javaClass.simpleName}")
@@ -468,6 +579,25 @@ open class BaseActivity : AppCompatActivity() {
             startActivity(intent)
             true
         }
+    }
+
+    /**
+     * 让顶栏的长按震动跟随「本页此刻是否响应这条手势」（反馈 #153）。
+     *
+     * **为什么必须由 App 关掉**：长按回调返回 true（吞手势正是靠这个返回值）时，
+     * `View.performLongClick()` 会无条件 `performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)`，
+     * 于是「模式不适用、什么动作都不执行」的页面照样震一下，用户以为操作生效了。
+     * 这个震动没有单独的开关，只能提前改 View 自己的 `isHapticFeedbackEnabled`。
+     *
+     * **为什么放在 onStart 而不是按下那一刻**：View 的震动开关只能在长按触发**之前**设，
+     * 回调里再改已经晚了（框架在回调返回后立刻发震动）。模式只会从别的页面（设置页）改回来，
+     * 回到本页必然重走一遍 `onStart` → 本函数，所以与「按下时读模式」等效。
+     * 按下时的动作判定仍走 [TopbarLongPressPrefs]，本函数只管震动。
+     */
+    private fun syncTopbarLongPressHaptic(topBar: View) {
+        topBar.isHapticFeedbackEnabled = if (handlesTopbarLongPress())
+            TopbarLongPressPrefs.isEnabledForVideoPages()
+        else TopbarLongPressPrefs.isEnabledForNormalPages()
     }
 
     /**
@@ -537,17 +667,34 @@ open class BaseActivity : AppCompatActivity() {
      * 集中式教程触发：按当前页面类名去 [Tutorials] 注册表里找未读教程。
      *
      * 新增教程只需改注册表，页面本身不用动。旧实现靠每个页面手写
-     * `TutorialHelper.showTutorialList(...)`，漏写就永不展示（`tutorial_article` 就是这么漏掉的）。
+     * `TutorialHelper.showTutorialList(...)` / `showPagerTutorial(...)`，漏写就永不展示
+     * （`tutorial_article` 就是这么漏掉的）。
+     *
+     * 两类教程在这里分流：
+     * - 全屏教程（GUIDE / NOTICE）：交给 [TutorialPagerActivity] 分页展示；
+     * - 页面滑动提示（HINT）：交给 [TutorialHints] 在宿主页上显示一层文字。
+     * 两者可以同页共存（视频详情页就有），提示会避让到全屏教程关闭之后再出现。
+     *
      * 每个 Activity 实例只检查一次；教程页自身覆写 [tutorialAutoTriggerEnabled] 返回 false，避免递归。
      */
     private fun autoTriggerTutorial() {
         if (tutorialAutoTriggered) return
         tutorialAutoTriggered = true
+        // Debug 包整体静默：全屏教程会把刚拉起的页面盖住，自动化与手测都走不到目标页
+        // （判据与完整范围见 BiliTerminal.isAutoPopupSuppressed）。
+        // 教程管理页的「重看」直接调 TutorialPagerActivity.start，不经过这里。
+        if (BiliTerminal.isAutoPopupSuppressed()) return
         if (!tutorialAutoTriggerEnabled()) return
 
         val pending = Tutorials.forPage(javaClass).filter { !TutorialStore.isRead(it) }
         if (pending.isEmpty()) return
-        TutorialPagerActivity.start(this, pending)
+
+        val fullScreen = pending.filter { it.isFullScreen }
+        val hints = pending.filterNot { it.isFullScreen }
+        if (fullScreen.isNotEmpty()) TutorialPagerActivity.start(this, fullScreen)
+        // 有全屏教程时先让教程页起来，提示由 TutorialHints 自己避让，不必在这里判断时序
+        val hintDelay = if (fullScreen.isEmpty()) 0L else HINT_AFTER_TUTORIAL_DELAY_MS
+        hints.forEach { TutorialHints.show(this, it, hintDelay) }
     }
 
     /** 是否参与教程自动触发。 */
@@ -555,6 +702,11 @@ open class BaseActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // 转场动画开关：窗口属性在回前台时可能被系统重置，这里再按一次开关状态（默认关闭时零开销）。
+        PageMotion.apply(this)
+        // 沉浸式全屏：系统栏可能已经被系统重新显示出来（弹过系统对话框、从别的页面回来），
+        // 回前台按当前开关状态再压一次；开关刚被关掉时这一步也负责把系统栏放回去。
+        ImmersiveMode.apply(this)
         // 外观（配色/圆角/字体任一项）在别处被修改后，返回本页时即时重建以应用新外观。
         // 只比一个 Int：三个模块共用一个版本号，详见 AppearanceManager。
         if (appliedAppearanceVersion >= 0 && appliedAppearanceVersion != AppearanceManager.version()) {
@@ -572,6 +724,9 @@ open class BaseActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // 释放转场动画记录（windowAnimations 是每个窗口各自的属性，记录随页面一起丢）
+        PageMotion.forget(this)
+        TopbarIsland.detach(this)
         // 取消还没交付的异步 inflate：布局在线程池里已经跑起来时无法中断，
         // 但可以让它到达主线程后丢弃结果，避免 setContentView / finishInflate 打在已销毁的页面上。
         pendingAsyncInflater?.cancel()
@@ -617,13 +772,33 @@ open class BaseActivity : AppCompatActivity() {
         return SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.SNACKBAR_ENABLE, true)
     }
 
+    /**
+     * 把本页 Resources 的密度改成 [targetDensityDpi]（绝对值）。
+     *
+     * **正常路径上不该有活干**：密度与字号现在统一由 [BiliTerminal.getFitDisplayContext]
+     * （BiliTerminal.kt:207 起）在 `attachBaseContext` 时一次算清，本页 `resources.configuration`
+     * 已经是目标值，第一行就早退。留着它是给两种边角兜底：`createConfigurationContext` 抛异常
+     * 回落旧 context 的机型，以及 attach 之后设置又被改过。
+     *
+     * **不许再就地改 `resources.configuration`**（反馈 #225 的核心）：那是 ResourcesImpl 内部的
+     * **活**配置对象，改完再 `updateConfiguration(它自己, …)` 时 `Configuration.updateFrom`
+     * 是拿它自己跟自己比，`DENSITY_DPI_CHANGED` 这类 changed 位算不出来；而 ResourcesImpl 正是
+     * 靠 changed 位决定要不要失效已解析的资源缓存。后果是「配置显示 220、早就缓存下来的尺寸
+     * 还是 189」——同一页面上新老两套尺寸并存。`BiliTerminal.kt` 里同类代码早就因为同一个坑
+     * 改成「先拷贝再改」（那处注释写明了原因），这里一直是旧写法。
+     * （AOSP 源码这次抓不到：raw.githubusercontent.com / android.googlesource.com 都被本机
+     * 出网策略拦了，所以依据是仓库内既有注释 + `util/view/ScreenMetrics.kt:7-19` 记录的
+     * 「updateConfiguration 后有的 ROM 只改 density 不重算 widthPixels/heightPixels」。）
+     *
+     * fontScale 与密度**绑定**：接管了密度就不再跟系统字体缩放，口径与
+     * [BiliTerminal.getFitDisplayContext] 一致；否则本页 sp 与 [ToolsUtil.sp2px] 会差一个倍数。
+     */
     fun setDensity(targetDensityDpi: Int) {
         if (Build.VERSION.SDK_INT < 17) return
-        val resources: Resources = resources
-
-        if (resources.configuration.densityDpi == targetDensityDpi) return
-
-        val configuration: Configuration = resources.configuration
+        val current: Configuration = resources.configuration
+        if (current.densityDpi == targetDensityDpi) return
+        // 拷贝一份再改：见上面 KDoc 第二段（不要就地改活配置对象）
+        val configuration = Configuration(current)
         configuration.densityDpi = targetDensityDpi
         configuration.fontScale = 1f
         @Suppress("DEPRECATION")
@@ -650,6 +825,8 @@ open class BaseActivity : AppCompatActivity() {
             else setTopbarExit()
 
             setRound()
+            // asyncInflate 页面在 onStart 时还没有 R.id.top，这里补一次绑定。
+            TopbarIsland.attach(this)
             callBack.finishInflate(view, layoutId)
         }
     }
@@ -702,5 +879,13 @@ open class BaseActivity : AppCompatActivity() {
 
         /** 顶栏伪装延迟装载的重试间隔（毫秒）。 */
         const val DISGUISE_INSTALL_RETRY_MS = 50L
+
+        /**
+         * 同页既有全屏教程、又有页面滑动提示时，提示的首次尝试延迟（毫秒）。
+         *
+         * 教程分页页是另一个 Activity，先等它 `onCreate` 把 `isShowing` 置起来，
+         * 提示才不会显示在它底下（用户看不到，还会被误记成「已展示」）。
+         */
+        const val HINT_AFTER_TUTORIAL_DELAY_MS = 500L
     }
 }

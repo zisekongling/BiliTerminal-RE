@@ -77,6 +77,16 @@ public class UserInfo implements Parcelable, Serializable {
      */
     public boolean mutualFollow = false;
 
+    /**
+     * 是否被「列表主体」特别关注（B 站 `special == 1`）。
+     *
+     * <p>与 {@link #mutualFollow} 同一口径：只在**查看自己的**关注/粉丝列表时有意义；
+     * 看别人的列表时 `special` 表示「那个人特别关注了这一条」，不是「我特别关注了 TA」，
+     * 直接显示会误导用户。所以由 {@code FollowApi} 在解析时就把「是不是自己的列表」折进来，
+     * adapter 只管按这个字段显示/隐藏。
+     */
+    public boolean specialFollow = false;
+
     public UserInfo(long mid, String name, String avatar, String sign, int fans, int following, int level, boolean followed, String notice, int official, String officialDesc, int is_senior_member) {
         this.mid = mid;
         this.name = name;
@@ -209,6 +219,8 @@ public class UserInfo implements Parcelable, Serializable {
         String parcelIp = in.readString();
         ipLocation = parcelIp == null ? "" : parcelIp;
         mutualFollow = in.readByte() != 0;
+        // 追加字段同样只往末尾加，保证与 writeToParcel 的顺序一一对应
+        specialFollow = in.readByte() != 0;
     }
 
     @Override
@@ -235,10 +247,11 @@ public class UserInfo implements Parcelable, Serializable {
         dest.writeParcelable(live_room, flags);
         dest.writeInt(is_senior_member);
         dest.writeByte((byte) (is_follow_display ? 1 : 0));
-        // 与 readFromParcel 同序：sex → ipLocation → mutualFollow，只追加不改顺序
+        // 与 readFromParcel 同序：sex → ipLocation → mutualFollow → specialFollow，只追加不改顺序
         dest.writeString(sex == null ? "" : sex);
         dest.writeString(ipLocation == null ? "" : ipLocation);
         dest.writeByte((byte) (mutualFollow ? 1 : 0));
+        dest.writeByte((byte) (specialFollow ? 1 : 0));
     }
 
     /**

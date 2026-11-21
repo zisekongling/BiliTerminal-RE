@@ -7,12 +7,18 @@ name: 构建发行版并创建 Release
 #    适合「只想拿一个正式签名的包去传应用商店 / 自己装」，不会污染 Releases 列表、不会同步 Gitee。
 #    （tag 留空也能只构建，但那条路仍会跑发布说明组装、且更新日志抽不到时会红；build_only 直接跳过。）
 # 2) 推送 tag 自动触发：用该 tag 创建 Release 并上传 APK。
-#    **只认版本 tag**：`YY.MM.DD[.N][-后缀]`（见下方 on.push.tags 与 verify-version job）。
+#    **只认版本 tag**（三通道，见 docs/version-channels.md §2）：
+#      26.11.08              稳定版          versionCode 26110800    Release 正式版
+#      26.11.08.1            稳定版同日重发   versionCode 26110801
+#      26.11.08-beta.1       测试版          versionCode 26110811    Release 预发布
+#      26.11.08-exp.1        实验版          versionCode 26110821    Release 预发布
 #    历史上这里是 `tags: '*'`：任意 tag 都会走签名发版，而且没有任何 tag↔版本号校验，
 #    曾发出过 tag 28.08.16、包内 versionName 却是 26.08.14 的错版
 #    （findings/standards.md P1-1）。现在 verify-version 会在编译前硬校验：
-#    tag 的日期 == build.gradle versionName、versionCode/10 == YYMMDD、
-#    strings.xml 含「【YY.MM.DD 本次更新】」锚点，任一不满足直接 fail。
+#    tag 的日期 == build.gradle 的 appVersionDate、tag 推出的 versionName/versionCode
+#    与公式一致、稳定版/测试版还要求 strings.xml 含「【YY.MM.DD 本次更新】」锚点，
+#    任一不满足直接 fail。渠道与序号由**本工作流**从 tag 解出后经 -Pchannel / -Pseq
+#    传给 Gradle（app/build.gradle 里不手写渠道），构建完再拿产物的 badging 复核一遍。
 #
 # 两种方式产出的 Release 说明都含**完整更新日志**：手工触发用输入的 release_body，
 # 推 tag（inputs.* 恒空）则由 .github/scripts/extract_update_log.py 从 strings.xml 的
@@ -43,16 +49,19 @@ on:
         default: false
   push:
     tags:
-      # 只接受"版本 tag"，不再对任意 tag 生效。现存 18 个 tag 的命名惯例实测只有三种
+      # 只接受"版本 tag"，不再对任意 tag 生效。三通道口径见 docs/version-channels.md §2
       # （无 v 前缀，也没有别的写法），下面按字符位精确匹配，而不是用 `[0-9]*` 兜底：
-      #   YY.MM.DD      普通发版：26.10.24 / 26.10.19 / …… / 26.08.17 / 28.08.16
-      #   YY.MM.DD.N    同日重发：26.10.10.1 / 26.10.03.1 / 26.10.03.2
-      #   YY.MM.DD-后缀 带含义后缀：26.09.07-security
+      #   YY.MM.DD          稳定版：26.11.08
+      #   YY.MM.DD.N        稳定版同日重发：26.11.08.1
+      #   YY.MM.DD-beta.N   测试版：26.11.08-beta.1
+      #   YY.MM.DD-exp.N    实验版：26.11.08-exp.1
+      # 后缀只认 beta / exp 两种；其它后缀（如历史上 26.09.07-security）连 workflow 都不该触发。
       # 真正的版本一致性不靠 glob 保证（glob 只能挡住 v1/test 之类误触），
       # 由 verify-version job 解析 tag 后与 app/build.gradle、strings.xml 比对。
       - '[0-9][0-9].[0-9][0-9].[0-9][0-9]'
       - '[0-9][0-9].[0-9][0-9].[0-9][0-9].[0-9]*'
-      - '[0-9][0-9].[0-9][0-9].[0-9][0-9]-*'
+      - '[0-9][0-9].[0-9][0-9].[0-9][0-9]-beta.*'
+      - '[0-9][0-9].[0-9][0-9].[0-9][0-9]-exp.*'
 
 # 需要创建 Git tag / Release，授予 contents 写权限
 permissions:
@@ -68,16 +77,23 @@ jobs:
   # Release 名与安装包版本完全对不上；26.08.17 / 26.08.27 两个 tag 还指向纯文档提交。
   # 所以这里在**编译、签名、建 Release 之前**做硬校验，不合格直接 fail（不浪费构建时间）。
   #
-  # 仓库 tag 惯例（现存 18 个 tag 实测）：
-  #   26.10.24                               普通发版（YY.MM.DD）
-  #   26.10.10.1 / 26.10.03.1 / 26.10.03.2   同日重发（YY.MM.DD.N）
-  #   26.09.07-security                      带含义后缀（YY.MM.DD-后缀）
+  # 仓库 tag 惯例（三通道，见 docs/version-channels.md）：
+  #   26.11.08                               稳定版（YY.MM.DD）
+  #   26.11.08.1 / 26.11.08.2                稳定版同日重发（YY.MM.DD.N，N 从 1 起）
+  #   26.11.08-beta.1                        测试版（YY.MM.DD-beta.N，N 从 1 起）
+  #   26.11.08-exp.1                         实验版（YY.MM.DD-exp.N，N 从 1 起）
   # 校验项：
-  #   1) tag 匹配 ^YY.MM.DD([.N])?(-后缀)?$（glob 已挡一层，这里再严格解析）；
-  #   2) app/build.gradle 的 versionName == YY.MM.DD（末尾 -BETA<n> 不算差异）；
-  #   3) versionCode / 10 == YYMMDD（同日重发的尾号历史上是 0/1/2 无固定规律，故不校验尾号）；
-  #   4) strings.xml 含更新日志锚点「【YY.MM.DD 本次更新】」。
-  # 手工 build_only（tag 留空）不校验——那条路本来就不发版。
+  #   1) tag 匹配 ^YY.MM.DD([.N]|-beta.N|-exp.N)?$（glob 已挡一层，这里再严格解析；
+  #      其它后缀一律拒绝——从前 26.09.07-security 那种写法会算出歧义渠道，现在不许用）；
+  #   2) app/build.gradle 的 appVersionDate == tag 的日期（唯一手写项，渠道不写在这里）；
+  #   3) 由 tag 推出的 versionName / versionCode 与编码公式一致：
+  #      versionCode = YYMMDD×100 + 渠道码×10 + 序号（stable=0 / beta=1 / exp=2）。
+  #      26.11.07.1 事故的补丁：那一版只改了 tag 没升 versionCode，装过同日首包的用户
+  #      因为 UpdateManager 用严格大于比较，永远收不到修正包。现在序号进 code，
+  #      同日重发、跨渠道升级都在同一条时间轴上单调递增。
+  #   4) strings.xml 含更新日志锚点「【YY.MM.DD 本次更新】」（实验版允许没有，只告警）。
+  #      锚点只带日期不带后缀，三条通道共用同一份当日日志标题。
+  # 手工 build_only（tag 留空）不校验——那条路本来就不发版，按 stable/0 构建。
   verify-version:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -86,6 +102,9 @@ jobs:
     outputs:
       tag: ${{ steps.target.outputs.tag }}
       checkout_ref: ${{ steps.target.outputs.checkout_ref }}
+      # 渠道与序号由本 job 从 tag 解析，再经 -Pchannel / -Pseq 传给 Gradle 构建
+      channel: ${{ steps.check.outputs.channel }}
+      seq: ${{ steps.check.outputs.seq }}
       version_name: ${{ steps.check.outputs.version_name }}
       version_code: ${{ steps.check.outputs.version_code }}
     steps:
@@ -125,67 +144,90 @@ jobs:
           ref: ${{ steps.target.outputs.checkout_ref }}
           fetch-depth: 1
 
-      - name: 校验 tag ↔ versionName / versionCode / 更新日志锚点
+      - name: 校验 tag ↔ 渠道 / 版本号 / 更新日志锚点
         id: check
         shell: bash
         env:
           TAG: ${{ steps.target.outputs.tag }}
         run: |
           set -euo pipefail
-          if [ -z "${TAG:-}" ]; then
-            echo "未指定 tag（手工 build_only 构建），跳过 tag↔版本号校验"
-            exit 0
-          fi
-
-          # 1) tag 形态：YY.MM.DD[.N][-后缀]
-          re='^([0-9]{2})\.([0-9]{2})\.([0-9]{2})(\.[0-9]+)?(-[A-Za-z0-9._-]+)?$'
-          if ! [[ "$TAG" =~ $re ]]; then
-            echo "::error::tag「$TAG」不符合仓库惯例 YY.MM.DD[.N][-后缀]（如 26.10.24、26.10.10.1、26.09.07-security）"
-            exit 1
-          fi
-          yy="${BASH_REMATCH[1]}"
-          mm="${BASH_REMATCH[2]}"
-          dd="${BASH_REMATCH[3]}"
-          expect_name="$yy.$mm.$dd"
-          expect_code_prefix=$((10#$yy * 10000 + 10#$mm * 100 + 10#$dd))
-
-          # 2) build.gradle 实际值
           gradle=app/build.gradle
-          actual_name=$(grep -oP 'versionName\s+"\K[^"]+' "$gradle" | head -1 || true)
-          actual_code=$(grep -oP '^[[:space:]]*versionCode[[:space:]]+\K[0-9]+' "$gradle" | head -1 || true)
-          if [ -z "$actual_name" ] || [ -z "$actual_code" ]; then
-            echo "::error::无法从 $gradle 读出 versionName/versionCode"
-            exit 1
-          fi
-          base_name="${actual_name%%-*}"   # 去掉可能的 -BETA<n>（betaVer != 0 时才会加）
 
-          fail=0
-          if [ "$base_name" != "$expect_name" ]; then
-            echo "::error::tag「$TAG」期望 versionName=「$expect_name」，实际 build.gradle=「$actual_name」"
-            fail=1
-          fi
-          if ! [[ "$actual_code" =~ ^[0-9]{7}$ ]]; then
-            echo "::error::versionCode=$actual_code 不是 7 位 YYMMDDx 形式"
-            fail=1
-          elif [ $((10#$actual_code / 10)) -ne "$expect_code_prefix" ]; then
-            echo "::error::tag「$TAG」期望 versionCode 前缀 $expect_code_prefix（YYMMDD），实际 $actual_code/10 = $((10#$actual_code / 10))"
-            fail=1
-          fi
-          if [ "$fail" -ne 0 ]; then
-            echo "::error::tag 与安装包版本不一致，拒绝构建/发版（见 findings/standards.md P1-1）"
+          # build.gradle 里的唯一手写项是日期；渠道与序号由本工作流按 tag 传 -P 参数，
+          # 所以这里只比对日期，不再 grep versionName / versionCode 字面量（它们已是派生值）。
+          version_date=$(grep -oP 'appVersionDate\s*=\s*"\K[0-9]+\.[0-9]+\.[0-9]+' "$gradle" | head -1 || true)
+          if [ -z "$version_date" ]; then
+            echo "::error::无法从 $gradle 读出 appVersionDate"
             exit 1
           fi
 
-          # 3) 更新日志锚点（关于页「本次更新」标题必须跟着版本号走）
-          anchor="【${expect_name} 本次更新】"
+          if [ -z "${TAG:-}" ]; then
+            # 手工 build_only：按 Gradle 的默认值（stable / 序号 0）构建，同样回报出来
+            channel=stable
+            seq=0
+            version_name="$version_date"
+            version_code=$((10#${version_date//./} * 100))
+            echo "::notice::未指定 tag（手工 build_only 构建），按稳定版 ${version_name}(${version_code}) 构建"
+          else
+            # 1) tag 形态：YY.MM.DD / YY.MM.DD.N / YY.MM.DD-beta.N / YY.MM.DD-exp.N
+            re='^([0-9]{2})\.([0-9]{2})\.([0-9]{2})(\.([0-9]+))?(-(beta|exp)\.([0-9]+))?$'
+            if ! [[ "$TAG" =~ $re ]]; then
+              echo "::error::tag「$TAG」不符合三通道命名（见 docs/version-channels.md §2）：稳定版 26.11.08 / 稳定版重发 26.11.08.1 / 测试版 26.11.08-beta.1 / 实验版 26.11.08-exp.1"
+              exit 1
+            fi
+            tag_date="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+            if [ -n "${BASH_REMATCH[7]:-}" ]; then
+              channel="${BASH_REMATCH[7]}"
+              seq=$((10#${BASH_REMATCH[8]}))
+            else
+              channel=stable
+              seq=$((10#${BASH_REMATCH[5]:-0}))
+            fi
+            if [ "$channel" != "stable" ] && [ "$seq" -lt 1 ]; then
+              echo "::error::tag「$TAG」的序号必须从 1 开始（0 只留给稳定版首包）"
+              exit 1
+            fi
+            if [ "$seq" -gt 9 ]; then
+              echo "::error::tag「$TAG」的序号必须 ≤ 9（versionCode 只留一位给序号，一天一个渠道最多 10 次）"
+              exit 1
+            fi
+
+            # 2) tag 日期 == build.gradle 的 appVersionDate（版本号只在发版时升，见发版技能）
+            if [ "$tag_date" != "$version_date" ]; then
+              echo "::error::tag「$TAG」的日期是 $tag_date，但 $gradle 的 appVersionDate=$version_date；发版前先把 appVersionDate 改成 $tag_date"
+              exit 1
+            fi
+
+            # 3) 按编码公式推出 versionName / versionCode（与 app/build.gradle 同一套公式）
+            case "$channel" in
+              stable) ch_code=0 ;;
+              beta)   ch_code=1 ;;
+              exp)    ch_code=2 ;;
+            esac
+            version_code=$(( 10#${tag_date//./} * 100 + ch_code * 10 + seq ))
+            case "$channel:$seq" in
+              stable:0) version_name="$tag_date" ;;
+              stable:*) version_name="$tag_date.$seq" ;;
+              *)        version_name="$tag_date-$channel.$seq" ;;
+            esac
+          fi
+
+          # 4) 更新日志锚点（关于页「本次更新」标题只带日期，三通道共用同一份）
+          anchor="【${version_date} 本次更新】"
           if ! grep -qF "$anchor" app/src/main/res/values/strings.xml; then
-            echo "::error::strings.xml 缺少更新日志锚点「$anchor」（update_log_current 首项），拒绝发版"
-            exit 1
+            if [ "$channel" = "exp" ]; then
+              echo "::warning::strings.xml 缺少更新日志锚点「$anchor」；实验版允许没有日志，继续构建"
+            else
+              echo "::error::strings.xml 缺少更新日志锚点「$anchor」（update_log_current 首项），拒绝发版"
+              exit 1
+            fi
           fi
 
-          echo "version_name=$actual_name" >> "$GITHUB_OUTPUT"
-          echo "version_code=$actual_code" >> "$GITHUB_OUTPUT"
-          echo "✅ tag $TAG ↔ versionName $actual_name / versionCode $actual_code 一致，更新日志锚点存在"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "seq=$seq" >> "$GITHUB_OUTPUT"
+          echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
+          echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
+          echo "✅ tag「${TAG:-<空>}」→ 渠道 $channel / 序号 $seq / versionName $version_name / versionCode $version_code，锚点检查通过"
 
   build-and-release:
     # 版本一致性不通过就不编译、不签名、不发版
@@ -200,6 +242,13 @@ jobs:
     # 与 'true' 混用是最容易出错的一处）。
     env:
       BUILD_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.build_only }}
+      # 渠道 / 序号 / 版本号由 verify-version 从 tag 解析（手工 build_only 时是 stable / 0）。
+      # 三通道口径见 docs/version-channels.md §2：versionCode = YYMMDD×100 + 渠道码×10 + 序号。
+      CHANNEL: ${{ needs.verify-version.outputs.channel }}
+      VERSION_SEQ: ${{ needs.verify-version.outputs.seq }}
+      VERSION_NAME: ${{ needs.verify-version.outputs.version_name }}
+      VERSION_CODE: ${{ needs.verify-version.outputs.version_code }}
+      TARGET_TAG: ${{ needs.verify-version.outputs.tag }}
 
     steps:
       - name: 检出代码
@@ -221,10 +270,14 @@ jobs:
       # 没配这两个 Secret 也能正常发版（发的是公开版）；PR 构建永远拿不到 Secrets，
       # 必然是公开版。机制说明见 docs/optional-features.md。
       - name: 注入可选私有功能源码（未配置则跳过）
+        id: private_src
         env:
           PRIVATE_FEATURE_REPO: ${{ secrets.PRIVATE_FEATURE_REPO }}
           PRIVATE_FEATURE_TOKEN: ${{ secrets.PRIVATE_FEATURE_TOKEN }}
         run: |
+          # 注入结果要交给「校验私有功能凭证」用：注入了私有源码却缺凭证，等于发一个半残的包，
+          # 那一步会直接 fail 而不是只打 notice（见 findings/standards.md）。
+          echo "injected=false" >> "$GITHUB_OUTPUT"
           if [ -z "$PRIVATE_FEATURE_REPO" ] || [ -z "$PRIVATE_FEATURE_TOKEN" ]; then
             echo "::notice::未配置 Secrets.PRIVATE_FEATURE_REPO / PRIVATE_FEATURE_TOKEN，按公开版构建（不含私有功能）"
             exit 0
@@ -238,6 +291,7 @@ jobs:
             echo "::error::私有仓库里没有 src/main/java，private/ 结构不对"
             exit 1
           fi
+          echo "injected=true" >> "$GITHUB_OUTPUT"
           echo "私有功能源码已注入："
           find private -maxdepth 2 -type d | sort
 
@@ -256,6 +310,33 @@ jobs:
       - name: 赋予 gradlew 可执行权限
         run: chmod +x gradlew
 
+      # 与 ci.yml:55-68 同一处修正。发版工作流此前**没有任何依赖缓存**：每次发版都现下
+      # 138 MB 的 wrapper 发行版 + 全量依赖，2026-11-18 就撞上 maven.aliyun.com/repository/google
+      # 对 flatbuffers-java / apache-23 这类中央仓库包连回 502 Bad Gateway，整条发版线红在单测步。
+      - name: 缓存 Gradle 发行版与依赖缓存
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/wrapper/dists
+            ~/.gradle/caches/modules-2
+          key: gradle-${{ runner.os }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      # 缓存未命中时仍要真下 138 MB，一次卡顿就整轮红（同 ci.yml:70-83）。
+      - name: 预热 Gradle 发行版（失败重试）
+        run: |
+          for attempt in 1 2 3; do
+            if ./gradlew --version --no-configuration-cache; then
+              echo "Gradle 发行版就绪（第 $attempt 次尝试）"
+              exit 0
+            fi
+            echo "::warning::第 $attempt 次下载/启动 Gradle 失败，$((attempt * 15)) 秒后重试"
+            sleep $((attempt * 15))
+          done
+          echo "::error::Gradle 发行版连续 3 次下载失败（services.gradle.org 重定向到 GitHub Release 资产），先确认 runner 网络再重跑"
+          exit 1
+
       # gradle.properties 硬编码了本机 Windows JDK 路径和本地代理（Clash），
       # Linux CI 必须移除，否则会拿不存在的 JDK 路径启动 daemon、并通过本地代理拉依赖失败。
       # 同时把 Gradle/Kotlin daemon 堆内存调低，避免在 GitHub 较小内存的 runner 上 OOM。
@@ -264,8 +345,21 @@ jobs:
           # 与 ci.yml 同一处修正：注释形式的代理行也要删，守卫只看生效行。
           sed -i -E '/^[[:space:]]*#?[[:space:]]*org\.gradle\.java\.home=/d' gradle.properties
           sed -i -E '/^[[:space:]]*#?[[:space:]]*systemProp\.(http|https)\.(proxyHost|proxyPort)=/d' gradle.properties
-          sed -i 's/org.gradle.jvmargs=-Xmx4096m/org.gradle.jvmargs=-Xmx2048m/' gradle.properties || true
-          sed -i 's/kotlin.daemon.jvmargs=-Xmx8192m/kotlin.daemon.jvmargs=-Xmx2048m/' gradle.properties || true
+          # 堆内存必须整行替换（与 ci.yml 同一处修正，调研清单第 3 条）：原先写死 `-Xmx4096m`，
+          # 本仓库实际是 `-Xmx8192m`，替换 0 命中、后面又挂了 `|| true`，「防 runner OOM」从未生效。
+          # 2026-11-18：发版构建连续两次卡死在 :app:compileStandardReleaseKotlin（第一次 55 分钟
+          # 撞 60 分钟上限被取消，第二次 18 分钟仍未出结果），而同源码在 ci.yml 里 8 分钟内编完——
+          # 两边的实质差异只有「配置缓存开/关」与堆大小。这里按 ci.yml 实测可用的组合取值：
+          # Gradle daemon 3 G（R8 与 standard/coexist 两个 release 编译并行时 2 G 太紧），
+          # Kotlin daemon 仍 2 G 并恢复 G1（此前整行替换把 -XX:+UseG1GC 丢掉了）。
+          sed -i -E 's/^org\.gradle\.jvmargs=.*/org.gradle.jvmargs=-Xmx3072m -Xms1024m -XX:+UseG1GC -Dfile.encoding=UTF-8/' gradle.properties
+          sed -i -E 's/^kotlin\.daemon\.jvmargs=.*/kotlin.daemon.jvmargs=-Xmx2048m -XX:+UseG1GC/' gradle.properties
+          if ! grep -qE '^org\.gradle\.jvmargs=-Xmx3072m' gradle.properties; then
+            echo "::error::org.gradle.jvmargs 未被替换成 -Xmx3072m，Gradle daemon 堆内存设置没生效"
+            exit 1
+          fi
+          echo "CI 实际生效的 JVM 参数："
+          grep -nE '^(org\.gradle\.jvmargs|kotlin\.daemon\.jvmargs)=' gradle.properties
           if grep -nE '^[[:space:]]*(org\.gradle\.java\.home|systemProp\.(http|https)\.(proxyHost|proxyPort))=' gradle.properties; then
             echo "::error::gradle.properties 仍残留生效中的本机配置，请检查"
             exit 1
@@ -314,38 +408,83 @@ jobs:
       # 引入 product flavor（standard / coexist）后，单测任务名带上了 flavor：
       # testDebugUnitTest 已不存在，必须写 testStandardDebugUnitTest
       # （两个 flavor 共用同一份 app/src/test，跑一个即可）。
+      # 依赖镜像抖动不该判成「单测失败」：只对网络/镜像类错误重试，真正的测试红立刻停。
+      # 2026-11-18 一次 502 Bad Gateway 让这一步 32 秒就红，整条发版线白跑。
       - name: 运行单元测试
-        run: ./gradlew :app:testStandardDebugUnitTest --stacktrace
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if ./gradlew :app:testStandardDebugUnitTest --stacktrace 2>&1 | tee /tmp/unit-test.log; then
+              exit 0
+            fi
+            if grep -qE 'Received status code 5[0-9][0-9]|Could not (resolve|GET|HEAD|download)' /tmp/unit-test.log; then
+              echo "::warning::第 $attempt 次因依赖镜像/网络失败，$((attempt * 20)) 秒后重试"
+              sleep $((attempt * 20))
+            else
+              echo "::error::单测失败（不是网络问题），不重试"
+              exit 1
+            fi
+          done
+          echo "::error::依赖持续的镜像/网络失败：连续 3 次都没能把依赖拉下来"
+          exit 1
 
-      # ── 私有功能的第三方凭证（BGM 数据代理）────────────────────────────────
+      # ── 私有功能的第三方凭证（BGM 数据代理 / 第三方弹幕）──────────────────────
       # 和 Kazumi 一样**只在构建期注入**：值只经 Secrets → 环境变量 → app/build.gradle →
-      # BuildConfig，仓库里不出现明文。未配置时打一行 notice 按「无代理」构建，
-      # 私有侧自动退回旧端点链，发版流程不受影响。
-      - name: 校验私有功能凭证（未配置则跳过）
+      # BuildConfig，仓库里不出现明文。公开版缺凭证是正常的（直接打 notice 继续）；
+      # 但注入了私有源码还缺凭证就是半残的包，这一步会 fail。
+      - name: 校验私有功能凭证（注入私有源码后缺凭证即 fail）
         env:
           KAZUMI_APPID: ${{ secrets.KAZUMI_APPID }}
           KAZUMI_KEY: ${{ secrets.KAZUMI_KEY }}
           DANDANAPI_APPID: ${{ secrets.DANDANAPI_APPID }}
           DANDANAPI_KEY: ${{ secrets.DANDANAPI_KEY }}
         run: |
+          # 公开版（没注入私有源码）缺凭证是正常的：这两个值只被私有侧消费，公开版根本用不到。
+          # 但**注入了私有源码还缺凭证**就是发一个半残的包，必须 fail —— 从前只打 notice，
+          # 于是「私有功能在、功能却全套降级」的包被静默发出去过一次。
+          injected="${{ steps.private_src.outputs.injected }}"
+          missing=""
           if [ -z "$KAZUMI_APPID" ] || [ -z "$KAZUMI_KEY" ]; then
-            echo "::notice::未配置 Secrets.KAZUMI_APPID / KAZUMI_KEY，BGM 数据代理关闭（功能自动退回旧链路）"
+            missing="$missing KAZUMI_APPID/KAZUMI_KEY"
           else
             echo "BGM 数据代理凭证已就绪（不打印值）"
           fi
           if [ -z "$DANDANAPI_APPID" ] || [ -z "$DANDANAPI_KEY" ]; then
-            echo "::notice::未配置 Secrets.DANDANAPI_APPID / DANDANAPI_KEY，换源播放无弹幕"
+            missing="$missing DANDANAPI_APPID/DANDANAPI_KEY"
           else
             echo "第三方弹幕凭证已就绪（不打印值）"
           fi
+          if [ -z "$missing" ]; then
+            exit 0
+          fi
+          if [ "$injected" = "true" ]; then
+            echo "::error::已注入私有功能源码，但缺少 Secrets:$missing —— 这样发出去的包私有功能会整套降级，拒绝发版"
+            exit 1
+          fi
+          echo "::notice::公开版构建，缺少 Secrets:$missing（私有功能不在这次构建里，无需凭证）"
 
+      # 超时上限：正常 9–11 分钟（26.11.17-beta.2 实测 9.5 分钟）。卡死时宁可 30 分钟就红，
+      # 也不要再让一条卡住的构建把 job 的 60 分钟上限吃干净（2026-11-18 那次就是 55 分钟空转）。
       - name: 构建签名发行 APK
+        timeout-minutes: 30
         env:
           KAZUMI_APPID: ${{ secrets.KAZUMI_APPID }}
           KAZUMI_KEY: ${{ secrets.KAZUMI_KEY }}
           DANDANAPI_APPID: ${{ secrets.DANDANAPI_APPID }}
           DANDANAPI_KEY: ${{ secrets.DANDANAPI_KEY }}
-        run: ./gradlew :app:assembleRelease
+        run: |
+          set -euo pipefail
+          # 渠道与序号走 -P 参数（app/build.gradle 里只有日期是手写的）。
+          # 不传也没关系：Gradle 侧对空串有默认值（stable / 0），这里显式传是为了日志可追溯。
+          channel="${CHANNEL:-stable}"
+          seq="${VERSION_SEQ:-0}"
+          echo "构建 flavor=standard+coexist channel=$channel seq=$seq（期望 versionName=${VERSION_NAME:-?} versionCode=${VERSION_CODE:-?}）"
+          free -m || true
+          # 显式 --no-configuration-cache：与 ci.yml（CI 编译与单测自检，跑同一条 assembleRelease）
+          # 保持同一条已验证路径。配置缓存会把上一次构建的输入快照写进 build/，
+          # 2026-11-18 两次卡死在 compileStandardReleaseKotlin 都发生在这条开着配置缓存的老路径上。
+          ./gradlew :app:assembleRelease -Pchannel="$channel" -Pseq="$seq" \
+            --no-configuration-cache --stacktrace --console=plain
 
       # 崩溃堆栈解混淆（R8 retrace）需要「这一版、这个 flavor、这个构建变体」的 mapping。
       # 注意：mapping 里含私有功能的类名/方法名，**绝不能**作为公开仓库的 artifact 上传，
@@ -370,10 +509,11 @@ jobs:
           host="${HK_HOST:-154.222.27.216}"
           user="${HK_USER:-root}"
           remote_dir="${HK_MAPPING_DIR:-/opt/rebiliterminal-api/mappings}"
-          version_code=$(grep -m1 -E '^[[:space:]]*versionCode[[:space:]]' app/build.gradle | awk '{print $2}')
+          # 版本号来自 verify-version 按 tag 推出的结果（versionCode 已是派生值，grep 不到了）
+          version_code="${VERSION_CODE:-}"
           if [ -z "$version_code" ]; then
-            echo "::error::读不到 app/build.gradle 的 versionCode"
-            exit 1
+            echo "::notice::本次没有版本 tag（手工 build_only），跳过 mapping 上传"
+            exit 0
           fi
           variant=public
           if [ -d private/src/main/java ]; then variant=private; fi
@@ -421,6 +561,38 @@ jobs:
           done
           echo "--- 发行目录 ---"
           ls -l "$dest"
+
+      # tag 推出的是「应该有」的版本号，这里拿**实际产物**复核一遍：万一 -Pchannel / -Pseq
+      # 没传进 Gradle（或派生逻辑被改坏），包里的版本号就会与 tag 不一致——而客户端更新检查
+      # 只认包里的 versionCode，那正是 P1-1 事故（tag 与包内版本对不上）的形态。宁可这里红掉。
+      - name: 复核产物版本号（aapt2 badging）与 tag 一致
+        if: env.VERSION_CODE != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          aapt2=$(ls "$sdk"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1 || true)
+          if [ -z "$aapt2" ] || [ ! -x "$aapt2" ]; then
+            echo "::error::找不到 aapt2（ANDROID_HOME/SDK_ROOT=$sdk），无法复核产物版本号"
+            exit 1
+          fi
+          fail=0
+          for f in app/build/outputs/apk/release/*.apk; do
+            badging=$("$aapt2" dump badging "$f" | head -1)
+            code=$(printf '%s' "$badging" | grep -oP "versionCode='\K[0-9]+" || true)
+            name=$(printf '%s' "$badging" | grep -oP "versionName='\K[^']+" || true)
+            echo "$(basename "$f")：versionName=$name versionCode=$code"
+            if [ "$code" != "$VERSION_CODE" ]; then
+              echo "::error::$(basename "$f") 的 versionCode=$code 与 tag 推出的 $VERSION_CODE 不一致（-Pchannel / -Pseq 没传进 Gradle？）"
+              fail=1
+            fi
+            if [ "$name" != "$VERSION_NAME" ]; then
+              echo "::error::$(basename "$f") 的 versionName=$name 与期望的 $VERSION_NAME 不一致"
+              fail=1
+            fi
+          done
+          [ "$fail" -eq 0 ] || exit 1
+          echo "✅ 产物版本号与 tag 一致：$VERSION_NAME / $VERSION_CODE"
 
       # 发布说明与 Release 附件里都附上每个 APK 的 MD5，方便用户核对下载完整性 / 确认包没被换过。
       # 上游也只在部分版本提供过 MD5 表（见 docs/review/upstream-fork-audit.md §五 E1）。
@@ -508,14 +680,26 @@ jobs:
           # 抽不到就**直接失败**——宁可让发版红掉，也不要发出一个没有更新说明的 Release。
           log_body="$INPUT_BODY"
           if [ -z "$log_body" ]; then
-            # 用 `if !` 包住，避免 `set -e` 在命令替换失败时直接中断、来不及打印原因
+            # 用 `if !` 包住，避免 `set -e` 在命令替换失败时直接中断、来不及打印原因。
+            # 实验版（exp）允许没有更新说明（见 docs/version-channels.md §1）：抽不到就用一句占位，
+            # 稳定版 / 测试版抽不到仍然**直接失败**——宁可发版红掉，也不发没有说明的 Release。
             if ! log_body=$(python3 .github/scripts/extract_update_log.py app/src/main/res/values/strings.xml); then
-              echo "::error::推 tag 时自动抽取更新日志失败（见上面的 ::error::），拒绝发出没有更新说明的 Release"
-              exit 1
+              if [ "${CHANNEL:-}" = "exp" ]; then
+                echo "::warning::实验版抽取更新日志失败，按约定用占位说明继续"
+                log_body="实验版：本次没有更新说明。"
+              else
+                echo "::error::推 tag 时自动抽取更新日志失败（见上面的 ::error::），拒绝发出没有更新说明的 Release"
+                exit 1
+              fi
             fi
             if [ -z "$log_body" ]; then
-              echo "::error::strings.xml 的 update_log_current 抽出来是空的，拒绝发出没有更新说明的 Release"
-              exit 1
+              if [ "${CHANNEL:-}" = "exp" ]; then
+                echo "::warning::实验版的 update_log_current 是空的，按约定用占位说明继续"
+                log_body="实验版：本次没有更新说明。"
+              else
+                echo "::error::strings.xml 的 update_log_current 抽出来是空的，拒绝发出没有更新说明的 Release"
+                exit 1
+              fi
             fi
             echo "已从 strings.xml 自动抽取本次更新日志：$(printf '%s\n' "$log_body" | wc -l) 条"
           fi
@@ -526,12 +710,13 @@ jobs:
           # App 的更新检查（UpdateManager）从 Release 说明里读这一段拿 versionCode / versionName /
           # forceUpdate；读不到时才退回"按 tag 推算"。用 HTML 注释包起来，
           # GitHub 与 Gitee 渲染 Markdown 时都不会显示，也不会打断正文排版。
-          # 版本号取 app/build.gradle 的**实际构建值**（而不是 tag），这样即使 tag 写法不规范，
-          # 客户端比较的版本号也一定与被发布的那个包一致。
-          version_name=$(grep -oP 'versionName\s+"\K[^"]+' app/build.gradle | head -1)
-          version_code=$(grep -oP 'versionCode\s+\K[0-9]+' app/build.gradle | head -1)
+          # 版本号来自 verify-version 按 tag 推出的结果（已用 aapt2 与产物复核过），
+          # 所以客户端比较的版本号与被发布的那个包必然一致。
+          # 不再 grep build.gradle：versionName/versionCode 现在是派生值，字面量已经不存在。
+          version_name="${VERSION_NAME:-}"
+          version_code="${VERSION_CODE:-}"
           if [ -z "$version_code" ] || [ -z "$version_name" ]; then
-            echo "::error::无法从 app/build.gradle 读出 versionName/versionCode"
+            echo "::error::缺 versionName/versionCode（verify-version 没解析出 tag？）"
             exit 1
           fi
           force_update="false"
@@ -627,7 +812,12 @@ jobs:
           export OUT="$out"
           python3 .github/scripts/make_config_json.py
 
-      - name: 创建 GitHub Release
+      # 仓库开了 release immutability（26.11.17 起）后，**已发布**的 Release 拒绝再传附件：
+      #   HTTP 422 "Cannot upload assets to an immutable release."
+      # 而草稿阶段传附件是允许的，所以拆成「建草稿（含附件）→ 再发布」两步。
+      # 注意：草稿是预发布时，发布走的是 release.published 事件（不是 release.prereleased），
+      # 下游若要挂事件请认 release.published；本工作流的 Gitee 中转是同 job 内后续步骤，不受影响。
+      - name: 创建 GitHub Release（草稿，含全部附件）
         if: env.BUILD_ONLY != 'true' && steps.tag.outputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
@@ -645,8 +835,28 @@ jobs:
             app/build/outputs/apk/release/release-links.txt
             app/build/outputs/apk/release/config.json
           target_commitish: main
-          draft: false
-          prerelease: false
+          draft: true
+          # 三通道（docs/version-channels.md §4）：只有稳定版是正式 Release，beta / exp 一律
+          # 标成预发布。GitHub 的 `releases/latest` **天然排除 prerelease**，所以客户端稳定的
+          # 那条检查路径走 latest 就只可能拿到稳定版；测试版 / 实验版客户端改为拉 releases
+          # 列表、按 versionCode 自己筛（见 util/UpdateManager.kt）。
+          prerelease: ${{ needs.verify-version.outputs.channel != 'stable' }}
+
+      # 把刚建好的草稿真正发布出去。附件已在草稿阶段传完，这一步只翻 draft 状态，
+      # 所以 immutability 不会拦（它拦的是「已发布之后」的改动）。
+      - name: 发布 Release（草稿 → 正式）
+        if: env.BUILD_ONLY != 'true' && steps.tag.outputs.tag != ''
+        shell: bash
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --repo "${{ github.repository }}" --draft=false
+          count=$(gh release view "$TAG" --repo "${{ github.repository }}" --json assets --jq '.assets | length')
+          echo "已发布 $TAG，附件 $count 个"
+          # 0 个附件说明前面的上传静默失败了，直接报错，别让中转去同步一个空 Release。
+          [ "$count" -gt 0 ] || { echo "::error::$TAG 发布后附件数为 0"; exit 1; }
 
       # 通知中转服务，由它把本次 Release 的附件同步到 Gitee；
       # Action 侧不再直接访问 Gitee（网络不通）。

@@ -8,6 +8,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.annotation.DrawableRes
+import androidx.annotation.StringRes
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
@@ -23,7 +24,8 @@ import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
  * 设置 →「播放与播放器」的第一屏：播放器按钮的排布。
  *
  * 这里不做图形预览，就是一类「点一下改一下」的设置：左边一列、右边一列、底部两侧各一节，
- * 每一格一行，点一行能换按钮 / 挪位置 / 改成一组 / 移除；每列末尾一行「加一个按钮」。
+ * 每一格一行，点一行能换按钮 / 改成一组 / 挪位置 / 移除；每列末尾一行「加一组按钮」。
+ * 收纳格不是另一种东西——它就是**一个没加成员的组**（26.11.15 统一）。
  * 「画面元素」那一节是进度条、在线人数、播放手势、标题栏、播放与暂停这些没有自己按钮、
  * 但点哪都能调一堆设置的地方。
  *
@@ -54,15 +56,33 @@ class SettingPlayerUiActivity : BaseActivity() {
             cardList = findViewById(R.id.cardList)
             cardScrim = findViewById(R.id.cardScrim)
             cardScrim.setOnClickListener { hideCard() }
+            findViewById<View>(R.id.cardClose).setOnClickListener { hideCard() }
 
             findViewById<View>(R.id.pageName).setOnClickListener { finish() }
             findViewById<View>(R.id.btnFull).setOnClickListener { openFullSettings() }
 
             contentList.layoutManager = getLayoutManager()
             cardList.layoutManager = getLayoutManager()
+            limitCardHeight()
 
             reloadLayout()
         }
+    }
+
+    /**
+     * 卡片限高：布局里写死 240dp，可手表屏幕本来就矮，240dp 能直接顶到状态栏、
+     * 把遮罩区整块盖掉——那样手指没地方点、只剩返回键一条退路。
+     * 这里取「240dp 与屏高六成」的较小值，上方永远留出能看见也能点掉的遮罩。
+     */
+    private fun limitCardHeight() {
+        val metrics = resources.displayMetrics
+        val maxByDp = (240 * metrics.density).toInt()
+        val maxByScreen = (metrics.heightPixels * 0.6f).toInt()
+        val height = maxByDp.coerceAtMost(maxByScreen)
+        if (height <= 0) return
+        val params = cardPanel.layoutParams ?: return
+        params.height = height
+        cardPanel.layoutParams = params
     }
 
     override fun onResume() {
@@ -109,6 +129,9 @@ class SettingPlayerUiActivity : BaseActivity() {
                     region.capacity
                 )
             )
+            // 底部两区紧贴着中间那个播放/暂停键，光看「中间暂停键左侧」这几个字还是容易懵，
+            // 所以区首再补一句它到底贴在哪儿（26.11.15）
+            regionNoteRes(region)?.let { rows += hintSection(getString(it)) }
             val slots = PlayerUiLayout.slots(layout, region)
             if (slots.isEmpty()) {
                 rows += noteSection(getString(R.string.setting_player_ui_region_empty))
@@ -123,21 +146,34 @@ class SettingPlayerUiActivity : BaseActivity() {
                             button?.iconRes ?: R.drawable.icon_menu
                         ) { showSlotMenu(region, index) }
                     }
-                    is PlayerUiLayout.Slot.Group -> navRow(
-                        getString(R.string.setting_player_ui_group_count, slot.keys.size),
-                        slot.keys.joinToString("、") { key ->
-                            PlayerButtons.byKey(key)?.let { getString(it.nameRes) } ?: key
-                        },
-                        R.mipmap.morehide
-                    ) { showGroupCard(region, index, slot) }
+                    is PlayerUiLayout.Slot.Group -> if (slot.keys.isEmpty()) {
+                        // 空组＝收纳格（26.11.15 统一）：成员是「没摆进布局的按钮」，布局一变
+                        // 内容就变，所以副标题写它的性质，而不是列成员。
+                        navRow(
+                            getString(R.string.setting_player_ui_group_empty),
+                            getString(R.string.setting_player_ui_more_desc),
+                            R.mipmap.morehide
+                        ) { showGroupCard(region, index, slot) }
+                    } else {
+                        navRow(
+                            getString(R.string.setting_player_ui_group_count, slot.keys.size),
+                            slot.keys.joinToString("、") { key ->
+                                PlayerButtons.byKey(key)?.let { getString(it.nameRes) } ?: key
+                            },
+                            R.mipmap.morehide
+                        ) { showGroupCard(region, index, slot) }
+                    }
                 }
             }
             if (!PlayerUiLayout.isFull(layout, region)) {
+                // 26.11.15 统一：每区末尾只剩这一个入口。加「一组按钮」就是加一格容器——
+                // 不选成员时它就是收纳格（自动收没摆进布局的按钮），选了成员就是固定组；
+                // 想摆单个按钮也是走这里（组里只放 1 个，照样不拆散）。
                 rows += navRow(
-                    getString(R.string.setting_player_ui_add_button),
-                    getString(R.string.setting_player_ui_region_capacity, region.capacity),
-                    android.R.drawable.ic_input_add
-                ) { showPicker(region, -1, PickMode.AddSlot) }
+                    getString(R.string.setting_player_ui_add_group),
+                    getString(R.string.setting_player_ui_add_group_desc),
+                    R.mipmap.morehide
+                ) { showPicker(region, -1, PickMode.AddGroup) }
             }
         }
 
@@ -184,6 +220,13 @@ class SettingPlayerUiActivity : BaseActivity() {
         PlayerUiLayout.Region.BOTTOM_RIGHT -> R.string.setting_player_ui_region_bottom_right
     }
 
+    /** 只有底部两区需要额外解释「它相对中间暂停键在哪儿」。 */
+    private fun regionNoteRes(region: PlayerUiLayout.Region): Int? = when (region) {
+        PlayerUiLayout.Region.BOTTOM_LEFT -> R.string.setting_player_ui_region_note_bottom_left
+        PlayerUiLayout.Region.BOTTOM_RIGHT -> R.string.setting_player_ui_region_note_bottom_right
+        else -> null
+    }
+
     private fun resetLayout() {
         PlayerUiLayout.save(PlayerUiLayout.DEFAULT) { key, value ->
             SharedPreferencesUtil.putString(key, value)
@@ -201,47 +244,58 @@ class SettingPlayerUiActivity : BaseActivity() {
     private fun showSlotMenu(region: PlayerUiLayout.Region, index: Int) {
         val slot = PlayerUiLayout.slots(layout, region).getOrNull(index) ?: return
         val key = (slot as? PlayerUiLayout.Slot.Button)?.key ?: return
+        val rows = ArrayList<SettingSection>()
+        rows += editRow(getString(R.string.setting_player_ui_replace)) {
+            showPicker(region, index, PickMode.ReplaceSlot)
+        }
+        rows += editRow(getString(R.string.setting_player_ui_make_group)) {
+            applyLayout(PlayerUiLayout.replaceAt(layout, region, index, PlayerUiLayout.Slot.Group(listOf(key))))
+        }
+        rows += editRow(getString(R.string.setting_player_ui_move_up)) {
+            applyLayout(PlayerUiLayout.move(layout, region, index, index - 1))
+        }
+        rows += editRow(getString(R.string.setting_player_ui_move_down)) {
+            applyLayout(PlayerUiLayout.move(layout, region, index, index + 1))
+        }
+        rows += editRow(getString(R.string.setting_player_ui_remove)) {
+            applyLayout(PlayerUiLayout.removeAt(layout, region, index))
+        }
         showCard(
             PlayerButtons.byKey(key)?.let { getString(it.nameRes) } ?: getString(R.string.setting_player_ui_group_title),
-            listOf(
-                editRow(getString(R.string.setting_player_ui_replace)) {
-                    showPicker(region, index, PickMode.ReplaceSlot)
-                },
-                editRow(getString(R.string.setting_player_ui_make_group)) {
-                    applyLayout(PlayerUiLayout.replaceAt(layout, region, index, PlayerUiLayout.Slot.Group(listOf(key))))
-                },
-                editRow(getString(R.string.setting_player_ui_move_up)) {
-                    applyLayout(PlayerUiLayout.move(layout, region, index, index - 1))
-                },
-                editRow(getString(R.string.setting_player_ui_move_down)) {
-                    applyLayout(PlayerUiLayout.move(layout, region, index, index + 1))
-                },
-                editRow(getString(R.string.setting_player_ui_remove)) {
-                    applyLayout(PlayerUiLayout.removeAt(layout, region, index))
-                }
-            )
+            rows
         )
     }
 
-    /** 一组按钮的管理卡：点成员进它的设置，另有加成员、清成员、挪位置、整组移除。 */
+    /**
+     * 一组按钮的管理卡：点成员进它的设置，另有加成员、移成员、挪位置、整组移除。
+     *
+     * 组成员为空时这一格就是**收纳格**（成员＝没摆进布局的按钮，跟着布局自动变），
+     * 所以空组不给「移成员」（没成员可移），改成提示它的性质。
+     */
     private fun showGroupCard(region: PlayerUiLayout.Region, index: Int, slot: PlayerUiLayout.Slot.Group) {
         val rows = ArrayList<SettingSection>()
-        rows += noteSection(getString(R.string.setting_player_ui_group_members))
-        slot.keys.forEach { key ->
-            val button = PlayerButtons.byKey(key)
-            val name = button?.let { getString(it.nameRes) } ?: key
-            rows += navRow(
-                getString(R.string.setting_player_ui_group_member_settings, name),
-                if (button?.mayHide == true) getString(R.string.setting_player_ui_may_hide) else "",
-                button?.iconRes ?: R.drawable.icon_menu
-            ) { showButtonCard(key) }
+        if (slot.keys.isEmpty()) {
+            rows += hintSection(getString(R.string.setting_player_ui_more_desc))
+        } else {
+            rows += noteSection(getString(R.string.setting_player_ui_group_members))
+            slot.keys.forEach { key ->
+                val button = PlayerButtons.byKey(key)
+                val name = button?.let { getString(it.nameRes) } ?: key
+                rows += navRow(
+                    getString(R.string.setting_player_ui_group_member_settings, name),
+                    if (button?.mayHide == true) getString(R.string.setting_player_ui_may_hide) else "",
+                    button?.iconRes ?: R.drawable.icon_menu
+                ) { showButtonCard(key) }
+            }
         }
         rows += dividerSection()
         rows += editRow(getString(R.string.setting_player_ui_group_add_member)) {
             showPicker(region, index, PickMode.AddGroupMember)
         }
-        rows += editRow(getString(R.string.setting_player_ui_group_drop_member)) {
-            showGroupRemoveCard(region, index, slot)
+        if (slot.keys.isNotEmpty()) {
+            rows += editRow(getString(R.string.setting_player_ui_group_drop_member)) {
+                showGroupRemoveCard(region, index, slot)
+            }
         }
         rows += editRow(getString(R.string.setting_player_ui_move_up)) {
             applyLayout(PlayerUiLayout.move(layout, region, index, index - 1))
@@ -255,54 +309,80 @@ class SettingPlayerUiActivity : BaseActivity() {
         showCard(getString(R.string.setting_player_ui_group_title), rows)
     }
 
-    /** 组内成员逐条移除（单独一张卡，免得和「点进去看设置」抢同一条）。 */
+    /**
+     * 组内成员逐条移除（单独一张卡，免得和「点进去看设置」抢同一条）。
+     *
+     * 移掉最后一个成员时**这一格留着**、变成空组＝收纳格（26.11.15，用户定下的：
+     * 组里 0 个按钮也不拆散）。用户想彻底删掉这一格，回上一张卡点「移除这一格」。
+     */
     private fun showGroupRemoveCard(region: PlayerUiLayout.Region, index: Int, slot: PlayerUiLayout.Slot.Group) {
         val rows = slot.keys.map { key ->
             val name = PlayerButtons.byKey(key)?.let { getString(it.nameRes) } ?: key
             editRow(getString(R.string.setting_player_ui_group_remove_member, name)) {
-                val left = slot.keys - key
                 applyLayout(
-                    if (left.isEmpty()) PlayerUiLayout.removeAt(layout, region, index)
-                    else PlayerUiLayout.replaceAt(layout, region, index, PlayerUiLayout.Slot.Group(left))
+                    PlayerUiLayout.replaceAt(
+                        layout, region, index,
+                        PlayerUiLayout.Slot.Group(slot.keys - key)
+                    )
                 )
             }
         }
         showCard(getString(R.string.setting_player_ui_group_drop_member), rows)
     }
 
-    /** 选按钮卡：加空槽位 / 换掉某一格 / 往组里加成员，三种模式共用一张卡。 */
+    /** 选按钮卡：加一格（组 / 收纳格）/ 换掉某一格 / 往组里加成员，三种模式共用一张卡。 */
     private fun showPicker(region: PlayerUiLayout.Region, index: Int, mode: PickMode) {
-        if (mode == PickMode.AddSlot && PlayerUiLayout.isFull(layout, region)) {
+        // 只有「新加一格」才会多占一格；换按钮、往已有组里加成员都不占新格子，
+        // 所以那一列满了也不该挡住它们（26.11.15 修：原写法会把满列上的加成员一并挡掉）。
+        if (mode == PickMode.AddGroup && PlayerUiLayout.isFull(layout, region)) {
             toast(getString(R.string.setting_player_ui_region_full))
             return
         }
         val title = when (mode) {
-            PickMode.AddSlot -> getString(R.string.setting_player_ui_pick_button)
+            PickMode.AddGroup -> getString(R.string.setting_player_ui_pick_button)
             PickMode.ReplaceSlot -> getString(R.string.setting_player_ui_pick_button_replace)
             PickMode.AddGroupMember -> getString(R.string.setting_player_ui_group_add_member)
         }
-        val rows = PlayerButtons.ALL.map { button ->
+        val rows = ArrayList<SettingSection>()
+        // 加一格时第一行是「先不放按钮」：这一格就是收纳格，空着也有用（自动收没摆进布局的按钮）
+        if (mode == PickMode.AddGroup) {
+            rows += editRow(getString(R.string.setting_player_ui_add_group_empty)) {
+                applyLayout(PlayerUiLayout.add(layout, region, PlayerUiLayout.Slot.Group(emptyList())))
+            }
+            rows += dividerSection()
+        }
+        PlayerButtons.ALL.map { button ->
             navRow(
                 getString(button.nameRes),
                 if (button.mayHide) getString(R.string.setting_player_ui_may_hide) else "",
                 button.iconRes
             ) {
-                val picked = PlayerUiLayout.Slot.Button(button.key)
-                applyLayout(
-                    when (mode) {
-                        PickMode.AddSlot -> PlayerUiLayout.add(layout, region, picked)
-                        PickMode.ReplaceSlot -> PlayerUiLayout.replaceAt(layout, region, index, picked)
-                        PickMode.AddGroupMember -> {
-                            val group = PlayerUiLayout.slots(layout, region).getOrNull(index) as? PlayerUiLayout.Slot.Group
-                            if (group == null) layout
-                            else PlayerUiLayout.replaceAt(
-                                layout, region, index, PlayerUiLayout.Slot.Group(group.keys + button.key)
+                when (mode) {
+                    PickMode.AddGroup -> applyLayout(
+                        PlayerUiLayout.add(layout, region, PlayerUiLayout.Slot.Group(listOf(button.key)))
+                    )
+                    PickMode.ReplaceSlot -> applyLayout(
+                        PlayerUiLayout.replaceAt(layout, region, index, PlayerUiLayout.Slot.Button(button.key))
+                    )
+                    PickMode.AddGroupMember -> {
+                        val group = PlayerUiLayout.slots(layout, region).getOrNull(index) as? PlayerUiLayout.Slot.Group
+                        when {
+                            group == null -> hideCard()
+                            // 同一按钮在一个组里只留一份：多份会渲染出多个影子，点了互相抢状态
+                            button.key in group.keys -> toast(
+                                getString(R.string.setting_player_ui_group_member_exists, getString(button.nameRes))
+                            )
+                            else -> applyLayout(
+                                PlayerUiLayout.replaceAt(
+                                    layout, region, index,
+                                    PlayerUiLayout.Slot.Group(group.keys + button.key)
+                                )
                             )
                         }
                     }
-                )
+                }
             }
-        }
+        }.forEach { rows += it }
         showCard(title, rows)
     }
 
@@ -318,7 +398,7 @@ class SettingPlayerUiActivity : BaseActivity() {
         hideCard()
     }
 
-    private enum class PickMode { AddSlot, ReplaceSlot, AddGroupMember }
+    private enum class PickMode { AddGroup, ReplaceSlot, AddGroupMember }
 
     private fun showButtonCard(key: String) {
         val button = PlayerButtons.byKey(key) ?: return
@@ -344,16 +424,20 @@ class SettingPlayerUiActivity : BaseActivity() {
         when (element) {
             "progress" -> showCard(
                 getString(R.string.setting_player_ui_label_progress),
-                pick("显示高能进度条", "左右滑动控制进度", "滑动调进度灵敏度")
+                pick(
+                    R.string.setting_player_high_energy,
+                    R.string.setting_player_swipe_seek,
+                    R.string.setting_player_swipe_seek_scale_name
+                )
             )
             "online" -> showCard(
                 getString(R.string.setting_player_ui_label_online),
-                pick("显示实时人数")
+                pick(R.string.setting_player_show_online)
             )
             "blank" -> showCard(
                 getString(R.string.setting_player_ui_label_blank),
                 PlayerSettingsGroups.group(this, PlayerSettingsGroups.GESTURE)?.sections.orEmpty() +
-                    pick("视频可缩放", "缩放时可移动")
+                    pick(R.string.setting_player_scale, R.string.setting_player_double_move)
             )
             "play" -> showCard(
                 getString(R.string.setting_player_ui_label_play),
@@ -362,13 +446,25 @@ class SettingPlayerUiActivity : BaseActivity() {
         }
     }
 
-    /** 从全部设置项里按名字挑几项（名字就是 PlayerSettingsGroups 里的中文字面量）。 */
-    private fun pick(vararg names: String): List<SettingSection> {
+    /**
+     * 从全部设置项里挑几项，返回它们**所在的整个分组**——即定位到某个设置项后，
+     * 把它的上下文（同组其它项）一并显示出来，用户改完还能看到相关项。
+     *
+     * <p>按字符串资源定位而不是按中文字面量：`SettingSection.name` 本来就是落地文案，
+     * 拿它当键的话，改一个字就静默匹配不上、卡片变成空的。
+     */
+    private fun pick(@StringRes vararg nameRes: Int): List<SettingSection> {
         val all = PlayerSettingsGroups.flatten(this)
-        return names.mapNotNull { name -> all.firstOrNull { it.name == name } }
+        return nameRes.flatMap { res ->
+            val name = getString(res)
+            all.filter { it.name == name }
+        }
     }
 
     private fun noteSection(text: String) = SettingSection("title", text, "", "", "")
+
+    /** 一段灰字说明（不是分组标题）：用在区首解释、收纳格性质这种地方。 */
+    private fun hintSection(text: String) = SettingSection("note", "", "", text, "")
 
     private fun dividerSection() = SettingSection("divider", "", "", "", "")
 

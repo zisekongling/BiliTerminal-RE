@@ -20,6 +20,8 @@
             android:layout_alignParentLeft="true"
             android:layout_marginVertical="3dp"
             android:layout_marginStart="8dp"
+            android:layout_toStartOf="@id/timeText"
+            android:ellipsize="end"
             android:lines="1"
             android:text="@string/pagename_message"
             android:textStyle="bold"
@@ -71,24 +73,28 @@
                             android:layout_height="wrap_content">
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/reply_go"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="9dp"
                                 android:layout_marginEnd="8dp"
                                 android:layout_marginBottom="9dp"
-                                android:src="@drawable/arrow_forward"
+                                app:srcCompat="@drawable/arrow_forward"
                                 app:layout_constraintBottom_toBottomOf="parent"
                                 app:layout_constraintEnd_toEndOf="parent"
                                 app:layout_constraintTop_toTopOf="parent" />
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/reply_icon"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="0dp"
                                 android:layout_marginStart="8dp"
                                 android:adjustViewBounds="true"
-                                android:src="@drawable/icon_reply"
+                                app:srcCompat="@drawable/icon_reply"
                                 app:layout_constraintBottom_toBottomOf="parent"
                                 app:layout_constraintHeight_percent="0.4"
                                 app:layout_constraintStart_toStartOf="parent"
@@ -124,24 +130,28 @@
                             android:layout_height="wrap_content">
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/at_go"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="9dp"
                                 android:layout_marginEnd="8dp"
                                 android:layout_marginBottom="9dp"
-                                android:src="@drawable/arrow_forward"
+                                app:srcCompat="@drawable/arrow_forward"
                                 app:layout_constraintBottom_toBottomOf="parent"
                                 app:layout_constraintEnd_toEndOf="parent"
                                 app:layout_constraintTop_toTopOf="parent" />
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/at_icon"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="0dp"
                                 android:layout_marginStart="8dp"
                                 android:adjustViewBounds="true"
-                                android:src="@drawable/icon_at"
+                                app:srcCompat="@drawable/icon_at"
                                 app:layout_constraintBottom_toBottomOf="parent"
                                 app:layout_constraintHeight_percent="0.4"
                                 app:layout_constraintStart_toStartOf="parent"
@@ -177,24 +187,28 @@
                             android:layout_height="wrap_content">
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/like_go"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="9dp"
                                 android:layout_marginEnd="8dp"
                                 android:layout_marginBottom="9dp"
-                                android:src="@drawable/arrow_forward"
+                                app:srcCompat="@drawable/arrow_forward"
                                 app:layout_constraintBottom_toBottomOf="parent"
                                 app:layout_constraintEnd_toEndOf="parent"
                                 app:layout_constraintTop_toTopOf="parent" />
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/like_icon"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="0dp"
                                 android:layout_marginStart="8dp"
                                 android:adjustViewBounds="true"
-                                android:src="@drawable/icon_reply_like0"
+                                app:srcCompat="@drawable/icon_reply_like0"
                                 app:layout_constraintBottom_toBottomOf="parent"
                                 app:layout_constraintHeight_percent="0.4"
                                 app:layout_constraintStart_toStartOf="parent"
@@ -231,24 +245,28 @@
                             android:layout_height="wrap_content">
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/system_go"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="9dp"
                                 android:layout_marginEnd="8dp"
                                 android:layout_marginBottom="9dp"
-                                android:src="@drawable/arrow_forward"
+                                app:srcCompat="@drawable/arrow_forward"
                                 app:layout_constraintBottom_toBottomOf="parent"
                                 app:layout_constraintEnd_toEndOf="parent"
                                 app:layout_constraintTop_toTopOf="parent" />
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/system_icon"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="0dp"
                                 android:layout_marginStart="8dp"
                                 android:adjustViewBounds="true"
-                                android:src="@drawable/icon_info"
+                                app:srcCompat="@drawable/icon_info"
                                 app:layout_constraintBottom_toBottomOf="parent"
                                 app:layout_constraintHeight_percent="0.4"
                                 app:layout_constraintStart_toStartOf="parent"
@@ -284,24 +302,28 @@
                             android:layout_height="wrap_content">
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/setting_go"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="9dp"
                                 android:layout_marginEnd="8dp"
                                 android:layout_marginBottom="9dp"
-                                android:src="@drawable/arrow_forward"
+                                app:srcCompat="@drawable/arrow_forward"
                                 app:layout_constraintBottom_toBottomOf="parent"
                                 app:layout_constraintEnd_toEndOf="parent"
                                 app:layout_constraintTop_toTopOf="parent" />
 
                             <ImageView
+                                android:contentDescription="@null"
                                 android:id="@+id/setting_icon"
+                                android:importantForAccessibility="no"
                                 android:layout_width="wrap_content"
                                 android:layout_height="0dp"
                                 android:layout_marginStart="8dp"
                                 android:adjustViewBounds="true"
-                                android:src="@drawable/icon_setting"
+                                app:srcCompat="@drawable/icon_setting"
                                 app:layout_constraintBottom_toBottomOf="parent"
                                 app:layout_constraintHeight_percent="0.4"
                                 app:layout_constraintStart_toStartOf="parent"

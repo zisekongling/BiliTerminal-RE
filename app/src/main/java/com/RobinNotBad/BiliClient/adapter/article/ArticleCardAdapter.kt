@@ -15,8 +15,10 @@ import com.RobinNotBad.BiliClient.listener.OnItemLongClickListener
 import com.RobinNotBad.BiliClient.model.ArticleCard
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
+import com.RobinNotBad.BiliClient.util.view.LongPressDelay
 import org.json.JSONObject
 import java.io.File
 
@@ -53,14 +55,14 @@ class ArticleCardAdapter(
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     longPressRunnable = Runnable {
-                        val quickMode = SharedPreferencesUtil.getBoolean("cache_quick_mode", true)
+                        val quickMode = SharedPreferencesUtil.getBoolean(SettingsKeys.CACHE_QUICK_MODE, true)
                         if (quickMode) {
                             handleArticleCache(articleCard)
                         } else {
                             longClickListener?.onItemLongClick(position)
                         }
                     }
-                    v.postDelayed(longPressRunnable, 200)
+                    v.postDelayed(longPressRunnable, LongPressDelay.CARD_MS)
                     false
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {

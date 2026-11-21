@@ -28,12 +28,15 @@ import com.RobinNotBad.BiliClient.model.Dynamic
 import com.RobinNotBad.BiliClient.model.VideoInfo
 import com.RobinNotBad.BiliClient.model.VoteDraft
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.ScheduleTimePolicy
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.TimeUtil
+import com.RobinNotBad.BiliClient.util.view.TextButtonColors
+import com.RobinNotBad.BiliClient.util.view.TextInsertion
 import com.bumptech.glide.Glide
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
@@ -134,12 +137,19 @@ class SendDynamicActivity : BaseActivity() {
             addTimerText = findViewById(R.id.add_timer_text)
             picsPreview = findViewById(R.id.pics_preview)
 
+            // 手表输入法把回车当「完成 / 下一项」，打不出换行，只能靠这张卡往光标处插一个
+            findViewById<View>(R.id.newline).setOnClickListener {
+                TextInsertion.insertNewline(editText)
+            }
+
             // 投票编辑区
             voteEditArea = findViewById(R.id.vote_edit_area)
             voteTitleEdit = findViewById(R.id.vote_title_edit)
             voteOptionsList = findViewById(R.id.vote_options_list)
             addOptionBtn = findViewById(R.id.add_option_btn)
             removeVoteBtn = findViewById(R.id.remove_vote_btn)
+            // TextButton 状态列表里的 ?attr 在 API 21/22 解析不了（会退成框架哨兵红），在这里统一兜住
+            TextButtonColors.apply(addOptionBtn, removeVoteBtn)
 
             // 编辑模式：预填原正文，并且不理会 TerminalContext——它只在 onDestroy 清，
             // 里面可能残留上一次转发的内容，会把旧卡片画到编辑页上
@@ -514,7 +524,9 @@ class SendDynamicActivity : BaseActivity() {
                         renderPicsPreview()
                     }
                 }
-                Glide.with(this).load(uri).centerCrop().into(imageView)
+                Glide.with(this).load(uri).centerCrop()
+                    .apply(GlideUtil.thumbOptionsCover(imageView))
+                    .into(imageView)
                 picsPreview.addView(imageView)
             }
         }

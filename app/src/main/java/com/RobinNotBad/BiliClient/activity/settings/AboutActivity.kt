@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.os.Bundle
 import android.text.SpannableString
+import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.StyleSpan
 import android.util.Log
@@ -16,11 +17,14 @@ import android.widget.TextView
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.FeedbackActivity
+import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.util.GlideUtil
+import com.RobinNotBad.BiliClient.util.LinkUrlUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
+import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
@@ -42,26 +46,29 @@ class AboutActivity : BaseActivity() {
     )
 
     companion object {
+        /** 关于页「本次更新」默认显示的条数：超过这个数就默认收起，点「展开全部」再看全。 */
+        private const val COLLAPSED_LOG_LINES = 15
+
         /** RE 版（当前这版）的主要开发者。身份由列名 `about_dev_trae` 与卡片简介位共同表达。 */
         private val DEVELOPERS_RE = listOf(
             Developer("紫色空灵", "", R.mipmap.avatar_zise, 591904067L, R.string.about_dev_trae_desc),
             Developer("千awa", "", R.mipmap.avatar_qianawa, 1786791133L, R.string.about_dev_qianawa),
-            Developer("Kuinone", "Kuinone可能是迄今为止唯一一个符合RESTful API规范的苯醌", R.mipmap.avatar_kuinone, 475731079L),
+            Developer("Kuinone", "", R.mipmap.avatar_kuinone, 475731079L, R.string.about_dev_kuinone_desc),
         )
 
         /** 主要开发者。 */
         private val DEVELOPERS_MAIN = listOf(
-            Developer("RobinNotBad", "和他的纳西妲酱（项目发起者|屎山奠基人）", R.mipmap.avatar_robin, 646521226L),
-            Developer("爅峫（moye）", "你就说能不能用吧（代码贡献量大|屎山铺路人|想换个头像的说）", R.mipmap.avatar_moye, 394675616L),
+            Developer("RobinNotBad", "", R.mipmap.avatar_robin, 646521226L, R.string.settingtext_aboutactivity_001),
+            Developer("爅峫（moye）", "", R.mipmap.avatar_moye, 394675616L, R.string.settingtext_aboutactivity_003),
         )
 
         /** 联合开发者。 */
         private val DEVELOPERS_JOINT = listOf(
-            Developer("silent碎月", "我是镜流小姐的狗", R.mipmap.avatar_silent, 40140732L),
-            Developer("dudu", "一个摆烂的开发者", R.mipmap.avatar_dudu, 517053179L),
-            Developer("达达", "（这位开发者很懒，什么也没有留下）", -1, 432128342L),
-            Developer("huanli233", "与你的日常，就是奇迹", R.mipmap.avatar_huanli, 673815151L),
-            Developer("Jank000.h", "CQCQCQ，这里是BI1TIA，是否有友台能够抄收？", R.mipmap.avatar_jank, 661403494L),
+            Developer("silent碎月", "", R.mipmap.avatar_silent, 40140732L, R.string.settingtext_aboutactivity_005),
+            Developer("dudu", "", R.mipmap.avatar_dudu, 517053179L, R.string.settingtext_aboutactivity_006),
+            Developer("达达", "", -1, 432128342L, R.string.settingtext_aboutactivity_008),
+            Developer("huanli233", "", R.mipmap.avatar_huanli, 673815151L, R.string.settingtext_aboutactivity_009),
+            Developer("Jank000.h", "", R.mipmap.avatar_jank, 661403494L, R.string.settingtext_aboutactivity_010),
         )
     }
 
@@ -73,20 +80,46 @@ class AboutActivity : BaseActivity() {
             Log.e("debug", "进入关于页面")
 
             try {
-                val versionStr = SpannableString("版本名\n" + packageManager.getPackageInfo(packageName, 0).versionName)
-                versionStr.setSpan(StyleSpan(Typeface.BOLD), 0, 3, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+                // 前两行标签加粗，值不加粗：加粗区间按标签实际长度算，翻译改了字数也不会错位
+                val nameLabel = getString(R.string.text_activitysettingabout_07)
+                val versionStr = SpannableString(nameLabel + "\n" + packageManager.getPackageInfo(packageName, 0).versionName)
+                versionStr.setSpan(StyleSpan(Typeface.BOLD), 0, nameLabel.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
                 (findViewById<TextView>(R.id.app_version)).text = versionStr
 
-                val codeStr = SpannableString("版本号\n" + packageManager.getPackageInfo(packageName, 0).versionCode)
-                codeStr.setSpan(StyleSpan(Typeface.BOLD), 0, 3, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+                val codeLabel = getString(R.string.text_activitysettingabout_06)
+                val codeStr = SpannableString(codeLabel + "\n" + packageManager.getPackageInfo(packageName, 0).versionCode)
+                codeStr.setSpan(StyleSpan(Typeface.BOLD), 0, codeLabel.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
                 (findViewById<TextView>(R.id.app_version_code)).text = codeStr
 
+                // 「本次更新」条目一多就没人翻得完（26.11.16 这一版 38 条），所以默认只显示前
+                // COLLAPSED_LOG_LINES 条，末尾给一个展开 / 收起的开关；条目没超过这个数就整条显示、
+                // 开关一起隐藏。收起只影响「显示」：长按复制始终给全文，贴到别处时不缺条目。
                 val currentLogItems = resources.getStringArray(R.array.update_log_current)
-                val currentLog = StringBuilder()
-                for (item in currentLogItems) currentLog.append("\n").append(item)
                 val updateLogView = findViewById<TextView>(R.id.updatelog_view)
-                updateLogView.text = currentLog.toString()
-                StringUtil.setCopy(updateLogView, currentLog.toString())
+                val logToggle = findViewById<TextView>(R.id.updatelog_toggle)
+                val fullLogText = currentLogItems.joinToString("") { "\n" + it }
+                val collapsible = currentLogItems.size > COLLAPSED_LOG_LINES
+                // 「共 N 条」只数编号条目（首行的【…本次更新】与下面的稳定版说明不算一条）
+                val entryCount = currentLogItems.count { it.isNotEmpty() && it[0].isDigit() }
+                    .takeIf { it > 0 } ?: currentLogItems.size
+                var logExpanded = !collapsible
+
+                fun renderCurrentLog() {
+                    // 两个分支都取 List：直接写 Array / List 混着会让类型推断并成 Any，
+                    // 后面的 joinToString 就调不到了。
+                    val shown = if (logExpanded) currentLogItems.asList() else currentLogItems.take(COLLAPSED_LOG_LINES)
+                    updateLogView.text = shown.joinToString("") { "\n" + it }
+                    logToggle.text = if (logExpanded) getString(R.string.about_updatelog_collapse)
+                    else getString(R.string.about_updatelog_expand, entryCount)
+                    logToggle.visibility = if (collapsible) View.VISIBLE else View.GONE
+                }
+
+                renderCurrentLog()
+                StringUtil.setCopy(updateLogView, fullLogText)
+                logToggle.setOnClickListener {
+                    logExpanded = !logExpanded
+                    renderCurrentLog()
+                }
 
                 val versionName = packageManager.getPackageInfo(packageName, 0).versionName
                 findViewById<TextView>(R.id.current_update_title).text = getString(R.string.text_update_current_version, versionName)
@@ -120,6 +153,38 @@ class AboutActivity : BaseActivity() {
             // 开源协议 / 借鉴项目 / 图标许可已拆到独立页，这里只留入口
             findViewById<View>(R.id.opensource_entry).setOnClickListener {
                 startActivity(Intent(this, OpenSourceActivity::class.java))
+            }
+
+            // 仓库地址（26.11.08）：地址文字本身就是可点的超链接。
+            // 直接挂 LinkClickableSpan、**不走** StringUtil.setLink(TextView...)：那条路径整体受
+            // 「识别链接」设置（LINK_ENABLE）管，用户关掉后这条入口就点不动了；而这里是关于页里
+            // 唯一的对外链接，要保证永远可点。点击最终交给 LinkUrlUtil.handleWebURL → 系统浏览器。
+            val repoUrl = getString(R.string.about_repo_url)
+            val repoText = SpannableStringBuilder(repoUrl)
+            repoText.setSpan(
+                StringUtil.LinkClickableSpan(repoUrl, LinkUrlUtil.TYPE_WEB_URL),
+                0, repoText.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            val repoView = findViewById<TextView>(R.id.repo_url)
+            repoView.text = repoText
+            // ClickableSpan 自己不会收到触摸事件：必须配 MovementMethod 或者本工程的
+            // ClickableSpanTouchListener（后者不吞长按，所以下面的长按复制照旧可用）
+            repoView.setOnTouchListener(StringUtil.ClickableSpanTouchListener.getInstance())
+            StringUtil.setCopy(repoView, repoUrl)
+
+            // 赞赏：先弹免责声明，点「同意」才去看收款码（点「取消」什么都不发生）。
+            // 收款码交给图片查看器（能双指放大，手表屏幕小，二维码得看得清）；
+            // 地址走 strings.xml 的 about_donate_url，换图不用改代码。
+            // 注意 TerminalDialog 只「造」弹窗不负责显示，调用完必须 .show()（漏了就是点了没反应）。
+            findViewById<View>(R.id.donate_qr_entry).setOnClickListener {
+                TerminalDialog.confirm(
+                    context = this,
+                    title = getString(R.string.about_donate_entry),
+                    message = getString(R.string.about_donate_disclaimer),
+                    confirmText = getString(R.string.privacy_consent_agree), // 同意
+                    confirmIsDanger = false,
+                    onConfirm = { openDonateQr() }
+                ).show()
             }
 
             findViewById<View>(R.id.sponsor_list).setOnClickListener {
@@ -157,6 +222,14 @@ class AboutActivity : BaseActivity() {
             scrollView.isFocusableInTouchMode = true
             scrollView.requestFocus()
         }
+    }
+
+    /** 打开赞赏用的收款码（图片查看器，可双指放大）。 */
+    private fun openDonateQr() {
+        startActivity(
+            Intent(this, ImageViewerActivity::class.java)
+                .putExtra("imageList", arrayListOf(getString(R.string.about_donate_url)))
+        )
     }
 
     /** 把开发者列表渲染成卡片塞进容器。 */

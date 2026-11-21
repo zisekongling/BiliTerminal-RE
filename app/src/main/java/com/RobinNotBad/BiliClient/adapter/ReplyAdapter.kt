@@ -22,7 +22,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.annotation.NonNull
-import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.load.DecodeFormat
 import com.bumptech.glide.load.engine.DiskCacheStrategy
@@ -49,10 +48,12 @@ import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.ReplyState
 import com.RobinNotBad.BiliClient.util.ReplyStateStore
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.ui.widget.RadiusBackgroundSpan
+import com.RobinNotBad.BiliClient.ui.widget.ReplyActionRow
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.listener.OnItemClickListener
 import java.io.IOException
@@ -84,8 +85,12 @@ class ReplyAdapter(
     var count: Long = -1
     var listener: OnItemClickListener? = null
 
+    // 圆屏适配开关：决定操作行要不要整体居中（见 ReplyActionRow）。构造时读一次，
+    // 与其它设置项一致——改完要重新进页面才生效，不在列表滚动中来回改约束。
+    private val roundMode = SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROUND, false)
+
     private val roundSmallPx = context.resources.getDimension(R.dimen.round_small).toInt()
-    private val likeDrawable0 = ContextCompat.getDrawable(context, R.drawable.icon_reply_like0)
+    private val likeDrawable0 = StringUtil.getDrawable(context, R.drawable.icon_reply_like0)
     // 已赞图标原写死 #fb6789；与同一行「已赞」数字（ColorScheme.LIKE_COLOR）同色
     private val likeDrawable1 = ThemeTint.tinted(context, R.drawable.icon_reply_like1, ColorScheme.LIKE_COLOR)
 
@@ -160,6 +165,8 @@ class ReplyAdapter(
             return WriteReply(view)
         } else {
             val view = LayoutInflater.from(this.context).inflate(R.layout.cell_reply_list, parent, false)
+            // 圆屏时把点赞/点踩/翻译/删除/回复连成一组居中；方屏原样不动
+            ReplyActionRow.applyIfNeeded(view, roundMode)
             return ReplyHolder(view)
         }
     }
@@ -231,6 +238,7 @@ class ReplyAdapter(
             if (GlideUtil.url(reply.sender!!.avatar) != replyHolder.lastAvatarUrl) {
                 replyHolder.lastAvatarUrl = GlideUtil.url(reply.sender!!.avatar)
                 GlideUtil.with(replyHolder.replyAvatar).asDrawable().load(GlideUtil.url(reply.sender!!.avatar))
+                        .apply(GlideUtil.thumbOptionsCover(replyHolder.replyAvatar))
                         .transition(GlideUtil.getTransitionOptions())
                         .placeholder(R.mipmap.akari)
                         .error(R.mipmap.akari)
@@ -286,17 +294,30 @@ class ReplyAdapter(
             }
 
             replyHolder.message.text = reply.message
+            val panelEnabled = LongPressPrefs.isEnabled()
             // 长按正文：开关打开时弹「操作面板」，「复制」就在面板里（见 [showManageMenu]），
             // 长按不再直接把用户丢进复制界面；开关关闭时才退回旧行为。
             // 之前这里是「可管理才挂监听、不可管理交给 setCopy」——两条路各弹各的，
             // 所以在自己的评论上长按，用户分不清到底会复制还是弹菜单。
-            if (LongPressPrefs.isEnabled()) {
+            if (panelEnabled) {
                 replyHolder.message.setOnLongClickListener {
                     showManageMenu(reply)
                     true
                 }
             } else {
-                StringUtil.setCopy(replyHolder.message)
+                bindLegacyCopyLongPress(replyHolder.message, reply.message)
+            }
+            // 整张卡片也要能长按，且**详情页同样要挂**。原来只有正文挂了长按，按在昵称/时间/留白
+            // 上时事件落到 itemView 的点击监听，抬手被当成「打开评论详情」——用户看到的就是
+            // 「长按自己的评论反而进了详情页」。26.11.12 补了整卡长按，但条件写成「非详情页」，
+            // 于是评论详情页里同一手势在正文上弹面板、在昵称/时间/留白上毫无反应，仍是两套行为。
+            if (panelEnabled) {
+                replyHolder.itemView.setOnLongClickListener {
+                    showManageMenu(reply)
+                    true
+                }
+            } else {
+                bindLegacyCopyLongPress(replyHolder.itemView, reply.message)
             }
             replyHolder.message.setOnTouchListener(StringUtil.ClickableSpanTouchListener.getInstance())
 
@@ -337,6 +358,14 @@ class ReplyAdapter(
                 if (reply.childMsgList != null && replyHolder.childReplies != null) {
                     val childCount = reply.childMsgList!!.size
                     val existingViewCount = replyHolder.childReplies!!.childCount
+                    // rpid -> 昵称：楼中楼里被回复的那条可能是楼里任意一层，用 child.parent 反查
+                    // 就知道「回复 @谁」（用户反馈 #176：看不出回复的是同一楼里的哪一条）
+                    val childNames = HashMap<Long, String>()
+                    for (c in reply.childMsgList!!) {
+                        if (c == null) continue
+                        val sender = c.sender ?: continue
+                        childNames[c.rpid] = sender.name
+                    }
                     // 已删除的楼中楼会被跳过，视图下标不能直接用 i，
                     // 否则跳过后同一行会被下一条覆盖、GONE 收尾也会藏错行
                     var renderIndex = 0
@@ -361,6 +390,14 @@ class ReplyAdapter(
                         } else
                             childMsg.append(child.sender!!.name)
 
+                        // child.parent 指向被回复那条的 rpid。等于这条一级评论（或未填）时就是「直接回楼主」，
+                        // 不必标注；指向楼里另一条子评论时补「回复 @某某」，否则这一行只剩
+                        // 「昵称：正文」，看不出在对楼里哪位说话（反馈 #176）。那条没加载到就不标。
+                        if (child.parent != 0L && child.parent != reply.rpid) {
+                            val repliedName = childNames[child.parent]
+                            if (repliedName != null && repliedName != child.sender!!.name)
+                                childMsg.append(" 回复 @").append(repliedName)
+                        }
                         childMsg.append("：").append(child.message)
 
                         val textView: TextView
@@ -375,6 +412,17 @@ class ReplyAdapter(
                             textView = newTextView
                         }
                         textView.text = childMsg
+                        // 楼中楼嵌在可点击的 childReplyCard 里，自身原先没有长按监听：
+                        // 长按抬手会被父卡片当成点击、直接进详情页。这里补上同一入口；
+                        // 开关关掉时清掉监听，恢复旧行为（长按不动作）。
+                        if (panelEnabled) {
+                            textView.setOnLongClickListener {
+                                showManageMenu(child)
+                                true
+                            }
+                        } else {
+                            bindLegacyCopyLongPress(textView, child.message)
+                        }
                         renderIndex++
                     }
 
@@ -400,6 +448,7 @@ class ReplyAdapter(
                 if (firstImageUrl != replyHolder.lastImageUrl) {
                     replyHolder.lastImageUrl = firstImageUrl
                     GlideUtil.with(replyHolder.imageCard).asDrawable().load(firstImageUrl)
+                            .apply(GlideUtil.thumbOptions(replyHolder.imageCard))
                             .transition(GlideUtil.getTransitionOptions())
                             .placeholder(R.mipmap.placeholder)
                             .error(R.mipmap.placeholder)
@@ -421,6 +470,17 @@ class ReplyAdapter(
             }
 
             replyHolder.childReplyCard.setOnClickListener { startReplyInfoActivity(reply) }
+            // 楼中楼卡片本身也要拦长按：卡片只有 click，按在子回复之间的留白上抬手会被
+            // 当成点击、直接进评论详情页。与正文同一个入口；开关关闭时也要挂复制/吞掉，
+            // 不能置 null，否则又回到「长按变成点击」的老毛病。
+            if (panelEnabled) {
+                replyHolder.childReplyCard.setOnLongClickListener {
+                    showManageMenu(reply)
+                    true
+                }
+            } else {
+                bindLegacyCopyLongPress(replyHolder.childReplyCard, reply.message)
+            }
             if (!isDetail) {
                 replyHolder.itemView.setOnClickListener { startReplyInfoActivity(reply) }
                 replyHolder.message.setOnClickListener {
@@ -589,6 +649,28 @@ class ReplyAdapter(
     }
 
     /**
+     * 「长按打开操作面板」开关关闭时的长按：退回旧行为，直接打开复制界面。
+     *
+     * <p>**无论复制功能开没开，都必须挂上监听、并且始终返回 true。** 评论卡片（`itemView`）
+     * 与楼中楼卡片（`childReplyCard`）本身只有点击监听，长按没人接时抬手会被当成一次点击、
+     * 直接进评论详情页——`StringUtil.setCopy` 在 `copy_enable` 关闭时根本不挂监听，
+     * 于是「面板开关关 + 复制开关关」时长按必然变成「进详情页」，而同一行末尾的删除键
+     * 长按照样能弹面板，两种表现自相矛盾（这就是用户反馈的那条症状的复现路径）。
+     *
+     * <p>正文、整条卡片、楼中楼卡片、每条楼中楼文字全部走这一个入口，
+     * 长按落在哪里结果都一样，不会出现「按正文出面板、按留白进详情页」。
+     */
+    private fun bindLegacyCopyLongPress(view: View, content: CharSequence?) {
+        val text = content?.toString().orEmpty()
+        view.setOnLongClickListener {
+            if (StringUtil.isCopyEnabled() && text.isNotEmpty())
+                StringUtil.openCopyPage(context, text)
+            // 复制关掉 / 正文为空时什么都不做，但仍要消费掉这次长按，别让它变成一次点击
+            true
+        }
+    }
+
+    /**
      * 操作面板里的一项。
      *
      * [kind] 是本项的身份、[danger] 是「要不要用危险色」——两者都不能从 [label] 反推：
@@ -628,10 +710,13 @@ class ReplyAdapter(
         // reply.message 在 Java 侧是 CharSequence，复制界面只收 String，这里统一转一次。
         val content = reply.message?.toString().orEmpty()
         if (LongPressPrefs.shouldOfferCopy(StringUtil.isCopyEnabled(), content))
-            actions.add(ManageAction(ManageAction.Kind.COPY, UiText.of("复制文字"), false) {
+            actions.add(ManageAction(ManageAction.Kind.COPY,
+                context.getString(R.string.uitext_dynamicholder_013), false) {
                 StringUtil.openCopyPage(context, content)
             })
-        if (isManager) {
+        // 置顶只对一级评论有意义：服务端对楼中楼置顶会回 12030。楼中楼现在也能长按进面板，
+        // 必须在这里挡住，否则会给出一个点了必然失败的入口。
+        if (isManager && reply.root == 0L) {
             actions.add(
                 if (reply.isTop)
                     ManageAction(ManageAction.Kind.UNTOP, UiText.of("取消置顶"), false) { setReplyTop(reply, false) }

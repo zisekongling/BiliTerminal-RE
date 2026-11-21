@@ -32,6 +32,16 @@ class TextClock : TextView {
 
     private var stopped = false
 
+    /**
+     * 是否由外部托管文字（顶栏灵动岛用）。
+     *
+     * 打开后 [startTick] 直接返回：`onAttachedToWindow` / `onScreenStateChanged` /
+     * `onVisibilityAggregated` 都会调它，如果不拦住，亮屏或重新可见时会把灵动岛的事件文字
+     * 覆盖回时间。关闭时再 [startTick] 就能恢复自走时钟。
+     */
+    @Volatile
+    var externallyManaged: Boolean = false
+
     fun init() {
         typeface = Typeface.DEFAULT_BOLD
     }
@@ -50,6 +60,7 @@ class TextClock : TextView {
     }
 
     fun startTick() {
+        if (externallyManaged) return
         stopped = false
         ticker.run()
     }

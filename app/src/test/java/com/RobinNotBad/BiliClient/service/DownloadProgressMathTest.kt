@@ -142,24 +142,48 @@ class DownloadProgressMathTest {
     // ---------- DASH 阶段进度 ----------
 
     @Test
-    fun dashStageEnds_严格递增且首尾正确() {
-        assertEquals("附件段终点", 0.12f, DownloadProgressMath.DASH_ATTACH_END, 1e-6f)
+    fun dashStageEnds_严格递增() {
+        assertEquals("视频段起点", 0.12f, DownloadProgressMath.DASH_ATTACH_END, 1e-6f)
         assertEquals("视频段终点", 0.52f, DownloadProgressMath.DASH_VIDEO_END, 1e-6f)
-        assertEquals("音频段终点（合并段起点）", 0.88f, DownloadProgressMath.DASH_AUDIO_END, 1e-6f)
-        assertEquals("整条进度条终点", 1.0f, DownloadProgressMath.DASH_MERGE_END, 1e-6f)
+        assertEquals("音频段终点（也是数据部分的终点）", 0.88f, DownloadProgressMath.DASH_AUDIO_END, 1e-6f)
         assertTrue("阶段边界必须递增，否则进度条会倒退",
             DownloadProgressMath.DASH_ATTACH_END < DownloadProgressMath.DASH_VIDEO_END
-                && DownloadProgressMath.DASH_VIDEO_END < DownloadProgressMath.DASH_AUDIO_END
-                && DownloadProgressMath.DASH_AUDIO_END < DownloadProgressMath.DASH_MERGE_END)
+                && DownloadProgressMath.DASH_VIDEO_END < DownloadProgressMath.DASH_AUDIO_END)
+    }
+
+    // ---------- byteRatio：按真实字节算进度 ----------
+
+    @Test
+    fun byteRatio_零点与满额() {
+        assertEquals(0f, DownloadProgressMath.byteRatio(0L, 100L), 1e-6f)
+        assertEquals(0.5f, DownloadProgressMath.byteRatio(50L, 100L), 1e-6f)
+        assertEquals(1f, DownloadProgressMath.byteRatio(100L, 100L), 1e-6f)
     }
 
     @Test
-    fun dashMergeProgress_映射到合并区间并夹住越界值() {
-        assertEquals("合并开始前停在音频段终点", 0.88f, DownloadProgressMath.dashMergeProgress(0f), 1e-6f)
-        assertEquals("合并完成正好走到 100%", 1.0f, DownloadProgressMath.dashMergeProgress(1f), 1e-6f)
-        assertEquals("中点", 0.94f, DownloadProgressMath.dashMergeProgress(0.5f), 1e-6f)
-        assertEquals("负数按 0 处理", 0.88f, DownloadProgressMath.dashMergeProgress(-1f), 1e-6f)
-        assertEquals("超过 1 按 1 处理，不许冲过进度条", 1.0f, DownloadProgressMath.dashMergeProgress(2f), 1e-6f)
+    fun byteRatio_夹住越界与未知总量() {
+        assertEquals("多下的字节不能让进度冲过 100%", 1f,
+            DownloadProgressMath.byteRatio(150L, 100L), 1e-6f)
+        assertEquals("负字节按 0 处理", 0f, DownloadProgressMath.byteRatio(-10L, 100L), 1e-6f)
+        assertEquals("总量未知时返回 0，不能是 NaN", 0f,
+            DownloadProgressMath.byteRatio(10L, 0L), 1e-6f)
+    }
+
+    @Test
+    fun byteRatio_十GB级数字不丢精度() {
+        // Float 只有 24 位有效位，直接 float 相除会把 9.9GB/10GB 算成 1.0
+        assertEquals(0.99f, DownloadProgressMath.byteRatio(99L * 1024 * 1024 * 1024 / 10,
+            10L * 1024 * 1024 * 1024), 1e-4f)
+    }
+
+    // ---------- monotoneProgress：进度只许前进 ----------
+
+    @Test
+    fun monotoneProgress_取较大值并夹住范围() {
+        assertEquals("变大就跟着变大", 0.6f, DownloadProgressMath.monotoneProgress(0.3f, 0.6f), 1e-6f)
+        assertEquals("变小保持原值", 0.6f, DownloadProgressMath.monotoneProgress(0.6f, 0.2f), 1e-6f)
+        assertEquals("不超过 1", 1f, DownloadProgressMath.monotoneProgress(0.9f, 1.4f), 1e-6f)
+        assertEquals("不低于 0", 0f, DownloadProgressMath.monotoneProgress(-0.5f, -0.1f), 1e-6f)
     }
 
     // ---------- 伪进度 ----------

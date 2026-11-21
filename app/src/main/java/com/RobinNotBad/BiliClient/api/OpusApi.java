@@ -1,9 +1,11 @@
 package com.RobinNotBad.BiliClient.api;
 
+import com.RobinNotBad.BiliClient.model.ArticleInfo;
 import com.RobinNotBad.BiliClient.model.Opus;
 import com.RobinNotBad.BiliClient.model.OpusParagraph;
 import com.RobinNotBad.BiliClient.model.Stats;
 import com.RobinNotBad.BiliClient.model.UserInfo;
+import com.RobinNotBad.BiliClient.util.ArticleHtmlConverter;
 import com.RobinNotBad.BiliClient.util.JsonUtil;
 import com.RobinNotBad.BiliClient.util.Logu;
 import com.RobinNotBad.BiliClient.util.MsgUtil;
@@ -15,13 +17,38 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
 
 import okhttp3.HttpUrl;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 public class OpusApi {
+
+    /**
+     * 专栏正文加载失败：网页路径与 x/article/view 都拿不到内容（风控拦截 / 结构变更 / 网络异常）。
+     *
+     * <p>单独一个类型，是为了让 OpusInfoActivity 能把它和「这篇确实没有正文」分开提示——
+     * 前者重试有意义，后者重试再多次也还是这样（需求 #142）。
+     */
+    public static class ArticleBlockedException extends JSONException {
+        public ArticleBlockedException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * 专栏确实没有正文：接口调用成功，但 content 与 summary 都是空的（或都不是可显示的文字）。
+     */
+    public static class ArticleEmptyException extends JSONException {
+        public ArticleEmptyException() {
+            super("article has no body");
+        }
+    }
 
     /**
      * 获取图文/专栏详情。
@@ -85,13 +112,13 @@ public class OpusApi {
             if (detail == null) detail = fetchDetailFromHtml(url);
             if (detail == null || detail.isNull("modules")) {
                 // 整页也抠不到 detail（风控页/结构变更）：动态转旧版动态详情页；
-                // 专栏直接抛错，让 OpusInfoActivity 的 onFailure 显示"加载失败"，
-                // 而不是像以前那样返回一个各字段为空的 opus、留下一张没有任何内容的空白页。
+                // 专栏改走 x/article/view 接口兜底（正文是 HTML，由 ArticleHtmlConverter 转段落）——
+                // 接口能给正文就照常渲染，实在不给才抛错，让页面显示"加载失败"而不是空白页。
                 if (id > 100000000) {
                     opus.type = Opus.TYPE_DYNAMIC_OLD_STYLE;
                     return opus;
                 }
-                throw new JSONException("未能解析出图文内容，可能被风控拦截，请稍后重试");
+                return loadArticleFallback(opus, id);
             }
 
             analyzeCommentInfo(opus, detail, id);
@@ -152,7 +179,6 @@ public class OpusApi {
                         break;
                     case "MODULE_TYPE_STAT":
                         opus.stats = Stats.fromOpus(module.optJSONObject("module_stat"));
-                        android.util.Log.e("debug-专栏", "module_stat=" + opus.stats.toString() + " pubTime=" + opus.pubTime + " id=" + opus.id);
                         break;
                 }
             }
@@ -161,7 +187,12 @@ public class OpusApi {
             if (opus.stats == null) opus.stats = new Stats();
             // 专栏（cv号）：按文章渲染，保证 OpusContentAdapter 正常展示 cv 号、阅读数等信息
             if (id <= 100000000) opus.type = Opus.TYPE_ARTICLE;
-            android.util.Log.e("debug-专栏", "最终 stats view=" + opus.stats.view + " like=" + opus.stats.like + " coin=" + opus.stats.coin + " fav=" + opus.stats.favorite + " reply=" + opus.stats.reply + " pubTime=" + opus.pubTime + " upName=" + (opus.upInfo != null ? opus.upInfo.name : "null") + " id=" + opus.id + " commentType=" + opus.commentType);
+            // 页面能抠到 detail 却没有正文模块（B站改版后的常见形态）：用户会看到
+            // "有标题、有作者、没有正文"的半篇文章。这里再用接口补一次正文，补不到就保持原样。
+            if (id <= 100000000 && (opus.paragraphs == null || opus.paragraphs.length == 0)) {
+                Logu.w("OpusApi", "页面路径没解析出正文，改用 x/article/view 兜底 id=" + id);
+                mergeArticleFallback(opus, id);
+            }
         } catch (IllegalArgumentException e) { // 取不出来的时候，会重定向，但重定向的域名是//开头的，会报错
             //这里给opus设置一个参数，让OpusInfoActivity跳转到旧版的DynamicInfoActivity，从而无需重写解析
             //判断方式很简单粗暴，看报错信息里有没有URL这个关键字，有就是跳转错误
@@ -222,7 +253,6 @@ public class OpusApi {
             ResponseBody responseBody = response.body();
             if (responseBody != null) {
                 html = responseBody.string();
-                android.util.Log.e("debug-专栏", "第" + (retry + 1) + "次 html长度=" + html.length() + " 含detail=" + html.contains("\"detail\":") + " 含INITIAL_STATE=" + html.contains("__INITIAL_STATE__"));
                 if (html.contains("\"detail\"") && html.contains("__INITIAL_STATE__")) break; // 拿到正常内容页
             }
             if (html == null) html = "";
@@ -230,10 +260,113 @@ public class OpusApi {
 
         String detailStr = JsonUtil.search(html, "detail", "");
         if (detailStr.isEmpty()) {
-            android.util.Log.e("debug-专栏", "detail为空");
+            Logu.w("OpusApi", "页面里抠不到 detail（多半是风控页或页面结构变了）：" + url);
             return null;
         }
         return new JSONObject(detailStr);  //效率不高 能用就行 死去的jsonUtil居然还能发光发热
+    }
+
+    /**
+     * 专栏正文兜底（网页路径完全拿不到 detail 时）：改用 x/article/view 接口取正文 HTML。
+     *
+     * <p>接口给的 {@code data.content} 是原始 HTML，经 {@link ArticleHtmlConverter} 转成段落；
+     * 正文为空时退回 {@code data.summary}（有的专栏正文需要登录/已下架，至少别让用户看到一张白纸）。
+     *
+     * @throws ArticleBlockedException 接口也不可用（风控/网络/解析失败）
+     * @throws ArticleEmptyException   接口正常返回，但这篇确实没有正文也没有摘要
+     */
+    private static Opus loadArticleFallback(Opus opus, long id) throws JSONException {
+        Logu.w("OpusApi", "网页路径拿不到正文，改用 x/article/view 兜底 id=" + id);
+        ArticleInfo article = fetchArticleInfo(id);
+        List<OpusParagraph> paragraphs = articleParagraphs(article);
+        if (paragraphs.isEmpty()) throw new ArticleEmptyException();
+
+        applyArticleInfo(opus, article);
+        opus.paragraphs = paragraphs.toArray(new OpusParagraph[0]);
+        opus.type = Opus.TYPE_ARTICLE;
+        return opus;
+    }
+
+    /**
+     * 只补正文：页面路径已经拿到了标题/作者/统计，这里只把缺的那块填上，失败就保持原样。
+     */
+    private static void mergeArticleFallback(Opus opus, long id) {
+        try {
+            ArticleInfo article = fetchArticleInfo(id);
+            List<OpusParagraph> paragraphs = articleParagraphs(article);
+            if (paragraphs.isEmpty()) {
+                Logu.w("OpusApi", "x/article/view 也没有正文，保留页面路径的解析结果 id=" + id);
+                return;
+            }
+            opus.paragraphs = paragraphs.toArray(new OpusParagraph[0]);
+            if (opus.title == null || opus.title.trim().isEmpty()) opus.title = article.title;
+            if (opus.upInfo == null || opus.upInfo.mid <= 0) {
+                if (article.upInfo != null) opus.upInfo = article.upInfo;
+            }
+            if (opus.stats == null) opus.stats = article.stats;
+            if (opus.wordCount <= 0) opus.wordCount = article.wordCount;
+            if (opus.pubTime == null || opus.pubTime.isEmpty()) opus.pubTime = formatArticleTime(article.ctime);
+        } catch (Exception e) {
+            Logu.w("OpusApi", "x/article/view 兜底失败，保留页面路径的解析结果 id=" + id + "：" + e);
+        }
+    }
+
+    /**
+     * 取专栏基本信息（含正文 HTML）。
+     *
+     * <p>任何失败都折算成 {@link ArticleBlockedException}：对用户来说「接口也拿不到」就是被风控或网络不行，
+     * 提示语一样，不需要把请求层的细节暴露出来。
+     */
+    private static ArticleInfo fetchArticleInfo(long id) throws ArticleBlockedException {
+        try {
+            ArticleInfo article = ArticleApi.getArticle(id);
+            if (article == null) throw new ArticleBlockedException("x/article/view 返回空 data，id=" + id);
+            return article;
+        } catch (ArticleBlockedException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ArticleBlockedException("x/article/view 请求失败 id=" + id + "：" + e);
+        }
+    }
+
+    /**
+     * 把接口返回的文章转成段落列表：正文 HTML 优先，正文转不出内容时退回摘要。
+     *
+     * <p>纯函数，便于单测（不碰网络、不读资源）。
+     */
+    public static List<OpusParagraph> articleParagraphs(ArticleInfo article) {
+        List<OpusParagraph> paragraphs = new ArrayList<>();
+        if (article == null) return paragraphs;
+        paragraphs.addAll(ArticleHtmlConverter.toParagraphs(article.content));
+        if (ArticleHtmlConverter.hasContent(paragraphs)) return paragraphs;
+        // 正文为空（或只有认不出的标签）：退回摘要，至少能读到这段文章在讲什么
+        paragraphs.clear();
+        paragraphs.addAll(ArticleHtmlConverter.toParagraphs(article.summary));
+        return paragraphs;
+    }
+
+    /** 用接口数据补齐 opus 的头部字段（标题/UP/统计/发布时间/评论 oid）。 */
+    private static void applyArticleInfo(Opus opus, ArticleInfo article) {
+        if (article.id > 0) opus.id = article.id;
+        opus.title = article.title;
+        opus.upInfo = article.upInfo != null ? article.upInfo : new UserInfo();
+        opus.stats = article.stats != null ? article.stats : new Stats();
+        opus.wordCount = article.wordCount;
+        opus.pubTime = formatArticleTime(article.ctime);
+        opus.cover = article.banner != null ? article.banner : "";
+        // 专栏评论：x/article/view 不返回 comment_id，评论类型固定 12（专栏），oid 就是 cv 号
+        if (opus.commentId <= 0) opus.commentId = opus.id;
+        if (opus.commentType <= 0) opus.commentType = 12;
+    }
+
+    /** ctime（秒）→ "yyyy-MM-dd HH:mm"；拿不到时间就返回空串（适配器会整块隐藏）。 */
+    private static String formatArticleTime(long ctime) {
+        if (ctime <= 0) return "";
+        try {
+            return new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(new Date(ctime * 1000L));
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     public static void analyzeCommentInfo(Opus opus, JSONObject detail, long id) {
@@ -253,22 +386,32 @@ public class OpusApi {
     }
 
     public static OpusParagraph[] analyzeParagraphs(JSONArray jsonArray) throws JSONException {
-        OpusParagraph[] paragraphs = new OpusParagraph[jsonArray.length()];
+        ArrayList<OpusParagraph> parsed = new ArrayList<>(jsonArray.length());
         for (int i = 0; i < jsonArray.length(); i++) {
             JSONObject paragraphJson = jsonArray.getJSONObject(i);
             try {
                 OpusParagraph paragraph = new OpusParagraph(paragraphJson);
-                paragraphs[i] = paragraph;
+                // 认不出的段落现在降级成空内容（旧版这里是 "[无法识别段落：N]"），
+                // 空段落直接丢掉，别在正文中间留下空行
+                if (isEmptyParagraph(paragraph)) continue;
+                parsed.add(paragraph);
             } catch (Exception e) {
-                // 单个段落解析失败（如某字段结构异常）不应中断整篇正文解析，
-                // 用文本段落占位，保证其余内容正常渲染。
-                OpusParagraph fallback = new OpusParagraph();
-                fallback.type = OpusParagraph.TYPE_TEXT;
-                fallback.content = "";
-                paragraphs[i] = fallback;
+                // 单个段落解析失败（如某字段结构异常）不应中断整篇正文解析：
+                // 旧实现塞一个空文本段落占位，结果是正文中间凭空多出一行空白，现在直接跳过
+                Logu.w("OpusApi", "第 " + i + " 段解析失败，已跳过：" + e);
             }
         }
-        return paragraphs;
+        return parsed.toArray(new OpusParagraph[0]);
+    }
+
+    /** 段落有没有可显示的内容（文字空串 / 图片数组为空 / content 为 null 都算空）。 */
+    private static boolean isEmptyParagraph(OpusParagraph paragraph) {
+        if (paragraph == null) return true;
+        Object content = paragraph.content;
+        if (content == null) return true;
+        if (content instanceof CharSequence) return content.toString().trim().isEmpty();
+        if (content instanceof Object[]) return ((Object[]) content).length == 0;
+        return false;
     }
 
     /**

@@ -19,12 +19,14 @@ class PrivateMsgApiTest {
         unread: Int = 0,
         accountInfo: String = "",
         lastMsg: String = "",
-        topTs: Long = -1
+        topTs: Long = -1,
+        sessionTs: Long = -1
     ): String = buildString {
         append("""{"talker_id":$talkerId,"unread_count":$unread""")
         if (accountInfo.isNotEmpty()) append(""","account_info":$accountInfo""")
         if (lastMsg.isNotEmpty()) append(""","last_msg":$lastMsg""")
         if (topTs >= 0) append(""","top_ts":$topTs""")
+        if (sessionTs >= 0) append(""","session_ts":$sessionTs""")
         append("}")
     }
 
@@ -59,16 +61,50 @@ class PrivateMsgApiTest {
     }
 
     @Test
-    fun parseSessionsList_系统会话_应被过滤() {
-        val root = rootWith(
-            sessionJson(3001L, accountInfo = """{"name":"系统消息"}"""),
-            sessionJson(3002L)
+    fun parseSessionsList_系统会话_保留并解析账号名与通知未读() {
+        // 26.11.20 起系统会话不再过滤：它们的未读（biz_msg_unread_count）本来就算进主菜单角标，
+        // 而会话列表里又没有它们，用户没有任何入口能把未读读掉——角标只涨不退。
+        val root = JSONObject(
+            """{"code":0,"data":{"session_list":[
+                {"talker_id":844424930131966,"unread_count":0,"biz_msg_unread_count":3,
+                 "system_msg_type":7,
+                 "account_info":{"name":"UP主小助手","pic_url":"https://message.biliimg.com/bfs/im/x.png"}},
+                {"talker_id":3002}
+            ]}}"""
         )
 
         val list = PrivateMsgApi.parseSessionsList(root)
 
-        assertEquals("系统会话应被过滤", 1, list.size)
-        assertEquals(3002L, list[0].talkerUid)
+        assertEquals("系统会话要保留，普通会话照旧", 2, list.size)
+        assertTrue(list[0].isSystem)
+        assertEquals(7, list[0].systemMsgType)
+        assertEquals("UP主小助手", list[0].accountName)
+        assertEquals("https://message.biliimg.com/bfs/im/x.png", list[0].accountAvatar)
+        assertEquals("系统会话的未读在 biz_msg_unread_count 里", 3, list[0].unreadTotal())
+        assertTrue("普通会话不是系统会话", !list[1].isSystem)
+        assertEquals(0, list[1].unreadTotal())
+    }
+
+    @Test
+    fun parseSessionsList_只有account_info没有systemMsgType_也算系统会话() {
+        // 老版本会话可能只带 account_info，没有 system_msg_type 字段，同样要按系统会话处理
+        val root = rootWith(sessionJson(3001L, accountInfo = """{"name":"系统消息"}"""))
+
+        val list = PrivateMsgApi.parseSessionsList(root)
+
+        assertEquals(1, list.size)
+        assertTrue(list[0].isSystem)
+        assertEquals("系统消息", list[0].accountName)
+    }
+
+    @Test
+    fun unreadTotal_私信未读与通知未读相加() {
+        val root = rootWith(
+            JSONObject("""{"talker_id":3001,"unread_count":2,"biz_msg_unread_count":3}""").toString()
+        )
+
+        // 两种未读都可能同时非零（系统会话既可以直接私信、也可以有通知），角标要把它们加起来
+        assertEquals(5, PrivateMsgApi.parseSessionsList(root)[0].unreadTotal())
     }
 
     @Test
@@ -201,5 +237,110 @@ class PrivateMsgApiTest {
         // 不能让 0 / 负数变成 NaN 或负的 size 发出去
         assertEquals(0.0, PrivateMsgApi.buildImageContentOfKb("u", 1, 1, 0.0, "jpeg").getDouble("size"), 0.0)
         assertEquals(0.0, PrivateMsgApi.buildImageContentOfKb("u", 1, 1, -5.0, "jpeg").getDouble("size"), 0.0)
+    }
+
+    // ---------- 视频转发到私信（反馈 #133）：消息体组装与降级 ----------
+
+    @Test
+    fun buildVideoShareText_标题加完整链接() {
+        assertEquals(
+            "测试视频\nhttps://www.bilibili.com/video/BV1xx411c7mD",
+            PrivateMsgApi.buildVideoShareText("测试视频", "BV1xx411c7mD")
+        )
+    }
+
+    @Test
+    fun buildVideoShareText_超长标题截断到60字加省略号() {
+        // 私信正文有 2000 字节上限，长标题必须截断，否则整条发不出去
+        val firstLine = PrivateMsgApi.buildVideoShareText("视".repeat(61), "BV1xx411c7mD").substringBefore("\n")
+        assertEquals("视".repeat(PrivateMsgApi.VIDEO_SHARE_TITLE_MAX) + "…", firstLine)
+    }
+
+    @Test
+    fun buildVideoShareText_正好60字不截断() {
+        val title = "字".repeat(PrivateMsgApi.VIDEO_SHARE_TITLE_MAX)
+        assertEquals(title, PrivateMsgApi.buildVideoShareText(title, ""))
+    }
+
+    @Test
+    fun buildVideoShareText_没有bvid时只发标题() {
+        // 拿不到 bvid 时不能拼出半截链接（.../video/）
+        assertEquals("测试视频", PrivateMsgApi.buildVideoShareText("测试视频", ""))
+        assertEquals("测试视频", PrivateMsgApi.buildVideoShareText("测试视频", null))
+    }
+
+    @Test
+    fun buildVideoShareText_没有标题时只发链接() {
+        assertEquals(
+            "https://www.bilibili.com/video/BV1xx411c7mD",
+            PrivateMsgApi.buildVideoShareText("   ", "BV1xx411c7mD")
+        )
+    }
+
+    @Test
+    fun buildVideoLink_没有bvid就返回空串() {
+        // 发送失败时的兜底是「复制链接」：没有 bvid 就没得复制，不能复制出 .../video/null
+        assertEquals("", PrivateMsgApi.buildVideoLink(null))
+        assertEquals("", PrivateMsgApi.buildVideoLink(""))
+        assertEquals(
+            "https://www.bilibili.com/video/BV1xx411c7mD",
+            PrivateMsgApi.buildVideoLink("BV1xx411c7mD")
+        )
+    }
+
+    @Test
+    fun buildTextContent_引号与换行被转义后仍可解析回原文() {
+        val raw = "标题\"带引号\"\n第二行"
+        assertEquals(raw, JSONObject(PrivateMsgApi.buildTextContent(raw)).getString("content"))
+    }
+
+    @Test
+    fun buildTextContent_null按空串发出() {
+        assertEquals("", JSONObject(PrivateMsgApi.buildTextContent(null)).getString("content"))
+    }
+
+    // ==================== 会话翻页（反馈 #166） ====================
+
+    @Test
+    fun parseSessionsList_解析sessionTs作为翻页游标() {
+        val list = PrivateMsgApi.parseSessionsList(
+            rootWith(sessionJson(1001L, sessionTs = 1712305278098351L))
+        )
+
+        assertEquals(1712305278098351L, list[0].sessionTs)
+    }
+
+    @Test
+    fun parseSessionsList_缺sessionTs时游标为0() {
+        // 拿不到时间戳就没法翻页，调用方据此停止加载（不能拿 0 反复拉同一页）
+        assertEquals(0L, PrivateMsgApi.parseSessionsList(rootWith(sessionJson(1001L)))[0].sessionTs)
+    }
+
+    @Test
+    fun parseSessionsList_sessionList为null_返回空列表() {
+        // 翻到最后一页时服务端会把 session_list 直接给 null，getJSONArray 会抛
+        val root = JSONObject("""{"code":0,"data":{"session_list":null,"has_more":0}}""")
+
+        assertTrue(PrivateMsgApi.parseSessionsList(root).isEmpty())
+    }
+
+    @Test
+    fun parseSessionsHasMore_读data里的has_more() {
+        assertTrue(PrivateMsgApi.parseSessionsHasMore(JSONObject("""{"data":{"has_more":1}}""")))
+        assertEquals(false, PrivateMsgApi.parseSessionsHasMore(JSONObject("""{"data":{"has_more":0}}""")))
+        // 字段缺失按「没有更多」处理，避免无休止地翻
+        assertEquals(false, PrivateMsgApi.parseSessionsHasMore(JSONObject("""{"data":{}}""")))
+    }
+
+    @Test
+    fun buildSessionsUrl_第一页不带end_ts_后续页带上游标() {
+        val first = PrivateMsgApi.buildSessionsUrl(20, 0)
+        assertTrue(first.contains("session_type=1"))
+        assertTrue(first.contains("size=20"))
+        assertEquals("第一页不该带翻页游标", false, first.contains("end_ts"))
+
+        val next = PrivateMsgApi.buildSessionsUrl(20, 1712305278098351L)
+        assertTrue(next.contains("size=20"))
+        assertTrue(next.contains("end_ts=1712305278098351"))
     }
 }

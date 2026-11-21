@@ -228,7 +228,9 @@ public class MsgUtil {
             } else if (e instanceof JSONException) {
                 output.append(context.getString(R.string.err_json));
 
-                if (SharedPreferencesUtil.getBoolean("dev_jsonerr_detailed", false)) {
+                // 默认值与设置页一致（设置页默认是 BiliTerminal.isDebugBuild()）：写死 false 时
+                // Debug 包里开关显示「开」、实际仍走简短提示，得手动关一次再开一次才生效（26.11.08 修）。
+                if (SharedPreferencesUtil.getBoolean("dev_jsonerr_detailed", ToolsUtil.isDebugBuild())) {
                     Writer writer = new StringWriter();
                     PrintWriter printWriter = new PrintWriter(writer);
                     e.printStackTrace(printWriter);
@@ -248,7 +250,7 @@ public class MsgUtil {
                 // 现在只有异常信息里真带 RecyclerView / Adapter 特征时才按列表报错提示，
                 // 其余按普通错误显示原文（用户反馈时能直接抄给开发者，也允许上报）。
                 boolean adapterError = AdapterErrorClassifier.looksLikeAdapterError(e_str);
-                if (adapterError && SharedPreferencesUtil.getBoolean("dev_recyclererr_detailed", false)) {
+                if (adapterError && SharedPreferencesUtil.getBoolean("dev_recyclererr_detailed", ToolsUtil.isDebugBuild())) {
                     Writer writer = new StringWriter();
                     PrintWriter printWriter = new PrintWriter(writer);
                     e.printStackTrace(printWriter);

@@ -29,11 +29,10 @@ class ApiErrorTextTest {
             "-111 不能和 -101 显示同一句，否则用户无从判断",
             ApiErrorText.uploadFailed(-111) == ApiErrorText.uploadFailed(-101)
         )
-        assertTrue(
-            "凭证失效要说是凭证问题：${ApiErrorText.uploadFailed(-111)}",
-            ApiErrorText.uploadFailed(-111).contains("凭证") ||
-                    ApiErrorText.uploadFailed(-111).contains("登录")
-        )
+        // 原先是 assertTrue(含"凭证" || 含"登录")——两个分支都命中同一句话，等于什么都没钉。
+        // 拆开：-102 / -111 必须**整句等于**凭证失效文案（多一个字少一个字都算回归）。
+        assertEquals("-111 必须走凭证失效文案", ApiErrorText.tokenExpired(), ApiErrorText.uploadFailed(-111))
+        assertEquals("-102 与 -111 同属凭证失效", ApiErrorText.tokenExpired(), ApiErrorText.uploadFailed(-102))
     }
 
     @Test

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 搜索页 / 用户视频页的「筛选（排序）」图标：Material Symbols tune（24dp，FILL0 wght400 opsz24）。
+     走「着色」路线——亮色 / 暗色共用一份，颜色由 tint 决定，所以没有 drawable-notnight 版本，
+     并在 tools/appearance/gen_light_mode.py 的 EXCLUDE 里登记。
+     minSdk 19 兜底：这里不能用 ?attr（pre-21 解析不了）。带 ?android:attr 的正本在
+     res/drawable-v21/icon_sort_filter.xml，两份要一起改；原因见 docs/architecture-map.md §1.1 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="@color/text_primary">
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M11,21V15h2v2h8v2H13v2H11ZM3,19V17H9v2H3Zm4-4V13H3V11H7V9H9v6H7Zm4-2V11H21v2H11Zm4-4V3h2V5h4V7H17V9H15ZM3,7V5H13V7H3Z" />
+</vector>

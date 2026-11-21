@@ -480,6 +480,46 @@ object Tutorials {
         }
     }
 
+    // ==================== 页面滑动提示（HINT） ====================
+    //
+    // 这些不是全屏教程：宿主页（带左右分页的详情页 / 搜索页）的布局里有一层
+    // `R.id.text_tutorial_pager` 覆盖文字，由 `BaseActivity` 统一触发、`TutorialHints` 渲染。
+    // 旧实现是每个页面自己调 `TutorialHelper.showPagerTutorial(activity, 页数)`：
+    // 宿主类名、页数全写死在五个调用点上，加一个带分页的页面就要再改一处。
+    // 现在宿主类名与提示文案都在这里，页数由 `TutorialHints` 读宿主 ViewPager 的真实页数。
+    //
+    // 存储键沿用旧格式 `tutorial_pager_<宿主类名>`（见 `TutorialStore.hintKeyOf`），
+    // 老用户「看过就不再弹」的状态不会因为这次迁移丢掉。
+
+    private fun hint(id: String, title: String, target: Class<out Activity>): Tutorial = tutorial(
+        id = id,
+        title = title,
+        version = 1,
+        target = target,
+        kind = TutorialKind.HINT,
+        hintTextRes = R.string.tutorial_pager,
+        hintViewId = R.id.text_tutorial_pager,
+    )
+
+    val hintSearch = hint("hint_search", UiText.of("搜索页面引导"), SearchActivity::class.java)
+
+    val hintVideoInfo = hint("hint_video_info", UiText.of("视频详情页引导"), VideoInfoActivity::class.java)
+
+    val hintUserInfo = hint("hint_user_info", UiText.of("用户主页引导"), UserInfoActivity::class.java)
+
+    val hintOpusInfo = hint("hint_opus_info", UiText.of("专栏详情页引导"), OpusInfoActivity::class.java)
+
+    val hintDynamicInfo =
+        hint("hint_dynamic_info", UiText.of("动态详情页引导"), DynamicInfoActivity::class.java)
+
+    private val pageHints: List<Tutorial> = listOf(
+        hintSearch,
+        hintVideoInfo,
+        hintUserInfo,
+        hintOpusInfo,
+        hintDynamicInfo,
+    )
+
     /** 全部教程。顺序 = 同页串行顺序，也是迁移与覆盖清单的唯一数据源。 */
     val all: List<Tutorial> = listOf(
         recommend,
@@ -493,11 +533,14 @@ object Tutorials {
         article,
         shortVideo,
         local,
-    )
+    ) + pageHints
 
-    /** 某个页面需要展示的全屏教程（HINT 类型不走这里）。 */
+    /** 全部页面滑动提示（HINT）。管理页按它渲染「页面滑动引导」分组。 */
+    val hints: List<Tutorial> = pageHints
+
+    /** 某个页面需要展示的全部教程（含页面滑动提示），按 [all] 的声明顺序返回。 */
     fun forPage(page: Class<out Activity>): List<Tutorial> =
-        all.filter { it.target == page && it.isFullScreen }
+        all.filter { it.target == page }
 
     /** 按 id 查教程，供管理页「重看」使用。 */
     fun byId(id: String): Tutorial? = all.firstOrNull { it.id == id }

@@ -56,6 +56,9 @@ class SettingsKeysTest {
             "terminal_announcement_last" to SettingsKeys.TERMINAL_ANNOUNCEMENT_LAST,
             // 追番更新快照（整份 JSON 就存在这个键下，丢了会把老集当新集报）
             "bangumi_update_snapshot" to SharedPreferencesUtil.BANGUMI_UPDATE_SNAPSHOT,
+            // 详情页动作区的两个默认隐藏入口（26.11.07）
+            "detail_note_entry" to SettingsKeys.DETAIL_NOTE_ENTRY,
+            "detail_share_row" to SettingsKeys.DETAIL_SHARE_ROW,
         )
         for ((literal, actual) in expected) {
             assertEquals("键名被改会静默丢用户数据：$literal", literal, actual)

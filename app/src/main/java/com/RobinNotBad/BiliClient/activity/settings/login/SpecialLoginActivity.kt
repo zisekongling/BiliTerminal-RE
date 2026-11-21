@@ -21,12 +21,16 @@ import com.RobinNotBad.BiliClient.util.SpecialLoginParser
 import com.google.android.material.card.MaterialCardView
 
 /**
- * 特殊登录：把另一台设备导出的登录信息搬过来，或者把本机的全部账号导出去。
+ * 特殊登录：把另一台设备导出的登录信息搬过来，或者把本机**当前账号**的登录信息导出去。
  *
  * <p>两种模式由 intent 的 `login` 决定：true=导入（默认），false=导出。
  * 数据格式与校验逻辑都在 [SpecialLoginParser]，本页只负责「拿到文本、交给它、根据结果提示」。
  *
- * <p>**单账号与多账号的区别**（这是「不会乱」的关键）：
+ * <p>导出模式保持 26.11.02 的单条三字段格式（cookies / refresh_token / access_key），
+ * 一份 JSON 只代表当前账号；**全部账号的导出**在独立的
+ * [ExportAllAccountsActivity]（账号切换页底部入口），不在这里做。
+ *
+ * <p>**单账号与多账号的区别**（这是「不会乱」的关键，指导入侧）：
  * <ul>
  *     <li>单账号 = 一次完整登录：写当前凭证 + 跳启动页；</li>
  *     <li>多账号 = 只往账号列表里塞人，**不切换当前账号**，导完去「账号切换」里自己选。</li>
@@ -77,8 +81,15 @@ class SpecialLoginActivity : BaseActivity() {
         } else {
             desc.setText(R.string.special_login_export)
 
-            val exported = AccountManager.exportAllAccounts()
-            textInput.setText(if (exported.isEmpty()) getString(R.string.msg_specialloginactivity_009) else exported)
+            val exported = AccountManager.exportCurrentAccount()
+            if (exported.isEmpty()) {
+                // 没账号可导出时不要把提示文案塞进输入框：那是一个可编辑、可全选复制的文本框，
+                // 提示混进去会被当成「导出的数据」贴到别的设备上。输入框留空，提示写回说明栏。
+                textInput.setText("")
+                desc.setText(R.string.msg_specialloginactivity_009)
+            } else {
+                textInput.setText(exported)
+            }
             textInput.clearFocus()
 
             // 导出模式下没有「登录」这件事，粘贴登录按钮一并隐藏
@@ -93,7 +104,7 @@ class SpecialLoginActivity : BaseActivity() {
                 }
             } else confirm.visibility = View.GONE
             copy.setOnClickListener {
-                val text = AccountManager.exportAllAccounts()
+                val text = AccountManager.exportCurrentAccount()
                 if (text.isEmpty()) {
                     MsgUtil.showMsg(getString(R.string.msg_specialloginactivity_009))
                     return@setOnClickListener

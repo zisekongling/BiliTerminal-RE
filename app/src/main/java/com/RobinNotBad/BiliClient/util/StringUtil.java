@@ -35,7 +35,7 @@ import android.widget.TextView;
 
 import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
-import androidx.core.content.res.ResourcesCompat;
+import androidx.appcompat.content.res.AppCompatResources;
 
 import com.RobinNotBad.BiliClient.BiliTerminal;
 import com.RobinNotBad.BiliClient.R;
@@ -467,7 +467,10 @@ public class StringUtil {
     }
 
     public static Drawable getDrawable(Context context, @DrawableRes int res) {
-        Drawable drawable = ResourcesCompat.getDrawable(context.getResources(), res, context.getTheme());
+        // 必须走 AppCompatResources：本项目开了 vectorDrawables.useSupportLibrary，
+        // API<21 没有 PNG 兜底，ResourcesCompat 在那里拿到的仍是原生加载路径，遇到 <vector> 会抛
+        // Resources$NotFoundException（invalid drawable tag vector）。等级徽章等就是矢量。
+        Drawable drawable = AppCompatResources.getDrawable(context, res);
         if (drawable != null) return drawable;
         else return new BitmapDrawable();
     }
@@ -497,7 +500,9 @@ public class StringUtil {
                     BiliTerminal.jumpToUser(widget.getContext(), Long.parseLong(val));
                     break;
                 case TYPE_WEB_URL:
-                    LinkUrlUtil.handleWebURL(widget.getContext(), text);
+                    // 富文本 WEB 节点的显示文本可能被服务端缩短（text="av1"、jump_url 才是真地址），
+                    // 所以 val 非空时以它为准；正文里正则匹配出来的裸链接仍传 null、用显示文本当地址
+                    LinkUrlUtil.handleWebURL(widget.getContext(), (val != null && !val.isEmpty()) ? val : text);
                     break;
                 case TYPE_BVID:
                     TerminalContext.getInstance().enterVideoDetailPage(widget.getContext(), text);

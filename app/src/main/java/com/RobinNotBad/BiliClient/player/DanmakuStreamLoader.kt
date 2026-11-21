@@ -53,6 +53,13 @@ import java.util.TreeSet
  * `DrawTask.drawDanmakus` 在发现「当前时间超出已加载区间」时会重取 `danmakuList.sub(...)`，
  * 所以后期追加的弹幕能被渲染到；但**已追加的分段不要再追加第二次**（`DanmakuManager` 不去重，
  * 重复追加会看到重影），本类用 `loadedSegments` 保证每段只喂一次。
+ *
+ * **`loadedSegments` 之外还有一道时序开关 [windowReady]**：[prepare] 是同步拉段（网络，几百
+ * 毫秒到几秒），而播放页的进度回调从 250ms 起就在调 [ensureWindow]。若这段期间放行
+ * `ensureWindow`，它会把「正在拉的首窗口」当成缺段再拉一遍：这一批走 `appendSegments` 进待灌
+ * 队列，`prepared()` 时与 parser 里的首窗口一起灌进 DFM —— 同一条弹幕被画两次。同理，
+ * [prepare] 失败（调用方回退整段接口 / 旧版 XML）时也必须保持关闭：调用方已经用别的路径灌了
+ * 全量，之后再走窗口追加只会把同一批弹幕再叠一遍。
  */
 class DanmakuStreamLoader(
     /** 窗口半径：当前位置的前后各几段。默认 2（窗口最多 5 段 = 30 分钟）。 */
@@ -68,11 +75,18 @@ class DanmakuStreamLoader(
         /** 默认分段时长（秒），与 `DanmakuApi.SEGMENT_SECONDS` 保持一致。 */
         const val DEFAULT_SEGMENT_SECONDS = 360
 
-        /** 失败重试间隔：15 秒（与对方分支的窗口加载器一致）。 */
-        const val RETRY_DELAY_MS = 15_000L
+        /**
+         * 失败后的冷却时间。**快速失败**，不再反复重试（反馈 #143）。
+         *
+         * 旧实现是「单次最多 4 轮 + 每轮失败再等 15 秒」：网络差或撞风控时表现为
+         * 「跳过去之后弹幕没了，十几分钟后才零星回来」，用户只能反复重进播放页。
+         * 现在一遍扫不到就算这一轮失败，失败后冷却一会儿；而且冷却只对**同一个窗口**
+         * 生效——跳转 / 倍速重建换了要拉的段就立刻重试（见 [ensureWindow]、[rebuildWindow]）。
+         */
+        const val RETRY_DELAY_MS = 20_000L
 
-        /** 单次补窗口最多跑几轮（播放推进快时可能要连续补两三个窗口）。 */
-        private const val MAX_FETCH_ROUNDS = 4
+        /** 单次补窗口最多扫几遍缺段：1 = 扫一遍就停，不再自我重试。 */
+        private const val MAX_FETCH_ROUNDS = 1
     }
 
     private var appContext: Context? = null
@@ -85,6 +99,22 @@ class DanmakuStreamLoader(
 
     /** 用弱引用：加载器生命周期可能比 DanmakuManager 长（切 P 会重建 manager），不该把旧的钉死。 */
     private var managerRef: WeakReference<DanmakuManager>? = null
+
+    /**
+     * 首窗口是否已经交付给 DFM —— 也就是「现在允许 [ensureWindow] 补拉后续分段」的**唯一开关**。
+     *
+     * 不要拿 [managerRef] 是否为 null 兼任这个语义：它只是 worker 取 manager 的引用，表达不了
+     * 「窗口加载现在该不该跑」。单独一个 `@Volatile` 标志让状态显式、可读：
+     * - [prepare] 要同步拉首窗口（网络），这期间任何 `ensureWindow` 都必须返回，否则同一批分段
+     *   会被 parser 与 [DanmakuManager.appendSegments] 各灌一份 —— 同一条弹幕画两次（重影）；
+     * - [prepare] 失败后状态必须是明确的「窗口加载关闭」：调用方已经改用整段接口 / 旧版 XML
+     *   灌数据，之后再追加窗口只会重复；下一次 [attach] / [prepare] 会重新打开；
+     * - 同一实例第二次 `prepare` 失败时，旧的首窗口还挂在 parser 里，`isPrepared` 也可能仍为
+     *   true（只有 [DanmakuManager.release] 会复位），`windowReady == false` 能挡住
+     *   [ensureWindow]，不会把新视频的分段追加到旧 parser 上（串台）。
+     */
+    @Volatile
+    private var windowReady = false
 
     private var policy: DanmakuLoadPolicy? = null
 
@@ -107,6 +137,26 @@ class DanmakuStreamLoader(
     private var retryAfterMs: Long = 0L
 
     /**
+     * 上一次失败对应的窗口区间（`null` = 没有失败记录）。
+     *
+     * 冷却只对**同一个窗口**生效：跳到别的位置意味着要拉的是另外几段，必须立刻重试，
+     * 否则用户看到的就是「跳过来之后一直没有弹幕」（反馈 #143）。
+     */
+    @Volatile
+    private var failedRange: IntRange? = null
+
+    /**
+     * 「这一轮」的代号，[attach] / [prepare] / [release] 各 +1。
+     *
+     * 补窗口 worker 在后台跑，切 P / 换视频时它可能还在拉**上一条视频**的分段。光靠 [released]
+     * 挡不住：新视频 [attach] 一进来就把 [released] 改回 false、把 [fetching] 清掉，旧 worker
+     * 于是以为自己还有效，继续把旧 cid 的分段塞进 [loadedSegments] 和新 manager——结果是两代
+     * 数据混在一起，而且新旧两个 worker 会同时抢带宽。worker 只认启动时记下的这一代。
+     */
+    @Volatile
+    private var generation: Int = 0
+
+    /**
      * 绑定一条视频。可重复调用（切 P / 换视频）：会清空上一轮的分段记录。
      *
      * @param context 任意 Context（内部只取 `applicationContext` 的 `cacheDir`）
@@ -121,13 +171,58 @@ class DanmakuStreamLoader(
         this.aid = aid
         this.cid = cid
         this.maxDurationSec = maxDurationSec
+        generation++
         released = false
         fetching = false
         lastPositionMs = -1L
         retryAfterMs = 0L
+        failedRange = null
         managerRef = null
+        windowReady = false
         cache = null
         synchronized(loadedSegments) { loadedSegments.clear() }
+    }
+
+    /**
+     * 播放器拿到真实时长后回填（G03，26.11.13）。
+     *
+     * ## 为什么必须有这个入口
+     *
+     * [attach] 那一刻播放器多半还没 prepare，`ijkPlayer.duration` 是 0，播放页只能退回一个
+     * 写死的估计值（3600 秒，见 `PlayerActivity.downdanmuNew`）。而总分段数
+     * [segmentCount] 是用 `ceil(时长 / 360)` 算的——估计值对 1 小时以上的视频**必然偏小**，
+     * 于是后半段的 `segment_index` 永远不在任何窗口里，用户看到的就是「后半段一条弹幕都没有」。
+     * 时长一旦得知就回填，窗口随之扩大到覆盖全片。
+     *
+     * ## 语义
+     *
+     * - 只接受正整数，`<= 0` 视为未知、直接忽略（保留原值，不要用未知去覆盖已知）；
+     * - 相同值不重复处理；
+     * - **不清空 [loadedSegments]**：已拉到的分段仍然有效，新时长只是让 `segmentCount` 变大，
+     *   下一次 [ensureWindow] 的 `missing()` 自然会把新出现的分段补上；
+     * - 只在**变大**时打日志，变小（少数接口给的是片段时长）也接受但不重拉已加载段。
+     *
+     * 线程：与 [attach] 一样用 `@Synchronized`；调用方可以是主线程（onPrepared 回调）。
+     */
+    @Synchronized
+    fun updateDuration(maxDurationSec: Int) {
+        if (maxDurationSec <= 0) return
+        val old = this.maxDurationSec
+        if (maxDurationSec == old) return
+        this.maxDurationSec = maxDurationSec
+        if (maxDurationSec > old) {
+            Logu.d(
+                "弹幕窗口",
+                "时长回填：${old}s → ${maxDurationSec}s，总分段数 " +
+                    "${DanmakuApi.segmentCountFor(old)} → ${DanmakuApi.segmentCountFor(maxDurationSec)}"
+            )
+            // 时长变长意味着「当前位置之后的段数」变了，之前记的失败冷却区间可能已经无效，
+            // 清掉让下一轮 ensureWindow 立刻重新尝试，不必等 RETRY_DELAY_MS。
+            retryAfterMs = 0L
+            failedRange = null
+        } else {
+            Logu.d("弹幕窗口", "时长回填（变短）：${old}s → ${maxDurationSec}s")
+        }
     }
 
     /**
@@ -149,13 +244,21 @@ class DanmakuStreamLoader(
      *
      * @return `true` 表示已成功交给 DFM；`false` 表示一段都没拿到（网络全失败 / 全部为空 /
      *   被数量保护抑制），调用方应按旧逻辑回退到 XML 弹幕
+     *
+     * **本方法全程把 [windowReady] 压住**（见它的注释）：`prepare` 期间 [ensureWindow] 不会把
+     * 同一批分段再拉一遍并追加成重影；只有首窗口真正交给 DFM 之后才打开。返回 `false` 时保持
+     * 关闭——调用方会用整段接口 / 旧版 XML 灌全量，之后追加窗口只会重复；下一次
+     * [attach] / [prepare] 会重新打开。状态是显式的，不依赖 [managerRef] 是否为空。
      */
     fun prepare(manager: DanmakuManager): Boolean {
         if (appContext == null) {
             Logu.e("弹幕窗口", "prepare 前没有 attach()，跳过窗口加载")
             return false
         }
+        // 先关窗口加载：首窗口交付前不允许 [ensureWindow] 追加（见 windowReady）。
+        windowReady = false
         managerRef = WeakReference(manager)
+        generation++
         released = false
         fetching = false
         retryAfterMs = 0L
@@ -194,6 +297,8 @@ class DanmakuStreamLoader(
         }
 
         manager.loadFromProtobufSegments(replies)
+        // 首窗口已经进 parser，现在才允许 ensureWindow 补拉后续分段（见 windowReady）。
+        windowReady = true
         Logu.d(
             "弹幕窗口",
             "起始窗口已加载：segments=$wanted 非空=${replies.size}/${wanted.count()} 条数=" +
@@ -210,23 +315,69 @@ class DanmakuStreamLoader(
      */
     fun ensureWindow(positionMs: Long) {
         if (released) return
+        // 窗口加载的显式开关：首窗口交付前、prepare 失败后都是 false（见 windowReady）。
+        if (!windowReady) return
         if (managerRef?.get() == null) return
         lastPositionMs = positionMs
-        val missing = DanmakuWindow.missing(snapshotLoaded(), windowAt(positionMs))
+        val wanted = windowAt(positionMs)
+        val missing = DanmakuWindow.missing(snapshotLoaded(), wanted)
         if (missing.isEmpty()) return
         if (fetching) return
-        if (System.currentTimeMillis() < retryAfterMs) return
+        // 冷却只压「同一个窗口」：位置变了就是要拉另外几段，必须立刻重试（反馈 #143）。
+        if (System.currentTimeMillis() < retryAfterMs && failedRange == wanted) return
         fetching = true
-        CenterThreadPool.run { fetchWindowLoop() }
+        val gen = generation
+        CenterThreadPool.run { fetchWindowLoop(gen) }
+    }
+
+    /**
+     * 现在能不能按新时间窗重建（供调用方在**清屏之前**判断：清完没人补就等于把弹幕清没了）。
+     */
+    fun canRebuildWindow(): Boolean =
+        !released && windowReady && managerRef?.get() != null
+
+    /**
+     * 按**新时间窗重建**弹幕时间轴（反馈 #143）。
+     *
+     * 为什么不能只补缺段：DFM 的绘制子集与缓存窗口都还停在旧位置
+     * （`DrawTask.drawDanmakus` 的 `mLastBeginMills/mLastEndMills`、`CacheManagingDrawTask` 的
+     * `mCacheTimer`），远跳之后补进来的新段进不了当前窗口，用户看到的就是「跳过去弹幕明显变少」。
+     *
+     * 分工：**视图侧的清空由调用方做**（`clearDanmakusOnScreen()` + `removeAllDanmakus(true)`，
+     * 见 `PlayerActivity.rebuildDanmakuTimeline`），这里只负责窗口记账——作废在飞的取数、
+     * 清掉「已加载」与冷却、按新位置重开一次补窗口（命中磁盘缓存的段是同步读，不额外发请求）。
+     *
+     * @return true = 已经接管这次位置同步，调用方不必再调 [ensureWindow]
+     */
+    fun rebuildWindow(positionMs: Long): Boolean {
+        if (released) return false
+        if (!windowReady) return false
+        if (managerRef?.get() == null) return false
+        // 在飞的 worker 属于旧时间窗，作废它：它 append 之前会核对 generation，见 fetchWindowLoop。
+        generation++
+        val gen = generation
+        fetching = false
+        retryAfterMs = 0L
+        failedRange = null
+        lastPositionMs = positionMs
+        synchronized(loadedSegments) { loadedSegments.clear() }
+        val wanted = windowAt(positionMs)
+        fetching = true
+        CenterThreadPool.run { fetchWindowLoop(gen) }
+        Logu.d("弹幕窗口", "按新时间窗重建：position=${positionMs}ms window=$wanted")
+        return true
     }
 
     /** 释放：停止后续补窗口（已经在跑的 worker 会在下一段前自行退出）。 */
     @Synchronized
     fun release() {
+        generation++
         released = true
         managerRef = null
+        windowReady = false
         fetching = false
         retryAfterMs = 0L
+        failedRange = null
         synchronized(loadedSegments) { loadedSegments.clear() }
     }
 
@@ -260,21 +411,27 @@ class DanmakuStreamLoader(
         return created
     }
 
-    /** 后台补窗口：串行拉缺段 → 追加给 DFM。**单个 worker**，异常全部吞掉。 */
-    private fun fetchWindowLoop() {
+    /**
+     * 后台补窗口：串行拉缺段 → 追加给 DFM。**单个 worker**，异常全部吞掉。
+     *
+     * @param gen 启动时记下的代号；与当前 [generation] 不一致说明这期间又 attach/prepare/release 过，
+     *   本轮立刻收手，绝不能把上一条视频的分段塞进新的一代。
+     */
+    private fun fetchWindowLoop(gen: Int) {
         try {
             var rounds = 0
-            while (!released && rounds++ < MAX_FETCH_ROUNDS) {
+            while (!released && gen == generation && rounds++ < MAX_FETCH_ROUNDS) {
                 val manager = managerRef?.get() ?: return
                 val missing = DanmakuWindow.missing(snapshotLoaded(), windowAt(lastPositionMs))
                 if (missing.isEmpty()) {
                     retryAfterMs = 0L
+                    failedRange = null
                     return
                 }
                 val replies = ArrayList<DmSegMobileReply>(missing.size)
                 var failed = 0
                 for (index in missing) {
-                    if (released) return
+                    if (released || gen != generation) return
                     val reply = fetchOne(index)
                     if (reply == null) {
                         failed++
@@ -285,9 +442,12 @@ class DanmakuStreamLoader(
                 }
                 if (replies.isNotEmpty()) {
                     retryAfterMs = 0L
+                    failedRange = null
                     // 追加必须回主线程：DanmakuView.addDanmaku 会直接改 DFM 的 handler 状态，
                     // 且 DanmakuManager 的 pending 队列按「主线程 / 渲染线程」假设写的。
-                    CenterThreadPool.runOnUiThread { if (!released) manager.appendSegments(replies) }
+                    CenterThreadPool.runOnUiThread {
+                        if (!released && gen == generation) manager.appendSegments(replies)
+                    }
                     Logu.d(
                         "弹幕窗口",
                         "补齐窗口：segments=$missing 非空=${replies.size}/${missing.size} 条数=" +
@@ -295,16 +455,20 @@ class DanmakuStreamLoader(
                     )
                 }
                 if (failed > 0 && replies.isEmpty()) {
-                    // 一段都没成功：留 15 秒冷却再试，避免进度回调每次刷都打一轮请求。
+                    // 一段都没成功：快速失败收手，只压同一窗口的冷却（见 ensureWindow）。
+                    // 不再「等 15 秒再自己重试一轮」——旧实现在网络差时会让弹幕消失十几分钟。
                     retryAfterMs = System.currentTimeMillis() + RETRY_DELAY_MS
-                    Logu.w("弹幕窗口", "补窗口失败（$failed/${missing.size} 段），${RETRY_DELAY_MS}ms 后重试")
+                    failedRange = windowAt(lastPositionMs)
+                    Logu.w("弹幕窗口", "补窗口失败（$failed/${missing.size} 段），本窗口 ${RETRY_DELAY_MS}ms 内不再重试")
                     return
                 }
             }
         } catch (e: Exception) {
             Logu.e("弹幕窗口", "补窗口异常：${e.message}")
         } finally {
-            fetching = false
+            // 只有当前这一代才允许清标志：切视频时 attach 已经把 fetching 归零并起了新一代的
+            // worker，旧 worker 收尾时再清一次会把新一代的「正在补」状态抹掉，导致重复起 worker。
+            if (gen == generation) fetching = false
         }
     }
 
@@ -387,4 +551,22 @@ object DanmakuWindow {
     @JvmStatic
     fun missing(loaded: Set<Int>, wanted: IntRange): List<Int> =
         wanted.filter { it !in loaded }
+
+    /**
+     * seek 之后该不该按新时间窗**重建**时间轴（而不是只增量补窗口）。
+     *
+     * 判据是「有没有跨过分段边界」：
+     * - 同一段内的小幅拖动（双击快进 10 秒、拖一点点）旧窗口的段落仍然有效，
+     *   增量补窗口就够，重建反而会清屏闪一下；
+     * - 一旦跨段（片头 → 片尾、拖到十几分钟后），旧窗口的段落基本用不上，
+     *   而 DFM 的绘制子集/缓存窗口还钉在旧位置，只补段会表现为「弹幕明显变少」（反馈 #143）。
+     *
+     * @param previousMs 跳转前的位置（负值/未知按 0 处理）
+     */
+    @JvmStatic
+    fun needsTimelineRebuild(
+        previousMs: Long,
+        targetMs: Long,
+        segmentSeconds: Int = SEGMENT_SECONDS
+    ): Boolean = segmentIndexAt(previousMs, segmentSeconds) != segmentIndexAt(targetMs, segmentSeconds)
 }

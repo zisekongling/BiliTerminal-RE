@@ -4,6 +4,7 @@ import com.RobinNotBad.BiliClient.model.VideoCard
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -208,5 +209,21 @@ class SearchApiTest {
 
         assertTrue(!SearchApi.isRiskControl(JSONObject("""{"seid":"1","result":[]}""")))
         assertTrue(SearchApi.isRiskControl(JSONObject("""{"v_voucher":"voucher_x"}""")))
+    }
+
+    // ---- 风控回退的 legacy 请求必须带上 seid（反馈 #148） ----
+
+    @Test
+    fun appendSeid_appendsWhenPresent() {
+        val url = "https://api.bilibili.com/x/web-interface/search/type?page=1&keyword=abc"
+        assertEquals("$url&seid=12345", SearchApi.appendSeid(url, "12345"))
+    }
+
+    @Test
+    fun appendSeid_keepsUrlWhenSeidMissing() {
+        val url = "https://api.bilibili.com/x/web-interface/search/type?page=1&keyword=abc"
+        assertEquals("没拿到 seid 时原样返回", url, SearchApi.appendSeid(url, ""))
+        assertEquals("seid 为 null 时原样返回", url, SearchApi.appendSeid(url, null))
+        assertNull("url 为 null 时返回 null", SearchApi.appendSeid(null, "12345"))
     }
 }

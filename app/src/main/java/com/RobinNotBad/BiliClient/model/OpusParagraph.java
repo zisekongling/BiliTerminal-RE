@@ -28,6 +28,7 @@ public class OpusParagraph {
     public static final int TYPE_TEXT_BLOCKQUOTE = 4;
     public static final int TYPE_LIST = 5;
     public static final int TYPE_LINK_CARD = 6;   // 链接卡片（可能为投票）
+    public static final int TYPE_CODE = 7;        // 代码块（可能是一张高亮截图，见 analyzeCode）
     public static final int TYPE_HEADING = 8;
 
     //这几个是自定义的
@@ -78,9 +79,71 @@ public class OpusParagraph {
                 this.voteId = analyzeLinkCard(para.optJSONObject("link_card"));
                 this.content = (voteId != 0) ? "[投票]" : "";
                 break;
+            case TYPE_CODE:
+                this.content = analyzeCode(para.optJSONObject("code"));
+                break;
             default:
-                this.content = "[无法识别段落：" + type + "]";
+                // 以前这里直接塞 "[无法识别段落：N]" 给用户看——既不可读也不含内容。
+                // B站新增段落类型时通常仍带 text/heading/list 之类已知子对象，先尽量把内容救出来；
+                // 实在救不出来就返回空串（OpusApi.analyzeParagraphs 会把空段落丢掉，正文不会多出空行）。
+                this.content = analyzeUnknownParagraph(para);
         }
+    }
+
+    /**
+     * 解析代码块段落（para_type=7）。
+     *
+     * <p>B站专栏里的代码块有两种形态：正文文字（`code.text`）与「语法高亮截图」（`code.pic.url`）。
+     * 截图形态在这里把段落类型改成 {@link #TYPE_PIC} 并返回图片数组，否则段落适配器没有可渲染的内容，
+     * 用户只会看到一块空白。字段名以 bilibili-API/docs/opus/features.md 的 para_type=7 为准；
+     * 缺字段时返回空串交给上层丢掉，不抛异常（一段代码块认不出来不该让整篇专栏报错）。
+     */
+    public Object analyzeCode(JSONObject code) {
+        if (code == null) return "";
+        JSONObject pic = code.optJSONObject("pic");
+        if (pic != null) {
+            String url = pic.optString("url", "");
+            if (!url.isEmpty()) {
+                this.type = TYPE_PIC;
+                return new String[]{url.startsWith("http") ? url : "http:" + url};
+            }
+        }
+        String text = code.optString("text", "");
+        if (text.isEmpty()) text = code.optString("words", "");
+        if (text.isEmpty()) text = code.optString("content", "");
+        return text;
+    }
+
+    /**
+     * 未知段落类型的兜底解析：按常见子对象顺序找文字，找不到返回空串。
+     *
+     * <p>返回空串而不是「[无法识别段落：N]」——占位符对用户没有任何意义，
+     * 而丢一段认不出来的段落，比整篇正文被一行方括号英文打断要好。
+     */
+    public CharSequence analyzeUnknownParagraph(JSONObject para) throws JSONException {
+        if (para == null) return "";
+        CharSequence text = analyzeText(para.optJSONObject("text"));
+        if (text.length() > 0) return text;
+        text = analyzeText(para.optJSONObject("heading"));
+        if (text.length() > 0) return text;
+        text = analyzeBlockQuote(para.optJSONObject("blockquote"));
+        if (text.length() > 0) return text;
+        // 部分新段落类型把 nodes 直接挂在段落上（或挂在 content 里），analyzeText 都能读
+        text = analyzeText(para);
+        if (text.length() > 0) return text;
+        text = analyzeText(para.optJSONObject("content"));
+        if (text.length() > 0) return text;
+        String words = para.optString("words", para.optString("word", ""));
+        if (!words.isEmpty()) return words;
+        CharSequence list = analyzeList(para.optJSONObject("list"));
+        if (list.length() > 0) return list;
+        JSONObject code = para.optJSONObject("code");
+        if (code != null) {
+            String codeText = code.optString("text", "");
+            if (codeText.isEmpty()) codeText = code.optString("words", "");
+            if (!codeText.isEmpty()) return codeText;
+        }
+        return "";
     }
 
     public CharSequence analyzeBlockQuote(JSONObject blockquote) throws JSONException {
@@ -204,31 +267,45 @@ public class OpusParagraph {
                     break;
 
                 case "TEXT_NODE_TYPE_RICH":
-                    JSONObject rich = node.getJSONObject("rich");
-                    stringBuilder.append(rich.getString("text"));
-                    switch (rich.optString("type")) {
-                        case "RICH_TEXT_NODE_TYPE_EMOJI":
-                            JSONObject emoji = rich.getJSONObject("emoji");
-                            EmoteUtil.replaceSingle(stringBuilder, emoji.optString("icon_url"), emoji.optInt("size"), stringBuilder.length() - rich.getString("text").length(), stringBuilder.length(), 1.0f);
-                            break;
-                        case "RICH_TEXT_NODE_TYPE_RICH":  //TODO:忘记这个叫什么名字了，根据记忆应该是这个，如果不对请调整
-                            stringBuilder.setSpan(new StringUtil.LinkClickableSpan(rich.optString("jump_url"), TYPE_WEB_URL, rich.getString("jump_url")), stringBuilder.length() - rich.getString("text").length(), stringBuilder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                            break;
-                        case "RICH_TEXT_NODE_TYPE_TOPIC":
-                            // 段落内嵌话题（TEXT_NODE_TYPE_RICH 里 type 为 TOPIC 的那种）。
-                            // 原先只处理 EMOJI/RICH，话题在这里退化成普通黑字、点不动，
-                            // 和 analyzeOpus() 里的 TOPIC 表现不一致。
-                            StringUtil.setSingleTopic(stringBuilder, stringBuilder.length() - rich.getString("text").length(),
-                                    stringBuilder.length(), rich.optString("jump_url"));
-                            break;
+                    // 段落里的富文本节点（EMOJI / AT / TOPIC / WEB …）与整篇 rich_list 走同一套解析，
+                    // 两条路径不再各写一份 switch：旧实现只处理 EMOJI/TOPIC，@ 和网页链接在段落里
+                    // 退化成不可点纯文本，还留了一个快照里不存在的 RICH_TEXT_NODE_TYPE_RICH 死分支
+                    RichTextSegment segment = OpusRichTextParser.parseOne(node.optJSONObject("rich"));
+                    if (segment != null) {
+                        appendRichSegments(stringBuilder, java.util.Collections.singletonList(segment));
                     }
                     break;
+                case "TEXT_NODE_TYPE_FORMULA":
+                    // 公式节点（features.md: para_type 文本节点的 formula.latex_content）。
+                    // 手表上没法渲染 LaTeX，把源码原样显示——总比正文里留下 "[TEXT_NODE_TYPE_FORMULA]" 强。
+                    JSONObject formula = node.optJSONObject("formula");
+                    if (formula != null) stringBuilder.append(formula.optString("latex_content", ""));
+                    break;
                 default:
-                    stringBuilder.append("[").append(node.optString("type")).append("]");
+                    appendUnknownNode(stringBuilder, node);
             }
         }
 
         return stringBuilder;
+    }
+
+    /**
+     * 未识别文本节点的兜底：能取到文字就取，取不到就跳过。
+     *
+     * <p>旧实现在这里 append 节点类型名（`[TEXT_NODE_TYPE_XXX]`），用户看到的是方括号英文，
+     * 而节点里其实往往还带着现成的文字（word.words / rich.text）。
+     */
+    private static void appendUnknownNode(SpannableStringBuilder stringBuilder, JSONObject node) {
+        if (node == null) return;
+        JSONObject word = node.optJSONObject("word");
+        if (word != null) {
+            stringBuilder.append(word.optString("words", ""));
+            return;
+        }
+        JSONObject rich = node.optJSONObject("rich");
+        if (rich != null) {
+            stringBuilder.append(rich.optString("text", ""));
+        }
     }
 
     public String[] analyzePic(JSONObject allJson) throws JSONException {
@@ -252,38 +329,45 @@ public class OpusParagraph {
     }
 
     public CharSequence analyzeOpus(JSONArray rich_list) throws JSONException {
-        if (rich_list == null) return "";
         SpannableStringBuilder stringBuilder = new SpannableStringBuilder();
-        for (int i = 0; i < rich_list.length(); i++) {
-            JSONObject rich = rich_list.getJSONObject(i);
-            int startLength = stringBuilder.length();
-            switch (rich.getString("type")) {
-                case "RICH_TEXT_NODE_TYPE_AT":
-                    stringBuilder.append(rich.getString("text"));
-                    At at = new At(rich.optLong("rid"), startLength, stringBuilder.length());
-                    StringUtil.setSingleAt(stringBuilder, at);
+        appendRichSegments(stringBuilder, OpusRichTextParser.parse(rich_list));
+        return stringBuilder;
+    }
+
+    /**
+     * 把解析好的富文本段落依次追加进 [stringBuilder]，并按种类挂可点击 / 表情 span。
+     *
+     * 这是两条 Opus 路径（段落 `text.nodes` 与整篇 `rich_list`）**唯一**的渲染实现：
+     * 同一种节点在摘要与正文里必须表现一致（调研清单第 2 条）。
+     */
+    private static void appendRichSegments(SpannableStringBuilder stringBuilder, java.util.List<RichTextSegment> segments) {
+        for (RichTextSegment segment : segments) {
+            if (segment == null) continue;
+            int start = stringBuilder.length();
+            stringBuilder.append(segment.text);
+            int end = stringBuilder.length();
+            switch (segment.kind) {
+                case RichTextSegment.KIND_AT:
+                    StringUtil.setSingleAt(stringBuilder, new At(segment.atMid, start, end));
                     break;
-                case "RICH_TEXT_NODE_TYPE_TOPIC":
-                    // 话题统一走 StringUtil.setSingleTopic：主色 + 可点击。
-                    // 原先这里只挂 LinkClickableSpan 没上色，和动态正文的话题样式对不上。
-                    stringBuilder.append(rich.getString("text"));
-                    StringUtil.setSingleTopic(stringBuilder, startLength, stringBuilder.length(),
-                            rich.optString("jump_url"));
+                case RichTextSegment.KIND_TOPIC:
+                    StringUtil.setSingleTopic(stringBuilder, start, end, segment.jumpUrl);
                     break;
-                case "RICH_TEXT_NODE_TYPE_EMOJI":
-                    stringBuilder.append(rich.optString("text"));
-                    JSONObject emoji = rich.getJSONObject("emoji");
-                    String url = emoji.optString("icon_url");
-                    int size = emoji.optInt("size");
-                    EmoteUtil.replaceSingle(stringBuilder, url, size, startLength, stringBuilder.length(), 1.0f);
+                case RichTextSegment.KIND_WEB:
+                    // WEB 节点的 text 可能被服务端缩短（text="av1"、jump_url 才是真地址），
+                    // 所以把 jump_url 当「真实值」传给 LinkClickableSpan，点击用的是它
+                    stringBuilder.setSpan(new StringUtil.LinkClickableSpan(segment.text, TYPE_WEB_URL, segment.jumpUrl),
+                            start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                     break;
-                case "RICH_TEXT_NODE_TYPE_TEXT":
+                case RichTextSegment.KIND_EMOJI:
+                    if (segment.emojiUrl != null && !segment.emojiUrl.isEmpty()) {
+                        EmoteUtil.replaceSingle(stringBuilder, segment.emojiUrl, segment.emojiSize, start, end, 1.0f);
+                    }
+                    break;
                 default:
-                    stringBuilder.append(rich.getString("orig_text"));
                     break;
             }
         }
-        return stringBuilder;
     }
 
 
