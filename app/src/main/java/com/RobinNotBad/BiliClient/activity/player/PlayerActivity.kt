@@ -492,6 +492,17 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         /** 自动恢复的最多次数，超过就只提示、交回给用户手动重试 */
         private const val MAX_STALL_RETRY = 3
 
+        /**
+         * 弹幕整条链路都失败后的自动重试次数上限。
+         *
+         * 弱网下弹幕接口往往先失败、过一会儿又能通（26.11.21 反馈：视频和弹幕都在放，界面却一直
+         * 弹「网络错误」）。改成静默重试，恢复后能自己把这几分钟的弹幕补回来。
+         */
+        private const val DANMAKU_RETRY_LIMIT = 3
+
+        /** 两次弹幕重试的间隔，与 DanmakuStreamLoader 的冷却时间取同一个量级。 */
+        private const val DANMAKU_RETRY_DELAY_MS = 20_000L
+
         /** 两次自动恢复之间的最小间隔，避免刚重建完又被判停滞 */
         private const val STALL_RETRY_COOLDOWN_MS = 15_000L
 
@@ -3876,6 +3887,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         return true
     }
 
+    /**
+     * 进度上报连续失败的次数。
+     *
+     * 只用来给日志降噪：弱网下每 20 秒失败一次，前几次按 warn 记，之后降到 debug。
+     * 上报失败不影响观看，所以不再弹窗（26.11.21 反馈）。
+     */
+    @Volatile
+    private var progressReportFailCount = 0
+
     /** 上报的前置检查：aid/cid 有没有、以及当前到底登没登录。 */
     private fun canReportProgress(): Boolean {
         if (aid == 0L || cid == 0L) return false
@@ -3914,8 +3934,16 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 } else {
                     HistoryApi.reportHistory(fAid, fCid, progressSec)
                 }
+                progressReportFailCount = 0
             } catch (e: Exception) {
-                MsgUtil.err(UiText.of("进度上报："), e)
+                // 不弹窗：上报只是记录观看进度，失败不该打断观看。原实现每次失败都 MsgUtil.err，
+                // 弱网下就成了「视频照放、弹窗一直弹」的那条反馈（26.11.21）。
+                progressReportFailCount++
+                if (progressReportFailCount <= 3) {
+                    Logu.w("进度上报", "失败：" + e.message)
+                } else {
+                    Logu.d("进度上报", "仍失败（第 " + progressReportFailCount + " 次）：" + e.message)
+                }
             }
         }
     }
@@ -4163,6 +4191,41 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         else downdanmuOld()
     }
 
+    /** 弹幕重试已经失败的次数与它对应的 cid（换视频就重新计数）。 */
+    private var danmakuRetryCount = 0
+    private var danmakuRetryCid = 0L
+
+    private val danmakuRetryRunnable = Runnable {
+        if (destroyed) return@Runnable
+        // 换了分P/换了视频，这次重试已经没有意义（新的一轮会自己拉）
+        if (danmakuRetryCid != cid) return@Runnable
+        Logu.d("弹幕", "第 " + danmakuRetryCount + " 次重试拉取弹幕")
+        CenterThreadPool.run { loadDanmakuWithGuard() }
+    }
+
+    /**
+     * 弹幕整条链路都失败后按固定间隔再试几次。
+     *
+     * 26.11.21 反馈：弱网时弹幕会一直失败并反复弹「网络错误」，但网络一恢复其实就没问题了。
+     * 这里把「失败」从弹窗改成静默重试；重试上限见 [DANMAKU_RETRY_LIMIT]。
+     */
+    private fun scheduleDanmakuRetry() {
+        if (danmakuRetryCid != cid) {
+            danmakuRetryCid = cid
+            danmakuRetryCount = 0
+        }
+        if (!hasDanmaku) return
+        if (danmakuRetryCount >= DANMAKU_RETRY_LIMIT) {
+            Logu.w("弹幕", "重试 " + DANMAKU_RETRY_LIMIT + " 次仍失败，不再自动重试")
+            return
+        }
+        danmakuRetryCount++
+        mainHandler?.let {
+            it.removeCallbacks(danmakuRetryRunnable)
+            it.postDelayed(danmakuRetryRunnable, DANMAKU_RETRY_DELAY_MS)
+        }
+    }
+
     private fun downdanmuOld() {
         try {
             // 统一走 DanmakuFileFetcher：非 2xx（B 站 CDN 的 404/412 错误页）直接抛 IOException，
@@ -4173,7 +4236,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             if (applyXmlDanmakuGuard()) return
             prepareDanmaku { it.loadFromXmlFile(danmakuFile!!.toString()) }
         } catch (e: Exception) {
-            runOnUiThread { MsgUtil.err(e) }
+            // 不再弹窗（26.11.21 反馈）：弹幕拿不到不影响看视频，弹窗只会盖住画面。
+            // 记日志 + 后台重试，真拿不到时画面上就是没有弹幕，比反复弹窗清楚。
+            Logu.w("弹幕", "旧版弹幕获取失败：" + e.message)
+            scheduleDanmakuRetry()
         }
     }
 
@@ -4211,8 +4277,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             }
         } catch (e: Exception) {
             e.printStackTrace()
+            // 回退是自动的，不必再弹 toast 打扰（26.11.21 反馈）；旧版接口若也失败会自己排重试。
             Logu.e("新版弹幕", "获取失败: " + e.message + "，回退到旧版接口")
-            runOnUiThread { MsgUtil.toast(UiText.of("新版弹幕获取失败，使用旧版接口")) }
             CenterThreadPool.run { downdanmuOld() }
         }
     }
@@ -5330,6 +5396,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         destroyed = true
         // 锁定按钮自动隐去的延时任务要撤掉，别在 Activity 销毁后再去动 View
         mainHandler?.removeCallbacks(hideLockIcon)
+        // 弹幕重试同理：销毁后再拉一次只会在已释放的弹幕视图上落地
+        mainHandler?.removeCallbacks(danmakuRetryRunnable)
         // 睡眠定时的任务同理：留着会在页面销毁后调 playerPause() 去碰已释放的播放器
         cancelSleepTimer()
 
