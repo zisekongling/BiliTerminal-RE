@@ -18,8 +18,10 @@
 改任何 `.md` 后跑一次，**要求 0 错误**（`docs/archive/` 不参与：归档正文一字不改）：
 
 ```bash
-npx --yes markdownlint-cli2 "AGENTS.md" "readme.md" "docs/**/*.md" "!docs/archive/**"
+npx --yes markdownlint-cli2 "*.md" "{docs,.dsh,scripts,ledger}/**/*.md" "!docs/archive/**"
 ```
+
+**范围为什么是这几个目录，而不是 `**/*.md`**：`bilibili-API/` 是上游接口文档的**逐字快照**（1.4 万条 MD007 之类的历史格式问题），改它等于篡改快照；`docs/archive/` 是归档正文；`private/`、`design/`、`biliapp/`（本机逆向工作区）等都在 `.gitignore` 里。**除此之外凡是进了版本库的 `.md` 都在上面这条命令里**——包括 `.dsh/skills/` 这类容易被忘掉的目录（26.11.21：`rebili-version-release/SKILL.md` 攒了 9 条 MD022/031/032 没人发现，就是因为旧命令只扫 `docs/`）。
 
 **必修项**（默认全开）：标题/围栏/列表/表格前后留一个空行（MD022/031/032/058）、代码围栏**必须写语言**（MD040，纯日志用 `text`）、列表符号统一 `-`（MD004）、表格分隔行统一 `| --- | --- |`（MD055/056）、行尾不留空格（MD009）、文件以单个换行结尾（MD047）、标题不跳级（MD001）。
 
