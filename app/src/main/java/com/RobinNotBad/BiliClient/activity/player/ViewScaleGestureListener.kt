@@ -11,7 +11,14 @@ import android.view.View
  */
 class ViewScaleGestureListener(
     private val view: View,
-    private val onScaleChanged: () -> Unit = {}
+    private val onScaleChanged: () -> Unit = {},
+    /**
+     * 当前是否允许缩放。默认永远允许；播放页传「是否未锁定」。
+     *
+     * 26.11.21 反馈：锁定后仍能缩放——先堵掉两条触摸投喂路径，再把判据下沉到这里，
+     * 以后投喂路径再多一条也绕不过同一道门。
+     */
+    private val allowed: () -> Boolean = { true }
 ) : ScaleGestureDetector.SimpleOnScaleGestureListener() {
 
     @JvmField var scaling: Boolean = false
@@ -40,6 +47,8 @@ class ViewScaleGestureListener(
             diagIgnoredByGoneCount++
             return false
         }
+        // 锁定态：既不改比例也不回报 onScaleChanged，画面保持原样
+        if (!allowed()) return false
         val scaleFactor = detector.getScaleFactor()
 
         val currentScale = view.scaleX
@@ -53,6 +62,8 @@ class ViewScaleGestureListener(
 
     override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
         diagBeginCount++
+        // 不许缩放时连进「缩放中」都不要认，后面的 MOVE 也不会走到 onScale
+        if (!allowed()) return false
         scaling = true
         return super.onScaleBegin(detector)
     }

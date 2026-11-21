@@ -69,6 +69,15 @@ object PlayerLockPolicy {
         Phase.UNLOCKED, Phase.LOCKED_ICON_VISIBLE -> phase
     }
 
+    /**
+     * 锁定期间是否允许缩放画面。
+     *
+     * 锁定的约定是「只留一个解锁图标」，所以双指捏合与「双击后再拖动」的单指快速缩放都算越界
+     * （26.11.21 反馈：锁屏还能缩、单指双击也能缩）。判据收在这里，手势监听器只问一句，
+     * 不再各自写一份「锁定等于什么」。
+     */
+    fun scaleAllowed(phase: Phase): Boolean = !isLocked(phase)
+
     /** 锁定期间是否屏蔽播放器输入（手势、按键、按钮）。 */
     fun shouldBlockPlaybackInput(phase: Phase): Boolean = isLocked(phase)
 

@@ -2021,7 +2021,13 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         }
 
         if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SCALE, true)) {
-            scaleGestureListener = ViewScaleGestureListener(layout_video) { clampVideoOffset() }
+            // 锁定态连「双击后再拖动」的单指快速缩放也不许（26.11.21 反馈）：判据交给监听器，
+            // 触摸投喂路径以后再多一条也绕不过同一道门。
+            scaleGestureListener = ViewScaleGestureListener(
+                layout_video,
+                onScaleChanged = { clampVideoOffset() },
+                allowed = { PlayerLockPolicy.scaleAllowed(lockPhase) }
+            )
             scaleGestureDetector = ScaleGestureDetector(this, scaleGestureListener!!)
 
             val doublemove_enabled = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_DOUBLEMOVE, true)
@@ -2485,6 +2491,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 lock_btn.contentDescription = getString(R.string.desc_player_lock_unlocked)
             }
         }
+        // 锁定瞬间可能正好捏到一半：手势层之后收不到事件，把「正在缩放」标志清掉，
+        // 免得解锁后的第一串单指拖动被当成上一轮缩放的尾巴。
+        if (!PlayerLockPolicy.scaleAllowed(target)) scaleGestureListener?.scaling = false
         if (autoHideMs > 0L) mainHandler?.postDelayed(hideLockIcon, autoHideMs)
         // 锁定/解锁改了 control_layout 的可见性，正是「捏合没反应」的可疑时机，状态变了留一条
         zoomDiagTraceState("lock")
