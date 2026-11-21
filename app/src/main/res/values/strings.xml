@@ -1097,6 +1097,9 @@
     <string name="msg_splash_offline_to_cache">无网络，已进入缓存页</string>
     <!-- ===== 更新下载异常与链接解析（12.4 文案迁移：八批） ===== -->
     <string name="text_update_verify_failed">安装包校验失败：%1$s</string>
+    <!-- 26.11.21（反馈 #222）：验签失败时不再删包，另有程序把它留在 Download 里 -->
+    <string name="text_update_verify_failed_kept">安装包校验失败：%1$s
+安装包已另存到 %2$s，可自行点开安装</string>
     <string name="text_update_download_error">下载出错：%1$s</string>
     <string name="text_parse_failed">解析失败！</string>
 

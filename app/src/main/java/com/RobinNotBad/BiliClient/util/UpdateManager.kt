@@ -28,6 +28,14 @@ object UpdateManager {
 
     private const val APK_FILE_NAME = "bili_terminal_update.apk"
 
+    /**
+     * 校验没通过、又没能另存到 Download 的包改用的文件名（26.11.21，反馈 #222）。
+     *
+     * 换名而不是留在原路径：断点续传按 [APK_FILE_NAME] 的长度当「已下载字节数」，
+     * 把一份错包留在原地，下一次下载会把新内容接在它后面，产出一个永远装不上的文件。
+     */
+    private const val REJECTED_APK_FILE_NAME = "bili_terminal_update_rejected.apk"
+
 /** 内测 `.txt` 的体积上限：公告式展示只该读小文件，超过这个量级一律报错。 */
 private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
     private const val TAG = "更新检查"
@@ -264,6 +272,9 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
             if (apkFile?.exists() == true) {
                 apkFile.delete()
             }
+            // 校验被拒、又没另存成功的那份也一起清掉（见 [keepRejectedPackage]），
+            // 否则它会一直躺在缓存目录里占空间，用户也没法从界面上看到它。
+            File(apkFile?.parentFile ?: return, REJECTED_APK_FILE_NAME).takeIf { it.exists() }?.delete()
         } catch (e: Exception) {
         }
     }
@@ -495,13 +506,22 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
 
                 val result = writeResponseToFile(response, existingFile, onProgress)
 
-                // 26.10.04 批次 4（E6）：交给系统安装器之前先自查包名与签名。
-                // 不通过就删掉文件（继续留残片会被下次的 Range 续传当成"已下载一部分"，永远修不好），
-                // 并把中文原因交给调用方展示。
+                // 26.10.04 批次 4（E6）：交给系统安装器之前先自查包名与签名，不通过就把中文原因交给调用方展示。
+                // 26.11.21（反馈 #222）：**不再直接删包**——华为表上验签失败往往不是包的问题（商店/系统重签后
+                // 「当前应用签名」与官方包天然对不上），删掉只会让用户手里什么都没有。改为尽量另存到系统
+                // Download 供用户自己装，同时把缓存里那份清掉或改名，让下一次续传从零开始。
                 val verifyResult = ApkVerifier.verify(context, result)
                 if (!verifyResult.ok) {
-                    result.delete()
-                    CenterThreadPool.runOnUiThread { onError(context.getString(R.string.text_update_verify_failed, verifyResult.message)) }
+                    val keptPath = keepRejectedPackage(context, result, versionName)
+                    CenterThreadPool.runOnUiThread {
+                        onError(
+                            if (keptPath != null) {
+                                context.getString(R.string.text_update_verify_failed_kept, verifyResult.message, keptPath)
+                            } else {
+                                context.getString(R.string.text_update_verify_failed, verifyResult.message)
+                            }
+                        )
+                    }
                     return@run
                 }
 
@@ -530,6 +550,45 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
                 CenterThreadPool.runOnUiThread { onError(context.getString(R.string.text_update_download_error, e.message)) }
             }
         }
+    }
+
+    /**
+     * 校验没通过的包怎么处理（26.11.21，反馈 #222「验签失败安装包就消失了」）。
+     *
+     * 顺序：先尽量另存到系统 Download（用户反馈里要的就是「文件一直在本地」），存成了就把缓存那份删掉；
+     * 没存成（老系统没权限 / MediaStore 拒收）就就地改名成 [REJECTED_APK_FILE_NAME] 留证。
+     * 两条路都要让缓存目录里**不再有** [APK_FILE_NAME]，否则下一次 Range 续传会把新内容接在错包后面。
+     *
+     * @return 另存成功时给用户看的路径（Download/RE哔哩终端-26.11.17.apk），没存成返回 null
+     */
+    private fun keepRejectedPackage(context: Context, file: File, versionName: String?): String? {
+        val savedPath = try {
+            ApkDownloadStore.saveToDownloads(
+                context,
+                file,
+                ApkDownloadStore.fileName(versionName, BuildConfig.COEXIST)
+            )
+        } catch (e: Exception) {
+            Logu.e(TAG, "校验未通过的包另存失败：" + e.message)
+            null
+        }
+        if (savedPath != null) {
+            // Download 里已经有一份了，缓存这份没必要再留
+            if (!file.delete()) Logu.w(TAG, "校验未通过的缓存包删不掉：" + file.absolutePath)
+            return savedPath
+        }
+        val target = File(file.parentFile, REJECTED_APK_FILE_NAME)
+        try {
+            if (target.exists()) target.delete()
+            if (!file.renameTo(target)) {
+                file.copyTo(target, overwrite = true)
+                file.delete()
+            }
+            Logu.i(TAG, "校验未通过的包保留在：" + target.absolutePath)
+        } catch (e: Exception) {
+            Logu.e(TAG, "校验未通过的包改名失败：" + e.message)
+        }
+        return null
     }
 
     @Throws(IOException::class, CancellationException::class)
