@@ -972,6 +972,9 @@
     <string name="update_channel_exp">实验版</string>
     <string name="msg_update_channel_changed">已切到%1$s。已装的更高版本不会被降级，等日期更新的版本发布后才会自动换回来。</string>
     <string name="text_update_latest_channel">当前已是最新版（%1$s）</string>
+    <!-- 26.11.21（反馈 #237）：已是最新时留在本页展示当前版本更新说明 -->
+    <string name="text_update_no_log">本版本暂无更新说明</string>
+    <string name="btn_update_latest_close">知道了</string>
     <!-- ===== 列表空态 / 翻页（12.4 文案迁移：二批） ===== -->
     <string name="text_list_empty">啥都木有~</string>
     <string name="text_list_empty_retry">啥都木有~\n点我重试</string>

@@ -240,15 +240,10 @@ class UpdateActivity : BaseActivity() {
                     updateConfig = config
                     showUpdateInfo()
                 } else {
-                    // 带上通道名：三通道下「已是最新」这句话本身有歧义——稳定通道没更新，
-                    // 不代表测试 / 实验通道也没有；不写清楚，用户会以为检查坏了。
-                    MsgUtil.showMsg(
-                        getString(
-                            R.string.text_update_latest_channel,
-                            getString(UpdateChannel.nameRes(UpdateManager.currentChannel()))
-                        )
-                    )
-                    finish()
+                    // 26.11.21（反馈 #237）：已是最新时不再「弹一句就关页」。
+                    // 用户特意点了「检查更新」却只看到一闪而过的提示、页面自己关掉，
+                    // 会以为点错了或检查没跑；改成留在本页展示**当前版本**的更新说明。
+                    showLatestInfo()
                 }
                 kotlin.Unit
             },
@@ -259,6 +254,49 @@ class UpdateActivity : BaseActivity() {
                 kotlin.Unit
             }
         )
+    }
+
+    /**
+     * 「已是最新」时的页面形态（26.11.21，反馈 #237）。
+     *
+     * 和 [showUpdateInfo] 共用同一套控件，只把动作从「下载」换成「返回」：
+     * 标题带上通道名（三通道下「已是最新」本身有歧义，不写通道用户会以为检查坏了），
+     * 正文放本机更新日志里**当前版本**那一段，来源与更新日志页一致（见 [UpdateHistoryActivity]）。
+     */
+    @SuppressLint("SetTextI18n")
+    private fun showLatestInfo() {
+        tipTitle.text = getString(
+            R.string.text_update_latest_channel,
+            getString(UpdateChannel.nameRes(UpdateManager.currentChannel()))
+        )
+        versionNameText.text =
+            getString(R.string.text_update_version, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
+        contentText.text = currentVersionLog()
+
+        descScroll.visibility = View.VISIBLE
+        buttonContainer.visibility = View.VISIBLE
+        progressContainer.visibility = View.GONE
+        downloadBtn.visibility = View.GONE
+        retryBtn.visibility = View.GONE
+        cancelDownloadBtn.visibility = View.GONE
+        weseeBtn.visibility = View.GONE
+        (cancelBtn as TextView).text = getString(R.string.btn_update_latest_close)
+        cancelBtn.setOnClickListener { finish() }
+    }
+
+    /**
+     * 本机更新日志里**当前版本**那一段的正文；取不到时给一句兜底文案。
+     *
+     * 数据源是 strings.xml 的 `update_log_current`（首行是「【26.11.18 本次更新】」这类标题），
+     * 解析复用 [UpdateHistoryActivity.parseVersions]，不另写一份规则。
+     */
+    private fun currentVersionLog(): String {
+        val versions = UpdateHistoryActivity.parseVersions(
+            resources.getStringArray(R.array.update_log_current),
+            emptyArray()
+        )
+        val lines = versions.firstOrNull()?.lines.orEmpty().filter { it.isNotBlank() }
+        return if (lines.isEmpty()) getString(R.string.text_update_no_log) else lines.joinToString("\n")
     }
 
     @SuppressLint("SetTextI18n")
@@ -439,6 +477,14 @@ class UpdateActivity : BaseActivity() {
         android.os.Process.killProcess(android.os.Process.myPid())
     }
 
+    /**
+     * 本页**必须始终能退出**（26.11.21，反馈 #237）。
+     *
+     * 用户在设置里开了「禁用返回键」（[SettingsKeys.BACK_DISABLE]）时，
+     * [BaseActivity.onBackPressed] 会直接把返回吞掉；本页顶部返回按钮又转调 onBackPressed()，
+     * 于是系统返回与顶部返回**一起失灵**，页面成了死胡同。这里不再转调 super：
+     * 非强制更新时直接 finish()，强制更新仍走 [exitApp]。
+     */
     override fun onBackPressed() {
         if (updateConfig != null && updateConfig!!.isForceUpdate) {
             exitApp()
@@ -446,7 +492,7 @@ class UpdateActivity : BaseActivity() {
             if (isDownloading) {
                 UpdateManager.cancelDownload()
             }
-            super.onBackPressed()
+            finish()
         }
     }
 
