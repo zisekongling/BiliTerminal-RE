@@ -80,7 +80,7 @@
 - 用户可见文案一律进 `app/src/main/res/values/strings.xml`（写法与纯函数例外见 `docs/agents/dev-conventions.md`）。
 - **界面设计稿进 `design/`（已 gitignore）**：可交互 HTML 预览、原型、截图与配套的文字 spec 草稿（短视频播放器、播放器界面重设计那类一整套）都写这里，不进版本库；定稿后的取舍 / 验收口径 / 踩到的坑回迁 `docs/` 的活文档。
 - 不轻易引入新第三方库；**一切功能优先考虑手表端**，手机等设备只是顺便适配。
-- **改完同步文档**：修 bug / 关待办 → `docs/review/fix-progress.md`；改架构 / 基建 → `docs/architecture-map.md`；新增用户可见功能 → `docs/FEATURES.md`；接口 / 风控结论 → `docs/bilibili-api-notes.md`；本文件描述的内容变了 → 改对应分册。改任何 `.md` 后跑 `npx --yes markdownlint-cli2 "AGENTS.md" "readme.md" "docs/**/*.md" "!docs/archive/**"`，**要求 0 错误**（规则、豁免与逐字素材示例见 `docs/agents/docs.md`）。
+- **改完同步文档**：修 bug / 关待办 → `docs/review/fix-progress.md`；改架构 / 基建 → `docs/architecture-map.md`；新增用户可见功能 → `docs/FEATURES.md`；接口 / 风控结论 → `docs/bilibili-api-notes.md`；本文件描述的内容变了 → 改对应分册。改任何 `.md` 后跑 `npx --yes markdownlint-cli2 "*.md" "{docs,.dsh,scripts,ledger}/**/*.md" "!docs/archive/**"`，**要求 0 错误**（范围口径、`bilibili-API/` 为何排除、规则豁免见 `docs/agents/docs.md`）。
 
 ## 安全红线（常驻摘要，细则见 `docs/agents/security.md`）
 
