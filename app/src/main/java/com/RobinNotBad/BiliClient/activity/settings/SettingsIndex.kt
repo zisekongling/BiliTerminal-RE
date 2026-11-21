@@ -446,20 +446,8 @@ object SettingsIndex {
         ) { a -> openGroup(a, "download", groupDownload, text(R.string.storage_refresh_auto_title)) }
 
         // ---- 高级与实验 内联项 ----
-        list += Entry(
-            text(R.string.setting_player_ui_new),
-            text(R.string.desc_player_ui_new),
-            "播放器 新版 老版 布局 沉浸 实验 实验性"
-        ) { a -> openGroup(a, "lab", groupLab, text(R.string.setting_player_ui_new)) }
-        list += Entry(
-            text(R.string.setting_player_ui_new_idle_progress),
-            text(R.string.desc_player_ui_new_idle_progress)
-        ) { a -> openGroup(a, "lab", groupLab, text(R.string.setting_player_ui_new_idle_progress)) }
-        list += Entry(
-            text(R.string.setting_player_ui_form),
-            text(R.string.desc_player_ui_form),
-            "播放器 形态 手表 手机 长条屏 词典笔 布局"
-        ) { a -> openGroup(a, "lab", groupLab, text(R.string.setting_player_ui_form)) }
+        // 新版播放器的三个入口（新版播放器 / 沉浸细进度线 / 界面形态）26.11.22 起已移除并强制关，
+        // 搜索里也不再给出直达条目；恢复见 player/PlayerUiSwitch.kt。
         list += Entry(
             text(R.string.settingtext_settinggroupactivity_060),
             text(R.string.settingtext_settingsindex_033)

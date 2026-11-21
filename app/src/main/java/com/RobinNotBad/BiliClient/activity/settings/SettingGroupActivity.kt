@@ -970,34 +970,9 @@ class SettingGroupActivity : RefreshListActivity() {
         }
 
         title("功能开关")
-        switch(
-            getString(R.string.setting_player_ui_new),
-            getString(R.string.desc_player_ui_new),
-            SettingsKeys.PLAYER_UI_NEW,
-            false
-        )
-        switch(
-            getString(R.string.setting_player_ui_new_idle_progress),
-            getString(R.string.desc_player_ui_new_idle_progress),
-            SettingsKeys.PLAYER_UI_NEW_IDLE_PROGRESS,
-            true
-        )
-        listChoose(
-            getString(R.string.setting_player_ui_form),
-            getString(R.string.desc_player_ui_form),
-            SettingsKeys.PLAYER_UI_FORM,
-            SettingsKeys.PLAYER_FORM_WATCH,
-            listOf(
-                getString(R.string.player_form_watch),
-                getString(R.string.player_form_phone),
-                getString(R.string.player_form_strip)
-            ),
-            listOf(
-                SettingsKeys.PLAYER_FORM_WATCH,
-                SettingsKeys.PLAYER_FORM_PHONE,
-                SettingsKeys.PLAYER_FORM_STRIP
-            )
-        )
+        // 26.11.22 起新版播放器下线观察：三个入口（新版播放器 / 沉浸细进度线 / 界面形态）已整体移除，
+        // 强制走旧播放器。判据收在 player/PlayerUiSwitch.kt 的总闸里，留着 player_ui_new=true 的
+        // 旧存档一律不生效。恢复入口前先看那份文件顶部的说明。
         switch("新版弹幕获取方式", getString(R.string.desc_new_danmaku_api), SharedPreferencesUtil.NEW_DANMAKU_API, true)
         switch("私信未读标记", getString(R.string.desc_private_msg_unread_badge_enable), SharedPreferencesUtil.PRIVATE_MSG_UNREAD_BADGE_ENABLE, false)
         // 虚拟合集拆成两个独立功能（26.11.01，用户要求）：

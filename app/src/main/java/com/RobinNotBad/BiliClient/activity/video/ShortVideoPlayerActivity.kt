@@ -53,6 +53,7 @@ import com.RobinNotBad.BiliClient.player.PlayerDefaults
 import com.RobinNotBad.BiliClient.player.IjkOption
 import com.RobinNotBad.BiliClient.player.IjkPlayerBridge
 import com.RobinNotBad.BiliClient.player.PlayerState
+import com.RobinNotBad.BiliClient.player.PlayerUiSwitch
 import com.RobinNotBad.BiliClient.player.PlayerVolumePolicy
 import com.RobinNotBad.BiliClient.player.ShortVideoDanmakuPolicy
 import com.RobinNotBad.BiliClient.player.ShortVideoSurfaceAction
@@ -448,8 +449,13 @@ class ShortVideoPagerAdapter(
     override fun getItemCount(): Int = feedSource.getItemCount()
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PageHolder {
+        // 与普通播放器同一个判据：总闸关着就恒用老布局（老布局里没有 shortNewControls，
+        // createNewUi() 因此始终返回 null，下面整条老链路原样跑）。
         val view = LayoutInflater.from(parent.context)
-            .inflate(if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_NEW, false)) R.layout.fragment_short_video_page_new else R.layout.fragment_short_video_page, parent, false)
+            .inflate(
+                if (PlayerUiSwitch.isNewUiEnabled()) R.layout.fragment_short_video_page_new else R.layout.fragment_short_video_page,
+                parent, false
+            )
         return PageHolder(view, audioManager, activity)
     }
 

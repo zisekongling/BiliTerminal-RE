@@ -112,6 +112,7 @@ import com.RobinNotBad.BiliClient.player.PlayerDisplayModePolicy
 import com.RobinNotBad.BiliClient.player.PlayerButtonSlots
 import com.RobinNotBad.BiliClient.player.PlayerButtons
 import com.RobinNotBad.BiliClient.player.PlayerNewUiController
+import com.RobinNotBad.BiliClient.player.PlayerUiSwitch
 import com.RobinNotBad.BiliClient.player.PlayerLivePolicy
 import com.RobinNotBad.BiliClient.player.PlayerUiLayout
 import com.RobinNotBad.BiliClient.player.PlayerRequestPolicy
@@ -1738,7 +1739,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         // 的赋值在 initButtonSlots 之后，不在这里补读一次就会拿到默认的 false，
         // 于是圆屏手表按方屏布局摆按钮，底栏（y=252dp）直接掉到屏幕外。
         screen_round = SharedPreferencesUtil.getBoolean("player_ui_round", false)
-        if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_NEW, false)) {
+        // 判据只有一个入口（[PlayerUiSwitch]）：总闸关着时这里恒为 false，设备上残留的
+        // player_ui_new=true 一律不算数，走的还是下面那套旧按钮池。
+        if (PlayerUiSwitch.isNewUiEnabled()) {
             newPlayerUi = PlayerNewUiController(
                 this, findViewById(R.id.root_layout), button_pool, screen_round,
                 layout_control, layout_top, bottom_buttons, findViewById(R.id.left_control), right_control,
@@ -5742,7 +5745,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         btn_rotate.visibility = View.VISIBLE
 
         screen_round = SharedPreferencesUtil.getBoolean("player_ui_round", false)
-        if (screen_round && !SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_UI_NEW, false)) {
+        if (screen_round && !PlayerUiSwitch.isNewUiEnabled()) {
             val padding = (screen_width * 0.03).toInt()
 
             val progressParams = seekbar_progress.layoutParams as LinearLayout.LayoutParams
