@@ -48,10 +48,12 @@ import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.ReplyState
 import com.RobinNotBad.BiliClient.util.ReplyStateStore
+import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.ui.widget.RadiusBackgroundSpan
+import com.RobinNotBad.BiliClient.ui.widget.ReplyActionRow
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.listener.OnItemClickListener
 import java.io.IOException
@@ -82,6 +84,10 @@ class ReplyAdapter(
     var isManager: Boolean = false
     var count: Long = -1
     var listener: OnItemClickListener? = null
+
+    // 圆屏适配开关：决定操作行要不要整体居中（见 ReplyActionRow）。构造时读一次，
+    // 与其它设置项一致——改完要重新进页面才生效，不在列表滚动中来回改约束。
+    private val roundMode = SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROUND, false)
 
     private val roundSmallPx = context.resources.getDimension(R.dimen.round_small).toInt()
     private val likeDrawable0 = StringUtil.getDrawable(context, R.drawable.icon_reply_like0)
@@ -159,6 +165,8 @@ class ReplyAdapter(
             return WriteReply(view)
         } else {
             val view = LayoutInflater.from(this.context).inflate(R.layout.cell_reply_list, parent, false)
+            // 圆屏时把点赞/点踩/翻译/删除/回复连成一组居中；方屏原样不动
+            ReplyActionRow.applyIfNeeded(view, roundMode)
             return ReplyHolder(view)
         }
     }
