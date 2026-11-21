@@ -1505,6 +1505,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                         btn_audio_only.visibility = View.GONE
                         btn_auto_next.visibility = View.GONE
                         btn_page_selector.visibility = View.GONE
+                        // 26.11.21（反馈 #262）：直播没有字幕轨，CC 按钮点了只会静默无反应，直接不给入口
+                        refreshSubtitleButton()
                     }
                     setDisplay()
                     return@run
@@ -1528,6 +1530,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     else
                         hasDanmaku = false
                 }
+
+                // 26.11.21（反馈 #262）：第三方直链（在线但没有 aid/cid）同样点不出字幕，按钮按需隐藏
+                runOnUiThread { refreshSubtitleButton() }
 
                 if (!destroyed) maybeAutoSubtitle()
 
@@ -4065,7 +4070,11 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private fun downSubtitle(fromBtn: Boolean, autoChinese: Boolean = false) {
         // 第三方源直链播放（没有 aid/cid）在 B 站没有对应视频，字幕接口只会返回没有 data 的响应，
         // 进而抛 JSONException 弹「数据解析错误」——这种场景直接跳过，本地文件字幕仍走下面的 File 分支。
-        if (isOnlineVideo && (aid <= 0L || cid <= 0L)) return
+        if (isOnlineVideo && (aid <= 0L || cid <= 0L)) {
+            // 按钮已按 [canUseSubtitle] 藏起来，这里只兜底：新版界面被用户摆到槽位、或状态切换瞬间点到的，要有反馈
+            if (fromBtn) MsgUtil.showMsg(UiText.of("本视频无字幕"))
+            return
+        }
         try {
             if (subtitleLinks == null) {
                 subtitleLinks = if (isOnlineVideo) PlayerApi.getSubtitleLinks(aid, cid)
@@ -7861,6 +7870,25 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private fun hasMultiplePages(): Boolean = pagenames != null && pagenames!!.size > 1
 
     /**
+     * 字幕按钮在这条视频上有没有意义（26.11.21，反馈 #262）。
+     *
+     * 直播没有字幕轨；第三方直链（在线播放但没有 aid/cid）在 B 站也没有对应稿件，字幕接口只会返回空数据。
+     * 这两种情况下 [downSubtitle] 只能静默 return，按钮留在那里就是「点了没反应」——用户报的正是这个：
+     * 直播页 CC 按钮就在发送弹幕按钮右边，点下去什么都不发生。
+     *
+     * 旧版界面按它直接隐藏按钮（[refreshSubtitleButton]），新版界面交给 [slotAvailableFor] 把槽位留空；
+     * **不要**改判据去读 `btn_subtitle.visibility`——那个值会随控制栏自动隐藏一起变。
+     */
+    private fun canUseSubtitle(): Boolean =
+        !isLiveMode && (!isOnlineVideo || (aid > 0L && cid > 0L))
+
+    /** 按 [canUseSubtitle] 同步旧版界面的 CC 按钮；新版界面的槽位由 [slotAvailableFor] 自己过滤。 */
+    private fun refreshSubtitleButton() {
+        if (!::btn_subtitle.isInitialized) return
+        btn_subtitle.visibility = if (canUseSubtitle()) View.VISIBLE else View.GONE
+    }
+
+    /**
      * 槽位在这条视频上能不能用（新版控制层摆位前过滤不可用槽位时用）。
      *
      * **只读业务状态，绝不读 `view.visibility`**：控制栏自动收起时 `hidecon` 会把
@@ -7873,6 +7901,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private fun slotAvailableFor(key: String): Boolean = when (key) {
         // 直播：没有清晰度与选集，其余（音量/弹幕/倍速/锁定）都在。
         PlayerButtons.QUALITY -> isOnlineVideo && !isLiveMode
+        PlayerButtons.SUBTITLE -> canUseSubtitle()
         PlayerButtons.PAGE_SELECTOR -> canOpenPageSelector()
         PlayerButtons.AUTO_NEXT -> hasMultiplePages()
         PlayerButtons.AUDIO_ONLY -> !isLocalAudioFile
