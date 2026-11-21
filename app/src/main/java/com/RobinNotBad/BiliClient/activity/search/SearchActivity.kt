@@ -448,28 +448,50 @@ class SearchActivity : InstanceActivity() {
         }
     }
 
+    /**
+     * 弹出搜索彩蛋，并把输入框清空（反馈 #264）。
+     *
+     * 原先命中彩蛋只 showText 就 return，输入框里那个词还留着；彩蛋页按返回回到搜索页后，
+     * 用户再点一次搜索又会命中同一个词 —— 彩蛋反复弹、搜索永远执行不了。
+     * 这里顺手清空输入框，下一次点击走的是「还没输入内容喵~」那条正常路径。
+     *
+     * 先 clearFocus 再置空：afterTextChanged 里「空关键词 + 有焦点」会把历史面板弹出来，
+     * 彩蛋刚关掉就盖一层历史浮层，看起来像是搜索坏了。
+     */
+    private fun showSearchEgg(content: String) {
+        runOnUiThread {
+            keywordInput.clearFocus()
+            keywordInput.setText("")
+            // 作废还没返回的建议请求：否则它回来会把建议卡片重新盖在页面上
+            suggestionGeneration++
+            if (suggestionRunnable != null) handler.removeCallbacks(suggestionRunnable!!)
+            hideDropdowns()
+        }
+        MsgUtil.showText(UiText.of("特殊彩蛋"), content)
+    }
+
     @SuppressLint("NotifyDataSetChanged")
     fun searchKeyword(str: String) {
         var keyword = str
         if (keyword.contains("Robin") || keyword.contains("robin")) {
             if (keyword.contains("撅")) {
-                MsgUtil.showText(UiText.of("特殊彩蛋"), getString(R.string.egg_special))
+                showSearchEgg(getString(R.string.egg_special))
                 return
             }
             if (keyword.contains("纳西妲")) {
-                MsgUtil.showText(UiText.of("特殊彩蛋"), getString(R.string.egg_robin_nahida))
+                showSearchEgg(getString(R.string.egg_robin_nahida))
                 return
             }
         }
         for (s in specialList) {
             if (keyword.contains(s)) {
-                MsgUtil.showText(UiText.of("特殊彩蛋"), getString(R.string.egg_warmwords_warmworld))
+                showSearchEgg(getString(R.string.egg_warmwords_warmworld))
                 return
             }
         }
         // 「紫色空灵」（RE 版主开发者）的专属彩蛋：要求同时带角色名，避免单搜开发者名误触
         if (keyword.contains("紫色空灵") && keyword.contains("纳西妲")) {
-            MsgUtil.showText(UiText.of("特殊彩蛋"), getString(R.string.egg_zisekongling_nahida))
+            showSearchEgg(getString(R.string.egg_zisekongling_nahida))
             return
         }
 
