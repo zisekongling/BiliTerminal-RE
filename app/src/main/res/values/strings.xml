@@ -3151,6 +3151,17 @@
     <string name="setting_player_option_codec_sw">软件解码</string>
     <string name="setting_player_audio_output">音频输出</string>
 
+    <!-- 听视频（音频模式）面板：标题兜底、三个控件无障碍描述、来源行三态。
+         只在 player/PlayerNewUiController.kt 里被引用，别改名。 -->
+    <string name="player_audio_mode">听视频</string>
+    <string name="desc_player_audio_lyrics">歌词</string>
+    <string name="desc_player_audio_cover">封面</string>
+    <string name="desc_player_audio_prev">上一个</string>
+    <string name="desc_player_audio_next">下一个</string>
+    <string name="player_audio_source_cc">字幕</string>
+    <string name="player_audio_cover_hint">轻点看封面</string>
+    <string name="player_audio_no_lyrics">暂无歌词</string>
+
     <!-- 弹幕 -->
     <string name="setting_player_danmaku_allow_overlap">弹幕允许重叠</string>
     <string name="setting_player_danmaku_merge_duplicate">合并重复弹幕</string>
