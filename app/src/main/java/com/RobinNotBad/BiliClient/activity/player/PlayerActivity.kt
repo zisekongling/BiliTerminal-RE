@@ -1776,6 +1776,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             // 直播态新版界面：老播放器的 text_online 不动，新版把那行换成 pill + 人数，
             // 旧 TextView 直接藏掉，避免两套人数叠在一起。
             if (isLiveMode) text_online.visibility = View.GONE
+            // 26.11.21（反馈 #261）：新版控制层的 overlay 是 root_layout 的**最后一个**子 View
+            // （PlayerNewUiController 构造末尾 root.addView(overlay)），于是它恒压在 XML 里定义的
+            // 遮罩 card_bg 之上——直播点「发弹幕」时，锁定/更多那排按钮就浮在输入卡片上面。
+            // 把 card_bg 整组提到 overlay 之后（卡片全是它的子 View），一次修好字幕/发弹幕/跳转/
+            // 分P/清晰度/看点所有卡片；卡片可见期间那排按钮被遮罩压住，与旧界面行为一致。
+            layout_card_bg.bringToFront()
             applyPlayerButtonLayout()
             return
         }
