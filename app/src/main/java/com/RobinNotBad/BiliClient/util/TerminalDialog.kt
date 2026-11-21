@@ -27,6 +27,8 @@ import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.RobinNotBad.BiliClient.R
+import com.RobinNotBad.BiliClient.util.SettingsKeys
+import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.view.DialogSizing
 import com.RobinNotBad.BiliClient.util.view.physicalScreenSizePx
 
@@ -383,6 +385,7 @@ object TerminalDialog {
                 titleView.text = "$GLYPH_IDLE $title"
                 titleView.visibility = View.VISIBLE
                 divider.visibility = View.VISIBLE
+                applyTitleMarquee(titleView)
             }
             // 先按「空列表」算一次：宽度立刻落地；工厂方法加完条目后会再算一次高度。
             prepareLayout()
@@ -411,6 +414,34 @@ object TerminalDialog {
                     logButtonGeometry()
                 }
             }
+        }
+
+        /**
+         * 弹窗标题跑马灯（26.11.21，用户要求，默认开启，开关是 [SettingsKeys.DIALOG_TITLE_MARQUEE]）。
+         *
+         * <p>手表屏窄，稿件名那种长标题（截图里「特朗普访华座驾 空军一号都有哪些秘密？【空军一号详解】」）
+         * 会换行成两三行，把下面的列表项与按钮挤下去；开启后标题**最多一行**，放不下的部分横向滚动，
+         * 既省高度又不丢字。关掉时什么都不改，仍是原来的自动换行。
+         *
+         * <p>跑马要同时满足三个条件，少一个都不会动：
+         * 1) `maxLines = 1`（多行时 MARQUEE 根本不启动）；
+         * 2) `ellipsize = MARQUEE` + `setHorizontallyScrolling(true)`（不横向滚动就没有可滚的宽度）；
+         * 3) 控件处于 selected（TextView 只在 selected/focused 时才走跑马的状态机）。
+         * 用 selected 而不是 requestFocus()：输入型弹窗的 EditText 还要抢焦点，标题不该抢。
+         *
+         * <p>高度预算也受益：[measureParts] 里量到的就是一行的高度，长标题不再吃掉列表的空间。
+         */
+        private fun applyTitleMarquee(view: TextView) {
+            if (!SharedPreferencesUtil.getBoolean(SettingsKeys.DIALOG_TITLE_MARQUEE, true)) return
+            view.maxLines = 1
+            view.ellipsize = TextUtils.TruncateAt.MARQUEE
+            view.marqueeRepeatLimit = -1
+            // 等价于布局里的 android:scrollHorizontally="true"：让这一行按内容宽度排版而不是
+            // 被控件宽度裁断，否则「滚动」根本没有可滚的余量。
+            view.setHorizontallyScrolling(true)
+            // 只靠 selected 启动跑马，不设 focusable：标题一旦可获焦，输入型弹窗的 EditText
+            // 初始焦点就可能被它抢走（跑马只需要 selected，见上面第 3 条）。
+            view.isSelected = true
         }
 
         /**

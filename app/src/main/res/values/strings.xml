@@ -3319,6 +3319,10 @@
          「取消」。见 util/TerminalDialog.kt 的 Sheet.renderButtons()。 -->
     <string name="setting_dialog_button_row">弹窗按钮并排</string>
     <string name="desc_dialog_button_row">确认框的「取消」和「确定」左右各占一半、并排一行。默认开启：手表窗口太矮时，上下两个按钮会把下面的「确定」挤出屏幕，只看得到「取消」。关掉恢复上下堆叠。</string>
+    <!-- 弹窗标题跑马灯（26.11.21，用户要求，默认开启）。长标题最多占一行，超出的横向滚动。
+         读取点在 util/TerminalDialog.kt 的 Sheet.applyTitleMarquee()。 -->
+    <string name="setting_dialog_title_marquee">弹窗标题跑马灯</string>
+    <string name="desc_dialog_title_marquee">弹窗标题最多占一行，放不下就横向滚动显示完整内容，省下的高度留给列表与按钮。关掉恢复原来的自动换行。默认开启。</string>
     <string name="pagename_localfolderlist">文件夹</string>
     <string name="text_cache_folder_entry">文件夹 %1$d</string>
     <string name="text_local_folder_video_count">%1$d 个视频</string>

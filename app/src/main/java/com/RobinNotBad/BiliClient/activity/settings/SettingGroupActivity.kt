@@ -1007,6 +1007,14 @@ class SettingGroupActivity : RefreshListActivity() {
             SettingsKeys.DIALOG_BUTTON_ROW,
             true
         )
+        // 弹窗标题跑马灯（26.11.21，默认开）。读取点在 util/TerminalDialog.kt 的
+        // Sheet.applyTitleMarquee()：标题最多一行，放不下就横向滚动。
+        switch(
+            getString(R.string.setting_dialog_title_marquee),
+            getString(R.string.desc_dialog_title_marquee),
+            SettingsKeys.DIALOG_TITLE_MARQUEE,
+            true
+        )
 
         title("播放器兼容")
         switch("播放器旋屏兼容方案", getString(R.string.desc_player_rotate_software), SettingsKeys.DEV_PLAYER_ROTATE_SOFTWARE, false)

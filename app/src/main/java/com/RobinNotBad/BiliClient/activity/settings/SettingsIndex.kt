@@ -520,6 +520,11 @@ object SettingsIndex {
             text(R.string.setting_dialog_button_row),
             text(R.string.desc_dialog_button_row)
         ) { a -> openGroup(a, "lab", groupLab, text(R.string.setting_dialog_button_row)) }
+        // 「弹窗标题跑马灯」（26.11.21，默认开）：与设置页那行同源取 R.string.setting_dialog_title_marquee。
+        list += Entry(
+            text(R.string.setting_dialog_title_marquee),
+            text(R.string.desc_dialog_title_marquee)
+        ) { a -> openGroup(a, "lab", groupLab, text(R.string.setting_dialog_title_marquee)) }
 
         // ---- 叶子设置项（独立设置页）----
         // 26.11.07：详情页动作区两个默认隐藏的入口。名字必须与 SettingInfoActivity 里

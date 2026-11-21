@@ -240,6 +240,15 @@ object SettingsKeys {
      * [com.RobinNotBad.BiliClient.util.TerminalDialog.Sheet] 的 `rowMode()`。
      */
     const val DIALOG_BUTTON_ROW = "dialog_button_row"
+    /**
+     * 弹窗标题跑马灯：true（默认）= 标题最多一行，超出走跑马灯滚动；false = 允许多行完整显示
+     * （26.11.21 之前的行为，标题会把弹窗顶部撑高）。
+     *
+     * <p>只影响 [com.RobinNotBad.BiliClient.util.TerminalDialog] 里标题 TextView 的显示方式，
+     * 不改弹窗高度预算：`DialogSizing` 仍按「标题一行」估算，超长标题不再额外吃掉列表高度。
+     * 读取点在 `TerminalDialog.Sheet#applyTitleMarquee`。
+     */
+    const val DIALOG_TITLE_MARQUEE = "dialog_title_marquee"
 
     // ==================== 播放器 ====================
     /** 当前选择的播放器（null / terminalPlayer / mtvPlayer / aliangPlayer）。 */
