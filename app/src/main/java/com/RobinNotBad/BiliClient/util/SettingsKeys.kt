@@ -168,6 +168,12 @@ object SettingsKeys {
     const val DISGUISE_CODE = "disguise_code"
     const val CREATIVE_ENABLE = "creative_enable"
     const val SEARCH_SUGGESTIONS_ENABLE = "search_suggestions_enable"
+
+    /**
+     * 「搜索历史」开关（默认开）。关掉后不再记录、已有记录清空、搜索页不再显示历史区，
+     * 读写统一走 [SearchHistoryStore]。
+     */
+    const val SEARCH_HISTORY_ENABLE = "search_history_enable"
     const val BACK_DISABLE = "back_disable"
     const val SAVE_BAN_GALLERY = "save_ban_gallery"
     const val IMAGE_REQUEST_JPG = "image_request_jpg"
@@ -249,6 +255,13 @@ object SettingsKeys {
      * 读取点在 `TerminalDialog.Sheet#applyTitleMarquee`。
      */
     const val DIALOG_TITLE_MARQUEE = "dialog_title_marquee"
+
+    // ==================== 推荐流 ====================
+    /**
+     * 「X 式重排」开关，**默认关闭**（它会打乱平台原本的排序，属于用户主动选择的功能）。
+     * 读取统一走 `util/recommend/RecommendPrefs.rerankEnabled`，别在调用点写死默认值。
+     */
+    const val RECOMMEND_RERANK_ENABLE = "recommend_rerank_enable"
 
     // ==================== 播放器 ====================
     /** 当前选择的播放器（null / terminalPlayer / mtvPlayer / aliangPlayer）。 */

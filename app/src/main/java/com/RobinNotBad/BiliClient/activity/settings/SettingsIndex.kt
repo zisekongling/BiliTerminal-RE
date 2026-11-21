@@ -525,6 +525,16 @@ object SettingsIndex {
             text(R.string.setting_dialog_title_marquee),
             text(R.string.desc_dialog_title_marquee)
         ) { a -> openGroup(a, "lab", groupLab, text(R.string.setting_dialog_title_marquee)) }
+        // 「X 式重排」（26.11.21，默认关）：设置页那行的 name 同样取自这个资源。
+        list += Entry(
+            text(R.string.setting_recommend_rerank),
+            text(R.string.desc_recommend_rerank)
+        ) { a -> openGroup(a, "lab", groupLab, text(R.string.setting_recommend_rerank)) }
+        // 「屏蔽的作者」是「高级与实验」的**子页**，没有高亮项可落，直接打开。
+        list += Entry(
+            text(R.string.setting_blocked_authors),
+            text(R.string.desc_blocked_authors)
+        ) { a -> openGroup(a, "recommend_block", text(R.string.setting_blocked_authors)) }
 
         // ---- 叶子设置项（独立设置页）----
         // 26.11.07：详情页动作区两个默认隐藏的入口。名字必须与 SettingInfoActivity 里

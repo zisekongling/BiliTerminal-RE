@@ -7,12 +7,16 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
 import com.RobinNotBad.BiliClient.activity.video.info.AddFavoriteActivity
 import com.RobinNotBad.BiliClient.api.ApiErrorText
+import com.RobinNotBad.BiliClient.api.FeedbackApi
 import com.RobinNotBad.BiliClient.api.WatchLaterApi
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
+import com.RobinNotBad.BiliClient.util.recommend.BlockedAuthorStore
+import com.RobinNotBad.BiliClient.util.recommend.RecommendTasteStore
 
 /**
  * 列表项长按「更多操作」菜单。
@@ -58,7 +62,17 @@ object VideoCardMenu {
          * 减少推荐 / 不感兴趣。动作本体由列表页注入：它要拿到这条推荐在信息流里的位置与 track 信息，
          * 适配器拿不到这些，只能当二传手（见 [VideoCardAdapter.onReduceRecommend]）。
          */
-        REDUCE_RECOMMEND
+        REDUCE_RECOMMEND,
+
+        /**
+         * 屏蔽作者：加进本地名单（[BlockedAuthorStore]），并给服务端补一次「不想看此 UP 主」
+         * （[FeedbackApi.REASON_UP]）。名单是**本地过滤**，所以立刻生效；服务端那次只是让长期
+         * 推荐也少推一点，失败不影响本地效果。
+         *
+         * 与 [REDUCE_RECOMMEND] 的区别：那个只针对**这一条**内容，这个针对**这位作者的全部内容**，
+         * 且会在设置页留一条可撤销的记录。
+         */
+        BLOCK_AUTHOR
     }
 
     /**
@@ -69,16 +83,24 @@ object VideoCardMenu {
      * （没有 B 站 aid/cid）由调用方用 `OptionalFeatures.skipQuickCache` 提前挡掉，不在这里判。
      *
      * @param reduceRecommendAvailable 当前列表是否支持「减少推荐」（只有信息流才有意义）
+     * @param blockAuthorAvailable     当前列表是否支持「屏蔽作者」（信息流才有意义；其它列表
+     *                                 不该出现这一项，否则用户会以为在收藏夹里屏蔽也能过滤推荐）
      */
-    fun actionsFor(videoCard: VideoCard, reduceRecommendAvailable: Boolean): List<Action> {
+    fun actionsFor(
+        videoCard: VideoCard,
+        reduceRecommendAvailable: Boolean,
+        blockAuthorAvailable: Boolean = false
+    ): List<Action> {
         if (!isNormalVideo(videoCard)) return emptyList()
-        val actions = ArrayList<Action>(5)
+        val actions = ArrayList<Action>(6)
         actions.add(Action.WATCH_LATER)
         actions.add(Action.FAVORITE)
         actions.add(Action.CACHE)
         // 没封面的卡片（个别接口不返回 pic）不给这一项，否则点进去是一张空白大图。
         if (!videoCard.cover.isNullOrBlank()) actions.add(Action.VIEW_COVER)
         if (reduceRecommendAvailable) actions.add(Action.REDUCE_RECOMMEND)
+        // upMid 为 0 说明接口没给作者 mid，本地名单无从匹配，给这一项只会点了个寂寞。
+        if (blockAuthorAvailable && videoCard.upMid != 0L) actions.add(Action.BLOCK_AUTHOR)
         return actions
     }
 
@@ -94,15 +116,23 @@ object VideoCardMenu {
      *
      * @param reduceRecommendAvailable 列表是否支持「减少推荐」
      * @param onReduceRecommend        真的点了「减少推荐」时执行；为 null 时该动作不出现
+     * @param blockAuthorAvailable     列表是否支持「屏蔽作者」（信息流才传 true）
+     * @param onBlockAuthor            屏蔽成功后通知列表移除该作者已显示的卡片；为 null 时该动作不出现
      * @return 是否真的弹了菜单
      */
     fun show(
         context: Context,
         videoCard: VideoCard,
         reduceRecommendAvailable: Boolean = false,
-        onReduceRecommend: (() -> Unit)? = null
+        onReduceRecommend: (() -> Unit)? = null,
+        blockAuthorAvailable: Boolean = false,
+        onBlockAuthor: ((VideoCard) -> Unit)? = null
     ): Boolean {
-        val actions = actionsFor(videoCard, reduceRecommendAvailable && onReduceRecommend != null)
+        val actions = actionsFor(
+            videoCard,
+            reduceRecommendAvailable && onReduceRecommend != null,
+            blockAuthorAvailable && onBlockAuthor != null
+        )
         if (actions.isEmpty()) return false
         val labels = actions.map { label(context, it) }
         TerminalDialog.menu(context, videoCard.title, labels) { index ->
@@ -112,6 +142,7 @@ object VideoCardMenu {
                 Action.CACHE -> VideoQuickCache.handle(context, videoCard)
                 Action.VIEW_COVER -> viewCover(context, videoCard)
                 Action.REDUCE_RECOMMEND -> onReduceRecommend?.invoke()
+                Action.BLOCK_AUTHOR -> blockAuthor(context, videoCard, onBlockAuthor)
             }
         }.show()
         return true
@@ -123,6 +154,7 @@ object VideoCardMenu {
         Action.CACHE -> context.getString(R.string.text_video_card_menu_cache)
         Action.VIEW_COVER -> context.getString(R.string.text_video_card_menu_view_cover)
         Action.REDUCE_RECOMMEND -> context.getString(R.string.text_video_card_menu_reduce_recommend)
+        Action.BLOCK_AUTHOR -> context.getString(R.string.text_video_card_menu_block_author)
     }
 
     /**
@@ -131,6 +163,41 @@ object VideoCardMenu {
      */
     private fun requireLogin(): Boolean =
         SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) != 0L
+
+    /**
+     * 屏蔽作者：本地名单先落下（立刻生效），再顺手给服务端一次「不想看此 UP 主」。
+     *
+     * <p>两件事的顺序有讲究：本地名单是用户能立刻感知的部分（卡片马上消失、设置页能看到），
+     * 服务端请求要联网、还可能因为没登录被判 -101，绝不能让它挡在前面。所以先本地后网络，
+     * 网络那次失败只在日志里留痕，不打扰用户——本地已经屏蔽了，用户的诉求已经满足。
+     */
+    private fun blockAuthor(context: Context, videoCard: VideoCard, onBlockAuthor: ((VideoCard) -> Unit)?) {
+        val upMid = videoCard.upMid
+        if (upMid == 0L) return
+        val added = BlockedAuthorStore.block(upMid, videoCard.upName)
+        // 记一笔负反馈：X 式重排会按这个把该 UP 往后压（对齐参考实现的 noteNegative）
+        RecommendTasteStore.noteNegative(upMid)
+        if (!added) {
+            // 名单里已经有了（比如同一作者的另一条卡片又点了一次屏蔽）
+            MsgUtil.showMsg(context.getString(R.string.msg_video_card_menu_block_author_exists))
+            return
+        }
+        val displayName = videoCard.upName?.takeIf { it.isNotBlank() }
+            ?: context.getString(R.string.text_video_card_menu_block_author_fallback)
+        MsgUtil.showMsg(context.getString(R.string.msg_video_card_menu_block_author_ok, displayName))
+        onBlockAuthor?.invoke(videoCard)
+        CenterThreadPool.run {
+            try {
+                // aid <= 0 时 FeedbackApi 自己会返回 -400，不去打扰服务端
+                if (videoCard.aid > 0L) {
+                    FeedbackApi.dislike(videoCard.aid, upMid, videoCard.trackId, FeedbackApi.REASON_UP)
+                }
+            } catch (e: Exception) {
+                // 屏蔽已经靠本地名单完成了，服务端这步失败不该弹错误框，只留一条日志
+                Logu.w("屏蔽作者的服务端反馈失败：" + e)
+            }
+        }
+    }
 
     private fun addToWatchLater(context: Context, videoCard: VideoCard) {
         if (!requireLogin()) {

@@ -34,6 +34,16 @@ class VideoCardAdapter(
     var onReduceRecommend: ((VideoCard) -> Unit)? = null
 
     /**
+     * 「屏蔽作者」动作本体，由信息流页面注入（[VideoCardMenu.Action.BLOCK_AUTHOR]）。
+     *
+     * 名单本身写在 [com.RobinNotBad.BiliClient.util.recommend.BlockedAuthorStore]（持久化 + 依赖
+     * 上下文），菜单里点一下就落库了；这里拿到的回调只负责**页面侧的事**：把该作者的卡片从当前
+     * 列表里立刻移除，不用等下拉刷新。不设置（null）时菜单里不出现这一项——排行、搜索、收藏夹
+     * 这些列表屏蔽了也改变不了什么，给个按钮只会误导。
+     */
+    var onBlockAuthor: ((VideoCard) -> Unit)? = null
+
+    /**
      * 多选模式：进入后列表项可以勾选/取消（收藏夹多选删除用）。
      * 勾选状态由页面持有，这里只按 [selectedAids] 画样式。
      */
@@ -104,9 +114,14 @@ class VideoCardAdapter(
                 // 私有功能产出的卡片（没有 B 站 aid/cid）由门面判断跳过；直播间卡片没有投稿 aid。
                 if (!SharedPreferencesUtil.getBoolean(SettingsKeys.CACHE_QUICK_MODE, true)) return false
                 if (videoCard.type == "live" || OptionalFeatures.skipQuickCache(videoCard)) return false
-                return VideoCardMenu.show(context, videoCard, onReduceRecommend != null) {
-                    onReduceRecommend?.invoke(videoCard)
-                }
+                return VideoCardMenu.show(
+                    context,
+                    videoCard,
+                    reduceRecommendAvailable = onReduceRecommend != null,
+                    onReduceRecommend = { onReduceRecommend?.invoke(videoCard) },
+                    blockAuthorAvailable = onBlockAuthor != null,
+                    onBlockAuthor = { onBlockAuthor?.invoke(videoCard) }
+                )
             }
         })
         // 如果设置了自定义点击监听器，覆盖默认行为

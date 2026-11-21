@@ -3245,6 +3245,13 @@
     <string name="msg_video_card_menu_watch_later_failed">添加失败，错误码：%1$s</string>
     <string name="msg_video_card_menu_reduce_ok">已减少推荐</string>
     <string name="msg_video_card_menu_reduce_failed">操作失败，错误码：%1$s</string>
+    <!-- 屏蔽作者（26.11.21，对齐 bilibili-margin 的「不看该作者」）：
+         本地名单走 util/recommend/BlockedAuthorStore.kt，同时best-effort 调 B 站「不想看此 UP 主」（reason 4）。
+         服务端那步失败不弹错，屏蔽已由本地名单生效。 -->
+    <string name="text_video_card_menu_block_author">屏蔽作者</string>
+    <string name="text_video_card_menu_block_author_fallback">该作者</string>
+    <string name="msg_video_card_menu_block_author_ok">已屏蔽「%1$s」</string>
+    <string name="msg_video_card_menu_block_author_exists">已经在屏蔽名单里了</string>
 
     <!-- 番剧分区页（推荐 / 追番 / 索引 + 动态筛选）。筛选走 TerminalDialog 的分组单选，
          不再把 9 组条件铺成 chip 行（手表一屏放不下，也会挤掉列表空间）。 -->
@@ -3323,6 +3330,17 @@
          读取点在 util/TerminalDialog.kt 的 Sheet.applyTitleMarquee()。 -->
     <string name="setting_dialog_title_marquee">弹窗标题跑马灯</string>
     <string name="desc_dialog_title_marquee">弹窗标题最多占一行，放不下就横向滚动显示完整内容，省下的高度留给列表与按钮。关掉恢复原来的自动换行。默认开启。</string>
+    <!-- 推荐流增强（26.11.21，对齐 bilibili-margin 的 X 式重排）。默认关闭，用户自己去开。 -->
+    <string name="setting_recommend_rerank">X 式重排</string>
+    <string name="desc_recommend_rerank">按你看过的历史给 UP 主打分：常看的往前排、刚退出没看完的往后排，并让相邻几张卡片的 UP 主尽量不重复。首次开启需要几秒读历史。默认关闭。</string>
+    <string name="setting_blocked_authors">屏蔽的作者</string>
+    <string name="desc_blocked_authors">推荐页长按视频卡片选「屏蔽作者」后，该作者的视频不会再出现在推荐里。这里可以解除屏蔽。</string>
+    <string name="pagename_blocked_authors">屏蔽的作者</string>
+    <string name="text_blocked_authors_empty">还没有屏蔽任何作者</string>
+    <string name="desc_blocked_authors_item">ID %1$s · 点我解除屏蔽</string>
+    <string name="btn_blocked_authors_unblock">解除屏蔽</string>
+    <string name="msg_blocked_authors_unblocked">已解除屏蔽</string>
+    <string name="msg_blocked_authors_unblock_failed">不在屏蔽名单里</string>
     <string name="pagename_localfolderlist">文件夹</string>
     <string name="text_cache_folder_entry">文件夹 %1$d</string>
     <string name="text_local_folder_video_count">%1$d 个视频</string>

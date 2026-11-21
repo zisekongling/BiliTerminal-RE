@@ -53,6 +53,8 @@ import com.RobinNotBad.BiliClient.util.UiScaleInput
 import com.RobinNotBad.BiliClient.util.UpdateChannel
 import com.RobinNotBad.BiliClient.util.UpdateManager
 import com.RobinNotBad.BiliClient.util.VirtualCollectionPrefs
+import com.RobinNotBad.BiliClient.util.recommend.BlockedAuthorStore
+import com.RobinNotBad.BiliClient.util.recommend.RecommendPrefs
 
 /** 「外观设置」分组的 group_type 取值。`SettingsIndex` 里跳转该分组时也用这个常量。 */
 const val GROUP_APPEARANCE = "appearance"
@@ -91,6 +93,15 @@ const val GROUP_DISGUISE = "disguise"
  * 为 true 时出现——公开构建不显示，否则入口点了没反应。
  */
 const val GROUP_BANGUMI = "bangumi"
+
+/**
+ * 「屏蔽的作者」子页的 group_type 取值（26.11.21，对齐 bilibili-margin 的「不看该作者」）。
+ *
+ * <p>名单存在本地（[com.RobinNotBad.BiliClient.util.recommend.BlockedAuthorStore]），入口在
+ * 「高级与实验 → 推荐」里；按既有约定做成**本页的另一个 group_type**，不需要独立 Activity
+ * 与清单注册（这页只有若干行「点一下解除屏蔽」，没有任何自定义交互）。
+ */
+const val GROUP_RECOMMEND_BLOCK = "recommend_block"
 
 /**
  * 分组设置页：统一使用声明式 SettingSection 列表 + SettingsAdapter 渲染。
@@ -190,6 +201,7 @@ class SettingGroupActivity : RefreshListActivity() {
             GROUP_DISGUISE -> buildDisguiseGroup()
             GROUP_FEEDBACK -> buildFeedbackGroup()
             GROUP_BANGUMI -> buildBangumiGroup()
+            GROUP_RECOMMEND_BLOCK -> buildBlockedAuthorsGroup()
             "content" -> buildContentGroup()
             "download" -> buildDownloadGroup()
             "lab" -> buildLabGroup()
@@ -937,6 +949,25 @@ class SettingGroupActivity : RefreshListActivity() {
                 SharedPreferencesUtil.RECOMMEND_SOURCE_BOTH
             )
         )
+        // X 式重排（26.11.21，对齐参考实现 rank.ts）：默认**关**，用户自己去开。
+        // 关着时推荐页与以前完全一样（只多一层屏蔽过滤），开了才读历史画像重排。
+        switch(
+            getString(R.string.setting_recommend_rerank),
+            getString(R.string.desc_recommend_rerank),
+            SettingsKeys.RECOMMEND_RERANK_ENABLE,
+            RecommendPrefs.RERANK_DEFAULT
+        )
+
+        nav(
+            R.drawable.icon_person,
+            getString(R.string.setting_blocked_authors),
+            getString(R.string.desc_blocked_authors)
+        ) {
+            startActivity(Intent(this, SettingGroupActivity::class.java).apply {
+                putExtra("group_type", GROUP_RECOMMEND_BLOCK)
+                putExtra("group_title", getString(R.string.setting_blocked_authors))
+            })
+        }
 
         title("功能开关")
         switch(
@@ -1213,6 +1244,47 @@ class SettingGroupActivity : RefreshListActivity() {
     /**
      * 开发者工具分组 —— 仅在 Debug 构建下显示
      */
+    /**
+     * 「屏蔽的作者」子页（26.11.21）。
+     *
+     * <p>列表直接来自 [BlockedAuthorStore]：它只是 SharedPreferences 里的一段 JSON，没有网络请求，
+     * 所以不需要 [CenterThreadPool]（这页秒开）。点一行弹确认框解除屏蔽——**只解除本地名单**，
+     * 当初顺带发给 B 站的那条「不想看此 UP 主」不会撤回（接口侧没有对应撤回语义，也没必要）。
+     *
+     * <p>名单为空时给一行说明性标题，免得用户看到一个纯空页，以为哪坏了。
+     */
+    private fun buildBlockedAuthorsGroup() {
+        val blocked = BlockedAuthorStore.list()
+        if (blocked.isEmpty()) {
+            title(getString(R.string.text_blocked_authors_empty))
+            return
+        }
+        title(getString(R.string.setting_blocked_authors))
+        for (author in blocked) {
+            val displayName = if (author.name.isEmpty()) author.mid.toString() else author.name
+            nav(
+                R.drawable.icon_person,
+                displayName,
+                getString(R.string.desc_blocked_authors_item, author.mid.toString())
+            ) {
+                TerminalDialog.confirm(
+                    this,
+                    title = getString(R.string.btn_blocked_authors_unblock),
+                    message = displayName
+                ) {
+                    val removed = BlockedAuthorStore.unblock(author.mid)
+                    MsgUtil.showMsg(
+                        getString(
+                            if (removed) R.string.msg_blocked_authors_unblocked
+                            else R.string.msg_blocked_authors_unblock_failed
+                        )
+                    )
+                    rebuild(GROUP_RECOMMEND_BLOCK)
+                }.show()
+            }
+        }
+    }
+
     private fun buildDevGroup() {
         // TestActivity 只应存在于 Debug 包：这里用编译期常量而非运行期判断，
         // release 下 R8 会把整个分支折叠掉，类随之被 strip（清单声明在 src/debug）。

@@ -754,6 +754,16 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - `util/RecommendPagePolicy.kt` — 推荐流分页游标（`ps` 页大小 + `fresh_idx` 页码、`fresh_type` 仅为兼容）+ bvid 去重；**26.11.07 已删掉 `shouldStop`**，推荐页按无底流处理、永不判到底（详见本节结尾那段）。
 - `ui/appearance/BackgroundImage.kt` — 主题背景图（私有目录拷贝、16MB / 8192px 上限、≤1024 采样、填充/适应、0/25/50/75% 遮罩）；`ColorScheme.applyWindowTheme` 里与 `AmbientGlow.createOverlayDrawable` 组成 `LayerDrawable`，**光晕是图上面的一层半透明叠色**，别再用 if/else 把两者设成互斥。
 
+**26.11.21 推荐流三源 + 混合 + X 式重排（新增，改推荐页先读这段）**：推荐页从「单一路网页推荐」扩成「设置里选网页源 / APP源 / 混合使用」，管道是 `RecommendActivity.fetchBatch`（选源拉批）→ `postProcess`（屏蔽过滤 → 可选重排）→ 分页去重 → 上屏。各层都能单独单测，**别再把判定塞回 Activity**：
+
+- `api/AppRecommendApi.java` — APP 推荐流（`app.bilibili.com/x/v2/feed/index`），签名复用 `LoginApi.tvSign`（TV_APP_KEY/SEC 只在那一个文件里，**不许在新文件里再写一份凭据**），也不伪装 UA；参数取 `device=pad&mobi_app=iphone&build=74800100&column=4&fnval=272`（`device=phone` 那套返回 items 里没有 bvid，别换）。`hasCredential()` = `access_key` 非空；`parseItems` 包内可见、可 JVM 测：游标取最后一条 `idx`、要求 `goto/card_goto` 都是 `av`（广告是 `ad_av`/`cm_v1`）、bvid 空跳过、aid 依次取 `player_args.aid`→`args.aid`→`param`、播放数取 `cover_left_text_1`（本身就是「193.9万」格式，别再 toWan）。
+- `api/RecommendTasteApi.java` — 画像取数：观看历史 `x/web-interface/history/cursor` 翻 4 页，读 `author_mid`/`view_at`/`progress`/`duration`/`history.bvid`（`HistoryApi` 不解析 author_mid 与 duration，所以这里另写一份，别去改 HistoryApi 的既有字段顺序）。
+- `util/recommend/RecommendSourcePolicy.kt` — 纯逻辑选源；**无凭据一律 WEB**（用户定的口径：没 access_key 时选 APP/混合也只给网页源，否则只会刷到没有账号相关性的兜底内容）。`RECOMMEND_SOURCE` 三个键此前在 `SharedPreferencesUtil.java:83-87` 只有设置页写、没有代码读。
+- `util/recommend/RecommendMixer.kt` — 混合合流 2 网页 : 1 APP 交替（`WEB_PER_APP`），bvid 全局去重且**网页优先**、空 bvid 丢弃；同文件 `RecommendFilter.withoutBlocked` 做本地屏蔽过滤（`upMid == 0` 放行）。
+- `util/recommend/RecommendRerank.kt` + `RecommendTasteProfile.kt` + `RecommendTasteCodec.kt` + `RecommendTasteStore.kt` — X 式重排（对齐 `github.com/jiuyang5354/bilibili-margin` 的 `src/content/rank.ts`）：先验 `1 - (i/n)*0.5`、偏好 `+0.6*tanh(up/2)`、负反馈 `-0.8*neg`、最近 3 张同 UP `-0.5`、本批重复 `×0.6^k`；画像权重 `decay(exp(-天/30)) * (秒退 ? -0.3 : 0.3 + 完成度)`，快照 TTL 6h、已看 bvid 存 400 条。**顺序不能反**：先过滤再重排，否则被屏蔽的 UP 会靠「常看」加分顶回来。
+- `util/recommend/BlockedAuthorStore.kt` — 屏蔽名单（`recommend_blocked_authors`，上限 200、JSON 数组）。点「屏蔽作者」时同时做本地落库 + B 站 `FeedbackApi.dislike(..., REASON_UP)`（reason=4「不想看此 UP 主」）；解除只解本地、不撤回服务端那笔。
+- 设置侧：`SettingsKeys.RECOMMEND_RERANK_ENABLE`（默认关）与 `SettingsKeys.DIALOG_TITLE_MARQUEE`（默认开）；「屏蔽的作者」用**本页另一个 group_type**（`SettingGroupActivity.GROUP_RECOMMEND_BLOCK`）实现，不需要新 Activity、也不用改 AndroidManifest。
+
 **26.11.07 推荐页「没有更多了」修复：保留游标、不判到底**：`util/RecommendPagePolicy.kt` 与 `RecommendPagePolicyTest` 都保留（`ps`/`fresh_idx` 游标、bvid 去重），只**删掉 `shouldStop`**（连同它的 4 个用例）。原判据拿「跳过广告/番剧卡之后的本页条数」跟「请求页大小」比 —— 一页 20 条里只要有一张非 av 卡就 19 < 20 判成到底，页面随即永久 `bottom = true`，父类于是弹底部「没有更多了」，并且滚动监听里的 `!bottom` 守卫从此永久拦住翻页（**两个症状同一个根**）。推荐页是无底流：`fresh_idx` 每次请求后无条件前进（哪怕本页全是重复卡片），但 **永不置 `bottom`**，所以既翻得动、也不会出现「没有更多了」。反向的坑同样别踩：26.11.02 的旧代码没有游标，服务端对相同参数返回同一批，`loadedBvids` 去重后 0 条新增 → 表现为「翻页触发后列表不长」。改这个页面前先读 `docs/review/fix-progress.md` §3.135。
 
 **`android.media.session.MediaSession` 是 API 21 类，而本项目 minSdk 19**：字段、方法签名、返回值里一律不许出现这个类型（否则 API 19 上 `PlayerActivity` 类加载即崩）。26.11.06 已把字段与四个入口（`initMediaSession` / `updateMediaSessionMetadata` / `updateMediaSessionPlaybackState` / `postMediaControlNotification`）改成 `Any?` + SDK 守卫 + 局部 `as? MediaSession`，新加代码照此办理。
