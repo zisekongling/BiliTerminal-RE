@@ -3333,6 +3333,18 @@
 - **验证 · L1（模拟器，未完成）**：Debug 包在 `emulator-5554` 上装好后卡在首启引导/设置流程，没走到「收藏夹内搜索」那一步；`DialogSizing` 的尺寸结论目前只有单测与几何推算支撑。
 - **未验证（人测 / L2）**：①真手表（466×466 与小方屏）上打开收藏夹内搜索，键盘弹起后「确定」是否可见可点、面板是否留白；②圆屏机上按钮区是否仍被键盘挡住；③**API < 30 的设备只有第 1 条修法生效**（拿不到 ime 高度），要真机确认是否仍有遮挡。
 
+### 3.162 短信登录改走官方客户端链路 + 接受 access_key 作为登录凭据（26.11.22，用户点名）
+
+- **用户口径**：「想把账密/验证码登录换成 app 端的，并接受 access_key」。经查公开文档后确认：**验证码**那条公开快照里是全的（`bilibili-API/docs/login/login_action/SMS.md` 的 app 端两节，含端点、参数名、`|jordan`、`statistics`、buvid 生成算法、错误码）；**密码**那条快照里只有一个 `getKey`，登录动作写着 `TODO`，要官方 App 的 appkey + sign —— 那属于逆向产物且撞「不许写死 APP_KEY/APP_SEC」的红线。所以按用户拍板：**短信换成 app 端，密码保留 web 端**，两条都落 `access_key`。
+- **改法**：
+  1. `api/LoginApi` 新增 app 端链路（全部参数照快照，无额外凭据）：`smsSendApp` / `smsLoginApp`，配套纯函数 `buildSmsSendAppForm` / `buildSmsLoginAppForm`、`newLoginSessionId()`（uuid 去横线，发送与登录必须同值）、`genBuvid()`（快照给的算法：随机 6 段 MAC → md5 → `XY` + 第 3/13/23 位 + 整个 md5，固定 37 位）、`normalizeSeccode()`（统一补 `|jordan`，原来这段逻辑抄在 Fragment 里）。
+  2. `activity/settings/login/SMSLoginFragment`：先走 app 端；**只在「短信根本没发出去」时回退 web 端**（`smsShouldFallbackToWeb`：`1003 已发送` / `86203 次数上限` / `1025 永久封禁` / `-101` 一律不回退，否则用户会收到两条短信并被 60 秒 CD 挡住）。发送时记下通道与 `login_session_id`，登录必须走同一条通道——两边签发的 `captcha_key` 不通用，交叉使用只会回「验证码错误」。
+  3. **Cookie 落盘**：app 端把 Cookie 放在响应体的 `cookie_info.cookies` 里、**不发 `Set-Cookie`**，OkHttp 的 CookieJar 收不到。`AppTokenRefreshApi.updateCookies` 提升为 `public applyCookieInfo` 并在两条登录的 `handleLoginSuccess` 里先调用——否则「登录成功」之后读到的还是上一套空 Cookie，mid 取不到直接判失败。
+  4. `util/SpecialLoginParser`：导入校验从「必须带 `refresh_token`」放宽成「`refresh_token` 与 `access_key` **至少一样**」。只有 access_key 的包（App 端令牌，30 天内直用）现在能导；两样都缺仍然拒绝，提示里点明缺的是哪两样。
+- **为什么密码不一起换**：密码登录的 app 端调用在公开文档里**没有**（`password.md` 的「APP端密码登录」只给了 `getKey`，并注明「鉴权方式：appkey」，登录那一步是 `TODO`）；补它要 appkey + sign，而项目红线（`AppRecommendApi` 注释 + `docs/review/forks/revival.md`）明确禁止把官方 App 的 APP_KEY/APP_SEC 写死。要换必须整套进私有仓，本轮不做。
+- **验证 · L0（26.11.22）**：`:app:assembleStandardDebug` BUILD SUCCESSFUL；新增 `LoginApiSmsAppTest` **12 例**（buvid 形状/随机性、session id 去横线、seccode 归一、发送与登录请求体的键名与取值、app 端不含 web 端参数、回退判据表）与 `SpecialLoginParserTest` +2 例（只有 access_key 能导入、两样都缺时提示点到两个字段），共 25 例全绿。
+- **未验证（L1 / L2）**：①真实手机号收码 + 登录端到端（本机没有可用于收码的号码）；②app 端失败后回退 web 端这条分支（需要让 app 端真的被拒）；③buvid 是否被服务端认可（快照算法给了，但没有实测样本）。④密码登录仍是 web 端，本轮只多了「响应带 cookie_info 就顺带并进去」的兜底。
+
 ## 4. 历史章节索引
 
 > 完整正文在 `docs/archive/review/fix-progress-history.md`；§3.0~§3.51 的状态快照（26.10.09~26.10.21）在 `docs/archive/review/fix-progress-snapshots-261009-261021.md`。**编号在历史上有重复**（`## 二十二` / `## 二十九` 各出现两次、`## 30.` 是阿拉伯数字写法，原为不打断既有交叉引用而保持不动），下表**以归档文件的物理行序为准**。

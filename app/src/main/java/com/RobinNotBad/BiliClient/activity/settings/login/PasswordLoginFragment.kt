@@ -17,6 +17,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.SplashActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseFragment
 import com.RobinNotBad.BiliClient.activity.base.InstanceActivity
+import com.RobinNotBad.BiliClient.api.AppTokenRefreshApi
 import com.RobinNotBad.BiliClient.api.CookiesApi
 import com.RobinNotBad.BiliClient.api.LoginApi
 import com.RobinNotBad.BiliClient.util.AccountManager
@@ -224,9 +225,12 @@ class PasswordLoginFragment : BaseFragment() {
         // （startActivity / finish）回到主线程；setStatusText 内部已自带 runOnUiThread。
         CenterThreadPool.run {
             try {
+                val loginData = loginJson.optJSONObject("data")
+                // 与短信登录同一处理：响应里若带 cookie_info 就先并进本地 Cookie（web 端点通常走
+                // Set-Cookie，这里是兜底，成本是一次空判断）
+                if (loginData != null) AppTokenRefreshApi.applyCookieInfo(loginData)
                 val cookies = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "")
 
-                val loginData = loginJson.optJSONObject("data")
                 val tokenInfo = if (loginData != null) loginData.optJSONObject("token_info") else null
                 var refreshToken = if (tokenInfo != null) tokenInfo.optString("refresh_token", "") else ""
                 if (refreshToken.isEmpty() && loginData != null) {

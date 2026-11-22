@@ -18,6 +18,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.SplashActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseFragment
 import com.RobinNotBad.BiliClient.activity.base.InstanceActivity
+import com.RobinNotBad.BiliClient.api.AppTokenRefreshApi
 import com.RobinNotBad.BiliClient.api.CookiesApi
 import com.RobinNotBad.BiliClient.api.LoginApi
 import com.RobinNotBad.BiliClient.util.AccountManager
@@ -45,6 +46,12 @@ class SMSLoginFragment : BaseFragment() {
     private var geetestSeccode: String? = null
     private var captchaKey: String? = null
     private var captchaReady: Boolean = false
+
+    /** APP 端短信登录的会话 id：发送与登录必须是同一个值，所以要在发送时生成并留到登录。 */
+    private var loginSessionId: String? = null
+
+    /** 这次短信是从哪个端点发出去的。登录必须走同一条通道——两边签发的 captcha_key 不通用。 */
+    private var smsViaAppApi: Boolean = true
 
     private lateinit var captchaLauncher: ActivityResultLauncher<Intent>
 
@@ -178,19 +185,34 @@ class SMSLoginFragment : BaseFragment() {
 
     @SuppressLint("SetTextI18n")
     private fun doSendSms() {
-        val seccode = if (geetestSeccode != null && geetestSeccode!!.isNotEmpty() && geetestSeccode!!.contains("|jordan"))
-            geetestSeccode!!
-        else
-            geetestValidate + "|jordan"
+        val seccode = LoginApi.normalizeSeccode(geetestValidate, geetestSeccode)
 
         setStatusText(getAppContext().getString(R.string.msg_login_status_smsloginfragment_004))
         val phone = phoneInput.text.toString().trim()
 
         CenterThreadPool.run {
             try {
-                val result = LoginApi.smsSend(phone, captchaToken, captchaChallenge, geetestValidate, seccode)
-                val code = result.optInt("code", -1)
+                // 优先 APP 端（与官方客户端同一条链路，登录后还能拿到 access_token）。
+                // login_session_id 与 buvid 每次发送重新生成，登录时复用同一个 session id。
+                val sessionId = LoginApi.newLoginSessionId()
+                val buvid = LoginApi.genBuvid()
+                var result = LoginApi.smsSendApp(
+                    phone, sessionId, captchaToken, captchaChallenge, geetestValidate, seccode, buvid
+                )
+                var code = result.optInt("code", -1)
+                var usedAppApi = true
+
+                // 只在这条通道「短信根本没发出去」时才回退 web 端：否则会重复发送、还会撞 60 秒 CD
+                if (LoginApi.smsShouldFallbackToWeb(code)) {
+                    Logu.w("SMSLogin", "APP 端发送短信失败（code=$code），回退 web 端重试")
+                    result = LoginApi.smsSend(phone, captchaToken, captchaChallenge, geetestValidate, seccode)
+                    code = result.optInt("code", -1)
+                    usedAppApi = false
+                }
+
                 if (code == 0) {
+                    loginSessionId = sessionId
+                    smsViaAppApi = usedAppApi
                     val data = result.optJSONObject("data")
                     if (data != null) {
                         captchaKey = data.optString("captcha_key", "")
@@ -246,7 +268,13 @@ class SMSLoginFragment : BaseFragment() {
         setStatusText(getAppContext().getString(R.string.msg_login_status_passwordloginfragment_008))
         CenterThreadPool.run {
             try {
-                val result = LoginApi.smsLogin(phone, code, captchaKey)
+                // 与发送短信时走同一条通道：captcha_key 与 login_session_id 都是按通道签发的，
+                // 交叉使用服务端只会回「验证码错误」
+                val result = if (smsViaAppApi) {
+                    LoginApi.smsLoginApp(phone, loginSessionId, code, captchaKey)
+                } else {
+                    LoginApi.smsLogin(phone, code, captchaKey)
+                }
                 val respCode = result.optInt("code", -1)
 
                 if (respCode == 0) {
@@ -273,9 +301,11 @@ class SMSLoginFragment : BaseFragment() {
         // 现在落盘/网络放后台线程，只有 startActivity/finish 回主线程，并在 Runnable 内部判活。
         CenterThreadPool.run {
             try {
+                val loginData = loginJson.optJSONObject("data")
+                // APP 端端点把 Cookie 放在响应体的 cookie_info 里（不发 Set-Cookie），先落盘再读
+                if (loginData != null) AppTokenRefreshApi.applyCookieInfo(loginData)
                 val cookies = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "")
 
-                val loginData = loginJson.optJSONObject("data")
                 val tokenInfo = if (loginData != null) loginData.optJSONObject("token_info") else null
                 var refreshToken = if (tokenInfo != null) tokenInfo.optString("refresh_token", "") else ""
                 if (refreshToken.isEmpty() && loginData != null) {

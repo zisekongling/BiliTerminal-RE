@@ -69,6 +69,28 @@ class SpecialLoginParserTest {
     }
 
     @Test
+    fun parse_accessKeyOnly_success() {
+        // 只搬 access_key 也是合法输入：App 端令牌 30 天内可直用，到期需重新登录。
+        // 旧实现强制要 refresh_token，会把这种「只有 app 令牌」的包直接拒掉。
+        val result = SpecialLoginParser.parse("{\"cookies\":\"DedeUserID=1\",\"access_key\":\"ak\"}")
+        assertTrue("只有 access_key 也应导入成功：$result", result is SpecialLoginParser.Result.Success)
+        result as SpecialLoginParser.Result.Success
+        assertEquals("", result.refreshToken)
+        assertEquals("ak", result.accessKey)
+        assertEquals(1L, result.mid)
+    }
+
+    @Test
+    fun parse_noRenewableCredential_failureMessageMentionsBoth() {
+        // 两样都没有 = 过期后无法自救，必须拒绝，且提示里要点明缺的是哪两样
+        val result = SpecialLoginParser.parse("{\"cookies\":\"DedeUserID=1\"}")
+        assertTrue(result is SpecialLoginParser.Result.Failure)
+        val message = (result as SpecialLoginParser.Result.Failure).message.toString()
+        assertTrue("提示应提到 refresh_token：$message", message.contains("refresh_token"))
+        assertTrue("提示应提到 access_key：$message", message.contains("access_key"))
+    }
+
+    @Test
     fun parse_cookiesWithoutDedeUserId_failure() {
         val result = SpecialLoginParser.parse("{\"cookies\":\"SESSDATA=abc\",\"refresh_token\":\"rt\"}")
         assertTrue("cookies 里没有 DedeUserID 应失败", result is SpecialLoginParser.Result.Failure)
