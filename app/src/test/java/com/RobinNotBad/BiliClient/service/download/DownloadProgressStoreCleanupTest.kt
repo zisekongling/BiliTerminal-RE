@@ -44,6 +44,25 @@ class DownloadProgressStoreCleanupTest {
     }
 
     @Test
+    fun abandon标记在removeDownloadProgress之后依然有效() {
+        // 删除一条「正在下载」的任务时，removeDownloadProgress 会清掉 pausedMap（那是它的契约），
+        // 但 worker 还在跑：弱网下一次 read() 可以阻塞十几秒，回来时已经看不到暂停标志。
+        // 所以 abandon 用独立集合表达「这条任务不存在了」，必须能扛过 removeDownloadProgress。
+        val id = 88888L
+        DownloadProgressStore.abandon(id)
+        assertTrue("abandon 之后 isPaused 必须为 true，worker 才能在检查点退出", DownloadProgressStore.isPaused(id))
+
+        DownloadProgressStore.removeDownloadProgress(id)
+
+        assertTrue("removeDownloadProgress 不许清掉已删除标记", DownloadProgressStore.isPaused(id))
+        assertFalse("进度本身仍应被清", DownloadProgressStore.hasProgress(id))
+
+        // worker 退出后清标记：此后 id 若被复用，不能再被判成已删除
+        DownloadProgressStore.clearAbandon(id)
+        assertFalse("clearAbandon 之后不该再是暂停/已删除", DownloadProgressStore.isPaused(id))
+    }
+
+    @Test
     fun removeDownloadProgress对未知id无害() {
         // 调度器对不存在条目的清理路径（如 recoverStuckSections 重入）会反复调用
         DownloadProgressStore.removeDownloadProgress(-1L)

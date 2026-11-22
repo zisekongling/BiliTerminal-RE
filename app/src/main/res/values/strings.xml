@@ -1037,6 +1037,7 @@
     <string name="text_download_fail_join">分段拼接失败：%1$s</string>
     <string name="text_download_fail_fetch_url">获取播放地址失败</string>
     <string name="text_download_fail_network">网络错误</string>
+    <string name="text_download_fail_no_space">存储空间不足：需要约 %1$d MB，可用 %2$d MB</string>
     <!-- 下载列表多选删除（26.11.09） -->
     <string name="msg_download_select_hint">点条目勾选，再点「删除」</string>
     <string name="text_download_delete_title">删除下载</string>

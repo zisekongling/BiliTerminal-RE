@@ -132,6 +132,10 @@ class DownloadService : Service() {
         @JvmStatic
         fun pauseDownload(id: Long) = DownloadProgressStore.pauseDownload(id)
 
+        /** 标记「这条任务已被删除」：让在跑的 worker 立刻退出且不记失败。见 [DownloadProgressStore.abandon]。 */
+        @JvmStatic
+        fun abandonDownload(id: Long) = DownloadProgressStore.abandon(id)
+
         @JvmStatic
         fun resumeDownload(id: Long) = DownloadProgressStore.resumeDownload(id)
 
@@ -735,6 +739,12 @@ class DownloadService : Service() {
                 // 下载批次结束（成功 / 失败 / 被停止服务都走这里）：立刻放锁。
                 // 锁在空闲时必须释放，常驻会吞掉待机续航。
                 if (wakeLockHeld) DownloadWakeLock.release()
+                // 批次结束就复位这两个标志，别等 onDestroy（26.11.22 修正）。
+                // 否则从 stopSelf() 到 onDestroy 真正执行之间（低配表上可达秒级）用户点下载：
+                // start() 看到 started=true 只弹一句「队列正在运行」就 return，而 onDestroy
+                // 复位后又没人再调 start() → 新任务永久停在「等待下载」，只能手动点继续。
+                started = false
+                batchRunning = false
             }
 
             stopSelf()
@@ -848,6 +858,16 @@ class DownloadService : Service() {
      * 失败项目会被置为终态(error)：不会被再次拾取，也不会卡在"下载中"。
      */
     private fun runDownloadSection(downloadSection: DownloadSection): Boolean {
+        try {
+            return runDownloadSectionLocked(downloadSection)
+        } finally {
+            // 「已删除」标记只对当时在跑的这个 worker 有效：退出即失效，
+            // 否则 id 万一被复用，新任务会在第一个检查点就被误判成已删除。
+            DownloadProgressStore.clearAbandon(downloadSection.id)
+        }
+    }
+
+    private fun runDownloadSectionLocked(downloadSection: DownloadSection): Boolean {
         val success = try {
             processDownloadSection(downloadSection)
         } catch (e: Throwable) {
@@ -1033,11 +1053,36 @@ class DownloadService : Service() {
         // 服务端没给 size 才退回探测。
         val planTotalBytes = if (!useDash && !downloadSection.isAudioOnly)
             DownloadSegmentPlan.totalBytes(videoSegments) else -1L
-        beginSectionBytes(
-            downloadSection.id,
-            if (planTotalBytes > 0) planTotalBytes
+        val plannedTotal = if (planTotalBytes > 0) planTotalBytes
             else probeSectionBytes(videoUrls, audioUrls, useDash, downloadSection.isAudioOnly)
-        )
+        beginSectionBytes(downloadSection.id, plannedTotal)
+
+        // 剩余空间前置检查（26.11.22 审查发现）：分片下载先 setLength 预分配整个文件，
+        // 空间不足时每一片都写失败，随后回退成「整文件清空重下」——同一份空间再写一遍，
+        // 几乎必然再失败，白丢已经下好的进度。这里在动手前挡一次。
+        // usableSpace 为 0 说明目录不可用/未知，不在这里判（后面的写失败会给出具体原因）。
+        val targetDir = downloadSection.getPath()
+        if (plannedTotal > 0 && targetDir != null) {
+            val usableBytes = targetDir.usableSpace
+            // 留 10% + 32 MB 余量：合流要 .tmp/.bak 双份，块对齐也会多吃一点。
+            val requiredBytes = plannedTotal + plannedTotal / 10 + 32L * 1024 * 1024
+            if (usableBytes in 1 until requiredBytes) {
+                val reason = getString(
+                    R.string.text_download_fail_no_space,
+                    (requiredBytes / (1024 * 1024)).toInt(),
+                    (usableBytes / (1024 * 1024)).toInt()
+                )
+                recordFailReason(downloadSection.id, reason)
+                DownloadRepository.setState(downloadSection.id, "error")
+                notifier.notifyCompletion(
+                    getString(R.string.text_download_link_failed, downloadSection.name_short),
+                    downloadSection.id.toInt()
+                )
+                section = null
+                refreshDownloadList()
+                return false
+            }
+        }
 
         try {
             DownloadRepository.setState(downloadSection.id, "downloading")

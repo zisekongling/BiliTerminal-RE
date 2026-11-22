@@ -445,7 +445,12 @@ class DownloadListActivity : RefreshListActivity() {
     private fun deleteSectionData(section: DownloadSection): DeleteResult {
         return try {
             if (section.state == "downloading" || DownloadService.getDownloadProgress(section.id) != null) {
-                DownloadService.pauseDownload(section.id)
+                // 用 abandon 而不是 pauseDownload（26.11.22 修正）：pause 只是置标志、不是同步停止，
+                // 而下面的 removeDownloadProgress 会清掉 pausedMap。弱网下 worker 回来时
+                // 早已看不到暂停，会继续往已删除的 inode 写（空间不释放），
+                // 并在「删了立刻重下」时与新的 worker 写同一目录。
+                // abandon 走独立的 abandonedIds，只有 worker 自己退出时才清。
+                DownloadService.abandonDownload(section.id)
             }
 
             // 用 peekPath() 而不是 getPath()：后者会对不存在的视频目录顺手 mkdirs，
@@ -454,7 +459,6 @@ class DownloadListActivity : RefreshListActivity() {
             val fileGone = !folder.exists() || FileUtil.deleteFolderRecursively(folder)
 
             DownloadService.deleteSection(section.id)
-            DownloadService.pausedMap.remove(section.id)
             DownloadService.removeDownloadProgress(section.id)
             DeleteResult(true, !fileGone)
         } catch (e: Exception) {
