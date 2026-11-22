@@ -243,4 +243,63 @@ class CookieRefreshPolicyTest {
             CookieRefreshPolicy.checkRefreshedCredentials("new_token", "sess", 123L, 0L)
         )
     }
+
+    // ---- checkIssuedSession：看「响应自己带来的 Set-Cookie」，而不是落盘后的 SP ----
+
+    @Test
+    fun checkIssuedSession_响应没带新SESSDATA时拒绝() {
+        assertEquals(
+            "响应没下发 SESSDATA 就绝不能 confirm（旧会话会被作废，本地没有新的）",
+            CookieRefreshPolicy.RefreshCheck.NO_SESSION_COOKIE,
+            CookieRefreshPolicy.checkIssuedSession("", "jct", 123L, 123L, "old_sess")
+        )
+        assertEquals(
+            CookieRefreshPolicy.RefreshCheck.NO_SESSION_COOKIE,
+            CookieRefreshPolicy.checkIssuedSession(null, "jct", 123L, 123L, "old_sess")
+        )
+    }
+
+    @Test
+    fun checkIssuedSession_响应没带新bili_jct时拒绝() {
+        assertEquals(
+            "没有 bili_jct 就发不了 confirm（POST 需要 csrf）",
+            CookieRefreshPolicy.RefreshCheck.NO_SESSION_COOKIE,
+            CookieRefreshPolicy.checkIssuedSession("new_sess", "", 123L, 123L, "old_sess")
+        )
+    }
+
+    @Test
+    fun checkIssuedSession_下发的会话与本地一模一样时判定为没换() {
+        assertEquals(
+            "响应给的 SESSDATA 与本地存量相同 = 服务端这次没换会话，confirm 就是自杀",
+            CookieRefreshPolicy.RefreshCheck.STALE_SESSION,
+            CookieRefreshPolicy.checkIssuedSession("same_sess", "jct", 123L, 123L, "same_sess")
+        )
+    }
+
+    @Test
+    fun checkIssuedSession_mid对不上时拒绝() {
+        assertEquals(
+            CookieRefreshPolicy.RefreshCheck.MID_MISMATCH,
+            CookieRefreshPolicy.checkIssuedSession("new_sess", "jct", 456L, 123L, "old_sess")
+        )
+        assertEquals(
+            "本地 mid 残缺（<=0）同样不能放行",
+            CookieRefreshPolicy.RefreshCheck.MID_MISMATCH,
+            CookieRefreshPolicy.checkIssuedSession("new_sess", "jct", 123L, 0L, "old_sess")
+        )
+    }
+
+    @Test
+    fun checkIssuedSession_真换了会话时放行() {
+        assertEquals(
+            CookieRefreshPolicy.RefreshCheck.READY,
+            CookieRefreshPolicy.checkIssuedSession("new_sess", "jct", 123L, 123L, "old_sess")
+        )
+        assertEquals(
+            "本地本来就没有 SESSDATA（理论上走不到刷新）时，只要响应给了新的就放行",
+            CookieRefreshPolicy.RefreshCheck.READY,
+            CookieRefreshPolicy.checkIssuedSession("new_sess", "jct", 123L, 123L, "")
+        )
+    }
 }
