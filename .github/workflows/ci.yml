@@ -85,7 +85,8 @@ jobs:
       # 与 build-release.yml 保持同一套清理逻辑：
       # gradle.properties 硬编码了本机 Windows JDK 路径与本地代理（Clash），
       # Linux CI 必须移除，否则会拿不存在的 JDK 路径启动 daemon、并通过本地代理拉依赖失败。
-      # 同时把 Gradle/Kotlin daemon 堆内存调低，避免在 GitHub 较小内存的 runner 上 OOM。
+      # 同时给两个 daemon 定下内存口径：Gradle daemon 压到 2048m 省内存，
+      # Kotlin daemon 反而必须 ≥3072m（两个 flavor 连续编译，见下面注释）。
       - name: 适配 Linux 构建环境
         run: |
           # 注释形式的本机配置同样要删：本仓库 gradle.properties 里的代理就是
@@ -97,10 +98,18 @@ jobs:
           # 堆内存必须整行替换：原先写死 `-Xmx4096m`，而本仓库实际是 `-Xmx8192m`，
           # 替换 0 命中、后面又挂了 `|| true`，于是「防 runner OOM」从未生效（调研清单第 3 条）。
           sed -i -E 's/^org\.gradle\.jvmargs=.*/org.gradle.jvmargs=-Xmx2048m -Xms1024m -Dfile.encoding=UTF-8/' gradle.properties
-          sed -i -E 's/^kotlin\.daemon\.jvmargs=.*/kotlin.daemon.jvmargs=-Xmx2048m/' gradle.properties
+          # Kotlin daemon 不能压到 2048m：standard 与 coexist 两个 flavor 是**连续**在同一个
+          # Kotlin daemon 里编译的，第一个把堆吃到高位后，第二个（compileCoexistDebugKotlin）
+          # 直接 OOM 失败——2026-11-21 run 44916623006 与 11-22 run 44977455350 都死在这里。
+          # 本仓库是大工程（app 模块 400+ 源文件），3072m 是两 flavor 冷编译的底线。
+          sed -i -E 's/^kotlin\.daemon\.jvmargs=.*/kotlin.daemon.jvmargs=-Xmx3072m -XX:+UseG1GC/' gradle.properties
           # 替换成功与否必须硬校验：否则下次 gradle.properties 再改一次值，这里又会静默空转。
           if ! grep -qE '^org\.gradle\.jvmargs=-Xmx2048m' gradle.properties; then
             echo "::error::org.gradle.jvmargs 未被替换成 -Xmx2048m，Gradle daemon 堆内存设置没生效"
+            exit 1
+          fi
+          if ! grep -qE '^kotlin\.daemon\.jvmargs=-Xmx3072m' gradle.properties; then
+            echo "::error::kotlin.daemon.jvmargs 未被替换成 -Xmx3072m，两个 flavor 连续编译会 OOM"
             exit 1
           fi
           echo "CI 实际生效的 JVM 参数："
