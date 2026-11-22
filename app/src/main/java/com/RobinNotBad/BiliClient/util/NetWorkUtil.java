@@ -679,6 +679,15 @@ public class NetWorkUtil {
             return;
         }
 
+        // 26.11.22「老是掉登录」返工：刷新/确认接口的 Set-Cookie 交给 CookieRefreshApi 自己解析。
+        // 通用落盘不能碰它们——刷新响应一旦被这里抢先写进 SP，CookieRefreshApi 就再也分不清
+        // 「响应真的给了新会话」还是「本地还是旧的那一份」，于是可能拿旧会话去 confirm：
+        // 服务端作废旧会话、本地留着旧 Cookie，用户就是彻底掉登录。
+        if (RefreshGuard.isRefreshEndpoint(url == null ? null : url.encodedPath())) {
+            Logu.d("saveCookiesFromResponse", "刷新接口的 Set-Cookie 由 CookieRefreshApi 处理，通用落盘让路");
+            return;
+        }
+
         List<String> newCookies = response.headers("Set-Cookie");
 
         //如果没有新cookies，直接返回
@@ -696,8 +705,37 @@ public class NetWorkUtil {
                         + requestGeneration + " cur=" + accountGeneration);
                 return;
             }
+            // 26.11.22：同代际之内还可能「换过会话」（Cookie 轮换 / 重新登录都会换 SESSDATA）。
+            // 一条带着旧 SESSDATA 发出去的请求，回包里的 Set-Cookie 属于**已经作废的那条会话**——
+            // 写进去等于把刚拿到的新会话顶回旧的，下一次请求就是 -101。
+            if (isCrossSessionResponse(response)) {
+                Logu.d("saveCookiesFromResponse", "丢弃跨会话响应的 Set-Cookie");
+                return;
+            }
             saveCookiesLocked(newCookies, responseHost);
         }
+    }
+
+    /**
+     * 这条响应是不是「另一条会话」的回包（26.11.22 新增）。
+     *
+     * <p>判据：请求发出去时带的 SESSDATA 与**此刻**本地缓存的 SESSDATA 都非空且不同。
+     * 出现这种情况只有两种可能——期间刷新换过会话，或者期间重新登录/切号（后者由代际检查兜住）。
+     * 两种情况下这条响应的 Set-Cookie 都属于一条已经不该再用的会话，落盘只会制造「半新半旧」的
+     * Cookie 串（新 bili_jct 配旧 SESSDATA 之类），那是会稳定 -101 的状态。
+     *
+     * <p>注意判断放在锁内：锁外比完再进锁，中间完全可能插进一次轮换。
+     */
+    private static boolean isCrossSessionResponse(Response response) {
+        Request request = response.request();
+        if (request == null) return false;
+        String sentHeader = request.header("Cookie");
+        if (sentHeader == null || sentHeader.isEmpty()) return false;
+        String sentSess = getInfoFromCookie("SESSDATA", sentHeader);
+        if (sentSess.isEmpty()) return false;
+        String currentSess = getInfoFromCookie("SESSDATA", getCachedCookies());
+        if (currentSess.isEmpty()) return false;
+        return !sentSess.equals(currentSess);
     }
 
     private static void saveCookiesLocked(List<String> newCookies, String responseHost) {

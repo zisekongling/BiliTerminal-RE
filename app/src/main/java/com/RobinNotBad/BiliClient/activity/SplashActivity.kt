@@ -186,8 +186,20 @@ class SplashActivity : Activity() {
                     return
                 }
                 CookieRefreshApi.RefreshResult.NEED_LOGIN -> {
+                    // 26.11.22「老是掉登录」返工：-101 不再等于登出。
+                    // 以前这里直接 resetLogin——而 -101 也可能是并发刷新、confirm 发早了这类本地没理顺的
+                    // 情况造成的，替用户清空凭证是唯一不可逆的动作，代价却是重新扫码。
+                    // 现在只提示，并尝试用账号快照里更早那条会话回滚（回滚成功用户无感继续用）。
                     MsgUtil.showMsgLong(UiText.of("登录信息过期，请重新登录！"))
-                    resetLogin("刷新接口返回 -101（会话/口令已被服务端作废）")
+                    val recovered = try {
+                        AccountManager.restoreRejectedSession(
+                            SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "")
+                        )
+                    } catch (e: Exception) {
+                        Log.e("Cookies", "从账号快照恢复失败：${e.message}")
+                        false
+                    }
+                    Log.w("Cookies", "刷新接口返回 -101；回滚快照" + if (recovered) "成功" else "失败，保留本地凭证")
                     return
                 }
                 CookieRefreshApi.RefreshResult.RETRY ->
@@ -445,6 +457,18 @@ class SplashActivity : Activity() {
                     if (online) {
                         if (SharedPreferencesUtil.getLong("mid", 0) != 0L) {
                             CenterThreadPool.run {
+                                // 26.11.22：先把启动元数据修一遍，再补发上一轮没发出去的 confirm。
+                                // 这两步是「半死状态」的唯一解药：mid=0、csrf 与 bili_jct 不一致、
+                                // refresh_token 丢了但账号快照里还有——三种都会让刷新链路直接放弃，
+                                // 表现就是「明明还登录着，却再也不续期，最后掉登录」。
+                                try {
+                                    if (AccountManager.restoreCurrentAccount()) {
+                                        Log.i("Splash", "已修复启动元数据（mid/csrf/refresh_token）")
+                                    }
+                                    CookieRefreshApi.confirmPendingRefresh()
+                                } catch (e: Exception) {
+                                    Log.w("Splash", "启动元数据修复失败: ${e.message}")
+                                }
                                 // 按凭证类型分流：TV/APP 登录（有 access_key）走统一的 APP token 刷新，
                                 // 该接口会同时刷新 access_token 与 cookies；Web 登录走 web cookie 刷新。
                                 if (SharedPreferencesUtil.getString(SharedPreferencesUtil.access_key, "").isNotEmpty()) {
@@ -454,8 +478,20 @@ class SplashActivity : Activity() {
                                         when (AppTokenRefreshApi.refreshAppToken()) {
                                             AppTokenRefreshApi.RefreshResult.OK -> Unit
                                             AppTokenRefreshApi.RefreshResult.NEED_LOGIN -> {
+                                                // 26.11.22：-101 不再触发 resetLogin（见 checkCookieRefresh 里的说明）。
+                                                // 启动时的例行刷新还受 7 天间隔约束，正常情况下根本不会走到这里；
+                                                // 真走到了就只提示 + 试快照回滚，把清空凭证的决定权留给用户。
                                                 MsgUtil.showMsgLong(UiText.of("登录信息过期，请重新登录！"))
-                                                resetLogin("APP token 刷新返回 -101（refresh_token 已失效）")
+                                                val recovered = try {
+                                                    AccountManager.restoreRejectedSession(
+                                                        SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "")
+                                                    )
+                                                } catch (e: Exception) {
+                                                    Log.e("Splash", "从账号快照恢复失败: ${e.message}")
+                                                    false
+                                                }
+                                                Log.w("Splash", "APP token 刷新返回 -101；回滚快照" +
+                                                        if (recovered) "成功" else "失败，保留本地凭证")
                                             }
                                             AppTokenRefreshApi.RefreshResult.RETRY ->
                                                 Log.e("Splash", "APP token 刷新未成功，保留本地登录态")

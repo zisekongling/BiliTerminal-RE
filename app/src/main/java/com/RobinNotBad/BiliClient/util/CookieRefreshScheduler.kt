@@ -169,18 +169,50 @@ object CookieRefreshScheduler {
      * @return true 表示这次流程正常走完（含服务端说「不需要刷新」）；false 表示失败、需要走退避
      */
     private fun refreshNow(): Boolean {
+        // 上一轮已经落盘、但 confirm 没发出去的旧会话，先补发掉（26.11.22）：
+        // 只在本地有待确认记录时才发请求，失败也不影响这次刷新，下次 tick 再补
+        try {
+            CookieRefreshApi.confirmPendingRefresh()
+        } catch (e: Exception) {
+            Logu.w(TAG, "补发 confirm 异常（不影响登录态）：" + e.message)
+        }
+
         // TV / APP 登录：refresh_token 同时能续 access_token 与 cookies，走统一的 APP 刷新
         if (SharedPreferencesUtil.getString(SharedPreferencesUtil.access_key, "").isNotEmpty()) {
+            // 例行刷新受 7 天间隔约束；只有「最近见过 code=-101」时才 force 强刷一次。
+            // 旧实现每次 tick 都无条件轮换一次性口令，一天几十次，每次都是一个丢凭据的窗口
+            val force = loginExpiredAtMs != CookieRefreshPolicy.NO_ATTEMPT
             // 与下面 Web 那条同一口径（26.11.16）：OK 才算成功；RETRY 保留登录态等退避重试；
-            // NEED_LOGIN 是服务端明确说 refresh_token 没了——这时也不清本地凭证，交给启动页的失效流程
-            return when (AppTokenRefreshApi.refreshAppToken()) {
+            // NEED_LOGIN 是服务端明确说 refresh_token 没了——这时也不清本地凭证
+            return when (AppTokenRefreshApi.refreshAppToken(force)) {
                 AppTokenRefreshApi.RefreshResult.OK -> {
-                    Logu.i(TAG, "access_token 已刷新")
+                    // 强制刷新成功时登录态刚被验证过，把「最近见过 -101」清掉，否则下一 tick 还会再强刷
+                    loginExpiredAtMs = CookieRefreshPolicy.NO_ATTEMPT
+                    // applyCredentials 会重置本调度器的节流状态（切号语义），成功后要把「刚试过」
+                    // 重新记上，否则下一次 tick 会立刻再刷一遍
+                    lastAttemptMs = SystemClock.elapsedRealtime()
+                    Logu.i(TAG, if (force) "access_token 已强制刷新" else "access_token 已刷新（或未到间隔）")
                     true
                 }
                 AppTokenRefreshApi.RefreshResult.NEED_LOGIN -> {
-                    Logu.w(TAG, "服务端判定 refresh_token 失效（-101），等用户重新登录；本地凭证保留")
-                    false
+                    // 服务端说这份 refresh_token 没了：先试账号快照里更早的那条会话（可能还有效），
+                    // 能拉回来就继续用，拉不回来也**不清本地凭证**（清空等于替用户决定登出）
+                    val recovered = try {
+                        AccountManager.restoreRejectedSession(
+                            SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "")
+                        )
+                    } catch (e: Exception) {
+                        Logu.w(TAG, "从账号快照恢复登录态失败：" + e.message)
+                        false
+                    }
+                    if (recovered) {
+                        Logu.w(TAG, "服务端判定 refresh_token 失效（-101），已回滚到账号快照里的会话")
+                        lastAttemptMs = SystemClock.elapsedRealtime()
+                        true
+                    } else {
+                        Logu.w(TAG, "服务端判定 refresh_token 失效（-101），且没有可回滚的会话；本地凭证保留，等用户重新登录")
+                        false
+                    }
                 }
                 AppTokenRefreshApi.RefreshResult.RETRY -> {
                     Logu.w(TAG, "access_token 刷新未成功（保留登录态，稍后重试）")

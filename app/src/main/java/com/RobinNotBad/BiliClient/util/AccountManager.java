@@ -36,6 +36,15 @@ public class AccountManager {
 
     private static final String ACCOUNT_LIST_KEY = "account_list";
     private static final String CURRENT_ACCOUNT_KEY = "current_account_mid";
+    /**
+     * 已落盘、但还没向服务端确认的**旧** refresh_token（26.11.22「老是掉登录」返工，Step 3）。
+     *
+     * <p>confirm/refresh 要做的事是「让旧会话失效」，它必须用**旧的** refresh_token。旧实现把
+     * confirm 放在落盘之前跑，失败就把新口令丢掉——一次性轮换口令丢了就再也续不上（永久断链）。
+     * 现在改成：整套新凭据（含本键）一次原子写入，confirm 变成事后可以补发的动作；
+     * 进程被杀 / 没网 / 服务端抖动都不影响，下次刷新入口先补发它。
+     */
+    public static final String PENDING_CONFIRM_KEY = "cookie_pending_confirm";
     private static final Object lock = new Object();
 
     public static class AccountInfo {
@@ -253,32 +262,17 @@ public class AccountManager {
                 editor.putLong(CURRENT_ACCOUNT_KEY, mid);
                 editor.putBoolean(SharedPreferencesUtil.cookie_refresh, true);
                 editor.putBoolean(SharedPreferencesUtil.setup, true);
+                // 换了账号就等于换了一份一次性 refresh_token：例行刷新的计时必须重新起算，
+                // 否则新账号会被上一个账号的时间戳挡住（或者被当成「该刷了」立刻多刷一次）
+                editor.putLong(SharedPreferencesUtil.app_token_last_refresh, AppTokenRefreshPolicy.NO_REFRESH);
+                // 上一个账号待确认的旧口令对新账号毫无意义，留着只会拿错 csrf 去发 confirm
+                editor.remove(PENDING_CONFIRM_KEY);
             });
             // 必须在 SP 写完、且在锁内确定的顺序上"最后"发生：它升代际，把旧账号在飞的响应挡在门外。
             // 先升代际后写 Cookie 都不影响正确性——两者同在 NetWorkUtil 的锁里，不会插进一次旧响应。
             NetWorkUtil.applyAccountCookies(safeCookies);
 
-            List<AccountInfo> accounts = getAccounts();
-            boolean found = false;
-            for (int i = 0; i < accounts.size(); i++) {
-                AccountInfo info = accounts.get(i);
-                if (info.mid != mid) continue;
-                info.cookies = safeCookies;
-                info.refreshToken = safeRefresh;
-                info.accessKey = safeAccessKey;
-                info.csrf = csrf;
-                // 昵称/头像只在拿到新值时才覆盖，避免把已有昵称冲成 "UID:xxx"
-                if (!safeName.isEmpty()) info.name = safeName;
-                if (!safeAvatar.isEmpty()) info.avatar = safeAvatar;
-                if (info.name == null || info.name.isEmpty()) info.name = "UID:" + mid;
-                found = true;
-                break;
-            }
-            if (!found) {
-                accounts.add(new AccountInfo(mid, safeName.isEmpty() ? "UID:" + mid : safeName,
-                        safeCookies, safeRefresh, safeAccessKey, csrf, safeAvatar));
-            }
-            saveAccounts(accounts);
+            upsertSnapshotLocked(mid, safeCookies, safeRefresh, safeAccessKey, csrf, safeName, safeAvatar);
             clearPerAccountStateLocked();
         }
         // 退避状态是给上一个账号算的：不清掉，切到"Cookie 刚过期"的账号会先等最长 4 小时
@@ -290,6 +284,272 @@ public class AccountManager {
     public static boolean applyCredentials(long mid, String name, String cookies,
                                            String refreshToken, String accessKey, String avatar) {
         return applyCredentials(mid, name, cookies, refreshToken, accessKey, avatar, null);
+    }
+
+    // ================= 刷新台账：待确认口令 / 会话原子提交 / 启动修复 =================
+    // 26.11.22「老是掉登录」返工。核心思路来自 BiliTerminal-Revival：新凭据先一次性原子落盘，
+    // confirm/refresh 只负责让旧会话失效，失败可以事后补发；任何一步失败都不许把本地已经拿到的
+    // 新口令丢掉（一次性轮换口令丢了就永久断链）。
+
+    /** 读「已落盘、但还没向服务端确认」的旧 refresh_token；没有则返回空串。 */
+    public static String getPendingConfirm() {
+        String token = SharedPreferencesUtil.getString(PENDING_CONFIRM_KEY, "");
+        return token == null ? "" : token;
+    }
+
+    /** 记下待确认的旧 refresh_token（正常由 {@link #commitRefreshedSession} 代写）。 */
+    public static void setPendingConfirm(String oldRefreshToken) {
+        String token = oldRefreshToken == null ? "" : oldRefreshToken;
+        if (token.isEmpty()) {
+            clearPendingConfirm();
+            return;
+        }
+        synchronized (lock) {
+            SharedPreferencesUtil.putString(PENDING_CONFIRM_KEY, token);
+        }
+    }
+
+    /** 确认已完成（或确认已经毫无意义）时清掉待确认口令。 */
+    public static void clearPendingConfirm() {
+        synchronized (lock) {
+            if (getPendingConfirm().isEmpty()) return;
+            SharedPreferencesUtil.removeValue(PENDING_CONFIRM_KEY);
+        }
+    }
+
+    /** 两份 Cookie 是否是同一条会话（比 SESSDATA；任一侧缺失按「不是同一条」处理）。 */
+    public static boolean sameSession(String cookiesA, String cookiesB) {
+        String sessA = NetWorkUtil.getInfoFromCookie("SESSDATA", cookiesA);
+        String sessB = NetWorkUtil.getInfoFromCookie("SESSDATA", cookiesB);
+        if (sessA.isEmpty() || sessB.isEmpty()) return false;
+        return sessA.equals(sessB);
+    }
+
+    /** 从 Cookie 串里取 DedeUserID；取不到或不是数字时返回 0。 */
+    private static long midOfCookies(String cookies) {
+        String raw = NetWorkUtil.getInfoFromCookie("DedeUserID", cookies);
+        if (raw == null || raw.isEmpty()) return 0L;
+        try {
+            return Long.parseLong(raw.trim());
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
+    }
+
+    /**
+     * 把一次**已确认拿到新会话**的刷新结果原子落库（换票 / Cookie 轮换共用，26.11.22 新增）。
+     *
+     * <p>与 {@link #applyCredentials} 的区别，也是它存在的理由：
+     * <ul>
+     *   <li>这是 refresh 场景而不是登录场景——不动 setup、不清按账号走的缓存、不重置退避；</li>
+     *   <li>做 CAS 复核：账号没换、口令还是「发起这次刷新时」那一份、Cookie 还是同一条会话。
+     *       复核不过说明期间切过号/退出过/另一条刷新链已经成功，**绝不覆盖**，直接丢弃这些结果；</li>
+     *   <li>顺手把旧口令写进 {@link #PENDING_CONFIRM_KEY}，让 confirm 变成事后可补发的动作。</li>
+     * </ul>
+     *
+     * @param expectedCookies 发起刷新时的 Cookie 串（判断期间有没有换账号/换会话）
+     * @param expectedRefreshToken 发起刷新时的 refresh_token（乐观锁的版本号）
+     * @param newCookies 服务端这次下发的**合并后**的完整 Cookie
+     * @param newRefreshToken 服务端这次下发的新 refresh_token
+     * @param accessKey 新的 access_key；没有就传空串（显式写空，不沿用旧值）
+     * @return 是否写入；false 表示这次结果已被别的写入抢先，调用方应丢弃而不是重试覆盖
+     */
+    public static boolean commitRefreshedSession(String expectedCookies, String expectedRefreshToken,
+                                                 String newCookies, String newRefreshToken,
+                                                 String accessKey) {
+        String safeNewCookies = newCookies == null ? "" : newCookies.trim();
+        String safeNewToken = newRefreshToken == null ? "" : newRefreshToken;
+        if (safeNewCookies.isEmpty() || safeNewToken.isEmpty()) return false;
+
+        String sessData = NetWorkUtil.getInfoFromCookie("SESSDATA", safeNewCookies);
+        String jct = NetWorkUtil.getInfoFromCookie("bili_jct", safeNewCookies);
+        long newMid = midOfCookies(safeNewCookies);
+        if (sessData.isEmpty() || jct.isEmpty() || newMid <= 0L) {
+            // 半截凭据：写进去等于把本地登录态换成假的，之后每次请求都是 -101
+            Logu.w("AccountManager", "拒绝提交刷新结果：新 Cookie 缺 SESSDATA/bili_jct/DedeUserID"
+                    + "（sess=" + sessData.length() + ", jct=" + jct.length() + ", mid=" + newMid + "）");
+            return false;
+        }
+
+        String expected = expectedRefreshToken == null ? "" : expectedRefreshToken;
+        String safeAccess = accessKey == null ? "" : accessKey;
+
+        synchronized (lock) {
+            long currentMid = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0);
+            if (currentMid != newMid) {
+                Logu.w("AccountManager", "丢弃刷新结果：期间换过账号（当前 mid=" + currentMid
+                        + "，结果 mid=" + newMid + "）");
+                return false;
+            }
+            String currentToken = SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, "");
+            if (!expected.isEmpty() && !expected.equals(currentToken)) {
+                // 一次性口令：说明另一条刷新链已经成功过，这份结果是旧的，写下去会把好口令换成废口令
+                Logu.w("AccountManager", "丢弃刷新结果：refresh_token 已被别的路径更新（乐观锁不匹配）");
+                return false;
+            }
+            String currentCookies = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "");
+            if (!sameSession(currentCookies, expectedCookies)) {
+                Logu.w("AccountManager", "丢弃刷新结果：本地会话已经换过（不是发起刷新时那条）");
+                return false;
+            }
+
+            SharedPreferencesUtil.edit(editor -> {
+                editor.putLong(SharedPreferencesUtil.mid, newMid);
+                editor.putString(SharedPreferencesUtil.cookies, safeNewCookies);
+                editor.putString(SharedPreferencesUtil.refresh_token, safeNewToken);
+                editor.putString(SharedPreferencesUtil.access_key, safeAccess);
+                editor.putString(SharedPreferencesUtil.csrf, jct);
+                // 待确认的旧口令和整套新凭据在同一笔提交里落盘：进程随时被杀也不会出现
+                // 「新口令在、确认线索没了」这种既续不上又确认不了的死局
+                editor.putString(PENDING_CONFIRM_KEY, expected);
+                editor.putLong(CURRENT_ACCOUNT_KEY, newMid);
+                editor.putBoolean(SharedPreferencesUtil.cookie_refresh, true);
+                editor.putBoolean(SharedPreferencesUtil.setup, true);
+            });
+            // 同一账号内的同步替换（不升代际）：在飞的请求本来就用这份会话，升代际只会白丢它们的结果
+            NetWorkUtil.applyAccountCookies(safeNewCookies);
+            upsertSnapshotLocked(newMid, safeNewCookies, safeNewToken, safeAccess, jct, "", "");
+        }
+        Logu.i("AccountManager", "已提交刷新后的凭据：mid=" + newMid
+                + "，sess=" + sessData.length() + "，token=" + safeNewToken.length());
+        return true;
+    }
+
+    /**
+     * 启动时修元数据（26.11.22 新增，对应 BiliTerminal-Revival 的 restoreCurrentAccount）。
+     *
+     * <p>只修**元数据**，不碰 Cookie 本身，也不拿快照去覆盖一份看起来正常的登录。
+     * 历史上有过几种「半死」状态：mid=0 但 Cookie 里明明有 DedeUserID、csrf 与 bili_jct 不一致、
+     * refresh_token 丢了但账号列表快照里还在。它们都会让刷新链路直接放弃
+     * （{@code CookieRefreshScheduler.isLoggedIn()} 要求 mid!=0 且有 refresh_token），
+     * 于是表现成「一直掉登录」。
+     *
+     * @return 是否修过（仅用于日志）
+     */
+    public static boolean restoreCurrentAccount() {
+        synchronized (lock) {
+            String cookies = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "");
+            if (cookies.isEmpty()) return false;
+
+            long storedMid = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0);
+            long cookieMid = midOfCookies(cookies);
+            long mid = cookieMid > 0L ? cookieMid : storedMid;
+            if (mid <= 0L) return false;
+
+            boolean changed = false;
+            if (cookieMid > 0L && cookieMid != storedMid) {
+                // 以 Cookie 为准：真正随请求发出去的是它，mid 只是本地记账
+                Logu.w("AccountManager", "修复 mid：" + storedMid + " -> " + cookieMid + "（以 Cookie 里的 DedeUserID 为准）");
+                changed = true;
+            }
+
+            String liveCsrf = NetWorkUtil.getInfoFromCookie("bili_jct", cookies);
+            String storedCsrf = SharedPreferencesUtil.getString(SharedPreferencesUtil.csrf, "");
+            boolean csrfStale = !liveCsrf.isEmpty() && !liveCsrf.equals(storedCsrf);
+            if (csrfStale) {
+                Logu.w("AccountManager", "修复 csrf：与 Cookie 里的 bili_jct 不一致");
+                changed = true;
+            }
+
+            String refreshToken = SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, "");
+            String accessKey = SharedPreferencesUtil.getString(SharedPreferencesUtil.access_key, "");
+            if (refreshToken.isEmpty()) {
+                AccountInfo snapshot = getAccountByMid(mid);
+                if (snapshot != null) {
+                    String snapToken = snapshot.refreshToken == null ? "" : snapshot.refreshToken;
+                    if (!snapToken.isEmpty()) {
+                        refreshToken = snapToken;
+                        accessKey = snapshot.accessKey == null ? "" : snapshot.accessKey;
+                        Logu.w("AccountManager", "从账号快照补回 refresh_token（mid=" + mid + "）");
+                        changed = true;
+                    }
+                }
+            }
+
+            long currentAccountMid = SharedPreferencesUtil.getLong(CURRENT_ACCOUNT_KEY, 0);
+            if (currentAccountMid != mid) changed = true;
+            boolean refreshFlag = SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.cookie_refresh, false);
+            if (!refreshFlag) changed = true;
+
+            if (!changed) return false;
+
+            final long fixMid = mid;
+            final String fixRefresh = refreshToken;
+            final String fixAccess = accessKey;
+            final String fixCsrf = liveCsrf;
+            final boolean fixCsrfNeeded = csrfStale;
+            SharedPreferencesUtil.edit(editor -> {
+                editor.putLong(SharedPreferencesUtil.mid, fixMid);
+                editor.putLong(CURRENT_ACCOUNT_KEY, fixMid);
+                if (fixCsrfNeeded) editor.putString(SharedPreferencesUtil.csrf, fixCsrf);
+                editor.putString(SharedPreferencesUtil.refresh_token, fixRefresh);
+                editor.putString(SharedPreferencesUtil.access_key, fixAccess);
+                editor.putBoolean(SharedPreferencesUtil.cookie_refresh, true);
+            });
+            return true;
+        }
+    }
+
+    /**
+     * 会话被服务端判死（-101）之后，用账号列表里的快照把客户端拉回一份「可能还有效」的凭据
+     * （26.11.22 新增，对应 BiliTerminal-Revival 的 restoreRejectedSession）。
+     *
+     * <p>典型场景：某次刷新把 confirm 发早了 / 新 Cookie 没拿到就拿旧 Cookie 去确认，
+     * 服务端作废了会话而本地还留着旧 Cookie——这时快照里那条**上一条**会话可能仍然有效，
+     * 拉回来至少能让用户继续用，而不是直接踢去登录页。回滚走 {@link #applyCredentials}，
+     * 所以会升代际、清按账号走的缓存，属于重操作，只在真的判死时调用。
+     *
+     * @param rejectedCookies 被判死的 Cookie（通常是本地当前 Cookie）
+     * @return 是否成功回滚
+     */
+    public static boolean restoreRejectedSession(String rejectedCookies) {
+        String rejected = rejectedCookies == null ? "" : rejectedCookies;
+        long mid = midOfCookies(rejected);
+        if (mid <= 0L) mid = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0);
+        if (mid <= 0L) return false;
+
+        AccountInfo snapshot;
+        synchronized (lock) {
+            snapshot = getAccountByMid(mid);
+            if (snapshot == null || snapshot.cookies == null || snapshot.cookies.isEmpty()) return false;
+            String rejectedSess = NetWorkUtil.getInfoFromCookie("SESSDATA", rejected);
+            String snapshotSess = NetWorkUtil.getInfoFromCookie("SESSDATA", snapshot.cookies);
+            if (rejectedSess.isEmpty() || rejectedSess.equals(snapshotSess)) {
+                // 快照里就是这份被拒的 Cookie：没有更早的会话可退
+                return false;
+            }
+            Logu.w("AccountManager", "会话被判死，回滚到账号快照（mid=" + mid + "）");
+            return applyCredentials(mid, snapshot.name, snapshot.cookies, snapshot.refreshToken,
+                    snapshot.accessKey, snapshot.avatar, snapshot.csrf);
+        }
+    }
+
+    /**
+     * 写账号列表快照（找不到就新增）。**调用方必须持有 {@link #lock}**。
+     *
+     * <p>昵称/头像只在拿到新值时才覆盖，避免把已有昵称冲成 "UID:xxx"。
+     */
+    private static void upsertSnapshotLocked(long mid, String cookies, String refreshToken,
+                                            String accessKey, String csrf, String name, String avatar) {
+        String safeName = name == null ? "" : name;
+        String safeAvatar = avatar == null ? "" : avatar;
+        List<AccountInfo> accounts = getAccounts();
+        for (int i = 0; i < accounts.size(); i++) {
+            AccountInfo info = accounts.get(i);
+            if (info.mid != mid) continue;
+            info.cookies = cookies;
+            info.refreshToken = refreshToken;
+            info.accessKey = accessKey;
+            info.csrf = csrf;
+            if (!safeName.isEmpty()) info.name = safeName;
+            if (!safeAvatar.isEmpty()) info.avatar = safeAvatar;
+            if (info.name == null || info.name.isEmpty()) info.name = "UID:" + mid;
+            saveAccounts(accounts);
+            return;
+        }
+        accounts.add(new AccountInfo(mid, safeName.isEmpty() ? "UID:" + mid : safeName,
+                cookies, refreshToken, accessKey, csrf, safeAvatar));
+        saveAccounts(accounts);
     }
 
     /**
@@ -320,6 +580,8 @@ public class AccountManager {
                 editor.putString(SharedPreferencesUtil.access_key, "");
                 editor.putBoolean(SharedPreferencesUtil.cookie_refresh, false);
                 editor.putLong(CURRENT_ACCOUNT_KEY, 0);
+                editor.putLong(SharedPreferencesUtil.app_token_last_refresh, AppTokenRefreshPolicy.NO_REFRESH);
+                editor.remove(PENDING_CONFIRM_KEY);
             });
             // 空 Cookie + 升代际：退出后旧账号的任何迟到响应都不能把登录态写回来
             NetWorkUtil.applyAccountCookies("");
