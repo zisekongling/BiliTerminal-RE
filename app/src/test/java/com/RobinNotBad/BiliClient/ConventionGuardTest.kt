@@ -175,4 +175,53 @@ class ConventionGuardTest {
             bad.isEmpty()
         )
     }
+
+    /**
+     * `AGENTS.md`：用户可见文案一律进 `res/values/strings.xml`。
+     *
+     * 只守**布局文件**这一面：`android:text` 之类写死中文是纯增量错误，没有"老代码例外"，
+     * 而且 XML 静态可判。代码侧（`UiText.of("…")`）有 348 处 26.10.19 之前的存量，
+     * 文档明确「迁移未覆盖的老代码可以留着，改到哪块顺手迁哪块」，所以不做一刀切。
+     */
+    @Test
+    fun `布局里不写死中文文案`() {
+        val layoutDir = File("src/main/res/layout")
+        val files = layoutDir.listFiles { f: File -> f.isFile && f.extension == "xml" }.orEmpty().toList()
+        assertTrue("找不到 $layoutDir 或目录为空，路径可能变了", files.size > 20)
+
+        val bad = files.flatMap { hits(it, Regex("android:(text|hint|contentDescription|title)\\s*=\\s*\"[^\"]*[\\u4e00-\\u9fff]"), ::stripXmlComments) }
+        assertTrue(
+            "这些布局把中文写死在 android:text/hint/contentDescription 里，请改成 @string/…：\n" +
+                bad.joinToString("\n"),
+            bad.isEmpty()
+        )
+    }
+
+    /**
+     * `AGENTS.md`：不许 `git add -f` 绕过 `.gitignore`。
+     *
+     * `git ls-files -ci --exclude-standard` 一条命令就能列出「已被跟踪、但按规则本应忽略」的文件——
+     * 出现任何一条都说明有人强推过被忽略的东西（本仓库 `.gitignore` 里有 `private/`、`outputs/`、
+     * `.mcp.json` 这类含敏感内容的路径，误提交代价很高）。
+     */
+    @Test
+    fun `没有被强推入库的忽略文件`() {
+        val repoRoot = File("..")
+        assertTrue("找不到 ${repoRoot.absolutePath} 下的 .git，路径可能变了", File(repoRoot, ".git").exists())
+
+        val process = ProcessBuilder("git", "-C", repoRoot.absolutePath, "ls-files", "-ci", "--exclude-standard")
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader().readText()
+        val exit = process.waitFor()
+        assertTrue("git ls-files 执行失败（exit=$exit）：$output", exit == 0)
+
+        val offenders = output.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        assertTrue(
+            "这些文件已被跟踪，但按 .gitignore 本应被忽略——说明用了 git add -f 强推。" +
+                "确认里面不含 private/ 内容或凭据后，从索引里移除（git rm --cached <路径>）：\n" +
+                offenders.joinToString("\n"),
+            offenders.isEmpty()
+        )
+    }
 }
