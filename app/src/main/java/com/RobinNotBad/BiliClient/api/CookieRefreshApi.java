@@ -204,8 +204,19 @@ public class CookieRefreshApi {
                 issuedSess, issuedJct, issuedMid, expectedMid,
                 NetWorkUtil.getInfoFromCookie("SESSDATA", cookiesOld));
         if (check != CookieRefreshPolicy.RefreshCheck.READY) {
-            // 绝不 confirm：旧 Cookie 一旦被作废而本地又没有新 Cookie，用户就是彻底掉登录
-            Logu.e("Cookie刷新中止", "响应没给出可用的新会话（" + check + "），不确认刷新以免作废旧会话");
+            // 走到这里 code==0：服务端**已经**把一次性口令轮换过了。
+            if (check == CookieRefreshPolicy.RefreshCheck.MID_MISMATCH) {
+                // Cookie 属于另一个账号：一个字都不能动，连口令也不收
+                Logu.e("Cookie刷新中止", "响应里的会话属于另一个账号，丢弃这次结果");
+                return RefreshResult.RETRY;
+            }
+            // 其余情况（响应没带 Set-Cookie、或给的还是旧 SESSDATA）：
+            // 不能 confirm —— 旧 Cookie 一旦被作废而本地又没有新 Cookie，用户就是彻底掉登录；
+            // 但新口令必须留下 —— 旧口令已在服务端作废，不落盘就永久断链。
+            // 所以只更新口令、Cookie 一个字不动，等下次拿到完整的 Set-Cookie 再走整套轮换。
+            boolean tokenKept = AccountManager.acceptRotatedRefreshToken(refreshTokenOld, refreshTokenNew);
+            Logu.w("Cookie刷新中止", "响应没给出可用的新会话（" + check
+                    + "），只保留新口令、不确认刷新；kept=" + tokenKept);
             return RefreshResult.RETRY;
         }
 

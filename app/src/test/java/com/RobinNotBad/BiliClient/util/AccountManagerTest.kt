@@ -523,5 +523,46 @@ class AccountManagerTest {
     fun restoreRejectedSession_refusesWithoutAnyMid() {
         assertFalse(AccountManager.restoreRejectedSession("SESSDATA=only-sess"))
     }
+
+    // ==================== acceptRotatedRefreshToken：只保口令，不碰 Cookie ====================
+
+    @Test
+    fun acceptRotatedRefreshToken_updatesTokenAndSnapshotButNotCookies() {
+        apply(1L)
+
+        assertTrue(AccountManager.acceptRotatedRefreshToken("rt-1", "rt-1-new"))
+
+        assertEquals("rt-1-new", SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, ""))
+        // Cookie 一个字都不能动：这次没拿到新会话，换 Cookie 就等于凭空换会话
+        assertEquals(cookiesOf(1L), SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""))
+        // 也不能留下待确认记录：confirm 会让仍在用的那条会话失效
+        assertEquals("", AccountManager.getPendingConfirm())
+        assertEquals("rt-1-new", AccountManager.getAccountByMid(1L)?.refreshToken)
+    }
+
+    @Test
+    fun acceptRotatedRefreshToken_rejectsWhenTokenAlreadyRotatedElsewhere() {
+        apply(1L)
+        SharedPreferencesUtil.putString(SharedPreferencesUtil.refresh_token, "rt-1-other")
+
+        assertFalse(
+            "另一条路径已经换过口令，这份是旧的，写下去会把好口令换成废口令",
+            AccountManager.acceptRotatedRefreshToken("rt-1", "rt-1-new")
+        )
+        assertEquals("rt-1-other", SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, ""))
+    }
+
+    @Test
+    fun acceptRotatedRefreshToken_rejectsEmptyToken() {
+        apply(1L)
+
+        assertFalse(AccountManager.acceptRotatedRefreshToken("rt-1", ""))
+        assertEquals("rt-1", SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, ""))
+    }
+
+    @Test
+    fun acceptRotatedRefreshToken_rejectsWithoutCurrentAccount() {
+        assertFalse(AccountManager.acceptRotatedRefreshToken("rt-1", "rt-1-new"))
+    }
 }
 

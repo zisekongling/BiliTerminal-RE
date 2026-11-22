@@ -416,6 +416,47 @@ public class AccountManager {
     }
 
     /**
+     * 服务端已经把 refresh_token 一次性轮换掉、但这次没拿到可用的新会话时，只把新口令记下来
+     * （26.11.22 新增）。
+     *
+     * <p>触发场景：`cookie/refresh` 返回 code=0（说明口令确实换过了），可响应里的 `Set-Cookie`
+     * 没带出新的 `SESSDATA` / `bili_jct`（被中间层丢掉，或服务端压根没下发）。这时两头都不能动：
+     * 不能确认刷新（confirm 会让**仍在用的**那条会话失效），也不能把新口令丢了——一次性口令
+     * 丢了就永久断链，下一次刷新只能等 -101。所以这里只更新口令，Cookie 一个字都不碰、
+     * 也不写待确认记录，等下一次刷新拿到完整的 `Set-Cookie` 再走整套轮换。
+     *
+     * @param expectedRefreshToken 发起这次刷新时的口令（乐观锁）
+     * @param newRefreshToken 响应里的新口令
+     * @return 是否写入（false 表示期间已被别的路径换过口令，这份是旧的）
+     */
+    public static boolean acceptRotatedRefreshToken(String expectedRefreshToken, String newRefreshToken) {
+        String newToken = newRefreshToken == null ? "" : newRefreshToken;
+        if (newToken.isEmpty()) return false;
+        String expected = expectedRefreshToken == null ? "" : expectedRefreshToken;
+        synchronized (lock) {
+            String currentToken = SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, "");
+            if (!expected.isEmpty() && !expected.equals(currentToken)) {
+                Logu.w("AccountManager", "丢弃轮换口令：refresh_token 已被别的路径更新");
+                return false;
+            }
+            long mid = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0L);
+            if (mid <= 0L) return false;
+            SharedPreferencesUtil.putString(SharedPreferencesUtil.refresh_token, newToken);
+            List<AccountInfo> accounts = getAccounts();
+            boolean found = false;
+            for (AccountInfo info : accounts) {
+                if (info.mid != mid) continue;
+                info.refreshToken = newToken;
+                found = true;
+                break;
+            }
+            if (found) saveAccounts(accounts);
+            Logu.w("AccountManager", "只更新轮换后的 refresh_token（本次没拿到新会话，不确认刷新）");
+            return true;
+        }
+    }
+
+    /**
      * 启动时修元数据（26.11.22 新增，对应 BiliTerminal-Revival 的 restoreCurrentAccount）。
      *
      * <p>只修**元数据**，不碰 Cookie 本身，也不拿快照去覆盖一份看起来正常的登录。
