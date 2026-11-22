@@ -97,7 +97,11 @@ jobs:
           # 堆内存必须整行替换：原先写死 `-Xmx4096m`，而本仓库实际是 `-Xmx8192m`，
           # 替换 0 命中、后面又挂了 `|| true`，于是「防 runner OOM」从未生效（调研清单第 3 条）。
           sed -i -E 's/^org\.gradle\.jvmargs=.*/org.gradle.jvmargs=-Xmx2048m -Xms1024m -Dfile.encoding=UTF-8/' gradle.properties
-          sed -i -E 's/^kotlin\.daemon\.jvmargs=.*/kotlin.daemon.jvmargs=-Xmx2048m/' gradle.properties
+          # Kotlin daemon 给到 3 G：`assembleDebug` 一次要编两个 flavor，并行时两个编译会话挤在同一个
+          # daemon 里，2 G 会稳定吃到 `OutOfMemoryError: GC overhead limit exceeded`（26.11.22 实测，
+          # compileStandardDebugKotlin / compileCoexistDebugKotlin 都命中过）。3 G 是 `--no-parallel`
+          # 之外的余量，不指望靠它兜并行。
+          sed -i -E 's/^kotlin\.daemon\.jvmargs=.*/kotlin.daemon.jvmargs=-Xmx3072m -XX:+UseG1GC/' gradle.properties
           # 替换成功与否必须硬校验：否则下次 gradle.properties 再改一次值，这里又会静默空转。
           if ! grep -qE '^org\.gradle\.jvmargs=-Xmx2048m' gradle.properties; then
             echo "::error::org.gradle.jvmargs 未被替换成 -Xmx2048m，Gradle daemon 堆内存设置没生效"
@@ -121,7 +125,10 @@ jobs:
       # 显式关掉配置缓存：CI 只跑一次构建，缓存收益为负，而且配置缓存会把
       # 上一次构建的输入快照写进 build/ 目录，出问题时排查成本高于收益。
       - name: 编译 Debug 包
-        run: ./gradlew :app:assembleDebug --no-configuration-cache --stacktrace
+        # `--no-parallel --max-workers=2`：两个 flavor 的 Kotlin 编译并行会挤在同一个 kotlin daemon 里抢内存，
+        # 挂起来的样子是「编译失败但日志里没有一行 `e:`」（见 docs/agents/build.md 26.11.14 那条）。
+        # CI 只求判定「能不能编过」，串行多花的几分钟换一个可信的结论值。
+        run: ./gradlew :app:assembleDebug --no-configuration-cache --no-parallel --max-workers=2 --stacktrace
 
       # 112 个单测此前不在任何自动化路径执行，测试全红也能发版（见 §五 E3）
       # 引入 product flavor 后任务名带 flavor：testDebugUnitTest 已不存在。
@@ -137,7 +144,7 @@ jobs:
       # 第一次被验证，keep 漏一条就是运行期崩溃，而那是发现代价最高的时刻（调研清单第 6 条）。
       # 这里用 unsigned release 包做冒烟：CI 不写签名材料，没有签名配置时 AGP 产出 unsigned APK 是正常的。
       - name: 编译 Release 包（R8 冒烟）
-        run: ./gradlew :app:assembleRelease --no-configuration-cache --stacktrace
+        run: ./gradlew :app:assembleRelease --no-configuration-cache --no-parallel --max-workers=2 --stacktrace
 
       # 单测失败时也要把报告传上来，否则只能看到一行 FAILED
       - name: 上传单测报告
