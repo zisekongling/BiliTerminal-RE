@@ -84,7 +84,7 @@
 
 ## 安全红线（常驻摘要，细则见 `docs/agents/security.md`）
 
-- 新增 Activity 一律 `android:exported="false"`；Release 包仅 `SplashActivity` 与 `GetIntentActivity` 导出。
+- 新增 Activity 一律 `android:exported="false"`；Release 包全应用**只有 3 个**导出（`SplashActivity`、`GetIntentActivity`、`ExternalVideoActivity`，各自理由见 `docs/agents/security.md`）。
 - 只走 https；明文域名白名单只放行 `bilibili.com` / `hdslb.com` / `bilivideo.com` / `afdiancdn.com`，加域名要写原因。
 - `android:allowBackup` 保持 `false`，并保留主清单的 `tools:replace="android:allowBackup"`。
 - 调试页只进 Debug 包，入口用编译期常量 `BuildConfig.DEBUG` 包住；Debug 包的外部可达组件必须挂 `android.permission.DUMP`。
