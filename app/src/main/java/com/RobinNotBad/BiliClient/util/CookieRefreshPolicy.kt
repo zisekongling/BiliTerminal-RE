@@ -103,7 +103,15 @@ object CookieRefreshPolicy {
         NO_SESSION_COOKIE,
 
         /** 新 Cookie 里的 DedeUserID 与当前 mid 对不上（换号/串号），拒绝落库 */
-        MID_MISMATCH
+        MID_MISMATCH,
+
+        /**
+         * 响应没给出**新的** SESSDATA（缺失，或与本地现有的那份一模一样）。
+         *
+         * 这时去 confirm 等于「用旧会话的 bili_jct + 旧 refresh_token 把旧会话作废」，
+         * 而本地手里根本没有新会话 —— 用户就是彻底掉登录（反馈 #163「点击我的一直加载」）。
+         */
+        STALE_SESSION
     }
 
     /**
@@ -128,6 +136,36 @@ object CookieRefreshPolicy {
         // expectedMid <= 0 说明本地本来就没有有效的 mid（登录态已残缺）：这种情况不该走到刷新，
         // 但真走到了也不要拿一个对不上的 DedeUserID 去覆盖（宁可让调用方按失败退避重试）
         if (expectedMid <= 0L || cookieMid != expectedMid) return RefreshCheck.MID_MISMATCH
+        return RefreshCheck.READY
+    }
+
+    /**
+     * 判断「刷新响应到底有没有下发一份新会话」，能不能拿去 confirm。
+     *
+     * <p>与 [checkRefreshedCredentials] 的区别：那个看的是**落盘之后本地 SP 里**的凭据，
+     * 这个看的是**响应自己带来的** Set-Cookie。后者才是硬证据——原来只校验前者时，
+     * 响应里的新 Cookie 被代际过滤 / 域策略丢掉，本地 SP 里那份旧的照样能过校验，
+     * 于是拿着旧 bili_jct 与旧 refresh_token 去 confirm：服务端作废旧会话，本地仍旧会话，
+     * 必掉登录。
+     *
+     * @param issuedSessData  响应 Set-Cookie 下发的 SESSDATA（空 = 没下发）
+     * @param issuedJct       响应 Set-Cookie 下发的 bili_jct（空 = 没下发）
+     * @param issuedMid       响应 Set-Cookie 下发的 DedeUserID 解析值（解析不出传 0）
+     * @param expectedMid     刷新前本地记录的 mid
+     * @param currentSessData 刷新前本地现有的 SESSDATA
+     */
+    @JvmStatic
+    fun checkIssuedSession(
+        issuedSessData: String?,
+        issuedJct: String?,
+        issuedMid: Long,
+        expectedMid: Long,
+        currentSessData: String?
+    ): RefreshCheck {
+        if (issuedSessData.isNullOrBlank() || issuedJct.isNullOrBlank()) return RefreshCheck.NO_SESSION_COOKIE
+        if (expectedMid <= 0L || issuedMid != expectedMid) return RefreshCheck.MID_MISMATCH
+        // 服务端这次没换会话：本地那份旧的即将被 confirm 作废，绝不能确认
+        if (!currentSessData.isNullOrBlank() && issuedSessData == currentSessData) return RefreshCheck.STALE_SESSION
         return RefreshCheck.READY
     }
 }

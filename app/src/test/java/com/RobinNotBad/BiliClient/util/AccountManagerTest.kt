@@ -25,6 +25,9 @@ class AccountManagerTest {
 
     private val fakePrefs = FakeSharedPreferences()
 
+    /** 与 [AccountManager] 里的私有常量同名字面量（键值不该为了测试而放开可见性）。 */
+    private val CURRENT_ACCOUNT_KEY = "current_account_mid"
+
     @Before
     fun setUp() {
         SharedPreferencesUtil.sharedPreferences = fakePrefs
@@ -359,4 +362,207 @@ class AccountManagerTest {
         NetWorkUtil.bumpAccountGeneration()
         assertEquals(before + 1, NetWorkUtil.getAccountGeneration())
     }
+
+    // ==================== 刷新台账：待确认口令 / 会话原子提交 / 启动修复 ====================
+    // 26.11.22「老是掉登录」返工新增。这组用例锁的是「刷新过程中任何一步失败都不许把本地
+    // 已经拿到的新凭据弄丢」——一次性轮换口令丢了就永久断链，那是用户眼里的掉登录。
+
+    @Test
+    fun commitRefreshedSession_writesNewCredentialSetAndRecordsPendingConfirm() {
+        apply(1L)
+        val newCookies = cookiesOf(1L, "v2")
+
+        assertTrue(
+            AccountManager.commitRefreshedSession(cookiesOf(1L), "rt-1", newCookies, "rt-2", "ak-2")
+        )
+
+        assertEquals(newCookies, SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""))
+        assertEquals("rt-2", SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, ""))
+        assertEquals("ak-2", SharedPreferencesUtil.getString(SharedPreferencesUtil.access_key, ""))
+        assertEquals("csrf-1-v2", SharedPreferencesUtil.getString(SharedPreferencesUtil.csrf, ""))
+        // 旧口令必须留成待确认凭证：confirm 失败还能事后补发
+        assertEquals("rt-1", AccountManager.getPendingConfirm())
+        // 快照要跟着走，否则下次冷启动回滚会把用户送回旧会话
+        assertEquals(newCookies, AccountManager.getAccountByMid(1L)!!.cookies)
+    }
+
+    @Test
+    fun commitRefreshedSession_rejectsWhenLocalSessionChangedMeanwhile() {
+        apply(1L)
+        // 期间已经换成了 v3（比如另一条刷新链先成功）
+        SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, cookiesOf(1L, "v3"))
+        SharedPreferencesUtil.putString(SharedPreferencesUtil.refresh_token, "rt-3")
+
+        assertFalse(
+            "本地会话已换过，旧结果写下去会把好口令换回废口令",
+            AccountManager.commitRefreshedSession(cookiesOf(1L), "rt-1", cookiesOf(1L, "v2"), "rt-2", "")
+        )
+
+        assertEquals(cookiesOf(1L, "v3"), SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""))
+        assertEquals("rt-3", SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, ""))
+    }
+
+    @Test
+    fun commitRefreshedSession_rejectsStaleRefreshToken() {
+        apply(1L)
+
+        assertFalse(
+            "发起刷新时拿到的口令已经不是当前口令（一次性轮换），说明这份结果过期了",
+            AccountManager.commitRefreshedSession(cookiesOf(1L), "rt-OLD", cookiesOf(1L, "v2"), "rt-2", "")
+        )
+
+        assertEquals(cookiesOf(1L), SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""))
+    }
+
+    @Test
+    fun commitRefreshedSession_rejectsIncompleteNewCookies() {
+        apply(1L)
+
+        // 缺 bili_jct：写进去等于把本地登录态换成假的
+        assertFalse(
+            AccountManager.commitRefreshedSession(
+                cookiesOf(1L), "rt-1", "SESSDATA=sess-1-v2; DedeUserID=1", "rt-2", ""
+            )
+        )
+        assertEquals(cookiesOf(1L), SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""))
+        assertEquals("", AccountManager.getPendingConfirm())
+    }
+
+    @Test
+    fun commitRefreshedSession_rejectsOtherAccount() {
+        apply(1L)
+
+        assertFalse(
+            AccountManager.commitRefreshedSession(cookiesOf(1L), "rt-1", cookiesOf(2L), "rt-2", "")
+        )
+        assertEquals(1L, SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0))
+    }
+
+    @Test
+    fun pendingConfirm_setAndClear() {
+        assertEquals("", AccountManager.getPendingConfirm())
+
+        AccountManager.setPendingConfirm("rt-1")
+        assertEquals("rt-1", AccountManager.getPendingConfirm())
+
+        AccountManager.clearPendingConfirm()
+        assertEquals("", AccountManager.getPendingConfirm())
+
+        // 空串等于「没有待确认」，不该留下一个空值键
+        AccountManager.setPendingConfirm("")
+        assertEquals("", AccountManager.getPendingConfirm())
+    }
+
+    @Test
+    fun applyCredentials_clearsPendingConfirmAndRefreshClock() {
+        apply(1L)
+        AccountManager.setPendingConfirm("rt-old")
+        SharedPreferencesUtil.putLong(SharedPreferencesUtil.app_token_last_refresh, 123L)
+
+        // 重新登录 = 全新的登录态，上一轮的确认线索与刷新计时都该作废
+        assertTrue(apply(1L))
+
+        assertEquals("", AccountManager.getPendingConfirm())
+        assertEquals(0L, SharedPreferencesUtil.getLong(SharedPreferencesUtil.app_token_last_refresh, -1L))
+    }
+
+    @Test
+    fun restoreCurrentAccount_fixesMidFromCookie() {
+        apply(1L)
+        SharedPreferencesUtil.putLong(SharedPreferencesUtil.mid, 0)
+        SharedPreferencesUtil.putLong(CURRENT_ACCOUNT_KEY, 0)
+
+        assertTrue(AccountManager.restoreCurrentAccount())
+
+        // 真正随请求发出去的是 Cookie，mid 只是本地记账，所以以 Cookie 的 DedeUserID 为准
+        assertEquals(1L, SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0))
+        assertEquals(1L, SharedPreferencesUtil.getLong(CURRENT_ACCOUNT_KEY, 0))
+    }
+
+    @Test
+    fun restoreCurrentAccount_backfillsRefreshTokenFromSnapshot() {
+        apply(1L)
+        SharedPreferencesUtil.putString(SharedPreferencesUtil.refresh_token, "")
+
+        assertTrue(AccountManager.restoreCurrentAccount())
+
+        // 没有 refresh_token 时刷新链路会直接放弃，表现就是「再也不续期」
+        assertEquals("rt-1", SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, ""))
+    }
+
+    @Test
+    fun restoreCurrentAccount_noopWhenAlreadyConsistent() {
+        apply(1L)
+
+        assertFalse("一切都对的时候不该白写一次", AccountManager.restoreCurrentAccount())
+    }
+
+    @Test
+    fun restoreRejectedSession_rollsBackToSnapshotSession() {
+        apply(1L)
+        // 模拟「轮换把新 Cookie 写进了 SP，但快照没跟着更新」的半新半旧状态
+        val rotated = cookiesOf(1L, "v2")
+        SharedPreferencesUtil.putString(SharedPreferencesUtil.cookies, rotated)
+
+        assertTrue(AccountManager.restoreRejectedSession(rotated))
+
+        assertEquals(cookiesOf(1L), SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""))
+    }
+
+    @Test
+    fun restoreRejectedSession_refusesWhenSnapshotIsSameSession() {
+        apply(1L)
+
+        assertFalse(
+            "快照里就是这份被拒的 Cookie：没有更早的会话可退",
+            AccountManager.restoreRejectedSession(cookiesOf(1L))
+        )
+    }
+
+    @Test
+    fun restoreRejectedSession_refusesWithoutAnyMid() {
+        assertFalse(AccountManager.restoreRejectedSession("SESSDATA=only-sess"))
+    }
+
+    // ==================== acceptRotatedRefreshToken：只保口令，不碰 Cookie ====================
+
+    @Test
+    fun acceptRotatedRefreshToken_updatesTokenAndSnapshotButNotCookies() {
+        apply(1L)
+
+        assertTrue(AccountManager.acceptRotatedRefreshToken("rt-1", "rt-1-new"))
+
+        assertEquals("rt-1-new", SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, ""))
+        // Cookie 一个字都不能动：这次没拿到新会话，换 Cookie 就等于凭空换会话
+        assertEquals(cookiesOf(1L), SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""))
+        // 也不能留下待确认记录：confirm 会让仍在用的那条会话失效
+        assertEquals("", AccountManager.getPendingConfirm())
+        assertEquals("rt-1-new", AccountManager.getAccountByMid(1L)?.refreshToken)
+    }
+
+    @Test
+    fun acceptRotatedRefreshToken_rejectsWhenTokenAlreadyRotatedElsewhere() {
+        apply(1L)
+        SharedPreferencesUtil.putString(SharedPreferencesUtil.refresh_token, "rt-1-other")
+
+        assertFalse(
+            "另一条路径已经换过口令，这份是旧的，写下去会把好口令换成废口令",
+            AccountManager.acceptRotatedRefreshToken("rt-1", "rt-1-new")
+        )
+        assertEquals("rt-1-other", SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, ""))
+    }
+
+    @Test
+    fun acceptRotatedRefreshToken_rejectsEmptyToken() {
+        apply(1L)
+
+        assertFalse(AccountManager.acceptRotatedRefreshToken("rt-1", ""))
+        assertEquals("rt-1", SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, ""))
+    }
+
+    @Test
+    fun acceptRotatedRefreshToken_rejectsWithoutCurrentAccount() {
+        assertFalse(AccountManager.acceptRotatedRefreshToken("rt-1", "rt-1-new"))
+    }
 }
+

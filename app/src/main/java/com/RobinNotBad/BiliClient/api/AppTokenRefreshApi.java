@@ -1,9 +1,11 @@
 package com.RobinNotBad.BiliClient.api;
 
 import com.RobinNotBad.BiliClient.util.AccountManager;
+import com.RobinNotBad.BiliClient.util.AppTokenRefreshPolicy;
 import com.RobinNotBad.BiliClient.util.Cookies;
 import com.RobinNotBad.BiliClient.util.Logu;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
+import com.RobinNotBad.BiliClient.util.RefreshGuard;
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
 
 import org.json.JSONArray;
@@ -52,14 +54,48 @@ public class AppTokenRefreshApi {
     }
 
     /**
-     * 用 TV 登录返回的 refresh_token 刷新 access_token 与 cookies。
+     * 用 TV 登录返回的 refresh_token 刷新 access_token 与 cookies（例行刷新，受间隔约束）。
      *
-     * 注意：refresh_token 为一次性轮换，且 App 可能被系统回收。因此刷新响应一到就必须立刻把新的
-     * access_token / refresh_token / cookies 全部落盘，再继续后续逻辑。
+     * <p>等价于 {@code refreshAppToken(false)}：不足 {@link AppTokenRefreshPolicy#MIN_INTERVAL_MS}
+     * 时直接当成功返回，不做网络请求。
      *
      * @return 见 {@link RefreshResult}；网络 / 解析异常直接抛出，由调用方按「保留登录态」处理
      */
     public static RefreshResult refreshAppToken() throws IOException, JSONException {
+        return refreshAppToken(false);
+    }
+
+    /**
+     * 用 TV 登录返回的 refresh_token 刷新 access_token 与 cookies。
+     *
+     * <h3>为什么要 force 与间隔约束（26.11.22「老是掉登录」返工）</h3>
+     * refresh_token 是**一次性轮换**口令：每刷一次，服务端就作废旧的、发一个全新的。旧实现在
+     * 「启动页每次冷启动」和「30 分钟定时器」两处无条件调用，等于一天轮换几十次——每一次都是一个
+     * 「本地没写成功 / 并发消费 / 进程被杀」就永久断链的窗口，而兄弟分支半年才刷 1～2 次。
+     * 现在例行路径按 {@link AppTokenRefreshPolicy}（默认 7 天）节流，只有拿到 -101 之类的实证
+     * 才 force 强刷一次。
+     *
+     * <p>整个刷新在 {@link RefreshGuard#LOCK} 里排队：启动页与定时调度同时调用时，后到的那个
+     * 会用已经被轮换掉的旧口令去请求，必然 -101——而 -101 在过去就是「登出」的触发器。
+     *
+     * @param force true 时忽略间隔约束，立刻请求（只在「疑似口令失效」时用）
+     * @return 见 {@link RefreshResult}；网络 / 解析异常直接抛出，由调用方按「保留登录态」处理
+     */
+    public static RefreshResult refreshAppToken(boolean force) throws IOException, JSONException {
+        synchronized (RefreshGuard.LOCK) {
+            long nowMs = System.currentTimeMillis();
+            long lastRefresh = SharedPreferencesUtil.getLong(SharedPreferencesUtil.app_token_last_refresh, AppTokenRefreshPolicy.NO_REFRESH);
+            if (!force && !AppTokenRefreshPolicy.isDue(nowMs, lastRefresh)) {
+                // 不是失败：口令还在有效期内，什么都不用做
+                Logu.v("APP token 刷新跳过", "距上次刷新不足 " + (AppTokenRefreshPolicy.MIN_INTERVAL_MS / 86400000L) + " 天");
+                return RefreshResult.OK;
+            }
+            return refreshAppTokenLocked(force, nowMs);
+        }
+    }
+
+    /** {@link #refreshAppToken(boolean)} 的主体；调用方必须持有 {@link RefreshGuard#LOCK}。 */
+    private static RefreshResult refreshAppTokenLocked(boolean force, long nowMs) throws IOException, JSONException {
         String refreshToken = SharedPreferencesUtil.getString(SharedPreferencesUtil.refresh_token, "");
         if (refreshToken.isEmpty()) {
             Logu.d("APP token 刷新跳过", "缺少 refresh_token");
@@ -126,7 +162,9 @@ public class AppTokenRefreshApi {
             }
         }
 
-        Logu.v("APP token 刷新成功");
+        // 只有真的拿到新口令才记「这次刷过了」：失败的、被拒的都不算，下一次进来还会重试
+        SharedPreferencesUtil.putLong(SharedPreferencesUtil.app_token_last_refresh, nowMs);
+        Logu.v("APP token 刷新成功" + (force ? "（强制）" : ""));
         return RefreshResult.OK;
     }
 
