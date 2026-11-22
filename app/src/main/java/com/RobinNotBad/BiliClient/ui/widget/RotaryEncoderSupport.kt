@@ -195,9 +195,13 @@ internal object RotaryEncoderSupport {
      * 为什么需要它：OPPO Watch 4 Pro 这类 ROM 把表冠报成鼠标滚轮，而框架对 mouse 源的 ACTION_SCROLL
      * 根本不换算轴值——App 参不参与、怎么换算，全是对着它猜出来的（#197 → #234 → #235 → #243 四轮）。
      * 这条退路让这类机器一键回到「用户说不会出问题的那一版」，不必陪着我们一起试手感。
+     *
+     * **26.11.23 起默认开启**（用户拍板）：上一版是「默认关 + 踩到滚轮源自动开一次」，结果是手感问题
+     * 仍然先落到新逻辑上、再靠自动判定补救；现在装完即老口径，想要这一版重做的表冠逻辑得自己关掉。
+     * 默认值必须与设置页那条开关一致（`SettingPrefActivity` 里写的是 `"true"`），改一处就要改两处。
      */
     fun isCompatMode(): Boolean =
-        SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROTATORY_COMPAT, false)
+        SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROTATORY_COMPAT, true)
 
     /**
      * 处理一次 generic motion 事件（控件级）。
