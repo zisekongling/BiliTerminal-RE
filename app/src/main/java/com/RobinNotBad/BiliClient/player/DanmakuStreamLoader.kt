@@ -274,15 +274,26 @@ class DanmakuStreamLoader(
         }
 
         val wanted = windowAt(0L)
+        // 把这一代的参数快照下来：下面的循环要发网络请求，期间别的线程可能已经 attach 掉。
+        val gen = generation
+        val aidSnap = aid
+        val cidSnap = cid
+        val cacheSnap = ensureCache()
         val replies = ArrayList<DmSegMobileReply>(wanted.count())
         var anySuccess = false
         for (index in wanted) {
-            if (released) break
-            val reply = fetchOne(index)
+            if (released || gen != generation) break
+            val reply = fetchOne(index, aidSnap, cidSnap, cacheSnap)
+            // 请求返回时这一代可能已作废：既不能把段号记进新代的已加载集合，也不能把旧段交给新代的 parser。
+            if (gen != generation) break
             if (reply == null) continue
             anySuccess = true
             synchronized(loadedSegments) { loadedSegments.add(index) }
             if (reply.elems.isNotEmpty()) replies.add(reply)
+        }
+        if (gen != generation) {
+            Logu.d("弹幕窗口", "起始窗口加载期间已切换到新的一代，丢弃这轮结果")
+            return false
         }
 
         // 「一段都没成功」与「成功但全空」是两件事，但对调用方来说结论一样：
@@ -418,6 +429,11 @@ class DanmakuStreamLoader(
      *   本轮立刻收手，绝不能把上一条视频的分段塞进新的一代。
      */
     private fun fetchWindowLoop(gen: Int) {
+        // 这一代的参数只取一次：循环里发网络请求期间 attach 会改 aid / cid / cache 字段，
+        // 逐次读字段会把旧段的字节写到新视频的缓存名下。
+        val aidSnap = aid
+        val cidSnap = cid
+        val cacheSnap = ensureCache()
         try {
             var rounds = 0
             while (!released && gen == generation && rounds++ < MAX_FETCH_ROUNDS) {
@@ -432,7 +448,11 @@ class DanmakuStreamLoader(
                 var failed = 0
                 for (index in missing) {
                     if (released || gen != generation) return
-                    val reply = fetchOne(index)
+                    val reply = fetchOne(index, aidSnap, cidSnap, cacheSnap)
+                    // 网络请求期间这一代可能已作废（切 P / 换视频 / 重进播放页）：
+                    // 记进新代的 loadedSegments 会让新视频固定某段永远缺弹幕，
+                    // 追加给新代 parser 则是串台。两种情况都只能整轮放弃。
+                    if (gen != generation) return
                     if (reply == null) {
                         failed++
                         continue
@@ -475,12 +495,20 @@ class DanmakuStreamLoader(
     /**
      * 拉一段：缓存优先，未命中走网络（内部已重试一次）并回写缓存。
      *
+     * `aid` / `cid` / `disCache` 一律由调用方按**本次请求所属的那一代**传进来，方法内不读字段：
+     * [attach] 会在别的线程改这些字段，旧 worker 若在这里读字段，就会拿**新视频**的 cid 去请求
+     * 并写缓存，把旧段字节落在新 cid 名下（26.11.22 审查发现）。
+     *
      * @return 解析好的分段（**可能为空段**，空段也要算「已加载」，否则会反复请求）；
      *   失败返回 `null`
      */
-    private fun fetchOne(segmentIndex: Int): DmSegMobileReply? {
+    private fun fetchOne(
+        segmentIndex: Int,
+        aid: Long,
+        cid: Long,
+        diskCache: DanmakuDiskCache?
+    ): DmSegMobileReply? {
         if (released) return null
-        val diskCache = ensureCache()
         val cachedBytes = diskCache?.read(cid, segmentIndex)
         if (cachedBytes != null) {
             val parsed = runCatching { DanmakuApi.parseDanmakuSegment(cachedBytes) }.getOrNull()

@@ -169,10 +169,23 @@ class DanmakuDiskCacheTest {
     @Test
     fun `trim 清掉崩溃残留的临时文件`() {
         val root = tmp.newFolder("cache")
-        val residue = File(root, DanmakuDiskCache.fileName(9L, 2) + DanmakuDiskCache.TMP_SUFFIX)
+        val residue = File(root, DanmakuDiskCache.fileName(9L, 2) + ".abcd1234" + DanmakuDiskCache.TMP_SUFFIX)
         residue.writeBytes(byteArrayOf(9, 9))
+        // 把 mtime 推到 10 分钟前：只有「放了一阵子还没 rename 走」的才算崩溃残留。
+        assertTrue("改不了 mtime，本用例的前提失效", residue.setLastModified(System.currentTimeMillis() - 10 * 60 * 1000L))
         DanmakuDiskCache(root, 64 * DanmakuDiskCache.MB).trim()
         assertFalse("半截的 .tmp 永远不该被当成缓存，trim 要清理掉", residue.exists())
+    }
+
+    @Test
+    fun `trim 不删刚写入的临时文件`() {
+        val root = tmp.newFolder("cache")
+        // 正在写的 tmp 一定很新：上一版 trim 无条件删所有 .tmp，会让写者 rename 失败、
+        // 退化成非原子覆盖写，并发时还会互相删掉对方的中间文件（26.11.22 修）。
+        val inFlight = File(root, DanmakuDiskCache.fileName(9L, 3) + ".deadbeef" + DanmakuDiskCache.TMP_SUFFIX)
+        inFlight.writeBytes(byteArrayOf(1, 2))
+        DanmakuDiskCache(root, 64 * DanmakuDiskCache.MB).trim()
+        assertTrue("刚写入的 .tmp 说明有写者正在用它，不能删", inFlight.exists())
     }
 
     @Test

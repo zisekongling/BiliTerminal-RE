@@ -85,7 +85,8 @@ jobs:
       # 与 build-release.yml 保持同一套清理逻辑：
       # gradle.properties 硬编码了本机 Windows JDK 路径与本地代理（Clash），
       # Linux CI 必须移除，否则会拿不存在的 JDK 路径启动 daemon、并通过本地代理拉依赖失败。
-      # 同时把 Gradle/Kotlin daemon 堆内存调低，避免在 GitHub 较小内存的 runner 上 OOM。
+      # 同时给两个 daemon 定下内存口径：Gradle daemon 压到 2048m 省内存，
+      # Kotlin daemon 反而必须 ≥3072m（两个 flavor 连续编译，见下面注释）。
       - name: 适配 Linux 构建环境
         run: |
           # 注释形式的本机配置同样要删：本仓库 gradle.properties 里的代理就是
@@ -101,10 +102,16 @@ jobs:
           # daemon 里，2 G 会稳定吃到 `OutOfMemoryError: GC overhead limit exceeded`（26.11.22 实测，
           # compileStandardDebugKotlin / compileCoexistDebugKotlin 都命中过）。3 G 是 `--no-parallel`
           # 之外的余量，不指望靠它兜并行。
+          # 补充证据：2026-11-21 run 44916623006 与 11-22 run 44977455350 在加串行化之前，
+          # 都死在 compileCoexistDebugKotlin 的「Not enough memory to run compilation」。
           sed -i -E 's/^kotlin\.daemon\.jvmargs=.*/kotlin.daemon.jvmargs=-Xmx3072m -XX:+UseG1GC/' gradle.properties
           # 替换成功与否必须硬校验：否则下次 gradle.properties 再改一次值，这里又会静默空转。
           if ! grep -qE '^org\.gradle\.jvmargs=-Xmx2048m' gradle.properties; then
             echo "::error::org.gradle.jvmargs 未被替换成 -Xmx2048m，Gradle daemon 堆内存设置没生效"
+            exit 1
+          fi
+          if ! grep -qE '^kotlin\.daemon\.jvmargs=-Xmx3072m' gradle.properties; then
+            echo "::error::kotlin.daemon.jvmargs 未被替换成 -Xmx3072m，两个 flavor 连续编译会 OOM"
             exit 1
           fi
           echo "CI 实际生效的 JVM 参数："
@@ -121,6 +128,13 @@ jobs:
       # （原先第三处 config.json 已随「更新检查改读发行版」一并取消，见 build-release.yml）
       - name: 校验版本号一致性
         run: ./gradlew :app:verifyVersionConsistency --no-configuration-cache
+
+      # 「改任何 .md 后跑 markdownlint 要求 0 错误」这条从 26.10.20 写在 AGENTS.md 里，
+      # 却一直只靠改动者自觉——26.11.21 就攒出过 9 条 MD022/031/032 没人发现。
+      # 命令行与范围原样照抄 docs/agents/docs.md，别在这里另立一套口径：
+      # bilibili-API/（上游快照）与 docs/archive/（归档正文）不参与。
+      - name: 校验 Markdown 规范（markdownlint）
+        run: npx --yes markdownlint-cli2 "*.md" "{docs,.dsh,scripts,ledger}/**/*.md" "!docs/archive/**"
 
       # 显式关掉配置缓存：CI 只跑一次构建，缓存收益为负，而且配置缓存会把
       # 上一次构建的输入快照写进 build/ 目录，出问题时排查成本高于收益。

@@ -42,6 +42,8 @@
 
 其他参考：`docs/README.md`（文档总索引）、`bilibili-API/`（B 站接口文档快照，**197 份 / 5.5MB，按接口名 grep 单份，别通读**）、`docs/bilibili-api-notes.md`（接口与风控常识，改 API 前读）、`docs/FEATURES.md`（用户可见功能总表，≈3.4 万 token，按章 grep）、`docs/superpowers/specs/`（功能设计文档，只读与你这次改动相关的那一份）、`docs/tutorial-system-redesign.md`（教程系统重做中——**改教程前先读它**，全份仅 2.4k，可以整读）。**`docs/archive/` 里全是历史资料，记录的是当时、不是现状**，别照着它改代码。
 
+**本机还有一份不在版本库里的历史索引**：`.local/session-history/`（`.gitignore` 的 `/.local/` 已覆盖，公开仓里没有这个目录，没有就跳过）。里面是 2026-10-20~11-22 那轮长会话的**用户原话时间线 + 拍板规则表**，源数据是 134 MB 的 `events.jsonl`。要查「某个决定 / 某条规矩当初是怎么定的、为什么这么定」时**先翻它**，比 grep 全量事件流便宜；它记的是当时的判断，与现状冲突时仍以活文档和源码为准。
+
 ## 分册索引（按"我正在做什么"读）
 
 | 你正在做… | 读这份 |
@@ -71,7 +73,7 @@
 ## 每个改动都守
 
 - 网络请求包在 `CenterThreadPool.run { }` 里。
-- **小步提交**：改动切成能独立验证的小步（`assembleDebug` + 相关单测通过）再做下一步，别一次堆大量改动。**做完自己 commit + push 到 `main`**，不等催；commit message 与 co-author 格式见 `docs/agents/workflow.md`。
+- **小步提交**：改动切成能独立验证的小步（`assembleDebug` + 相关单测通过）再做下一步，别一次堆大量改动。**做完自己 commit + push 到 `main`**，不等催；commit message 与 co-author 格式见 `docs/agents/workflow.md`。**例外**：动到私有功能 / 开源边界的改动（新增或搬迁逆向产物、改 `private/` 机制、清公开侧残留）**开分支开发、最后交 PR**，见下一节。
 - **改完必须验证，不许只说"应该没问题"**，分三级（细则、预算、止损与交接单模板见 `docs/agents/testing.md`）：
   - **L0 静态**：每个改动都做——`assembleDebug` + 相关单测绿。只证明纯函数没写错，**不证明功能能用**。
   - **L1 设备可观测**：结论能用**文字/数字读出来**时做（日志原文、控件树文字与 bounds、落盘文件结构、HTTP 状态码），用 Debug 包 + `adb`/调试桥跑；**两轮上限，每轮 ≤10 分钟**，测不出来立刻止损写交接单，别反复试。
@@ -80,11 +82,11 @@
 - 用户可见文案一律进 `app/src/main/res/values/strings.xml`（写法与纯函数例外见 `docs/agents/dev-conventions.md`）。
 - **界面设计稿进 `design/`（已 gitignore）**：可交互 HTML 预览、原型、截图与配套的文字 spec 草稿（短视频播放器、播放器界面重设计那类一整套）都写这里，不进版本库；定稿后的取舍 / 验收口径 / 踩到的坑回迁 `docs/` 的活文档。
 - 不轻易引入新第三方库；**一切功能优先考虑手表端**，手机等设备只是顺便适配。
-- **改完同步文档**：修 bug / 关待办 → `docs/review/fix-progress.md`；改架构 / 基建 → `docs/architecture-map.md`；新增用户可见功能 → `docs/FEATURES.md`；接口 / 风控结论 → `docs/bilibili-api-notes.md`；本文件描述的内容变了 → 改对应分册。改任何 `.md` 后跑 `npx --yes markdownlint-cli2 "AGENTS.md" "readme.md" "docs/**/*.md" "!docs/archive/**"`，**要求 0 错误**（规则、豁免与逐字素材示例见 `docs/agents/docs.md`）。
+- **改完同步文档**：修 bug / 关待办 → `docs/review/fix-progress.md`；改架构 / 基建 → `docs/architecture-map.md`；新增用户可见功能 → `docs/FEATURES.md`；接口 / 风控结论 → `docs/bilibili-api-notes.md`；本文件描述的内容变了 → 改对应分册。改任何 `.md` 后跑 `npx --yes markdownlint-cli2 "*.md" "{docs,.dsh,scripts,ledger}/**/*.md" "!docs/archive/**"`，**要求 0 错误**（范围口径、`bilibili-API/` 为何排除、规则豁免见 `docs/agents/docs.md`）。
 
 ## 安全红线（常驻摘要，细则见 `docs/agents/security.md`）
 
-- 新增 Activity 一律 `android:exported="false"`；Release 包仅 `SplashActivity` 与 `GetIntentActivity` 导出。
+- 新增 Activity 一律 `android:exported="false"`；Release 包全应用**只有 3 个**导出（`SplashActivity`、`GetIntentActivity`、`ExternalVideoActivity`，各自理由见 `docs/agents/security.md`）。
 - 只走 https；明文域名白名单只放行 `bilibili.com` / `hdslb.com` / `bilivideo.com` / `afdiancdn.com`，加域名要写原因。
 - `android:allowBackup` 保持 `false`，并保留主清单的 `tools:replace="android:allowBackup"`。
 - 调试页只进 Debug 包，入口用编译期常量 `BuildConfig.DEBUG` 包住；Debug 包的外部可达组件必须挂 `android.permission.DUMP`。
@@ -94,6 +96,20 @@
 
 本机还有一份**不公开**的私有功能源码仓库 `zisekongling/BiliTerminal-RE-private`（private）。
 它不属于 GPL 发布内容，也不随公开仓库分发；公开仓库里只有反射门面和条件挂点。
+
+这些是**长期规则，不是一次性的要求**：
+
+- **官方 App 端的东西只留在本地与私有仓库**：所有靠逆向官方客户端 / 官方 H5 得到的实现、
+  接口结论、编码表、字段口径、错误码映射，一律按私有功能处理。
+- **逆向产物不开源**：不许写进公开仓库的代码、测试、注释、文档，也不许写进 issue / PR 标题与描述 /
+  commit message / 回复 / 截图 / 日志。**换个说法提一句同样禁止**。
+- **不许 fork**：GitHub 上 fork 出来的仓库一律公开，拿 fork 存这类东西等于没藏。私有仓库必须是
+  **独立的私有仓**，公开仓只做 upstream 的下游。
+- **私有代码只在发版和本地验证时编译进终端**：没有 `private/` 时公开构建必须与从前完全一致
+  （同代码、同单测、同 APK）。
+- **这类改动先开分支开发、最后交 PR**（`main` 保持随时可发版）；日常小修仍直接推 `main`。
+
+细节：
 
 - **本地位置**：公开仓库根目录下的 `private/`（已 gitignore）。没同步时构建出来就是公开版。
 - **同步**：本机 `python build_tui.py --sync-private`（TUI 里 `P`，行式菜单 `[p]`）；CI 由

@@ -3254,6 +3254,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 val headers = PlayerRequestPolicy.buildHeaders(
                     thirdParty = PlayerRequestPolicy.isThirdPartySource(isLiveMode, aid, cid, bilibiliHost),
                     bilibiliHost = bilibiliHost,
+                    // Cookie 只发给 https：NSC 允许 bilibili 系域走明文，只按 host 门控会在明文直链上泄露凭证。
+                    secure = nowurl.startsWith("https://", ignoreCase = true),
                     cookies = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""),
                     thirdPartyReferer = intent.getStringExtra("third_party_referer"),
                     thirdPartyUserAgent = intent.getStringExtra("third_party_user_agent")

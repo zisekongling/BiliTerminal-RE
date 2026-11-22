@@ -456,3 +456,11 @@ tasks.register('verifyVersionConsistency') {
 
 // 让 ./gradlew check 带上这项校验（check 由 Android 基础插件提供，这里用 matching 避免强依赖）
 tasks.matching { it.name == 'check' }.configureEach { dependsOn 'verifyVersionConsistency' }
+
+// 清单类守门测试（SecurityRedLineTest / DebugActivityExportTest）是**运行期**才 File(...) 读清单与网络配置，
+// Gradle 的 up-to-date 检查看不到这层依赖：只改清单时测试任务会被判 UP-TO-DATE 直接跳过，
+// 等于守门没跑还显示成功（26.11.22 做变异验证时实测到）。显式声明成输入，改这两份文件必然重跑。
+tasks.withType(Test).configureEach {
+    inputs.file(file('src/main/AndroidManifest.xml'))
+    inputs.file(file('src/main/res/xml/network_security_config.xml'))
+}

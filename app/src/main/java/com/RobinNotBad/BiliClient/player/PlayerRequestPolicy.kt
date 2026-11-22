@@ -45,6 +45,9 @@ object PlayerRequestPolicy {
      *
      * @param thirdParty [isThirdPartySource] 的结果
      * @param bilibiliHost 直链 host 是否命中 `NetWorkUtil.isBilibiliHost` 白名单（决定能不能带 Cookie）
+     * @param secure 直链是不是 https。**Cookie 只发给 https**：`network_security_config` 恰好允许
+     *   bilibili 系域走明文，若某天 playurl 调度到 `http://…bilivideo.com`，只按 host 门控就会把
+     *   整串 Cookie（含 `bili_jct`）明文发出去（26.11.22 审计发现）。
      * @param cookies 已登录 Cookie；未登录/为空时不带该头
      * @param thirdPartyReferer 第三方片源规则给的 Referer（Intent extra `third_party_referer`）
      * @param thirdPartyUserAgent 第三方片源规则给的 UA（Intent extra `third_party_user_agent`）
@@ -53,6 +56,7 @@ object PlayerRequestPolicy {
     fun buildHeaders(
         thirdParty: Boolean,
         bilibiliHost: Boolean,
+        secure: Boolean,
         cookies: String?,
         thirdPartyReferer: String?,
         thirdPartyUserAgent: String?
@@ -65,8 +69,8 @@ object PlayerRequestPolicy {
             return headers
         }
         headers["Referer"] = BILIBILI_REFERER
-        // Cookie 是凭证：白名单外的 host（含 mcdn/PCDN 边缘节点）一律不给。
-        if (bilibiliHost) cookies?.takeIf { it.isNotBlank() }?.let { headers["Cookie"] = it }
+        // Cookie 是凭证：白名单外的 host（含 mcdn/PCDN 边缘节点）一律不给；明文直链也不给。
+        if (bilibiliHost && secure) cookies?.takeIf { it.isNotBlank() }?.let { headers["Cookie"] = it }
         return headers
     }
 }

@@ -18,6 +18,24 @@
 | **手感 / 流畅度**：跟手、误触、掉帧、动画顺不顺 | 模拟器帧率与真机无关 | **人** |
 | **主观取舍**：这样设计好不好用、新文案读起来顺不顺 | — | **人** |
 
+## 1.1 已经有守门测试的规则（违反会红，不用靠记性）
+
+改到下面这些区域时，先知道「就算忘了也有一条测试会拦住」。全部在 `app/src/test/java/com/RobinNotBad/BiliClient/`：
+
+| 守门 | 守什么 |
+| --- | --- |
+| `SecurityRedLineTest` | 主清单导出面恰为 3 个页面 / `allowBackup=false` + `tools:replace` / 明文白名单恰为 4 个域名 |
+| `DebugActivityExportTest` | debug 清单有没有漏掉页面、有没有裸导出（不挂 DUMP） |
+| `ConventionGuardTest` | 业务代码不裸写 `AlertDialog` / `res/color` 与 `res/drawable` 不出现 `?attr/` / `values-notnight` 不覆盖 `bgblack` / 设备档位常量不在 `GlideUtil` 外引用 / 不新写 `"player"`·`"play_qn"` 字面量 / 工作流不出现裸单测任务名 |
+| `Java8ApiGuardTest` | `src/main` 与 DFM 里不得出现 API 24+ 的 `java.util.function` / `stream` / `Optional` / `java.time` / `Base64` / `.computeIfAbsent(` |
+| `VectorDrawableCompatTest` | 布局引用矢量图只能用 Compat 属性（`app:srcCompat` 等） |
+| `TopbarBackArrowTest` / `TopbarTitleRoomTest` | 顶栏箭头与页面角色一致 / 带 `@id/pageName` 的布局有标题右边界 |
+| `LayoutAccessibilityTest` | 引用的 `@string/a11y_*` 真实存在 |
+| `verifyVersionConsistency`（Gradle task，CI 也跑） | `build.gradle` 版本号与 `strings.xml` 更新日志锚点一致 |
+| `markdownlint`（CI 步骤） | 本册的 Markdown 格式规范 |
+
+**这些测试是「追加」不是「替代」**：它们只覆盖能精确判定的条目（`docs/agents/` 里 141 条硬性表述中约占 17 条），剩下的仍是读文档 + 人判断。判断某条能不能机器化时，标准是**误报率**——宁可少接一条，也不接一条动辄误报的，那会训练人忽略红灯。
+
 ## 2. 三级验证：按成本排队，够用就停
 
 | 级别 | 谁 | 做什么 | 单次成本 | 什么时候必须做 |

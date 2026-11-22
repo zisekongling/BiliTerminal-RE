@@ -60,7 +60,23 @@ internal object DownloadProgressStore {
     // 调度器（只取 state="none"）不会重新拾取；恢复时清除标志并置回 none。
     val pausedMap = java.util.concurrent.ConcurrentHashMap<Long, Boolean>()
 
-    fun isPaused(id: Long): Boolean = pausedMap.containsKey(id)
+    /**
+     * 已被删除的任务：key=section.id。
+     *
+     * 与 [pausedMap] 分开是必须的（26.11.22 修正）：删除路径会调 [removeDownloadProgress]，
+     * 它按设计要清掉 `pausedMap`（防内存累积）；而 `pauseDownload` 只是置标志、不是同步停止——
+     * 弱网下一次 `read()` 可以阻塞十几秒，等 worker 回来时 `pausedMap` 早已被清，
+     * 于是它**从未见过暂停**，继续往已 unlink 的 inode 写（磁盘空间不释放），
+     * 叠加「删了立刻重下」还会两个线程写同一目录。
+     *
+     * 用独立集合表达「这条任务已经不存在了」：worker 的每个检查点通过 [isPaused] 一起看到它，
+     * 而 [removeDownloadProgress] 不会清这个集合。[runDownloadSection] 结束时清掉，
+     * 所以它只对「当时在跑的那个 worker」有效，不会长期残留。
+     */
+    private val abandonedIds = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
+
+    /** 暂停**或**已删除：下载循环据此退出。 */
+    fun isPaused(id: Long): Boolean = pausedMap.containsKey(id) || abandonedIds.contains(id)
 
     /**
      * 暂停单个下载任务（不影响其他并行任务）。
@@ -69,6 +85,21 @@ internal object DownloadProgressStore {
     fun pauseDownload(id: Long) {
         pausedMap[id] = true
         DownloadRepository.setState(id, "paused")
+    }
+
+    /**
+     * 标记一条任务已被删除：让还在跑的 worker 立刻退出，且**不被记成下载失败**。
+     *
+     * 不写 DB 状态——调用方此时已经把行删了。
+     */
+    fun abandon(id: Long) {
+        abandonedIds.add(id)
+        pausedMap[id] = true
+    }
+
+    /** worker 退出时清掉「已删除」标记，避免 id 复用时误杀新任务。 */
+    fun clearAbandon(id: Long) {
+        abandonedIds.remove(id)
     }
 
     /**

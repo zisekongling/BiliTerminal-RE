@@ -18,6 +18,23 @@
 
 ## 1. 当前版本状态
 
+- **26.11.22 六路并行：同步上游 + 基线 + 安全审计 + 并发审查 + 历史深挖 + 规矩机器化**：
+  - **来路**：用户要求「不省成本、发挥最大实力」并把六件事一次做完。
+  - **同步**：上游 6 提交（登录换票三连 + CI 串行化），2 处文档层冲突，`AppTokenRefreshApi` 的自动合并经核对为真语义合并。
+  - **基线**：assembleDebug 双 flavor / 两 flavor 单测 / Release R8 冒烟 / markdownlint 全绿。
+  - **安全审计**：🔴0 🟠0 🟡0 ⚪3（`READ_PHONE_STATE` 被库隐式带回 / 播放器 Cookie 门控不看 scheme / 崩溃 message·stack 未脱敏）——**三条已修**（`c6ab88ee`）。六个面（导出面 / 网络与明文 / 凭据 / 日志脱敏 / 私有边界 / 其他）逐项给出证据并通过。报告在 `.local/audit/security-audit-2026-11-22.md`（不进公开仓）。
+  - **并发审查**：11 条，其中 5 条属「丢数据 / 串台 / 卡住」级。**已修 2 条**（`d11f54e7` 弹幕跨代污染 + 缓存 tmp 互删）、**已修 3 条**（`ad400648` 删除中任务继续写 / 批次结束窗口卡死 / 分片失败前无空间判断）；#6~#11（播放器重建回退墙钟、250ms 循环不停、单曲循环绕过 markSeekTarget、onlineTimer 后台跑、续传快照顺序、downdannuOld 线程约束）记在 `.local/audit/correctness-review-2026-11-22.md` 待办。审查同时确认 17 个点干净。
+  - **历史深挖**：81 条技术结论 + 94 条踩坑，`.local/session-history/`（含可复现脚本）。
+  - **规矩机器化**：141 条硬性表述分类完毕；`ConventionGuardTest` 从 6 条扩到 8 条（新增布局硬编码中文、强推入库的忽略文件），每条都做了变异验证。盘点报告在 `.local/audit/rules-machine-inventory.md`。
+  - **口径**：只接「能精确判定 + 当前干净 + 有事故背景」的规则，误报率高的一律不接（如代码侧 348 处 `UiText.of("…")` 存量、`http://` 字面量）。安全审计报告**不提交进公开仓**——那等于给攻击者画地图。
+  - **验证**：两 flavor 单测各 307 套件 / 3259 用例 0 失败；assembleDebug 双 flavor 通过；合并后三份分包 Release 清单均不含 `READ_PHONE_STATE`。
+  - **未验证（L2 / 待人工）**：① 弹幕跨代污染修复——需要「切 P / 换视频 / 快速重进播放页」实测新视频各分段都有弹幕、且不串台；② 删除「正在下载」的任务——需要在弱网下删一条在跑的任务，确认目录体积立刻下降、没有后台继续写；③ 下载前空间检查——需要把可用空间压到小于视频体积，确认提示「存储空间不足：需要约 X MB，可用 Y MB」而不是进入下载后再失败；④ 播放器 Cookie 的 scheme 门控——需要一条 http 直链才能验证（当前 playurl 全是 https，构造困难）。
+
+- **26.11.23 设置搜索补收录「搜索历史」「表冠兼容模式」**：
+  - **来路**：26.11.23 发版校对更新日志第 10 条时，用户按「设置 → 偏好设置」找不到开关（真实路径是「设置 → 内容与浏览 → 通用偏好 → 搜索历史」，「偏好设置」只是那页的标题）；同时设置首页搜索框搜「搜索历史」零命中。
+  - **根因**：设置搜索（反馈 #213）只认 `SettingsIndex` 里的条目，而这两行的名字在 `SettingPrefActivity` 里是**直接写死的中文**、没有 `settingtext_settingprefactivity_*` 资源，26.11.21 / 26.11.22 加开关时按资源名逐条收录，两行都漏了。
+  - **改法**：`SettingsIndex.kt` 的 `SettingPrefActivity` 叶子项列表尾部补 `"搜索历史"`、`"表冠兼容模式"` 两个字面量（`addLeafItems` → `Entry(name, page)`，点击走 `openPage` 带 `highlight`，`SettingPrefActivity:149` 会 `scrollToHighlight` 滚到该行）。全量比对过：其余设置行（含分组页的 switch / listChoose / nav 与各子页）都已在索引内，分组标题按惯例不收录。
+  - **验证**：L0 `assembleDebug` + 两个 flavor 单测；L1 待人工在设置首页搜「搜索历史」确认能跳转并定位。
 - **26.11.22 掉登录返工：-101 不再登出 + 刷新互斥 + 待确认口令（对照三个兄弟 fork）**：
   - **来路**：用户报「动不动就登录不上」（控制台 #60 10-30 / #126 11-08 / #163 11-14 / #274 11-21 v26.11.18-beta.6），要求对比 `jiabenguiyin/BiliTerminal-Revival`、`PianoEthan/BiliTerminal`、`cyq114514/Re-BiliTerminal` 的换票与 Cookie 轮换实现找根因。
   - **对照结论**：三家全仓 grep `oauth2/refresh_token` / `api/v2/oauth2` **0 命中**——他们只刷 web Cookie（半年量级），**只有我们刷 APP token**，所以他们的「很稳」不能直接当我们的结论；我们独有的风险是「刷得太多 + 两条链并发」。
@@ -35,11 +52,20 @@
     - 改 `util/NetWorkUtil.java`：`saveCookiesFromResponse` 对 `/cookie/refresh`、`/confirm/refresh` 让路（交给 `CookieRefreshApi`）；锁内新增 `isCrossSessionResponse()`，请求发出时的 SESSDATA 与当前不一致就丢弃这轮 `Set-Cookie`。
     - 新增 `app/src/test/java/com/RobinNotBad/BiliClient/util/AppTokenRefreshPolicyTest.kt`（6 例）；`CookieRefreshPolicyTest.kt` 补 `checkIssuedSession` 5 例（共 23）；`AccountManagerTest.kt` 补刷新台账 17 例（共 43：原子提交 / 三档 CAS 拒绝 / 半截凭据 / 换账号 / pending 增删 / 重新登录清台账 / 启动修 mid、补口令、无变化不写 / 快照回滚三种拒绝）。
   - **验证**：L0 `assembleDebug`（两个 flavor）通过；`testStandardDebugUnitTest` 与 `testCoexistDebugUnitTest` 全绿（standard 304 套件 / 3230 用例 0 失败；AccountManagerTest 43 / CookieRefreshPolicyTest 23 / AppTokenRefreshPolicyTest 6）。**未验证（待人工）**：真机跨 7 天不刷新是否仍能续期、`-101` 出现时走「快照回滚」能否真的救回来、`confirmPendingRefresh` 补发在弱网下的行为——这几项都需要真实账号与时间跨度，属 L2。
-- **26.11.23 设置搜索补收录「搜索历史」「表冠兼容模式」**：
-  - **来路**：26.11.23 发版校对更新日志第 10 条时，用户按「设置 → 偏好设置」找不到开关（真实路径是「设置 → 内容与浏览 → 通用偏好 → 搜索历史」，「偏好设置」只是那页的标题）；同时设置首页搜索框搜「搜索历史」零命中。
-  - **根因**：设置搜索（反馈 #213）只认 `SettingsIndex` 里的条目，而这两行的名字在 `SettingPrefActivity` 里是**直接写死的中文**、没有 `settingtext_settingprefactivity_*` 资源，26.11.21 / 26.11.22 加开关时按资源名逐条收录，两行都漏了。
-  - **改法**：`SettingsIndex.kt` 的 `SettingPrefActivity` 叶子项列表尾部补 `"搜索历史"`、`"表冠兼容模式"` 两个字面量（`addLeafItems` → `Entry(name, page)`，点击走 `openPage` 带 `highlight`，`SettingPrefActivity:149` 会 `scrollToHighlight` 滚到该行）。全量比对过：其余设置行（含分组页的 switch / listChoose / nav 与各子页）都已在索引内，分组标题按惯例不收录。
-  - **验证**：L0 `assembleDebug` + 两个 flavor 单测；L1 待人工在设置首页搜「搜索历史」确认能跳转并定位。
+- **26.11.22 把「只靠记性」的规矩接到机器上（用户提出：规范写进 md 了，但不确定新会话会不会照做）**：
+  - **来路**：用户原话「这个对话有很多重要的规范和历史规则，虽然写进了 md 保存，但无法确定新对话是否能完全遵循」。核查后确认这不是杞人忧天——自动加载层只有 `AGENTS.md`（14.2 KB、30 条硬性表述），另外 169 条散在 8 个 `docs/agents/` 分册里，**是否进上下文取决于 agent 有没有先判断对任务类型**；199 条规矩里只有 1 条（`verifyVersionConsistency`）有机器校验。用户拍板走「A+C」：把能判定的规则接到 CI / 单测上，并把只存在于历史会话的操作规矩收割进文档。
+  - **改法（新增 1 测 / 改 5）**：
+    - 新增 `app/src/test/java/com/RobinNotBad/BiliClient/SecurityRedLineTest.kt`（3 例）：主清单导出集合**恰为** `SplashActivity` / `GetIntentActivity` / `ExternalVideoActivity`；`allowBackup="false"` 且保留 `tools:replace="android:allowBackup"`；`base-config` 禁明文且放行域名集合恰为那 4 个。与既有 `DebugActivityExportTest` 的分工是「验是谁」与「只验数量」——那边是 `assertEquals(3, ...)`，数量相等时把某个导出页换成另一个仍能全绿。
+    - 改 `app/build.gradle`：把 `AndroidManifest.xml` 与 `network_security_config.xml` 声明成 `Test` 任务的 `inputs`。原因：这类测试是**运行期**才 `File(...)` 读清单，Gradle 的 up-to-date 检查看不到这层依赖，只改清单时测试任务被判 UP-TO-DATE 直接跳过——变异验证时实测到「守门没跑还显示成功」。
+    - 改 `.github/workflows/ci.yml`：加「校验 Markdown 规范（markdownlint）」步骤（命令与范围原样照抄 `docs/agents/docs.md`）；并把 CI 的 `kotlin.daemon.jvmargs` 从 `-Xmx2048m` 提到 `-Xmx3072m`（见下条），补 `grep` 硬校验防止这步静默空转。
+    - 改 `AGENTS.md`：安全红线摘要里「Release 包仅 `SplashActivity` 与 `GetIntentActivity` 导出」是**过期**的（`security.md` 26.11.17 起已是 3 个，多了 `ExternalVideoActivity`）。自动加载层写错、条件加载层写对，正是最难发现的那种漂移。
+    - 改 `docs/agents/security.md`：补一行指向 `SecurityRedLineTest`，写明「要动这些值先改本册并写理由，再同步改测试」。
+    - 改 `docs/agents/docs.md`：① 写明 markdownlint 已在 CI 里跑；② 收割一条只存在于历史会话的规矩——编辑 `pitfalls.md` 这类长清单后必须 `git diff` 确认是纯新增（26.10.31 曾两次误覆盖既有条目）。
+  - **顺带修：CI 从 26.11.21 起就是红的**。`run 44916623006`（11-21）与 `run 44977455350`（11-22）都死在 `:app:compileCoexistDebugKotlin` 的 `Not enough memory to run compilation`：两个 flavor 是**连续**在同一个 Kotlin daemon 里编译的，2048m 撑不住第二个。CI 长期红着，新加的守门就永远等不到绿灯，等于没接，所以一并修。
+  - **口径（有意的取舍）**：① 守门**优先放单测**而不是新 Gradle task——CI 已经在跑两个 flavor 的单测，挂进去不用改流水线结构，且本地 `./gradlew test` 同样生效；② 域名与导出名单在测试里**写死一份副本**，这是有意的重复：测试若从文档或主清单动态推导，被改时就不会红，等于没守；③ `AGENTS.md` 只写「只有 3 个 + 指路 `security.md`」，不把那 3 个理由复述进自动加载层——那里每多一行都在稀释注意力；④ 只接**能机器判定**的规则，`strings.xml` 硬编码文案、纯函数不读资源这类判断成本高的暂不接（宁可少接，不要接一条动辄误报的）。
+  - **L0（26.11.22 本机）**：`SecurityRedLineTest` 3 例全绿；**变异验证**：分别把 `allowBackup` 改 `true`、把一个 activity 翻成 `exported="true"`、往白名单加一个 `evil.example.com`，三次都按预期变红（对应断言分别报错），还原后两份文件 SHA-256 与原始一致；`DebugActivityExportTest` 一并跑绿；`assembleDebug` 双 flavor BUILD SUCCESSFUL；markdownlint 87 个文件 0 issues。
+  - **L1（26.11.22 CI，run 44983761781 / head b45add11）**：**全绿**——「校验 Markdown 规范」步骤 success；`编译 Debug 包`（两 flavor，此前 OOM 的那一步）success；standard / coexist 两个 flavor 单测 success（含新加的 `SecurityRedLineTest`）；Release R8 冒烟 success。这是 runs 75~78 连续四跑失败之后的第一次绿。
+  - **未验证 / 待观察**：① `-Xmx3072m` 的余量——本次冷编译顺利通过，但离上限多近没有数据（runner 16 GB，两个 daemon 合计约 5 GB，理论上还有余量）；② run 78 那次红是 `maven.aliyun.com` 返回 **502** 造成的（依赖镜像瞬时故障，与改动无关），说明 CI 仍会被镜像抖动打红，**没有**加重试或镜像回退；③ `git diff` 纯新增那条规矩靠人执行，没有强制手段。
 
 - **26.11.21 玻璃质感预设三档（用户点名）**：
   - **来路**：用户反馈「开启玻璃质感后，卡片 / 按钮有两种形态（接近主题色 / 接近背景色），可有人不喜欢」。要求加「玻璃质感预设」三档：主次分明（现有观感，默认）/ 稳扎稳打（全部统一成接近背景色）/ 晶莹剔透（全部统一成主题色）。三项口径由用户拍板：① 只统一**未选中**控件，选中态在任何档位都保留主题色淡底；② 晶莹剔透下卡片与按钮**完全同色**（不额外加浓）；③ 设置行**常驻**在玻璃开关正下方（不随开关隐藏）。
@@ -1313,7 +1339,7 @@
 - **依赖仓库**：`settings.gradle` 已把 aliyun 的 `google` / `public` / `gradle-plugin` 三个镜像前置，`google()`/`mavenCentral()`/jitpack 仅作兜底。
 - **改了 `res/` 文件集合时**：`:app:clean` 与后续命令**必须分两次 Gradle 调用**，且带 `--no-build-cache --no-configuration-cache`，否则会回放陈旧资源（症状是 `Unresolved reference 'R.layout.xxx'`）。
 - **版本一致性**：`:app:verifyVersionConsistency` 以 `strings.xml` 的 `update_log_current` 为锚点校验版本一致性；发版说明也由 CI 从它抽取（抽不到直接拒绝发版）。
-- **单测（26.11.05 合并远程 `main`、修好冲突残留后实测；`testStandardDebugUnitTest` 与 `testCoexistDebugUnitTest` 各跑一遍，命令带 `--no-build-cache --no-configuration-cache`）**：两个 flavor 均 **130 suites / 1379 tests / 0 失败 0 错误 0 跳过**（`app/src/test/` 下 `*Test.kt|java` 共 129 个源文件）。**本机已同步私有功能仓库（`private/` 存在，26.11.07 复核）**——本行 130 suites / 1379 tests 是 26.11.05「未同步 `private/`」口径的历史记录，**已不代表现在**；本机当前全量计数（含随 `private/` 一起注入的用例类）记在 §1「26.11.07 调研清单」那条。计数方式：`app/build/test-results/<flavor>DebugUnitTest/TEST-*.xml` 的 `tests=` 求和（**用 PowerShell 解析会因中文用例名抛 `InvalidCastToXmlDocument`，改用 Python `xml.etree`**）。用例数一律以机器产出为准，队友口述数字不进入文档。
+- **单测（最新基准：26.11.14 上游本机实测，`private/` 已同步）**：`:app:testStandardDebugUnitTest --rerun` → **233 suites / 2515 tests / 0 失败 0 错误**（见 §1 的 26.11.14 那条）。26.11.06 我方实测的**双配置**口径（公开 171 / 1858 · 含 `private/` 174 / 1904）已随 480 个上游提交作废，只作历史参照。**两套数字都要记**：公开配置少掉的正是随私有源码一起注入的那几个用例类，配置错了会立刻从计数上看出来（公开配置那次带 `--no-configuration-cache`，避免 `hasPrivateFeature` 回放旧值）。计数方式：`app/src/test/` 下 `*Test.kt|java` 计源文件（另有共享假实现 `util/FakeSharedPreferences.kt`），`app/build/test-results/<flavor>DebugUnitTest/TEST-*.xml` 的 `tests=` 求和（**用 PowerShell 解析会因中文用例名抛 `InvalidCastToXmlDocument`，改用 Python `xml.etree`**）。用例数一律以机器产出为准，队友口述数字不进入文档。
 - **26.10.10 那一轮的构建记录（历史，留作「改 minSdk / 重跑 release 链路」时的验证口径）**：`minSdk 24 → 19` 全部改动（含 jsoup 1.16.1、7 个 `res/drawable-v21` 资源）落盘后，按「`clean` → `assembleRelease` → `lintRelease` → 单测」四步跑完（均带 `--no-configuration-cache`，`clean` 与 `assemble` 分两次调用），四步全 `BUILD SUCCESSFUL`（37s / 2m13s / 1m25s / 39s）。当时单测汇总 **49 suites / 460 tests / 0 failures**（任务名当时还是 `testDebugUnitTest`，现已带 flavor 前缀），最新 XML 时间 `2026-10-09T22:59:04`（晚于当轮 APK 出包时间 22:56:58，覆盖了当轮全部源码改动）。`:app:lintRelease` 的 **`NewApi` 从 22 条降到 2 条**，且这 2 条就是 `PlayerActivity.kt:1981` 的已知假阳性。发版前仍建议再跑一次确认。
 - **「自动跳过片头片尾」已恢复上线（26.10.22）**：26.10.10 的紧急撤回**已解除**，`SkipOpEdPrefs.FEATURE_ENABLED` 回到 `true`，设置入口与搜索索引均已恢复；口径按用户拍板改为**默认关闭**（`DEFAULT_ENABLED = false`，老用户存档里显式写的值仍然优先）。恢复细节见 §3.3「恢复记录」，乱跳的三个根因修复见 §3.55。
 - **本轮基建改动（26.10.10）**：**`minSdk 24 → 21 → 19（Android 4.4）`**，唯一落点是 `app/build.gradle:21`。两级下调的成本不同，分开记：
@@ -3357,6 +3383,18 @@
 - **验证 · L0（26.11.16 11:50）**：`:app:assembleStandardDebug :app:testStandardDebugUnitTest` → **BUILD SUCCESSFUL**；standard 变体全量 **2746 例 / 失败 0 / 跳过 0**（比合并前多出的 4 例即本次新增的 `budgetAboveIme` 用例）。
 - **验证 · L1（模拟器，未完成）**：Debug 包在 `emulator-5554` 上装好后卡在首启引导/设置流程，没走到「收藏夹内搜索」那一步；`DialogSizing` 的尺寸结论目前只有单测与几何推算支撑。
 - **未验证（人测 / L2）**：①真手表（466×466 与小方屏）上打开收藏夹内搜索，键盘弹起后「确定」是否可见可点、面板是否留白；②圆屏机上按钮区是否仍被键盘挡住；③**API < 30 的设备只有第 1 条修法生效**（拿不到 ime 高度），要真机确认是否仍有遮挡。
+
+### 3.162 短信登录改走官方客户端链路 + 接受 access_key 作为登录凭据（26.11.22，用户点名）
+
+- **用户口径**：「想把账密/验证码登录换成 app 端的，并接受 access_key」。经查公开文档后确认：**验证码**那条公开快照里是全的（`bilibili-API/docs/login/login_action/SMS.md` 的 app 端两节，含端点、参数名、`|jordan`、`statistics`、buvid 生成算法、错误码）；**密码**那条快照里只有一个 `getKey`，登录动作写着 `TODO`，要官方 App 的 appkey + sign —— 那属于逆向产物且撞「不许写死 APP_KEY/APP_SEC」的红线。所以按用户拍板：**短信换成 app 端，密码保留 web 端**，两条都落 `access_key`。
+- **改法**：
+  1. `api/LoginApi` 新增 app 端链路（全部参数照快照，无额外凭据）：`smsSendApp` / `smsLoginApp`，配套纯函数 `buildSmsSendAppForm` / `buildSmsLoginAppForm`、`newLoginSessionId()`（uuid 去横线，发送与登录必须同值）、`genBuvid()`（快照给的算法：随机 6 段 MAC → md5 → `XY` + 第 3/13/23 位 + 整个 md5，固定 37 位）、`normalizeSeccode()`（统一补 `|jordan`，原来这段逻辑抄在 Fragment 里）。
+  2. `activity/settings/login/SMSLoginFragment`：先走 app 端；**只在「短信根本没发出去」时回退 web 端**（`smsShouldFallbackToWeb`：`1003 已发送` / `86203 次数上限` / `1025 永久封禁` / `-101` 一律不回退，否则用户会收到两条短信并被 60 秒 CD 挡住）。发送时记下通道与 `login_session_id`，登录必须走同一条通道——两边签发的 `captcha_key` 不通用，交叉使用只会回「验证码错误」。
+  3. **Cookie 落盘**：app 端把 Cookie 放在响应体的 `cookie_info.cookies` 里、**不发 `Set-Cookie`**，OkHttp 的 CookieJar 收不到。`AppTokenRefreshApi.updateCookies` 提升为 `public applyCookieInfo` 并在两条登录的 `handleLoginSuccess` 里先调用——否则「登录成功」之后读到的还是上一套空 Cookie，mid 取不到直接判失败。
+  4. `util/SpecialLoginParser`：导入校验从「必须带 `refresh_token`」放宽成「`refresh_token` 与 `access_key` **至少一样**」。只有 access_key 的包（App 端令牌，30 天内直用）现在能导；两样都缺仍然拒绝，提示里点明缺的是哪两样。
+- **为什么密码不一起换**：密码登录的 app 端调用在公开文档里**没有**（`password.md` 的「APP端密码登录」只给了 `getKey`，并注明「鉴权方式：appkey」，登录那一步是 `TODO`）；补它要 appkey + sign，而项目红线（`AppRecommendApi` 注释 + `docs/review/forks/revival.md`）明确禁止把官方 App 的 APP_KEY/APP_SEC 写死。要换必须整套进私有仓，本轮不做。
+- **验证 · L0（26.11.22）**：`:app:assembleStandardDebug` BUILD SUCCESSFUL；新增 `LoginApiSmsAppTest` **12 例**（buvid 形状/随机性、session id 去横线、seccode 归一、发送与登录请求体的键名与取值、app 端不含 web 端参数、回退判据表）与 `SpecialLoginParserTest` +2 例（只有 access_key 能导入、两样都缺时提示点到两个字段），共 25 例全绿。
+- **未验证（L1 / L2）**：①真实手机号收码 + 登录端到端（本机没有可用于收码的号码）；②app 端失败后回退 web 端这条分支（需要让 app 端真的被拒）；③buvid 是否被服务端认可（快照算法给了，但没有实测样本）。④密码登录仍是 web 端，本轮只多了「响应带 cookie_info 就顺带并进去」的兜底。
 
 ## 4. 历史章节索引
 

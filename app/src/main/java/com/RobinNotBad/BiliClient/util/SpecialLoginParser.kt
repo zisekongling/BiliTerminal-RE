@@ -17,7 +17,8 @@ import org.json.JSONObject
  *
  * 单条记录的校验规则（任一不满足即整体失败，宁可拒绝也不写半截登录态）：
  * 1. 必须带 `cookies` 且非空；
- * 2. 必须带 `refresh_token`；
+ * 2. `refresh_token` 与 `access_key` **至少要有一样**（只有 refresh_token 能续期；只有 access_key 也能直接用，
+ *    30 天到期后需重新登录；两样都缺的账号过期就废了，不收）；
  * 3. `cookies` 里必须能解析出 `DedeUserID`（否则连登录的是谁都不知道）；
  * 4. 记录里若带 `mid`，必须与 `DedeUserID` 一致——两条粘串了、数组整体挪了一位，
  *    都靠这条拦住，不然就会把 A 的 Cookie 和 B 的 mid 拼成一个"混合账号"。
@@ -152,7 +153,15 @@ object SpecialLoginParser {
         if (cookies.isEmpty()) return Result.Failure(UiText.of(where + "的 cookies 是空的"))
 
         val refreshToken = json.stringOrEmpty("refresh_token")
-        if (refreshToken.isEmpty()) return Result.Failure(UiText.of(where + "缺少 refresh_token 字段"))
+        // JSON null 在部分 org.json 版本里 optString 会给出字符串 "null"，必须显式排除，
+        // 否则会把 "null" 当成 access_key 存进去，请求全部鉴权失败
+        val accessKey = json.stringOrEmpty("access_key").ifEmpty { null }
+        // 续期凭证至少要有一样：只有 refresh_token 能续（Web 扫码 / 账密 / 短信登录），
+        // 只有 access_key 也能用（App 端 token，30 天内直接可用、到期需重新登录）。
+        // 两样都缺就没法在 Cookie 过期后自救，导入进来只是一个「几天后必掉」的账号。
+        if (refreshToken.isEmpty() && accessKey == null) {
+            return Result.Failure(UiText.of(where + "既没有 refresh_token 也没有 access_key，过期后无法续期"))
+        }
 
         val mid = NetWorkUtil.getInfoFromCookie("DedeUserID", cookies).toLongOrNull()
             ?: return Result.Failure(UiText.of(where + "的 Cookie 中缺少用户 ID（DedeUserID），请检查复制的内容是否完整"))
@@ -167,9 +176,7 @@ object SpecialLoginParser {
         return Result.Success(
             cookies = cookies,
             refreshToken = refreshToken,
-            // JSON null 在部分 org.json 版本里 optString 会给出字符串 "null"，必须显式排除，
-            // 否则会把 "null" 当成 access_key 存进去，请求全部鉴权失败
-            accessKey = json.stringOrEmpty("access_key").ifEmpty { null },
+            accessKey = accessKey,
             mid = mid,
             name = json.stringOrEmpty("name"),
             avatar = json.stringOrEmpty("avatar"),

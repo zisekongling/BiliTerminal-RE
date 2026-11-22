@@ -44,6 +44,9 @@ gradle.properties.bak
 # local update config (deployed separately, not tracked)
 config.json
 
+# 本机 MCP 服务器配置：headers 里带控制台 API 的 Authorization 令牌，绝不能提交
+.mcp.json
+
 # 代理/编辑器脚手架目录（.dsh/）
 # 内容是真机排障产物：uiautomator 层级转储、设备截图、勘察输出 CSV、
 # 上游项目 tarball、一次性脚本、日志。**不是项目代码**，不入库。

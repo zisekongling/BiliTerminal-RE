@@ -27,11 +27,13 @@ description: >-
 ## 标准流程
 
 ### 0. 盘点自上个发布版以来的改动
+
 先确定“上个已发布版本”对应的提交，用它作为日志内容来源：
 `git log --oneline <上个发版commit>..HEAD`（可用上次发布的版本名哈希/说明定位）。
 据此判断本版本日志该写哪些功能/安全/修复条目，并按实际代码改动撰写，不要凭空编造。
 
 ### 1. 处理历史更新日志（把旧的本次更新归档）
+
 `update_log_current` 记录的是**上一个已发布版本**的内容。发新版本前把它移入历史：
 
 - 在 `update_history_log` 数组**最前面**插入一组：
@@ -65,9 +67,11 @@ description: >-
 - 若仓库里 `description` 有 `strings.xml` 注释提示排序规则（新功能在上/修复在下），按提示组织。
 
 ### 3. 构建发行版
+
 ```bash
 ./gradlew.bat :app:assembleRelease   # Windows；Linux/WSL 需覆盖 gradle.properties 里的 java.home
 ```
+
 - 成功标记：`BUILD SUCCESSFUL`。**26.10.11 起两个 flavor 都会构建**，Gradle 原始产物分别在 `app/build/outputs/apk/standard/release/` 与 `app/build/outputs/apk/coexist/release/`（文件名带 flavor，如 `app-standard-arm64-v8a-release.apk` / `app-coexist-arm64-v8a-release.apk`）；**本地想凑出 CI 那种发布目录，要自己按 CI 的「整理发行 APK」步骤把普通版改名成 `app-<abi>-release.apk` 再放到 `app/build/outputs/apk/release/`**（名字不能变——老客户端按精确文件名取包，详见 `docs/architecture-map.md` §7.37）。
 - 注意（在受限沙箱/agent 环境下）：Gradle 要写 `C:\Users\<user>\.gradle` 与 SDK 等**工作区之外**的路径，首次可能因写锁/权限失败。若失败需以不受限文件权限重跑同一命令，不要改路径绕过。
 - `app/build.gradle` 里 `copyApkToDesktop`（含 `adb install`）已注释，**不会**随 assembleRelease 自动复制/安装；需要时单独跑 `./gradlew.bat copyApkToDesktop`。
@@ -147,6 +151,7 @@ description: >-
   **只是想要一份签名的包（传商店 / 自装）就勾 `build_only`**，别为它写当版更新日志，见上方那段。
 
 ### 5. 校验
+
 - strings.xml 保持 XML 合法（本次只改数组文本）。
 - 版本号改过就必须让 `:app:verifyVersionConsistency` 通过（校验 build.gradle 与 strings.xml 更新日志锚点）。
 - **Release 建好后必须回读它的说明正文**（`https://api.github.com/repos/zisekongling/BiliTerminal-RE/releases/latest` 的 `body`），确认 `update_log_current` 的全部条目都在里面。若正文只有 `### APK 校验值（MD5）` + `<!-- update: … -->` + `**Full Changelog**`，就是省略了更新说明 —— 见 §4 的硬要求，必须补上。**别只看 `conclusion=success` 就收工**：工作流全绿也不代表说明写了。
@@ -197,6 +202,7 @@ git add -A && git commit -m "chore: 同步发行版 <tag>" && git push
 确认新版本条目在**最上面**，且 `index.html` 的 `softwareVersion` 已更新。
 
 ## 约定与坑
+
 - 一律**中文**文案与注释；遗留页文案硬编码、不改 `strings.xml`（设置页为字符串驱动例外，用 `desc_*`）。
 - `update_log_items`、`versionCode` 尾码规律（`YYMMDD0`；同一天发第二个包时尾位递增为 `YYMMDD1`）、Gitee 直链这类与既有约定/外部资源强相关的内容，不确定就先确认再改。
 - **新客户端不再读 config.json**：更新检查已改为读发行版本身，版本元数据由发版工作流写进 Release 说明，少一处人工同步的远端文件。

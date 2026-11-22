@@ -4,6 +4,7 @@ import android.content.Context
 import com.RobinNotBad.BiliClient.R
 import java.io.File
 import java.io.FileOutputStream
+import java.util.UUID
 
 /**
  * 弹幕分段的磁盘缓存（批次 2）。
@@ -76,7 +77,10 @@ class DanmakuDiskCache(
                 return
             }
             val target = File(root, fileName(cid, segmentIndex))
-            val tmp = File(root, target.name + TMP_SUFFIX)
+            // tmp 名必须唯一：同一个 cid+段号可能有两个线程同时在写（旧一代 worker 还没收手、
+            // 新一代已经开始）。固定名字会让两份字节流交错写进同一个 tmp，rename 出来的是垃圾
+            // 但「长度不为 0」，读侧照样当有效缓存（26.11.22 审查发现）。
+            val tmp = File(root, target.name + "." + UUID.randomUUID().toString().take(8) + TMP_SUFFIX)
             FileOutputStream(tmp).use { out ->
                 out.write(data)
                 out.flush()
@@ -113,9 +117,14 @@ class DanmakuDiskCache(
     fun trim() {
         if (!root.isDirectory) return
         try {
+            val now = System.currentTimeMillis()
             val files = root.listFiles() ?: return
             for (file in files) {
-                if (file.name.endsWith(TMP_SUFFIX)) file.delete()
+                // 只清「放了一阵子还没 rename 走」的残留。正在写的 tmp 一定很新——无条件删会让
+                // 写者 rename 失败、退化成非原子覆盖写，并发时还会互相删掉对方的中间文件。
+                if (file.name.endsWith(TMP_SUFFIX) && now - file.lastModified() > STALE_TMP_MS) {
+                    file.delete()
+                }
             }
             val entries = files
                 .filter { it.isFile && !it.name.endsWith(TMP_SUFFIX) }
@@ -151,6 +160,9 @@ class DanmakuDiskCache(
 
         /** 临时文件后缀（原子写的中间态，读侧永不读取）。 */
         const val TMP_SUFFIX = ".tmp"
+
+        /** 超过这个年龄的 `.tmp` 才算崩溃残留，可以清（见 [trim]）。 */
+        private const val STALE_TMP_MS = 5 * 60 * 1000L
 
         /** 1MB 的字节数。 */
         const val MB = 1024L * 1024L

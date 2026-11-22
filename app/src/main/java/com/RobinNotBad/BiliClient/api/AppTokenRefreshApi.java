@@ -152,7 +152,7 @@ public class AppTokenRefreshApi {
         if (newMid > 0L) SharedPreferencesUtil.putLong(SharedPreferencesUtil.mid, newMid);
 
         // 同步刷新返回的 cookies（SESSDATA / bili_jct 等），拿到新串就整份原子落库
-        String cookiesNew = updateCookies(data);
+        String cookiesNew = applyCookieInfo(data);
         if (cookiesNew != null && newMid > 0L) {
             // 与 Web 刷新走同一条落库路径：原子写 + 升账号代际（在飞的旧响应作废）+ 同步账号快照。
             // 被拒（Cookie 里的 DedeUserID 与 mid 对不上）也不影响上面已经写好的 token，
@@ -171,9 +171,13 @@ public class AppTokenRefreshApi {
     /**
      * 把响应里的 cookie_info 并进本地 Cookie 并落盘。
      *
+     * <p>APP 端登录类接口（如短信登录的 `x/passport-login/login/sms`）与 TV 登录一样
+     * **把 Cookie 放在响应体的 `cookie_info.cookies` 里，不发 `Set-Cookie`**——所以 OkHttp 的
+     * CookieJar 收不到它们，必须显式解析落盘，否则「登录成功」之后读到的还是上一套（或空）Cookie。
+     *
      * @return 合并后的 Cookie 串；响应里没带 cookie_info / cookies 时返回 null
      */
-    private static String updateCookies(JSONObject data) {
+    public static String applyCookieInfo(JSONObject data) {
         try {
             JSONObject cookieInfo = data.optJSONObject("cookie_info");
             if (cookieInfo == null) return null;
