@@ -18,6 +18,20 @@
 
 ## 1. 当前版本状态
 
+- **26.11.22 把「只靠记性」的规矩接到机器上（用户提出：规范写进 md 了，但不确定新会话会不会照做）**：
+  - **来路**：用户原话「这个对话有很多重要的规范和历史规则，虽然写进了 md 保存，但无法确定新对话是否能完全遵循」。核查后确认这不是杞人忧天——自动加载层只有 `AGENTS.md`（14.2 KB、30 条硬性表述），另外 169 条散在 8 个 `docs/agents/` 分册里，**是否进上下文取决于 agent 有没有先判断对任务类型**；199 条规矩里只有 1 条（`verifyVersionConsistency`）有机器校验。用户拍板走「A+C」：把能判定的规则接到 CI / 单测上，并把只存在于历史会话的操作规矩收割进文档。
+  - **改法（新增 1 测 / 改 5）**：
+    - 新增 `app/src/test/java/com/RobinNotBad/BiliClient/SecurityRedLineTest.kt`（3 例）：主清单导出集合**恰为** `SplashActivity` / `GetIntentActivity` / `ExternalVideoActivity`；`allowBackup="false"` 且保留 `tools:replace="android:allowBackup"`；`base-config` 禁明文且放行域名集合恰为那 4 个。与既有 `DebugActivityExportTest` 的分工是「验是谁」与「只验数量」——那边是 `assertEquals(3, ...)`，数量相等时把某个导出页换成另一个仍能全绿。
+    - 改 `app/build.gradle`：把 `AndroidManifest.xml` 与 `network_security_config.xml` 声明成 `Test` 任务的 `inputs`。原因：这类测试是**运行期**才 `File(...)` 读清单，Gradle 的 up-to-date 检查看不到这层依赖，只改清单时测试任务被判 UP-TO-DATE 直接跳过——变异验证时实测到「守门没跑还显示成功」。
+    - 改 `.github/workflows/ci.yml`：加「校验 Markdown 规范（markdownlint）」步骤（命令与范围原样照抄 `docs/agents/docs.md`）；并把 CI 的 `kotlin.daemon.jvmargs` 从 `-Xmx2048m` 提到 `-Xmx3072m`（见下条），补 `grep` 硬校验防止这步静默空转。
+    - 改 `AGENTS.md`：安全红线摘要里「Release 包仅 `SplashActivity` 与 `GetIntentActivity` 导出」是**过期**的（`security.md` 26.11.17 起已是 3 个，多了 `ExternalVideoActivity`）。自动加载层写错、条件加载层写对，正是最难发现的那种漂移。
+    - 改 `docs/agents/security.md`：补一行指向 `SecurityRedLineTest`，写明「要动这些值先改本册并写理由，再同步改测试」。
+    - 改 `docs/agents/docs.md`：① 写明 markdownlint 已在 CI 里跑；② 收割一条只存在于历史会话的规矩——编辑 `pitfalls.md` 这类长清单后必须 `git diff` 确认是纯新增（26.10.31 曾两次误覆盖既有条目）。
+  - **顺带修：CI 从 26.11.21 起就是红的**。`run 44916623006`（11-21）与 `run 44977455350`（11-22）都死在 `:app:compileCoexistDebugKotlin` 的 `Not enough memory to run compilation`：两个 flavor 是**连续**在同一个 Kotlin daemon 里编译的，2048m 撑不住第二个。CI 长期红着，新加的守门就永远等不到绿灯，等于没接，所以一并修。
+  - **口径（有意的取舍）**：① 守门**优先放单测**而不是新 Gradle task——CI 已经在跑两个 flavor 的单测，挂进去不用改流水线结构，且本地 `./gradlew test` 同样生效；② 域名与导出名单在测试里**写死一份副本**，这是有意的重复：测试若从文档或主清单动态推导，被改时就不会红，等于没守；③ `AGENTS.md` 只写「只有 3 个 + 指路 `security.md`」，不把那 3 个理由复述进自动加载层——那里每多一行都在稀释注意力；④ 只接**能机器判定**的规则，`strings.xml` 硬编码文案、纯函数不读资源这类判断成本高的暂不接（宁可少接，不要接一条动辄误报的）。
+  - **L0（26.11.22 本机）**：`SecurityRedLineTest` 3 例全绿；**变异验证**：分别把 `allowBackup` 改 `true`、把一个 activity 翻成 `exported="true"`、往白名单加一个 `evil.example.com`，三次都按预期变红（对应断言分别报错），还原后两份文件 SHA-256 与原始一致；`DebugActivityExportTest` 一并跑绿；`assembleDebug` 双 flavor BUILD SUCCESSFUL；markdownlint 87 个文件 0 issues。
+  - **未验证 / 待观察**：① `-Xmx3072m` 是否够——本地（Windows、增量、daemon 预热）复现不了 CI 的冷编译条件，只能看 push 后的 run；② 最近一次 run 78 在更早的「校验版本号一致性」步骤就红了，原因是 `maven.aliyun.com` 返回 **502**（依赖镜像瞬时故障，与本次改动无关），**内存修复因此尚未被真实验证**；③ `git diff` 纯新增那条规矩靠人执行，没有强制手段。
+
 - **26.11.21 玻璃质感预设三档（用户点名）**：
   - **来路**：用户反馈「开启玻璃质感后，卡片 / 按钮有两种形态（接近主题色 / 接近背景色），可有人不喜欢」。要求加「玻璃质感预设」三档：主次分明（现有观感，默认）/ 稳扎稳打（全部统一成接近背景色）/ 晶莹剔透（全部统一成主题色）。三项口径由用户拍板：① 只统一**未选中**控件，选中态在任何档位都保留主题色淡底；② 晶莹剔透下卡片与按钮**完全同色**（不额外加浓）；③ 设置行**常驻**在玻璃开关正下方（不随开关隐藏）。
   - **根因/缺口**：玻璃质感只有「开 / 关」两态，形态写死在 `themes_glass.xml` 的 `GlassOverlay.<X>` 里——`materialCardViewStyle` 取 card 色、`materialButtonStyle` 取 fill 色（主色淡底）、`choiceCardColor`=card、`actionCardColor`=fill、`secondaryButtonTint`=中性白，用户没有「全背景色」或「全主题色」可选。
