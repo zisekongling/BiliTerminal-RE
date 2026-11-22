@@ -30,7 +30,8 @@
   - **顺带修：CI 从 26.11.21 起就是红的**。`run 44916623006`（11-21）与 `run 44977455350`（11-22）都死在 `:app:compileCoexistDebugKotlin` 的 `Not enough memory to run compilation`：两个 flavor 是**连续**在同一个 Kotlin daemon 里编译的，2048m 撑不住第二个。CI 长期红着，新加的守门就永远等不到绿灯，等于没接，所以一并修。
   - **口径（有意的取舍）**：① 守门**优先放单测**而不是新 Gradle task——CI 已经在跑两个 flavor 的单测，挂进去不用改流水线结构，且本地 `./gradlew test` 同样生效；② 域名与导出名单在测试里**写死一份副本**，这是有意的重复：测试若从文档或主清单动态推导，被改时就不会红，等于没守；③ `AGENTS.md` 只写「只有 3 个 + 指路 `security.md`」，不把那 3 个理由复述进自动加载层——那里每多一行都在稀释注意力；④ 只接**能机器判定**的规则，`strings.xml` 硬编码文案、纯函数不读资源这类判断成本高的暂不接（宁可少接，不要接一条动辄误报的）。
   - **L0（26.11.22 本机）**：`SecurityRedLineTest` 3 例全绿；**变异验证**：分别把 `allowBackup` 改 `true`、把一个 activity 翻成 `exported="true"`、往白名单加一个 `evil.example.com`，三次都按预期变红（对应断言分别报错），还原后两份文件 SHA-256 与原始一致；`DebugActivityExportTest` 一并跑绿；`assembleDebug` 双 flavor BUILD SUCCESSFUL；markdownlint 87 个文件 0 issues。
-  - **未验证 / 待观察**：① `-Xmx3072m` 是否够——本地（Windows、增量、daemon 预热）复现不了 CI 的冷编译条件，只能看 push 后的 run；② 最近一次 run 78 在更早的「校验版本号一致性」步骤就红了，原因是 `maven.aliyun.com` 返回 **502**（依赖镜像瞬时故障，与本次改动无关），**内存修复因此尚未被真实验证**；③ `git diff` 纯新增那条规矩靠人执行，没有强制手段。
+  - **L1（26.11.22 CI，run 44983761781 / head b45add11）**：**全绿**——「校验 Markdown 规范」步骤 success；`编译 Debug 包`（两 flavor，此前 OOM 的那一步）success；standard / coexist 两个 flavor 单测 success（含新加的 `SecurityRedLineTest`）；Release R8 冒烟 success。这是 runs 75~78 连续四跑失败之后的第一次绿。
+  - **未验证 / 待观察**：① `-Xmx3072m` 的余量——本次冷编译顺利通过，但离上限多近没有数据（runner 16 GB，两个 daemon 合计约 5 GB，理论上还有余量）；② run 78 那次红是 `maven.aliyun.com` 返回 **502** 造成的（依赖镜像瞬时故障，与改动无关），说明 CI 仍会被镜像抖动打红，**没有**加重试或镜像回退；③ `git diff` 纯新增那条规矩靠人执行，没有强制手段。
 
 - **26.11.21 玻璃质感预设三档（用户点名）**：
   - **来路**：用户反馈「开启玻璃质感后，卡片 / 按钮有两种形态（接近主题色 / 接近背景色），可有人不喜欢」。要求加「玻璃质感预设」三档：主次分明（现有观感，默认）/ 稳扎稳打（全部统一成接近背景色）/ 晶莹剔透（全部统一成主题色）。三项口径由用户拍板：① 只统一**未选中**控件，选中态在任何档位都保留主题色淡底；② 晶莹剔透下卡片与按钮**完全同色**（不额外加浓）；③ 设置行**常驻**在玻璃开关正下方（不随开关隐藏）。
