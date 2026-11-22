@@ -42,6 +42,8 @@
 
 其他参考：`docs/README.md`（文档总索引）、`bilibili-API/`（B 站接口文档快照，**197 份 / 5.5MB，按接口名 grep 单份，别通读**）、`docs/bilibili-api-notes.md`（接口与风控常识，改 API 前读）、`docs/FEATURES.md`（用户可见功能总表，≈3.4 万 token，按章 grep）、`docs/superpowers/specs/`（功能设计文档，只读与你这次改动相关的那一份）、`docs/tutorial-system-redesign.md`（教程系统重做中——**改教程前先读它**，全份仅 2.4k，可以整读）。**`docs/archive/` 里全是历史资料，记录的是当时、不是现状**，别照着它改代码。
 
+**本机还有一份不在版本库里的历史索引**：`.local/session-history/`（`.gitignore` 的 `/.local/` 已覆盖，公开仓里没有这个目录，没有就跳过）。里面是 2026-10-20~11-22 那轮长会话的**用户原话时间线 + 拍板规则表**，源数据是 134 MB 的 `events.jsonl`。要查「某个决定 / 某条规矩当初是怎么定的、为什么这么定」时**先翻它**，比 grep 全量事件流便宜；它记的是当时的判断，与现状冲突时仍以活文档和源码为准。
+
 ## 分册索引（按"我正在做什么"读）
 
 | 你正在做… | 读这份 |
