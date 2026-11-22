@@ -118,6 +118,13 @@ jobs:
       - name: 校验版本号一致性
         run: ./gradlew :app:verifyVersionConsistency --no-configuration-cache
 
+      # 「改任何 .md 后跑 markdownlint 要求 0 错误」这条从 26.10.20 写在 AGENTS.md 里，
+      # 却一直只靠改动者自觉——26.11.21 就攒出过 9 条 MD022/031/032 没人发现。
+      # 命令行与范围原样照抄 docs/agents/docs.md，别在这里另立一套口径：
+      # bilibili-API/（上游快照）与 docs/archive/（归档正文）不参与。
+      - name: 校验 Markdown 规范（markdownlint）
+        run: npx --yes markdownlint-cli2 "*.md" "{docs,.dsh,scripts,ledger}/**/*.md" "!docs/archive/**"
+
       # 显式关掉配置缓存：CI 只跑一次构建，缓存收益为负，而且配置缓存会把
       # 上一次构建的输入快照写进 build/ 目录，出问题时排查成本高于收益。
       - name: 编译 Debug 包

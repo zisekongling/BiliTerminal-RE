@@ -11,11 +11,12 @@
 - **核实出新的接口 / 风控结论** → 更新 `docs/bilibili-api-notes.md`。
 - **本文件描述的内容变了**（入口、约定、坑清单）→ 顺手改 `AGENTS.md` 或其 `docs/agents/` 分册，别留过时描述。
 - **一份知识只有一个落点**，别在多处复述；文档间引用一律写仓库相对路径（`docs/...`），源码注释里的文档路径同样要跟着改。
+- **编辑 `docs/agents/pitfalls.md` 这类长清单文档时，改完用 `git diff` 确认是纯新增**：26.10.31 追加新条目时曾两次误覆盖既有条目（`cell_video_list` 那条、`ApkVerifier` 标注），是 `git diff` 发现后才补回的——这类文件条目多、锚点相似，"读一遍再写"不足以防止覆盖。
 - **过期文档不删，归档**：`git mv` 进 `docs/archive/` 并在 `docs/archive/README.md` 加一行「内容 + 为什么归档」；**归档前先回迁**——把文中唯一还活着的知识（不要回退的取舍、未落地的待办、实测数字）搬进活文档。归档后同步改掉所有指向它的引用。
 
 ## Markdown 格式规范（26.10.20 起，`.markdownlint.json` 固化）
 
-改任何 `.md` 后跑一次，**要求 0 错误**（`docs/archive/` 不参与：归档正文一字不改）：
+改任何 `.md` 后跑一次，**要求 0 错误**（`docs/archive/` 不参与：归档正文一字不改）。**CI 里也跑这条**（`.github/workflows/ci.yml` 的「校验 Markdown 规范」步骤），违反会把 PR / push 打红——本地先跑一遍比等 CI 便宜：
 
 ```bash
 npx --yes markdownlint-cli2 "*.md" "{docs,.dsh,scripts,ledger}/**/*.md" "!docs/archive/**"
