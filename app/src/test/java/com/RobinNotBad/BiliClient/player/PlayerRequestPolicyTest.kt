@@ -26,6 +26,7 @@ class PlayerRequestPolicyTest {
         val headers = PlayerRequestPolicy.buildHeaders(
             thirdParty = false,
             bilibiliHost = mcdnUrlHost,
+            secure = true,
             cookies = "SESSDATA=secret",
             thirdPartyReferer = null,
             thirdPartyUserAgent = null
@@ -39,6 +40,7 @@ class PlayerRequestPolicyTest {
         val headers = PlayerRequestPolicy.buildHeaders(
             thirdParty = false,
             bilibiliHost = uposUrlHost,
+            secure = true,
             cookies = "SESSDATA=secret",
             thirdPartyReferer = null,
             thirdPartyUserAgent = null
@@ -49,11 +51,27 @@ class PlayerRequestPolicyTest {
 
     @Test
     fun `未登录时不带空Cookie头`() {
-        val headers = PlayerRequestPolicy.buildHeaders(false, true, "", null, null)
+        val headers = PlayerRequestPolicy.buildHeaders(false, true, true, "", null, null)
         assertEquals("https://www.bilibili.com/", headers["Referer"])
         assertNull(headers["Cookie"])
-        assertNull(PlayerRequestPolicy.buildHeaders(false, true, null, null, null)["Cookie"])
-        assertNull(PlayerRequestPolicy.buildHeaders(false, true, "   ", null, null)["Cookie"])
+        assertNull(PlayerRequestPolicy.buildHeaders(false, true, true, null, null, null)["Cookie"])
+        assertNull(PlayerRequestPolicy.buildHeaders(false, true, true, "   ", null, null)["Cookie"])
+    }
+
+    @Test
+    fun `明文直链不带Cookie`() {
+        // NSC 允许 bilibili 系域走明文，所以只按 host 门控还不够：若 playurl 调度到
+        // http://…bilivideo.com，整串 Cookie（含 bili_jct）就会明文发出去（26.11.22 审计）。
+        val headers = PlayerRequestPolicy.buildHeaders(
+            thirdParty = false,
+            bilibiliHost = true,
+            secure = false,
+            cookies = "SESSDATA=secret",
+            thirdPartyReferer = null,
+            thirdPartyUserAgent = null
+        )
+        assertEquals("https://www.bilibili.com/", headers["Referer"])
+        assertNull("http 直链不得携带 Cookie", headers["Cookie"])
     }
 
     @Test
@@ -62,6 +80,7 @@ class PlayerRequestPolicyTest {
         val headers = PlayerRequestPolicy.buildHeaders(
             thirdParty = true,
             bilibiliHost = false,
+            secure = true,
             cookies = "SESSDATA=secret",
             thirdPartyReferer = "https://www.example-source.com/",
             thirdPartyUserAgent = "Mozilla/5.0 test"
@@ -73,17 +92,17 @@ class PlayerRequestPolicyTest {
 
     @Test
     fun `第三方片源没配Referer时一个头都不发`() {
-        val headers = PlayerRequestPolicy.buildHeaders(true, false, "SESSDATA=secret", null, null)
+        val headers = PlayerRequestPolicy.buildHeaders(true, false, true, "SESSDATA=secret", null, null)
         assertTrue(headers.isEmpty())
         // 空串 / 纯空白不算有效配置，不能变成 `Referer: `
-        assertTrue(PlayerRequestPolicy.buildHeaders(true, false, "SESSDATA=secret", "", "  ").isEmpty())
+        assertTrue(PlayerRequestPolicy.buildHeaders(true, false, true, "SESSDATA=secret", "", "  ").isEmpty())
     }
 
     @Test
     fun `直播不算第三方片源`() {
         // 直播的 aid 可能为 0，但它来自 B 站侧入口，必须按 B 站内容发 Referer
         assertFalse(PlayerRequestPolicy.isThirdPartySource(true, 0L, 0L, mcdnUrlHost))
-        val headers = PlayerRequestPolicy.buildHeaders(false, false, "SESSDATA=secret", null, null)
+        val headers = PlayerRequestPolicy.buildHeaders(false, false, true, "SESSDATA=secret", null, null)
         assertEquals("https://www.bilibili.com/", headers["Referer"])
         assertNull(headers["Cookie"])
     }

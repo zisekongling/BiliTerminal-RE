@@ -107,9 +107,12 @@ object CrashReporter {
             /* deviceKey = */ TerminalApi.getDeviceKey(),
             /* mid = */ mid,
             /* exception = */ exception,
-            /* message = */ message,
+            // message / stack 也要脱敏（26.11.22 审计）：异常消息里常带完整 URL，
+            // 而 NetWorkUtil 的 JSONException 会把请求 URL 原样拼进去——带 csrf / access_key
+            // 的那条 GET 出错时，token 就跟着崩溃栈进服务端库。log 字段早已脱敏，这两处漏了。
+            /* message = */ LogSanitizer.sanitize(message),
             /* thread = */ thread,
-            /* stack = */ stack,
+            /* stack = */ LogSanitizer.sanitize(stack),
             /* log = */ mergeLog(trail, ringLog),
             /* extra = */ extra ?: "",
             /* versionCode = */ BuildConfig.VERSION_CODE,

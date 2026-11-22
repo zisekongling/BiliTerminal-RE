@@ -44,6 +44,14 @@
          · SYSTEM_ALERT_WINDOW 只服务 Debug 版 UETool 悬浮窗，已下移到 src/debug/AndroidManifest.xml，
            发布包不再声明该权限。 -->
 
+    <!-- 26.11.22 审计补漏：只从本清单「删掉」READ_PHONE_STATE 是不够的。
+         `:ijkplayer-java` 的清单只写了 minSdk、没有 targetSdkVersion，清单合并按 targetSdk<4 把
+         这枚权限以 IMPLIED 方式带回最终 APK（证据见 build/outputs/logs/manifest-merger-*-report.txt）。
+         显式 remove 掉，这是唯一能挡住「库在构建期把权限加回来」的写法。 -->
+    <uses-permission
+        android:name="android.permission.READ_PHONE_STATE"
+        tools:node="remove" />
+
     <application
         android:name=".BiliTerminal"
         android:allowBackup="false"

@@ -108,4 +108,28 @@ class SecurityRedLineTest {
             exported
         )
     }
+
+    @Test
+    fun `主清单显式移除库隐式引入的电话权限`() {
+        assertTrue("找不到 ${mainManifest.path}，路径可能变了", mainManifest.isFile)
+        val xml = mainManifest.readText()
+
+        // `:ijkplayer-java` 的清单只写 minSdk、不写 targetSdkVersion，清单合并会按「targetSdk<4」
+        // 把 READ_PHONE_STATE 以 IMPLIED 方式带回最终 APK（26.11.22 审计发现）。
+        // 只从主清单「删掉」那行是没用的——必须显式 tools:node="remove"。
+        val removeNode = Regex(
+            "<uses-permission\\b[^>]*android:name\\s*=\\s*\"android\\.permission\\.READ_PHONE_STATE\"" +
+                "[^>]*tools:node\\s*=\\s*\"remove\""
+        )
+        val removeNodeReversed = Regex(
+            "<uses-permission\\b[^>]*tools:node\\s*=\\s*\"remove\"" +
+                "[^>]*android:name\\s*=\\s*\"android\\.permission\\.READ_PHONE_STATE\""
+        )
+        assertTrue(
+            "主清单里少了 READ_PHONE_STATE 的 tools:node=\"remove\" 节点：库会在合并期把该权限" +
+                "以 IMPLIED 方式加回来（代码里从不读电话状态，属不该有的敏感权限）。\n" +
+                "取证：app/build/outputs/logs/manifest-merger-*-report.txt 搜 READ_PHONE_STATE",
+            removeNode.containsMatchIn(xml) || removeNodeReversed.containsMatchIn(xml)
+        )
+    }
 }
