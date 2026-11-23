@@ -209,4 +209,29 @@ class CrownSourcePolicyTest {
         assertEquals(0, CrownSourcePolicy.wheelScrollDelta(1f, 50f, -1f, CrownSourcePolicy.WHEEL_MAX_STEPS_LIST))
         assertEquals(0, CrownSourcePolicy.wheelScrollDelta(1f, 50f, 1f, 0f))
     }
+
+    // ---------- needsCompatWheelFallback：兼容模式要不要自己接管这一格（反馈 #279） ----------
+
+    @Test
+    fun 滚轮源且框架唯一会读的轴没有量时接管() {
+        // #279 的现场：OPPO 拿表冠当鼠标滚轮报，量在 AXIS_VSCROLL 上，AXIS_SCROLL 恒为 0，
+        // androidx NestedScrollView 的框架实现就靠这一根轴换算 → 框架必然不动，只能自己滚。
+        assertTrue(CrownSourcePolicy.needsCompatWheelFallback(CrownSourcePolicy.WHEEL, 0f))
+    }
+
+    @Test
+    fun 滚轮源但轴上有量时交给框架() {
+        // 有量意味着这一版框架真会处理（部分 ROM 把滚轮量同时写在两根轴上），接管就会双倍速。
+        assertFalse(CrownSourcePolicy.needsCompatWheelFallback(CrownSourcePolicy.WHEEL, -1f))
+        assertFalse(CrownSourcePolicy.needsCompatWheelFallback(CrownSourcePolicy.WHEEL, -0.01f))
+        assertFalse(CrownSourcePolicy.needsCompatWheelFallback(CrownSourcePolicy.WHEEL, 0.2f))
+    }
+
+    @Test
+    fun 非滚轮来源一律不接管() {
+        // 编码器机型框架根本不认（ANR 都不认，一律靠 App），走老的 handle / handleSystemFirst，
+        // 这条兜底只管「号称交给框架、框架却不处理」的那一类；NONE 更不该被它吞。
+        assertFalse(CrownSourcePolicy.needsCompatWheelFallback(CrownSourcePolicy.ENCODER, 0f))
+        assertFalse(CrownSourcePolicy.needsCompatWheelFallback(CrownSourcePolicy.NONE, 0f))
+    }
 }

@@ -18,6 +18,16 @@
 
 ## 1. 当前版本状态
 
+- **26.11.23 #279 OPPO 表冠在视频详情页转不动：兼容模式给 `NestedScrollView` 补滚轮兜底**：
+  - **来路**：控制台反馈 #279（OPPO OWW251 / 26.11.18-beta.6 / sdk30）两个问题，①全仓没有表冠震动、②视频详情页表冠转不动。本条先修②（①待定，见文末）。
+  - **根因**：OPPO 把表冠报成**鼠标滚轮**（`src=0x2002` = `SOURCE_MOUSE`，滚动量在 `AXIS_VSCROLL`）。26.11.23 起 `ui/widget/RotaryEncoderSupport.isCompatMode()` 默认 true（`SettingsKeys.UI_ROTATORY_COMPAT`，且 `maybeAutoEnableCompat` 一踩到滚轮源就自动打开），三条入口把滚轮源**整段交给框架**。列表页（`RecyclerView`）与设置页（平台 `ScrollView`）的 `onGenericMotionEvent` 按来源分轴取量（pointer 源读 `AXIS_VSCROLL`），照旧能滚；而 androidx `NestedScrollView` 的实现只读 `AXIS_SCROLL`——在这类 ROM 上算出来恒为 0，于是「视频详情-简介」整页不动，同一台表设置页却正常。`fragment_video_info.xml` / `fragment_media_info.xml` / `activity_message.xml` / `activity_live_info.xml` 的根容器正是 `RotaryNestedScrollView`，全都在这个坑里。
+  - **改法**（都限定「滚轮源 + `AXIS_SCROLL` 为 0」，即框架必然不处理，因此**不会与框架叠加**）：
+    - `ui/widget/RotaryEncoderSupport.kt`：`object CrownSourcePolicy` 新增纯判据 `needsCompatWheelFallback(crown, axisScroll) = crown == WHEEL && axisScroll == 0f`；`internal object RotaryEncoderSupport` 新增 `handleCompatWheelFallback(view, event, multiple, smoothScrollBy)`（控件级：兼容模式 + 非离屏页位 + 判据成立 → 按兼容口径 `compatPixelDelta` 滚一次，**不跑框架、不量差额**）与 `compatWheelPageFallback(root, event)`（页面级：只在目标容器**是 `NestedScrollView`** 时才接管，其余容器框架会自己滚，放宽就会双倍速）。
+    - `handlePageCompat` 的「非编码器源」分支由 `return false` 改为 `return compatWheelPageFallback(root, event)`；`ui/widget/RotaryNestedScrollView.dispatchGenericMotionEvent` 最前面加一跳 `handleCompatWheelFallback(...)`，原来的 `isSystemFirstMode()` / `handle(...)` 两条老路径一行未改。
+    - 覆盖面：控件级那条解决「事件正好落在容器上」（详情页正常路径），页面级那条兜「焦点在别的控件上、事件退到 DecorView」的情况。
+  - **验证**：L0（隔离副本 `%TEMP%\rebili-iso-222`）`assembleDebug` 双 flavor 通过；`testStandardDebugUnitTest` 3038 例、1 处失败与本轮无关（`ConventionGuardTest` 需要 `.git`，隔离副本没有）；`CrownSourcePolicyTest` 21 例 0 失败，新增 3 例（`滚轮源且框架唯一会读的轴没有量时接管`、`滚轮源但轴上有量时交给框架`、`非滚轮来源一律不接管`）通过。
+  - **未验证（L1，本机无设备）**：OPPO 系手表进视频详情 → 简介页用表冠能上下滚；日志缓冲里应出现「兼容兜底：滚轮源框架不会处理（NestedScrollView 只认 AXIS_SCROLL），App 接管」；同一页的列表页/设置页手感不应变化（不该翻倍）。
+  - **未做（另一半，待拍板）**：表冠震动 tick。方案是 `SettingsKeys` 加 `UI_ROTATORY_HAPTIC` + 在 `RotaryEncoderSupport` 三处滚动落点调 `performHapticFeedback(CLOCK_TICK)`（不认则回落 `Vibrator` 8ms 一次性，`AndroidManifest.xml` 已有 `VIBRATE` 权限）+ 40ms 节流；默认开/关影响所有表冠机型，属 L2 手感，等用户定。
 - **26.11.23 #254 残留：夹表合法为空时允许自愈元数据 + 拆夹/改名按真实目录写归属**：
   - **来路**：控制台反馈 #254（OPPO OWW212 / 26.11.18-beta.6）「旧版分过夹的缓存点进去为空」，用户补「文件夹拆散后未分类里竟然没有被拆散的视频」。主体已在 `8d735477` / `34083f1c` 修掉（记录优先 + 元数据兜底 + 自愈），这次补两处残留边界。
   - **残留 A（自愈被误挡）**：`util/CacheFolderResolver.needsMetaHeal` 见到空夹表一律不写元数据。用户把最后一个夹也拆掉之后，`.video_meta.json` 里的旧夹名永远留着——眼下还不算丢（`resolve` 只认夹表里存在的名字，会显示成未分类），但用户下次建同名夹时，这些视频会莫名其妙自己跳进去。
