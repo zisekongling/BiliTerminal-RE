@@ -53,6 +53,58 @@ class ShareTextsTest {
     }
 
     @Test
+    fun dynamicUrl_动态号() {
+        assertEquals("https://www.bilibili.com/opus/123456789", ShareTexts.dynamicUrl(123456789L))
+    }
+
+    @Test
+    fun dynamicUrl_没有id时不给死链() {
+        // id_str 缺失时 DynamicApi 把 dynamicId 落成 0，拼出来会是 opus/0
+        assertEquals("", ShareTexts.dynamicUrl(0L))
+        assertEquals("", ShareTexts.dynamicUrl(-1L))
+    }
+
+    @Test
+    fun dynamicShareHead_有标题用标题() {
+        assertEquals("标题", ShareTexts.dynamicShareHead("标题", "正文第一行\n第二行"))
+        assertEquals("标题", ShareTexts.dynamicShareHead("  标题  ", null))
+    }
+
+    @Test
+    fun dynamicShareHead_没标题取正文首行() {
+        assertEquals("正文第一行", ShareTexts.dynamicShareHead(null, "正文第一行\n第二行"))
+        assertEquals("正文第一行", ShareTexts.dynamicShareHead("   ", "正文第一行"))
+        assertEquals("", ShareTexts.dynamicShareHead(null, null))
+        assertEquals("", ShareTexts.dynamicShareHead("", ""))
+    }
+
+    @Test
+    fun dynamicShareHead_超长首行也截断() {
+        val long = "标".repeat(ShareTexts.TITLE_MAX + 10)
+        val head = ShareTexts.dynamicShareHead(null, long + "\n第二行")
+        assertEquals(ShareTexts.TITLE_MAX + 1, head.length)
+        assertEquals("…", head.substring(head.length - 1))
+    }
+
+    @Test
+    fun dynamicShareText_标题加换行加链接() {
+        assertEquals(
+            "标题\nhttps://www.bilibili.com/opus/1",
+            ShareTexts.dynamicShareText("标题", "正文", 1L)
+        )
+        assertEquals(
+            "正文\nhttps://www.bilibili.com/opus/1",
+            ShareTexts.dynamicShareText(null, "正文", 1L)
+        )
+    }
+
+    @Test
+    fun dynamicShareText_没链接时只发标题() {
+        assertEquals("标题", ShareTexts.dynamicShareText("标题", "正文", 0L))
+        assertEquals("", ShareTexts.dynamicShareText(null, null, 0L))
+    }
+
+    @Test
     fun trimTitle_超长截断加省略号() {
         val long = "标".repeat(ShareTexts.TITLE_MAX + 10)
         val trimmed = ShareTexts.trimTitle(long)

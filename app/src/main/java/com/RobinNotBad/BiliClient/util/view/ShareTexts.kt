@@ -55,6 +55,33 @@ object ShareTexts {
     }
 
     /**
+     * 动态 / 图文的链接，参数是 [com.RobinNotBad.BiliClient.model.Dynamic.dynamicId]。
+     *
+     * 为什么要这一层而不是直接 [opusUrl]：动态模型上没有 idStr 字段，唯一的 id 就是
+     * `dynamicId`——它来自接口的 `id_str`，缺这个字段时 DynamicApi 会把它落成 **0**，
+     * 拼出来的 `opus/0` 是个死链。<= 0 一律返回空串，调用方据此整项不显示。
+     */
+    fun dynamicUrl(dynamicId: Long): String =
+        if (dynamicId <= 0L) "" else opusUrl(dynamicId.toString())
+
+    /**
+     * 动态分享文本里排在链接上面的那一行。
+     *
+     * 动态多数没有标题（`title` 只有部分图文才有），所以优先用 `title`，
+     * 实在没有才退回正文**第一行**：正文动辄好几行，整段塞进分享文本，接收方一眼看不到重点，
+     * 私信还会顶到 2000 字节上限。
+     */
+    fun dynamicShareHead(title: String?, content: String?): String {
+        val safeTitle = title?.trim().orEmpty()
+        if (safeTitle.isNotEmpty()) return trimTitle(safeTitle)
+        return trimTitle(content?.lineSequence()?.firstOrNull())
+    }
+
+    /** 「分享动态」的文本：`标题（或正文首行）\n链接`，与私信正文同一口径（[messageText]）。 */
+    fun dynamicShareText(title: String?, content: String?, dynamicId: Long): String =
+        messageText(dynamicShareHead(title, content), dynamicUrl(dynamicId))
+
+    /**
      * 标题截断：去掉首尾空白，超过 [TITLE_MAX] 截断加省略号。
      * 分享文本和私信正文共用，免得两处各截一次、截出两种长度。
      */
