@@ -217,6 +217,17 @@ public class FavoriteApi {
         folder.name = data.optString("title", "");
         folder.cover = data.optString("cover", "");
         folder.intro = data.optString("intro", "");
+        // upper（创建者）只有 folder/info 下发，字段见 bilibili-API/docs/fav/info.md:53-62。
+        // 他人视角、旧收藏夹或接口裁剪时可能整段缺失——缺失就留空，让分享卡片的作者行自己隐藏，
+        // 不能像 code!=0 那样抛出去（详情页只靠它填昵称，不该因此整页报错）。
+        JSONObject upper = data.optJSONObject("upper");
+        if (upper != null) {
+            folder.upperName = upper.optString("name", "");
+            folder.upperMid = upper.optLong("mid", 0);
+        } else {
+            folder.upperName = "";
+            folder.upperMid = 0;
+        }
         folder.videoCount = data.optInt("media_count", 0);
         folder.isDefault = isDefaultFolder(attr);
         folder.maxCount = maxCountOf(folder.isDefault);
