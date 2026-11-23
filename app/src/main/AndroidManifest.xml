@@ -291,6 +291,11 @@
             android:label="@string/uitext_noteactivity_001"
             android:screenOrientation="locked" />
         <activity
+            android:name=".activity.note.NoteDetailActivity"
+            android:exported="false"
+            android:label="@string/uitext_noteactivity_001"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.settings.SettingPrefActivity"
             android:exported="false"
             android:label="@string/pagename_settingprefactivity_001"

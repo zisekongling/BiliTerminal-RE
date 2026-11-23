@@ -172,7 +172,7 @@
     <string name="desc_tags_enable">打开此选项，视频详情页会显示形如“原神UP主激励计划/原神/纳西妲/手机游戏”的视频标签</string>
     <string name="desc_related_enable">打开此选项，视频详情页的评论区右侧会有相关视频推荐</string>
     <string name="setting_detail_note_entry">视频笔记</string>
-    <string name="desc_setting_detail_note_entry">打开此选项，视频详情页的动作区会显示「笔记」按钮（需要登录）；默认关闭</string>
+    <string name="desc_setting_detail_note_entry">打开此选项，视频详情页的动作区会显示「笔记」按钮；笔记页含该视频的公开笔记（不用登录也能看）与自己的私有笔记；默认开启</string>
     <string name="setting_detail_share_row_entry">分享到其他设备</string>
     <string name="desc_setting_detail_share_row_entry">关闭此选项，视频详情页的动作区不再显示跨设备分享入口；默认开启</string>
     <string name="setting_detail_like_card_ring">点赞卡片描边</string>
@@ -2067,6 +2067,15 @@
     <string name="uitext_noteactivity_006">视频：</string>
     <string name="uitext_noteactivity_007">这篇笔记还没有正文</string>
     <string name="uitext_noteactivity_008">[图片]</string>
+    <string name="note_list_own_info">私有笔记 · 只有你自己能看到</string>
+    <string name="note_list_likes">%1$d 赞</string>
+    <string name="note_list_public_off">这个视频的公开笔记已关闭</string>
+    <string name="note_list_retry_tail">点我重试</string>
+    <string name="note_detail_author">作者：%1$s</string>
+    <string name="note_detail_likes">%1$d 人点赞</string>
+    <string name="note_detail_video">视频：%1$s</string>
+    <string name="note_tag_no_video">这条笔记没有关联到视频，跳不过去</string>
+    <string name="note_image_desc">笔记图片，点按查看大图</string>
     <string name="uitext_playeractivity_038">周期上报</string>
     <string name="uitext_playeractivity_039">人在看</string>
     <string name="uitext_playeractivity_040">新版弹幕获取失败，使用旧版接口</string>

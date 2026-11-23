@@ -1,6 +1,7 @@
 package com.RobinNotBad.BiliClient.api
 
 import com.RobinNotBad.BiliClient.model.NoteBlock
+import com.RobinNotBad.BiliClient.model.NoteContentItem
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -14,6 +15,9 @@ import org.junit.Test
  * 笔记解析的纯函数单测（26.10.04 批次 6 的 C27）。
  *
  * 网络请求不在这里测：`getNoteIdsOfVideo` / `getNoteInfo` 需要真 Cookie，属于真机清单。
+ *
+ * 26.11.23 补公开笔记（`parseNoteSummaries` / `hasMore` / `normalizeImageUrl`）与
+ * 详情页合并逻辑（`buildContent`）的用例；`parseBlocks` 的语义没动，既有用例原样保留。
  */
 class NoteApiTest {
 
@@ -221,4 +225,198 @@ class NoteApiTest {
         assertEquals("获取笔记失败", NoteApi.failureText(IllegalStateException("内部细节")))
         assertEquals("获取笔记失败", NoteApi.failureText(RuntimeException("boom")))
     }
+
+    // ------------------------------------------------------------ 26.11.23 公开笔记与合并渲染
+
+    @Test
+    fun normalizeImageUrl_addsHttpsToProtocolRelativeUrls() {
+        // 正文里的图片地址是 //i0.hdslb.com/...，没有 scheme，Glide 会直接失败
+        assertEquals(
+            "https://i0.hdslb.com/bfs/note/a.jpg",
+            NoteApi.normalizeImageUrl("//i0.hdslb.com/bfs/note/a.jpg")
+        )
+        // 已经完整的地址原样返回，两边空白去掉
+        assertEquals("https://i0.hdslb.com/a.jpg", NoteApi.normalizeImageUrl("  https://i0.hdslb.com/a.jpg "))
+        assertEquals("", NoteApi.normalizeImageUrl(null))
+        assertEquals("", NoteApi.normalizeImageUrl("   "))
+    }
+
+    @Test
+    fun parseBlocks_completesProtocolRelativeImageUrls() {
+        val content = "[{\"insert\":{\"imageUpload\":{\"url\":\"//i0.hdslb.com/bfs/note/x.jpg\",\"width\":388}}}]"
+        val blocks = NoteApi.parseBlocks(content)
+        assertEquals(1, blocks.size)
+        assertEquals("https://i0.hdslb.com/bfs/note/x.jpg", blocks[0].imageUrl)
+    }
+
+    @Test
+    fun parseNoteSummaries_readsListAndSkipsRowsWithoutCvid() {
+        val data = JSONObject().put(
+            "list",
+            JSONArray()
+                .put(
+                    JSONObject()
+                        .put("cvid", 15080841L)
+                        .put("title", "标题")
+                        .put("summary", "预览")
+                        .put("pubtime", 1700000000L)
+                        .put("likes", 3)
+                        .put("author", JSONObject().put("name", "某人").put("face", "https://x/a.jpg"))
+                )
+                // 没有 cvid 就没法打开详情，这种行直接丢掉
+                .put(JSONObject().put("title", "没有 cvid 的行"))
+        )
+        val items = NoteApi.parseNoteSummaries(data)
+        assertEquals(1, items.size)
+        assertEquals(15080841L, items[0].cvid)
+        assertEquals("标题", items[0].title)
+        assertEquals("预览", items[0].summary)
+        assertEquals(1700000000L, items[0].pubtime)
+        assertEquals(3, items[0].likes)
+        assertEquals("某人", items[0].authorName)
+        assertEquals("https://x/a.jpg", items[0].authorFace)
+        assertFalse(items[0].own)
+    }
+
+    @Test
+    fun parseNoteSummaries_toleratesMissingFields() {
+        assertTrue(NoteApi.parseNoteSummaries(null).isEmpty())
+        assertTrue(NoteApi.parseNoteSummaries(JSONObject()).isEmpty())
+        // 「还没有人发布笔记」的真实响应里 list 就是 null
+        assertTrue(NoteApi.parseNoteSummaries(JSONObject().put("list", JSONObject.NULL)).isEmpty())
+    }
+
+    @Test
+    fun hasMore_usesTotalSizeAndNum() {
+        assertTrue(NoteApi.hasMore(JSONObject().put("total", 25).put("size", 10).put("num", 1)))
+        assertFalse(NoteApi.hasMore(JSONObject().put("total", 25).put("size", 10).put("num", 3)))
+        // 字段没给全时宁可少一页，也不要无限往下翻
+        assertFalse(NoteApi.hasMore(null))
+        assertFalse(NoteApi.hasMore(JSONObject()))
+        assertFalse(NoteApi.hasMore(JSONObject().put("total", 0).put("size", 10).put("num", 1)))
+    }
+
+    @Test
+    fun parseNoteDetail_readsPublicFields() {
+        val data = JSONObject()
+            .put("cvid", 15080841L)
+            .put("pubtime", 1700000000L)
+            .put("likes", 12)
+            .put("author", JSONObject().put("name", "作者").put("face", "https://x/f.jpg"))
+        val note = NoteApi.parseNoteDetail(data)
+        assertEquals(15080841L, note.cvid)
+        assertEquals(1700000000L, note.pubtime)
+        assertEquals(12, note.likes)
+        assertEquals("作者", note.authorName)
+        assertEquals("https://x/f.jpg", note.authorFace)
+    }
+
+    @Test
+    fun buildContent_mergesAdjacentTextAndKeepsStyles() {
+        // Quill 会把「关掉」和「，」拆成两个元素，合并后应该是一段
+        val items = NoteApi.buildContent(
+            listOf(
+                textBlock("关掉", bold = true),
+                textBlock("，"),
+                textBlock("\n"),
+                textBlock("第二段")
+            )
+        )
+        assertEquals(2, items.size)
+        assertEquals("关掉，", items[0].text)
+        assertEquals(NoteContentItem.TYPE_PARAGRAPH, items[0].type)
+        // 样式段只覆盖「关掉」两个字，下标相对段落文本
+        assertEquals(1, items[0].runs.size)
+        assertEquals(0, items[0].runs[0].start)
+        assertEquals(2, items[0].runs[0].end)
+        assertTrue(items[0].runs[0].bold)
+        // 换行之后是新段落，且不带上一段的样式
+        assertEquals("第二段", items[1].text)
+        assertTrue(items[1].runs.isEmpty())
+    }
+
+    @Test
+    fun buildContent_numbersOrderedListItems() {
+        val items = NoteApi.buildContent(
+            listOf(
+                textBlock("第一", list = "ordered"),
+                textBlock("\n第二", list = "ordered"),
+                textBlock("\n第三", list = "ordered")
+            )
+        )
+        assertEquals(listOf("1. 第一", "2. 第二", "3. 第三"), items.map { it.text })
+    }
+
+    @Test
+    fun buildContent_prefixesBulletItems() {
+        val items = NoteApi.buildContent(
+            listOf(
+                textBlock("项一", list = "bullet"),
+                textBlock("\n项二", list = "bullet")
+            )
+        )
+        assertEquals(listOf("• 项一", "• 项二"), items.map { it.text })
+    }
+
+    @Test
+    fun buildContent_resetsOrderedNumberingAfterPlainParagraph() {
+        val items = NoteApi.buildContent(
+            listOf(
+                textBlock("一", list = "ordered"),
+                textBlock("\n普通段"),
+                textBlock("\n二", list = "ordered")
+            )
+        )
+        assertEquals(listOf("1. 一", "普通段", "1. 二"), items.map { it.text })
+    }
+
+    @Test
+    fun buildContent_splitsImagesAndTagsIntoTheirOwnRows() {
+        val image = NoteBlock()
+        image.type = NoteBlock.TYPE_IMAGE
+        image.imageUrl = "//i0.hdslb.com/a.jpg"
+        image.imageWidth = 388
+
+        val tag = NoteBlock()
+        tag.type = NoteBlock.TYPE_TAG
+        tag.tagCid = 497532206L
+        tag.tagIndex = 1
+        tag.tagSeconds = 80L
+        tag.tagTitle = "标题"
+
+        val items = NoteApi.buildContent(
+            listOf(textBlock("前"), image, textBlock("后"), tag, textBlock("尾"))
+        )
+        assertEquals(5, items.size)
+        assertEquals("前", items[0].text)
+        assertEquals(NoteContentItem.TYPE_IMAGE, items[1].type)
+        assertEquals("https://i0.hdslb.com/a.jpg", items[1].imageUrl)
+        assertEquals(388, items[1].imageWidth)
+        assertEquals("后", items[2].text)
+        assertEquals(NoteContentItem.TYPE_TAG, items[3].type)
+        assertEquals(497532206L, items[3].tagCid)
+        assertEquals(1, items[3].tagIndex)
+        assertEquals(80L, items[3].tagSeconds)
+        assertEquals("尾", items[4].text)
+    }
+
+    @Test
+    fun buildContent_skipsImagesWithoutUrl() {
+        val image = NoteBlock()
+        image.type = NoteBlock.TYPE_IMAGE
+        image.imageUrl = "  "
+        assertTrue(NoteApi.buildContent(listOf(image)).isEmpty())
+        assertTrue(NoteApi.buildContent(null).isEmpty())
+        assertTrue(NoteApi.buildContent(emptyList()).isEmpty())
+    }
+
+    /** 造一个文本块：`{"insert": text}` 加可选样式，等价于 parseBlocks 的产物。 */
+    private fun textBlock(text: String, bold: Boolean = false, list: String = ""): NoteBlock {
+        val block = NoteBlock()
+        block.text = text
+        block.bold = bold
+        block.list = list
+        return block
+    }
 }
+

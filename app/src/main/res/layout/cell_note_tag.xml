@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 笔记正文里的跳转标签（分P / 视频进度）。点一下跳到视频对应位置。 -->
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginHorizontal="6dp"
+    android:layout_marginVertical="2dp"
+    android:clickable="true"
+    android:focusable="true"
+    app:cardCornerRadius="6dp">
+
+    <TextView
+        android:id="@+id/noteTag"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:paddingHorizontal="8dp"
+        android:paddingVertical="6dp"
+        android:textSize="11sp" />
+</com.google.android.material.card.MaterialCardView>

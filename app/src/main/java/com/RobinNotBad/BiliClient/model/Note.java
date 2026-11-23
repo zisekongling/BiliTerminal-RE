@@ -35,6 +35,19 @@ public class Note {
 
     public String bvid = "";
 
+    /** 公开笔记 id（cvid，{@code x/note/publish/info} 的入参）；私有笔记为 0。 */
+    public long cvid;
+
+    /** 公开发布时间，**秒级**时间戳；私有笔记为 0。 */
+    public long pubtime;
+
+    /** 笔记作者昵称（公开笔记详情才有；私有笔记为空串）。 */
+    public String authorName = "";
+
+    public String authorFace = "";
+
+    public int likes;
+
     /** 正文块；接口没给正文（79503 笔记正文未找到）时为空表。 */
     public List<NoteBlock> blocks = new ArrayList<>();
 }

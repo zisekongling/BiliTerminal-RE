@@ -1076,14 +1076,22 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **它保留了第 0 位的头部占位**（复用 `res/layout/cell_goto.xml` 的那个 `text`，显示 `#话题名`）：`getItemCount() = dynamicList.size + 1`、`realPosition = position - 1`。不是为了好看——`getManageListener` 列表版在置顶/编辑成功后会**按 `realPosition + 1` 反推要刷新的行**，去掉头部占位会刷错行。翻页通知起点因此是 `lastSize + 1`。
 - **发布器不加话题选择**（用户拍板）：发动态要带话题得先有 id，而正文里拿不到 id；既要话题选择器又要话题搜索，属另一件事。
 
-### 7.22 笔记，仅查看（26.10.04 批次 6 的 C27）
+### 7.22 笔记：列表 + 详情（26.10.04 批次 6 的 C27 起步，26.11.23 重做成两页）
 
-- **链路**：视频详情页 `activity/video/info/VideoInfoFragment.kt` 新增整行 `MaterialButton id=note`（布局 `res/layout/fragment_video_info.xml`，文案「笔记」，**未登录时与「稍后再看」「转发」「视频摘要」一起 `GONE`**）→ `activity/note/NoteActivity.kt`（`BaseActivity` 子类，`intent` 只带 `aid`，可选带 `note_id` 直接看指定那篇）。Activity 里先 `SharedPreferencesUtil.mid == 0` → 提示「登录后才能看笔记喵~」；否则 `CenterThreadPool.run` 内先调 `NoteApi.getNoteIdsOfVideo(aid)` 拿私有笔记 id 列表，空则「这个视频还没有笔记」，有则取第一篇调 `NoteApi.getNoteInfo(aid, noteId)`。
+- **入口**：视频详情页整行 `MaterialButton id=note`（布局 `res/layout/fragment_video_info.xml`，文案「笔记」）。**26.11.23 起默认显示**（`util/DetailEntryPrefs.kt` 的 `DEFAULT_NOTE_ENABLED = true`，可在「设置 → 内容与浏览 → 详情页设置 → 视频笔记」里关），并且**不再与登录态挂钩**：公开笔记免登录可看，`VideoInfoFragment` 里只有「我的笔记」那一行看 `SharedPreferencesUtil.mid`，笔记按钮只看 `DetailEntryPrefs.isNoteEntryEnabled()`。
+- **两个页面**：`activity/note/NoteActivity.kt`（列表）→ `activity/note/NoteDetailActivity.kt`（详情）。都是 `RefreshListActivity` 子类，因此复用 `activity_simple_refresh.xml`（自带下拉刷新、空态提示、上拉翻页、表冠滚动），详情页把头部做成第 0 个 item 由 `adapter/note/NoteContentAdapter.kt` 渲染。清单里两个 Activity 都是 `exported="false"`；Debug 清单各有一份 `exported=true` + `android.permission.DUMP` 的副本（方便 adb 起页做 L1）。
+- **列表页怎么拼**：先 `loadOwnNote()`——登录且 `x/note/list/archive` 有 id 时在首位加一行「我的笔记」（标题取那篇文章的，失败只 `Log.w`、不影响公开列表）；再 `NoteApi.getPublicNoteList(aid, 1, 10)` 分页。行渲染在 `adapter/note/NoteSummaryAdapter.kt`，own 行副标题是「私有笔记 · 只有你自己能看到」，公开行是「作者 · 日期 · n 赞」（`TimeUtil.formatDate(pubtime * 1000)`，接口给的是秒）。
+- **空态分三档**：`show_public_note=false` → 「这个视频的公开笔记已关闭」；服务端 `message` 非空 → 原样显示（「还没有人发布笔记哦，快去发布一篇吧～」）；否则「这个视频还没有笔记」。首屏失败**不要**调 `loadFail(e)`（它会把 `page` 退成 0），改成 `showEmptyWith(NoteApi.failureText(e))`。
+- **公开笔记接口（免登录）**：`GET https://api.bilibili.com/x/note/publish/list/archive?oid=<aid>&oid_type=0&ps=<n>&pn=<n>` → `data.list[]`（`cvid`/`title`/`summary`/`pubtime`/`likes`/`has_like`/`author{mid,name,face}`）、`data.page{total,size,num}`（`hasMore` 由 `NoteApi.hasMore(JSONObject)` 判：`num*size < total`）、`data.show_public_note`、`data.message`；**`list` 常常是 `null`**，要当空表。详情 `GET https://api.bilibili.com/x/note/publish/info?cvid=<cvid>` 同样免登录。**公开笔记是逐视频开关的**，多数视频本来就是空（实测 aid=338677252 返回 `show_public_note:false`），所以「列表空」不等于功能坏了。
+- **`cvid` 不是专栏 cv 号**：把笔记的 `cvid` 扔给 `x/article/view?cvId=` 会 `-400`，两套 id 别混。
 - **两个接口，一个 `api/NoteApi.java`**：`GET https://api.bilibili.com/x/note/list/archive?oid=<aid>&oid_type=0&csrf=<NetWorkUtil.currentCsrf()>`（**只能查私有笔记**，无笔记时 `data` 里**没有 `noteIds` 字段**，要当空表处理）→ `data.noteIds[]` 是**字符串数组**；`GET https://api.bilibili.com/x/note/info?oid=<aid>&oid_type=0&note_id=<id>`（不带 csrf）。错误码 `79502` 笔记详情未找到、`79503` 笔记正文未找到、`79514` 公开笔记没找到，另有 `-101`/`-400`，全部走纯函数 `NoteApi.noteErrorMsg(int)`；网络层抛异常时优先用服务端 `message`。
 - **`note_id` 必须取 `note_id_str`**：接口文档自己的示例里 `note_id` 是 `24508729145690110` 而 `note_id_str` 是 `"24508729145690112"`——17 位超过 2^53，走 JSON number 已经丢精度。`NoteApi.pickNoteId(JSONObject)` 固定优先 `note_id_str`、回退 `note_id`，并且**全程按字符串传参**（`model/Note.noteId` 是 `String`）。
 - **正文是 Quill delta，不是 HTML，也不能复用 opus 解析**：`data.content` 是一段 JSON 序列字符串，根数组元素形如 `{"attributes":{…},"insert": …}`——`insert` 是字符串就是文本，是对象则二选一 `imageUpload`（`url`/`status`/`width`，**`width` 是"图片宽度 - 2"**）或 `tag`（`cid`/`index` 分P/`seconds` 进度/`title` 等）。属性有 `bold`/`underline`/`strike`/`color`/`background`/`list`（`ordered`|`bullet`）/`size`。`model/OpusParagraph.java` + `OpusContentAdapter` 那套处理的是**嵌套**段落结构，这里是**扁平 delta 数组**，结构不兼容，所以另写了 `model/NoteBlock.java` + 纯函数 `NoteApi.parseBlocks(String)`（坏 JSON、根是对象、`insert` 对象里两种 key 都没有——一律安全跳过，不抛）。
-- **渲染不用 RecyclerView**：`NoteActivity.renderBlocks` 把 block 列表拼成**一段 `SpannableStringBuilder`** 塞进一个 `TextView`（`res/layout/activity_note.xml` 的 `note_content`），样式用 `StyleSpan`/`UnderlineSpan`/`StrikethroughSpan`/`ForegroundColorSpan`/`BackgroundColorSpan`；图片只渲染 `[图片]` 占位，视频进度 tag 渲染成 `[视频进度 mm:ss]`（有分P索引则 `[分P n mm:ss]`，格式化走纯函数 `NoteApi.formatTagSeconds(long)`）；列表项加 `n.` / `•` 前缀（后面各带一个空格）。脏色值 `Color.parseColor` 包 try/catch 返回 null，不崩。
-- **没做的**（用户拍板范围限定「仅查看」）：我的笔记列表页（`x/note/list`）、公开笔记（`cvid` / `x/note/publish/info`）、创建与编辑笔记、图片真实加载、点击 tag 跳转进度，全都没做。
+- **渲染：delta → `NoteContentItem` → RecyclerView**。26.11.23 前是「拼一段 `SpannableStringBuilder` 塞进一个 `TextView`」，换成列表页后改成 `NoteApi.buildContent(List<NoteBlock>)` → `List<NoteContentItem>`（`model/NoteContentItem.java`，类型 `text`/`image`/`tag`）：连续文本合并成段、`\n` 分段、`ordered` 加 `"1. "`（遇普通段/图片/tag 归零重数）、`bullet` 加 `"• "`、图片与 tag 各占一行并结束当前段。样式不塞进 `Spannable` 而是落成 `model/NoteTextRun.java`（`start`/`end` 相对段落文本 + `bold`/`underline`/`strike`/`color`/`background`），这样合并逻辑能纯函数单测；`NoteContentAdapter` 再按 run 转 `StyleSpan`/`UnderlineSpan`/`StrikethroughSpan`/`ForegroundColorSpan`/`BackgroundColorSpan`（脏色值 `parseColor` 抛 `IllegalArgumentException` 就忽略）。tag 文案走 `formatTagSeconds(long)`：`[分P n mm:ss]` / `[视频进度 mm:ss]`。
+- **图片地址必须补 `https:`**：delta 里给的是协议相对地址 `//i0.hdslb.com/bfs/note/x.jpg`，没有 scheme，Glide 会直接失败——这是 26.11.23 之前「笔记里图片全不显示」的直接原因之一。`NoteApi.normalizeImageUrl(String)` 在解析期补成 `https://…`，`imageWidth` 仍是服务端给的「图片宽度 - 2」。点图片进 `ImageViewerActivity`（该页**没有**起始下标参数，所以按单张一张票传 `imageList`）。
+- **tag 点击跳播放进度**：tag 带 `cid`（分P）与 `seconds`。点击时在 `CenterThreadPool` 里 `VideoInfoApi.getVideoInfo(aid)` → `videoInfo.cids.indexOf(tagCid)`（找不到取 0）→ `videoInfo.toPlayerData(index)` → `data.progress = tagSeconds * 1000`（`PlayerData.progress` 单位是**毫秒**）→ `PlayerApi.startGettingUrl(data)`。
+- **没做的**：写笔记（官方是 H5 编辑页，本轮不动）、给公开笔记点赞（`has_like` 只解析不展示按钮）、删除笔记、独立「我的笔记」列表页（`x/note/list`，需登录）。
+- **诊断**：`api/NoteApi.java` 的日志 tag 统一是 `BiliNote`，`adb logcat -s BiliNote` 看全链路（请求 url、`code`、服务端 `message`，csrf 已打码）。
 
 ### 7.23 稍后再看「未看完」分类（26.10.04 批次 7 的 C18）
 
@@ -2121,7 +2129,7 @@ TTF/OTF/TTC，应用把它**拷进私有目录**（`filesDir/custom_font/custom_
 | `BangumiIndexApi.kt` | 番剧索引 / 推荐 / 动态筛选条件（26.11.07 新增） | `getCondition`/`parseCondition`（排序项 + 9 组筛选项，接口下发）、`getIndex`/`parseIndex`（`pgc/season/index/result`，返回 `hasNext` 与卡片）、`defaultFilters` |
 | `TimelineApi` | 番剧时间表 | `getTimeline` |
 | `TopicApi` | 话题广场 / 话题下动态列表（26.10.04 批次 6 的 C10） | `getRecommendedTopics`、`searchTopics`、`parseTopics`、`getTopicDynamicList` |
-| `NoteApi` | 视频笔记（只读，26.10.04 批次 6 的 C27） | `getNoteIdsOfVideo`、`getNoteInfo`、`parseBlocks`、`parseNoteDetail` |
+| `NoteApi` | 视频笔记（26.10.04 批次 6 的 C27 起步，26.11.23 加公开笔记） | `getNoteIdsOfVideo`、`getNoteInfo`、`getPublicNoteList`、`getPublicNoteInfo`、`parseBlocks`、`parseNoteDetail`、`parseNoteSummaries`、`hasMore`、`buildContent`、`normalizeImageUrl` |
 
 ### 用户与社交
 

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 笔记正文的一段（26.11.23）。列表前缀、加粗/颜色等样式在 NoteContentAdapter 里拼成 Spannable。 -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/noteText"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingHorizontal="8dp"
+    android:paddingVertical="3dp"
+    android:lineSpacingExtra="4dp"
+    android:textSize="14sp" />

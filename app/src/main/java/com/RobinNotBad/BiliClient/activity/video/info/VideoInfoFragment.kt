@@ -757,7 +757,8 @@ class VideoInfoFragment : BaseFragment() {
         }
 
         note.setOnClickListener {
-            // 私有笔记要 SESSDATA，未登录时按钮已经隐藏（见下面那段 visibility）
+            // 笔记页的主体是**公开笔记列表**（免登录可看），未登录也能进；
+            // 「我的笔记」那一行由笔记页自己按登录态决定显不显示。
             startActivity(
                 Intent(requireContext(), NoteActivity::class.java)
                     .putExtra("aid", videoInfo!!.aid)
@@ -785,13 +786,11 @@ class VideoInfoFragment : BaseFragment() {
             addWatchlater.visibility = View.GONE
             relay.visibility = View.GONE
             videoSummary.visibility = View.GONE
-            note.visibility = View.GONE
-        } else if (!DetailEntryPrefs.isNoteEntryEnabled()) {
-            // 26.11.07：登录态下也默认不显示「笔记」——用户要求把这个入口藏起来，
-            // 想用就在「设置 → 内容与浏览 → 详情页设置」里打开（默认关）。
-            // 点击监听与 NoteActivity 都还在，只是没有入口。
-            note.visibility = View.GONE
         }
+
+        // 「笔记」只看设置开关，不再跟登录态挂钩：26.11.23 起笔记页的主体是
+        // 免登录可看的公开笔记列表，未登录只是没有「我的笔记」那一行。
+        if (!DetailEntryPrefs.isNoteEntryEnabled()) note.visibility = View.GONE
 
         if (videoInfo!!.collection != null) {
             val collectionTitle = rootview.findViewById<TextView>(R.id.collectionText)

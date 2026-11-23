@@ -8,14 +8,15 @@ package com.RobinNotBad.BiliClient.util
  * - 「分享到其他设备」整行（私有功能，由 [OptionalFeatures.attachDetailActionRow] 反射插入）。
  *
  * 26.11.08 用户要求「分享到其他设备」改回**默认显示**：默认值翻成开，开关本身保留（想藏的人还能关）。
- * 「笔记」仍然默认关。默认值与判据集中在这里，
+ * 26.11.23 「笔记」也翻成**默认显示**（笔记页改成公开笔记列表后免登录也能看，没有理由再藏）。
+ * 默认值与判据集中在这里，
  * 避免设置页、详情页、全局搜索索引各写一份 `false`——那种分散最容易出现
  * 「设置页显示关着、详情页却按开处理」的不一致。
  */
 object DetailEntryPrefs {
 
-    /** 「笔记」按钮的默认值：关。 */
-    const val DEFAULT_NOTE_ENABLED = false
+    /** 「笔记」按钮的默认值：开（26.11.23 起）。 */
+    const val DEFAULT_NOTE_ENABLED = true
 
     /**
      * 「分享到其他设备」整行的默认值：开。
@@ -27,7 +28,8 @@ object DetailEntryPrefs {
     /**
      * 是否显示「笔记」按钮。
      *
-     * 只是其中一个条件：未登录时仍然恒隐藏（笔记要 SESSDATA），调用点要两者同时满足。
+     * 26.11.23 起不再与登录态挂钩：笔记页的主体是**公开笔记列表**（免登录可看），
+     * 只有「我的笔记」那一行按登录态决定显不显示，所以调用点只看这个开关。
      */
     fun isNoteEntryEnabled(): Boolean =
         SharedPreferencesUtil.getBoolean(SettingsKeys.DETAIL_NOTE_ENTRY, DEFAULT_NOTE_ENABLED)

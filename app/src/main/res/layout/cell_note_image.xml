@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 笔记正文里的一张图片。高度随宽度自适应，点击进全屏看图。 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingHorizontal="6dp"
+    android:paddingVertical="3dp">
+
+    <ImageView
+        android:id="@+id/noteImage"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:adjustViewBounds="true"
+        android:contentDescription="@string/note_image_desc"
+        android:minHeight="60dp"
+        android:scaleType="fitCenter" />
+</FrameLayout>

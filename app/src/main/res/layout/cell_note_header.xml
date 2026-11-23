@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 笔记详情页的头部（列表的第 0 项）：标题 / 作者与时间 / 预览 / 所属视频。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingHorizontal="@dimen/activity_padding_horizontal"
+    android:paddingTop="4dp"
+    android:paddingBottom="2dp">
+
+    <TextView
+        android:id="@+id/noteTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="6dp"
+        android:textSize="15sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/noteInfo"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:alpha="0.7"
+        android:paddingHorizontal="6dp"
+        android:textSize="11sp" />
+
+    <TextView
+        android:id="@+id/noteSummary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:paddingHorizontal="6dp"
+        android:textSize="@dimen/text_body" />
+
+    <TextView
+        android:id="@+id/noteVideo"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:alpha="0.7"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:paddingHorizontal="6dp"
+        android:textSize="11sp" />
+</LinearLayout>

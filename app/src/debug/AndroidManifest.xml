@@ -114,6 +114,8 @@
             tools:replace="android:exported" />
         <activity android:name=".activity.note.NoteActivity" android:exported="true" android:permission="android.permission.DUMP"
             tools:replace="android:exported" />
+        <activity android:name=".activity.note.NoteDetailActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
         <activity android:name=".activity.settings.SettingPrefActivity" android:exported="true" android:permission="android.permission.DUMP"
             tools:replace="android:exported" />
         <activity android:name=".activity.settings.SettingRepliesActivity" android:exported="true" android:permission="android.permission.DUMP"

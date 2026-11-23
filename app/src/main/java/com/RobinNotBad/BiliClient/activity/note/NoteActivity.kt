@@ -1,189 +1,192 @@
 package com.RobinNotBad.BiliClient.activity.note
 
-import com.RobinNotBad.BiliClient.util.UiText
-
-import android.annotation.SuppressLint
-import android.graphics.Color
-import android.graphics.Typeface
+import android.content.Intent
 import android.os.Bundle
-import android.text.SpannableStringBuilder
-import android.text.Spanned
-import android.text.style.BackgroundColorSpan
-import android.text.style.ForegroundColorSpan
-import android.text.style.StrikethroughSpan
-import android.text.style.StyleSpan
-import android.text.style.UnderlineSpan
-import android.view.View
-import android.widget.TextView
+import android.util.Log
 import com.RobinNotBad.BiliClient.R
-import com.RobinNotBad.BiliClient.activity.base.BaseActivity
+import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
+import com.RobinNotBad.BiliClient.adapter.note.NoteSummaryAdapter
 import com.RobinNotBad.BiliClient.api.NoteApi
-import com.RobinNotBad.BiliClient.model.Note
-import com.RobinNotBad.BiliClient.model.NoteBlock
+import com.RobinNotBad.BiliClient.model.NoteListPage
+import com.RobinNotBad.BiliClient.model.NoteSummary
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 
 /**
- * 视频笔记（仅查看）。26.10.04 批次 6 的 C27。
+ * 笔记列表页（26.11.23 改造）。
  *
- * 入口是视频详情页的「笔记」按钮，intent 带 `aid`（可选带 `note_id`）。
- * 私有笔记一个稿件只有一篇，所以拿到 id 列表就直接读第一篇；
- * 没有笔记、没登录、正文为空都只给页面内的空态提示，不弹窗打断。
+ * <p>此前这一页只显示「自己的私有笔记」，且入口默认关闭，未登录直接一句「登录后才能看笔记喵~」。
+ * 现在改成列表：第一行是「我的笔记」（登录且自己给这个稿件写过笔记时才有），
+ * 后面是**公开笔记**——公开笔记接口免登录可看，所以未登录进来也有内容。
  *
- * 正文是 Quill delta 序列（见 `model/NoteBlock`），这里把块拼成一段带样式的文本塞进一个 TextView：
- * 手表屏幕小，为几个样式块单独做 RecyclerView + adapter 不划算；图片只做文字占位，跳转标签也只显示时间。
+ * <p>公开笔记是**逐视频开关**，关掉的视频接口不报错而是回 `show_public_note=false`，
+ * 所以空态要分「功能已关闭 / 还没有人发布 / 请求失败」三种，不能一句「啥都木有」了事。
  */
-class NoteActivity : BaseActivity() {
+class NoteActivity : RefreshListActivity() {
 
-    private lateinit var titleView: TextView
-    private lateinit var infoView: TextView
-    private lateinit var contentView: TextView
-    private lateinit var emptyView: TextView
+    companion object {
+        private const val TAG = "BiliNote"
+        private const val PAGE_SIZE = 10
+    }
+
+    private var aid = 0L
+    private var items = ArrayList<NoteSummary>()
+    private var noteAdapter: NoteSummaryAdapter? = null
+
+    /**
+     * 代次 token：下拉刷新会 ++，让在途的旧翻页请求作废，
+     * 免得旧响应晚到后把刚刷出来的新列表又接在后面。
+     */
+    @Volatile
+    private var loadGeneration = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_note)
-        setPageName(UiText.of("笔记"))
+        setPageName(getString(R.string.uitext_noteactivity_001))
 
-        titleView = findViewById(R.id.note_title)
-        infoView = findViewById(R.id.note_info)
-        contentView = findViewById(R.id.note_content)
-        emptyView = findViewById(R.id.note_empty)
-
-        val aid = intent.getLongExtra("aid", 0L)
-        var noteId = intent.getStringExtra("note_id").orEmpty()
-
-        if (SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0) == 0L) {
-            showEmpty(UiText.of("登录后才能看笔记喵~"))
-            return
-        }
-        if (aid <= 0L && noteId.isEmpty()) {
-            showEmpty(UiText.of("笔记参数不对"))
+        aid = intent.getLongExtra("aid", 0L)
+        if (aid <= 0L) {
+            emptyView?.text = getString(R.string.uitext_noteactivity_003)
+            showEmptyView()
+            setRefreshing(false)
             return
         }
 
+        setOnRefreshListener { loadFirstPage() }
+        setOnEmptyRetry(Runnable { loadFirstPage() })
+        setOnLoadMoreListener { p -> loadMore(p) }
+        loadFirstPage()
+    }
+
+    /**
+     * 首屏 / 下拉刷新。
+     *
+     * 两个容易踩的点：
+     * 1. 无论成功失败都要 setRefreshing(false) 复位，否则基类的翻页入口守卫会一直卡住；
+     * 2. 失败**不等于到底**：只回 bottom = false + 可重试空态，别让一次断网就把翻页锁死。
+     */
+    private fun loadFirstPage() {
+        val gen = ++loadGeneration
+        setRefreshing(true)
         CenterThreadPool.run {
-            try {
-                if (noteId.isEmpty()) {
-                    val ids = NoteApi.getNoteIdsOfVideo(aid)
-                    if (ids.isEmpty()) {
-                        runOnUiThread { showEmpty(UiText.of("这个视频还没有笔记")) }
-                        return@run
-                    }
-                    noteId = ids[0]
-                }
-                val note = NoteApi.getNoteInfo(aid, noteId)
-                if (note.noteId.isEmpty()) note.noteId = noteId
-                runOnUiThread { showNote(note) }
+            val ownNote = loadOwnNote()
+
+            val result: NoteListPage = try {
+                NoteApi.getPublicNoteList(aid, 1, PAGE_SIZE)
             } catch (e: Exception) {
-                // 不能把所有异常都压成一句「获取笔记失败」：断网、未登录、79502/79503
-                // 的处置完全不同，用户只看到同一句话就没法反馈也没法自救
-                val text = failureText(e)
-                runOnUiThread { showEmpty(text) }
-                MsgUtil.err(e)
+                runOnUiThread {
+                    if (isDestroyed || gen != loadGeneration) return@runOnUiThread
+                    // 不调 loadFail()：它会把 page--，而首屏 page 还是 1，会退成 0
+                    bottom = false
+                    showEmptyWith(NoteApi.failureText(e))
+                    setRefreshing(false)
+                    MsgUtil.err(e)
+                }
+                return@run
+            }
+
+            val fresh = ArrayList<NoteSummary>()
+            ownNote?.let { fresh.add(it) }
+            fresh.addAll(result.items)
+
+            runOnUiThread {
+                if (isDestroyed || gen != loadGeneration) return@runOnUiThread
+                // 就地替换：适配器持有的是同一个 list 引用，换引用会继续显示旧数据
+                items.clear()
+                items.addAll(fresh)
+                page = 1
+                bottom = !result.hasMore
+                if (noteAdapter == null) {
+                    noteAdapter = NoteSummaryAdapter(this, items) { openNote(it) }
+                    setAdapter(noteAdapter!!)
+                } else {
+                    noteAdapter!!.notifyDataSetChanged()
+                }
+                if (items.isEmpty()) showEmptyWith(emptyReason(result)) else hideEmptyView()
+                setRefreshing(false)
             }
         }
     }
 
     /**
-     * 失败提示分级：服务端有话说就转述，纯网络问题给网络文案，其余才是一般性失败。
-     *
-     * <p>判定逻辑本身是纯函数 {@link NoteApi#failureText(Throwable)}（带 JVM 单测），
-     * 这里只负责切主线程显示。
+     * 「我的笔记」那一行。未登录、这个稿件没写过、接口报错都返回 null——
+     * 少一行而已，不能连累免登录就能看的公开笔记列表。
      */
-    private fun failureText(e: Exception): String = NoteApi.failureText(e)
+    private fun loadOwnNote(): NoteSummary? {
+        if (SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0L) == 0L) return null
 
-    private fun showEmpty(text: String) {
-        titleView.visibility = View.GONE
-        infoView.visibility = View.GONE
-        contentView.visibility = View.GONE
-        emptyView.text = text
-        emptyView.visibility = View.VISIBLE
-    }
-
-    @SuppressLint("SetTextI18n")
-    private fun showNote(note: Note) {
-        titleView.text = note.title.ifEmpty { UiText.of("无标题笔记") }
-        titleView.visibility = View.VISIBLE
-
-        val info = ArrayList<String>()
-        if (note.videoTitle.isNotEmpty()) info.add(UiText.of("视频：") + note.videoTitle)
-        if (note.summary.isNotEmpty()) info.add(note.summary)
-        infoView.text = info.joinToString("\n")
-        infoView.visibility = if (info.isEmpty()) View.GONE else View.VISIBLE
-
-        val content = renderBlocks(note.blocks)
-        if (content.isEmpty()) {
-            showEmpty(UiText.of("这篇笔记还没有正文"))
-            return
+        val noteId = try {
+            NoteApi.getNoteIdsOfVideo(aid).firstOrNull().orEmpty()
+        } catch (e: Exception) {
+            Log.w(TAG, "读取我的笔记 id 失败：" + e.javaClass.simpleName + " " + e.message)
+            return null
         }
-        contentView.text = content
-        contentView.visibility = View.VISIBLE
-        emptyView.visibility = View.GONE
+        if (noteId.isEmpty()) return null
+
+        val summary = NoteSummary()
+        summary.own = true
+        summary.noteId = noteId
+        // 顺手取一次详情只为拿标题：列表里一行「无标题笔记」用户根本认不出是哪篇。
+        // 失败仍然返回这一行（标题走兜底文案），笔记本身还是能点开的。
+        try {
+            val detail = NoteApi.getNoteInfo(aid, noteId)
+            summary.title = detail.title
+            summary.summary = detail.summary
+        } catch (e: Exception) {
+            Log.w(TAG, "读取我的笔记详情失败：" + e.javaClass.simpleName + " " + e.message)
+        }
+        return summary
     }
 
-    /** 把正文块拼成一段带样式的文本。 */
-    private fun renderBlocks(blocks: List<NoteBlock>): CharSequence {
-        val builder = SpannableStringBuilder()
-        var orderedIndex = 0
-        for (block in blocks) {
-            when (block.type) {
-                NoteBlock.TYPE_IMAGE -> {
-                    builder.append(UiText.of("[图片]"))
-                }
-                NoteBlock.TYPE_TAG -> {
-                    builder.append(tagText(block))
-                }
-                else -> {
-                    val prefix = when (block.list) {
-                        "ordered" -> {
-                            orderedIndex++
-                            "$orderedIndex. "
-                        }
-                        "bullet" -> "• "
-                        else -> ""
+    private fun loadMore(p: Int) {
+        val gen = loadGeneration
+        CenterThreadPool.run {
+            try {
+                val result = NoteApi.getPublicNoteList(aid, p, PAGE_SIZE)
+                runOnUiThread {
+                    if (isDestroyed || gen != loadGeneration) return@runOnUiThread
+                    val start = items.size
+                    if (result.items.isNotEmpty()) {
+                        items.addAll(result.items)
+                        noteAdapter?.notifyItemRangeInserted(start, result.items.size)
                     }
-                    val start = builder.length
-                    builder.append(prefix)
-                    builder.append(block.text)
-                    applyStyle(builder, block, start)
+                    bottom = !result.hasMore
+                    setRefreshing(false)
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    if (isDestroyed || gen != loadGeneration) return@runOnUiThread
+                    // 失败只说明这一页没拿到，不是到底：退页码复位刷新，用户滑到底还能再试
+                    page--
+                    setRefreshing(false)
+                    MsgUtil.err(e)
                 }
             }
-            // 有序列表的编号只在连续的列表块之间累加，中间插了普通段落就重新数
-            if (block.list.isEmpty()) orderedIndex = 0
-        }
-        return builder
-    }
-
-    private fun tagText(block: NoteBlock): String {
-        val time = NoteApi.formatTagSeconds(block.tagSeconds)
-        return if (block.tagIndex >= 0) UiText.fmt("[分P%1\$d %2\$s]", block.tagIndex + 1, time)
-        else UiText.fmt("[视频进度 %1\$s]", time)
-    }
-
-    private fun applyStyle(builder: SpannableStringBuilder, block: NoteBlock, start: Int) {
-        val end = builder.length
-        if (end <= start) return
-        val flags = Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-        if (block.bold) builder.setSpan(StyleSpan(Typeface.BOLD), start, end, flags)
-        if (block.underline) builder.setSpan(UnderlineSpan(), start, end, flags)
-        if (block.strike) builder.setSpan(StrikethroughSpan(), start, end, flags)
-        parseColor(block.color)?.let {
-            builder.setSpan(ForegroundColorSpan(it), start, end, flags)
-        }
-        parseColor(block.background)?.let {
-            builder.setSpan(BackgroundColorSpan(it), start, end, flags)
         }
     }
 
-    /** 颜色解析失败（服务端给了脏值）就当没设颜色，别让整页崩掉。 */
-    private fun parseColor(value: String): Int? {
-        if (value.isEmpty()) return null
-        return try {
-            Color.parseColor(value)
-        } catch (e: IllegalArgumentException) {
-            null
+    /** 空态原因：功能被 UP 主关了 / 服务端给了说明 / 反正就是没有。 */
+    private fun emptyReason(result: NoteListPage): String {
+        if (!result.showPublicNote) return getString(R.string.note_list_public_off)
+        if (result.message.isNotEmpty()) return result.message
+        return getString(R.string.uitext_noteactivity_004)
+    }
+
+    /** 空态带上「点我重试」尾巴：setOnEmptyRetry 设过点击监听，但文案此时已被我们换掉了。 */
+    private fun showEmptyWith(reason: String) {
+        emptyView?.text = reason + "\n" + getString(R.string.note_list_retry_tail)
+        showEmptyView()
+    }
+
+    private fun openNote(item: NoteSummary) {
+        val intent = Intent(this, NoteDetailActivity::class.java)
+        intent.putExtra("aid", aid)
+        if (item.own) {
+            intent.putExtra("note_id", item.noteId)
+        } else {
+            intent.putExtra("cvid", item.cvid)
         }
+        startActivity(intent)
     }
 }
