@@ -31,6 +31,13 @@
   - **未做**：`appcompat 1.6.1` / `fragment-ktx 1.6.2` 继续钉在低版本（1.7.0 / 1.8.0 的 AAR 自身 minSdkVersion 是 21，升上去就没法留 4.4）；`multiDexEnabled` 与 `MultiDex.install()` 原样保留；没有回退任何 UI 或业务行为。
   - **未验证（L2 / 真机）**：①**Android 4.4 上的 TLS 1.2 握手**——OkHttp 3.12 在 API < 21 靠反射启用 TLS 1.2，老 ROM 的 Provider 名不同会直接握手失败，这是本轮最大风险点；②4.4 首次启动的**多 dex 装载**耗时与 ANR 风险；③联网全链路（首页 / 播放 / 下载续传 / 直播 / 弹幕 / 翻译 gRPC）在 4.4 与 5.x 上的实际表现；④4.3 及以下仍不支持，4.4 以下用户请继续用旧版本。
 
+- **26.11.19 debug 包改用正式签名（26.11.23 补记）**：
+  - **来路**：真机联调时设备上装着正式版，debug 包签名不同，`adb install -r` 报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`，只能卸载重装、登录态全丢。
+  - **改法**：`app/build.gradle` 的 `buildTypes.debug` 加一行 `signingConfig signingConfigs.release.storeFile != null ? signingConfigs.release : signingConfigs.debug`。`signingConfigs.release` 只有在 `local.properties` 里配了 `KEY_PATH` 时才拿到 `storeFile`，于是口径就是 **有正式 keystore 就共用正式签名，没有就退回默认 debug 签名**（26.11.23 由用户确认）。公开仓库不带 `local.properties`，仍能独立编译，不影响 CI 的 unsigned 冒烟与别人 clone 后构建。
+  - **验证**：L0——`:app:assembleDebug` 两个 flavor 均通过（本机 `local.properties` 配了 `KEY_PATH`，走的是正式签名那支）。
+  - **未验证（L2，需人工）**：真表上把 debug 包 `adb install -r` 覆盖已装的正式版，确认**不报 INSTALL_FAILED_UPDATE_INCOMPATIBLE、登录态还在、能正常启动**；另核一次 `apksigner verify --print-certs` 两边证书指纹一致。
+  - **备注**：这条改动当时和「minSdk 回 21」混在同一个提交（`dcdd048f`）里推到 main，一直没进文档；补记在此，不再拆历史。
+
 - **26.11.23 转发面板按 PiliPlus 铺开到六个页面（视频 / 番剧 / 动态卡片 / 直播 / 专栏 / 收藏夹）**：
   - **来路**：用户要求「转发面板拓展出这四种功能」，并附了 PiliPlus 视频页的分享面板截图（复制链接 / 其它app打开 / 分享视频 / 分享至动态 / 分享至消息）。拍板口径：条目照 PiliPlus 五项；范围铺到视频详情（UGC+PGC）、动态卡片、直播、专栏、收藏夹详情；「其它app打开」「分享视频」先探测有无可用目标，没有就提示并复制链接兜底；直播与专栏只做四项、收藏夹只做四项，**没把握的项直接不显示，不摆占位项**。
   - **改法**：
