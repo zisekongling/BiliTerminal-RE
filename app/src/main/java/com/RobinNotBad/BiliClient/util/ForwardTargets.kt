@@ -8,6 +8,10 @@ package com.RobinNotBad.BiliClient.util
  * 「这条内容在动态里算哪一种」讲清楚——取值集中在这里，页面里不再各写一份魔法数字，
  * 也方便单测把每个类型逐个钉住。
  *
+ * <p>取值口径来自开源第三方客户端 PiliPlus 的分享面板实现（`lib/pages/video/introduction/pgc/controller.dart`
+ * 的 `dynType` 映射、收藏夹页的 `RepostPanel(rid: mediaId, dynType: 4300)`）；本仓库 `bilibili-API/`
+ * 的公开快照里只有 1 / 2 / 8 / 2048 这几档，其余取值以线上实际渲染为准。
+ *
  * <p>**未知类型一律返回 -1**，不回退成一个「看起来像」的值：错的 `dyn_type` 会让服务端把内容
  * 渲染成别的卡片（或者干脆回失败），宁可在发布页提前拦下来（`SendDynamicActivity` 就是这么做的）。
  */
