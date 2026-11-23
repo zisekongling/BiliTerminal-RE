@@ -16,7 +16,6 @@ import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.activity.result.ActivityResultLauncher
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
@@ -316,6 +315,28 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
             ) { which -> actions[which].action() }.show()
         }
 
+        /**
+         * 转发动态到「发动态」页。
+         *
+         * <p>右下角的转发图标与长按管理菜单里的「分享 → 分享至动态」共用这一段：
+         * 组装 extras、把动态塞进 [TerminalContext] 的转发槽、起 [SendDynamicActivity] 的顺序
+         * 不能两边各写一份——哪天接口要加字段，改一处漏一处就是静默少参数。
+         */
+        @JvmStatic
+        fun relayToDynamic(activity: BaseActivity, dynamic: Dynamic) {
+            val intent = Intent(activity, SendDynamicActivity::class.java)
+            intent.putExtra("dynamicId", dynamic.dynamicId)
+            // 转发自动引用所需的信息：SendDynamicActivity 完成时会把启动时的 extras 原样回传，
+            // 由 DynamicActivity.getRelayDynamicLauncher 取出并拼成 //@原作者:原内容
+            dynamic.userInfo?.let {
+                intent.putExtra("forwardAuthorName", it.name)
+                intent.putExtra("forwardAuthorMid", it.mid)
+            }
+            dynamic.content?.let { intent.putExtra("forwardContentText", it.toString()) }
+            TerminalContext.getInstance().setForwardContent(dynamic)
+            activity.relayDynamicLauncher.launch(intent)
+        }
+
         private fun launchEdit(activity: BaseActivity, dynamic: Dynamic, onEdited: ((String) -> Unit)?) {
             val text = dynamic.content?.toString().orEmpty()
             if (text.isEmpty()) {
@@ -406,7 +427,6 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
     /** 卡片操作栏的「评论」入口（只有父卡片有：子转发卡片 `cell_dynamic_child` 没有操作栏）。 */
     var item_dynamic_comment: TextView? = null
     lateinit var cell_dynamic_child: View
-    var relayDynamicLauncher: ActivityResultLauncher<Intent>? = null
     var childDynamicHolder: DynamicHolder? = null
 
     /**
@@ -514,7 +534,6 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
             likeCount = itemView.findViewById(R.id.likes)
             item_dynamic_delete = itemView.findViewById(R.id.item_dynamic_delete)
             item_dynamic_comment = itemView.findViewById(R.id.item_dynamic_comment)
-            relayDynamicLauncher = mActivity.relayDynamicLauncher
             this.cell_dynamic_child = extraCard.findViewById(R.id.dynamic_child)
             this.cell_dynamic_video = extraCard.findViewById(R.id.dynamic_video_extra)
             this.cell_dynamic_article = extraCard.findViewById(R.id.dynamic_article_extra)
@@ -919,23 +938,8 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
         }
         content.ellipsize = TextUtils.TruncateAt.END
 
-        val onRelayClick = View.OnClickListener {
-            if (relayDynamicLauncher == null) {
-                return@OnClickListener
-            }
-            val intent = Intent()
-            intent.setClass(mActivity, SendDynamicActivity::class.java)
-            intent.putExtra("dynamicId", dynamic.dynamicId)
-            // 转发自动引用所需的信息：SendDynamicActivity 完成时会把启动时的 extras 原样回传，
-            // 由 DynamicActivity.getRelayDynamicLauncher 取出并拼成 //@原作者:原内容
-            if (dynamic.userInfo != null) {
-                intent.putExtra("forwardAuthorName", dynamic.userInfo.name)
-                intent.putExtra("forwardAuthorMid", dynamic.userInfo.mid)
-            }
-            if (dynamic.content != null) intent.putExtra("forwardContentText", dynamic.content.toString())
-            TerminalContext.getInstance().setForwardContent(dynamic)
-            relayDynamicLauncher!!.launch(intent)
-        }
+        // 转发图标与长按菜单里的「分享至动态」是同一个动作，组装 intent 的部分见 [relayToDynamic]
+        val onRelayClick = View.OnClickListener { relayToDynamic(mActivity, dynamic) }
         if (item_dynamic_share != null && clickable)
             item_dynamic_share!!.setOnClickListener(onRelayClick)
 
