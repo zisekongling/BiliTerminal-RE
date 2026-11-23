@@ -8,11 +8,11 @@ import android.os.Bundle
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
-import androidx.core.content.FileProvider
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.api.AppInfoApi
 import com.RobinNotBad.BiliClient.service.download.DownloadPathSpec
+import com.RobinNotBad.BiliClient.util.ApkUri
 import com.RobinNotBad.BiliClient.util.ApkVerifier
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.DanmakuFileFetcher
@@ -326,12 +326,10 @@ class DownloadActivity : BaseActivity() {
             // 不通过时返回 false，由调用方按既有的「安装失败」分支处理（本方法不在主线程，
             // 不在这里弹提示）。
             if (!ApkVerifier.verify(this, apkFile).ok) return false
-            val uri: Uri
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                uri = FileProvider.getUriForFile(this, packageName + ".FileProvider", apkFile)
-            } else {
-                uri = Uri.fromFile(apkFile)
-            }
+            // 下载路径可以改到外置 SD 卡，那里的安装包不在 FileProvider 的编译期根内，直接调
+            // getUriForFile 会抛 IllegalArgumentException，表现是「更新下载完了却装不上、
+            // 包还消失了」（反馈 #222 第 3 点）。统一交给 ApkUri 分两级取 URI（26.11.23）。
+            val uri: Uri = ApkUri.of(this, apkFile)
             val intent = Intent(Intent.ACTION_VIEW)
             intent.setDataAndType(uri, "application/vnd.android.package-archive")
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

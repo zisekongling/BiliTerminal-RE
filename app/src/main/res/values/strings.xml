@@ -1092,6 +1092,8 @@
     <string name="text_download_complete_install_tried">下载完成，已尝试安装</string>
     <string name="text_download_complete_install_failed">下载完成，安装失败，已保存到下载文件夹</string>
     <string name="text_download_complete_rename_failed">下载完成，重命名失败</string>
+    <!-- 安装包所在卷共享不出去时用（多为外置 SD 卡，见 util/ApkUri.kt）：至少告诉用户文件在哪 -->
+    <string name="msg_apk_share_failed">安装包路径无法共享，请在文件管理器里找到 %1$s 手动安装</string>
     <!-- 图片下载完成提示（26.10.21 起带上实际保存目录；登记媒体库的细节见 util/PictureMediaStore.kt） -->
     <string name="msg_picture_saved">图片已保存：%1$s\n可在相册中查看</string>
     <!-- 降级到应用专属目录时的图片提示：该目录不进系统相册（见 FileUtil.isPictureFallbackActive） -->

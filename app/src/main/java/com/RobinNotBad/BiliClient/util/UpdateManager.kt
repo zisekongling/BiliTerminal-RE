@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import androidx.core.content.FileProvider
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.BuildConfig
 import com.RobinNotBad.BiliClient.api.TerminalApi
@@ -650,10 +649,15 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
     }
 
     fun installApk(context: Context, apkFile: File) {
-        val uri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            FileProvider.getUriForFile(context, "${context.packageName}.FileProvider", apkFile)
-        } else {
-            Uri.fromFile(apkFile)
+        // 取 URI 可能失败（外置卡上的安装包不在 FileProvider 的编译期根内）。这条函数是用户点
+        // 「安装」的回调，异常抛出去只会崩在对话框里、看起来是「点了没反应」，所以在这里接住并
+        // 给出可操作的去处（反馈 #222 第 3 点；两级取 URI 的来路见 util/ApkUri.kt）。
+        val uri: Uri = try {
+            ApkUri.of(context, apkFile)
+        } catch (e: Exception) {
+            Logu.w("更新", "安装包无法共享给安装器：" + e.message + "（" + apkFile.absolutePath + "）")
+            MsgUtil.toast(context.getString(R.string.msg_apk_share_failed, apkFile.absolutePath))
+            return
         }
 
         val intent = Intent(Intent.ACTION_VIEW)

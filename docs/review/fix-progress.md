@@ -18,6 +18,15 @@
 
 ## 1. 当前版本状态
 
+- **26.11.23 #222 剩余部分：外置卷上的安装包再也装不上（installApk 取不到 URI）**：
+  - **来路**：控制台反馈 #222（26.11.16，华为）第 3 点「更新下载完了却装不上，包还消失了」。前两点（下载路径不能改 / 没有语音）上一轮已处理，这条剩下的是安装这一跳。
+  - **根因**：下载目录是可配的，用户把「下载路径」设到外置 SD 卡后安装包落在 `/storage/5C00-1D0E/...`；而安装走的是 androidx `FileProvider.getUriForFile`（`activity/DownloadActivity.kt` 与 `util/UpdateManager.kt` 两处各写了一遍），FileProvider 的根来自编译期资源 `res/xml/file_paths.xml`——`<external-path>` 取 `Environment.getExternalStorageDirectory()`、`<external-media-path>` 只取 `getExternalMediaDirs()[0]`，**一个根都覆盖不到外置卷**，于是直接抛 `IllegalArgumentException: Failed to find configured root`。安装器起不来，调用方随后把 `.apk` 改名回 `.bak` 并提示「安装失败」——用户看到的就是「装不上 + 包没了」。
+  - **改法**：
+    - 新增 `util/ApkUri.kt`：`object ApkUri { @JvmStatic fun of(context, apk: File): Uri }`。API < 24 仍给 `Uri.fromFile`；否则先 `FileProvider`，抛 `IllegalArgumentException` 时 `Logu.w` 记一笔并回落 `util/LocalFileProvider.kt:158 getUriForFile`（运行时按所有卷算根，`AndroidManifest.xml:94-97` 已声明 `grantUriPermissions`），两级都失败才抛（`PlayerApi.java:957-967` 的视频外播早就是这套两级回落）。
+    - `activity/DownloadActivity.kt` 的 `installApk` 改用它并删掉直连 FileProvider 的写法；`util/UpdateManager.kt` 的 `installApk` 用 try/catch 包住——它是用户点「安装」的回调，异常抛出去等于「点了没反应」，现在改为 `Logu.w` + `R.string.msg_apk_share_failed`（带绝对路径，让用户能自己去文件管理器装）。
+  - **验证**：L0 `assembleDebug`（standard / coexist）通过；`testStandardDebugUnitTest` 284 suites / 3028 例，失败 2 处**与本轮无关**（`ConventionGuardTest` 断言「找不到 .git」——本轮为躲开另一个会话的 `gradlew --stop`，把仓库 robocopy 到 `%TEMP%\rebili-iso-222` 且排除了 `.git`；`LayoutAccessibilityTest` 报 `cell_note_image.xml` 缺 `contentDescription`，那是另一会话正在做的专栏图片控件）。
+  - **未验证（L1，本机无设备）**：把下载路径设到外置 SD 卡 → 下载一个 APK → 点安装应拉起系统安装器；若仍失败，应看到「安装包路径无法共享，请在文件管理器里找到 … 手动安装」，而不是原来那句「安装失败」。
+
 - **26.11.23 四条小成本反馈收口：#399 崩溃 / #276 弹幕模糊 / #275 长图缺口 / #270 长图放不大**：
   - **来路**：控制台反馈 #270「超长图只能放大一点点、放不到原生清晰度」、#275「放到最大看长图有缺口，滑动也补不上」、#276「弹幕一多字就发毛」与崩溃报告 #399（唯一一条修复提交晚于用户手上包的活崩溃）。四条都能在一行到十几行内改完，用户授权先做这一批。
   - **根因**：① 合集页两处列表用 `Glide.with(context)`，`context` 是 Activity，页面销毁后才开始的加载直接抛 `IllegalArgumentException: You cannot start a load for a destroyed activity`；② `AndroidDisplayer` 把 `ANTI_ALIAS` 写成 `fromWorkerThread && CONFIG_ANTI_ALIAS`，非异步渲染（手表上的默认路径，主线程绘制）时抗锯齿恒为 false，字边缘发毛；③ `ImageTilePolicy.tileRects` 的块边界按**本次可见区**裁（`right = min(left + tile, target.right)`），而块缓存键是 `TileKey(left, top, sample)`（不含宽高）——平移后同一个键取回的是上次「按旧可见区裁窄」的位图，画出来少一块，且每帧算出的几何都相同所以怎么滑都补不上；④ 图片查看器的相对倍率上限写死 `DEFAULT_MAX_SCALE = 6.25`，而倍率是相对**整图适配**算的，4000px 高的长图 `baseScale≈0.1`，6.25 倍只到原生尺寸的 0.625 倍，再想清楚也顶住了。
