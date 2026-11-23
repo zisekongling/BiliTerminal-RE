@@ -18,6 +18,15 @@
 
 ## 1. 当前版本状态
 
+- **26.11.23 #282 看图页加载失败不再白屏，赞赏码取不到时有话可说**：
+  - **来路**：控制台反馈 #282（OPPO OWW251 / 26.11.23）「赞赏码加载不出来，一直空白」。实测图源本身可达（`https://gitee.com/zisekongling/bili-terminal-re/raw/master/ma.jpg` → 200 / 34333 字节 / `image/jpeg` / 前三字节 FF D8 FF），所以用户那次多半是瞬时限流或网络；真正的问题是**失败没有任何提示**——`attachPhoto()` 只有 `catch (OutOfMemoryError)` 与 `catch (Exception)`，而 Glide 4 的加载失败走的是异步回调 `RequestListener`，两个 catch 都接不到，于是只剩白屏。
+  - **改法**：
+    - `activity/ImageViewerActivity.kt`：`attachPhoto()` 的 Glide 链挂 `RequestListener<Drawable>`，`onLoadFailed` 时在该页容器中央叠一个 12sp 的 `TextView`（「点一下重试」），点击后复位 `mode = PAGE_PENDING` 与 `photoLoadStarted` / `photoCleared` / `probeStarted`，重新走 `probePage()`（探测尺寸 → 整图或分块）；`onResourceReady` 里 `hideFailure()` 收起。提示用 View 而不是弹窗——看图时会在页间来回翻，弹窗会一串串地冒出来。
+    - 文案分两种（新增纯函数 `internal object ImageViewerFailureText`）：站外图源（`ImageRequestPolicy.shouldAttachSession(url) == false`）说「站外图源可能限流，点一下重试」，站内图源说通用的「图片加载失败 / 点一下重试」。同时把 URL 与失败原因（异常类名 + message）写进 `Logu.w("image-viewer", …)`，用户报障时能对账；`probePage()` 的探测 catch 也补了同样的日志。
+    - `res/values/strings.xml`：新增 `text_image_viewer_load_failed` / `text_image_viewer_load_failed_external`；顺带把 `text_image_viewer_page_count` 上方那段注释改成 #280 之后的真相（标题恒定「图片查看」，页数只在自己的角标里）。
+  - **验证**：L0（隔离副本）`assembleDebug` 双 flavor 通过；`testStandardDebugUnitTest` 3057 例、1 处失败与本轮无关（`ConventionGuardTest` 需要 `.git`，隔离副本没有）；新增 `activity/ImageViewerFailureTextTest` 5 例（站外 / 站内各自命中哪条文案、两条文案必须不同、gitee 赞赏码被判成站外、`i0.hdslb.com` 图床被判成站内）。
+  - **未做**：没有把 34 KB 的赞赏码内置进 `assets/` / `res/`——那能把外链依赖彻底去掉，但等于往公开仓加一张二进制图，且看图页走的是「URL → Glide → 探测尺寸」链路，本地资源能不能过探测还没验证过，等确认再单独做。
+  - **未验证（L2，需人工看画面）**：①断网或把 URL 改坏后打开看图页，图片中央应出现提示、点一下能重试出来；②赞赏码那条失败时措辞是「站外图源可能限流」而不是笼统的「检查网络」；③正常图片不出现任何提示，顶栏「图片查看」与左下页数角标不被遮挡。
 - **26.11.23 #280 看图页把页数挪回左下、下载挪到右下，顶栏恢复「图片查看」**：
   - **来路**：控制台反馈 #280（HUAWEI HWMDS / 26.11.22）「上面的返回键改为图片查看」。26.11.17 的 `b2590a03` 为圆屏适配做了两件事：下载键从左下挪到屏幕底部正中、圆屏时把页数写进顶栏标题顶掉「图片查看」，于是顶部那行字变成了「第 2/9 张」，用户以为页面名字丢了；底部正中还压住图片主体。
   - **改法**：

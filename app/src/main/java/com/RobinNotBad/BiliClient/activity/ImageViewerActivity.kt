@@ -4,8 +4,10 @@ import com.RobinNotBad.BiliClient.util.UiText
 
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.view.GestureDetector
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
@@ -21,6 +23,7 @@ import com.RobinNotBad.BiliClient.ui.widget.PhotoViewpager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.GlideUtil
+import com.RobinNotBad.BiliClient.util.ImageRequestPolicy
 import com.RobinNotBad.BiliClient.util.ImageTilePolicy
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
@@ -28,8 +31,11 @@ import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.view.CornerLabelInsets
 import com.bumptech.glide.Glide
+import com.bumptech.glide.load.DataSource
 import com.bumptech.glide.load.engine.DiskCacheStrategy
+import com.bumptech.glide.load.engine.GlideException
 import com.bumptech.glide.request.FutureTarget
+import com.bumptech.glide.request.RequestListener
 import com.bumptech.glide.request.target.Target
 import com.github.chrisbanes.photoview.PhotoView
 import java.io.File
@@ -139,6 +145,29 @@ internal object ImageViewerClearPolicy {
         photoLoadStarted && !photoCleared
 }
 
+/**
+ * 加载失败提示该用哪一条文案（纯逻辑，JVM 单测见 `ImageViewerFailureTextTest`）。
+ *
+ * 反馈 #282「赞赏收款码一直空白」：看图页走 Glide **异步**加载，失败回调发生在主线程消息里，
+ * 原来的 try/catch 只接得住同步异常，于是网络/图源出问题时用户看到的永远是一张白图、一句提示都没有。
+ * 现在失败会盖一层可点重试的提示，并按图源分两种说法——赞赏码在 gitee 上属于**站外**图，
+ * 失败多半是对方限流 / 防盗链，说「请检查网络」会把人带偏；B 站图床失败才是自己这边的网络。
+ */
+internal object ImageViewerFailureText {
+
+    /**
+     * @param external 图源是否站外域名（判据与 [ImageRequestPolicy.shouldAttachSession] 相反）
+     * @return 该显示的字符串资源 id
+     */
+    @JvmStatic
+    fun resFor(external: Boolean): Int =
+        if (external) {
+            R.string.text_image_viewer_load_failed_external
+        } else {
+            R.string.text_image_viewer_load_failed
+        }
+}
+
 /** 页状态：还没探测出这张图该走哪条路径。 */
 private const val PAGE_PENDING = 0
 
@@ -182,6 +211,13 @@ private class ImagePage(val container: FrameLayout, val photoView: PhotoView) {
 
     /** 那次整图加载是否已经被 clear 过：同一个请求只清一次（判据见 [ImageViewerClearPolicy]）。 */
     var photoCleared = false
+
+    /**
+     * 加载失败时盖在容器中央的「点一下重试」提示（反馈 #282）。
+     *
+     * 第一次失败才创建、之后复用同一个 View：来回翻页反复失败时不会越叠越多层。
+     */
+    var failureView: TextView? = null
 }
 
 /** 原图尺寸探测结果（`inJustDecodeBounds` 的解码结果，只读文件头）。 */
@@ -467,6 +503,8 @@ class ImageViewerActivity : BaseActivity() {
             val file = try {
                 request.get()
             } catch (t: Throwable) {
+                // 探测都没拿到原图文件（网络不通 / 图源挂了）：后面 attachPhoto 会再失败一次并给出提示（#282）。
+                Logu.w("image-viewer", "第 ${index + 1} 页原图探测失败：${t.javaClass.simpleName}: ${t.message}")
                 null
             }
             val bounds = if (file != null) readImageBounds(file) else ImageBounds(0, 0, null)
@@ -593,12 +631,98 @@ class ImageViewerActivity : BaseActivity() {
             if (!fallback) {
                 builder.override(Target.SIZE_ORIGINAL)
             }
+            // 反馈 #282：Glide 的失败是**异步回调**，下面的 try/catch 接不到；不挂监听就只剩白屏。
+            builder.listener(object : RequestListener<Drawable> {
+                override fun onLoadFailed(
+                    e: GlideException?,
+                    model: Any?,
+                    target: Target<Drawable>,
+                    isFirstResource: Boolean
+                ): Boolean {
+                    showFailure(page, index, e)
+                    return false
+                }
+
+                override fun onResourceReady(
+                    resource: Drawable,
+                    model: Any,
+                    target: Target<Drawable>,
+                    dataSource: DataSource,
+                    isFirstResource: Boolean
+                ): Boolean {
+                    hideFailure(page)
+                    return false
+                }
+            })
             builder.into(page.photoView)
         } catch (e: OutOfMemoryError) {
             MsgUtil.showMsg(UiText.of("超出内存，加载失败"))
         } catch (e: Exception) {
             MsgUtil.err(UiText.of("图片查看"), e)
         }
+    }
+
+    /**
+     * 加载失败：在这一页中央盖一层「点一下重试」的提示（反馈 #282）。
+     *
+     * 之前这里什么都没有——Glide 的失败在异步回调里，用户只能对着白屏猜。提示是**View 而不是弹窗**：
+     * 看图时会在页间来回翻，弹窗会一串串地冒出来，而在图片上盖一行字刚好在这个位置该出现。
+     * 文案按图源分两种（[ImageViewerFailureText]），并顺手把 URL 与失败原因写进日志，方便用户报障时对账。
+     */
+    private fun showFailure(page: ImagePage, index: Int, cause: Throwable?) {
+        val url = imageList.getOrNull(index)
+        Logu.w(
+            "image-viewer",
+            "第 ${index + 1}/${imageList.size} 页加载失败：$url，原因 " +
+                "${cause?.javaClass?.simpleName ?: "未知"}: ${cause?.message}"
+        )
+        // 失败回调的线程由 Glide 决定（默认主线程，但被 clear / 生命周期打断时可能不是），统一抛回主线程。
+        page.container.post {
+            if (isFinishing || isDestroyed) return@post
+            val density = resources.displayMetrics.density
+            val view = page.failureView ?: TextView(this).apply {
+                gravity = Gravity.CENTER
+                textSize = FAILURE_TEXT_SIZE_SP
+                val pad = (FAILURE_TEXT_PADDING_DP * density).toInt()
+                setPadding(pad, pad, pad, pad)
+            }
+            view.setText(ImageViewerFailureText.resFor(!ImageRequestPolicy.shouldAttachSession(url)))
+            view.setOnClickListener { retryPage(page, index) }
+            if (page.failureView == null) {
+                page.container.addView(
+                    view,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        Gravity.CENTER
+                    )
+                )
+                page.failureView = view
+            }
+            view.visibility = View.VISIBLE
+        }
+    }
+
+    /** 这一页加载成功（或用户点了重试）后收掉失败提示。 */
+    private fun hideFailure(page: ImagePage) {
+        page.failureView?.visibility = View.GONE
+    }
+
+    /**
+     * 用户点了「点一下重试」：把这一页退回**未探测**状态重走一遍完整流程。
+     *
+     * 只重发一次整图请求是不够的——网络恢复后超大图仍该走分块路径（省内存），所以这里复位
+     * 探测标记、交给 [probePage] 重新决定路径；[ImagePage.failureView] 留着复用。
+     */
+    private fun retryPage(page: ImagePage, index: Int) {
+        if (isFinishing || isDestroyed) return
+        hideFailure(page)
+        Logu.d("image-viewer", "用户点重试：重新加载第 ${index + 1} 页")
+        page.mode = PAGE_PENDING
+        page.photoLoadStarted = false
+        page.photoCleared = false
+        page.probeStarted = true
+        probePage(page, index)
     }
 
     /**
@@ -651,5 +775,9 @@ class ImageViewerActivity : BaseActivity() {
 
         /** 缩放动画时长是 200ms（PhotoView 默认），校验点取动画结束后一点点。 */
         const val ZOOM_VERIFY_DELAY_MS = 240L
+
+        /** 失败提示的字号（sp）与内边距（dp）：手表屏小，一行「点一下重试」要放得下又要点得到。 */
+        const val FAILURE_TEXT_SIZE_SP = 12f
+        const val FAILURE_TEXT_PADDING_DP = 10f
     }
 }

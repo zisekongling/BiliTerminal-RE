@@ -2497,8 +2497,12 @@
     <string name="text_activityfeedback_01">最近的应用运行日志（已脱敏），便于定位问题</string>
     <string name="text_activityfeedbackdetail_01">补充复现步骤或说明，开发者会看到</string>
     <string name="text_activityimageviewer_01">第0/0张</string>
-    <!-- 图片查看器的页数标签；圆屏适配下它会显示到顶栏标题的位置（顶替「图片查看」） -->
+    <!-- 图片查看器的页数标签；26.11.23 起标题固定为「图片查看」，页数只在自己的角标里（反馈 #280） -->
     <string name="text_image_viewer_page_count">第%1$d/%2$d张</string>
+    <!-- 图片加载失败时盖在图片上的提示，点一下重试（反馈 #282：原来失败只有白屏） -->
+    <string name="text_image_viewer_load_failed">图片加载失败\n点一下重试</string>
+    <!-- 站外图源（赞赏收款码在 gitee 上）失败多半是对方限流/防盗链，说「检查网络」会带偏 -->
+    <string name="text_image_viewer_load_failed_external">图片加载失败\n站外图源可能限流，点一下重试</string>
     <string name="text_activityliveinfo_01">描述</string>
     <string name="text_activityliveinfo_02">直播状态</string>
     <string name="text_activityliveinfo_03">关注数</string>
