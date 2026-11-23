@@ -124,6 +124,25 @@ object ShareTexts {
     }
 
     /**
+     * 收藏夹的「分享收藏夹」文本：`收藏夹名 - 链接`。
+     *
+     * <p>与视频/番剧不同，收藏夹不拼「UP主:」段：面板里的分享文本只需要「这是哪个夹子 + 怎么打开它」，
+     * 创建者信息走「分享至动态」那条链路（{@code RepostCard.authorName}），两条路各管一件事。
+     *
+     * <p>收藏夹名或 mediaId 缺一个时只拼另一半，绝不拼出「标题 - 」这种半截尾巴
+     * （与 [messageText] 的取舍一致）。
+     */
+    fun favoriteShareText(title: String?, mediaId: Long): String {
+        val url = favoriteUrl(mediaId)
+        val safeTitle = trimTitle(title)
+        return when {
+            safeTitle.isEmpty() -> url
+            url.isEmpty() -> safeTitle
+            else -> "$safeTitle - $url"
+        }
+    }
+
+    /**
      * 「分享至消息」的私信正文：`标题\n链接`。
      *
      * 私信只能发 msg_type=1 的纯文本（卡片是 7，会被回 21035），所以正文就是标题 + 链接两行。

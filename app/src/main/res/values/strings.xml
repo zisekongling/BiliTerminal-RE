@@ -3483,4 +3483,10 @@
 
     <!-- 26.11.23：动态卡片的分享面板（长按管理菜单里的「分享」） -->
     <string name="share_dynamic">分享动态</string>
+
+    <!-- 26.11.23：收藏夹详情页的分享面板（四项：复制链接 / 其它app打开 / 分享收藏夹 / 分享至动态；
+         收藏夹没有私信卡片形态，因此不出现「分享至消息」） -->
+    <string name="share_favorite">分享收藏夹</string>
+    <!-- 顶栏分享入口：手表屏窄，只放两个字，长标题留给 pageName -->
+    <string name="share_entry">分享</string>
 </resources>

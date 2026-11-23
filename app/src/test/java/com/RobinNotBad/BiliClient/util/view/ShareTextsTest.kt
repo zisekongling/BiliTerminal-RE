@@ -162,6 +162,43 @@ class ShareTextsTest {
     }
 
     @Test
+    fun favoriteShareText_收藏夹名加链接() {
+        assertEquals(
+            "猛 男 生 存 - https://www.bilibili.com/medialist/detail/ml1052622027",
+            ShareTexts.favoriteShareText("猛 男 生 存", 1052622027L)
+        )
+    }
+
+    @Test
+    fun favoriteShareText_空标题只剩链接() {
+        assertEquals(
+            "https://www.bilibili.com/medialist/detail/ml1",
+            ShareTexts.favoriteShareText(null, 1L)
+        )
+        // 空白标题同样按「没有标题」处理，不留「   - 链接」这种前导空格
+        assertEquals(
+            "https://www.bilibili.com/medialist/detail/ml1",
+            ShareTexts.favoriteShareText("   ", 1L)
+        )
+    }
+
+    @Test
+    fun favoriteShareText_空id只剩标题() {
+        assertEquals("收藏夹", ShareTexts.favoriteShareText("收藏夹", 0L))
+        assertEquals("收藏夹", ShareTexts.favoriteShareText("收藏夹", -1L))
+        // 两头都缺就是空串，调用方据此跳过分享
+        assertEquals("", ShareTexts.favoriteShareText(null, 0L))
+    }
+
+    @Test
+    fun favoriteShareText_超长标题按TITLE_MAX截断() {
+        val long = "夹".repeat(ShareTexts.TITLE_MAX + 20)
+        val text = ShareTexts.favoriteShareText(long, 42L)
+        val expectTitle = long.substring(0, ShareTexts.TITLE_MAX) + "…"
+        assertEquals(expectTitle + " - https://www.bilibili.com/medialist/detail/ml42", text)
+    }
+
+    @Test
     fun messageText_标题加换行加链接() {
         assertEquals("标题\nhttps://a", ShareTexts.messageText("标题", "https://a"))
     }
