@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 可用宽高 ≥ 200dp（wear 方屏/圆屏基准 300×300、手机）时，列表操作条回到常规档：
+         48dp 行高 + 13sp 字号 + 4dp 纵向内边距。values/ 里那档是给 <200dp 的窄屏留的，
+         两者一起保证「除超窄屏外，观感一字不变」。 -->
+    <dimen name="action_bar_min_height">48dp</dimen>
+    <dimen name="action_bar_text">13sp</dimen>
+    <dimen name="action_bar_padding_v">4dp</dimen>
+    <dimen name="action_bar_item_padding_h">12dp</dimen>
+</resources>
