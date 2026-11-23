@@ -19,6 +19,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
+import com.RobinNotBad.BiliClient.activity.dynamic.send.SendDynamicActivity
 import com.RobinNotBad.BiliClient.activity.message.ChooseFriendActivity
 import com.RobinNotBad.BiliClient.activity.settings.SettingPlayerChooseActivity
 import com.RobinNotBad.BiliClient.activity.video.BangumiCacheActivity
@@ -27,14 +28,17 @@ import com.RobinNotBad.BiliClient.adapter.video.EpisodeCardAdapter
 import com.RobinNotBad.BiliClient.adapter.video.SeasonTabAdapter
 import com.RobinNotBad.BiliClient.api.BangumiApi
 import com.RobinNotBad.BiliClient.model.Bangumi
+import com.RobinNotBad.BiliClient.model.RepostCard
 import com.RobinNotBad.BiliClient.service.download.BangumiCacheClearStore
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.ForwardTargets
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.ShareSheet
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.view.ShareTexts
 import com.bumptech.glide.load.engine.DiskCacheStrategy
@@ -124,6 +128,21 @@ class BangumiInfoFragment : Fragment() {
                 shareTitle,
                 url
             )
+        }
+
+    /**
+     * 「分享至动态」的回传。
+     *
+     * 只认 [Activity.RESULT_FIRST_USER]：番剧转发走发布页的通用卡片链路（[RepostCard]），
+     * 发成功时发布页用这个码回传动态 id，并且**自己已经提示过「转发成功~」并关闭**，这里再弹一条就是重复。
+     *
+     * 刻意不认 RESULT_OK：那是普通发布链路的结果码，那条路要求调用方自己拿 "text" 再发一遍动态，
+     * 番剧页没有这段逻辑，认错就会多发一条。
+     */
+    private val forwardToDynamicLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode != Activity.RESULT_FIRST_USER) return@registerForActivityResult
+            // 动态 id 暂时不用回填：番剧页没有「刚发的这条动态」的展示位，也不需要刷新列表
         }
 
     companion object {
@@ -937,14 +956,14 @@ class BangumiInfoFragment : Fragment() {
     }
 
     /**
-     * 分享面板：本轮四项（复制链接 / 其它app打开 / 分享视频 / 分享至消息）。
+     * 分享面板：五项（复制链接 / 其它app打开 / 分享视频 / 分享至动态 / 分享至消息），
+     * 顺序与 PiliPlus 一致。
      *
      * 链接粒度是**当前选中的那一集**（没选就是第 1 集），即 bangumi/play/ep<epId>——用户拍板：
      * 手表屏小，分享一个「剧集总览」链接对面还得自己找集，直接给到集页才有意义。
      *
-     * 「分享至动态」暂不出：番剧要按 info.type 映射 dyn_type（番剧 4097 / 电影 4098 /
-     * 纪录片 4101 / 国创 4100 / 电视剧·综艺 4099），动态发送侧还没接这类转发。
-     * 宁可少一项，也不摆个点了没反应的占位项。
+     * 「分享至动态」的类型按 [ForwardTargets.bangumiDynType] 从 info.type 映射；**映射不出来（-1）时
+     * 这一项整项不显示**，不做点了没反应的占位项（用户拍板）。
      *
      * 番剧没有单一 UP 主，所以「分享视频」文本只有「剧名 集名 - 链接」，
      * 由 [ShareTexts.bangumiShareText] 拼（它会把与剧名重复的集名去掉）。
@@ -956,18 +975,48 @@ class BangumiInfoFragment : Fragment() {
         if (url.isEmpty()) return
         // 集名优先 title_long（「第5话 标题」的完整形式），没有再退回 title
         val epTitle = episode.title_long?.takeIf { it.isNotBlank() } ?: episode.title
+        // 横版封面优先：转发卡片是横向的，竖版 cover 塞进去会被裁掉大半
+        val cover = info.cover_horizontal?.takeIf { it.isNotBlank() } ?: info.cover
+        val dynType = ForwardTargets.bangumiDynType(info.type)
         pendingShareUrl = url
         pendingShareTitle = info.title.orEmpty()
         // 条目顺序由 [ShareSheet.Panel] 的链式调用顺序决定，别打乱；
         // show() 已由 Panel 代做，这里不要再套一层（26.11.15 漏 show 的教训）
-        ShareSheet.panel(requireContext())
+        val panel = ShareSheet.panel(requireContext())
             .copyLink(url)
             .openInOtherApp(url)
             .shareText(R.string.share_video, ShareTexts.bangumiShareText(info.title, epTitle, episode.id), url)
-            .toMessage {
-                chooseFriendLauncher.launch(Intent(requireContext(), ChooseFriendActivity::class.java))
-            }
-            .show()
+        if (dynType > 0) {
+            panel.toDynamic { relayToDynamic(dynType, episode.id, info.title.orEmpty(), epTitle, cover) }
+        }
+        panel.toMessage {
+            chooseFriendLauncher.launch(Intent(requireContext(), ChooseFriendActivity::class.java))
+        }.show()
+    }
+
+    /**
+     * 「分享至动态」：把这一集包装成发布页认的 [RepostCard] 再起发送页。
+     *
+     * 用通用卡片链路而不是给番剧再造一条：发布页看到 RepostCard 会画引用卡、隐藏添加图片/定时/可见范围，
+     * 并在页内直接调 relayGeneric 发布，成功后自己提示并回传 [Activity.RESULT_FIRST_USER]。
+     *
+     * 字段口径（与 PiliPlus 对齐）：
+     * - rid = epId（番剧的动态 rid 就是集 id）
+     * - title = 「剧名\n集名」——发布页按 htmlToString 后原样显示，换行即上下两行
+     * - subtitle 不填：番剧没有「播放量」这类第二行信息要秀
+     * - authorName 留空、authorMid 为 0：番剧没有单一 UP 主，转发正文里不会多出「//@某人」
+     */
+    private fun relayToDynamic(dynType: Int, epId: Long, title: String, epTitle: String, cover: String?) {
+        val card = RepostCard(dynType, epId, "$title\n$epTitle")
+        card.cover = cover
+        card.authorName = ""
+        card.authorMid = 0L
+        // 发送页从 TerminalContext 取这张卡；它自己在 onDestroy 里会清回 null，
+        // 所以这里只负责塞，不清
+        TerminalContext.getInstance().setForwardContent(card)
+        val intent = Intent()
+        intent.setClass(requireContext(), SendDynamicActivity::class.java)
+        forwardToDynamicLauncher.launch(intent)
     }
 
     private fun refreshReplies() {
