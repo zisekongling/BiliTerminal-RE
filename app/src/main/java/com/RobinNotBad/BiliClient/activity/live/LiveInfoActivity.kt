@@ -9,11 +9,13 @@ import android.os.Bundle
 import android.view.View
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
+import com.RobinNotBad.BiliClient.activity.message.ChooseFriendActivity
 import com.RobinNotBad.BiliClient.activity.settings.SettingPlayerChooseActivity
 import com.RobinNotBad.BiliClient.adapter.user.UpListAdapter
 import com.RobinNotBad.BiliClient.adapter.video.MediaEpisodeAdapter
@@ -30,11 +32,13 @@ import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SettingsKeys
+import com.RobinNotBad.BiliClient.util.ShareSheet
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.RobinNotBad.BiliClient.util.live.LiveStreamSelector
+import com.RobinNotBad.BiliClient.util.view.ShareTexts
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
 import com.bumptech.glide.request.RequestOptions
@@ -51,6 +55,33 @@ class LiveInfoActivity : BaseActivity() {
     private var selectedHost: Int = 0
     private var hostAdapter: MediaEpisodeAdapter? = null
     private var playInfo: LivePlayInfo? = null
+
+    /**
+     * 「分享至消息」选好友页的回传（26.11.24）。
+     *
+     * 与视频页那条路一致：只认 RESULT_OK + data，用户直接返回就当没选、不弹任何提示；
+     * uid 拿不到也不发。区别只在于这里是 Activity（[ShareSheet.requestFriend] 只收 Fragment）。
+     */
+    private val chooseFriendLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode != RESULT_OK) return@registerForActivityResult
+            val data = result.data ?: return@registerForActivityResult
+            val uid = data.getLongExtra(ChooseFriendActivity.EXTRA_UID, 0L)
+            if (uid <= 0L) return@registerForActivityResult
+            val url = ShareTexts.liveUrl(room_id)
+            if (url.isEmpty()) {
+                MsgUtil.showMsg(UiText.of(getString(R.string.msg_share_url_missing)))
+                return@registerForActivityResult
+            }
+            // 昵称只用于「已发送给 xxx」的提示，拿不到留空不影响发送
+            ShareSheet.sendLinkToFriend(
+                this,
+                uid,
+                data.getStringExtra(ChooseFriendActivity.EXTRA_NAME).orEmpty(),
+                shareTitle(),
+                url
+            )
+        }
 
     @SuppressLint("SetTextI18n")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -78,6 +109,10 @@ class LiveInfoActivity : BaseActivity() {
             val liveStatusText = findViewById<TextView>(R.id.liveStatusText)
             host_list = findViewById(R.id.host_list)
             val quality_list = findViewById<RecyclerView>(R.id.quality_list)
+
+            // 顶栏分享按钮先挂上：房间详情还没回来时点它也能用（此时只分享链接），
+            // 不必等网络结果
+            findViewById<View>(R.id.btn_share).setOnClickListener { showSharePanel() }
 
             AnimationUtils.crossFade(loading, scrollView)
             TerminalContext.getInstance().getLiveInfoByRoomId(room_id).observe(this) { liveInfoResult ->
@@ -243,6 +278,43 @@ class LiveInfoActivity : BaseActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * 顶栏「分享」面板（26.11.24）——四项：复制链接 / 其它app打开 / 分享直播间 / 分享至消息。
+     *
+     * 直播页**没有**「分享至动态」：直播间没法转发成动态，也没有对应的发送入口，
+     * 按「没有实现依据的条目直接不显示」的老规矩省掉，不做占位项。
+     */
+    private fun showSharePanel() {
+        val url = ShareTexts.liveUrl(room_id)
+        if (url.isEmpty()) {
+            // room_id 是异常值（<=0）时拼不出链接：只提示，不弹一个点了全失败的半空菜单
+            MsgUtil.showMsg(UiText.of(getString(R.string.msg_share_url_missing)))
+            return
+        }
+        ShareSheet.panel(this)
+            .copyLink(url)
+            .openInOtherApp(url)
+            .shareText(R.string.share_live, ShareTexts.messageText(shareTitle(), url), url)
+            .toMessage {
+                val intent = Intent()
+                intent.setClass(this, ChooseFriendActivity::class.java)
+                chooseFriendLauncher.launch(intent)
+            }
+            .show()
+    }
+
+    /**
+     * 分享文本里的直播标题。
+     *
+     * 与页面上显示的标题同一口径（[StringUtil.removeHtml] 去掉标题里的 HTML 标签 / 实体），
+     * 免得分享出去的是「标题&lt;br&gt;」这种半成品。房间数据还没回来时返回空串，
+     * 此时 [ShareTexts.messageText] 只发链接、不拼空行。
+     */
+    private fun shareTitle(): String {
+        val liveRoom = room ?: return ""
+        return StringUtil.removeHtml(liveRoom.title).orEmpty()
     }
 
     private fun refresh_host_list() {
