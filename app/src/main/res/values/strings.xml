@@ -3480,4 +3480,7 @@
     <!-- 26.11.23：分享至动态（通用卡片），发布页的提示文案 -->
     <string name="uitext_senddynamicactivity_024">正在转发…</string>
     <string name="uitext_senddynamicactivity_025">这条内容暂不支持转发</string>
+
+    <!-- 26.11.23：动态卡片的分享面板（长按管理菜单里的「分享」） -->
+    <string name="share_dynamic">分享动态</string>
 </resources>

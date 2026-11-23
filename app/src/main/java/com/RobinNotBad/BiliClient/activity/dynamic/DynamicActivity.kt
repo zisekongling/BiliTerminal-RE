@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.activity.base.RefreshMainActivity
+import com.RobinNotBad.BiliClient.activity.message.ChooseFriendActivity
 import com.RobinNotBad.BiliClient.adapter.dynamic.DynamicAdapter
 import com.RobinNotBad.BiliClient.adapter.dynamic.DynamicHolder
 import com.RobinNotBad.BiliClient.api.DynamicApi
@@ -104,6 +105,29 @@ class DynamicActivity : RefreshMainActivity() {
                 if (data == null || data.getLongExtra("edit_dyn_id", -1L) <= 0L) return@registerForActivityResult
                 val newText = data.getStringExtra("text") ?: return@registerForActivityResult
                 callback?.invoke(newText)
+            }
+        }
+
+        /**
+         * 「分享至消息」选好友的结果接收器。
+         *
+         * <p>Holder 在 RecyclerView 里，不是 LifecycleOwner，自己注册不了 ActivityResultLauncher，
+         * 所以统一借宿主 Activity 上的这一个：发起前把「选到人之后怎么发」放进
+         * [BaseActivity.pendingShareToFriend]，结果回来时取走并清空。
+         * 动态列表页与动态详情页共用这一份，不必各注册一个。
+         *
+         * <p>用户直接返回（没选人）时同样要清槽位，否则下一次分享会调到上一次的回调。
+         */
+        fun getShareFriendLauncher(activity: BaseActivity): ActivityResultLauncher<Intent> {
+            return activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+                val callback = activity.pendingShareToFriend
+                activity.pendingShareToFriend = null
+                if (result.resultCode != Activity.RESULT_OK) return@registerForActivityResult
+                val data = result.data ?: return@registerForActivityResult
+                val uid = data.getLongExtra(ChooseFriendActivity.EXTRA_UID, 0L)
+                if (uid <= 0L) return@registerForActivityResult
+                // 昵称只用于「已发送给 xxx」，拿不到时留空也不影响发送
+                callback?.invoke(uid, data.getStringExtra(ChooseFriendActivity.EXTRA_NAME).orEmpty())
             }
         }
     }
