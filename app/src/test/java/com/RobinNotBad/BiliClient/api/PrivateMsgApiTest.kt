@@ -454,4 +454,107 @@ class PrivateMsgApiTest {
             PrivateMsgApi.parseSession(JSONObject("""{"talker_id":1001}""")).isDnd
         )
     }
+
+    // ============ 会话类型打通 / 标为已读（26.11.23 批次②-1） ============
+
+    @Test
+    fun buildSessionsUrl_用户列表用请求枚举1() {
+        val url = PrivateMsgApi.buildSessionsUrl(20, 0, PrivateMsgApi.LIST_TYPE_USER)
+        assertTrue("用户会话列表的请求参数 session_type 是 1：$url", url.contains("session_type=1"))
+        assertTrue(url.contains("size=20"))
+    }
+
+    @Test
+    fun buildSessionsUrl_粉丝团用请求枚举3而不是2() {
+        // 踩过的坑：请求参数和会话对象里的 session_type 不是同一套枚举。
+        // 请求侧粉丝团是 3（private_msg.md:254），会话对象侧粉丝团才是 2（同文件第 10 行）。
+        val url = PrivateMsgApi.buildSessionsUrl(20, 0, PrivateMsgApi.LIST_TYPE_FAN_GROUP)
+        assertTrue("粉丝团列表的请求参数 session_type 必须是 3：$url", url.contains("session_type=3"))
+        assertEquals(3, PrivateMsgApi.LIST_TYPE_FAN_GROUP)
+        assertTrue("不能把会话对象的 2 当请求参数", !url.contains("session_type=2"))
+    }
+
+    @Test
+    fun buildSessionsUrl_带翻页游标() {
+        val url = PrivateMsgApi.buildSessionsUrl(20, 1234567890123L, PrivateMsgApi.LIST_TYPE_FAN_GROUP)
+        assertTrue(url.contains("end_ts=1234567890123"))
+    }
+
+    @Test
+    fun buildFetchMsgsUrl_按会话类型拼session_type() {
+        // 原来写死 session_type=1，粉丝团会话一条消息都拉不出来
+        val userUrl = PrivateMsgApi.buildFetchMsgsUrl(1001L, PrivateMsgApi.SESSION_TYPE_USER, 50, 0, 0)
+        assertTrue(userUrl.contains("session_type=1"))
+        assertTrue(userUrl.contains("talker_id=1001"))
+        assertTrue(userUrl.contains("size=50"))
+
+        val groupUrl = PrivateMsgApi.buildFetchMsgsUrl(844424930131966L, PrivateMsgApi.SESSION_TYPE_FAN_GROUP, 15, 0, 99)
+        assertTrue("粉丝团会话拉消息要带 session_type=2：$groupUrl", groupUrl.contains("session_type=2"))
+        assertTrue(groupUrl.contains("talker_id=844424930131966"))
+        assertTrue(groupUrl.contains("end_seqno=99"))
+    }
+
+    @Test
+    fun parseSession_解析粉丝团字段() {
+        val session = PrivateMsgApi.parseSession(
+            JSONObject(
+                """{"talker_id":844424930131966,"session_type":2,"group_name":"某应援团",
+                   "group_cover":"https://i0.hdslb.com/bfs/face/x.jpg","group_type":0,
+                   "unread_count":3,"max_seqno":"88"}"""
+            )
+        )
+        assertTrue("session_type=2 是粉丝团会话", session.isFanGroup)
+        assertEquals("某应援团", session.groupName)
+        assertEquals("https://i0.hdslb.com/bfs/face/x.jpg", session.groupCover)
+        assertEquals(0, session.groupType)
+        assertEquals(3, session.unreadTotal())
+        assertEquals("已读游标是字符串字段", 88L, session.maxSeqno)
+        assertEquals("粉丝团会话的显示名用团名", "某应援团", session.sessionName())
+    }
+
+    @Test
+    fun parseSession_用户会话默认不是粉丝团() {
+        val session = PrivateMsgApi.parseSession(JSONObject("""{"talker_id":1001}"""))
+        assertEquals("缺字段按用户会话处理", PrivateMsgApi.SESSION_TYPE_USER, session.sessionType)
+        assertEquals(false, session.isFanGroup)
+    }
+
+    @Test
+    fun parseSession_解析推送设置与拦截标记() {
+        val receive = PrivateMsgApi.parseSession(JSONObject("""{"talker_id":1001,"setting":0}"""))
+        assertTrue("setting=0 是接收推送", receive.isPushOn)
+        val reject = PrivateMsgApi.parseSession(JSONObject("""{"talker_id":1001,"setting":1}"""))
+        assertEquals("setting=1 是不接收推送", false, reject.isPushOn)
+        assertEquals(
+            "缺 setting 字段按接收处理",
+            true,
+            PrivateMsgApi.parseSession(JSONObject("""{"talker_id":1001}""")).isPushOn
+        )
+        assertTrue(
+            "is_intercept=1 表示被拦截",
+            PrivateMsgApi.parseSession(JSONObject("""{"talker_id":1001,"is_intercept":1}""")).intercept
+        )
+        assertEquals(
+            false,
+            PrivateMsgApi.parseSession(JSONObject("""{"talker_id":1001,"is_intercept":0}""")).intercept
+        )
+    }
+
+    @Test
+    fun parseSession_解析ack_seqno() {
+        val session = PrivateMsgApi.parseSession(
+            JSONObject("""{"talker_id":1001,"ack_seqno":"42","max_seqno":"45"}""")
+        )
+        assertEquals(42L, session.ackSeqno)
+        assertEquals(45L, session.maxSeqno)
+    }
+
+    @Test
+    fun statusForIntercept_拦是1取消是0() {
+        // 口径见 private_msg.md:1320-1379：status 1 设置拦截、0 取消拦截
+        assertEquals(1, PrivateMsgApi.statusForIntercept(true))
+        assertEquals(0, PrivateMsgApi.statusForIntercept(false))
+        assertEquals(PrivateMsgApi.INTERCEPT_ON, PrivateMsgApi.statusForIntercept(true))
+        assertEquals(PrivateMsgApi.INTERCEPT_OFF, PrivateMsgApi.statusForIntercept(false))
+    }
 }

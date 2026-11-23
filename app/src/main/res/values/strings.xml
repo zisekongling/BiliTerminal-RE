@@ -2275,6 +2275,10 @@
     <string name="uitext_privatemsgsessionsadapter_014">取消免打扰</string>
     <string name="uitext_privatemsgsessionsadapter_015">已开启免打扰</string>
     <string name="uitext_privatemsgsessionsadapter_016">已取消免打扰</string>
+    <string name="uitext_privatemsgsessionsadapter_017">标为已读</string>
+    <string name="uitext_privatemsgsessionsadapter_018">已标为已读</string>
+    <string name="uitext_privatemsgsessionsadapter_019">这条会话没有可标记的消息</string>
+    <string name="uitext_privatemsgsessionsadapter_020">应援团</string>
     <string name="uitext_privatemsgactivity_008">刷新</string>
     <string name="uitext_privatemsgactivity_009">已是最新消息</string>
     <string name="uitext_followgroupadapter_001"> 位成员</string>

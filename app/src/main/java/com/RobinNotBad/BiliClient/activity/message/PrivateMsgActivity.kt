@@ -48,6 +48,20 @@ class PrivateMsgActivity : BaseActivity() {
 
         /** 会话已读到哪一条（max_seqno），update_ack 的 ack_seqno；缺了它服务端不认这条已读（26.11.23）。 */
         const val EXTRA_MAX_SEQNO = "max_seqno"
+
+        /**
+         * 非系统会话的标题覆盖（26.11.23）：粉丝团会话的 talker_id 是粉丝团 id，
+         * user/cards 查不到昵称，标题用团名，由消息页传进来。
+         */
+        const val EXTRA_SESSION_NAME = "session_name"
+
+        /**
+         * 会话类型（26.11.23）：1 用户会话、2 粉丝团。
+         *
+         * 拉消息（fetch_session_msgs）与标已读（update_ack）都要按它带 session_type——
+         * 以前两处都写死 1，粉丝团会话一条消息都拉不出来、未读也消不掉。
+         */
+        const val EXTRA_SESSION_TYPE = "session_type"
     }
 
     var allMsg = JSONObject()
@@ -60,6 +74,9 @@ class PrivateMsgActivity : BaseActivity() {
 
     /** 已读游标，来自消息页的 [EXTRA_MAX_SEQNO]；为 0 说明没传（例如从别处进来），不做 ack */
     var maxSeqno: Long = 0
+
+    /** 本会话的类型（[EXTRA_SESSION_TYPE]）：1 用户会话、2 粉丝团。拉消息与已读都按它走。 */
+    var sessionType: Int = PrivateMsgApi.SESSION_TYPE_USER
     var isLoadingMore = false
     var animTimer: Timer? = null
 
@@ -101,20 +118,24 @@ class PrivateMsgActivity : BaseActivity() {
         val intent = intent
         uid = intent.getLongExtra("uid", 114514)
         maxSeqno = intent.getLongExtra(EXTRA_MAX_SEQNO, 0)
+        sessionType = intent.getIntExtra(EXTRA_SESSION_TYPE, PrivateMsgApi.SESSION_TYPE_USER)
         Log.e("", uid.toString())
 
         // 系统会话只能读：没有真实 mid，私信发不出去；标题也用它自带的账号名（默认是「私信」）
         val systemName = intent.getStringExtra(EXTRA_SYSTEM_NAME).orEmpty()
         isSystemSession = systemName.isNotEmpty()
-        if (isSystemSession) {
-            setPageName(systemName)
+        // 标题：系统会话用 account_info 的名字，粉丝团会话用团名，其余留默认「私信」
+        val titleOverride = systemName.ifEmpty { intent.getStringExtra(EXTRA_SESSION_NAME).orEmpty() }
+        if (titleOverride.isNotEmpty()) setPageName(titleOverride)
+        // 粉丝团会话同样不能从终端发消息（没有应援团发信的接口），只读，但**要** ack
+        if (isSystemSession || sessionType == PrivateMsgApi.SESSION_TYPE_FAN_GROUP) {
             writeMsgBtn.visibility = View.GONE
         }
 
         // 反馈 #121：这句提示可以关（设置 → 私信拦截提示，默认开）。老用户每次进会话都被弹一次太吵
         // 26.11.19 debug 包不弹任何自动提示：这条每次进会话都弹的拦截提示直接免掉，release 照旧。
         // 系统会话没有发送入口，这条「发私信会被拦截」的提示对它没有意义，直接跳过。
-        if (!isSystemSession
+        if (!isSystemSession && sessionType == PrivateMsgApi.SESSION_TYPE_USER
             && !BiliTerminal.isAutoPopupSuppressed()
             && SharedPreferencesUtil.getBoolean(SettingsKeys.PRIVATE_MSG_INTERCEPT_TIP_ENABLE, true)
         ) {
@@ -123,7 +144,7 @@ class PrivateMsgActivity : BaseActivity() {
 
         CenterThreadPool.run {
             try {
-                allMsg = PrivateMsgApi.getPrivateMsg(uid, 50, 0, 0)
+                allMsg = PrivateMsgApi.getPrivateMsg(uid, sessionType, 50, 0, 0)
                 list = PrivateMsgApi.getPrivateMsgList(allMsg)
                 Collections.reverse(list)
                 emoteArray = PrivateMsgApi.getEmoteJsonArray(allMsg)
@@ -268,7 +289,7 @@ class PrivateMsgActivity : BaseActivity() {
                 val oldListSize = list.size
                 if (oldListSize == 0) {
                     // 空会话（新会话、历史被清）刷新要能真拉出内容；原来这里只是复位标志，按了没反应
-                    val firstMsg = PrivateMsgApi.getPrivateMsg(uid, 50, 0, 0)
+                    val firstMsg = PrivateMsgApi.getPrivateMsg(uid, sessionType, 50, 0, 0)
                     val firstList = PrivateMsgApi.getPrivateMsgList(firstMsg)
                     val emotes = PrivateMsgApi.getEmoteJsonArray(firstMsg)
                     Collections.reverse(firstList)
@@ -293,7 +314,7 @@ class PrivateMsgActivity : BaseActivity() {
 
                 // 取游标也用 getOrNull：UI 线程可能刚把 list 换掉（空会话分支 clear+addAll），直接下标会越界
                 val lastSeqno = list.getOrNull(oldListSize - 1)?.msgSeqno ?: return@run
-                val msgResult = PrivateMsgApi.getPrivateMsg(uid, 50, lastSeqno, 0)
+                val msgResult = PrivateMsgApi.getPrivateMsg(uid, sessionType, 50, lastSeqno, 0)
                 val newList = PrivateMsgApi.getPrivateMsgList(msgResult)
                 if (newList.isEmpty()) {
                     if (manual) runOnUiThread { MsgUtil.showMsg(UiText.of("已是最新消息")) }
@@ -337,7 +358,7 @@ class PrivateMsgActivity : BaseActivity() {
         CenterThreadPool.run {
             try {
                 // 把返回码打进日志：真机验证「ack 到底生效没」全靠这一行
-                val ack = PrivateMsgApi.updateAck(uid, 1, seqno)
+                val ack = PrivateMsgApi.updateAck(uid, sessionType, seqno)
                 if (ack.optInt("code", -1) != 0) {
                     Log.w("PrivateMsgActivity", "自动已读返回 " + ack)
                 }
@@ -354,7 +375,7 @@ class PrivateMsgActivity : BaseActivity() {
         CenterThreadPool.run {
             try {
                 if (allMsg.getInt("has_more") == 1) {
-                    allMsg = PrivateMsgApi.getPrivateMsg(uid, 15, 0, list[0].msgSeqno)
+                    allMsg = PrivateMsgApi.getPrivateMsg(uid, sessionType, 15, 0, list[0].msgSeqno)
                     Log.e("", allMsg.toString())
                     val newList = PrivateMsgApi.getPrivateMsgList(allMsg)
                     Collections.reverse(newList)

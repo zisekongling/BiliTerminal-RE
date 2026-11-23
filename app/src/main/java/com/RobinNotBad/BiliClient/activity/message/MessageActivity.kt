@@ -200,14 +200,31 @@ class MessageActivity : InstanceActivity() {
                 return@run
             }
             val list = page.sessions
+            // 应援团 / 官方群（26.11.23）：它们在另一份列表里（get_sessions 的请求参数
+            // session_type=3），用户会话那一页根本不含它们，所以原来一条都看不到。
+            // 用户拍板「有未读才混排进主列表」：只并未读>0 的，免得一堆老群把手表那一屏塞满。
+            // 这一份拉失败不影响主列表——群消息少看一次比整页空白好。
+            val groupSessions = try {
+                PrivateMsgApi.getSessionsPage(
+                    PrivateMsgApi.SESSIONS_PAGE_SIZE, 0, PrivateMsgApi.LIST_TYPE_FAN_GROUP
+                ).sessions.filter { it.unreadTotal() > 0 }
+            } catch (e: Exception) {
+                Logu.w("MessageActivity", "应援团会话加载失败：" + e.message)
+                emptyList<PrivateMsgSession>()
+            }
+            for (group in groupSessions) {
+                // talker_id 是粉丝团 id，和用户 mid 不会撞，但仍去一次重更稳妥
+                if (list.none { it.talkerUid == group.talkerUid }) list.add(group)
+            }
             // 置顶优先 → 未读优先 → 维持服务端原序。原先只按「未读优先」排，
             // 会把置顶但没未读的会话挤到下面去（见 SessionSorter 的类注释）。
             SessionSorter.sort(list)
             val uidList = ArrayList<Long>()
             for (item in list) {
                 // 系统会话（UP主小助手 / 系统通知 / 客服…）的 talker_id 是服务端合成的，
-                // 查 user/cards 查不到，名字头像都来自会话自带的 account_info，别塞无效 id 进去
-                if (!item.isSystem()) uidList.add(item.talkerUid)
+                // 粉丝团会话的 talker_id 是粉丝团 id——两者都查不到 user/cards，
+                // 塞进去还会让这个批量接口整单失败、连累正常会话的昵称头像
+                if (!item.isSystem() && !item.isFanGroup()) uidList.add(item.talkerUid)
             }
             // 查不到名字头像不该让整页消失：适配器会回落到会话自带的名字与 mid
             val users = try {
@@ -299,7 +316,12 @@ class MessageActivity : InstanceActivity() {
         // 系统会话没有真实 mid，标题只能用会话自带的账号名（26.11.20）
         if (session.isSystem()) {
             intent.putExtra(PrivateMsgActivity.EXTRA_SYSTEM_NAME, session.accountName)
+        } else if (session.isFanGroup()) {
+            // 粉丝团会话的 talker_id 是粉丝团 id，同样查不到用户资料，标题用团名兜底（26.11.23）
+            intent.putExtra(PrivateMsgActivity.EXTRA_SESSION_NAME, session.groupName)
         }
+        // 拉消息与已读都要按会话类型走：粉丝团是 session_type=2（26.11.23）
+        intent.putExtra(PrivateMsgActivity.EXTRA_SESSION_TYPE, session.sessionType)
         sessionLauncher.launch(intent)
     }
 

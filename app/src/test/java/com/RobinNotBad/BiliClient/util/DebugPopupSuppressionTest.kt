@@ -82,8 +82,8 @@ class DebugPopupSuppressionTest {
         ),
         Site(
             "src/main/java/com/RobinNotBad/BiliClient/activity/message/PrivateMsgActivity.kt",
-            "if (!isSystemSession\n            && !BiliTerminal.isAutoPopupSuppressed()\n            && SharedPreferencesUtil.getBoolean(SettingsKeys.PRIVATE_MSG_INTERCEPT_TIP_ENABLE, true)",
-            "私信页：每次进会话都弹的拦截提示"
+            "if (!isSystemSession && sessionType == PrivateMsgApi.SESSION_TYPE_USER\n            && !BiliTerminal.isAutoPopupSuppressed()\n            && SharedPreferencesUtil.getBoolean(SettingsKeys.PRIVATE_MSG_INTERCEPT_TIP_ENABLE, true)",
+            "私信页：每次进会话都弹的拦截提示（26.11.23 起粉丝团会话不弹——它只读，不存在「发了被拦截」）"
         ),
         Site(
             "src/main/java/com/RobinNotBad/BiliClient/activity/player/PlayerActivity.kt",

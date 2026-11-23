@@ -18,6 +18,19 @@
 
 ## 1. 当前版本状态
 
+- **26.11.23 打通粉丝团私信、会话项「标为已读」（对齐 PiliPlus 的消息治理层，批次②-1）**：
+  - **来路**：批次①之后继续对齐 PiliPlus，发现两处硬伤。①**应援团 / 官方群私信一条都拉不到**：`api/PrivateMsgApi.java` 把 `SESSION_TYPE_USER`(=1) 当 `get_sessions` 的参数写死，而请求侧要的是 **3**（粉丝团），接口不报错、只是永远空；`fetch_session_msgs` 与 `update_ack` 同理。②**会话项没有「标为已读」**：PiliPlus 长按菜单里有，我们只能点进去再退出才清未读。用户拍板：应援团**有未读才混排进主列表**、入口放**会话长按菜单**。
+  - **改法**：
+    - `api/PrivateMsgApi.java`：新增 `LIST_TYPE_USER=1` / `LIST_TYPE_FAN_GROUP=3`（请求参数枚举），与现有的 `SESSION_TYPE_USER=1` / `SESSION_TYPE_FAN_GROUP=2`（会话对象枚举）分开放，注释写明两者不是一套值；`getSessionsPage(size,endTs,listType)` 与 `getPrivateMsg(talkerId,sessionType,size,begin,end)` 各自带值，URL 由纯函数 `buildSessionsUrl` / `buildFetchMsgsUrl` 拼（旧两参重载保留转调）。`parseSession` 补 `session_type` / `group_name` / `group_cover` / `group_type` / `setting` / `is_intercept` / `ack_seqno`。
+    - `model/PrivateMsgSession.java`：新增上述字段 + `isFanGroup()` / `isPushOn()` / `sessionName()`。
+    - `activity/message/MessageActivity.kt`：`loadSessions()` 在第一页额外拉一次粉丝团列表、`filter { unreadTotal() > 0 }` 后并进主列表再统一 `SessionSorter.sort`（失败只 `Logu.w`）；拼 `uids` 时**跳过粉丝团会话**——它的 `talker_id` 是粉丝团 id 不是 mid，塞进去会让整个 `user/cards` 批量失败、连累正常会话的昵称头像。翻页不重复拉（有未读的群必在第一页）。
+    - `activity/message/PrivateMsgActivity.kt`：新增 `EXTRA_SESSION_TYPE` / `EXTRA_SESSION_NAME`，四处 `getPrivateMsg` 与 `ackTo` 都带 `sessionType`；粉丝团会话只读（隐藏写私信按钮）但**仍要 ack**，也不弹「私信可能被拦截」提示（那只针对用户会话）。
+    - `adapter/message/PrivateMsgSessionsAdapter.kt`：名字/头像三分支（系统→`accountName`/`accountAvatar`，粉丝团→`groupName`/`groupCover`，否则查 `user/cards`）；长按菜单改成**先拼 labels+actions 再按位 invoke**（原来 `when(0/1/2/else)` 按下标硬编码，条目数量随场景变化就会错位），粉丝团只给「标为已读 / 删除会话」；新增 `markSessionRead()`——`update_ack` 传会话的 `max_seqno`（缺失退回 `ack_seqno`），成功后本地清零 + `notifyItemChanged`。
+    - 文案进 `strings.xml`（`uitext_privatemsgsessionsadapter_017`..`_020`：标为已读 / 已标为已读 / 这条会话没有可标记的消息 / 应援团）并登记 `util/UiText.kt`。
+  - **验证**：L0——`:app:assembleStandardDebug` 与 `:app:testStandardDebugUnitTest` 通过；`api/PrivateMsgApiTest.kt` 新增 8 例（两个 URL 构造函数按枚举取值、粉丝团字段解析、`ack_seqno`、`statusForIntercept` 口径），单测全绿。接口口径（`session_type` 请求枚举 vs 会话对象枚举）已写进 `docs/architecture-map.md` §7.13。
+  - **未做**：粉丝团会话的**翻页**（主列表翻页仍只拉用户会话）；粉丝团消息里的「@我」提示（`at_seqno` 已解析但没渲染）；`session_type=2/8/9` 等其余列表类型（未关注人折叠、陌生人等）。
+  - **未验证（L2，需人工看画面）**：①有未读的应援团是否真的混排进主列表、昵称显示群名、头像显示群封面；②长按应援团会话菜单是否只有两项、点「标为已读」后角标是否立刻消失；③长按用户会话菜单五项（置顶 / 免打扰 / 标为已读 / 删除 / 主页）顺序与 danger 标色是否正常，且无未读时不出现「标为已读」；④粉丝团会话里能否正常看历史消息、**不**出现写私信按钮与拦截提示。
+
 - **26.11.23 低分辨率手表（180×180dp）列表操作底栏 48dp→34dp、13sp→11sp**：
   - **来路**：用户附三张 360×361px 真机截图（缓存页「多选/排序/搜索」、多选提示、「全选/操作/退出」），要求「优化低分辨率手表所有底栏显示的高度和布局」。实测那台机把窗口压到 360×361px @320dpi，即 **180×180.5dp**；底栏按钮是 `minHeight=@dimen/touch_min`(48dp) + 13sp，一条底栏就吃掉 96px（屏高 27%），列表区只剩 211px。拍板口径：只做**列表类操作条**、按屏宽**分档**不动全局观感、深度 **48→34dp / 13→11sp**。
   - **改法**：
