@@ -1905,9 +1905,6 @@
     <string name="uitext_videoinfofragment_012">需要通知权限才能进行下载，请前往设置授予权限</string>
     <string name="uitext_videoinfofragment_013">视频转发不支持带图，请去掉图片后重试</string>
     <!-- 转发面板（反馈 #133）：点转发按钮后先选去处，再决定发动态还是私下发给好友 -->
-    <string name="text_video_relay_title">转发</string>
-    <string name="text_video_relay_to_dynamic">转发到动态</string>
-    <string name="text_video_relay_to_friend">发给好友</string>
     <string name="msg_video_relay_to_friend_success">已发送给 %1$s</string>
     <string name="msg_video_relay_to_friend_failed_copied">发送失败，已复制视频链接</string>
     <string name="uitext_downloadlistactivity_001">已恢复下载</string>
@@ -3465,4 +3462,18 @@
     <string name="btn_weise_download">去微思下载</string>
     <string name="msg_weise_open_failed">没有找到能打开微思商店的应用</string>
     <string name="msg_weise_open_browser">已复制商店链接；本机没装微思商店，已用浏览器打开</string>
+    <!-- 26.11.23：转发 / 分享面板（五项：复制链接、其它app打开、分享视频、分享至动态、分享至消息） -->
+    <string name="share_panel_title">分享</string>
+    <string name="share_copy_link">复制链接</string>
+    <string name="share_open_other_app">其它app打开</string>
+    <string name="share_video">分享视频</string>
+    <string name="share_live">分享直播间</string>
+    <string name="share_article">分享文章</string>
+    <string name="share_to_dynamic">分享至动态</string>
+    <string name="share_to_message">分享至消息</string>
+    <string name="msg_share_link_copied">链接已复制</string>
+    <string name="msg_share_no_app_copied">没有能打开链接的应用，已复制链接</string>
+    <string name="msg_share_no_share_copied">系统分享不可用，已复制链接</string>
+    <string name="msg_share_url_missing">链接还没准备好，稍后再试</string>
+    <string name="msg_share_send_failed_copied">发送失败，已复制链接</string>
 </resources>
