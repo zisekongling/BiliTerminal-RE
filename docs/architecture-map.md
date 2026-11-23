@@ -1673,6 +1673,14 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **头像与昵称的回落**：系统会话没有用户卡，适配器用 `accountName` / `accountAvatar`，为空时回落 `R.mipmap.akari` 与「B站官方消息」（`uitext_privatemsgsessionsadapter_011`）——**新文案必须同时进 `values/strings.xml` 与 `util/UiText.kt` 的 MAP**，只加 strings.xml 界面会显示原文。
 - **仍未解决（本轮没动）**：`api/MessageApi.java:124` 的 `checkPrivateMsgUnread()` 把 `dustbin_unread` / `dustbin_push_msg` 也累加进角标，但 `get_sessions` 不带 `show_dustbin`、App 里没有拦截区入口，这部分未读**仍可能消不掉**。
 
+### 7.73 转发 / 分享面板：一处组件、两种结果码、顶栏按钮的锚点（26.11.23 新增）
+
+- **面板本体只有一份**：`util/ShareSheet.kt` 的 `ShareSheet.panel(ctx).copyLink(url).openInOtherApp(url).shareText(labelRes, text, url).toDynamic { }.toMessage { }.show()` 是链式的，**不调用哪一项就不显示哪一项**——所以「直播/专栏四项」「收藏夹四项」「视频/番剧五项」由调用方链几步决定，而不是靠字符串列表拼。文本一律由纯函数 `util/view/ShareTexts.kt` 拼（链接 + 60 字截断 + 空作者名省略），页面里不要自己拼 `https://...`。组件内部走 `TerminalDialog.menu` 并自己 `.show()`；**连 `import androidx.appcompat.app.AlertDialog` 都不许出现**，`ConventionGuardTest` 会扫 `src/main/java` 全量（26.11.23 就是这么红的，`Panel.show()` 只能返回 `Unit`）。
+- **「分享至动态」只有一条发布链路**：页面把一张 `model/RepostCard.java` 塞进 `TerminalContext.setForwardContent()` 再起 `SendDynamicActivity`，发布页看到 RepostCard 就画引用卡、隐藏图片/定时/可见范围、自己调 `DynamicApi.relayGeneric(text, atUid, dynType, rid, ...)`。dyn_type 映射集中在 `util/ForwardTargets.kt`（视频 8 / 收藏夹 4300 / 番剧按 info.type → 4097·4098·4101·4100·4099），映射不出来就**整项不显示**。
+- **结果码：转发成功是 `RESULT_FIRST_USER`（1），不是 `RESULT_OK`**。`VideoInfoFragment.relayToDynamic` 与 `DynamicActivity.getRelayDynamicLauncher` 见到 `RESULT_OK` 会拿返回的 `text` 再发一条普通动态——番剧页 / 收藏夹页如果认错码，用户点一次转发会得到两条动态。新加转发入口的页面：要么不接结果（发布页自己提示并关闭），要么只认 `RESULT_FIRST_USER`。
+- **共用的列表布局里加顶栏按钮，必须在代码里开**：`activity_simple_refresh.xml` 被设置/历史/下载/关注等大量页面共用，收藏夹的 `btn_share` 在 XML 里默认 `android:visibility="gone"`，由 `setupShareButton()` 运行时置 `VISIBLE`，**同时把 `pageName` 的 `toStartOf/toLeftOf` 从 `timeText` 改指到新按钮**。若在 XML 里就让 `pageName` 指向一个 GONE 的锚点，锚点宽度为 0，别的页面标题会被拽到时钟底下。按钮自身要吃掉点击与长按（`setOnLongClickListener { true }`），否则会连带触发顶栏的「退出」与「长按回菜单」。
+- **图标按钮用 `app:srcCompat`**：`icon_share` 是 `<vector>`，写 `android:src` 在 API<21 会抛 `Resources$NotFoundException: invalid drawable tag vector`，`VectorDrawableCompatTest` 会拦下（26.11.23 直播/专栏那轮踩过）。
+
 ## 8. UI 基建速查（新增页面临摹用）
 
 ### 8.1 完整继承体系
