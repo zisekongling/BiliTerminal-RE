@@ -18,6 +18,16 @@
 
 ## 1. 当前版本状态
 
+- **26.11.23 #236 详情页里点正文没反应、同一楼还会叠层，楼中楼也点不动**：
+  - **来路**：控制台反馈 #236（OPPO OWW251 / 26.11.16 / sdk30）「点『共 x 条回复』展示所有回复」。三处缺口其实是同一件事：①`adapter/ReplyAdapter.kt` 的正文与整行点击监听包在 `if (!isDetail)` 里，进了楼层页就**完全没有监听**，点一条有楼中楼的评论毫无反馈，用户只能去点「共 x 条回复」那一小块卡片；②同一段逻辑没有「没有子回复」的分支，点了只会静默；③`startReplyInfoActivity()` 不做去重，在楼层页里再点又叠一层同 rpid 的页面，返回要按好几下。隔壁哔哩终端复活版的 `adapter/ReplyAdapter.java:380-384` 是同样的写法，抄不过去。
+  - **改法**：
+    - 新增纯策略 `util/ReplyTapPolicy.kt`：`forBodyTap(childCount, inDetailPage, sameRpid)` → `OPEN_FLOOR` / `TOAST_NO_CHILD` / `IGNORE`。同一条评论（`sameRpid`）一律 `IGNORE`；有子回复进楼层页；楼层页里点没有子回复的给提示；列表页里点没有子回复的评论仍进评论详情页（打开后至少能看到这条评论本身），保持原行为。
+    - `adapter/ReplyAdapter.kt`：新增私有 `onReplyBodyTap(reply)` 统一走策略，`isDetail` 时也把 `message` 绑上（`voteId > 0` 仍走投票弹窗）；列表页的整行与正文改调它；楼中楼每一行的 `TextView` 在长按监听之外补 `setOnClickListener { onReplyBodyTap(reply) }`（原先长按抬手会被父卡片当成点击，现在点一下就进楼层页看全部回复）；`startReplyInfoActivity()` 开头先比对「当前是不是同一条评论的楼层页」，是就直接返回。
+    - `activity/reply/ReplyInfoActivity.kt`：`rpid` 是 private，补一个 `internal fun rootRpid(): Long` 给适配器判断叠层；`strings.xml` 新增 `msg_reply_no_child`（「这条评论还没有回复」）。
+  - **验证**：L0（隔离副本）`assembleDebug` 双 flavor 通过；`testStandardDebugUnitTest` 3062 例、1 处失败与本轮无关（`ConventionGuardTest` 需要 `.git`，隔离副本没有）；新增 `util/ReplyTapPolicyTest` 5 例（列表页有/无楼中楼、楼层页里有/无楼中楼、同 rpid 不叠层）全绿。
+  - **未做**：没把「楼中楼列表」改成在楼层页里一次性展开——现在点任意一条子回复仍是跳回同一个楼层页（这页本来就列着全部回复），真要做「详情页内展开全部」得改 `ReplyInfoActivity` 的加载与分页，属交互重做，先看这版够不够。
+  - **未验证（L2，需人工看画面）**：①列表页点有楼中楼的评论进楼层页，点没有子回复的仍是进评论详情页；②楼层页里点别的评论的正文能进它的楼层页，点没有子回复的评论弹出「这条评论还没有回复」；③楼层页里点自己这条（顶部根评论）不再叠第二层，返回一次就回到列表；④点楼中楼里的某一行，行为与点「共 x 条回复」一致。
+
 - **26.11.23 #273 卡片不再抬高，列表滚动时「文字下面那条阴影」不再跳**：
   - **来路**：控制台反馈 #273「文字下面有一条阴影在跳」。阴影来自 `cardElevation`（全仓 cell 都没有 `shadowRadius/shadowDx/shadowDy`，那三样只在 `activity_player.xml` / `fragment_short_video_page.xml` / `fragment_video_info.xml`）：`res/values/styles.xml` 的 `CardStyle` 是 4dp、`CardStyleLight` 是 2dp，`themes.xml` 另有 5 套主题各抄一份 4dp 的 `CardStyle<X>`，`item_account.xml` 也有 2dp。而 `ui/appearance/RoundListEffect.kt:165-172` 的 `transform()` 在滚动回调里逐帧改条目的 `scaleX/scaleY` 与 `alpha`（`BaseActivity.kt:214` 对全部界面安装），hwui 于是逐帧按新轮廓重算阴影——表冠一转，阴影就在字下面来回窜。
   - **改法**：把「卡片抬高」这一层整体去掉，层次改由描边承担（`CardStyle` 本来就有 `strokeColor` + `strokeWidth 1dp`）：

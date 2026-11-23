@@ -53,6 +53,12 @@ class ReplyInfoActivity : BaseActivity() {
     private val loadedRpids: MutableSet<Long> = Collections.synchronizedSet(HashSet<Long>())
     private var account: Long = 0L
 
+    /**
+     * 本页的根评论 rpid。ReplyAdapter 用它判断「同一条评论的楼层页是不是已经开着」，
+     * 避免详情页里再点又叠一层（#236）。
+     */
+    internal fun rootRpid(): Long = rpid
+
     // 跨页状态监听：列表页把某条楼中楼点赞/点踩/删掉后，这里立即同步
     private val storeListener: ReplyStateStore.Listener = object : ReplyStateStore.Listener {
         override fun onReplyStateChanged(state: ReplyState) {

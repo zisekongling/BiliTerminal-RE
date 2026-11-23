@@ -2938,6 +2938,8 @@
     <!-- ==================== 评论区翻译（文A 按钮） ==================== -->
     <!-- 翻译按钮的 contentDescription；按钮只有图标，这句话也是读屏念出来的内容 -->
     <string name="text_reply_translate">翻译</string>
+    <!-- 详情页里点了没有子回复的评论时给个回应，免得用户以为按钮坏了（#236） -->
+    <string name="msg_reply_no_child">这条评论还没有回复</string>
     <!-- 请求失败（网络/接口异常）时给用户的提示 -->
     <string name="msg_reply_translate_failed">翻译失败，请稍后再试</string>
     <!-- 请求成功但服务端没给译文（已是目标语言/不支持翻译）时的提示 -->
