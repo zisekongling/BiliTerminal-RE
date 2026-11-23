@@ -1,6 +1,7 @@
 package com.RobinNotBad.BiliClient.util
 
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.HashMap
 import java.util.Locale
@@ -33,6 +34,9 @@ object TimeUtil {
      * 改成 `HH` 会直接改变用户看到的文案，因此这里原样保留，不顺手"修正"。
      */
     const val PATTERN_DATE_TIME_12H = "yyyy-MM-dd hh:mm"
+
+    /** `MM-dd HH:mm`——同年不同天时省掉年份（私信气泡，见 [formatChatTime]）。 */
+    const val PATTERN_MONTH_DAY_TIME = "MM-dd HH:mm"
 
     // 不用 ThreadLocal.withInitial(...) —— 它依赖 java.util.function（API 24 才有），minSdk 19 的 API 19~23 上会 NoClassDefFoundError
     private val cache = object : ThreadLocal<HashMap<String, SimpleDateFormat>>() {
@@ -80,4 +84,28 @@ object TimeUtil {
     @JvmOverloads
     fun formatDateTimeSec(millis: Long, locale: Locale = Locale.getDefault()): String =
         format(millis, PATTERN_DATE_TIME_SEC, locale)
+
+    /**
+     * 聊天/私信气泡上的时间标签（反馈 #267）：当天只给 `HH:mm`，今年内给 `MM-dd HH:mm`，
+     * 跨年才带年份。
+     *
+     * 手表屏只有两百多 dp 宽，气泡上方那一行已经有昵称，满格式 `yyyy-MM-dd HH:mm` 会把昵称挤掉。
+     * 入参是 **epoch 毫秒**（`PrivateMessage.timestamp` 是秒，调用方自己 ×1000）；
+     * 时间戳 (le 0) 返回空串，让调用方整块隐藏，别显示成 1970。
+     *
+     * [nowMillis] 只为单测留的口子，默认取当前时间。
+     */
+    @JvmStatic
+    @JvmOverloads
+    fun formatChatTime(millis: Long, nowMillis: Long = System.currentTimeMillis()): String {
+        if (millis <= 0L) return ""
+        val then = Calendar.getInstance().apply { timeInMillis = millis }
+        val now = Calendar.getInstance().apply { timeInMillis = nowMillis }
+        return when {
+            then.get(Calendar.YEAR) != now.get(Calendar.YEAR) -> formatDateTime(millis)
+            then.get(Calendar.DAY_OF_YEAR) != now.get(Calendar.DAY_OF_YEAR) ->
+                format(millis, PATTERN_MONTH_DAY_TIME)
+            else -> formatTime(millis)
+        }
+    }
 }

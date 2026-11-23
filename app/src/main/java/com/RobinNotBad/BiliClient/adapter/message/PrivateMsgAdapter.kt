@@ -29,6 +29,7 @@ import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TerminalDialog
+import com.RobinNotBad.BiliClient.util.TimeUtil
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.bumptech.glide.load.DecodeFormat
 import com.bumptech.glide.load.engine.DiskCacheStrategy
@@ -47,6 +48,7 @@ class PrivateMsgAdapter(
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         lateinit var nameTv: TextView
+        lateinit var timeTv: TextView
         lateinit var textContentTv: TextView
         lateinit var tipTv: TextView
         lateinit var playTimesTv: TextView
@@ -61,6 +63,7 @@ class PrivateMsgAdapter(
         init {
             root = view.findViewById(R.id.msg_layout)
             nameTv = view.findViewById(R.id.msg_name)
+            timeTv = view.findViewById(R.id.msg_time)
             textContentTv = view.findViewById(R.id.msg_text_content)
             tipTv = view.findViewById(R.id.msg_type_tip_text)
             playTimesTv = view.findViewById(R.id.text_viewcount)
@@ -86,6 +89,10 @@ class PrivateMsgAdapter(
 
         try {
             holder.nameTv.text = msg.name
+            // 反馈 #267：时间戳单位是秒（model/PrivateMessage.java），没时间就整块隐藏。
+            val timeText = TimeUtil.formatChatTime(msg.timestamp * 1000L)
+            holder.timeTv.text = timeText
+            holder.timeTv.visibility = if (timeText.isEmpty()) View.GONE else View.VISIBLE
             if (selfUid == -1L) {
                 selfUid = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, -1)
             }
