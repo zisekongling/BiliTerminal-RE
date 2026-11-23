@@ -23,6 +23,7 @@ import com.RobinNotBad.BiliClient.model.VideoCard;
 import com.RobinNotBad.BiliClient.util.DmImgParamUtil;
 import com.RobinNotBad.BiliClient.util.EmoteUrlCollector;
 import com.RobinNotBad.BiliClient.util.EmoteUtil;
+import com.RobinNotBad.BiliClient.util.ForwardTargets;
 import com.RobinNotBad.BiliClient.util.Logu;
 import com.RobinNotBad.BiliClient.util.MsgUtil;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
@@ -498,6 +499,8 @@ public class DynamicApi {
     /**
      * 转发视频到动态（自动带上 //@UP主:原标题 的引用）
      *
+     * <p>视频只是 {@link #relayGeneric} 的一种特例，这个签名留着是为了老调用点不用改。
+     *
      * @param text          附加文字
      * @param atUserUid     附加文字内at到的人的用户名uid map
      * @param aid           aid
@@ -508,13 +511,51 @@ public class DynamicApi {
      * @return 发送成功返回的动态id，失败返回-1
      */
     public static long relayVideo(String text, Map<String, Long> atUserUid, long aid, String authorName, long authorMid, String authorContent, Set<String> emoteTexts) throws JSONException, IOException {
+        return relayGeneric(text, atUserUid, ForwardTargets.videoDynType(), aid, authorName, authorMid, authorContent, emoteTexts);
+    }
+
+    /**
+     * 转发任意内容到动态（通用版）。
+     *
+     * <p>报文口径与既有的 {@link #relayVideo} 完全一致——就是那条原注释写着「瞎扒的api」的链路：
+     * 同样的 contents、scene=5、{@code web_repost_src} 结构。这里只把 {@code revs_id} 里的
+     * {@code dyn_type} 与 {@code rid} 参数化，视频退化成 dyn_type=8 的一次调用。
+     *
+     * <p>{@code dyn_type} 的取值集中在 {@code util/ForwardTargets.kt}。写错不会报错、只会让服务端
+     * 把内容渲染成另一种卡片，所以「类型或 id 不成立」时直接返回 -1，不浪费一次请求。
+     *
+     * @param text          附加文字
+     * @param atUserUid     附加文字内at到的人的用户名uid map
+     * @param dynType       转发目标类型（dyn_type），取值见 util/ForwardTargets.kt
+     * @param rid           转发目标 id（视频是 aid，收藏夹是 media_id 一类）
+     * @param authorName    原作者昵称，为空则不加引用
+     * @param authorMid     原作者uid
+     * @param authorContent 被转发内容的纯文本（标题）
+     * @param emoteTexts    可用表情名集合，可为 null
+     * @return 发送成功返回的动态id，失败返回-1
+     */
+    public static long relayGeneric(String text, Map<String, Long> atUserUid, int dynType, long rid,
+                                    String authorName, long authorMid, String authorContent,
+                                    Set<String> emoteTexts) throws JSONException, IOException {
+        if (dynType <= 0 || rid <= 0) {
+            Logu.w("relayGeneric 参数不成立，已放弃发送：dynType=" + dynType + ", rid=" + rid);
+            return -1;
+        }
         JSONArray contents = text == null ? new JSONArray().put(Content.create("", 1, null)) : buildContents(text, atUserUid, emoteTexts);
         appendRepostQuote(contents, authorName, authorMid, authorContent, emoteTexts);
         Map<String, Object> repostSrc = new HashMap<>();
-        repostSrc.put("web_repost_src", new JSONObject().put("revs_id", new JSONObject()
-                .put("dyn_type", 8)
-                .put("rid", aid)));
+        repostSrc.put("web_repost_src", new JSONObject().put("revs_id", buildRevsId(dynType, rid)));
         return publishComplex(contents, null, null, null, 5, repostSrc);
+    }
+
+    /**
+     * 组装转发来源节点 {@code {"dyn_type":..,"rid":..}}。
+     *
+     * <p>抽成独立的纯函数是为了能直接断言字段名与数值：字段名写错时服务端只回一个笼统的失败，
+     * 事后从日志里看不出是哪一步错的。
+     */
+    static JSONObject buildRevsId(int dynType, long rid) throws JSONException {
+        return new JSONObject().put("dyn_type", dynType).put("rid", rid);
     }
 
     /**

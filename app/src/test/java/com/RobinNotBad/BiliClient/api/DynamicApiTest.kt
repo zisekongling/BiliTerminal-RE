@@ -314,4 +314,24 @@ class DynamicApiTest {
         assertEquals(listOf(2, 1, 9), nodeTypes(contents))
         assertEquals(listOf("@某人 ", "哈哈哈哈", "[doge]"), rawTexts(contents))
     }
+
+    /** 转发来源节点只有这两个字段，字段名写错服务端只会回一个笼统的失败，必须钉住。 */
+    @Test
+    fun buildRevsId_字段名与数值固定() {
+        val revs = DynamicApi.buildRevsId(8, 114514L)
+        assertEquals(2, revs.length())
+        assertEquals(8, revs.getInt("dyn_type"))
+        assertEquals(114514L, revs.getLong("rid"))
+    }
+
+    /** dyn_type 与 rid 都要真的进报文：收藏夹卡片用的就是另一组值。 */
+    @Test
+    fun buildRevsId_取值随参数变化() {
+        val fav = DynamicApi.buildRevsId(4300, 987654321L)
+        assertEquals(4300, fav.getInt("dyn_type"))
+        assertEquals(987654321L, fav.getLong("rid"))
+        val bangumi = DynamicApi.buildRevsId(4097, 12345L)
+        assertEquals(4097, bangumi.getInt("dyn_type"))
+        assertEquals(12345L, bangumi.getLong("rid"))
+    }
 }
