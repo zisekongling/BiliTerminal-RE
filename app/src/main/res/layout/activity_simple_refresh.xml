@@ -26,6 +26,26 @@
             android:textStyle="bold"
             app:drawableStartCompat="@drawable/arrow_back" />
 
+        <!-- 26.11.23：顶栏右侧「分享」入口。**默认 gone**——activity_simple_refresh 被设置页/历史/
+             下载/关注等大量列表页共用，只有收藏夹详情页在代码里打开它（并同步把 pageName 的
+             toStartOf/toLeftOf 改指向本按钮）。若在 XML 里就让 pageName 指过来，别的页面按钮是 GONE、
+             锚点宽度为 0，标题会被拉到时钟底下。 -->
+        <TextView
+            android:id="@+id/btn_share"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerVertical="true"
+            android:layout_toStartOf="@id/timeText"
+            android:layout_toLeftOf="@id/timeText"
+            android:layout_marginEnd="4dp"
+            android:background="?android:attr/selectableItemBackground"
+            android:paddingHorizontal="6dp"
+            android:paddingVertical="3dp"
+            android:text="@string/share_entry"
+            android:textSize="12sp"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
         <com.RobinNotBad.BiliClient.ui.widget.TextClock
             android:id="@+id/timeText"
             android:layout_width="wrap_content"
