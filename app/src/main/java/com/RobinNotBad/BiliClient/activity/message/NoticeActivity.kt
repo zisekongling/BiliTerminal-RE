@@ -10,6 +10,7 @@ import com.RobinNotBad.BiliClient.adapter.message.NoticeAdapter
 import com.RobinNotBad.BiliClient.api.MessageApi
 import com.RobinNotBad.BiliClient.model.MessageCard
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 
 class NoticeActivity : RefreshListActivity() {
@@ -96,8 +97,12 @@ class NoticeActivity : RefreshListActivity() {
                         newCursor = pair.first
                         fresh.addAll(pair.second)
                     }
-                    // 系统通知接口没有游标：一次性列表
-                    "system" -> fresh.addAll(MessageApi.getSystemMsg())
+                    // 系统通知是一次性列表（没有翻页游标），但**有已读游标**：
+                    // 拉完就把这批标成已读，否则角标里这一类永远清不掉（26.11.23）
+                    "system" -> {
+                        fresh.addAll(MessageApi.getSystemMsg())
+                        markSystemRead()
+                    }
                 }
 
                 runOnUiThread {
@@ -127,6 +132,21 @@ class NoticeActivity : RefreshListActivity() {
                     setRefreshing(false)
                 }
             }
+        }
+    }
+
+    /**
+     * 系统通知置读（26.11.23）。
+     *
+     * 失败只记日志：读通知这件事本身已经成功了，不能因为一次 update_cursor 失败，
+     * 就把整个列表判成加载失败、把用户已经看到的内容撤掉。
+     */
+    private fun markSystemRead() {
+        try {
+            val code = MessageApi.acknowledgeSystem()
+            if (code != 0) Logu.w("NoticeActivity", "系统通知置读失败 code=" + code)
+        } catch (e: Exception) {
+            Logu.w("NoticeActivity", "系统通知置读异常: " + e.javaClass.simpleName + " " + e.message)
         }
     }
 

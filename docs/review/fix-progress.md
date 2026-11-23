@@ -18,6 +18,17 @@
 
 ## 1. 当前版本状态
 
+- **26.11.23 消息未读治本：角标口径 + 私信真 ack + 系统通知置读（P0+P1）**：
+  - **来路**：控制台反馈 #281（v26.11.18-beta.6）「消息一直有未读，点进去也消不掉」。对照隔壁仓库（哔哩终端复活版 1.2.5）的消息侧实现找根因后，用 ask 工具与用户对齐：范围 = P0+P1；角标口径 = 系统会话未读不算；系统消息页 = 打开即置读、不设开关；存疑接口 = 先在真机实测再写代码。
+  - **根因（一条因果链，不是四个独立 bug）**：① 角标把 `single_unread` 八个桶全加，而会话列表里只有 `follow_unread` / `unfollow_unread` 有对应的未读会话行，其余六桶（unfollow_push_msg / dustbin_push_msg / dustbin_unread / biz_msg_unfollow_unread / biz_msg_follow_unread / custom_unread）永远点不掉；② 进会话后 `PrivateMsgActivity.kt:122` 传 `ackSeqno=0`，而 `PrivateMsgApi.updateAck` 只有 `>0` 才拼 `&ack_seqno=`，服务端从没收到过 ack，设置页那个「私信自动已读」一直是空转的；③ 系统通知用 `query_user_notify?page_size=35`，web 端对这个值直接回业务码 -6（data 为空），页面一直是空的，也就没有置读的可能。
+  - **改法**：
+    - `api/MessageApi.java`：`checkPrivateMsgUnread` 拆出纯函数 `parsePrivateUnread(JSONObject)`，只算 `follow_unread + unfollow_unread`，其余六桶改走 `Logu.d` 全量日志；新增 `SYSTEM_FEED`、`sysNoticeHeaders()`（Origin / Referer 换成本域 `message.bilibili.com`）、`fetchSystemNotices(path)`、`parseSystemNotices(JSONObject)`、`maxCursorOf(List)`、`acknowledgeSystem()`（两段通知取最大 cursor → `update_cursor?cursor=<max>&has_up=0`）、私有 `number(JSONObject,key)`；`getSystemMsg` 改 `page_size=20`，并把 `cursor` 落到卡片上。
+    - `api/PrivateMsgApi.java`：新增私有 `parseLongOrZero(String)`；`parseSession` 读 `max_seqno`（字符串型，`optLong` 直接取会拿到 0）。
+    - `model/PrivateMsgSession.java` 加 `maxSeqno`，`model/MessageCard.java` 加 `cursor`。
+    - `activity/message/MessageActivity.kt:264` 的 `openSession` 传 `PrivateMsgActivity.EXTRA_MAX_SEQNO`；`PrivateMsgActivity.kt` 加常量与字段，ack 处改成 `updateAck(uid, 1, maxSeqno)`（系统会话跳过，缺 seqno 记一条日志）；`NoticeActivity.kt` 的 `system` 分支拉完调 `markSystemRead()`——失败只记日志，不把列表判成加载失败。
+  - **验证**：L0 `testStandardDebugUnitTest` 绿（`MessageApiTest` 17 例，含新增 `parsePrivateUnread` 2 例 / `parseSystemNotices` 2 例 / `maxCursorOf` 2 例；`PrivateMsgApiTest` 33 例，含新增 `max_seqno` 2 例），同一次构建连带编译了两个 flavor 共用的 Debug 源码。
+  - **未验证（L2 / 待人工，本机无设备）**：① 真机进普通会话后 `update_ack` 是否真的带上 `ack_seqno` 且 `code=0`，返回主菜单后角标是否回落且不反弹；② 系统通知页是否真能列出条目（`page_size=20` 被接受），`update_cursor` 返回 0 后角标是否不再弹回；③ 系统会话（UP主小助手 / 客服）点进去跳过 ack 后的表现；④ 只有 ①② 都成立，才做下一步「`sumUnread` 补 `sys_msg`」——顺序是有意的，先加只会多出一类清不掉的数。
+
 - **26.11.22 六路并行：同步上游 + 基线 + 安全审计 + 并发审查 + 历史深挖 + 规矩机器化**：
   - **来路**：用户要求「不省成本、发挥最大实力」并把六件事一次做完。
   - **同步**：上游 6 提交（登录换票三连 + CI 串行化），2 处文档层冲突，`AppTokenRefreshApi` 的自动合并经核对为真语义合并。

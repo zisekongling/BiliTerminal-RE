@@ -45,6 +45,9 @@ class PrivateMsgActivity : BaseActivity() {
          * account_info.name，由消息页通过这个 extra 传进来（26.11.20 放开系统会话）。
          */
         const val EXTRA_SYSTEM_NAME = "system_name"
+
+        /** 会话已读到哪一条（max_seqno），update_ack 的 ack_seqno；缺了它服务端不认这条已读（26.11.23）。 */
+        const val EXTRA_MAX_SEQNO = "max_seqno"
     }
 
     var allMsg = JSONObject()
@@ -54,6 +57,9 @@ class PrivateMsgActivity : BaseActivity() {
     lateinit var writeMsgBtn: View
     var adapter: PrivateMsgAdapter? = null
     var uid: Long = 0
+
+    /** 已读游标，来自消息页的 [EXTRA_MAX_SEQNO]；为 0 说明没传（例如从别处进来），不做 ack */
+    var maxSeqno: Long = 0
     var isLoadingMore = false
     var refreshTimer: Timer? = null
     var animTimer: Timer? = null
@@ -88,6 +94,7 @@ class PrivateMsgActivity : BaseActivity() {
 
         val intent = intent
         uid = intent.getLongExtra("uid", 114514)
+        maxSeqno = intent.getLongExtra(EXTRA_MAX_SEQNO, 0)
         Log.e("", uid.toString())
 
         // 系统会话只能读：没有真实 mid，私信发不出去；标题也用它自带的账号名（默认是「私信」）
@@ -117,12 +124,24 @@ class PrivateMsgActivity : BaseActivity() {
                 adapter = PrivateMsgAdapter(list, emoteArray, this)
                 adapter!!.onRecall = { msg -> recallMessage(msg) }
 
-                if (SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.PRIVATE_MSG_AUTO_READ_ENABLE, true)) {
+                // 26.11.23：原来这里恒传 0，而 updateAck 只有 ackSeqno > 0 才拼 &ack_seqno=，
+                // 等于一次都没真正 ack 过——设置页那个「私信自动已读」一直是空转的，会话未读消不掉（#281）。
+                // 系统会话的 talker_id 是服务端合成的，ack 对它没有意义，跳过。
+                if (!isSystemSession
+                    && maxSeqno > 0
+                    && SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.PRIVATE_MSG_AUTO_READ_ENABLE, true)
+                ) {
                     try {
-                        PrivateMsgApi.updateAck(uid, 1, 0)
+                        // 把返回码打进日志：真机验证「ack 到底生效没」全靠这一行
+                        val ack = PrivateMsgApi.updateAck(uid, 1, maxSeqno)
+                        if (ack.optInt("code", -1) != 0) {
+                            Log.w("PrivateMsgActivity", "自动已读返回 " + ack)
+                        }
                     } catch (e: Exception) {
                         Log.e("PrivateMsgActivity", "自动已读失败", e)
                     }
+                } else if (!isSystemSession && maxSeqno <= 0) {
+                    Log.w("PrivateMsgActivity", "缺 max_seqno，跳过自动已读")
                 }
 
                 runOnUiThread {

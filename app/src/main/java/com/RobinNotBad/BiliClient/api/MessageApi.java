@@ -7,6 +7,7 @@ import com.RobinNotBad.BiliClient.model.MessageCard;
 import com.RobinNotBad.BiliClient.model.Reply;
 import com.RobinNotBad.BiliClient.model.UserInfo;
 import com.RobinNotBad.BiliClient.model.VideoCard;
+import com.RobinNotBad.BiliClient.util.Logu;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
 import com.RobinNotBad.BiliClient.util.OptionalFeatures;
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
@@ -121,22 +122,34 @@ public class MessageApi {
         return sumUnread(getUnreadData());
     }
 
+    /**
+     * 私信未读的真值：只认 {@code follow_unread} + {@code unfollow_unread}。
+     *
+     * <p>26.11.23：{@code single_unread} 里其余六个桶（unfollow_push_msg / dustbin_push_msg /
+     * dustbin_unread / biz_msg_unfollow_unread / biz_msg_follow_unread / custom_unread）在会话
+     * 列表里**没有对应的未读会话行**，把它们也加进角标，就得到一个点不掉的数——用户反馈
+     * 「一直有消息消除不掉」（#281）。
+     *
+     * <p>26.11.20 为了让系统会话有入口而放开过滤，方向是对的，代价是角标虚高；这里的取舍是
+     * **入口要有，角标不能虚高**：系统会话照常显示，它的通知未读改由 sys-msg 的置读消掉。
+     *
+     * <p>纯函数，见 MessageApiTest。
+     */
+    public static int parsePrivateUnread(JSONObject data) {
+        if (data == null) return 0;
+        return data.optInt("follow_unread", 0) + data.optInt("unfollow_unread", 0);
+    }
+
     public static int checkPrivateMsgUnread() throws IOException, JSONException {
         String url = "https://api.vc.bilibili.com/session_svr/v1/session_svr/single_unread";
         JSONObject all = NetWorkUtil.getJson(url);
-        int total = 0;
         if (all.has("data") && !all.isNull("data")) {
             JSONObject data = all.getJSONObject("data");
-            total += data.optInt("unfollow_unread", 0);
-            total += data.optInt("follow_unread", 0);
-            total += data.optInt("unfollow_push_msg", 0);
-            total += data.optInt("dustbin_push_msg", 0);
-            total += data.optInt("dustbin_unread", 0);
-            total += data.optInt("biz_msg_unfollow_unread", 0);
-            total += data.optInt("biz_msg_follow_unread", 0);
-            total += data.optInt("custom_unread", 0);
+            // 其余六个桶不参与角标，但留着日志：下次再有人报「数不对」能直接对上号
+            Logu.d("MessageApi", "single_unread 全量: " + data);
+            return parsePrivateUnread(data);
         }
-        return total;
+        return 0;
     }
 
     public static int checkGroupMsgUnread() throws IOException, JSONException {
@@ -458,33 +471,118 @@ public class MessageApi {
         }
     }
 
+    private static final String SYSTEM_FEED = "https://message.bilibili.com/x/sys-msg/";
+
+    /**
+     * 系统通知列表。
+     *
+     * <p>26.11.23：{@code page_size} 从 35 改成 20。web 系统通知接口对 {@code page_size=35}
+     * 直接回业务码 -6，于是 data 为空、整页空白——这是原来「系统消息页什么都没有」的根因。
+     */
     public static ArrayList<MessageCard> getSystemMsg() throws IOException, JSONException {
-        String url = "https://message.bilibili.com/x/sys-msg/query_user_notify?csrf="
-                + NetWorkUtil.getInfoFromCookie("bili_jct",
-                SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""))
-                + "&page_size=35&build=0&mobi_app=web";
-        JSONObject all = NetWorkUtil.getJson(url);
-        if (all.has("data") && !all.isNull("data")) {
-            JSONObject data = all.getJSONObject("data");
-            ArrayList<MessageCard> totalArray = new ArrayList<>();
-            if (data.has("system_notify_list") && !data.isNull("system_notify_list")) {
-                for (int i = 0; i < data.getJSONArray("system_notify_list").length(); i++) {
-                    JSONObject object = data.getJSONArray("system_notify_list").getJSONObject(i);
-                    MessageCard replyInfo = new MessageCard();
+        ArrayList<MessageCard> totalArray = new ArrayList<>();
+        for (JSONObject object : parseSystemNotices(fetchSystemNotices("query_user_notify?page_size=20"))) {
+            MessageCard replyInfo = new MessageCard();
 
-                    replyInfo.user = new ArrayList<>();
+            replyInfo.user = new ArrayList<>();
 
-                    replyInfo.id = object.getLong("id");
-                    replyInfo.timeDesc = object.getString("time_at");
-                    replyInfo.content = object.getString("title") + "\n" + object.getString("content");
+            replyInfo.id = object.optLong("id", 0);
+            replyInfo.cursor = number(object, "cursor");
+            replyInfo.timeDesc = object.optString("time_at", "");
+            replyInfo.content = object.optString("title", "") + "\n" + object.optString("content", "");
 
-                    totalArray.add(replyInfo);
-                }
+            totalArray.add(replyInfo);
+        }
+        return totalArray;
+    }
+
+    /**
+     * 系统通知接口（message.bilibili.com）的请求头：在通用 web 头基础上，把 Origin / Referer
+     * 换成本域的。update_cursor 这类写接口会校验来源，拿主站 Origin 去调有可能被拒
+     * （26.11.23，同隔壁的做法）。
+     */
+    private static ArrayList<String> sysNoticeHeaders() {
+        ArrayList<String> headers = new ArrayList<>(NetWorkUtil.webHeaders);
+        for (int i = 0; i + 1 < headers.size(); i += 2) {
+            if ("Origin".equalsIgnoreCase(headers.get(i))) {
+                headers.set(i + 1, "https://message.bilibili.com");
+            } else if ("Referer".equalsIgnoreCase(headers.get(i))) {
+                headers.set(i + 1, "https://message.bilibili.com/");
             }
+        }
+        return headers;
+    }
 
-            return totalArray;
-        } else
-            return new ArrayList<>();
+    /** 拉一段系统通知。失败由调用方处理：这里是同步阻塞的，抛出去比吞掉更好排查。 */
+    private static JSONObject fetchSystemNotices(String path) throws IOException, JSONException {
+        return NetWorkUtil.getJson(SYSTEM_FEED + path + "&build=0&mobi_app=web", sysNoticeHeaders());
+    }
+
+    /** 从系统通知响应里取 {@code data.system_notify_list}（纯解析，见 MessageApiTest）。 */
+    public static ArrayList<JSONObject> parseSystemNotices(JSONObject response) {
+        ArrayList<JSONObject> items = new ArrayList<>();
+        if (response == null) return items;
+        JSONObject data = response.optJSONObject("data");
+        if (data == null) return items;
+        JSONArray list = data.optJSONArray("system_notify_list");
+        if (list == null) return items;
+        for (int i = 0; i < list.length(); i++) {
+            JSONObject item = list.optJSONObject(i);
+            if (item != null) items.add(item);
+        }
+        return items;
+    }
+
+    /**
+     * 一批系统通知里最大的已读游标（纯函数，见 MessageApiTest）。
+     *
+     * <p>cursor 在响应里是字符串型（"1700000000000000"），用 {@code optString} 再 parse，
+     * 直接用 {@code optLong} 拿到的是 0。
+     */
+    public static long maxCursorOf(List<JSONObject> notices) {
+        long max = 0;
+        if (notices == null) return 0;
+        for (JSONObject item : notices) {
+            long cursor = number(item, "cursor");
+            if (cursor > max) max = cursor;
+        }
+        return max;
+    }
+
+    /**
+     * 把系统通知标为已读：两段通知各拉一次取最大 cursor，再发 update_cursor。
+     *
+     * <p>为什么是两段：{@code query_user_notify} 只装一部分，另一部分在
+     * {@code query_unified_notify} 里；后者不渲染到列表，只用来算游标（隔壁同款做法）。
+     *
+     * @return 接口返回码，0 表示成功；没有可读条目时也回 0（无事可做不算失败）
+     */
+    public static int acknowledgeSystem() throws IOException, JSONException {
+        long cursor = 0;
+        for (String path : new String[]{"query_user_notify?page_size=20", "query_unified_notify?page_size=10"}) {
+            JSONObject response = fetchSystemNotices(path);
+            int code = response.optInt("code", -1);
+            if (code != 0) {
+                Logu.w("MessageApi", "系统通知请求失败: " + path + " code=" + code);
+                continue;
+            }
+            cursor = Math.max(cursor, maxCursorOf(parseSystemNotices(response)));
+        }
+        if (cursor <= 0) return 0;
+        JSONObject result = NetWorkUtil.getJson(
+                SYSTEM_FEED + "update_cursor?cursor=" + cursor + "&has_up=0&build=0&mobi_app=web",
+                sysNoticeHeaders());
+        return result.optInt("code", -1);
+    }
+
+    /** 响应里的数字字段可能给字符串，parse 不出来按 0 算。 */
+    private static long number(JSONObject data, String key) {
+        if (data == null) return 0;
+        try {
+            return Long.parseLong(data.optString(key, "0"));
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
     }
 
     public static JSONObject getMsgSettings() throws IOException, JSONException {

@@ -239,6 +239,15 @@ public class PrivateMsgApi {
         return sessionList;
     }
 
+    /** 接口里的长整型字段常常给字符串，parse 不出来按 0 算（26.11.23）。 */
+    private static long parseLongOrZero(String raw) {
+        try {
+            return Long.parseLong(raw);
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
     /**
      * 解析单条会话（纯解析，便于 JVM 单测）。
      *
@@ -270,6 +279,8 @@ public class PrivateMsgApi {
         session.topTs = sessionJson.optLong("top_ts", 0);
         // 微秒级的会话时间戳，翻页时当 end_ts 游标用（#166）
         session.sessionTs = sessionJson.optLong("session_ts", 0);
+        // 已读游标（26.11.23）：注意是字符串型，optLong 直接取会拿到 0
+        session.maxSeqno = parseLongOrZero(sessionJson.optString("max_seqno", "0"));
         return session;
     }
 

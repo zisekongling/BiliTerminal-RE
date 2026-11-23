@@ -21,6 +21,13 @@ public class PrivateMsgSession {
     public long sessionTs = 0;
 
     /**
+     * 会话里已读到哪一条（max_seqno）。
+     * 26.11.23：update_ack 的 ack_seqno 要的就是它；原来没解析，ack 只能传 0，
+     * 服务端不认，会话未读永远消不掉（#281）。
+     */
+    public long maxSeqno = 0;
+
+    /**
      * 未读的"通知"类消息数（会话里的 biz_msg_unread_count）。
      *
      * <p>系统会话（UP主小助手 / 系统通知 / 客服…）的未读主要记在这个字段里，

@@ -332,6 +332,21 @@ class PrivateMsgApiTest {
         assertEquals(false, PrivateMsgApi.parseSessionsHasMore(JSONObject("""{"data":{}}""")))
     }
 
+    /** max_seqno 是字符串型，update_ack 要拿它当 ack_seqno（#281）。 */
+    @Test
+    fun parseSession_解析字符串max_seqno() {
+        val session = PrivateMsgApi.parseSession(
+            JSONObject("""{"talker_id":1001,"max_seqno":"1700000000123456"}""")
+        )
+        assertEquals(1700000000123456L, session.maxSeqno)
+    }
+
+    @Test
+    fun parseSession_缺max_seqno按0() {
+        assertEquals(0L, PrivateMsgApi.parseSession(JSONObject("""{"talker_id":1001}""")).maxSeqno)
+        assertEquals(0L, PrivateMsgApi.parseSession(JSONObject("""{"talker_id":1001,"max_seqno":""}""")).maxSeqno)
+    }
+
     @Test
     fun buildSessionsUrl_第一页不带end_ts_后续页带上游标() {
         val first = PrivateMsgApi.buildSessionsUrl(20, 0)

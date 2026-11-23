@@ -264,6 +264,9 @@ class MessageActivity : InstanceActivity() {
     private fun openSession(session: PrivateMsgSession) {
         val intent = Intent(this, PrivateMsgActivity::class.java)
         intent.putExtra("uid", session.talkerUid)
+        // 已读到哪一条（26.11.23）：会话页拿它当 update_ack 的 ack_seqno。
+        // 之前这里什么也没传，会话页只能 ack 0，服务端不认，未读永远消不掉（#281）。
+        intent.putExtra(PrivateMsgActivity.EXTRA_MAX_SEQNO, session.maxSeqno)
         // 系统会话没有真实 mid，标题只能用会话自带的账号名（26.11.20）
         if (session.isSystem()) {
             intent.putExtra(PrivateMsgActivity.EXTRA_SYSTEM_NAME, session.accountName)
