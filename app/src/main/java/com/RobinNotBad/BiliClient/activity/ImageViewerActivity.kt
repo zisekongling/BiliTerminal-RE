@@ -26,6 +26,7 @@ import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import com.RobinNotBad.BiliClient.util.view.CornerLabelInsets
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.request.FutureTarget
@@ -33,6 +34,7 @@ import com.bumptech.glide.request.target.Target
 import com.github.chrisbanes.photoview.PhotoView
 import java.io.File
 import kotlin.math.abs
+import kotlin.math.min
 
 /**
  * 双击缩放的档位策略（纯逻辑，JVM 单测见 `ImageViewerZoomPolicyTest`）。
@@ -209,17 +211,17 @@ class ImageViewerActivity : BaseActivity() {
      */
     private var downloadLaunched = false
 
-    /** 顶栏标题：方屏显示「图片查看」，圆屏适配时改成页数（见 [applyRoundLayout]）。 */
+    /** 顶栏标题：恒为「图片查看」（26.11.23 起不再被页数顶替，见 [applyRoundLayout]）。 */
     private lateinit var titleView: TextView
 
-    /** 右下角的页数标签：方屏用它，圆屏时隐藏（页数改到 [titleView]）。 */
+    /** 左下角的页数标签：方屏与圆屏都由它显示页数。 */
     private lateinit var pageCountView: TextView
 
     /** 当前是否按圆屏排版（= 设置里的圆屏适配开关），每次 onStart 重算。 */
     private var roundLayout = false
 
-    /** 下载键的原始左边距（px）：圆屏把它居中后，切回方屏要用它还原。 */
-    private var downloadStartMarginPx = 0
+    /** 角标的基准外边距（px，布局里给的 8dp）：圆屏按它叠出内接正方形那一圈，切回方屏用它还原。 */
+    private var baseCornerMarginPx = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -245,8 +247,8 @@ class ImageViewerActivity : BaseActivity() {
         // 就是「看一眼 → 想存下来」，这个确认既不防误触（按钮在角落、下载也不是破坏性操作），
         // 又把唯一入口挡住了，所以改成单击直接开始下载（失败提示由 DownloadActivity 负责）。
         val download = findViewById<ImageButton>(R.id.btn_download)
-        // 记下布局里的原始左边距：圆屏适配把按钮挪到正中后，切回方屏要按这个值还原
-        downloadStartMarginPx = (download.layoutParams as RelativeLayout.LayoutParams).leftMargin
+        // 记下布局里的基准边距：圆屏适配按它算内接正方形那一圈，切回方屏要按这个值还原
+        baseCornerMarginPx = (download.layoutParams as RelativeLayout.LayoutParams).marginEnd
         download.setOnClickListener {
             if (downloadLaunched) return@setOnClickListener
             val position = viewPager.currentItem
@@ -329,40 +331,66 @@ class ImageViewerActivity : BaseActivity() {
     }
 
     /**
-     * 圆屏适配下的排版（未开启时保持原样）。
+     * 屏形相关的排版（未开启圆屏适配时保持布局原样）。
      *
-     * - 下载键：从「左下角」挪到「底部正中」。圆屏的可见区中间最宽，居中最不容易被圆弧切到。
-     * - 页数：从「右下角」挪到顶栏标题的位置，顶替「图片查看」那行文字，时钟仍在它上方居中；
-     *   右下角那个标签同时隐藏，免得同一份页数出现两次。
+     * 26.11.23（反馈 #280）之前的做法是：圆屏时把页数挪进顶栏标题、顶掉「图片查看」那行字，
+     * 下载键挪到屏幕底部正中。用户实际反馈的是「上面的返回键改为图片查看」——他要的是顶部
+     * 那行文字就是页面名字，页数留在底下；而且底部正中的按钮会压在图片主体上。所以现在改成：
      *
-     * 顶栏整条仍然是点击退出（[BaseActivity.setTopbarExit] 挂的是 `R.id.top`，与标题文字无关），
-     * 返回键退出也不受影响——只是标题文字从「图片查看」换成了页数。
+     * - 标题恒为「图片查看」，页数恒在左下角标里，两者都不随屏形变文字；
+     * - 圆屏只处理「角标会被圆弧切掉」这一个问题：按内接正方形把页数与下载键一起往里收
+     *   （见 [applyCornerMargins] 与 [CornerLabelInsets]），方屏仍是布局里给的 8dp。
+     *
+     * 顶栏整条仍然是点击退出（[BaseActivity.setTopbarExit] 挂的是 `R.id.top`），返回键退出也不受影响。
      */
     private fun applyRoundLayout() {
         // onCreate 里缺参数提前 return 时，这个方法仍可能被 onStart 调到
         if (!::titleView.isInitialized || !::imageList.isInitialized) return
         roundLayout = SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROUND, false)
-        pageCountView.visibility = if (roundLayout) View.GONE else View.VISIBLE
-        titleView.text = if (roundLayout) pageLabel(viewPager.currentItem)
-        else getString(R.string.pagename_image_viewer)
-        pageCountView.text = pageLabel(viewPager.currentItem)
+        titleView.text = getString(R.string.pagename_image_viewer)
+        pageCountView.visibility = View.VISIBLE
+        updatePageLabel(viewPager.currentItem)
 
         val download = findViewById<ImageButton>(R.id.btn_download)
-        val lp = download.layoutParams as? RelativeLayout.LayoutParams ?: return
-        if (roundLayout) {
-            lp.removeRule(RelativeLayout.ALIGN_PARENT_START)
-            lp.removeRule(RelativeLayout.ALIGN_PARENT_LEFT)
-            lp.addRule(RelativeLayout.CENTER_HORIZONTAL)
-            lp.marginStart = 0
-            lp.leftMargin = 0
-        } else {
-            lp.removeRule(RelativeLayout.CENTER_HORIZONTAL)
-            lp.addRule(RelativeLayout.ALIGN_PARENT_START)
-            lp.addRule(RelativeLayout.ALIGN_PARENT_LEFT)
-            lp.marginStart = downloadStartMarginPx
-            lp.leftMargin = downloadStartMarginPx
+        // 直径要等布局量完才有（onStart 里 width 还是 0），所以推一帧再排
+        download.post {
+            if (!isFinishing && !isDestroyed) applyCornerMargins()
         }
-        download.layoutParams = lp
+    }
+
+    /**
+     * 把底部两枚角标（页数在左、下载在右）按屏形重排。
+     *
+     * 方屏照布局里的 8dp；圆屏叠上内接正方形那一圈——圆形表盘的左右下角是切掉的，只留 8dp 时
+     * 角标的外角落在圆外，会被表盘圆弧压掉一截甚至点不到。顺带把两枚角标的底边一起抬高，
+     * 免得只内缩不抬、横着挤到画面中央。
+     */
+    private fun applyCornerMargins() {
+        val download = findViewById<ImageButton>(R.id.btn_download)
+        val margins = CornerLabelInsets.marginsPx(screenDiameterPx(), baseCornerMarginPx, roundLayout)
+        val horizontal = margins[0]
+        val bottom = margins[1]
+
+        val downloadParams = download.layoutParams as RelativeLayout.LayoutParams
+        downloadParams.marginEnd = horizontal
+        downloadParams.rightMargin = horizontal
+        downloadParams.bottomMargin = bottom
+        download.layoutParams = downloadParams
+
+        val pageParams = pageCountView.layoutParams as RelativeLayout.LayoutParams
+        pageParams.marginStart = horizontal
+        pageParams.leftMargin = horizontal
+        pageParams.bottomMargin = bottom
+        pageCountView.layoutParams = pageParams
+    }
+
+    /** 表盘直径（px）：取窗口量出来的宽高最小值；量不出来时退回屏幕分辨率。 */
+    private fun screenDiameterPx(): Int {
+        val decor = window.decorView
+        val width = if (decor.width > 0) decor.width else resources.displayMetrics.widthPixels
+        val height = if (decor.height > 0) decor.height else resources.displayMetrics.heightPixels
+        if (width <= 0 || height <= 0) return 0
+        return min(width, height)
     }
 
     /** 「第 x/N 张」文案；越界的位置按第一张兜底，避免出现「第 0/N 张」。 */
@@ -371,10 +399,9 @@ class ImageViewerActivity : BaseActivity() {
         return getString(R.string.text_image_viewer_page_count, index + 1, imageList.size)
     }
 
-    /** 翻页时更新页数：圆屏写到顶栏标题，方屏写到右下角标签。 */
+    /** 翻页时更新页数角标（标题固定是「图片查看」，不随翻页变）。 */
     private fun updatePageLabel(position: Int) {
-        if (roundLayout) titleView.text = pageLabel(position)
-        else pageCountView.text = pageLabel(position)
+        pageCountView.text = pageLabel(position)
     }
 
     override fun onResume() {

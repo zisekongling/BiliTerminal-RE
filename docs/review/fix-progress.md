@@ -18,6 +18,15 @@
 
 ## 1. 当前版本状态
 
+- **26.11.23 #280 看图页把页数挪回左下、下载挪到右下，顶栏恢复「图片查看」**：
+  - **来路**：控制台反馈 #280（HUAWEI HWMDS / 26.11.22）「上面的返回键改为图片查看」。26.11.17 的 `b2590a03` 为圆屏适配做了两件事：下载键从左下挪到屏幕底部正中、圆屏时把页数写进顶栏标题顶掉「图片查看」，于是顶部那行字变成了「第 2/9 张」，用户以为页面名字丢了；底部正中还压住图片主体。
+  - **改法**：
+    - `res/layout/activity_image_viewer.xml` 两枚角标互换——`btn_download` 改 `alignParentEnd` + 8dp 右边距（右下），`text_page` 改 `alignParentStart` + 8dp 左边距（左下），并加注释写明这是 #280 定下的位置，别再换回去。
+    - `activity/ImageViewerActivity.kt` 的 `applyRoundLayout()` 只保留「按屏形排角标」一件事：标题恒 `R.string.pagename_image_viewer`、页数恒显示、删掉「圆屏把页数顶进标题」和「下载键居中」两条分支；直径要等布局量完，所以推一帧到 `applyCornerMargins()` 再算。`updatePageLabel()` 只剩写页数角标一处。
+    - 新增纯算术 `util/view/CornerLabelInsets.kt`：方屏原样返回基准边距；圆屏在基准值上叠 `RoundInsets.inscribedInsetPx(直径)`，横向与纵向同值——圆形表盘的左右下角是切掉的，只留 8dp 时角标外角落在圆外会被压掉一截甚至点不到，而内接正方形那一圈（0.1464×直径）正好保证外角落在圆内；表盘越大收得越多。原 `downloadStartMarginPx` 随之更名 `baseCornerMarginPx`。
+  - **验证**：L0（隔离副本）`assembleDebug` 双 flavor 通过；`testStandardDebugUnitTest` 3052 例、1 处失败与本轮无关（`ConventionGuardTest` 需要 `.git`，隔离副本没有）；新增 `util/view/CornerLabelInsetsTest` 5 例（方屏原样、圆屏叠内接圈 380→77 与 320→68、横竖同值且随直径单调、直径量不出时退回方屏、负基准当零）。
+  - **未做**：①下载键热区没放大（现状 wrap_content ≈28dp，报告建议补到 40dp，会明显改变视觉体积，等 L2 看过再说）；②收款码仍走站外 gitee 直链，没改内置 assets（图源取不到，见 #282）。
+  - **未验证（L2，需人工看画面）**：方屏下页数在左下、下载在右下、顶栏是「图片查看」；圆屏下两枚角标都被圆弧兜住、不压图片主体；翻页后页数跟着变。
 - **26.11.23 #265 缓存页多选操作栏被压成两行**：
   - **来路**：控制台反馈 #265「缓存页选中多个后，上面那一栏文字被挤成两行」。改造前 `res/layout/activity_simple_main_refresh.xml` 的 multiSelectBar 里，计数 `textSelectedCount` 是 0dp + weight=1 但没有任何行数约束，右侧三个 13sp 按钮占掉固定宽度，42mm 屏上计数被压折行，整条栏高度翻倍、按钮跟着错位。
   - **改法**：计数加 `maxLines=1` + `ellipsize=end`，并用 AppCompat 自动缩字号（`autoSizeTextType="uniform"`，13sp→9sp 步进 1sp），长文案在小屏自动收字号而不是折行；四个按钮 `btnMultiSelect` / `btnMultiSelectAll` / `btnMultiOperate` / `btnMultiExit` 各补 `maxLines=1` + `ellipsize=end` 兜底（按钮文案本身短，主要是防止主题换成大字或英文时被压成两行）。
