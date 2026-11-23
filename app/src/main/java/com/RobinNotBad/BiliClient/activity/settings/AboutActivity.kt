@@ -217,6 +217,9 @@ class AboutActivity : BaseActivity() {
                 }
             }
 
+            // 反馈 #271②：这段说明里有版本号与群号，用户要能长按复制（跟随「长按复制」开关）。
+            StringUtil.setCopy(findViewById(R.id.about_say_text))
+
             val scrollView = findViewById<View>(R.id.scrollView)
             scrollView.isFocusable = true
             scrollView.isFocusableInTouchMode = true
