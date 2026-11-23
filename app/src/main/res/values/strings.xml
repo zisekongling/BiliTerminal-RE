@@ -3178,7 +3178,8 @@
     <string name="setting_player_default_speed">倍速</string>
     <string name="desc_setting_player_default_speed">开播时的播放速度；「沿用上次」= 上次用过的倍速</string>
     <string name="setting_player_default_subtitle">字幕</string>
-    <string name="desc_setting_player_default_subtitle">中文 = 开播自动选中文字幕（优先人工，其次 AI）；自行选择 = 是否弹出选择框由下方「自动弹出字幕选择」决定</string>
+    <string name="desc_setting_player_default_subtitle">关闭 = 开播不加载字幕也不弹框（仍可点播放器里的字幕按钮手动开）；中文 = 开播自动选中文字幕（优先人工，其次 AI）；自行选择 = 是否弹出选择框由下方「自动弹出字幕选择」决定</string>
+    <string name="setting_player_option_subtitle_off">关闭</string>
     <string name="setting_player_option_subtitle_zh">中文</string>
     <string name="setting_player_option_subtitle_manual">自行选择</string>
     <string name="setting_player_default_orientation">屏幕方向</string>

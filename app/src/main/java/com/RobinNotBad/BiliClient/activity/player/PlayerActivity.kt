@@ -4084,10 +4084,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     /**
      * 「播放默认值 → 字幕」的入口：决定开播时怎么处理字幕。
      *
+     * - 关闭：不加载字幕、不弹框，按钮摆成已关闭（反馈 #268）；
      * - 中文：自动选中文字幕（优先人工，其次 AI），**不弹**选择框；
      * - 自行选择：沿用既有「自动弹出字幕选择」开关（开才弹选择框）。
      *
-     * 三个调用点原本都跑在 `CenterThreadPool` 后台线程里，这里不做线程切换。
+     * 三个调用点原本都跑在 `CenterThreadPool` 后台线程里，这里不做线程切换
+     * （视图那一小段由 [applySubtitleOff] 自己切 UI 线程）。
      */
     private fun maybeAutoSubtitle() {
         // 用户在这一P里已经选了「不显示字幕」：换画质/换线路会再走一遍这里，不能再自动打开（反馈 #202）
@@ -4095,10 +4097,35 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         val mode = SharedPreferencesUtil.getString(
             SettingsKeys.PLAYER_DEFAULT_SUBTITLE, SettingsKeys.PLAYER_DEFAULT_SUBTITLE_MANUAL
         )
-        if (mode == SettingsKeys.PLAYER_DEFAULT_SUBTITLE_ZH) {
-            downSubtitle(false, autoChinese = true)
-        } else if (SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SUBTITLE_AUTOSHOW, true)) {
-            downSubtitle(false)
+        val autoshow = SharedPreferencesUtil.getBoolean(SettingsKeys.PLAYER_SUBTITLE_AUTOSHOW, true)
+        when (PlayerDefaults.subtitleStartAction(mode, autoshow)) {
+            PlayerDefaults.SubtitleStartAction.OFF -> applySubtitleOff()
+            PlayerDefaults.SubtitleStartAction.CHINESE -> downSubtitle(false, autoChinese = true)
+            PlayerDefaults.SubtitleStartAction.PICK -> downSubtitle(false)
+            PlayerDefaults.SubtitleStartAction.NONE -> Unit
+        }
+    }
+
+    /**
+     * 「这一P不显示字幕」的落地动作：清数据、抹掉屏幕上那行、记住是用户自己关的、作废在途请求。
+     *
+     * 字幕列表点「不显示字幕」与「播放默认值 → 字幕 = 关闭」共用这一处。
+     * 视图操作切到 UI 线程——[maybeAutoSubtitle] 的调用点在后台线程。
+     */
+    private fun applySubtitleOff() {
+        // 「不显示字幕」：除了清数据，还要把已经在屏幕上的那行立刻抹掉。
+        // 250ms 定时器只在播放进度变化时才跑（暂停时 video_now 不变），
+        // 所以以前暂停着选「不显示」会一直挂着最后一句字幕（反馈 #202）
+        subtitles = null
+        subtitle_count = 0
+        subtitle_shown_index = -1
+        // 记住「用户自己关的」，换画质/换线路不要再自动开回来；
+        // 同时作废还在路上的字幕请求，避免它回来把字幕塞回去
+        subtitleUserOff = true
+        subtitleLoadToken.incrementAndGet()
+        runOnUiThread {
+            text_subtitle.visibility = View.GONE
+            btn_subtitle.setImageResource(R.mipmap.subtitle_off)
         }
     }
 
@@ -4166,18 +4193,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                         subtitle_selected = index
 
                         if (links[index].id == -1L) {
-                            // 「不显示字幕」：除了清数据，还要把已经在屏幕上的那行立刻抹掉。
-                            // 250ms 定时器只在播放进度变化时才跑（暂停时 video_now 不变），
-                            // 所以以前暂停着选「不显示」会一直挂着最后一句字幕（反馈 #202）
-                            subtitles = null
-                            subtitle_count = 0
-                            subtitle_shown_index = -1
-                            text_subtitle.visibility = View.GONE
-                            // 记住「用户自己关的」，换画质/换线路不要再自动开回来；
-                            // 同时作废还在路上的字幕请求，避免它回来把字幕塞回去
-                            subtitleUserOff = true
-                            subtitleLoadToken.incrementAndGet()
-                            btn_subtitle.setImageResource(R.mipmap.subtitle_off)
+                            applySubtitleOff()
                         } else {
                             subtitleUserOff = false
                             CenterThreadPool.run { getSubtitle(links[index].url) }

@@ -18,6 +18,28 @@
 
 ## 1. 当前版本状态
 
+- **26.11.23 #268 播放默认值新增「关闭」字幕档位**：
+  - **来路**：控制台反馈 #268（XTC monaco_go）要求「直接关闭字幕」。改造前只有「中文 / 自行选择」两档，默认「自行选择」+「自动弹出字幕选择」默认开 → 每部视频都弹一次字幕卡；想真关掉要点三步（字幕按钮 → 弹列表 → 选「不显示字幕」），而且 `subtitleUserOff` 只在内存里，切 P / 换源就复位，下一部照旧弹。
+  - **改法**：
+    - `util/SettingsKeys.kt` 新增 `PLAYER_DEFAULT_SUBTITLE_OFF = "off"`；`player/PlayerSettingsGroups.kt` 的字幕项加第三项（顺序沿用老的「中文 / 自行选择」，新项排末尾，老用户的位置记忆不变），默认值仍是 `MANUAL`，升级后行为不变。
+    - `player/PlayerDefaults.kt` 新增纯解析 `subtitleStartAction(mode, autoshow)` → `SubtitleStartAction.OFF / CHINESE / PICK / NONE`：`OFF` 是硬关（自动弹框开着也不弹），未知/脏模式值按「自行选择」处理，不锁死成关。
+    - `activity/player/PlayerActivity.kt` 把原来嵌在字幕列表点击回调里的「不显示字幕」那段抽成 `applySubtitleOff()`（清 `subtitles` / `subtitle_count` / `subtitle_shown_index`、置 `subtitleUserOff`、`subtitleLoadToken.incrementAndGet()` 作废在途请求、按钮换 `subtitle_off` 图标；视图那两行切 UI 线程——`maybeAutoSubtitle` 的三个调用点都在后台线程），列表点击与 `maybeAutoSubtitle` 的 `OFF` 分支共用。
+    - `strings.xml` 新增 `setting_player_option_subtitle_off`（「关闭」）并改写 `desc_setting_player_default_subtitle`（点明「关闭 = 开播不加载字幕也不弹框，仍可点字幕按钮手动开」）。
+  - **验证**：L0（隔离副本 `%TEMP%\rebili-iso-222`）`assembleDebug` 双 flavor 通过；`testStandardDebugUnitTest` 3047 例、1 处失败与本轮无关（`ConventionGuardTest` 需要 `.git`，隔离副本没有）；`PlayerDefaultsTest` 新增 4 例（OFF 不看自动弹框、中文两态都自动选、自行选择跟自动弹框、脏值按自行选择）通过。
+  - **未做**：`subtitleUserOff` 仍未持久化（报告曾建议存成 `PLAYER_LAST_SUBTITLE_OFF`）——那会让「临时关一次」变成永久关，属于用户可见语义变更，等确认再动；「关闭」档位本身已经覆盖了这个诉求。
+  - **未验证（L1，本机无设备）**：设置里把「字幕」选成「关闭」→ 进任意有字幕的视频，应不弹字幕卡、字幕按钮显示「已关」，点按钮仍能手动拉列表；选回「中文」应恢复自动选中文字幕。
+- **26.11.23 #271 关于页文案改对 + 说明文字可复制**：
+  - **来路**：控制台反馈 #271（hesc / 26.11.18-beta.6 / sdk28）三项：赞助页图片下载、安卓版本文案标错、说明文字无法复制。第三项里「赞赏收款码其实能下载」（`ImageViewerActivity` 单击下载键可用），用户大概率是圆屏上按钮被挪到正中没找到；「赞助列表头像保存」入口整页在 26.11.06 按用户要求隐藏，暂不动。
+  - **改法**：`strings.xml` 的 `about_say` 把「最低兼容安卓7.0」改为「最低兼容安卓5.0（API 21）」（真实值见 `app/build.gradle` 的 `minSdk 21`；历史更新日志里的 4.4 是当时值，不改）；`res/layout/activity_setting_about.xml` 的说明 TextView 补 `@+id/about_say_text`；`activity/settings/AboutActivity.kt` 用既有的 `util/StringUtil.setCopy(TextView)` 接上「长按复制」开关。
+  - **验证**：L0 同一次构建通过（`assembleDebug` + `testStandardDebugUnitTest`，失败仅为 `ConventionGuardTest` 的环境问题）。
+  - **未做**：赞助列表头像的保存入口（要先把那页从 `gone` 放回来，得先确认 26.11.06 隐藏的理由是否还在）。
+  - **未验证（L2，需人工看画面）**：关于页长按说明文字能选中复制；文案显示「安卓5.0（API 21）」。
+- **26.11.23 #267 私信气泡显示时间**：
+  - **来路**：控制台反馈 #267（hesc / 26.11.18-beta.6 / sdk28）「私信里看不到时间」。改造前 `PrivateMessage.timestamp`（单位**秒**）在界面上完全没用到，`cell_private_msg.xml` 也没有时间控件。
+  - **改法**：`util/TimeUtil.kt` 新增 `formatChatTime(millis, nowMillis)`——当天只给「HH:mm」，同年不同天给「MM-dd HH:mm」，跨年带年份，非正值返回空串（用 `Calendar` 判断，不依赖 API 26+ 的 `java.time`）；`cell_private_msg.xml` 把昵称包进水平容器，右侧加 9sp 的 `@+id/msg_time`（默认 `gone`）；`adapter/message/PrivateMsgAdapter.kt` 绑定 `TimeUtil.formatChatTime(msg.timestamp * 1000L)`，空串就隐藏（不会显示 1970）。
+  - **验证**：L0（同一次构建）通过；新增 `util/TimeUtilTest` 5 例（当天、同年不同天、跨年、时间戳缺失、秒/毫秒不混淆）。
+  - **未做**：会话列表（`PrivateMsgSessionsAdapter` 复用 `cell_user_list`，全站用户列表共用）没有加时间——那个 cell 是公共布局，动它影响关注/粉丝列表，先不动。
+  - **未验证（L2，需人工看画面）**：私信页每条气泡右侧出现时间；42mm 小屏上昵称被挤时时间是省略号而不是折行。
 - **26.11.23 #279 OPPO 表冠在视频详情页转不动：兼容模式给 `NestedScrollView` 补滚轮兜底**：
   - **来路**：控制台反馈 #279（OPPO OWW251 / 26.11.18-beta.6 / sdk30）两个问题，①全仓没有表冠震动、②视频详情页表冠转不动。本条先修②（①待定，见文末）。
   - **根因**：OPPO 把表冠报成**鼠标滚轮**（`src=0x2002` = `SOURCE_MOUSE`，滚动量在 `AXIS_VSCROLL`）。26.11.23 起 `ui/widget/RotaryEncoderSupport.isCompatMode()` 默认 true（`SettingsKeys.UI_ROTATORY_COMPAT`，且 `maybeAutoEnableCompat` 一踩到滚轮源就自动打开），三条入口把滚轮源**整段交给框架**。列表页（`RecyclerView`）与设置页（平台 `ScrollView`）的 `onGenericMotionEvent` 按来源分轴取量（pointer 源读 `AXIS_VSCROLL`），照旧能滚；而 androidx `NestedScrollView` 的实现只读 `AXIS_SCROLL`——在这类 ROM 上算出来恒为 0，于是「视频详情-简介」整页不动，同一台表设置页却正常。`fragment_video_info.xml` / `fragment_media_info.xml` / `activity_message.xml` / `activity_live_info.xml` 的根容器正是 `RotaryNestedScrollView`，全都在这个坑里。

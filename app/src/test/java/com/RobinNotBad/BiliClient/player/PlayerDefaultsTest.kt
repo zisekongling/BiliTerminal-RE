@@ -149,4 +149,56 @@ class PlayerDefaultsTest {
         assertEquals(-1, PlayerDefaults.pickChineseSubtitleIndex(list))
         assertEquals(-1, PlayerDefaults.pickChineseSubtitleIndex(emptyList()))
     }
+
+    // ==================== 字幕默认值三档（#268） ====================
+
+    @Test
+    fun subtitleStartAction_offMode_ignoresAutoshow() {
+        // 「关闭」是硬关：自动弹框开着也不能弹（反馈 #268）
+        assertEquals(
+            PlayerDefaults.SubtitleStartAction.OFF,
+            PlayerDefaults.subtitleStartAction(SettingsKeys.PLAYER_DEFAULT_SUBTITLE_OFF, autoshow = true)
+        )
+        assertEquals(
+            PlayerDefaults.SubtitleStartAction.OFF,
+            PlayerDefaults.subtitleStartAction(SettingsKeys.PLAYER_DEFAULT_SUBTITLE_OFF, autoshow = false)
+        )
+    }
+
+    @Test
+    fun subtitleStartAction_zhMode_alwaysAutoChinese() {
+        assertEquals(
+            PlayerDefaults.SubtitleStartAction.CHINESE,
+            PlayerDefaults.subtitleStartAction(SettingsKeys.PLAYER_DEFAULT_SUBTITLE_ZH, autoshow = true)
+        )
+        assertEquals(
+            PlayerDefaults.SubtitleStartAction.CHINESE,
+            PlayerDefaults.subtitleStartAction(SettingsKeys.PLAYER_DEFAULT_SUBTITLE_ZH, autoshow = false)
+        )
+    }
+
+    @Test
+    fun subtitleStartAction_manualMode_followsAutoshow() {
+        assertEquals(
+            PlayerDefaults.SubtitleStartAction.PICK,
+            PlayerDefaults.subtitleStartAction(SettingsKeys.PLAYER_DEFAULT_SUBTITLE_MANUAL, autoshow = true)
+        )
+        assertEquals(
+            PlayerDefaults.SubtitleStartAction.NONE,
+            PlayerDefaults.subtitleStartAction(SettingsKeys.PLAYER_DEFAULT_SUBTITLE_MANUAL, autoshow = false)
+        )
+    }
+
+    @Test
+    fun subtitleStartAction_unknownMode_behavesLikeManual() {
+        // 旧包留下的脏值不该锁死成「关闭」，按改造前的「自行选择」处理
+        assertEquals(
+            PlayerDefaults.SubtitleStartAction.PICK,
+            PlayerDefaults.subtitleStartAction("whatever", autoshow = true)
+        )
+        assertEquals(
+            PlayerDefaults.SubtitleStartAction.NONE,
+            PlayerDefaults.subtitleStartAction(null, autoshow = false)
+        )
+    }
 }

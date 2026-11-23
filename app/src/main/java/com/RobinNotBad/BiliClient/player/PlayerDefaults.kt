@@ -23,6 +23,32 @@ object PlayerDefaults {
      */
     data class SubtitleCandidate(val lang: String?, val isAI: Boolean)
 
+    /** 开播时对字幕该做什么（「播放默认值 → 字幕」三档解析结果）。 */
+    enum class SubtitleStartAction {
+        /** 不加载字幕、不弹框，并把按钮状态摆成「已关闭」。 */
+        OFF,
+
+        /** 自动选中文字幕（优先人工，其次 AI），不弹框。 */
+        CHINESE,
+
+        /** 弹出字幕选择框。 */
+        PICK,
+
+        /** 什么都不做（「自行选择」但用户关了「自动弹出字幕选择」）。 */
+        NONE
+    }
+
+    /**
+     * 解析「播放默认值 → 字幕」：交给播放器启动流程决定开播时怎么处理字幕。
+     *
+     * 未知模式值按「自行选择」处理，与改造前的兜底一致；[autoshow] 只在「自行选择」档位起作用。
+     */
+    fun subtitleStartAction(mode: String?, autoshow: Boolean): SubtitleStartAction = when (mode) {
+        SettingsKeys.PLAYER_DEFAULT_SUBTITLE_OFF -> SubtitleStartAction.OFF
+        SettingsKeys.PLAYER_DEFAULT_SUBTITLE_ZH -> SubtitleStartAction.CHINESE
+        else -> if (autoshow) SubtitleStartAction.PICK else SubtitleStartAction.NONE
+    }
+
     /**
      * 三态解析：把「模式 + 上次值」解析成本次播放实际要用的布尔值。
      *
