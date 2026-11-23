@@ -44,6 +44,14 @@
 - **灵动岛不需要额外留白**：`TopbarIsland.applyStyle()` 把 `@id/timeText` **自己**的 `layoutParams.width` 改成胶囊宽度（72dp，小屏按屏宽 31% 封顶），胶囊背景就画在时钟身上——所以「收在 `@id/timeText` 左边」等于「收在胶囊左边」。
 - **守卫单测** `app/src/test/java/com/RobinNotBad/BiliClient/ui/TopbarTitleRoomTest.kt`：每份带 `@id/pageName` 的布局都必须有 `layout_toStartOf` / `layout_toLeftOf`，且被引用的 id 在同一份文件里存在；新页漏写直接红。
 
+## 列表操作条高度与字号（26.11.23 起，写列表页底栏必读）
+
+- **列表类操作条一律用 4 个专用 token，别再写死 `@dimen/touch_min` 与 `13sp`**：`@dimen/action_bar_min_height`（行高）、`@dimen/action_bar_text`（字号）、`@dimen/action_bar_padding_v`（上下内距）、`@dimen/action_bar_item_padding_h`（条目左右内距）。
+- **分档口径**：`values/dimens.xml` 是**窄屏档**（34dp / 11sp / 2dp / 6dp），`values-w200dp/dimens.xml` 恢复 48dp / 13sp / 4dp / 12dp。也就是 **≥200dp 宽的设备（300×300 方屏、圆屏、手机）观感与从前完全一致**，只有比 200dp 还窄的机器（实测那台把窗口压到 360×361px @320dpi，即 180×180.5dp）才走矮档。
+- **`touch_min`（48dp）不要改**：它在 `activity_player.xml` 等约 30 处当点按热区用，改它等于改播放器手感。操作条只是「行高」不是「触控下限」，走上面那 4 个 token。
+- 覆盖范围：`activity_simple_main_refresh.xml` 的 `multiSelectBar`（缓存页 多选/排序/搜索、多选态 已选 N 项/全选/操作/退出）、`activity_simple_refresh.xml` 的 `manageBar`（下载列表/收藏夹管理条）、`groupBar`、`subBar`。新增同族操作条照这套 token 走。
+- 详单见 `docs/review/fix-progress.md` §1 的「26.11.23 低分辨率手表列表操作底栏」条。
+
 ## 外观设置
 
 - 外观设置（配色 / 卡片圆角 / 字体）走 `ui/appearance/` 三模块：**模块只放候选值与纯函数，写入一律走 `AppearanceManager`**（它负责递增外观版本号）；模块里别做几何计算，也别在热路径上缓存。细则见 `docs/architecture-map.md` §8.7。

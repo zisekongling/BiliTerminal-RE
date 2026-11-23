@@ -18,6 +18,18 @@
 
 ## 1. 当前版本状态
 
+- **26.11.23 低分辨率手表（180×180dp）列表操作底栏 48dp→34dp、13sp→11sp**：
+  - **来路**：用户附三张 360×361px 真机截图（缓存页「多选/排序/搜索」、多选提示、「全选/操作/退出」），要求「优化低分辨率手表所有底栏显示的高度和布局」。实测那台机把窗口压到 360×361px @320dpi，即 **180×180.5dp**；底栏按钮是 `minHeight=@dimen/touch_min`(48dp) + 13sp，一条底栏就吃掉 96px（屏高 27%），列表区只剩 211px。拍板口径：只做**列表类操作条**、按屏宽**分档**不动全局观感、深度 **48→34dp / 13→11sp**。
+  - **改法**：
+    - `res/values/dimens.xml` 新增 4 个专用 token，**基础档即窄屏档**：`action_bar_min_height=34dp`、`action_bar_text=11sp`、`action_bar_padding_v=2dp`、`action_bar_item_padding_h=6dp`。
+    - 新建 `res/values-w200dp/dimens.xml`，同 4 个 token 恢复 `48dp / 13sp / 4dp / 12dp`——**≥200dp 宽（300×300 方屏、圆屏、手机）观感与从前一字不差**，只有比 200dp 还窄的机器走矮档。
+    - `layout/activity_simple_main_refresh.xml` 的 `multiSelectBar` 8 个 TextView（缓存页 多选/排序/搜索、多选态 已选 N 项/全选/操作/退出）换 token；「已选 N 项」的 `app:autoSizeMaxTextSize` 也跟 `action_bar_text`（下限仍 9sp）。
+    - `layout/activity_simple_refresh.xml` 的 `manageBar`（下载列表 / 收藏夹管理条）、`groupBar`、`subBar` 换同一批 token——它们是同一族列表操作条，只改 `multiSelectBar` 会出现同页高低不一。**groupBar / subBar 不在用户截图里，属扩围，已在交接单单列备否决。**
+    - **没动 `touch_min`**：它在 `activity_player.xml` 等约 30 处当点按热区，改它等于改播放器手感。
+  - **验证**：L1（emulator-5554，`wm size 360x361` + `wm density 320` 复刻真机）——缓存页 `multiSelectBar` 由 `@0,265 360x96` → **`@0,293 360x68`**（68px = 34dp），列表区 211px → 239px；多选态四格同为 68px，「已选 0 项」从被挤成 36px 宽恢复到 132px；恢复 466×466（233dp，落 `w200dp`）后底栏回到 96px、排序按钮 100px 宽，证明大屏档没被动；滚动收起动画（`LocalListActivity` 用 `measuredHeight` 取高，无写死 dp）仍按新高度整体收起。L0——`:app:assembleDebug`（standard + coexist）与 `:app:testStandardDebugUnitTest` 通过，289 份报告 / 3097 例 / 0 失败 0 错误。
+  - **未做**：`activity_bangumi_cache.xml` 的 `cache_bottom_bar` 与 `download_bottom_bar.xml`（番剧缓存 / 下载进度，是进度条 + 文字另一种底栏，不属「列表操作条」）；播放器底栏；`manageBar` 要用真数据才有条目，只用同一批 token 改、没在设备上量到实际高度。
+  - **未验证（L2，需人工在真表看）**：①180dp 机上 11sp 三字一行是否仍清楚、34dp（≈68px）热区戴手套 / 湿手按得准不准；②`MsgUtil.showMsg` 的多选提示（`点条目勾选，再点「操作」`，`util/MsgUtil.java:195` 固定 13sp、窄屏折两行）仍会盖住底栏上半部分——**原有行为，本轮没动**；③窄屏 `groupBar` / `subBar`（子文件夹页）的实际观感。
+
 - **26.11.23 私信会话去掉 15 秒轮询、补上会话免打扰（对齐 PiliPlus 的消息治理层，批次①）**：
   - **来路**：用户要求对比父目录 PiliPlus 的消息能力并「全量补全，不影响手表性能」。逐页比对后确认主链（四类通知入口 / 会话列表 / 会话详情 / 发送 / 撤回 / 已读回执）与 PiliPlus 同级，差的是会话治理层。批次①先做最伤手表体验的两件：会话详情页那个 15 秒一跳的 `Timer`（切后台还在跑、断网反复重试）与会话免打扰（PiliPlus 长按菜单里有，我们完全没做，`is_dnd` 解析出来就丢）。
   - **改法**：

@@ -217,11 +217,11 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:background="?attr/selectableItemBackground"
                 android:text="@string/uitext_favoritevideolistactivity_009"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:textColor="?android:attr/textColorSecondary" />
 
             <!-- 「全选(n/n)」（26.11.11，反馈 #94）：只有下载列表页会点亮它（其它页面 findViewById
@@ -232,11 +232,11 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:background="?attr/selectableItemBackground"
                 android:text="@string/btn_select_all"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:textColor="?android:attr/textColorSecondary"
                 android:visibility="gone"
                 tools:visibility="visible" />
@@ -247,11 +247,11 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:background="?attr/selectableItemBackground"
                 android:text="@string/settingtext_accountswitchactivity_003"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:textColor="?android:attr/textColorSecondary" />
 
         </LinearLayout>
@@ -273,11 +273,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:background="?attr/selectableItemBackground"
                 android:text="@string/text_activitysimplerefresh_01"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:textColor="?android:attr/textColorSecondary" />
 
         </LinearLayout>
@@ -299,11 +299,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:background="?attr/selectableItemBackground"
                 android:text="@string/text_sub_toggle_subscribe"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:textColor="?android:attr/textColorSecondary" />
 
         </LinearLayout>

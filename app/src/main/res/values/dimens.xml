@@ -33,6 +33,17 @@
          （SegmentedBarStyle.installDrag），不需要每格各自 48dp 才点得准。 -->
     <dimen name="segmented_bar_min">40dp</dimen>
 
+    <!-- 列表操作条（缓存页「多选/排序/搜索」与多选态「全选/操作/退出」、下载列表管理条、
+         关注分组条、订阅条）。基础档按**比手表基准更窄的屏**给：用户真机的窗口只有
+         360×361px @320dpi，即约 180×180dp，48dp 的按钮行会吃掉屏高近 27%、把列表压成
+         一条缝（26.11.23 反馈）。values-w200dp 里恢复 48dp/13sp，
+         所以 200dp 以上的手表与手机观感完全不变。
+         阈值取 200dp：项目既有 values-w300dp 管手机，手表基准按 300×300 设计。 -->
+    <dimen name="action_bar_min_height">34dp</dimen>
+    <dimen name="action_bar_text">11sp</dimen>
+    <dimen name="action_bar_padding_v">2dp</dimen>
+    <dimen name="action_bar_item_padding_h">6dp</dimen>
+
     <!-- 卡片 -->
     <dimen name="card_padding">8dp</dimen>
     <dimen name="card_padding_horizontal">12dp</dimen>

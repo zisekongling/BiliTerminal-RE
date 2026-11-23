@@ -101,12 +101,12 @@
                 android:ellipsize="end"
                 android:gravity="center"
                 android:maxLines="1"
-                android:minHeight="@dimen/touch_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:textColor="?android:attr/textColorPrimary"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:visibility="gone"
-                app:autoSizeMaxTextSize="13sp"
+                app:autoSizeMaxTextSize="@dimen/action_bar_text"
                 app:autoSizeMinTextSize="9sp"
                 app:autoSizeStepGranularity="1sp"
                 app:autoSizeTextType="uniform"
@@ -121,11 +121,11 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:text="@string/uitext_favoritevideolistactivity_009"
                 android:textColor="?android:attr/textColorSecondary"
-                android:textSize="13sp" />
+                android:textSize="@dimen/action_bar_text" />
 
             <!-- 「全选 / 全不选」（26.11.11，反馈 #94）：只在缓存页多选态点亮，全勾中后文字变「全不选」。
                  和其它按钮一样默认 gone——这个布局是多个一级页共用的。 -->
@@ -137,12 +137,12 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingHorizontal="@dimen/space_md"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingHorizontal="@dimen/action_bar_item_padding_h"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:text="@string/btn_select_all"
                 android:textColor="?android:attr/textColorSecondary"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:visibility="gone" />
 
             <TextView
@@ -153,12 +153,12 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingHorizontal="@dimen/space_md"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingHorizontal="@dimen/action_bar_item_padding_h"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:text="@string/uitext_locallistactivity_023"
                 android:textColor="?android:attr/textColorSecondary"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:visibility="gone" />
 
             <TextView
@@ -169,12 +169,12 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingHorizontal="@dimen/space_md"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingHorizontal="@dimen/action_bar_item_padding_h"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:text="@string/uitext_locallistactivity_025"
                 android:textColor="?android:attr/textColorSecondary"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:visibility="gone" />
 
             <!-- 缓存页排序 / 搜索入口（26.11.02，反馈 #94）：与上面的多选条同一排，非多选态显示，
@@ -186,12 +186,12 @@
                 android:layout_height="wrap_content"
                 android:background="?attr/selectableItemBackground"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingHorizontal="@dimen/space_md"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingHorizontal="@dimen/action_bar_item_padding_h"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:text="@string/btn_cache_sort"
                 android:textColor="?android:attr/textColorSecondary"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:visibility="gone" />
 
             <TextView
@@ -200,12 +200,12 @@
                 android:layout_height="wrap_content"
                 android:background="?attr/selectableItemBackground"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingHorizontal="@dimen/space_md"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingHorizontal="@dimen/action_bar_item_padding_h"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:text="@string/btn_cache_search"
                 android:textColor="?android:attr/textColorSecondary"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:visibility="gone" />
 
             <TextView
@@ -214,12 +214,12 @@
                 android:layout_height="wrap_content"
                 android:background="?attr/selectableItemBackground"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingHorizontal="@dimen/space_md"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingHorizontal="@dimen/action_bar_item_padding_h"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:text="@string/btn_cache_search_clear"
                 android:textColor="?android:attr/textColorSecondary"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:visibility="gone" />
 
         </LinearLayout>
