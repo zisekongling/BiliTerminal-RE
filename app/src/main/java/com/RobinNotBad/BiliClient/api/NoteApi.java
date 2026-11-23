@@ -17,8 +17,13 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
+import java.util.TimeZone;
 
 /**
  * 视频笔记（26.10.04 批次 6 的 C27，仅查看）。
@@ -224,7 +229,7 @@ public class NoteApi {
             if (summary.cvid <= 0) continue;
             summary.title = node.optString("title", "");
             summary.summary = node.optString("summary", "");
-            summary.pubtime = node.optLong("pubtime", 0);
+            summary.pubtime = parsePubtime(node.opt("pubtime"));
             summary.likes = node.optInt("likes", 0);
             summary.hasLike = node.optBoolean("has_like", false);
             JSONObject author = node.optJSONObject("author");
@@ -235,6 +240,43 @@ public class NoteApi {
             items.add(summary);
         }
         return items;
+    }
+
+    /**
+     * 列表里的 {@code pubtime} 两种形态都吃：数字按秒级时间戳，字符串按北京时间解析。
+     *
+     * <p>为什么不能只 {@code optLong}：26.11.23 用 cvid 43796340 实测，服务端给的是
+     * {@code "2025-11-20 10:27"} 这种**格式化字符串**（文档写的是时间戳），
+     * {@code optLong} 遇到非数字串会静默返回 0，列表行于是只剩作者和点赞、时间整段消失。
+     *
+     * <p>解析统一按 GMT+8：时间由服务端按北京时间给出，跨时区用户看到的日期才能一致。
+     * 解析不了（空串、{@code "昨天"} 之类）一律 0，调用方据此隐去时间而不是显示 1970 年。
+     */
+    static long parsePubtime(Object raw) {
+        if (raw == null || raw == JSONObject.NULL) return 0;
+        if (raw instanceof Number) return ((Number) raw).longValue();
+        String text = String.valueOf(raw).trim();
+        if (text.isEmpty()) return 0;
+        if (text.matches("\\d+")) {
+            try {
+                return Long.parseLong(text);
+            } catch (NumberFormatException e) {
+                return 0;
+            }
+        }
+        String[] patterns = {"yyyy-MM-dd HH:mm", "yyyy-MM-dd"};
+        for (String pattern : patterns) {
+            SimpleDateFormat format = new SimpleDateFormat(pattern, Locale.US);
+            format.setTimeZone(TimeZone.getTimeZone("GMT+8"));
+            format.setLenient(false);
+            try {
+                Date date = format.parse(text);
+                if (date != null) return date.getTime() / 1000L;
+            } catch (ParseException ignored) {
+                // 换下一个格式再试
+            }
+        }
+        return 0;
     }
 
     /**

@@ -279,6 +279,36 @@ class NoteApiTest {
     }
 
     @Test
+    fun parseNoteSummaries_parsesFormattedPubtime() {
+        // 实测（cvid 43796340）：接口给的是 "2025-11-20 10:27" 这种字符串，不是时间戳。
+        // 换算按北京时间，2025-11-20 10:27 GMT+8 == 1763605620 秒。
+        val data = JSONObject().put(
+            "list",
+            JSONArray().put(JSONObject().put("cvid", 43796340L).put("pubtime", "2025-11-20 10:27"))
+        )
+        assertEquals(1763605620L, NoteApi.parseNoteSummaries(data)[0].pubtime)
+    }
+
+    @Test
+    fun parseNoteSummaries_keepsNumericPubtime() {
+        val data = JSONObject().put(
+            "list",
+            JSONArray().put(JSONObject().put("cvid", 1L).put("pubtime", "1700000000"))
+        )
+        assertEquals(1700000000L, NoteApi.parseNoteSummaries(data)[0].pubtime)
+    }
+
+    @Test
+    fun parseNoteSummaries_unparsablePubtimeBecomesZero() {
+        val data = JSONObject().put(
+            "list",
+            JSONArray().put(JSONObject().put("cvid", 1L).put("pubtime", "昨天"))
+        )
+        // 解析不了就 0：调用方据此整段隐去时间，而不是显示 1970 年
+        assertEquals(0L, NoteApi.parseNoteSummaries(data)[0].pubtime)
+    }
+
+    @Test
     fun parseNoteSummaries_toleratesMissingFields() {
         assertTrue(NoteApi.parseNoteSummaries(null).isEmpty())
         assertTrue(NoteApi.parseNoteSummaries(JSONObject()).isEmpty())

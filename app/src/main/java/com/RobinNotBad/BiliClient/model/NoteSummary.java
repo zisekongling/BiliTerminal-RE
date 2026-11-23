@@ -27,7 +27,12 @@ public class NoteSummary {
     /** 服务端给的预览文本。私有笔记这一行不预取，留空。 */
     public String summary = "";
 
-    /** 公开发布时间，**秒级**时间戳；私有笔记为 0。 */
+    /**
+     * 公开发布时间，**秒级**时间戳；私有笔记为 0。
+     *
+     * <p>接口给的其实是 {@code "2025-11-20 10:27"} 这种格式化字符串，由
+     * {@code NoteApi.parsePubtime} 换算成秒；解析不出来为 0，列表行据此隐去时间。
+     */
     public long pubtime;
 
     public String authorName = "";
