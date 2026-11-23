@@ -26,6 +26,7 @@ import com.RobinNotBad.BiliClient.model.UserInfo
 import com.RobinNotBad.BiliClient.ui.widget.RotaryNestedScrollView
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgNotifier
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SessionSorter
@@ -181,82 +182,110 @@ class MessageActivity : InstanceActivity() {
     private fun loadSessions(scrollToListTop: Boolean = false) {
         val generation = ++loadGeneration
         CenterThreadPool.run {
-            try {
-                val stats = MessageApi.getUnread()
-                val page = PrivateMsgApi.getSessionsPage(PrivateMsgApi.SESSIONS_PAGE_SIZE, 0)
-                val list = page.sessions
-                // 置顶优先 → 未读优先 → 维持服务端原序。原先只按「未读优先」排，
-                // 会把置顶但没未读的会话挤到下面去（见 SessionSorter 的类注释）。
-                SessionSorter.sort(list)
-                val uidList = ArrayList<Long>()
-                for (item in list) {
-                    // 系统会话（UP主小助手 / 系统通知 / 客服…）的 talker_id 是服务端合成的，
-                    // 查 user/cards 查不到，名字头像都来自会话自带的 account_info，别塞无效 id 进去
-                    if (!item.isSystem()) uidList.add(item.talkerUid)
-                }
-                val users = PrivateMsgApi.getUsersInfo(uidList)
-                // 角标只写回「私信未读的真值」：通知类（回复/赞/@）在这一页顶部就有计数、
-                // 点进去就是全量列表，按老语义视为已看；私信未读则要靠会话页的 update_ack 逐条消，
-                // 在这里清零就会「清零→回菜单又被刷新器恢复」地反复闪（26.11.20）。
-                // 取不到真值时留 -1，回主线程就不写，保留原值。
-                val privateUnread = try {
-                    MessageApi.checkPrivateMsgUnread()
+            // #177：四个请求以前挤在同一个 try 里，任何一个挂了整页就是空白。
+            // 现在按「通知计数 / 会话列表 / 头像昵称 / 私信未读」四段各自兜底：
+            // 计数与昵称失败都还能出内容，只有会话列表本身失败才整体报错。
+            val stats: JSONObject? = try {
+                MessageApi.getUnread()
+            } catch (e: Exception) {
+                // 顶部括号里的数字而已，拉不到就不画——写 0 会让用户以为真没有新提醒
+                Logu.w("MessageActivity", "通知计数加载失败：" + e.message)
+                null
+            }
+            val page = try {
+                PrivateMsgApi.getSessionsPage(PrivateMsgApi.SESSIONS_PAGE_SIZE, 0)
+            } catch (e: Exception) {
+                Logu.w("MessageActivity", "会话列表加载失败：" + e.message)
+                onSessionsFailed(e)
+                return@run
+            }
+            val list = page.sessions
+            // 置顶优先 → 未读优先 → 维持服务端原序。原先只按「未读优先」排，
+            // 会把置顶但没未读的会话挤到下面去（见 SessionSorter 的类注释）。
+            SessionSorter.sort(list)
+            val uidList = ArrayList<Long>()
+            for (item in list) {
+                // 系统会话（UP主小助手 / 系统通知 / 客服…）的 talker_id 是服务端合成的，
+                // 查 user/cards 查不到，名字头像都来自会话自带的 account_info，别塞无效 id 进去
+                if (!item.isSystem()) uidList.add(item.talkerUid)
+            }
+            // 查不到名字头像不该让整页消失：适配器会回落到会话自带的名字与 mid
+            val users = try {
+                PrivateMsgApi.getUsersInfo(uidList)
+            } catch (e: Exception) {
+                Logu.w("MessageActivity", "会话用户信息加载失败：" + e.message)
+                HashMap<Long, UserInfo>()
+            }
+            // 角标只写回「私信未读的真值」：通知类（回复/赞/@）在这一页顶部就有计数、
+            // 点进去就是全量列表，按老语义视为已看；私信未读则要靠会话页的 update_ack 逐条消，
+            // 在这里清零就会「清零→回菜单又被刷新器恢复」地反复闪（26.11.20）。
+            // 取不到真值时留 -1，回主线程就不写，保留原值。
+            val privateUnread = try {
+                MessageApi.checkPrivateMsgUnread()
+            } catch (e: Exception) {
+                MsgUtil.err(e)
+                -1
+            }
+            val adapter = PrivateMsgSessionsAdapter(
+                this, list, users,
+                onSessionsChanged = { loadSessions() },
+                onOpenSession = { session -> openSession(session) }
+            )
+            runOnUiThread {
+                // 晚到的旧响应直接丢，别把刚刷新出来的新顺序又盖回去
+                if (isDestroyed || generation != loadGeneration) return@runOnUiThread
+                swipeRefreshLayout.isRefreshing = false
+                // #177：计数拉不到就保持按钮原样，不画「(0 未读)」
+                val unreadStats = stats
+                if (unreadStats != null) try {
+                    (findViewById<TextView>(R.id.reply_text)).text = UiText.of("回复我的") +
+                            (if ((unreadStats.getInt("reply") > 0)) ("(" + unreadStats.getInt("reply") + UiText.of("未读)")) else "")
+                    (findViewById<TextView>(R.id.like_text)).text =
+                        UiText.of("收到的赞") + (if ((unreadStats.getInt("like") > 0)) ("(" + unreadStats.getInt("like") + "未读)") else "")
+                    (findViewById<TextView>(R.id.at_text)).text =
+                        UiText.of("@我") + (if ((unreadStats.getInt("at") > 0)) ("(" + unreadStats.getInt("at") + "未读)") else "")
                 } catch (e: Exception) {
                     MsgUtil.err(e)
-                    -1
                 }
-                val adapter = PrivateMsgSessionsAdapter(
-                    this, list, users,
-                    onSessionsChanged = { loadSessions() },
-                    onOpenSession = { session -> openSession(session) }
-                )
-                runOnUiThread {
-                    // 晚到的旧响应直接丢，别把刚刷新出来的新顺序又盖回去
-                    if (isDestroyed || generation != loadGeneration) return@runOnUiThread
-                    swipeRefreshLayout.isRefreshing = false
-                    try {
-                        (findViewById<TextView>(R.id.reply_text)).text = UiText.of("回复我的") +
-                                (if ((stats.getInt("reply") > 0)) ("(" + stats.getInt("reply") + UiText.of("未读)")) else "")
-                        (findViewById<TextView>(R.id.like_text)).text =
-                            UiText.of("收到的赞") + (if ((stats.getInt("like") > 0)) ("(" + stats.getInt("like") + "未读)") else "")
-                        (findViewById<TextView>(R.id.at_text)).text =
-                            UiText.of("@我") + (if ((stats.getInt("at") > 0)) ("(" + stats.getInt("at") + "未读)") else "")
-                        sessionsList = list
-                        userMap = users
-                        hasMore = page.hasMore
-                        nextEndTs = oldestSessionTs(list)
-                        isLoadingMore = false
-                        endTipShown = false
-                        sessionAdapter = adapter
-                        sessionsView.layoutManager = CustomLinearManager(this)
-                        sessionsView.adapter = adapter
-                        // 只清「确实看完了」的部分：通知类已视为已看，私信未读按服务端真值写回，
-                        // 用户每读完一条会话再回来，这个数就会降一格，直到 0
-                        if (privateUnread >= 0) {
-                            SharedPreferencesUtil.putInt(SharedPreferencesUtil.MESSAGE_UPDATE_NUM, privateUnread)
-                            // 真清零了才撤通知（否则"看过了通知还在"）
-                            if (privateUnread == 0) MsgNotifier.cancel(this)
-                        }
-                        // 发完私信回来：滚回列表顶部，让刚聊过的那个人露出来（#166）
-                        if (scrollToListTop) sessionsView.post {
-                            scrollView.smoothScrollTo(0, sessionsView.top)
-                        }
-                        // 第一页撑不满一屏就先续下一页：内容不够高时滚不动，
-                        // 光靠滚动监听永远触发不了加载（#166）
-                        sessionsView.post { maybeLoadMoreIfNearBottom() }
-                    } catch (e: Exception) {
-                        MsgUtil.err(e)
-                    }
+                sessionsList = list
+                userMap = users
+                hasMore = page.hasMore
+                nextEndTs = oldestSessionTs(list)
+                isLoadingMore = false
+                endTipShown = false
+                sessionAdapter = adapter
+                sessionsView.layoutManager = CustomLinearManager(this)
+                sessionsView.adapter = adapter
+                // 只清「确实看完了」的部分：通知类已视为已看，私信未读按服务端真值写回，
+                // 用户每读完一条会话再回来，这个数就会降一格，直到 0
+                if (privateUnread >= 0) {
+                    SharedPreferencesUtil.putInt(SharedPreferencesUtil.MESSAGE_UPDATE_NUM, privateUnread)
+                    // 真清零了才撤通知（否则"看过了通知还在"）
+                    if (privateUnread == 0) MsgNotifier.cancel(this)
                 }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    if (isDestroyed) return@runOnUiThread
-                    // 失败必须复位，否则转圈永远不停、下拉又被禁用，用户没有任何自救路径
-                    swipeRefreshLayout.isRefreshing = false
-                    swipeRefreshLayout.isEnabled = true
-                    MsgUtil.err(e)
+                // 发完私信回来：滚回列表顶部，让刚聊过的那个人露出来（#166）
+                if (scrollToListTop) sessionsView.post {
+                    scrollView.smoothScrollTo(0, sessionsView.top)
                 }
+                // 第一页撑不满一屏就先续下一页：内容不够高时滚不动，
+                // 光靠滚动监听永远触发不了加载（#166）
+                sessionsView.post { maybeLoadMoreIfNearBottom() }
             }
+        }
+    }
+
+    /**
+     * 会话列表这一跳失败时复位界面并给出提示（反馈 #177）。
+     *
+     * 不复位的话下拉刷新会一直转圈、SwipeRefreshLayout 还停在禁用态，用户除了杀进程没有别的办法；
+     * 也不清空已有列表——已经看到的内容比空白页有用，下拉一次就是重试。
+     */
+    private fun onSessionsFailed(e: Exception) {
+        runOnUiThread {
+            if (isDestroyed) return@runOnUiThread
+            swipeRefreshLayout.isRefreshing = false
+            swipeRefreshLayout.isEnabled = true
+            MsgUtil.err(e)
         }
     }
 

@@ -1,5 +1,6 @@
 package com.RobinNotBad.BiliClient.api
 
+import org.json.JSONException
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -357,5 +358,51 @@ class PrivateMsgApiTest {
         val next = PrivateMsgApi.buildSessionsUrl(20, 1712305278098351L)
         assertTrue(next.contains("size=20"))
         assertTrue(next.contains("end_ts=1712305278098351"))
+    }
+
+    /** 跑一段应当抛 JSONException 的逻辑，返回异常 message（没抛就是空串）。 */
+    private fun messageOf(block: () -> Unit): String = try {
+        block()
+        ""
+    } catch (e: JSONException) {
+        e.message ?: ""
+    }
+
+    @Test
+    fun requireOk_业务码为0时放行() {
+        PrivateMsgApi.requireOk(JSONObject("""{"code":0,"data":{"session_list":[]}}"""))
+        // 老响应可能压根没有 code 字段，别把它当失败
+        PrivateMsgApi.requireOk(JSONObject("""{"data":{"session_list":[]}}"""))
+    }
+
+    @Test
+    fun requireOk_掉登录时给出带code的登录提示() {
+        val message = messageOf { PrivateMsgApi.requireOk(JSONObject("""{"code":-101,"message":"账号未登录"}""")) }
+        assertTrue(message.contains("-101"))
+        assertTrue(message.contains("登录"))
+    }
+
+    @Test
+    fun requireOk_风控与频繁请求各自给出可操作提示() {
+        assertTrue(
+            "code=-352 要能看出是被风控拦了",
+            messageOf { PrivateMsgApi.requireOk(JSONObject("""{"code":-352,"message":"风控校验失败"}""")) }.contains("风控")
+        )
+        assertTrue(
+            "code=-412 要能看出是太频繁",
+            messageOf { PrivateMsgApi.requireOk(JSONObject("""{"code":-412,"message":"请求过于频繁"}""")) }.contains("频繁")
+        )
+    }
+
+    @Test
+    fun requireOk_未知业务码保留code与服务端message() {
+        val message = messageOf { PrivateMsgApi.requireOk(JSONObject("""{"code":-500,"message":"服务器错误"}""")) }
+        assertTrue(message.contains("-500"))
+        assertTrue(message.contains("服务器错误"))
+    }
+
+    @Test
+    fun requireOk_空响应也抛而不是静默当成空列表() {
+        assertTrue(messageOf { PrivateMsgApi.requireOk(null) }.isNotEmpty())
     }
 }

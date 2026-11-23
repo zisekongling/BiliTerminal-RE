@@ -18,6 +18,16 @@
 
 ## 1. 当前版本状态
 
+- **26.11.23 #177 消息页整页「网络错误」：四个请求各自兜底 + 会话接口校验业务码**：
+  - **来路**：控制台反馈 #177（OPPO OWW251 / 26.11.16 / sdk30）「反馈被回复后不查看消息界面，消息界面加载不出来」，用户补充「掉过一次登录」「反馈回复已读后才好」。
+  - **根因**（三处叠加）：① `activity/message/MessageActivity.kt` 的 `loadSessions` 用一个 try 包住 `MessageApi.getUnread()` / `PrivateMsgApi.getSessionsPage()` / `PrivateMsgApi.getUsersInfo()` 三个请求，任一个抛异常就整页空白，外层 catch 只复位下拉、不给重试入口；② `api/PrivateMsgApi.getSessionsPage` 不看业务码——掉登录时响应是 `{"code":-101}` 且没有 `data`，`parseSessionsList` 对 `data==null` 返回空表，界面于是显示「0 条会话」，用户以为私信被清空（这就是「回复已读后才好」的来源）；③ 计数拉失败时按钮上照样画「(0 未读)」，把「没拉到」伪装成「真的没有」。
+  - **改法**：
+    - `api/PrivateMsgApi.java` 新增 `requireOk(JSONObject root)`：`code != 0` 时按 -101 / -352 / -412 / 其它抛带 code 的 `JSONException`（提示依次是「请先登录后查看私信」「被风控拦了」「请求太频繁」「会话列表加载失败：code=… + 服务端 message」），`getSessionsPage` 在解析前调用它——`getSessionsList` 与 `ChooseFriendActivity` 一并受益。
+    - `MessageActivity.loadSessions` 拆四段：计数失败 → 留 `null`、按钮不画数字；会话列表失败 → `onSessionsFailed(e)` 复位下拉并提示后 `return@run`（已加载的列表不清空，下拉一次就是重试）；`getUsersInfo` 失败 → 回落空表，适配器用会话自带的名字与 mid；私信未读数仍走原来的独立 try。
+    - 新增私有 `onSessionsFailed(e)`：`runOnUiThread` 里复位 `isRefreshing` / `isEnabled` 再 `MsgUtil.err(e)`。
+  - **验证**：L0（隔离副本 `%TEMP%\rebili-iso-222`，理由同 #222 那轮的 gradle `--stop`）`assembleDebug` 双 flavor 通过；`testStandardDebugUnitTest` 3033 例、2 处失败与本次无关（`ConventionGuardTest` 需要 `.git`、隔离子副本没有；`LayoutAccessibilityTest` 报 `cell_note_image.xml` 缺 `contentDescription`，另一会话在建的专栏图片控件）；`PrivateMsgApiTest` 38 例 0 失败，新增的 5 例 requireOk 全部执行。
+  - **未验证（L1，本机无设备）**：换一份过期 cookie 起 App，消息页应提示「请先登录后查看私信（code=-101）」而不是「0 条会话」；把通知计数接口打到失败，顶部按钮不该出现「(0 未读)」。
+
 - **26.11.23 #222 剩余部分：外置卷上的安装包再也装不上（installApk 取不到 URI）**：
   - **来路**：控制台反馈 #222（26.11.16，华为）第 3 点「更新下载完了却装不上，包还消失了」。前两点（下载路径不能改 / 没有语音）上一轮已处理，这条剩下的是安装这一跳。
   - **根因**：下载目录是可配的，用户把「下载路径」设到外置 SD 卡后安装包落在 `/storage/5C00-1D0E/...`；而安装走的是 androidx `FileProvider.getUriForFile`（`activity/DownloadActivity.kt` 与 `util/UpdateManager.kt` 两处各写了一遍），FileProvider 的根来自编译期资源 `res/xml/file_paths.xml`——`<external-path>` 取 `Environment.getExternalStorageDirectory()`、`<external-media-path>` 只取 `getExternalMediaDirs()[0]`，**一个根都覆盖不到外置卷**，于是直接抛 `IllegalArgumentException: Failed to find configured root`。安装器起不来，调用方随后把 `.apk` 改名回 `.bak` 并提示「安装失败」——用户看到的就是「装不上 + 包没了」。

@@ -194,6 +194,7 @@ public class PrivateMsgApi {
     public static SessionsPage getSessionsPage(int size, long endTs)
             throws IOException, JSONException {
         JSONObject root = NetWorkUtil.getJson(buildSessionsUrl(size, endTs));
+        requireOk(root);
         return new SessionsPage(parseSessionsList(root), parseSessionsHasMore(root));
     }
 
@@ -211,6 +212,34 @@ public class PrivateMsgApi {
         if (root == null || root.isNull("data")) return false;
         JSONObject data = root.optJSONObject("data");
         return data != null && data.optInt("has_more", 0) == 1;
+    }
+
+    /**
+     * 检查会话列表的业务码（纯函数，便于 JVM 单测）。
+     *
+     * <p>26.11.23（反馈 #177）：掉登录后 `get_sessions` 回的是 `{"code":-101,...}`，没有 `data`，
+     * 而 {@link #parseSessionsList} 对 `data==null` 直接返回空表 → 界面上就是「0 条会话」，
+     * 用户以为私信被清空了，只有退出重进才知道是登录态没了。业务码不是 0 时按码给一句
+     * 能照着操作的话，让界面分得清「没登录 / 被风控 / 请求太频繁 / 真没消息」。
+     *
+     * @throws JSONException 业务码非 0；message 里带 code，便于用户直接抄给开发者
+     */
+    public static void requireOk(JSONObject root) throws JSONException {
+        if (root == null) throw new JSONException("会话列表返回为空");
+        int code = root.optInt("code", 0);
+        if (code == 0) return;
+        String message = root.optString("message", "");
+        String detail = message.isEmpty() ? "" : " " + message;
+        switch (code) {
+            case -101:
+                throw new JSONException("请先登录后查看私信（code=-101）");
+            case -352:
+                throw new JSONException("被风控拦了，过一会儿再试（code=-352）" + detail);
+            case -412:
+                throw new JSONException("请求太频繁，歇一会儿再试（code=-412）" + detail);
+            default:
+                throw new JSONException("会话列表加载失败：code=" + code + detail);
+        }
     }
 
     /**
