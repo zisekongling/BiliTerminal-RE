@@ -13,11 +13,13 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
+import com.RobinNotBad.BiliClient.activity.message.ChooseFriendActivity
 import com.RobinNotBad.BiliClient.activity.settings.SettingPlayerChooseActivity
 import com.RobinNotBad.BiliClient.activity.video.BangumiCacheActivity
 import com.RobinNotBad.BiliClient.activity.video.JumpToPlayerActivity
@@ -31,8 +33,10 @@ import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
+import com.RobinNotBad.BiliClient.util.ShareSheet
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
+import com.RobinNotBad.BiliClient.util.view.ShareTexts
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 
 class BangumiInfoFragment : Fragment() {
@@ -84,6 +88,43 @@ class BangumiInfoFragment : Fragment() {
 
     /** 切季请求进行中：期间忽略重复点击，避免两个响应交错把页面切成半更新状态 */
     private var switchingSeason = false
+
+    /**
+     * 上一次弹分享面板时要分享的链接与标题。
+     *
+     * 只给「分享至消息」用：点条目 → 起选好友页 → 选中人回来，中间隔着一次 Activity 切换，
+     * 回调里再去读 currentEpisode() 会把「他刚才分享的那一集」和「此刻选中的那一集」混成一件事
+     * （切季重建、数据刷新都可能让下标变）。所以弹面板时就把目标存下来，发完即清。
+     */
+    private var pendingShareUrl: String = ""
+    private var pendingShareTitle: String = ""
+
+    /**
+     * 「分享至消息」选中好友后的回传：拿到 uid 就把这一集当文本私信发出去。
+     *
+     * 只认 RESULT_OK + data，用户直接返回就当没选，不弹任何提示（与视频页一致）。
+     * 正文与失败兜底都交给 [ShareSheet.sendLinkToFriend]，各页面的「分享至消息」走同一条路。
+     */
+    private val chooseFriendLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode != Activity.RESULT_OK) return@registerForActivityResult
+            val data = result.data ?: return@registerForActivityResult
+            val uid = data.getLongExtra(ChooseFriendActivity.EXTRA_UID, 0L)
+            if (uid <= 0L) return@registerForActivityResult
+            val url = pendingShareUrl
+            val shareTitle = pendingShareTitle
+            pendingShareUrl = ""
+            pendingShareTitle = ""
+            if (url.isEmpty()) return@registerForActivityResult
+            // 昵称只用于「已发送给 xxx」，拿不到时留空也不影响发送
+            ShareSheet.sendLinkToFriend(
+                requireContext(),
+                uid,
+                data.getStringExtra(ChooseFriendActivity.EXTRA_NAME).orEmpty(),
+                shareTitle,
+                url
+            )
+        }
 
     companion object {
         @JvmStatic
@@ -196,7 +237,7 @@ class BangumiInfoFragment : Fragment() {
         episodeChoose = rootView!!.findViewById(R.id.episode_choose)
         followButton = rootView!!.findViewById(R.id.btn_follow)
         val cacheButton = rootView!!.findViewById<Button>(R.id.btn_cache)
-        // 分享入口和缓存并排（26.11.23 用户要求把原来那一整行缓存拆成两半）；点击逻辑等共享组件落地后再接
+        // 分享入口和缓存并排（26.11.23 用户要求把原来那一整行缓存拆成两半）
         val shareButton = rootView!!.findViewById<Button>(R.id.btn_share)
         selectedSection = 0
 
@@ -406,6 +447,7 @@ class BangumiInfoFragment : Fragment() {
         // 长按则强制清掉这部番的缓存状态（只清状态、不删文件）
         cacheButton.setOnClickListener { openCachePage() }
         cacheButton.setOnLongClickListener { forceClearCache() }
+        shareButton.setOnClickListener { shareBangumi() }
         onFinishLoad()
 
         refreshReplies()
@@ -892,6 +934,40 @@ class BangumiInfoFragment : Fragment() {
         BangumiCacheClearStore.clear(tabSeasons.map { it.season_id })
         MsgUtil.showMsg(getString(R.string.uitext_bangumiinfofragment_038))
         return true
+    }
+
+    /**
+     * 分享面板：本轮四项（复制链接 / 其它app打开 / 分享视频 / 分享至消息）。
+     *
+     * 链接粒度是**当前选中的那一集**（没选就是第 1 集），即 bangumi/play/ep<epId>——用户拍板：
+     * 手表屏小，分享一个「剧集总览」链接对面还得自己找集，直接给到集页才有意义。
+     *
+     * 「分享至动态」暂不出：番剧要按 info.type 映射 dyn_type（番剧 4097 / 电影 4098 /
+     * 纪录片 4101 / 国创 4100 / 电视剧·综艺 4099），动态发送侧还没接这类转发。
+     * 宁可少一项，也不摆个点了没反应的占位项。
+     *
+     * 番剧没有单一 UP 主，所以「分享视频」文本只有「剧名 集名 - 链接」，
+     * 由 [ShareTexts.bangumiShareText] 拼（它会把与剧名重复的集名去掉）。
+     */
+    private fun shareBangumi() {
+        val info = bangumi?.info ?: return
+        val episode = currentEpisode() ?: return
+        val url = ShareTexts.bangumiUrl(episode.id)
+        if (url.isEmpty()) return
+        // 集名优先 title_long（「第5话 标题」的完整形式），没有再退回 title
+        val epTitle = episode.title_long?.takeIf { it.isNotBlank() } ?: episode.title
+        pendingShareUrl = url
+        pendingShareTitle = info.title.orEmpty()
+        // 条目顺序由 [ShareSheet.Panel] 的链式调用顺序决定，别打乱；
+        // show() 已由 Panel 代做，这里不要再套一层（26.11.15 漏 show 的教训）
+        ShareSheet.panel(requireContext())
+            .copyLink(url)
+            .openInOtherApp(url)
+            .shareText(R.string.share_video, ShareTexts.bangumiShareText(info.title, epTitle, episode.id), url)
+            .toMessage {
+                chooseFriendLauncher.launch(Intent(requireContext(), ChooseFriendActivity::class.java))
+            }
+            .show()
     }
 
     private fun refreshReplies() {
