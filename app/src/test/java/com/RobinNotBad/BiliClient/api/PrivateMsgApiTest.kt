@@ -3,6 +3,7 @@ package com.RobinNotBad.BiliClient.api
 import org.json.JSONException
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -547,6 +548,54 @@ class PrivateMsgApiTest {
         )
         assertEquals(42L, session.ackSeqno)
         assertEquals(45L, session.maxSeqno)
+    }
+
+    // ---- 单会话聊天设置（26.11.23 批次②-2）----
+
+    @Test
+    fun pushSettingFor_接收是0不接收是1() {
+        // 口径见 private_msg.md:1259-1318：setting 0 接收推送、1 不接收
+        assertEquals(0, PrivateMsgApi.pushSettingFor(true))
+        assertEquals(1, PrivateMsgApi.pushSettingFor(false))
+        assertEquals(PrivateMsgApi.PUSH_ON, PrivateMsgApi.pushSettingFor(true))
+        assertEquals(PrivateMsgApi.PUSH_OFF, PrivateMsgApi.pushSettingFor(false))
+    }
+
+    @Test
+    fun buildSessionSsUrl_带talker_uid与必要参数() {
+        val url = PrivateMsgApi.buildSessionSsUrl(12345L)
+        assertTrue(url, url.startsWith("https://api.vc.bilibili.com/link_setting/v1/link_setting/get_session_ss?"))
+        assertTrue(url, url.contains("talker_uid=12345"))
+        assertTrue(url, url.contains("mobi_app=web"))
+        // 这个接口没有 session_type：仅支持用户会话（private_msg.md:941-1011）
+        assertFalse(url, url.contains("session_type"))
+    }
+
+    @Test
+    fun parseSessionSs_解析推送显示开关与关系状态() {
+        val ss = PrivateMsgApi.parseSessionSs(
+            JSONObject("""{"code":0,"data":{"push_setting":1,"show_push_setting":0,"follow_status":128}}""")
+        )
+        assertFalse("push_setting=1 是不接收", ss.pushEnabled)
+        assertFalse("show_push_setting=0 表示不显示这个开关", ss.showPushSetting)
+        assertEquals(128, ss.followStatus)
+        assertEquals(PrivateMsgApi.FOLLOW_STATUS_BLOCKED, ss.followStatus)
+    }
+
+    @Test
+    fun parseSessionSs_接收推送与缺字段兜底() {
+        val receive = PrivateMsgApi.parseSessionSs(
+            JSONObject("""{"code":0,"data":{"push_setting":0,"show_push_setting":1}}""")
+        )
+        assertTrue(receive.pushEnabled)
+        assertTrue(receive.showPushSetting)
+        assertEquals(0, receive.followStatus)
+
+        // 缺 data（风控时只有 code/message）按「接收推送 + 不显示开关」，页面就不渲染这一项
+        val missing = PrivateMsgApi.parseSessionSs(JSONObject("""{"code":-352,"message":"风控校验失败"}"""))
+        assertTrue(missing.pushEnabled)
+        assertFalse(missing.showPushSetting)
+        assertEquals(0, missing.followStatus)
     }
 
     @Test

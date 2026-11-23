@@ -18,6 +18,18 @@
 
 ## 1. 当前版本状态
 
+- **26.11.23 新增单会话「聊天设置」页（对齐 PiliPlus 的会话级治理，批次②-2）**：
+  - **来路**：批次②-1 之后还差一块——PiliPlus 有单会话的 `whisper_link_setting`（推送开关 / 置顶 / 免打扰 / 拉黑 / 举报），我们只能在长按菜单里开关置顶与免打扰，其余全无。用户拍板五项：接收消息推送、置顶聊天、消息免打扰、拦截此会话消息、拉黑对方，入口放会话长按菜单。
+  - **改法**：
+    - 新建 `activity/message/ChatSettingsActivity.kt`：复用 `R.layout.activity_simple_refresh` + `MessageSettingsAdapter`（**不新增布局**），进页面先拉 `get_session_ss`，按 `show_push_setting` 决定渲不渲染「接收消息推送」，其余四项恒显示；写入统一走 `applyChange(key, action, onOk)`——失败必须 `revert(key)` 把开关拨回去（适配器在开关回调里已先改了 `item.value`），再弹 `sessionErrorMsg(code)`；改成功一次就 `setResult(RESULT_OK)`，会话列表返回时重拉。
+    - `api/PrivateMsgApi.java`：`link_setting/get_session_ss` 与 `set_push_ss`（`push_setting` 0 接收 / 1 不接收，**只支持用户会话**，参数是 `talker_uid`、没有 `session_type`），纯函数 `buildSessionSsUrl` / `pushSettingFor` / `parseSessionSs`；`session_svr/update_intercept`（只吃 `talker_id` + `status`）封装成 `updateIntercept` + `statusForIntercept`。
+    - `api/UserInfoApi.java`：拉黑走 `x/relation/modify`，新增 `relationModify(mid, act, reSrc)` 与 `RELATION_ACT_BLOCK=5` / `RELATION_ACT_UNBLOCK=6` / `RELATION_RE_SRC_IM=11`；**拉黑会同时解除关注**，所以界面先弹确认框再发请求。
+    - `adapter/message/PrivateMsgSessionsAdapter.kt`：长按菜单在「删除会话」前插「聊天设置」（仅用户会话，粉丝团没有推送 / 置顶这些接口）；`MessageActivity.kt` 用 `chatSettingsLauncher` 接返回码重拉列表（构造参数 `onOpenChatSettings`）。
+    - `AndroidManifest.xml` 新增 `ChatSettingsActivity`（`exported="false"` + `screenOrientation="locked"`），并在 `app/src/debug/AndroidManifest.xml` 同步登记 DUMP 开放；文案 `uitext_chatsettingsactivity_001..012` 进 `strings.xml` 与 `util/UiText.kt`。
+  - **验证**：L0——`:app:assembleStandardDebug` 与 `:app:testStandardDebugUnitTest` 通过，314 份报告 / 3382 用例 / 0 失败 0 错误；`PrivateMsgApiTest` 新增 4 例（`pushSettingFor` 口径、`buildSessionSsUrl` 参数且不带 `session_type`、`parseSessionSs` 两条分支），`UserInfoApiTest` 新增 1 例（拉黑 5 / 解除 6 + `re_src=11`）。**第一次跑挂了一条**：`DebugActivityExportTest` 要求主清单里每个非导出页面都在 debug 清单里挂 DUMP 开放，新页面漏登记当场红——已补。接口口径写进 `docs/architecture-map.md` §7.13。
+  - **未做**：「举报」（PiliPlus 有 `im_msg_report`，属批次③私有功能）；拉黑后的「被拦截」列表视图（`session_type=5`）没有入口，所以「拦截此会话消息」目前是**只写不读**的开关；`get_session_ss` 的 `special`（特别关注）没进 UI。
+  - **未验证（L2，需人工看画面 / 真号）**：①长按用户会话菜单里「聊天设置」的位置（在删除会话之前）与点进去后五个开关在 300×300 方屏上挤不挤；②`show_push_setting` 为 0 的账号是否真的不显示「接收消息推送」；③关掉推送后对方再发消息是否确实不弹通知（需真号）；④拉黑确认框点取消是否不发请求、点确定后对方是否真的发不出私信；⑤拦截开关打开后对方消息是否进「被拦截」列表（我们侧没有该列表入口）。
+
 - **26.11.23 打通粉丝团私信、会话项「标为已读」（对齐 PiliPlus 的消息治理层，批次②-1）**：
   - **来路**：批次①之后继续对齐 PiliPlus，发现两处硬伤。①**应援团 / 官方群私信一条都拉不到**：`api/PrivateMsgApi.java` 把 `SESSION_TYPE_USER`(=1) 当 `get_sessions` 的参数写死，而请求侧要的是 **3**（粉丝团），接口不报错、只是永远空；`fetch_session_msgs` 与 `update_ack` 同理。②**会话项没有「标为已读」**：PiliPlus 长按菜单里有，我们只能点进去再退出才清未读。用户拍板：应援团**有未读才混排进主列表**、入口放**会话长按菜单**。
   - **改法**：

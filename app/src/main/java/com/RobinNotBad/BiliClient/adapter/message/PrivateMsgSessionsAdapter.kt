@@ -17,6 +17,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
+import com.RobinNotBad.BiliClient.activity.message.ChatSettingsActivity
 import com.RobinNotBad.BiliClient.activity.message.PrivateMsgActivity
 import com.RobinNotBad.BiliClient.api.PrivateMsgApi
 import com.RobinNotBad.BiliClient.model.PrivateMessage
@@ -55,7 +56,14 @@ class PrivateMsgSessionsAdapter(
      * 现有 `PrivateMsgSessionsAdapter(ctx, list, map) { … }` 调用点静默绑错。
      */
     private val onOpenSession: ((PrivateMsgSession) -> Unit)? = null,
-    private val onSessionsChanged: (() -> Unit)? = null
+    private val onSessionsChanged: (() -> Unit)? = null,
+    /**
+     * 打开单会话「聊天设置」的回调（26.11.23 批次②-2）。为 null 时退回
+     * [ChatSettingsActivity.start]，只是拿不到返回结果、改完不会立刻重拉列表。
+     * 加在最后而不是 [onSessionsChanged] 之前：现有两个调用点都用具名参数，
+     * 放末尾不会让任何一处绑错。
+     */
+    private val onOpenChatSettings: ((PrivateMsgSession) -> Unit)? = null
 ) : RecyclerView.Adapter<PrivateMsgSessionsAdapter.PrivateMsgSessionsHolder>() {
 
     private val cardRoundRadius: Int = context.resources.getDimension(R.dimen.card_round).toInt()
@@ -201,11 +209,12 @@ class PrivateMsgSessionsAdapter(
     }
 
     /**
-     * 会话项长按菜单：置顶/取消置顶、免打扰开关、删除会话、查看用户主页。
+     * 会话项长按菜单：置顶/取消置顶、免打扰开关、标为已读、聊天设置、删除会话、查看用户主页。
      *
      * 这几个接口都只改服务端的会话状态（删除不会清聊天记录），成功后统一回调和刷新。
      * 26.11.23 加了免打扰：会话里的 is_dnd 只有服务端知道，本地改完要立刻重绑这一项，
-     * 否则要等下一次整表刷新才看得到标记。
+     * 否则要等下一次整表刷新才看得到标记。同日加「聊天设置」：置顶/免打扰/标为已读
+     * 这几件常用的留在这里一键切换，推送、拦截、拉黑这类不常动的收进设置页。
      */
     private fun showSessionMenu(session: PrivateMsgSession) {
         // 26.11.23：条目改成「先拼标签再配动作」。原先按下标硬编码 when(0/1/2/else)，
@@ -225,6 +234,12 @@ class PrivateMsgSessionsAdapter(
             labels.add(UiText.of("标为已读"))
             actions.add { markSessionRead(session) }
         }
+        // 单会话的聊天设置（推送 / 置顶 / 免打扰 / 拦截 / 拉黑）。粉丝团会话没有这些接口：
+        // get_session_ss、set_push_ss、set_msg_dnd、update_intercept 都写明「仅支持用户会话」。
+        if (!session.isFanGroup()) {
+            labels.add(UiText.of("聊天设置"))
+            actions.add { openChatSettings(session) }
+        }
         labels.add(UiText.of("删除会话"))
         actions.add { confirmRemoveSession(session) }
         val dangerIndex = labels.size - 1
@@ -241,6 +256,16 @@ class PrivateMsgSessionsAdapter(
         ) { which ->
             actions.getOrNull(which)?.invoke()
         }.show()
+    }
+
+    /**
+     * 打开单会话的「聊天设置」（26.11.23 批次②-2）。
+     *
+     * 有回调就交给调用方（消息页要用返回结果重拉列表），没有就直接开页。
+     */
+    private fun openChatSettings(session: PrivateMsgSession) {
+        val callback = onOpenChatSettings
+        if (callback != null) callback(session) else ChatSettingsActivity.start(context, session)
     }
 
     /**

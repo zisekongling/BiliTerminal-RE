@@ -425,6 +425,12 @@
             android:exported="false"
             android:label="@string/uitext_messagesettingsactivity_005"
             android:screenOrientation="locked" />
+        <!-- 单会话的聊天设置（26.11.23 批次②-2）：只能由会话列表长按拉起，不导出 -->
+        <activity
+            android:name=".activity.message.ChatSettingsActivity"
+            android:exported="false"
+            android:label="@string/uitext_chatsettingsactivity_001"
+            android:screenOrientation="locked" />
         <activity
             android:name=".activity.message.NoticeActivity"
             android:exported="false"

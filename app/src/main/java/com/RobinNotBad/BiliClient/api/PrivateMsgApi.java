@@ -684,6 +684,91 @@ public class PrivateMsgApi {
         }
     }
 
+    /** 会话推送设置值（bilibili-API/docs/message/private_msg.md:941-1011、1259-1318）：0 接收推送、1 不接收。 */
+    public static final int PUSH_ON = 0;
+    public static final int PUSH_OFF = 1;
+
+    /** 布尔转 set_push_ss 的 setting 值（纯函数，便于 JVM 单测）：true→0 接收，false→1 不接收。 */
+    public static int pushSettingFor(boolean push) {
+        return push ? PUSH_ON : PUSH_OFF;
+    }
+
+    /** follow_status 的拉黑值（bilibili-API/docs/message/private_msg.md:941-1011）。 */
+    public static final int FOLLOW_STATUS_BLOCKED = 128;
+
+    /**
+     * 单会话的聊天设置（{@code get_session_ss} 里聊天设置页要用的那几项）。
+     *
+     * <p>只留三项：是否接收推送、服务器要不要显示推送开关、与对方的关系状态
+     * （128 表示已拉黑）。其余字段（special 特别关注等）本页不用。
+     */
+    public static class SessionSs {
+        /** true 接收推送。服务器缺字段时按接收处理。 */
+        public boolean pushEnabled = true;
+        /** 服务器是否要求显示「接收消息推送」开关（0 时不显示，官方建议按此隐藏）。 */
+        public boolean showPushSetting = false;
+        /** 关系状态：0 未关注 / 2 已关注 / 6 已互粉 / 128 已拉黑。 */
+        public int followStatus = 0;
+    }
+
+    /**
+     * 构造 get_session_ss 的地址（纯函数，便于 JVM 单测）。
+     *
+     * <p>接口事实（bilibili-API/docs/message/private_msg.md:941-1011）：GET
+     * link_setting/v1/link_setting/get_session_ss，**仅对用户会话有效**（粉丝团会话没有这个概念）。
+     */
+    public static String buildSessionSsUrl(long talkerUid) {
+        return "https://api.vc.bilibili.com/link_setting/v1/link_setting/get_session_ss"
+                + "?talker_uid=" + talkerUid
+                + "&build=0"
+                + "&mobi_app=web";
+    }
+
+    /** 解析 get_session_ss 的响应（纯函数）：缺字段时给「接收推送 + 不显示开关」。 */
+    public static SessionSs parseSessionSs(JSONObject root) {
+        SessionSs ss = new SessionSs();
+        if (root == null) return ss;
+        JSONObject data = root.optJSONObject("data");
+        if (data == null) return ss;
+        ss.pushEnabled = data.optInt("push_setting", PUSH_ON) == PUSH_ON;
+        ss.showPushSetting = data.optInt("show_push_setting", 0) == 1;
+        ss.followStatus = data.optInt("follow_status", 0);
+        return ss;
+    }
+
+    /**
+     * 拉一个用户会话的聊天设置。
+     *
+     * @return 解析结果；接口报错（code 非 0）时抛异常，由调用方兜底
+     */
+    public static SessionSs getSessionSs(long talkerUid) throws IOException, JSONException {
+        JSONObject root = NetWorkUtil.getJson(buildSessionSsUrl(talkerUid));
+        requireOk(root);
+        return parseSessionSs(root);
+    }
+
+    /**
+     * 设置会话推送（图文消息与稿件推送；通知类消息不受影响）。
+     *
+     * <p>接口事实（bilibili-API/docs/message/private_msg.md:1259-1318）：POST
+     * link_setting/v1/link_setting/set_push_ss，表单是 talker_uid + setting，**没有 session_type**，
+     * 仅支持用户会话。
+     *
+     * @return 接口返回码，0 表示成功
+     */
+    public static int setPushSs(long talkerUid, boolean push) throws IOException, JSONException {
+        String url = "https://api.vc.bilibili.com/link_setting/v1/link_setting/set_push_ss";
+        String csrf = NetWorkUtil.currentCsrf();
+        String per = "talker_uid=" + talkerUid
+                + "&setting=" + pushSettingFor(push)
+                + "&csrf_token=" + csrf
+                + "&csrf=" + csrf
+                + "&build=0"
+                + "&mobi_app=web";
+        JSONObject result = postJson(url, per);
+        return result.optInt("code", -1);
+    }
+
     /**
      * session_svr 系列接口的公共请求体（talker_id/session_type/csrf/build/mobi_app）。
      *

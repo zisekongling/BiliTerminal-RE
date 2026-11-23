@@ -52,6 +52,21 @@ class UserInfoApiTest {
     }
 
     /**
+     * 拉黑 / 解除拉黑的关系操作码（26.11.23 批次②-2，单会话聊天设置用）。
+     *
+     * 与关注走同一个端点 x/relation/modify，act 不同：1 关注、2 取消关注、5 拉黑、6 解除拉黑。
+     */
+    @Test
+    fun actForBlock_拉黑是5解除是6() {
+        assertEquals(5, UserInfoApi.actForBlock(true))
+        assertEquals(6, UserInfoApi.actForBlock(false))
+        assertEquals(UserInfoApi.RELATION_ACT_BLOCK, UserInfoApi.actForBlock(true))
+        assertEquals(UserInfoApi.RELATION_ACT_UNBLOCK, UserInfoApi.actForBlock(false))
+        // 私信入口的来源标识
+        assertEquals(11, UserInfoApi.RELATION_RE_SRC_IM)
+    }
+
+    /**
      * 关键词编码口径：WBI 要的是 `encodeURIComponent`，`URLEncoder`（表单编码）的差异项必须掰回来。
      * 26.11.07 实测：`a~b` 用 `a%7Eb` 签 WBI 会被服务端判 -352「风控校验失败」。
      */

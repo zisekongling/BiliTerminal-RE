@@ -86,6 +86,17 @@ class MessageActivity : InstanceActivity() {
             if (result.resultCode == RESULT_OK) loadSessions(scrollToListTop = true)
         }
 
+    /**
+     * 聊天设置页返回（26.11.23 批次②-2）。
+     *
+     * 置顶、免打扰、拦截都会改变列表上的标记与排序，所以只要改过就重拉一次；
+     * 单纯点进去看一眼不会回 RESULT_OK（见 ChatSettingsActivity.markChanged）。
+     */
+    private val chatSettingsLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) loadSessions()
+        }
+
     @SuppressLint("SetTextI18n", "InflateParams")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -246,7 +257,10 @@ class MessageActivity : InstanceActivity() {
             val adapter = PrivateMsgSessionsAdapter(
                 this, list, users,
                 onSessionsChanged = { loadSessions() },
-                onOpenSession = { session -> openSession(session) }
+                onOpenSession = { session -> openSession(session) },
+                onOpenChatSettings = { session ->
+                    chatSettingsLauncher.launch(ChatSettingsActivity.intentFor(this, session))
+                }
             )
             runOnUiThread {
                 // 晚到的旧响应直接丢，别把刚刷新出来的新顺序又盖回去
