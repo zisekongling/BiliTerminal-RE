@@ -306,6 +306,8 @@ public class PrivateMsgApi {
             session.accountAvatar = accountInfo.optString("pic_url", "");
         }
         session.topTs = sessionJson.optLong("top_ts", 0);
+        // 免打扰状态（26.11.23）：会话里是 is_dnd，0 关闭 / 1 开启
+        session.dnd = sessionJson.optInt("is_dnd", 0) == 1;
         // 微秒级的会话时间戳，翻页时当 end_ts 游标用（#166）
         session.sessionTs = sessionJson.optLong("session_ts", 0);
         // 已读游标（26.11.23）：注意是字符串型，optLong 直接取会拿到 0
@@ -517,6 +519,61 @@ public class PrivateMsgApi {
         String url = "https://api.vc.bilibili.com/session_svr/v1/session_svr/remove_session";
         JSONObject result = postSessionAction(url, talkerId, sessionType, "");
         return result.optInt("code", -1);
+    }
+
+    /** 免打扰设置值（bilibili-API/docs/message/private_msg.md:1210）：0 取消免打扰、1 开启免打扰。 */
+    public static final int DND_OFF = 0;
+    public static final int DND_ON = 1;
+
+    /** 布尔转接口的 setting 值（纯函数，便于 JVM 单测）：true→1 开启，false→0 取消。 */
+    public static int settingForDnd(boolean dnd) {
+        return dnd ? DND_ON : DND_OFF;
+    }
+
+    /**
+     * 修改会话免打扰状态。
+     *
+     * <p>接口事实（bilibili-API/docs/message/private_msg.md:1197-1242）：这个接口**不在 session_svr 下**，
+     * 而是 link_setting（和聊天设置页的推送开关同一族）；参数也不是 talker_id，而是
+     * uid（自己的 mid）+ setting + dnd_uid（对方 mid）。
+     *
+     * @param ownUid    自己的 mid（接口的 uid 参数）
+     * @param talkerUid 会话对方的 mid（接口的 dnd_uid 参数）
+     * @param dnd       true 开启免打扰，false 取消
+     * @return 接口返回码，0 表示成功
+     */
+    public static int setMsgDnd(long ownUid, long talkerUid, boolean dnd)
+            throws IOException, JSONException {
+        String url = "https://api.vc.bilibili.com/link_setting/v1/link_setting/set_msg_dnd";
+        String csrf = NetWorkUtil.currentCsrf();
+        String per = "uid=" + ownUid
+                + "&setting=" + settingForDnd(dnd)
+                + "&dnd_uid=" + talkerUid
+                + "&csrf_token=" + csrf
+                + "&csrf=" + csrf
+                + "&build=0"
+                + "&mobi_app=web";
+
+        Response response = NetWorkUtil.post(url, per, NetWorkUtil.webHeaders);
+        if (response == null) return -1;
+        try (Response resp = response) {
+            if (!resp.isSuccessful() || resp.body() == null) return -1;
+            return parseDndCode(resp.body().string());
+        }
+    }
+
+    /**
+     * 解析 set_msg_dnd 响应体里的业务码（纯解析，便于 JVM 单测）。
+     *
+     * <p>非 2xx（412 风控 / 5xx）时 body 是 HTML，解析不出来给 -1，再由调用方翻成能看懂的话。
+     */
+    public static int parseDndCode(String body) {
+        if (body == null || body.isEmpty()) return -1;
+        try {
+            return new JSONObject(body).optInt("code", -1);
+        } catch (JSONException e) {
+            return -1;
+        }
     }
 
     /**

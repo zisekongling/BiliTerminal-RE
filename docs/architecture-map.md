@@ -997,7 +997,10 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **移除会话 ≠ 删除聊天记录**：`remove_session` 只把会话从列表里拿掉，对方再发消息会重新出现。UI 的二次确认文案必须说清这一点，否则用户以为记录没了。
 - 会话类型常量在 `PrivateMsgApi`：`SESSION_TYPE_USER = 1`、`SESSION_TYPE_FAN_GROUP = 2`（本项目目前只处理用户私信，粉丝团未接）。
 - 返回码翻译统一走 `PrivateMsgApi.sessionErrorMsg(int)`（0→空串、-101→未登录、-400→"请求错误，会话可能已不存在"、其余保留错误码）。
-- UI 落点：`adapter/message/PrivateMsgSessionsAdapter.kt` 的会话项**长按弹 `AlertDialog` 菜单**（置顶/取消置顶、删除会话、查看用户主页）；`activity/message/MessageActivity.kt` 的会话加载已抽成 `loadSessions()`，adapter 通过构造参数 `onSessionsChanged` 回调它重新拉列表（服务端才是唯一真相）。
+- **会话免打扰不在 `session_svr` 下**（26.11.23 实测，`bilibili-API/docs/message/private_msg.md:1197-1242`）：`get_msg_dnd` / `set_msg_dnd` 属 `link_setting` 族，前缀是 `https://api.vc.bilibili.com/link_setting/v1/link_setting/`；参数不是 `talker_id`，而是 `uid`（**自己**的 mid）+ `setting`（0 取消 / 1 开启）+ `dnd_uid`（对方 mid）。已封装 `PrivateMsgApi.setMsgDnd(ownUid, talkerUid, dnd)`，纯函数 `settingForDnd(boolean)`（true→1）与 `parseDndCode(String)`（非 2xx 时 body 是 HTML，解析不出给 -1）都配了单测。
+- **会话对象自带 `is_dnd`（0/1）**，列表渲染不需要额外请求：`model/PrivateMsgSession.dnd` + `isDnd()`，`parseSessionsList` 里 `optInt("is_dnd", 0) == 1`。开启免打扰的会话在名字后面缀 `[免打扰]`（`UiText` 转资源）。
+- **会话页不再定时轮询**（26.11.23）：`activity/message/PrivateMsgActivity.kt` 原有一个 15 秒一跳的 `Timer` 拉新消息，手表上白耗电、断网时还会反复重试，已删掉，改为顶栏「刷新」按钮 + 写完私信返回时刷新。**停在会话里时仍持续标已读**：每次拉到新消息就 `update_ack` 到最后一条的 `msg_seqno`；ack 的 seqno **必须取刚拉到那批数据的局部变量**，不能读仍在 UI 线程异步填充的 `list`（IO 线程读到空表会抛）。
+- UI 落点：`adapter/message/PrivateMsgSessionsAdapter.kt` 的会话项长按走 `TerminalDialog.menu` 四项（置顶/取消置顶、消息免打扰/取消免打扰、删除会话、查看用户主页），删除项标 danger；`activity/message/MessageActivity.kt` 的会话加载已抽成 `loadSessions()`，adapter 通过构造参数 `onSessionsChanged` 回调它重新拉列表（服务端才是唯一真相）。
 
 ### 7.14 私信图片消息（`msg_type=2`，26.10.04 批次 5 新增）
 

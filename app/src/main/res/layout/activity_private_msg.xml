@@ -32,8 +32,8 @@
             android:layout_alignParentLeft="true"
             android:layout_marginVertical="3dp"
             android:layout_marginStart="8dp"
-            android:layout_toStartOf="@id/timeText"
-            android:layout_toLeftOf="@id/timeText"
+            android:layout_toStartOf="@id/refresh_btn"
+            android:layout_toLeftOf="@id/refresh_btn"
             android:lines="1"
             android:text="@string/pagename_private_message"
             android:textStyle="bold"
@@ -43,10 +43,31 @@
             android:id="@+id/timeText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginEnd="8dp"
+            android:layout_marginEnd="4dp"
             android:layout_marginVertical="3dp"
+            android:layout_centerVertical="true"
+            android:layout_toStartOf="@id/refresh_btn"
+            android:layout_toLeftOf="@id/refresh_btn" />
+
+        <!--
+          手动刷新按钮（26.11.23）：会话页原来每 15 秒自己拉一次新消息，切后台也不停，
+          手表上纯粹是白耗电；改成手动后必须给个入口。
+          不套 SwipeRefreshLayout 是因为本列表 stackFromEnd、滑到顶部已经是「加载更早的历史」，
+          再叠一个下拉手势会同时触发两个方向相反的请求。
+        -->
+        <ImageButton
+            android:id="@+id/refresh_btn"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_alignParentEnd="true"
             android:layout_alignParentRight="true"
-            android:layout_alignParentEnd="true" />
+            android:layout_centerVertical="true"
+            android:layout_marginEnd="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/uitext_privatemsgactivity_008"
+            android:padding="5dp"
+            android:scaleType="fitCenter"
+            android:src="@android:drawable/ic_menu_rotate" />
 
     </RelativeLayout>
 

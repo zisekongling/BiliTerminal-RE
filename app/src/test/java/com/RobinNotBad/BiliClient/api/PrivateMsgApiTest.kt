@@ -405,4 +405,53 @@ class PrivateMsgApiTest {
     fun requireOk_空响应也抛而不是静默当成空列表() {
         assertTrue(messageOf { PrivateMsgApi.requireOk(null) }.isNotEmpty())
     }
+
+    // ==================== 会话免打扰（26.11.23 批次①） ====================
+
+    @Test
+    fun settingForDnd_开是1关是0() {
+        // 官方口径（private_msg.md:1210）：setting 0 取消免打扰、1 开启免打扰。
+        // 写反的后果和置顶 op_type 一样：点「免打扰」实际是取消，不报错、极难发现。
+        assertEquals("开启免打扰必须传 1", 1, PrivateMsgApi.settingForDnd(true))
+        assertEquals("取消免打扰必须传 0", 0, PrivateMsgApi.settingForDnd(false))
+        assertEquals(PrivateMsgApi.DND_ON, PrivateMsgApi.settingForDnd(true))
+        assertEquals(PrivateMsgApi.DND_OFF, PrivateMsgApi.settingForDnd(false))
+    }
+
+    @Test
+    fun parseDndCode_正常响应取code() {
+        assertEquals(0, PrivateMsgApi.parseDndCode("""{"code":0,"message":"0","ttl":1}"""))
+        assertEquals(-101, PrivateMsgApi.parseDndCode("""{"code":-101,"message":"账号未登录"}"""))
+    }
+
+    @Test
+    fun parseDndCode_缺code按失败处理() {
+        // 没有 code 说明不是预期的 JSON 结构，不能当成功
+        assertEquals(-1, PrivateMsgApi.parseDndCode("""{"message":"0"}"""))
+    }
+
+    @Test
+    fun parseDndCode_非JSON与空值给负一() {
+        // 412 风控时 body 是 HTML，解析不出来要给 -1 让调用方翻成能看懂的话
+        assertEquals(-1, PrivateMsgApi.parseDndCode("<html><body>412</body></html>"))
+        assertEquals(-1, PrivateMsgApi.parseDndCode(""))
+        assertEquals(-1, PrivateMsgApi.parseDndCode(null))
+    }
+
+    @Test
+    fun parseSession_解析is_dnd() {
+        assertTrue(
+            "is_dnd 为 1 = 已开启免打扰",
+            PrivateMsgApi.parseSession(JSONObject("""{"talker_id":1001,"is_dnd":1}""")).isDnd
+        )
+        assertEquals(
+            false,
+            PrivateMsgApi.parseSession(JSONObject("""{"talker_id":1001,"is_dnd":0}""")).isDnd
+        )
+        assertEquals(
+            "缺字段按未开启处理",
+            false,
+            PrivateMsgApi.parseSession(JSONObject("""{"talker_id":1001}""")).isDnd
+        )
+    }
 }

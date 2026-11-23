@@ -18,6 +18,19 @@
 
 ## 1. 当前版本状态
 
+- **26.11.23 私信会话去掉 15 秒轮询、补上会话免打扰（对齐 PiliPlus 的消息治理层，批次①）**：
+  - **来路**：用户要求对比父目录 PiliPlus 的消息能力并「全量补全，不影响手表性能」。逐页比对后确认主链（四类通知入口 / 会话列表 / 会话详情 / 发送 / 撤回 / 已读回执）与 PiliPlus 同级，差的是会话治理层。批次①先做最伤手表体验的两件：会话详情页那个 15 秒一跳的 `Timer`（切后台还在跑、断网反复重试）与会话免打扰（PiliPlus 长按菜单里有，我们完全没做，`is_dnd` 解析出来就丢）。
+  - **改法**：
+    - `activity/message/PrivateMsgActivity.kt`：删 `refreshTimer` 与 `schedule(..., 15000, 15000)`；`refresh(manual: Boolean = false)` 改成——空表走首页全量重拉，有表按最后一条 `msgSeqno` 增量拉；每次拉到新消息后调新增的 `ackTo(seqno)` 补已读（原实现只在进页面 ack 一次，停留期间收到的新消息一直不标已读，退出再进才清）。
+    - ack 的 seqno 取刚拉到那批数据的**局部变量**，不读 `list`：`list` 是在 `runOnUiThread` 里异步填的，IO 线程读它会空表或越界。
+    - 顶栏新增 `refresh_btn`（`res/layout/activity_private_msg.xml`）做手动刷新；没套 `SwipeRefreshLayout`——列表是 `stackFromEnd`，滑到顶本身就是「加载更早历史」，再叠下拉会同时触发方向相反的两个请求。
+    - `model/PrivateMsgSession.java` 加 `dnd` / `isDnd()`；`api/PrivateMsgApi.java` 的 `parseSession` 读 `is_dnd`（0/1），新增 `setMsgDnd(ownUid, talkerUid, dnd)`（`link_setting/set_msg_dnd`，`uid` 填自己 mid、`dnd_uid` 填对方 mid）与纯函数 `settingForDnd` / `parseDndCode`。
+    - `adapter/message/PrivateMsgSessionsAdapter.kt`：长按菜单从三项扩到四项（置顶 / 取消置顶、消息免打扰 / 取消免打扰、删除会话、查看用户主页），开关失败按 `sessionErrorMsg(code)` 提示并保持原状态；开启后名字后面缀 `[免打扰]`，与既有的置顶前缀在同一处拼装。
+    - 文案全部进 `strings.xml`（`uitext_privatemsgsessionsadapter_012..016`、`uitext_privatemsgactivity_008/009`）并在 `util/UiText.kt` 登记。
+  - **验证**：L0——`:app:assembleStandardDebug` `BUILD SUCCESSFUL in 5m 14s`（零 error，只剩既有 deprecation 告警）；`:app:testStandardDebugUnitTest` `BUILD SUCCESSFUL in 1m 16s`，314 份报告 / 3368 例 / 0 失败 0 错误；`PrivateMsgApiTest` 43 例（本轮新增 5 例：`settingForDnd` 的 1/0 口径、`parseDndCode` 的正常 / 缺 code / 非 JSON 与空值、`parseSessionsList` 的 `is_dnd`）。
+  - **未做**：批次②（会话项「标为已读」、单会话「聊天设置」页——推送开关 `get_session_ss`/`set_push_ss`、置顶、免打扰、拦截 `update_intercept`、应援团会话按 `session_type=3` 并入列表并修两个空转开关）与批次③（举报单条私信、通知类消息删除与免打扰、赞详情、消息屏蔽词，均走 `private/`）本轮未动；折叠会话按用户拍板不做。
+  - **未验证（L2，需人工看画面）**：①真表点顶栏刷新按钮，确认能拉回新消息并滚到底、没有新消息时提示「已是最新消息」；②长按会话出现四项菜单，切换免打扰后名字后缀 `[免打扰]` 即时出现 / 消失，退出重进仍保持；③停在一个会话里让对方发消息，确认不再有 15 秒一次的自动刷新与「秒弹」，且返回会话列表时未读数已清；④免打扰会话来新消息时是否仍弹通知（服务端是否已按 dnd 拦下，需真号验证）。
+
 - **26.11.23 OkHttp 4.12.0 降回 3.12.13，minSdk 21 → 19（恢复 Android 4.4）**：
   - **来路**：issue #35（Android 4.4 设备一联网就 `NoClassDefFoundError: okhttp3/internal/platform/Platform`）。26.10.30 把 okhttp 写成 4.12.0、26.11.10 把 minSdk 下调到 19，两者叠在一起等于**从来没有一个版本在 4.4 上真跑通过**；26.11.21 先把 minSdk 暂回 21 止血，本轮按既定计划改回 4.4。
   - **改法**：

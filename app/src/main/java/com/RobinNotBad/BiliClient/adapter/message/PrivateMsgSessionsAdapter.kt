@@ -118,7 +118,15 @@ class PrivateMsgSessionsAdapter(
                 else -> ""
             }
             // 置顶态没有布尔字段，靠 top_ts 是否非零判断
-            val displayName = if (msgContent.isTop()) "[置顶] $baseName" else baseName
+            val displayName = buildString {
+                if (msgContent.isTop()) append("[置顶] ")
+                append(baseName)
+                // 免打扰标记放在名字后面：手表上名字行是单行省略，标记在后才不至于把名字挤没
+                if (msgContent.isDnd()) {
+                    append(' ')
+                    append(UiText.of("[免打扰]"))
+                }
+            }
             // 系统会话的未读记在 biz_msg_unread_count 里，只看 unread 的话永远显示 0 条未读
             val unread = msgContent.unreadTotal()
             if (unread > 0 && SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.PRIVATE_MSG_UNREAD_BADGE_ENABLE, false)) {
@@ -181,25 +189,30 @@ class PrivateMsgSessionsAdapter(
     }
 
     /**
-     * 会话项长按菜单：置顶/取消置顶、删除会话、查看用户主页。
-     * 这两个接口都只改服务端的会话列表（删除不会清聊天记录），所以成功后统一重新拉一次列表。
+     * 会话项长按菜单：置顶/取消置顶、免打扰开关、删除会话、查看用户主页。
+     *
+     * 这几个接口都只改服务端的会话状态（删除不会清聊天记录），成功后统一回调和刷新。
+     * 26.11.23 加了免打扰：会话里的 is_dnd 只有服务端知道，本地改完要立刻重绑这一项，
+     * 否则要等下一次整表刷新才看得到标记。
      */
     private fun showSessionMenu(session: PrivateMsgSession) {
         val actions = arrayOf(
             if (session.isTop()) UiText.of("取消置顶") else UiText.of("置顶会话"),
+            if (session.isDnd()) UiText.of("取消免打扰") else UiText.of("消息免打扰"),
             UiText.of("删除会话"),
             UiText.of("查看用户主页")
         )
-        // 第 1 项（删除会话）是破坏性操作，用危险色标出来
+        // 第 2 项（删除会话）是破坏性操作，用危险色标出来
         TerminalDialog.menu(
             context = context,
             title = UiText.of("会话操作"),
             items = actions.toList(),
-            danger = setOf(1)
+            danger = setOf(2)
         ) { which ->
             when (which) {
                 0 -> setSessionTop(session, !session.isTop())
-                1 -> confirmRemoveSession(session)
+                1 -> setSessionDnd(session, !session.isDnd())
+                2 -> confirmRemoveSession(session)
                 else -> BiliTerminal.jumpToUser(context, session.talkerUid)
             }
         }.show()
@@ -228,6 +241,37 @@ class PrivateMsgSessionsAdapter(
                         onSessionsChanged?.invoke()
                     } else {
                         MsgUtil.showMsg(error)
+                    }
+                }
+            } catch (e: Exception) {
+                CenterThreadPool.runOnUiThread { MsgUtil.err(e) }
+            }
+        }
+    }
+
+    /**
+     * 开关会话免打扰。
+     *
+     * 接口是 link_setting/set_msg_dnd（不是 session_svr 那一族），参数要自己的 mid 与对方 mid，
+     * 口径见 PrivateMsgApi.setMsgDnd。成功后直接改本地对象并只重绑这一项：
+     * 省掉一次整表重拉，标记立刻可见。
+     */
+    private fun setSessionDnd(session: PrivateMsgSession, dnd: Boolean) {
+        CenterThreadPool.run {
+            try {
+                val ownUid = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0L)
+                val code = PrivateMsgApi.setMsgDnd(ownUid, session.talkerUid, dnd)
+                CenterThreadPool.runOnUiThread {
+                    if (code == 0) {
+                        session.dnd = dnd
+                        val index = sessionsList.indexOfFirst { it.talkerUid == session.talkerUid }
+                        if (index >= 0) notifyItemChanged(index)
+                        MsgUtil.showMsg(
+                            if (dnd) UiText.of("已开启免打扰") else UiText.of("已取消免打扰")
+                        )
+                        onSessionsChanged?.invoke()
+                    } else {
+                        MsgUtil.showMsg(PrivateMsgApi.sessionErrorMsg(code))
                     }
                 }
             } catch (e: Exception) {

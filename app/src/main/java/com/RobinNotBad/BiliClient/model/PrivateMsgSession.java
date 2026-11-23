@@ -70,6 +70,18 @@ public class PrivateMsgSession {
         return unread + bizUnread;
     }
 
+    /**
+     * 是否对该会话开启了消息免打扰（会话里的 is_dnd：0 关闭、1 开启）。
+     *
+     * <p>见 bilibili-API/docs/message/private_msg.md:16；只影响服务端是否给这台设备推消息提醒，
+     * 改状态走 {@link com.RobinNotBad.BiliClient.api.PrivateMsgApi#setMsgDnd}。
+     */
+    public boolean dnd = false;
+
+    public boolean isDnd() {
+        return dnd;
+    }
+
     public boolean isTop() {
         return topTs > 0;
     }

@@ -2270,6 +2270,13 @@
     <string name="uitext_privatemsgsessionsadapter_009">已置顶</string>
     <string name="uitext_privatemsgsessionsadapter_010">已取消置顶</string>
     <string name="uitext_privatemsgsessionsadapter_011">B站官方消息</string>
+    <string name="uitext_privatemsgsessionsadapter_012">[免打扰]</string>
+    <string name="uitext_privatemsgsessionsadapter_013">消息免打扰</string>
+    <string name="uitext_privatemsgsessionsadapter_014">取消免打扰</string>
+    <string name="uitext_privatemsgsessionsadapter_015">已开启免打扰</string>
+    <string name="uitext_privatemsgsessionsadapter_016">已取消免打扰</string>
+    <string name="uitext_privatemsgactivity_008">刷新</string>
+    <string name="uitext_privatemsgactivity_009">已是最新消息</string>
     <string name="uitext_followgroupadapter_001"> 位成员</string>
     <string name="uitext_medallistadapter_001"> (佩戴中)</string>
     <string name="uitext_medallistadapter_002">亲密度: </string>
