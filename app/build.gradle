@@ -32,6 +32,13 @@ if (appChannel != 'stable' && appSeq < 1) {
 }
 
 def appVersionCode = appVersionDate.replaceAll('\\.', '').toInteger() * 100 + appChannelCode * 10 + appSeq
+
+// ── 诊断全量日志（仅 Debug 包）──────────────────────────────────────────────
+// 26.11.23 新增：安卓 5 缓存页崩溃没有 Java 栈，需要一份「崩溃前就在持续落盘」的全量日志。
+// 用法：./gradlew :app:assembleStandardDebug -PdiagLog=true
+// 效果：BuildConfig.DIAG_FULL_LOG=true，versionName 追加 -DIAG；仅 debug 分支会置 true，
+//       release 分支恒为 false，正式包完全不受影响（见 buildTypes.debug）。
+def diagFullLog = (project.findProperty('diagLog') ?: 'false').toString().trim().equalsIgnoreCase('true')
 def appVersionName = appVersionDate + (appChannel == 'stable'
         ? (appSeq > 0 ? ".${appSeq}" : "")
         : "-${appChannel}.${appSeq}")
@@ -168,6 +175,8 @@ android {
             buildConfigField "String", "UPDATE_CHANNEL", "\"${appChannel}\""
             buildConfigField "String", "VERSION_NAME_BASE", "\"${appVersionDate}\""
             buildConfigField "boolean", "LOG_DEBUG", "false"
+            // 正式包永不写公共目录的全量日志（debug 分支才按 -PdiagLog 打开）
+            buildConfigField "boolean", "DIAG_FULL_LOG", "false"
             shrinkResources true
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
@@ -194,6 +203,11 @@ android {
             // （否则 INSTALL_FAILED_UPDATE_INCOMPATIBLE，联调只能卸载重装、丢登录态）。
             // local.properties 没配 KEY_PATH 时回落到默认 debug 签名，公开仓库仍能独立编译。
             signingConfig signingConfigs.release.storeFile != null ? signingConfigs.release : signingConfigs.debug
+            // -PdiagLog=true 时打开全量诊断日志，并在版本名上标出来，避免和普通 Debug 包混淆
+            buildConfigField "boolean", "DIAG_FULL_LOG", String.valueOf(diagFullLog)
+            if (diagFullLog) {
+                versionNameSuffix "-DIAG"
+            }
             minifyEnabled false
             shrinkResources false
 

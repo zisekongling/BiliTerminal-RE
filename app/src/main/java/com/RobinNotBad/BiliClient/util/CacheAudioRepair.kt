@@ -1,5 +1,8 @@
 package com.RobinNotBad.BiliClient.util
 
+import android.os.Build
+import com.RobinNotBad.BiliClient.BiliTerminal
+import com.RobinNotBad.BiliClient.BuildConfig
 import com.RobinNotBad.BiliClient.service.download.DownloadPathSpec
 import java.io.File
 import java.util.concurrent.Executors
@@ -31,6 +34,8 @@ import java.util.concurrent.Executors
  *   重试只是白烧电量与磁盘写入。
  * - **不动正在播放的目录**（[setPlayingDir]）：播放中替换/删除正在被 `MediaPlayer` 读的文件在
  *   Linux 上不会立刻出错，但用户下一次 seek / 重新载入就会撞上「文件不存在」。
+ * - **Android 7.1 以下整体跳过**：这些缓存基本是带 B 帧的 H.264，而 MediaMuxer 从 API 25
+ *   才支持 MP4 B 帧；更低版本写进去会 native 崩溃（catch 不住），只能保留双文件。
  */
 object CacheAudioRepair {
 
@@ -88,6 +93,12 @@ object CacheAudioRepair {
     @JvmStatic
     fun enqueueAll(dirs: Collection<File>) {
         if (dirs.isEmpty()) return
+        // 这些缓存基本都是带 B 帧的 H.264；Android 7.1 之前 MediaMuxer 写 B 帧会 native 崩溃，
+        // 不是 Java 异常、catch 不住，只能整段跳过，保留双文件继续按外挂音轨播放。
+        if (!MediaMuxerSupport.supportsBFrameMuxing(Build.VERSION.SDK_INT)) {
+            Logu.i(TAG, "跳过缓存重封装：Android 7.1（API 25）以下 MediaMuxer 不支持 B 帧")
+            return
+        }
         val accepted = ArrayList<File>(dirs.size)
         synchronized(attempted) {
             for (dir in dirs) {
@@ -97,9 +108,9 @@ object CacheAudioRepair {
                 accepted.add(dir)
             }
         }
-        for (dir in accepted) {
+        for ((index, dir) in accepted.withIndex()) {
             try {
-                worker.execute { repairOne(dir) }
+                worker.execute { repairOne(dir, index + 1, accepted.size) }
             } catch (e: Exception) {
                 Logu.e(TAG, "排入重封装失败：${dir.name} ${e.message}")
             }
@@ -107,42 +118,75 @@ object CacheAudioRepair {
     }
 
     /** 真正干活：重封装 → 替换视频 → 删音频。任何一步失败都保留原样（双文件仍可播放）。 */
-    private fun repairOne(dir: File) {
-        // 排队期间用户可能已经开始播它了：开抢之前再看一眼
-        if (dir.absolutePath == playingDir) return
-        if (!shouldRepair(dir.list()?.toList())) return
+    private fun repairOne(dir: File, index: Int, total: Int) {
         val videoFile = File(dir, DownloadPathSpec.FILE_VIDEO)
         val audioFile = File(dir, DownloadPathSpec.FILE_AUDIO)
-        val mergedTmp = File(dir, DownloadPathSpec.FILE_VIDEO_MERGING)
-        val startedAt = System.currentTimeMillis()
-        val result = try {
-            MediaMerger.mergeAv(videoFile = videoFile, audioFile = audioFile, mergedFile = mergedTmp)
-        } catch (e: Exception) {
-            Logu.e(TAG, "重封装异常：${dir.name} ${e.message}")
-            return
+        val where = "index=$index/$total dir=${dir.absolutePath}"
+        var end = "unknown"
+
+        // 同步落盘：native MediaMuxer 崩溃时进程会当场死，异步队列里的日志会丢。
+        syncMarker("REPAIR-START", "$where video=${videoFile.length()} audio=${audioFile.length()}")
+        try {
+            // 排队期间用户可能已经开始播它了：开抢之前再看一眼
+            if (dir.absolutePath == playingDir) {
+                end = "skip-playing"
+                return
+            }
+            if (!shouldRepair(dir.list()?.toList())) {
+                end = "skip-not-pair"
+                return
+            }
+            val mergedTmp = File(dir, DownloadPathSpec.FILE_VIDEO_MERGING)
+            val startedAt = System.currentTimeMillis()
+            val result = try {
+                MediaMerger.mergeAv(
+                    videoFile = videoFile,
+                    audioFile = audioFile,
+                    mergedFile = mergedTmp,
+                    onStage = { stage ->
+                        syncMarker("REPAIR-STAGE", "$where stage=$stage")
+                    }
+                )
+            } catch (e: Exception) {
+                Logu.e(TAG, "重封装异常：${dir.name} ${e.message}")
+                end = "exception:${e.javaClass.simpleName}"
+                return
+            }
+            val cost = System.currentTimeMillis() - startedAt
+            if (result != MediaMerger.RESULT_OK) {
+                Logu.w(TAG, "重封装未完成（result=$result，耗时${cost}ms），保留双文件：${dir.name}")
+                end = "result=$result"
+                return
+            }
+            if (!mergedTmp.isFile || mergedTmp.length() <= 0L) {
+                Logu.e(TAG, "重封装产物为空，保留双文件：${dir.name}")
+                mergedTmp.delete()
+                end = "empty-output"
+                return
+            }
+            if (!replaceTemp(mergedTmp, videoFile)) {
+                Logu.e(TAG, "重封装产物替换失败，保留双文件：${dir.name}")
+                mergedTmp.delete()
+                end = "replace-failed"
+                return
+            }
+            if (!audioFile.delete()) {
+                // 视频已经换成单文件了，音频删不掉只是多占一份空间，不影响播放
+                Logu.w(TAG, "已换成合并视频，但 audio.m4a 删不掉：${dir.name}")
+            }
+            Logu.i(TAG, "重封装完成（耗时${cost}ms）：${dir.name}")
+            // 缓存文件真的变了：让还活着的缓存页下次回来时重扫，条目大小才对得上（反馈 #162）
+            CacheChangeSignal.markChanged()
+            end = "ok"
+        } finally {
+            syncMarker("REPAIR-END", "$where result=$end")
         }
-        val cost = System.currentTimeMillis() - startedAt
-        if (result != MediaMerger.RESULT_OK) {
-            Logu.w(TAG, "重封装未完成（result=$result，耗时${cost}ms），保留双文件：${dir.name}")
-            return
-        }
-        if (!mergedTmp.isFile || mergedTmp.length() <= 0L) {
-            Logu.e(TAG, "重封装产物为空，保留双文件：${dir.name}")
-            mergedTmp.delete()
-            return
-        }
-        if (!replaceTemp(mergedTmp, videoFile)) {
-            Logu.e(TAG, "重封装产物替换失败，保留双文件：${dir.name}")
-            mergedTmp.delete()
-            return
-        }
-        if (!audioFile.delete()) {
-            // 视频已经换成单文件了，音频删不掉只是多占一份空间，不影响播放
-            Logu.w(TAG, "已换成合并视频，但 audio.m4a 删不掉：${dir.name}")
-        }
-        Logu.i(TAG, "重封装完成（耗时${cost}ms）：${dir.name}")
-        // 缓存文件真的变了：让还活着的缓存页下次回来时重扫，条目大小才对得上（反馈 #162）
-        CacheChangeSignal.markChanged()
+    }
+
+    /** 诊断包专用：同步写一条重封装标记；普通包是 no-op。 */
+    private fun syncMarker(title: String, body: String) {
+        if (!BuildConfig.DEBUG || !BuildConfig.DIAG_FULL_LOG) return
+        PublicLogRecorder.appendSync(BiliTerminal.context, title, body)
     }
 
     /**

@@ -69,6 +69,15 @@ public class Logu {
     /** 是否把日志落盘。开启后日志同时进 logcat 与文件，agent 不必保持 adb 连接也能事后取证。 */
     public static volatile boolean LOG_TO_FILE = false;
 
+    /**
+     * 全量诊断日志（仅 Debug + -PdiagLog=true）。
+     *
+     * <p>为 true 时 [toFile] 把**所有级别**都交给 [PublicLogRecorder]，直接写公共
+     * Download/rebili-full.log；此时应用专属的 rebili.log 不再写，避免同一份日志双写。
+     * 环形缓冲只保留 W/E/F，保证崩溃页附带的日志不会被 v/d/i 挤满。
+     */
+    public static volatile boolean FULL_LOG_TO_PUBLIC = false;
+
     /** 日志文件主名（业务日志）。HTTP 追踪见 [HTTP_LOG_NAME]。 */
     public static final String APP_LOG_NAME = "rebili.log";
 
@@ -381,8 +390,13 @@ public class Logu {
     private static void toFile(String level, String caller, String text) {
         String sanitized = text == null ? null : LogSanitizer.sanitize(text);
         String line = TIME_FORMAT.format(new Date()) + " " + level + " " + caller + " | " + shorten(sanitized);
-        recordToRing(line);
-        enqueue(APP_LOG_NAME, line);
+        // 全量模式下 v/d/i 不再进环形缓冲，否则崩溃页附带的 W/E/F 会被刷掉
+        if (!FULL_LOG_TO_PUBLIC || !isVerboseLevel(level)) recordToRing(line);
+        if (FULL_LOG_TO_PUBLIC) {
+            PublicLogRecorder.record(line);
+        } else {
+            enqueue(APP_LOG_NAME, line);
+        }
     }
 
     /**
@@ -394,7 +408,16 @@ public class Logu {
         // 不脱敏就直接落盘等于把它们写进 http.log。顺序与 [toFile] 一致——先脱敏、再 shorten()：
         // 若先截断再脱敏，超长行被截断后敏感值可能只剩前半截，脱敏就匹配不全、凭证反而漏出去。
         String sanitized = text == null ? null : LogSanitizer.sanitize(text);
-        enqueue(fileName, TIME_FORMAT.format(new Date()) + " " + level + " " + shorten(sanitized));
+        String line = TIME_FORMAT.format(new Date()) + " " + level + " " + shorten(sanitized);
+        if (FULL_LOG_TO_PUBLIC) {
+            PublicLogRecorder.record(line);
+        } else {
+            enqueue(fileName, line);
+        }
+    }
+
+    private static boolean isVerboseLevel(String level) {
+        return "V".equals(level) || "D".equals(level) || "I".equals(level);
     }
 
     private static void enqueue(String fileName, String line) {
@@ -513,6 +536,10 @@ public class Logu {
      * 执行到它就说明前面的都写完了——**不跨线程碰 `BufferedWriter`**（见 [QUEUE] 的说明）。
      */
     public static void flush(long timeoutMs) {
+        if (FULL_LOG_TO_PUBLIC) {
+            PublicLogRecorder.flush();
+            return;
+        }
         if (!LOG_TO_FILE) return;
         CountDownLatch latch = new CountDownLatch(1);
         boolean queued = submit(() -> {
@@ -591,7 +618,7 @@ public class Logu {
 
     /** 已丢弃的日志行数（队列满时累加）。agent 可据此判断日志是否完整。 */
     public static long getDroppedCount() {
-        return DROPPED.get();
+        return DROPPED.get() + PublicLogRecorder.droppedCount();
     }
 
     /** 列出日志目录下的文件，形如 `rebili.log:12345` 的多行文本。 */

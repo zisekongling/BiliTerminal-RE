@@ -34,6 +34,7 @@
 - **别用 `ro.kernel.qemu` 判真机/模拟器**——MuMu 不写这个属性（实测为空），脚本改成看 AVD 序列号、`ro.hardware`、虚拟机 DMI（MuMu 报 `innotek GmbH` / `NiohBox`）、本机回环 TCP、x86 ABI 兜底。
 - MuMu 会同时开 5555 / 7555 / 16384 三个转发口，`adb devices` 会出现三条同一台机器，脚本按 `settings get secure android_id` 去重成一台。
 - 调试包签名：26.11.19 起**本机 `local.properties` 配了 `KEY_PATH` 时 debug 包直接共用正式签名**（`app/build.gradle` 的 `buildTypes.debug`：`signingConfigs.release.storeFile != null ? release : debug`），所以设备上装着正式版也能 `-r` 覆盖升级、不丢登录态；没配 `KEY_PATH`（别人 clone 下来直接编）时退回默认 debug 签名，公开仓库仍能独立编译。签名仍不一致时 adb 拒装，脚本会提示先卸载（**会清空登录态**），别自动替用户卸。
+- **临时全量诊断包**：`./gradlew.bat :app:assembleStandardDebug -PdiagLog=true --no-configuration-cache`。`-PdiagLog=true` 只对 debug 生效（`BuildConfig.DIAG_FULL_LOG=true`，`versionNameSuffix` 加 `-DIAG`；release 恒 false），启动后把全级别日志持续写到 `Download/rebili-full.log`（5MB 上限、超限保留末尾 2.5MB），崩溃页也会同步追加。**必须带 `--no-configuration-cache`**：Gradle configuration cache 会复用旧的 `diagLog=false`，包看起来新、实际没开日志。日志含全量请求与设备信息，只本地分析，不要公开上传。
 
 ## 多模块与工具链
 

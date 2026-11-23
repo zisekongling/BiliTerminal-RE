@@ -1531,6 +1531,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **进度**：数据部分（视频 + 音频流）按**真实字节**走，合并阶段不再单独占区间——音频下完 `finishAllProgress` 把进度顶到 100%，合并时只换状态文案（26.11.10 改造前的「附件 0.12 → 视频 0.52 → 音频 0.88 → 合并 1.00」权重摊派只剩兜底，见 §7.27 末段）。
 - **暂停语义**：合并开始前若已暂停就不合并（走 `runDownloadSection` 的暂停分支）；合并中**不响应暂停**（几秒内能完成，中途停手反而要处理半成品），只有 `started == false`（服务销毁）时中止并按未完成处理。`shouldStop = { !started }`。
 - **残留清理**：合并临时文件固定叫 `video_merging.tmp`（`DownloadPathSpec.FILE_VIDEO_MERGING`），**刻意不用 `.mp4` 后缀**——`LocalListActivity.scanVideos` 有对历史残留 `video_merged_temp.mp4` 的「改名成 video.mp4」兼容逻辑，复用那个名字会把半成品认成成品。中断残留由 `FileUtil.cleanDownloadTempFiles` 清（已加该文件名）。
+- **B 帧边界（26.11.23）**：Android 的 `MediaMuxer` 从 **API 25（Android 7.1 / Nougat MR1）** 才支持 MP4 B 帧；API <25 写带 B 帧的 H.264 会在 native 层直接崩溃（SIGSEGV / abort，Java `catch` 接不住）。`util/MediaMuxerSupport.kt` 把阈值抽成纯函数，`MediaMerger.mergeAv` 与 `CacheAudioRepair.enqueueAll` 都先判，低于 25 直接跳过、保留双文件；否则安卓 5.1 打开缓存页会在 `REPAIR-STAGE stage=write` 后直接消失，日志没有 `REPAIR-END`。
 - **播放侧不用动**：合并成功后目录里只剩 `video.mp4`，`LocalListActivity` 天然走单文件路径；老的 DASH 双文件缓存仍然按「`audio.m4a` 当外部音轨」播放（`PlayerActivity.audioTrackUrl` / `LocalAudioTrackPolicy`，见 §7.4）。
 - **验证接口**：Debug 包 `DebugBridge` 的 `merge` 命令可直接对两条 m4s 跑正式代码路径（用法与判据见 `docs/review/agent-test-guide.md` §4.8）。
 

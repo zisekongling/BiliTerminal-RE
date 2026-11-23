@@ -18,6 +18,13 @@
 
 ## 1. 当前版本状态
 
+- **26.11.23 安卓 5.1 打开缓存页崩溃：MediaMuxer 不支持 B 帧，API <25 跳过重封装**：
+  - **来路**：26.11.23-DIAG 诊断包在 ZTE Q529C / Android 5.1（SDK 22）上复现两次：进入缓存页后 `REPAIR-START index=1/29`，依次经过 `extractor / tracks / muxer / muxer-start / write` 五个阶段，随后进程直接消失；没有 `REPAIR-END`，应用日志也没有 Java 异常，属 native 层崩溃。
+  - **根因**：Android 官方文档写明 `MediaMuxer` 从 **Android 7.1（API 25，Nougat MR1）** 起才支持 muxing B-frames in MP4。B 站 1080P DASH 的 H.264 带 B 帧，API 22 上第一次 `writeSampleData` 就会在 native 层触发 SIGSEGV / abort；Java 的 `try-catch` 接不住，崩溃页也来不及写 `REPAIR-END`。
+  - **改法**：新增 `app/src/main/java/com/RobinNotBad/BiliClient/util/MediaMuxerSupport.kt`（纯函数 `supportsBFrameMuxing(sdkInt)`，阈值 `MIN_SDK_B_FRAME_MUXING = 25`）；`app/src/main/java/com/RobinNotBad/BiliClient/util/MediaMerger.kt` 的 `mergeAv` 在 API <25 直接返回 `RESULT_FAILED`（同时保护下载侧 `DownloadService.mergeDashPair`）；`app/src/main/java/com/RobinNotBad/BiliClient/util/CacheAudioRepair.kt` 的 `enqueueAll` 在 API <25 直接跳过，避免缓存页把 29 个必崩任务排进队列。双文件保留，播放器仍按外挂音轨播放（1 倍速），**不再崩溃**。
+  - **L0（26.11.23 本机）**：`:app:testStandardDebugUnitTest :app:assembleStandardDebug -PdiagLog=true --no-configuration-cache` → BUILD SUCCESSFUL（1m47s，93 tasks）；新增 `MediaMuxerSupportTest` **2/2**（API 24 及以下 false、API 25 起 true），`LogFileRotationTest` **5/5**；APK 仍是 `com.RobinNotBad.BiliClient` / `26.11.23-DIAG` / release 证书 v1+v2，`classes2.dex` 含 `MediaMuxerSupport` 与 `REPAIR-START`。
+  - **未验证（L1/L2，需真机）**：重装 v3 后打开缓存页，确认不再瞬间回到桌面；`Download/rebili-full.log` 应出现「跳过缓存重封装：Android 7.1（API 25）以下 MediaMuxer 不支持 B 帧」，且不再出现 `REPAIR-START`；原有双文件条目仍能正常播放（外挂音轨、1 倍速）。
+  - **代价**：Android 7.1 以下不再自动把双文件合成单文件，这类设备继续保留双文件；这是平台 `MediaMuxer` 的硬限制，不是本轮能靠重排时间戳绕过的（官方明确 API 25 才支持 B 帧）。
 - **26.11.23 新增单会话「聊天设置」页（对齐 PiliPlus 的会话级治理，批次②-2）**：
   - **来路**：批次②-1 之后还差一块——PiliPlus 有单会话的 `whisper_link_setting`（推送开关 / 置顶 / 免打扰 / 拉黑 / 举报），我们只能在长按菜单里开关置顶与免打扰，其余全无。用户拍板五项：接收消息推送、置顶聊天、消息免打扰、拦截此会话消息、拉黑对方，入口放会话长按菜单。
   - **改法**：

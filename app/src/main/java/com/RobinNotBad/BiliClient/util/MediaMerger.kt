@@ -4,6 +4,7 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
+import android.os.Build
 import android.os.StatFs
 import java.io.File
 import java.nio.ByteBuffer
@@ -25,6 +26,9 @@ import java.nio.ByteBuffer
  *
  * 注意：[MediaMuxer] 无法写入杜比全景声（ec-3/eac3）与无损 FLAC 音轨；本项目选流时已经优先
  * 选 AVC + AAC（见 `model/DashData.java` 的 codecPriority），正常路径不会撞上。
+ *
+ * 另一个硬边界：Android 7.1（API 25，Nougat MR1）之前 MediaMuxer 不支持 MP4 B 帧，
+ * 带 B 帧的 H.264 会在 native 层直接崩溃；低于该版本时本方法直接返回失败，见 [MediaMuxerSupport]。
  */
 object MediaMerger {
 
@@ -73,8 +77,23 @@ object MediaMerger {
         audioFile: File,
         mergedFile: File,
         onProgress: ((Float) -> Unit)? = null,
-        shouldStop: (() -> Boolean)? = null
+        shouldStop: (() -> Boolean)? = null,
+        onStage: ((String) -> Unit)? = null
     ): Int {
+        fun stage(name: String) {
+            try {
+                onStage?.invoke(name)
+            } catch (_: Throwable) {
+                // 诊断回调绝不能影响合并本身
+            }
+        }
+
+        if (!MediaMuxerSupport.supportsBFrameMuxing(Build.VERSION.SDK_INT)) {
+            // Android 7.1（API 25）之前 MediaMuxer 不支持 MP4 B 帧，带 B 帧的 H.264 会在 native 层直接崩溃。
+            Logu.w(TAG, "合并跳过：Android ${Build.VERSION.RELEASE}（API ${Build.VERSION.SDK_INT}）的 MediaMuxer 不支持 B 帧")
+            return RESULT_FAILED
+        }
+
         if (!videoFile.isFile || !audioFile.isFile) {
             Logu.e(TAG, "合并跳过：输入文件不存在（video=${videoFile.absolutePath} audio=${audioFile.absolutePath}）")
             return RESULT_FAILED
@@ -99,11 +118,13 @@ object MediaMerger {
         var muxerStarted = false
 
         try {
+            stage("extractor")
             videoExtractor = MediaExtractor()
             videoExtractor.setDataSource(videoFile.absolutePath)
             audioExtractor = MediaExtractor()
             audioExtractor.setDataSource(audioFile.absolutePath)
 
+            stage("tracks")
             val videoTrackIndex = selectTrack(videoExtractor, "video/")
             val audioTrackIndex = selectTrack(audioExtractor, "audio/")
             if (videoTrackIndex < 0 || audioTrackIndex < 0) {
@@ -116,14 +137,17 @@ object MediaMerger {
             val videoFormat = videoExtractor.getTrackFormat(videoTrackIndex)
             val audioFormat = audioExtractor.getTrackFormat(audioTrackIndex)
 
+            stage("muxer")
             muxer = MediaMuxer(mergedFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             val videoOutTrack = muxer.addTrack(videoFormat)
             val audioOutTrack = muxer.addTrack(audioFormat)
             val rotation = if (videoFormat.containsKey(KEY_ROTATION)) videoFormat.getInteger(KEY_ROTATION) else 0
             if (rotation != 0) muxer.setOrientationHint(rotation)
+            stage("muxer-start")
             muxer.start()
             muxerStarted = true
 
+            stage("write")
             result = copySamples(
                 videoExtractor, audioExtractor, muxer,
                 videoOutTrack, audioOutTrack, inputBytes, onProgress, shouldStop
@@ -132,6 +156,7 @@ object MediaMerger {
             Logu.e(TAG, "合并失败：${videoFile.name} + ${audioFile.name}", e)
             result = RESULT_FAILED
         } finally {
+            stage("stop")
             releaseExtractor(videoExtractor)
             releaseExtractor(audioExtractor)
             if (muxerStarted) {
@@ -143,6 +168,7 @@ object MediaMerger {
                     result = RESULT_FAILED
                 }
             }
+            stage("release")
             try {
                 muxer?.release()
             } catch (e: Exception) {

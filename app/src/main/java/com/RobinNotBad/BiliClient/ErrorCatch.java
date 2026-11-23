@@ -10,6 +10,7 @@ import androidx.annotation.NonNull;
 import com.RobinNotBad.BiliClient.activity.CatchActivity;
 import com.RobinNotBad.BiliClient.util.CrashTrail;
 import com.RobinNotBad.BiliClient.util.Logu;
+import com.RobinNotBad.BiliClient.util.PublicLogRecorder;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -40,6 +41,18 @@ public class ErrorCatch implements Thread.UncaughtExceptionHandler {
         Writer writer = new StringWriter();
         PrintWriter printWriter = new PrintWriter(writer);
         throwable.printStackTrace(printWriter);
+
+        // 诊断包专用：先在崩溃线程把堆栈同步追加到公共日志。
+        // 平时这里连磁盘都不碰（见下面注释），但诊断包的意义就是「崩溃页万一在
+        // 安卓 5 上起不来也要留下堆栈」；只写一小段文本、整体 try/catch 包住，
+        // 失败也绝不会影响后面的崩溃页拉起与进程退出。
+        if (BuildConfig.DEBUG && BuildConfig.DIAG_FULL_LOG) {
+            try {
+                PublicLogRecorder.appendCrash(context, "CRASH-THREAD", writer.toString());
+            } catch (Throwable ignored) {
+                // 崩溃路径上不允许二次抛出
+            }
+        }
 
         try {
             Intent intent = new Intent(context, CatchActivity.class);
