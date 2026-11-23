@@ -18,6 +18,12 @@
 
 ## 1. 当前版本状态
 
+- **26.11.23 #265 缓存页多选操作栏被压成两行**：
+  - **来路**：控制台反馈 #265「缓存页选中多个后，上面那一栏文字被挤成两行」。改造前 `res/layout/activity_simple_main_refresh.xml` 的 multiSelectBar 里，计数 `textSelectedCount` 是 0dp + weight=1 但没有任何行数约束，右侧三个 13sp 按钮占掉固定宽度，42mm 屏上计数被压折行，整条栏高度翻倍、按钮跟着错位。
+  - **改法**：计数加 `maxLines=1` + `ellipsize=end`，并用 AppCompat 自动缩字号（`autoSizeTextType="uniform"`，13sp→9sp 步进 1sp），长文案在小屏自动收字号而不是折行；四个按钮 `btnMultiSelect` / `btnMultiSelectAll` / `btnMultiOperate` / `btnMultiExit` 各补 `maxLines=1` + `ellipsize=end` 兜底（按钮文案本身短，主要是防止主题换成大字或英文时被压成两行）。
+  - **验证**：L0（隔离副本）`assembleDebug` 双 flavor 通过；`testStandardDebugUnitTest` 3047 例、1 处失败与本轮无关（`ConventionGuardTest` 需要 `.git`，隔离副本没有）。
+  - **未做**：同一反馈里「引导符 ▸ / › 显示成豆腐块」没动——这两个字符分别硬编码在 `adapter/video/CacheListAdapter.kt`、`LocalFolderAdapter.kt`、`DownloadAdapter.kt` 等 5 处，且剥前缀逻辑按「1 字符 + 1 空格 = 2 字符」写死，换字形要连解析一起改，风险大于收益，等有真机证据再做。
+  - **未验证（L2，需人工看画面）**：42mm 屏缓存页多选态，计数与四个按钮同一行、栏高不变；小屏上计数是缩小字号而不是省略号截断。
 - **26.11.23 #268 播放默认值新增「关闭」字幕档位**：
   - **来路**：控制台反馈 #268（XTC monaco_go）要求「直接关闭字幕」。改造前只有「中文 / 自行选择」两档，默认「自行选择」+「自动弹出字幕选择」默认开 → 每部视频都弹一次字幕卡；想真关掉要点三步（字幕按钮 → 弹列表 → 选「不显示字幕」），而且 `subtitleUserOff` 只在内存里，切 P / 换源就复位，下一部照旧弹。
   - **改法**：

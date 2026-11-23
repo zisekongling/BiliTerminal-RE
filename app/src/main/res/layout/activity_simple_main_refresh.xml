@@ -90,17 +90,26 @@
             android:visibility="gone"
             tools:visibility="visible">
 
+            <!-- 计数是这条里唯一 weight=1 的控件，多选态的按钮挤过来时只剩几十 dp。
+                 不加 maxLines 就会被压折行、把整条撑高（反馈 #265，42mm 表上尤其明显）；
+                 再叠 autoSize 让「已选 100 项」这种长文案自动缩到 9sp 而不被截断。 -->
             <TextView
                 android:id="@+id/textSelectedCount"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:ellipsize="end"
                 android:gravity="center"
+                android:maxLines="1"
                 android:minHeight="@dimen/touch_min"
                 android:paddingVertical="4dp"
                 android:textColor="?android:attr/textColorPrimary"
                 android:textSize="13sp"
                 android:visibility="gone"
+                app:autoSizeMaxTextSize="13sp"
+                app:autoSizeMinTextSize="9sp"
+                app:autoSizeStepGranularity="1sp"
+                app:autoSizeTextType="uniform"
                 tools:text="已选 3 项" />
 
             <TextView
@@ -109,6 +118,8 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:background="?attr/selectableItemBackground"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:gravity="center"
                 android:minHeight="@dimen/touch_min"
                 android:paddingVertical="4dp"
@@ -123,6 +134,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:background="?attr/selectableItemBackground"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:gravity="center"
                 android:minHeight="@dimen/touch_min"
                 android:paddingHorizontal="@dimen/space_md"
@@ -137,6 +150,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:background="?attr/selectableItemBackground"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:gravity="center"
                 android:minHeight="@dimen/touch_min"
                 android:paddingHorizontal="@dimen/space_md"
@@ -151,6 +166,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:background="?attr/selectableItemBackground"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:gravity="center"
                 android:minHeight="@dimen/touch_min"
                 android:paddingHorizontal="@dimen/space_md"
