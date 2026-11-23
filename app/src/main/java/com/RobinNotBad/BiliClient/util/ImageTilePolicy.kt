@@ -209,7 +209,13 @@ object ImageTilePolicy {
      * 对齐（而不是从 area.left 开始切）是关键：可见区每滑动 1px 就换一套块坐标的话，
      * 缓存永远命中不了，等于每帧全部重解。对齐后滑动的只是「需要的块的集合」，已有块可复用。
      *
-     * 返回的每个矩形都落在图片范围内、互不重叠，且并集覆盖 [area]（边缘块可能变小）。
+     * 返回的每个矩形都落在图片范围内、互不重叠，且并集覆盖 [area]。
+     *
+     * 26.11.23（反馈 #275「最大倍率看长图有缺口，滑动也补不上」）：块边界**只受图片尺寸约束**，
+     * 不再按本次 [area] 裁。以前 `right = min(left + tile, target.right)`，块宽随可见区变——
+     * 而块缓存的键是 {@code TileKey(left, top, sample)}（不含宽高），平移后同一个键取回的是
+     * 上一次「按旧可见区裁窄」的块，画出来就少一块，正是用户看到的缺口；且再怎么滑也不会变，
+     * 因为每帧算出来的都是同一条被裁窄的几何。改成对齐到块网格后几何与可见区无关，可以稳定命中。
      */
     fun tileRects(
         area: TileRect,
@@ -228,12 +234,13 @@ object ImageTilePolicy {
         while (top < target.bottom) {
             var left = startX
             while (left < target.right) {
-                val right = minOf(left + tile, target.right)
-                val bottom = minOf(top + tile, target.bottom)
+                // 只裁到图片边界：块宽高必须是「网格量」，绝不能跟着可见区走（见上面的注释）
+                val right = minOf(left + tile, imageWidth)
+                val bottom = minOf(top + tile, imageHeight)
                 result.add(TileRect(left, top, right, bottom))
-                left = right
+                left += tile
             }
-            top = minOf(top + tile, target.bottom)
+            top += tile
         }
         return result
     }

@@ -56,6 +56,29 @@ internal object ImageViewerZoomPolicy {
     const val EPSILON = 0.01f
 
     /**
+     * 相对倍率的绝对上限：再大屏幕上也看不出更多细节，反而把分块缓存撑爆。
+     * 「至少能到 1:1」与这个上限取小的那个（见 [maxLevelFor]）。
+     */
+    const val ABSOLUTE_MAX_LEVEL = 12f
+
+    /**
+     * 这张图实际允许放到的最大相对倍率。
+     *
+     * 反馈 #270「超长图只能放大一点点」：倍率是**相对整图适配**算的，而超长图的适配比例很小
+     * （4000px 高塞进 400px 屏，{@code baseScale≈0.1}），固定 6.25 倍只到原生尺寸的 0.625 倍，
+     * 再加就顶住上限了。所以上限至少要够放到 1:1（一个源像素对一屏幕像素）。
+     *
+     * @param baseScale 整图适配倍率（{@code ImageTilePolicy.fitScale} 的结果）
+     */
+    @JvmStatic
+    fun maxLevelFor(baseScale: Float, defaultMax: Float = DEFAULT_MAX_SCALE): Float {
+        // 布局还没量好时 baseScale 是 1f/0 这类值：按默认档走，别把上限算成 Infinity
+        if (baseScale.isNaN() || baseScale.isInfinite() || baseScale <= 0f) return defaultMax
+        val oneToOne = 1f / baseScale
+        return minOf(maxOf(defaultMax, oneToOne), ABSOLUTE_MAX_LEVEL)
+    }
+
+    /**
      * 下一次双击应该落到哪个倍率。
      *
      * 判据按「当前值离哪一档近」放宽一个 [EPSILON]：

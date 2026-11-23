@@ -18,6 +18,17 @@
 
 ## 1. 当前版本状态
 
+- **26.11.23 四条小成本反馈收口：#399 崩溃 / #276 弹幕模糊 / #275 长图缺口 / #270 长图放不大**：
+  - **来路**：控制台反馈 #270「超长图只能放大一点点、放不到原生清晰度」、#275「放到最大看长图有缺口，滑动也补不上」、#276「弹幕一多字就发毛」与崩溃报告 #399（唯一一条修复提交晚于用户手上包的活崩溃）。四条都能在一行到十几行内改完，用户授权先做这一批。
+  - **根因**：① 合集页两处列表用 `Glide.with(context)`，`context` 是 Activity，页面销毁后才开始的加载直接抛 `IllegalArgumentException: You cannot start a load for a destroyed activity`；② `AndroidDisplayer` 把 `ANTI_ALIAS` 写成 `fromWorkerThread && CONFIG_ANTI_ALIAS`，非异步渲染（手表上的默认路径，主线程绘制）时抗锯齿恒为 false，字边缘发毛；③ `ImageTilePolicy.tileRects` 的块边界按**本次可见区**裁（`right = min(left + tile, target.right)`），而块缓存键是 `TileKey(left, top, sample)`（不含宽高）——平移后同一个键取回的是上次「按旧可见区裁窄」的位图，画出来少一块，且每帧算出的几何都相同所以怎么滑都补不上；④ 图片查看器的相对倍率上限写死 `DEFAULT_MAX_SCALE = 6.25`，而倍率是相对**整图适配**算的，4000px 高的长图 `baseScale≈0.1`，6.25 倍只到原生尺寸的 0.625 倍，再想清楚也顶住了。
+  - **改法**：
+    - `activity/video/collection/CollectionInfoActivity.kt:313` / `:457`：`Glide.with(context)` → `GlideUtil.with(holder.cover)`（`util/GlideUtil.java:240` 的 `with(View)` 内建「Activity 已销毁则回落 Application 级」），并删掉不再使用的 `com.bumptech.glide.Glide` 导入。
+    - `DanmakuFlameMaster/.../model/android/AndroidDisplayer.java:348`：`ANTI_ALIAS = CONFIG_ANTI_ALIAS`（去掉 `fromWorkerThread &&`；`paint.setAntiAlias` 在 `:471` 生效，文字抗锯齿开销可忽略）。
+    - `util/ImageTilePolicy.kt` 的 `tileRects`：块边界只受图片尺寸约束（`right = min(left + tile, imageWidth)`、`bottom = min(top + tile, imageHeight)`、`left += tile`、`top += tile`），几何与可见区无关，同一块的缓存键永远对应同一位图。
+    - `activity/ImageViewerActivity.kt` 的 `ImageViewerZoomPolicy`：新增 `ABSOLUTE_MAX_LEVEL = 12f` 与 `@JvmStatic maxLevelFor(baseScale, defaultMax)`（`min(max(defaultMax, 1f/baseScale), 12f)`，`baseScale` 非有限或 ≤0 时回落默认档）；`ui/widget/BigImageView.kt` 加 `private val maxLevel get() = ImageViewerZoomPolicy.maxLevelFor(baseScale)`，把 `zoomNextAt` / `applyLevel` 的 `coerceIn` / `animateLevelTo` 三处 `DEFAULT_MAX_SCALE` 换成它——普通图倍数不变，长图最高能到 1:1。
+  - **验证**：L0 `assembleDebug`（standard / coexist 两个 flavor）通过；`testStandardDebugUnitTest` 全绿（`ImageTilePolicyTest` 35 例、`ImageViewerZoomPolicyTest` 12 例，新增 5 例：块几何与可见区无关、宽高恒等于块边长、长图最大倍率够到 1:1、极端长图被绝对值夹住、参数异常回落默认档）。
+  - **未验证（L2 / 待人工，本机无设备）**：① #276 弹幕变清晰与否只能看画面；② #275 需要拿一张超长图放大到最大后左右上下平移，确认不再出现缺口；③ #270 需要同一张超长图双击到顶，确认能看清原生像素。
+
 - **26.11.23 消息未读治本：角标口径 + 私信真 ack + 系统通知置读（P0+P1）**：
   - **来路**：控制台反馈 #281（v26.11.18-beta.6）「消息一直有未读，点进去也消不掉」。对照隔壁仓库（哔哩终端复活版 1.2.5）的消息侧实现找根因后，用 ask 工具与用户对齐：范围 = P0+P1；角标口径 = 系统会话未读不算；系统消息页 = 打开即置读、不设开关；存疑接口 = 先在真机实测再写代码。
   - **根因（一条因果链，不是四个独立 bug）**：① 角标把 `single_unread` 八个桶全加，而会话列表里只有 `follow_unread` / `unfollow_unread` 有对应的未读会话行，其余六桶（unfollow_push_msg / dustbin_push_msg / dustbin_unread / biz_msg_unfollow_unread / biz_msg_follow_unread / custom_unread）永远点不掉；② 进会话后 `PrivateMsgActivity.kt:122` 传 `ackSeqno=0`，而 `PrivateMsgApi.updateAck` 只有 `>0` 才拼 `&ack_seqno=`，服务端从没收到过 ack，设置页那个「私信自动已读」一直是空转的；③ 系统通知用 `query_user_notify?page_size=35`，web 端对这个值直接回业务码 -6（data 为空），页面一直是空的，也就没有置读的可能。

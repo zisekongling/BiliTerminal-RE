@@ -69,6 +69,51 @@ class ImageViewerZoomPolicyTest {
         assertTrue(target <= ImageViewerZoomPolicy.DEFAULT_MAX_SCALE)
     }
 
+    // ---------- 长图的最大倍率（反馈 #270「超长图只能放大一点点」）----------
+
+    @Test
+    fun 长图的最大倍率至少够放到一比一() {
+        // 4000px 高的长图塞进 400px 高：baseScale=0.1 → 要 10 倍才是 1:1
+        assertEquals(10f, ImageViewerZoomPolicy.maxLevelFor(0.1f), 0.0001f)
+    }
+
+    @Test
+    fun 普通图沿用默认最大档() {
+        // 适配比例 >= 0.16 时 6.25 倍已经够到 1:1，档位不能变（别把短图的上限也抬高）
+        assertEquals(
+            ImageViewerZoomPolicy.DEFAULT_MAX_SCALE,
+            ImageViewerZoomPolicy.maxLevelFor(1f),
+            0.0001f
+        )
+        assertEquals(
+            ImageViewerZoomPolicy.DEFAULT_MAX_SCALE,
+            ImageViewerZoomPolicy.maxLevelFor(0.5f),
+            0.0001f
+        )
+    }
+
+    @Test
+    fun 极端长图的最大倍率被绝对值夹住() {
+        // 20000px 高塞进 400px：1:1 要 50 倍，但再放大也看不出细节、只会把分块缓存撑爆
+        assertEquals(
+            ImageViewerZoomPolicy.ABSOLUTE_MAX_LEVEL,
+            ImageViewerZoomPolicy.maxLevelFor(0.02f),
+            0.0001f
+        )
+    }
+
+    @Test
+    fun 布局还没量好时最大倍率回落到默认档() {
+        listOf(0f, -1f, Float.NaN, Float.POSITIVE_INFINITY).forEach { base ->
+            assertEquals(
+                "base=$base",
+                ImageViewerZoomPolicy.DEFAULT_MAX_SCALE,
+                ImageViewerZoomPolicy.maxLevelFor(base),
+                0.0001f
+            )
+        }
+    }
+
     @Test
     fun 目标倍率永远落在合法区间() {
         listOf(0f, 0.5f, 1f, 1.99f, 2f, 4f, 6.24f, 6.25f, 10f).forEach { current ->
