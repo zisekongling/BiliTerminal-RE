@@ -18,6 +18,19 @@
 
 ## 1. 当前版本状态
 
+- **26.11.23 OkHttp 4.12.0 降回 3.12.13，minSdk 21 → 19（恢复 Android 4.4）**：
+  - **来路**：issue #35（Android 4.4 设备一联网就 `NoClassDefFoundError: okhttp3/internal/platform/Platform`）。26.10.30 把 okhttp 写成 4.12.0、26.11.10 把 minSdk 下调到 19，两者叠在一起等于**从来没有一个版本在 4.4 上真跑通过**；26.11.21 先把 minSdk 暂回 21 止血，本轮按既定计划改回 4.4。
+  - **改法**：
+    - `app/build.gradle`：`okhttp 4.12.0 → 3.12.13`（3.x 最后一版，也是官方说明里仍支持 Android 4.x 的最后一条线），显式钉 `okio 1.15.0`（3.12.13 的传递依赖，okio 3 与 1.x 元数据不兼容）；`minSdk 19`；注释写清 4.x 的 `AndroidPlatform.<clinit>` 在 `SDK_INT < 21` 时主动抛 `IllegalStateException` 的死路，以及 3.12.x 已 EOL 的代价。
+    - Kotlin 侧 4.x 属性写法 → 3.x 方法调用，**共 75 处 / 19 个文件**（`body` 34、`code` 32、`url` 9），全部按编译器 `Cannot access '...field X': it is package-private in 'okhttp3/...'` 报的精确行列机械改写（`.code` → `.code()`、`.body` → `.body()`、模板串里 `${response.code()}`）。
+    - 3 处 4.x 专属扩展函数改成 3.x 静态工厂：`util/UpdateManager.kt`、`debug/DebugBridge.kt` 的 `toRequestBody` / `toMediaType` → `RequestBody.create(MediaType.parse(...), ...)`（Java 侧本来就是这种写法，未动）。
+    - okio 1.15 的 `ByteString` 没有 `get` 操作符：`activity/player/PlayerDanmuClientListener.kt` 三处 `bytes[i]` → `bytes.getByte(i)`。
+    - Java 侧两处用到 4.x 独占 API（早先「Java 零改动」的判断是错的）：`util/NetWorkUtil.java` 的 `previewRequestBody()` 去掉 `body.isDuplex() || body.isOneShot()`（3.12 没有这两个概念，长度上限 + multipart 判断仍在）；`api/ReplyTranslateApi.java` 删掉 `checkGrpcErrorFromTrailers()` 及其调用（3.12 没有 `Response.trailers()`，纯 trailers 里的 `grpc-status` 现在抓不到；HTTP/1.1 与 trailers-only 的业务错误仍由 `checkGrpcError(response.header(...))` 覆盖）。
+    - 私有侧（`private/src/main/java/com/RobinNotBad/BiliClient/feature/`，单独提交到私有仓）6 个文件同批改写：`BgmApi.kt`、`DandanApi.kt`、`GameAuthApi.kt`、`HlsAdFilter.kt`、`PlayableProbe.kt`、`ThirdPartyHttp.kt`（4.x 属性 + 两处 `toMediaType` / `toRequestBody`）。不装 `private/` 时公开仓仍能独立编译。
+  - **验证**：L0——`:app:assembleDebug`（standard + coexist）+ `:app:testStandardDebugUnitTest` 在同一棵树上通过（`BUILD SUCCESSFUL in 1m 46s`），单测 314 份报告 / 3363 例 / 0 失败 0 错误。Kotlin 编译错误从 89 条降到 0。
+  - **未做**：`appcompat 1.6.1` / `fragment-ktx 1.6.2` 继续钉在低版本（1.7.0 / 1.8.0 的 AAR 自身 minSdkVersion 是 21，升上去就没法留 4.4）；`multiDexEnabled` 与 `MultiDex.install()` 原样保留；没有回退任何 UI 或业务行为。
+  - **未验证（L2 / 真机）**：①**Android 4.4 上的 TLS 1.2 握手**——OkHttp 3.12 在 API < 21 靠反射启用 TLS 1.2，老 ROM 的 Provider 名不同会直接握手失败，这是本轮最大风险点；②4.4 首次启动的**多 dex 装载**耗时与 ANR 风险；③联网全链路（首页 / 播放 / 下载续传 / 直播 / 弹幕 / 翻译 gRPC）在 4.4 与 5.x 上的实际表现；④4.3 及以下仍不支持，4.4 以下用户请继续用旧版本。
+
 - **26.11.23 转发面板按 PiliPlus 铺开到六个页面（视频 / 番剧 / 动态卡片 / 直播 / 专栏 / 收藏夹）**：
   - **来路**：用户要求「转发面板拓展出这四种功能」，并附了 PiliPlus 视频页的分享面板截图（复制链接 / 其它app打开 / 分享视频 / 分享至动态 / 分享至消息）。拍板口径：条目照 PiliPlus 五项；范围铺到视频详情（UGC+PGC）、动态卡片、直播、专栏、收藏夹详情；「其它app打开」「分享视频」先探测有无可用目标，没有就提示并复制链接兜底；直播与专栏只做四项、收藏夹只做四项，**没把握的项直接不显示，不摆占位项**。
   - **改法**：

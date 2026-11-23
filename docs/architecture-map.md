@@ -51,29 +51,34 @@ ksp { arg("room.schemaLocation", ...) }                                     // �
 > `attachBaseContext` 覆写都被删掉了，理由是 `minSdk 21` 下 ART 原生支持 multidex。
 > **26.10.10 降到 19 之后这段清理被整体回滚**（19 及以下 ART 还不支持原生多 dex），见下一条。
 
-> **⚠ 26.11.21 minSdk 已暂时改回 21（Android 5.0），4.4 兼容暂停**：`app/build.gradle` 的 `defaultConfig.minSdk` 现在是 **21**。
+> **26.11.23 已恢复 minSdk 19（Android 4.4）**：`app/build.gradle` 的 `defaultConfig.minSdk` 回到 **19**，
+> 走的是把 OkHttp 从 4.12.0 降到 **3.12.13**（3.x 最后一版）。26.11.21 之所以被迫临时回到 21，是**依赖在运行期主动拒绝**：
 > 直接原因不是静态审计没查干净，而是**依赖在运行期主动拒绝**：okhttp 4.12.0 的
 > `okhttp3.internal.platform.AndroidPlatform.<clinit>` 里有一段
 > `if (Platform.isAndroid && Build.VERSION.SDK_INT < 21) throw IllegalStateException("Expected Android API level 21+ but was " + SDK_INT)`
 > （d8 反汇编：`041506 const-string` / `041522 new-instance` / `041534 throw`）。类初始化抛错后，
 > 之后**每一次** OkHttp 调用都是 `NoClassDefFoundError: okhttp3/internal/platform/Platform`——issue #35 的崩溃栈正是这个。
 > 而 `okhttp:4.12.0` 这一行自 2026-10-30 `a7fb06be` 就在仓库里（`git log -S` 唯一命中），minSdk 19 是 26.10.10 落的，
-> 也就是说 **19 这段从来没有一个版本在 4.4 上真跑通过**。恢复 4.4 的唯一现实路径是降到 okhttp 3.12.x
-> （3.12.13 的 `AndroidPlatform.buildIfSupported` 只判 `Platform.isAndroid` + `Class.forName("com.android.org.conscrypt.SSLParametersImpl")`，无 SDK 闸，
-> `peekBody` / `callTimeout` 也都还在），改造面是 **125 处 okhttp4 Kotlin 属性写法 / 57 个 .kt 文件**（4.x 专属 API 仅
-> `util/UpdateManager.kt` 的 `toMediaType` / `toRequestBody` 两处 import）。排期与风险登记在任务台账「恢复 Android 4.4（API 19）兼容」。
-> 下面这段与 §1.1 **整体保留不动**，它们是将来恢复时的作业指导，不是过期内容；只把每条结论当成「19 时期的状态」。
+> 也就是说 **19 这段从来没有一个版本在 4.4 上真跑通过**（26.11.23 之后才开始有）。
+> 3.12.13 的 `AndroidPlatform.buildIfSupported` 只判 `Platform.isAndroid` + `Class.forName("com.android.org.conscrypt.SSLParametersImpl")`，无 SDK 闸；
+> `peekBody`、`callTimeout`、`protocols(listOf(...))` 也都还在。
+> 改造面实测（不是估的）：**75 处 4.x 属性写法 = `body` 34 / `code` 32 / `url` 9，分布在 19 个文件**，
+> 外加两个文件的 `toMediaType` / `toRequestBody`（`util/UpdateManager.kt`、`debug/DebugBridge.kt`）与私有侧 6 个文件。
+> 3.x 的 `body` / `code` / `message` / `url` 是**包级私有字段**，用扩展属性接不回去（编译期报
+> `Cannot access '… field body …': it is package-private in 'okhttp3/Response'`），只能按编译器报错逐个改成 `.code()` / `.body()`。
+> okio 跟着降到 1.15.0：它的 `ByteString` 没有 `get` 操作符，`activity/player/PlayerDanmuClientListener.kt` 三处改用 `getByte(i)`。
+> 代价：3.12.x 已 EOL、不再有安全更新；4.4 上的 TLS 1.2 靠 OkHttp 反射开启，老 ROM 可能握手失败，**只能真机验**。
 
 > **minSdk 24 → 21 → 19（Android 4.4）已落地**（26.10.10 下调，最终停在 **19**）：`app/build.gradle:21` 是唯一落点。
 > 依赖侧必须降两处——`androidx.appcompat:appcompat` 1.7.0 → **1.6.1**、`androidx.fragment:fragment-ktx` 1.8.0 → **1.6.2**
 > （只有这两代 AAR 自己还声明 minSdk 14；1.7.0 / 1.8.0 声明的是 21），并恢复
 > `androidx.multidex:multidex:2.0.1` + `BiliTerminal.kt` 里 `override fun attachBaseContext()` 中的
-> `MultiDex.install(this)`。（26.11.21 只把 minSdk 一项改回 21，上面这三件事按 §1.1 上方的状态说明**暂缓**，
-> 留到真正恢复 4.4 那一轮一起处理；appcompat / fragment 升级会牵动主题与控件行为，不适合和 minSdk 一起动。）
+> `MultiDex.install(this)`。（26.11.21 只动过 minSdk 一项；26.11.23 恢复 19 时这三件事本来就还在，未再改动。
+> appcompat / fragment 仍钉在 1.6.1 / 1.6.2——升回 1.7.0 / 1.8.0 必须放弃 4.4，且会牵动主题与控件行为。）
 > 代码侧除了 minSdk 21 阶段清掉的 API 24 调用，又清了一批 API 21 调用点，全部列在下面 §1.1。
 > `multiDexEnabled true` 保留未动。
 
-### 1.1 minSdk 19（Android 4.4）兼容清单（26.10.10 落定；26.11.21 起 minSdk 已暂回 21，本节转为「恢复 4.4 时的作业清单」）
+### 1.1 minSdk 19（Android 4.4）兼容清单（26.10.10 落定；26.11.23 起 minSdk 已恢复 19，本节是现行清单）
 
 `minSdk` 从 24 一路降到 19，要照顾的是 API 19 / 20 / 21 / 22 / 23 五个区间。
 **下表里标「已清除」的都是本轮真改过的代码**；标「不会踩」的是核实过的。逐项结论：
@@ -184,6 +189,10 @@ armeabi-v7a 6,225,574 B），说明 release 全量依赖里没有别的东西要
 **没做的事**：本机 `D:\Program Files\android-sdk` 下没有 `emulator`、没有 `system-images`，
 **没有在 API 19~23 的设备/模拟器上做过运行验证**，以上全部是静态审计 + 依赖元数据 + `dexdump` 反汇编结论。
 真机验证清单见 `docs/archive/review/device-test-plan.md` 的 T12。
+
+**26.11.23 恢复 4.4 时仍未做真机验证**：L0 只到 `assembleDebug` + 单测。4.4 上最需要真机确认的是
+**TLS 1.2 握手**（OkHttp 3.12 在 API < 21 上靠反射打开 TLS 1.2，部分老 ROM 的 Provider 名不同会直接握手失败）
+与**多 dex 装载**（`MultiDex.install` 在 4.4 上首次启动耗时明显）。这两项写在 `docs/review/fix-progress.md` 的「未验证」清单里。
 
 ---
 

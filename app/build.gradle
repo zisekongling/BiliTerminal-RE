@@ -71,13 +71,12 @@ android {
 
     defaultConfig {
         applicationId "com.RobinNotBad.BiliClient"
-        // ⚠ 26.11.21 暂时回到 21（Android 5.0），不是终点：okhttp 4.12.0 的
-        // okhttp3.internal.platform.AndroidPlatform.<clinit> 在 Build.VERSION.SDK_INT < 21 时
-        // 主动 throw IllegalStateException("Expected Android API level 21+ but was ...")，
-        // 类初始化失败后所有 OkHttp 调用都会 NoClassDefFoundError: okhttp3/internal/platform/Platform
-        // （issue #35 的崩溃栈就是这个）。真要恢复 4.4 必须先换掉 OkHttp 4（降到 3.12.x），
-        // 改造面与风险见 docs/architecture-map.md §1.1，进度见台账「恢复 Android 4.4（API 19）兼容」。
-        minSdk 21
+        // 26.11.23 恢复 Android 4.4（API 19）：OkHttp 已降到 3.12.13，没有 4.x 那条
+        // 「okhttp3.internal.platform.AndroidPlatform.<clinit> 在 SDK_INT < 21 时主动 throw
+        // IllegalStateException，随后所有 OkHttp 调用 NoClassDefFoundError」（issue #35）的死路。
+        // 取舍与代价（3.12.x 已 EOL）见 docs/architecture-map.md §1.1，进度见台账
+        // 「恢复 Android 4.4（API 19）兼容」。
+        minSdk 19
         targetSdk 34
         versionCode appVersionCode
         versionName appVersionName
@@ -354,14 +353,25 @@ dependencies {
     // Hilt 生成的组件在运行期完全用不到；ksp/serialization 插件也仅服务于这些死依赖。
 
     // Networking
-    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    // 26.11.23 OkHttp 4.12.0 -> 3.12.13，为恢复 Android 4.4（API 19）。
+    // 4.x 的 okhttp3.internal.platform.AndroidPlatform.<clinit> 在 SDK_INT < 21 时主动抛
+    // IllegalStateException，类初始化失败后所有 OkHttp 调用都 NoClassDefFoundError（issue #35）；
+    // 3.12.x 的 buildIfSupported 只判 Platform.isAndroid + 反射 conscrypt，没有 SDK 下限检查。
+    // 3.12.13 是 3.x 最后一版，也是官方说明里仍支持 Android 4.x 的最后一条线（3.13+ 要求 API 21）。
+    // 代价：3.12.x 已 EOL，不再有安全更新；恢复 4.4 这件事的完整取舍见 docs/architecture-map.md §1.1。
+    // 4.x 的 Kotlin 属性写法（response.code / response.body）已全部改回方法调用 .code() / .body()；
+    // 3.x 的 body/code/message/url 是包级私有字段，扩展属性接不回去（编译期报 package-private）。
+    implementation 'com.squareup.okhttp3:okhttp:3.12.13'
+    // okio 跟着 okhttp 走：3.12.13 依赖 okio 1.15.x。显式钉住，避免被别的传递依赖拉回 3.x 的 okio
+    // （okio 3 与 1.x 在 Kotlin 元数据上不兼容）。
+    implementation 'com.squareup.okio:okio:1.15.0'
 
     // UI
     // minSdk 19 的硬约束：appcompat 1.7.0 / fragment-ktx 1.8.0 的 AAR 自身 minSdkVersion 是 21，
     // 清单合并会直接失败。1.6.1 / 1.6.2 是仍声明 minSdk 14 的最后一代，故钉在这里。
     // 想升回 1.7.0 / 1.8.0 必须先把 minSdk 提回 21。依据见 docs/architecture-map.md §1.1。
-    // 26.11.21 minSdk 已暂时回到 21，升级的前置条件满足，但这次只做 minSdk 一件事，
-    // 升 appcompat / fragment 留到恢复 4.4 那轮一起评估（它们会牵动主题与控件行为）。
+    // minSdk 现在又是 19（26.11.23 恢复 4.4），所以这两条继续钉在低版本上；
+    // 想升 1.7.0 / 1.8.0 必须先放弃 4.4。
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.12.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'

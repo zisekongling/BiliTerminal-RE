@@ -76,9 +76,9 @@ class TestActivity : BaseActivity() {
                     val result: String
                     if (sw_post.isChecked) {
                         val data = input_data.text.toString()
-                        result = NetWorkUtil.post(url, data).body!!.string()
+                        result = NetWorkUtil.post(url, data).body()!!.string()
                     } else {
-                        result = NetWorkUtil.get(url).body!!.string()
+                        result = NetWorkUtil.get(url).body()!!.string()
                     }
 
                     runOnUiThread {
@@ -177,7 +177,7 @@ class TestActivity : BaseActivity() {
                     val response = NetWorkUtil.postJson("https://api.deepseek.com/chat/completions",
                         requestJson.toString(),
                         deepseekHeaders)
-                    val body = response.body
+                    val body = response.body()
                     // 提前 return / 循环内抛异常都要归还连接（body 读尽才自动归还）
                     if (body == null) {
                         response.close()

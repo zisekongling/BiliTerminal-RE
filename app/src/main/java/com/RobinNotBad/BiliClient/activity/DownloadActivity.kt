@@ -197,7 +197,7 @@ class DownloadActivity : BaseActivity() {
             val httpFailureMsg =
                 if (type == 0) R.string.msg_picture_download_failed else R.string.text_download_failed
             if (abortOnHttpError(resp, file, !existedBefore, httpFailureMsg)) return false
-            val body = resp.body!!
+            val body = resp.body()!!
             val inputStream: InputStream = body.byteStream()
             val fileOutputStream = FileOutputStream(file)
             val bytes = ByteArray(1024 * 10)

@@ -11,10 +11,10 @@ import com.RobinNotBad.BiliClient.BuildConfig
 import com.RobinNotBad.BiliClient.api.TerminalApi
 import com.RobinNotBad.BiliClient.model.UpdateConfig
 import kotlinx.coroutines.CancellationException
-import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.RequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -204,10 +204,10 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
             try {
                 val request = Request.Builder().url(url).get().build()
                 okHttpClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
-                    val length = response.body?.contentLength() ?: -1L
+                    if (!response.isSuccessful) throw IOException("HTTP ${response.code()}")
+                    val length = response.body()?.contentLength() ?: -1L
                     if (length > BETA_TEXT_MAX_BYTES) throw IOException("文本过大")
-                    val bytes = response.body?.bytes() ?: ByteArray(0)
+                    val bytes = response.body()?.bytes() ?: ByteArray(0)
                     if (bytes.size > BETA_TEXT_MAX_BYTES) throw IOException("文本过大")
                     // 分享站导出的 txt 可能带 BOM，去掉以免正文第一行前多一个不可见字符
                     val text = BetaUpdate.decodeText(bytes)
@@ -225,21 +225,24 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
 
     /** POST `/share/select/`，把 HTTP 层错误与业务层「文件不存在」区分开。 */
     private fun selectBetaShare(host: String, code: String): BetaUpdate.Result {
-        val body = BetaUpdate.buildSelectBody(code)
-            .toRequestBody("application/json; charset=utf-8".toMediaType())
+        // 26.11.23 随 OkHttp 降 3.12.13 从 toRequestBody/toMediaType 改成 3.x 的静态工厂
+        val body = RequestBody.create(
+            MediaType.parse("application/json; charset=utf-8"),
+            BetaUpdate.buildSelectBody(code)
+        )
         val request = Request.Builder()
             .url(BetaUpdate.selectUrl(host))
             .post(body)
             .build()
         okHttpClient.newCall(request).execute().use { response ->
-            val text = response.body?.string().orEmpty()
+            val text = response.body()?.string().orEmpty()
             val parsed = if (text.isNotBlank()) BetaUpdate.parseSelectResponse(text, host) else null
             return when {
                 parsed is BetaUpdate.Result.Found -> parsed
                 !response.isSuccessful -> {
                     // 非 2xx 时尽量带上响应体里的业务原因（有的部署 404 也会回 JSON）
                     val reason = (parsed as? BetaUpdate.Result.NotFound)?.message
-                    throw IOException(if (reason.isNullOrBlank()) "HTTP ${response.code}" else "HTTP ${response.code}：$reason")
+                    throw IOException(if (reason.isNullOrBlank()) "HTTP ${response.code()}" else "HTTP ${response.code()}：$reason")
                 }
                 parsed is BetaUpdate.Result.NotFound -> parsed
                 else -> throw IOException("响应体为空")
@@ -358,9 +361,9 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
         // use{} 保证失败分支抛异常时连接也归还（OkHttp 只在 body 读到 EOF 时才自动归还）
         return checkClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw IOException("服务器响应错误: ${response.code}")
+                throw IOException("服务器响应错误: ${response.code()}")
             }
-            response.body?.string() ?: throw IOException("响应体为空")
+            response.body()?.string() ?: throw IOException("响应体为空")
         }
     }
 
@@ -484,7 +487,7 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
 
                 var response = okHttpClient.newCall(requestBuilder.build()).execute()
 
-                if (!response.isSuccessful && response.code != 206) {
+                if (!response.isSuccessful && response.code() != 206) {
                     // 请求失败：丢弃残片从头重试
                     response.close()
                     downloadedBytes = 0L
@@ -494,10 +497,10 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
                     if (!response.isSuccessful) {
                         // 重试仍失败：body 不会有人读，必须显式关闭，否则连接不归还
                         response.close()
-                        CenterThreadPool.runOnUiThread { onError(context.getString(R.string.text_update_download_failed, response.code.toString())) }
+                        CenterThreadPool.runOnUiThread { onError(context.getString(R.string.text_update_download_failed, response.code().toString())) }
                         return@run
                     }
-                } else if (downloadedBytes > 0 && response.code != 206) {
+                } else if (downloadedBytes > 0 && response.code() != 206) {
                     // 服务器忽略 Range 头返回 200 全量：必须丢弃旧残片从头写，
                     // 否则全量内容会被追加到残片之后，产出永久损坏的 APK
                     existingFile.delete()
@@ -596,7 +599,7 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
         file: File,
         onProgress: (DownloadProgress) -> Unit
     ): File {
-        val body = response.body ?: throw IOException("响应体为空")
+        val body = response.body() ?: throw IOException("响应体为空")
         val remainingBytes = body.contentLength()
         val inputStream: InputStream = body.byteStream()
         val append = file.exists()

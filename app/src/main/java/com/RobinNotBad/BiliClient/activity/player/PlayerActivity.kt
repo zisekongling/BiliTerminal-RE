@@ -5543,7 +5543,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     add(NetWorkUtil.USER_AGENT_WEB)
                 }
                 val response = NetWorkUtil.get(ConfInfoApi.signWBI(url), mHeaders)
-                val data = JSONObject(response.body!!.string()).getJSONObject("data")
+                val data = JSONObject(response.body()!!.string()).getJSONObject("data")
                 val hostInfo = data.getJSONArray("host_list").getJSONObject(0)
 
                 // 审计 P2-6：host_list 由服务端下发，不校验就等于把「携带 Cookie 的握手」送去

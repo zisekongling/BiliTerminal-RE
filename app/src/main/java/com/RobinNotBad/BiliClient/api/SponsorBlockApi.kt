@@ -151,9 +151,9 @@ object SponsorBlockApi {
             .get()
             .build()
         CLIENT.newCall(request).execute().use { resp ->
-            if (resp.code == 404) return emptyList()
-            if (!resp.isSuccessful) throw IllegalStateException("HTTP " + resp.code)
-            val body = resp.body?.string()
+            if (resp.code() == 404) return emptyList()
+            if (!resp.isSuccessful) throw IllegalStateException("HTTP " + resp.code())
+            val body = resp.body()?.string()
             if (body.isNullOrBlank()) throw IllegalStateException("响应体为空")
             return parseSegments(body, bvid, cid)
         }

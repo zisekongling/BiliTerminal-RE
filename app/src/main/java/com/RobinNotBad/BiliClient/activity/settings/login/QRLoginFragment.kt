@@ -433,7 +433,7 @@ class QRLoginFragment : BaseFragment() {
                 return false
             }
 
-            val str = response.body!!.string()
+            val str = response.body()!!.string()
             val loginJson = JSONObject(str)
             Logu.v("tv_login_state", str)
 
@@ -552,7 +552,7 @@ class QRLoginFragment : BaseFragment() {
             return false
         }
 
-        val str = response.body!!.string()
+        val str = response.body()!!.string()
         val loginJson = JSONObject(str)
         Logu.v("login_state", str)
 

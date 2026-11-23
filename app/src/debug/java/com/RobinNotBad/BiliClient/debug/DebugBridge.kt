@@ -28,9 +28,9 @@ import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.tutorial.TutorialStore
 import com.RobinNotBad.BiliClient.tutorial.Tutorials
 import com.RobinNotBad.BiliClient.util.SettingsKeys
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.RequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -596,7 +596,8 @@ class DebugBridge : BroadcastReceiver() {
                 val contentType = headersJson?.let {
                     runCatching { JSONObject(it).optString("Content-Type") }.getOrNull()
                 }?.takeIf { it.isNotBlank() } ?: "application/x-www-form-urlencoded"
-                val body = (data ?: "").toRequestBody(contentType.toMediaTypeOrNull())
+                // 26.11.23 随 OkHttp 降 3.12.13 从 toRequestBody/toMediaTypeOrNull 改成 3.x 的静态工厂
+                val body = RequestBody.create(MediaType.parse(contentType), data ?: "")
                 builder.method(method, body)
             }
             else -> return "ERR: 不支持的 method=$method"
@@ -611,7 +612,7 @@ class DebugBridge : BroadcastReceiver() {
         val startAt = System.currentTimeMillis()
         client.newCall(builder.build()).execute().use { response ->
             val cost = System.currentTimeMillis() - startAt
-            val body = response.body?.string().orEmpty()
+            val body = response.body()?.string().orEmpty()
             val file = Logu.getLogFile(HTTP_BODY_FILE)
             try {
                 file?.writeText(body)
@@ -619,7 +620,7 @@ class DebugBridge : BroadcastReceiver() {
             }
             val preview = if (body.length > 2000) body.substring(0, 2000) + "…" else body
             return buildString {
-                appendLine("OK: ${response.code} (${cost}ms) bytes=${body.length}")
+                appendLine("OK: ${response.code()} (${cost}ms) bytes=${body.length}")
                 appendLine("file=${file?.absolutePath ?: "<不可用>"}")
                 appendLine(preview)
             }.trimEnd()
