@@ -2,7 +2,9 @@ package com.RobinNotBad.BiliClient.activity.video.info
 
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.ui.appearance.ThemeTint
+import com.RobinNotBad.BiliClient.util.ShareSheet
 import com.RobinNotBad.BiliClient.util.UiText
+import com.RobinNotBad.BiliClient.util.view.ShareTexts
 
 import android.annotation.SuppressLint
 import android.app.Activity
@@ -200,36 +202,15 @@ class VideoInfoFragment : BaseFragment() {
      */
     private fun sendVideoToFriend(uid: Long, name: String) {
         val info = videoInfo ?: return
-        CenterThreadPool.run {
-            try {
-                val result = PrivateMsgApi.sendMsg(
-                    SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 114514),
-                    uid,
-                    PrivateMessage.TYPE_TEXT,
-                    System.currentTimeMillis() / 1000,
-                    PrivateMsgApi.buildTextContent(
-                        PrivateMsgApi.buildVideoShareText(info.title, info.bvid)
-                    )
-                )
-                CenterThreadPool.runOnUiThread {
-                    if (result.optInt("code", -1) == 0) {
-                        MsgUtil.showMsg(UiText.of(getString(R.string.msg_video_relay_to_friend_success, name)))
-                    } else {
-                        copyVideoLinkAndHint(info.bvid)
-                    }
-                }
-            } catch (e: Exception) {
-                CenterThreadPool.runOnUiThread { copyVideoLinkAndHint(info.bvid) }
-                MsgUtil.err(e)
-            }
-        }
-    }
-
-    /** 发送失败的回退：复制视频链接 + 提示（链接拼不出来就只提示）。 */
-    private fun copyVideoLinkAndHint(bvid: String?) {
-        val link = PrivateMsgApi.buildVideoLink(bvid)
-        if (link.isNotEmpty()) StringUtil.copyText(requireContext(), link)
-        MsgUtil.showMsg(UiText.of(getString(R.string.msg_video_relay_to_friend_failed_copied)))
+        // 26.11.23：私信正文与失败兜底统一交给 ShareSheet，其它页面的「分享至消息」也走同一条路，
+        // 免得每个页面各抄一遍「失败就复制链接」的兜底逻辑。
+        ShareSheet.sendLinkToFriend(
+            requireContext(),
+            uid,
+            name,
+            info.title,
+            ShareTexts.videoUrl(info.bvid)
+        )
     }
 
     private val notificationPermissionLauncher = registerForActivityResult(
@@ -706,20 +687,21 @@ class VideoInfoFragment : BaseFragment() {
         }
 
         relay.setOnClickListener {
-            // 反馈 #133：转发有两个去处，先问一句再办事（原先点一下直接进动态发送页）
-            // 26.11.15：`TerminalDialog.menu` 只负责搭好弹窗，**显示要调用方自己 show()**
-            // （其它 20 多处调用点都是 `}.show()`）。这里当初漏了，`create()` 出来的对话框
-            // 一直没 attach 到窗口，于是「点转发什么都不发生」，看着就是按钮点不动。
-            TerminalDialog.menu(
-                requireContext(),
-                title = getString(R.string.text_video_relay_title),
-                items = listOf(
-                    getString(R.string.text_video_relay_to_dynamic),
-                    getString(R.string.text_video_relay_to_friend)
-                )
-            ) { index ->
-                if (index == 0) relayToDynamic() else relayToFriend()
-            }.show()
+            // 26.11.23：转发面板对齐 PiliPlus 视频页的五项
+            // （复制链接 / 其它app打开 / 分享视频 / 分享至动态 / 分享至消息）。
+            // 条目顺序由 [ShareSheet.Panel] 的链式调用顺序决定，别打乱。
+            // 26.11.15 的教训仍在：TerminalDialog.menu 只搭弹窗、显示要自己 show()，
+            // ShareSheet.Panel.show() 已经代做了，这里不要再套一层。
+            val info = videoInfo ?: return@setOnClickListener
+            val url = ShareTexts.videoUrl(info.bvid)
+            val upName = info.staff?.firstOrNull()?.name
+            ShareSheet.panel(requireContext())
+                .copyLink(url)
+                .openInOtherApp(url)
+                .shareText(R.string.share_video, ShareTexts.videoShareText(info.title, info.bvid, upName), url)
+                .toDynamic { relayToDynamic() }
+                .toMessage { relayToFriend() }
+                .show()
         }
         relay.setOnLongClickListener {
             StringUtil.copyText(requireContext(), "https://www.bilibili.com/" + videoInfo!!.bvid)
