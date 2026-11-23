@@ -182,7 +182,7 @@
         <item name="android:foreground">?android:attr/selectableItemBackground</item>
         <item name="cardBackgroundColor">@color/zhihu_card_dark</item>
         <item name="cardCornerRadius">@dimen/card_round</item>
-        <item name="cardElevation">4dp</item>
+        <item name="cardElevation">0dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
         <item name="strokeColor">@color/zhihu_divider_dark</item>
@@ -304,7 +304,7 @@
         <item name="android:foreground">?android:attr/selectableItemBackground</item>
         <item name="cardBackgroundColor">@color/iqiyi_card_dark</item>
         <item name="cardCornerRadius">@dimen/card_round</item>
-        <item name="cardElevation">4dp</item>
+        <item name="cardElevation">0dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
         <item name="strokeColor">@color/iqiyi_divider_dark</item>
@@ -426,7 +426,7 @@
         <item name="android:foreground">?android:attr/selectableItemBackground</item>
         <item name="cardBackgroundColor">@color/purple_fantasy_card_dark</item>
         <item name="cardCornerRadius">@dimen/card_round</item>
-        <item name="cardElevation">4dp</item>
+        <item name="cardElevation">0dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
         <item name="strokeColor">@color/purple_fantasy_divider_dark</item>
@@ -548,7 +548,7 @@
         <item name="android:foreground">?android:attr/selectableItemBackground</item>
         <item name="cardBackgroundColor">@color/rainbow_card_dark</item>
         <item name="cardCornerRadius">@dimen/card_round</item>
-        <item name="cardElevation">4dp</item>
+        <item name="cardElevation">0dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
         <item name="strokeColor">@color/rainbow_divider_dark</item>
@@ -670,7 +670,7 @@
         <item name="android:foreground">?android:attr/selectableItemBackground</item>
         <item name="cardBackgroundColor">@color/classic_gray_card_dark</item>
         <item name="cardCornerRadius">@dimen/card_round</item>
-        <item name="cardElevation">4dp</item>
+        <item name="cardElevation">0dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
         <item name="strokeColor">@color/classic_gray_divider_dark</item>

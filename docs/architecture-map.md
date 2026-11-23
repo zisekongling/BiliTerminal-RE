@@ -1851,6 +1851,7 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
   **不放写入**——写入一律走门面，这样「递增版本号」不会漏。
 - **门面**只做「汇总快照 + 唯一写入 + 版本号」，**绝不做几何计算**（手表性能优先）。
 - **半透明底的组件一律 `elevation=0`**：底色不透明时阴影只是外面的暗晕，底色半透明时阴影会从底**下面**透出来——暗色底下看不出来，亮色纸底上就是沿轮廓一圈「比底色亮的脏边」。玻璃主题（`ButtonStyleTerminal.Glass` 等）从一开始就这么写；主主题的 `ButtonStyleTerminal` 26.10.30 也补上了（见 `docs/review/fix-progress.md` §3.82）。
+- **卡片（`CardStyle` / `CardStyleLight` / 各主题的 `CardStyle<X>`）26.11.23 起一律 `cardElevation=0`，层次只靠 1dp `strokeWidth`**：圆屏列表效果（`RoundListEffect.kt`）每帧改条目 `scaleX/scaleY`，抬高过的卡片会让 hwui 逐帧按轮廓重算阴影，用户看到的就是「文字下面有条阴影在跳」（反馈 #273）。描边是静态的、不参与重算。新增主题 / 新 cell 也照此写，别再给卡片加 elevation。
 
 **版本号机制**：`AppearanceManager.version()` 是一个存在 SharedPreferences 的 Int，
 任何外观写入都 +1。Activity 只需记住自己创建时的版本号、`onResume` 比一次，

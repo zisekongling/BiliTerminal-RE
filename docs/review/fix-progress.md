@@ -18,6 +18,16 @@
 
 ## 1. 当前版本状态
 
+- **26.11.23 #273 卡片不再抬高，列表滚动时「文字下面那条阴影」不再跳**：
+  - **来路**：控制台反馈 #273「文字下面有一条阴影在跳」。阴影来自 `cardElevation`（全仓 cell 都没有 `shadowRadius/shadowDx/shadowDy`，那三样只在 `activity_player.xml` / `fragment_short_video_page.xml` / `fragment_video_info.xml`）：`res/values/styles.xml` 的 `CardStyle` 是 4dp、`CardStyleLight` 是 2dp，`themes.xml` 另有 5 套主题各抄一份 4dp 的 `CardStyle<X>`，`item_account.xml` 也有 2dp。而 `ui/appearance/RoundListEffect.kt:165-172` 的 `transform()` 在滚动回调里逐帧改条目的 `scaleX/scaleY` 与 `alpha`（`BaseActivity.kt:214` 对全部界面安装），hwui 于是逐帧按新轮廓重算阴影——表冠一转，阴影就在字下面来回窜。
+  - **改法**：把「卡片抬高」这一层整体去掉，层次改由描边承担（`CardStyle` 本来就有 `strokeColor` + `strokeWidth 1dp`）：
+    - `res/values/styles.xml`：`CardStyle` 4dp → 0dp、`CardStyleLight` 2dp → 0dp，并在 `CardStyle` 上方写了注释说明「抬高会被圆屏列表效果逐帧重算阴影」，与 `themes_glass.xml` 及架构地图的同一条约定对齐。
+    - `res/values/themes.xml`：5 套主题的 `cardElevation` 4dp → 0dp（:185 / :307 / :429 / :551 / :673）。
+    - `res/layout/item_account.xml`：`app:cardElevation` 2dp → 0dp（账号列表行的卡片）。
+    - `docs/architecture-map.md` 的分层约定加一条：卡片一律 `cardElevation=0`、层次靠 1dp 描边，新增主题/新 cell 别再给卡片加 elevation。
+  - **验证**：L0（隔离副本）`assembleDebug` 双 flavor 通过；`testStandardDebugUnitTest` 3057 例、1 处失败与本轮无关（`ConventionGuardTest` 需要 `.git`，隔离副本没有）。纯资源改动，没有新增单测。
+  - **未做**：按钮的 2dp `elevation`（`styles.xml` `ButtonStyle`、`themes.xml` 五处 2dp）与顶栏 / 底栏的 8dp 没动——它们不随列表逐帧缩放，不是这条反馈里跳动的阴影；顶栏底栏的 8dp 去掉会失去与内容的分离感，属视觉取舍，等 L2 看过再说。
+  - **未验证（L2，需人工看画面）**：①开「圆屏列表效果」后转表冠滚列表，条目缩放淡出仍在、卡片下沿不再有阴影跳动；②关掉该效果时各列表观感（卡片靠 1dp 描边分界）没有变糊；③七套主题下卡片描边与底色对比度都还够。
 - **26.11.23 #282 看图页加载失败不再白屏，赞赏码取不到时有话可说**：
   - **来路**：控制台反馈 #282（OPPO OWW251 / 26.11.23）「赞赏码加载不出来，一直空白」。实测图源本身可达（`https://gitee.com/zisekongling/bili-terminal-re/raw/master/ma.jpg` → 200 / 34333 字节 / `image/jpeg` / 前三字节 FF D8 FF），所以用户那次多半是瞬时限流或网络；真正的问题是**失败没有任何提示**——`attachPhoto()` 只有 `catch (OutOfMemoryError)` 与 `catch (Exception)`，而 Glide 4 的加载失败走的是异步回调 `RequestListener`，两个 catch 都接不到，于是只剩白屏。
   - **改法**：
