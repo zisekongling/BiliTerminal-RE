@@ -196,6 +196,8 @@ class BangumiInfoFragment : Fragment() {
         episodeChoose = rootView!!.findViewById(R.id.episode_choose)
         followButton = rootView!!.findViewById(R.id.btn_follow)
         val cacheButton = rootView!!.findViewById<Button>(R.id.btn_cache)
+        // 分享入口和缓存并排（26.11.23 用户要求把原来那一整行缓存拆成两半）；点击逻辑等共享组件落地后再接
+        val shareButton = rootView!!.findViewById<Button>(R.id.btn_share)
         selectedSection = 0
 
         rootView!!.visibility = View.GONE
@@ -349,8 +351,10 @@ class BangumiInfoFragment : Fragment() {
             seasonTabsRecyclerView!!.visibility = View.GONE
             episodeRecyclerView!!.visibility = View.GONE
             playButton.visibility = View.GONE
-            // 一集都没有的季也没什么可缓存，把入口一起藏掉，别留个点了只会提示的按钮
+            // 一集都没有的季也没什么可缓存，把入口一起藏掉，别留个点了只会提示的按钮；
+            // 分享同理：没有剧集就没有「当前这一集」可分享（链接粒度是选集后的 ep 页）
             cacheButton.visibility = View.GONE
+            shareButton.visibility = View.GONE
             val activity = requireActivity()
             if (activity is VideoInfoActivity) {
                 activity.replyFragment?.setRefreshing(false)

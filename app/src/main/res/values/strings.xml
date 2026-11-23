@@ -2857,6 +2857,8 @@
     <string name="uitext_bangumiinfofragment_036">在正片里勾选要缓存的剧集</string>
     <string name="uitext_bangumiinfofragment_037">正在获取剧集…</string>
     <string name="uitext_bangumiinfofragment_038">已清除缓存状态，重新缓存会覆盖旧文件</string>
+    <!-- 番剧详情页「缓存 | 分享」那一行里的分享入口；面板里五项的文案归共享组件 ShareSheet 自己 -->
+    <string name="uitext_bangumiinfofragment_039">分享</string>
     <string name="uitext_bangumicache_001">番剧缓存</string>
     <string name="uitext_bangumicache_002">清晰度：%1$s</string>
     <string name="uitext_bangumicache_003">加载失败，点此重试</string>

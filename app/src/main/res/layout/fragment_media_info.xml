@@ -327,16 +327,36 @@
                 android:text="@string/uitext_dynamicactivity_007" />
         </LinearLayout>
 
-        <!-- 番剧缓存单独占一行（26.11.15 用户要求：和播放/追番挤一行时位置不对）。
-             单独成行后宽度够，文字不会被挤成一点点；点开是全屏的番剧缓存页 -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_cache"
+        <!-- 缓存与分享并排占一行，各一半。
+             缓存单独成行是 26.11.15 用户的要求（跟播放/追番挤一行时位置不对，文字被挤成一点点）；
+             26.11.23 用户拍板把这一行拆成「缓存 | 分享」两半，而不是把分享塞进「播放|追番」那一行——
+             那一行两个填充按钮已经各占一半，再塞第三个就会回到 26.11.15 被挤的老问题，
+             也不再加新行（番剧页竖着已经够长了）。两个按钮文字都只有两个字，300×300 方屏下放得下 -->
+        <LinearLayout
+            android:id="@+id/btnRow2"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="@string/uitext_bangumiinfofragment_025"
+            android:baselineAligned="false"
+            android:orientation="horizontal"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/btnRow" />
+            app:layout_constraintTop_toBottomOf="@id/btnRow">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_cache"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/uitext_bangumiinfofragment_025" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_share"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:text="@string/uitext_bangumiinfofragment_039" />
+        </LinearLayout>
     </androidx.constraintlayout.widget.ConstraintLayout>
 </com.RobinNotBad.BiliClient.ui.widget.RotaryNestedScrollView>
