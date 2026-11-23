@@ -55,6 +55,52 @@ object FolderManager {
     }
 
     /**
+     * 夹记录文件是否存在、且内容能被解析成合法的夹数组。
+     *
+     * 与 [getAllFolders] 的区别：那个把「文件不存在 / 内容坏了 / 真的一个夹都没有」三种情况
+     * 一律返回空表，调用方据此分不清该不该按「没有夹」处理。反馈 #254 的残留就卡在这里——
+     * 用户把最后一个夹拆掉后夹表合法地变空，而 [CacheFolderResolver.needsMetaHeal] 见到空表
+     * 一律不写，视频元数据便永远停在旧夹名上。
+     *
+     * 判据只认「文件存在 + 非空白 + 能 parse 成 JSONArray」：空白文件是写到一半的残骸，
+     * 读坏了更不敢当成「用户真的没有夹」，这两种都返回 false（继续不自愈）。
+     */
+    @JvmStatic
+    fun isFoldersFileIntact(): Boolean {
+        val file = getFoldersFile()
+        if (!file.exists()) return false
+        return try {
+            val content = file.readText()
+            if (content.isBlank()) return false
+            JSONArray(content)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * 把某条视频的归属写进它的 `.video_meta.json`，目录按实际落盘位置解析。
+     *
+     * 不能用 [VideoMetaManager.updateFolderName]：那条按「缓存根 / 标题」拼目录，目录名被清洗过、
+     * 多 P 合集、缓存根刚换过时都拼不中，而它拼不中就静默返回——归属只剩 json 那一份，
+     * 于是夹卡有数字、夹内为空（反馈 #254 的原始成因）。这里走 [CachePathResolver.videoDirCandidates]，
+     * 与缓存页扫描用的是同一套候选；实在一个都没命中才退回老写法碰一次运气。
+     */
+    private fun writeMetaFolder(title: String, folderName: String) {
+        val root = FileUtil.getVideoDownloadPath()
+        val dir = CachePathResolver.videoDirCandidates(root.path, title)
+            .asSequence()
+            .map { File(it) }
+            .firstOrNull { it.isDirectory }
+        if (dir != null) {
+            VideoMetaManager.updateFolderNameIn(dir, folderName)
+        } else {
+            VideoMetaManager.updateFolderName(title, folderName)
+        }
+    }
+
+    /**
      * 保存所有文件夹到文件
      */
     private fun saveAllFolders(folders: List<VideoFolder>) {
@@ -109,7 +155,7 @@ object FolderManager {
 
         // 更新所有属于该文件夹的视频元数据
         for (title in folder.videoTitles) {
-            VideoMetaManager.updateFolderName(title, newName)
+            writeMetaFolder(title, newName)
         }
 
         return true
@@ -125,7 +171,7 @@ object FolderManager {
 
         // 将所有视频的文件夹属性清空
         for (title in folder.videoTitles) {
-            VideoMetaManager.updateFolderName(title, "")
+            writeMetaFolder(title, "")
         }
 
         folders.remove(folder)
@@ -146,7 +192,7 @@ object FolderManager {
 
         folder.addVideo(title)
         saveAllFolders(folders)
-        VideoMetaManager.updateFolderName(title, folderName)
+        writeMetaFolder(title, folderName)
         return true
     }
 
@@ -178,7 +224,7 @@ object FolderManager {
         val result = removeVideoFromAnyFolder(title, folders)
         if (result) {
             saveAllFolders(folders)
-            VideoMetaManager.updateFolderName(title, "")
+            writeMetaFolder(title, "")
         }
         return result
     }

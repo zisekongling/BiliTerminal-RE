@@ -18,6 +18,16 @@
 
 ## 1. 当前版本状态
 
+- **26.11.23 #254 残留：夹表合法为空时允许自愈元数据 + 拆夹/改名按真实目录写归属**：
+  - **来路**：控制台反馈 #254（OPPO OWW212 / 26.11.18-beta.6）「旧版分过夹的缓存点进去为空」，用户补「文件夹拆散后未分类里竟然没有被拆散的视频」。主体已在 `8d735477` / `34083f1c` 修掉（记录优先 + 元数据兜底 + 自愈），这次补两处残留边界。
+  - **残留 A（自愈被误挡）**：`util/CacheFolderResolver.needsMetaHeal` 见到空夹表一律不写元数据。用户把最后一个夹也拆掉之后，`.video_meta.json` 里的旧夹名永远留着——眼下还不算丢（`resolve` 只认夹表里存在的名字，会显示成未分类），但用户下次建同名夹时，这些视频会莫名其妙自己跳进去。
+  - **残留 B（原始成因的写入侧还在）**：`util/FolderManager.kt` 的 `renameFolder` / `deleteFolder` / `addVideoToFolder` / `removeVideoFromFolder` 都调 `VideoMetaManager.updateFolderName(title, …)`，而它按「缓存根 / 标题」拼目录——目录名被清洗过、多 P 合集、缓存根刚换过就拼不中，且拼不中会**静默返回**；归属于是只剩 `.folders_info.json` 一份，正是「夹卡有数字、夹内为空」的来源。
+  - **改法**：
+    - `util/FolderManager.kt` 新增 `isFoldersFileIntact()`：文件存在 + 非空白 + 能 parse 成 `JSONArray` 才算「合法的空夹表」，空白（写到一半的残骸）与读坏一律 false；新增私有 `writeMetaFolder(title, folderName)`：走 `CachePathResolver.videoDirCandidates(root.path, title)` 取第一个真实存在的目录调 `VideoMetaManager.updateFolderNameIn`，一个都没命中才退回老写法；上面四处 meta 写入统一改用它。
+    - `util/CacheFolderResolver.needsMetaHeal(resolved, metaName, folderNames, foldersFileIntact = false)`：夹表为空时只有 `foldersFileIntact=true` 才允许写回，防「json 读坏了把所有视频的夹名一起抹平」。
+    - `activity/video/local/LocalListActivity.kt` 的 `loadData` 在循环外取一次 `val foldersFileIntact = FolderManager.isFoldersFileIntact()` 传给自愈判据（每轮一次，不进循环）。
+  - **验证**：L0（隔离副本）`assembleDebug` 双 flavor 通过；`testStandardDebugUnitTest` 3035 例、1 处失败与本轮无关（`ConventionGuardTest` 需要 `.git`，隔离副本没有）；`CacheFolderResolverTest` 14 例 0 失败，新增 2 例（`夹表合法为空时允许自愈元数据`、`夹记录读不出来时仍然不自愈`）通过。
+  - **未验证（L1，本机无设备）**：造夹具——建夹放一条视频 → 拆夹 → 根页仍见该条且其 `.video_meta.json` 的 `folderName` 变空；再建同名夹，该视频不该自己跳进去。
 - **26.11.23 #177 消息页整页「网络错误」：四个请求各自兜底 + 会话接口校验业务码**：
   - **来路**：控制台反馈 #177（OPPO OWW251 / 26.11.16 / sdk30）「反馈被回复后不查看消息界面，消息界面加载不出来」，用户补充「掉过一次登录」「反馈回复已读后才好」。
   - **根因**（三处叠加）：① `activity/message/MessageActivity.kt` 的 `loadSessions` 用一个 try 包住 `MessageApi.getUnread()` / `PrivateMsgApi.getSessionsPage()` / `PrivateMsgApi.getUsersInfo()` 三个请求，任一个抛异常就整页空白，外层 catch 只复位下拉、不给重试入口；② `api/PrivateMsgApi.getSessionsPage` 不看业务码——掉登录时响应是 `{"code":-101}` 且没有 `data`，`parseSessionsList` 对 `data==null` 返回空表，界面于是显示「0 条会话」，用户以为私信被清空（这就是「回复已读后才好」的来源）；③ 计数拉失败时按钮上照样画「(0 未读)」，把「没拉到」伪装成「真的没有」。

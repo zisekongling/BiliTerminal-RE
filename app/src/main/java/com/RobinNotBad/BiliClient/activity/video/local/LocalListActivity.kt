@@ -468,6 +468,9 @@ open class LocalListActivity : InstanceActivity() {
             if (!name.isNullOrEmpty()) folderNames.add(name)
         }
         val recordIndex = CacheFolderResolver.titleIndex(folderList)
+        // 夹表为空时还得知道是「用户真的没有夹」还是「json 读不出来」：前者允许自愈元数据，
+        // 后者一律不写（反馈 #254 残留，见 CacheFolderResolver.needsMetaHeal）
+        val foldersFileIntact = FolderManager.isFoldersFileIntact()
         val recordHeals = HashMap<String, MutableList<String>>()
         for (video in videoList) {
             try {
@@ -478,7 +481,10 @@ open class LocalListActivity : InstanceActivity() {
                     val recordName = recordIndex[FileUtil.stringToFile(video.title)] ?: ""
                     val resolved = CacheFolderResolver.resolve(recordName, meta.folderName, folderNames)
                     video.folderName = resolved
-                    if (CacheFolderResolver.needsMetaHeal(resolved, meta.folderName, folderNames)) {
+                    if (CacheFolderResolver.needsMetaHeal(
+                            resolved, meta.folderName, folderNames, foldersFileIntact
+                        )
+                    ) {
                         VideoMetaManager.updateFolderNameIn(dir, resolved)
                     }
                     if (CacheFolderResolver.needsRecordHeal(resolved, recordName)) {
