@@ -688,7 +688,7 @@ OkHttp 3.12 在 API < 21 上靠反射打开 TLS 1.2，老 ROM 的 Provider 类�
 
 ## W. 安卓 5.x 缓存页必崩：根因收敛到 MediaMuxer（26.11.23，`d82db42b`）
 
-issue #307 报「安卓 5.1 一进缓存页就回桌面」。根因：B 站 1080P DASH 的 H.264 带 B 帧，而 **MediaMuxer 自 Android 7.1（API 25）起才支持 muxing B 帧**，API 22~24 上 `writeSampleData` 在原生层 SIGSEGV，Java 层接不住。改法：新增 `util/MediaMuxerSupport.kt` 纯函数 `supportsBFrameMuxing(sdkInt)`（阈值 `MIN_SDK_B_FRAME_MUXING = 25`），`MediaMerger.mergeAv` 在 API < 25 直接返回 `RESULT_FAILED`、`CacheAudioRepair.enqueueAll` 直接跳过。出处 `fix-progress.md` 的「安卓 5.1 缓存页崩溃」。全天单对应 **H12**（⭐⭐⭐ 最高优先）。
+来路是 26.11.23 的 DIAG 诊断包在 ZTE Q529C / Android 5.1（SDK 22）上复现两次：进缓存页后 `REPAIR-START index=1/29`，走到 `write` 阶段进程直接消失、没有 `REPAIR-END`、也没有 Java 异常，属 native 层崩溃。根因：B 站 1080P DASH 的 H.264 带 B 帧，而 **MediaMuxer 自 Android 7.1（API 25）起才支持 muxing B 帧**，API 22~24 上 `writeSampleData` 在原生层 SIGSEGV，Java 层接不住。改法：新增 `util/MediaMuxerSupport.kt` 纯函数 `supportsBFrameMuxing(sdkInt)`（阈值 `MIN_SDK_B_FRAME_MUXING = 25`），`MediaMerger.mergeAv` 在 API < 25 直接返回 `RESULT_FAILED`、`CacheAudioRepair.enqueueAll` 直接跳过。出处 `fix-progress.md` 的「安卓 5.1 缓存页崩溃」。全天单对应 **H12**（⭐⭐⭐ 最高优先）。
 
 - [ ] Android 5.x 真机上打开缓存页 —— **不再瞬间回桌面**（这一条不过，整批等于没修）。
 - [ ] `Download/rebili-full.log` 里出现「跳过缓存重封装：Android 7.1（API 25）以下 MediaMuxer 不支持 B 帧」，且**不再有** `REPAIR-START`。
