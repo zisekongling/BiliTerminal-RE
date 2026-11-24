@@ -180,7 +180,11 @@
         </LinearLayout>
 
         <!-- 多选条：同样默认隐藏，只有收藏夹内容页在能写（自己的收藏夹 + 有 media_id）时才点亮。
-             「多选」进出多选模式，「删除(n)」把选中的条目一次从收藏夹里移除。 -->
+             「多选」进出多选模式，「删除(n)」把选中的条目一次从收藏夹里移除。
+             行高与字号跟上面的筛选 / 排序条对齐（segmented_bar_min / text_body）：
+             这三格以前用 touch_min（48dp）+ 13sp，比同页其它横条高出一截，一进多选态整条
+             突然顶上来很挡视线（26.11.18 反馈 #265）。窄格里文字还会换行把条再撑高一倍，
+             所以钉死 maxLines=1 + ellipsize。 -->
         <LinearLayout
             android:id="@+id/manageBar"
             android:layout_width="match_parent"
@@ -197,11 +201,13 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
+                android:minHeight="@dimen/segmented_bar_min"
                 android:paddingVertical="4dp"
                 android:background="?attr/selectableItemBackground"
+                android:maxLines="1"
+                android:ellipsize="end"
                 android:text="@string/uitext_favoritevideolistactivity_009"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_body"
                 android:textColor="?android:attr/textColorSecondary" />
 
             <!-- 「全选(n/n)」（26.11.11，反馈 #94）：只有下载列表页会点亮它（其它页面 findViewById
@@ -212,11 +218,13 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
+                android:minHeight="@dimen/segmented_bar_min"
                 android:paddingVertical="4dp"
                 android:background="?attr/selectableItemBackground"
+                android:maxLines="1"
+                android:ellipsize="end"
                 android:text="@string/btn_select_all"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_body"
                 android:textColor="?android:attr/textColorSecondary"
                 android:visibility="gone"
                 tools:visibility="visible" />
@@ -227,11 +235,13 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
+                android:minHeight="@dimen/segmented_bar_min"
                 android:paddingVertical="4dp"
                 android:background="?attr/selectableItemBackground"
+                android:maxLines="1"
+                android:ellipsize="end"
                 android:text="@string/settingtext_accountswitchactivity_003"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_body"
                 android:textColor="?android:attr/textColorSecondary" />
 
         </LinearLayout>
