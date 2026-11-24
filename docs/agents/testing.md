@@ -67,6 +67,7 @@
 | 功能有没有真的执行 | `logs/rebili.log` 里对应 `类名>方法名` 的 tag |
 | 请求成没成功 | `logs/http.log` 的 `-> 200` / 响应体首段；注意 `http` 命令的 `appheaders` 默认 false，未登录 + 模拟器上会稳定 -412 |
 | 下载 / 合并对不对 | `merge` 的返回值只能当参考：**回 OK 但 `tracks<2` 或 `samples=0` 就是回归** |
+| MuMu 上点击 / 截图 / dump 没反应，或者截出来是桌面 | App 常跑在**非 0 的 display** 上（26.11.24 实测是 4，且 `7555` 端口才连得上）。先 `adb shell dumpsys activity activities \| grep -m1 displayId` 拿 id，再给对应命令带上 `input -d N` / `screencap -d N` / `uiautomator dump --display N`。另外 Debug 包首启会因 UETool 悬浮窗权限跳系统设置页，用 `adb shell appops set <包名> SYSTEM_ALERT_WINDOW allow` 预先授权即可 |
 
 ### 3.2 唯一不能降级的：登录态写操作
 
@@ -84,7 +85,7 @@
 
 | 不做 | 为什么 |
 | --- | --- |
-| 截图判颜色 / 判布局 / 判文字是否截断 | 手表屏窄；MuMu 副屏截不到图（实测 `Status: -2`）；OCR 结论与目视结论不是一回事 |
+| 截图判颜色 / 判布局 / 判文字是否截断 | 手表屏窄；OCR 结论与目视结论不是一回事。**但图本身截得到**——26.11.24 在 MuMu 上 `screencap -d <displayId>` 拿到了完整画面；26.11.08 记的「MuMu 副屏截不到图（`Status: -2`）」是没带 display id 造成的，查法见 §3.1 |
 | 听声音（音轨、爆音、同步） | 没有可读证据 |
 | 判手感、流畅度、掉帧 | 模拟器帧率与真机无关，结论不可迁移 |
 | 登录态写操作（关注 / 收藏 / 投币 / 评论 / 私信 / 删除 / 定时发布） | 会改动用户真实账号数据，且服务端状态不可回滚 |
