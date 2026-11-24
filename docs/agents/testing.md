@@ -67,7 +67,7 @@
 | 功能有没有真的执行 | `logs/rebili.log` 里对应 `类名>方法名` 的 tag |
 | 请求成没成功 | `logs/http.log` 的 `-> 200` / 响应体首段；注意 `http` 命令的 `appheaders` 默认 false，未登录 + 模拟器上会稳定 -412 |
 | 下载 / 合并对不对 | `merge` 的返回值只能当参考：**回 OK 但 `tracks<2` 或 `samples=0` 就是回归** |
-| MuMu 上点击 / 截图 / dump 没反应，或者截出来是桌面 | App 常跑在**非 0 的 display** 上（26.11.24 实测是 4，且 `7555` 端口才连得上）。先 `adb shell dumpsys activity activities \| grep -m1 displayId` 拿 id，再给对应命令带上 `input -d N` / `screencap -d N` / `uiautomator dump --display N`。另外 Debug 包首启会因 UETool 悬浮窗权限跳系统设置页，用 `adb shell appops set <包名> SYSTEM_ALERT_WINDOW allow` 预先授权即可 |
+| MuMu 上点击 / 截图 / dump 没反应，或者截出来是桌面 | App 常跑在**非 0 的 display** 上，而且 **id 每次开机 / 重连都可能变，不要背下来，用前现查**：`adb shell "dumpsys window windows \| grep -A1 'Window{.*<包名>' \| grep -oE 'mDisplayId=[0-9]+' \| sort -u"`。判据是每个 window 条目第二行自带的 `mDisplayId`，比按 `dumpsys activity activities` 的段落顺序猜可靠——那里的 `Display: mDisplayId=N` 段落下会出现别的 display 的 task 引用，容易取错。拿到 N 后各命令分别带 `input -d N` / `screencap -d N` / `uiautomator dump --display N`。另外 Debug 包首启会因 UETool 悬浮窗权限跳系统设置页，用 `adb shell appops set <包名> SYSTEM_ALERT_WINDOW allow` 预先授权即可 |
 
 ### 3.2 唯一不能降级的：登录态写操作
 
