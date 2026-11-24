@@ -230,8 +230,34 @@ class ImageTilePolicyTest {
         assertEquals(4, rects.size)
         assertEquals(256, rects[0].left)
         assertEquals(256, rects[0].top)
-        // 四个块并集正好覆盖 (256,256)-(700,700)
-        assertEquals((700 - 256).toLong() * (700 - 256), rects.sumOf { it.width.toLong() * it.height })
+        // 26.11.23（#275）：块边界只受图片尺寸约束，不跟着可见区裁窄——宽高恒等于块边长
+        rects.forEach { rect ->
+            assertEquals("块宽必须等于块边长", 256, rect.width)
+            assertEquals("块高必须等于块边长", 256, rect.height)
+        }
+        // 并集覆盖可见区 (300,300)-(700,700)，且恰好是 2×2 个满块
+        assertEquals(listOf(256, 512), rects.map { it.left }.distinct().sorted())
+        assertEquals(listOf(256, 512), rects.map { it.top }.distinct().sorted())
+        assertEquals(512L * 512L, rects.sumOf { it.width.toLong() * it.height })
+    }
+
+    @Test
+    fun 块几何与可见区无关_平移后同一块的边界不变() {
+        // 块缓存的键只有 (left, top, sample)，不含宽高：只要同一块的边界随可见区变化，
+        // 平移后就会用「按旧可见区裁窄」的位图去填（#275 的缺口）。这里锁死这条不变量。
+        val a = ImageTilePolicy.tileRects(
+            ImageTilePolicy.TileRect(300, 300, 700, 700), 1000, 1000, 256
+        )
+        val b = ImageTilePolicy.tileRects(
+            ImageTilePolicy.TileRect(320, 330, 900, 900), 1000, 1000, 256
+        )
+        val byKeyA = a.associateBy { it.left to it.top }
+        val byKeyB = b.associateBy { it.left to it.top }
+        assertTrue(byKeyA.isNotEmpty())
+        byKeyA.forEach { (key, rectA) ->
+            val rectB = byKeyB[key] ?: return@forEach
+            assertEquals("同一块在两组可见区下的几何必须一致", rectA, rectB)
+        }
     }
 
     @Test

@@ -48,6 +48,7 @@ import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.ReplyState
 import com.RobinNotBad.BiliClient.util.ReplyStateStore
+import com.RobinNotBad.BiliClient.util.ReplyTapPolicy
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
@@ -414,6 +415,8 @@ class ReplyAdapter(
                             textView = newTextView
                         }
                         textView.text = childMsg
+                        // 点某一条楼中楼也要能进楼层页看全部回复（#236）
+                        textView.setOnClickListener { onReplyBodyTap(reply) }
                         // 楼中楼嵌在可点击的 childReplyCard 里，自身原先没有长按监听：
                         // 长按抬手会被父卡片当成点击、直接进详情页。这里补上同一入口；
                         // 开关关掉时清掉监听，恢复旧行为（长按不动作）。
@@ -484,13 +487,23 @@ class ReplyAdapter(
                 bindLegacyCopyLongPress(replyHolder.childReplyCard, reply.message)
             }
             if (!isDetail) {
-                replyHolder.itemView.setOnClickListener { startReplyInfoActivity(reply) }
+                replyHolder.itemView.setOnClickListener { onReplyBodyTap(reply) }
                 replyHolder.message.setOnClickListener {
                     if (reply.voteId > 0) {
                         // 点击投票标签，展示投票信息
                         showVoteDialog(reply.voteId, replyHolder.message)
                     } else {
-                        startReplyInfoActivity(reply)
+                        onReplyBodyTap(reply)
+                    }
+                }
+            } else {
+                // 详情页里正文原先完全没有监听：点一条有楼中楼的评论毫无反应，只能去点
+                // 「共 x 条回复」那一小块卡片。这里补上同一个入口（#236）。
+                replyHolder.message.setOnClickListener {
+                    if (reply.voteId > 0) {
+                        showVoteDialog(reply.voteId, replyHolder.message)
+                    } else {
+                        onReplyBodyTap(reply)
                     }
                 }
             }
@@ -1013,8 +1026,27 @@ class ReplyAdapter(
         super.onViewRecycled(holder)
     }
 
+    /**
+     * 点评论正文 / 楼中楼的去向，规则收在 ReplyTapPolicy 里（#236）：
+     * 有楼中楼进楼层页、楼层页里点没有子回复的给提示、同一条评论不叠第二层。
+     */
+    private fun onReplyBodyTap(reply: Reply) {
+        val currentFloorRpid = (context as? ReplyInfoActivity)?.rootRpid() ?: 0L
+        val sameRpid = currentFloorRpid != 0L && currentFloorRpid == reply.rpid
+        when (ReplyTapPolicy.forBodyTap(reply.childCount, isDetail, sameRpid)) {
+            ReplyTapPolicy.TapResult.OPEN_FLOOR -> startReplyInfoActivity(reply)
+            ReplyTapPolicy.TapResult.TOAST_NO_CHILD ->
+                MsgUtil.showMsg(context.getString(R.string.msg_reply_no_child))
+            ReplyTapPolicy.TapResult.IGNORE -> Unit
+        }
+    }
+
     fun startReplyInfoActivity(reply: Reply?) {
         if (reply == null)
+            return
+        // 同一条评论的楼层页已经开着就别再叠一层，否则返回要按好几下（#236）
+        val currentFloorRpid = (context as? ReplyInfoActivity)?.rootRpid() ?: 0L
+        if (currentFloorRpid != 0L && currentFloorRpid == reply.rpid)
             return
         val rpid = reply.rpid
         val oid = reply.oid

@@ -62,7 +62,7 @@ class CustomGlideModule : AppGlideModule() {
         // 判定逻辑抽在 ImageRequestPolicy（纯 JVM、有单测），这里只负责写头。
         val sessionFilter = Interceptor { chain ->
             val request = chain.request()
-            val url = request.url.toString()
+            val url = request.url().toString()
             val requestBuilder = request.newBuilder()
             // 先删再写：站外域必须显式摘掉会话头，防止跨主机重定向把上一跳的 Cookie 带过去。
             ImageRequestPolicy.headersToRemove(url).forEach { requestBuilder.removeHeader(it) }

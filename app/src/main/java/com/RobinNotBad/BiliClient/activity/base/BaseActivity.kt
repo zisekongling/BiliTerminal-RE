@@ -73,6 +73,7 @@ open class BaseActivity : AppCompatActivity() {
     @JvmField var old_context: Context? = null
     @JvmField val relayDynamicLauncher: ActivityResultLauncher<Intent> = DynamicActivity.getRelayDynamicLauncher(this)
     @JvmField val editDynamicLauncher: ActivityResultLauncher<Intent> = DynamicActivity.getEditDynamicLauncher(this)
+    @JvmField val shareFriendLauncher: ActivityResultLauncher<Intent> = DynamicActivity.getShareFriendLauncher(this)
 
     /**
      * 编辑动态的结果回调槽。
@@ -82,6 +83,15 @@ open class BaseActivity : AppCompatActivity() {
      * 于是发起前把回调放这里，结果回来时由 [editDynamicLauncher] 取走并清空。
      */
     @JvmField var pendingDynamicEdit: ((String) -> Unit)? = null
+
+    /**
+     * 「分享至消息」选好友的结果回调槽。
+     *
+     * <p>与 [pendingDynamicEdit] 同一个理由：ActivityResultLauncher 只能在 Activity 上注册一次，
+     * 而「选到人之后把哪条动态发给他」只有发起方（列表里的 Holder、详情页）知道。
+     * 于是发起前把回调放这里，结果回来时由 [shareFriendLauncher] 取走并清空。
+     */
+    @JvmField var pendingShareToFriend: ((Long, String) -> Unit)? = null
 
     @JvmField var force_single_column: Boolean = false
 

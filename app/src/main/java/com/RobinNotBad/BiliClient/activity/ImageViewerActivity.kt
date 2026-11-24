@@ -4,8 +4,10 @@ import com.RobinNotBad.BiliClient.util.UiText
 
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.view.GestureDetector
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
@@ -21,18 +23,24 @@ import com.RobinNotBad.BiliClient.ui.widget.PhotoViewpager
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.GlideUtil
+import com.RobinNotBad.BiliClient.util.ImageRequestPolicy
 import com.RobinNotBad.BiliClient.util.ImageTilePolicy
 import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import com.RobinNotBad.BiliClient.util.view.CornerLabelInsets
 import com.bumptech.glide.Glide
+import com.bumptech.glide.load.DataSource
 import com.bumptech.glide.load.engine.DiskCacheStrategy
+import com.bumptech.glide.load.engine.GlideException
 import com.bumptech.glide.request.FutureTarget
+import com.bumptech.glide.request.RequestListener
 import com.bumptech.glide.request.target.Target
 import com.github.chrisbanes.photoview.PhotoView
 import java.io.File
 import kotlin.math.abs
+import kotlin.math.min
 
 /**
  * 双击缩放的档位策略（纯逻辑，JVM 单测见 `ImageViewerZoomPolicyTest`）。
@@ -54,6 +62,29 @@ internal object ImageViewerZoomPolicy {
 
     /** 浮点比较容差：缩放手势会留下 0.0001 级误差，直接 == 判断会把「已经在中间档」判错。 */
     const val EPSILON = 0.01f
+
+    /**
+     * 相对倍率的绝对上限：再大屏幕上也看不出更多细节，反而把分块缓存撑爆。
+     * 「至少能到 1:1」与这个上限取小的那个（见 [maxLevelFor]）。
+     */
+    const val ABSOLUTE_MAX_LEVEL = 12f
+
+    /**
+     * 这张图实际允许放到的最大相对倍率。
+     *
+     * 反馈 #270「超长图只能放大一点点」：倍率是**相对整图适配**算的，而超长图的适配比例很小
+     * （4000px 高塞进 400px 屏，{@code baseScale≈0.1}），固定 6.25 倍只到原生尺寸的 0.625 倍，
+     * 再加就顶住上限了。所以上限至少要够放到 1:1（一个源像素对一屏幕像素）。
+     *
+     * @param baseScale 整图适配倍率（{@code ImageTilePolicy.fitScale} 的结果）
+     */
+    @JvmStatic
+    fun maxLevelFor(baseScale: Float, defaultMax: Float = DEFAULT_MAX_SCALE): Float {
+        // 布局还没量好时 baseScale 是 1f/0 这类值：按默认档走，别把上限算成 Infinity
+        if (baseScale.isNaN() || baseScale.isInfinite() || baseScale <= 0f) return defaultMax
+        val oneToOne = 1f / baseScale
+        return minOf(maxOf(defaultMax, oneToOne), ABSOLUTE_MAX_LEVEL)
+    }
 
     /**
      * 下一次双击应该落到哪个倍率。
@@ -114,6 +145,29 @@ internal object ImageViewerClearPolicy {
         photoLoadStarted && !photoCleared
 }
 
+/**
+ * 加载失败提示该用哪一条文案（纯逻辑，JVM 单测见 `ImageViewerFailureTextTest`）。
+ *
+ * 反馈 #282「赞赏收款码一直空白」：看图页走 Glide **异步**加载，失败回调发生在主线程消息里，
+ * 原来的 try/catch 只接得住同步异常，于是网络/图源出问题时用户看到的永远是一张白图、一句提示都没有。
+ * 现在失败会盖一层可点重试的提示，并按图源分两种说法——赞赏码在 gitee 上属于**站外**图，
+ * 失败多半是对方限流 / 防盗链，说「请检查网络」会把人带偏；B 站图床失败才是自己这边的网络。
+ */
+internal object ImageViewerFailureText {
+
+    /**
+     * @param external 图源是否站外域名（判据与 [ImageRequestPolicy.shouldAttachSession] 相反）
+     * @return 该显示的字符串资源 id
+     */
+    @JvmStatic
+    fun resFor(external: Boolean): Int =
+        if (external) {
+            R.string.text_image_viewer_load_failed_external
+        } else {
+            R.string.text_image_viewer_load_failed
+        }
+}
+
 /** 页状态：还没探测出这张图该走哪条路径。 */
 private const val PAGE_PENDING = 0
 
@@ -157,6 +211,13 @@ private class ImagePage(val container: FrameLayout, val photoView: PhotoView) {
 
     /** 那次整图加载是否已经被 clear 过：同一个请求只清一次（判据见 [ImageViewerClearPolicy]）。 */
     var photoCleared = false
+
+    /**
+     * 加载失败时盖在容器中央的「点一下重试」提示（反馈 #282）。
+     *
+     * 第一次失败才创建、之后复用同一个 View：来回翻页反复失败时不会越叠越多层。
+     */
+    var failureView: TextView? = null
 }
 
 /** 原图尺寸探测结果（`inJustDecodeBounds` 的解码结果，只读文件头）。 */
@@ -186,17 +247,17 @@ class ImageViewerActivity : BaseActivity() {
      */
     private var downloadLaunched = false
 
-    /** 顶栏标题：方屏显示「图片查看」，圆屏适配时改成页数（见 [applyRoundLayout]）。 */
+    /** 顶栏标题：恒为「图片查看」（26.11.23 起不再被页数顶替，见 [applyRoundLayout]）。 */
     private lateinit var titleView: TextView
 
-    /** 右下角的页数标签：方屏用它，圆屏时隐藏（页数改到 [titleView]）。 */
+    /** 左下角的页数标签：方屏与圆屏都由它显示页数。 */
     private lateinit var pageCountView: TextView
 
     /** 当前是否按圆屏排版（= 设置里的圆屏适配开关），每次 onStart 重算。 */
     private var roundLayout = false
 
-    /** 下载键的原始左边距（px）：圆屏把它居中后，切回方屏要用它还原。 */
-    private var downloadStartMarginPx = 0
+    /** 角标的基准外边距（px，布局里给的 8dp）：圆屏按它叠出内接正方形那一圈，切回方屏用它还原。 */
+    private var baseCornerMarginPx = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -222,8 +283,8 @@ class ImageViewerActivity : BaseActivity() {
         // 就是「看一眼 → 想存下来」，这个确认既不防误触（按钮在角落、下载也不是破坏性操作），
         // 又把唯一入口挡住了，所以改成单击直接开始下载（失败提示由 DownloadActivity 负责）。
         val download = findViewById<ImageButton>(R.id.btn_download)
-        // 记下布局里的原始左边距：圆屏适配把按钮挪到正中后，切回方屏要按这个值还原
-        downloadStartMarginPx = (download.layoutParams as RelativeLayout.LayoutParams).leftMargin
+        // 记下布局里的基准边距：圆屏适配按它算内接正方形那一圈，切回方屏要按这个值还原
+        baseCornerMarginPx = (download.layoutParams as RelativeLayout.LayoutParams).marginEnd
         download.setOnClickListener {
             if (downloadLaunched) return@setOnClickListener
             val position = viewPager.currentItem
@@ -306,40 +367,66 @@ class ImageViewerActivity : BaseActivity() {
     }
 
     /**
-     * 圆屏适配下的排版（未开启时保持原样）。
+     * 屏形相关的排版（未开启圆屏适配时保持布局原样）。
      *
-     * - 下载键：从「左下角」挪到「底部正中」。圆屏的可见区中间最宽，居中最不容易被圆弧切到。
-     * - 页数：从「右下角」挪到顶栏标题的位置，顶替「图片查看」那行文字，时钟仍在它上方居中；
-     *   右下角那个标签同时隐藏，免得同一份页数出现两次。
+     * 26.11.23（反馈 #280）之前的做法是：圆屏时把页数挪进顶栏标题、顶掉「图片查看」那行字，
+     * 下载键挪到屏幕底部正中。用户实际反馈的是「上面的返回键改为图片查看」——他要的是顶部
+     * 那行文字就是页面名字，页数留在底下；而且底部正中的按钮会压在图片主体上。所以现在改成：
      *
-     * 顶栏整条仍然是点击退出（[BaseActivity.setTopbarExit] 挂的是 `R.id.top`，与标题文字无关），
-     * 返回键退出也不受影响——只是标题文字从「图片查看」换成了页数。
+     * - 标题恒为「图片查看」，页数恒在左下角标里，两者都不随屏形变文字；
+     * - 圆屏只处理「角标会被圆弧切掉」这一个问题：按内接正方形把页数与下载键一起往里收
+     *   （见 [applyCornerMargins] 与 [CornerLabelInsets]），方屏仍是布局里给的 8dp。
+     *
+     * 顶栏整条仍然是点击退出（[BaseActivity.setTopbarExit] 挂的是 `R.id.top`），返回键退出也不受影响。
      */
     private fun applyRoundLayout() {
         // onCreate 里缺参数提前 return 时，这个方法仍可能被 onStart 调到
         if (!::titleView.isInitialized || !::imageList.isInitialized) return
         roundLayout = SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROUND, false)
-        pageCountView.visibility = if (roundLayout) View.GONE else View.VISIBLE
-        titleView.text = if (roundLayout) pageLabel(viewPager.currentItem)
-        else getString(R.string.pagename_image_viewer)
-        pageCountView.text = pageLabel(viewPager.currentItem)
+        titleView.text = getString(R.string.pagename_image_viewer)
+        pageCountView.visibility = View.VISIBLE
+        updatePageLabel(viewPager.currentItem)
 
         val download = findViewById<ImageButton>(R.id.btn_download)
-        val lp = download.layoutParams as? RelativeLayout.LayoutParams ?: return
-        if (roundLayout) {
-            lp.removeRule(RelativeLayout.ALIGN_PARENT_START)
-            lp.removeRule(RelativeLayout.ALIGN_PARENT_LEFT)
-            lp.addRule(RelativeLayout.CENTER_HORIZONTAL)
-            lp.marginStart = 0
-            lp.leftMargin = 0
-        } else {
-            lp.removeRule(RelativeLayout.CENTER_HORIZONTAL)
-            lp.addRule(RelativeLayout.ALIGN_PARENT_START)
-            lp.addRule(RelativeLayout.ALIGN_PARENT_LEFT)
-            lp.marginStart = downloadStartMarginPx
-            lp.leftMargin = downloadStartMarginPx
+        // 直径要等布局量完才有（onStart 里 width 还是 0），所以推一帧再排
+        download.post {
+            if (!isFinishing && !isDestroyed) applyCornerMargins()
         }
-        download.layoutParams = lp
+    }
+
+    /**
+     * 把底部两枚角标（页数在左、下载在右）按屏形重排。
+     *
+     * 方屏照布局里的 8dp；圆屏叠上内接正方形那一圈——圆形表盘的左右下角是切掉的，只留 8dp 时
+     * 角标的外角落在圆外，会被表盘圆弧压掉一截甚至点不到。顺带把两枚角标的底边一起抬高，
+     * 免得只内缩不抬、横着挤到画面中央。
+     */
+    private fun applyCornerMargins() {
+        val download = findViewById<ImageButton>(R.id.btn_download)
+        val margins = CornerLabelInsets.marginsPx(screenDiameterPx(), baseCornerMarginPx, roundLayout)
+        val horizontal = margins[0]
+        val bottom = margins[1]
+
+        val downloadParams = download.layoutParams as RelativeLayout.LayoutParams
+        downloadParams.marginEnd = horizontal
+        downloadParams.rightMargin = horizontal
+        downloadParams.bottomMargin = bottom
+        download.layoutParams = downloadParams
+
+        val pageParams = pageCountView.layoutParams as RelativeLayout.LayoutParams
+        pageParams.marginStart = horizontal
+        pageParams.leftMargin = horizontal
+        pageParams.bottomMargin = bottom
+        pageCountView.layoutParams = pageParams
+    }
+
+    /** 表盘直径（px）：取窗口量出来的宽高最小值；量不出来时退回屏幕分辨率。 */
+    private fun screenDiameterPx(): Int {
+        val decor = window.decorView
+        val width = if (decor.width > 0) decor.width else resources.displayMetrics.widthPixels
+        val height = if (decor.height > 0) decor.height else resources.displayMetrics.heightPixels
+        if (width <= 0 || height <= 0) return 0
+        return min(width, height)
     }
 
     /** 「第 x/N 张」文案；越界的位置按第一张兜底，避免出现「第 0/N 张」。 */
@@ -348,10 +435,9 @@ class ImageViewerActivity : BaseActivity() {
         return getString(R.string.text_image_viewer_page_count, index + 1, imageList.size)
     }
 
-    /** 翻页时更新页数：圆屏写到顶栏标题，方屏写到右下角标签。 */
+    /** 翻页时更新页数角标（标题固定是「图片查看」，不随翻页变）。 */
     private fun updatePageLabel(position: Int) {
-        if (roundLayout) titleView.text = pageLabel(position)
-        else pageCountView.text = pageLabel(position)
+        pageCountView.text = pageLabel(position)
     }
 
     override fun onResume() {
@@ -417,6 +503,8 @@ class ImageViewerActivity : BaseActivity() {
             val file = try {
                 request.get()
             } catch (t: Throwable) {
+                // 探测都没拿到原图文件（网络不通 / 图源挂了）：后面 attachPhoto 会再失败一次并给出提示（#282）。
+                Logu.w("image-viewer", "第 ${index + 1} 页原图探测失败：${t.javaClass.simpleName}: ${t.message}")
                 null
             }
             val bounds = if (file != null) readImageBounds(file) else ImageBounds(0, 0, null)
@@ -543,12 +631,98 @@ class ImageViewerActivity : BaseActivity() {
             if (!fallback) {
                 builder.override(Target.SIZE_ORIGINAL)
             }
+            // 反馈 #282：Glide 的失败是**异步回调**，下面的 try/catch 接不到；不挂监听就只剩白屏。
+            builder.listener(object : RequestListener<Drawable> {
+                override fun onLoadFailed(
+                    e: GlideException?,
+                    model: Any?,
+                    target: Target<Drawable>,
+                    isFirstResource: Boolean
+                ): Boolean {
+                    showFailure(page, index, e)
+                    return false
+                }
+
+                override fun onResourceReady(
+                    resource: Drawable,
+                    model: Any,
+                    target: Target<Drawable>,
+                    dataSource: DataSource,
+                    isFirstResource: Boolean
+                ): Boolean {
+                    hideFailure(page)
+                    return false
+                }
+            })
             builder.into(page.photoView)
         } catch (e: OutOfMemoryError) {
             MsgUtil.showMsg(UiText.of("超出内存，加载失败"))
         } catch (e: Exception) {
             MsgUtil.err(UiText.of("图片查看"), e)
         }
+    }
+
+    /**
+     * 加载失败：在这一页中央盖一层「点一下重试」的提示（反馈 #282）。
+     *
+     * 之前这里什么都没有——Glide 的失败在异步回调里，用户只能对着白屏猜。提示是**View 而不是弹窗**：
+     * 看图时会在页间来回翻，弹窗会一串串地冒出来，而在图片上盖一行字刚好在这个位置该出现。
+     * 文案按图源分两种（[ImageViewerFailureText]），并顺手把 URL 与失败原因写进日志，方便用户报障时对账。
+     */
+    private fun showFailure(page: ImagePage, index: Int, cause: Throwable?) {
+        val url = imageList.getOrNull(index)
+        Logu.w(
+            "image-viewer",
+            "第 ${index + 1}/${imageList.size} 页加载失败：$url，原因 " +
+                "${cause?.javaClass?.simpleName ?: "未知"}: ${cause?.message}"
+        )
+        // 失败回调的线程由 Glide 决定（默认主线程，但被 clear / 生命周期打断时可能不是），统一抛回主线程。
+        page.container.post {
+            if (isFinishing || isDestroyed) return@post
+            val density = resources.displayMetrics.density
+            val view = page.failureView ?: TextView(this).apply {
+                gravity = Gravity.CENTER
+                textSize = FAILURE_TEXT_SIZE_SP
+                val pad = (FAILURE_TEXT_PADDING_DP * density).toInt()
+                setPadding(pad, pad, pad, pad)
+            }
+            view.setText(ImageViewerFailureText.resFor(!ImageRequestPolicy.shouldAttachSession(url)))
+            view.setOnClickListener { retryPage(page, index) }
+            if (page.failureView == null) {
+                page.container.addView(
+                    view,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        Gravity.CENTER
+                    )
+                )
+                page.failureView = view
+            }
+            view.visibility = View.VISIBLE
+        }
+    }
+
+    /** 这一页加载成功（或用户点了重试）后收掉失败提示。 */
+    private fun hideFailure(page: ImagePage) {
+        page.failureView?.visibility = View.GONE
+    }
+
+    /**
+     * 用户点了「点一下重试」：把这一页退回**未探测**状态重走一遍完整流程。
+     *
+     * 只重发一次整图请求是不够的——网络恢复后超大图仍该走分块路径（省内存），所以这里复位
+     * 探测标记、交给 [probePage] 重新决定路径；[ImagePage.failureView] 留着复用。
+     */
+    private fun retryPage(page: ImagePage, index: Int) {
+        if (isFinishing || isDestroyed) return
+        hideFailure(page)
+        Logu.d("image-viewer", "用户点重试：重新加载第 ${index + 1} 页")
+        page.mode = PAGE_PENDING
+        page.photoLoadStarted = false
+        page.photoCleared = false
+        page.probeStarted = true
+        probePage(page, index)
     }
 
     /**
@@ -601,5 +775,9 @@ class ImageViewerActivity : BaseActivity() {
 
         /** 缩放动画时长是 200ms（PhotoView 默认），校验点取动画结束后一点点。 */
         const val ZOOM_VERIFY_DELAY_MS = 240L
+
+        /** 失败提示的字号（sp）与内边距（dp）：手表屏小，一行「点一下重试」要放得下又要点得到。 */
+        const val FAILURE_TEXT_SIZE_SP = 12f
+        const val FAILURE_TEXT_PADDING_DP = 10f
     }
 }

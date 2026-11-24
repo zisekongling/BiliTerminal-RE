@@ -61,10 +61,10 @@ object DanmakuFileFetcher {
     fun fetch(url: String, headers: ArrayList<String>? = null): ByteArray {
         val response: Response = if (headers == null) NetWorkUtil.get(url) else NetWorkUtil.get(url, headers)
         response.use {
-            val body = it.body
+            val body = it.body()
             // 非 2xx 时 body 是错误页/JSON：不解压（省一次无意义的 inflate），直接交给失败判定
-            val data = if (body != null && isAcceptableStatus(it.code)) NetWorkUtil.decompress(body.bytes()) else null
-            val failure = describeFailure(it.code, data)
+            val data = if (body != null && isAcceptableStatus(it.code())) NetWorkUtil.decompress(body.bytes()) else null
+            val failure = describeFailure(it.code(), data)
             if (failure != null) throw IOException("弹幕下载失败：" + failure)
             // describeFailure 返回 null 时 data 必非空（唯一来源是上面那个三元表达式）
             return data!!

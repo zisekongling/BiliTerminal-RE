@@ -83,7 +83,10 @@ class SearchActivity : InstanceActivity() {
     private var suggestionGeneration = 0
     private var suggestionsEnabled: Boolean = false
 
-    /** 「搜索历史」开关（26.11.21 反馈）。关掉时本页既不记录也不显示历史区，读写统一走 [SearchHistoryStore]。 */
+    /**
+     * 「搜索历史」开关（26.11.21 反馈）。26.11.23 起只影响**显示**：关掉只是不显示历史区与「清空」入口，
+     * 记录照常读写（用户口径：关掉仅隐藏，该记录的还是记录），读写统一走 [SearchHistoryStore]。
+     */
     private var historyEnabled: Boolean = true
     private var defaultSearchContent: String? = null
     private var defaultSearchContentEnabled: Boolean = false
@@ -221,7 +224,8 @@ class SearchActivity : InstanceActivity() {
                 }
             }
 
-            // 开关关着时 store 直接返回空表，历史区因此不显示（解析失败也只记日志，不弹窗）
+            // 开关只影响显示，这里永远读真实记录：关掉期间记下的关键词，重新打开开关就回来
+            // （解析失败也只记日志，不弹窗）
             searchHistory = SearchHistoryStore.read()
             searchHistoryAdapter = SearchHistoryAdapter(this, searchHistory)
             // 回调里的 position 是列表变化前绑定的，点下去那一刻才算数：越界就当没点
@@ -536,8 +540,8 @@ class SearchActivity : InstanceActivity() {
                     keywordInput.clearFocus()
                 }
 
-                // 开关关着时不记录（两个分支一起跳过），列表也就不动
-                if (historyEnabled && !searchHistory.contains(keyword)) {
+                // 开关只影响显示：关掉也照记（列表看不见，但换个开关就回来）
+                if (!searchHistory.contains(keyword)) {
                     try {
                         searchHistory.add(0, keyword)
                         SearchHistoryStore.save(searchHistory)
@@ -551,7 +555,7 @@ class SearchActivity : InstanceActivity() {
                     } catch (e: Exception) {
                         runOnUiThread { MsgUtil.err(e) }
                     }
-                } else if (historyEnabled) {
+                } else {
                     try {
                         val pos = searchHistory.indexOf(keyword)
                         searchHistory.remove(keyword)
@@ -663,7 +667,7 @@ class SearchActivity : InstanceActivity() {
 
     /** 历史 / 建议浮层统一从这里开关（浮层盖在列表上；排序图标在搜索框内部，两者不再抢地方）。 */
     private fun showHistoryDropdown() {
-        // 开关关掉后历史区整个不显示（26.11.21 反馈：没有关闭记录的地方）
+        // 开关关掉只是历史区不显示，记录仍在本地（26.11.23 起「关闭」= 隐藏，不再清空）
         if (!historyEnabled) {
             historyRecyclerview.visibility = View.GONE
             suggestionsRecyclerview.visibility = View.GONE

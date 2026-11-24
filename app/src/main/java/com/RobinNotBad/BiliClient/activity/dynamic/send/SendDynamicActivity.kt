@@ -25,19 +25,24 @@ import com.RobinNotBad.BiliClient.api.DynamicApi
 import com.RobinNotBad.BiliClient.api.EmoteApi
 import com.RobinNotBad.BiliClient.api.ImageApi
 import com.RobinNotBad.BiliClient.model.Dynamic
+import com.RobinNotBad.BiliClient.model.RepostCard
 import com.RobinNotBad.BiliClient.model.VideoInfo
 import com.RobinNotBad.BiliClient.model.VoteDraft
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.GlideUtil
+import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.ScheduleTimePolicy
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
+import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.TimeUtil
 import com.RobinNotBad.BiliClient.util.view.TextButtonColors
 import com.RobinNotBad.BiliClient.util.view.TextInsertion
 import com.bumptech.glide.Glide
+import com.bumptech.glide.load.DecodeFormat
+import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.checkbox.MaterialCheckBox
@@ -163,11 +168,13 @@ class SendDynamicActivity : BaseActivity() {
             val extraCard = findViewById<FrameLayout>(R.id.forwardCard)
             var video: VideoInfo? = null
             var forward: Dynamic? = null
+            var repost: RepostCard? = null
             val forwardContent = if (editing) null else TerminalContext.getInstance().getForwardContent()
-            if (forwardContent is VideoInfo) {
-                video = forwardContent
-            } else {
-                forward = forwardContent as Dynamic?
+            // 按类型分支，不做强转：以前的 as Dynamic? 遇到不认识的类型会直接抛 ClassCastException
+            when (forwardContent) {
+                is VideoInfo -> video = forwardContent
+                is Dynamic -> forward = forwardContent
+                is RepostCard -> repost = forwardContent
             }
             if (forward != null) {
                 val childCard = View.inflate(this, R.layout.cell_dynamic, extraCard)
@@ -176,17 +183,20 @@ class SendDynamicActivity : BaseActivity() {
             } else if (video != null) {
                 val holder = VideoCardHolder(LayoutInflater.from(this).inflate(R.layout.cell_video_list, extraCard))
                 holder.showVideoCard(video.toCard(), this)
+            } else if (repost != null) {
+                bindRepostCard(repost!!, extraCard)
             }
 
             // 转发场景不允许带图：转发的是别人的内容，再挂自己的图语义不成立，B 站也不接受
-            val normalPublish = !editing && forward == null && video == null
+            val normalPublish = !editing && forward == null && video == null && repost == null
             addPic.visibility = if (normalPublish) View.VISIBLE else View.GONE
             // 定时发布只在普通发布链路上有意义：转发走 relayDynamic（没有 option），编辑接口也没有定时字段
             addTimer.visibility = if (normalPublish) View.VISIBLE else View.GONE
             // 可见范围/关闭评论同理：转发与编辑都没有 option 字段，露出来只会让用户以为生效了
             publishOptions.visibility = if (normalPublish) View.VISIBLE else View.GONE
-            // 编辑不带投票：编辑接口改不了 attach_card，留着入口只会让用户以为能改
-            if (editing) addVote.visibility = View.GONE
+            // 编辑不带投票：编辑接口改不了 attach_card，留着入口只会让用户以为能改；
+            // 通用卡片转发同理——relayGeneric 没有 attach_card，投票填了也会被丢掉
+            if (editing || repost != null) addVote.visibility = View.GONE
 
             addPic.setOnClickListener {
                 // 内置选图页（反馈 #53），页内可退回系统选择器
@@ -245,6 +255,16 @@ class SendDynamicActivity : BaseActivity() {
                 // 编辑模式：直接在页内调编辑接口，不走 DynamicActivity 的发布链路
                 if (editing) {
                     submitEdit(text)
+                    return@setOnClickListener
+                }
+
+                // 通用卡片转发：同样页内直接发布。卡片自带目标类型与 id，
+                // 调用方（番剧页/收藏夹页/分享面板）不必各自复制一份转发逻辑。
+                // 结果码用 RESULT_FIRST_USER 而不是 RESULT_OK，免得调用方见到 RESULT_OK
+                // 又照普通动态发一遍。
+                val repostCard = repost
+                if (repostCard != null) {
+                    submitRepost(text, repostCard)
                     return@setOnClickListener
                 }
 
@@ -489,6 +509,108 @@ class SendDynamicActivity : BaseActivity() {
                     } else {
                         sending = false
                         MsgUtil.showMsg(DynamicApi.editErrorMsg(code).ifEmpty { UiText.fmt("修改失败（%1\$s）", code) })
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    sending = false
+                    MsgUtil.err(e)
+                }
+            }
+        }
+    }
+
+    /**
+     * 画出「分享至动态」的通用卡片。封面、标题、副标题都按有无隐藏：
+     * 缺封面时只留文字，不会因为空值崩掉。
+     */
+    private fun bindRepostCard(card: RepostCard, container: FrameLayout) {
+        val cardView = LayoutInflater.from(this).inflate(R.layout.cell_repost_card, container, false)
+        container.addView(cardView)
+        val cover = cardView.findViewById<ImageView>(R.id.img_cover)
+        val titleView = cardView.findViewById<TextView>(R.id.text_title)
+        val subtitleView = cardView.findViewById<TextView>(R.id.text_subtitle)
+
+        val coverUrl = card.cover
+        if (coverUrl.isNullOrBlank()) {
+            cover.visibility = View.GONE
+        } else {
+            // 封面链照抄 VideoCardHolder：缩放/圆角/缓存口径别自己再定一套
+            try {
+                GlideUtil.with(cover).asDrawable()
+                    .load(GlideUtil.url_hq(coverUrl))
+                    .apply(GlideUtil.thumbOptionsCover(cover))
+                    .transition(GlideUtil.getTransitionOptions())
+                    .placeholder(R.mipmap.placeholder)
+                    .error(R.mipmap.placeholder)
+                    .format(DecodeFormat.PREFER_ARGB_8888)
+                    .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
+                    .apply(VideoCardHolder.getRequestOptions())
+                    .into(cover)
+            } catch (e: Exception) {
+                Logu.e("转发卡片", "封面加载失败：" + e)
+                cover.visibility = View.GONE
+            }
+        }
+
+        val title = (StringUtil.htmlToString(card.title.orEmpty()) ?: "").trim()
+        if (title.isEmpty()) {
+            titleView.visibility = View.GONE
+        } else {
+            titleView.text = title
+        }
+
+        val subtitle = card.subtitle.orEmpty().trim()
+        if (subtitle.isEmpty()) {
+            subtitleView.visibility = View.GONE
+        } else {
+            subtitleView.text = subtitle
+        }
+    }
+
+    /**
+     * 通用卡片转发：和 submitEdit 一样在页内直接发布，不走 DynamicActivity 的发布链路。
+     *
+     * <p>卡片自带目标类型与 id，番剧页/收藏夹页/分享面板只要填好一张 [RepostCard] 即可，
+     * 不用各自复制一份转发逻辑——这就是「同一条发布路径」的落点。
+     */
+    private fun submitRepost(text: String, card: RepostCard) {
+        if (!card.isValid()) {
+            MsgUtil.showMsg(getString(R.string.uitext_senddynamicactivity_025))
+            return
+        }
+        sending = true
+        MsgUtil.showMsg(getString(R.string.uitext_senddynamicactivity_024))
+        CenterThreadPool.run {
+            try {
+                val atUids = HashMap<String, Long>()
+                val matcher = Pattern.compile("@(\\S+)\\s").matcher(text)
+                while (matcher.find()) {
+                    // group(1) 可空，取不到就跳过这一条，免得把 null 当用户名送进接口
+                    val matchedString = matcher.group(1) ?: continue
+                    val uid: Long
+                    if (DynamicApi.mentionAtFindUser(matchedString).also { uid = it } != -1L) {
+                        atUids[matchedString] = uid
+                    }
+                }
+                // authorContent 用卡片标题：转发出去的引用是「//@作者:标题」，和视频转发的口径一致
+                val dynId = DynamicApi.relayGeneric(
+                    text, atUids.ifEmpty { null },
+                    card.dynType, card.rid,
+                    card.authorName, card.authorMid, card.title,
+                    EmoteApi.getEmoteTexts(EmoteApi.BUSINESS_DYNAMIC)
+                )
+                runOnUiThread {
+                    if (dynId != -1L) {
+                        val result = Intent()
+                        result.putExtra("repost_dyn_id", dynId)
+                        // 刻意不用 RESULT_OK：调用方见到 RESULT_OK 会拿 "text" 再发一遍普通动态
+                        setResult(RESULT_FIRST_USER, result)
+                        MsgUtil.showMsg(UiText.of("转发成功~"))
+                        finish()
+                    } else {
+                        sending = false
+                        MsgUtil.showMsg(UiText.of("转发失败"))
                     }
                 }
             } catch (e: Exception) {

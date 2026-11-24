@@ -5,7 +5,7 @@
 轻量的第三方 B 站 Android 客户端，基于哔哩终端 BiliClient 2.7.0 的改版分支
 
 [![Version](https://img.shields.io/badge/version-26.11.07-blue)](https://github.com/zisekongling/BiliTerminal-RE)
-[![Android](https://img.shields.io/badge/android-5.0%2B-green)]()
+[![Android](https://img.shields.io/badge/android-4.4%2B-green)]()
 [![Language](https://img.shields.io/badge/language-Kotlin%20%2F%20Java-orange)]()
 [![License](https://img.shields.io/badge/license-GPL%20v3-red)]()
 
@@ -178,13 +178,13 @@
 
 ## 系统要求
 
-- **Android 5.0（API 21）及以上**
+- **Android 4.4（API 19）及以上**
 
 原版哔哩终端曾支持 Android 4.0.4；本分支经 Kotlin 重构后一度要求 Android 7.0，26.10.10 起一路下调到 **Android 4.4**。
 
-**26.11.21 起暂时回到 Android 5.0（API 21）**：项目用的 OkHttp 4.12.0 在 API 21 以下会主动抛异常（类初始化阶段就失败，之后所有网络请求都是 `NoClassDefFoundError`，见 issue #35），而全工程一百多处调用是按 OkHttp 4 的写法写的，换成 OkHttp 3.12.x 要一次性改完并做真机验证，这件事留到期中考试之后再做。Android 4.4（API 19/20）的用户请先停留在 26.11.21 之前的版本。再往下的 Android 4.3 及更早版本请使用原版哔哩终端或手表版。
+**26.11.21 曾短暂回到 Android 5.0（API 21）**：当时用的 OkHttp 4.12.0 在 API 21 以下会在类初始化阶段主动抛异常，之后所有网络请求都是 `NoClassDefFoundError`（见 issue #35）。**26.11.23 已恢复 Android 4.4**：OkHttp 降到 3.12.13，并把 3.x 没有的那套 Kotlin 属性写法（`response.code` / `response.body` 等）全部改回 `.code()` / `.body()`。代价是 3.12.x 已停止维护、不再有安全更新，完整取舍见 [docs/architecture-map.md](docs/architecture-map.md) 的 §1.1。再往下的 Android 4.3 及更早版本请使用原版哔哩终端或手表版。
 
-> Android 5.0 起的兼容结论同样来自静态审计、依赖元数据与 lint，**尚未在真机上逐档验证过**；遇到问题欢迎反馈。
+> 4.4 起的兼容结论同样来自静态审计、依赖元数据与 lint，**尚未在 4.4 / 5.0 真机上逐档验证过**；遇到问题欢迎反馈。
 
 ---
 

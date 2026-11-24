@@ -345,7 +345,10 @@ public class AndroidDisplayer extends AbsDisplayer<Canvas, Typeface> {
         HAS_STROKE = CONFIG_HAS_STROKE;
         HAS_SHADOW = CONFIG_HAS_SHADOW;
         HAS_PROJECTION = CONFIG_HAS_PROJECTION;
-        ANTI_ALIAS = fromWorkerThread && CONFIG_ANTI_ALIAS;
+        // 26.11.23（反馈 #276「弹幕多了变模糊」）：原来只在工作线程绘制时开抗锯齿，
+        // 非异步渲染（主线程绘制，手表上就是默认路径）时 ANTI_ALIAS=false，字边缘发毛。
+        // 文字抗锯齿本身开销很小，这里统一跟 CONFIG_ANTI_ALIAS 走。
+        ANTI_ALIAS = CONFIG_ANTI_ALIAS;
         TextPaint paint = getPaint(danmaku, fromWorkerThread);
         sStuffer.drawBackground(danmaku, canvas, _left, _top);
         

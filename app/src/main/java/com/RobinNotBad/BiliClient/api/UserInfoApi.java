@@ -317,6 +317,39 @@ public class UserInfoApi {
         return all.getInt("code");
     }
 
+    /** x/relation/modify 的关系操作码：5 拉黑、6 解除拉黑。 */
+    public static final int RELATION_ACT_BLOCK = 5;
+    public static final int RELATION_ACT_UNBLOCK = 6;
+
+    /**
+     * 关系操作的来源标识（re_src）。11 = 私信会话，
+     * 与 PiliPlus 的 VideoHttp.relationMod(mid, act, reSrc) 在私信场景传的值一致。
+     */
+    public static final int RELATION_RE_SRC_IM = 11;
+
+    /** 布尔转关系操作码（纯函数）：true→5 拉黑，false→6 解除。 */
+    public static int actForBlock(boolean blocked) {
+        return blocked ? RELATION_ACT_BLOCK : RELATION_ACT_UNBLOCK;
+    }
+
+    /**
+     * 改与某人的关系（拉黑 / 解除拉黑）。
+     *
+     * <p>和 {@link #followUser} 是同一个端点（x/relation/modify），只是 act 不同，
+     * 并且多带一个 re_src 让服务端知道操作来自哪个入口。拉黑会同时解除关注关系。
+     *
+     * @return 接口返回码，0 表示成功
+     */
+    public static int relationModify(long mid, int act, int reSrc) throws IOException, JSONException {
+        String url = "https://api.bilibili.com/x/relation/modify?";
+        String arg = "fid=" + mid
+                + "&act=" + act
+                + "&re_src=" + reSrc
+                + "&csrf=" + NetWorkUtil.getInfoFromCookie("bili_jct", SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""));
+        JSONObject all = new JSONObject(Objects.requireNonNull(NetWorkUtil.post(url, arg, NetWorkUtil.webHeaders).body()).string());
+        return all.getInt("code");
+    }
+
     /**
      * 退出登录：请求服务端注销当前会话。
      *

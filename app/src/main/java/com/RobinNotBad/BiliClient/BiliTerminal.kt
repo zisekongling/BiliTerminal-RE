@@ -37,6 +37,7 @@ import com.RobinNotBad.BiliClient.util.MessageUnreadRefresh
 import com.RobinNotBad.BiliClient.util.MessageUnreadRefresher
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
+import com.RobinNotBad.BiliClient.util.PublicLogRecorder
 import com.RobinNotBad.BiliClient.util.NetworkPlaybackQuality
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
 import com.RobinNotBad.BiliClient.util.PerformanceManager
@@ -405,10 +406,13 @@ class BiliTerminal : Application() {
         @JvmStatic
         fun applyLogSwitches() {
             val debugBuild = isDebugBuild()
+            // -PdiagLog=true 的诊断包：Debug 构建里强制全级别 + 公共 Download 全量落盘。
+            // release 分支 DIAG_FULL_LOG 恒 false，R8 会把整个分支折叠掉。
+            val diagFullLog = debugBuild && BuildConfig.DIAG_FULL_LOG
 
             // Agent 模式只在 Debug 构建下有意义：release 里 debugBuild 是编译期常量 false，
             // R8 会把整段折叠掉，开关即使被写进 SharedPreferences 也不产生任何效果。
-            val agentMode = debugBuild && SharedPreferencesUtil.getBoolean(SettingsKeys.DEV_AGENT_MODE, false)
+            val agentMode = diagFullLog || (debugBuild && SharedPreferencesUtil.getBoolean(SettingsKeys.DEV_AGENT_MODE, false))
             AGENT_TEST_MODE = agentMode
 
             Logu.AGENT_MODE = agentMode
@@ -416,11 +420,15 @@ class BiliTerminal : Application() {
             Logu.LOGD_ENABLED = agentMode || SharedPreferencesUtil.getBoolean(SettingsKeys.DEV_LOGD, debugBuild)
             Logu.LOGI_ENABLED = agentMode || SharedPreferencesUtil.getBoolean(SettingsKeys.DEV_LOGI, debugBuild)
 
+            // 诊断包改写公共 Download 的 rebili-full.log；此时不再双写应用专属 rebili.log。
+            Logu.FULL_LOG_TO_PUBLIC = diagFullLog
+
             // 落盘默认随 Agent 模式打开（dev_log_file 默认 true）：agent 常在没有 adb 连接的场景下
             // 事后取证，只靠 logcat 会什么都拿不到。release 下 agentMode 恒 false，永不落盘。
-            Logu.LOG_TO_FILE = agentMode && SharedPreferencesUtil.getBoolean(SettingsKeys.DEV_LOG_FILE, true)
+            Logu.LOG_TO_FILE = !diagFullLog && agentMode && SharedPreferencesUtil.getBoolean(SettingsKeys.DEV_LOG_FILE, true)
 
             // HTTP 追踪只在 Agent 模式下开：它会给每次请求做一次响应体 peek，属于纯观测开销。
+            // 诊断包也开，保证崩溃前的请求上下文完整（内容仍走脱敏与单行 4000 字上限）。
             NetWorkUtil.HTTP_TRACE = agentMode
 
             if (agentMode) {
@@ -562,6 +570,15 @@ class BiliTerminal : Application() {
             errorCatch.init(context)
 
             applyLogSwitches()
+
+            // 诊断包：把全量日志写入器拉起来（写 Download/rebili-full.log）。
+            // 必须在 applyLogSwitches 之后，否则 Logu 还不会把日志路由过来。
+            if (BuildConfig.DEBUG && BuildConfig.DIAG_FULL_LOG) {
+                PublicLogRecorder.start(this)
+                Logu.i("BiliTerminal", "全量诊断日志已开启：" + PublicLogRecorder.filePath())
+                Logu.i("BiliTerminal", "版本=" + BuildConfig.VERSION_NAME + " SDK=" + android.os.Build.VERSION.SDK_INT +
+                        " 机型=" + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL)
+            }
 
             // 26.11.20（崩溃记录加固）：上次崩溃如果赶上网络不通、或者用户在崩溃页那 3 秒窗口里点了
             // 「退出」，报告已经落在 filesDir/crash_pending/ 里，这里在后台补传最多 3 条。

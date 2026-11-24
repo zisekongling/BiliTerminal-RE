@@ -1,0 +1,213 @@
+package com.RobinNotBad.BiliClient.util.view
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+/**
+ * [ShareTexts] 的纯函数单测：只验链接形态与文案拼装，不碰 Android。
+ */
+class ShareTextsTest {
+
+    @Test
+    fun videoUrl_正常bvid() {
+        assertEquals("https://www.bilibili.com/video/BV1xx411c7mD", ShareTexts.videoUrl("BV1xx411c7mD"))
+    }
+
+    @Test
+    fun videoUrl_空值返回空串() {
+        assertEquals("", ShareTexts.videoUrl(null))
+        assertEquals("", ShareTexts.videoUrl(""))
+        assertEquals("", ShareTexts.videoUrl("   "))
+    }
+
+    @Test
+    fun bangumiUrl_指针到集() {
+        assertEquals("https://www.bilibili.com/bangumi/play/ep12345", ShareTexts.bangumiUrl(12345L))
+        assertEquals("", ShareTexts.bangumiUrl(0L))
+        assertEquals("", ShareTexts.bangumiUrl(-1L))
+    }
+
+    @Test
+    fun liveUrl_正常房间号() {
+        assertEquals("https://live.bilibili.com/2233", ShareTexts.liveUrl(2233L))
+        assertEquals("", ShareTexts.liveUrl(0L))
+    }
+
+    @Test
+    fun articleUrl_正常cv号() {
+        assertEquals("https://www.bilibili.com/read/cv123456", ShareTexts.articleUrl(123456L))
+        assertEquals("", ShareTexts.articleUrl(0L))
+    }
+
+    @Test
+    fun favoriteUrl_正常收藏夹() {
+        assertEquals("https://www.bilibili.com/medialist/detail/ml98765", ShareTexts.favoriteUrl(98765L))
+        assertEquals("", ShareTexts.favoriteUrl(0L))
+    }
+
+    @Test
+    fun opusUrl_动态号() {
+        assertEquals("https://www.bilibili.com/opus/123456789", ShareTexts.opusUrl("123456789"))
+        assertEquals("", ShareTexts.opusUrl(null))
+        assertEquals("", ShareTexts.opusUrl("  "))
+    }
+
+    @Test
+    fun dynamicUrl_动态号() {
+        assertEquals("https://www.bilibili.com/opus/123456789", ShareTexts.dynamicUrl(123456789L))
+    }
+
+    @Test
+    fun dynamicUrl_没有id时不给死链() {
+        // id_str 缺失时 DynamicApi 把 dynamicId 落成 0，拼出来会是 opus/0
+        assertEquals("", ShareTexts.dynamicUrl(0L))
+        assertEquals("", ShareTexts.dynamicUrl(-1L))
+    }
+
+    @Test
+    fun dynamicShareHead_有标题用标题() {
+        assertEquals("标题", ShareTexts.dynamicShareHead("标题", "正文第一行\n第二行"))
+        assertEquals("标题", ShareTexts.dynamicShareHead("  标题  ", null))
+    }
+
+    @Test
+    fun dynamicShareHead_没标题取正文首行() {
+        assertEquals("正文第一行", ShareTexts.dynamicShareHead(null, "正文第一行\n第二行"))
+        assertEquals("正文第一行", ShareTexts.dynamicShareHead("   ", "正文第一行"))
+        assertEquals("", ShareTexts.dynamicShareHead(null, null))
+        assertEquals("", ShareTexts.dynamicShareHead("", ""))
+    }
+
+    @Test
+    fun dynamicShareHead_超长首行也截断() {
+        val long = "标".repeat(ShareTexts.TITLE_MAX + 10)
+        val head = ShareTexts.dynamicShareHead(null, long + "\n第二行")
+        assertEquals(ShareTexts.TITLE_MAX + 1, head.length)
+        assertEquals("…", head.substring(head.length - 1))
+    }
+
+    @Test
+    fun dynamicShareText_标题加换行加链接() {
+        assertEquals(
+            "标题\nhttps://www.bilibili.com/opus/1",
+            ShareTexts.dynamicShareText("标题", "正文", 1L)
+        )
+        assertEquals(
+            "正文\nhttps://www.bilibili.com/opus/1",
+            ShareTexts.dynamicShareText(null, "正文", 1L)
+        )
+    }
+
+    @Test
+    fun dynamicShareText_没链接时只发标题() {
+        assertEquals("标题", ShareTexts.dynamicShareText("标题", "正文", 0L))
+        assertEquals("", ShareTexts.dynamicShareText(null, null, 0L))
+    }
+
+    @Test
+    fun trimTitle_超长截断加省略号() {
+        val long = "标".repeat(ShareTexts.TITLE_MAX + 10)
+        val trimmed = ShareTexts.trimTitle(long)
+        assertEquals(ShareTexts.TITLE_MAX + 1, trimmed.length)
+        assertEquals("…", trimmed.substring(trimmed.length - 1))
+    }
+
+    @Test
+    fun trimTitle_边界不截断() {
+        val exact = "标".repeat(ShareTexts.TITLE_MAX)
+        assertEquals(exact, ShareTexts.trimTitle(exact))
+        assertEquals("", ShareTexts.trimTitle(null))
+        assertEquals("标题", ShareTexts.trimTitle("  标题  "))
+    }
+
+    @Test
+    fun videoShareText_完整三段() {
+        assertEquals(
+            "标题 UP主: 某人 - https://www.bilibili.com/video/BV1",
+            ShareTexts.videoShareText("标题", "BV1", "某人")
+        )
+    }
+
+    @Test
+    fun videoShareText_没有作者时不留半截UP主() {
+        assertEquals(
+            "标题 - https://www.bilibili.com/video/BV1",
+            ShareTexts.videoShareText("标题", "BV1", null)
+        )
+        assertEquals(
+            "标题 - https://www.bilibili.com/video/BV1",
+            ShareTexts.videoShareText("标题", "BV1", "   ")
+        )
+    }
+
+    @Test
+    fun videoShareText_bvid为空只剩标题() {
+        assertEquals("标题", ShareTexts.videoShareText("标题", null, "某人").replace(" UP主: 某人", ""))
+    }
+
+    @Test
+    fun bangumiShareText_剧名加集标题() {
+        assertEquals(
+            "剧名 第1话 - https://www.bilibili.com/bangumi/play/ep1",
+            ShareTexts.bangumiShareText("剧名", "第1话", 1L)
+        )
+    }
+
+    @Test
+    fun bangumiShareText_集标题与剧名相同时不重复() {
+        assertEquals(
+            "剧名 - https://www.bilibili.com/bangumi/play/ep1",
+            ShareTexts.bangumiShareText("剧名", "剧名", 1L)
+        )
+    }
+
+    @Test
+    fun favoriteShareText_收藏夹名加链接() {
+        assertEquals(
+            "猛 男 生 存 - https://www.bilibili.com/medialist/detail/ml1052622027",
+            ShareTexts.favoriteShareText("猛 男 生 存", 1052622027L)
+        )
+    }
+
+    @Test
+    fun favoriteShareText_空标题只剩链接() {
+        assertEquals(
+            "https://www.bilibili.com/medialist/detail/ml1",
+            ShareTexts.favoriteShareText(null, 1L)
+        )
+        // 空白标题同样按「没有标题」处理，不留「   - 链接」这种前导空格
+        assertEquals(
+            "https://www.bilibili.com/medialist/detail/ml1",
+            ShareTexts.favoriteShareText("   ", 1L)
+        )
+    }
+
+    @Test
+    fun favoriteShareText_空id只剩标题() {
+        assertEquals("收藏夹", ShareTexts.favoriteShareText("收藏夹", 0L))
+        assertEquals("收藏夹", ShareTexts.favoriteShareText("收藏夹", -1L))
+        // 两头都缺就是空串，调用方据此跳过分享
+        assertEquals("", ShareTexts.favoriteShareText(null, 0L))
+    }
+
+    @Test
+    fun favoriteShareText_超长标题按TITLE_MAX截断() {
+        val long = "夹".repeat(ShareTexts.TITLE_MAX + 20)
+        val text = ShareTexts.favoriteShareText(long, 42L)
+        val expectTitle = long.substring(0, ShareTexts.TITLE_MAX) + "…"
+        assertEquals(expectTitle + " - https://www.bilibili.com/medialist/detail/ml42", text)
+    }
+
+    @Test
+    fun messageText_标题加换行加链接() {
+        assertEquals("标题\nhttps://a", ShareTexts.messageText("标题", "https://a"))
+    }
+
+    @Test
+    fun messageText_缺一个也不拼空行() {
+        assertEquals("标题", ShareTexts.messageText("标题", null))
+        assertEquals("标题", ShareTexts.messageText("标题", ""))
+        assertEquals("https://a", ShareTexts.messageText(null, "https://a"))
+        assertEquals("", ShareTexts.messageText(null, null))
+    }
+}

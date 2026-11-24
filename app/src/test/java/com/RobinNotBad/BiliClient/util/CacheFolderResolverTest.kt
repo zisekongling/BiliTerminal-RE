@@ -120,6 +120,21 @@ class CacheFolderResolverTest {
     }
 
     @Test
+    fun `夹表合法为空时允许自愈元数据`() {
+        // 用户把最后一个夹也拆了：.folders_info.json 里是一份合法的空数组，
+        // 这时元数据仍留着旧夹名会让这条视频在「下次建同名夹」时自己跳进去，所以要写回
+        assertTrue(CacheFolderResolver.needsMetaHeal("", "追番", emptySet(), true))
+        assertFalse(CacheFolderResolver.needsMetaHeal("", "", emptySet(), true))
+    }
+
+    @Test
+    fun `夹记录读不出来时仍然不自愈`() {
+        // 与上一条对照：文件缺失 / 写坏了，就分不清「真的没有夹」还是「记录丢了」，
+        // 宁可留着元数据里那一份，也不能把它抹平
+        assertFalse(CacheFolderResolver.needsMetaHeal("", "追番", emptySet(), false))
+    }
+
+    @Test
     fun `记录里缺这条标题才补记录`() {
         assertTrue(CacheFolderResolver.needsRecordHeal("追番", ""))
         assertFalse(CacheFolderResolver.needsRecordHeal("追番", "追番"))

@@ -99,7 +99,7 @@ class PlayerDanmuClientListener : WebSocketListener() {
     override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
         super.onMessage(webSocket, bytes)
 
-        val actionCode = bytes[11].toInt()
+        val actionCode = bytes.getByte(11).toInt()
         when (actionCode) {
             8 -> {
                 Log.e("debug", "弹幕流认证成功")
@@ -144,10 +144,10 @@ class PlayerDanmuClientListener : WebSocketListener() {
         try {
             var result: JSONObject
 
-            val bytes2 = bytes.substring(bytes[5].toInt())
+            val bytes2 = bytes.substring(bytes.getByte(5).toInt())
             if (Brotli.decompress(bytes2.toByteArray()).size > 5) {
                 val bytes3 = ByteString.of(*Brotli.decompress(bytes2.toByteArray()))
-                result = JSONObject(bytes3.substring(bytes3[5].toInt()).utf8())
+                result = JSONObject(bytes3.substring(bytes3.getByte(5).toInt()).utf8())
             } else if (bytes2.utf8().contains("{"))
                 result = JSONObject(bytes2.utf8().substring(bytes2.utf8().indexOf("{")))
             else return

@@ -1837,7 +1837,7 @@ class DownloadService : Service() {
         }
         try {
             client.newCall(buildRequest(false)).execute().use { res ->
-                if (res.code == 206) {
+                if (res.code() == 206) {
                     val total = res.header("Content-Range")?.substringAfter('/', "")?.trim()?.toLongOrNull() ?: 0L
                     if (total > 0) return total
                 }
@@ -1977,8 +1977,8 @@ class DownloadService : Service() {
                 // 续传请求必须落在 206 且总长对得上：200 说明服务端忽略了 Range（整份文件重发），
                 // 总长对不上说明这条线路给的是另一个文件。两种都不能接着写，关掉响应、清空、重发一次。
                 val rangeTotal = contentRangeTotal(response)
-                if (response.code != 206 || rangeTotal <= startBytes) {
-                    Logu.w("DownloadService", "续传不可用（HTTP ${response.code}，总长 $rangeTotal），改为从头下载：${file.name}")
+                if (response.code() != 206 || rangeTotal <= startBytes) {
+                    Logu.w("DownloadService", "续传不可用（HTTP ${response.code()}，总长 $rangeTotal），改为从头下载：${file.name}")
                     try { response.close() } catch (_: Exception) {}
                     if (!resetFile(file)) return DownloadPathSpec.ERR_FILE
                     startBytes = 0L
@@ -1993,16 +1993,16 @@ class DownloadService : Service() {
                 }
             }
             response.use {
-                if (!response.isSuccessful || response.body == null) {
-                    Logu.e("DownloadService", "下载失败，HTTP ${response.code}：${file.name}")
-                    recordFailReason(sectionId, getString(R.string.text_download_fail_http, response.code))
+                if (!response.isSuccessful || response.body() == null) {
+                    Logu.e("DownloadService", "下载失败，HTTP ${response.code()}：${file.name}")
+                    recordFailReason(sectionId, getString(R.string.text_download_fail_http, response.code()))
                     singleResult = DownloadStreamTransfer.failureCode(started, isPaused(sectionId), DownloadPathSpec.ERR_NETWORK)
                     return singleResult
                 }
-                val body = response.body!!
+                val body = response.body()!!
                 // 206 时 body.contentLength() 只是"剩余长度"，整份文件的总长只能从 Content-Range 里取；
                 // 取不到就回落到 HEAD 给的 totalSize（HEAD 也没给就是 -1，走伪进度）。
-                effectiveTotalSize = if (response.code == 206)
+                effectiveTotalSize = if (response.code() == 206)
                     contentRangeTotal(response).takeIf { it > 0 } ?: totalSize
                 else
                     DownloadStreamTransfer.expectedBytes(totalSize, body.contentLength())
@@ -2344,13 +2344,13 @@ class DownloadService : Service() {
                 newCall.execute().use { resp ->
                     // 服务端忽略 Range 会回 200 + 整个文件：此时绝不能按分片读，
                     // 否则每片都把整个文件读一遍（5 片 = 5 倍流量），慢网下看起来就是下载不动。
-                    if (SegmentDownloadPolicy.isRangeIgnored(resp.code)) {
+                    if (SegmentDownloadPolicy.isRangeIgnored(resp.code())) {
                         shared.rangeUnsupported.set(true)
                         throw IOException("服务器忽略 Range（HTTP 200）")
                     }
-                    if (!resp.isSuccessful || resp.body == null) throw IOException("HTTP ${resp.code}")
+                    if (!resp.isSuccessful || resp.body() == null) throw IOException("HTTP ${resp.code()}")
                     // 分片响应必须是 206：不是 206 就说明拿到的不是我们要的那一段。
-                    if (!SegmentDownloadPolicy.isPartialContent(resp.code)) throw IOException("HTTP ${resp.code}")
+                    if (!SegmentDownloadPolicy.isPartialContent(resp.code())) throw IOException("HTTP ${resp.code()}")
                     // Content-Range 带了起点就必须和请求对上（部分镜像不带这个头，此时不强判）。
                     // 续传时请求起点是 from 而不是 start，校验也跟着用 from。
                     if (SegmentDownloadPolicy.isContentRangeMismatch(resp.header("Content-Range"), from)) {
@@ -2358,7 +2358,7 @@ class DownloadService : Service() {
                         throw IOException("Content-Range 与请求的分片不符")
                     }
                     val buffer = ByteArray(65536)
-                    resp.body!!.byteStream().use { inputStream ->
+                    resp.body()!!.byteStream().use { inputStream ->
                         java.io.RandomAccessFile(file, "rw").use { rafInner ->
                             rafInner.seek(from)
                             while (written < expectLen && started && !isPaused(sectionId) && !shared.aborted.get()) {

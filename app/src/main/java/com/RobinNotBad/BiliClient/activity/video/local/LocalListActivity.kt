@@ -48,6 +48,7 @@ import com.RobinNotBad.BiliClient.util.FileUtil
 import com.RobinNotBad.BiliClient.util.FolderManager
 import com.RobinNotBad.BiliClient.util.FolderPagePrefs
 import com.RobinNotBad.BiliClient.util.LocalListSort
+import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import com.RobinNotBad.BiliClient.util.PageOrderStore
@@ -318,6 +319,10 @@ open class LocalListActivity : InstanceActivity() {
     @SuppressLint("MissingInflatedId")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 诊断日志：缓存页在 Android 5 上曾经整页崩且没有 Java 栈（用户反馈 26.11），
+        // 这里把进页面到扫描完成的每一步都记进全量日志（Debug + -PdiagLog 才落盘，见 PublicLogRecorder）。
+        // 先记一行不碰 intent 的：下面取 folderPageName 要解析 Intent，万一坏在解析上也能留下「进过页面」。
+        Logu.i("cache-page", "onCreate 进入")
         setContentView(R.layout.activity_simple_main_refresh)
 
         // 记下这层缓存页，文件夹页销毁时把「最近实例」还回来（见 companion 里的 cachePageRef）
@@ -345,6 +350,8 @@ open class LocalListActivity : InstanceActivity() {
             pageName.text = UiText.of("缓存")
         }
 
+        Logu.i("cache-page", "onCreate 页面信息 folderPage=" + isFolderPage + " name=" + folderPageName)
+
         setupSelectionBar()
 
         // 底部条随列表收回：判据与顶部工具条共用 ScrollRetractDecider（见 handleSelectionBarScroll）
@@ -362,13 +369,17 @@ open class LocalListActivity : InstanceActivity() {
         // 默认目录按 API 分档（高版本 Android/media/<包名>/、低版本 getExternalFilesDir），都免权限；
         // 用户把路径改到公共目录后写不进去时自动降级到应用专属目录，不再跳系统设置页
         //（手表 ROM 没有「所有文件访问」设置页，跳过去只会把下载挡死，issue #42）。
-        if (FileUtil.resolveVideoDownloadDir(this) == null) {
+        val resolvedDir = FileUtil.resolveVideoDownloadDir(this)
+        Logu.i("cache-page", "onCreate 解析缓存根 -> " + (resolvedDir?.absolutePath ?: "null")
+                + " fallback=" + FileUtil.isVideoFallbackActive())
+        if (resolvedDir == null) {
             MsgUtil.showMsg(UiText.of("存储目录当前不可写，下载会失败"))
         }
         fallbackAtLoad = FileUtil.isVideoFallbackActive()
         folderPageEnabledAtLoad = FolderPagePrefs.enabled()
 
         CenterThreadPool.run {
+            Logu.i("cache-page", "后台扫描任务开始")
             runOnUiThread { swipeRefreshLayout.setRefreshing(true) }
             // 反馈 #211「每次点开缓存文件夹都自动刷新、一卡 5 秒」的根因就在下面这一行以前无条件跑
             // loadData()：每次进页面（新建本 Activity，onCreate 必然走这里）都要整盘扫一遍——
@@ -379,6 +390,7 @@ open class LocalListActivity : InstanceActivity() {
             // 开关「设置 → 缓存与下载 → 缓存选项 → 缓存页自动刷新」默认仍是 true，所以默认行为不变；
             // 关掉后先看能不能沿用上次结果（restoreScanSnapshot 会先验磁盘指纹，真下过新视频仍会重扫）。
             val reusedSnapshot = !FolderPagePrefs.autoRefresh() && restoreScanSnapshot()
+            Logu.i("cache-page", "扫描分支 reusedSnapshot=" + reusedSnapshot)
             if (reusedSnapshot) {
                 // 用户会怀疑「到底刷没刷」，顺手把「下拉 = 手动刷新」讲清楚；
                 // 但只在本进程第一次复用时弹，之后静默（见 manualHintShown）
@@ -391,6 +403,7 @@ open class LocalListActivity : InstanceActivity() {
             }
             setupAdapter()
             started = true
+            Logu.i("cache-page", "后台扫描任务结束")
         }
     }
 
@@ -403,6 +416,7 @@ open class LocalListActivity : InstanceActivity() {
         val fallback = FileUtil.isVideoFallbackActive()
         val rootNow = FileUtil.getVideoDownloadPath().path
         if (fallback != fallbackAtLoad || rootNow != rootAtLoad) {
+            Logu.i("cache-page", "onResume 重扫：根/降级变化 root=" + rootNow + " fallback=" + fallback)
             fallbackAtLoad = fallback
             rootAtLoad = rootNow
             refresh()
@@ -410,6 +424,7 @@ open class LocalListActivity : InstanceActivity() {
         }
         // 详情页长按清过缓存、或别处改过磁盘文件（反馈 #162）：条目 / 计数 / 封面都得重扫才对得上
         if (CacheChangeSignal.snapshot() != cacheVersionAtLoad) {
+            Logu.i("cache-page", "onResume 重扫：缓存改动版本变化")
             refresh()
             return
         }
@@ -417,18 +432,21 @@ open class LocalListActivity : InstanceActivity() {
         // 「文件夹 N」入口、文件夹分区还铺不铺在本页，所以必须重排整张表才看得到（不必重启）
         val folderPageEnabled = FolderPagePrefs.enabled()
         if (folderPageEnabled != folderPageEnabledAtLoad) {
+            Logu.i("cache-page", "onResume 重扫：文件夹入口开关变化")
             folderPageEnabledAtLoad = folderPageEnabled
             refresh()
         }
     }
 
     private fun loadData() {
+        Logu.i("cache-page", "loadData 开始 folderPage=" + isFolderPage + " name=" + folderPageName)
         // 加载文件夹
         folderList.clear()
         folderList.addAll(FolderManager.getAllFolders())
 
         // 扫描视频（根目录只取一次：getVideoDownloadPath 会顺带维护 .nomedia，扫描和后续解析必须同一个根）
         val root = FileUtil.getVideoDownloadPath()
+        Logu.i("cache-page", "loadData 根目录=" + root.absolutePath + " 夹数=" + folderList.size)
         // 「自动刷新」关着时靠这个指纹判断磁盘有没有变过（反馈 #211，见 CacheTreeSignature）。
         // 必须在扫描**之前**算：扫描过程中才发生的改动会让指纹偏掉，下次进页面宁可再扫一遍，
         // 也不要把半新半旧的结果当成「缓存没变」留着。
@@ -443,13 +461,17 @@ open class LocalListActivity : InstanceActivity() {
         // 元数据：夹多、缓存多时每次点进来都要卡几秒（反馈 #211）。所以夹页只扫记录里属于本夹的
         // 那些目录名（见 folderScanTitles）；缓存根页仍全量扫。
         val onlyTitles = if (isFolderPage) folderScanTitles(root) else null
+        Logu.i("cache-page", "loadData 限定目录数=" + (onlyTitles?.size ?: -1))
         scanVideos(root, onlyTitles = onlyTitles)
+        Logu.i("cache-page", "loadData 本机根扫描后条目数=" + videoList.size)
 
         // 别的分支的缓存目录：包名改没改都认，判据只看目录里有没有成品（见 ExternalCacheRoots）
         appendExternalSources(root, onlyTitles)
+        Logu.i("cache-page", "loadData 含外部根扫描后条目数=" + videoList.size)
 
         // 兜底：夹记录不全（被清过、目录名对不上）时宁可慢一点也不能显示成空夹
         if (isFolderPage && onlyTitles != null && videoList.isEmpty()) {
+            Logu.i("cache-page", "loadData 夹页结果为空，退回全量扫描")
             scanVideos(root)
             appendExternalSources(root, null)
         }
@@ -462,23 +484,33 @@ open class LocalListActivity : InstanceActivity() {
         // folderName。两边一旦不一致（老版本只往 json 里写过归属、改夹名时目录没找到、
         // 手改过 json），就变成「外面写着 N 个、点进去一条都没有」。所以这里让记录当主口径，
         // 并把不一致的两边顺手写回一致——只在这一轮写一次，盘面一致后不再写。
+        Logu.i("cache-page", "loadData 开始读元数据，条目数=" + videoList.size)
         val folderNames = HashSet<String>(folderList.size * 2)
         for (folder in folderList) {
             val name = folder.name
             if (!name.isNullOrEmpty()) folderNames.add(name)
         }
         val recordIndex = CacheFolderResolver.titleIndex(folderList)
+        // 夹表为空时还得知道是「用户真的没有夹」还是「json 读不出来」：前者允许自愈元数据，
+        // 后者一律不写（反馈 #254 残留，见 CacheFolderResolver.needsMetaHeal）
+        val foldersFileIntact = FolderManager.isFoldersFileIntact()
         val recordHeals = HashMap<String, MutableList<String>>()
+        var metaIndex = 0
         for (video in videoList) {
+            metaIndex++
             try {
                 // 目录先解析出来复用：自愈要写到这条目录上，不能按「根/标题」再猜一次
                 val dir = resolveVideoDir(rootOf(video), video)
+                Logu.d("cache-page", "读元数据 " + metaIndex + "/" + videoList.size + " " + video.title + " -> " + dir.absolutePath)
                 val meta = VideoMetaManager.readMeta(dir)
                 if (video.externalRoot.isNullOrEmpty()) {
                     val recordName = recordIndex[FileUtil.stringToFile(video.title)] ?: ""
                     val resolved = CacheFolderResolver.resolve(recordName, meta.folderName, folderNames)
                     video.folderName = resolved
-                    if (CacheFolderResolver.needsMetaHeal(resolved, meta.folderName, folderNames)) {
+                    if (CacheFolderResolver.needsMetaHeal(
+                            resolved, meta.folderName, folderNames, foldersFileIntact
+                        )
+                    ) {
                         VideoMetaManager.updateFolderNameIn(dir, resolved)
                     }
                     if (CacheFolderResolver.needsRecordHeal(resolved, recordName)) {
@@ -493,8 +525,11 @@ open class LocalListActivity : InstanceActivity() {
                 }
                 video.aid = meta.aid
                 video.cid = meta.cid
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Logu.w("cache-page", "读元数据失败 " + video.title + " -> " + e.javaClass.simpleName + ": " + e.message)
+            }
         }
+        Logu.i("cache-page", "loadData 元数据读完，条目数=" + videoList.size)
 
         // 元数据里有夹名、夹记录里没有这条标题：补进 .folders_info.json（整批读一次写一次）
         var recordHealCount = 0
@@ -514,6 +549,7 @@ open class LocalListActivity : InstanceActivity() {
         saveScanSnapshot(root, snapshotSignature)
 
         // 整页扫完再排后台重封装（反馈 #231）：这一步不阻塞、不改上面的列表
+        Logu.i("cache-page", "loadData 完成 条目数=" + videoList.size + " 后台重封装=" + pendingAudioRepairDirs.size)
         flushAudioRepairs(root)
     }
 
@@ -603,10 +639,18 @@ open class LocalListActivity : InstanceActivity() {
      *        [FileUtil.stringToFile] 的口径比较，磁盘上的目录名本来就是清洗过的。
      */
     private fun scanVideos(folder: File, externalRoot: String? = null, onlyTitles: Set<String>? = null) {
-        val files = folder.listFiles() ?: return
+        val startCount = videoList.size
+        Logu.i("cache-page", "scanVideos 开始 " + folder.absolutePath + " external=" + (externalRoot ?: "-")
+                + " 限定=" + (onlyTitles?.size ?: -1))
+        val files = folder.listFiles()
+        if (files == null) {
+            Logu.w("cache-page", "scanVideos 列目录失败 " + folder.absolutePath)
+            return
+        }
 
         for (video in files) {
             if (video.isDirectory && (onlyTitles == null || FileUtil.stringToFile(video.name) in onlyTitles)) {
+                Logu.d("cache-page", "扫描目录 " + video.absolutePath)
                 val localVideo = LocalVideo()
                 localVideo.title = video.name
                 localVideo.externalRoot = externalRoot
@@ -741,6 +785,7 @@ open class LocalListActivity : InstanceActivity() {
                 }
             }
         }
+        Logu.i("cache-page", "scanVideos 结束 " + folder.absolutePath + " 新增=" + (videoList.size - startCount))
     }
 
     /**
@@ -764,7 +809,10 @@ open class LocalListActivity : InstanceActivity() {
             val title = videoList[index].title
             if (!title.isNullOrEmpty() && !indexByTitle.containsKey(title)) indexByTitle[title] = index
         }
-        for (dir in ExternalCacheRoots.candidateRoots(mainRoot)) {
+        val externalRoots = ExternalCacheRoots.candidateRoots(mainRoot)
+        Logu.i("cache-page", "appendExternalSources 候选根数=" + externalRoots.size)
+        for (dir in externalRoots) {
+            Logu.i("cache-page", "appendExternalSources 扫描外部根 " + dir.absolutePath)
             // scanVideos 只往 videoList 尾巴追加，记下起点就能只处理这一批
             val before = videoList.size
             scanVideos(dir, dir.path, onlyTitles)
@@ -815,7 +863,9 @@ open class LocalListActivity : InstanceActivity() {
                 if (name == folderPageName) titles.add(title)
             }
         }
-        return titles.ifEmpty { null }
+        val limited = titles.ifEmpty { null }
+        Logu.i("cache-page", "folderScanTitles 夹=" + folderPageName + " 命中目录数=" + (limited?.size ?: -1))
+        return limited
     }
 
     /**
@@ -836,6 +886,7 @@ open class LocalListActivity : InstanceActivity() {
             if (!name.isNullOrEmpty()) wanted.add(name)
         }
         if (wanted.isEmpty()) return
+        Logu.i("cache-page", "ensureExternalFolders 需要夹数=" + wanted.size)
         val existing = HashSet<String>(folderList.size * 2)
         for (folder in folderList) existing.add(folder.name)
         // 夹名不合法 / 建夹失败的不会进 existing，那些条目最后留在未分类，不会凭空消失
@@ -858,6 +909,7 @@ open class LocalListActivity : InstanceActivity() {
 
     @SuppressLint("NotifyDataSetChanged")
     private fun setupAdapter() {
+        Logu.i("cache-page", "setupAdapter 夹数=" + folderList.size + " 条目数=" + videoList.size)
         adapter = CacheListAdapter(this)
 
         // 文件夹操作回调
@@ -2148,6 +2200,7 @@ open class LocalListActivity : InstanceActivity() {
     fun refresh() {
         // 页面正在退出（例如切栏目时整条链被收掉）就不要再起后台扫描：结果只会打在一张要销毁的页面上
         if (!started || isFinishing) return
+        Logu.i("cache-page", "refresh 触发重扫")
         CenterThreadPool.run {
             runOnUiThread { swipeRefreshLayout.setRefreshing(true) }
             loadData()

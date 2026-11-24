@@ -6,7 +6,7 @@
     <!-- 千awa 的自我介绍，末尾刻意保留两个空格（原样），别顺手 trim 掉 -->
     <string name="about_dev_qianawa">"很懒，很忙，很累（  "</string>
     <string name="about_dev_kuinone_desc">Kuinone可能是迄今为止唯一一个符合RESTful API规范的苯醌</string>
-    <string name="about_say">软件名来自原神中的“虚空终端”\n最低兼容安卓7.0\n愿你在这一方小小的屏幕中，找到属于自己的小小的快乐\n提示：长按设置中的“关于”按钮有彩蛋哦！</string>
+    <string name="about_say">软件名来自原神中的“虚空终端”\n最低兼容安卓5.0（API 21）\n愿你在这一方小小的屏幕中，找到属于自己的小小的快乐\n提示：长按设置中的“关于”按钮有彩蛋哦！</string>
     <string name="about_group_tip">哔哩终端开发团队不会对个别用户出现的个别问题进行针对性修复，不会对特殊情况下才触发的问题进行及时修复，不会保证实现不必要或难以实现的功能。\n\n另外，如果你有能力修复问题，欢迎fork终端仓库提交pr</string>
     <string name="about_group">官网：https://biliterminal.zsapp.asia/\n如果你位于福建、河南、黑龙江等地区，您可能无法正常访问官网。\n\n交流群：1129816758</string>
     <string name="about_wearbili">注意：本软件仅使用了WearBili的旧版页面布局，与WearBili不存在其他关系！\n另：如果你使用的是手表且性能足够，欢迎前往使用Re:WearBili以获得更好的体验！</string>
@@ -65,7 +65,7 @@
     <string name="setting_lab_ui_landscape">！此功能将不再继续进行改进，除非开发者有时间！\n开启选项后，软件将会变为横屏，部分列表会变为三列，更适合平板等默认横屏的设备\n*注意：部分页面仍为单列式，可能有一些页面适配不佳，电视请移步官方电视版本或使用其他第三方软件。</string>
     <string name="setting_lab_ui_rotatory">默认情况下此选项无需开启：应用会先让系统处理表冠，系统没滚够时自动补足差额，因此每个界面都能用表圈转，且每格的滚动距离与开启本选项时一致。\n只有需要自定义灵敏度、或系统滚动明显偏快偏慢（且改灵敏度也调不过来）时才需要开启。\n开启后由应用完全接管，可能会丢失表冠震动。\n下面的两项为灵敏度倍数，1.0 即应用内的标准滚动量（约为系统原始滚动量的两倍），默认 1.0；填 0 等于该类页面不响应表冠。\n改完立即生效，无需重进页面。</string>
     <string name="desc_ui_rotatory_sensitivity">范围 0.2–8，默认 1.0：越大每格转得越远，填 0 表示这类页面不响应表冠。\n以前系统把滚动基准压成 1px 的机型，要把这个值填到几百才转得动；那个问题已经修好，填回 1.0 即可，超出范围的旧值会自动收到 8 以内。</string>
-    <string name="desc_ui_rotatory_compat">开启后表冠完全按 26.11.16.4（最后一个正式版）的方式处理：滚轮类 ROM 的转动手感交回系统、应用不再换算，灵敏度设置与「单次转动 1～2 格」那套修法都不生效。\n只在「表冠在别的版本好用、在这个版本不对劲」时打开。\n如果你的机器被系统报成鼠标滚轮，这个开关会在第一次转表冠时自动打开一次；之后你手动选的开关状态会一直保留。</string>
+    <string name="desc_ui_rotatory_compat">开启后表冠完全按 26.11.16.4（最后一个正式版）的方式处理：滚轮类 ROM 的转动手感交回系统、应用不再换算，灵敏度设置与「单次转动 1～2 格」那套修法都不生效。\n本版默认开启，也就是装完就是老手感；想要这一版重做的表冠逻辑（按转动量级换算、内层滚不动改滚外层、单次 1～2 格）就把它关掉。\n之后你手动选的开关状态会一直保留。</string>
     <string name="setting_lab_path_video">缓存的视频将会保存到这个位置，若文件夹不存在会自动创建。之前缓存的视频请用文件管理器手动移动到新文件夹内。\n不保证会不会出现奇怪的问题。\n\n注意：从 Android 10 起，公共目录需要「所有文件访问」权限才能写入；手表等系统不提供该授权入口的设备，写不进去时会自动改存到应用专属目录（Android/data 或 Android/media 下），下载仍可正常完成。</string>
     <string name="setting_lab_path_pictures">下载的图片将会保存到这个位置，若文件夹不存在会自动创建。之前下载的图片请用文件管理器手动移动到新文件夹内。\n不保证会不会出现奇怪的问题。\n\n注意：写到公共相册目录需要「所有文件访问」权限；授权不到时图片会存到应用专属目录，此时系统相册看不到，需要用文件管理器查看。</string>
     <string name="setting_btn_storage_permission">去系统设置授予「所有文件访问」</string>
@@ -172,7 +172,7 @@
     <string name="desc_tags_enable">打开此选项，视频详情页会显示形如“原神UP主激励计划/原神/纳西妲/手机游戏”的视频标签</string>
     <string name="desc_related_enable">打开此选项，视频详情页的评论区右侧会有相关视频推荐</string>
     <string name="setting_detail_note_entry">视频笔记</string>
-    <string name="desc_setting_detail_note_entry">打开此选项，视频详情页的动作区会显示「笔记」按钮（需要登录）；默认关闭</string>
+    <string name="desc_setting_detail_note_entry">打开此选项，视频详情页的动作区会显示「笔记」按钮；笔记页含该视频的公开笔记（不用登录也能看）与自己的私有笔记；默认开启</string>
     <string name="setting_detail_share_row_entry">分享到其他设备</string>
     <string name="desc_setting_detail_share_row_entry">关闭此选项，视频详情页的动作区不再显示跨设备分享入口；默认开启</string>
     <string name="setting_detail_like_card_ring">点赞卡片描边</string>
@@ -420,32 +420,71 @@
 
     <!-- 本次版本更新日志（展示在关于页，与历史日志区分） -->
     <string-array name="update_log_current">
-        <item>【26.11.18 本次更新】</item>
-        <item>本次更新为测试版（beta.6）：功能基本做完，有些没有让其他设备测试，介意的话请留在稳定版，同时此版本不会发到微思。</item>
-        <item>若测试更新烦到你，请将更新通道改为稳定版</item>
-        <item>1、装完的更新包另存一份到系统 Download，文件名「RE哔哩终端-版本号.apk」（共存版带「-共存」）：装完想留档、或在文件管理器里找包，不用再翻应用缓存；Android 6–9 开始下载前会申请一次存储权限，拒绝也照常更新、只是这份拷贝不落 Download</item>
-        <item>2、缓存页加「自动刷新」开关（设置 → 缓存与下载 → 缓存选项，默认开）：关掉后进缓存页按磁盘指纹复用上次扫描结果，不再每次整盘重扫；下拉刷新永远真重算（反馈 #211）</item>
-        <item>3、1080P 缓存播放时不能倍速、音画不同步，修了：下载时音轨和视频分开存的双文件，现在缓存页扫描时会自动合成单文件；合不了的那几条锁回 1 倍速并提示（反馈 #231）</item>
-        <item>4、图片查看器双击放大后缩不回去（双指捏合被页面容器中途抢走），修了（反馈 #232）</item>
-        <item>5、表情面板连续进出后闪退（位图「还在用就被回收」），修了（崩溃 #366 / #368 / #369 / #371）</item>
-        <item>6、我的页面快速进出时闪退（页面已销毁还在取图），修了（崩溃 #367）</item>
-        <item>7、拖进度条时弹幕偶发闪退，修了（崩溃 #362）</item>
-        <item>8、后台播放 / 下载服务减少「启动服务 5 秒内没进前台」那条闪退（崩溃 #354 / #212 / #365）</item>
-        <item>9、近千集的大合集点播放就闪退（合集数据把 Intent 撑爆），修了（反馈 #201）</item>
-        <item>10、Android 8.x 上打开蓝牙伪装页就崩，修了；代价是开着自动旋转的手表上伪装浮层会跟着转（崩溃 #370）</item>
-        <item>11、界面缩放 / 绝对 DPI 下同一页文字忽大忽小（字体和控件算出两套尺寸），修了（反馈 #225）</item>
-        <item>12、有些设备的表冠被系统报成鼠标滚轮，转一格就跳过整页，修了；页面里找不到可滚容器时也不再捞到屏幕外那一页（反馈 #197 / #228）</item>
-        <item>13、两部番的「TV」「第二季」这类同名季不再共用一个缓存目录（父目录改成「番剧名 - 季名」）：A 番下过的集不会让 B 番显示「已下载」，重下也不会覆盖对方；旧目录不迁移，已下到旧目录的集要重新缓存</item>
-        <item>14、同一季的缓存一半在新位置、一半留在旧位置时只剩两三集，修了：现在按页合并，整季都能看到（反馈 #217 / #214）</item>
-        <item>15、选页页删单个分 P 不再「报删除成功但文件还在」；外部缓存里的页只播不删（反馈 #217 / #214）</item>
-        <item>16、设置页搜索一条都没命中时提示「换个关键词」，不再一片空白（反馈 #213）</item>
-        <item>17、播放器设置、消息、更新三页的长标题不再压住右上角按钮和时钟，超出部分显示省略号</item>
-        <item>18、播放器「显示方式」的说明统一成「表面视图 / 纹理视图」，和同一页两个选项一套词</item>
-        <item>19、分段条 / 页签的轨道让出容器内边距，胶囊不再比轨道两端各内缩一截——小屏上「按钮铺不满整个框」修了</item>
-        <item>20、表冠被系统报成鼠标滚轮的设备（如 OPPO Watch 4 Pro）在上一版里转一格只走一行，像「表冠失效」；现在恢复按转动量级换算，默认灵敏度也能转，小步连续转动也不再被整段交给系统（反馈 #234）</item>
-        <item>21、表冠在「外层滚动、内层被撑满」的页面（如消息页）里整页不动，修了：事件落在滚不动的内层容器时改为接管外层；同时把被系统改成 1px 的滚动基准（OPPO Watch 4 Pro）拉回正常量级、单次滚动封顶一屏，灵敏度填到几百也不会再「一卡一卡、粘住」（反馈 #235）</item>
-        <item>22、上一版把表冠的滚动基准修好之后手感偏冲：快转一格滑过整屏、慢转一跳一跳发黏。现在单次转动的距离收到 1～2 格（快慢改由连续转动的次数体现），灵敏度范围统一为 0.2–8，为旧版 1px 基准填过的几百会自动收回（反馈 #235）</item>
-        <item>23、新增「表冠兼容模式」（设置 → 表冠适配，默认关）：开启后表冠完全退回 26.11.16.4（最后一个正式版）的老逻辑——被系统报成鼠标滚轮的机器整段交回系统处理，灵敏度、单次 1～2 格、滚动基准下限那一套修法一律不生效。表冠被报成滚轮的机器第一次转表冠时会自动打开一次，编码器机型（三星表圈等）不受影响（反馈 #243）</item>
+        <item>【26.11.23 本次更新】</item>
+        <item>本次更新为稳定版，请大家放心更新。</item>
+        <item>1、本次更新集中修复了社区反馈：反馈 #176～#266 共 30 条、崩溃报告 #212～#390 共 13 条，逐条见下面</item>
+        <item>2、缓存页能直接扫到「别的分支 / 别的设备」留下的缓存：当只读来源列出来、点开就能播；单条可「迁移到本应用」</item>
+        <item>3、本应用可以当外部播放器用：文件管理器里点本地视频可播放</item>
+        <item>4、缓存页的「文件夹」入口默认开启（原来是实验室开关、默认关）：顶部直接是「文件夹 N」，点进去是独立的文件夹列表页</item>
+        <item>5、番剧缓存的长按「缓存」可以强制清除缓存状态：某集下到一半失败、或想换清晰度重下时不用再删文件；只清「已下载」这个判定、不删磁盘文件，范围是整部番的所有季，重新下载会覆盖旧文件</item>
+        <item>6、番剧缓存页顶上那条「清晰度」不再钉在页顶，跟着列表一起滚，手表这块屏幕省一行高度</item>
+        <item>7、短视频音量键可选「直接调系统音量」（设置 → 播放 → 手势，默认关）：打开后音量键调的是系统音量、每次一档（手表系统音量一档 +7、App 内一档 +5 调不到想要的档，反馈 #191）</item>
+        <item>8、确认框的两个按钮改成左右并排，按钮区从 88dp 收到 44dp：小屏手表上不再只剩「取消」看不到「确定」（反馈 #199）；想改回上下堆叠可在 设置 → 高级与实验 → 功能开关 → 弹窗按钮并排 关掉</item>
+        <item>9、图片查看器圆屏排版：下载键居中贴底、把左下角让出来，页数顶到「图片查看」那行标题的位置（时钟仍在它上方），方屏排版不变</item>
+        <item>10、楼中楼补「回复 @某某」：A 回复 B 时那行显示「A 回复 @B：正文」，直接回楼主的不标注（反馈 #176）</item>
+        <item>11、详情页收藏后退出重进，收藏图标不再消失（图标换了、状态位没换，反馈 #204）</item>
+        <item>12、缓存页合集上「N个视频」按真扫到的条目算：用文件管理器删掉一个再回来，数字跟着变，与点进去看到的条数一致；独立文件夹列表页同样（反馈 #209）</item>
+        <item>13、点开缓存文件夹不再卡几秒：夹页只扫本夹的目录，不再把全部缓存逐个 stat 一遍（反馈 #211）</item>
+        <item>14、播放页「不显示字幕」关不掉，修了：晚回来的字幕请求不再把字幕塞回来，暂停状态下也立刻消失，换画质 / 换线路也不会自动冒出（反馈 #202）</item>
+        <item>15、推荐页卡片封面小一圈、标题字号降一档，一行能显示更多字；视频简介页标题不再比正文大一号（反馈 #208）</item>
+        <item>16、崩溃#346-#356修复</item>
+        <item>17、装完的更新包另存一份到系统 Download，文件名「RE哔哩终端-版本号.apk」（共存版带「-共存」）：装完想留档、或在文件管理器里找包，不用再翻应用缓存；Android 6–9 开始下载前会申请一次存储权限，拒绝也照常更新、只是这份拷贝不落 Download</item>
+        <item>18、缓存页加「自动刷新」开关（设置 → 缓存与下载 → 缓存选项，默认开）：关掉后进缓存页按磁盘指纹复用上次扫描结果，不再每次整盘重扫；下拉刷新永远真重算（反馈 #211）</item>
+        <item>19、1080P 缓存播放时不能倍速、音画不同步，修了：下载时音轨和视频分开存的双文件，现在缓存页扫描时会自动合成单文件；合不了的那几条锁回 1 倍速并提示（反馈 #231）</item>
+        <item>20、图片查看器双击放大后缩不回去（双指捏合被页面容器中途抢走），修了（反馈 #232）</item>
+        <item>21、表情面板连续进出后闪退（位图「还在用就被回收」），修了（崩溃 #366 / #368 / #369 / #371）</item>
+        <item>22、我的页面快速进出时闪退（页面已销毁还在取图），修了（崩溃 #367）</item>
+        <item>23、拖进度条时弹幕偶发闪退，修了（崩溃 #362）</item>
+        <item>24、后台播放 / 下载服务减少「启动服务 5 秒内没进前台」那条闪退（崩溃 #354 / #212 / #365）</item>
+        <item>25、近千集的大合集点播放就闪退（合集数据把 Intent 撑爆），修了（反馈 #201）</item>
+        <item>26、Android 8.x 上打开蓝牙伪装页就崩，修了；代价是开着自动旋转的手表上伪装浮层会跟着转（崩溃 #370）</item>
+        <item>27、界面缩放 / 绝对 DPI 下同一页文字忽大忽小（字体和控件算出两套尺寸），修了（反馈 #225）</item>
+        <item>28、两部番的「TV」「第二季」这类同名季不再共用一个缓存目录（父目录改成「番剧名 - 季名」）：A 番下过的集不会让 B 番显示「已下载」，重下也不会覆盖对方；旧目录不迁移，已下到旧目录的集要重新缓存</item>
+        <item>29、同一季的缓存一半在新位置、一半留在旧位置时只剩两三集，修了：现在按页合并，整季都能看到（反馈 #217 / #214）</item>
+        <item>30、选页页删单个分 P 不再「报删除成功但文件还在」；外部缓存里的页只播不删（反馈 #217 / #214）</item>
+        <item>31、设置页搜索一条都没命中时提示「换个关键词」，不再一片空白（反馈 #213）</item>
+        <item>32、播放器设置、消息、更新三页的长标题不再压住右上角按钮和时钟，超出部分显示省略号</item>
+        <item>33、播放器「显示方式」的说明统一成「表面视图 / 纹理视图」，和同一页两个选项一套词</item>
+        <item>34、分段条 / 页签的轨道让出容器内边距，胶囊不再比轨道两端各内缩一截——小屏上「按钮铺不满整个框」修了</item>
+        <item>35、「推荐源」这项设置以前选了不生效，现在真的生效了，并新增 APP 推荐流：网页流与 APP 流按 2:1 交替出</item>
+        <item>36、新增「X 式重排」（设置 → 高级与实验，默认关）：拿观看历史算画像，常看的 UP 往前排、连着三张同一个 UP 的压后、刷到过的重复内容会衰减；不想被排就保持默认关</item>
+        <item>37、推荐卡片长按可「屏蔽作者」：本页立刻移掉这个 UP 的卡片，同时记进本地名单（上限 200 条）并提交一次不喜欢；想撤销去 设置 → 高级与实验 → 屏蔽的作者，那里能逐条解除本地屏蔽（已经提交给后台的那次不撤回）</item>
+        <item>38、推荐下拉刷新不再拿回同一批：以前刷新只是把游标归零、同进程 uniq_id 又不变，刷出来还是那几条；现在游标往后跳一段，再按 bvid 与标题双重判重</item>
+        <item>39、缓存下载支持断点续传：暂停、断网、杀进程之后不再从 0% 重下，半成品一直留着，直到下载成功或你手动清缓存；普通下载与高速下载都算（反馈 #250 / #252 / #253）</item>
+        <item>40、旧版分过文件夹的缓存不再「夹卡写着 N 个、点进去一条都没有」：夹名归属改成「下载记录优先、缓存元数据兜底」，打开时就地补齐（反馈 #254）</item>
+        <item>41、B 站官方消息不再消不掉：主播小助手、系统通知、UP主小助手、客服、支付小助手这些官方会话以前被整条过滤，看不见却照算角标，红点永远清不掉；现在它们正常进列表、能点开读（兜底显示为「B站官方消息」），角标只清真正看完的那部分</item>
+        <item>42、新增「弹窗标题跑马灯」（设置 → 高级与实验，默认开）：标题只占一行，超长就横向滚动，不再被截成一串省略号</item>
+        <item>43、新增「搜索历史」开关（设置 → 内容与浏览 → 通用偏好 → 搜索历史）：关掉只是搜索页不再显示历史区（连「清空」入口一起收起），搜过的关键词照常记录，重新打开就原样回来；想真删记录用搜索页的「清空」</item>
+        <item>44、玻璃质感新增三档预设（设置 → 界面 → 外观设置 → 玻璃质感正下方）：主次分明（默认）/ 稳扎稳打 / 晶莹剔透，只统一未选中控件，选中项一律保留主题色淡底，三档随时可换</item>
+        <item>45、长按「已关注」的「加入分组」菜单顶部补上「特别关注」：以前只能进分组页勾选，现在一步到位（只做加入，取消仍去分组页）（反馈 #266）</item>
+        <item>46、搜索彩蛋命中后返回会反复弹：弹过一次就清空输入框，返回时不再重复触发（反馈 #264）</item>
+        <item>47、圆屏手表的评论区操作行（点赞 / 回复 / 更多）整体居中：以前贴着左边、和正文不对齐，视频评论区与楼中楼详情页都改了</item>
+        <item>48、视频锁定时不再跟着双指缩放：锁定后双指缩放不响应、已有的缩放位移会夹回屏内，「双击后再拖动」的单指快速缩放也不再生效</item>
+        <item>49、弱网下少弹窗：进度上报、弹幕发送失败不再打断弹窗，弹幕失败会在后台自动重试</item>
+        <item>50、番剧页偶发闪退修掉了：封面在页面销毁之后才加载回来导致的崩溃（崩溃 #390）</item>
+        <item>51、直播与第三方直链不再给字幕按钮：这两处没有 CC 轨道，以前点了没反应，现在干脆不显示（反馈 #262）</item>
+        <item>52、直播发弹幕时按钮不再挡住输入卡片：锁定、更多那一排以前浮在输入卡片上层，现在整组遮罩移到卡片之后（反馈 #261）</item>
+        <item>53、稍后再看页的「清除已看完」不再折成两行：OPPO Watch 2 42mm 上会折行并露出轨道，现在三格统一单行、字太长自动缩（反馈 #245）</item>
+        <item>54、更新页不再是死胡同：开过「禁用返回键」时，顶部返回和系统返回都失灵，只能杀进程；另外「已是最新」现在留在本页并显示更新说明，不再直接退出（反馈 #237）</item>
+        <item>55、验签失败不再直接删包：先另存到 Download，存不成就改名留在缓存里，至少包还在（反馈 #222）</item>
+        <item>56、表冠这一版默认回到 26.11.16.4（最后一个正式版）的老手感：新增「表冠兼容模式」（设置 → 表冠适配），默认开启——被系统报成鼠标滚轮的机器（如 OPPO Watch 4 Pro）整段交回系统处理，灵敏度设置与下面那套新逻辑一律不生效；想用新版逻辑就把它关掉（反馈 #243）</item>
+        <item>57、关掉兼容模式之后才是重做后的表冠逻辑：按转动量级换算（不再「转一格只走一行」）；落点在内层容器滚不动时改滚外层、被系统压成 1px 的滚动基准拉回正常量级、单次滚动封顶一屏；单次转动收到 1～2 格、灵敏度范围统一 0.2–8（反馈 #234 / #235 / #238）</item>
+        <item>58、崩溃报告先落盘再上传、传成功才删、冷启动补传</item>
+        <item>59、短信登录改走官方客户端同一条链路：验证码发送与登录都走 App 端接口，登录后除了 Cookie 还会存下 App 令牌（access_key），需要它的功能（App 推荐流等）直接就能用；密码登录也会一并存下。只有「短信根本没发出去」时才自动回退网页端重发一次，已经发出的短信不会重复发、也不占 60 秒重发冷却</item>
+        <item>60、导入登录信息不再强制要 refresh_token：只带 access_key 也能导（App 端令牌 30 天内直用，到期得重新登录）；两样都没有仍然拒绝，并提示缺的是哪两样</item>
+        <item>61、换视频后弹幕串台、某一段永远没弹幕，修了：补拉请求带着上一个视频的 cid，旧段弹幕会落进新视频名下、还把固定某段记成「已加载」；现在按代隔离，旧请求回来一律丢弃。弹幕缓存的临时文件重名会互相覆盖、写出「文件在但读不出」的坏缓存，也一起修了（临时名加随机后缀，清理只删 5 分钟前的残留）</item>
+        <item>62、下载三条：①删掉正在下的任务，它还会往已删文件里继续写（磁盘空间要等它跑完才释放），现在删了立刻停；②批次刚跑完的那一下点新下载，会永久停在「等待下载」，现在批次结束就能再启；③空间不足时反复整文件重下、白丢进度，现在下载前先查剩余空间，不够直接提示「存储空间不足：需要约 X MB，可用 Y MB」</item>
+        <item>63、隐私与安全：崩溃上报的异常消息与堆栈也做脱敏（以前只脱敏日志，请求地址里的 token 会随崩溃进服务端）；播放器只对 https 直链带 Cookie，明文直链不再带；正式包不再申请「读取电话状态」权限</item>
     </string-array>
 
     <!-- 历史更新日志（按日期分组，## 开头为日期标题，之后为当日日志条目） -->
@@ -902,7 +941,7 @@
     <string name="btn_login_copy">复制</string>
     <string name="desc_one_triple">开启此选项后，在视频详情页长按点赞按钮可以进行一键三连操作</string>
     <string name="desc_search_suggestions_enable">打开此选项，在搜索页输入关键词时会自动显示搜索建议，关闭后仅显示搜索历史</string>
-    <string name="desc_search_history_enable">关闭后不再记录搜过的关键词，搜索页也不再显示搜索历史；已有的记录会在关闭时清空</string>
+    <string name="desc_search_history_enable">关闭后只是搜索页不再显示历史区（连「清空」入口一起收起），搜过的关键词照常记录；重新打开就原样回来。想真删记录，用搜索页的「清空」</string>
     <string name="desc_search_default_content_enable">打开此选项，搜索框会显示默认搜索内容作为占位符，未输入内容直接点击搜索时会搜索默认内容</string>
 
     <string name="desc_menu_enabled">已启用</string>
@@ -1053,6 +1092,8 @@
     <string name="text_download_complete_install_tried">下载完成，已尝试安装</string>
     <string name="text_download_complete_install_failed">下载完成，安装失败，已保存到下载文件夹</string>
     <string name="text_download_complete_rename_failed">下载完成，重命名失败</string>
+    <!-- 安装包所在卷共享不出去时用（多为外置 SD 卡，见 util/ApkUri.kt）：至少告诉用户文件在哪 -->
+    <string name="msg_apk_share_failed">安装包路径无法共享，请在文件管理器里找到 %1$s 手动安装</string>
     <!-- 图片下载完成提示（26.10.21 起带上实际保存目录；登记媒体库的细节见 util/PictureMediaStore.kt） -->
     <string name="msg_picture_saved">图片已保存：%1$s\n可在相册中查看</string>
     <!-- 降级到应用专属目录时的图片提示：该目录不进系统相册（见 FileUtil.isPictureFallbackActive） -->
@@ -1864,9 +1905,6 @@
     <string name="uitext_videoinfofragment_012">需要通知权限才能进行下载，请前往设置授予权限</string>
     <string name="uitext_videoinfofragment_013">视频转发不支持带图，请去掉图片后重试</string>
     <!-- 转发面板（反馈 #133）：点转发按钮后先选去处，再决定发动态还是私下发给好友 -->
-    <string name="text_video_relay_title">转发</string>
-    <string name="text_video_relay_to_dynamic">转发到动态</string>
-    <string name="text_video_relay_to_friend">发给好友</string>
     <string name="msg_video_relay_to_friend_success">已发送给 %1$s</string>
     <string name="msg_video_relay_to_friend_failed_copied">发送失败，已复制视频链接</string>
     <string name="uitext_downloadlistactivity_001">已恢复下载</string>
@@ -2026,6 +2064,15 @@
     <string name="uitext_noteactivity_006">视频：</string>
     <string name="uitext_noteactivity_007">这篇笔记还没有正文</string>
     <string name="uitext_noteactivity_008">[图片]</string>
+    <string name="note_list_own_info">私有笔记 · 只有你自己能看到</string>
+    <string name="note_list_likes">%1$d 赞</string>
+    <string name="note_list_public_off">这个视频的公开笔记已关闭</string>
+    <string name="note_list_retry_tail">点我重试</string>
+    <string name="note_detail_author">作者：%1$s</string>
+    <string name="note_detail_likes">%1$d 人点赞</string>
+    <string name="note_detail_video">视频：%1$s</string>
+    <string name="note_tag_no_video">这条笔记没有关联到视频，跳不过去</string>
+    <string name="note_image_desc">笔记图片，点按查看大图</string>
     <string name="uitext_playeractivity_038">周期上报</string>
     <string name="uitext_playeractivity_039">人在看</string>
     <string name="uitext_playeractivity_040">新版弹幕获取失败，使用旧版接口</string>
@@ -2223,6 +2270,29 @@
     <string name="uitext_privatemsgsessionsadapter_009">已置顶</string>
     <string name="uitext_privatemsgsessionsadapter_010">已取消置顶</string>
     <string name="uitext_privatemsgsessionsadapter_011">B站官方消息</string>
+    <string name="uitext_privatemsgsessionsadapter_012">[免打扰]</string>
+    <string name="uitext_privatemsgsessionsadapter_013">消息免打扰</string>
+    <string name="uitext_privatemsgsessionsadapter_014">取消免打扰</string>
+    <string name="uitext_privatemsgsessionsadapter_015">已开启免打扰</string>
+    <string name="uitext_privatemsgsessionsadapter_016">已取消免打扰</string>
+    <string name="uitext_privatemsgsessionsadapter_017">标为已读</string>
+    <string name="uitext_privatemsgsessionsadapter_018">已标为已读</string>
+    <string name="uitext_privatemsgsessionsadapter_019">这条会话没有可标记的消息</string>
+    <string name="uitext_privatemsgsessionsadapter_020">应援团</string>
+    <string name="uitext_privatemsgactivity_008">刷新</string>
+    <string name="uitext_privatemsgactivity_009">已是最新消息</string>
+    <string name="uitext_chatsettingsactivity_001">聊天设置</string>
+    <string name="uitext_chatsettingsactivity_002">接收消息推送</string>
+    <string name="uitext_chatsettingsactivity_003">图文消息与稿件推送；通知类消息不受影响</string>
+    <string name="uitext_chatsettingsactivity_004">置顶聊天</string>
+    <string name="uitext_chatsettingsactivity_005">开启后不再提示这个人的新消息</string>
+    <string name="uitext_chatsettingsactivity_006">拦截此会话消息</string>
+    <string name="uitext_chatsettingsactivity_007">拦截后，对方的私信会进入「被拦截」列表</string>
+    <string name="uitext_chatsettingsactivity_008">拉黑对方</string>
+    <string name="uitext_chatsettingsactivity_009">拉黑会同时解除关注关系，对方无法再给你发私信</string>
+    <string name="uitext_chatsettingsactivity_010">已拉黑对方</string>
+    <string name="uitext_chatsettingsactivity_011">已解除拉黑</string>
+    <string name="uitext_chatsettingsactivity_012">操作失败，请重试</string>
     <string name="uitext_followgroupadapter_001"> 位成员</string>
     <string name="uitext_medallistadapter_001"> (佩戴中)</string>
     <string name="uitext_medallistadapter_002">亲密度: </string>
@@ -2447,8 +2517,12 @@
     <string name="text_activityfeedback_01">最近的应用运行日志（已脱敏），便于定位问题</string>
     <string name="text_activityfeedbackdetail_01">补充复现步骤或说明，开发者会看到</string>
     <string name="text_activityimageviewer_01">第0/0张</string>
-    <!-- 图片查看器的页数标签；圆屏适配下它会显示到顶栏标题的位置（顶替「图片查看」） -->
+    <!-- 图片查看器的页数标签；26.11.23 起标题固定为「图片查看」，页数只在自己的角标里（反馈 #280） -->
     <string name="text_image_viewer_page_count">第%1$d/%2$d张</string>
+    <!-- 图片加载失败时盖在图片上的提示，点一下重试（反馈 #282：原来失败只有白屏） -->
+    <string name="text_image_viewer_load_failed">图片加载失败\n点一下重试</string>
+    <!-- 站外图源（赞赏收款码在 gitee 上）失败多半是对方限流/防盗链，说「检查网络」会带偏 -->
+    <string name="text_image_viewer_load_failed_external">图片加载失败\n站外图源可能限流，点一下重试</string>
     <string name="text_activityliveinfo_01">描述</string>
     <string name="text_activityliveinfo_02">直播状态</string>
     <string name="text_activityliveinfo_03">关注数</string>
@@ -2806,6 +2880,8 @@
     <string name="uitext_bangumiinfofragment_036">在正片里勾选要缓存的剧集</string>
     <string name="uitext_bangumiinfofragment_037">正在获取剧集…</string>
     <string name="uitext_bangumiinfofragment_038">已清除缓存状态，重新缓存会覆盖旧文件</string>
+    <!-- 番剧详情页「缓存 | 分享」那一行里的分享入口；面板里五项的文案归共享组件 ShareSheet 自己 -->
+    <string name="uitext_bangumiinfofragment_039">分享</string>
     <string name="uitext_bangumicache_001">番剧缓存</string>
     <string name="uitext_bangumicache_002">清晰度：%1$s</string>
     <string name="uitext_bangumicache_003">加载失败，点此重试</string>
@@ -2884,6 +2960,8 @@
     <!-- ==================== 评论区翻译（文A 按钮） ==================== -->
     <!-- 翻译按钮的 contentDescription；按钮只有图标，这句话也是读屏念出来的内容 -->
     <string name="text_reply_translate">翻译</string>
+    <!-- 详情页里点了没有子回复的评论时给个回应，免得用户以为按钮坏了（#236） -->
+    <string name="msg_reply_no_child">这条评论还没有回复</string>
     <!-- 请求失败（网络/接口异常）时给用户的提示 -->
     <string name="msg_reply_translate_failed">翻译失败，请稍后再试</string>
     <!-- 请求成功但服务端没给译文（已是目标语言/不支持翻译）时的提示 -->
@@ -3128,7 +3206,8 @@
     <string name="setting_player_default_speed">倍速</string>
     <string name="desc_setting_player_default_speed">开播时的播放速度；「沿用上次」= 上次用过的倍速</string>
     <string name="setting_player_default_subtitle">字幕</string>
-    <string name="desc_setting_player_default_subtitle">中文 = 开播自动选中文字幕（优先人工，其次 AI）；自行选择 = 是否弹出选择框由下方「自动弹出字幕选择」决定</string>
+    <string name="desc_setting_player_default_subtitle">关闭 = 开播不加载字幕也不弹框（仍可点播放器里的字幕按钮手动开）；中文 = 开播自动选中文字幕（优先人工，其次 AI）；自行选择 = 是否弹出选择框由下方「自动弹出字幕选择」决定</string>
+    <string name="setting_player_option_subtitle_off">关闭</string>
     <string name="setting_player_option_subtitle_zh">中文</string>
     <string name="setting_player_option_subtitle_manual">自行选择</string>
     <string name="setting_player_default_orientation">屏幕方向</string>
@@ -3408,4 +3487,31 @@
     <string name="btn_weise_download">去微思下载</string>
     <string name="msg_weise_open_failed">没有找到能打开微思商店的应用</string>
     <string name="msg_weise_open_browser">已复制商店链接；本机没装微思商店，已用浏览器打开</string>
+    <!-- 26.11.23：转发 / 分享面板（五项：复制链接、其它app打开、分享视频、分享至动态、分享至消息） -->
+    <string name="share_panel_title">分享</string>
+    <string name="share_copy_link">复制链接</string>
+    <string name="share_open_other_app">其它app打开</string>
+    <string name="share_video">分享视频</string>
+    <string name="share_live">分享直播间</string>
+    <string name="share_article">分享文章</string>
+    <string name="share_to_dynamic">分享至动态</string>
+    <string name="share_to_message">分享至消息</string>
+    <string name="msg_share_link_copied">链接已复制</string>
+    <string name="msg_share_no_app_copied">没有能打开链接的应用，已复制链接</string>
+    <string name="msg_share_no_share_copied">系统分享不可用，已复制链接</string>
+    <string name="msg_share_url_missing">链接还没准备好，稍后再试</string>
+    <string name="msg_share_send_failed_copied">发送失败，已复制链接</string>
+
+    <!-- 26.11.23：分享至动态（通用卡片），发布页的提示文案 -->
+    <string name="uitext_senddynamicactivity_024">正在转发…</string>
+    <string name="uitext_senddynamicactivity_025">这条内容暂不支持转发</string>
+
+    <!-- 26.11.23：动态卡片的分享面板（长按管理菜单里的「分享」） -->
+    <string name="share_dynamic">分享动态</string>
+
+    <!-- 26.11.23：收藏夹详情页的分享面板（四项：复制链接 / 其它app打开 / 分享收藏夹 / 分享至动态；
+         收藏夹没有私信卡片形态，因此不出现「分享至消息」） -->
+    <string name="share_favorite">分享收藏夹</string>
+    <!-- 顶栏分享入口：手表屏窄，只放两个字，长标题留给 pageName -->
+    <string name="share_entry">分享</string>
 </resources>

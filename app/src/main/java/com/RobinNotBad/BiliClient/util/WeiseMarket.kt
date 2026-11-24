@@ -75,7 +75,7 @@ object WeiseMarket {
             "application/x-www-form-urlencoded"
         )
         // OkHttp 4 起 body 是 val（body() 已弃用，本仓库把弃用当错误）
-        val body = response.use { it.body?.string() }
+        val body = response.use { it.body()?.string() }
         parseVerid(body)
     } catch (e: Exception) {
         Logu.w(TAG, "查询商店版本号失败：" + e.message)

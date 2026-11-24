@@ -32,7 +32,6 @@ import com.RobinNotBad.BiliClient.util.subscriptionErrorText
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.ToolsUtil
-import com.bumptech.glide.Glide
 import com.bumptech.glide.load.DecodeFormat
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
@@ -310,7 +309,9 @@ class CollectionInfoActivity : RefreshListActivity() {
                 holder.name.text = collection.title
                 holder.desc.text = if (TextUtils.isEmpty(collection.intro)) UiText.of("这里没有简介哦") else collection.intro
                 holder.playTimes.text = UiText.fmt(UiText.of("共%1\$s"), collection.view)
-                Glide.with(context).asDrawable().load(GlideUtil.url_hq(collection.cover))
+                // 用 View 级 RequestManager：页面销毁后网络回调里再刷图不会抛
+                // IllegalArgumentException: You cannot start a load for a destroyed activity（反馈 #399）
+                GlideUtil.with(holder.cover).asDrawable().load(GlideUtil.url_hq(collection.cover))
                     .apply(GlideUtil.thumbOptions(holder.cover))
                     .transition(GlideUtil.getTransitionOptions())
                     .placeholder(R.mipmap.placeholder)
@@ -454,7 +455,9 @@ class CollectionInfoActivity : RefreshListActivity() {
                 holder.name.text = collection.title
                 holder.desc.text = if (TextUtils.isEmpty(collection.intro)) UiText.of("这里没有简介哦") else collection.intro
                 holder.playTimes.text = UiText.fmt(UiText.of("共%1\$s"), collection.view)
-                Glide.with(context).asDrawable().load(GlideUtil.url_hq(collection.cover))
+                // 用 View 级 RequestManager：页面销毁后网络回调里再刷图不会抛
+                // IllegalArgumentException: You cannot start a load for a destroyed activity（反馈 #399）
+                GlideUtil.with(holder.cover).asDrawable().load(GlideUtil.url_hq(collection.cover))
                     .apply(GlideUtil.thumbOptions(holder.cover))
                     .transition(GlideUtil.getTransitionOptions())
                     .placeholder(R.mipmap.placeholder)

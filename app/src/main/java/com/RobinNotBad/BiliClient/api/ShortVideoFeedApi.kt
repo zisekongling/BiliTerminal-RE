@@ -117,7 +117,7 @@ object ShortVideoFeedApi {
 
         return try {
             val response = NetWorkUtil.get(url, buildHeaders())
-            val raw = response.body?.string()
+            val raw = response.body()?.string()
             if (raw.isNullOrEmpty()) {
                 Logu.e(TAG, "Empty response body")
                 StoryFeedQuery.EMPTY_BATCH
@@ -162,7 +162,7 @@ object ShortVideoFeedApi {
 
         return try {
             val response = NetWorkUtil.get(url, buildHeaders())
-            val raw = response.body?.string()
+            val raw = response.body()?.string()
             if (raw.isNullOrEmpty()) {
                 Logu.e(TAG, "Empty related response body")
                 emptyList()

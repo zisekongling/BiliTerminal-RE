@@ -35,24 +35,59 @@ public class PrivateMsgApi {
     public static final int MSG_TYPE_PIC = 2;
     public static final int MSG_TYPE_RETRACT = 5;
 
-    /** 会话类型：与用户私信 */
+    /** 会话类型：与用户私信（会话对象里的 session_type，也是 session_svr 接口的参数值） */
     public static final int SESSION_TYPE_USER = 1;
     /** 会话类型：粉丝团（talker_id 是粉丝团 id 而不是 mid） */
     public static final int SESSION_TYPE_FAN_GROUP = 2;
 
-    // 返回的是倒序的消息列表，使用时记得列表倒置
-    //seqno传0时只看size，不进行seqno的筛选
+    /**
+     * get_sessions 的**请求参数** session_type：1 用户与系统。
+     *
+     * <p>26.11.23 踩过的坑：请求参数和会话对象里的 session_type **不是同一套枚举**。
+     * 请求侧是 1 用户与系统 / 2 未关注人 / 3 粉丝团 / 4 所有 / 5 被拦截 / 6 花火 / 7 所有系统 /
+     * 8 陌生人 / 9 关注的人与系统（bilibili-API/docs/message/private_msg.md:254）；
+     * 会话对象侧只有 1 用户 / 2 粉丝团（同文件第 10 行）。之前这里混用了
+     * {@link #SESSION_TYPE_USER}，结果应援团私信永远拉不到。
+     */
+    public static final int LIST_TYPE_USER = 1;
+
+    /** get_sessions 的请求参数 session_type：3 粉丝团（应援团 / 官方群）。 */
+    public static final int LIST_TYPE_FAN_GROUP = 3;
+
+    /** 拉用户会话的消息（session_type=1）。粉丝团会话走带 sessionType 的重载。 */
     public static JSONObject getPrivateMsg(long talkerId, int size, long beginSeqno, long endSeqno)
             throws IOException, JSONException {
-        String url =
-                "https://api.vc.bilibili.com/svr_sync/v1/svr_sync/fetch_session_msgs?session_type=1&talker_id=" + talkerId
-                        + "&size=" + size
-                        + "&begin_seqno=" + beginSeqno
-                        + "&end_seqno=" + endSeqno;
-        JSONObject allMsgJson = NetWorkUtil.getJson(url);
+        return getPrivateMsg(talkerId, SESSION_TYPE_USER, size, beginSeqno, endSeqno);
+    }
+
+    /**
+     * 拉一个会话的消息（返回的是倒序的列表，使用时记得列表倒置）。
+     *
+     * @param sessionType 会话类型：1 用户会话、2 粉丝团（口径同会话对象里的 session_type，
+     *                    见 bilibili-API/docs/message/private_msg.md:10、1489）
+     * @param beginSeqno  起点序号，传 0 时不按序号筛
+     * @param endSeqno    终点序号，传 0 表示取最新的一页
+     */
+    public static JSONObject getPrivateMsg(long talkerId, int sessionType, int size, long beginSeqno, long endSeqno)
+            throws IOException, JSONException {
+        JSONObject allMsgJson = NetWorkUtil.getJson(buildFetchMsgsUrl(talkerId, sessionType, size, beginSeqno, endSeqno));
         if (allMsgJson.has("data") && !allMsgJson.isNull("data"))
             return allMsgJson.getJSONObject("data");
         else return new JSONObject();
+    }
+
+    /**
+     * 拼拉消息的 URL（纯函数，便于 JVM 单测）。
+     *
+     * <p>26.11.23：原来 session_type 写死 1，粉丝团会话（talker_id 是粉丝团 id）一条也拉不出来，
+     * 现在由调用方按会话类型传进来。
+     */
+    public static String buildFetchMsgsUrl(long talkerId, int sessionType, int size, long beginSeqno, long endSeqno) {
+        return "https://api.vc.bilibili.com/svr_sync/v1/svr_sync/fetch_session_msgs?session_type=" + sessionType
+                + "&talker_id=" + talkerId
+                + "&size=" + size
+                + "&begin_seqno=" + beginSeqno
+                + "&end_seqno=" + endSeqno;
     }
 
     public static ArrayList<PrivateMessage> getPrivateMsgList(JSONObject allMsgJson)
@@ -193,15 +228,34 @@ public class PrivateMsgApi {
      */
     public static SessionsPage getSessionsPage(int size, long endTs)
             throws IOException, JSONException {
-        JSONObject root = NetWorkUtil.getJson(buildSessionsUrl(size, endTs));
+        return getSessionsPage(size, endTs, LIST_TYPE_USER);
+    }
+
+    /**
+     * 拉一页指定类型的会话（26.11.23 加：应援团/官方群走 {@link #LIST_TYPE_FAN_GROUP}）。
+     *
+     * @param size        本页条数
+     * @param endTs       游标：上一页里最老的会话 session_ts（微秒），传 0 表示第一页
+     * @param listType    get_sessions 的请求参数 session_type（{@link #LIST_TYPE_USER} /
+     *                    {@link #LIST_TYPE_FAN_GROUP}），**不是**会话对象的 session_type
+     */
+    public static SessionsPage getSessionsPage(int size, long endTs, int listType)
+            throws IOException, JSONException {
+        JSONObject root = NetWorkUtil.getJson(buildSessionsUrl(size, endTs, listType));
+        requireOk(root);
         return new SessionsPage(parseSessionsList(root), parseSessionsHasMore(root));
     }
 
     /** 拼会话列表 URL（纯函数，便于单测）；endTs 才决定带不带翻页游标。 */
     static String buildSessionsUrl(int size, long endTs) {
+        return buildSessionsUrl(size, endTs, LIST_TYPE_USER);
+    }
+
+    /** 拼会话列表 URL：listType 是 get_sessions 的请求参数 session_type。 */
+    public static String buildSessionsUrl(int size, long endTs, int listType) {
         StringBuilder url = new StringBuilder(
                 "https://api.vc.bilibili.com/session_svr/v1/session_svr/get_sessions?session_type=")
-                .append(SESSION_TYPE_USER).append("&size=").append(size);
+                .append(listType).append("&size=").append(size);
         if (endTs > 0) url.append("&end_ts=").append(endTs);
         return url.toString();
     }
@@ -211,6 +265,34 @@ public class PrivateMsgApi {
         if (root == null || root.isNull("data")) return false;
         JSONObject data = root.optJSONObject("data");
         return data != null && data.optInt("has_more", 0) == 1;
+    }
+
+    /**
+     * 检查会话列表的业务码（纯函数，便于 JVM 单测）。
+     *
+     * <p>26.11.23（反馈 #177）：掉登录后 `get_sessions` 回的是 `{"code":-101,...}`，没有 `data`，
+     * 而 {@link #parseSessionsList} 对 `data==null` 直接返回空表 → 界面上就是「0 条会话」，
+     * 用户以为私信被清空了，只有退出重进才知道是登录态没了。业务码不是 0 时按码给一句
+     * 能照着操作的话，让界面分得清「没登录 / 被风控 / 请求太频繁 / 真没消息」。
+     *
+     * @throws JSONException 业务码非 0；message 里带 code，便于用户直接抄给开发者
+     */
+    public static void requireOk(JSONObject root) throws JSONException {
+        if (root == null) throw new JSONException("会话列表返回为空");
+        int code = root.optInt("code", 0);
+        if (code == 0) return;
+        String message = root.optString("message", "");
+        String detail = message.isEmpty() ? "" : " " + message;
+        switch (code) {
+            case -101:
+                throw new JSONException("请先登录后查看私信（code=-101）");
+            case -352:
+                throw new JSONException("被风控拦了，过一会儿再试（code=-352）" + detail);
+            case -412:
+                throw new JSONException("请求太频繁，歇一会儿再试（code=-412）" + detail);
+            default:
+                throw new JSONException("会话列表加载失败：code=" + code + detail);
+        }
     }
 
     /**
@@ -237,6 +319,15 @@ public class PrivateMsgApi {
             sessionList.add(parseSession(sessions.getJSONObject(i)));
         }
         return sessionList;
+    }
+
+    /** 接口里的长整型字段常常给字符串，parse 不出来按 0 算（26.11.23）。 */
+    private static long parseLongOrZero(String raw) {
+        try {
+            return Long.parseLong(raw);
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
     }
 
     /**
@@ -268,8 +359,24 @@ public class PrivateMsgApi {
             session.accountAvatar = accountInfo.optString("pic_url", "");
         }
         session.topTs = sessionJson.optLong("top_ts", 0);
+        // 免打扰状态（26.11.23）：会话里是 is_dnd，0 关闭 / 1 开启
+        session.dnd = sessionJson.optInt("is_dnd", 0) == 1;
         // 微秒级的会话时间戳，翻页时当 end_ts 游标用（#166）
         session.sessionTs = sessionJson.optLong("session_ts", 0);
+        // 已读游标（26.11.23）：注意是字符串型，optLong 直接取会拿到 0
+        session.maxSeqno = parseLongOrZero(sessionJson.optString("max_seqno", "0"));
+        session.ackSeqno = parseLongOrZero(sessionJson.optString("ack_seqno", "0"));
+        // 会话类型（26.11.23）：会话对象自己的口径，缺字段按 1（用户会话）算。
+        // 粉丝团会话（talker_id 是粉丝团 id）要靠它决定拉消息/已读时带 session_type=2。
+        session.sessionType = sessionJson.optInt("session_type", SESSION_TYPE_USER);
+        // 粉丝团字段只在 session_type=2 时出现，缺了就是空
+        session.groupName = sessionJson.optString("group_name", "");
+        session.groupCover = sessionJson.optString("group_cover", "");
+        session.groupType = sessionJson.optInt("group_type", 0);
+        // 推送设置：0 接收 / 1 不接收（会话对象里的 setting，见 private_msg.md:22）
+        session.pushSetting = sessionJson.optInt("setting", 0);
+        // 是否被拦截（is_intercept）
+        session.intercept = sessionJson.optInt("is_intercept", 0) == 1;
         return session;
     }
 
@@ -437,11 +544,22 @@ public class PrivateMsgApi {
         per.append("&build=0");
         per.append("&mobi_app=web");
 
-        Response response = NetWorkUtil.post(url, per.toString(), NetWorkUtil.webHeaders);
-        if (response.body() != null) {
-            return new JSONObject(response.body().string());
+        return postJson(url, per.toString());
+    }
+
+    /**
+     * POST 一个表单并解析成 JSON。
+     *
+     * <p>session_svr 这一族的接口失败时会回 4xx 且 body 是 HTML，直接 new JSONObject 会抛；
+     * 这里统一收口：拿不到 2xx 就返回空对象，调用方 optInt("code", -1) 自然拿到 -1。
+     */
+    private static JSONObject postJson(String url, String form) throws IOException, JSONException {
+        Response response = NetWorkUtil.post(url, form, NetWorkUtil.webHeaders);
+        if (response == null) return new JSONObject();
+        try (Response resp = response) {
+            if (!resp.isSuccessful() || resp.body() == null) return new JSONObject();
+            return new JSONObject(resp.body().string());
         }
-        return new JSONObject();
     }
 
     /**
@@ -479,6 +597,178 @@ public class PrivateMsgApi {
         return result.optInt("code", -1);
     }
 
+    /** 拦截状态值（bilibili-API/docs/message/private_msg.md:1320-1379）：0 取消拦截、1 设置拦截。 */
+    public static final int INTERCEPT_OFF = 0;
+    public static final int INTERCEPT_ON = 1;
+
+    /** 布尔转 update_intercept 的 status 值（纯函数，便于 JVM 单测）：true→1 拦截，false→0 取消。 */
+    public static int statusForIntercept(boolean intercept) {
+        return intercept ? INTERCEPT_ON : INTERCEPT_OFF;
+    }
+
+    /**
+     * 拦截 / 取消拦截一个会话（消息进「被拦截」列表，对方消息不再打扰）。
+     *
+     * <p>接口事实（bilibili-API/docs/message/private_msg.md:1320-1379）：POST
+     * session_svr/v1/session_svr/update_intercept，表单是 **talker_id + status**，
+     * **没有 session_type 参数**——所以不能复用 {@link #postSessionAction}。
+     *
+     * @return 接口返回码，0 表示成功
+     */
+    public static int updateIntercept(long talkerId, boolean intercept)
+            throws IOException, JSONException {
+        String url = "https://api.vc.bilibili.com/session_svr/v1/session_svr/update_intercept";
+        String csrf = NetWorkUtil.currentCsrf();
+        String per = "talker_id=" + talkerId
+                + "&status=" + statusForIntercept(intercept)
+                + "&csrf_token=" + csrf
+                + "&csrf=" + csrf
+                + "&build=0"
+                + "&mobi_app=web";
+        JSONObject result = postJson(url, per);
+        return result.optInt("code", -1);
+    }
+
+    /** 免打扰设置值（bilibili-API/docs/message/private_msg.md:1210）：0 取消免打扰、1 开启免打扰。 */
+    public static final int DND_OFF = 0;
+    public static final int DND_ON = 1;
+
+    /** 布尔转接口的 setting 值（纯函数，便于 JVM 单测）：true→1 开启，false→0 取消。 */
+    public static int settingForDnd(boolean dnd) {
+        return dnd ? DND_ON : DND_OFF;
+    }
+
+    /**
+     * 修改会话免打扰状态。
+     *
+     * <p>接口事实（bilibili-API/docs/message/private_msg.md:1197-1242）：这个接口**不在 session_svr 下**，
+     * 而是 link_setting（和聊天设置页的推送开关同一族）；参数也不是 talker_id，而是
+     * uid（自己的 mid）+ setting + dnd_uid（对方 mid）。
+     *
+     * @param ownUid    自己的 mid（接口的 uid 参数）
+     * @param talkerUid 会话对方的 mid（接口的 dnd_uid 参数）
+     * @param dnd       true 开启免打扰，false 取消
+     * @return 接口返回码，0 表示成功
+     */
+    public static int setMsgDnd(long ownUid, long talkerUid, boolean dnd)
+            throws IOException, JSONException {
+        String url = "https://api.vc.bilibili.com/link_setting/v1/link_setting/set_msg_dnd";
+        String csrf = NetWorkUtil.currentCsrf();
+        String per = "uid=" + ownUid
+                + "&setting=" + settingForDnd(dnd)
+                + "&dnd_uid=" + talkerUid
+                + "&csrf_token=" + csrf
+                + "&csrf=" + csrf
+                + "&build=0"
+                + "&mobi_app=web";
+
+        Response response = NetWorkUtil.post(url, per, NetWorkUtil.webHeaders);
+        if (response == null) return -1;
+        try (Response resp = response) {
+            if (!resp.isSuccessful() || resp.body() == null) return -1;
+            return parseDndCode(resp.body().string());
+        }
+    }
+
+    /**
+     * 解析 set_msg_dnd 响应体里的业务码（纯解析，便于 JVM 单测）。
+     *
+     * <p>非 2xx（412 风控 / 5xx）时 body 是 HTML，解析不出来给 -1，再由调用方翻成能看懂的话。
+     */
+    public static int parseDndCode(String body) {
+        if (body == null || body.isEmpty()) return -1;
+        try {
+            return new JSONObject(body).optInt("code", -1);
+        } catch (JSONException e) {
+            return -1;
+        }
+    }
+
+    /** 会话推送设置值（bilibili-API/docs/message/private_msg.md:941-1011、1259-1318）：0 接收推送、1 不接收。 */
+    public static final int PUSH_ON = 0;
+    public static final int PUSH_OFF = 1;
+
+    /** 布尔转 set_push_ss 的 setting 值（纯函数，便于 JVM 单测）：true→0 接收，false→1 不接收。 */
+    public static int pushSettingFor(boolean push) {
+        return push ? PUSH_ON : PUSH_OFF;
+    }
+
+    /** follow_status 的拉黑值（bilibili-API/docs/message/private_msg.md:941-1011）。 */
+    public static final int FOLLOW_STATUS_BLOCKED = 128;
+
+    /**
+     * 单会话的聊天设置（{@code get_session_ss} 里聊天设置页要用的那几项）。
+     *
+     * <p>只留三项：是否接收推送、服务器要不要显示推送开关、与对方的关系状态
+     * （128 表示已拉黑）。其余字段（special 特别关注等）本页不用。
+     */
+    public static class SessionSs {
+        /** true 接收推送。服务器缺字段时按接收处理。 */
+        public boolean pushEnabled = true;
+        /** 服务器是否要求显示「接收消息推送」开关（0 时不显示，官方建议按此隐藏）。 */
+        public boolean showPushSetting = false;
+        /** 关系状态：0 未关注 / 2 已关注 / 6 已互粉 / 128 已拉黑。 */
+        public int followStatus = 0;
+    }
+
+    /**
+     * 构造 get_session_ss 的地址（纯函数，便于 JVM 单测）。
+     *
+     * <p>接口事实（bilibili-API/docs/message/private_msg.md:941-1011）：GET
+     * link_setting/v1/link_setting/get_session_ss，**仅对用户会话有效**（粉丝团会话没有这个概念）。
+     */
+    public static String buildSessionSsUrl(long talkerUid) {
+        return "https://api.vc.bilibili.com/link_setting/v1/link_setting/get_session_ss"
+                + "?talker_uid=" + talkerUid
+                + "&build=0"
+                + "&mobi_app=web";
+    }
+
+    /** 解析 get_session_ss 的响应（纯函数）：缺字段时给「接收推送 + 不显示开关」。 */
+    public static SessionSs parseSessionSs(JSONObject root) {
+        SessionSs ss = new SessionSs();
+        if (root == null) return ss;
+        JSONObject data = root.optJSONObject("data");
+        if (data == null) return ss;
+        ss.pushEnabled = data.optInt("push_setting", PUSH_ON) == PUSH_ON;
+        ss.showPushSetting = data.optInt("show_push_setting", 0) == 1;
+        ss.followStatus = data.optInt("follow_status", 0);
+        return ss;
+    }
+
+    /**
+     * 拉一个用户会话的聊天设置。
+     *
+     * @return 解析结果；接口报错（code 非 0）时抛异常，由调用方兜底
+     */
+    public static SessionSs getSessionSs(long talkerUid) throws IOException, JSONException {
+        JSONObject root = NetWorkUtil.getJson(buildSessionSsUrl(talkerUid));
+        requireOk(root);
+        return parseSessionSs(root);
+    }
+
+    /**
+     * 设置会话推送（图文消息与稿件推送；通知类消息不受影响）。
+     *
+     * <p>接口事实（bilibili-API/docs/message/private_msg.md:1259-1318）：POST
+     * link_setting/v1/link_setting/set_push_ss，表单是 talker_uid + setting，**没有 session_type**，
+     * 仅支持用户会话。
+     *
+     * @return 接口返回码，0 表示成功
+     */
+    public static int setPushSs(long talkerUid, boolean push) throws IOException, JSONException {
+        String url = "https://api.vc.bilibili.com/link_setting/v1/link_setting/set_push_ss";
+        String csrf = NetWorkUtil.currentCsrf();
+        String per = "talker_uid=" + talkerUid
+                + "&setting=" + pushSettingFor(push)
+                + "&csrf_token=" + csrf
+                + "&csrf=" + csrf
+                + "&build=0"
+                + "&mobi_app=web";
+        JSONObject result = postJson(url, per);
+        return result.optInt("code", -1);
+    }
+
     /**
      * session_svr 系列接口的公共请求体（talker_id/session_type/csrf/build/mobi_app）。
      *
@@ -495,14 +785,9 @@ public class PrivateMsgApi {
                 + "&build=0"
                 + "&mobi_app=web";
 
-        Response response = NetWorkUtil.post(url, per, NetWorkUtil.webHeaders);
-        if (response == null) return new JSONObject();
-        // 非 2xx（412 风控 / 5xx）时 body 是 HTML，解析会抛 JSONException；返回空对象，
+        // 非 2xx（412 风控 / 5xx）时 body 是 HTML，解析会抛 JSONException；postJson 返回空对象，
         // 调用方 optInt("code", -1) 拿到 -1，再由 sessionErrorMsg 翻译成人话
-        try (Response resp = response) {
-            if (!resp.isSuccessful() || resp.body() == null) return new JSONObject();
-            return new JSONObject(resp.body().string());
-        }
+        return postJson(url, per);
     }
 
     /**

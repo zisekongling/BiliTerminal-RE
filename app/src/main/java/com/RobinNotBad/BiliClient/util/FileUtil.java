@@ -395,6 +395,7 @@ public class FileUtil {
                 Logu.d("storage-perm", "正式目录可写，搬回 " + moved + " 项缓存 -> " + configured);
             }
             rememberActiveVideoDir(configured);
+            Logu.i("storage-perm", "缓存根=正式目录 " + configured.getAbsolutePath());
             return configured;
         }
 
@@ -405,10 +406,13 @@ public class FileUtil {
                 showStorageMsg(context, R.string.msg_storage_fallback, fallback.getAbsolutePath());
             }
             rememberActiveVideoDir(fallback);
+            Logu.i("storage-perm", "缓存根=降级目录 " + fallback.getAbsolutePath());
             return fallback;
         }
 
         videoFallbackActive = false;
+        Logu.i("storage-perm", "缓存根不可写 configured=" + configured.getAbsolutePath()
+                + " fallback=" + fallback.getAbsolutePath());
         showStorageMsg(context, R.string.msg_storage_unavailable);
         return null;
     }

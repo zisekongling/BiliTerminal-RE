@@ -44,6 +44,11 @@
         android:layout_height="match_parent"
         android:layout_below="@id/top" />
 
+    <!--
+        底部两枚角标的位置是反馈 #280 定下的：页数在左下、下载在右下（26.11.23 之前是反的）。
+        圆屏适配不再把页数搬进顶栏，标题恒为「图片查看」，只在 ImageViewerActivity 里把两者
+        按内接正方形往里收。
+    -->
     <ImageButton
         android:contentDescription="@string/a11y_image_viewer_download"
         android:id="@+id/btn_download"
@@ -55,10 +60,10 @@
         android:background="@drawable/background_media_button"
         app:srcCompat="@drawable/icon_download_overlay"
         android:layout_alignParentBottom="true"
-        android:layout_alignParentStart="true"
-        android:layout_alignParentLeft="true"
-        android:layout_marginLeft="8dp"
-        android:layout_marginStart="8dp"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentRight="true"
+        android:layout_marginEnd="8dp"
+        android:layout_marginRight="8dp"
         android:layout_marginBottom="8dp" />
 
     <TextView
@@ -71,11 +76,11 @@
         android:textColor="@color/overlay_text"
         android:paddingVertical="4dp"
         android:paddingHorizontal="6dp"
-        android:layout_marginRight="8dp"
+        android:layout_marginStart="8dp"
         android:layout_marginBottom="8dp"
-        android:layout_alignParentRight="true"
-        android:layout_alignParentBottom="true"
-        android:layout_marginEnd="8dp"
-        android:layout_alignParentEnd="true" />
+        android:layout_alignParentStart="true"
+        android:layout_alignParentLeft="true"
+        android:layout_marginLeft="8dp"
+        android:layout_alignParentBottom="true" />
 
 </RelativeLayout>

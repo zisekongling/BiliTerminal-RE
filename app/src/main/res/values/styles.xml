@@ -10,12 +10,17 @@
          见 `ui/appearance/CornerRadius.kt`：默认「方角」直接用这里的 dimen 值、零开销；
          选「圆角」时才在 `BaseActivity.onContentChanged()` 里套一次 `card_round_large`。 -->
 
+    <!-- 卡片一律 **不抬高**（cardElevation=0），层次交给下面的 1dp 描边。
+         反馈 #273：列表滚动时表冠每帧都在改条目的 scaleX/scaleY（见 ui/appearance/RoundListEffect.kt
+         的圆屏列表效果），高 4dp 的卡片于是**逐帧按轮廓重算阴影**，用户看到的是「文字下面有条阴影
+         在跳」。阴影越厚（8dp 的顶栏/底栏那种）跳得越明显，而 1dp 描边是静态的，不参与重算。
+         这条与 themes_glass.xml、architecture-map「半透明底的组件一律 elevation=0」是同一条约定。 -->
     <style name="CardStyle" parent="Widget.MaterialComponents.CardView">
         <item name="rippleColor" tools:ignore="PrivateResource">@color/bili_secondary</item>
         <item name="android:foreground">?android:attr/selectableItemBackground</item>
         <item name="cardBackgroundColor">@color/card_dark</item>
         <item name="cardCornerRadius">@dimen/card_round</item>
-        <item name="cardElevation">4dp</item>
+        <item name="cardElevation">0dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
         <item name="strokeColor">@color/divider_dark</item>
@@ -27,7 +32,7 @@
         <item name="android:foreground">?android:attr/selectableItemBackground</item>
         <item name="cardBackgroundColor">@color/card_light</item>
         <item name="cardCornerRadius">@dimen/card_round</item>
-        <item name="cardElevation">2dp</item>
+        <item name="cardElevation">0dp</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
         <item name="strokeColor">@color/divider_color</item>

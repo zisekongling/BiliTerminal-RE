@@ -10,7 +10,6 @@ import com.RobinNotBad.BiliClient.adapter.SettingsAdapter
 import com.RobinNotBad.BiliClient.model.SettingSection
 import com.RobinNotBad.BiliClient.ui.widget.RotaryEncoderSupport
 import com.RobinNotBad.BiliClient.util.LongPressPrefs
-import com.RobinNotBad.BiliClient.util.SearchHistoryStore
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TopbarLongPressPrefs
@@ -69,11 +68,11 @@ class SettingPrefActivity : RefreshListActivity() {
             add(SettingSection("switch", "创作中心", SettingsKeys.CREATIVE_ENABLE, getString(R.string.desc_creative_enable), "true"))
             add(SettingSection("switch", "搜索建议", SettingsKeys.SEARCH_SUGGESTIONS_ENABLE,
                 getString(R.string.desc_search_suggestions_enable), "true"))
-            // 26.11.21 反馈：没有关闭搜索历史的入口。关掉即清空已有记录（用户口径：关了就不留），
-            // 所以这里在开关回调里补一次 clear()——只停止记录、旧记录还在列表里，等于关了个寂寞。
+            // 26.11.21 反馈：没有关闭搜索历史的入口。26.11.23 起这个开关只控制**显示**
+            // （用户口径：关掉仅隐藏历史区，该记录的还是记录），所以这里不再挂 clear() 回调——
+            // 早先「关掉即清空」的做法已随 SearchHistoryStore 一起撤掉。
             add(SettingSection("switch", "搜索历史", SettingsKeys.SEARCH_HISTORY_ENABLE,
-                getString(R.string.desc_search_history_enable), "true",
-                SettingsAdapter.SwitchExtra(onChange = { enabled -> if (!enabled) SearchHistoryStore.clear() })))
+                getString(R.string.desc_search_history_enable), "true"))
             add(SettingSection("switch", "默认搜索内容", SharedPreferencesUtil.SEARCH_DEFAULT_CONTENT_ENABLE,
                 getString(R.string.desc_search_default_content_enable), "false"))
             add(SettingSection("switch", "识别链接", SharedPreferencesUtil.LINK_ENABLE, getString(R.string.desc_link_enable), "true"))
@@ -128,10 +127,10 @@ class SettingPrefActivity : RefreshListActivity() {
             RotaryEncoderSupport.normalizeSensitivity(SettingsKeys.UI_ROTATORY_RECYCLER)
             RotaryEncoderSupport.normalizeSensitivity(SettingsKeys.UI_ROTATORY_SCROLL)
             // 反馈 #243：OPPO Watch 4 Pro 那类「表冠被报成鼠标滚轮」的机器，App 侧的手感怎么调都是猜；
-            // 这个开关把表冠整体退回 26.11.16.4（最后一个正式版）的旧行为。默认关闭，但首次踩到
-            // 滚轮源或异常基准会自动打开一次（见 RotaryEncoderSupport.maybeAutoEnableCompat）。
+            // 这个开关把表冠整体退回 26.11.16.4（最后一个正式版）的旧行为。26.11.23 起默认开启
+            // （默认值必须与 RotaryEncoderSupport.isCompatMode() 里那个 `true` 一致）。
             add(SettingSection("switch", "表冠兼容模式", SettingsKeys.UI_ROTATORY_COMPAT,
-                getString(R.string.desc_ui_rotatory_compat), "false"))
+                getString(R.string.desc_ui_rotatory_compat), "true"))
             add(SettingSection("input_float", "表冠适配灵敏度（Recycler）", SettingsKeys.UI_ROTATORY_RECYCLER,
                 getString(R.string.desc_ui_rotatory_sensitivity), RotaryEncoderSupport.DEFAULT_MULTIPLE))
             add(SettingSection("input_float", "表冠适配灵敏度（Scroll）", SettingsKeys.UI_ROTATORY_SCROLL,

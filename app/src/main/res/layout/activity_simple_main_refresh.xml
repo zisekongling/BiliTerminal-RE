@@ -90,17 +90,26 @@
             android:visibility="gone"
             tools:visibility="visible">
 
+            <!-- 计数是这条里唯一 weight=1 的控件，多选态的按钮挤过来时只剩几十 dp。
+                 不加 maxLines 就会被压折行、把整条撑高（反馈 #265，42mm 表上尤其明显）；
+                 再叠 autoSize 让「已选 100 项」这种长文案自动缩到 9sp 而不被截断。 -->
             <TextView
                 android:id="@+id/textSelectedCount"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:ellipsize="end"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingVertical="4dp"
+                android:maxLines="1"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:textColor="?android:attr/textColorPrimary"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:visibility="gone"
+                app:autoSizeMaxTextSize="@dimen/action_bar_text"
+                app:autoSizeMinTextSize="9sp"
+                app:autoSizeStepGranularity="1sp"
+                app:autoSizeTextType="uniform"
                 tools:text="已选 3 项" />
 
             <TextView
@@ -109,12 +118,14 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:background="?attr/selectableItemBackground"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:text="@string/uitext_favoritevideolistactivity_009"
                 android:textColor="?android:attr/textColorSecondary"
-                android:textSize="13sp" />
+                android:textSize="@dimen/action_bar_text" />
 
             <!-- 「全选 / 全不选」（26.11.11，反馈 #94）：只在缓存页多选态点亮，全勾中后文字变「全不选」。
                  和其它按钮一样默认 gone——这个布局是多个一级页共用的。 -->
@@ -123,13 +134,15 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:background="?attr/selectableItemBackground"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingHorizontal="@dimen/space_md"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingHorizontal="@dimen/action_bar_item_padding_h"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:text="@string/btn_select_all"
                 android:textColor="?android:attr/textColorSecondary"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:visibility="gone" />
 
             <TextView
@@ -137,13 +150,15 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:background="?attr/selectableItemBackground"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingHorizontal="@dimen/space_md"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingHorizontal="@dimen/action_bar_item_padding_h"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:text="@string/uitext_locallistactivity_023"
                 android:textColor="?android:attr/textColorSecondary"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:visibility="gone" />
 
             <TextView
@@ -151,13 +166,15 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:background="?attr/selectableItemBackground"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingHorizontal="@dimen/space_md"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingHorizontal="@dimen/action_bar_item_padding_h"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:text="@string/uitext_locallistactivity_025"
                 android:textColor="?android:attr/textColorSecondary"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:visibility="gone" />
 
             <!-- 缓存页排序 / 搜索入口（26.11.02，反馈 #94）：与上面的多选条同一排，非多选态显示，
@@ -169,12 +186,12 @@
                 android:layout_height="wrap_content"
                 android:background="?attr/selectableItemBackground"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingHorizontal="@dimen/space_md"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingHorizontal="@dimen/action_bar_item_padding_h"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:text="@string/btn_cache_sort"
                 android:textColor="?android:attr/textColorSecondary"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:visibility="gone" />
 
             <TextView
@@ -183,12 +200,12 @@
                 android:layout_height="wrap_content"
                 android:background="?attr/selectableItemBackground"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingHorizontal="@dimen/space_md"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingHorizontal="@dimen/action_bar_item_padding_h"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:text="@string/btn_cache_search"
                 android:textColor="?android:attr/textColorSecondary"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:visibility="gone" />
 
             <TextView
@@ -197,12 +214,12 @@
                 android:layout_height="wrap_content"
                 android:background="?attr/selectableItemBackground"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingHorizontal="@dimen/space_md"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingHorizontal="@dimen/action_bar_item_padding_h"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:text="@string/btn_cache_search_clear"
                 android:textColor="?android:attr/textColorSecondary"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:visibility="gone" />
 
         </LinearLayout>

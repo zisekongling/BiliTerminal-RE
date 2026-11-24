@@ -17,6 +17,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
+import com.RobinNotBad.BiliClient.activity.message.ChatSettingsActivity
 import com.RobinNotBad.BiliClient.activity.message.PrivateMsgActivity
 import com.RobinNotBad.BiliClient.api.PrivateMsgApi
 import com.RobinNotBad.BiliClient.model.PrivateMessage
@@ -55,7 +56,14 @@ class PrivateMsgSessionsAdapter(
      * 现有 `PrivateMsgSessionsAdapter(ctx, list, map) { … }` 调用点静默绑错。
      */
     private val onOpenSession: ((PrivateMsgSession) -> Unit)? = null,
-    private val onSessionsChanged: (() -> Unit)? = null
+    private val onSessionsChanged: (() -> Unit)? = null,
+    /**
+     * 打开单会话「聊天设置」的回调（26.11.23 批次②-2）。为 null 时退回
+     * [ChatSettingsActivity.start]，只是拿不到返回结果、改完不会立刻重拉列表。
+     * 加在最后而不是 [onSessionsChanged] 之前：现有两个调用点都用具名参数，
+     * 放末尾不会让任何一处绑错。
+     */
+    private val onOpenChatSettings: ((PrivateMsgSession) -> Unit)? = null
 ) : RecyclerView.Adapter<PrivateMsgSessionsAdapter.PrivateMsgSessionsHolder>() {
 
     private val cardRoundRadius: Int = context.resources.getDimension(R.dimen.card_round).toInt()
@@ -110,15 +118,27 @@ class PrivateMsgSessionsAdapter(
             // 名字/头像的来源：系统会话（UP主小助手 / 系统通知 / 客服…）的 talker_id 是服务端合成的
             // id，查 user/cards 查不到，只能用会话自带的 account_info（26.11.20 放开系统会话时补的）
             val isSystem = msgContent.isSystem()
-            val user = if (isSystem) null else userMap?.get(msgContent.talkerUid)
+            // 粉丝团会话（26.11.23）：talker_id 是粉丝团 id，user/cards 查不到，
+            // 名字头像都来自会话自带的 group_name / group_cover
+            val isGroup = msgContent.isFanGroup()
+            val user = if (isSystem || isGroup) null else userMap?.get(msgContent.talkerUid)
             val baseName = when {
                 isSystem -> msgContent.accountName.ifEmpty { UiText.of("B站官方消息") }
+                isGroup -> msgContent.groupName.ifEmpty { UiText.of("应援团") }
                 user != null -> user.name
                 // 普通会话但没查到用户信息：留空，别把上一条的名字留在复用的 View 上
                 else -> ""
             }
             // 置顶态没有布尔字段，靠 top_ts 是否非零判断
-            val displayName = if (msgContent.isTop()) "[置顶] $baseName" else baseName
+            val displayName = buildString {
+                if (msgContent.isTop()) append("[置顶] ")
+                append(baseName)
+                // 免打扰标记放在名字后面：手表上名字行是单行省略，标记在后才不至于把名字挤没
+                if (msgContent.isDnd()) {
+                    append(' ')
+                    append(UiText.of("[免打扰]"))
+                }
+            }
             // 系统会话的未读记在 biz_msg_unread_count 里，只看 unread 的话永远显示 0 条未读
             val unread = msgContent.unreadTotal()
             if (unread > 0 && SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.PRIVATE_MSG_UNREAD_BADGE_ENABLE, false)) {
@@ -134,7 +154,11 @@ class PrivateMsgSessionsAdapter(
                 holder.nameText.text = displayName
             }
 
-            val avatarUrl = if (isSystem) msgContent.accountAvatar else user?.avatar
+            val avatarUrl = when {
+                isSystem -> msgContent.accountAvatar
+                isGroup -> msgContent.groupCover
+                else -> user?.avatar
+            }
             if (avatarUrl.isNullOrEmpty()) {
                 // 没有头像时也要把占位图塞回去：否则复用的 View 会继续显示上一条会话的头像
                 holder.avatarView.setImageResource(R.mipmap.akari)
@@ -159,15 +183,19 @@ class PrivateMsgSessionsAdapter(
                     else {
                         val intent = Intent(context, PrivateMsgActivity::class.java)
                         intent.putExtra("uid", msgContent.talkerUid)
+                        intent.putExtra(PrivateMsgActivity.EXTRA_MAX_SEQNO, msgContent.maxSeqno)
+                        intent.putExtra(PrivateMsgActivity.EXTRA_SESSION_TYPE, msgContent.sessionType)
                         // 系统会话的标题只能用会话自带的账号名（没有真实 mid 可查）
                         if (isSystem) intent.putExtra(PrivateMsgActivity.EXTRA_SYSTEM_NAME, msgContent.accountName)
+                        else if (isGroup) intent.putExtra(PrivateMsgActivity.EXTRA_SESSION_NAME, msgContent.groupName)
                         context.startActivity(intent)
                     }
                 }
             }
             holder.itemView.setOnLongClickListener {
                 // 选好友模式下不给长按菜单：置顶/删除会话对「挑个人发消息」没有意义；
-                // 系统会话同样不给：talker_id 是合成的、没有主页可跳，删除还会让官方消息彻底没入口
+                // 系统会话同样不给：talker_id 是合成的、没有主页可跳，删除还会让官方消息彻底没入口。
+                // 粉丝团会话给菜单（26.11.23）：它的未读原来在 App 里清不掉，靠「标为已读」补上
                 if (onSessionClick != null || isSystem) {
                     false
                 } else {
@@ -181,28 +209,98 @@ class PrivateMsgSessionsAdapter(
     }
 
     /**
-     * 会话项长按菜单：置顶/取消置顶、删除会话、查看用户主页。
-     * 这两个接口都只改服务端的会话列表（删除不会清聊天记录），所以成功后统一重新拉一次列表。
+     * 会话项长按菜单：置顶/取消置顶、免打扰开关、标为已读、聊天设置、删除会话、查看用户主页。
+     *
+     * 这几个接口都只改服务端的会话状态（删除不会清聊天记录），成功后统一回调和刷新。
+     * 26.11.23 加了免打扰：会话里的 is_dnd 只有服务端知道，本地改完要立刻重绑这一项，
+     * 否则要等下一次整表刷新才看得到标记。同日加「聊天设置」：置顶/免打扰/标为已读
+     * 这几件常用的留在这里一键切换，推送、拦截、拉黑这类不常动的收进设置页。
      */
     private fun showSessionMenu(session: PrivateMsgSession) {
-        val actions = arrayOf(
-            if (session.isTop()) UiText.of("取消置顶") else UiText.of("置顶会话"),
-            UiText.of("删除会话"),
-            UiText.of("查看用户主页")
-        )
-        // 第 1 项（删除会话）是破坏性操作，用危险色标出来
+        // 26.11.23：条目改成「先拼标签再配动作」。原先按下标硬编码 when(0/1/2/else)，
+        // 现在「标为已读」只在有未读时出现、粉丝团会话又少两项，按下标会全部错位。
+        val labels = ArrayList<String>(6)
+        val actions = ArrayList<() -> Unit>(6)
+
+        // 粉丝团会话没有「置顶 / 免打扰 / 主页」这三件事：接口都只支持用户会话
+        if (!session.isFanGroup()) {
+            labels.add(if (session.isTop()) UiText.of("取消置顶") else UiText.of("置顶会话"))
+            actions.add { setSessionTop(session, !session.isTop()) }
+            labels.add(if (session.isDnd()) UiText.of("取消免打扰") else UiText.of("消息免打扰"))
+            actions.add { setSessionDnd(session, !session.isDnd()) }
+        }
+        // 有未读才给「标为已读」：没未读时点它没有意义，还多一次请求
+        if (session.unreadTotal() > 0) {
+            labels.add(UiText.of("标为已读"))
+            actions.add { markSessionRead(session) }
+        }
+        // 单会话的聊天设置（推送 / 置顶 / 免打扰 / 拦截 / 拉黑）。粉丝团会话没有这些接口：
+        // get_session_ss、set_push_ss、set_msg_dnd、update_intercept 都写明「仅支持用户会话」。
+        if (!session.isFanGroup()) {
+            labels.add(UiText.of("聊天设置"))
+            actions.add { openChatSettings(session) }
+        }
+        labels.add(UiText.of("删除会话"))
+        actions.add { confirmRemoveSession(session) }
+        val dangerIndex = labels.size - 1
+        if (!session.isFanGroup()) {
+            labels.add(UiText.of("查看用户主页"))
+            actions.add { BiliTerminal.jumpToUser(context, session.talkerUid) }
+        }
+
         TerminalDialog.menu(
             context = context,
             title = UiText.of("会话操作"),
-            items = actions.toList(),
-            danger = setOf(1)
+            items = labels,
+            danger = setOf(dangerIndex)
         ) { which ->
-            when (which) {
-                0 -> setSessionTop(session, !session.isTop())
-                1 -> confirmRemoveSession(session)
-                else -> BiliTerminal.jumpToUser(context, session.talkerUid)
-            }
+            actions.getOrNull(which)?.invoke()
         }.show()
+    }
+
+    /**
+     * 打开单会话的「聊天设置」（26.11.23 批次②-2）。
+     *
+     * 有回调就交给调用方（消息页要用返回结果重拉列表），没有就直接开页。
+     */
+    private fun openChatSettings(session: PrivateMsgSession) {
+        val callback = onOpenChatSettings
+        if (callback != null) callback(session) else ChatSettingsActivity.start(context, session)
+    }
+
+    /**
+     * 把一个会话标为已读（26.11.23）。
+     *
+     * <p>和会话页里的自动已读是同一个接口：update_ack 的 ack_seqno 取会话的 max_seqno
+     * （服务端给的「已读到哪一条」），粉丝团会话要连带 session_type=2，否则服务端不认。
+     * 成功后本地把未读清零并只重绑这一项，不必整表重拉。
+     */
+    private fun markSessionRead(session: PrivateMsgSession) {
+        // max_seqno 缺失时退回 ack_seqno（已经在读的那条）；两个都是 0 就没法标
+        val seqno = if (session.maxSeqno > 0) session.maxSeqno else session.ackSeqno
+        if (seqno <= 0) {
+            MsgUtil.showMsg(UiText.of("这条会话没有可标记的消息"))
+            return
+        }
+        CenterThreadPool.run {
+            try {
+                val result = PrivateMsgApi.updateAck(session.talkerUid, session.sessionType, seqno)
+                CenterThreadPool.runOnUiThread {
+                    if (result.optInt("code", -1) == 0) {
+                        session.unread = 0
+                        session.bizUnread = 0
+                        val index = sessionsList.indexOfFirst { it.talkerUid == session.talkerUid }
+                        if (index >= 0) notifyItemChanged(index)
+                        MsgUtil.showMsg(UiText.of("已标为已读"))
+                        onSessionsChanged?.invoke()
+                    } else {
+                        MsgUtil.showMsg(PrivateMsgApi.sessionErrorMsg(result.optInt("code", -1)))
+                    }
+                }
+            } catch (e: Exception) {
+                CenterThreadPool.runOnUiThread { MsgUtil.err(e) }
+            }
+        }
     }
 
     private fun confirmRemoveSession(session: PrivateMsgSession) {
@@ -219,7 +317,7 @@ class PrivateMsgSessionsAdapter(
         CenterThreadPool.run {
             try {
                 val code = PrivateMsgApi.setSessionTop(
-                    session.talkerUid, PrivateMsgApi.SESSION_TYPE_USER, top
+                    session.talkerUid, session.sessionType, top
                 )
                 CenterThreadPool.runOnUiThread {
                     val error = PrivateMsgApi.sessionErrorMsg(code)
@@ -236,11 +334,42 @@ class PrivateMsgSessionsAdapter(
         }
     }
 
+    /**
+     * 开关会话免打扰。
+     *
+     * 接口是 link_setting/set_msg_dnd（不是 session_svr 那一族），参数要自己的 mid 与对方 mid，
+     * 口径见 PrivateMsgApi.setMsgDnd。成功后直接改本地对象并只重绑这一项：
+     * 省掉一次整表重拉，标记立刻可见。
+     */
+    private fun setSessionDnd(session: PrivateMsgSession, dnd: Boolean) {
+        CenterThreadPool.run {
+            try {
+                val ownUid = SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 0L)
+                val code = PrivateMsgApi.setMsgDnd(ownUid, session.talkerUid, dnd)
+                CenterThreadPool.runOnUiThread {
+                    if (code == 0) {
+                        session.dnd = dnd
+                        val index = sessionsList.indexOfFirst { it.talkerUid == session.talkerUid }
+                        if (index >= 0) notifyItemChanged(index)
+                        MsgUtil.showMsg(
+                            if (dnd) UiText.of("已开启免打扰") else UiText.of("已取消免打扰")
+                        )
+                        onSessionsChanged?.invoke()
+                    } else {
+                        MsgUtil.showMsg(PrivateMsgApi.sessionErrorMsg(code))
+                    }
+                }
+            } catch (e: Exception) {
+                CenterThreadPool.runOnUiThread { MsgUtil.err(e) }
+            }
+        }
+    }
+
     private fun removeSession(session: PrivateMsgSession) {
         CenterThreadPool.run {
             try {
                 val code = PrivateMsgApi.removeSession(
-                    session.talkerUid, PrivateMsgApi.SESSION_TYPE_USER
+                    session.talkerUid, session.sessionType
                 )
                 CenterThreadPool.runOnUiThread {
                     val error = PrivateMsgApi.sessionErrorMsg(code)

@@ -6,6 +6,10 @@ import androidx.annotation.NonNull;
 
 import com.RobinNotBad.BiliClient.model.Note;
 import com.RobinNotBad.BiliClient.model.NoteBlock;
+import com.RobinNotBad.BiliClient.model.NoteContentItem;
+import com.RobinNotBad.BiliClient.model.NoteListPage;
+import com.RobinNotBad.BiliClient.model.NoteSummary;
+import com.RobinNotBad.BiliClient.model.NoteTextRun;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
 
 import org.json.JSONArray;
@@ -13,8 +17,13 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
+import java.util.TimeZone;
 
 /**
  * 视频笔记（26.10.04 批次 6 的 C27，仅查看）。
@@ -27,6 +36,14 @@ import java.util.List;
  *   <li>私有笔记内容：{@code GET https://api.bilibili.com/x/note/info}
  *       —— {@code bilibili-API/docs/note/info.md:57-172}，需要 SESSDATA，
  *       错误码 79502 笔记详情未找到 / 79503 笔记正文未找到。</li>
+ * </ul>
+ *
+ * <p>26.11.23 起补上公开笔记（免登录）：
+ * <ul>
+ *   <li>稿件下的公开笔记列表 {@code x/note/publish/list/archive}（{@code bilibili-API/docs/note/list.md}
+ *       的「获取视频下的公开笔记」一节）——**逐视频开关**，{@code data.show_public_note=false}
+ *       表示这个视频关了公开笔记；</li>
+ *   <li>单篇公开笔记详情 {@code x/note/publish/info?cvid=…}，按 cvid 取（不是 aid）。</li>
  * </ul>
  *
  * <p>正文不是 HTML，是 Quill delta 序列的 JSON 字符串（{@code data.content}），
@@ -130,7 +147,9 @@ public class NoteApi {
         if (image != null) {
             NoteBlock block = new NoteBlock();
             block.type = NoteBlock.TYPE_IMAGE;
-            block.imageUrl = image.optString("url", "");
+            // 正文里的图片地址是协议相对的 //i0.hdslb.com/bfs/note/xxx.jpg，
+            // 少了 scheme Glide 会直接失败（表现为「图片全都不显示」），这里统一补 https:
+            block.imageUrl = normalizeImageUrl(image.optString("url", ""));
             block.imageWidth = image.optInt("width", 0);
             return block.imageUrl.isEmpty() ? null : block;
         }
@@ -159,6 +178,15 @@ public class NoteApi {
         note.summary = data.optString("summary", "");
         note.blocks = parseBlocks(data.optString("content", ""));
 
+        note.cvid = data.optLong("cvid", 0);
+        note.pubtime = data.optLong("pubtime", 0);
+        note.likes = data.optInt("likes", 0);
+        JSONObject author = data.optJSONObject("author");
+        if (author != null) {
+            note.authorName = author.optString("name", "");
+            note.authorFace = author.optString("face", "");
+        }
+
         JSONObject arc = data.optJSONObject("arc");
         if (arc != null) {
             note.aid = arc.optLong("oid", 0);
@@ -167,6 +195,200 @@ public class NoteApi {
             note.videoDesc = arc.optString("desc", "");
         }
         return note;
+    }
+
+    /**
+     * 协议相对地址补全。纯函数，便于单测。
+     *
+     * <p>笔记正文里的图片 {@code url} 形如 {@code //i0.hdslb.com/bfs/note/xxx.jpg}（没有 scheme），
+     * 原样丢给 Glide 会解析失败——这是 26.10.04 那版「笔记里的图片全都不显示」的直接原因。
+     */
+    public static String normalizeImageUrl(String url) {
+        if (url == null) return "";
+        String trimmed = url.trim();
+        if (trimmed.isEmpty()) return "";
+        if (trimmed.startsWith("//")) return "https:" + trimmed;
+        return trimmed;
+    }
+
+    /**
+     * 解析公开笔记列表（{@code x/note/publish/list/archive} 的 {@code data}）。纯函数，便于单测。
+     *
+     * <p>没有 {@code cvid} 的行直接跳过：没有它就没法打开详情，留着也是个点了没反应的条目。
+     */
+    public static List<NoteSummary> parseNoteSummaries(JSONObject data) {
+        List<NoteSummary> items = new ArrayList<>();
+        if (data == null) return items;
+        JSONArray list = data.optJSONArray("list");
+        if (list == null) return items;
+        for (int i = 0; i < list.length(); i++) {
+            JSONObject node = list.optJSONObject(i);
+            if (node == null) continue;
+            NoteSummary summary = new NoteSummary();
+            summary.cvid = node.optLong("cvid", 0);
+            if (summary.cvid <= 0) continue;
+            summary.title = node.optString("title", "");
+            summary.summary = node.optString("summary", "");
+            summary.pubtime = parsePubtime(node.opt("pubtime"));
+            summary.likes = node.optInt("likes", 0);
+            summary.hasLike = node.optBoolean("has_like", false);
+            JSONObject author = node.optJSONObject("author");
+            if (author != null) {
+                summary.authorName = author.optString("name", "");
+                summary.authorFace = author.optString("face", "");
+            }
+            items.add(summary);
+        }
+        return items;
+    }
+
+    /**
+     * 列表里的 {@code pubtime} 两种形态都吃：数字按秒级时间戳，字符串按北京时间解析。
+     *
+     * <p>为什么不能只 {@code optLong}：26.11.23 用 cvid 43796340 实测，服务端给的是
+     * {@code "2025-11-20 10:27"} 这种**格式化字符串**（文档写的是时间戳），
+     * {@code optLong} 遇到非数字串会静默返回 0，列表行于是只剩作者和点赞、时间整段消失。
+     *
+     * <p>解析统一按 GMT+8：时间由服务端按北京时间给出，跨时区用户看到的日期才能一致。
+     * 解析不了（空串、{@code "昨天"} 之类）一律 0，调用方据此隐去时间而不是显示 1970 年。
+     */
+    static long parsePubtime(Object raw) {
+        if (raw == null || raw == JSONObject.NULL) return 0;
+        if (raw instanceof Number) return ((Number) raw).longValue();
+        String text = String.valueOf(raw).trim();
+        if (text.isEmpty()) return 0;
+        if (text.matches("\\d+")) {
+            try {
+                return Long.parseLong(text);
+            } catch (NumberFormatException e) {
+                return 0;
+            }
+        }
+        String[] patterns = {"yyyy-MM-dd HH:mm", "yyyy-MM-dd"};
+        for (String pattern : patterns) {
+            SimpleDateFormat format = new SimpleDateFormat(pattern, Locale.US);
+            format.setTimeZone(TimeZone.getTimeZone("GMT+8"));
+            format.setLenient(false);
+            try {
+                Date date = format.parse(text);
+                if (date != null) return date.getTime() / 1000L;
+            } catch (ParseException ignored) {
+                // 换下一个格式再试
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * 分页是否还有下一页（{@code page = {total, size, num}}）。纯函数，便于单测。
+     *
+     * <p>字段缺失或取值不合理时一律返回 false：宁可少一页，也不要让列表无限往下翻。
+     */
+    public static boolean hasMore(JSONObject page) {
+        if (page == null) return false;
+        int total = page.optInt("total", 0);
+        int size = page.optInt("size", 0);
+        int num = page.optInt("num", 0);
+        if (total <= 0 || size <= 0 || num <= 0) return false;
+        return (long) num * size < total;
+    }
+
+    /**
+     * 把 delta 元素合并成详情页的渲染行。纯函数，便于单测。
+     *
+     * <p>为什么要在解析后再合并一次：Quill 把一个带样式的词拆成多个 delta 元素
+     * （{@code {"insert":"加粗","attributes":{"bold":true}}} 与 {@code {"insert":"普通"}}），
+     * 一个元素一行会渲染得支离破碎；而 {@link #parseBlocks(String)} 的语义被既有单测钉住，
+     * 所以合并放在这里做，不动 parseBlocks。
+     *
+     * <p>规则：
+     * <ul>
+     *   <li>连续的文本元素并成一段；文本里的 {@code \n} 是段落分隔（Quill 用它表示换行）；</li>
+     *   <li>列表项（{@code list=ordered/bullet}）在段首加 {@code "1. "} / {@code "• "}，
+     *       有序编号在遇到非列表段落、图片或标签时归零；</li>
+     *   <li>图片与跳转标签各自单独成行，并结束当前段落（它们后面再出现文本就是新段落）。</li>
+     * </ul>
+     */
+    public static List<NoteContentItem> buildContent(List<NoteBlock> blocks) {
+        List<NoteContentItem> items = new ArrayList<>();
+        if (blocks == null) return items;
+        NoteContentItem paragraph = null;
+        int orderedIndex = 0;
+
+        for (NoteBlock block : blocks) {
+            if (block == null) continue;
+
+            if (NoteBlock.TYPE_IMAGE.equals(block.type)) {
+                paragraph = null;
+                orderedIndex = 0;
+                String url = normalizeImageUrl(block.imageUrl);
+                if (url.isEmpty()) continue;
+                NoteContentItem item = new NoteContentItem();
+                item.type = NoteContentItem.TYPE_IMAGE;
+                item.imageUrl = url;
+                item.imageWidth = block.imageWidth;
+                items.add(item);
+                continue;
+            }
+            if (NoteBlock.TYPE_TAG.equals(block.type)) {
+                paragraph = null;
+                orderedIndex = 0;
+                NoteContentItem item = new NoteContentItem();
+                item.type = NoteContentItem.TYPE_TAG;
+                item.tagCid = block.tagCid;
+                item.tagIndex = block.tagIndex;
+                item.tagSeconds = block.tagSeconds;
+                item.tagTitle = block.tagTitle;
+                items.add(item);
+                continue;
+            }
+
+            String text = block.text == null ? "" : block.text;
+            int from = 0;
+            while (true) {
+                int newline = text.indexOf('\n', from);
+                String piece = newline < 0 ? text.substring(from) : text.substring(from, newline);
+                if (!piece.isEmpty()) {
+                    if (paragraph == null) {
+                        paragraph = new NoteContentItem();
+                        if ("ordered".equals(block.list)) {
+                            paragraph.text = (++orderedIndex) + ". ";
+                        } else if ("bullet".equals(block.list)) {
+                            orderedIndex = 0;
+                            paragraph.text = "• ";
+                        } else {
+                            orderedIndex = 0;
+                        }
+                        items.add(paragraph);
+                    }
+                    int start = paragraph.text.length();
+                    paragraph.text = paragraph.text + piece;
+                    NoteTextRun run = newRun(block, start, paragraph.text.length());
+                    if (run != null) paragraph.runs.add(run);
+                }
+                if (newline < 0) break;
+                paragraph = null;
+                from = newline + 1;
+            }
+        }
+        return items;
+    }
+
+    /** 有样式才建 {@link NoteTextRun}；没有样式返回 null，省得每个字都挂一个空对象。 */
+    private static NoteTextRun newRun(NoteBlock block, int start, int end) {
+        if (end <= start) return null;
+        boolean styled = block.bold || block.underline || block.strike
+                || !block.color.isEmpty() || !block.background.isEmpty();
+        if (!styled) return null;
+        NoteTextRun run = new NoteTextRun();
+        run.start = start;
+        run.end = end;
+        run.bold = block.bold;
+        run.underline = block.underline;
+        run.strike = block.strike;
+        run.color = block.color;
+        run.background = block.background;
+        return run;
     }
 
     /**
@@ -281,6 +503,58 @@ public class NoteApi {
         // 真机上要靠这条日志把「接口没给 content」和「content 解析不出块」区分开
         Log.d(TAG, "aid=" + aid + " note_id=" + noteId
                 + " 标题长度=" + note.title.length() + " 正文块数=" + note.blocks.size());
+        return note;
+    }
+
+    /**
+     * 取稿件下的公开笔记列表（**免登录**）。{@code pn} 从 1 开始。
+     *
+     * <p>公开笔记是逐视频开关：功能关掉的视频会返回 {@code show_public_note=false}
+     * 和一句「当前视频下公开笔记功能已关闭」，不报错，所以这里不抛异常而是把开关带回给页面。
+     */
+    public static NoteListPage getPublicNoteList(long aid, int pn, int ps)
+            throws IOException, JSONException {
+        String url = "https://api.bilibili.com/x/note/publish/list/archive"
+                + "?oid=" + aid
+                + "&oid_type=" + OID_TYPE_VIDEO
+                + "&ps=" + ps
+                + "&pn=" + pn;
+        JSONObject all = NetWorkUtil.getJson(url);
+        int code = all.optInt("code", -1);
+        if (code != 0) {
+            logFailure(TAG, url, aid, "", all, code);
+            throw new JSONException(errorText(all, code));
+        }
+        JSONObject data = all.optJSONObject("data");
+        NoteListPage page = new NoteListPage();
+        page.items = parseNoteSummaries(data);
+        page.hasMore = hasMore(data == null ? null : data.optJSONObject("page"));
+        page.showPublicNote = data == null || data.optBoolean("show_public_note", true);
+        page.message = data == null ? "" : data.optString("message", "");
+        Log.d(TAG, "aid=" + aid + " 公开笔记 pn=" + pn + " 条数=" + page.items.size()
+                + " 还有更多=" + page.hasMore + " 功能开关=" + page.showPublicNote);
+        return page;
+    }
+
+    /**
+     * 取单篇公开笔记的详情（**免登录**）。
+     *
+     * <p>{@code cvid} 是笔记自己的 id，**不是 aid**——拿笔记 id 去 {@code x/article/view}
+     * 会被判非法（实测 -400）。
+     */
+    public static Note getPublicNoteInfo(long cvid) throws IOException, JSONException {
+        String url = "https://api.bilibili.com/x/note/publish/info?cvid=" + cvid;
+        JSONObject all = NetWorkUtil.getJson(url);
+        int code = all.optInt("code", -1);
+        if (code != 0) {
+            logFailure(TAG, url, 0, "", all, code);
+            throw new JSONException(errorText(all, code));
+        }
+        Note note = parseNoteDetail(all.optJSONObject("data"));
+        if (note.cvid <= 0) note.cvid = cvid;
+        Log.d(TAG, "cvid=" + cvid + " 标题长度=" + note.title.length()
+                + " 正文块数=" + note.blocks.size()
+                + " 合并行数=" + buildContent(note.blocks).size());
         return note;
     }
 

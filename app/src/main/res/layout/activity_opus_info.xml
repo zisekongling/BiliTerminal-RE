@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    专栏 / 图文详情页专用布局（26.11.24）。
+
+    内容照抄 activity_simple_viewpager，只多一个顶栏分享按钮 btn_share：
+    那份布局被 6 个页面共用（视频、番剧、用户……），改它等于给所有页面凭空加一个按钮，
+    所以这里单独复制一份，其它页面继续用原布局、行为完全不变。
+
+    三块被一起搬过来的东西别删：viewPager 是正文 + 评论，loading 是底图，
+    text_tutorial_pager 是各个分页的教程提示——少一个页面行为就变。
+-->
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <RelativeLayout
+        android:id="@+id/top"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true">
+
+        <TextView
+            android:id="@+id/pageName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_alignParentStart="true"
+            android:layout_alignParentLeft="true"
+            android:layout_marginVertical="3dp"
+            android:layout_marginStart="8dp"
+            android:layout_toStartOf="@id/btn_share"
+            android:layout_toLeftOf="@id/btn_share"
+            android:lines="1"
+            android:text="@string/pagename_default"
+            android:textStyle="bold"
+            app:drawableStartCompat="@drawable/arrow_back" />
+
+        <!--
+            分享入口（26.11.24）：顶栏右侧、时钟左边，与设置页 btnFull 同一个位置。
+            图标用现成的 icon_share（18dp，drawable-notnight 里有亮色版），不新画图；
+            必须用 app:srcCompat，原因见 activity_live_info.xml 同位置那段注释（<vector> 不能走 android:src）；
+            padding 3dp 让可点区落到 24dp 高，卡在 topbar_height(30dp) 里，不会把顶栏撑高。
+        -->
+        <ImageView
+            android:id="@+id/btn_share"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="2dp"
+            android:layout_toStartOf="@id/timeText"
+            android:layout_toLeftOf="@id/timeText"
+            android:background="?android:attr/selectableItemBackground"
+            android:clickable="true"
+            android:contentDescription="@string/share_panel_title"
+            android:focusable="true"
+            android:paddingHorizontal="6dp"
+            android:paddingVertical="3dp"
+            app:srcCompat="@drawable/icon_share" />
+
+        <com.RobinNotBad.BiliClient.ui.widget.TextClock
+            android:id="@+id/timeText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:layout_marginVertical="3dp"
+            android:layout_alignParentRight="true"
+            android:layout_alignParentEnd="true" />
+
+    </RelativeLayout>
+
+    <com.RobinNotBad.BiliClient.ui.widget.SafeViewPager
+        android:id="@+id/viewPager"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_below="@id/top" />
+
+    <ImageView
+        android:contentDescription="@string/a11y_activityloading_01"
+        android:id="@+id/loading"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:src="@mipmap/loading_2233"
+        android:layout_below="@id/top" />
+
+    <TextView
+        android:id="@+id/text_tutorial_pager"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_below="@id/top"
+        android:visibility="gone"
+        android:background="@color/scrim"
+        android:clickable="false"
+        android:gravity="center"
+        android:text="@string/tutorial_pager" />
+
+</RelativeLayout>

@@ -519,6 +519,8 @@ object SettingsKeys {
     const val PLAYER_DEFAULT_SUBTITLE_ZH = "zh"
     /** 字幕默认值：自行选择（是否弹选择框交给 [PLAYER_SUBTITLE_AUTOSHOW]）。 */
     const val PLAYER_DEFAULT_SUBTITLE_MANUAL = "manual"
+    /** 字幕默认值：关闭（开播不加载字幕、不弹框，仍可点字幕按钮手动开）。 */
+    const val PLAYER_DEFAULT_SUBTITLE_OFF = "off"
 
     /** 屏幕方向：总是横屏。 */
     const val PLAYER_DEFAULT_ORIENTATION_LANDSCAPE = "landscape"

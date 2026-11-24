@@ -3,6 +3,7 @@ package com.RobinNotBad.BiliClient.activity.user.favorite
 import com.RobinNotBad.BiliClient.util.UiText
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.util.TypedValue
@@ -10,15 +11,18 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.RelativeLayout
 import android.widget.TextView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
+import com.RobinNotBad.BiliClient.activity.dynamic.send.SendDynamicActivity
 import com.RobinNotBad.BiliClient.adapter.video.VideoCardAdapter
 import com.RobinNotBad.BiliClient.api.FavoriteApi
 import com.RobinNotBad.BiliClient.api.PlayerApi
 import com.RobinNotBad.BiliClient.api.SubscriptionApi
 import com.RobinNotBad.BiliClient.api.VideoInfoApi
 import com.RobinNotBad.BiliClient.model.PlayerData
+import com.RobinNotBad.BiliClient.model.RepostCard
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.model.VideoInfo
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
@@ -27,19 +31,32 @@ import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.FavoriteAggregatePolicy
 import com.RobinNotBad.BiliClient.util.FavoriteBatchDownloadPolicy
 import com.RobinNotBad.BiliClient.util.FileUtil
+import com.RobinNotBad.BiliClient.util.ForwardTargets
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.ShareSheet
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.VirtualCollectionPrefs
 import com.RobinNotBad.BiliClient.util.VirtualCollectionStart
 import com.RobinNotBad.BiliClient.util.subscriptionErrorText
+import com.RobinNotBad.BiliClient.util.view.ShareTexts
 
 class FavoriteVideoListActivity : RefreshListActivity() {
 
     private var mid: Long = 0
     private var mediaId: Long = 0
     private var folderName: String = UiText.of("收藏夹")
+
+    /**
+     * 「分享至动态」卡片要的封面与创建者。
+     *
+     * <p>来源是进页面时额外取的一次 {@code x/v3/fav/folder/info}。取不到（未登录 / 接口异常 /
+     * 字段缺失）就留空：发布页对空 cover / authorName 是隐藏对应行，面板和卡片本身照常可用。
+     */
+    private var folderCover: String = ""
+    private var folderUpperName: String = ""
+    private var folderUpperMid: Long = 0
 
     /** 别人的收藏夹：不能复制/移动/删除 */
     private var readOnly: Boolean = false
@@ -134,6 +151,9 @@ class FavoriteVideoListActivity : RefreshListActivity() {
         pendingSelectMode = intent.getBooleanExtra("selectMode", false) && !aggregateMode
 
         setupManageBar()
+        // 分享入口与「分享至动态」要用的封面/作者；聚合模式（全部收藏）没有单条链接，两者都不参与
+        setupShareButton()
+        loadFolderInfo()
         if (aggregateMode) {
             loadAggregate()
         } else {
@@ -143,6 +163,99 @@ class FavoriteVideoListActivity : RefreshListActivity() {
             setOnLoadMoreListener { page -> continueLoading(page) }
             loadFirstPage()
         }
+    }
+
+    // ==================== 分享 ====================
+
+    /**
+     * 顶栏右侧「分享」入口。
+     *
+     * <p>只有「单个收藏夹 + 拿得到 media_id」时才成立：mediaId 是 medialist 外链的唯一成分，
+     * 缺了就没有任何一项分享能落地，按钮保持隐藏（不显示没有依据的入口）。
+     *
+     * <p>activity_simple_refresh 被设置页/历史/下载/关注等大量列表页共用，所以布局里 btn_share
+     * 默认 gone，由这里打开，并把 pageName 的 toStartOf / toLeftOf 从 timeText 改指向它——
+     * GONE 的锚点宽度为 0，若在 XML 里就让 pageName 指过去，别的页面标题会被拽到右边缘与时钟重叠。
+     *
+     * <p>点击与长按都在按钮上消费掉：顶栏整行挂着 setTopbarExit 的点击和「长按回菜单」，
+     * 不 return true 就会连页面一起关掉 / 被弹回主页。
+     */
+    private fun setupShareButton() {
+        if (aggregateMode || mediaId <= 0) return
+        val button = findViewById<TextView>(R.id.btn_share) ?: return
+        button.visibility = View.VISIBLE
+        button.setOnClickListener { showSharePanel() }
+        button.setOnLongClickListener { true }
+        val pageName = findViewById<View>(R.id.pageName) ?: return
+        val params = pageName.layoutParams as? RelativeLayout.LayoutParams ?: return
+        params.removeRule(RelativeLayout.START_OF)
+        params.removeRule(RelativeLayout.LEFT_OF)
+        params.addRule(RelativeLayout.START_OF, R.id.btn_share)
+        params.addRule(RelativeLayout.LEFT_OF, R.id.btn_share)
+        pageName.layoutParams = params
+    }
+
+    /**
+     * 取收藏夹详情，填「分享至动态」卡片的封面与创建者。
+     *
+     * <p>x/v3/fav/folder/info 是额外一次轻量请求，只在会显示分享入口时才发；失败只记日志，
+     * 面板照常弹，只是卡片少一行作者。回 UI 前校验页面是否已销毁。
+     */
+    private fun loadFolderInfo() {
+        if (aggregateMode || mediaId <= 0) return
+        CenterThreadPool.run {
+            try {
+                val folder = FavoriteApi.getFolderInfo(mediaId)
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    folderCover = folder?.cover ?: ""
+                    folderUpperName = folder?.upperName ?: ""
+                    folderUpperMid = folder?.upperMid ?: 0
+                }
+            } catch (e: Exception) {
+                Log.e("debug", "收藏夹详情获取失败，分享卡片留空 mediaId=" + mediaId, e)
+            }
+        }
+    }
+
+    /**
+     * 分享面板：四项，顺序固定——复制链接 / 其它app打开 / 分享收藏夹 / 分享至动态。
+     *
+     * <p>收藏夹没有私信卡片形态，所以**不调** toMessage（ShareSheet 里不调的条目就不显示，
+     * 不做灰项占位）。链接为空时整块不弹，只提示一句，避免弹出四个都打不开的项。
+     *
+     * <p>「其它app打开」「分享收藏夹」在无可用目标时由 ShareSheet 自己复制链接兜底，这里不重复实现。
+     */
+    private fun showSharePanel() {
+        val url = ShareTexts.favoriteUrl(mediaId)
+        if (url.isEmpty()) {
+            MsgUtil.showMsg(getString(R.string.msg_share_url_missing))
+            return
+        }
+        ShareSheet.panel(this)
+            .copyLink(url)
+            .openInOtherApp(url)
+            .shareText(R.string.share_favorite, ShareTexts.favoriteShareText(folderName, mediaId), url)
+            .toDynamic { shareToDynamic() }
+            .show()
+    }
+
+    /**
+     * 「分享至动态」：走本仓已有的通用卡片转发，发布由 SendDynamicActivity 的 RepostCard 分支完成。
+     *
+     * <p>收藏夹的卡片口径：dynType=4300（ForwardTargets.DYN_TYPE_FAV）、rid=mediaId（mlid）、
+     * title=收藏夹名、cover=收藏夹封面、authorName/authorMid=创建者（没有就不填，发布页会隐藏作者行）。
+     *
+     * <p>发布页成功后 setResult(RESULT_FIRST_USER, ..., repost_dyn_id)，**刻意不是 RESULT_OK**
+     * （那会被调用方当成「拿返回文本再发一条普通动态」），因此本页不接结果、也不需要 launcher。
+     */
+    private fun shareToDynamic() {
+        val card = RepostCard(ForwardTargets.DYN_TYPE_FAV, mediaId, folderName)
+        card.cover = folderCover
+        card.authorName = folderUpperName
+        card.authorMid = folderUpperMid
+        TerminalContext.getInstance().setForwardContent(card)
+        startActivity(Intent(this, SendDynamicActivity::class.java))
     }
 
     // ==================== 订阅（只读收藏夹） ====================

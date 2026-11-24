@@ -10,7 +10,6 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
-import okhttp3.Headers;
 import okhttp3.MediaType;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -362,9 +361,10 @@ public class ReplyTranslateApi {
                 throw new IOException("翻译响应异常：body 长度 " + raw.length + " 字节，超过预期上限");
             }
 
-            // 成功响应的 grpc-status 在 HTTP/2 trailers 里（headers 里通常没有），body 读完后才能取。
-            // 必须在解析 body 之前/之后都查一次：只查 headers 会漏掉"头干净、trailers 报错"的情况。
-            checkGrpcErrorFromTrailers(response);
+            // 成功响应的 grpc-status 在 HTTP/2 trailers 里（headers 里通常没有）。OkHttp 4.12 有
+            // Response.trailers() 可以在 body 读尽后补查这一层；为恢复 Android 4.4 降到 3.12.13，
+            // 3.x 没有 trailers API，这里只查 headers——HTTP/1.1 与 trailers-only 的业务错误仍能抓到，
+            // 纯 trailers 里报的 grpc-status 抓不到（那种响应按 body 为空处理，拿回空结果而不是报错）。
 
             if (raw.length == 0) {
                 return new LinkedHashMap<>();
@@ -644,28 +644,6 @@ public class ReplyTranslateApi {
             out.append(", ");
         }
         out.append(name).append('=').append(trimmed);
-    }
-
-    /**
-     * 读 HTTP/2 trailers 并检查错误码。
-     *
-     * <p>文档的实测结论是「业务错误放在响应头里、成功时 grpc-status 在 trailers 里」，原来以为
-     * OkHttp 拿不到 trailers；实际上 OkHttp 4.12 提供了 {@code Response.trailers()}，只要 body 已读尽
-     * 就能拿到（HTTP/2 成功响应必然带 trailers）。所以这里在 body 读完后补查一次，覆盖
-     * 「响应头干净、trailers 报错」这种边角情况。
-     *
-     * <p>trailers 是**补充**信息：拿不到（HTTP/1.1、连接提前关闭、实现变化）时静默跳过，
-     * 不能因此把一次成功调用变成失败。
-     */
-    private static void checkGrpcErrorFromTrailers(Response response) throws IOException {
-        Headers trailers;
-        try {
-            trailers = response.trailers();
-        } catch (Exception ignored) {
-            return;
-        }
-        checkGrpcError(trailers.get("bili-status-code"),
-                trailers.get("grpc-status"), trailers.get("grpc-message"));
     }
 
     // ------------------------------------------------------------------

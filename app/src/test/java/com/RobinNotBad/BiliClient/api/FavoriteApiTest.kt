@@ -284,6 +284,40 @@ class FavoriteApiTest {
         }
     }
 
+    /**
+     * upper 只在 folder/info 里下发（bilibili-API/docs/fav/info.md:53-62），
+     * 收藏夹详情页「分享至动态」用它的 name/mid 填卡片作者行。
+     */
+    @Test
+    fun parseFolderInfo_upper_解析作者() {
+        val json = JSONObject(
+            """{"code":0,"message":"0","data":{
+                "id":1052622027,"fid":10526220,"mid":7792521,
+                "attr":54,"title":"猛 男 生 存","cover":"http://i0.hdslb.com/bfs/xxx.jpg",
+                "media_count":28,
+                "upper":{"mid":686127,"name":"籽岷","face":"http://i0.hdslb.com/bfs/face/xxx.jpg"}
+            }}"""
+        )
+
+        val folder = FavoriteApi.parseFolderInfo(json)
+
+        assertEquals("upper.name 是 UP 主昵称", "籽岷", folder.upperName)
+        assertEquals("upper.mid 是 UP 主 mid", 686127L, folder.upperMid)
+    }
+
+    @Test
+    fun parseFolderInfo_upperMissing_留空不抛() {
+        // 他人收藏夹 / 旧接口可能没有 upper，分享面板要能照常打开，只是卡片少一行作者
+        val json = JSONObject(
+            """{"code":0,"message":"0","data":{"id":9,"fid":1,"attr":0,"title":"默认收藏夹"}}"""
+        )
+
+        val folder = FavoriteApi.parseFolderInfo(json)
+
+        assertEquals("upper 缺失时昵称兜底空串", "", folder.upperName)
+        assertEquals("upper 缺失时 mid 兜底 0", 0L, folder.upperMid)
+    }
+
     /** bit0 语义与 isDefaultFolder 的 bit1 分开校验，防止有人把两个位混用 */
     @Test
     fun isPrivateFolder_checksAttrBit0() {

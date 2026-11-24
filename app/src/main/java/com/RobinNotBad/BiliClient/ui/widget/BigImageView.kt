@@ -187,6 +187,15 @@ class BigImageView @JvmOverloads constructor(
     /** 最终显示倍率 = 适配倍率 × 相对倍率。 */
     private val renderScale: Float get() = baseScale * level
 
+    /**
+     * 这张图实际能放到的最大相对倍率。
+     *
+     * 反馈 #270：「超长图只能放大一点点」——倍率相对整图适配算，超长图 baseScale 很小，
+     * 固定 6.25 倍到不了 1:1。这里交给纯函数按 baseScale 放宽（见
+     * [ImageViewerZoomPolicy.maxLevelFor]），短片 / 普通图仍是 6.25。
+     */
+    private val maxLevel: Float get() = ImageViewerZoomPolicy.maxLevelFor(baseScale)
+
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent): Boolean = true
 
@@ -264,7 +273,7 @@ class BigImageView @JvmOverloads constructor(
             level,
             ImageViewerZoomPolicy.DEFAULT_MIN_SCALE,
             ImageViewerZoomPolicy.DEFAULT_MID_SCALE,
-            ImageViewerZoomPolicy.DEFAULT_MAX_SCALE
+            maxLevel
         )
         return animateLevelTo(target, x, y)
     }
@@ -332,14 +341,14 @@ class BigImageView @JvmOverloads constructor(
 
     /**
      * 把相对倍率改到 `newLevel`，并保持 `(pivotX, pivotY)` 下面那个源像素不动。
-     * 倍率被夹在 `[ImageViewerZoomPolicy.DEFAULT_MIN_SCALE]`～
-     * `[ImageViewerZoomPolicy.DEFAULT_MAX_SCALE]` 之间；变化极小时不动，避免缩放检测抖动。
+     * 倍率被夹在 `[ImageViewerZoomPolicy.DEFAULT_MIN_SCALE]`～[maxLevel] 之间（长图的上限
+     * 按 baseScale 放宽到至少 1:1，见 [ImageViewerZoomPolicy.maxLevelFor]）；变化极小时不动，避免缩放检测抖动。
      */
     private fun applyLevel(newLevel: Float, pivotX: Float, pivotY: Float) {
         if (!hasImageFlag) return
         val clamped = newLevel.coerceIn(
             ImageViewerZoomPolicy.DEFAULT_MIN_SCALE,
-            ImageViewerZoomPolicy.DEFAULT_MAX_SCALE
+            maxLevel
         )
         val oldScale = renderScale
         if (oldScale <= 0f || oldScale.isNaN()) return
@@ -361,7 +370,7 @@ class BigImageView @JvmOverloads constructor(
         val from = level
         val to = targetLevel.coerceIn(
             ImageViewerZoomPolicy.DEFAULT_MIN_SCALE,
-            ImageViewerZoomPolicy.DEFAULT_MAX_SCALE
+            maxLevel
         )
         if (abs(to - from) < 0.01f) return false
         animator?.cancel()

@@ -6,10 +6,12 @@ import org.json.JSONException
 /**
  * 搜索历史的唯一读写入口（26.11.21 反馈：希望能关掉搜索历史）。
  *
- * 开关是 [SettingsKeys.SEARCH_HISTORY_ENABLE]，默认开、保持老用户行为。关掉之后：
- * 1. 已有记录立刻清空（用户口径：关了就不留）；
- * 2. 之后不再写入（[save] 在关闭时只清空、不落盘）；
- * 3. 搜索页的历史浮层不再显示。
+ * 开关是 [SettingsKeys.SEARCH_HISTORY_ENABLE]，默认开、保持老用户行为。**26.11.23 起改为只影响显示**
+ * （用户口径：关掉仅隐藏，该记录的还是记录）：
+ * 1. 关掉只是搜索页不显示历史区（判断在 `SearchActivity.showHistoryDropdown()`），记录照常写入；
+ * 2. [read] / [save] 不再看开关——早先「关闭即清空已有记录、之后不再写入」的做法已经撤掉，
+ *    关掉期间的搜索也会进历史，重新打开开关就原样回来；
+ * 3. 想真删记录只有一条路：搜索页的「清空」（[clear]）。
  *
  * 存储格式沿用原来的 JSON 数组字符串，键仍是 [SharedPreferencesUtil.search_history]——
  * 换存储格式会让老用户的记录凭空消失，没有这个必要。
@@ -22,9 +24,8 @@ object SearchHistoryStore {
     fun isEnabled(): Boolean =
         SharedPreferencesUtil.getBoolean(SettingsKeys.SEARCH_HISTORY_ENABLE, true)
 
-    /** 读历史。开关关着或存档损坏都返回空表（历史区因此不显示）。 */
+    /** 读历史。与开关无关：开关只管显示，记录本身就是记录；存档损坏时返回空表。 */
     fun read(): ArrayList<String> {
-        if (!isEnabled()) return ArrayList()
         return try {
             JsonUtil.jsonToArrayList(
                 JSONArray(SharedPreferencesUtil.getString(SharedPreferencesUtil.search_history, EMPTY)),
@@ -39,13 +40,9 @@ object SearchHistoryStore {
     /**
      * 落盘。[history] 是内存里的当前列表。
      *
-     * 开关关着时改成清空：调用方不必各自判一次开关，也就不会出现「某处漏判把记录又写回去」。
+     * 同样与开关无关：开关关着也照常写，否则「关了再开」会丢掉这段时间的记录。
      */
     fun save(history: List<String>) {
-        if (!isEnabled()) {
-            clear()
-            return
-        }
         try {
             SharedPreferencesUtil.putString(SharedPreferencesUtil.search_history, JSONArray(history).toString())
         } catch (e: JSONException) {
@@ -53,7 +50,7 @@ object SearchHistoryStore {
         }
     }
 
-    /** 清空本地记录（关闭开关时也走这里）。 */
+    /** 清空本地记录（搜索页「清空」与二次确认走这里）。 */
     fun clear() {
         SharedPreferencesUtil.putString(SharedPreferencesUtil.search_history, EMPTY)
     }

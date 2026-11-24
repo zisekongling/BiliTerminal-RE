@@ -26,6 +26,26 @@
             android:textStyle="bold"
             app:drawableStartCompat="@drawable/arrow_back" />
 
+        <!-- 26.11.23：顶栏右侧「分享」入口。**默认 gone**——activity_simple_refresh 被设置页/历史/
+             下载/关注等大量列表页共用，只有收藏夹详情页在代码里打开它（并同步把 pageName 的
+             toStartOf/toLeftOf 改指向本按钮）。若在 XML 里就让 pageName 指过来，别的页面按钮是 GONE、
+             锚点宽度为 0，标题会被拉到时钟底下。 -->
+        <TextView
+            android:id="@+id/btn_share"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerVertical="true"
+            android:layout_toStartOf="@id/timeText"
+            android:layout_toLeftOf="@id/timeText"
+            android:layout_marginEnd="4dp"
+            android:background="?android:attr/selectableItemBackground"
+            android:paddingHorizontal="6dp"
+            android:paddingVertical="3dp"
+            android:text="@string/share_entry"
+            android:textSize="12sp"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
         <com.RobinNotBad.BiliClient.ui.widget.TextClock
             android:id="@+id/timeText"
             android:layout_width="wrap_content"
@@ -181,10 +201,10 @@
 
         <!-- 多选条：同样默认隐藏，只有收藏夹内容页在能写（自己的收藏夹 + 有 media_id）时才点亮。
              「多选」进出多选模式，「删除(n)」把选中的条目一次从收藏夹里移除。
-             行高与字号跟上面的筛选 / 排序条对齐（segmented_bar_min / text_body）：
-             这三格以前用 touch_min（48dp）+ 13sp，比同页其它横条高出一截，一进多选态整条
-             突然顶上来很挡视线（26.11.18 反馈 #265）。窄格里文字还会换行把条再撑高一倍，
-             所以钉死 maxLines=1 + ellipsize。 -->
+             行高与字号走 action_bar_* 这组专用 dimen（默认 34dp / 11sp，宽度 ≥200dp 时
+             48dp / 13sp）——这三格以前硬写 touch_min（48dp）+ 13sp，小屏手表上一进多选态
+             整条突然顶上来很挡视线（反馈 #265）。另外钉死 maxLines=1 + ellipsize：
+             窄格里文字一换行会把条再撑高一倍。 -->
         <LinearLayout
             android:id="@+id/manageBar"
             android:layout_width="match_parent"
@@ -201,13 +221,13 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
-                android:minHeight="@dimen/segmented_bar_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:background="?attr/selectableItemBackground"
                 android:maxLines="1"
                 android:ellipsize="end"
                 android:text="@string/uitext_favoritevideolistactivity_009"
-                android:textSize="@dimen/text_body"
+                android:textSize="@dimen/action_bar_text"
                 android:textColor="?android:attr/textColorSecondary" />
 
             <!-- 「全选(n/n)」（26.11.11，反馈 #94）：只有下载列表页会点亮它（其它页面 findViewById
@@ -218,13 +238,13 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
-                android:minHeight="@dimen/segmented_bar_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:background="?attr/selectableItemBackground"
                 android:maxLines="1"
                 android:ellipsize="end"
                 android:text="@string/btn_select_all"
-                android:textSize="@dimen/text_body"
+                android:textSize="@dimen/action_bar_text"
                 android:textColor="?android:attr/textColorSecondary"
                 android:visibility="gone"
                 tools:visibility="visible" />
@@ -235,13 +255,13 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
-                android:minHeight="@dimen/segmented_bar_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:background="?attr/selectableItemBackground"
                 android:maxLines="1"
                 android:ellipsize="end"
                 android:text="@string/settingtext_accountswitchactivity_003"
-                android:textSize="@dimen/text_body"
+                android:textSize="@dimen/action_bar_text"
                 android:textColor="?android:attr/textColorSecondary" />
 
         </LinearLayout>
@@ -263,11 +283,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:background="?attr/selectableItemBackground"
                 android:text="@string/text_activitysimplerefresh_01"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:textColor="?android:attr/textColorSecondary" />
 
         </LinearLayout>
@@ -289,11 +309,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center"
-                android:minHeight="@dimen/touch_min"
-                android:paddingVertical="4dp"
+                android:minHeight="@dimen/action_bar_min_height"
+                android:paddingVertical="@dimen/action_bar_padding_v"
                 android:background="?attr/selectableItemBackground"
                 android:text="@string/text_sub_toggle_subscribe"
-                android:textSize="13sp"
+                android:textSize="@dimen/action_bar_text"
                 android:textColor="?android:attr/textColorSecondary" />
 
         </LinearLayout>

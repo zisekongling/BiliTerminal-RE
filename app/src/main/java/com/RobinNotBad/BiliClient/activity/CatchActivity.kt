@@ -12,6 +12,7 @@ import android.text.Spanned
 import android.text.style.StyleSpan
 import android.widget.CheckBox
 import android.widget.TextView
+import com.RobinNotBad.BiliClient.BuildConfig
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.api.AppInfoApi
@@ -21,6 +22,7 @@ import com.RobinNotBad.BiliClient.service.DownloadService
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 import com.RobinNotBad.BiliClient.util.CrashReporter
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.PublicLogRecorder
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.google.android.material.button.MaterialButton
@@ -70,6 +72,22 @@ class CatchActivity : BaseActivity() {
         // 取好、经 Intent extra 带过来。**这里不能再调 Logu.ringSnapshot()**——崩溃页跑在
         // :error_activity 独立进程，那边的 Logu 内存缓冲是空的，直接调只会拿到空串。
         val ringLog = intent.getStringExtra("ring_log")
+
+        // 诊断包：把崩溃现场直接追加到 Download/rebili-full.log。
+        // 主进程已经被 killProcess，只有这里还能把堆栈、页面轨迹、崩溃前的环形日志落到同一个文件里；
+        // 先落盘再走后面的上报流程，避免用户点「退出」把现场带走。
+        if (BuildConfig.DEBUG && BuildConfig.DIAG_FULL_LOG) {
+            val body = buildString {
+                append("异常: ").append(exception).append('\n')
+                append("消息: ").append(message).append('\n')
+                append("线程: ").append(crashThread).append('\n')
+                append("运行时长: ").append(uptime).append("ms\n")
+                append("--- 页面轨迹 ---\n").append(trail.orEmpty()).append('\n')
+                append("--- 内存环形日志（W/E/F）---\n").append(ringLog.orEmpty()).append('\n')
+                append("--- 堆栈 ---\n").append(stack.orEmpty())
+            }.take(200_000)
+            PublicLogRecorder.appendCrash(applicationContext, "CRASH", body)
+        }
 
         val attachLogBox = findViewById<CheckBox>(R.id.attach_ring_log)
         if (ringLog.isNullOrEmpty()) {

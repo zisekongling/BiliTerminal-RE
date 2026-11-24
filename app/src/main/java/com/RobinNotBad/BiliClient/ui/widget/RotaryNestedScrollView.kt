@@ -31,6 +31,16 @@ class RotaryNestedScrollView @JvmOverloads constructor(
 ) : NestedScrollView(context, attrs, defStyleAttr) {
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        // 26.11.23 修反馈 #279（同一台 OPPO：设置页能滚、视频详情-简介整页转不动）：
+        // 兼容模式把滚轮源整段让给框架，可本容器的框架实现（androidx NestedScrollView）只读
+        // AXIS_SCROLL，把表冠报成滚轮的 ROM 把量放在 AXIS_VSCROLL 上——交过去等于交给一个不处理的人。
+        // 判据与「为什么不会与框架叠加」见 [RotaryEncoderSupport.handleCompatWheelFallback]；
+        // 不在兼容模式、或框架这次真的会处理时它返回 false，下面两条老路径一点不变。
+        if (RotaryEncoderSupport.handleCompatWheelFallback(
+                this, event,
+                RotaryEncoderSupport.sensitivityOf(SettingsKeys.UI_ROTATORY_SCROLL)
+            ) { smoothScrollBy(0, it) }
+        ) return true
         if (RotaryEncoderSupport.isSystemFirstMode()) {
             return RotaryEncoderSupport.handleSystemFirst(
                 this, event,

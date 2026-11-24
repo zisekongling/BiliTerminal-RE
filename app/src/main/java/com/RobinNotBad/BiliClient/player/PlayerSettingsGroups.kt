@@ -253,9 +253,14 @@ object PlayerSettingsGroups {
             SettingsKeys.PLAYER_DEFAULT_SUBTITLE_MANUAL,
             listOf(
                 context.getString(R.string.setting_player_option_subtitle_zh),
-                context.getString(R.string.setting_player_option_subtitle_manual)
+                context.getString(R.string.setting_player_option_subtitle_manual),
+                context.getString(R.string.setting_player_option_subtitle_off)
             ),
-            listOf(SettingsKeys.PLAYER_DEFAULT_SUBTITLE_ZH, SettingsKeys.PLAYER_DEFAULT_SUBTITLE_MANUAL)),
+            listOf(
+                SettingsKeys.PLAYER_DEFAULT_SUBTITLE_ZH,
+                SettingsKeys.PLAYER_DEFAULT_SUBTITLE_MANUAL,
+                SettingsKeys.PLAYER_DEFAULT_SUBTITLE_OFF
+            )),
         listChoose(context.getString(R.string.setting_player_default_orientation),
             SettingsKeys.PLAYER_DEFAULT_ORIENTATION,
             context.getString(R.string.desc_setting_player_default_orientation),

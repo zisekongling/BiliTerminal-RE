@@ -44,7 +44,7 @@ object ServerTimeApi {
     fun fetchServerMillis(): Long? {
         return try {
             client.newCall(Request.Builder().url(URL).get().build()).execute().use { resp ->
-                val body = resp.body?.string() ?: return null
+                val body = resp.body()?.string() ?: return null
                 parseNowMillis(JSONObject(body))
             }
         } catch (e: Exception) {

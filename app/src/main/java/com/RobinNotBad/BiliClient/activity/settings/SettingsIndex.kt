@@ -579,7 +579,12 @@ object SettingsIndex {
             text(R.string.settingtext_settingprefactivity_026),
             text(R.string.settingtext_settingprefactivity_027),
             // 「私信拦截提示」（26.11.15 补收录）：在「更新提醒」段里，此前漏收。
-            text(R.string.settingtext_settingprefactivity_033)
+            text(R.string.settingtext_settingprefactivity_033),
+            // 「搜索历史」「表冠兼容模式」（26.11.23 补收录）：这两行的名字是直接写死的中文、
+            // 没有对应的 settingtext_* 资源，按资源名逐条收录时漏掉了——设置首页搜「搜索历史」
+            // 一条都不命中，用户只能靠「内容与浏览 → 通用偏好」一层层点进去。
+            "搜索历史",
+            "表冠兼容模式"
         ))
         // 「通知设置」分组的叶子项：全局搜索要能找到这两个开关。
         // 跳转目标是 SettingGroupActivity（分组页），靠 highlight 按项名滚动定位——

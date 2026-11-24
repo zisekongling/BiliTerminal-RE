@@ -16,7 +16,6 @@ import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.activity.result.ActivityResultLauncher
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.R
@@ -24,6 +23,7 @@ import com.RobinNotBad.BiliClient.api.ApiErrorText
 import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.activity.dynamic.send.SendDynamicActivity
+import com.RobinNotBad.BiliClient.activity.message.ChooseFriendActivity
 import com.RobinNotBad.BiliClient.adapter.article.ArticleCardHolder
 import com.RobinNotBad.BiliClient.adapter.video.VideoCardHolder
 import com.RobinNotBad.BiliClient.api.DynamicApi
@@ -40,10 +40,12 @@ import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.LongPressPrefs
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.ShareSheet
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
+import com.RobinNotBad.BiliClient.util.view.ShareTexts
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.DecodeFormat
 import com.bumptech.glide.load.engine.DiskCacheStrategy
@@ -69,7 +71,7 @@ private data class ManageAction(
 )
 
 /** 动态管理菜单的动作种类；只用于判定身份，不要拿来当显示文案。 */
-private enum class ManageActionKind { COPY, EDIT, TOP, DELETE }
+private enum class ManageActionKind { COPY, SHARE, EDIT, TOP, DELETE }
 
 class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Boolean) :
     RecyclerView.ViewHolder(itemView) {
@@ -247,6 +249,8 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
          * 这一条动态能做哪些事。复制项只受 `copy_enable` 约束，与
          * `long_press_panel_enable`（决定长按走面板还是走复制）无关。
          *
+         * <p>「分享」固定给（只要拼得出 opus 链接），点开是五项分享面板，见 [showSharePanel]。
+         *
          * <p>其余项只在服务端下发的三点菜单允许时才给出：`canEdit` 对应 THREE_POINT_EDIT、
          * `canDelete` 对应 THREE_POINT_DELETE，两个开关是独立的，不能互相顶替。
          * 「置顶 / 取消置顶」只对自己的动态有意义，而「自己的动态」在客户端能拿到的唯一可靠信号
@@ -272,6 +276,17 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
                     ManageAction(ManageActionKind.COPY, UiText.of("复制文字"), false) {
                         StringUtil.openCopyPage(activity, content)
                     }
+                )
+            }
+            // 「分享」不看服务端下发的三点菜单：分享谁都拦不住，只要这条动态拼得出链接就给。
+            // 拼不出（id_str 缺失时 dynamicId 是 0）就整项不显示，不做一个点了没反应的占位项。
+            if (ShareTexts.dynamicUrl(dynamic.dynamicId).isNotEmpty()) {
+                actions.add(
+                    ManageAction(
+                        ManageActionKind.SHARE,
+                        activity.getString(R.string.share_panel_title),
+                        false
+                    ) { showSharePanel(activity, dynamic) }
                 )
             }
             if (dynamic.canEdit) {
@@ -314,6 +329,73 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
                 items = actions.map { it.text },
                 danger = actions.indices.filter { actions[it].danger }.toSet()
             ) { which -> actions[which].action() }.show()
+        }
+
+        /**
+         * 转发动态到「发动态」页。
+         *
+         * <p>右下角的转发图标与长按管理菜单里的「分享 → 分享至动态」共用这一段：
+         * 组装 extras、把动态塞进 [TerminalContext] 的转发槽、起 [SendDynamicActivity] 的顺序
+         * 不能两边各写一份——哪天接口要加字段，改一处漏一处就是静默少参数。
+         */
+        @JvmStatic
+        fun relayToDynamic(activity: BaseActivity, dynamic: Dynamic) {
+            val intent = Intent(activity, SendDynamicActivity::class.java)
+            intent.putExtra("dynamicId", dynamic.dynamicId)
+            // 转发自动引用所需的信息：SendDynamicActivity 完成时会把启动时的 extras 原样回传，
+            // 由 DynamicActivity.getRelayDynamicLauncher 取出并拼成 //@原作者:原内容
+            dynamic.userInfo?.let {
+                intent.putExtra("forwardAuthorName", it.name)
+                intent.putExtra("forwardAuthorMid", it.mid)
+            }
+            dynamic.content?.let { intent.putExtra("forwardContentText", it.toString()) }
+            TerminalContext.getInstance().setForwardContent(dynamic)
+            activity.relayDynamicLauncher.launch(intent)
+        }
+
+        /**
+         * 动态卡片的分享面板（长按管理菜单里的「分享」）。
+         *
+         * <p>五项、顺序固定，与视频等页面的面板同源（[ShareSheet]）：
+         * 复制链接 / 其它app打开 / 分享动态 / 分享至动态 / 分享至消息。
+         * 「分享至动态」就是右下角转发图标那个动作（[relayToDynamic]），不另写一套发布逻辑。
+         *
+         * <p>链接拼不出来时只提示、不开面板：`dynamicId` 为 0 的动态（被删/被屏蔽，
+         * 接口没有 `id_str`）分享出去就是一条死链。菜单那边同样不会给出这一项。
+         */
+        @JvmStatic
+        fun showSharePanel(activity: BaseActivity, dynamic: Dynamic) {
+            val url = ShareTexts.dynamicUrl(dynamic.dynamicId)
+            if (url.isEmpty()) {
+                MsgUtil.showMsg(activity.getString(R.string.msg_share_url_missing))
+                return
+            }
+            val content = dynamic.content?.toString()
+            ShareSheet.panel(activity)
+                .copyLink(url)
+                .openInOtherApp(url)
+                .shareText(
+                    R.string.share_dynamic,
+                    ShareTexts.dynamicShareText(dynamic.title, content, dynamic.dynamicId),
+                    url
+                )
+                .toDynamic { relayToDynamic(activity, dynamic) }
+                .toMessage { pickFriendForShare(activity, dynamic, url) }
+                .show()
+        }
+
+        /**
+         * 「分享至消息」：先选好友，选完由宿主的 [BaseActivity.shareFriendLauncher] 回传 uid，再发文本私信。
+         *
+         * <p>标题与链接在**发起时就**算好并闭进回调：选好友要切页面，回来时列表可能已经刷新过，
+         * 这条动态的 `Dynamic` 对象未必还是刚点开的那一条。
+         */
+        private fun pickFriendForShare(activity: BaseActivity, dynamic: Dynamic, url: String) {
+            val head = ShareTexts.dynamicShareHead(dynamic.title, dynamic.content?.toString())
+            activity.pendingShareToFriend = { uid, name ->
+                ShareSheet.sendLinkToFriend(activity, uid, name, head, url)
+            }
+            activity.shareFriendLauncher.launch(Intent(activity, ChooseFriendActivity::class.java))
         }
 
         private fun launchEdit(activity: BaseActivity, dynamic: Dynamic, onEdited: ((String) -> Unit)?) {
@@ -406,7 +488,6 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
     /** 卡片操作栏的「评论」入口（只有父卡片有：子转发卡片 `cell_dynamic_child` 没有操作栏）。 */
     var item_dynamic_comment: TextView? = null
     lateinit var cell_dynamic_child: View
-    var relayDynamicLauncher: ActivityResultLauncher<Intent>? = null
     var childDynamicHolder: DynamicHolder? = null
 
     /**
@@ -514,7 +595,6 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
             likeCount = itemView.findViewById(R.id.likes)
             item_dynamic_delete = itemView.findViewById(R.id.item_dynamic_delete)
             item_dynamic_comment = itemView.findViewById(R.id.item_dynamic_comment)
-            relayDynamicLauncher = mActivity.relayDynamicLauncher
             this.cell_dynamic_child = extraCard.findViewById(R.id.dynamic_child)
             this.cell_dynamic_video = extraCard.findViewById(R.id.dynamic_video_extra)
             this.cell_dynamic_article = extraCard.findViewById(R.id.dynamic_article_extra)
@@ -919,23 +999,8 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
         }
         content.ellipsize = TextUtils.TruncateAt.END
 
-        val onRelayClick = View.OnClickListener {
-            if (relayDynamicLauncher == null) {
-                return@OnClickListener
-            }
-            val intent = Intent()
-            intent.setClass(mActivity, SendDynamicActivity::class.java)
-            intent.putExtra("dynamicId", dynamic.dynamicId)
-            // 转发自动引用所需的信息：SendDynamicActivity 完成时会把启动时的 extras 原样回传，
-            // 由 DynamicActivity.getRelayDynamicLauncher 取出并拼成 //@原作者:原内容
-            if (dynamic.userInfo != null) {
-                intent.putExtra("forwardAuthorName", dynamic.userInfo.name)
-                intent.putExtra("forwardAuthorMid", dynamic.userInfo.mid)
-            }
-            if (dynamic.content != null) intent.putExtra("forwardContentText", dynamic.content.toString())
-            TerminalContext.getInstance().setForwardContent(dynamic)
-            relayDynamicLauncher!!.launch(intent)
-        }
+        // 转发图标与长按菜单里的「分享至动态」是同一个动作，组装 intent 的部分见 [relayToDynamic]
+        val onRelayClick = View.OnClickListener { relayToDynamic(mActivity, dynamic) }
         if (item_dynamic_share != null && clickable)
             item_dynamic_share!!.setOnClickListener(onRelayClick)
 

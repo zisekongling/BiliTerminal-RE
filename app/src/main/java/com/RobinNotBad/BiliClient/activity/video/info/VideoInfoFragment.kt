@@ -2,7 +2,9 @@ package com.RobinNotBad.BiliClient.activity.video.info
 
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.ui.appearance.ThemeTint
+import com.RobinNotBad.BiliClient.util.ShareSheet
 import com.RobinNotBad.BiliClient.util.UiText
+import com.RobinNotBad.BiliClient.util.view.ShareTexts
 
 import android.annotation.SuppressLint
 import android.app.Activity
@@ -200,36 +202,15 @@ class VideoInfoFragment : BaseFragment() {
      */
     private fun sendVideoToFriend(uid: Long, name: String) {
         val info = videoInfo ?: return
-        CenterThreadPool.run {
-            try {
-                val result = PrivateMsgApi.sendMsg(
-                    SharedPreferencesUtil.getLong(SharedPreferencesUtil.mid, 114514),
-                    uid,
-                    PrivateMessage.TYPE_TEXT,
-                    System.currentTimeMillis() / 1000,
-                    PrivateMsgApi.buildTextContent(
-                        PrivateMsgApi.buildVideoShareText(info.title, info.bvid)
-                    )
-                )
-                CenterThreadPool.runOnUiThread {
-                    if (result.optInt("code", -1) == 0) {
-                        MsgUtil.showMsg(UiText.of(getString(R.string.msg_video_relay_to_friend_success, name)))
-                    } else {
-                        copyVideoLinkAndHint(info.bvid)
-                    }
-                }
-            } catch (e: Exception) {
-                CenterThreadPool.runOnUiThread { copyVideoLinkAndHint(info.bvid) }
-                MsgUtil.err(e)
-            }
-        }
-    }
-
-    /** 发送失败的回退：复制视频链接 + 提示（链接拼不出来就只提示）。 */
-    private fun copyVideoLinkAndHint(bvid: String?) {
-        val link = PrivateMsgApi.buildVideoLink(bvid)
-        if (link.isNotEmpty()) StringUtil.copyText(requireContext(), link)
-        MsgUtil.showMsg(UiText.of(getString(R.string.msg_video_relay_to_friend_failed_copied)))
+        // 26.11.23：私信正文与失败兜底统一交给 ShareSheet，其它页面的「分享至消息」也走同一条路，
+        // 免得每个页面各抄一遍「失败就复制链接」的兜底逻辑。
+        ShareSheet.sendLinkToFriend(
+            requireContext(),
+            uid,
+            name,
+            info.title,
+            ShareTexts.videoUrl(info.bvid)
+        )
     }
 
     private val notificationPermissionLauncher = registerForActivityResult(
@@ -706,20 +687,21 @@ class VideoInfoFragment : BaseFragment() {
         }
 
         relay.setOnClickListener {
-            // 反馈 #133：转发有两个去处，先问一句再办事（原先点一下直接进动态发送页）
-            // 26.11.15：`TerminalDialog.menu` 只负责搭好弹窗，**显示要调用方自己 show()**
-            // （其它 20 多处调用点都是 `}.show()`）。这里当初漏了，`create()` 出来的对话框
-            // 一直没 attach 到窗口，于是「点转发什么都不发生」，看着就是按钮点不动。
-            TerminalDialog.menu(
-                requireContext(),
-                title = getString(R.string.text_video_relay_title),
-                items = listOf(
-                    getString(R.string.text_video_relay_to_dynamic),
-                    getString(R.string.text_video_relay_to_friend)
-                )
-            ) { index ->
-                if (index == 0) relayToDynamic() else relayToFriend()
-            }.show()
+            // 26.11.23：转发面板对齐 PiliPlus 视频页的五项
+            // （复制链接 / 其它app打开 / 分享视频 / 分享至动态 / 分享至消息）。
+            // 条目顺序由 [ShareSheet.Panel] 的链式调用顺序决定，别打乱。
+            // 26.11.15 的教训仍在：TerminalDialog.menu 只搭弹窗、显示要自己 show()，
+            // ShareSheet.Panel.show() 已经代做了，这里不要再套一层。
+            val info = videoInfo ?: return@setOnClickListener
+            val url = ShareTexts.videoUrl(info.bvid)
+            val upName = info.staff?.firstOrNull()?.name
+            ShareSheet.panel(requireContext())
+                .copyLink(url)
+                .openInOtherApp(url)
+                .shareText(R.string.share_video, ShareTexts.videoShareText(info.title, info.bvid, upName), url)
+                .toDynamic { relayToDynamic() }
+                .toMessage { relayToFriend() }
+                .show()
         }
         relay.setOnLongClickListener {
             StringUtil.copyText(requireContext(), "https://www.bilibili.com/" + videoInfo!!.bvid)
@@ -757,7 +739,8 @@ class VideoInfoFragment : BaseFragment() {
         }
 
         note.setOnClickListener {
-            // 私有笔记要 SESSDATA，未登录时按钮已经隐藏（见下面那段 visibility）
+            // 笔记页的主体是**公开笔记列表**（免登录可看），未登录也能进；
+            // 「我的笔记」那一行由笔记页自己按登录态决定显不显示。
             startActivity(
                 Intent(requireContext(), NoteActivity::class.java)
                     .putExtra("aid", videoInfo!!.aid)
@@ -785,13 +768,11 @@ class VideoInfoFragment : BaseFragment() {
             addWatchlater.visibility = View.GONE
             relay.visibility = View.GONE
             videoSummary.visibility = View.GONE
-            note.visibility = View.GONE
-        } else if (!DetailEntryPrefs.isNoteEntryEnabled()) {
-            // 26.11.07：登录态下也默认不显示「笔记」——用户要求把这个入口藏起来，
-            // 想用就在「设置 → 内容与浏览 → 详情页设置」里打开（默认关）。
-            // 点击监听与 NoteActivity 都还在，只是没有入口。
-            note.visibility = View.GONE
         }
+
+        // 「笔记」只看设置开关，不再跟登录态挂钩：26.11.23 起笔记页的主体是
+        // 免登录可看的公开笔记列表，未登录只是没有「我的笔记」那一行。
+        if (!DetailEntryPrefs.isNoteEntryEnabled()) note.visibility = View.GONE
 
         if (videoInfo!!.collection != null) {
             val collectionTitle = rootview.findViewById<TextView>(R.id.collectionText)

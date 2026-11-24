@@ -195,9 +195,13 @@ internal object RotaryEncoderSupport {
      * 为什么需要它：OPPO Watch 4 Pro 这类 ROM 把表冠报成鼠标滚轮，而框架对 mouse 源的 ACTION_SCROLL
      * 根本不换算轴值——App 参不参与、怎么换算，全是对着它猜出来的（#197 → #234 → #235 → #243 四轮）。
      * 这条退路让这类机器一键回到「用户说不会出问题的那一版」，不必陪着我们一起试手感。
+     *
+     * **26.11.23 起默认开启**（用户拍板）：上一版是「默认关 + 踩到滚轮源自动开一次」，结果是手感问题
+     * 仍然先落到新逻辑上、再靠自动判定补救；现在装完即老口径，想要这一版重做的表冠逻辑得自己关掉。
+     * 默认值必须与设置页那条开关一致（`SettingPrefActivity` 里写的是 `"true"`），改一处就要改两处。
      */
     fun isCompatMode(): Boolean =
-        SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROTATORY_COMPAT, false)
+        SharedPreferencesUtil.getBoolean(SettingsKeys.UI_ROTATORY_COMPAT, true)
 
     /**
      * 处理一次 generic motion 事件（控件级）。
@@ -649,6 +653,49 @@ internal object RotaryEncoderSupport {
         return true
     }
 
+    /**
+     * 兼容模式的「滚轮源兜底」：容器自己的框架实现根本不会处理这次事件时，由 App 按**兼容口径**
+     * （[compatPixelDelta]，26.11.16.4 的老手感）滚一次。
+     *
+     * 只有 `NestedScrollView` 系容器需要它，判据见 [CrownSourcePolicy.needsCompatWheelFallback]：
+     * 兼容模式下滚轮源本该整段交给框架，可 `NestedScrollView` 只读 `AXIS_SCROLL`，把表冠报成
+     * 滚轮的 ROM 把量放在 `AXIS_VSCROLL` 上——交过去等于交给一个不处理的人（反馈 #279：同一台
+     * OPPO 上设置页能滚、视频详情-简介整页转不动）。
+     *
+     * 与 [handleSystemFirstCompat] 的区别：那条会先跑框架再量差额，它对 `ScrollView` 这类**会动**
+     * 的容器是对的；这里判的是「框架必然不动」，所以不跑框架也不量差额——**不会与框架叠加**。
+     *
+     * @param multiple 兼容口径的灵敏度倍率（调用方给 [sensitivityOf] 的值）
+     * @return 是否消费了这次事件；false 时调用方照旧交给框架
+     */
+    fun handleCompatWheelFallback(
+        view: View,
+        event: MotionEvent,
+        multiple: Float,
+        smoothScrollBy: (Int) -> Unit
+    ): Boolean {
+        if (!isCompatMode() || multiple <= 0f) return false
+        if (isOffscreenPageWidget(view)) return false
+        val crown = CrownSourcePolicy.kindOf(event.action, event.source)
+        if (!CrownSourcePolicy.needsCompatWheelFallback(crown, event.getAxisValue(MotionEvent.AXIS_SCROLL)))
+            return false
+        val dy = compatPixelDelta(view, event, multiple)
+        if (!RotaryEventPolicy.shouldConsume(dy)) {
+            probe(
+                "兼容兜底：滚轮源框架不会处理，但位移为 0，不吞事件", event,
+                "view=" + view.javaClass.simpleName + " multiple=" + multiple
+            )
+            return false
+        }
+        smoothScrollBy(dy)
+        probe(
+            "兼容兜底：滚轮源框架不会处理（NestedScrollView 只认 AXIS_SCROLL），App 接管", event,
+            "view=" + view.javaClass.simpleName + " dy=" + dy + " multiple=" + multiple +
+                " ratio=" + rawScrollRatio(event)
+        )
+        return true
+    }
+
     /** 兼容模式的「系统优先」入口，逐条对应 26.11.16.4 的 `handleSystemFirst()`。 */
     private fun handleSystemFirstCompat(
         view: View,
@@ -683,13 +730,54 @@ internal object RotaryEncoderSupport {
         return true
     }
 
+    /**
+     * 兼容模式的**页面级滚轮兜底**：只对 `NestedScrollView` 系容器生效（反馈 #279）。
+     *
+     * 控件级那条（[handleCompatWheelFallback]）要求事件正好落在容器自己头上；事件没经过它时
+     * （焦点在别的控件上、或页面里没有可获焦控件）会一路退到 DecorView，而这里的兼容分支原先是
+     * 「非编码器源一律不动」——于是同一台表在设置页能滚、在视频详情页整页转不动。
+     *
+     * 只认 `NestedScrollView` 的**理由**：只有它的框架实现完全不读 `AXIS_VSCROLL`
+     * （`ScrollView` / `RecyclerView` 会按来源分轴取量，早就在框架里滚了）。限定容器类型是这条
+     * 兜底不会变成「框架滚一次、App 再滚一次」的唯一保证，不要放宽。
+     */
+    private fun compatWheelPageFallback(root: View, event: MotionEvent): Boolean {
+        if (CrownSourcePolicy.kindOf(event.action, event.source) != CrownSourcePolicy.WHEEL) return false
+        if (event.getAxisValue(MotionEvent.AXIS_SCROLL) != 0f) return false
+        val stats = ScanStats()
+        val target = resolveScrollTarget(root, stats)
+        if (target == null) {
+            probe("兼容兜底：本页找不到可滚容器", event, stats.describe(root))
+            return false
+        }
+        if (target !is NestedScrollView) return false
+        val multiple = sensitivityOf(SettingsKeys.UI_ROTATORY_SCROLL)
+        if (multiple <= 0f) return false
+        val dy = compatPixelDelta(target, event, multiple)
+        if (!RotaryEventPolicy.shouldConsume(dy)) {
+            probe(
+                "兼容兜底：滚轮源、容器框架不处理，但位移为 0，不吞事件", event,
+                "target=${target.javaClass.simpleName} multiple=$multiple"
+            )
+            return false
+        }
+        if (!smoothScrollVertically(target, dy)) return false
+        probe(
+            "兼容兜底：滚轮源、容器框架不处理（NestedScrollView 只认 AXIS_SCROLL），App 接管", event,
+            "target=${target.javaClass.simpleName} dy=$dy multiple=$multiple ratio=${rawScrollRatio(event)}"
+        )
+        return true
+    }
+
     /** 兼容模式的页面级兜底，逐条对应 26.11.16.4 的 `handlePage()`。 */
     private fun handlePageCompat(root: View, event: MotionEvent): Boolean {
         if (!RotaryEventPolicy.isRotaryEvent(event.action, event.source)) {
             if (RotaryEventPolicy.isScrollEvent(event.action)) {
                 probe("兼容：兜底非表冠源，未处理", event, "root=${root.javaClass.simpleName}")
             }
-            return false
+            // 反馈 #279：滚轮源本该整段交给框架，但 NestedScrollView 的框架实现不认这个来源，
+            // 交过去等于整页不动。给这一类容器补一条页面级兜底（见 compatWheelPageFallback）。
+            return compatWheelPageFallback(root, event)
         }
         val stats = ScanStats()
         val target = resolveScrollTarget(root, stats)
@@ -1122,6 +1210,26 @@ object CrownSourcePolicy {
      * 动不了」）。阈值 0.9 本身没变，只是用途变了。
      */
     fun isCoarseWheelStep(ratio: Float): Boolean = ratio >= 0.9f || ratio <= -0.9f
+
+    /**
+     * 兼容模式下，这次滚轮事件是否需要 App 自己接管（因为容器框架不会处理它）。
+     *
+     * 反馈 #279：OPPO Watch 4 Pro 把表冠报成鼠标滚轮（量在 `AXIS_VSCROLL`），而 26.11.23 起
+     * [RotaryEncoderSupport.isCompatMode] 默认开启——滚轮源整段交给框架。列表页（`RecyclerView`）
+     * 与设置页（平台 `ScrollView`）的框架实现按来源分轴取量（pointer 源读 `AXIS_VSCROLL`），照旧能滚；
+     * **`androidx NestedScrollView` 的 `onGenericMotionEvent` 只读 `AXIS_SCROLL`**（见类注释
+     * 「三种容器各自的 onGenericMotionEvent 只认 AXIS_SCROLL」），在这类 ROM 上算出来恒为 0，
+     * 于是「视频详情-简介」整页转不动，而同一台表在设置页正常。
+     *
+     * 判据只有两条：来源是滚轮（[WHEEL]），且框架唯一会读的那根轴没有量。两者同时成立时
+     * 框架拿到这个事件必然什么都不做，App 接管不会与它叠加（这正是可以无条件接管的前提，
+     * 也是它只给 `NestedScrollView` 用的原因——其余容器的框架实现会读 `AXIS_VSCROLL`）。
+     *
+     * @param crown [kindOf] 的结果
+     * @param axisScroll 本次事件的 `AXIS_SCROLL` 原值
+     */
+    fun needsCompatWheelFallback(crown: Int, axisScroll: Float): Boolean =
+        crown == WHEEL && axisScroll == 0f
 
     /**
      * 列表容器单次滚轮事件最多折算几格（26.11.18-beta.5 从 32 收到 2，反馈 #235 复测）。

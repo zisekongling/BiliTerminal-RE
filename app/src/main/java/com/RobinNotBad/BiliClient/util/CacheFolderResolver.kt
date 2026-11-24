@@ -79,12 +79,24 @@ object CacheFolderResolver {
     /**
      * 解析结果与 `.video_meta.json` 里记的不一致 → 该把元数据写回 [resolved]。
      *
-     * [folderNames] 为空（json 读坏了 / 被清过 / 这次压根没有夹）时**一律不写**：
-     * 那种情况下 [resolve] 对每条都会返回空串，照着写会把所有视频的夹名抹成空，等于毁掉唯一一份记录。
+     * [folderNames] 为空时要分清两种情形（反馈 #254 残留）：
+     * - `.folders_info.json` **读不出来**（不存在 / 内容坏了）：不写。那种情况下 [resolve]
+     *   对每条都会返回空串，照着写会把所有视频的夹名抹成空，等于毁掉唯一一份记录；
+     * - 记录文件**确实是一份合法的空夹表**（用户把最后一个夹也拆了）：允许写。否则元数据会一直
+     *   停在旧夹名上，用户下次建同名夹时这些视频会莫名其妙自己跳进去。
+     *
+     * @param foldersFileIntact 夹记录文件是否存在且能解析（[FolderManager.isFoldersFileIntact]），
+     *        只在 [folderNames] 为空那条路上起作用
      */
     @JvmStatic
-    fun needsMetaHeal(resolved: String, metaName: String?, folderNames: Set<String>): Boolean {
-        if (folderNames.isEmpty()) return false
+    @JvmOverloads
+    fun needsMetaHeal(
+        resolved: String,
+        metaName: String?,
+        folderNames: Set<String>,
+        foldersFileIntact: Boolean = false
+    ): Boolean {
+        if (folderNames.isEmpty() && !foldersFileIntact) return false
         return resolved != metaName.orEmpty()
     }
 

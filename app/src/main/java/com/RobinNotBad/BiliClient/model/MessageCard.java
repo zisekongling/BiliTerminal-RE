@@ -24,6 +24,12 @@ public class MessageCard {
     public long rootId;
     public long targetId;
 
+    /**
+     * 系统通知的已读游标（sys-msg 的 cursor）。
+     * 26.11.23：原来没解析，系统消息只能看不能标已读。
+     */
+    public long cursor = 0;
+
     public static class Cursor {
         public final boolean is_end;
         public final long id;

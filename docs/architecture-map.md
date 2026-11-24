@@ -51,29 +51,34 @@ ksp { arg("room.schemaLocation", ...) }                                     // �
 > `attachBaseContext` 覆写都被删掉了，理由是 `minSdk 21` 下 ART 原生支持 multidex。
 > **26.10.10 降到 19 之后这段清理被整体回滚**（19 及以下 ART 还不支持原生多 dex），见下一条。
 
-> **⚠ 26.11.21 minSdk 已暂时改回 21（Android 5.0），4.4 兼容暂停**：`app/build.gradle` 的 `defaultConfig.minSdk` 现在是 **21**。
+> **26.11.23 已恢复 minSdk 19（Android 4.4）**：`app/build.gradle` 的 `defaultConfig.minSdk` 回到 **19**，
+> 走的是把 OkHttp 从 4.12.0 降到 **3.12.13**（3.x 最后一版）。26.11.21 之所以被迫临时回到 21，是**依赖在运行期主动拒绝**：
 > 直接原因不是静态审计没查干净，而是**依赖在运行期主动拒绝**：okhttp 4.12.0 的
 > `okhttp3.internal.platform.AndroidPlatform.<clinit>` 里有一段
 > `if (Platform.isAndroid && Build.VERSION.SDK_INT < 21) throw IllegalStateException("Expected Android API level 21+ but was " + SDK_INT)`
 > （d8 反汇编：`041506 const-string` / `041522 new-instance` / `041534 throw`）。类初始化抛错后，
 > 之后**每一次** OkHttp 调用都是 `NoClassDefFoundError: okhttp3/internal/platform/Platform`——issue #35 的崩溃栈正是这个。
 > 而 `okhttp:4.12.0` 这一行自 2026-10-30 `a7fb06be` 就在仓库里（`git log -S` 唯一命中），minSdk 19 是 26.10.10 落的，
-> 也就是说 **19 这段从来没有一个版本在 4.4 上真跑通过**。恢复 4.4 的唯一现实路径是降到 okhttp 3.12.x
-> （3.12.13 的 `AndroidPlatform.buildIfSupported` 只判 `Platform.isAndroid` + `Class.forName("com.android.org.conscrypt.SSLParametersImpl")`，无 SDK 闸，
-> `peekBody` / `callTimeout` 也都还在），改造面是 **125 处 okhttp4 Kotlin 属性写法 / 57 个 .kt 文件**（4.x 专属 API 仅
-> `util/UpdateManager.kt` 的 `toMediaType` / `toRequestBody` 两处 import）。排期与风险登记在任务台账「恢复 Android 4.4（API 19）兼容」。
-> 下面这段与 §1.1 **整体保留不动**，它们是将来恢复时的作业指导，不是过期内容；只把每条结论当成「19 时期的状态」。
+> 也就是说 **19 这段从来没有一个版本在 4.4 上真跑通过**（26.11.23 之后才开始有）。
+> 3.12.13 的 `AndroidPlatform.buildIfSupported` 只判 `Platform.isAndroid` + `Class.forName("com.android.org.conscrypt.SSLParametersImpl")`，无 SDK 闸；
+> `peekBody`、`callTimeout`、`protocols(listOf(...))` 也都还在。
+> 改造面实测（不是估的）：**75 处 4.x 属性写法 = `body` 34 / `code` 32 / `url` 9，分布在 19 个文件**，
+> 外加两个文件的 `toMediaType` / `toRequestBody`（`util/UpdateManager.kt`、`debug/DebugBridge.kt`）与私有侧 6 个文件。
+> 3.x 的 `body` / `code` / `message` / `url` 是**包级私有字段**，用扩展属性接不回去（编译期报
+> `Cannot access '… field body …': it is package-private in 'okhttp3/Response'`），只能按编译器报错逐个改成 `.code()` / `.body()`。
+> okio 跟着降到 1.15.0：它的 `ByteString` 没有 `get` 操作符，`activity/player/PlayerDanmuClientListener.kt` 三处改用 `getByte(i)`。
+> 代价：3.12.x 已 EOL、不再有安全更新；4.4 上的 TLS 1.2 靠 OkHttp 反射开启，老 ROM 可能握手失败，**只能真机验**。
 
 > **minSdk 24 → 21 → 19（Android 4.4）已落地**（26.10.10 下调，最终停在 **19**）：`app/build.gradle:21` 是唯一落点。
 > 依赖侧必须降两处——`androidx.appcompat:appcompat` 1.7.0 → **1.6.1**、`androidx.fragment:fragment-ktx` 1.8.0 → **1.6.2**
 > （只有这两代 AAR 自己还声明 minSdk 14；1.7.0 / 1.8.0 声明的是 21），并恢复
 > `androidx.multidex:multidex:2.0.1` + `BiliTerminal.kt` 里 `override fun attachBaseContext()` 中的
-> `MultiDex.install(this)`。（26.11.21 只把 minSdk 一项改回 21，上面这三件事按 §1.1 上方的状态说明**暂缓**，
-> 留到真正恢复 4.4 那一轮一起处理；appcompat / fragment 升级会牵动主题与控件行为，不适合和 minSdk 一起动。）
+> `MultiDex.install(this)`。（26.11.21 只动过 minSdk 一项；26.11.23 恢复 19 时这三件事本来就还在，未再改动。
+> appcompat / fragment 仍钉在 1.6.1 / 1.6.2——升回 1.7.0 / 1.8.0 必须放弃 4.4，且会牵动主题与控件行为。）
 > 代码侧除了 minSdk 21 阶段清掉的 API 24 调用，又清了一批 API 21 调用点，全部列在下面 §1.1。
 > `multiDexEnabled true` 保留未动。
 
-### 1.1 minSdk 19（Android 4.4）兼容清单（26.10.10 落定；26.11.21 起 minSdk 已暂回 21，本节转为「恢复 4.4 时的作业清单」）
+### 1.1 minSdk 19（Android 4.4）兼容清单（26.10.10 落定；26.11.23 起 minSdk 已恢复 19，本节是现行清单）
 
 `minSdk` 从 24 一路降到 19，要照顾的是 API 19 / 20 / 21 / 22 / 23 五个区间。
 **下表里标「已清除」的都是本轮真改过的代码**；标「不会踩」的是核实过的。逐项结论：
@@ -184,6 +189,10 @@ armeabi-v7a 6,225,574 B），说明 release 全量依赖里没有别的东西要
 **没做的事**：本机 `D:\Program Files\android-sdk` 下没有 `emulator`、没有 `system-images`，
 **没有在 API 19~23 的设备/模拟器上做过运行验证**，以上全部是静态审计 + 依赖元数据 + `dexdump` 反汇编结论。
 真机验证清单见 `docs/archive/review/device-test-plan.md` 的 T12。
+
+**26.11.23 恢复 4.4 时仍未做真机验证**：L0 只到 `assembleDebug` + 单测。4.4 上最需要真机确认的是
+**TLS 1.2 握手**（OkHttp 3.12 在 API < 21 上靠反射打开 TLS 1.2，部分老 ROM 的 Provider 名不同会直接握手失败）
+与**多 dex 装载**（`MultiDex.install` 在 4.4 上首次启动耗时明显）。这两项写在 `docs/review/fix-progress.md` 的「未验证」清单里。
 
 ---
 
@@ -986,9 +995,20 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **`set_top` 的 `op_type` 与直觉相反：0 = 置顶、1 = 取消置顶。** 已抽成纯函数 `PrivateMsgApi.opTypeForTop(boolean)` 并配单测（`api/PrivateMsgApiTest.kt`），写反的后果是"点置顶实际取消置顶"——不报错、极难发现。
 - **服务端没有布尔型"是否置顶"字段**：只有会话项里的 `top_ts`（微秒级时间戳，未置顶为 0）。模型侧是 `model/PrivateMsgSession.topTs` + `isTop()`；`parseSessionsList` 用 `optLong("top_ts", 0)`（缺字段按未置顶），`getNewSessionsList` 同步解析。
 - **移除会话 ≠ 删除聊天记录**：`remove_session` 只把会话从列表里拿掉，对方再发消息会重新出现。UI 的二次确认文案必须说清这一点，否则用户以为记录没了。
-- 会话类型常量在 `PrivateMsgApi`：`SESSION_TYPE_USER = 1`、`SESSION_TYPE_FAN_GROUP = 2`（本项目目前只处理用户私信，粉丝团未接）。
+- 会话类型常量在 `PrivateMsgApi`：`SESSION_TYPE_USER = 1`、`SESSION_TYPE_FAN_GROUP = 2`（这是**会话对象**里的 `session_type` 口径，也是 `update_ack` / `set_top` / `remove_session` 的参数值）。**26.11.23 起粉丝团（应援团 / 官方群）已经接入**，见本节末尾三条。
+- **两套 `session_type` 不是同一个枚举，混用会静默失败**（26.11.23）：`get_sessions` 的**请求参数**是 `LIST_TYPE_USER = 1`（用户与系统）/ `LIST_TYPE_FAN_GROUP = 3`（粉丝团）/ 2 未关注人 / 4 所有 / 5 被拦截 / 6 花火 / 7 所有系统 / 8 陌生人 / 9 关注的人与系统（`bilibili-API/docs/message/private_msg.md:254`）；**会话对象**里的 `session_type` 只有 1 用户 / 2 粉丝团（同文件第 10 行）。原实现把 `SESSION_TYPE_USER` 当请求参数写死在 `get_sessions` 与 `fetch_session_msgs` 里，所以应援团私信一条也拉不到——不报错，只是永远空。现在 `getSessionsPage(size, endTs, listType)` 与 `getPrivateMsg(talkerId, sessionType, size, beginSeqno, endSeqno)`（纯 URL 构造函数 `buildSessionsUrl` / `buildFetchMsgsUrl` 均配单测）分开带两种值。
+- **粉丝团会话的 `talker_id` 是粉丝团 id（不是 mid）**：`user/cards` 查不到，名字头像只能取会话自带的 `group_name` / `group_cover`（`group_type` 0 应援团 / 2 官方群）。所以 `MessageActivity.loadSessions()` 拼 `uids` 时要**同时跳过 `isSystem()` 与 `isFanGroup()`**——塞进去会让整个批量接口失败，连累正常会话的昵称头像。模型侧 `PrivateMsgSession.isFanGroup()` / `sessionName()` / `isPushOn()`（`setting` 0 接收 / 1 不接收）。
+- **应援团会话「有未读才混排」**（用户拍板）：`get_sessions?session_type=3` 是另一份列表，`MessageActivity` 在第一页额外拉一次，`filter { it.unreadTotal() > 0 }` 后并进主列表；**翻页（`loadMoreSessions`）不重复拉**——有未读的群一定在第一页。这一份拉失败只 `Logu.w`，不影响主列表。
+- **会话项长按菜单改成「先拼标签再配动作」**（26.11.23）：原实现 `when(0/1/2/else)` 按下标硬编码，现在「标为已读」只在 `unreadTotal() > 0` 时出现、粉丝团会话又少「置顶 / 免打扰 / 主页」三项（这些接口只支持用户会话），按下标必然错位。**「标为已读」** = `update_ack` 传会话的 `max_seqno`（缺失退回 `ack_seqno`），粉丝团连带 `session_type=2`；成功后本地清零并只 `notifyItemChanged` 那一项。
 - 返回码翻译统一走 `PrivateMsgApi.sessionErrorMsg(int)`（0→空串、-101→未登录、-400→"请求错误，会话可能已不存在"、其余保留错误码）。
-- UI 落点：`adapter/message/PrivateMsgSessionsAdapter.kt` 的会话项**长按弹 `AlertDialog` 菜单**（置顶/取消置顶、删除会话、查看用户主页）；`activity/message/MessageActivity.kt` 的会话加载已抽成 `loadSessions()`，adapter 通过构造参数 `onSessionsChanged` 回调它重新拉列表（服务端才是唯一真相）。
+- **会话免打扰不在 `session_svr` 下**（26.11.23 实测，`bilibili-API/docs/message/private_msg.md:1197-1242`）：`get_msg_dnd` / `set_msg_dnd` 属 `link_setting` 族，前缀是 `https://api.vc.bilibili.com/link_setting/v1/link_setting/`；参数不是 `talker_id`，而是 `uid`（**自己**的 mid）+ `setting`（0 取消 / 1 开启）+ `dnd_uid`（对方 mid）。已封装 `PrivateMsgApi.setMsgDnd(ownUid, talkerUid, dnd)`，纯函数 `settingForDnd(boolean)`（true→1）与 `parseDndCode(String)`（非 2xx 时 body 是 HTML，解析不出给 -1）都配了单测。
+- **会话对象自带 `is_dnd`（0/1）**，列表渲染不需要额外请求：`model/PrivateMsgSession.dnd` + `isDnd()`，`parseSessionsList` 里 `optInt("is_dnd", 0) == 1`。开启免打扰的会话在名字后面缀 `[免打扰]`（`UiText` 转资源）。
+- **会话页不再定时轮询**（26.11.23）：`activity/message/PrivateMsgActivity.kt` 原有一个 15 秒一跳的 `Timer` 拉新消息，手表上白耗电、断网时还会反复重试，已删掉，改为顶栏「刷新」按钮 + 写完私信返回时刷新。**停在会话里时仍持续标已读**：每次拉到新消息就 `update_ack` 到最后一条的 `msg_seqno`；ack 的 seqno **必须取刚拉到那批数据的局部变量**，不能读仍在 UI 线程异步填充的 `list`（IO 线程读到空表会抛）。
+- UI 落点：`adapter/message/PrivateMsgSessionsAdapter.kt` 的会话项长按走 `TerminalDialog.menu`，标签与动作是两个平行 ArrayList 一起拼（26.11.23 起用户会话最多七项：置顶/取消置顶、消息免打扰/取消免打扰、标为已读、聊天设置、删除会话、查看用户主页；粉丝团会话只有标为已读/删除会话，因为置顶/免打扰/推送这些接口只支持用户会话），**danger 靠 `labels.size - 1` 算**，往中间插项后不要再手改下标；`activity/message/MessageActivity.kt` 的会话加载已抽成 `loadSessions()`，adapter 通过构造参数 `onSessionsChanged` / `onOpenChatSettings` 回调它重新拉列表（服务端才是唯一真相）。
+- **单会话「聊天设置」**（26.11.23，对齐 PiliPlus 的 whisper_link_setting）在 `activity/message/ChatSettingsActivity.kt`：复用 `R.layout.activity_simple_refresh` + `MessageSettingsAdapter`（`TYPE_SWITCH`），**不新增布局**。五项开关：接收消息推送、置顶聊天、消息免打扰、拦截此会话消息、拉黑对方。写入失败必须 `revert(key)` 把开关拨回本地字段并 `notifyItemChanged`（适配器在开关回调里已经先改了 `item.value`），再弹 `PrivateMsgApi.sessionErrorMsg(code)`——不回滚的话 UI 会长期显示一个服务端根本没接受的开关状态。
+- **`get_session_ss` / `set_push_ss` 属 `link_setting` 族**（`bilibili-API/docs/message/private_msg.md:941-1011`、`:1259-1318`），前缀 `https://api.vc.bilibili.com/link_setting/v1/link_setting/`，**只支持用户会话**，参数是 `talker_uid`（没有 `session_type`）。响应 `data.push_setting` 0 接收 / 1 不接收，`data.show_push_setting` 决定**要不要渲染这个开关**（服务端说不显示就别显示），`follow_status` 128 = 已拉黑。封装 `PrivateMsgApi.buildSessionSsUrl(long)` / `parseSessionSs(JSONObject)` / `getSessionSs(long)` / `setPushSs(long, boolean)`，纯函数 `pushSettingFor(boolean)`（true→0）同批配单测。
+- **`update_intercept` 只吃 `talker_id` + `status`**（`bilibili-API/docs/message/private_msg.md:1320-1379`，0 取消拦截 / 1 设置拦截），**不带 `session_type`**；封装 `PrivateMsgApi.updateIntercept(long, boolean)` + `statusForIntercept(boolean)`。会话对象里的 `is_intercept` 是拦截标记，与拉黑是两件事——**被拦截 ≠ 被拉黑**，别拿一个去判另一个。
+- **拉黑不走私信接口**：`api/UserInfoApi.java` 的 `relationModify(long mid, int act, int reSrc)`，act 5 拉黑 / 6 解除（`RELATION_ACT_BLOCK` / `RELATION_ACT_UNBLOCK`），`re_src` 私信场景传 11（`RELATION_RE_SRC_IM`，与关注页的取值不同）。**拉黑会同时解除关注关系**，所以界面先弹确认框再发请求；判断「已拉黑」看 `get_session_ss` 的 `follow_status == 128`（`PrivateMsgApi.FOLLOW_STATUS_BLOCKED`）。
 
 ### 7.14 私信图片消息（`msg_type=2`，26.10.04 批次 5 新增）
 
@@ -1076,14 +1096,23 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **它保留了第 0 位的头部占位**（复用 `res/layout/cell_goto.xml` 的那个 `text`，显示 `#话题名`）：`getItemCount() = dynamicList.size + 1`、`realPosition = position - 1`。不是为了好看——`getManageListener` 列表版在置顶/编辑成功后会**按 `realPosition + 1` 反推要刷新的行**，去掉头部占位会刷错行。翻页通知起点因此是 `lastSize + 1`。
 - **发布器不加话题选择**（用户拍板）：发动态要带话题得先有 id，而正文里拿不到 id；既要话题选择器又要话题搜索，属另一件事。
 
-### 7.22 笔记，仅查看（26.10.04 批次 6 的 C27）
+### 7.22 笔记：列表 + 详情（26.10.04 批次 6 的 C27 起步，26.11.23 重做成两页）
 
-- **链路**：视频详情页 `activity/video/info/VideoInfoFragment.kt` 新增整行 `MaterialButton id=note`（布局 `res/layout/fragment_video_info.xml`，文案「笔记」，**未登录时与「稍后再看」「转发」「视频摘要」一起 `GONE`**）→ `activity/note/NoteActivity.kt`（`BaseActivity` 子类，`intent` 只带 `aid`，可选带 `note_id` 直接看指定那篇）。Activity 里先 `SharedPreferencesUtil.mid == 0` → 提示「登录后才能看笔记喵~」；否则 `CenterThreadPool.run` 内先调 `NoteApi.getNoteIdsOfVideo(aid)` 拿私有笔记 id 列表，空则「这个视频还没有笔记」，有则取第一篇调 `NoteApi.getNoteInfo(aid, noteId)`。
+- **入口**：视频详情页整行 `MaterialButton id=note`（布局 `res/layout/fragment_video_info.xml`，文案「笔记」）。**26.11.23 起默认显示**（`util/DetailEntryPrefs.kt` 的 `DEFAULT_NOTE_ENABLED = true`，可在「设置 → 内容与浏览 → 详情页设置 → 视频笔记」里关），并且**不再与登录态挂钩**：公开笔记免登录可看，`VideoInfoFragment` 里只有「我的笔记」那一行看 `SharedPreferencesUtil.mid`，笔记按钮只看 `DetailEntryPrefs.isNoteEntryEnabled()`。
+- **两个页面**：`activity/note/NoteActivity.kt`（列表）→ `activity/note/NoteDetailActivity.kt`（详情）。都是 `RefreshListActivity` 子类，因此复用 `activity_simple_refresh.xml`（自带下拉刷新、空态提示、上拉翻页、表冠滚动），详情页把头部做成第 0 个 item 由 `adapter/note/NoteContentAdapter.kt` 渲染。清单里两个 Activity 都是 `exported="false"`；Debug 清单各有一份 `exported=true` + `android.permission.DUMP` 的副本（方便 adb 起页做 L1）。
+- **列表页怎么拼**：先 `loadOwnNote()`——登录且 `x/note/list/archive` 有 id 时在首位加一行「我的笔记」（标题取那篇文章的，失败只 `Log.w`、不影响公开列表）；再 `NoteApi.getPublicNoteList(aid, 1, 10)` 分页。行渲染在 `adapter/note/NoteSummaryAdapter.kt`，own 行副标题是「私有笔记 · 只有你自己能看到」，公开行是「作者 · 日期 · n 赞」（`TimeUtil.formatDate(pubtime * 1000)`，`pubtime` 是**秒**，由 `NoteApi.parsePubtime` 从接口给的字符串换算，见下条）。
+- **空态分三档**：`show_public_note=false` → 「这个视频的公开笔记已关闭」；服务端 `message` 非空 → 原样显示（「还没有人发布笔记哦，快去发布一篇吧～」）；否则「这个视频还没有笔记」。首屏失败**不要**调 `loadFail(e)`（它会把 `page` 退成 0），改成 `showEmptyWith(NoteApi.failureText(e))`。
+- **公开笔记接口（免登录）**：`GET https://api.bilibili.com/x/note/publish/list/archive?oid=<aid>&oid_type=0&ps=<n>&pn=<n>` → `data.list[]`（`cvid`/`title`/`summary`/`pubtime`/`likes`/`has_like`/`author{mid,name,face}`）、`data.page{total,size,num}`（`hasMore` 由 `NoteApi.hasMore(JSONObject)` 判：`num*size < total`）、`data.show_public_note`、`data.message`；**`list` 常常是 `null`**，要当空表。详情 `GET https://api.bilibili.com/x/note/publish/info?cvid=<cvid>` 同样免登录。**公开笔记是逐视频开关的**，多数视频本来就是空（实测 aid=338677252 返回 `show_public_note:false`），所以「列表空」不等于功能坏了。
+- **`pubtime` 是格式化字符串，不是时间戳**：26.11.23 用真实响应（`list/archive?oid=170001`）实测，`data.list[].pubtime` 给的是 `"2025-11-20 10:27"`——接口文档写的是时间戳，`node.optLong("pubtime", 0)` 对非数字串会**静默返回 0**，列表行的「作者 · 日期 · n 赞」于是只剩作者和点赞、时间整段消失。`NoteApi.parsePubtime(Object)` 两种都吃：`Number` 直接按秒，纯数字字符串按秒，其余按 `yyyy-MM-dd HH:mm`（再退化到 `yyyy-MM-dd`）在 **GMT+8** 下 `setLenient(false)` 解析成秒，解析不了给 0（调用方据此隐去时间，别显示 1970）。另外**详情接口没有 `pubtime` / `likes`**，时间只有 `last_mtime_text`。
+- **`cvid` 不是专栏 cv 号**：把笔记的 `cvid` 扔给 `x/article/view?cvId=` 会 `-400`，两套 id 别混。
 - **两个接口，一个 `api/NoteApi.java`**：`GET https://api.bilibili.com/x/note/list/archive?oid=<aid>&oid_type=0&csrf=<NetWorkUtil.currentCsrf()>`（**只能查私有笔记**，无笔记时 `data` 里**没有 `noteIds` 字段**，要当空表处理）→ `data.noteIds[]` 是**字符串数组**；`GET https://api.bilibili.com/x/note/info?oid=<aid>&oid_type=0&note_id=<id>`（不带 csrf）。错误码 `79502` 笔记详情未找到、`79503` 笔记正文未找到、`79514` 公开笔记没找到，另有 `-101`/`-400`，全部走纯函数 `NoteApi.noteErrorMsg(int)`；网络层抛异常时优先用服务端 `message`。
 - **`note_id` 必须取 `note_id_str`**：接口文档自己的示例里 `note_id` 是 `24508729145690110` 而 `note_id_str` 是 `"24508729145690112"`——17 位超过 2^53，走 JSON number 已经丢精度。`NoteApi.pickNoteId(JSONObject)` 固定优先 `note_id_str`、回退 `note_id`，并且**全程按字符串传参**（`model/Note.noteId` 是 `String`）。
 - **正文是 Quill delta，不是 HTML，也不能复用 opus 解析**：`data.content` 是一段 JSON 序列字符串，根数组元素形如 `{"attributes":{…},"insert": …}`——`insert` 是字符串就是文本，是对象则二选一 `imageUpload`（`url`/`status`/`width`，**`width` 是"图片宽度 - 2"**）或 `tag`（`cid`/`index` 分P/`seconds` 进度/`title` 等）。属性有 `bold`/`underline`/`strike`/`color`/`background`/`list`（`ordered`|`bullet`）/`size`。`model/OpusParagraph.java` + `OpusContentAdapter` 那套处理的是**嵌套**段落结构，这里是**扁平 delta 数组**，结构不兼容，所以另写了 `model/NoteBlock.java` + 纯函数 `NoteApi.parseBlocks(String)`（坏 JSON、根是对象、`insert` 对象里两种 key 都没有——一律安全跳过，不抛）。
-- **渲染不用 RecyclerView**：`NoteActivity.renderBlocks` 把 block 列表拼成**一段 `SpannableStringBuilder`** 塞进一个 `TextView`（`res/layout/activity_note.xml` 的 `note_content`），样式用 `StyleSpan`/`UnderlineSpan`/`StrikethroughSpan`/`ForegroundColorSpan`/`BackgroundColorSpan`；图片只渲染 `[图片]` 占位，视频进度 tag 渲染成 `[视频进度 mm:ss]`（有分P索引则 `[分P n mm:ss]`，格式化走纯函数 `NoteApi.formatTagSeconds(long)`）；列表项加 `n.` / `•` 前缀（后面各带一个空格）。脏色值 `Color.parseColor` 包 try/catch 返回 null，不崩。
-- **没做的**（用户拍板范围限定「仅查看」）：我的笔记列表页（`x/note/list`）、公开笔记（`cvid` / `x/note/publish/info`）、创建与编辑笔记、图片真实加载、点击 tag 跳转进度，全都没做。
+- **渲染：delta → `NoteContentItem` → RecyclerView**。26.11.23 前是「拼一段 `SpannableStringBuilder` 塞进一个 `TextView`」，换成列表页后改成 `NoteApi.buildContent(List<NoteBlock>)` → `List<NoteContentItem>`（`model/NoteContentItem.java`，类型 `text`/`image`/`tag`）：连续文本合并成段、`\n` 分段、`ordered` 加 `"1. "`（遇普通段/图片/tag 归零重数）、`bullet` 加 `"• "`、图片与 tag 各占一行并结束当前段。样式不塞进 `Spannable` 而是落成 `model/NoteTextRun.java`（`start`/`end` 相对段落文本 + `bold`/`underline`/`strike`/`color`/`background`），这样合并逻辑能纯函数单测；`NoteContentAdapter` 再按 run 转 `StyleSpan`/`UnderlineSpan`/`StrikethroughSpan`/`ForegroundColorSpan`/`BackgroundColorSpan`（脏色值 `parseColor` 抛 `IllegalArgumentException` 就忽略）。tag 文案走 `formatTagSeconds(long)`：`[分P n mm:ss]` / `[视频进度 mm:ss]`。
+- **图片地址必须补 `https:`**：delta 里给的是协议相对地址 `//i0.hdslb.com/bfs/note/x.jpg`，没有 scheme，Glide 会直接失败——这是 26.11.23 之前「笔记里图片全不显示」的直接原因之一。`NoteApi.normalizeImageUrl(String)` 在解析期补成 `https://…`，`imageWidth` 仍是服务端给的「图片宽度 - 2」。点图片进 `ImageViewerActivity`（该页**没有**起始下标参数，所以按单张一张票传 `imageList`）。
+- **tag 点击跳播放进度**：tag 带 `cid`（分P）与 `seconds`。点击时在 `CenterThreadPool` 里 `VideoInfoApi.getVideoInfo(aid)` → `videoInfo.cids.indexOf(tagCid)`（找不到取 0）→ `videoInfo.toPlayerData(index)` → `data.progress = tagSeconds * 1000`（`PlayerData.progress` 单位是**毫秒**）→ `PlayerApi.startGettingUrl(data)`。
+- **没做的**：写笔记（官方是 H5 编辑页，本轮不动）、给公开笔记点赞（`has_like` 只解析不展示按钮）、删除笔记、独立「我的笔记」列表页（`x/note/list`，需登录）。
+- **诊断**：`api/NoteApi.java` 的日志 tag 统一是 `BiliNote`，`adb logcat -s BiliNote` 看全链路（请求 url、`code`、服务端 `message`，csrf 已打码）。
 
 ### 7.23 稍后再看「未看完」分类（26.10.04 批次 7 的 C18）
 
@@ -1502,6 +1531,7 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **进度**：数据部分（视频 + 音频流）按**真实字节**走，合并阶段不再单独占区间——音频下完 `finishAllProgress` 把进度顶到 100%，合并时只换状态文案（26.11.10 改造前的「附件 0.12 → 视频 0.52 → 音频 0.88 → 合并 1.00」权重摊派只剩兜底，见 §7.27 末段）。
 - **暂停语义**：合并开始前若已暂停就不合并（走 `runDownloadSection` 的暂停分支）；合并中**不响应暂停**（几秒内能完成，中途停手反而要处理半成品），只有 `started == false`（服务销毁）时中止并按未完成处理。`shouldStop = { !started }`。
 - **残留清理**：合并临时文件固定叫 `video_merging.tmp`（`DownloadPathSpec.FILE_VIDEO_MERGING`），**刻意不用 `.mp4` 后缀**——`LocalListActivity.scanVideos` 有对历史残留 `video_merged_temp.mp4` 的「改名成 video.mp4」兼容逻辑，复用那个名字会把半成品认成成品。中断残留由 `FileUtil.cleanDownloadTempFiles` 清（已加该文件名）。
+- **B 帧边界（26.11.23）**：Android 的 `MediaMuxer` 从 **API 25（Android 7.1 / Nougat MR1）** 才支持 MP4 B 帧；API <25 写带 B 帧的 H.264 会在 native 层直接崩溃（SIGSEGV / abort，Java `catch` 接不住）。`util/MediaMuxerSupport.kt` 把阈值抽成纯函数，`MediaMerger.mergeAv` 与 `CacheAudioRepair.enqueueAll` 都先判，低于 25 直接跳过、保留双文件；否则安卓 5.1 打开缓存页会在 `REPAIR-STAGE stage=write` 后直接消失，日志没有 `REPAIR-END`。
 - **播放侧不用动**：合并成功后目录里只剩 `video.mp4`，`LocalListActivity` 天然走单文件路径；老的 DASH 双文件缓存仍然按「`audio.m4a` 当外部音轨」播放（`PlayerActivity.audioTrackUrl` / `LocalAudioTrackPolicy`，见 §7.4）。
 - **验证接口**：Debug 包 `DebugBridge` 的 `merge` 命令可直接对两条 m4s 跑正式代码路径（用法与判据见 `docs/review/agent-test-guide.md` §4.8）。
 
@@ -1663,6 +1693,14 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **系统会话只能读**：`activity/message/PrivateMsgActivity.kt` 靠 intent 额外参数 `EXTRA_SYSTEM_NAME`（键 `system_name`）判定，命中则 `setPageName(账号名)` + 隐藏「写私信」按钮 + 不弹私信拦截提示（合成 id 发不出去，也没有主页可看）；`activity/message/ChooseFriendActivity.kt` 是「发私信」候选列表，要自己滤掉 `isSystem()`。
 - **头像与昵称的回落**：系统会话没有用户卡，适配器用 `accountName` / `accountAvatar`，为空时回落 `R.mipmap.akari` 与「B站官方消息」（`uitext_privatemsgsessionsadapter_011`）——**新文案必须同时进 `values/strings.xml` 与 `util/UiText.kt` 的 MAP**，只加 strings.xml 界面会显示原文。
 - **仍未解决（本轮没动）**：`api/MessageApi.java:124` 的 `checkPrivateMsgUnread()` 把 `dustbin_unread` / `dustbin_push_msg` 也累加进角标，但 `get_sessions` 不带 `show_dustbin`、App 里没有拦截区入口，这部分未读**仍可能消不掉**。
+
+### 7.73 转发 / 分享面板：一处组件、两种结果码、顶栏按钮的锚点（26.11.23 新增）
+
+- **面板本体只有一份**：`util/ShareSheet.kt` 的 `ShareSheet.panel(ctx).copyLink(url).openInOtherApp(url).shareText(labelRes, text, url).toDynamic { }.toMessage { }.show()` 是链式的，**不调用哪一项就不显示哪一项**——所以「直播/专栏四项」「收藏夹四项」「视频/番剧五项」由调用方链几步决定，而不是靠字符串列表拼。文本一律由纯函数 `util/view/ShareTexts.kt` 拼（链接 + 60 字截断 + 空作者名省略），页面里不要自己拼 `https://...`。组件内部走 `TerminalDialog.menu` 并自己 `.show()`；**连 `import androidx.appcompat.app.AlertDialog` 都不许出现**，`ConventionGuardTest` 会扫 `src/main/java` 全量（26.11.23 就是这么红的，`Panel.show()` 只能返回 `Unit`）。
+- **「分享至动态」只有一条发布链路**：页面把一张 `model/RepostCard.java` 塞进 `TerminalContext.setForwardContent()` 再起 `SendDynamicActivity`，发布页看到 RepostCard 就画引用卡、隐藏图片/定时/可见范围、自己调 `DynamicApi.relayGeneric(text, atUid, dynType, rid, ...)`。dyn_type 映射集中在 `util/ForwardTargets.kt`（视频 8 / 收藏夹 4300 / 番剧按 info.type → 4097·4098·4101·4100·4099），映射不出来就**整项不显示**。
+- **结果码：转发成功是 `RESULT_FIRST_USER`（1），不是 `RESULT_OK`**。`VideoInfoFragment.relayToDynamic` 与 `DynamicActivity.getRelayDynamicLauncher` 见到 `RESULT_OK` 会拿返回的 `text` 再发一条普通动态——番剧页 / 收藏夹页如果认错码，用户点一次转发会得到两条动态。新加转发入口的页面：要么不接结果（发布页自己提示并关闭），要么只认 `RESULT_FIRST_USER`。
+- **共用的列表布局里加顶栏按钮，必须在代码里开**：`activity_simple_refresh.xml` 被设置/历史/下载/关注等大量页面共用，收藏夹的 `btn_share` 在 XML 里默认 `android:visibility="gone"`，由 `setupShareButton()` 运行时置 `VISIBLE`，**同时把 `pageName` 的 `toStartOf/toLeftOf` 从 `timeText` 改指到新按钮**。若在 XML 里就让 `pageName` 指向一个 GONE 的锚点，锚点宽度为 0，别的页面标题会被拽到时钟底下。按钮自身要吃掉点击与长按（`setOnLongClickListener { true }`），否则会连带触发顶栏的「退出」与「长按回菜单」。
+- **图标按钮用 `app:srcCompat`**：`icon_share` 是 `<vector>`，写 `android:src` 在 API<21 会抛 `Resources$NotFoundException: invalid drawable tag vector`，`VectorDrawableCompatTest` 会拦下（26.11.23 直播/专栏那轮踩过）。
 
 ## 8. UI 基建速查（新增页面临摹用）
 
@@ -1843,6 +1881,7 @@ setOnLoadMoreListener { page -> load(page) } // 4. page 已由基类自增，别
   **不放写入**——写入一律走门面，这样「递增版本号」不会漏。
 - **门面**只做「汇总快照 + 唯一写入 + 版本号」，**绝不做几何计算**（手表性能优先）。
 - **半透明底的组件一律 `elevation=0`**：底色不透明时阴影只是外面的暗晕，底色半透明时阴影会从底**下面**透出来——暗色底下看不出来，亮色纸底上就是沿轮廓一圈「比底色亮的脏边」。玻璃主题（`ButtonStyleTerminal.Glass` 等）从一开始就这么写；主主题的 `ButtonStyleTerminal` 26.10.30 也补上了（见 `docs/review/fix-progress.md` §3.82）。
+- **卡片（`CardStyle` / `CardStyleLight` / 各主题的 `CardStyle<X>`）26.11.23 起一律 `cardElevation=0`，层次只靠 1dp `strokeWidth`**：圆屏列表效果（`RoundListEffect.kt`）每帧改条目 `scaleX/scaleY`，抬高过的卡片会让 hwui 逐帧按轮廓重算阴影，用户看到的就是「文字下面有条阴影在跳」（反馈 #273）。描边是静态的、不参与重算。新增主题 / 新 cell 也照此写，别再给卡片加 elevation。
 
 **版本号机制**：`AppearanceManager.version()` 是一个存在 SharedPreferences 的 Int，
 任何外观写入都 +1。Activity 只需记住自己创建时的版本号、`onResume` 比一次，
@@ -2121,7 +2160,7 @@ TTF/OTF/TTC，应用把它**拷进私有目录**（`filesDir/custom_font/custom_
 | `BangumiIndexApi.kt` | 番剧索引 / 推荐 / 动态筛选条件（26.11.07 新增） | `getCondition`/`parseCondition`（排序项 + 9 组筛选项，接口下发）、`getIndex`/`parseIndex`（`pgc/season/index/result`，返回 `hasNext` 与卡片）、`defaultFilters` |
 | `TimelineApi` | 番剧时间表 | `getTimeline` |
 | `TopicApi` | 话题广场 / 话题下动态列表（26.10.04 批次 6 的 C10） | `getRecommendedTopics`、`searchTopics`、`parseTopics`、`getTopicDynamicList` |
-| `NoteApi` | 视频笔记（只读，26.10.04 批次 6 的 C27） | `getNoteIdsOfVideo`、`getNoteInfo`、`parseBlocks`、`parseNoteDetail` |
+| `NoteApi` | 视频笔记（26.10.04 批次 6 的 C27 起步，26.11.23 加公开笔记） | `getNoteIdsOfVideo`、`getNoteInfo`、`getPublicNoteList`、`getPublicNoteInfo`、`parseBlocks`、`parseNoteDetail`、`parseNoteSummaries`、`hasMore`、`buildContent`、`normalizeImageUrl` |
 
 ### 用户与社交
 

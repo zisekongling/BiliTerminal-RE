@@ -1125,7 +1125,10 @@ public class NetWorkUtil {
     /** 预览请求体；multipart/文件体与超大请求体一律跳过（读了也没用，还可能很贵）。 */
     private static String previewRequestBody(Request request) {
         RequestBody body = request.body();
-        if (body == null || body.isDuplex() || body.isOneShot()) return null;
+        // OkHttp 3.12 的 RequestBody 没有 isDuplex() / isOneShot()：duplex upgrade 与 one-shot 请求体
+        // 都是 4.x 才有的概念（3.x 的 Body 只有 contentLength / contentType / writeTo）。为恢复 Android 4.4
+        // 降到 3.12.13 后这两项判断没了对应 API，挡「读不起的体」只剩下面的长度上限与 multipart 判断。
+        if (body == null) return null;
         try {
             long length = body.contentLength();
             if (length <= 0 || length > HTTP_TRACE_MAX_BODY) return null;

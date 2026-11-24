@@ -25,7 +25,7 @@
     - `e9f71d4b` `fix(player)`：① `applyCoverTint()` 的匿名 `CustomTarget` 没保存引用，而 `Glide.with(applicationContext)` 的 RequestManager 是**进程级**、不随 Activity 销毁清理，于是页面销毁后回调仍会跑、bitmap 早已被复用池回收 → `Cannot recycle a resource while it is still acquired`（A 类 4 条堆栈全落在 BitmapPool 归还路径，跨 26.11.02/26.11.16/26.11.17-beta.2 三个版本、机型与 SDK 各异）。改为字段持有 + 复用前 clear + `onDestroy` 里 `Glide.with(applicationContext).clear(...)`。② REPEAT_ONE 与单曲循环两条重播分支裸 `seekTo(0)`，没走 `markSeekTarget` → `video_now` 停在片尾、`progressChange` 的回跳守卫记下一次假「播放位置回跳」（反馈 #297 日志原文 `播放位置回跳>从 14798ms 退到 0ms`），弹幕也仍按片尾对轴；补 `markSeekTarget(0L)`（「播完重播」路径本来就有）。
     - `b88d1e2c` `fix(image)`：占位图共享缓存。根因不是「某张图太大」——Glide 的 `placeholder(int)` / `error(int)` 在 `SingleRequest` 构建时用 `Context.getDrawable` **现解**一份 Drawable，而每次 bind 都新建 RequestOptions，等于**每帧重新 decode 一遍 256×256**；Resources 的 drawable cache 在低内存下会被 `onTrimMemory` 整个清空，恰恰在内存最紧时失效（#401 的分配量 262156 B = 256×256×4 + Bitmap 头）。新增 `GlideUtil.placeholderDrawable(context, resId)` 缓存 `ConstantState`（位图只 decode 一次，派生后 `mutate()` 防多 View 共用状态打架），三个 `request*` 门面 + 12 处直接链式调用一并切换；`UserListAdapter` 的静态 `AVATAR_OPTIONS` 里移出 placeholder/error（静态常量拿不到 Context，且共享 Drawable 实例会打架）。
     - `5f1ce90c` `fix(history)`：csrf 为空时提前 return。原来是打一条 e 级日志后照样发请求，服务端必回 -111/-400，播放页每十几秒调一次 → 日志刷屏；日志一并降到 v 级。
-    - `3140a985` `fix(ui)`：`manageBar` 三格从 `touch_min`（48dp）+ 13sp 对齐到 `segmented_bar_min`（40dp）+ `text_body`，并钉死 `maxLines=1` + `ellipsize=end`（反馈 #265「多选后操作栏明显变大、挡视线」；窄格里换行还会把条再撑高一倍）。
+    - `3140a985` `fix(ui)`：`manageBar` 三格从 `touch_min`（48dp）+ 13sp 收窄（反馈 #265「多选后操作栏明显变大、挡视线」）。**26.11.24 同步上游时与 `d4ac0366` / `a0cdaba5` 撞在同一批属性上，最终取上游**——上游为这类操作栏专门定义了 `action_bar_min_height` / `action_bar_padding_v` / `action_bar_text`（默认 34dp / 11sp / 2dp，`values-w200dp` 下 48dp / 13sp / 4dp），比本地直接复用 `segmented_bar_min` 更精准。本地只保留 `maxLines=1` + `ellipsize=end` 这层防折行保险。
   - **验证**：L0——两 flavor 单测 614 套件 / 6518 用例 0 失败；`assembleDebug` 双 flavor 通过；layout 已确认重新打包进 APK（`packaged_res` 产物时间戳与源文件一致）。崩溃/反馈 ID 逐条核对过（代码注释与提交信息里引用的 #401、#402/#403/#409/#411、#297、#265 均与实际记录一致）。
   - **L1 实测（26.11.24 MuMu 12，x86_64 / Android 15 / 2160×3840 手机形态，Debug 包游客模式）**：
     - **A 类 Glide 崩溃未复现**：连进连出播放页 8 次（`PlayerActivity` 相关日志 125 行、IJK 多次 `VIDEO_RENDERING_START`），`logcat` 里 `Cannot recycle` / `OutOfMemory` / Glide E 级异常 **0 条**；`dumpsys meminfo` 前后对比 Native Heap 89390→77454 KB、TOTAL PSS 228369→218198 KB，**净降约 10 MB**——说明 `onDestroy` 里 clear 掉的 target 确实把位图还给了复用池、不再累积。这是比「没崩」更硬的正向证据。
@@ -33,8 +33,236 @@
     - **占位图改动无异常**：浏览推荐 / 详情 / 播放全程 0 条 Glide 异常，12 处换过的头像占位正常。
     - **未登录上报路径**：日志出现 `进度上报>跳过：未登录（mid=0）`，说明 `PlayerActivity.canReportProgress()` 在上层就拦住了；该条 E 级日志由 `notLoggedInWarned` 保证**每播放页只打一次**，是有意降噪、不是刷屏。
     - **csrf 改动这次没被执行到**：正因为在 `canReportProgress` 就被拦下，`HistoryApi.reportHistory` 根本没被调用——要触发它需要「已登录但 csrf 丢失」的半死登录态，模拟器造不出来。
-  - **未验证（L2 / 待人工）**：① A 类崩溃仍需真机（尤其 sdk 25–30 小内存手表）确认——MuMu 是 x86 + Android 15 + 大内存，本身不是该崩溃的复现环境，「没崩」的证据力有限；② OOM 需 sdk 25 小内存设备；③ 重播不再误报「位置回跳」——该视频 16:38，播完才会进 REPEAT_ONE 分支，本轮没测到；④ 多选条新行高需人眼确认（未登录 + 无缓存，`manageBar` 不可见）；⑤ csrf 提前 return 需构造半死登录态。
-  - **口径**：#261（直播锁定按钮压在弹幕输入框上）已在 26.11.21 用 `layout_card_bg.bringToFront()` 修过，注释直指该反馈，本轮未再动；表冠相关（#300/#279/#296/#273）按用户要求整批跳过；#276（弹幕过多变模糊/卡顿）与 #288/#284（圆屏评论区缩放）缺少可判定证据，需真机复现后再动。
+  - **未验证（L2 / 待人工）**：① A 类崩溃仍需真机（尤其 sdk 25–30 小内存手表）确认——MuMu 是 x86 + Android 15 + 大内存，本身不是该崩溃的复现环境，「没崩」的证据力有限；② OOM 需 sdk 25 小内存设备；③ 重播不再误报「位置回跳」——该视频 16:38，播完才会进 REPEAT_ONE 分支，本轮没测到；④ 多选条行高已交给上游的 `action_bar_*`（本地只补了防折行），小屏手表上的实际观感仍需人眼确认，且 MuMu 是 360dp 宽、命中的是 w200dp 档，本来就看不到这条的变化；⑤ csrf 提前 return 需构造半死登录态。
+  - **口径**：#261（直播锁定按钮压在弹幕输入框上）已在 26.11.21 用 `layout_card_bg.bringToFront()` 修过，注释直指该反馈，本轮未再动；表冠相关（#300/#279/#296/#273）按用户要求整批跳过。**26.11.24 同步上游后确认：本轮读到的反馈里有相当一批已由上游修掉**——#265（`a0cdaba5` + `d4ac0366`）、#282/#280（`3f9280b9` / `18e1a1ba`）、#177（`b7656275`）、#236（`15372b4a`）、#281（`39fe2573`）、#276/#275（`ca65a299`）、#267（`9d2afbc0`）、#268（`711954b4`）、#271（`c74768af`）、#279（`b3cd4b9e`），这些不再需要本地重复修；仍缺可判定证据的是 #288/#284（圆屏评论区缩放）。
+- **26.11.23 安卓 5.1 打开缓存页崩溃：MediaMuxer 不支持 B 帧，API <25 跳过重封装**：
+  - **来路**：26.11.23-DIAG 诊断包在 ZTE Q529C / Android 5.1（SDK 22）上复现两次：进入缓存页后 `REPAIR-START index=1/29`，依次经过 `extractor / tracks / muxer / muxer-start / write` 五个阶段，随后进程直接消失；没有 `REPAIR-END`，应用日志也没有 Java 异常，属 native 层崩溃。
+  - **根因**：Android 官方文档写明 `MediaMuxer` 从 **Android 7.1（API 25，Nougat MR1）** 起才支持 muxing B-frames in MP4。B 站 1080P DASH 的 H.264 带 B 帧，API 22 上第一次 `writeSampleData` 就会在 native 层触发 SIGSEGV / abort；Java 的 `try-catch` 接不住，崩溃页也来不及写 `REPAIR-END`。
+  - **改法**：新增 `app/src/main/java/com/RobinNotBad/BiliClient/util/MediaMuxerSupport.kt`（纯函数 `supportsBFrameMuxing(sdkInt)`，阈值 `MIN_SDK_B_FRAME_MUXING = 25`）；`app/src/main/java/com/RobinNotBad/BiliClient/util/MediaMerger.kt` 的 `mergeAv` 在 API <25 直接返回 `RESULT_FAILED`（同时保护下载侧 `DownloadService.mergeDashPair`）；`app/src/main/java/com/RobinNotBad/BiliClient/util/CacheAudioRepair.kt` 的 `enqueueAll` 在 API <25 直接跳过，避免缓存页把 29 个必崩任务排进队列。双文件保留，播放器仍按外挂音轨播放（1 倍速），**不再崩溃**。
+  - **L0（26.11.23 本机）**：`:app:testStandardDebugUnitTest :app:assembleStandardDebug -PdiagLog=true --no-configuration-cache` → BUILD SUCCESSFUL（1m47s，93 tasks）；新增 `MediaMuxerSupportTest` **2/2**（API 24 及以下 false、API 25 起 true），`LogFileRotationTest` **5/5**；APK 仍是 `com.RobinNotBad.BiliClient` / `26.11.23-DIAG` / release 证书 v1+v2，`classes2.dex` 含 `MediaMuxerSupport` 与 `REPAIR-START`。
+  - **未验证（L1/L2，需真机）**：重装 v3 后打开缓存页，确认不再瞬间回到桌面；`Download/rebili-full.log` 应出现「跳过缓存重封装：Android 7.1（API 25）以下 MediaMuxer 不支持 B 帧」，且不再出现 `REPAIR-START`；原有双文件条目仍能正常播放（外挂音轨、1 倍速）。
+  - **代价**：Android 7.1 以下不再自动把双文件合成单文件，这类设备继续保留双文件；这是平台 `MediaMuxer` 的硬限制，不是本轮能靠重排时间戳绕过的（官方明确 API 25 才支持 B 帧）。
+- **26.11.23 新增单会话「聊天设置」页（对齐 PiliPlus 的会话级治理，批次②-2）**：
+  - **来路**：批次②-1 之后还差一块——PiliPlus 有单会话的 `whisper_link_setting`（推送开关 / 置顶 / 免打扰 / 拉黑 / 举报），我们只能在长按菜单里开关置顶与免打扰，其余全无。用户拍板五项：接收消息推送、置顶聊天、消息免打扰、拦截此会话消息、拉黑对方，入口放会话长按菜单。
+  - **改法**：
+    - 新建 `activity/message/ChatSettingsActivity.kt`：复用 `R.layout.activity_simple_refresh` + `MessageSettingsAdapter`（**不新增布局**），进页面先拉 `get_session_ss`，按 `show_push_setting` 决定渲不渲染「接收消息推送」，其余四项恒显示；写入统一走 `applyChange(key, action, onOk)`——失败必须 `revert(key)` 把开关拨回去（适配器在开关回调里已先改了 `item.value`），再弹 `sessionErrorMsg(code)`；改成功一次就 `setResult(RESULT_OK)`，会话列表返回时重拉。
+    - `api/PrivateMsgApi.java`：`link_setting/get_session_ss` 与 `set_push_ss`（`push_setting` 0 接收 / 1 不接收，**只支持用户会话**，参数是 `talker_uid`、没有 `session_type`），纯函数 `buildSessionSsUrl` / `pushSettingFor` / `parseSessionSs`；`session_svr/update_intercept`（只吃 `talker_id` + `status`）封装成 `updateIntercept` + `statusForIntercept`。
+    - `api/UserInfoApi.java`：拉黑走 `x/relation/modify`，新增 `relationModify(mid, act, reSrc)` 与 `RELATION_ACT_BLOCK=5` / `RELATION_ACT_UNBLOCK=6` / `RELATION_RE_SRC_IM=11`；**拉黑会同时解除关注**，所以界面先弹确认框再发请求。
+    - `adapter/message/PrivateMsgSessionsAdapter.kt`：长按菜单在「删除会话」前插「聊天设置」（仅用户会话，粉丝团没有推送 / 置顶这些接口）；`MessageActivity.kt` 用 `chatSettingsLauncher` 接返回码重拉列表（构造参数 `onOpenChatSettings`）。
+    - `AndroidManifest.xml` 新增 `ChatSettingsActivity`（`exported="false"` + `screenOrientation="locked"`），并在 `app/src/debug/AndroidManifest.xml` 同步登记 DUMP 开放；文案 `uitext_chatsettingsactivity_001..012` 进 `strings.xml` 与 `util/UiText.kt`。
+  - **验证**：L0——`:app:assembleStandardDebug` 与 `:app:testStandardDebugUnitTest` 通过，314 份报告 / 3382 用例 / 0 失败 0 错误；`PrivateMsgApiTest` 新增 4 例（`pushSettingFor` 口径、`buildSessionSsUrl` 参数且不带 `session_type`、`parseSessionSs` 两条分支），`UserInfoApiTest` 新增 1 例（拉黑 5 / 解除 6 + `re_src=11`）。**第一次跑挂了一条**：`DebugActivityExportTest` 要求主清单里每个非导出页面都在 debug 清单里挂 DUMP 开放，新页面漏登记当场红——已补。接口口径写进 `docs/architecture-map.md` §7.13。
+  - **未做**：「举报」（PiliPlus 有 `im_msg_report`，属批次③私有功能）；拉黑后的「被拦截」列表视图（`session_type=5`）没有入口，所以「拦截此会话消息」目前是**只写不读**的开关；`get_session_ss` 的 `special`（特别关注）没进 UI。
+  - **未验证（L2，需人工看画面 / 真号）**：①长按用户会话菜单里「聊天设置」的位置（在删除会话之前）与点进去后五个开关在 300×300 方屏上挤不挤；②`show_push_setting` 为 0 的账号是否真的不显示「接收消息推送」；③关掉推送后对方再发消息是否确实不弹通知（需真号）；④拉黑确认框点取消是否不发请求、点确定后对方是否真的发不出私信；⑤拦截开关打开后对方消息是否进「被拦截」列表（我们侧没有该列表入口）。
+
+- **26.11.23 打通粉丝团私信、会话项「标为已读」（对齐 PiliPlus 的消息治理层，批次②-1）**：
+  - **来路**：批次①之后继续对齐 PiliPlus，发现两处硬伤。①**应援团 / 官方群私信一条都拉不到**：`api/PrivateMsgApi.java` 把 `SESSION_TYPE_USER`(=1) 当 `get_sessions` 的参数写死，而请求侧要的是 **3**（粉丝团），接口不报错、只是永远空；`fetch_session_msgs` 与 `update_ack` 同理。②**会话项没有「标为已读」**：PiliPlus 长按菜单里有，我们只能点进去再退出才清未读。用户拍板：应援团**有未读才混排进主列表**、入口放**会话长按菜单**。
+  - **改法**：
+    - `api/PrivateMsgApi.java`：新增 `LIST_TYPE_USER=1` / `LIST_TYPE_FAN_GROUP=3`（请求参数枚举），与现有的 `SESSION_TYPE_USER=1` / `SESSION_TYPE_FAN_GROUP=2`（会话对象枚举）分开放，注释写明两者不是一套值；`getSessionsPage(size,endTs,listType)` 与 `getPrivateMsg(talkerId,sessionType,size,begin,end)` 各自带值，URL 由纯函数 `buildSessionsUrl` / `buildFetchMsgsUrl` 拼（旧两参重载保留转调）。`parseSession` 补 `session_type` / `group_name` / `group_cover` / `group_type` / `setting` / `is_intercept` / `ack_seqno`。
+    - `model/PrivateMsgSession.java`：新增上述字段 + `isFanGroup()` / `isPushOn()` / `sessionName()`。
+    - `activity/message/MessageActivity.kt`：`loadSessions()` 在第一页额外拉一次粉丝团列表、`filter { unreadTotal() > 0 }` 后并进主列表再统一 `SessionSorter.sort`（失败只 `Logu.w`）；拼 `uids` 时**跳过粉丝团会话**——它的 `talker_id` 是粉丝团 id 不是 mid，塞进去会让整个 `user/cards` 批量失败、连累正常会话的昵称头像。翻页不重复拉（有未读的群必在第一页）。
+    - `activity/message/PrivateMsgActivity.kt`：新增 `EXTRA_SESSION_TYPE` / `EXTRA_SESSION_NAME`，四处 `getPrivateMsg` 与 `ackTo` 都带 `sessionType`；粉丝团会话只读（隐藏写私信按钮）但**仍要 ack**，也不弹「私信可能被拦截」提示（那只针对用户会话）。
+    - `adapter/message/PrivateMsgSessionsAdapter.kt`：名字/头像三分支（系统→`accountName`/`accountAvatar`，粉丝团→`groupName`/`groupCover`，否则查 `user/cards`）；长按菜单改成**先拼 labels+actions 再按位 invoke**（原来 `when(0/1/2/else)` 按下标硬编码，条目数量随场景变化就会错位），粉丝团只给「标为已读 / 删除会话」；新增 `markSessionRead()`——`update_ack` 传会话的 `max_seqno`（缺失退回 `ack_seqno`），成功后本地清零 + `notifyItemChanged`。
+    - 文案进 `strings.xml`（`uitext_privatemsgsessionsadapter_017`..`_020`：标为已读 / 已标为已读 / 这条会话没有可标记的消息 / 应援团）并登记 `util/UiText.kt`。
+  - **验证**：L0——`:app:assembleStandardDebug` 与 `:app:testStandardDebugUnitTest` 通过；`api/PrivateMsgApiTest.kt` 新增 8 例（两个 URL 构造函数按枚举取值、粉丝团字段解析、`ack_seqno`、`statusForIntercept` 口径），单测全绿。接口口径（`session_type` 请求枚举 vs 会话对象枚举）已写进 `docs/architecture-map.md` §7.13。
+  - **未做**：粉丝团会话的**翻页**（主列表翻页仍只拉用户会话）；粉丝团消息里的「@我」提示（`at_seqno` 已解析但没渲染）；`session_type=2/8/9` 等其余列表类型（未关注人折叠、陌生人等）。
+  - **未验证（L2，需人工看画面）**：①有未读的应援团是否真的混排进主列表、昵称显示群名、头像显示群封面；②长按应援团会话菜单是否只有两项、点「标为已读」后角标是否立刻消失；③长按用户会话菜单五项（置顶 / 免打扰 / 标为已读 / 删除 / 主页）顺序与 danger 标色是否正常，且无未读时不出现「标为已读」；④粉丝团会话里能否正常看历史消息、**不**出现写私信按钮与拦截提示。
+
+- **26.11.23 低分辨率手表（180×180dp）列表操作底栏 48dp→34dp、13sp→11sp**：
+  - **来路**：用户附三张 360×361px 真机截图（缓存页「多选/排序/搜索」、多选提示、「全选/操作/退出」），要求「优化低分辨率手表所有底栏显示的高度和布局」。实测那台机把窗口压到 360×361px @320dpi，即 **180×180.5dp**；底栏按钮是 `minHeight=@dimen/touch_min`(48dp) + 13sp，一条底栏就吃掉 96px（屏高 27%），列表区只剩 211px。拍板口径：只做**列表类操作条**、按屏宽**分档**不动全局观感、深度 **48→34dp / 13→11sp**。
+  - **改法**：
+    - `res/values/dimens.xml` 新增 4 个专用 token，**基础档即窄屏档**：`action_bar_min_height=34dp`、`action_bar_text=11sp`、`action_bar_padding_v=2dp`、`action_bar_item_padding_h=6dp`。
+    - 新建 `res/values-w200dp/dimens.xml`，同 4 个 token 恢复 `48dp / 13sp / 4dp / 12dp`——**≥200dp 宽（300×300 方屏、圆屏、手机）观感与从前一字不差**，只有比 200dp 还窄的机器走矮档。
+    - `layout/activity_simple_main_refresh.xml` 的 `multiSelectBar` 8 个 TextView（缓存页 多选/排序/搜索、多选态 已选 N 项/全选/操作/退出）换 token；「已选 N 项」的 `app:autoSizeMaxTextSize` 也跟 `action_bar_text`（下限仍 9sp）。
+    - `layout/activity_simple_refresh.xml` 的 `manageBar`（下载列表 / 收藏夹管理条）、`groupBar`、`subBar` 换同一批 token——它们是同一族列表操作条，只改 `multiSelectBar` 会出现同页高低不一。**groupBar / subBar 不在用户截图里，属扩围，已在交接单单列备否决。**
+    - **没动 `touch_min`**：它在 `activity_player.xml` 等约 30 处当点按热区，改它等于改播放器手感。
+  - **验证**：L1（emulator-5554，`wm size 360x361` + `wm density 320` 复刻真机）——缓存页 `multiSelectBar` 由 `@0,265 360x96` → **`@0,293 360x68`**（68px = 34dp），列表区 211px → 239px；多选态四格同为 68px，「已选 0 项」从被挤成 36px 宽恢复到 132px；恢复 466×466（233dp，落 `w200dp`）后底栏回到 96px、排序按钮 100px 宽，证明大屏档没被动；滚动收起动画（`LocalListActivity` 用 `measuredHeight` 取高，无写死 dp）仍按新高度整体收起。L0——`:app:assembleDebug`（standard + coexist）与 `:app:testStandardDebugUnitTest` 通过，289 份报告 / 3097 例 / 0 失败 0 错误。
+  - **未做**：`activity_bangumi_cache.xml` 的 `cache_bottom_bar` 与 `download_bottom_bar.xml`（番剧缓存 / 下载进度，是进度条 + 文字另一种底栏，不属「列表操作条」）；播放器底栏；`manageBar` 要用真数据才有条目，只用同一批 token 改、没在设备上量到实际高度。
+  - **未验证（L2，需人工在真表看）**：①180dp 机上 11sp 三字一行是否仍清楚、34dp（≈68px）热区戴手套 / 湿手按得准不准；②`MsgUtil.showMsg` 的多选提示（`点条目勾选，再点「操作」`，`util/MsgUtil.java:195` 固定 13sp、窄屏折两行）仍会盖住底栏上半部分——**原有行为，本轮没动**；③窄屏 `groupBar` / `subBar`（子文件夹页）的实际观感。
+
+- **26.11.23 私信会话去掉 15 秒轮询、补上会话免打扰（对齐 PiliPlus 的消息治理层，批次①）**：
+  - **来路**：用户要求对比父目录 PiliPlus 的消息能力并「全量补全，不影响手表性能」。逐页比对后确认主链（四类通知入口 / 会话列表 / 会话详情 / 发送 / 撤回 / 已读回执）与 PiliPlus 同级，差的是会话治理层。批次①先做最伤手表体验的两件：会话详情页那个 15 秒一跳的 `Timer`（切后台还在跑、断网反复重试）与会话免打扰（PiliPlus 长按菜单里有，我们完全没做，`is_dnd` 解析出来就丢）。
+  - **改法**：
+    - `activity/message/PrivateMsgActivity.kt`：删 `refreshTimer` 与 `schedule(..., 15000, 15000)`；`refresh(manual: Boolean = false)` 改成——空表走首页全量重拉，有表按最后一条 `msgSeqno` 增量拉；每次拉到新消息后调新增的 `ackTo(seqno)` 补已读（原实现只在进页面 ack 一次，停留期间收到的新消息一直不标已读，退出再进才清）。
+    - ack 的 seqno 取刚拉到那批数据的**局部变量**，不读 `list`：`list` 是在 `runOnUiThread` 里异步填的，IO 线程读它会空表或越界。
+    - 顶栏新增 `refresh_btn`（`res/layout/activity_private_msg.xml`）做手动刷新；没套 `SwipeRefreshLayout`——列表是 `stackFromEnd`，滑到顶本身就是「加载更早历史」，再叠下拉会同时触发方向相反的两个请求。
+    - `model/PrivateMsgSession.java` 加 `dnd` / `isDnd()`；`api/PrivateMsgApi.java` 的 `parseSession` 读 `is_dnd`（0/1），新增 `setMsgDnd(ownUid, talkerUid, dnd)`（`link_setting/set_msg_dnd`，`uid` 填自己 mid、`dnd_uid` 填对方 mid）与纯函数 `settingForDnd` / `parseDndCode`。
+    - `adapter/message/PrivateMsgSessionsAdapter.kt`：长按菜单从三项扩到四项（置顶 / 取消置顶、消息免打扰 / 取消免打扰、删除会话、查看用户主页），开关失败按 `sessionErrorMsg(code)` 提示并保持原状态；开启后名字后面缀 `[免打扰]`，与既有的置顶前缀在同一处拼装。
+    - 文案全部进 `strings.xml`（`uitext_privatemsgsessionsadapter_012..016`、`uitext_privatemsgactivity_008/009`）并在 `util/UiText.kt` 登记。
+  - **验证**：L0——`:app:assembleStandardDebug` `BUILD SUCCESSFUL in 5m 14s`（零 error，只剩既有 deprecation 告警）；`:app:testStandardDebugUnitTest` `BUILD SUCCESSFUL in 1m 16s`，314 份报告 / 3368 例 / 0 失败 0 错误；`PrivateMsgApiTest` 43 例（本轮新增 5 例：`settingForDnd` 的 1/0 口径、`parseDndCode` 的正常 / 缺 code / 非 JSON 与空值、`parseSessionsList` 的 `is_dnd`）。
+  - **未做**：批次②（会话项「标为已读」、单会话「聊天设置」页——推送开关 `get_session_ss`/`set_push_ss`、置顶、免打扰、拦截 `update_intercept`、应援团会话按 `session_type=3` 并入列表并修两个空转开关）与批次③（举报单条私信、通知类消息删除与免打扰、赞详情、消息屏蔽词，均走 `private/`）本轮未动；折叠会话按用户拍板不做。
+  - **未验证（L2，需人工看画面）**：①真表点顶栏刷新按钮，确认能拉回新消息并滚到底、没有新消息时提示「已是最新消息」；②长按会话出现四项菜单，切换免打扰后名字后缀 `[免打扰]` 即时出现 / 消失，退出重进仍保持；③停在一个会话里让对方发消息，确认不再有 15 秒一次的自动刷新与「秒弹」，且返回会话列表时未读数已清；④免打扰会话来新消息时是否仍弹通知（服务端是否已按 dnd 拦下，需真号验证）。
+
+- **26.11.23 OkHttp 4.12.0 降回 3.12.13，minSdk 21 → 19（恢复 Android 4.4）**：
+  - **来路**：issue #35（Android 4.4 设备一联网就 `NoClassDefFoundError: okhttp3/internal/platform/Platform`）。26.10.30 把 okhttp 写成 4.12.0、26.11.10 把 minSdk 下调到 19，两者叠在一起等于**从来没有一个版本在 4.4 上真跑通过**；26.11.21 先把 minSdk 暂回 21 止血，本轮按既定计划改回 4.4。
+  - **改法**：
+    - `app/build.gradle`：`okhttp 4.12.0 → 3.12.13`（3.x 最后一版，也是官方说明里仍支持 Android 4.x 的最后一条线），显式钉 `okio 1.15.0`（3.12.13 的传递依赖，okio 3 与 1.x 元数据不兼容）；`minSdk 19`；注释写清 4.x 的 `AndroidPlatform.<clinit>` 在 `SDK_INT < 21` 时主动抛 `IllegalStateException` 的死路，以及 3.12.x 已 EOL 的代价。
+    - Kotlin 侧 4.x 属性写法 → 3.x 方法调用，**共 75 处 / 19 个文件**（`body` 34、`code` 32、`url` 9），全部按编译器 `Cannot access '...field X': it is package-private in 'okhttp3/...'` 报的精确行列机械改写（`.code` → `.code()`、`.body` → `.body()`、模板串里 `${response.code()}`）。
+    - 3 处 4.x 专属扩展函数改成 3.x 静态工厂：`util/UpdateManager.kt`、`debug/DebugBridge.kt` 的 `toRequestBody` / `toMediaType` → `RequestBody.create(MediaType.parse(...), ...)`（Java 侧本来就是这种写法，未动）。
+    - okio 1.15 的 `ByteString` 没有 `get` 操作符：`activity/player/PlayerDanmuClientListener.kt` 三处 `bytes[i]` → `bytes.getByte(i)`。
+    - Java 侧两处用到 4.x 独占 API（早先「Java 零改动」的判断是错的）：`util/NetWorkUtil.java` 的 `previewRequestBody()` 去掉 `body.isDuplex() || body.isOneShot()`（3.12 没有这两个概念，长度上限 + multipart 判断仍在）；`api/ReplyTranslateApi.java` 删掉 `checkGrpcErrorFromTrailers()` 及其调用（3.12 没有 `Response.trailers()`，纯 trailers 里的 `grpc-status` 现在抓不到；HTTP/1.1 与 trailers-only 的业务错误仍由 `checkGrpcError(response.header(...))` 覆盖）。
+    - 私有侧（`private/src/main/java/com/RobinNotBad/BiliClient/feature/`，单独提交到私有仓）6 个文件同批改写：`BgmApi.kt`、`DandanApi.kt`、`GameAuthApi.kt`、`HlsAdFilter.kt`、`PlayableProbe.kt`、`ThirdPartyHttp.kt`（4.x 属性 + 两处 `toMediaType` / `toRequestBody`）。不装 `private/` 时公开仓仍能独立编译。
+  - **验证**：L0——`:app:assembleDebug`（standard + coexist）+ `:app:testStandardDebugUnitTest` 在同一棵树上通过（`BUILD SUCCESSFUL in 1m 46s`），单测 314 份报告 / 3363 例 / 0 失败 0 错误。Kotlin 编译错误从 89 条降到 0。
+  - **未做**：`appcompat 1.6.1` / `fragment-ktx 1.6.2` 继续钉在低版本（1.7.0 / 1.8.0 的 AAR 自身 minSdkVersion 是 21，升上去就没法留 4.4）；`multiDexEnabled` 与 `MultiDex.install()` 原样保留；没有回退任何 UI 或业务行为。
+  - **未验证（L2 / 真机）**：①**Android 4.4 上的 TLS 1.2 握手**——OkHttp 3.12 在 API < 21 靠反射启用 TLS 1.2，老 ROM 的 Provider 名不同会直接握手失败，这是本轮最大风险点；②4.4 首次启动的**多 dex 装载**耗时与 ANR 风险；③联网全链路（首页 / 播放 / 下载续传 / 直播 / 弹幕 / 翻译 gRPC）在 4.4 与 5.x 上的实际表现；④4.3 及以下仍不支持，4.4 以下用户请继续用旧版本。
+
+- **26.11.19 debug 包改用正式签名（26.11.23 补记）**：
+  - **来路**：真机联调时设备上装着正式版，debug 包签名不同，`adb install -r` 报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`，只能卸载重装、登录态全丢。
+  - **改法**：`app/build.gradle` 的 `buildTypes.debug` 加一行 `signingConfig signingConfigs.release.storeFile != null ? signingConfigs.release : signingConfigs.debug`。`signingConfigs.release` 只有在 `local.properties` 里配了 `KEY_PATH` 时才拿到 `storeFile`，于是口径就是 **有正式 keystore 就共用正式签名，没有就退回默认 debug 签名**（26.11.23 由用户确认）。公开仓库不带 `local.properties`，仍能独立编译，不影响 CI 的 unsigned 冒烟与别人 clone 后构建。
+  - **验证**：L0——`:app:assembleDebug` 两个 flavor 均通过（本机 `local.properties` 配了 `KEY_PATH`，走的是正式签名那支）。
+  - **未验证（L2，需人工）**：真表上把 debug 包 `adb install -r` 覆盖已装的正式版，确认**不报 INSTALL_FAILED_UPDATE_INCOMPATIBLE、登录态还在、能正常启动**；另核一次 `apksigner verify --print-certs` 两边证书指纹一致。
+  - **备注**：这条改动当时和「minSdk 回 21」混在同一个提交（`dcdd048f`）里推到 main，一直没进文档；补记在此，不再拆历史。
+
+- **26.11.23 转发面板按 PiliPlus 铺开到六个页面（视频 / 番剧 / 动态卡片 / 直播 / 专栏 / 收藏夹）**：
+  - **来路**：用户要求「转发面板拓展出这四种功能」，并附了 PiliPlus 视频页的分享面板截图（复制链接 / 其它app打开 / 分享视频 / 分享至动态 / 分享至消息）。拍板口径：条目照 PiliPlus 五项；范围铺到视频详情（UGC+PGC）、动态卡片、直播、专栏、收藏夹详情；「其它app打开」「分享视频」先探测有无可用目标，没有就提示并复制链接兜底；直播与专栏只做四项、收藏夹只做四项，**没把握的项直接不显示，不摆占位项**。
+  - **改法**：
+    - 新增共享组件 `util/ShareSheet.kt`（链式面板 `panel(ctx).copyLink(url).openInOtherApp(url).shareText(label, text, url).toDynamic{}.toMessage{}.show()`，**不调用哪一项就不显示哪一项**；另有 `sendLinkToFriend` / `copyLink` / `openInOtherApp` / `shareTextToSystem`，失败一律「提示 + 复制链接」）与纯函数 `util/view/ShareTexts.kt`（六种链接拼装 + 分享文本，含标题 60 字截断、空作者名省略、集名与剧名重复时去重）。
+    - 页面入口：视频详情与番剧详情沿用原转发位置（番剧是「缓存 `|` 分享」那一行的右半边）；直播 / 专栏 / 收藏夹是三页顶栏右侧新增的「分享」按钮（专栏顺带把写死的「文章详情」换成文章标题）；动态卡片是长按管理菜单里新增的「分享」，卡片布局与右下转发图标零改动。
+    - 「分享至动态」统一走发布页的通用卡片链路（`model/RepostCard.java` + `DynamicApi.relayGeneric`），各页面只负责塞一张卡进 `TerminalContext`：视频 `dyn_type=8`、番剧按类型 `4097/4098/4101/4100/4099`（映射不出来整项不显示）、收藏夹 `4300`。发布页成功回传刻意用 `RESULT_FIRST_USER` 而不是 `RESULT_OK`——后者会被调用方当成「拿返回文本再发一条」，等于重复发布。
+    - 「分享至消息」沿用私信文本链路（接口只收 msg_type 1/2/5，卡片 7 会回 21035），所以发的是「标题 + 链接」纯文本；动态卡片的这一项借宿主的 `BaseActivity.shareFriendLauncher`（Holder 不是 LifecycleOwner），标题与链接在发起时就闭进回调，避免选完好友回来列表已刷新。
+  - **验证**：L0——`assembleDebug`（双 flavor）+ `testStandardDebugUnitTest` 在合并后的 `8047170a` 上复跑通过，289 份测试报告 / 3097 例 / 0 失败 0 错误；新增 `ShareTextsTest` 覆盖空入参、id ≤ 0、标题截断边界、缺作者名、集名与剧名重复、动态链接为 0 等分支。
+  - **未做**：直播 / 专栏没有「分享至动态」（PiliPlus 直播页也没有，专栏的动态类型口径未定）；收藏夹没有「分享至消息」（收藏夹没有私信卡片形态）；分享面板没有做「从第 N 秒开始」的时间戳精确分享（PiliPlus 有，需要播放器把当前进度透出到详情页，属另一条链路）。
+  - **未验证（L2，需人工看画面）**：①六个页面的入口是否好按（直播 / 专栏 / 收藏夹顶栏按钮在 300×300 方屏与圆屏下的位置、与时钟的间距、长标题截断，点按钮不会连带退出页面、长按不弹「回菜单」）；②面板条目顺序与项数是否符合各页口径（视频与番剧五项、直播与专栏四项、收藏夹四项）；③设备上没有能开网页 / 能系统分享的应用时，提示语与「已复制链接」是否真的落到剪贴板；④「分享至动态」真发出去的效果（番剧 `4097` 等类型、收藏夹 `4300+mlid` 服务端是否接受，卡片封面与作者行是否正常）；⑤「分享至消息」对方收到的正文与失败提示。
+
+- **26.11.23 #236 详情页里点正文没反应、同一楼还会叠层，楼中楼也点不动**：
+  - **来路**：控制台反馈 #236（OPPO OWW251 / 26.11.16 / sdk30）「点『共 x 条回复』展示所有回复」。三处缺口其实是同一件事：①`adapter/ReplyAdapter.kt` 的正文与整行点击监听包在 `if (!isDetail)` 里，进了楼层页就**完全没有监听**，点一条有楼中楼的评论毫无反馈，用户只能去点「共 x 条回复」那一小块卡片；②同一段逻辑没有「没有子回复」的分支，点了只会静默；③`startReplyInfoActivity()` 不做去重，在楼层页里再点又叠一层同 rpid 的页面，返回要按好几下。隔壁哔哩终端复活版的 `adapter/ReplyAdapter.java:380-384` 是同样的写法，抄不过去。
+  - **改法**：
+    - 新增纯策略 `util/ReplyTapPolicy.kt`：`forBodyTap(childCount, inDetailPage, sameRpid)` → `OPEN_FLOOR` / `TOAST_NO_CHILD` / `IGNORE`。同一条评论（`sameRpid`）一律 `IGNORE`；有子回复进楼层页；楼层页里点没有子回复的给提示；列表页里点没有子回复的评论仍进评论详情页（打开后至少能看到这条评论本身），保持原行为。
+    - `adapter/ReplyAdapter.kt`：新增私有 `onReplyBodyTap(reply)` 统一走策略，`isDetail` 时也把 `message` 绑上（`voteId > 0` 仍走投票弹窗）；列表页的整行与正文改调它；楼中楼每一行的 `TextView` 在长按监听之外补 `setOnClickListener { onReplyBodyTap(reply) }`（原先长按抬手会被父卡片当成点击，现在点一下就进楼层页看全部回复）；`startReplyInfoActivity()` 开头先比对「当前是不是同一条评论的楼层页」，是就直接返回。
+    - `activity/reply/ReplyInfoActivity.kt`：`rpid` 是 private，补一个 `internal fun rootRpid(): Long` 给适配器判断叠层；`strings.xml` 新增 `msg_reply_no_child`（「这条评论还没有回复」）。
+  - **验证**：L0（隔离副本）`assembleDebug` 双 flavor 通过；`testStandardDebugUnitTest` 3062 例、1 处失败与本轮无关（`ConventionGuardTest` 需要 `.git`，隔离副本没有）；新增 `util/ReplyTapPolicyTest` 5 例（列表页有/无楼中楼、楼层页里有/无楼中楼、同 rpid 不叠层）全绿。
+  - **未做**：没把「楼中楼列表」改成在楼层页里一次性展开——现在点任意一条子回复仍是跳回同一个楼层页（这页本来就列着全部回复），真要做「详情页内展开全部」得改 `ReplyInfoActivity` 的加载与分页，属交互重做，先看这版够不够。
+  - **未验证（L2，需人工看画面）**：①列表页点有楼中楼的评论进楼层页，点没有子回复的仍是进评论详情页；②楼层页里点别的评论的正文能进它的楼层页，点没有子回复的评论弹出「这条评论还没有回复」；③楼层页里点自己这条（顶部根评论）不再叠第二层，返回一次就回到列表；④点楼中楼里的某一行，行为与点「共 x 条回复」一致。
+
+- **26.11.23 #273 卡片不再抬高，列表滚动时「文字下面那条阴影」不再跳**：
+  - **来路**：控制台反馈 #273「文字下面有一条阴影在跳」。阴影来自 `cardElevation`（全仓 cell 都没有 `shadowRadius/shadowDx/shadowDy`，那三样只在 `activity_player.xml` / `fragment_short_video_page.xml` / `fragment_video_info.xml`）：`res/values/styles.xml` 的 `CardStyle` 是 4dp、`CardStyleLight` 是 2dp，`themes.xml` 另有 5 套主题各抄一份 4dp 的 `CardStyle<X>`，`item_account.xml` 也有 2dp。而 `ui/appearance/RoundListEffect.kt:165-172` 的 `transform()` 在滚动回调里逐帧改条目的 `scaleX/scaleY` 与 `alpha`（`BaseActivity.kt:214` 对全部界面安装），hwui 于是逐帧按新轮廓重算阴影——表冠一转，阴影就在字下面来回窜。
+  - **改法**：把「卡片抬高」这一层整体去掉，层次改由描边承担（`CardStyle` 本来就有 `strokeColor` + `strokeWidth 1dp`）：
+    - `res/values/styles.xml`：`CardStyle` 4dp → 0dp、`CardStyleLight` 2dp → 0dp，并在 `CardStyle` 上方写了注释说明「抬高会被圆屏列表效果逐帧重算阴影」，与 `themes_glass.xml` 及架构地图的同一条约定对齐。
+    - `res/values/themes.xml`：5 套主题的 `cardElevation` 4dp → 0dp（:185 / :307 / :429 / :551 / :673）。
+    - `res/layout/item_account.xml`：`app:cardElevation` 2dp → 0dp（账号列表行的卡片）。
+    - `docs/architecture-map.md` 的分层约定加一条：卡片一律 `cardElevation=0`、层次靠 1dp 描边，新增主题/新 cell 别再给卡片加 elevation。
+  - **验证**：L0（隔离副本）`assembleDebug` 双 flavor 通过；`testStandardDebugUnitTest` 3057 例、1 处失败与本轮无关（`ConventionGuardTest` 需要 `.git`，隔离副本没有）。纯资源改动，没有新增单测。
+  - **未做**：按钮的 2dp `elevation`（`styles.xml` `ButtonStyle`、`themes.xml` 五处 2dp）与顶栏 / 底栏的 8dp 没动——它们不随列表逐帧缩放，不是这条反馈里跳动的阴影；顶栏底栏的 8dp 去掉会失去与内容的分离感，属视觉取舍，等 L2 看过再说。
+  - **未验证（L2，需人工看画面）**：①开「圆屏列表效果」后转表冠滚列表，条目缩放淡出仍在、卡片下沿不再有阴影跳动；②关掉该效果时各列表观感（卡片靠 1dp 描边分界）没有变糊；③七套主题下卡片描边与底色对比度都还够。
+- **26.11.23 #282 看图页加载失败不再白屏，赞赏码取不到时有话可说**：
+  - **来路**：控制台反馈 #282（OPPO OWW251 / 26.11.23）「赞赏码加载不出来，一直空白」。实测图源本身可达（`https://gitee.com/zisekongling/bili-terminal-re/raw/master/ma.jpg` → 200 / 34333 字节 / `image/jpeg` / 前三字节 FF D8 FF），所以用户那次多半是瞬时限流或网络；真正的问题是**失败没有任何提示**——`attachPhoto()` 只有 `catch (OutOfMemoryError)` 与 `catch (Exception)`，而 Glide 4 的加载失败走的是异步回调 `RequestListener`，两个 catch 都接不到，于是只剩白屏。
+  - **改法**：
+    - `activity/ImageViewerActivity.kt`：`attachPhoto()` 的 Glide 链挂 `RequestListener<Drawable>`，`onLoadFailed` 时在该页容器中央叠一个 12sp 的 `TextView`（「点一下重试」），点击后复位 `mode = PAGE_PENDING` 与 `photoLoadStarted` / `photoCleared` / `probeStarted`，重新走 `probePage()`（探测尺寸 → 整图或分块）；`onResourceReady` 里 `hideFailure()` 收起。提示用 View 而不是弹窗——看图时会在页间来回翻，弹窗会一串串地冒出来。
+    - 文案分两种（新增纯函数 `internal object ImageViewerFailureText`）：站外图源（`ImageRequestPolicy.shouldAttachSession(url) == false`）说「站外图源可能限流，点一下重试」，站内图源说通用的「图片加载失败 / 点一下重试」。同时把 URL 与失败原因（异常类名 + message）写进 `Logu.w("image-viewer", …)`，用户报障时能对账；`probePage()` 的探测 catch 也补了同样的日志。
+    - `res/values/strings.xml`：新增 `text_image_viewer_load_failed` / `text_image_viewer_load_failed_external`；顺带把 `text_image_viewer_page_count` 上方那段注释改成 #280 之后的真相（标题恒定「图片查看」，页数只在自己的角标里）。
+  - **验证**：L0（隔离副本）`assembleDebug` 双 flavor 通过；`testStandardDebugUnitTest` 3057 例、1 处失败与本轮无关（`ConventionGuardTest` 需要 `.git`，隔离副本没有）；新增 `activity/ImageViewerFailureTextTest` 5 例（站外 / 站内各自命中哪条文案、两条文案必须不同、gitee 赞赏码被判成站外、`i0.hdslb.com` 图床被判成站内）。
+  - **未做**：没有把 34 KB 的赞赏码内置进 `assets/` / `res/`——那能把外链依赖彻底去掉，但等于往公开仓加一张二进制图，且看图页走的是「URL → Glide → 探测尺寸」链路，本地资源能不能过探测还没验证过，等确认再单独做。
+  - **未验证（L2，需人工看画面）**：①断网或把 URL 改坏后打开看图页，图片中央应出现提示、点一下能重试出来；②赞赏码那条失败时措辞是「站外图源可能限流」而不是笼统的「检查网络」；③正常图片不出现任何提示，顶栏「图片查看」与左下页数角标不被遮挡。
+- **26.11.23 #280 看图页把页数挪回左下、下载挪到右下，顶栏恢复「图片查看」**：
+  - **来路**：控制台反馈 #280（HUAWEI HWMDS / 26.11.22）「上面的返回键改为图片查看」。26.11.17 的 `b2590a03` 为圆屏适配做了两件事：下载键从左下挪到屏幕底部正中、圆屏时把页数写进顶栏标题顶掉「图片查看」，于是顶部那行字变成了「第 2/9 张」，用户以为页面名字丢了；底部正中还压住图片主体。
+  - **改法**：
+    - `res/layout/activity_image_viewer.xml` 两枚角标互换——`btn_download` 改 `alignParentEnd` + 8dp 右边距（右下），`text_page` 改 `alignParentStart` + 8dp 左边距（左下），并加注释写明这是 #280 定下的位置，别再换回去。
+    - `activity/ImageViewerActivity.kt` 的 `applyRoundLayout()` 只保留「按屏形排角标」一件事：标题恒 `R.string.pagename_image_viewer`、页数恒显示、删掉「圆屏把页数顶进标题」和「下载键居中」两条分支；直径要等布局量完，所以推一帧到 `applyCornerMargins()` 再算。`updatePageLabel()` 只剩写页数角标一处。
+    - 新增纯算术 `util/view/CornerLabelInsets.kt`：方屏原样返回基准边距；圆屏在基准值上叠 `RoundInsets.inscribedInsetPx(直径)`，横向与纵向同值——圆形表盘的左右下角是切掉的，只留 8dp 时角标外角落在圆外会被压掉一截甚至点不到，而内接正方形那一圈（0.1464×直径）正好保证外角落在圆内；表盘越大收得越多。原 `downloadStartMarginPx` 随之更名 `baseCornerMarginPx`。
+  - **验证**：L0（隔离副本）`assembleDebug` 双 flavor 通过；`testStandardDebugUnitTest` 3052 例、1 处失败与本轮无关（`ConventionGuardTest` 需要 `.git`，隔离副本没有）；新增 `util/view/CornerLabelInsetsTest` 5 例（方屏原样、圆屏叠内接圈 380→77 与 320→68、横竖同值且随直径单调、直径量不出时退回方屏、负基准当零）。
+  - **未做**：①下载键热区没放大（现状 wrap_content ≈28dp，报告建议补到 40dp，会明显改变视觉体积，等 L2 看过再说）；②收款码仍走站外 gitee 直链，没改内置 assets（图源取不到，见 #282）。
+  - **未验证（L2，需人工看画面）**：方屏下页数在左下、下载在右下、顶栏是「图片查看」；圆屏下两枚角标都被圆弧兜住、不压图片主体；翻页后页数跟着变。
+- **26.11.23 #265 缓存页多选操作栏被压成两行**：
+  - **来路**：控制台反馈 #265「缓存页选中多个后，上面那一栏文字被挤成两行」。改造前 `res/layout/activity_simple_main_refresh.xml` 的 multiSelectBar 里，计数 `textSelectedCount` 是 0dp + weight=1 但没有任何行数约束，右侧三个 13sp 按钮占掉固定宽度，42mm 屏上计数被压折行，整条栏高度翻倍、按钮跟着错位。
+  - **改法**：计数加 `maxLines=1` + `ellipsize=end`，并用 AppCompat 自动缩字号（`autoSizeTextType="uniform"`，13sp→9sp 步进 1sp），长文案在小屏自动收字号而不是折行；四个按钮 `btnMultiSelect` / `btnMultiSelectAll` / `btnMultiOperate` / `btnMultiExit` 各补 `maxLines=1` + `ellipsize=end` 兜底（按钮文案本身短，主要是防止主题换成大字或英文时被压成两行）。
+  - **验证**：L0（隔离副本）`assembleDebug` 双 flavor 通过；`testStandardDebugUnitTest` 3047 例、1 处失败与本轮无关（`ConventionGuardTest` 需要 `.git`，隔离副本没有）。
+  - **未做**：同一反馈里「引导符 ▸ / › 显示成豆腐块」没动——这两个字符分别硬编码在 `adapter/video/CacheListAdapter.kt`、`LocalFolderAdapter.kt`、`DownloadAdapter.kt` 等 5 处，且剥前缀逻辑按「1 字符 + 1 空格 = 2 字符」写死，换字形要连解析一起改，风险大于收益，等有真机证据再做。
+  - **未验证（L2，需人工看画面）**：42mm 屏缓存页多选态，计数与四个按钮同一行、栏高不变；小屏上计数是缩小字号而不是省略号截断。
+- **26.11.23 #268 播放默认值新增「关闭」字幕档位**：
+  - **来路**：控制台反馈 #268（XTC monaco_go）要求「直接关闭字幕」。改造前只有「中文 / 自行选择」两档，默认「自行选择」+「自动弹出字幕选择」默认开 → 每部视频都弹一次字幕卡；想真关掉要点三步（字幕按钮 → 弹列表 → 选「不显示字幕」），而且 `subtitleUserOff` 只在内存里，切 P / 换源就复位，下一部照旧弹。
+  - **改法**：
+    - `util/SettingsKeys.kt` 新增 `PLAYER_DEFAULT_SUBTITLE_OFF = "off"`；`player/PlayerSettingsGroups.kt` 的字幕项加第三项（顺序沿用老的「中文 / 自行选择」，新项排末尾，老用户的位置记忆不变），默认值仍是 `MANUAL`，升级后行为不变。
+    - `player/PlayerDefaults.kt` 新增纯解析 `subtitleStartAction(mode, autoshow)` → `SubtitleStartAction.OFF / CHINESE / PICK / NONE`：`OFF` 是硬关（自动弹框开着也不弹），未知/脏模式值按「自行选择」处理，不锁死成关。
+    - `activity/player/PlayerActivity.kt` 把原来嵌在字幕列表点击回调里的「不显示字幕」那段抽成 `applySubtitleOff()`（清 `subtitles` / `subtitle_count` / `subtitle_shown_index`、置 `subtitleUserOff`、`subtitleLoadToken.incrementAndGet()` 作废在途请求、按钮换 `subtitle_off` 图标；视图那两行切 UI 线程——`maybeAutoSubtitle` 的三个调用点都在后台线程），列表点击与 `maybeAutoSubtitle` 的 `OFF` 分支共用。
+    - `strings.xml` 新增 `setting_player_option_subtitle_off`（「关闭」）并改写 `desc_setting_player_default_subtitle`（点明「关闭 = 开播不加载字幕也不弹框，仍可点字幕按钮手动开」）。
+  - **验证**：L0（隔离副本 `%TEMP%\rebili-iso-222`）`assembleDebug` 双 flavor 通过；`testStandardDebugUnitTest` 3047 例、1 处失败与本轮无关（`ConventionGuardTest` 需要 `.git`，隔离副本没有）；`PlayerDefaultsTest` 新增 4 例（OFF 不看自动弹框、中文两态都自动选、自行选择跟自动弹框、脏值按自行选择）通过。
+  - **未做**：`subtitleUserOff` 仍未持久化（报告曾建议存成 `PLAYER_LAST_SUBTITLE_OFF`）——那会让「临时关一次」变成永久关，属于用户可见语义变更，等确认再动；「关闭」档位本身已经覆盖了这个诉求。
+  - **未验证（L1，本机无设备）**：设置里把「字幕」选成「关闭」→ 进任意有字幕的视频，应不弹字幕卡、字幕按钮显示「已关」，点按钮仍能手动拉列表；选回「中文」应恢复自动选中文字幕。
+- **26.11.23 #271 关于页文案改对 + 说明文字可复制**：
+  - **来路**：控制台反馈 #271（hesc / 26.11.18-beta.6 / sdk28）三项：赞助页图片下载、安卓版本文案标错、说明文字无法复制。第三项里「赞赏收款码其实能下载」（`ImageViewerActivity` 单击下载键可用），用户大概率是圆屏上按钮被挪到正中没找到；「赞助列表头像保存」入口整页在 26.11.06 按用户要求隐藏，暂不动。
+  - **改法**：`strings.xml` 的 `about_say` 把「最低兼容安卓7.0」改为「最低兼容安卓5.0（API 21）」（真实值见 `app/build.gradle` 的 `minSdk 21`；历史更新日志里的 4.4 是当时值，不改）；`res/layout/activity_setting_about.xml` 的说明 TextView 补 `@+id/about_say_text`；`activity/settings/AboutActivity.kt` 用既有的 `util/StringUtil.setCopy(TextView)` 接上「长按复制」开关。
+  - **验证**：L0 同一次构建通过（`assembleDebug` + `testStandardDebugUnitTest`，失败仅为 `ConventionGuardTest` 的环境问题）。
+  - **未做**：赞助列表头像的保存入口（要先把那页从 `gone` 放回来，得先确认 26.11.06 隐藏的理由是否还在）。
+  - **未验证（L2，需人工看画面）**：关于页长按说明文字能选中复制；文案显示「安卓5.0（API 21）」。
+- **26.11.23 #267 私信气泡显示时间**：
+  - **来路**：控制台反馈 #267（hesc / 26.11.18-beta.6 / sdk28）「私信里看不到时间」。改造前 `PrivateMessage.timestamp`（单位**秒**）在界面上完全没用到，`cell_private_msg.xml` 也没有时间控件。
+  - **改法**：`util/TimeUtil.kt` 新增 `formatChatTime(millis, nowMillis)`——当天只给「HH:mm」，同年不同天给「MM-dd HH:mm」，跨年带年份，非正值返回空串（用 `Calendar` 判断，不依赖 API 26+ 的 `java.time`）；`cell_private_msg.xml` 把昵称包进水平容器，右侧加 9sp 的 `@+id/msg_time`（默认 `gone`）；`adapter/message/PrivateMsgAdapter.kt` 绑定 `TimeUtil.formatChatTime(msg.timestamp * 1000L)`，空串就隐藏（不会显示 1970）。
+  - **验证**：L0（同一次构建）通过；新增 `util/TimeUtilTest` 5 例（当天、同年不同天、跨年、时间戳缺失、秒/毫秒不混淆）。
+  - **未做**：会话列表（`PrivateMsgSessionsAdapter` 复用 `cell_user_list`，全站用户列表共用）没有加时间——那个 cell 是公共布局，动它影响关注/粉丝列表，先不动。
+  - **未验证（L2，需人工看画面）**：私信页每条气泡右侧出现时间；42mm 小屏上昵称被挤时时间是省略号而不是折行。
+- **26.11.23 #279 OPPO 表冠在视频详情页转不动：兼容模式给 `NestedScrollView` 补滚轮兜底**：
+  - **来路**：控制台反馈 #279（OPPO OWW251 / 26.11.18-beta.6 / sdk30）两个问题，①全仓没有表冠震动、②视频详情页表冠转不动。本条先修②（①待定，见文末）。
+  - **根因**：OPPO 把表冠报成**鼠标滚轮**（`src=0x2002` = `SOURCE_MOUSE`，滚动量在 `AXIS_VSCROLL`）。26.11.23 起 `ui/widget/RotaryEncoderSupport.isCompatMode()` 默认 true（`SettingsKeys.UI_ROTATORY_COMPAT`，且 `maybeAutoEnableCompat` 一踩到滚轮源就自动打开），三条入口把滚轮源**整段交给框架**。列表页（`RecyclerView`）与设置页（平台 `ScrollView`）的 `onGenericMotionEvent` 按来源分轴取量（pointer 源读 `AXIS_VSCROLL`），照旧能滚；而 androidx `NestedScrollView` 的实现只读 `AXIS_SCROLL`——在这类 ROM 上算出来恒为 0，于是「视频详情-简介」整页不动，同一台表设置页却正常。`fragment_video_info.xml` / `fragment_media_info.xml` / `activity_message.xml` / `activity_live_info.xml` 的根容器正是 `RotaryNestedScrollView`，全都在这个坑里。
+  - **改法**（都限定「滚轮源 + `AXIS_SCROLL` 为 0」，即框架必然不处理，因此**不会与框架叠加**）：
+    - `ui/widget/RotaryEncoderSupport.kt`：`object CrownSourcePolicy` 新增纯判据 `needsCompatWheelFallback(crown, axisScroll) = crown == WHEEL && axisScroll == 0f`；`internal object RotaryEncoderSupport` 新增 `handleCompatWheelFallback(view, event, multiple, smoothScrollBy)`（控件级：兼容模式 + 非离屏页位 + 判据成立 → 按兼容口径 `compatPixelDelta` 滚一次，**不跑框架、不量差额**）与 `compatWheelPageFallback(root, event)`（页面级：只在目标容器**是 `NestedScrollView`** 时才接管，其余容器框架会自己滚，放宽就会双倍速）。
+    - `handlePageCompat` 的「非编码器源」分支由 `return false` 改为 `return compatWheelPageFallback(root, event)`；`ui/widget/RotaryNestedScrollView.dispatchGenericMotionEvent` 最前面加一跳 `handleCompatWheelFallback(...)`，原来的 `isSystemFirstMode()` / `handle(...)` 两条老路径一行未改。
+    - 覆盖面：控件级那条解决「事件正好落在容器上」（详情页正常路径），页面级那条兜「焦点在别的控件上、事件退到 DecorView」的情况。
+  - **验证**：L0（隔离副本 `%TEMP%\rebili-iso-222`）`assembleDebug` 双 flavor 通过；`testStandardDebugUnitTest` 3038 例、1 处失败与本轮无关（`ConventionGuardTest` 需要 `.git`，隔离副本没有）；`CrownSourcePolicyTest` 21 例 0 失败，新增 3 例（`滚轮源且框架唯一会读的轴没有量时接管`、`滚轮源但轴上有量时交给框架`、`非滚轮来源一律不接管`）通过。
+  - **未验证（L1，本机无设备）**：OPPO 系手表进视频详情 → 简介页用表冠能上下滚；日志缓冲里应出现「兼容兜底：滚轮源框架不会处理（NestedScrollView 只认 AXIS_SCROLL），App 接管」；同一页的列表页/设置页手感不应变化（不该翻倍）。
+  - **未做（另一半，待拍板）**：表冠震动 tick。方案是 `SettingsKeys` 加 `UI_ROTATORY_HAPTIC` + 在 `RotaryEncoderSupport` 三处滚动落点调 `performHapticFeedback(CLOCK_TICK)`（不认则回落 `Vibrator` 8ms 一次性，`AndroidManifest.xml` 已有 `VIBRATE` 权限）+ 40ms 节流；默认开/关影响所有表冠机型，属 L2 手感，等用户定。
+- **26.11.23 #254 残留：夹表合法为空时允许自愈元数据 + 拆夹/改名按真实目录写归属**：
+  - **来路**：控制台反馈 #254（OPPO OWW212 / 26.11.18-beta.6）「旧版分过夹的缓存点进去为空」，用户补「文件夹拆散后未分类里竟然没有被拆散的视频」。主体已在 `8d735477` / `34083f1c` 修掉（记录优先 + 元数据兜底 + 自愈），这次补两处残留边界。
+  - **残留 A（自愈被误挡）**：`util/CacheFolderResolver.needsMetaHeal` 见到空夹表一律不写元数据。用户把最后一个夹也拆掉之后，`.video_meta.json` 里的旧夹名永远留着——眼下还不算丢（`resolve` 只认夹表里存在的名字，会显示成未分类），但用户下次建同名夹时，这些视频会莫名其妙自己跳进去。
+  - **残留 B（原始成因的写入侧还在）**：`util/FolderManager.kt` 的 `renameFolder` / `deleteFolder` / `addVideoToFolder` / `removeVideoFromFolder` 都调 `VideoMetaManager.updateFolderName(title, …)`，而它按「缓存根 / 标题」拼目录——目录名被清洗过、多 P 合集、缓存根刚换过就拼不中，且拼不中会**静默返回**；归属于是只剩 `.folders_info.json` 一份，正是「夹卡有数字、夹内为空」的来源。
+  - **改法**：
+    - `util/FolderManager.kt` 新增 `isFoldersFileIntact()`：文件存在 + 非空白 + 能 parse 成 `JSONArray` 才算「合法的空夹表」，空白（写到一半的残骸）与读坏一律 false；新增私有 `writeMetaFolder(title, folderName)`：走 `CachePathResolver.videoDirCandidates(root.path, title)` 取第一个真实存在的目录调 `VideoMetaManager.updateFolderNameIn`，一个都没命中才退回老写法；上面四处 meta 写入统一改用它。
+    - `util/CacheFolderResolver.needsMetaHeal(resolved, metaName, folderNames, foldersFileIntact = false)`：夹表为空时只有 `foldersFileIntact=true` 才允许写回，防「json 读坏了把所有视频的夹名一起抹平」。
+    - `activity/video/local/LocalListActivity.kt` 的 `loadData` 在循环外取一次 `val foldersFileIntact = FolderManager.isFoldersFileIntact()` 传给自愈判据（每轮一次，不进循环）。
+  - **验证**：L0（隔离副本）`assembleDebug` 双 flavor 通过；`testStandardDebugUnitTest` 3035 例、1 处失败与本轮无关（`ConventionGuardTest` 需要 `.git`，隔离副本没有）；`CacheFolderResolverTest` 14 例 0 失败，新增 2 例（`夹表合法为空时允许自愈元数据`、`夹记录读不出来时仍然不自愈`）通过。
+  - **未验证（L1，本机无设备）**：造夹具——建夹放一条视频 → 拆夹 → 根页仍见该条且其 `.video_meta.json` 的 `folderName` 变空；再建同名夹，该视频不该自己跳进去。
+- **26.11.23 #177 消息页整页「网络错误」：四个请求各自兜底 + 会话接口校验业务码**：
+  - **来路**：控制台反馈 #177（OPPO OWW251 / 26.11.16 / sdk30）「反馈被回复后不查看消息界面，消息界面加载不出来」，用户补充「掉过一次登录」「反馈回复已读后才好」。
+  - **根因**（三处叠加）：① `activity/message/MessageActivity.kt` 的 `loadSessions` 用一个 try 包住 `MessageApi.getUnread()` / `PrivateMsgApi.getSessionsPage()` / `PrivateMsgApi.getUsersInfo()` 三个请求，任一个抛异常就整页空白，外层 catch 只复位下拉、不给重试入口；② `api/PrivateMsgApi.getSessionsPage` 不看业务码——掉登录时响应是 `{"code":-101}` 且没有 `data`，`parseSessionsList` 对 `data==null` 返回空表，界面于是显示「0 条会话」，用户以为私信被清空（这就是「回复已读后才好」的来源）；③ 计数拉失败时按钮上照样画「(0 未读)」，把「没拉到」伪装成「真的没有」。
+  - **改法**：
+    - `api/PrivateMsgApi.java` 新增 `requireOk(JSONObject root)`：`code != 0` 时按 -101 / -352 / -412 / 其它抛带 code 的 `JSONException`（提示依次是「请先登录后查看私信」「被风控拦了」「请求太频繁」「会话列表加载失败：code=… + 服务端 message」），`getSessionsPage` 在解析前调用它——`getSessionsList` 与 `ChooseFriendActivity` 一并受益。
+    - `MessageActivity.loadSessions` 拆四段：计数失败 → 留 `null`、按钮不画数字；会话列表失败 → `onSessionsFailed(e)` 复位下拉并提示后 `return@run`（已加载的列表不清空，下拉一次就是重试）；`getUsersInfo` 失败 → 回落空表，适配器用会话自带的名字与 mid；私信未读数仍走原来的独立 try。
+    - 新增私有 `onSessionsFailed(e)`：`runOnUiThread` 里复位 `isRefreshing` / `isEnabled` 再 `MsgUtil.err(e)`。
+  - **验证**：L0（隔离副本 `%TEMP%\rebili-iso-222`，理由同 #222 那轮的 gradle `--stop`）`assembleDebug` 双 flavor 通过；`testStandardDebugUnitTest` 3033 例、2 处失败与本次无关（`ConventionGuardTest` 需要 `.git`、隔离子副本没有；`LayoutAccessibilityTest` 报 `cell_note_image.xml` 缺 `contentDescription`，另一会话在建的专栏图片控件）；`PrivateMsgApiTest` 38 例 0 失败，新增的 5 例 requireOk 全部执行。
+  - **未验证（L1，本机无设备）**：换一份过期 cookie 起 App，消息页应提示「请先登录后查看私信（code=-101）」而不是「0 条会话」；把通知计数接口打到失败，顶部按钮不该出现「(0 未读)」。
+
+- **26.11.23 #222 剩余部分：外置卷上的安装包再也装不上（installApk 取不到 URI）**：
+  - **来路**：控制台反馈 #222（26.11.16，华为）第 3 点「更新下载完了却装不上，包还消失了」。前两点（下载路径不能改 / 没有语音）上一轮已处理，这条剩下的是安装这一跳。
+  - **根因**：下载目录是可配的，用户把「下载路径」设到外置 SD 卡后安装包落在 `/storage/5C00-1D0E/...`；而安装走的是 androidx `FileProvider.getUriForFile`（`activity/DownloadActivity.kt` 与 `util/UpdateManager.kt` 两处各写了一遍），FileProvider 的根来自编译期资源 `res/xml/file_paths.xml`——`<external-path>` 取 `Environment.getExternalStorageDirectory()`、`<external-media-path>` 只取 `getExternalMediaDirs()[0]`，**一个根都覆盖不到外置卷**，于是直接抛 `IllegalArgumentException: Failed to find configured root`。安装器起不来，调用方随后把 `.apk` 改名回 `.bak` 并提示「安装失败」——用户看到的就是「装不上 + 包没了」。
+  - **改法**：
+    - 新增 `util/ApkUri.kt`：`object ApkUri { @JvmStatic fun of(context, apk: File): Uri }`。API < 24 仍给 `Uri.fromFile`；否则先 `FileProvider`，抛 `IllegalArgumentException` 时 `Logu.w` 记一笔并回落 `util/LocalFileProvider.kt:158 getUriForFile`（运行时按所有卷算根，`AndroidManifest.xml:94-97` 已声明 `grantUriPermissions`），两级都失败才抛（`PlayerApi.java:957-967` 的视频外播早就是这套两级回落）。
+    - `activity/DownloadActivity.kt` 的 `installApk` 改用它并删掉直连 FileProvider 的写法；`util/UpdateManager.kt` 的 `installApk` 用 try/catch 包住——它是用户点「安装」的回调，异常抛出去等于「点了没反应」，现在改为 `Logu.w` + `R.string.msg_apk_share_failed`（带绝对路径，让用户能自己去文件管理器装）。
+  - **验证**：L0 `assembleDebug`（standard / coexist）通过；`testStandardDebugUnitTest` 284 suites / 3028 例，失败 2 处**与本轮无关**（`ConventionGuardTest` 断言「找不到 .git」——本轮为躲开另一个会话的 `gradlew --stop`，把仓库 robocopy 到 `%TEMP%\rebili-iso-222` 且排除了 `.git`；`LayoutAccessibilityTest` 报 `cell_note_image.xml` 缺 `contentDescription`，那是另一会话正在做的专栏图片控件）。
+  - **未验证（L1，本机无设备）**：把下载路径设到外置 SD 卡 → 下载一个 APK → 点安装应拉起系统安装器；若仍失败，应看到「安装包路径无法共享，请在文件管理器里找到 … 手动安装」，而不是原来那句「安装失败」。
+
+- **26.11.23 视频笔记重做：入口默认显示 + 列表页 + 图文详情（参考 PiliPlus）**：
+  - **来路**：用户报「笔记完全不显示」，要求参考 PiliPlus 仓库的笔记功能补齐。查证后确认是三件事叠在一起：入口被设置藏起来、旧实现只认自己的私有笔记、正文渲染把图片与进度标签都降级成占位文字。
+  - **根因**：① `util/DetailEntryPrefs.kt` 的 `DEFAULT_NOTE_ENABLED = false`（26.11.07 按要求隐藏入口），且 `VideoInfoFragment.kt` 未登录时把「笔记」和「稍后再看」等一起 `GONE`；② 旧 `NoteActivity` 只走 `getNoteIdsOfVideo`（私有笔记，要 SESSDATA），未登录直接一句「登录后才能看笔记喵~」，而**公开笔记接口免登录就能取**，整条链路压根没接；③ 正文用一个 TextView 拼 Spannable，图片只显示 `[图片]`、进度标签只显示不可点；④ delta 里的图片 url 是协议相对 `//i0.hdslb.com/bfs/note/xxx.jpg`，`parseInsertObject` 原样存进 `NoteBlock.imageUrl`，Glide 不会自己补 scheme，加载必失败。
+  - **改法**：
+    - `util/DetailEntryPrefs.kt`：`DEFAULT_NOTE_ENABLED = true`；`activity/video/info/VideoInfoFragment.kt` 的未登录分支只隐藏 addWatchlater / relay / videoSummary，「笔记」单独按 `isNoteEntryEnabled()` 判——公开笔记免登录可看，未登录只是没有「我的笔记」那一行。
+    - `api/NoteApi.java`：`parseInsertObject` 的图片分支改走 `normalizeImageUrl`（`//` 补 `https:`）；新增纯函数 `normalizeImageUrl` / `parseNoteSummaries` / `hasMore` / `buildContent`（相邻文本合并成段、有序列表自动编号、图片与标签各自成行），新增网络方法 `getPublicNoteList(aid, pn, ps)`（`x/note/publish/list/archive`）与 `getPublicNoteInfo(cvid)`（`x/note/publish/info`）；`parseNoteDetail` 补 cvid / pubtime / likes / author；新增纯函数 `parsePubtime(Object)`——公开列表里的 `pubtime` 实测是 `"2025-11-20 10:27"` 这种格式化字符串（接口文档写的是时间戳），字符串按 **GMT+8** 解析成秒、解析不了给 0，数字仍按秒原样用。**`parseBlocks` 语义没动**，既有 17 例照旧。
+    - 新模型 `model/NoteSummary.java`、`model/NoteListPage.java`、`model/NoteContentItem.java`、`model/NoteTextRun.java`；`model/Note.java` 补 cvid / pubtime / authorName / authorFace / likes。
+    - `activity/note/NoteActivity.kt` 整页重写成 `RefreshListActivity` 子类：第一行「我的笔记」（登录且这个稿件确实有私有笔记才有），后面是公开笔记分页列表；用 `@Volatile loadGeneration` 代次作废在途的旧响应；首屏失败**不调** `loadFail()`（它会把 page 退成 0），改走「失败文案 + 点我重试」空态；空态按 `show_public_note` / 服务端 message / 兜底分三档。
+    - 新 `activity/note/NoteDetailActivity.kt` + `adapter/note/NoteSummaryAdapter.kt` + `adapter/note/NoteContentAdapter.kt` + 5 个 cell 布局（`cell_note_summary.xml` / `cell_note_header.xml` / `cell_note_text.xml` / `cell_note_image.xml` / `cell_note_tag.xml`）：文字块按 `NoteTextRun` 拼 Spannable（粗体/下划线/删除线/前景色/高亮底色），图片用 `GlideUtil` 真加载并可点开 `ImageViewerActivity`，进度标签点击 → `VideoInfoApi.getVideoInfo` 按 cid 定位分P → `toPlayerData(index)` → `progress = tagSeconds * 1000`（`PlayerData.progress` 单位是**毫秒**）→ `PlayerApi.startGettingUrl`。
+    - 删除 `res/layout/activity_note.xml`（全仓已无引用）；主清单新增 `NoteDetailActivity`（`exported="false"`，Debug 包按既有做法导出并挂 `DUMP` 权限）；`strings.xml` 新增 `note_list_*` / `note_detail_*` / `note_tag_no_video` / `note_image_desc`，并把 `desc_setting_detail_note_entry` 改成「默认开启」。
+  - **验证**：L0 `assembleDebug`（standard / coexist 两个 flavor）通过；`testStandardDebugUnitTest` 全绿 **3326 例 0 失败**（`NoteApiTest` 32 例 = 既有 29 + 本次 pubtime 解析 3 例；总数比首次提交时的 3289 多，是并行会话陆续新增的用例，不是这次加的；`LayoutAccessibilityTest` 4 例——新布局一开始漏了图片的 `contentDescription`，被它拦下后补了 `@string/note_image_desc`）。复跑时 `assembleDebug` 一度挂在坏缓存上（`Reading jar hashes ... failed. Exception: invalid stream header: 00000000`），`gradlew --stop` + `--no-build-cache` 后即过，不是代码问题。
+  - **接口实测校准（26.11.23，免登录直连 `api.bilibili.com`）**：`x/note/publish/list/archive?oid=170001&oid_type=0` 返回 `list[]` 的 `pubtime` 是 `"2025-11-20 10:27"` 这种**格式化字符串**，老代码 `optLong` 静默给 0，列表行时间整段不见——已由 `parsePubtime` 修掉；`x/note/publish/info?cvid=43796340` 的 `data` 里**没有 `pubtime` / `likes`**（只有 `last_mtime_text`），`content` 是 Quill delta 的 JSON 字符串，`arc.oid` 就是 aid。同一接口连打两次会被反爬挡住（`browser: short or challenge page`），实测要少打。
+  - **未验证（L2 / 待人工，本机无设备）**：`docs/review/real-device-regression-checklist.md` §六 二十六节的 139–148 十条——默认入口是否出现、未登录能否进、公开笔记能否列出真实条目、空态三档文案、图片是否真显示、点标签是否从对应时间起播（含多P）、长笔记滚动、断网与错误码文案。
+
+- **26.11.23 四条小成本反馈收口：#399 崩溃 / #276 弹幕模糊 / #275 长图缺口 / #270 长图放不大**：
+  - **来路**：控制台反馈 #270「超长图只能放大一点点、放不到原生清晰度」、#275「放到最大看长图有缺口，滑动也补不上」、#276「弹幕一多字就发毛」与崩溃报告 #399（唯一一条修复提交晚于用户手上包的活崩溃）。四条都能在一行到十几行内改完，用户授权先做这一批。
+  - **根因**：① 合集页两处列表用 `Glide.with(context)`，`context` 是 Activity，页面销毁后才开始的加载直接抛 `IllegalArgumentException: You cannot start a load for a destroyed activity`；② `AndroidDisplayer` 把 `ANTI_ALIAS` 写成 `fromWorkerThread && CONFIG_ANTI_ALIAS`，非异步渲染（手表上的默认路径，主线程绘制）时抗锯齿恒为 false，字边缘发毛；③ `ImageTilePolicy.tileRects` 的块边界按**本次可见区**裁（`right = min(left + tile, target.right)`），而块缓存键是 `TileKey(left, top, sample)`（不含宽高）——平移后同一个键取回的是上次「按旧可见区裁窄」的位图，画出来少一块，且每帧算出的几何都相同所以怎么滑都补不上；④ 图片查看器的相对倍率上限写死 `DEFAULT_MAX_SCALE = 6.25`，而倍率是相对**整图适配**算的，4000px 高的长图 `baseScale≈0.1`，6.25 倍只到原生尺寸的 0.625 倍，再想清楚也顶住了。
+  - **改法**：
+    - `activity/video/collection/CollectionInfoActivity.kt:313` / `:457`：`Glide.with(context)` → `GlideUtil.with(holder.cover)`（`util/GlideUtil.java:240` 的 `with(View)` 内建「Activity 已销毁则回落 Application 级」），并删掉不再使用的 `com.bumptech.glide.Glide` 导入。
+    - `DanmakuFlameMaster/.../model/android/AndroidDisplayer.java:348`：`ANTI_ALIAS = CONFIG_ANTI_ALIAS`（去掉 `fromWorkerThread &&`；`paint.setAntiAlias` 在 `:471` 生效，文字抗锯齿开销可忽略）。
+    - `util/ImageTilePolicy.kt` 的 `tileRects`：块边界只受图片尺寸约束（`right = min(left + tile, imageWidth)`、`bottom = min(top + tile, imageHeight)`、`left += tile`、`top += tile`），几何与可见区无关，同一块的缓存键永远对应同一位图。
+    - `activity/ImageViewerActivity.kt` 的 `ImageViewerZoomPolicy`：新增 `ABSOLUTE_MAX_LEVEL = 12f` 与 `@JvmStatic maxLevelFor(baseScale, defaultMax)`（`min(max(defaultMax, 1f/baseScale), 12f)`，`baseScale` 非有限或 ≤0 时回落默认档）；`ui/widget/BigImageView.kt` 加 `private val maxLevel get() = ImageViewerZoomPolicy.maxLevelFor(baseScale)`，把 `zoomNextAt` / `applyLevel` 的 `coerceIn` / `animateLevelTo` 三处 `DEFAULT_MAX_SCALE` 换成它——普通图倍数不变，长图最高能到 1:1。
+  - **验证**：L0 `assembleDebug`（standard / coexist 两个 flavor）通过；`testStandardDebugUnitTest` 全绿（`ImageTilePolicyTest` 35 例、`ImageViewerZoomPolicyTest` 12 例，新增 5 例：块几何与可见区无关、宽高恒等于块边长、长图最大倍率够到 1:1、极端长图被绝对值夹住、参数异常回落默认档）。
+  - **未验证（L2 / 待人工，本机无设备）**：① #276 弹幕变清晰与否只能看画面；② #275 需要拿一张超长图放大到最大后左右上下平移，确认不再出现缺口；③ #270 需要同一张超长图双击到顶，确认能看清原生像素。
+
+- **26.11.23 消息未读治本：角标口径 + 私信真 ack + 系统通知置读（P0+P1）**：
+  - **来路**：控制台反馈 #281（v26.11.18-beta.6）「消息一直有未读，点进去也消不掉」。对照隔壁仓库（哔哩终端复活版 1.2.5）的消息侧实现找根因后，用 ask 工具与用户对齐：范围 = P0+P1；角标口径 = 系统会话未读不算；系统消息页 = 打开即置读、不设开关；存疑接口 = 先在真机实测再写代码。
+  - **根因（一条因果链，不是四个独立 bug）**：① 角标把 `single_unread` 八个桶全加，而会话列表里只有 `follow_unread` / `unfollow_unread` 有对应的未读会话行，其余六桶（unfollow_push_msg / dustbin_push_msg / dustbin_unread / biz_msg_unfollow_unread / biz_msg_follow_unread / custom_unread）永远点不掉；② 进会话后 `PrivateMsgActivity.kt:122` 传 `ackSeqno=0`，而 `PrivateMsgApi.updateAck` 只有 `>0` 才拼 `&ack_seqno=`，服务端从没收到过 ack，设置页那个「私信自动已读」一直是空转的；③ 系统通知用 `query_user_notify?page_size=35`，web 端对这个值直接回业务码 -6（data 为空），页面一直是空的，也就没有置读的可能。
+  - **改法**：
+    - `api/MessageApi.java`：`checkPrivateMsgUnread` 拆出纯函数 `parsePrivateUnread(JSONObject)`，只算 `follow_unread + unfollow_unread`，其余六桶改走 `Logu.d` 全量日志；新增 `SYSTEM_FEED`、`sysNoticeHeaders()`（Origin / Referer 换成本域 `message.bilibili.com`）、`fetchSystemNotices(path)`、`parseSystemNotices(JSONObject)`、`maxCursorOf(List)`、`acknowledgeSystem()`（两段通知取最大 cursor → `update_cursor?cursor=<max>&has_up=0`）、私有 `number(JSONObject,key)`；`getSystemMsg` 改 `page_size=20`，并把 `cursor` 落到卡片上。
+    - `api/PrivateMsgApi.java`：新增私有 `parseLongOrZero(String)`；`parseSession` 读 `max_seqno`（字符串型，`optLong` 直接取会拿到 0）。
+    - `model/PrivateMsgSession.java` 加 `maxSeqno`，`model/MessageCard.java` 加 `cursor`。
+    - `activity/message/MessageActivity.kt:264` 的 `openSession` 传 `PrivateMsgActivity.EXTRA_MAX_SEQNO`；`PrivateMsgActivity.kt` 加常量与字段，ack 处改成 `updateAck(uid, 1, maxSeqno)`（系统会话跳过，缺 seqno 记一条日志）；`NoticeActivity.kt` 的 `system` 分支拉完调 `markSystemRead()`——失败只记日志，不把列表判成加载失败。
+  - **验证**：L0 `testStandardDebugUnitTest` 绿（`MessageApiTest` 17 例，含新增 `parsePrivateUnread` 2 例 / `parseSystemNotices` 2 例 / `maxCursorOf` 2 例；`PrivateMsgApiTest` 33 例，含新增 `max_seqno` 2 例），同一次构建连带编译了两个 flavor 共用的 Debug 源码。
+  - **未验证（L2 / 待人工，本机无设备）**：① 真机进普通会话后 `update_ack` 是否真的带上 `ack_seqno` 且 `code=0`，返回主菜单后角标是否回落且不反弹；② 系统通知页是否真能列出条目（`page_size=20` 被接受），`update_cursor` 返回 0 后角标是否不再弹回；③ 系统会话（UP主小助手 / 客服）点进去跳过 ack 后的表现；④ 只有 ①② 都成立，才做下一步「`sumUnread` 补 `sys_msg`」——顺序是有意的，先加只会多出一类清不掉的数。
 
 - **26.11.22 六路并行：同步上游 + 基线 + 安全审计 + 并发审查 + 历史深挖 + 规矩机器化**：
   - **来路**：用户要求「不省成本、发挥最大实力」并把六件事一次做完。
