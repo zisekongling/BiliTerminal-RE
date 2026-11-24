@@ -11,6 +11,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
 
+import androidx.core.content.ContextCompat;
+
 import com.RobinNotBad.BiliClient.BiliTerminal;
 import com.RobinNotBad.BiliClient.R;
 import com.bumptech.glide.Glide;
@@ -23,6 +25,9 @@ import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.bumptech.glide.request.RequestOptions;
 import com.bumptech.glide.request.transition.DrawableCrossFadeFactory;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class GlideUtil {
     // 26.10.04 批次 3（B1+B3）：图片请求的质量/宽度档位不再写死在这里，
@@ -102,8 +107,8 @@ public class GlideUtil {
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                 .format(DecodeFormat.PREFER_RGB_565)
                 .transition(GlideUtil.getTransitionOptions())
-                .placeholder(safePlaceholder(placeholder))
-                .error(safePlaceholder(placeholder))
+                .placeholder(placeholderDrawable(view.getContext(), placeholder))
+                .error(placeholderDrawable(view.getContext(), placeholder))
                 .into(view);
     }
 
@@ -115,8 +120,8 @@ public class GlideUtil {
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                 .format(DecodeFormat.PREFER_RGB_565)
                 .transition(GlideUtil.getTransitionOptions())
-                .placeholder(safePlaceholder(placeholder))
-                .error(safePlaceholder(placeholder))
+                .placeholder(placeholderDrawable(view.getContext(), placeholder))
+                .error(placeholderDrawable(view.getContext(), placeholder))
                 .apply(RequestOptions.circleCropTransform())
                 .into(view);
     }
@@ -128,8 +133,8 @@ public class GlideUtil {
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                 .format(DecodeFormat.PREFER_RGB_565)
                 .transition(GlideUtil.getTransitionOptions())
-                .placeholder(safePlaceholder(placeholder))
-                .error(safePlaceholder(placeholder))
+                .placeholder(placeholderDrawable(view.getContext(), placeholder))
+                .error(placeholderDrawable(view.getContext(), placeholder))
                 .apply(RequestOptions.bitmapTransform(new RoundedCorners(ToolsUtil.dp2px(roundCorners))))
                 .into(view);
     }
@@ -263,6 +268,49 @@ public class GlideUtil {
      */
     public static int safePlaceholder(int placeholder) {
         return placeholder != 0 ? placeholder : R.mipmap.placeholder;
+    }
+
+    /**
+     * 占位图 / 兜底图的共享缓存，键是资源 id。
+     *
+     * <p>为什么不能把资源 id 直接交给 Glide：{@code placeholder(int)} / {@code error(int)}
+     * 并不是「记下 id 等要用时再取」——{@code SingleRequest} 构建时会调
+     * {@code Context.getDrawable(resId)} 现解一份 Drawable，而每次 bind 都新建 RequestOptions，
+     * 所以**每次绑定都重新 decode 一遍位图**。Resources 自带的 drawable cache 本来能挡住，
+     * 但它在低内存下会被 {@code onTrimMemory} 整个清空，恰恰是内存最紧时彻底失效。
+     *
+     * <p>26.11.09 控制台崩溃 #401 就是这条路径：sdk 25 的小内存机上只剩 182 KB 空闲，
+     * {@code onBindViewHolder → Context.getDrawable → BitmapFactory.decodeStream} 要分配
+     * 262156 字节（正好 256×256×4 再加 Bitmap 头），直接 OutOfMemoryError。
+     *
+     * <p>这里缓存 {@link Drawable.ConstantState}：位图只 decode 一次，之后每次
+     * {@code newDrawable()} 派生实例共享同一张位图，不再碰 BitmapFactory。派生后调
+     * {@code mutate()}，免得多个 ImageView 共用同一份状态时 Callback 打架
+     * （mutate 只换状态对象，不复制位图）。
+     */
+    private static final Map<Integer, Drawable.ConstantState> PLACEHOLDER_STATES = new ConcurrentHashMap<>();
+
+    /**
+     * 取一张可安全用于 {@code placeholder()} / {@code error()} 的占位图。
+     *
+     * <p>跟直接传资源 id 的区别只在内存：同一资源只解码一次，之后都是共享位图的派生实例。
+     * 资源本身没有 ConstantState（shape、纯色之类）时直接返回解码结果，它本来就不占位图。
+     */
+    public static Drawable placeholderDrawable(Context context, int resId) {
+        int id = safePlaceholder(resId);
+        Drawable.ConstantState state = PLACEHOLDER_STATES.get(id);
+        if (state == null) {
+            Drawable decoded = ContextCompat.getDrawable(context, id);
+            if (decoded == null) return null;
+            state = decoded.getConstantState();
+            if (state == null) return decoded;
+            PLACEHOLDER_STATES.put(id, state);
+            // 首个实例也要脱离共享状态，否则它会和缓存里的 state 抢同一个 Callback
+            Drawable first = decoded.mutate();
+            return first != null ? first : decoded;
+        }
+        Drawable derived = state.newDrawable(context.getResources());
+        return derived != null ? derived.mutate() : null;
     }
 
     public static TransitionOptions<?, ? super Drawable> getTransitionOptions() {

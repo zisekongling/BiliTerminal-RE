@@ -185,8 +185,8 @@ class OpusContentAdapter(
                     holder.lastAvatarUrl = avatarUrl
                     GlideUtil.with(upIcon).asDrawable().load(avatarUrl)
                         .apply(GlideUtil.thumbOptionsCover(upIcon))
-                        .placeholder(R.mipmap.akari)
-                        .error(R.mipmap.akari)
+                        .placeholder(GlideUtil.placeholderDrawable(upIcon.context, R.mipmap.akari))
+                        .error(GlideUtil.placeholderDrawable(upIcon.context, R.mipmap.akari))
                         .transition(GlideUtil.getTransitionOptions())
                         .apply(RequestOptions.circleCropTransform())
                         .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)

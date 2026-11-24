@@ -230,8 +230,8 @@ class MySpaceActivity : InstanceActivity() {
             userInfoLoading = false
             Glide.with(this@MySpaceActivity).load(GlideUtil.url(userInfo.avatar))
                 .transition(GlideUtil.getTransitionOptions())
-                .placeholder(R.mipmap.akari).apply(RequestOptions.circleCropTransform())
-                .error(R.mipmap.akari).apply(RequestOptions.circleCropTransform())
+                .placeholder(GlideUtil.placeholderDrawable(userAvatar.context, R.mipmap.akari)).apply(RequestOptions.circleCropTransform())
+                .error(GlideUtil.placeholderDrawable(userAvatar.context, R.mipmap.akari)).apply(RequestOptions.circleCropTransform())
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                 .into(userAvatar)
             userName.text = userInfo.name

@@ -142,8 +142,8 @@ class PrivateMsgSessionsAdapter(
                 GlideUtil.with(holder.avatarView).asDrawable().load(GlideUtil.url(avatarUrl))
                     .apply(GlideUtil.thumbOptionsCover(holder.avatarView))
                     .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
-                    .placeholder(R.mipmap.akari)
-                    .error(R.mipmap.akari)
+                    .placeholder(GlideUtil.placeholderDrawable(holder.avatarView.context, R.mipmap.akari))
+                    .error(GlideUtil.placeholderDrawable(holder.avatarView.context, R.mipmap.akari))
                     .apply(RequestOptions.circleCropTransform())
                     .into(holder.avatarView)
             }

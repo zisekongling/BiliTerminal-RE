@@ -771,8 +771,8 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
             lastAvatarUrl = dynamic.userInfo.avatar
             GlideUtil.with(avatar).asDrawable().load(GlideUtil.url(dynamic.userInfo.avatar))
                 .transition(GlideUtil.getTransitionOptions())
-                .placeholder(R.mipmap.akari)
-                .error(R.mipmap.akari)
+                .placeholder(GlideUtil.placeholderDrawable(avatar.context, R.mipmap.akari))
+                .error(GlideUtil.placeholderDrawable(avatar.context, R.mipmap.akari))
                 .apply(RequestOptions.circleCropTransform())
                 .format(DecodeFormat.PREFER_RGB_565)
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)

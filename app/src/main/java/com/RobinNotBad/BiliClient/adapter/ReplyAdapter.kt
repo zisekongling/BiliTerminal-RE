@@ -240,8 +240,10 @@ class ReplyAdapter(
                 GlideUtil.with(replyHolder.replyAvatar).asDrawable().load(GlideUtil.url(reply.sender!!.avatar))
                         .apply(GlideUtil.thumbOptionsCover(replyHolder.replyAvatar))
                         .transition(GlideUtil.getTransitionOptions())
-                        .placeholder(R.mipmap.akari)
-                        .error(R.mipmap.akari)
+                        // 占位图必须走 placeholderDrawable：直接传 id 会让 Glide 每次 bind 重新解一遍
+                        // 256×256 位图，长列表在低内存设备上会 OOM（控制台崩溃 #401）。
+                        .placeholder(GlideUtil.placeholderDrawable(replyHolder.replyAvatar.context, R.mipmap.akari))
+                        .error(GlideUtil.placeholderDrawable(replyHolder.replyAvatar.context, R.mipmap.akari))
                         .apply(RequestOptions.circleCropTransform())
                         .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                         .into(replyHolder.replyAvatar)
