@@ -18,6 +18,18 @@
 
 ## 1. 当前版本状态
 
+- **26.11.24 按控制台反馈批量修：5 起崩溃 + 1 条假回跳 + 1 处噪音 + 1 处布局**：
+  - **来路**：用户要求「MCP 只读，不用回复，就读反馈然后修就行」，并指明「表冠适配一类的先别动」。把 42 条待处理反馈 + 11 条待处理崩溃全读完。
+  - **崩溃归并 5 类**：A Glide 资源 recycle ×4（#402/#403/#409/#411）、B RecyclerView Inconsistency ×3（#404/#405/#410）、C 系统 `DecorCaptionView` ×2（#406/#407）、D NPE ×1（#408）、E OOM ×1（#401）。B/C/D 的版本号早于对应修复（`#351/#353`、`#349/#350`，C 类是系统组件），只剩 A 与 E 要动。
+  - **改法（4 个提交）**：
+    - `e9f71d4b` `fix(player)`：① `applyCoverTint()` 的匿名 `CustomTarget` 没保存引用，而 `Glide.with(applicationContext)` 的 RequestManager 是**进程级**、不随 Activity 销毁清理，于是页面销毁后回调仍会跑、bitmap 早已被复用池回收 → `Cannot recycle a resource while it is still acquired`（A 类 4 条堆栈全落在 BitmapPool 归还路径，跨 26.11.02/26.11.16/26.11.17-beta.2 三个版本、机型与 SDK 各异）。改为字段持有 + 复用前 clear + `onDestroy` 里 `Glide.with(applicationContext).clear(...)`。② REPEAT_ONE 与单曲循环两条重播分支裸 `seekTo(0)`，没走 `markSeekTarget` → `video_now` 停在片尾、`progressChange` 的回跳守卫记下一次假「播放位置回跳」（反馈 #297 日志原文 `播放位置回跳>从 14798ms 退到 0ms`），弹幕也仍按片尾对轴；补 `markSeekTarget(0L)`（「播完重播」路径本来就有）。
+    - `b88d1e2c` `fix(image)`：占位图共享缓存。根因不是「某张图太大」——Glide 的 `placeholder(int)` / `error(int)` 在 `SingleRequest` 构建时用 `Context.getDrawable` **现解**一份 Drawable，而每次 bind 都新建 RequestOptions，等于**每帧重新 decode 一遍 256×256**；Resources 的 drawable cache 在低内存下会被 `onTrimMemory` 整个清空，恰恰在内存最紧时失效（#401 的分配量 262156 B = 256×256×4 + Bitmap 头）。新增 `GlideUtil.placeholderDrawable(context, resId)` 缓存 `ConstantState`（位图只 decode 一次，派生后 `mutate()` 防多 View 共用状态打架），三个 `request*` 门面 + 12 处直接链式调用一并切换；`UserListAdapter` 的静态 `AVATAR_OPTIONS` 里移出 placeholder/error（静态常量拿不到 Context，且共享 Drawable 实例会打架）。
+    - `5f1ce90c` `fix(history)`：csrf 为空时提前 return。原来是打一条 e 级日志后照样发请求，服务端必回 -111/-400，播放页每十几秒调一次 → 日志刷屏；日志一并降到 v 级。
+    - `3140a985` `fix(ui)`：`manageBar` 三格从 `touch_min`（48dp）+ 13sp 对齐到 `segmented_bar_min`（40dp）+ `text_body`，并钉死 `maxLines=1` + `ellipsize=end`（反馈 #265「多选后操作栏明显变大、挡视线」；窄格里换行还会把条再撑高一倍）。
+  - **验证**：L0——两 flavor 单测 614 套件 / 6518 用例 0 失败；`assembleDebug` 双 flavor 通过；layout 已确认重新打包进 APK（`packaged_res` 产物时间戳与源文件一致）。崩溃/反馈 ID 逐条核对过（代码注释与提交信息里引用的 #401、#402/#403/#409/#411、#297、#265 均与实际记录一致）。
+  - **未验证（L2 / 待人工）**：① A 类 Glide 崩溃需真机反复进出播放页 + 切清晰度压测确认不再复现；② OOM 需 sdk 25 小内存设备；③ 重播不再误报「位置回跳」需看日志原文；④ 多选条的新行高需人眼确认不显突兀。
+  - **口径**：#261（直播锁定按钮压在弹幕输入框上）已在 26.11.21 用 `layout_card_bg.bringToFront()` 修过，注释直指该反馈，本轮未再动；表冠相关（#300/#279/#296/#273）按用户要求整批跳过；#276（弹幕过多变模糊/卡顿）与 #288/#284（圆屏评论区缩放）缺少可判定证据，需真机复现后再动。
+
 - **26.11.22 六路并行：同步上游 + 基线 + 安全审计 + 并发审查 + 历史深挖 + 规矩机器化**：
   - **来路**：用户要求「不省成本、发挥最大实力」并把六件事一次做完。
   - **同步**：上游 6 提交（登录换票三连 + CI 串行化），2 处文档层冲突，`AppTokenRefreshApi` 的自动合并经核对为真语义合并。
