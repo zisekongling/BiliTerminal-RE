@@ -47,7 +47,12 @@ public class HistoryApi {
         if (SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.PRIVACY_MODE, false)) return;
         String url = "https://api.bilibili.com/x/v2/history/report";
         String csrf = NetWorkUtil.currentCsrf();
-        if (csrf.isEmpty()) Logu.e("history-report", "csrf 为空，上报必被服务端拒绝(-111)，请确认已登录");
+        if (csrf.isEmpty()) {
+            // 没有 csrf 服务端一定回 -111/-400：这条请求发了也是白费，而播放页每十几秒就会
+            // 调一次本方法，错误日志会持续刷屏。降到 v 级：默认不输出，排查登录态时再开调试开关。
+            Logu.v("history-report", "csrf 为空，跳过历史上报（未登录或登录态异常）");
+            return;
+        }
         String per = "aid=" + aid + "&cid=" + cid
                 + "&progress=" + (progress >= 0 ? progress : "")
                 + "&platform=pc"
@@ -83,7 +88,11 @@ public class HistoryApi {
             return;
         }
         String csrf = NetWorkUtil.currentCsrf();
-        if (csrf.isEmpty()) Logu.e("history-report", "csrf 为空，上报必被服务端拒绝(-111)，请确认已登录");
+        if (csrf.isEmpty()) {
+            // 同 reportHistory：没有 csrf 的心跳必被拒，别让它在播放页反复刷错误日志。
+            Logu.v("history-report", "csrf 为空，跳过番剧心跳（未登录或登录态异常）epid=" + epid);
+            return;
+        }
 
         long nowSec = System.currentTimeMillis() / 1000;
         NetWorkUtil.FormData form = new NetWorkUtil.FormData()
