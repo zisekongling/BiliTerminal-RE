@@ -232,6 +232,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private lateinit var bottom_group_slots: LinearLayout
     private var buttonSlots: PlayerButtonSlots? = null
     private var newPlayerUi: PlayerNewUiController? = null
+
+    /**
+     * 封面色取色的 Glide 目标。
+     *
+     * 必须持有引用：`Glide.with(applicationContext)` 的 RequestManager 是进程级的，不随本页销毁自动
+     * 清理；匿名 target 不 clear 会让资源一直处于 acquired 状态，触发 Glide 的
+     * `Cannot recycle a resource while it is still acquired`（控制台崩溃 #402/#403/#409/#411）。
+     */
+    private var coverTintTarget: CustomTarget<Bitmap>? = null
     private lateinit var card_subtitle: LinearLayout
     private lateinit var card_danmaku_send: LinearLayout
     /** 「跳到指定时间」的页内输入卡片（QQ#9；26.11.14 从独立 Activity 改成与发弹幕同构的卡片）。 */
@@ -3301,6 +3310,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             if (queue != null && queue.size > 1) {
                 if (queue.mode == PlayQueueMode.REPEAT_ONE) {
                     finishWatching = false
+                    // 必须走 markSeekTarget：video_now 是媒体时钟与进度条的唯一时间源，
+                    // 只 seekTo 不更新它，它会停在片尾直到下次采样——progressChange 那里的
+                    // 「播放位置回跳」守卫会把它记成一次假回跳（控制台反馈 #297 的日志里
+                    // 就是这条 `播放位置回跳>从 14798ms 退到 0ms（playerError=false 本地=false）`），
+                    // 弹幕也还在按片尾对轴。
+                    markSeekTarget(0L)
                     ijkPlayer!!.seekTo(0)
                     if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.seekTo(0L)
                     ijkPlayer!!.start()
@@ -3320,6 +3335,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 // 单曲循环＝又从头播起来了，不再是"看完了"：不清这个标志的话，
                 // 本地视频的周期落盘会一直按"看完"写 0，第二轮看了半天也续不上
                 finishWatching = false
+                // 同 REPEAT_ONE：不更新 video_now 会把这条重播记成一次假「位置回跳」。
+                markSeekTarget(0L)
                 ijkPlayer!!.seekTo(0)
                 if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.seekTo(0L)
                 ijkPlayer!!.start()
@@ -5408,6 +5425,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         saveLocalProgressNow("销毁兜底")
         savePlaySessionNow("销毁兜底")
         destroyed = true
+        // 封面色取色用的是 `Glide.with(applicationContext)`：它的 RequestManager 挂在**进程级**，
+        // 不会随 Activity 销毁自动清理，所以那个匿名 CustomTarget 必须自己 clear。
+        // 不清的话，页面销毁后请求仍在跑、资源回来时 target 已无人引用却仍处于 acquired 状态，
+        // Glide 的 ResourceRecycler 下一次回收就抛
+        // `IllegalStateException: Cannot recycle a resource while it is still acquired`
+        // （控制台崩溃 #402/#403/#409/#411，跨 4 个版本号复现）。
+        runCatching { coverTintTarget?.let { Glide.with(applicationContext).clear(it) } }
+        coverTintTarget = null
         // 锁定按钮自动隐去的延时任务要撤掉，别在 Activity 销毁后再去动 View
         mainHandler?.removeCallbacks(hideLockIcon)
         // 弹幕重试同理：销毁后再拉一次只会在已释放的弹幕视图上落地
@@ -7448,30 +7473,36 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         val cover = intent?.getStringExtra("cover")
         if (cover.isNullOrEmpty()) return
 
+        // 先清上一次的：同一页面可能因为换分P/换清晰度重建两次，旧 target 留着同样会积累未回收资源。
+        coverTintTarget?.let { runCatching { Glide.with(applicationContext).clear(it) } }
+
+        val target = object : CustomTarget<Bitmap>() {
+            override fun onResourceReady(resource: Bitmap, transition: Transition<in Bitmap>?) {
+                if (destroyed) return
+                val width = resource.width
+                val height = resource.height
+                if (width <= 0 || height <= 0) return
+                val pixels = IntArray(width * height)
+                resource.getPixels(pixels, 0, width, 0, 0, width, height)
+                val color = CoverTintPolicy.fromPixels(pixels) ?: return
+                seekbar_progress.setAccentColor(color)
+                // 新版：方屏进度行被自绘渲染器接管、圆屏走弧形进度，旧 setAccentColor 都画不到，
+                // 封面色必须转交给新版控制器（覆盖主题进度色，语义仍是「封面取色优先」）。
+                newPlayerUi?.setCoverAccent(color)
+            }
+
+            override fun onLoadCleared(placeholder: Drawable?) {
+                // onDestroy 主动 clear 时回调到这里。
+            }
+        }
+        coverTintTarget = target
+
         Glide.with(applicationContext)
             .asBitmap()
             .load(cover)
             .override(COVER_TINT_SAMPLE_PX, COVER_TINT_SAMPLE_PX)
             .centerCrop()
-            .into(object : CustomTarget<Bitmap>() {
-                override fun onResourceReady(resource: Bitmap, transition: Transition<in Bitmap>?) {
-                    if (destroyed) return
-                    val width = resource.width
-                    val height = resource.height
-                    if (width <= 0 || height <= 0) return
-                    val pixels = IntArray(width * height)
-                    resource.getPixels(pixels, 0, width, 0, 0, width, height)
-                    val color = CoverTintPolicy.fromPixels(pixels) ?: return
-                    seekbar_progress.setAccentColor(color)
-                    // 新版：方屏进度行被自绘渲染器接管、圆屏走弧形进度，旧 setAccentColor 都画不到，
-                    // 封面色必须转交给新版控制器（覆盖主题进度色，语义仍是「封面取色优先」）。
-                    newPlayerUi?.setCoverAccent(color)
-                }
-
-                override fun onLoadCleared(placeholder: Drawable?) {
-                    // 页面销毁时 Glide 会回调这里，不需要收尾动作
-                }
-            })
+            .into(target)
     }
 
     private fun loadHighEnergyData() {
