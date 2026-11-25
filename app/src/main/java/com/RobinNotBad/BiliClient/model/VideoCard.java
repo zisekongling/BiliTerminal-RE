@@ -27,8 +27,13 @@ public class VideoCard implements Parcelable, Serializable {
      */
     public int progress = 0;
     /**
-     * 视频总时长，<b>单位是秒</b>。只有稍后再看列表（x/v2/history/toview/web 的 duration 字段）
-     * 会填，用来把「已看完」和「没看完」分开；其它来源保持 0（未知）。
+     * 视频总时长，<b>单位是秒</b>；0 表示「未知」，不是「零秒」。
+     * <p>
+     * 来源：稍后再看与收藏的订阅列表原本就有 `duration`（用来分「已看完 / 没看完」）；
+     * 26.11.25 起推荐、相关视频、热门、入站必刷、排行、APP 推荐、搜索、历史、收藏夹、
+     * 空间投稿、合集、动态视频卡也都补了解析（各接口字段口径不一，统一走
+     * {@link com.RobinNotBad.BiliClient.util.DurationText#secondsOf}）。
+     * 仍然保持 0 的来源：消息里的视频卡（只有 uri/title/image）、追番列表与番剧搜索结果（接口不带时长）。
      */
     public long duration = 0;
     /**

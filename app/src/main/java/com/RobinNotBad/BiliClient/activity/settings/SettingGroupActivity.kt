@@ -340,6 +340,8 @@ class SettingGroupActivity : RefreshListActivity() {
         input("开屏文字", getString(R.string.setting_lab_splashtext), SettingsKeys.SPLASH_TEXT, "input_string", "欢迎使用\nRE:哔哩终端")
         switch("文字跑马灯", getString(R.string.setting_lab_marquee), SettingsKeys.MARQUEE_ENABLE, true)
         switch("加载渐入渐出动画", getString(R.string.desc_load_transition), SharedPreferencesUtil.LOAD_TRANSITION, true)
+        // 26.11.25（控制台反馈 #303）：卡片封面右下角的时长角标，默认关。
+        switch(getString(R.string.setting_video_card_duration), getString(R.string.desc_video_card_duration), SettingsKeys.SHOW_VIDEO_DURATION, false)
     }
 
     /**

@@ -70,6 +70,12 @@ object SettingsKeys {
     const val MARQUEE_ENABLE = "marquee_enable"
     /** 圆屏列表效果（实验性）：圆屏模式下给滚动列表加曲率缩放与边缘淡出，见 `ui/appearance/RoundListEffect`。 */
     const val UI_ROUND_LIST_EFFECT = "ui_round_list_effect"
+    /**
+     * 视频卡片封面右下角的时长角标，**默认关**（26.11.25，控制台反馈 #303）。
+     * 所有走 `VideoCardHolder` 的卡片都吃这个开关；时长本身由 `DurationText` 从各接口的
+     * duration / duration_text / length 里兼容解析，解析不出来的卡片（消息、追番列表）不显示角标。
+     */
+    const val SHOW_VIDEO_DURATION = "ui_video_card_duration"
 
     // ---- 外观三模块（配色 / 圆角 / 字体）-------------------------------
     // 配色沿用上面的 THEME，不另开 key（保持既有存档向前兼容）。

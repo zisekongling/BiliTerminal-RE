@@ -18,6 +18,21 @@
 
 ## 1. 当前版本状态
 
+- **26.11.25 视频卡片封面右下角显示时长（控制台反馈 #303，默认关闭）**：
+  - **来路**：控制台反馈 #303（需求类）「首页卡片左下角能不能显示视频时长」。用户拍板四条：**所有视频卡片都做**、**可关闭**、**目前默认关闭**、**标在封面的右下角**（原话是左下角，作答时改成右下角）。
+  - **难点在数据而不是显示**：卡片只有唯一渲染器 `adapter/video/VideoCardHolder.kt:216` `showVideoCard`，改一处即覆盖 13 个调用点（推荐/热门/排行/搜索/收藏/历史/空间/合集/动态/稍后再看/消息……）；但 `model/VideoCard.java:33` 的 `duration` 原先只有 `WatchLaterApi.java:73` 与 `SubscriptionApi.java:168` 两处解析。对照 `bilibili-API/` 公开快照（R29 口径以实测为准），各接口给的字段根本不是一种形状：热门/排行/入站必刷/合集/稍后再看是**数值秒** `duration`；搜索是**字符串** `"MM:SS"`（且不补零，实测出现过 `"4:2"`、`"217:7"`）；空间投稿与动态卡片是 `duration_text`（`"05:14"`）；另有一份给 `length`。
+  - **改法**：
+    - 新建 `app/src/main/java/com/RobinNotBad/BiliClient/util/DurationText.kt`（纯函数 object，无 Android 依赖，三个方法带 `@JvmStatic` 供 Java 侧调）：`secondsOf(JSONObject?)` 按 `duration` → `duration_text` → `length` 顺序多键兼容（数字取秒、字符串走 `parse`、`0`/`null` 视为缺省继续往后找）；`parse(String?)` 支持 `"12:34"` 与 `"1:02:03"`，也接受纯秒数字符串；`format(Long)` 输出 `MM:SS`，超过一小时才用 `H:MM:SS`。**`0` 一律表示「未知」，不渲染成 `00:00`**。
+    - 新增 `app/src/test/java/com/RobinNotBad/BiliClient/util/DurationTextTest.kt` 12 例：数值秒 754、`"12:34"`→754、`"4:2"`→242、`"217:7"`→13027、`duration_text`/`length` `"05:14"`→314、`duration:0` 回退到 `duration_text`、缺字段/null/消息卡片→0、`"1:02:03"`→3723，以及 format 的 `754→"12:34"`、`9→"00:09"`、`3723→"1:02:03"`、`3600→"1:00:00"`、`0`/负数→空串。
+    - 布局：`res/layout/cell_video_list.xml` 与 `res/layout/cell_dynamic_video.xml` 各加一个 `@+id/text_duration` 的 TextView，约束在 `@id/img_cover` 的右下角（`marginEnd`/`marginBottom` 各 2dp，动态卡因布局有 5dp 右让位故 7dp），9sp 白字 + `@drawable/bg_cover_duration`（新 shape，`@color/cover_duration_scrim` = `#99000000`，3dp 圆角）+ `includeFontPadding="false"`，默认 `gone`。
+    - 渲染：`VideoCardHolder` 的 `durationText` 字段可空（只有这两份布局带控件，别的复用布局拿不到就跳过），`showVideoCard` 里照抄 viewCount 那套「空值 GONE / 有值 VISIBLE + setText」写法，条件是 `duration > 0 && SharedPreferencesUtil.getBoolean(SettingsKeys.SHOW_VIDEO_DURATION, false)`。
+    - 开关：`util/SettingsKeys.kt` 新增 `SHOW_VIDEO_DURATION = "ui_video_card_duration"`（默认 `false`）；`SettingGroupActivity.buildUIGroup()` 在「加载渐入渐出动画」之后加一行 `switch(...)`；`SettingsIndex` 登记一条，highlight 用的字符串与设置页那行**同一个 string 资源**（`SettingText.resolve` 未命中 MAP 会原样返回，所以能逐字对上）；`strings.xml` 新增 `setting_video_card_duration`=「卡片显示时长」与 `desc_video_card_duration`。
+    - 解析补齐 13 处：`RecommendApi.java` 4 处（rcmd / 相关视频 / 热门 / 入站必刷）、`RankingApi.java`、`AppRecommendApi.java`、`SearchApi.java` 的 `parseVideoEntry`、`HistoryApi.java`、`FavoriteApi.java`、`UserInfoApi.java`（空间投稿走 `duration_text`）、`SeriesApi.java`、`DynamicApi.java` 的 `analyzeVideoCard`。**故意不补**：`MessageApi.java`（消息卡片只有 uri/title/image）、`BangumiApi.java:47` 与 `SearchApi.java:394`（番剧搜索结果无时长）、`DynamicApi.java:931`（pgc）——这些即使打开开关也不会显示，已在设置项描述里写明。
+    - `model/VideoCard.java`：`duration` 的注释从「只有稍后再看会填」改成「0 = 未知而不是零秒」并列出已补/仍为 0 的来源。
+    - 文档：`docs/FEATURES.md` 新增 §2.10，§14.2 的开关清单同步。
+  - **L0（26.11.25 本机）**：`:app:assembleDebug`（standard + coexist 两个 flavor）与 `:app:testStandardDebugUnitTest` 通过；`app/build/test-results/testStandardDebugUnitTest` 汇总 316 份报告 / 3150 用例 / 0 失败 0 错误 0 跳过，时间戳为本轮（非复用）。
+  - **未验证（L2，需人工看画面）**：①300×300 方屏与圆屏上角标是否被封面卡片圆角裁掉、9sp 是否可读；②封面自带的平台烫字（时长/弹幕数水印）与角标是否重叠；③动态卡片用的是另一份布局（`cell_dynamic_video.xml`，封面 16:11、右侧有播放图标），角标位置是否合适；④开关打开后已在屏上的卡片是否要等下一次绑定才出现（RecyclerView 复用导致），退出重进列表是否正常；⑤关掉开关后是否立即消失。
+
 - **26.11.25 动态卡片的转发图标改成「点=分享面板、长按=复制链接」（控制台反馈 #283）**：
   - **来路**：控制台反馈 #283（需求类）「我需要动态和专栏的复制链接功能（类似视频下面的分享到其他设备）」。核查后发现两处其实都已经有了：专栏页 26.11.24 起顶栏有「分享」按钮（`activity/article/OpusInfoActivity.kt:145` 四项面板），动态卡片 26.11.23 起长按管理菜单里有「分享」（提交 `45baed9b`，五项面板见 `adapter/dynamic/DynamicHolder.kt:367`）——这条反馈来自 `version_code=26111604`（26.11.16）的老包，早于这两处。
   - **仍不一致的地方**：视频页是点右下角转发图标**直接**弹五项面板、长按直接复制链接（`activity/video/info/VideoInfoFragment.kt:689-709`），而动态卡片点转发图标是直接转发到发动态页、复制链接要长按进菜单再选一项。用户拍板照视频页对齐。

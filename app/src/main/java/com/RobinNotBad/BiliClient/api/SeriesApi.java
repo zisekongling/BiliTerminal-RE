@@ -3,6 +3,7 @@ package com.RobinNotBad.BiliClient.api;
 import com.RobinNotBad.BiliClient.model.PageInfo;
 import com.RobinNotBad.BiliClient.model.Series;
 import com.RobinNotBad.BiliClient.model.VideoCard;
+import com.RobinNotBad.BiliClient.util.DurationText;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
 import com.RobinNotBad.BiliClient.util.PerformanceManager;
 import com.RobinNotBad.BiliClient.util.StringUtil;
@@ -118,6 +119,7 @@ public class SeriesApi {
                     videoCard.cover = archive.optString("pic", "");
                     videoCard.view = StringUtil.toWan(archive.getJSONObject("stat").optInt("view", -1));
                     videoCard.title = archive.optString("title", "");
+                    videoCard.duration = DurationText.secondsOf(archive);
                     videoList.add(videoCard);
                 }
             }

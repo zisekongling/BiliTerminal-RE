@@ -1,6 +1,7 @@
 package com.RobinNotBad.BiliClient.api;
 
 import com.RobinNotBad.BiliClient.model.VideoCard;
+import com.RobinNotBad.BiliClient.util.DurationText;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
 import com.RobinNotBad.BiliClient.util.StringUtil;
 
@@ -51,6 +52,7 @@ public class RankingApi {
             JSONObject stat = card.optJSONObject("stat");
             long view = stat == null ? 0 : stat.optLong("view", 0);
             videoCard.view = view > 0 ? StringUtil.toWan(view) + "观看" : "";
+            videoCard.duration = DurationText.secondsOf(card);
             videoCardList.add(videoCard);
         }
     }

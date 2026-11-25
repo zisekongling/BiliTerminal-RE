@@ -4,6 +4,7 @@ import android.text.TextUtils;
 import android.util.Log;
 
 import com.RobinNotBad.BiliClient.model.VideoCard;
+import com.RobinNotBad.BiliClient.util.DurationText;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
 import com.RobinNotBad.BiliClient.util.PerformanceManager;
 import com.RobinNotBad.BiliClient.util.RecommendPagePolicy;
@@ -103,6 +104,7 @@ public class RecommendApi {
             VideoCard videoCard = new VideoCard(title, upName, view, cover, card.optLong("id", 0L), bvid);
             videoCard.trackId = trackId;
             videoCard.upMid = upMid;
+            videoCard.duration = DurationText.secondsOf(card);
             videoCardList.add(videoCard);
         }
     }
@@ -123,6 +125,7 @@ public class RecommendApi {
                 videoCard.cover = card.getString("pic");
                 videoCard.title = card.getString("title");
                 videoCard.upName = card.getJSONObject("owner").getString("name");
+                videoCard.duration = DurationText.secondsOf(card);
                 videoList.add(videoCard);
             }
 
@@ -148,6 +151,7 @@ public class RecommendApi {
                     videoCard.title = card.getString("title");
                     videoCard.upName = card.getJSONObject("owner").getString("name");
                     videoCard.view = StringUtil.toWan(card.getJSONObject("stat").getLong("view")) + "观看";
+                    videoCard.duration = DurationText.secondsOf(card);
                     videoCardList.add(videoCard);
                 }
             }
@@ -171,6 +175,7 @@ public class RecommendApi {
                     videoCard.title = card.getString("title");
                     videoCard.upName = card.getJSONObject("owner").getString("name");
                     videoCard.view = StringUtil.toWan(card.getJSONObject("stat").getLong("view")) + "观看";
+                    videoCard.duration = DurationText.secondsOf(card);
                     videoCardList.add(videoCard);
                 }
             }

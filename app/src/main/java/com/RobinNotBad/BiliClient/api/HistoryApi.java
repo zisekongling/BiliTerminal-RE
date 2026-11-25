@@ -2,6 +2,7 @@ package com.RobinNotBad.BiliClient.api;
 
 import com.RobinNotBad.BiliClient.model.ApiResult;
 import com.RobinNotBad.BiliClient.model.VideoCard;
+import com.RobinNotBad.BiliClient.util.DurationText;
 import com.RobinNotBad.BiliClient.util.Logu;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
@@ -202,6 +203,7 @@ public class HistoryApi {
 
                 VideoCard card = new VideoCard(title, upName, viewStr, cover, aid, bvid);
                 card.viewAt = viewAt;
+                card.duration = DurationText.secondsOf(videoCard);
                 if (BUSINESS_PGC.equals(business)) {
                     card.type = "media_bangumi";
                     //番剧卡片必须带上 epid：aid(history.oid) 是剧集 avid 而不是 media_id，

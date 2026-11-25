@@ -20,6 +20,7 @@ import com.RobinNotBad.BiliClient.model.Stats;
 import com.RobinNotBad.BiliClient.model.TopicNode;
 import com.RobinNotBad.BiliClient.model.UserInfo;
 import com.RobinNotBad.BiliClient.model.VideoCard;
+import com.RobinNotBad.BiliClient.util.DurationText;
 import com.RobinNotBad.BiliClient.util.DmImgParamUtil;
 import com.RobinNotBad.BiliClient.util.EmoteUrlCollector;
 import com.RobinNotBad.BiliClient.util.EmoteUtil;
@@ -1104,7 +1105,7 @@ public class DynamicApi {
         } catch (NumberFormatException ignored) {
         }
 
-        return new VideoCard(
+        VideoCard videoCard = new VideoCard(
                 title,
                 "投稿视频",
                 play,
@@ -1112,6 +1113,9 @@ public class DynamicApi {
                 aid,
                 bvid
         );
+        // 动态里的视频卡带的是 duration_text（"05:14" 这种），交给 DurationText 统一兼容
+        videoCard.duration = DurationText.secondsOf(jsonObject);
+        return videoCard;
     }
 
     /**
