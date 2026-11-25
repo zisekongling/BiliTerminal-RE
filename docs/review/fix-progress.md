@@ -18,6 +18,19 @@
 
 ## 1. 当前版本状态
 
+- **26.11.25 缓存页（反馈 #307）：夹内分区标题行不再当「返回」+ 合集起播失败降级单条 + 全链日志**：
+  - **来路**：控制台反馈 #307「缓存中文件夹看不了视频」，开发者追问后用户回「点击文件夹里的视频之后就会退回到选择文件」（OPPO OW19W1 / sdk27 / `version_code 26112300` / 未附日志）。
+  - **排查（逐层证伪）**：全仓 grep `选择文件|选择文件夹|选取文件|选择目录` **0 命中**，SAF 入口只有选图 / 选字体的四处，缓存链路上没有任何系统选择器 → 用户说的「选择文件」不是系统页面，只能是「弹回上一层列表」。再把点击链路读完：`CacheListAdapter.playVideo` → `VirtualCollectionPrefs.cacheClickAction`（夹内且合集功能开 → `PLAY_COLLECTION`，否则 `PLAY_SINGLE`）→ `LocalListActivity.playVirtualCollection` 的三个失败出口全是 `MsgUtil.showMsg` + `return`；`PlayerActivity` 也没有「本地起播失败就自杀」的路径（`getExtras` 校验、`onNewIntent`、原生库兜底、私有片源回退逐个看过），`localPlaylist` 相关 20+ 处没有一处 finish 本页。
+  - **唯一能产生「退回上一层」的机制**：夹内 `TYPE_SECTION_VIDEO_HEADER` 那一行（显示夹名 +「N个」，布局 `res/layout/cell_section_header.xml` 是 `match_parent` × `wrap_content`、paddingTop 12dp）**整行绑了「返回」**，而它紧贴第一条视频；300×300 表上手指连带压到就 `finish()`。顶层页同一 viewType 本来就是 `setOnClickListener(null)`，所以只有「文件夹里」有这个现象，与反馈完全吻合。
+  - **改法（三条，用户拍板的 A 方案）**：
+    - `app/src/main/java/com/RobinNotBad/BiliClient/adapter/video/CacheListAdapter.kt:527`：`TYPE_SECTION_VIDEO_HEADER` 合并成一条分支，**永不绑定返回点击**（`itemView.setOnClickListener(null)`，并写明 holder 跨 viewType 复用必须清监听器）；删掉已无调用方的 `onBackFromFolder` 字段。返回入口本来就够：顶栏箭头 / 返回键 / 手表右滑。
+    - `app/src/main/java/com/RobinNotBad/BiliClient/activity/video/local/LocalListActivity.kt`：`playVirtualCollection` 的四个失败出口（夹内无条目 / 构建不出可播条目 / 起始下标换算失败 / `mediaAt(0)` 为空）全部改走新辅助 `fallbackToSingle(startVideoIdx, reasonRes, detail)`——先打 `Logu.w("cache-page", …)`，下标合法就弹「合集起播失败，改为单独播放」（`uitext_locallistactivity_047`）并调 `adapter.playSingleAt(idx)` 降级单条播放；只有点中那条自己不可用时才沿用原来的提示放弃。合集是「夹内连播」的附加能力，构不出来不该连单条都播不了。
+    - 日志：`playVideo` 打「点视频 folder= / idx= / 动作= / 页数= / 文件数= / 标题=」，成功起播打「虚拟合集起播 folder= / 条数= / 起播下标= / 文件=」，降级打 warn。反馈者下次复现时 `adb logcat -s cache-page` 就能分诊：真进了播放器 / 命中哪条失败出口 / 是否降级。
+    - `playVideo` 顺手拆成 `playVideo`（分诊 + 分叉）、`playSingleAt(Int)`、`playSingleVideo(LocalVideo)`（原 PLAY_SINGLE 逻辑），两条路共用同一份「怎么把一条本机缓存播出去」的实现，不再各写一遍。
+  - **文档**：`docs/review/manual-test-guide-261110-cache-folder-page.md` 的 H09 从「四条退出路径」改为三条，并新增第 ⑤ 条验收点（点夹内分区标题不再退出文件夹页）；§2.1 那条真机验收待办的描述同步改口径。
+  - **L0（26.11.25 本机）**：`:app:assembleDebug`（standard + coexist 两个 flavor）与 `:app:testStandardDebugUnitTest` → BUILD SUCCESSFUL in 1m 43s；`app/build/test-results/testStandardDebugUnitTest` 316 份报告 / 3393 个 testcase / 0 failure / 0 error（时间戳为本轮 20:15）。
+  - **未验证（L2，需人工）**：①真机上「点夹内视频」是否还会退回上一层——若仍退回，抓 `adb logcat -s cache-page` 看最后一条停在「点视频」还是「虚拟合集起播」，两者能直接区分误触与起播失败；②分区标题行不再可点是否影响操作习惯（返回仍有顶栏箭头 / 返回键 / 右滑三条）；③降级提示与降级后的播放是否正常；④控制台 #307 暂不标记，等用户实测确认。
+
 - **26.11.25 视频卡片封面右下角显示时长（控制台反馈 #303，默认关闭）**：
   - **来路**：控制台反馈 #303（需求类）「首页卡片左下角能不能显示视频时长」。用户拍板四条：**所有视频卡片都做**、**可关闭**、**目前默认关闭**、**标在封面的右下角**（原话是左下角，作答时改成右下角）。
   - **难点在数据而不是显示**：卡片只有唯一渲染器 `adapter/video/VideoCardHolder.kt:216` `showVideoCard`，改一处即覆盖 13 个调用点（推荐/热门/排行/搜索/收藏/历史/空间/合集/动态/稍后再看/消息……）；但 `model/VideoCard.java:33` 的 `duration` 原先只有 `WatchLaterApi.java:73` 与 `SubscriptionApi.java:168` 两处解析。对照 `bilibili-API/` 公开快照（R29 口径以实测为准），各接口给的字段根本不是一种形状：热门/排行/入站必刷/合集/稍后再看是**数值秒** `duration`；搜索是**字符串** `"MM:SS"`（且不补零，实测出现过 `"4:2"`、`"217:7"`）；空间投稿与动态卡片是 `duration_text`（`"05:14"`）；另有一份给 `length`。
@@ -1840,7 +1853,7 @@
   - `api/NoteApi.java:259-276`（getNoteInfo 不带 csrf，与 `bilibili-API/docs/note/info.md:65-71` 一致）
   - 未改清单：`note_id` 传参方式一行未动；`activity/video/` 下无任何写入（`VideoInfoFragment.kt:563-569`）
 - [ ] **下载速度与进度改按真实字节后的真机验收（26.11.10，用户反馈「速度和进度显示的都非常不准确」）**：本机无 Android 设备 / 模拟器，只做到 L0。验收步骤与判据见 [`manual-test-guide-261110-download-speed-progress.md`](manual-test-guide-261110-download-speed-progress.md)（H13~H17）：高码率 DASH 单任务的百分比要与「已下 ÷ 总大小」吻合、视频流下完不停在 52%；并行 3 条时每行速度互不相同、总速度约等于各行之和；总进度条单调不回退、ETA 收敛；封面 / 字幕 / 弹幕不再让百分比跳变；MP4 单文件与探测失败的兜底路径仍能显示进度且抖动时不回退。§3.146
-- [ ] **缓存文件夹页改独立 Activity 后的真机验收（26.11.10，反馈 #20）**：本机无 Android 设备 / 模拟器（`/dev/kvm` 不存在，SDK 下没有 `emulator` 与 `system-images`），只做到 L0。验收步骤与判据见 [`manual-test-guide-261110-cache-folder-page.md`](manual-test-guide-261110-cache-folder-page.md)（H08~H12）：点文件夹是独立页面且只显示夹内视频；四条退出路径（右滑 / 返回键 / 顶栏箭头 / 分区标题）都不卡、退回后缓存页滚动位置还在；夹里删一条或移出后退回能看见变化；只翻看不动数据退回不重扫；从文件夹页长按顶栏切栏目后返回栈里不残留缓存页。
+- [ ] **缓存文件夹页改独立 Activity 后的真机验收（26.11.10，反馈 #20）**：本机无 Android 设备 / 模拟器（`/dev/kvm` 不存在，SDK 下没有 `emulator` 与 `system-images`），只做到 L0。验收步骤与判据见 [`manual-test-guide-261110-cache-folder-page.md`](manual-test-guide-261110-cache-folder-page.md)（H08~H12）：点文件夹是独立页面且只显示夹内视频；三条退出路径（右滑 / 返回键 / 顶栏箭头；分区标题行自 26.11.25 起不再当返回，见反馈 #307）都不卡、退回后缓存页滚动位置还在；夹里删一条或移出后退回能看见变化；只翻看不动数据退回不重扫；从文件夹页长按顶栏切栏目后返回栈里不残留缓存页。
 - [ ] **稍后再看「未看完」第二层待真机**：本地判据已修，但服务端 `viewed=2` 的真实语义未确认。若仍为空 → 抓 `history/toview/web` 的请求 `viewed` 值与响应体。§三十五 / §36.5
 - [ ] **收藏夹排序行**：逐条排查后**未发现可修缺陷**（两处入口汇合到同一个 `FavoriteVideoListActivity`）。
   - 真机排查指令：`adb logcat -s "debug-收藏夹排序"`，正常应 `sortBar.visibility=0 mediaId=<非0> fid=<非0> readOnly=false`。

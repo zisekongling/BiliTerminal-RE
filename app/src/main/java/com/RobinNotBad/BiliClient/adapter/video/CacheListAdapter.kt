@@ -31,6 +31,7 @@ import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.FolderPagePrefs
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.LocalListSort
+import com.RobinNotBad.BiliClient.util.Logu
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.RobinNotBad.BiliClient.util.VirtualCollectionPrefs
@@ -147,7 +148,6 @@ class CacheListAdapter(
      * 由它用 `registerForActivityResult` 起页并在回来时重扫——缓存页的未分类分区也可能被改到。
      */
     var onFolderListClick: (() -> Unit)? = null
-    var onBackFromFolder: (() -> Unit)? = null
     var onVideoPlayInVirtualCollection: ((String, Int) -> Unit)? = null
 
     /** 长按文件夹：由 Activity 弹功能菜单（重命名 / 拆散）。 */
@@ -526,18 +526,15 @@ class CacheListAdapter(
             }
             TYPE_SECTION_VIDEO_HEADER -> {
                 (holder as SectionHeaderHolder).apply {
-                    if (currentFolderName.isEmpty()) {
-                        sectionTitle.text = UiText.of("未分类视频")
-                        sectionCount.text = "${visibleVideoCount}个"
-                        // 这个 viewType 夹内也在用：从文件夹退到顶层时复用的 holder 可能还带着「点击返回」，
-                        // 不清掉的话点「未分类视频」标题会把用户又送回文件夹
-                        itemView.setOnClickListener(null)
-                    } else {
-                        sectionTitle.text = currentFolderName
-                        sectionCount.text = "${visibleVideoCount}个"
-                        // 点击标题返回；排序模式下列表正被整理，不响应返回，避免拖到一半退出文件夹
-                        itemView.setOnClickListener { if (!sortMode) onBackFromFolder?.invoke() }
-                    }
+                    sectionTitle.text =
+                        if (currentFolderName.isEmpty()) UiText.of("未分类视频") else currentFolderName
+                    sectionCount.text = "${visibleVideoCount}个"
+                    // 26.11.25（反馈 #307）：这一行**不再**当「返回」用。
+                    // 夹内它紧贴第一条视频，300×300 的表上手指很容易连带压到这一行，一点就是 finish()，
+                    // 用户看到的现象就是「点文件夹里的视频却退回上一层」（反馈原话「退回到选择文件」）。
+                    // 返回入口本来就够用（顶栏箭头 / 返回键 / 手表右滑），所以它只当分区标题。
+                    // 监听器必须显式清掉：holder 在两种 viewType 之间复用，残留的点击会在别的行上触发。
+                    itemView.setOnClickListener(null)
                 }
             }
             TYPE_FOLDER_ITEM -> {
@@ -690,11 +687,35 @@ class CacheListAdapter(
             inFolder = currentFolderName.isNotEmpty(),
             collectionEnabled = VirtualCollectionPrefs.collectionEnabled()
         )
+        val videoIndex = videoList.indexOf(video)
+        // 反馈 #307「点文件夹里的视频会退回上一层」：静态代码里没有任何会自动退回的路径，
+        // 只能靠这条日志分诊——命中哪条分支、合集是不是起播失败降级了、还是真进了播放器
+        Logu.i(
+            "cache-page",
+            "点视频 folder=" + currentFolderName + " idx=" + videoIndex + "/" + videoList.size +
+                    " 动作=" + clickAction.name + " 页数=" + (video.pageList?.size ?: 0) +
+                    " 文件数=" + video.videoFileList.size + " 标题=" + video.title
+        )
         if (clickAction == VirtualCollectionPrefs.ClickAction.PLAY_COLLECTION) {
-            onVideoPlayInVirtualCollection?.invoke(currentFolderName, videoList.indexOf(video))
+            onVideoPlayInVirtualCollection?.invoke(currentFolderName, videoIndex)
             return
         }
+        playSingleVideo(video)
+    }
 
+    /** 把点中的这条按下标播出去（合集起播失败时 Activity 走这个降级入口）。 */
+    fun playSingleAt(videoIndex: Int) {
+        if (videoIndex < 0 || videoIndex >= videoList.size) return
+        playSingleVideo(videoList[videoIndex])
+    }
+
+    /**
+     * 起播单条缓存：单页直接起播，多页进选页页。
+     *
+     * 从 [playVideo] 里拆出来的原因是反馈 #307：合集起播的分支失败时也要能播，
+     * 两条路必须共用同一份「怎么把一条本机缓存播出去」的实现，别再各写一遍。
+     */
+    fun playSingleVideo(video: LocalVideo) {
         // 反馈 #164：以前这里按**扁平文件数**猜布局——1 个当单文件、2 个当 DASH 双文件、
         // 更多才开选页。问题在于「两个已缓存的分 P、每页各一个合并好的 mp4」也正好是 2 个文件，
         // 于是被当成一页的 video+audio：第 2 集永远点不到，还会被当音轨塞给第 1 集配音。

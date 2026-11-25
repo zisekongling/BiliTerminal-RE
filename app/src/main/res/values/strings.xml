@@ -2202,6 +2202,7 @@
     <string name="uitext_locallistactivity_044">视频会移回未分类区域。</string>
     <string name="uitext_locallistactivity_045">此操作不可恢复。</string>
     <string name="uitext_locallistactivity_046">弹幕更新失败: %1$s</string>
+    <string name="uitext_locallistactivity_047">合集起播失败，改为单独播放</string>
 
     <!-- 缓存页手动拖动排序 / 搜索（26.11.02，反馈 #94；26.11.05 起排序改为拖动） -->
     <string name="btn_cache_sort">排序</string>
