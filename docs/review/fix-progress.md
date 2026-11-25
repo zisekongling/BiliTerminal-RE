@@ -18,6 +18,12 @@
 
 ## 1. 当前版本状态
 
+- **26.11.25 动态卡片的转发图标改成「点=分享面板、长按=复制链接」（控制台反馈 #283）**：
+  - **来路**：控制台反馈 #283（需求类）「我需要动态和专栏的复制链接功能（类似视频下面的分享到其他设备）」。核查后发现两处其实都已经有了：专栏页 26.11.24 起顶栏有「分享」按钮（`activity/article/OpusInfoActivity.kt:145` 四项面板），动态卡片 26.11.23 起长按管理菜单里有「分享」（提交 `45baed9b`，五项面板见 `adapter/dynamic/DynamicHolder.kt:367`）——这条反馈来自 `version_code=26111604`（26.11.16）的老包，早于这两处。
+  - **仍不一致的地方**：视频页是点右下角转发图标**直接**弹五项面板、长按直接复制链接（`activity/video/info/VideoInfoFragment.kt:689-709`），而动态卡片点转发图标是直接转发到发动态页、复制链接要长按进菜单再选一项。用户拍板照视频页对齐。
+  - **改法**（`adapter/dynamic/DynamicHolder.kt:1002-1017`）：转发图标 `setOnClickListener` 改成 `showSharePanel(mActivity, dynamic)`，新增 `setOnLongClickListener` 直接 `StringUtil.copyText` 链接并提示 `R.string.msg_share_link_copied`；拿不到 `dynamicId`（已删/被屏蔽）时只提示 `R.string.msg_share_url_missing`。**「转发到动态」不再占一次点击**，改从面板里的「分享至动态」走，组装 intent 仍只在 `relayToDynamic` 一处。长按管理菜单里的「分享」保留（两个入口进同一个面板）。
+  - **L0（26.11.25 本机）**：`:app:assembleDebug` 与 `:app:testStandardDebugUnitTest` 通过。
+  - **未验证（L2，需人工看画面）**：①点动态卡片右下角转发图标是否弹出五项面板、面板尺寸在 300×300 方屏/圆屏上是否出屏；②长按该图标是否只复制链接并提示「链接已复制」，不会同时触发转发；③从面板选「分享至动态」后是否正常进发动态页（转发链路没变）；④列表滚动时连点图标是否误触长按。
 - **26.11.25 「稍后再看」进主菜单：默认不启用、不给老用户回填（控制台反馈 #304）**：
   - **来路**：控制台反馈 #304（需求类）「稍后再看能不能做在主菜单里」——这页一直只挂在「我的」的二级菜单（`MySpaceConfig` 的 `watch_later`）。用户拍板三件事：**两边都留**（「我的」里不删、菜单页再加一个）、**菜单项默认关闭**、**不对老用户回填**（想用的人自己去菜单设置里开）。
   - **障碍**：菜单一级页要求 `InstanceActivity`（顶栏点击开菜单、MENU 键消费都由这个类判定，见 `BaseActivity.kt:533/:834`），而 `WatchLaterActivity` 原本是 `RefreshListActivity : BaseActivity`，不满足；但把 `RefreshListActivity` 的基类换成 `InstanceActivity` 会让它底下 **32 个二级页**（反馈列表、下载列表、设置信息页、本地文件夹……）全部变成「顶栏点开菜单」，明确否决。

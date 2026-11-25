@@ -999,10 +999,22 @@ class DynamicHolder(itemView: View, val mActivity: BaseActivity, val isChild: Bo
         }
         content.ellipsize = TextUtils.TruncateAt.END
 
-        // 转发图标与长按菜单里的「分享至动态」是同一个动作，组装 intent 的部分见 [relayToDynamic]
-        val onRelayClick = View.OnClickListener { relayToDynamic(mActivity, dynamic) }
-        if (item_dynamic_share != null && clickable)
-            item_dynamic_share!!.setOnClickListener(onRelayClick)
+        // 转发图标：点击直接开五项分享面板，长按直接复制链接——与视频页转发图标同一套手感
+        // （26.11.25 对齐）。「转发到动态」不再占一次点击，改成面板里的「分享至动态」，
+        // 组装 intent 的部分仍只在 [relayToDynamic] 一处。
+        if (item_dynamic_share != null && clickable) {
+            item_dynamic_share!!.setOnClickListener { showSharePanel(mActivity, dynamic) }
+            item_dynamic_share!!.setOnLongClickListener {
+                val url = ShareTexts.dynamicUrl(dynamic.dynamicId)
+                if (url.isEmpty()) {
+                    MsgUtil.showMsg(mActivity.getString(R.string.msg_share_url_missing))
+                } else {
+                    StringUtil.copyText(mActivity, url)
+                    MsgUtil.showMsg(mActivity.getString(R.string.msg_share_link_copied))
+                }
+                true
+            }
+        }
 
         // 「管理」入口：点一下或长按都弹同一个菜单，最终都进 [showManage]。
         // 动作本身由适配器/详情页通过 [setManageAction] 挂上来——菜单要的回调
