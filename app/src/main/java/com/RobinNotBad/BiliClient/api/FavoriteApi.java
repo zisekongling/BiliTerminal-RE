@@ -7,6 +7,7 @@ import com.RobinNotBad.BiliClient.model.Collection;
 import com.RobinNotBad.BiliClient.model.FavoriteFolder;
 import com.RobinNotBad.BiliClient.model.Opus;
 import com.RobinNotBad.BiliClient.model.VideoCard;
+import com.RobinNotBad.BiliClient.util.DurationText;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
 import com.RobinNotBad.BiliClient.util.StringUtil;
@@ -362,6 +363,7 @@ public class FavoriteApi {
                 view = StringUtil.toWan(cntInfo.optLong("play", 0)) + "观看";
             }
             VideoCard card = new VideoCard(title, upName, view, cover, aid, video.optString("bvid", ""));
+            card.duration = DurationText.secondsOf(video);
             // id 可能是 avid / auid / 合集 id，类型决定后续批量操作怎么拼 resources
             card.favType = normalizeFavType(video.optInt("type", FAV_TYPE_VIDEO));
             // fav_time 是收藏时间（秒）；聚合页按它排序，普通列表不读

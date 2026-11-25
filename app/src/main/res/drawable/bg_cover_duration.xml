@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 视频卡片右下角的时长角标底（26.11.25，控制台反馈 #303）：半透明黑 + 3dp 圆角。
+     用在 cell_video_list.xml / cell_dynamic_video.xml 的 text_duration 上。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/cover_duration_scrim" />
+    <corners android:radius="3dp" />
+</shape>

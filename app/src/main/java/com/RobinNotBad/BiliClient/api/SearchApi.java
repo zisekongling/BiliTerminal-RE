@@ -3,6 +3,7 @@ package com.RobinNotBad.BiliClient.api;
 import com.RobinNotBad.BiliClient.model.ArticleCard;
 import com.RobinNotBad.BiliClient.model.UserInfo;
 import com.RobinNotBad.BiliClient.model.VideoCard;
+import com.RobinNotBad.BiliClient.util.DurationText;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
 import com.RobinNotBad.BiliClient.util.StringUtil;
 
@@ -336,7 +337,10 @@ public class SearchApi {
         long play = card.getLong("play");
         String playTimesStr = StringUtil.toWan(play) + "观看";
 
-        videoCardList.add(new VideoCard(title, upName, playTimesStr, cover, aid, bvid, "video"));
+        VideoCard videoCard = new VideoCard(title, upName, playTimesStr, cover, aid, bvid, "video");
+        // 搜索结果的 duration 是 "MM:SS" 字符串（还不补零），DurationText 会按冒号解析
+        videoCard.duration = DurationText.secondsOf(card);
+        videoCardList.add(videoCard);
     }
 
     /**

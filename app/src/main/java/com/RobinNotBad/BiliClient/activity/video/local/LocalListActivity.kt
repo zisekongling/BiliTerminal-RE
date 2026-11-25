@@ -920,9 +920,9 @@ open class LocalListActivity : InstanceActivity() {
             folderListLauncher.launch(Intent(this, LocalFolderListActivity::class.java))
         }
         adapter!!.onFolderMenu = { idx -> showFolderMenu(idx) }
-        // 分区标题「返回」只在文件夹页出现（顶层没有）。文件夹页是独立页面，返回就是 finish，
-        // 不再在同一个 Activity 里把整张表换回顶层。
-        adapter!!.onBackFromFolder = { if (isFolderPage) finish() }
+        // 26.11.25（反馈 #307）：夹内分区标题行不再承担「返回」（它紧贴第一条视频，小屏上误触即退出本页），
+        // 所以也不再绑 onBackFromFolder。文件夹页的返回走顶栏箭头（onCreate 里 R.id.top 的点击）、
+        // 返回键、手表右滑，三条都还在。
 
         adapter!!.onVideoMenu = { idx -> showVideoMenu(idx) }
         adapter!!.onVideoPlayInVirtualCollection = { folderName, videoIdx -> playVirtualCollection(folderName, videoIdx) }
@@ -1416,11 +1416,13 @@ open class LocalListActivity : InstanceActivity() {
         }
 
         if (folderCount == 0) {
-            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_004))
+            fallbackToSingle(startVideoIdx, R.string.uitext_locallistactivity_004,
+                "夹内没有任何条目 folder=" + folderName)
             return
         }
         if (entries.isEmpty()) {
-            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_033))
+            fallbackToSingle(startVideoIdx, R.string.uitext_locallistactivity_033,
+                "夹内 " + folderCount + " 条但都构建不出可播条目 folder=" + folderName)
             return
         }
 
@@ -1428,14 +1430,16 @@ open class LocalListActivity : InstanceActivity() {
         // 换算不出来就明说，不再静默从第一条开始（反馈 #104）
         val startPageIndex = VirtualCollectionStart.resolveLocal(startVideoIdx, collectionIndices)
         if (startPageIndex < 0) {
-            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_034))
+            fallbackToSingle(startVideoIdx, R.string.uitext_locallistactivity_034,
+                "起始下标换算失败 start=" + startVideoIdx + " 可用下标表=" + collectionIndices)
             return
         }
 
         // 根层每一条都有至少一页（LocalPlaylistEntry.build 已过滤），起播取它的第一页
         val startMedia = entries[startPageIndex].mediaAt(0)
         if (startMedia == null) {
-            MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_033))
+            fallbackToSingle(startVideoIdx, R.string.uitext_locallistactivity_033,
+                "起始条目 mediaAt(0) 为空 合集下标=" + startPageIndex)
             return
         }
 
@@ -1462,10 +1466,30 @@ open class LocalListActivity : InstanceActivity() {
                 player.putExtra("audio_track_url", startMedia.audioFile)
             }
             startActivity(player)
+            Logu.i("cache-page", "虚拟合集起播 folder=" + folderName + " 条数=" + entries.size +
+                    " 起播下标=" + startPageIndex + " 文件=" + startMedia.videoFile)
             MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_032, folderName, entries.size))
         } catch (e: Exception) {
             MsgUtil.err(e)
         }
+    }
+
+    /**
+     * 合集起播失败时的降级：改播点中的那一条，并留下可诊断的日志（反馈 #307）。
+     *
+     * 以前三种失败都只弹一句提示就停在原地，用户看到的就是「点了没反应 / 被弹回」；
+     * 而合集是「夹内连播」的附加能力，构不出来不该连单条都播不了。
+     * 只有点中那条自己也不可用（下标越界）时，才沿用原来的提示放弃。
+     */
+    private fun fallbackToSingle(startVideoIdx: Int, reasonRes: Int, detail: String) {
+        Logu.w("cache-page", "虚拟合集起播失败，降级单条：" + detail + " start=" + startVideoIdx)
+        val target = adapter
+        if (target == null || startVideoIdx < 0 || startVideoIdx >= videoList.size) {
+            MsgUtil.showMsg(getString(reasonRes))
+            return
+        }
+        MsgUtil.showMsg(getString(R.string.uitext_locallistactivity_047))
+        target.playSingleAt(startVideoIdx)
     }
 
     private fun deleteVideo(videoIndex: Int) {
@@ -2260,7 +2284,8 @@ open class LocalListActivity : InstanceActivity() {
     /**
      * 文件夹页带着「有没有改动」退回缓存页。
      *
-     * 右滑返回、返回键、顶栏箭头、点分区标题最后都走 [finish]，所以结果在这里统一设置，
+     * 右滑返回、返回键、顶栏箭头最后都走 [finish]（夹内分区标题行自 26.11.25 起不再管返回，
+     * 见 CacheListAdapter 里 TYPE_SECTION_VIDEO_HEADER 的注释），所以结果在这里统一设置，
      * 不用在每条退出路径上各写一遍：有改动才让缓存页重扫，没改动就直接显示它原来那张表。
      */
     override fun finish() {

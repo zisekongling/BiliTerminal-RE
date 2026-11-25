@@ -517,6 +517,11 @@ object SettingsIndex {
             text(R.string.setting_dialog_title_marquee),
             text(R.string.desc_dialog_title_marquee)
         ) { a -> openGroup(a, "lab", groupLab, text(R.string.setting_dialog_title_marquee)) }
+        // 「卡片显示时长」（26.11.25，默认关，反馈 #303）：设置页那行的 name 同样取这个资源。
+        list += Entry(
+            text(R.string.setting_video_card_duration),
+            text(R.string.desc_video_card_duration)
+        ) { a -> openGroup(a, "ui", groupUi, text(R.string.setting_video_card_duration)) }
         // 「X 式重排」（26.11.21，默认关）：设置页那行的 name 同样取自这个资源。
         list += Entry(
             text(R.string.setting_recommend_rerank),

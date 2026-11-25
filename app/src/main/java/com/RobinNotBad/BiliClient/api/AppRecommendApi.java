@@ -1,6 +1,7 @@
 package com.RobinNotBad.BiliClient.api;
 
 import com.RobinNotBad.BiliClient.model.VideoCard;
+import com.RobinNotBad.BiliClient.util.DurationText;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
 
@@ -141,6 +142,7 @@ public class AppRecommendApi {
 
             VideoCard card = new VideoCard(item.optString("title", ""), upName, view, cover, aid, bvid);
             card.upMid = upMid;
+            card.duration = DurationText.secondsOf(item);
             // APP 侧的 track_id 与网页侧反馈埋点不通用，传给 FeedbackApi.dislike 反而会错配，一律留空
             card.trackId = "";
             out.add(card);

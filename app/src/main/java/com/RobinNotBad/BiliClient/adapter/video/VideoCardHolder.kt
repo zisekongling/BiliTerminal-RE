@@ -21,9 +21,12 @@ import com.RobinNotBad.BiliClient.activity.video.info.VideoInfoActivity
 import com.RobinNotBad.BiliClient.api.BangumiApi
 import com.RobinNotBad.BiliClient.model.VideoCard
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.DurationText
 import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.OptionalFeatures
+import com.RobinNotBad.BiliClient.util.SettingsKeys
+import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.ToolsUtil
@@ -41,6 +44,15 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
     lateinit var upName: TextView
     lateinit var viewCount: TextView
     lateinit var cover: ImageView
+
+    /**
+     * 封面右下角的时长角标（反馈 #303）。
+     *
+     * 可空：只有 `cell_video_list.xml` 与 `cell_dynamic_video.xml` 带这个控件，
+     * 别处若有复用 [VideoCardHolder] 的临时布局（如投稿页的预览），拿不到就整块跳过，
+     * 不要为了它去要求每个布局都补一个。
+     */
+    private val durationText: TextView?
     private var lastCoverUrl: String? = null
     private var boundVideoCard: VideoCard? = null
     private var boundContext: Context? = null
@@ -58,6 +70,7 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
         upName = itemView.findViewById(R.id.text_upname)
         viewCount = itemView.findViewById(R.id.text_viewcount)
         cover = itemView.findViewById(R.id.img_cover)
+        durationText = itemView.findViewById(R.id.text_duration)
         normalTitleColor = title.currentTextColor
     }
 
@@ -229,6 +242,20 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
         } else {
             viewCount.visibility = View.VISIBLE
             viewCount.text = strViewCount
+        }
+
+        // 时长角标（反馈 #303）：开关在「设置 → 界面与外观」，**默认关**——卡片本来就挤，
+        // 想看的人自己去开。没有时长（消息卡片、番剧这类接口不给字段）就继续保持隐藏。
+        // holder 会被复用，显示与隐藏两支都要显式设置，理由同上面的 upName。
+        val badge = durationText
+        if (badge != null) {
+            val seconds = videoCard.duration
+            if (seconds > 0L && SharedPreferencesUtil.getBoolean(SettingsKeys.SHOW_VIDEO_DURATION, false)) {
+                badge.visibility = View.VISIBLE
+                badge.text = DurationText.format(seconds)
+            } else {
+                badge.visibility = View.GONE
+            }
         }
 
         try {

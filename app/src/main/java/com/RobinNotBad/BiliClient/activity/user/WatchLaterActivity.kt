@@ -8,7 +8,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import com.RobinNotBad.BiliClient.R
-import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
+import com.RobinNotBad.BiliClient.activity.base.RefreshMainActivity
 import com.RobinNotBad.BiliClient.adapter.video.VideoCardAdapter
 import com.RobinNotBad.BiliClient.api.WatchLaterApi
 import com.RobinNotBad.BiliClient.model.VideoCard
@@ -18,7 +18,18 @@ import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 
-class WatchLaterActivity : RefreshListActivity() {
+/**
+ * 稍后再看。
+ *
+ * 26.11.25 起它同时是「菜单」，所以基类从 [RefreshListActivity]（二级列表页）换成
+ * [RefreshMainActivity]（一级菜单页，顶栏点击开菜单）；布局改回带筛选条的
+ * activity_simple_refresh —— 一级页基类默认用 activity_simple_main_refresh，那边没有
+ * filterBar / clearWatched，本页的「全部 / 未看完 / 清除已看完」就没地方放了。
+ * 两个布局空态与翻页提示的 id 相同，滚动自动收回由基类统一提供。
+ */
+class WatchLaterActivity : RefreshMainActivity() {
+
+    override fun contentLayoutRes(): Int = R.layout.activity_simple_refresh
 
     /** 接口返回的完整列表（不受筛选影响），删除时两张表要同步改 */
     private val allList = ArrayList<VideoCard>()

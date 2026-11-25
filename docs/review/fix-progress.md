@@ -18,6 +18,54 @@
 
 ## 1. 当前版本状态
 
+- **26.11.25 缓存页（反馈 #307）：夹内分区标题行不再当「返回」+ 合集起播失败降级单条 + 全链日志**：
+  - **来路**：控制台反馈 #307「缓存中文件夹看不了视频」，开发者追问后用户回「点击文件夹里的视频之后就会退回到选择文件」（OPPO OW19W1 / sdk27 / `version_code 26112300` / 未附日志）。
+  - **排查（逐层证伪）**：全仓 grep `选择文件|选择文件夹|选取文件|选择目录` **0 命中**，SAF 入口只有选图 / 选字体的四处，缓存链路上没有任何系统选择器 → 用户说的「选择文件」不是系统页面，只能是「弹回上一层列表」。再把点击链路读完：`CacheListAdapter.playVideo` → `VirtualCollectionPrefs.cacheClickAction`（夹内且合集功能开 → `PLAY_COLLECTION`，否则 `PLAY_SINGLE`）→ `LocalListActivity.playVirtualCollection` 的三个失败出口全是 `MsgUtil.showMsg` + `return`；`PlayerActivity` 也没有「本地起播失败就自杀」的路径（`getExtras` 校验、`onNewIntent`、原生库兜底、私有片源回退逐个看过），`localPlaylist` 相关 20+ 处没有一处 finish 本页。
+  - **唯一能产生「退回上一层」的机制**：夹内 `TYPE_SECTION_VIDEO_HEADER` 那一行（显示夹名 +「N个」，布局 `res/layout/cell_section_header.xml` 是 `match_parent` × `wrap_content`、paddingTop 12dp）**整行绑了「返回」**，而它紧贴第一条视频；300×300 表上手指连带压到就 `finish()`。顶层页同一 viewType 本来就是 `setOnClickListener(null)`，所以只有「文件夹里」有这个现象，与反馈完全吻合。
+  - **改法（三条，用户拍板的 A 方案）**：
+    - `app/src/main/java/com/RobinNotBad/BiliClient/adapter/video/CacheListAdapter.kt:527`：`TYPE_SECTION_VIDEO_HEADER` 合并成一条分支，**永不绑定返回点击**（`itemView.setOnClickListener(null)`，并写明 holder 跨 viewType 复用必须清监听器）；删掉已无调用方的 `onBackFromFolder` 字段。返回入口本来就够：顶栏箭头 / 返回键 / 手表右滑。
+    - `app/src/main/java/com/RobinNotBad/BiliClient/activity/video/local/LocalListActivity.kt`：`playVirtualCollection` 的四个失败出口（夹内无条目 / 构建不出可播条目 / 起始下标换算失败 / `mediaAt(0)` 为空）全部改走新辅助 `fallbackToSingle(startVideoIdx, reasonRes, detail)`——先打 `Logu.w("cache-page", …)`，下标合法就弹「合集起播失败，改为单独播放」（`uitext_locallistactivity_047`）并调 `adapter.playSingleAt(idx)` 降级单条播放；只有点中那条自己不可用时才沿用原来的提示放弃。合集是「夹内连播」的附加能力，构不出来不该连单条都播不了。
+    - 日志：`playVideo` 打「点视频 folder= / idx= / 动作= / 页数= / 文件数= / 标题=」，成功起播打「虚拟合集起播 folder= / 条数= / 起播下标= / 文件=」，降级打 warn。反馈者下次复现时 `adb logcat -s cache-page` 就能分诊：真进了播放器 / 命中哪条失败出口 / 是否降级。
+    - `playVideo` 顺手拆成 `playVideo`（分诊 + 分叉）、`playSingleAt(Int)`、`playSingleVideo(LocalVideo)`（原 PLAY_SINGLE 逻辑），两条路共用同一份「怎么把一条本机缓存播出去」的实现，不再各写一遍。
+  - **文档**：`docs/review/manual-test-guide-261110-cache-folder-page.md` 的 H09 从「四条退出路径」改为三条，并新增第 ⑤ 条验收点（点夹内分区标题不再退出文件夹页）；§2.1 那条真机验收待办的描述同步改口径。
+  - **L0（26.11.25 本机）**：`:app:assembleDebug`（standard + coexist 两个 flavor）与 `:app:testStandardDebugUnitTest` → BUILD SUCCESSFUL in 1m 43s；`app/build/test-results/testStandardDebugUnitTest` 316 份报告 / 3393 个 testcase / 0 failure / 0 error（时间戳为本轮 20:15）。
+  - **未验证（L2，需人工）**：①真机上「点夹内视频」是否还会退回上一层——若仍退回，抓 `adb logcat -s cache-page` 看最后一条停在「点视频」还是「虚拟合集起播」，两者能直接区分误触与起播失败；②分区标题行不再可点是否影响操作习惯（返回仍有顶栏箭头 / 返回键 / 右滑三条）；③降级提示与降级后的播放是否正常；④控制台 #307 暂不标记，等用户实测确认。
+
+- **26.11.25 视频卡片封面右下角显示时长（控制台反馈 #303，默认关闭）**：
+  - **来路**：控制台反馈 #303（需求类）「首页卡片左下角能不能显示视频时长」。用户拍板四条：**所有视频卡片都做**、**可关闭**、**目前默认关闭**、**标在封面的右下角**（原话是左下角，作答时改成右下角）。
+  - **难点在数据而不是显示**：卡片只有唯一渲染器 `adapter/video/VideoCardHolder.kt:216` `showVideoCard`，改一处即覆盖 13 个调用点（推荐/热门/排行/搜索/收藏/历史/空间/合集/动态/稍后再看/消息……）；但 `model/VideoCard.java:33` 的 `duration` 原先只有 `WatchLaterApi.java:73` 与 `SubscriptionApi.java:168` 两处解析。对照 `bilibili-API/` 公开快照（R29 口径以实测为准），各接口给的字段根本不是一种形状：热门/排行/入站必刷/合集/稍后再看是**数值秒** `duration`；搜索是**字符串** `"MM:SS"`（且不补零，实测出现过 `"4:2"`、`"217:7"`）；空间投稿与动态卡片是 `duration_text`（`"05:14"`）；另有一份给 `length`。
+  - **改法**：
+    - 新建 `app/src/main/java/com/RobinNotBad/BiliClient/util/DurationText.kt`（纯函数 object，无 Android 依赖，三个方法带 `@JvmStatic` 供 Java 侧调）：`secondsOf(JSONObject?)` 按 `duration` → `duration_text` → `length` 顺序多键兼容（数字取秒、字符串走 `parse`、`0`/`null` 视为缺省继续往后找）；`parse(String?)` 支持 `"12:34"` 与 `"1:02:03"`，也接受纯秒数字符串；`format(Long)` 输出 `MM:SS`，超过一小时才用 `H:MM:SS`。**`0` 一律表示「未知」，不渲染成 `00:00`**。
+    - 新增 `app/src/test/java/com/RobinNotBad/BiliClient/util/DurationTextTest.kt` 12 例：数值秒 754、`"12:34"`→754、`"4:2"`→242、`"217:7"`→13027、`duration_text`/`length` `"05:14"`→314、`duration:0` 回退到 `duration_text`、缺字段/null/消息卡片→0、`"1:02:03"`→3723，以及 format 的 `754→"12:34"`、`9→"00:09"`、`3723→"1:02:03"`、`3600→"1:00:00"`、`0`/负数→空串。
+    - 布局：`res/layout/cell_video_list.xml` 与 `res/layout/cell_dynamic_video.xml` 各加一个 `@+id/text_duration` 的 TextView，约束在 `@id/img_cover` 的右下角（`marginEnd`/`marginBottom` 各 2dp，动态卡因布局有 5dp 右让位故 7dp），9sp 白字 + `@drawable/bg_cover_duration`（新 shape，`@color/cover_duration_scrim` = `#99000000`，3dp 圆角）+ `includeFontPadding="false"`，默认 `gone`。
+    - 渲染：`VideoCardHolder` 的 `durationText` 字段可空（只有这两份布局带控件，别的复用布局拿不到就跳过），`showVideoCard` 里照抄 viewCount 那套「空值 GONE / 有值 VISIBLE + setText」写法，条件是 `duration > 0 && SharedPreferencesUtil.getBoolean(SettingsKeys.SHOW_VIDEO_DURATION, false)`。
+    - 开关：`util/SettingsKeys.kt` 新增 `SHOW_VIDEO_DURATION = "ui_video_card_duration"`（默认 `false`）；`SettingGroupActivity.buildUIGroup()` 在「加载渐入渐出动画」之后加一行 `switch(...)`；`SettingsIndex` 登记一条，highlight 用的字符串与设置页那行**同一个 string 资源**（`SettingText.resolve` 未命中 MAP 会原样返回，所以能逐字对上）；`strings.xml` 新增 `setting_video_card_duration`=「卡片显示时长」与 `desc_video_card_duration`。
+    - 解析补齐 13 处：`RecommendApi.java` 4 处（rcmd / 相关视频 / 热门 / 入站必刷）、`RankingApi.java`、`AppRecommendApi.java`、`SearchApi.java` 的 `parseVideoEntry`、`HistoryApi.java`、`FavoriteApi.java`、`UserInfoApi.java`（空间投稿走 `duration_text`）、`SeriesApi.java`、`DynamicApi.java` 的 `analyzeVideoCard`。**故意不补**：`MessageApi.java`（消息卡片只有 uri/title/image）、`BangumiApi.java:47` 与 `SearchApi.java:394`（番剧搜索结果无时长）、`DynamicApi.java:931`（pgc）——这些即使打开开关也不会显示，已在设置项描述里写明。
+    - `model/VideoCard.java`：`duration` 的注释从「只有稍后再看会填」改成「0 = 未知而不是零秒」并列出已补/仍为 0 的来源。
+    - 文档：`docs/FEATURES.md` 新增 §2.10，§14.2 的开关清单同步。
+  - **L0（26.11.25 本机）**：`:app:assembleDebug`（standard + coexist 两个 flavor）与 `:app:testStandardDebugUnitTest` 通过；`app/build/test-results/testStandardDebugUnitTest` 汇总 316 份报告 / 3150 用例 / 0 失败 0 错误 0 跳过，时间戳为本轮（非复用）。
+  - **未验证（L2，需人工看画面）**：①300×300 方屏与圆屏上角标是否被封面卡片圆角裁掉、9sp 是否可读；②封面自带的平台烫字（时长/弹幕数水印）与角标是否重叠；③动态卡片用的是另一份布局（`cell_dynamic_video.xml`，封面 16:11、右侧有播放图标），角标位置是否合适；④开关打开后已在屏上的卡片是否要等下一次绑定才出现（RecyclerView 复用导致），退出重进列表是否正常；⑤关掉开关后是否立即消失。
+
+- **26.11.25 动态卡片的转发图标改成「点=分享面板、长按=复制链接」（控制台反馈 #283）**：
+  - **来路**：控制台反馈 #283（需求类）「我需要动态和专栏的复制链接功能（类似视频下面的分享到其他设备）」。核查后发现两处其实都已经有了：专栏页 26.11.24 起顶栏有「分享」按钮（`activity/article/OpusInfoActivity.kt:145` 四项面板），动态卡片 26.11.23 起长按管理菜单里有「分享」（提交 `45baed9b`，五项面板见 `adapter/dynamic/DynamicHolder.kt:367`）——这条反馈来自 `version_code=26111604`（26.11.16）的老包，早于这两处。
+  - **仍不一致的地方**：视频页是点右下角转发图标**直接**弹五项面板、长按直接复制链接（`activity/video/info/VideoInfoFragment.kt:689-709`），而动态卡片点转发图标是直接转发到发动态页、复制链接要长按进菜单再选一项。用户拍板照视频页对齐。
+  - **改法**（`adapter/dynamic/DynamicHolder.kt:1002-1017`）：转发图标 `setOnClickListener` 改成 `showSharePanel(mActivity, dynamic)`，新增 `setOnLongClickListener` 直接 `StringUtil.copyText` 链接并提示 `R.string.msg_share_link_copied`；拿不到 `dynamicId`（已删/被屏蔽）时只提示 `R.string.msg_share_url_missing`。**「转发到动态」不再占一次点击**，改从面板里的「分享至动态」走，组装 intent 仍只在 `relayToDynamic` 一处。长按管理菜单里的「分享」保留（两个入口进同一个面板）。
+  - **L0（26.11.25 本机）**：`:app:assembleDebug` 与 `:app:testStandardDebugUnitTest` 通过。
+  - **未验证（L2，需人工看画面）**：①点动态卡片右下角转发图标是否弹出五项面板、面板尺寸在 300×300 方屏/圆屏上是否出屏；②长按该图标是否只复制链接并提示「链接已复制」，不会同时触发转发；③从面板选「分享至动态」后是否正常进发动态页（转发链路没变）；④列表滚动时连点图标是否误触长按。
+- **26.11.25 「稍后再看」进主菜单：默认不启用、不给老用户回填（控制台反馈 #304）**：
+  - **来路**：控制台反馈 #304（需求类）「稍后再看能不能做在主菜单里」——这页一直只挂在「我的」的二级菜单（`MySpaceConfig` 的 `watch_later`）。用户拍板三件事：**两边都留**（「我的」里不删、菜单页再加一个）、**菜单项默认关闭**、**不对老用户回填**（想用的人自己去菜单设置里开）。
+  - **障碍**：菜单一级页要求 `InstanceActivity`（顶栏点击开菜单、MENU 键消费都由这个类判定，见 `BaseActivity.kt:533/:834`），而 `WatchLaterActivity` 原本是 `RefreshListActivity : BaseActivity`，不满足；但把 `RefreshListActivity` 的基类换成 `InstanceActivity` 会让它底下 **32 个二级页**（反馈列表、下载列表、设置信息页、本地文件夹……）全部变成「顶栏点开菜单」，明确否决。
+  - **改法**：
+    - 新建 `app/src/main/java/com/RobinNotBad/BiliClient/util/view/BarAutoHideController.kt`：把 `RefreshListActivity` 里私有的「滚动自动收起工具条」（6 个状态字段 + `animate` / `setBarHeight` / `resetBarHeight` / `naturalHeight` / `handleAutoHideScroll`，动画时长常量 `BAR_ANIM_MS = 180L`）整体搬出来，对外只有 `setup(vararg bars)` / `expand()` / `handleScroll(dy)` 三个方法，判定仍走 `util/view/ScrollRetractDecider`。
+    - `activity/base/RefreshListActivity.kt`：删掉那套字段与方法，改成 `private val barAutoHide by lazy { BarAutoHideController(recyclerView) }` 委托；**对外签名 `setupAutoHideBars` / `expandAutoHideBars` 不变**，收藏夹、历史等 32 个二级页行为不变（439 行 → 约 270 行）。
+    - `activity/base/RefreshMainActivity.kt`（`InstanceActivity` 的一级列表页基类，推荐/热门/动态/热搜在用）接上同一个控制器，并新增 `protected open fun contentLayoutRes(): Int = R.layout.activity_simple_main_refresh`，把原先写死的 `setContentView` 变成可覆写点。
+    - `activity/user/WatchLaterActivity.kt`：基类换成 `RefreshMainActivity`，并覆写 `contentLayoutRes()` 保留自己那个带筛选条（全部/未看完/清除已看完）的 `R.layout.activity_simple_refresh`——两个布局的 id 是超集关系，`emptyTip`/`loadMoreTip`/`top`/`pageName` 都在。该页不设 `setOnLoadMoreListener`，而基类翻页逻辑被 `listener != null` 挡住，无副作用。
+    - `util/MenuConfig.kt`：新增 `const val WATCH_LATER = "watch_later"`，插进 `BASE_ITEMS`（`myspace` 与 `message` 之间），并进 `SWITCHABLE_KEYS` + `SWITCH_DEFAULTS[WATCH_LATER] = false`。因为 `DEFAULT_ENABLED` 的过滤式是 `key != RESUME && (key in FIXED_ITEMS || key !in SWITCHABLE_KEYS || SWITCH_DEFAULTS.getValue(key))`，所以它天然落在「未启用」区、`DEFAULT_ENABLED` 一个字都不用改；老用户的 `menu_enabled` 严格 parse 成功就原样返回（缺这个 key = 保持关闭），**不回填**。它是页面项而不是动作项，所以能当启动页。
+    - `activity/MenuActivity.kt`：`btnNames` 登记 `MenuConfig.WATCH_LATER -> Pair(UiText.of("稍后再看"), WatchLaterActivity::class.java)`（这一处登记后，菜单设置页取名字、启动页选页面都自动认识）；未登录时从菜单里移除；`hiddenCandidates` 里归入「登录后才出现」那一组。
+  - **单测**：`MenuConfigTest.disabledFrom_returnsCanonicalComplement` 的期望值补上 `watch_later`（它默认关闭 → 必然出现在未启用区，这是行为变化不是回归）；新增 `watchLater_defaultsToDisabled_notBackfilled`，钉住「在 `ALL_ITEMS` / `SWITCHABLE_KEYS` 里、不在 `DEFAULT_ENABLED` / `FIXED_ITEMS` / `ACTION_ITEMS` 里、且能只带自己在 `menu_enabled` 里往返」。
+  - **L0（26.11.25 本机）**：`:app:assembleDebug`（standard + coexist 两个 flavor 都编）与 `:app:testStandardDebugUnitTest` 通过。
+  - **未验证（L2，需人工看画面）**：①菜单设置里把「稍后再看」拖回已启用区后，九宫格排版与底部「更多」折叠区是否正常、圆屏会不会挤；②从菜单进稍后再看后，点顶栏是否弹出主菜单（换了基类才有的能力）、按返回是否回到菜单；③把它设为启动页后重启是否真的进这一页；④筛选条滚动收起/展开的手感是否与改动前一致。
+
 - **26.11.24 按控制台反馈批量修：5 起崩溃 + 1 条假回跳 + 1 处噪音 + 1 处布局**：
   - **来路**：用户要求「MCP 只读，不用回复，就读反馈然后修就行」，并指明「表冠适配一类的先别动」。把 42 条待处理反馈 + 11 条待处理崩溃全读完。
   - **崩溃归并 5 类**：A Glide 资源 recycle ×4（#402/#403/#409/#411）、B RecyclerView Inconsistency ×3（#404/#405/#410）、C 系统 `DecorCaptionView` ×2（#406/#407）、D NPE ×1（#408）、E OOM ×1（#401）。B/C/D 的版本号早于对应修复（`#351/#353`、`#349/#350`，C 类是系统组件），只剩 A 与 E 要动。
@@ -1822,7 +1870,7 @@
   - `api/NoteApi.java:259-276`（getNoteInfo 不带 csrf，与 `bilibili-API/docs/note/info.md:65-71` 一致）
   - 未改清单：`note_id` 传参方式一行未动；`activity/video/` 下无任何写入（`VideoInfoFragment.kt:563-569`）
 - [ ] **下载速度与进度改按真实字节后的真机验收（26.11.10，用户反馈「速度和进度显示的都非常不准确」）**：本机无 Android 设备 / 模拟器，只做到 L0。验收步骤与判据见 [`manual-test-guide-261110-download-speed-progress.md`](manual-test-guide-261110-download-speed-progress.md)（H13~H17）：高码率 DASH 单任务的百分比要与「已下 ÷ 总大小」吻合、视频流下完不停在 52%；并行 3 条时每行速度互不相同、总速度约等于各行之和；总进度条单调不回退、ETA 收敛；封面 / 字幕 / 弹幕不再让百分比跳变；MP4 单文件与探测失败的兜底路径仍能显示进度且抖动时不回退。§3.146
-- [ ] **缓存文件夹页改独立 Activity 后的真机验收（26.11.10，反馈 #20）**：本机无 Android 设备 / 模拟器（`/dev/kvm` 不存在，SDK 下没有 `emulator` 与 `system-images`），只做到 L0。验收步骤与判据见 [`manual-test-guide-261110-cache-folder-page.md`](manual-test-guide-261110-cache-folder-page.md)（H08~H12）：点文件夹是独立页面且只显示夹内视频；四条退出路径（右滑 / 返回键 / 顶栏箭头 / 分区标题）都不卡、退回后缓存页滚动位置还在；夹里删一条或移出后退回能看见变化；只翻看不动数据退回不重扫；从文件夹页长按顶栏切栏目后返回栈里不残留缓存页。
+- [ ] **缓存文件夹页改独立 Activity 后的真机验收（26.11.10，反馈 #20）**：本机无 Android 设备 / 模拟器（`/dev/kvm` 不存在，SDK 下没有 `emulator` 与 `system-images`），只做到 L0。验收步骤与判据见 [`manual-test-guide-261110-cache-folder-page.md`](manual-test-guide-261110-cache-folder-page.md)（H08~H12）：点文件夹是独立页面且只显示夹内视频；三条退出路径（右滑 / 返回键 / 顶栏箭头；分区标题行自 26.11.25 起不再当返回，见反馈 #307）都不卡、退回后缓存页滚动位置还在；夹里删一条或移出后退回能看见变化；只翻看不动数据退回不重扫；从文件夹页长按顶栏切栏目后返回栈里不残留缓存页。
 - [ ] **稍后再看「未看完」第二层待真机**：本地判据已修，但服务端 `viewed=2` 的真实语义未确认。若仍为空 → 抓 `history/toview/web` 的请求 `viewed` 值与响应体。§三十五 / §36.5
 - [ ] **收藏夹排序行**：逐条排查后**未发现可修缺陷**（两处入口汇合到同一个 `FavoriteVideoListActivity`）。
   - 真机排查指令：`adb logcat -s "debug-收藏夹排序"`，正常应 `sortBar.visibility=0 mediaId=<非0> fid=<非0> readOnly=false`。
@@ -1883,6 +1931,8 @@
 
   模拟器（AVD `Medium_Phone_API_37.0`，Android 17、1080×2400；本机 `wear5` 的系统镜像缺失、起不来）上已实测：①默认配置下菜单页依次是「登录 / 推荐 / 短视频 / 热门 / 热搜 / 搜索 / 缓存 / 设置 / 扫一扫 / 退出」，**没有**「继续播放」；②「设置 → 内容与浏览 → 菜单设置」的「未启用」区末尾有「继续播放」，点回已启用后再点它提示「继续播放」不是页面、不能设为启动页（`adb logcat` 抓到 `MsgUtil>showMsg: 「继续播放」不是页面，不能设为启动页`）；③「设置 → 内容与浏览 → 详情页设置」在原 7 个开关之后多了「视频笔记」（默认关）与「分享到其他设备」（默认关；这条只在 `OptionalFeatures.available` 为真的构建里出现，本次模拟器装的是带 `private/` 注入的 standard debug 包）；④把「视频笔记」打开后设备上 `shared_prefs/default.xml` 多出 `<boolean name="detail_note_entry" value="true" />`，关掉后恢复，键名与 `SettingsKeys.DETAIL_NOTE_ENTRY` 一致。**仍未验的（都要登录态或真实播放会话）**：①有可续播会话时，把「继续播放」放到已启用区，菜单最上方应出现它、点进去回到上次视频与位置；再关掉开关应立刻消失；②登录态下「视频笔记」开 → 详情页动作区出现「笔记」且能进笔记页，关 → 不出现；③带 `private/` 的构建里「分享到其他设备」开 → 详情页出现该行并能进分享页，关 → 不出现且不做反射；④设置页搜索框搜「笔记」「跨设备」应命中这两条并滚到高亮；⑤466×466 圆屏上动作区多一行后的排版与滚动观感。**未验证**。（**26.11.08 更新**：§3.139 已把私有分享行改回默认显示，上面 ③④ 里「默认关」的口径过期，只作当时的测量记录。）
 
+- [ ] **26.11.23 更新日志页 63 条渲染待人工验收**（会话 6f0f104c 归档前回迁）：`app/src/main/res/values/strings.xml` 的 `update_log_current` 已是「【26.11.23 本次更新】」+ 63 条编号（提交 `f6cf4b54`，已在 `main` 且 `origin/main` 包含），两个 flavor 的签名发行包也已装过真机（GTJ0220A17004229，26.11.23 / versionCode 26112300，`install -r` 覆盖装、数据未清）。**只剩肉眼验收**：打开关于页 / 更新日志页，确认 63 条逐条渲染、编号不断档、末条完整不被裁切。当时该会话被 LoginActivity（停在短信验证码页）挡住，没动登录、没发短信、也没为看页面卸载重装。同一页的「收起 / 展开本次更新」也属 L2：`AboutActivity.kt:50` 的 `COLLAPSED_LOG_LINES = 15` 与 `69c82502`（4 文件，已在 `main`，随 26.11.16 稳定版发出、后续版本沿用）——条目超过 15 条才出现「展开全部（共 N 条）」，点开后全文展开、再点收起，且折叠状态不应把当前条目里的加粗/换行吃掉（会话 4c9319e1 当时没拿到看画面的确认，一并记在此处）。
+
 ### 2.2 功能与工程待办
 
 - [x] **文件夹列表页的「N 个视频」仍是记录条数，与缓存页对不上（26.11.17 记，与 §1 #209 同源；26.11.17 当天已修）**：`activity/video/local/LocalFolderListActivity.kt:126-135` 的 `buildRows()` 用 `FolderManager.getFolderVideos(folder.name).size` 当计数，而 `.folders_info.json` 只是记录、外部用文件管理器删掉目录后不会同步；缓存页那边已改成「按本页真扫到的条数」（§1 #209）。这里没跟着改，是因为它要同时算外置卷（`util/ExternalCacheRoots.kt`）里的条目，计数口径要先把「本机记录 ∪ 各外部根的扫描结果」合并出来，属于一次单独的重排；在改之前，用户从文件夹列表页进夹会看到比夹内多一条的数字。**别把这个当成 #209 没修干净。**
@@ -1924,6 +1974,8 @@
 - [ ] **`DynamicApiTest` 曾失败的 2 例（`DynamicApiTest.kt:151`/`:203`）与 `NoteApiTest.kt:198` 1 例**：**已闭环**（§36.3 修掉并全绿），修法见归档「长期结论」；此处仅作登记。
 - **功能类 backlog 一律看** `docs/superpowers/plans/2026-08-27-new-features-roadmap.md`，不在本文件展开。
 
+- [ ] **实验性新版播放器第二版（四弹层 + 手机自适应）暂停中，材料只在 stash 里**（会话 0f477146 归档前回迁）：已进 `main` 的第一版是 `335440e0`（手表方屏 / 圆屏九态、`debug=release` 同签名、`danmaku_container` 下 `LayoutParams` 强转修复、新布局 4 个占位按钮的无障碍描述、`closePanel` 恢复常驻层）。仍未进的三块：①短视频四个弹层只存在 `stash@{0}: On main: deepseek-new-ui-wip-26.11.19`（6 文件 +2395 / −503：`activity/video/ShortVideoPlayerActivity.kt`、`player/PlayerNewUiController.kt`、`ui/shortvideo/ShortVideoNewUi.kt`、`ui/shortvideo/ShortVideoOverlayState.kt`、`res/layout/fragment_short_video_page_new.xml`、`ShortVideoOverlayStateTest.kt`）——**不要 drop**；②手机自适应 `player/PlayerNewUiAdaptive.kt` 与其单测**已彻底丢失**（`git log --all` 无任何历史，`main` 的 `PlayerNewUiController.kt` 里 `watchRef` / `autoScale` 零命中），要捡回只能重写；③audio / live 两态从未开始。另外总闸 `player/PlayerUiSwitch.kt:21` 的 `const val EXPERIMENT_ENABLED = false` 是 11-21 拍板关死的，要继续得先改回 `true` 并把设置入口加回去。**要继续先拍板两件事**：这条线还做不做（11.19 之后已 5 天未动），以及能否再动手机上的包做真机验收。
+
 ### 2.3 明确不做（别再排期）
 
 - **F4 漫画**：快照 `bilibili-API/docs/manga/` 无任何「追漫/收藏漫画列表」接口，也无漫画搜索接口，项目内漫画实现为零（只有 `activity/user/VipActivity.kt:79-80` 会员权益文案）。
@@ -1958,6 +2010,36 @@
 - **#124 / #115 / #123 / #122 / #121 / #119**（功能请求，均未实现）：#124「开屏首页可自定义」`(a)` 与「断网直接进应用」`(b)` 已有，长按卡片的「稍后再看 / 不感兴趣 / 黑名单」`(c)` 未做（长按仍是快速缓存）；#115 推荐页长按「不感兴趣」未做（全库无此文案）；#123 只有单条长按删搜索记录，没有「清空全部」；#122 公开侧根本没有「用户协议」页可挂兜底入口；#121 私信页那句「私信有可能被拦截」是无条件 toast，既无开关也无一次性静音；#119 看图页没有自己的不透明底，`ui/appearance/ColorScheme.applyWindowTheme` 设的自定义背景图直接透出来。
 - **#90 / #87 缓存下载失败**（26.10.27 / 26.11.01）：DASH（1080P+ 音画分离）已支持并合并成单文件，但多段 `durl` 只取第 0 段（`api/PlayerApi` 无遍历拼接）、失败原因只落日志不告知用户（HTTP 非 2xx 只在 `service/DownloadService` 里 log）、没有断点续传。~~`backupUrl` 解析后无人使用~~ → **26.11.09 已接上**（反馈 #136，见 §3.143：playurl 的主 / 备线路贯通到下载器，网络类失败逐条换线重试，失败任务的 `state="error"` 记录与 `.DOWNLOADING` 残留不再堵死重新入队）。剩下这三项仍需用户日志里的 HTTP 码或复现机型 + 视频 + 清晰度才能定位。
 - **#135 侧边左滑退出视频（26.11.09，aqsh_watch 华强北手表）**：用户报「侧边左滑手势返回退不出视频」。开发者当天在控制台已回复「这是刻意设计（有些手表右滑就是退出视频，而放大后的视频又要靠拖动才能挪）」，并提议加一个「关闭此功能」的开关——**产品取舍尚未拍板，代码未动**。要做就得先定：开关放播放器设置还是全局设置、默认开还是关。
+
+### 2.6 控制台反馈遗留（26.11.24 从会话 88457716 归档前回迁）
+
+> 26.11.23~24 那轮把控制台反馈逐条核实，能修的一批（#236 / #222 / #177 / #271 / #267 / #265 / #268 / #280 / #282）已各自提交推送；下面 9 条是**当时明确没做、做不了或等你拍板**的。逐条原始判断与方案在 `outputs/feedback-triage-261123/feedback.md`（本地目录，已 gitignore），小标题与它的一级标题一致。那条会话归档前把清单搬进本文档，避免只存在 `outputs/` 里随归档丢掉。
+
+**未做的修改类**
+
+- [ ] **#206 长评论被鱼眼整块缩小、弯曲强度不可调**（改过但覆盖不到）：要「半屏以上的条目整块不缩」+ 弯曲强度三档。方案在 `feedback.md` 的 #206 节（约 331–336 行）。
+
+- [ ] **#272 Galaxy Watch 没有系统文件选择器 → 自定义字体选不了**（未修）：Galaxy Watch 无系统文件选择器，需新增 `FontPickerActivity` 自建选取页。方案在 `feedback.md` 的 #272 节（约 313–318 行）。
+
+- [ ] **#212 动态表情包只显示静态**（未修，隔壁仓库同样未实现）。
+
+**只能真机 / 人工验证**
+
+- [ ] **#281 消息角标几十条清不掉、首页没有未读提示**（改过但覆盖不到）：需 update_ack 带 `ack_seqno`，且角标回落不能反弹。
+
+- [ ] **#276 弹幕过多时变模糊 + 卡顿**（未修）：判据只能靠真机看画面。
+
+- [ ] **#275 最大倍率看长图有「补不上的空白带」**（未修）。
+
+- [ ] **#270 超长长图「只能放大一点」**（未修，要双指自由放大）。
+
+**需要先拍板才能做**
+
+- [ ] **#279 OPPO 表冠适配**（部分已修，震动一处都没有）：除设置页无震动、视频详情页转不动。要做先定**表冠震动默认开还是关**。
+
+- [ ] **#211 打开缓存文件夹卡 5–7 秒、点折叠夹卡 10 秒**（部分修，`指纹优先` 开关默认仍 true）：要改默认值得先定**缓存页「指纹优先」是否默认开**。
+
+- [ ] **26.11.23 更新日志两处口径对不上**（会话 6f0f104c 归档前指出）：第 16 条「崩溃 #346–#356 修复」是空壳（那 11 份报告实际分散在别的条目里），「崩溃报告 #212～#390 共 13 条」的计数也和实际对不上。当时只要求补四类，两处按原样保留；要改先定**是否重写这两条**——重写会与已发布的 Release 说明不一致，建议留原样、从下一版起改用新口径。
 
 ## 3. 最新状态快照（26.10.22 ~ 26.11.06，流水，按关键词 grep 不通读）
 

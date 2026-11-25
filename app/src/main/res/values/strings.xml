@@ -2202,6 +2202,7 @@
     <string name="uitext_locallistactivity_044">视频会移回未分类区域。</string>
     <string name="uitext_locallistactivity_045">此操作不可恢复。</string>
     <string name="uitext_locallistactivity_046">弹幕更新失败: %1$s</string>
+    <string name="uitext_locallistactivity_047">合集起播失败，改为单独播放</string>
 
     <!-- 缓存页手动拖动排序 / 搜索（26.11.02，反馈 #94；26.11.05 起排序改为拖动） -->
     <string name="btn_cache_sort">排序</string>
@@ -3409,6 +3410,8 @@
          44dp 按钮共 88dp，高度预算不够会把下面那个后添加的「确定」键切出屏幕，用户只看到
          「取消」。见 util/TerminalDialog.kt 的 Sheet.renderButtons()。 -->
     <string name="setting_dialog_button_row">弹窗按钮并排</string>
+    <string name="setting_video_card_duration">卡片显示时长</string>
+    <string name="desc_video_card_duration">打开后，视频卡片的封面右下角会显示时长。默认关闭；消息、追番列表这类接口不带时长的卡片即使打开也不显示。</string>
     <string name="desc_dialog_button_row">确认框的「取消」和「确定」左右各占一半、并排一行。默认开启：手表窗口太矮时，上下两个按钮会把下面的「确定」挤出屏幕，只看得到「取消」。关掉恢复上下堆叠。</string>
     <!-- 弹窗标题跑马灯（26.11.21，用户要求，默认开启）。长标题最多占一行，超出的横向滚动。
          读取点在 util/TerminalDialog.kt 的 Sheet.applyTitleMarquee()。 -->

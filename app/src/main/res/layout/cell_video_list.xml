@@ -52,6 +52,25 @@
                 app:layout_constraintStart_toEndOf="@id/img_cover"
                 app:layout_constraintTop_toTopOf="parent" />
 
+            <!-- 时长角标（26.11.25，控制台反馈 #303）：贴封面右下角，默认隐藏。
+                 是否显示由 VideoCardHolder.showVideoCard 按「设置 → 界面与外观 → 卡片显示时长」
+                 与这张卡有没有时长共同决定；holder 会被复用，显示与隐藏两支都要显式设置。 -->
+            <TextView
+                android:id="@+id/text_duration"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="2dp"
+                android:layout_marginBottom="2dp"
+                android:background="@drawable/bg_cover_duration"
+                android:includeFontPadding="false"
+                android:paddingHorizontal="3dp"
+                android:paddingVertical="1dp"
+                android:textColor="@android:color/white"
+                android:textSize="9sp"
+                android:visibility="gone"
+                app:layout_constraintBottom_toBottomOf="@id/img_cover"
+                app:layout_constraintEnd_toEndOf="@id/img_cover" />
+
         </androidx.constraintlayout.widget.ConstraintLayout>
 
         <LinearLayout

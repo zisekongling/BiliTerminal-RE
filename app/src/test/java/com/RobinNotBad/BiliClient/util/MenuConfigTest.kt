@@ -1,6 +1,7 @@
 package com.RobinNotBad.BiliClient.util
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -165,9 +166,30 @@ class MenuConfigTest {
     fun disabledFrom_returnsCanonicalComplement() {
         // 未启用区 = 全量顺序减去已启用项；「继续播放」（26.11.07 起是默认关闭的动作项）
         // 排在最后，用户在菜单设置里能把它拖回已启用区。
+        // 「稍后再看」（26.11.25 起是默认关闭的页面项）同样落在未启用区，位置按 BASE_ITEMS 顺序
+        // 排在 timeline 之后、message 之前（动作项恒在最后）。
         assertEquals(
-            listOf("precious", "ranking", "live", "timeline", MenuConfig.RESUME),
+            listOf("precious", "ranking", "live", "timeline", MenuConfig.WATCH_LATER, MenuConfig.RESUME),
             MenuConfig.disabledFrom(MenuConfig.DEFAULT_ENABLED)
+        )
+    }
+
+    @Test
+    fun watchLater_defaultsToDisabled_notBackfilled() {
+        // 反馈 #304：稍后再看要能从主菜单进，但入口本来就在「我的」里，菜单项变多是负担。
+        // 所以它默认不启用；老用户已有的 menu_enabled 里没有这个 key，loadEnabled 原样返回
+        // （严格 parse 成功即不迁移），等于不回填——想用的人自己去菜单设置里打开。
+        assertTrue(MenuConfig.WATCH_LATER in MenuConfig.ALL_ITEMS)
+        assertTrue(MenuConfig.WATCH_LATER in MenuConfig.SWITCHABLE_KEYS)
+        assertFalse(MenuConfig.WATCH_LATER in MenuConfig.DEFAULT_ENABLED)
+        assertFalse(MenuConfig.WATCH_LATER in MenuConfig.FIXED_ITEMS)
+        assertFalse(MenuConfig.WATCH_LATER in MenuConfig.ACTION_ITEMS)
+        // 它是页面项，可以当启动页；序列化能原样往返
+        assertEquals(
+            listOf("recommend", "search", "local", "settings", MenuConfig.WATCH_LATER),
+            MenuConfig.parse(MenuConfig.serialize(
+                listOf("recommend", "search", "local", "settings", MenuConfig.WATCH_LATER)
+            ))
         )
     }
 

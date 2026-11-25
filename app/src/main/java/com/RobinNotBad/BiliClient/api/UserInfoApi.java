@@ -5,6 +5,7 @@ import com.RobinNotBad.BiliClient.model.LiveRoom;
 import com.RobinNotBad.BiliClient.model.UserInfo;
 import com.RobinNotBad.BiliClient.model.VideoCard;
 import com.RobinNotBad.BiliClient.util.DmImgParamUtil;
+import com.RobinNotBad.BiliClient.util.DurationText;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
 import com.RobinNotBad.BiliClient.util.StringUtil;
@@ -217,7 +218,10 @@ public class UserInfoApi {
                     String upName = card.getString("author");
                     String title = card.getString("title");
 
-                    videoList.add(new VideoCard(title, upName, playStr, cover, aid, bvid));
+                    VideoCard videoCard = new VideoCard(title, upName, playStr, cover, aid, bvid);
+                    // 空间投稿带的是 duration_text（"05:14"），不是 duration
+                    videoCard.duration = DurationText.secondsOf(card);
+                    videoList.add(videoCard);
                 }
                 return 0;
             } else return -1;
