@@ -4,10 +4,7 @@ import com.RobinNotBad.BiliClient.util.UiText
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.graphics.Color
-import android.text.SpannableStringBuilder
-import android.text.Spanned
-import android.text.style.ForegroundColorSpan
+import android.graphics.Typeface
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -44,16 +41,6 @@ class DownloadAdapter(
 
     /** 已勾选的下载任务 id，页面持有同一个集合引用。 */
     var selectedIds: MutableSet<Long> = HashSet()
-
-    companion object {
-        /**
-         * 多选态标题前的引导符，与 `TerminalDialog` 的 `GLYPH_ACTIVE` / `GLYPH_IDLE`、
-         * `VideoCardHolder` 的多选样式同一套（反馈 #140）。1 个字符 + 1 个半角空格 = 2 个字符宽，
-         * 剥前缀时直接 `subSequence(2, …)`。
-         */
-        private const val GLYPH_SELECTED = "▸"
-        private const val GLYPH_UNSELECTED = "›"
-    }
 
     /**
      * 多选态的样式靠 [DownloadHolder.applySelection] 直接改标题文字（引导符 + 主色），
@@ -197,42 +184,28 @@ class DownloadAdapter(
         }
 
         /**
-         * 画多选态：与 `TerminalDialog` 单/多选列表同一套视觉——标题前一个引导符，
-         * 选中是 `▸` 且标题走主色，未选中是 `›` 且标题保持常态色（反馈 #140）。
+         * 画多选态（反馈 #140 引入，26.11.25 按反馈 #265 改口径）：**不加行首引导符**，
+         * 选中只靠「主色 + 加粗」，未选中保持常态色与常规字重。
+         *
+         * 原来标题前拼 `▸`（U+25B8）/ `›`，而部分手表系统字体缺 U+25B8 字形，行首会变方块
+         * （反馈 #265「左侧有个不明字符」）；换字符只是把运气挪走，所以干脆不用字符。
+         *
+         * 加粗走 `setTypeface(typeface, style)`：会正常触发重新测量，且传回当前 typeface
+         * 能保住布局声明的字体族（null 即默认族）。
          *
          * 不再用 `itemView.alpha` 压暗整卡：那会把封面和进度一起弄灰，
          * 与缓存页 / 视频列表的多选观感对不上。
-         *
-         * [show] 每次绑定都会先把标题重置成原始名称，所以这里直接加引导符不会越叠越多；
-         * 仍然先剥一次前缀，防止列表局部刷新时复用 holder 而没重绑。
          */
         fun applySelection(selectionMode: Boolean, selected: Boolean) {
-            if (title.text?.startsWith(GLYPH_SELECTED) == true || title.text?.startsWith(GLYPH_UNSELECTED) == true) {
-                title.text = title.text.subSequence(2, title.text.length)
-            }
             // 兜底清掉旧样式可能留下的整卡压暗
             itemView.alpha = 1f
             if (!selectionMode) {
                 title.setTextColor(normalTitleColor)
+                title.setTypeface(title.typeface, Typeface.NORMAL)
                 return
             }
-
-            val glyph = if (selected) GLYPH_SELECTED else GLYPH_UNSELECTED
-            // 未选中引导符按常态色压到 70% 不透明度，等价于 TerminalDialog 的 secondaryColor()
-            val glyphColor = if (selected) {
-                ColorScheme.PRIMARY
-            } else {
-                Color.argb(179, Color.red(normalTitleColor), Color.green(normalTitleColor), Color.blue(normalTitleColor))
-            }
-            val builder = SpannableStringBuilder(glyph).append(' ').append(title.text ?: "")
-            builder.setSpan(
-                ForegroundColorSpan(glyphColor),
-                0,
-                glyph.length,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-            title.text = builder
             title.setTextColor(if (selected) ColorScheme.PRIMARY else normalTitleColor)
+            title.setTypeface(title.typeface, if (selected) Typeface.BOLD else Typeface.NORMAL)
         }
 
         @SuppressLint("SetTextI18n")

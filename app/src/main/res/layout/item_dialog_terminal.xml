@@ -2,10 +2,12 @@
 <!--
   终端列表方案（方案 B）的单个条目。
 
-  三个替身由 Java/Kotlin 侧（util/TerminalDialog.kt）填：
-    · terminal_item_glyph —— 引导符（未选 › / 选中 ▸）
-    · terminal_item_text  —— 条目文字
-    · terminal_item_state —— 文本型状态位（确认框的「」/ 当前项可留空）
+  两个替身由 Java/Kotlin 侧（util/TerminalDialog.kt）填：
+    · terminal_item_text  —— 条目文字（选中态由主色 + 加粗表达）
+    · terminal_item_state —— 文本型状态位（单选/多选的 ✓ / 确认框的「」）
+
+  26.11.25 起删掉原 terminal_item_glyph（› / ▸ 引导符）：U+25B8 在部分手表系统字体里
+  没有字形，行首会显示成方块（反馈 #265），选中态改由「主色 + 加粗」表达。
 
   条目自带 44dp 最小高度（手表触控下限），并走 SelectableItemBackgroundBorderless
   的父级 selectableItemBackground 拿水波纹 —— 水波纹色由主题 colorControlHighlight 决定。
@@ -20,22 +22,10 @@
     android:paddingHorizontal="@dimen/dialog_item_padding_h"
     android:paddingVertical="@dimen/dialog_item_padding_v">
 
-    <!-- 引导符颜色不在这里钉死：菜单型一律走「未选中态」（次级灰），
-         单选型由 Sheet.paintSelection() 在运行时改色。
-         占位值用 colorOnSurface，真值总会被 Kotlin 侧覆盖。 -->
-    <TextView
-        android:id="@+id/terminal_item_glyph"
-        android:layout_width="@dimen/dialog_glyph_width"
-        android:layout_height="wrap_content"
-        android:text="›"
-        android:textColor="?attr/colorOnSurface"
-        android:textSize="14sp" />
-
     <TextView
         android:id="@+id/terminal_item_text"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
         android:layout_weight="1"
         android:ellipsize="end"
         android:maxLines="2"

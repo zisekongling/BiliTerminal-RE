@@ -4,6 +4,7 @@ import com.RobinNotBad.BiliClient.util.UiText
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
@@ -50,7 +51,8 @@ import com.RobinNotBad.BiliClient.util.view.physicalScreenSizePx
  * 1. `themes.xml` 给 7 族主题各加 `alertDialogTheme` → `ThemeOverlay.<X>.Dialog`，补上
  *    `colorSurface`/`colorOnSurface`/`colorError` 与圆角描边背景。这一层让**已有的** 17 个裸
  *    Builder 立刻变正常，调用点零改动。
- * 2. 本文件提供统一的**终端列表**外观（等宽引导符 `›`/`▸`、无按钮行、点空白处关闭），
+ * 2. 本文件提供统一的**终端列表**外观（无按钮行、点空白处关闭；26.11.25 起条目左侧不再有
+ *    `›`/`▸` 引导符，选中态改由「主色 + 加粗 + 右侧 ✓」表达，见反馈 #265），
  *    并把「二次确认」「纯提示」也收口进来。新代码一律走这里。
  *
  * <h3>颜色从哪来</h3>
@@ -68,13 +70,12 @@ import com.RobinNotBad.BiliClient.util.view.physicalScreenSizePx
  */
 object TerminalDialog {
 
-    /** 未选中项的引导符。 */
-    const val GLYPH_IDLE = "›"
-
-    /** 选中项的引导符。与未选中项区分，让「当前选的是哪个」一眼可见。 */
-    const val GLYPH_ACTIVE = "▸"
-
-    /** 单选型右侧的选中标记。与左侧引导符构成双重指示。 */
+    /**
+     * 单选 / 多选型右侧的选中标记。
+     *
+     * 26.11.25 起条目左侧不再有 `›` / `▸` 引导符（反馈 #265：U+25B8 在部分手表系统字体里
+     * 缺字形，行首显示成方块），选中态改由「主色 + 加粗」表达，这个 ✓ 是唯一的图标型指示。
+     */
     const val GLYPH_CHECK = "✓"
 
     /**
@@ -104,11 +105,9 @@ object TerminalDialog {
                 sheet.dialog.dismiss()
                 onPick(index)
             }
-            // 菜单项没有「选中」概念，引导符一律用未选中态：次级灰。
-            // 不能沿用布局默认的 ?attr/colorPrimary，否则每一项都挂个主题色箭头，比原来还花。
-            row.glyph.text = GLYPH_IDLE
+            // 菜单项没有「选中」概念，26.11.25 起也不挂引导符（反馈 #265）：
+            // 非破坏性条目走普通文字色，破坏性的保持 addItem 里的 error 色。
             if (!on) {
-                row.glyph.setTextColor(sheet.secondaryColor())
                 row.text.setTextColor(sheet.onSurfaceColor())
             }
         }
@@ -119,7 +118,7 @@ object TerminalDialog {
     }
 
     /**
-     * 单选型：带 `▸`/`›` 双态引导符 + 主色文字的选择列表。
+     * 单选型：选中项走「主色 + 加粗 + 右侧 ✓」，未选中保持常态色（反馈 #265 起不再有行首引导符）。
      *
      * 对应原来的 `setSingleChoiceItems` 2 处调用点（选季 / 选集）。系统单选样式在这个深色主题下
      * 选中态几乎不可见，这里改成两重指示。
@@ -382,7 +381,7 @@ object TerminalDialog {
                 titleView.visibility = View.GONE
                 divider.visibility = View.GONE
             } else {
-                titleView.text = "$GLYPH_IDLE $title"
+                titleView.text = title
                 titleView.visibility = View.VISIBLE
                 divider.visibility = View.VISIBLE
                 applyTitleMarquee(titleView)
@@ -656,7 +655,7 @@ object TerminalDialog {
             )
         }
 
-        /** 加一个条目。返回行对象，方便调用方改引导符/文字。 */
+        /** 加一个条目。返回行对象，方便调用方改文字/状态位。 */
         internal fun addItem(
             text: CharSequence,
             danger: Boolean = false,
@@ -665,14 +664,12 @@ object TerminalDialog {
             val root = inflater.inflate(R.layout.item_dialog_terminal, container, false)
             val row = Row(
                 root,
-                root.findViewById(R.id.terminal_item_glyph),
                 root.findViewById(R.id.terminal_item_text),
                 root.findViewById(R.id.terminal_item_state)
             )
             row.text.text = text
             if (danger) {
                 row.text.setTextColor(errorColor())
-                row.glyph.setTextColor(errorColor())
             }
             root.setOnClickListener { onClick() }
             container.addView(root)
@@ -680,10 +677,9 @@ object TerminalDialog {
             return row
         }
 
-        /** 加一段说明文字（确认型用）。不显示引导符。 */
+        /** 加一段说明文字（确认型用）。不可点、次级灰。 */
         internal fun addMessage(message: CharSequence) {
             val row = addItem(message, onClick = {})
-            row.glyph.visibility = View.GONE
             row.text.maxLines = Int.MAX_VALUE
             row.text.setTextColor(secondaryColor())
             // 说明文字不是可选项：撤掉点击回调与按压反馈，避免看起来像能点
@@ -889,19 +885,14 @@ object TerminalDialog {
             hintView.setOnClickListener { dialog.dismiss() }
         }
 
-        /** 重绘单选态：选中项 `▸` + 主色 + 右侧 ✓，未选中 `›` + 次级灰。 */
+        /** 重绘单选态：选中项「主色 + 加粗 + 右侧 ✓」，未选中常态色与常规字重（反馈 #265）。 */
         fun paintSelection(selected: Int) {
             rows.forEachIndexed { index, row ->
                 val on = index == selected
-                row.glyph.text = if (on) GLYPH_ACTIVE else GLYPH_IDLE
-                if (on) {
-                    row.glyph.setTextColor(primaryColor())
-                    row.text.setTextColor(primaryColor())
-                } else {
-                    row.glyph.setTextColor(secondaryColor())
-                    row.text.setTextColor(onSurfaceColor())
-                }
-                // 右侧 ✓：双重指示，扫一眼就知道选的是哪个（设计稿方案 B 改法）
+                row.text.setTextColor(if (on) primaryColor() else onSurfaceColor())
+                // 加粗走 setTypeface，正常触发重新测量，且保住布局声明的字体族
+                row.text.setTypeface(row.text.typeface, if (on) Typeface.BOLD else Typeface.NORMAL)
+                // 右侧 ✓：图标型指示只剩它，扫一眼就知道选的是哪个（设计稿方案 B 改法）
                 row.state.text = if (on) GLYPH_CHECK else ""
             }
         }
@@ -947,10 +938,9 @@ object TerminalDialog {
 
     }
 
-    /** 一个条目的三个可变部位。 */
+    /** 一个条目的可变部位（26.11.25 起没有引导符那一列）。 */
     class Row internal constructor(
         val root: View,
-        val glyph: TextView,
         val text: TextView,
         val state: TextView
     )

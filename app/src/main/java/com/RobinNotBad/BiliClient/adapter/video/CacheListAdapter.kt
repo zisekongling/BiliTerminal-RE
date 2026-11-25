@@ -6,10 +6,7 @@ import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
-import android.text.SpannableStringBuilder
-import android.text.Spanned
-import android.text.style.ForegroundColorSpan
+import android.graphics.Typeface
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -79,9 +76,6 @@ class CacheListAdapter(
          */
         private const val TYPE_GOTO_FOLDERS = 7
 
-        /** 多选态标题前的引导符，与 `TerminalDialog` / `VideoCardHolder` / `DownloadAdapter` 同一套（反馈 #140）。 */
-        private const val GLYPH_SELECTED = "▸"
-        private const val GLYPH_UNSELECTED = "›"
     }
 
     // 数据
@@ -639,44 +633,31 @@ class CacheListAdapter(
         normalLabelColors.getOrPut(label) { label.currentTextColor }
 
     /**
-     * 画勾选态：与 `TerminalDialog` 单/多选列表同一套视觉——标题前一个引导符，
-     * 选中是 `▸` 且标题走主色，未选中是 `›` 且标题保持常态色（反馈 #140）。
+     * 画勾选态（反馈 #140 引入，26.11.25 按反馈 #265 改口径）：**不加任何行首引导符**，
+     * 选中只靠「主色 + 加粗」，未选中保持常态色与常规字重。
+     *
+     * 原来标题前会拼一个 `▸`（U+25B8，Geometric Shapes 区）或 `›`：部分手表系统字体没有
+     * U+25B8 的字形，行首直接变成方块——用户看到的就是「多选后左侧有个不明字符」（反馈 #265）。
+     * 换个字符只是把运气挪到别的设备上，所以干脆不用字符：不必剥前缀，也不可能有豆腐块。
+     *
+     * 加粗走 `setTypeface(typeface, style)` 而不是 `paint.isFakeBoldText`：前者会正常触发重新
+     * 测量，且把当前 typeface 传回去能保住布局里声明的字体族（为 null 时等于默认族，安全）。
      *
      * 不用复选框：`cell_video_local.xml` 里那个 `checkbox_select` 会把内容整体右移，
-     * 而视频列表多选是「引导符 + 主色」这一套，几个页面用同一种视觉更不容易看懵。
+     * 而视频列表多选是「主色 + 加粗」这一套，几个页面用同一种视觉更不容易看懵。
      *
      * 也不再整卡压暗：那会把封面和时长一起弄灰，暗色主题下更是糊成一片。
-     *
-     * 前缀通常不需要剥离（每次绑定都先 setText 原始标题：`VideoItemHolder.showVideo` / 文件夹那行），
-     * 但列表局部刷新时可能复用 holder 而没重绑，这里先剥一次兜底。
      */
     private fun applySelection(holder: RecyclerView.ViewHolder, label: TextView, selected: Boolean) {
         val normal = normalColorOf(label)
-        if (label.text?.startsWith(GLYPH_SELECTED) == true || label.text?.startsWith(GLYPH_UNSELECTED) == true) {
-            label.text = label.text.subSequence(2, label.text.length)
-        }
         holder.itemView.alpha = 1f
         if (!selectionMode) {
             label.setTextColor(normal)
+            label.setTypeface(label.typeface, Typeface.NORMAL)
             return
         }
-
-        val glyph = if (selected) GLYPH_SELECTED else GLYPH_UNSELECTED
-        // 未选中引导符按常态色压到 70% 不透明度，等价于 TerminalDialog 的 secondaryColor()
-        val glyphColor = if (selected) {
-            ColorScheme.PRIMARY
-        } else {
-            Color.argb(179, Color.red(normal), Color.green(normal), Color.blue(normal))
-        }
-        val builder = SpannableStringBuilder(glyph).append(' ').append(label.text ?: "")
-        builder.setSpan(
-            ForegroundColorSpan(glyphColor),
-            0,
-            glyph.length,
-            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-        )
-        label.text = builder
         label.setTextColor(if (selected) ColorScheme.PRIMARY else normal)
+        label.setTypeface(label.typeface, if (selected) Typeface.BOLD else Typeface.NORMAL)
     }
 
     private fun playVideo(video: LocalVideo) {

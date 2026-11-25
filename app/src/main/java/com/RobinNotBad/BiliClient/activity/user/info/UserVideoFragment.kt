@@ -193,7 +193,7 @@ class UserVideoFragment : RefreshListFragment() {
     }
 
     /**
-     * 排序选择弹窗：与搜索页同一款 [TerminalDialog.singleChoice]（`▸` 引导符单选列表）。
+     * 排序选择弹窗：与搜索页同一款 [TerminalDialog.singleChoice]（选中项主色 + 加粗 + 右侧 ✓）。
      *
      * <p>这个弹窗**不会自动关闭**（选集场景要在回调里做越界校验），所以这里自己 dismiss。
      */
