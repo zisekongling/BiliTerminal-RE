@@ -5,9 +5,8 @@ import com.RobinNotBad.BiliClient.util.UiText
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
+import android.graphics.Typeface
 import android.text.SpannableString
-import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.view.MotionEvent
@@ -185,8 +184,9 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
     }
 
     /**
-     * 多选模式下的选中样式：与 `TerminalDialog` 单/多选列表（`GLYPH_IDLE` / `GLYPH_ACTIVE`）
-     * 同一套视觉——标题前一个引导符，选中时是 `▸` 且标题走主色，未选中时是 `›` 且标题保持常态色。
+     * 多选模式下的选中样式：与 `TerminalDialog` 单/多选列表同一套视觉
+     * （26.11.25 起按反馈 #265 改口径）：选中走「主色 + 加粗」，未选中保持常态色与常规字重，
+     * 标题前不加任何引导符。
      *
      * 不做新控件、也不动 `cell_video_list.xml` 的 id——那些 id 是跨包事实协议
      * （见 `docs/architecture-map.md` 第 7 节），为多选再引入一个 id 不值得。
@@ -195,34 +195,15 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
      * 和弹窗里的多选观感对不上，暗色主题下更是糊成一片。
      */
     fun applySelection(selectionMode: Boolean, selected: Boolean) {
-        // 前缀先无条件剥掉：退出多选后标题上的引导符不能留在列表里，
-        // 而一旦留下，下次进入多选时 `startsWith` 只能剥掉一层、越叠越多。
-        if (title.text?.startsWith(GLYPH_SELECTED) == true || title.text?.startsWith(GLYPH_UNSELECTED) == true) {
-            title.text = title.text.subSequence(2, title.text.length)
-        }
         // 兜底清掉旧样式可能留下的整卡压暗，避免复用 holder 时一直灰着
         itemView.alpha = 1f
         if (!selectionMode) {
             title.setTextColor(normalTitleColor)
+            title.setTypeface(title.typeface, Typeface.NORMAL)
             return
         }
-
-        val glyph = if (selected) GLYPH_SELECTED else GLYPH_UNSELECTED
-        // 未选中引导符按常态色压到 70% 不透明度，等价于 TerminalDialog 的 secondaryColor()
-        val glyphColor = if (selected) {
-            ColorScheme.PRIMARY
-        } else {
-            Color.argb(179, Color.red(normalTitleColor), Color.green(normalTitleColor), Color.blue(normalTitleColor))
-        }
-        val builder = SpannableStringBuilder(glyph).append(' ').append(title.text ?: "")
-        builder.setSpan(
-            ForegroundColorSpan(glyphColor),
-            0,
-            glyph.length,
-            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-        )
-        title.text = builder
         title.setTextColor(if (selected) ColorScheme.PRIMARY else normalTitleColor)
+        title.setTypeface(title.typeface, if (selected) Typeface.BOLD else Typeface.NORMAL)
     }
 
     @SuppressLint("SetTextI18n")
@@ -320,13 +301,6 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
 
     companion object {
         private val TITLE_COLOR_SPAN = ForegroundColorSpan(ColorScheme.PRIMARY)
-
-        /**
-         * 多选态标题前的引导符，与 `TerminalDialog` 的 `GLYPH_ACTIVE` / `GLYPH_IDLE` 同一套
-         * （反馈 #140）。两者都是 1 个字符 + 1 个半角空格 = 2 个字符宽，剥前缀时直接 `subSequence(2, …)`。
-         */
-        private const val GLYPH_SELECTED = "▸"
-        private const val GLYPH_UNSELECTED = "›"
 
         @JvmStatic
         fun getRequestOptions(): RequestOptions = REQUEST_OPTIONS

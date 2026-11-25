@@ -1,10 +1,7 @@
 package com.RobinNotBad.BiliClient.adapter.video
 
 import android.content.Context
-import android.graphics.Color
-import android.text.SpannableStringBuilder
-import android.text.Spanned
-import android.text.style.ForegroundColorSpan
+import android.graphics.Typeface
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -35,7 +32,8 @@ import com.bumptech.glide.request.RequestOptions
  * 拖动排序只重排这个列表，不触发任何 IO。
  *
  * <h3>多选 / 排序</h3>
- * 与缓存页顶层文件夹分区同一套：多选用「▸ + 主色 / › + 半透明」引导符（`CacheListAdapter.applySelection`），
+ * 与缓存页顶层文件夹分区同一套：多选态选中项走「主色 + 加粗」、不加行首引导符
+ * （反馈 #265 起，见 `CacheListAdapter.applySelection`），
  * 排序时点条目无效、长按开始拖动。`isLongPressDragEnabled = false`——拖动入口放在长按里，
  * 否则多选态长按也会被当成拖动。
  */
@@ -45,10 +43,6 @@ class LocalFolderAdapter(private val context: Context) : RecyclerView.Adapter<Re
         private const val TYPE_CREATE = 0
         private const val TYPE_FOLDER = 1
         private const val TYPE_EMPTY = 2
-
-        /** 多选引导符：与 `TerminalDialog` 单/多选列表一致。 */
-        private const val GLYPH_SELECTED = "▸"
-        private const val GLYPH_UNSELECTED = "›"
     }
 
     /**
@@ -196,38 +190,21 @@ class LocalFolderAdapter(private val context: Context) : RecyclerView.Adapter<Re
     }
 
     /**
-     * 画勾选态：与缓存页顶层文件夹多选同一套视觉——标题前一个引导符，
-     * 选中是 `▸` 且标题走主色，未选中是 `›` 且标题保持常态色。
+     * 画勾选态：与缓存页顶层文件夹多选同一套视觉（反馈 #265 起）——选中走「主色 + 加粗」，
+     * 未选中保持常态色与常规字重，**行首不加任何引导符**。
      *
-     * 前缀通常不需要剥离（每次绑定都先 setText 文件夹名），但局部刷新可能复用 holder
-     * 而没重绑，这里先剥一次兜底。
+     * 加粗走 `setTypeface(typeface, style)`：会正常触发重新测量，且传回当前 typeface
+     * 能保住布局声明的字体族（null 即默认族）。
      */
     private fun applySelection(label: TextView, selected: Boolean) {
         val normal = normalColorOf(label)
-        if (label.text?.startsWith(GLYPH_SELECTED) == true || label.text?.startsWith(GLYPH_UNSELECTED) == true) {
-            label.text = label.text.subSequence(2, label.text.length)
-        }
         if (!selectionMode) {
             label.setTextColor(normal)
+            label.setTypeface(label.typeface, Typeface.NORMAL)
             return
         }
-
-        val glyph = if (selected) GLYPH_SELECTED else GLYPH_UNSELECTED
-        // 未选中引导符按常态色压到 70% 不透明度，等价于 TerminalDialog 的 secondaryColor()
-        val glyphColor = if (selected) {
-            ColorScheme.PRIMARY
-        } else {
-            Color.argb(179, Color.red(normal), Color.green(normal), Color.blue(normal))
-        }
-        val builder = SpannableStringBuilder(glyph).append(' ').append(label.text ?: "")
-        builder.setSpan(
-            ForegroundColorSpan(glyphColor),
-            0,
-            glyph.length,
-            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-        )
-        label.text = builder
         label.setTextColor(if (selected) ColorScheme.PRIMARY else normal)
+        label.setTypeface(label.typeface, if (selected) Typeface.BOLD else Typeface.NORMAL)
     }
 
     // ==================== 拖动排序 ====================

@@ -2,6 +2,7 @@ package com.RobinNotBad.BiliClient.activity.user
 
 import com.RobinNotBad.BiliClient.util.UiText
 
+import android.graphics.Typeface
 import android.os.Bundle
 import android.util.TypedValue
 import android.view.Gravity
@@ -278,11 +279,10 @@ class HistoryActivity : RefreshListActivity() {
         val countRow = sheet.addItem(
             getString(R.string.social_history_selected_count, HistoryApi.countChecked(checked)), onClick = {}
         )
-        // 计数行只读：撤掉点击回调与引导符，别让它看着像能点
+        // 计数行只读：撤掉点击回调与按压反馈，别让它看着像能点
         countRow.root.setOnClickListener(null)
         countRow.root.isClickable = false
         countRow.root.isFocusable = false
-        countRow.glyph.visibility = View.GONE
 
         val selectAllRow = sheet.addItem(getString(R.string.social_history_select_all), onClick = {})
 
@@ -291,13 +291,12 @@ class HistoryActivity : RefreshListActivity() {
             rows.add(sheet.addItem(batchRowTitle(card), onClick = {}))
         }
 
-        /** 重绘某一行：选中态用与单选一致的「▸ + 主色 + 右侧 ✓」。 */
+        /** 重绘某一行：与单选同一套——选中「主色 + 加粗 + 右侧 ✓」，未选中常态色（反馈 #265）。 */
         fun paintRow(index: Int) {
             val row = rows[index]
             val on = checked[index]
-            row.glyph.text = if (on) TerminalDialog.GLYPH_ACTIVE else TerminalDialog.GLYPH_IDLE
-            row.glyph.setTextColor(if (on) sheet.primaryColor() else sheet.secondaryColor())
             row.text.setTextColor(if (on) sheet.primaryColor() else sheet.onSurfaceColor())
+            row.text.setTypeface(row.text.typeface, if (on) Typeface.BOLD else Typeface.NORMAL)
             row.state.text = if (on) TerminalDialog.GLYPH_CHECK else ""
         }
 

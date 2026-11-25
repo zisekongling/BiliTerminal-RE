@@ -3,9 +3,9 @@
   终端列表型弹窗的整体布局（方案 B）。
 
   结构（自上而下）：
-    terminal_dialog_title   —— 可选标题，带 › 前缀，主色
+    terminal_dialog_title   —— 可选标题，主色
     terminal_dialog_list    —— 条目容器（ScrollView 包 LinearLayout）
-    terminal_dialog_hint    —— 底部提示行（如「› 点空白处取消」）
+    terminal_dialog_hint    —— 底部提示行（如「点空白处取消」）
 
   ScrollView 存在的理由：300×300 表盘上条目多了会撑破表盘，滚动把可见高度钉在预算内。
   注意 android:layout_height 写 wrap_content 只是占位：实际高度由

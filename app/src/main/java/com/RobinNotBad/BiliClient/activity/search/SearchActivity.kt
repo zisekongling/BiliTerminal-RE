@@ -733,7 +733,7 @@ class SearchActivity : InstanceActivity() {
 
     /**
      * 排序选择弹窗：与番剧选集（`BangumiInfoFragment.getEposideChooseDialog`）同一款
-     * `TerminalDialog.singleChoice`——带 `▸` 引导符的单选列表，选中项即当前排序。
+     * `TerminalDialog.singleChoice`——选中项走「主色 + 加粗 + 右侧 ✓」的单选列表，选中项即当前排序。
      *
      * 这个弹窗**不会自动关闭**（选集场景要在回调里做越界校验），所以这里自己 `dismiss()`。
      */

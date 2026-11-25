@@ -92,6 +92,4 @@
     <dimen name="dialog_title_padding_top">13dp</dimen>
     <dimen name="dialog_title_padding_h">15dp</dimen>
     <dimen name="dialog_title_padding_bottom">9dp</dimen>
-    <!-- 引导符列宽（终端列表方案的 › / ▸） -->
-    <dimen name="dialog_glyph_width">11dp</dimen>
 </resources>
