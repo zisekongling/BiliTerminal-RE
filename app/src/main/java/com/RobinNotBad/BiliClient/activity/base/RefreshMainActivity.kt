@@ -10,6 +10,7 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.listener.OnLoadMoreListener
 import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.view.BarAutoHideController
 import com.RobinNotBad.BiliClient.util.view.ImageAutoLoadScrollListener
 import com.RobinNotBad.BiliClient.util.view.LoadMoreTipController
 
@@ -36,9 +37,27 @@ open class RefreshMainActivity : InstanceActivity() {
     var lastLoadTimestamp: Long = 0
     protected var isRefreshing: Boolean = false
 
+    /**
+     * 滚动自动收回的实现（状态与动画）。
+     *
+     * 与 RefreshListActivity 共用同一个 [BarAutoHideController]：两个基类没有继承关系，
+     * 逻辑只写一份才不会各自漂移。默认不启用，子类调 [setupAutoHideBars] 才生效。
+     */
+    private val barAutoHide: BarAutoHideController by lazy { BarAutoHideController(recyclerView) }
+
+    /**
+     * 本页用哪个列表布局。
+     *
+     * 默认是 activity_simple_main_refresh（无筛选/排序条的一级页布局）。需要工具条的一级页
+     * （如稍后再看要筛选条）把它覆写成 activity_simple_refresh —— 那边多出来的 sortBar /
+     * manageBar 等节点不 findViewById 就不会参与布局逻辑，而本基类要的
+     * emptyTip / loadMoreTip / top / pageName / timeText 两边都有。
+     */
+    protected open fun contentLayoutRes(): Int = R.layout.activity_simple_main_refresh
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_simple_main_refresh)
+        setContentView(contentLayoutRes())
         emptyView = findViewById(R.id.emptyTip)
         loadMoreTip = LoadMoreTipController(findViewById(R.id.loadMoreTip))
         swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout)
@@ -61,6 +80,7 @@ open class RefreshMainActivity : InstanceActivity() {
 
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 super.onScrolled(recyclerView, dx, dy)
+                barAutoHide.handleScroll(dy)
                 if (listener != null) {
                     val manager = recyclerView.layoutManager as LinearLayoutManager
                     val lastItemPosition = manager.findLastCompletelyVisibleItemPosition()
@@ -72,6 +92,25 @@ open class RefreshMainActivity : InstanceActivity() {
             }
         })
         ImageAutoLoadScrollListener.installIfEnabled(recyclerView)
+    }
+
+    /**
+     * 让顶部若干条工具条在列表滚动时自动收回，滚回顶部或往反方向滚时展开。
+     *
+     * 具体行为见 [BarAutoHideController]。**不调用就完全没有这套行为。**
+     */
+    fun setupAutoHideBars(vararg bars: View?) {
+        barAutoHide.setup(*bars)
+    }
+
+    /**
+     * 立即展开工具条（不带动画）。
+     *
+     * 用于「切换筛选/排序」这类会把列表重新拉回第一页的动作：列表回到顶部后靠滚动事件
+     * 把条带回来不可靠（可能一直不产生滚动事件）。幂等，没收回时调用也无害。
+     */
+    fun expandAutoHideBars() {
+        barAutoHide.expand()
     }
 
     fun setAdapter(adapter: RecyclerView.Adapter<*>) {

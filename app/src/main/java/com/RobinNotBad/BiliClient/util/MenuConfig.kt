@@ -14,7 +14,7 @@ object MenuConfig {
     private val BASE_ITEMS = listOf(
         "recommend", "short_video", "popular", BANGUMI, "precious", "ranking",
         "hotsearch", "live", "timeline", "search", "dynamic",
-        "myspace", "message", "local", "settings"
+        "myspace", WATCH_LATER, "message", "local", "settings"
     )
 
     /**
@@ -54,6 +54,15 @@ object MenuConfig {
      */
     const val RESUME = "resume"
 
+    /**
+     * 「稍后再看」菜单 key（26.11.25 新增，页面见 `activity/user/WatchLaterActivity`）。
+     *
+     * 功能本身一直有，但入口原先只埋在「我的」的二级菜单里（反馈 #304：想直接从菜单进）。
+     * 现在两处都留：**默认不启用**，也不给老用户回填——菜单项变多是负担，想用的人
+     * 自己去「菜单设置」里打开。它是页面项（不是 [ACTION_ITEMS]），能当启动页。
+     */
+    const val WATCH_LATER = "watch_later"
+
     /** 全部动作项：不是页面，既不能当启动页，也不能按「页面」的默认值处理。 */
     val ACTION_ITEMS: List<String> = listOf(EXIT, RESUME)
 
@@ -69,7 +78,8 @@ object MenuConfig {
     val FIXED_ITEMS = setOf("recommend", "search", "local", "settings")
 
     /** 历史上有独立显隐开关的菜单项（menu_<key> 布尔）。 */
-    val SWITCHABLE_KEYS = setOf("popular", "short_video", "precious", "ranking", "live", "timeline", BANGUMI)
+    val SWITCHABLE_KEYS =
+        setOf("popular", "short_video", "precious", "ranking", "live", "timeline", BANGUMI, WATCH_LATER)
 
     /** 上述开关的默认值（与旧 SettingMenuActivity 的 getBoolean 默认值一致）。 */
     val SWITCH_DEFAULTS = mapOf(
@@ -80,7 +90,9 @@ object MenuConfig {
         "live" to false,
         "timeline" to false,
         // 番剧分区没有历史开关，这里给 true 只是为了让「从 menu_sort 迁移」的老用户也能拿到它
-        BANGUMI to true
+        BANGUMI to true,
+        // 稍后再看默认关闭：入口本来就在「我的」里，菜单项按需自己开
+        WATCH_LATER to false
     )
 
     /**

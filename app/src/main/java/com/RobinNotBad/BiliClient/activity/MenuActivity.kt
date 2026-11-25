@@ -24,6 +24,7 @@ import com.RobinNotBad.BiliClient.activity.search.SearchActivity
 import com.RobinNotBad.BiliClient.activity.settings.SettingMainActivity
 import com.RobinNotBad.BiliClient.activity.settings.login.LoginActivity
 import com.RobinNotBad.BiliClient.activity.user.MySpaceActivity
+import com.RobinNotBad.BiliClient.activity.user.WatchLaterActivity
 import com.RobinNotBad.BiliClient.activity.video.BangumiActivity
 import com.RobinNotBad.BiliClient.activity.video.HotSearchActivity
 import com.RobinNotBad.BiliClient.activity.video.PopularActivity
@@ -71,6 +72,8 @@ class MenuActivity : BaseActivity() {
             put("search", Pair(UiText.of("搜索"), SearchActivity::class.java))
             put("dynamic", Pair(UiText.of("动态"), DynamicActivity::class.java))
             put("myspace", Pair(UiText.of("我的"), MySpaceActivity::class.java))
+            // 稍后再看（26.11.25 新增，默认关闭；「我的」里的旧入口同时保留）
+            put(MenuConfig.WATCH_LATER, Pair(UiText.of("稍后再看"), WatchLaterActivity::class.java))
             put("message", Pair(UiText.of("消息"), MessageActivity::class.java))
             put("local", Pair(UiText.of("缓存"), LocalListActivity::class.java))
             put("settings", Pair(UiText.of("设置"), SettingMainActivity::class.java))
@@ -80,7 +83,7 @@ class MenuActivity : BaseActivity() {
          * 反射注入可选的私有菜单项（没有私有注入时一项都不加）。
          *
          * 公共构建里 OptionalFeatures.menuKey() 为 null，这里**一项都不加**，
-         * 于是 btnNames 与从前的 14 项完全一致；菜单设置页（SettingMenuActivity）和
+         * 于是 btnNames 与公开构建的 15 项完全一致；菜单设置页（SettingMenuActivity）和
          * 启动页（SplashActivity）都从 btnNames 取显示名与 Class，所以这里注入一次即可全链路生效。
          * 机制见 `docs/optional-features.md`。
          */
@@ -177,6 +180,7 @@ class MenuActivity : BaseActivity() {
             btnList.remove("dynamic")
             btnList.remove("message")
             btnList.remove("myspace")
+            btnList.remove(MenuConfig.WATCH_LATER)
         }
 
         val showMore = SharedPreferencesUtil.loadMenuMoreButton()
@@ -223,7 +227,7 @@ class MenuActivity : BaseActivity() {
             when (key) {
                 MenuConfig.EXIT -> true
                 MenuConfig.RESUME -> resumeIntent != null
-                "dynamic", "message", "myspace" -> loggedIn && btnNames.containsKey(key)
+                "dynamic", "message", "myspace", MenuConfig.WATCH_LATER -> loggedIn && btnNames.containsKey(key)
                 else -> btnNames.containsKey(key)
             }
         }
