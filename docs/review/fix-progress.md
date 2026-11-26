@@ -18,6 +18,20 @@
 
 ## 1. 当前版本状态
 
+- **26.11.26 第二轮控制台：DFM 弹幕计时竞态 + 圆屏列表残留变换（一处修四条反馈）**：
+  - **来路**：读控制台 28 条待处理反馈 + 9 条待处理崩溃。按版本过滤后只剩 3 条来自当前版本（26.11.23）。
+  - **崩溃 #416（26.11.23 当前版本，已修 `33b979eb`）**：`NoSuchElementException at LinkedList.removeFirst` ← `DrawHandler.recordRenderingTime` ← `DanmakuView.onDraw`。**线程竞态**：`recordRenderingTime` 跑在 UI 线程且自己 `synchronized`，但 `mDrawTimes` 的五处 `clear()`（`handleMessage` / `updateInCurrentThread` / `updateInNewThread` / `notifyRendering`×2）**都不持有该锁**，`size()` 与 `removeFirst()` 之间被 clear 抢先就是空链表 `removeFirst`。旁证：同类 `getAverageRenderingTime()` 早已把取首尾包在 try/catch 里——作者知道这个链表会短暂为空，只漏了这一处。改用 `pollFirst()`。DFM 是本仓库内模块，可直接改。
+  - **反馈 #310 / #206 / #288 / #284（同一根因，已修 `1f65a62a`）**：`RoundListEffect.transform()` 原本两个裸 `return`（`row.visibility != VISIBLE`、`tFor(...) ?: return`）会**跳过复位**，而 `tFor` 返回 null 的两种情形都是常态——`rowHeight == 0`（还没量高）与 `rowHeight >= winH`（长评论带大图）。命中时该行保留上一次的变换，而上次往往正贴屏缘 = 0.5 倍 + 0.15 透明度，于是「某张卡片变小又发虚、怎么滑都不恢复」。改为不参与效果时显式复位 scale/alpha。
+  - **核实后确认「已在当前代码修过」的三条**（未再动手）：
+    - **#420**（`Fragment not attached to a context` ← `VideoInfoFragment.kt:216` 对 detached Fragment 调 `getString`）：26.11.23 的 `sendVideoToFriend` 在 `runOnUiThread` 里用 Fragment 自己的 `getString`；当前代码已重构为 `ShareSheet.sendLinkToFriend(requireContext(), …)`，异步段用的是**调用时捕获的 `Context`**，不再走 `Fragment.getResources()`。
+    - **#414**（`Only fullscreen activities can request orientation` ← `PlayerActivity.onDestroy`）：全仓已无 `setRequestedOrientation`。
+    - **#418 / #417**（`LocalPageChooseActivity` 的 RecyclerView Inconsistency）：版本 26.10.27，该类早前已按 #351/#353 处理。
+  - **#306（短视频卡住/播放错误）**：日志里每 20–40 秒一条 `history-report>csrf 为空` —— 正是上一轮 `5f1ce90c` 修掉的噪音，可确认那条修复的价值。真正的失败链是 `ShortVideoApi>API error code=-400` → 空批次 → `Player error: -10000` → 弹「播放错误」。开发者已回复「记得登录（不登录出错的概率高）」，即 -400 的主因是未登录。**未改**：把「未登录」翻译成明确提示属于新文案/产品口径，按 `AGENTS.md` 该问用户，本轮不自作主张。
+  - **#413 / #419 / #415 / #412（Glide 回收异常）**：分两类——`while it is still acquired` 与 `already been recycled`。全部来自 26.11.23 及更早，而 26.11.23 **不含** PR #37 里的封面色 target 修复（`e9f71d4b`），那条 bug 正是「额外回收流量 + 销毁后仍回调」的来源。**判定为同源的假设，非结论**，等 26.11.26 发版后看这几类的量是否归零。
+  - **未改了断的**：#301（本地缓存侧栏没有睡眠定时）日志里只有第三方规则源与 dialog 尺寸，无播放器/按钮布局信息，开发者已回复「有些功能还没做好」；#292（耳机音量过小）需真机与对应耳机；其余为功能建议。
+  - **验证**：两 flavor 编译通过；干净 `test-results` 下 `testStandardDebugUnitTest` / `testCoexistDebugUnitTest` 各 **316 套件 / 3395 用例 / 0 失败**；`assembleDebug` 双 flavor 通过。
+  - **未验证（L2 / 待人工）**：① #416 需真机反复进出短视频页确认不再崩（该崩溃与 DanmakuView 重建频率相关，模拟器上难压出）；② 圆屏列表复位需在开启「圆屏模式 + 圆屏列表」后翻评论区，确认长评论不再固定变小、发虚。
+
 - **26.11.26 PR #37 review 返工：取图 API 违规、占位图只覆盖一类、文档半改、数字不可复现**：
   - **来路**：上游维护者 review PR #37（本地 26.11.24 那批崩溃修复），给了 4 条必修 + 4 条建议。逐条核对后确认**全部成立**，没有一条是误报。
   - **必修 1：`ContextCompat.getDrawable` 是仓库明令禁止的 API**。`docs/agents/dev-conventions.md` §界面写得很清楚：必须走 `AppCompatResources.getDrawable`（统一入口 `util/StringUtil.getDrawable`），因为本项目开了 `vectorDrawables.useSupportLibrary`，API<21 没有 PNG 兜底，那两条在那里仍是原生加载路径、遇到 `<vector>` 直接抛。我的 `placeholderDrawable` 是全仓**第一处**违规。已改走 `StringUtil.getDrawable`。
