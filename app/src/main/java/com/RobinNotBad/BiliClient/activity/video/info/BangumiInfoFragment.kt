@@ -269,8 +269,7 @@ class BangumiInfoFragment : Fragment() {
             .apply(GlideUtil.thumbOptions(imageMediaCover))
             .transition(GlideUtil.getTransitionOptions())
             .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
-            .placeholder(R.mipmap.placeholder)
-            .error(R.mipmap.placeholder)
+            .apply(GlideUtil.withPlaceholder(imageMediaCover.context, R.mipmap.placeholder))
             .into(imageMediaCover)
         imageMediaCover.setOnClickListener {
             startActivity(Intent(it.context, ImageViewerActivity::class.java).putExtra("imageList", ArrayList(listOf(bangumi!!.info.cover_horizontal))))

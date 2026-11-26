@@ -73,14 +73,10 @@ open class UserListAdapter(
                     .load(GlideUtil.url(user.avatar))
                     .skipMemoryCache(false)
                     .apply(AVATAR_OPTIONS)
-                    // 占位图不放进静态 AVATAR_OPTIONS：placeholderDrawable 要 Context，
-                    // 而且每次必须取新实例——GlideUtil 缓存的是 ConstantState（位图只解码一次），
-                    // 同一个 Drawable 实例挂到多个 ImageView 上会让 bounds / Callback 互相打架。
-                    .apply(
-                        RequestOptions()
-                            .placeholder(GlideUtil.placeholderDrawable(ctx, R.mipmap.akari))
-                            .error(GlideUtil.placeholderDrawable(ctx, R.mipmap.akari))
-                    )
+                    // 占位图不放进静态 AVATAR_OPTIONS：静态常量拿不到 Context，而占位图必须按控件
+                    // 派生新实例（GlideUtil 缓存的是 ConstantState，同一实例挂到多个 ImageView 上
+                    // 会让 bounds / Callback 互相打架）。withPlaceholder 一次性设好占位 + 兜底。
+                    .apply(GlideUtil.withPlaceholder(ctx, R.mipmap.akari))
                     .into(holder.avatar)
             }
             holder.avatar.visibility = View.VISIBLE

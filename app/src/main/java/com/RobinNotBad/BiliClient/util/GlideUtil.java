@@ -11,8 +11,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
 
-import androidx.core.content.ContextCompat;
-
 import com.RobinNotBad.BiliClient.BiliTerminal;
 import com.RobinNotBad.BiliClient.R;
 import com.bumptech.glide.Glide;
@@ -275,9 +273,9 @@ public class GlideUtil {
      *
      * <p>为什么不能把资源 id 直接交给 Glide：{@code placeholder(int)} / {@code error(int)}
      * 并不是「记下 id 等要用时再取」——{@code SingleRequest} 构建时会调
-     * {@code Context.getDrawable(resId)} 现解一份 Drawable，而每次 bind 都新建 RequestOptions，
-     * 所以**每次绑定都重新 decode 一遍位图**。Resources 自带的 drawable cache 本来能挡住，
-     * 但它在低内存下会被 {@code onTrimMemory} 整个清空，恰恰是内存最紧时彻底失效。
+     * {@code Context.getDrawable(resId)} 现解一份 Drawable。Resources 自带的 drawable cache
+     * 本来能挡住重复解码，但它在低内存下会被 {@code onTrimMemory} 整个清空，**恰恰在内存最紧时失效**；
+     * cache 一旦空了，每次 bind 都要重新 decode 一遍。
      *
      * <p>26.11.09 控制台崩溃 #401 就是这条路径：sdk 25 的小内存机上只剩 182 KB 空闲，
      * {@code onBindViewHolder → Context.getDrawable → BitmapFactory.decodeStream} 要分配
@@ -295,22 +293,42 @@ public class GlideUtil {
      *
      * <p>跟直接传资源 id 的区别只在内存：同一资源只解码一次，之后都是共享位图的派生实例。
      * 资源本身没有 ConstantState（shape、纯色之类）时直接返回解码结果，它本来就不占位图。
+     *
+     * <p>取图必须走 {@link StringUtil#getDrawable}（→ {@code AppCompatResources}）：本项目开了
+     * {@code vectorDrawables.useSupportLibrary}，API&lt;21 没有 PNG 兜底，而 {@code ContextCompat} /
+     * {@code ResourcesCompat} 在那里仍是原生加载路径，遇到 {@code <vector>} 会抛
+     * {@code Resources$NotFoundException}（见 {@code docs/agents/dev-conventions.md} §界面）。
      */
     public static Drawable placeholderDrawable(Context context, int resId) {
         int id = safePlaceholder(resId);
         Drawable.ConstantState state = PLACEHOLDER_STATES.get(id);
-        if (state == null) {
-            Drawable decoded = ContextCompat.getDrawable(context, id);
-            if (decoded == null) return null;
-            state = decoded.getConstantState();
-            if (state == null) return decoded;
-            PLACEHOLDER_STATES.put(id, state);
-            // 首个实例也要脱离共享状态，否则它会和缓存里的 state 抢同一个 Callback
-            Drawable first = decoded.mutate();
-            return first != null ? first : decoded;
+        if (state != null) {
+            Drawable derived = state.newDrawable(context.getResources());
+            return derived != null ? derived.mutate() : null;
         }
-        Drawable derived = state.newDrawable(context.getResources());
-        return derived != null ? derived.mutate() : null;
+        Drawable decoded = StringUtil.getDrawable(context, id);
+        state = decoded.getConstantState();
+        if (state == null) return decoded;
+        PLACEHOLDER_STATES.put(id, state);
+        // 首个实例也要脱离共享状态，否则它会和缓存里的 state 抢同一个 Callback
+        Drawable first = decoded.mutate();
+        return first != null ? first : decoded;
+    }
+
+    /**
+     * 一次给请求设好占位图与兜底图，替代逐处写两行
+     * {@code .placeholder(...)} / {@code .error(...)}。
+     *
+     * <p>存在的理由不只是省字：这两行**必须成对**。只设 placeholder 不设 error 时，加载失败会
+     * 把上一个复用项的画面留在原处（RecyclerView 复用典型脏数据），而这在翻列表时很难被看出来。
+     *
+     * <p>每次调用都新建 {@code RequestOptions}：占位图是要按控件派生的新实例（见
+     * [placeholderDrawable]），不能做成静态常量共享。
+     */
+    public static RequestOptions withPlaceholder(Context context, int resId) {
+        return new RequestOptions()
+                .placeholder(placeholderDrawable(context, resId))
+                .error(placeholderDrawable(context, resId));
     }
 
     public static TransitionOptions<?, ? super Drawable> getTransitionOptions() {

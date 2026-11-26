@@ -140,7 +140,7 @@ class DownloadAdapter(
                 // 复用到的 holder 可能停在多选态，占位行要把标题色也复位
                 title.setTextColor(normalTitleColor)
                 extra.text = UiText.of("点击下面继续下载喵？")
-                cover.setImageResource(R.mipmap.placeholder)
+                cover.setImageDrawable(GlideUtil.placeholderDrawable(cover.context, R.mipmap.placeholder))
                 speed.visibility = View.GONE
                 return
             }
@@ -171,8 +171,7 @@ class DownloadAdapter(
             if (section.url_cover.isNotEmpty())
                 GlideUtil.with(cover).asDrawable().load(section.url_cover)
                     .transition(GlideUtil.getTransitionOptions())
-                    .placeholder(R.mipmap.placeholder)
-                    .error(R.mipmap.placeholder)
+                    .apply(GlideUtil.withPlaceholder(cover.context, R.mipmap.placeholder))
                     .format(DecodeFormat.PREFER_RGB_565)
                     .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                     .apply(

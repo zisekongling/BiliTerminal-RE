@@ -99,8 +99,7 @@ class OpusContentAdapter(
                             holder.lastImageUrl = imageUrl
                             GlideUtil.with(imageView).asDrawable().load(imageUrl)
                                 .apply(GlideUtil.thumbOptions(imageView))
-                                .placeholder(R.mipmap.placeholder)
-                                .error(R.mipmap.placeholder)
+                                .apply(GlideUtil.withPlaceholder(imageView.context, R.mipmap.placeholder))
                                 .transition(GlideUtil.getTransitionOptions())
                                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                                 .into(imageView)
@@ -140,8 +139,7 @@ class OpusContentAdapter(
                         holder.lastTopImageUrl = coverUrl
                         GlideUtil.with(topImage).asDrawable().load(coverUrl)
                             .apply(GlideUtil.thumbOptions(topImage))
-                            .placeholder(R.mipmap.placeholder)
-                            .error(R.mipmap.placeholder)
+                            .apply(GlideUtil.withPlaceholder(topImage.context, R.mipmap.placeholder))
                             .transition(GlideUtil.getTransitionOptions())
                             .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(4f))))
                             .format(DecodeFormat.PREFER_RGB_565)
@@ -155,8 +153,7 @@ class OpusContentAdapter(
                         holder.lastTopImageUrl = firstImageUrl
                         GlideUtil.with(topImage).asDrawable().load(firstImageUrl)
                             .apply(GlideUtil.thumbOptions(topImage))
-                            .placeholder(R.mipmap.placeholder)
-                            .error(R.mipmap.placeholder)
+                            .apply(GlideUtil.withPlaceholder(topImage.context, R.mipmap.placeholder))
                             .transition(GlideUtil.getTransitionOptions())
                             .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(4f))))
                             .format(DecodeFormat.PREFER_RGB_565)
@@ -185,8 +182,7 @@ class OpusContentAdapter(
                     holder.lastAvatarUrl = avatarUrl
                     GlideUtil.with(upIcon).asDrawable().load(avatarUrl)
                         .apply(GlideUtil.thumbOptionsCover(upIcon))
-                        .placeholder(GlideUtil.placeholderDrawable(upIcon.context, R.mipmap.akari))
-                        .error(GlideUtil.placeholderDrawable(upIcon.context, R.mipmap.akari))
+                        .apply(GlideUtil.withPlaceholder(upIcon.context, R.mipmap.akari))
                         .transition(GlideUtil.getTransitionOptions())
                         .apply(RequestOptions.circleCropTransform())
                         .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
