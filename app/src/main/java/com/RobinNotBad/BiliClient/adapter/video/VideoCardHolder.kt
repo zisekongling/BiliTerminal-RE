@@ -250,8 +250,7 @@ class VideoCardHolder(@androidx.annotation.NonNull itemView: View) : RecyclerVie
                     // 封面是 centerCrop 语义（见 getRequestOptions），降采样跟它对齐
                     .apply(GlideUtil.thumbOptionsCover(cover))
                     .transition(GlideUtil.getTransitionOptions())
-                    .placeholder(R.mipmap.placeholder)
-                    .error(R.mipmap.placeholder)
+                    .apply(GlideUtil.withPlaceholder(cover.context, R.mipmap.placeholder))
                     .format(DecodeFormat.PREFER_ARGB_8888)
                     .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                     .apply(getRequestOptions())

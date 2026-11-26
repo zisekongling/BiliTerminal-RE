@@ -200,7 +200,11 @@
         </LinearLayout>
 
         <!-- 多选条：同样默认隐藏，只有收藏夹内容页在能写（自己的收藏夹 + 有 media_id）时才点亮。
-             「多选」进出多选模式，「删除(n)」把选中的条目一次从收藏夹里移除。 -->
+             「多选」进出多选模式，「删除(n)」把选中的条目一次从收藏夹里移除。
+             行高与字号走 action_bar_* 这组专用 dimen（默认 34dp / 11sp，宽度 ≥200dp 时
+             48dp / 13sp）——这三格以前硬写 touch_min（48dp）+ 13sp，小屏手表上一进多选态
+             整条突然顶上来很挡视线（反馈 #265）。另外钉死 maxLines=1 + ellipsize：
+             窄格里文字一换行会把条再撑高一倍。 -->
         <LinearLayout
             android:id="@+id/manageBar"
             android:layout_width="match_parent"
@@ -220,6 +224,8 @@
                 android:minHeight="@dimen/action_bar_min_height"
                 android:paddingVertical="@dimen/action_bar_padding_v"
                 android:background="?attr/selectableItemBackground"
+                android:maxLines="1"
+                android:ellipsize="end"
                 android:text="@string/uitext_favoritevideolistactivity_009"
                 android:textSize="@dimen/action_bar_text"
                 android:textColor="?android:attr/textColorSecondary" />
@@ -235,6 +241,8 @@
                 android:minHeight="@dimen/action_bar_min_height"
                 android:paddingVertical="@dimen/action_bar_padding_v"
                 android:background="?attr/selectableItemBackground"
+                android:maxLines="1"
+                android:ellipsize="end"
                 android:text="@string/btn_select_all"
                 android:textSize="@dimen/action_bar_text"
                 android:textColor="?android:attr/textColorSecondary"
@@ -250,6 +258,8 @@
                 android:minHeight="@dimen/action_bar_min_height"
                 android:paddingVertical="@dimen/action_bar_padding_v"
                 android:background="?attr/selectableItemBackground"
+                android:maxLines="1"
+                android:ellipsize="end"
                 android:text="@string/settingtext_accountswitchactivity_003"
                 android:textSize="@dimen/action_bar_text"
                 android:textColor="?android:attr/textColorSecondary" />

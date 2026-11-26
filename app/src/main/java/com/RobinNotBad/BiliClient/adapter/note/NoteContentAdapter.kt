@@ -170,8 +170,7 @@ class NoteContentAdapter(
             holder.lastUrl = url
             GlideUtil.with(holder.image).asDrawable().load(url)
                 .apply(GlideUtil.thumbOptions(holder.image))
-                .placeholder(R.mipmap.placeholder)
-                .error(R.mipmap.placeholder)
+                .apply(GlideUtil.withPlaceholder(holder.image.context, R.mipmap.placeholder))
                 .transition(GlideUtil.getTransitionOptions())
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                 .into(holder.image)

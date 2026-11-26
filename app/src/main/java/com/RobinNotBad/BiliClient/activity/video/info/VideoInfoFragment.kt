@@ -412,7 +412,7 @@ class VideoInfoFragment : BaseFragment() {
             return
         }
 
-        Glide.with(getAppContext()).asDrawable().load(GlideUtil.url_hq(videoInfo!!.cover)).placeholder(R.mipmap.placeholder)
+        Glide.with(getAppContext()).asDrawable().load(GlideUtil.url_hq(videoInfo!!.cover)).apply(GlideUtil.withPlaceholder(getAppContext(), R.mipmap.placeholder))
             .apply(GlideUtil.thumbOptions(cover))
             .transition(GlideUtil.getTransitionOptions())
             .apply(RequestOptions.bitmapTransform(RoundedCorners(ToolsUtil.dp2px(4f))).sizeMultiplier(0.85f).skipMemoryCache(true).dontAnimate())

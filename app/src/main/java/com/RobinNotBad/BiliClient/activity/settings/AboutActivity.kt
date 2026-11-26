@@ -248,8 +248,7 @@ class AboutActivity : BaseActivity() {
                 try {
                     Glide.with(this).load(dev.avatarRes)
                         .transition(GlideUtil.getTransitionOptions())
-                        .placeholder(R.mipmap.akari)
-                        .error(R.mipmap.akari)
+                        .apply(GlideUtil.withPlaceholder(this, R.mipmap.akari))
                         .apply(RequestOptions.circleCropTransform())
                         .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                         .into(card.findViewById(R.id.dev_avatar))

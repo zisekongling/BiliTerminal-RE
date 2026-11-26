@@ -161,13 +161,12 @@ class PrivateMsgSessionsAdapter(
             }
             if (avatarUrl.isNullOrEmpty()) {
                 // 没有头像时也要把占位图塞回去：否则复用的 View 会继续显示上一条会话的头像
-                holder.avatarView.setImageResource(R.mipmap.akari)
+                holder.avatarView.setImageDrawable(GlideUtil.placeholderDrawable(holder.avatarView.context, R.mipmap.akari))
             } else {
                 GlideUtil.with(holder.avatarView).asDrawable().load(GlideUtil.url(avatarUrl))
                     .apply(GlideUtil.thumbOptionsCover(holder.avatarView))
                     .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
-                    .placeholder(R.mipmap.akari)
-                    .error(R.mipmap.akari)
+                    .apply(GlideUtil.withPlaceholder(holder.avatarView.context, R.mipmap.akari))
                     .apply(RequestOptions.circleCropTransform())
                     .into(holder.avatarView)
             }

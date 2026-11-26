@@ -167,8 +167,9 @@ bridge --es cmd log --es file rebili.log --es bytes 8192                        
 - **再试一下**：去设置里把「本人弹幕边框」关掉 → 重新进视频 → 自己的弹幕没有边框了。
 - **不算 bug**：未登录、或者这条弹幕是匿名/认不出是谁发的，就不会有边框。
 - **AI 半自动**：`get player_danmaku_self_border` 能验开关本身与「关掉后仍是 off 且没把别的设置带坏」；
-  **边框是画在 Canvas 上的，控件树里读不到**，有没有那圈主题色只能人看。⚠️ 别用截图判颜色：MuMu 的
-  `screencap -d <display>` 对本应用的活动副屏恒返回 `Status: -2`（`docs/review/agent-test-guide.md:373`）。
+  **边框是画在 Canvas 上的，控件树里读不到**，有没有那圈主题色只能人看。⚠️ 别用截图判颜色：
+  MuMu 上的截图能不能拿到取决于 display id 有没有查对，查法与止损顺序见
+  `docs/review/agent-test-guide.md` §6。
 
 ### T12 点带时间的弹幕能跳进度
 

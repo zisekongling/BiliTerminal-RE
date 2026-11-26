@@ -232,6 +232,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private lateinit var bottom_group_slots: LinearLayout
     private var buttonSlots: PlayerButtonSlots? = null
     private var newPlayerUi: PlayerNewUiController? = null
+
+    /**
+     * 封面色取色的 Glide 目标。
+     *
+     * 必须持有引用：`Glide.with(applicationContext)` 的 RequestManager 是进程级的，不随本页销毁自动
+     * 清理；匿名 target 不 clear 会让资源一直处于 acquired 状态，触发 Glide 的
+     * `Cannot recycle a resource while it is still acquired`（控制台崩溃 #402/#403/#409/#411）。
+     */
+    private var coverTintTarget: CustomTarget<Bitmap>? = null
     private lateinit var card_subtitle: LinearLayout
     private lateinit var card_danmaku_send: LinearLayout
     /** 「跳到指定时间」的页内输入卡片（QQ#9；26.11.14 从独立 Activity 改成与发弹幕同构的卡片）。 */
@@ -420,6 +429,23 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private var isSeeking: Boolean = false
     private var isDanmakuVisible: Boolean = false
 
+    /**
+     * 最近一次「有意跳转」的目标位置，配合 [seekSettleUntilMs] 只给回跳守卫用。
+     *
+     * -1 表示还没发生过任何有意跳转。写入口只有 [markSeekTarget] 一处。
+     */
+    private var intendedSeekTargetMs: Int = -1
+
+    /**
+     * 有意跳转的「静默截止时刻」（[android.os.SystemClock.elapsedRealtime]）。
+     *
+     * 存在的理由：`markSeekTarget` 只是把 `video_now` 改成新位置，而 IJK 的 seek 是**异步**的。
+     * 落地前的那一两拍 `progressChange` 读到的还是旧位置，于是 `previousVideoNow` 被推高、
+     * 下一拍照常比较出一次「倒退」——补 `markSeekTarget` 本身并不足以消掉那条假回跳日志
+     * （控制台反馈 #297 里那行 `播放位置回跳>从 14798ms 退到 0ms`）。
+     */
+    private var seekSettleUntilMs: Long = 0L
+
     /** 播放页触摸锁定的当前状态（状态转移见 [PlayerLockPolicy]）。 */
     private var lockPhase = PlayerLockPolicy.Phase.UNLOCKED
 
@@ -543,6 +569,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
 
         /** seek 之后隔多久去实测落点（毫秒）。IJK 的 seek 是异步的，太早取到的还是旧位置。 */
         private const val SEEK_LANDING_CHECK_MS = 1_500L
+
+        /**
+         * 有意跳转之后，多久内不把「回落到目标位置」记成回跳（毫秒）。
+         *
+         * 取与 [SEEK_LANDING_CHECK_MS] 同量级即可：超过那个时限还没落地时，
+         * `seekToVideo` 自己会留一条「进度条 seek 落点」W 日志，证据不会丢，
+         * 这里就让位给那条更准确的记录，不必延长。
+         */
+        private const val SEEK_SETTLE_SUPPRESS_MS = SEEK_LANDING_CHECK_MS
 
         /**
          * G07「高能条本地兜底」等弹幕装载的时间（毫秒）。
@@ -3301,6 +3336,12 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             if (queue != null && queue.size > 1) {
                 if (queue.mode == PlayQueueMode.REPEAT_ONE) {
                     finishWatching = false
+                    // 必须走 markSeekTarget：video_now 是媒体时钟与进度条的唯一时间源，
+                    // 只 seekTo 不更新它，它会停在片尾直到下次采样——progressChange 那里的
+                    // 「播放位置回跳」守卫会把它记成一次假回跳（控制台反馈 #297 的日志里
+                    // 就是这条 `播放位置回跳>从 14798ms 退到 0ms（playerError=false 本地=false）`），
+                    // 弹幕也还在按片尾对轴。
+                    markSeekTarget(0L)
                     ijkPlayer!!.seekTo(0)
                     if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.seekTo(0L)
                     ijkPlayer!!.start()
@@ -3320,6 +3361,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                 // 单曲循环＝又从头播起来了，不再是"看完了"：不清这个标志的话，
                 // 本地视频的周期落盘会一直按"看完"写 0，第二轮看了半天也续不上
                 finishWatching = false
+                // 同 REPEAT_ONE：不更新 video_now 会把这条重播记成一次假「位置回跳」。
+                markSeekTarget(0L)
                 ijkPlayer!!.seekTo(0)
                 if (hasDanmaku && mDanmakuView != null) mDanmakuView!!.seekTo(0L)
                 ijkPlayer!!.start()
@@ -3572,7 +3615,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     // video_now 同步到目标；所以播放器报出来的位置**倒退**只能是播放器自己往回跳
                     // （解码器重定位、缓存文件索引异常、停下看门狗重建后的续播点）。这条日志会进
                     // 崩溃报告带的内存日志缓冲，用户下次带日志反馈就能直接定案。
-                    if (video_now < previousVideoNow - POSITION_BACKJUMP_ALERT_MS) {
+                    if (video_now < previousVideoNow - POSITION_BACKJUMP_ALERT_MS && !isSeekSettlingInto(video_now)) {
                         val backjumpNow = android.os.SystemClock.elapsedRealtime()
                         if (backjumpNow - positionBackjumpLogMs >= POSITION_BACKJUMP_LOG_INTERVAL_MS) {
                             positionBackjumpLogMs = backjumpNow
@@ -5424,6 +5467,14 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         saveLocalProgressNow("销毁兜底")
         savePlaySessionNow("销毁兜底")
         destroyed = true
+        // 封面色取色用的是 `Glide.with(applicationContext)`：它的 RequestManager 挂在**进程级**，
+        // 不会随 Activity 销毁自动清理，所以那个匿名 CustomTarget 必须自己 clear。
+        // 不清的话，页面销毁后请求仍在跑、资源回来时 target 已无人引用却仍处于 acquired 状态，
+        // Glide 的 ResourceRecycler 下一次回收就抛
+        // `IllegalStateException: Cannot recycle a resource while it is still acquired`
+        // （控制台崩溃 #402/#403/#409/#411，跨 4 个版本号复现）。
+        runCatching { coverTintTarget?.let { Glide.with(applicationContext).clear(it) } }
+        coverTintTarget = null
         // 锁定按钮自动隐去的延时任务要撤掉，别在 Activity 销毁后再去动 View
         mainHandler?.removeCallbacks(hideLockIcon)
         // 弹幕重试同理：销毁后再拉一次只会在已释放的弹幕视图上落地
@@ -6223,6 +6274,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private fun markSeekTarget(position: Long) {
         video_now = position.toInt()
         video_now_last = -1 // 让 progressChange 下一帧立刻按新位置刷新进度条/字幕
+        // 记下目标与静默窗口：IJK 的 seek 是异步的，落地前 progressChange 读到的还是旧位置，
+        // 没有这两项就会把一个正在落地的有意跳转记成「播放位置回跳」。
+        intendedSeekTargetMs = position.toInt()
+        seekSettleUntilMs = android.os.SystemClock.elapsedRealtime() + SEEK_SETTLE_SUPPRESS_MS
         // 片头/片尾判定同样要等 seek 落地，否则 progressChange 把 video_now 拉回旧位置后
         // 会被立刻再判一次（「跳完又跳回去」）。只由自动跳过自己起静默期：用户主动拖动的落点
         // 已经被 onUserSeekTo 正式记为「已处理」，不需要时间兜底，也不该因为拖一下
@@ -6233,6 +6288,22 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         if (pendingSeekIsAutoSkip) {
             skipQuietUntilMs = android.os.SystemClock.elapsedRealtime() + SKIP_QUIET_AFTER_SEEK_MS
         }
+    }
+
+    /**
+     * 这次读数是不是「一次有意跳转正在落地」——回跳守卫据此让路。
+     *
+     * 两条必须同时成立：
+     * - 还在 [seekSettleUntilMs] 静默窗口内（seek 还没落地的窗口）；
+     * - 读数已经贴住 [intendedSeekTargetMs]（容差用回跳阈值 [POSITION_BACKJUMP_ALERT_MS]）。
+     *
+     * 第二条是关键：用户拖到 10 分钟后播放器真的自己往回跳到 0，读数离目标很远，
+     * 照样会报警；而「重播回 0」的读数正好贴住目标 0，被这条挡下。
+     */
+    private fun isSeekSettlingInto(position: Int): Boolean {
+        if (intendedSeekTargetMs < 0) return false
+        if (android.os.SystemClock.elapsedRealtime() > seekSettleUntilMs) return false
+        return Math.abs(position - intendedSeekTargetMs) <= POSITION_BACKJUMP_ALERT_MS
     }
 
     /**
@@ -7464,30 +7535,36 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         val cover = intent?.getStringExtra("cover")
         if (cover.isNullOrEmpty()) return
 
+        // 先清上一次的：同一页面可能因为换分P/换清晰度重建两次，旧 target 留着同样会积累未回收资源。
+        coverTintTarget?.let { runCatching { Glide.with(applicationContext).clear(it) } }
+
+        val target = object : CustomTarget<Bitmap>() {
+            override fun onResourceReady(resource: Bitmap, transition: Transition<in Bitmap>?) {
+                if (destroyed) return
+                val width = resource.width
+                val height = resource.height
+                if (width <= 0 || height <= 0) return
+                val pixels = IntArray(width * height)
+                resource.getPixels(pixels, 0, width, 0, 0, width, height)
+                val color = CoverTintPolicy.fromPixels(pixels) ?: return
+                seekbar_progress.setAccentColor(color)
+                // 新版：方屏进度行被自绘渲染器接管、圆屏走弧形进度，旧 setAccentColor 都画不到，
+                // 封面色必须转交给新版控制器（覆盖主题进度色，语义仍是「封面取色优先」）。
+                newPlayerUi?.setCoverAccent(color)
+            }
+
+            override fun onLoadCleared(placeholder: Drawable?) {
+                // onDestroy 主动 clear 时回调到这里。
+            }
+        }
+        coverTintTarget = target
+
         Glide.with(applicationContext)
             .asBitmap()
             .load(cover)
             .override(COVER_TINT_SAMPLE_PX, COVER_TINT_SAMPLE_PX)
             .centerCrop()
-            .into(object : CustomTarget<Bitmap>() {
-                override fun onResourceReady(resource: Bitmap, transition: Transition<in Bitmap>?) {
-                    if (destroyed) return
-                    val width = resource.width
-                    val height = resource.height
-                    if (width <= 0 || height <= 0) return
-                    val pixels = IntArray(width * height)
-                    resource.getPixels(pixels, 0, width, 0, 0, width, height)
-                    val color = CoverTintPolicy.fromPixels(pixels) ?: return
-                    seekbar_progress.setAccentColor(color)
-                    // 新版：方屏进度行被自绘渲染器接管、圆屏走弧形进度，旧 setAccentColor 都画不到，
-                    // 封面色必须转交给新版控制器（覆盖主题进度色，语义仍是「封面取色优先」）。
-                    newPlayerUi?.setCoverAccent(color)
-                }
-
-                override fun onLoadCleared(placeholder: Drawable?) {
-                    // 页面销毁时 Glide 会回调这里，不需要收尾动作
-                }
-            })
+            .into(target)
     }
 
     private fun loadHighEnergyData() {

@@ -30,8 +30,6 @@ open class UserListAdapter(
             .circleCrop()
             .format(DecodeFormat.PREFER_RGB_565)
             .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
-            .placeholder(R.mipmap.akari)
-            .error(R.mipmap.akari)
             .override(128) // 头像只需要小尺寸，限制解码大小减少内存占用
     }
 
@@ -69,11 +67,16 @@ open class UserListAdapter(
             // "You cannot start a load for a destroyed activity"（线上实测 2 例：列表回到前台
             // 时网络数据才回来，onBind 撞上正在 finish 的页面），所以先过 canLoad。
             if (GlideUtil.canLoad(holder.itemView)) {
-                Glide.with(holder.itemView.context)
+                val ctx = holder.itemView.context
+                Glide.with(ctx)
                     .asDrawable()
                     .load(GlideUtil.url(user.avatar))
                     .skipMemoryCache(false)
                     .apply(AVATAR_OPTIONS)
+                    // 占位图不放进静态 AVATAR_OPTIONS：静态常量拿不到 Context，而占位图必须按控件
+                    // 派生新实例（GlideUtil 缓存的是 ConstantState，同一实例挂到多个 ImageView 上
+                    // 会让 bounds / Callback 互相打架）。withPlaceholder 一次性设好占位 + 兜底。
+                    .apply(GlideUtil.withPlaceholder(ctx, R.mipmap.akari))
                     .into(holder.avatar)
             }
             holder.avatar.visibility = View.VISIBLE

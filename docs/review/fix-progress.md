@@ -18,6 +18,42 @@
 
 ## 1. 当前版本状态
 
+- **26.11.26 第二轮控制台：DFM 弹幕计时竞态 + 圆屏列表残留变换（一处修四条反馈）**：
+  - **来路**：读控制台 28 条待处理反馈 + 9 条待处理崩溃。按版本过滤后只剩 3 条来自当前版本（26.11.23）。
+  - **崩溃 #416（26.11.23 当前版本，已修 `33b979eb`）**：`NoSuchElementException at LinkedList.removeFirst` ← `DrawHandler.recordRenderingTime` ← `DanmakuView.onDraw`。**线程竞态**：`recordRenderingTime` 跑在 UI 线程且自己 `synchronized`，但 `mDrawTimes` 的五处 `clear()`（`handleMessage` / `updateInCurrentThread` / `updateInNewThread` / `notifyRendering`×2）**都不持有该锁**，`size()` 与 `removeFirst()` 之间被 clear 抢先就是空链表 `removeFirst`。旁证：同类 `getAverageRenderingTime()` 早已把取首尾包在 try/catch 里——作者知道这个链表会短暂为空，只漏了这一处。改用 `pollFirst()`。DFM 是本仓库内模块，可直接改。
+  - **反馈 #310 / #206 / #288 / #284（同一根因，已修 `1f65a62a`）**：`RoundListEffect.transform()` 原本两个裸 `return`（`row.visibility != VISIBLE`、`tFor(...) ?: return`）会**跳过复位**，而 `tFor` 返回 null 的两种情形都是常态——`rowHeight == 0`（还没量高）与 `rowHeight >= winH`（长评论带大图）。命中时该行保留上一次的变换，而上次往往正贴屏缘 = 0.5 倍 + 0.15 透明度，于是「某张卡片变小又发虚、怎么滑都不恢复」。改为不参与效果时显式复位 scale/alpha。
+  - **核实后确认「已在当前代码修过」的三条**（未再动手）：
+    - **#420**（`Fragment not attached to a context` ← `VideoInfoFragment.kt:216` 对 detached Fragment 调 `getString`）：26.11.23 的 `sendVideoToFriend` 在 `runOnUiThread` 里用 Fragment 自己的 `getString`；当前代码已重构为 `ShareSheet.sendLinkToFriend(requireContext(), …)`，异步段用的是**调用时捕获的 `Context`**，不再走 `Fragment.getResources()`。
+    - **#414**（`Only fullscreen activities can request orientation` ← `PlayerActivity.onDestroy`）：全仓已无 `setRequestedOrientation`。
+    - **#418 / #417**（`LocalPageChooseActivity` 的 RecyclerView Inconsistency）：版本 26.10.27，该类早前已按 #351/#353 处理。
+  - **#306（短视频卡住/播放错误）**：日志里每 20–40 秒一条 `history-report>csrf 为空` —— 正是上一轮 `5f1ce90c` 修掉的噪音，可确认那条修复的价值。真正的失败链是 `ShortVideoApi>API error code=-400` → 空批次 → `Player error: -10000` → 弹「播放错误」。开发者已回复「记得登录（不登录出错的概率高）」，即 -400 的主因是未登录。**未改**：把「未登录」翻译成明确提示属于新文案/产品口径，按 `AGENTS.md` 该问用户，本轮不自作主张。
+  - **#413 / #419 / #415 / #412（Glide 回收异常）**：分两类——`while it is still acquired` 与 `already been recycled`。全部来自 26.11.23 及更早，而 26.11.23 **不含** PR #37 里的封面色 target 修复（`e9f71d4b`），那条 bug 正是「额外回收流量 + 销毁后仍回调」的来源。**判定为同源的假设，非结论**，等 26.11.26 发版后看这几类的量是否归零。
+  - **未改了断的**：#301（本地缓存侧栏没有睡眠定时）日志里只有第三方规则源与 dialog 尺寸，无播放器/按钮布局信息，开发者已回复「有些功能还没做好」；#292（耳机音量过小）需真机与对应耳机；其余为功能建议。
+  - **验证**：两 flavor 编译通过；干净 `test-results` 下 `testStandardDebugUnitTest` / `testCoexistDebugUnitTest` 各 **316 套件 / 3395 用例 / 0 失败**；`assembleDebug` 双 flavor 通过。
+  - **未验证（L2 / 待人工）**：① #416 需真机反复进出短视频页确认不再崩（该崩溃与 DanmakuView 重建频率相关，模拟器上难压出）；② 圆屏列表复位需在开启「圆屏模式 + 圆屏列表」后翻评论区，确认长评论不再固定变小、发虚。
+
+- **26.11.26 PR #37 review 返工：取图 API 违规、占位图只覆盖一类、文档半改、数字不可复现**：
+  - **来路**：上游维护者 review PR #37（本地 26.11.24 那批崩溃修复），给了 4 条必修 + 4 条建议。逐条核对后确认**全部成立**，没有一条是误报。
+  - **必修 1：`ContextCompat.getDrawable` 是仓库明令禁止的 API**。`docs/agents/dev-conventions.md` §界面写得很清楚：必须走 `AppCompatResources.getDrawable`（统一入口 `util/StringUtil.getDrawable`），因为本项目开了 `vectorDrawables.useSupportLibrary`，API<21 没有 PNG 兜底，那两条在那里仍是原生加载路径、遇到 `<vector>` 直接抛。我的 `placeholderDrawable` 是全仓**第一处**违规。已改走 `StringUtil.getDrawable`。
+    - **顺带补上根因**：`dev-conventions.md` 这条约定此前**只有 XML 那一面有守门测试**（`VectorDrawableCompatTest` 只扫 `res/`），代码侧全靠记性——这正是它能溜进 PR 的原因。已在 `ConventionGuardTest` 补断言，`HighEnergyProgressBar.kt`（SDK≥21 分支加载含矢量的 selector）白名单排除。
+  - **必修 2：文档只改了一半**。`testing.md` 换成了「先查 display id 再试」，但 `workflow.md`、`agent-test-guide.md` §6、`manual-test-guide-261106.md` 三处仍写着「`screencap -d` 对任何 display 都回 `Status: -2`」。按 `docs/agents/docs.md`「一份知识只有一个落点」收口：**细节全部集中到 `agent-test-guide.md` §6**（含「id 会变、用前现查」的可靠查法、为什么别按 `dumpsys activity activities` 段落顺序猜、`-2` 时的止损顺序、Debug 包 UETool 授权），其余三处只留一行指向 §6，不再各自复述。
+  - **必修 3：占位图 OOM 只覆盖了 akari 一类**。工作树里还有 **17 处** `.placeholder(R.mipmap.placeholder)` / `.error(...)` 直传资源 id，走的是同一条解码路径（`placeholder.png` 是 256×144 = 147456 B，只是比 akari 小一半），而且大多就在 `onBindViewHolder` 里。更糟的是三个文件**只改了一半**（`ReplyAdapter` 244 换了 / 458 没换，`OpusContentAdapter` 188 换了 / 102·143·158 没换，`DynamicHolder` 854 换了 / 938 没换）。已全部切到统一入口，并用守门测试锁住。
+  - **必修 4：测试数字不可复现**。原文写「632 套件 / 6786 用例」，台账写「614 / 6518」，reviewer 干净 worktree 实测 public-only 是 292 / 3132——三处对不上。根因是我求和时把 `app/build/test-results` 下**历次残留的 XML 递归混算**。已改为逐 flavor 目录单独统计，并给出公开侧对照（见下方验证）。
+  - **建议 5（采纳并修）：补 `markSeekTarget` 仍留着误报窗口**。reviewer 的分析是对的：`progressChange` 的守卫读 `previousVideoNow = video_now` 再刷新 `video_now`，若 seek 慢于一拍落地——
+    `markSeekTarget(0)` → 下一拍读到旧位置 14798（正向，不报警）→ 再下一拍 `previousVideoNow=14798`、读到 0 → **照样打出「从 14798ms 退到 0ms」**。只补 `markSeekTarget` 不是充分条件。
+    修法：`markSeekTarget` 里记下目标位置与静默截止时刻，守卫加 `isSeekSettlingInto()`——**静默窗口内 且 读数已贴住目标**才让路。第二条是关键：用户拖到 10 分钟后播放器真往回跳到 0 时读数离目标很远，照样报警。
+    没有直接拨 `isSeeking`：它只由两处拖动处理器切换，`seekToVideo` 也不碰它，直接置位会波及 `progressChange` / 自动跳过 / 拖动 UI 三处别的逻辑。
+  - **建议 6（采纳）：措辞矛盾**。「每次绑定都重新 decode」与「cache 在低内存下被清空」自相矛盾，已改成「cache 热时命中不解码；被 `onTrimMemory` 清空后，之后每次 bind 才重解」。
+  - **建议 7（采纳）：两行样板收口**。新增 `GlideUtil.withPlaceholder(context, resId)`，一次设好占位 + 兜底，替换全部 29 处两行样板；`UserListAdapter` 原来包在静态 `RequestOptions()` 里的第三种写法一并去掉。理由不只是省字：这两行**必须成对**，只设 placeholder 不设 error 时，加载失败会把复用的上一张图留在原处，翻列表时很难看出来。
+  - **建议 8（部分采纳）**：`placeholderDrawable` 的行为（缓存命中、派生实例互不影响）依赖 `Drawable.ConstantState`，纯 JVM 里造不出来，加断言只能测 Map 语义，价值低；改成为**可回归的部分**加断言——上面两条 `ConventionGuardTest`（禁 `ContextCompat`/`ResourcesCompat` 取图、禁 `.placeholder(R.mipmap.*)`）都是纯文本扫描，正是这次出事的两处。
+  - **改法**：`GlideUtil.java`（取图 API + `withPlaceholder`）、`PlayerActivity.kt`（回跳守卫抑制窗口）、17 处调用点 + 12 处 akari 调用点统一到 `withPlaceholder`、2 处 `setImageResource` 改 `setImageDrawable(placeholderDrawable(...))`、`ConventionGuardTest` +2 条、4 份文档收口。
+  - **验证（26.11.26 本机，干净 `test-results`）**：
+    - `:app:testStandardDebugUnitTest` **316 套件 / 3395 用例 / 0 失败**；`:app:testCoexistDebugUnitTest` 同（两 flavor 同源码同用例数）。
+    - **公开侧对照**（临时移开 `private/` 后重跑）：`:app:testStandardDebugUnitTest` **292 套件 / 3134 用例 / 0 失败**，`:app:assembleDebug` BUILD SUCCESSFUL——与 reviewer 独立实测的 **292 / 3132** 精确吻合，差的 2 例正是本轮新加的两条守门测试。本地与公开侧的差额（24 套件 / 261 用例）来自 `app/build.gradle` 把 `private/src/test/java` 并进测试源集。
+    - **变异验证**：分别注入 `ContextCompat.getDrawable` 与 `.placeholder(R.mipmap.placeholder)`，`ConventionGuardTest` **恰好这两条变红**（10 tests, 2 failed），还原后两文件 SHA-256 与改动前一致。
+    - markdownlint 87 文件 0 issues。
+  - **未验证（L2 / 待人工）**：① 回跳抑制窗口需真机 logcat 确认——要一条会触发 REPEAT_ONE / 单曲循环的短视频，播完看是否还打「播放位置回跳」；MuMu 上没有登录态与缓存，构造不出。② 占位图统一到 `withPlaceholder` 后 29 处调用点、2 处 `setImageDrawable` 的**视觉**结果需人眼确认（当前不显眼：占位只在图片未到时可见）。
+
 - **26.11.25 多选态去掉行首引导符（控制台反馈 #265）**：
   - **来路**：控制台反馈 #265「多选后下方操作栏变大，且左侧有个不明字符」（42mm 表上最明显）。前一轮 `d4ac0366` 只修了「多选操作栏被压折行」那一半（`activity_simple_main_refresh.xml` 给 `textSelectedCount` 加 `maxLines=1` + `ellipsize=end` + `autoSizeMinTextSize=9sp`），**行首字符这一半当时明写没动**，所以一直是 pending。
   - **机理**：多选行首是 `▸`（选中）/ `›`（未选中）。`▸` 是 U+25B8（Geometric Shapes 区），部分手表系统字体没有这个字形 → 显示成方块，用户看到的「不明字符」就是它。`›` 是 U+203A（General Punctuation），多数字体都有，所以只有选中态显眼。换拉丁字符 / 换 drawable 两个方案用户已否决，**拍板口径是「去掉引导符，选中只靠主色 + 加粗」**。
@@ -81,6 +117,23 @@
   - **L0（26.11.25 本机）**：`:app:assembleDebug`（standard + coexist 两个 flavor 都编）与 `:app:testStandardDebugUnitTest` 通过。
   - **未验证（L2，需人工看画面）**：①菜单设置里把「稍后再看」拖回已启用区后，九宫格排版与底部「更多」折叠区是否正常、圆屏会不会挤；②从菜单进稍后再看后，点顶栏是否弹出主菜单（换了基类才有的能力）、按返回是否回到菜单；③把它设为启动页后重启是否真的进这一页；④筛选条滚动收起/展开的手感是否与改动前一致。
 
+- **26.11.24 按控制台反馈批量修：5 起崩溃 + 1 条假回跳 + 1 处噪音 + 1 处布局**：
+  - **来路**：用户要求「MCP 只读，不用回复，就读反馈然后修就行」，并指明「表冠适配一类的先别动」。把 42 条待处理反馈 + 11 条待处理崩溃全读完。
+  - **崩溃归并 5 类**：A Glide 资源 recycle ×4（#402/#403/#409/#411）、B RecyclerView Inconsistency ×3（#404/#405/#410）、C 系统 `DecorCaptionView` ×2（#406/#407）、D NPE ×1（#408）、E OOM ×1（#401）。B/C/D 的版本号早于对应修复（`#351/#353`、`#349/#350`，C 类是系统组件），只剩 A 与 E 要动。
+  - **改法（4 个提交）**：
+    - `e9f71d4b` `fix(player)`：① `applyCoverTint()` 的匿名 `CustomTarget` 没保存引用，而 `Glide.with(applicationContext)` 的 RequestManager 是**进程级**、不随 Activity 销毁清理，于是页面销毁后回调仍会跑、bitmap 早已被复用池回收 → `Cannot recycle a resource while it is still acquired`（A 类 4 条堆栈全落在 BitmapPool 归还路径，跨 26.11.02/26.11.16/26.11.17-beta.2 三个版本、机型与 SDK 各异）。改为字段持有 + 复用前 clear + `onDestroy` 里 `Glide.with(applicationContext).clear(...)`。② REPEAT_ONE 与单曲循环两条重播分支裸 `seekTo(0)`，没走 `markSeekTarget` → `video_now` 停在片尾、`progressChange` 的回跳守卫记下一次假「播放位置回跳」（反馈 #297 日志原文 `播放位置回跳>从 14798ms 退到 0ms`），弹幕也仍按片尾对轴；补 `markSeekTarget(0L)`（「播完重播」路径本来就有）。
+    - `b88d1e2c` `fix(image)`：占位图共享缓存。根因不是「某张图太大」——Glide 的 `placeholder(int)` / `error(int)` 在 `SingleRequest` 构建时用 `Context.getDrawable` **现解**一份 Drawable，并不会缓存下来。Resources 自带的 drawable cache 本来能挡住重复解码，但它在低内存下会被 `onTrimMemory` 整个清空；**cache 一空，之后每次 bind 都要重解一遍**，而这恰好发生在内存最紧的时候（#401 的分配量 262156 B = 256×256×4 + Bitmap 头）。新增 `GlideUtil.placeholderDrawable(context, resId)` 缓存 `ConstantState`（位图只 decode 一次，派生后 `mutate()` 防多 View 共用状态打架），并把所有调用点统一到 `GlideUtil.withPlaceholder(context, resId)`（一次设好占位 + 兜底，避免只设 placeholder 漏设 error）。
+    - `5f1ce90c` `fix(history)`：csrf 为空时提前 return。原来是打一条 e 级日志后照样发请求，服务端必回 -111/-400，播放页每十几秒调一次 → 日志刷屏；日志一并降到 v 级。
+    - `3140a985` `fix(ui)`：`manageBar` 三格从 `touch_min`（48dp）+ 13sp 收窄（反馈 #265「多选后操作栏明显变大、挡视线」）。**26.11.24 同步上游时与 `d4ac0366` / `a0cdaba5` 撞在同一批属性上，最终取上游**——上游为这类操作栏专门定义了 `action_bar_min_height` / `action_bar_padding_v` / `action_bar_text`（默认 34dp / 11sp / 2dp，`values-w200dp` 下 48dp / 13sp / 4dp），比本地直接复用 `segmented_bar_min` 更精准。本地只保留 `maxLines=1` + `ellipsize=end` 这层防折行保险。
+  - **验证**：L0——`assembleDebug` 双 flavor 通过；layout 已确认重新打包进 APK（`packaged_res` 产物时间戳与源文件一致）。崩溃/反馈 ID 逐条核对过（代码注释与提交信息里引用的 #401、#402/#403/#409/#411、#297、#265 均与实际记录一致）。**测试数字更正（26.11.26）**：当时写的「614 套件 / 6518 用例」不可复现——那是把 `app/build/test-results` 下**历次运行残留的 XML 一起递归求和**得到的，并非某次干净运行的结果。可复现的口径见下方 26.11.26 条目。
+  - **L1 实测（26.11.24 MuMu 12，x86_64 / Android 15 / 2160×3840 手机形态，Debug 包游客模式）**：
+    - **A 类 Glide 崩溃未复现**：连进连出播放页 8 次（`PlayerActivity` 相关日志 125 行、IJK 多次 `VIDEO_RENDERING_START`），`logcat` 里 `Cannot recycle` / `OutOfMemory` / Glide E 级异常 **0 条**；`dumpsys meminfo` 前后对比 Native Heap 89390→77454 KB、TOTAL PSS 228369→218198 KB，**净降约 10 MB**——说明 `onDestroy` 里 clear 掉的 target 确实把位图还给了复用池、不再累积。这是比「没崩」更硬的正向证据。
+    - **#298「含广告」视频闪退未复现**：恰好点中带 `含广告` 标识那条（SponsorBlock 原始标注 1 条、可跳 0 段），播放正常。
+    - **占位图改动无异常**：浏览推荐 / 详情 / 播放全程 0 条 Glide 异常，12 处换过的头像占位正常。
+    - **未登录上报路径**：日志出现 `进度上报>跳过：未登录（mid=0）`，说明 `PlayerActivity.canReportProgress()` 在上层就拦住了；该条 E 级日志由 `notLoggedInWarned` 保证**每播放页只打一次**，是有意降噪、不是刷屏。
+    - **csrf 改动这次没被执行到**：正因为在 `canReportProgress` 就被拦下，`HistoryApi.reportHistory` 根本没被调用——要触发它需要「已登录但 csrf 丢失」的半死登录态，模拟器造不出来。
+  - **未验证（L2 / 待人工）**：① A 类崩溃仍需真机（尤其 sdk 25–30 小内存手表）确认——MuMu 是 x86 + Android 15 + 大内存，本身不是该崩溃的复现环境，「没崩」的证据力有限；② OOM 需 sdk 25 小内存设备；③ 重播不再误报「位置回跳」——该视频 16:38，播完才会进 REPEAT_ONE 分支，本轮没测到；④ 多选条行高已交给上游的 `action_bar_*`（本地只补了防折行），小屏手表上的实际观感仍需人眼确认，且 MuMu 是 360dp 宽、命中的是 w200dp 档，本来就看不到这条的变化；⑤ csrf 提前 return 需构造半死登录态。
+  - **口径**：#261（直播锁定按钮压在弹幕输入框上）已在 26.11.21 用 `layout_card_bg.bringToFront()` 修过，注释直指该反馈，本轮未再动；表冠相关（#300/#279/#296/#273）按用户要求整批跳过。**26.11.24 同步上游后确认：本轮读到的反馈里有相当一批已由上游修掉**——#265（`a0cdaba5` + `d4ac0366`）、#282/#280（`3f9280b9` / `18e1a1ba`）、#177（`b7656275`）、#236（`15372b4a`）、#281（`39fe2573`）、#276/#275（`ca65a299`）、#267（`9d2afbc0`）、#268（`711954b4`）、#271（`c74768af`）、#279（`b3cd4b9e`），这些不再需要本地重复修；仍缺可判定证据的是 #288/#284（圆屏评论区缩放）。
 - **26.11.23 安卓 5.1 打开缓存页崩溃：MediaMuxer 不支持 B 帧，API <25 跳过重封装**：
   - **来路**：26.11.23-DIAG 诊断包在 ZTE Q529C / Android 5.1（SDK 22）上复现两次：进入缓存页后 `REPAIR-START index=1/29`，依次经过 `extractor / tracks / muxer / muxer-start / write` 五个阶段，随后进程直接消失；没有 `REPAIR-END`，应用日志也没有 Java 异常，属 native 层崩溃。
   - **根因**：Android 官方文档写明 `MediaMuxer` 从 **Android 7.1（API 25，Nougat MR1）** 起才支持 muxing B-frames in MP4。B 站 1080P DASH 的 H.264 带 B 帧，API 22 上第一次 `writeSampleData` 就会在 native 层触发 SIGSEGV / abort；Java 的 `try-catch` 接不住，崩溃页也来不及写 `REPAIR-END`。

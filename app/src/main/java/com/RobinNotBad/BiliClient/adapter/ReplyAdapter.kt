@@ -241,8 +241,9 @@ class ReplyAdapter(
                 GlideUtil.with(replyHolder.replyAvatar).asDrawable().load(GlideUtil.url(reply.sender!!.avatar))
                         .apply(GlideUtil.thumbOptionsCover(replyHolder.replyAvatar))
                         .transition(GlideUtil.getTransitionOptions())
-                        .placeholder(R.mipmap.akari)
-                        .error(R.mipmap.akari)
+                        // 占位图走 withPlaceholder：直接传资源 id 会让 Glide 每次 bind 现解一遍
+                        // 256×256 位图，长列表在低内存设备上会 OOM（控制台崩溃 #401）。
+                        .apply(GlideUtil.withPlaceholder(replyHolder.replyAvatar.context, R.mipmap.akari))
                         .apply(RequestOptions.circleCropTransform())
                         .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                         .into(replyHolder.replyAvatar)
@@ -453,8 +454,7 @@ class ReplyAdapter(
                     GlideUtil.with(replyHolder.imageCard).asDrawable().load(firstImageUrl)
                             .apply(GlideUtil.thumbOptions(replyHolder.imageCard))
                             .transition(GlideUtil.getTransitionOptions())
-                            .placeholder(R.mipmap.placeholder)
-                            .error(R.mipmap.placeholder)
+                            .apply(GlideUtil.withPlaceholder(replyHolder.imageCard.context, R.mipmap.placeholder))
                             .format(DecodeFormat.PREFER_RGB_565)
                             .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                             .into(replyHolder.imageCard)

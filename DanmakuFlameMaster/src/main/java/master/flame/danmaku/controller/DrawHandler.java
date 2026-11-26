@@ -817,7 +817,13 @@ public class DrawHandler extends Handler {
         mDrawTimes.addLast(lastTime);
         int frames = mDrawTimes.size();
         if (frames > MAX_RECORD_SIZE) {
-            mDrawTimes.removeFirst();
+            // 用 pollFirst 而不是 removeFirst：mDrawTimes 的五个 clear() 分别在 handler 线程
+            // （handleMessage）、updateInNewThread 的新线程和 notifyRendering 里调用，
+            // 都不持有本对象的锁，而这里跑在 UI 线程的 draw() 里。size() 与 removeFirst()
+            // 之间被那次 clear 抢先就会对空链表 removeFirst，抛
+            // NoSuchElementException（26.11.26 控制台崩溃 #416，栈顶就是 LinkedList.removeFirst）。
+            // pollFirst 在空链表上返回 null，不抛。
+            mDrawTimes.pollFirst();
             frames = MAX_RECORD_SIZE;
         }
     }
