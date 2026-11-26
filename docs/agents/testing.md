@@ -26,9 +26,9 @@
 | --- | --- |
 | `SecurityRedLineTest` | 主清单导出面恰为 3 个页面 / `allowBackup=false` + `tools:replace` / 明文白名单恰为 4 个域名 |
 | `DebugActivityExportTest` | debug 清单有没有漏掉页面、有没有裸导出（不挂 DUMP） |
-| `ConventionGuardTest` | 业务代码不裸写 `AlertDialog` / `res/color` 与 `res/drawable` 不出现 `?attr/` / `values-notnight` 不覆盖 `bgblack` / 设备档位常量不在 `GlideUtil` 外引用 / 不新写 `"player"`·`"play_qn"` 字面量 / 工作流不出现裸单测任务名 |
+| `ConventionGuardTest` | 业务代码不裸写 `AlertDialog` / `res/color` 与 `res/drawable` 不出现 `?attr/` / `values-notnight` 不覆盖 `bgblack` / 设备档位常量不在 `GlideUtil` 外引用 / 不新写 `"player"`·`"play_qn"` 字面量 / 工作流不出现裸单测任务名 / 布局不写死中文 / 没有强推入库的忽略文件 / 代码侧不用 `ContextCompat.getDrawable`·`ResourcesCompat.getDrawable` 取图 / `.placeholder`·`.error` 不直传 `R.mipmap.*` |
 | `Java8ApiGuardTest` | `src/main` 与 DFM 里不得出现 API 24+ 的 `java.util.function` / `stream` / `Optional` / `java.time` / `Base64` / `.computeIfAbsent(` |
-| `VectorDrawableCompatTest` | 布局引用矢量图只能用 Compat 属性（`app:srcCompat` 等） |
+| `VectorDrawableCompatTest` | 布局引用矢量图只能用 Compat 属性（`app:srcCompat` 等）。注意它**只扫 `res/` 的 XML**，代码侧取图由 `ConventionGuardTest` 那两条守 |
 | `TopbarBackArrowTest` / `TopbarTitleRoomTest` | 顶栏箭头与页面角色一致 / 带 `@id/pageName` 的布局有标题右边界 |
 | `LayoutAccessibilityTest` | 引用的 `@string/a11y_*` 真实存在 |
 | `verifyVersionConsistency`（Gradle task，CI 也跑） | `build.gradle` 版本号与 `strings.xml` 更新日志锚点一致 |
@@ -50,7 +50,7 @@
 
 - **两轮上限**：同一条结论最多试 2 轮，每轮 ≤10 分钟、≤15 条 adb 命令。够了就停，不要"再试试"。
 - **失败即交接**：两轮拿不到机器可判读的结论 → 停止，写交接单（§5），并在 `docs/review/fix-progress.md` 写「未验证：<该验什么> / AI 为什么测不了」。
-- **同因止损**：同一种手法失效两次就换级别，不要换写法硬试。MuMu 的副屏截图历史上是死的——26.10.27 实测 `screencap -d <id>` 对任何 display 都回 `Failed to take screenshot. Status: -2`（`adb root` 也一样）。**但 26.11.24 在 MuMu Nx 15.0 上截成功了**：关键是先按 §3.1 那条查出 App 真正所在的 display（MuMu 每次给应用新建副屏，id 每次都变），再 `screencap -d N`。所以现在的口径是「先按那个方法查一次 id、试一张图，失败再按本条止损」，不是「一律别试」。
+- **同因止损**：同一种手法失效两次就换级别，不要换写法硬试。MuMu 上「应用不在主屏 / 截图失败 / `input` 落桌面」这类环境坑，查法与止损顺序统一写在 `docs/review/agent-test-guide.md` §6（display id 每次开机 / 重连都会变，**用前现查**，别背数字），这里不重复细节。
 - **一条流程一个程序跑完**：别一步一次工具调用。经工具层跑 adb 每次约 1.6 s（进程启动占大头），程序里直连约 0.1 s；进程内控件树（调试桥 `view`）0.15 s、`uiautomator dump` 2.5 s（后者只当兜底）、截图 0.35 s——**步数与「看屏幕」的次数才是最贵的**。现成驱动在 `scripts/devtest/adb.mjs`（`run_code` 里 import 或终端当命令用），别每次现写；用法与实测账单见 `docs/review/agent-test-guide.md` §4.10。
 - **禁止自由探索**：不许在设备上翻菜单找功能。目标页一律由调试桥 `--es cmd start` 直达；直达不了就是「AI 测不了」，交人。
 - **未复现 ≠ 通过**：连续两次复现不出记「未复现」并交人；不许把失败归给环境之后当成通过。
@@ -67,7 +67,7 @@
 | 功能有没有真的执行 | `logs/rebili.log` 里对应 `类名>方法名` 的 tag |
 | 请求成没成功 | `logs/http.log` 的 `-> 200` / 响应体首段；注意 `http` 命令的 `appheaders` 默认 false，未登录 + 模拟器上会稳定 -412 |
 | 下载 / 合并对不对 | `merge` 的返回值只能当参考：**回 OK 但 `tracks<2` 或 `samples=0` 就是回归** |
-| MuMu 上点击 / 截图 / dump 没反应，或者截出来是桌面 | App 常跑在**非 0 的 display** 上，而且 **id 每次开机 / 重连都可能变，不要背下来，用前现查**：`adb shell "dumpsys window windows \| grep -A1 'Window{.*<包名>' \| grep -oE 'mDisplayId=[0-9]+' \| sort -u"`。判据是每个 window 条目第二行自带的 `mDisplayId`，比按 `dumpsys activity activities` 的段落顺序猜可靠——那里的 `Display: mDisplayId=N` 段落下会出现别的 display 的 task 引用，容易取错。拿到 N 后各命令分别带 `input -d N` / `screencap -d N` / `uiautomator dump --display N`。另外 Debug 包首启会因 UETool 悬浮窗权限跳系统设置页，用 `adb shell appops set <包名> SYSTEM_ALERT_WINDOW allow` 预先授权即可 |
+| MuMu 上点击 / 截图 / dump 没反应，或者截出来是桌面 | App 常跑在**非 0 的 display** 上，且 id 每次开机 / 重连都会变。查法与各命令的 `-d` 写法见 `docs/review/agent-test-guide.md` §6（含「先查 id 再试一张，回 `-2` 才退回控件树」的止损顺序） |
 
 ### 3.2 唯一不能降级的：登录态写操作
 
@@ -85,7 +85,7 @@
 
 | 不做 | 为什么 |
 | --- | --- |
-| 截图判颜色 / 判布局 / 判文字是否截断 | 手表屏窄；OCR 结论与目视结论不是一回事。**但图本身截得到**——26.11.24 在 MuMu 上 `screencap -d <displayId>` 拿到了完整画面；26.11.08 记的「MuMu 副屏截不到图（`Status: -2`）」是没带 display id 造成的，查法见 §3.1 |
+| 截图判颜色 / 判布局 / 判文字是否截断 | 手表屏窄；OCR 结论与目视结论不是一回事。图**能不能截到**是另一回事，见 `docs/review/agent-test-guide.md` §6 |
 | 听声音（音轨、爆音、同步） | 没有可读证据 |
 | 判手感、流畅度、掉帧 | 模拟器帧率与真机无关，结论不可迁移 |
 | 登录态写操作（关注 / 收藏 / 投币 / 评论 / 私信 / 删除 / 定时发布） | 会改动用户真实账号数据，且服务端状态不可回滚 |
@@ -146,7 +146,7 @@
 旧规则是「涉及播放器 / 网络 / UI 时序的改动一律装 MuMu 跑一遍」。这条规则在真机上撞了三件事：
 
 1. **AI 没有眼睛和耳朵**。画面、声音、手感这三类占真机测试的大头，AI 只能靠截图和猜，来回折腾之后给出的「已验证」并不可信，反而比不测更危险。
-2. **模拟器环境本身是坏的**。MuMu 把应用丢到每次新建的副屏、`screencap` 对所有 display 失败（`Status: -2`）——历史上大量时间花在这上面，收获为零。（26.11.24 补充：「每次新建副屏、id 会变」是事实，但查对 id 之后截图是能成功的，做法见 §3.1，止损口径见 §3。）
+2. **模拟器环境本身是坏的**。MuMu 把应用丢到每次新建的副屏、display id 每次都变，早期连 `screencap` 都拿不到图（26.10.27 的 MuMu 6.0 上对任何 display 都回 `Status: -2`）——历史上大量时间花在这上面，收获为零。（26.11.24 补充：display id 会变仍是事实，但**查对 id 之后截图是能成功的**；查法与止损顺序见 `docs/review/agent-test-guide.md` §6。）
 3. **有些测试只有人做才划算**。设置页点十下、看颜色变没变，人 30 秒，AI 要装包 + 广播 + dump + 比对，还经常测的是一个旧包。
 
 所以分界线不是「重要 / 不重要」，而是**「证据读不读得出来」**：读得出来的 AI 做并且必须给证据；读不出来的交人并且必须写清条目。两条都要落到 `fix-progress.md`，区别只在于「证据」还是「未验证」。

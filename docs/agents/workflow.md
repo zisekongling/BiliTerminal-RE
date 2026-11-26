@@ -45,7 +45,7 @@
   - **L1 设备可观测**（判据能落在日志 / 控件树 / 产物结构时）：用调试桥拿证据，**两轮上限**，两轮不过就停。命令见 `docs/review/agent-test-guide.md`。
   - **L2 人工验收**（画面、声音、手感、主观取舍、登录态写操作、长链路多步交互）：**写交接单交给人**，模板见 `docs/agents/testing.md` §5，范本是 `docs/review/manual-test-guide-261106.md`。
 - 判据是"错了 AI 能不能靠读东西发现自己错了"，不是"改动行数少不小"。**必须实测的典型**：`FLAG_KEEP_SCREEN_ON` 的写法、`View` 级 `keepScreenOn` 能否清掉、弹幕时钟接没接上——这些只能靠 `dumpsys` / 日志在设备上确认。**交给人的典型**：颜色、字有没有被切、音轨、跟手、掉帧。
-- MuMu 的环境坑（副屏 `display 14/15/16...`、`screencap -d <id>` 对任何 display 都回 `Status: -2`、`input` 不带 `-d` 落桌面）统一记在 `docs/review/agent-test-guide.md` §6，别在这里再抄一遍。
+- MuMu 的环境坑（应用被丢到新建的副屏、display id 每次都会变、`input` 不带 `-d` 落桌面、截图回 `Status: -2` 时怎么办）统一记在 `docs/review/agent-test-guide.md` §6，别在这里再抄一遍。
 
 ## 提交后、打 tag 前必须核对提交内容（26.11.06 事故）
 
