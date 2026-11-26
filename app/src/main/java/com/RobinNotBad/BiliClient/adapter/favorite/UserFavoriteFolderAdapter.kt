@@ -50,8 +50,11 @@ class UserFavoriteFolderAdapter(
         favoriteHolder.count.text = if (folder.maxCount > 0) "${folder.videoCount}/${folder.maxCount}" else "${folder.videoCount}个视频"
 
         if (folder.cover.isNullOrEmpty()) {
-            // list-all 接口不返回封面，用占位图
-            favoriteHolder.cover.setImageResource(R.mipmap.placeholder)
+            // list-all 接口不返回封面，用占位图。走 GlideUtil 的共享解码实例：
+            // setImageResource 每次都是现解一份 256×144 位图，onBindViewHolder 里低内存必 OOM（崩溃 #401）
+            favoriteHolder.cover.setImageDrawable(
+                GlideUtil.placeholderDrawable(context, R.mipmap.placeholder)
+            )
         } else {
             GlideUtil.with(favoriteHolder.cover).asDrawable().load(GlideUtil.url_hq(folder.cover))
                 .apply(GlideUtil.thumbOptions(favoriteHolder.cover))
