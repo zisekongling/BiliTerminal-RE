@@ -9,7 +9,7 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
-import com.RobinNotBad.BiliClient.activity.base.RefreshMainActivity
+import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
 import com.RobinNotBad.BiliClient.api.LiveRankApi
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
 
@@ -21,8 +21,14 @@ import com.RobinNotBad.BiliClient.util.CenterThreadPool
  * 是因为手表上的对话框只有 319×322，20 行榜单在那儿根本没法看。
  *
  * 三个接口都不需要 Cookie（见 [LiveRankApi] 注释），未登录也能看。
+ *
+ * <p>基类必须是 [RefreshListActivity]（二级页）：它挂在直播间详情之下，顶栏是「返回」。
+ * 一度错用了 [com.RobinNotBad.BiliClient.activity.base.RefreshMainActivity]——那是一级菜单页
+ * 的基类（走 `InstanceActivity`），会把顶栏点击换成「打开菜单」、图标覆盖成朝下的
+ * `arrow_down`，还复用 `activity_simple_main_refresh`（不叫 pageName 的那个布局），
+ * 表现就是用户反馈的「返回键点了没反应，方向也不对」。
  */
-class LiveRankActivity : RefreshMainActivity() {
+class LiveRankActivity : RefreshListActivity() {
 
     enum class Kind { GUARD, FANS, GIFT }
 
@@ -40,7 +46,7 @@ class LiveRankActivity : RefreshMainActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        recyclerView.setHasFixedSize(true)
+        // hasFixedSize / RecycledViewPool / 缓存大小都由基类统一设了，这里不再重复
         RankAdapter(rows).also {
             adapter = it
             setAdapter(it)

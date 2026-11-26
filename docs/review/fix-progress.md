@@ -40,6 +40,7 @@
     - **`am start` 会复用已存在的实例**：同一 Activity 停在顶层时新 Intent 直接投给它、不重走 `onCreate`，页面会停在旧的 `kind` 上（看着一切正常、内容却是上一个榜）。补 `onNewIntent` 走同一套 `applyIntent`。
     - 本页是一次性拉取、不做分页（两个榜单接口的 `page_size` 上限 30，超了服务端按 10 处理）。
   - **Debug 清单必须同步**：新 Activity 一加，`DebugActivityExportTest` 立刻变红——Debug 包要求主清单里每个非导出页都在 `app/src/debug/AndroidManifest.xml` 里 `exported="true"` + `android:permission="android.permission.DUMP"`。已补。
+  - **返工（用户反馈「那 3 个页面返回键点了没反应、方向也不对」）**：榜单页是从直播间详情点进来的**二级页**，我却继承了一级菜单页基类 `RefreshMainActivity`（它经 `InstanceActivity`）——`setMenuClick()` 把顶栏点击换成「打开菜单」、并把 `pageName` 的图标覆盖成朝下的 `arrow_down`，于是「点返回弹菜单、箭头也朝下」。**back 键本身其实是好的**（`BaseActivity.onBackPressed` 只受 `back_disable` 开关影响），两个症状同源，别当两条 bug 查。已改继承 `RefreshListActivity`（二级页，`activity_simple_refresh` + `arrow_back`），实测「点顶栏」与「按 back」两条路径都回到上一级（`dumpsys activity activities | grep -c LiveRankActivity` 均为 0）。这条选基类的口径已写进 `docs/agents/dev-conventions.md` §列表页。
   - **功能验证（Android 15 / 2GB RAM 模拟器，x86_64）**：三榜都用 `uiautomator dump` 读到真实文字——大航海 `1. AoineKo青貓 / 陪伴 322 天` 起 13 行（**与接口 top1 对得上，证明 top3 合并生效**）；粉丝团 `1. アメハル / 脆鲨 53 · 舰长 · 亲密度 7099426`；礼物 `小花花 / 0.1 元 · 一花一世界…` 且按价格升序。入口按钮、三选一菜单、空态文案都在控件树里读到。
   - **压测一：#416 的 DFM 竞态（15 轮真·连进连出）**：
     - 关键在**每轮自校验**：`am start` 输出里出现 `Warning: Activity not started, intent has been delivered to currently running top-most instance` 就说明这轮没新建实例、压测无效；每轮 back 后还要看 `dumpsys activity activities | grep -c ShortVideoPlayerActivity` 是否为 0。
