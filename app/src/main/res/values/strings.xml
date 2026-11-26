@@ -3517,4 +3517,11 @@
     <string name="share_favorite">分享收藏夹</string>
     <!-- 顶栏分享入口：手表屏窄，只放两个字，长标题留给 pageName -->
     <string name="share_entry">分享</string>
+    <!-- 直播间榜单（26.11.26）：入口 + 三个榜单名 + 空态/失败 -->
+    <string name="live_rank_entry">直播间榜单</string>
+    <string name="live_rank_guard">大航海成员</string>
+    <string name="live_rank_fans">粉丝团</string>
+    <string name="live_rank_gift">礼物价目</string>
+    <string name="live_rank_empty">暂无数据</string>
+    <string name="live_rank_failed">加载失败</string>
 </resources>

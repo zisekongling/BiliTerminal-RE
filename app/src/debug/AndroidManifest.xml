@@ -204,6 +204,8 @@
             tools:replace="android:exported" />
         <activity android:name=".activity.user.WatchLaterActivity" android:exported="true" android:permission="android.permission.DUMP"
             tools:replace="android:exported" />
+        <activity android:name=".activity.live.LiveRankActivity" android:exported="true" android:permission="android.permission.DUMP"
+            tools:replace="android:exported" />
         <activity android:name=".activity.user.favorite.FavoriteVideoListActivity" android:exported="true" android:permission="android.permission.DUMP"
             tools:replace="android:exported" />
         <activity android:name=".activity.user.favorite.FavoriteFolderListActivity" android:exported="true" android:permission="android.permission.DUMP"

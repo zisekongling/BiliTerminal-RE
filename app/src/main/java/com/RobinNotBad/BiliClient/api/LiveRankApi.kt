@@ -75,8 +75,17 @@ object LiveRankApi {
             .put("page_size", PAGE_SIZE)
         if (typ > 0) form.put("typ", typ)
         val body = request(GUARD_URL + form) ?: return emptyList()
-        val list = body.optJSONObject("data")?.optJSONArray("list") ?: return emptyList()
-        val out = ArrayList<GuardMember>(list.length())
+        val data = body.optJSONObject("data") ?: return emptyList()
+        val out = ArrayList<GuardMember>(PAGE_SIZE + 3)
+        // 坑：`data.list` 是**从第 4 名开始**的，前 3 名单独放在 `data.top3`。
+        // 只读 list 会静默吞掉榜首三人（快照 guard.md 有写，实测 21452505 房间 list[0].rank == 4）。
+        if (page == 1) appendGuards(out, data.optJSONArray("top3"))
+        appendGuards(out, data.optJSONArray("list"))
+        return out
+    }
+
+    private fun appendGuards(out: MutableList<GuardMember>, list: org.json.JSONArray?) {
+        if (list == null) return
         for (i in 0 until list.length()) {
             val item = list.optJSONObject(i) ?: continue
             val base = item.optJSONObject("uinfo")?.optJSONObject("base")
@@ -90,7 +99,6 @@ object LiveRankApi {
                 )
             )
         }
-        return out
     }
 
     /**
@@ -160,7 +168,8 @@ object LiveRankApi {
                 )
             )
         }
-        return out
+        // 服务端返回顺序是乱的（100 条里贵的便宜的交错），价目表按价格升序才读得下去
+        return out.sortedBy { it.priceCoin }
     }
 
     /**
