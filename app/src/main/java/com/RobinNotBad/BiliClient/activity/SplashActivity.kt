@@ -493,6 +493,12 @@ class SplashActivity : Activity() {
                                                 Log.w("Splash", "APP token 刷新返回 -101；回滚快照" +
                                                         if (recovered) "成功" else "失败，保留本地凭证")
                                             }
+                                            AppTokenRefreshApi.RefreshResult.MISMATCH -> {
+                                                // 服务端说这份凭据本端续不了：换参数重试、等一会再试都不会变，
+                                                // 于是提示重新登录；但不像 -101 那样回滚快照——web 链可能还能用，凭证先留着
+                                                MsgUtil.showMsgLong(UiText.of("登录凭证无法自动续期，请重新登录"))
+                                                Log.w("Splash", "APP token 刷新被服务端拒绝续期；提示重新登录，凭证保留")
+                                            }
                                             AppTokenRefreshApi.RefreshResult.RETRY ->
                                                 Log.e("Splash", "APP token 刷新未成功，保留本地登录态")
                                         }

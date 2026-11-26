@@ -18,6 +18,19 @@
 
 ## 1. 当前版本状态
 
+- **26.11.26 APP 自动续期：分流「不可续期」、按服务端有效期排期、失败重试一次**：
+  - **来路**：例行续期（30 分钟一次）失败时只有「重试」一个出口，任何非成功码都会被当成临时故障 → 遇到服务端明确拒绝的情况会一直白刷；续期节流写死 7 天，与服务端实际下发的有效期无关；请求一次网络抖动就算这一轮失败，要等下一个周期。
+  - **机理（三条）**：① 服务端对「这份凭证能否被这个 app 续期」有明确判定，被拒时重试不会改变结果，继续按周期刷只会持续失败；② 响应里带 `expires_in`，原先完全没用，只按本地时间戳 + 7 天判断是否该续；③ `postRefresh` 是单次 `HttpURLConnection` 调用，`IOException`/`JSONException` 直接冒泡成失败。
+  - **改法（6 个文件 + 1 个新测试）**：
+    - `app/src/main/java/com/RobinNotBad/BiliClient/util/AppTokenRefreshPolicy.kt`：新增「到期时间」维度——`isDue(now, last, expiresAt)`：`expiresAt > 0` 时只有进入到期前 30 天窗口才续，且两次续期至少间隔 1 天；`expiresAt == 0`（旧数据/未知）退回原来的「距上次 ≥ 7 天」；时钟回拨仍然一律续。原两参 `isDue` 保留并委派，调用方不用改。
+    - `app/src/main/java/com/RobinNotBad/BiliClient/api/AppTokenRefreshApi.java`：`RefreshResult` 增加 `MISMATCH`（服务端拒绝续期、重试无意义）；把请求抽成 `postRefresh(body)`，`IOException`/`JSONException` 时用**同一个 refresh_token** 原样再试一次；成功后把 `expires_in` 换算成绝对时间写进 `app_token_expires_at`。
+    - `app/src/main/java/com/RobinNotBad/BiliClient/util/SharedPreferencesUtil.java`：新增 `app_token_expires_at`；`app_token_last_refresh` 的注释不再称 refresh_token 为「一次性轮换口令」（实测可复用）。
+    - `app/src/main/java/com/RobinNotBad/BiliClient/util/CookieRefreshScheduler.kt`：`MISMATCH` 时置 `appChainUnusable`（本进程不再走 APP 链）并**继续往下落到 web cookie 链**，不再每轮空刷；换账号时清掉该标记。
+    - `app/src/main/java/com/RobinNotBad/BiliClient/activity/SplashActivity.kt` + `res/values/strings.xml`（`uitext_splashactivity_004`）+ `util/UiText.kt`：`MISMATCH` 提示「登录凭证无法自动续期，请重新登录」，**不回滚凭证、不清 Cookie**（避免把还能用的登录态踢掉）。
+    - `app/src/test/java/com/RobinNotBad/BiliClient/util/AppTokenRefreshPolicyTest.kt`（新增，9 条）：无有效期记录的三种情况、离到期还远时即便久未续也不续、进入 30 天窗口才续、刚续过不重复续、已过期但刚续过不重复续、时钟回拨必续。
+  - **L0（26.11.26 本机）**：`:app:testStandardDebugUnitTest --tests "…AppTokenRefreshPolicyTest"` → BUILD SUCCESSFUL，`TEST-…AppTokenRefreshPolicyTest.xml` 记 `tests="9" failures="0" errors="0"`；`:app:assembleDebug` → BUILD SUCCESSFUL（`assembleStandardDebug` + `assembleCoexistDebug` 都过）。构建只吐一条既有告警（`uitext_bangumiinfofragment_012` 的 `%.1f (%d人)` 非位置化格式），与本次改动无关。
+  - **未验证（L1/L2，需真实环境）**：① 「服务端拒绝续期」这条分流只能用别端签发的凭证复现，本机没有现成样本；② `appChainUnusable` 置位后 web 链能否独立把登录态续下去（取决于项目里是否还有 `refresh_token` 之外的 web 续期条件）；③ `expires_in` 单位/口径按秒理解，若某端返回毫秒会把续期窗口整体推迟（未取到反例）。
+
 - **26.11.25 多选态去掉行首引导符（控制台反馈 #265）**：
   - **来路**：控制台反馈 #265「多选后下方操作栏变大，且左侧有个不明字符」（42mm 表上最明显）。前一轮 `d4ac0366` 只修了「多选操作栏被压折行」那一半（`activity_simple_main_refresh.xml` 给 `textSelectedCount` 加 `maxLines=1` + `ellipsize=end` + `autoSizeMinTextSize=9sp`），**行首字符这一半当时明写没动**，所以一直是 pending。
   - **机理**：多选行首是 `▸`（选中）/ `›`（未选中）。`▸` 是 U+25B8（Geometric Shapes 区），部分手表系统字体没有这个字形 → 显示成方块，用户看到的「不明字符」就是它。`›` 是 U+203A（General Punctuation），多数字体都有，所以只有选中态显眼。换拉丁字符 / 换 drawable 两个方案用户已否决，**拍板口径是「去掉引导符，选中只靠主色 + 加粗」**。

@@ -105,10 +105,17 @@ public class SharedPreferencesUtil {
     public static String refresh_token = "refresh_token";
     /**
      * 上一次**成功**刷新 APP access_token 的墙上时钟毫秒（26.11.22 掉登录返工）。
-     * 由 AppTokenRefreshApi 写、AppTokenRefreshPolicy.isDue 读：refresh_token 是一次性轮换口令，
-     * 每次轮换都是一个丢凭据的窗口，所以例行刷新只保留 7 天一次（见 AppTokenRefreshPolicy）。
+     * 由 AppTokenRefreshApi 写、AppTokenRefreshPolicy.isDue 读：每次刷新都会换掉整套凭据，
+     * 所以两次例行刷新之间至少留 AppTokenRefreshPolicy.MIN_GAP_MS 的间隔。
      */
     public static String app_token_last_refresh = "app_token_last_refresh_ms";
+    /**
+     * APP access_token 的到期时刻（墙上时钟毫秒，26.11.26）。
+     * 由 AppTokenRefreshApi 用刷新响应里的有效期字段（秒）换算后写入，AppTokenRefreshPolicy.isDue 读：
+     * 有到期时间就「快到期才续一次」，没有（老版本升级上来 / 响应没带该字段）时退回固定间隔兜底。
+     * 0 表示未知。
+     */
+    public static String app_token_expires_at = "app_token_expires_at_ms";
     public static String setup = "setup";
     /**
      * F4：上一次启动时的 versionCode，用于判断「更新后首次启动」。

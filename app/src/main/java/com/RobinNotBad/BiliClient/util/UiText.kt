@@ -328,6 +328,7 @@ object UiText {
         "请选择" to R.string.uitext_listchooseactivity_001,
         "登录信息过期，请重新登录！" to R.string.uitext_splashactivity_001,
         "Cookies已刷新" to R.string.uitext_splashactivity_002,
+        "登录凭证无法自动续期，请重新登录" to R.string.uitext_splashactivity_004,
         "发送失败" to R.string.settingtext_smsloginfragment_001,
         "正在发送…" to R.string.feedback_sending,
         "我的反馈" to R.string.feedback_mine_entry_title,

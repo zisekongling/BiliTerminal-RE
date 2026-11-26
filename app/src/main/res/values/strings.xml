@@ -1983,6 +1983,7 @@
     <string name="uitext_listchooseactivity_001">请选择</string>
     <string name="uitext_splashactivity_001">登录信息过期，请重新登录！</string>
     <string name="uitext_splashactivity_002">Cookies已刷新</string>
+    <string name="uitext_splashactivity_004">登录凭证无法自动续期，请重新登录</string>
     <string name="uitext_uitext_001">原文</string>
 
     <string name="uitext_baseactivity_001">圆屏适配执行错误：</string>

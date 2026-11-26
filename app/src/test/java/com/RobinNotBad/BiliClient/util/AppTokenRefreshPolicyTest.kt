@@ -5,52 +5,89 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * [AppTokenRefreshPolicy] 与 [RefreshGuard.isRefreshEndpoint] 的纯逻辑单测（26.11.22 掉登录返工）。
+ * [AppTokenRefreshPolicy] 的纯函数单测（不碰 Android：时间全部注入）。
  *
- * <p>这两个函数决定了「一次性 refresh_token 一天被轮换几次」和「哪些响应不许走通用 Cookie 落盘」，
- * 都是「猜错就掉登录」的地方，所以单独锁行为。
+ * 钉四件事：
+ * 1. **知道到期时间时按到期时间续**：离到期还早就不刷，进入 `(到期 - 30 天)` 才刷；
+ * 2. **不知道到期时间时退回老的固定间隔**：7 天一次，行为与 26.11.22 那版一致；
+ * 3. **防抖**：刚刷过（不足 1 天）一律不再刷，哪怕服务端给的有效期很短；
+ * 4. **时钟回拨**：上次刷新时间在未来时宁可刷一次，也不要被冻住。
  */
 class AppTokenRefreshPolicyTest {
 
     private val day = 24L * 60 * 60 * 1000
 
+    /** 一个固定的「现在」，避免用真实时间做基准。 */
+    private val now = 1_800_000_000_000L
+
+    // ---------- 不知道到期时间（老口径） ----------
+
     @Test
-    fun isDue_从没刷过时立即到点() {
-        assertTrue(AppTokenRefreshPolicy.isDue(1_700_000_000_000L, AppTokenRefreshPolicy.NO_REFRESH))
+    fun noExpiry_noRecord_isDue() {
+        assertTrue(AppTokenRefreshPolicy.isDue(now, AppTokenRefreshPolicy.NO_REFRESH))
     }
 
     @Test
-    fun isDue_不足7天不刷() {
-        val now = 1_700_000_000_000L
-        val last = now - 6 * day
-        assertFalse("旧实现每次冷启动都刷，一天几十次轮换；现在 6 天之内不碰口令", AppTokenRefreshPolicy.isDue(now, last))
-        assertFalse(AppTokenRefreshPolicy.isDue(now, now))
-        assertFalse(AppTokenRefreshPolicy.isDue(now, now - 1))
+    fun noExpiry_justRefreshed_notDue() {
+        assertFalse(AppTokenRefreshPolicy.isDue(now, now - 1 * day))
     }
 
     @Test
-    fun isDue_满7天就到点() {
-        val now = 1_700_000_000_000L
-        assertTrue(AppTokenRefreshPolicy.isDue(now, now - 7 * day))
-        assertTrue(AppTokenRefreshPolicy.isDue(now, now - 7 * day - 1))
+    fun noExpiry_afterInterval_isDue() {
+        assertTrue(AppTokenRefreshPolicy.isDue(now, now - AppTokenRefreshPolicy.MIN_INTERVAL_MS))
     }
 
+    // ---------- 知道到期时间 ----------
+
     @Test
-    fun isDue_系统时间回拨时宁可刷一次也不要被冻住() {
-        val now = 1_700_000_000_000L
-        assertTrue(
-            "记录的时刻在「未来」说明时钟被改过，冻结一整年比多刷一次糟得多",
-            AppTokenRefreshPolicy.isDue(now, now + 30 * day)
+    fun farFromExpiry_notDueEvenIfLongSinceRefresh() {
+        // 还有 100 天到期、上次刷新是 30 天前：旧口径（7 天）会刷，新口径不该刷
+        assertFalse(
+            AppTokenRefreshPolicy.isDue(now, now - 30 * day, now + 100 * day)
         )
     }
 
     @Test
-    fun isDue_间隔常量是7天() {
+    fun insideRenewWindow_isDue() {
+        // 还有 20 天到期（已进入 30 天窗口），上次刷新是 2 天前
         assertTrue(
-            "间隔决定「一次性口令」被轮换的频率，改它要连带改文档与这里的断言",
-            AppTokenRefreshPolicy.MIN_INTERVAL_MS == 7 * day
+            AppTokenRefreshPolicy.isDue(now, now - 2 * day, now + 20 * day)
         )
     }
+
+    @Test
+    fun insideRenewWindow_butJustRefreshed_notDue() {
+        // 服务端给的有效期很短时，窗口一直开着；这时靠 MIN_GAP_MS 防抖，避免每次冷启动都刷
+        assertFalse(
+            AppTokenRefreshPolicy.isDue(now, now - 60_000L, now + 2 * day)
+        )
+    }
+
+    @Test
+    fun alreadyExpired_isDueWhenNoRecord() {
+        assertTrue(
+            AppTokenRefreshPolicy.isDue(now, AppTokenRefreshPolicy.NO_REFRESH, now - 1 * day)
+        )
+    }
+
+    @Test
+    fun alreadyExpired_butJustRefreshed_notDue() {
+        // 刚刷过又过期（服务端给了 0 秒有效期之类的怪响应）：至少隔 1 天才再试，避免死循环刷
+        assertFalse(
+            AppTokenRefreshPolicy.isDue(now, now - 60_000L, now - 1 * day)
+        )
+    }
+
+    // ---------- 时钟回拨 ----------
+
+    @Test
+    fun clockRollback_isDue() {
+        assertTrue(
+            AppTokenRefreshPolicy.isDue(now, now + 10 * day, now + 100 * day)
+        )
+    }
+
+    // ---------- RefreshGuard.isRefreshEndpoint（与刷新策略同一批，26.11.22 加的，别一起删） ----------
 
     @Test
     fun isRefreshEndpoint_只认刷新与确认两个接口() {
@@ -60,5 +97,13 @@ class AppTokenRefreshPolicyTest {
         assertFalse(RefreshGuard.isRefreshEndpoint("/x/web-interface/nav"))
         assertFalse(RefreshGuard.isRefreshEndpoint(""))
         assertFalse(RefreshGuard.isRefreshEndpoint(null))
+    }
+
+    @Test
+    fun isDue_间隔常量是7天() {
+        assertTrue(
+            "兜底间隔决定「凭据被换掉」的频率上限，改它要连带改文档与这里的断言",
+            AppTokenRefreshPolicy.MIN_INTERVAL_MS == 7 * day
+        )
     }
 }

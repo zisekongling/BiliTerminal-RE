@@ -20,19 +20,34 @@ import okhttp3.Response;
 /**
  * TV/APP 端 access_token（OAuth2）刷新逻辑。
  *
- * 与 web 登录不同，TV 登录（passport-tv-login）会额外返回短效的 access_token（约 30 天）与长效的
- * refresh_token（约 180 天，一次性轮换）。调用本刷新接口后，服务器会同时返回：
+ * 与 web 登录不同，TV 登录（passport-tv-login）会额外返回 access_token 与 refresh_token。调用本刷新
+ * 接口后，服务器会同时返回：
  * <ul>
- *   <li>token_info：新的 access_token 与新的 refresh_token（refresh_token 会轮换，必须立刻落盘）；</li>
+ *   <li>token_info：新的 access_token 与（通常会换新的）refresh_token，以及有效期字段（秒）；</li>
  *   <li>cookie_info：新的 web cookies（SESSDATA / bili_jct 等）。</li>
  * </ul>
- * 也就是说，同一个 refresh_token 既能续 access_token 也能续 cookie。
+ * 也就是说，同一个 refresh_token 既能续 access_token 也能续 cookie。拿到的一组凭据要**立刻整份落盘**：
+ * 慢一步的那些窗口正是历史上「用着用着掉登录」的来源。
+ *
+ * <p>刷新失败分档（见 {@link RefreshResult}）：临时失败只能退避重试、绝不能清本地凭证；服务端明确说
+ * 凭据失效才走重新登录；服务端说「这份凭据不是本端能续期的」则停下例行重试，免得每 30 分钟白试一次。
  *
  * 参考（云视听小电视实现）：POST https://passport.bilibili.com/api/v2/oauth2/refresh_token
  */
 public class AppTokenRefreshApi {
 
     private static final String REFRESH_URL = "https://passport.bilibili.com/api/v2/oauth2/refresh_token";
+
+    /** 服务端表示「这份凭据已失效 / 会话没了」：需要用户重新登录。 */
+    private static final int CODE_TOKEN_INVALID = -101;
+
+    /**
+     * 服务端表示「这份凭据不是本客户端可以续期的」（例如它由别的端签发）。
+     *
+     * <p>与 {@link #CODE_TOKEN_INVALID} 的区别很重要：这类失败换参数重试、等一会再试都不会有不同结果，
+     * 该停下来提示用户重新登录，而不是按退避无限重试。
+     */
+    private static final int CODE_ISSUER_MISMATCH = 86033;
 
     /**
      * 一次 APP token 刷新的结果（26.11.16 由 boolean 改成分档）。
@@ -50,7 +65,16 @@ public class AppTokenRefreshApi {
         RETRY,
 
         /** 服务端明确说 refresh_token 已失效（-101）：需要用户重新登录 */
-        NEED_LOGIN
+        NEED_LOGIN,
+
+        /**
+         * 服务端拒绝续期，且原样重试也不会有不同结果（例如这份凭据不是本客户端签发的）。
+         *
+         * <p>同一套凭据再试多少次都不会成功：调用方应当提示用户重新登录，并记住这个事实、不再按例行
+         * 计划反复请求。旧实现把所有非 0 都当 {@link #RETRY}，于是每 30 分钟白刷一次，日志里反复出现
+         * 同一条失败，用户却一直等不到「为什么」。
+         */
+        MISMATCH
     }
 
     /**
@@ -69,14 +93,13 @@ public class AppTokenRefreshApi {
      * 用 TV 登录返回的 refresh_token 刷新 access_token 与 cookies。
      *
      * <h3>为什么要 force 与间隔约束（26.11.22「老是掉登录」返工）</h3>
-     * refresh_token 是**一次性轮换**口令：每刷一次，服务端就作废旧的、发一个全新的。旧实现在
-     * 「启动页每次冷启动」和「30 分钟定时器」两处无条件调用，等于一天轮换几十次——每一次都是一个
-     * 「本地没写成功 / 并发消费 / 进程被杀」就永久断链的窗口，而兄弟分支半年才刷 1～2 次。
-     * 现在例行路径按 {@link AppTokenRefreshPolicy}（默认 7 天）节流，只有拿到 -101 之类的实证
-     * 才 force 强刷一次。
+     * 每刷一次，服务端就下发一整套新凭据。旧实现在「启动页每次冷启动」和「30 分钟定时器」两处无条件
+     * 调用，等于一天轮换几十次——每一次都是一个「本地没写成功 / 进程被杀」就丢凭据的窗口，而兄弟分支
+     * 半年才刷 1～2 次。现在例行路径按 {@link AppTokenRefreshPolicy} 的到期时间决定什么时候续
+     * （拿不到到期时间时退回固定下限），只有请求层报「凭据失效」之类的实证才 force 强刷一次。
      *
      * <p>整个刷新在 {@link RefreshGuard#LOCK} 里排队：启动页与定时调度同时调用时，后到的那个
-     * 会用已经被轮换掉的旧口令去请求，必然 -101——而 -101 在过去就是「登出」的触发器。
+     * 会用上一轮刚被换掉的旧凭据去请求，结果必然是失败——而失败在过去就是「登出」的触发器。
      *
      * @param force true 时忽略间隔约束，立刻请求（只在「疑似口令失效」时用）
      * @return 见 {@link RefreshResult}；网络 / 解析异常直接抛出，由调用方按「保留登录态」处理
@@ -85,9 +108,10 @@ public class AppTokenRefreshApi {
         synchronized (RefreshGuard.LOCK) {
             long nowMs = System.currentTimeMillis();
             long lastRefresh = SharedPreferencesUtil.getLong(SharedPreferencesUtil.app_token_last_refresh, AppTokenRefreshPolicy.NO_REFRESH);
-            if (!force && !AppTokenRefreshPolicy.isDue(nowMs, lastRefresh)) {
-                // 不是失败：口令还在有效期内，什么都不用做
-                Logu.v("APP token 刷新跳过", "距上次刷新不足 " + (AppTokenRefreshPolicy.MIN_INTERVAL_MS / 86400000L) + " 天");
+            long expiresAt = SharedPreferencesUtil.getLong(SharedPreferencesUtil.app_token_expires_at, AppTokenRefreshPolicy.NO_REFRESH);
+            if (!force && !AppTokenRefreshPolicy.isDue(nowMs, lastRefresh, expiresAt)) {
+                // 不是失败：离到期还早，什么都不用做
+                Logu.v("APP token 刷新跳过", "还没到续期时间");
                 return RefreshResult.OK;
             }
             return refreshAppTokenLocked(force, nowMs);
@@ -111,21 +135,29 @@ public class AppTokenRefreshApi {
         params.put("refresh_token", refreshToken);
         String body = LoginApi.tvSign(params);
 
-        // 响应必须关：这条链路每次冷启动 + CookieRefreshScheduler 每 30 分钟一次，下面每条 return
-        // 都不该把一个没关的 Response 留在原地（兄弟路径 CookieRefreshApi 也是 try-with-resources）
         JSONObject result;
-        try (Response response = NetWorkUtil.post(REFRESH_URL, body, NetWorkUtil.webHeaders)) {
-            if (response.body() == null) {
-                Logu.e("APP token 刷新失败", "刷新接口返回空响应");
-                return RefreshResult.RETRY;
-            }
-            result = new JSONObject(response.body().string());
+        try {
+            result = postRefresh(body);
+        } catch (IOException | JSONException e) {
+            // 同一组参数原样再提交一次不会产生副作用（服务端只会再发一组新凭据），而失败退避到下一轮
+            // 可能是几小时之后：网络抖动 / 响应解析失败时就地重试一次，比直接放弃划算得多
+            Logu.w("APP token 刷新", "首次请求失败，原样重试一次：" + e.getMessage());
+            result = postRefresh(body);
+        }
+        if (result == null) {
+            Logu.e("APP token 刷新失败", "刷新接口返回空响应");
+            return RefreshResult.RETRY;
         }
         int code = result.optInt("code", -1);
-        if (code == -101) {
-            // 与 Web 那条链路同一口径：只有 -101 是服务端明确说口令/会话失效
+        if (code == CODE_TOKEN_INVALID) {
+            // 与 Web 那条链路同一口径：只有服务端明确说口令/会话失效，才需要用户重新登录
             Logu.e("APP token 刷新失败", "刷新接口返回 -101（refresh_token 已失效），需要重新登录");
             return RefreshResult.NEED_LOGIN;
+        }
+        if (code == CODE_ISSUER_MISMATCH) {
+            // 服务端说「这份凭据不是本端能续期的」：换参数重试、等一会再试都不会有不同结果
+            Logu.e("APP token 刷新失败", "服务端拒绝续期（code=" + code + "），需要用户重新登录");
+            return RefreshResult.MISMATCH;
         }
         if (code != 0) {
             Logu.e("APP token 刷新失败", "code=" + code + " message=" + result.optString("message"));
@@ -162,10 +194,31 @@ public class AppTokenRefreshApi {
             }
         }
 
+        // 记下这组凭据的到期时刻（服务端给的是「还能用多少秒」），下次据此决定什么时候续期。
+        // 响应没带有效期字段就写 0，让策略退回固定间隔兜底——宁可用保守口径，也不要拿错的时间把刷新冻住
+        long expiresInSec = src.optLong("expires_in", 0L);
+        SharedPreferencesUtil.putLong(SharedPreferencesUtil.app_token_expires_at,
+                expiresInSec > 0L ? nowMs + expiresInSec * 1000L : AppTokenRefreshPolicy.NO_REFRESH);
+
         // 只有真的拿到新口令才记「这次刷过了」：失败的、被拒的都不算，下一次进来还会重试
         SharedPreferencesUtil.putLong(SharedPreferencesUtil.app_token_last_refresh, nowMs);
         Logu.v("APP token 刷新成功" + (force ? "（强制）" : ""));
         return RefreshResult.OK;
+    }
+
+    /**
+     * 发一次刷新请求并解析成 JSON。
+     *
+     * <p>响应必须关：这条链路每次冷启动 + CookieRefreshScheduler 每 30 分钟一次，任何一个出口都不该
+     * 把一个没关的 Response 留在原地（兄弟路径 CookieRefreshApi 也是 try-with-resources）。
+     *
+     * @return 解析好的响应体；body 为空时返回 null
+     */
+    private static JSONObject postRefresh(String body) throws IOException, JSONException {
+        try (Response response = NetWorkUtil.post(REFRESH_URL, body, NetWorkUtil.webHeaders)) {
+            if (response.body() == null) return null;
+            return new JSONObject(response.body().string());
+        }
     }
 
     /**
