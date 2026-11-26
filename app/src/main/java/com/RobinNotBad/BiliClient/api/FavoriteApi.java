@@ -373,6 +373,92 @@ public class FavoriteApi {
     }
 
     /**
+     * 收藏夹里的一条内容 id（{@code x/v3/fav/resource/ids} 的返回元素）。
+     *
+     * <p>批量写操作（删除 / 移动 / 复制）只需要 {@code id} 与 {@code type}，不需要标题封面，
+     * 所以「全选整个收藏夹」走它比逐页拉 {@code resource/list} 便宜得多：一次请求拿到全量，
+     * 不受 20 条一页的限制，也不会为了拿 id 去解析一堆用不上的字段。
+     */
+    public static final class FavId {
+        public final long id;
+        /** 已归一化为 2 视频 / 12 音频 / 21 合集，可直接拼 {@code resources}。 */
+        public final int type;
+
+        public FavId(long id, int type) {
+            this.id = id;
+            this.type = normalizeFavType(type);
+        }
+    }
+
+    /** {@link #getFolderAllIds(long)} 的结果：{@code code} 0 成功 / -1 失败（网络或服务端非 0）。 */
+    public static final class FavIdPage {
+        public final int code;
+        public final ArrayList<FavId> ids;
+
+        FavIdPage(int code, ArrayList<FavId> ids) {
+            this.code = code;
+            this.ids = ids;
+        }
+    }
+
+    /**
+     * 一次取收藏夹内**全部**内容 id（不分页）。
+     *
+     * <p>依据 {@code bilibili-API/docs/fav/list.md} §获取收藏夹全部内容id：
+     * {@code GET x/v3/fav/resource/ids?media_id=&platform=web}，返回 {@code data} 数组，
+     * 元素形如 {@code {"id":371494037,"type":2,"bvid":"BV1CZ4y1T7gC"}}。
+     * 注意查询**私密**收藏夹需要对应账号已登录（同文档「注」）。
+     *
+     * <p>**失败必须与「收藏夹是空的」分开**：未登录时这个接口同样返回非 0，若一律回空表，
+     * 界面就会把「没登录」说成「这个收藏夹是空的」。所以带上 {@code code}。
+     *
+     * @param mediaId 收藏夹完整 id；{@code <= 0} 视为失败
+     */
+    public static FavIdPage getFolderAllIds(long mediaId) throws IOException, JSONException {
+        ArrayList<FavId> ids = new ArrayList<>();
+        if (mediaId <= 0) return new FavIdPage(-1, ids);
+        NetWorkUtil.FormData params = new NetWorkUtil.FormData()
+                .setUrlParam(true)
+                .put("media_id", mediaId)
+                .put("platform", "web");
+        JSONObject result = NetWorkUtil.getJson("https://api.bilibili.com/x/v3/fav/resource/ids" + params);
+        return parseFolderAllIds(result);
+    }
+
+    /** 纯函数：解析 {@code x/v3/fav/resource/ids} 的响应，方便单测（不依赖网络）。 */
+    public static FavIdPage parseFolderAllIds(JSONObject result) {
+        ArrayList<FavId> ids = new ArrayList<>();
+        if (result == null) return new FavIdPage(-1, ids);
+        if (result.optInt("code", -1) != 0) return new FavIdPage(-1, ids);
+        JSONArray data = result.optJSONArray("data");
+        if (data == null) return new FavIdPage(-1, ids);
+        for (int i = 0; i < data.length(); i++) {
+            JSONObject item = data.optJSONObject(i);
+            if (item == null) continue;
+            long id = item.optLong("id", 0);
+            if (id <= 0) continue;
+            ids.add(new FavId(id, item.optInt("type", FAV_TYPE_VIDEO)));
+        }
+        return new FavIdPage(0, ids);
+    }
+
+    /**
+     * 由 id 列表拼 {@code resources}（{@code {内容id}:{内容类型}} 逗号串），语义同
+     * {@link #buildResources(List)}，区别是数据源可以是不带标题封面的 {@link FavId}。
+     * 跳过 id &lt;= 0 的脏数据；空表返回空串。纯函数，方便单测。
+     */
+    public static String buildResourcesFromIds(List<FavId> ids) {
+        if (ids == null || ids.isEmpty()) return "";
+        StringBuilder builder = new StringBuilder();
+        for (FavId item : ids) {
+            if (item == null || item.id <= 0) continue;
+            if (builder.length() > 0) builder.append(',');
+            builder.append(item.id).append(':').append(normalizeFavType(item.type));
+        }
+        return builder.toString();
+    }
+
+    /**
      * 获取收藏的合集
      *
      * @param mid            目标用户
@@ -674,9 +760,32 @@ public class FavoriteApi {
         return dealFavorites(mediaId, buildResources(cards), "", String.valueOf(mediaId));
     }
 
+    /**
+     * 按**全量 id** 批量移除（「全选整个收藏夹」后用）。
+     *
+     * <p>与 {@link #batchDeleteResources(long, List)} 同一入口，区别只是 {@code resources}
+     * 由 {@link #getFolderAllIds(long)} 的结果拼成——那些条目根本没被加载成 {@link VideoCard}。
+     */
+    public static int batchDeleteResourcesByIds(long mediaId, List<FavId> ids) throws IOException, JSONException {
+        return dealFavorites(mediaId, buildResourcesFromIds(ids), "", String.valueOf(mediaId));
+    }
+
+    /** 按**全量 id** 批量复制到另一个收藏夹（{@link #copyResources(long, long, List)} 的整夹版）。 */
+    public static int copyResourcesByIds(long srcMediaId, long tarMediaId, List<FavId> ids) throws IOException, JSONException {
+        return dealResources("https://api.bilibili.com/x/v3/fav/resource/copy", srcMediaId, tarMediaId, buildResourcesFromIds(ids));
+    }
+
+    /** 按**全量 id** 批量移动到另一个收藏夹（{@link #moveResources(long, long, List)} 的整夹版）。 */
+    public static int moveResourcesByIds(long srcMediaId, long tarMediaId, List<FavId> ids) throws IOException, JSONException {
+        return dealResources("https://api.bilibili.com/x/v3/fav/resource/move", srcMediaId, tarMediaId, buildResourcesFromIds(ids));
+    }
+
     private static int dealResources(String url, long srcMediaId, long tarMediaId, List<VideoCard> cards) throws IOException, JSONException {
+        return dealResources(url, srcMediaId, tarMediaId, buildResources(cards));
+    }
+
+    private static int dealResources(String url, long srcMediaId, long tarMediaId, String resources) throws IOException, JSONException {
         long mid = SharedPreferencesUtil.getLong("mid", 0);
-        String resources = buildResources(cards);
         if (srcMediaId <= 0 || tarMediaId <= 0 || resources.isEmpty()) return -400;
         NetWorkUtil.FormData formData = new NetWorkUtil.FormData()
                 .put("src_media_id", srcMediaId)
