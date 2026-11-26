@@ -163,11 +163,38 @@ object RoundListEffect {
      * 0.5、淡到 0.15，而它明明有一部分就在屏幕中间（反馈 #79）。
      */
     private fun transform(row: View, topInWindow: Int, centerY: Float, radius: Float, winH: Int) {
-        if (row.visibility != View.VISIBLE) return
-        val t = RoundListEffectMath.tFor(topInWindow.toFloat(), row.height, centerY, radius, winH) ?: return
+        // 不参与效果的行必须复位成原样（见 reset 的注释）：这里原来是两个裸 return，
+        // 会让「曾经被缩过」的行永久停在缩小 + 半透明状态。
+        if (row.visibility != View.VISIBLE) {
+            reset(row)
+            return
+        }
+        val t = RoundListEffectMath.tFor(topInWindow.toFloat(), row.height, centerY, radius, winH)
+        if (t == null) {
+            reset(row)
+            return
+        }
         val scale = RoundListEffectMath.scaleFor(t)
         row.scaleX = scale
         row.scaleY = scale
         row.alpha = RoundListEffectMath.alphaFor(t)
+    }
+
+    /**
+     * 把一行复位成「没有效果」的样子。
+     *
+     * 为什么必须有：`RoundListEffectMath.tFor` 有两种正当的 null —— 条目还没量出高度
+     * （`rowHeight == 0`）、以及条目高到接近整屏（`rowHeight >= winH`，长评论带大图就是）。
+     * 原来这两条都是裸 return，于是那行会**保留上一次算出来的变换**；而它上一次被算时
+     * 往往正贴着屏缘，也就是 0.5 倍 + 0.15 透明度。表现出来就是评论区里某一张卡片
+     * 字体变小又发虚、怎么滑都不恢复（反馈 #310 / #206 / #288 / #284）。
+     *
+     * 先比值再写：三个 setter 内部本来就有等值短路，多几次浮点比较可以忽略，
+     * 但没有它就无法保证「不参与效果的行不残留变换」。
+     */
+    private fun reset(row: View) {
+        if (row.scaleX != 1f) row.scaleX = 1f
+        if (row.scaleY != 1f) row.scaleY = 1f
+        if (row.alpha != 1f) row.alpha = 1f
     }
 }
