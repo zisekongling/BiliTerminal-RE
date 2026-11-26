@@ -573,11 +573,26 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         /**
          * 有意跳转之后，多久内不把「回落到目标位置」记成回跳（毫秒）。
          *
-         * 取与 [SEEK_LANDING_CHECK_MS] 同量级即可：超过那个时限还没落地时，
-         * `seekToVideo` 自己会留一条「进度条 seek 落点」W 日志，证据不会丢，
-         * 这里就让位给那条更准确的记录，不必延长。
+         * 取与 [SEEK_LANDING_CHECK_MS] 同量级，因为 IJK 的 seek 一般在那之前就落到目标位置了。
+         *
+         * **真正的兜底不是这个时限，而是 [isSeekSettlingInto] 的第二条条件**——读数必须贴住
+         * [intendedSeekTargetMs]。窗口过后读数还离目标很远，照样按回跳报警；所以这里不必为了
+         * 「怕漏报」而延长，延长只会把「seek 落地后播放器真自己乱跳」也一起压下去。
+         *
+         * 反过来说，也不能指望日志补证据：重播（REPEAT_ONE）与单曲循环那两条路径只调
+         * [markSeekTarget] + `ijkPlayer.seekTo(0)`，不经 [seekToVideo]，没有「进度条 seek 落点」
+         * 那条 W 日志可依赖。
          */
         private const val SEEK_SETTLE_SUPPRESS_MS = SEEK_LANDING_CHECK_MS
+
+        /**
+         * [isSeekSettlingInto] 判「读数已贴住目标位置」的容差（毫秒）。
+         *
+         * 与回跳阈值 [POSITION_BACKJUMP_ALERT_MS] 同值：本来就小于阈值的偏差不会被判成回跳，
+         * 所以容差收紧也不增加报警，取同一个数只是让「多大的偏差算贴住」和「多大的偏差算回跳」
+         * 出自同一处，将来调阈值时两边不会打架。
+         */
+        private const val SEEK_SETTLE_TOLERANCE_MS = POSITION_BACKJUMP_ALERT_MS
 
         /**
          * G07「高能条本地兜底」等弹幕装载的时间（毫秒）。
@@ -6295,7 +6310,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
      *
      * 两条必须同时成立：
      * - 还在 [seekSettleUntilMs] 静默窗口内（seek 还没落地的窗口）；
-     * - 读数已经贴住 [intendedSeekTargetMs]（容差用回跳阈值 [POSITION_BACKJUMP_ALERT_MS]）。
+     * - 读数已经贴住 [intendedSeekTargetMs]（容差见 [SEEK_SETTLE_TOLERANCE_MS]）。
      *
      * 第二条是关键：用户拖到 10 分钟后播放器真的自己往回跳到 0，读数离目标很远，
      * 照样会报警；而「重播回 0」的读数正好贴住目标 0，被这条挡下。
@@ -6303,7 +6318,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private fun isSeekSettlingInto(position: Int): Boolean {
         if (intendedSeekTargetMs < 0) return false
         if (android.os.SystemClock.elapsedRealtime() > seekSettleUntilMs) return false
-        return Math.abs(position - intendedSeekTargetMs) <= POSITION_BACKJUMP_ALERT_MS
+        return Math.abs(position - intendedSeekTargetMs) <= SEEK_SETTLE_TOLERANCE_MS
     }
 
     /**
