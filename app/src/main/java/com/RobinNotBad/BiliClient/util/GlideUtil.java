@@ -297,7 +297,8 @@ public class GlideUtil {
      * <p>取图必须走 {@link StringUtil#getDrawable}（→ {@code AppCompatResources}）：本项目开了
      * {@code vectorDrawables.useSupportLibrary}，API&lt;21 没有 PNG 兜底，而 {@code ContextCompat} /
      * {@code ResourcesCompat} 在那里仍是原生加载路径，遇到 {@code <vector>} 会抛
-     * {@code Resources$NotFoundException}（见 {@code docs/agents/dev-conventions.md} §界面）。
+     * {@code Resources$NotFoundException}（见 {@code docs/agents/dev-conventions.md} 的
+     * 「图标 / 矢量图」一节）。
      */
     public static Drawable placeholderDrawable(Context context, int resId) {
         int id = safePlaceholder(resId);

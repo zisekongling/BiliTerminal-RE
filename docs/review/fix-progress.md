@@ -34,7 +34,7 @@
 
 - **26.11.26 PR #37 review 返工：取图 API 违规、占位图只覆盖一类、文档半改、数字不可复现**：
   - **来路**：上游维护者 review PR #37（本地 26.11.24 那批崩溃修复），给了 4 条必修 + 4 条建议。逐条核对后确认**全部成立**，没有一条是误报。
-  - **必修 1：`ContextCompat.getDrawable` 是仓库明令禁止的 API**。`docs/agents/dev-conventions.md` §界面写得很清楚：必须走 `AppCompatResources.getDrawable`（统一入口 `util/StringUtil.getDrawable`），因为本项目开了 `vectorDrawables.useSupportLibrary`，API<21 没有 PNG 兜底，那两条在那里仍是原生加载路径、遇到 `<vector>` 直接抛。我的 `placeholderDrawable` 是全仓**第一处**违规。已改走 `StringUtil.getDrawable`。
+  - **必修 1：`ContextCompat.getDrawable` 是仓库明令禁止的 API**。`docs/agents/dev-conventions.md` 的「图标 / 矢量图」一节写得很清楚：必须走 `AppCompatResources.getDrawable`（统一入口 `util/StringUtil.getDrawable`），因为本项目开了 `vectorDrawables.useSupportLibrary`，API<21 没有 PNG 兜底，那两条在那里仍是原生加载路径、遇到 `<vector>` 直接抛。我的 `placeholderDrawable` 是全仓**第一处**违规。已改走 `StringUtil.getDrawable`。
     - **顺带补上根因**：`dev-conventions.md` 这条约定此前**只有 XML 那一面有守门测试**（`VectorDrawableCompatTest` 只扫 `res/`），代码侧全靠记性——这正是它能溜进 PR 的原因。已在 `ConventionGuardTest` 补断言，`HighEnergyProgressBar.kt`（SDK≥21 分支加载含矢量的 selector）白名单排除。
   - **必修 2：文档只改了一半**。`testing.md` 换成了「先查 display id 再试」，但 `workflow.md`、`agent-test-guide.md` §6、`manual-test-guide-261106.md` 三处仍写着「`screencap -d` 对任何 display 都回 `Status: -2`」。按 `docs/agents/docs.md`「一份知识只有一个落点」收口：**细节全部集中到 `agent-test-guide.md` §6**（含「id 会变、用前现查」的可靠查法、为什么别按 `dumpsys activity activities` 段落顺序猜、`-2` 时的止损顺序、Debug 包 UETool 授权），其余三处只留一行指向 §6，不再各自复述。
   - **必修 3：占位图 OOM 只覆盖了 akari 一类**。工作树里还有 **17 处** `.placeholder(R.mipmap.placeholder)` / `.error(...)` 直传资源 id，走的是同一条解码路径（`placeholder.png` 是 256×144 = 147456 B，只是比 akari 小一半），而且大多就在 `onBindViewHolder` 里。更糟的是三个文件**只改了一半**（`ReplyAdapter` 244 换了 / 458 没换，`OpusContentAdapter` 188 换了 / 102·143·158 没换，`DynamicHolder` 854 换了 / 938 没换）。已全部切到统一入口，并用守门测试锁住。
@@ -53,6 +53,19 @@
     - **变异验证**：分别注入 `ContextCompat.getDrawable` 与 `.placeholder(R.mipmap.placeholder)`，`ConventionGuardTest` **恰好这两条变红**（10 tests, 2 failed），还原后两文件 SHA-256 与改动前一致。
     - markdownlint 87 文件 0 issues。
   - **未验证（L2 / 待人工）**：① 回跳抑制窗口需真机 logcat 确认——要一条会触发 REPEAT_ONE / 单曲循环的短视频，播完看是否还打「播放位置回跳」；MuMu 上没有登录态与缓存，构造不出。② 占位图统一到 `withPlaceholder` 后 29 处调用点、2 处 `setImageDrawable` 的**视觉**结果需人眼确认（当前不显眼：占位只在图片未到时可见）。
+
+- **26.11.26 PR #37 合并后遗留收口：三处漏网占位图、三处死引用、一条不成立的注释**：
+  - **来路**：PR #37 已于 26.11.26 合并（merge commit `3587262a`）。合并前我 review 提了 4 条建议，用户选择「先合并、再在 main 上收口」。合并后逐条复核，**4 条全部成立**，都是上一轮自报口径与实际不符的残留。
+  - **① 还有 3 处占位图没进统一入口**。上一轮台账写「2 处 `setImageResource` 改 `setImageDrawable(placeholderDrawable(...))`」，实际只覆盖了 `PrivateMsgSessionsAdapter.kt:164`（akari）与 `DownloadAdapter.kt:143`；另有 3 处 `setImageResource(R.mipmap.placeholder)` 既没改、也不在守门测试的扫描口径里——守门正则只拦 `.placeholder(\s*R.mipmap.` 这种链式调用，`setImageResource` 是另一条 API。漏的三处：`adapter/favorite/UserFavoriteFolderAdapter.kt:54`（夹封面为空的分支）、`adapter/video/LocalFolderAdapter.kt:177`（`loadCover` 的空 path 分支）与 `:188`（catch 分支）。已全部改走 `GlideUtil.placeholderDrawable(context, R.mipmap.placeholder)`。
+  - **② 三处引用了不存在的 `§界面`**：`util/GlideUtil.java:300`、`test/.../ConventionGuardTest.kt:229`、本文件上一段。`docs/agents/dev-conventions.md` 里从来没有叫「界面」的小节，真实标题是 :74 的 `## 图标 / 矢量图（26.11.09 起，写界面必读）`。三处统一改成「「图标 / 矢量图」一节」——写错节名比不写更糟：读者按名字 grep 不到，会以为约定不存在。
+  - **③ `SEEK_SETTLE_SUPPRESS_MS` 的注释理由不成立**。原文称「超时未落地时 `seekToVideo` 会留一条 W 日志」，作为「窗口不会无限延长」的兜底。但单曲循环这两条分支（`PlayerActivity.kt:3344` 的 `REPEAT_ONE`、`:3365` 的 `loop_enabled`）是 `markSeekTarget(0L)` 之后直接 `ijkPlayer!!.seekTo(0)`，**根本不走 `seekToVideo`**，那条 W 日志不会出现。真正的兜底是 `isSeekSettlingInto` 的第二个条件：读数必须贴住 `intendedSeekTargetMs`。注释已按此重写。顺带把容差显式化——原来直接借 `POSITION_BACKJUMP_ALERT_MS`（3s）当容差、而窗口只有 1.5s，两者关系不明；新增 `private const val SEEK_SETTLE_TOLERANCE_MS = POSITION_BACKJUMP_ALERT_MS` 并注明「与回跳阈值同源，故意不另立数字」。
+  - **④ 守门测试自己的行号会漂**。`ConventionGuardTest.hits()` 原用 `text.replace(Regex("/\\*.*?\\*/"), "")` 把块注释整段删掉再按 `lines()` 报位置，文件头一旦有注释行，报出的行号就整体前移。实测注入一处变异，报 `LocalFolderAdapter.kt:145`，真实位置 178（差 33 行 = 文件头 javadoc 行数）。改成新增 `private fun blankOut(text, pattern)`：把匹配段替换成**等长空白**（保留换行与列位），`stripJavaComments` / `stripXmlComments` 都走它。修后同一变异报 `:178`，与实际一致。这条影响的是「守门测试红了以后好不好查」，不是断言本身对错。
+  - **⑤ 顺带订正 PR 描述**：编号、文件数、diff 行数、用例数全部过期（写「8 提交 / 19 文件 / +184−59」「632 套件 / 6786 用例」，实际 17 提交 / 37 文件 / +390−105、公开侧 292 套件 / 3134 用例），已用 `gh pr edit 37` 改并附订正说明。
+  - **验证（26.11.26 本机 worktree，无 `private/`）**：
+    - `:app:assembleDebug` + `:app:testStandardDebugUnitTest` BUILD SUCCESSFUL；逐 XML 统计 **292 套件 / 3134 用例 / 0 失败 / 0 跳过**（与合并前一致，说明收口没动用例数）。
+    - **变异验证**：把 `LocalFolderAdapter` 一处改回 `setImageResource(R.mipmap.placeholder)`，加宽后的守门测试**变红且只红这一条**，报出的行号修前 145 / 修后 178；还原后文件字节数与改动前一致。
+    - markdownlint 0 issues。
+  - **未验证（L2 / 待人工）**：三处占位画面（收藏夹空封面、本地文件夹空封面、封面上传失败）的视觉结果需人眼确认——占位只在图片未到时可见，模拟器上不好卡时机。
 
 - **26.11.25 多选态去掉行首引导符（控制台反馈 #265）**：
   - **来路**：控制台反馈 #265「多选后下方操作栏变大，且左侧有个不明字符」（42mm 表上最明显）。前一轮 `d4ac0366` 只修了「多选操作栏被压折行」那一半（`activity_simple_main_refresh.xml` 给 `textSelectedCount` 加 `maxLines=1` + `ellipsize=end` + `autoSizeMinTextSize=9sp`），**行首字符这一半当时明写没动**，所以一直是 pending。
