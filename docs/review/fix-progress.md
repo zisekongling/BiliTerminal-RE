@@ -18,6 +18,27 @@
 
 ## 1. 当前版本状态
 
+- **26.11.26 新增「直播间榜单」+ 2GB Android 15 模拟器压测（DFM 竞态 15 轮通过）**：
+  - **功能**：直播间信息页底部新增「直播间榜单」入口，点开三选一（大航海成员 / 粉丝团 / 礼物价目），进独立列表页。三个接口都**不需要 Cookie**，未登录也能看，所以没挂登录门槛。
+    - **为什么不做对话框**：手表上的对话框只有 319×322，20 行榜单塞不进去。
+    - **实现**：`api/LiveRankApi.kt`（三接口 + 三个数据模型，失败返回空列表不抛）+ `activity/live/LiveRankActivity.kt`（一个 `Kind` 枚举 + 两行 adapter，三榜共用）+ `res/layout/item_live_rank.xml`；入口按钮加在 `activity_live_info.xml` 的 `description` 之下，**不动任何既有约束**。
+  - **踩到并修掉的三个坑**：
+    - **大航海 `data.list` 从第 4 名开始**，前 3 名单独在 `data.top3`。只读 `list` 会静默吞掉榜首三人（实测 21452505 房间 `list[0].rank == 4`）。已改为 `page == 1` 时先并 `top3`。
+    - **`am start` 会复用已存在的实例**：同一 Activity 停在顶层时新 Intent 直接投给它、不重走 `onCreate`，页面会停在旧的 `kind` 上（看着一切正常、内容却是上一个榜）。补 `onNewIntent` 走同一套 `applyIntent`。
+    - 本页是一次性拉取、不做分页（两个榜单接口的 `page_size` 上限 30，超了服务端按 10 处理）。
+  - **Debug 清单必须同步**：新 Activity 一加，`DebugActivityExportTest` 立刻变红——Debug 包要求主清单里每个非导出页都在 `app/src/debug/AndroidManifest.xml` 里 `exported="true"` + `android:permission="android.permission.DUMP"`。已补。
+  - **功能验证（Android 15 / 2GB RAM 模拟器，x86_64）**：三榜都用 `uiautomator dump` 读到真实文字——大航海 `1. AoineKo青貓 / 陪伴 322 天` 起 13 行（**与接口 top1 对得上，证明 top3 合并生效**）；粉丝团 `1. アメハル / 脆鲨 53 · 舰长 · 亲密度 7099426`；礼物 `小花花 / 0.1 元 · 一花一世界…` 且按价格升序。入口按钮、三选一菜单、空态文案都在控件树里读到。
+  - **压测一：#416 的 DFM 竞态（15 轮真·连进连出）**：
+    - 关键在**每轮自校验**：`am start` 输出里出现 `Warning: Activity not started, intent has been delivered to currently running top-most instance` 就说明这轮没新建实例、压测无效；每轮 back 后还要看 `dumpsys activity activities | grep -c ShortVideoPlayerActivity` 是否为 0。
+    - 结果：**未新建实例 0 次、未真正退出 0 次**（15/15 都是新建 → 播放 6s → 销毁）。`TOTAL PSS` 238972KB → 在 211~265MB 间来回波动、**无单调增长**；`Native Heap` 65~95MB 同幅波动；`NoSuchElementException` / `IndexOutOfBounds` / `Cannot recycle` / `OutOfMemory` / `FATAL EXCEPTION` / `ANR in` 全 **0**。
+    - 结论：`pollFirst()` 这条修复在 15 轮真实重建频率下没再触发。**这不等于真机结论**——原始崩溃来自用户真机（26.11.23），模拟器不构成复现环境，发版后仍要看这一类崩溃的量。
+  - **压测二（没压成，只记方法）**：长视频播放页的连进连出没做成，两个原因都值得留档：
+    1. **`PlayerActivity` 必须带 `url`**：`getExtras()` 里 `video_url == null` 且不是「等私有侧异步给源」就直接 `return false` → `onCreate` 里 `finish()`。`am start --el aid 298` 起 400ms 就 `onDestroy`，压的是空壳进程——那几个内存数很好看，但毫无意义。
+    2. **真入口要过「选择播放器」页**：详情页点播放 → `JumpToPlayerActivity` → `SettingPlayerChooseActivity`；点「内置播放器」不跳转、back 直接回详情页，自动化断在这里。真机点一次确定即可，故转 L2 交接单。
+  - **新增测试纪律（已并入 `docs/agents/testing.md`）**：`input -d <N> tap/keyevent` 投到**非当前画面所在 display** 时会**静默失效**（命令成功返回、事件被丢弃）。所以「先查 display id」不足以保证输入到位，**必须以结果自校验**：操作后 dump 一次看画面是否真的变了，back 之后看目标页面是否真的从 `dumpsys activity activities` 里消失。
+  - **构建验证**：`testStandardDebugUnitTest` / `testCoexistDebugUnitTest` 各 **316 套件 / 3395 用例 / 0 失败**；`assembleDebug` 双 flavor 通过。
+  - **未验证（L2 / 待人工）**：① 播放页真起播连进连出（需人工点一次「内置播放器 → 确定」）；② 榜单在 42mm 圆屏真机上的排版与长昵称截断；③ 礼物价目 100 条的滚动观感。
+
 - **26.11.26 第二轮控制台：DFM 弹幕计时竞态 + 圆屏列表残留变换（一处修四条反馈）**：
   - **来路**：读控制台 28 条待处理反馈 + 9 条待处理崩溃。按版本过滤后只剩 3 条来自当前版本（26.11.23）。
   - **崩溃 #416（26.11.23 当前版本，已修 `33b979eb`）**：`NoSuchElementException at LinkedList.removeFirst` ← `DrawHandler.recordRenderingTime` ← `DanmakuView.onDraw`。**线程竞态**：`recordRenderingTime` 跑在 UI 线程且自己 `synchronized`，但 `mDrawTimes` 的五处 `clear()`（`handleMessage` / `updateInCurrentThread` / `updateInNewThread` / `notifyRendering`×2）**都不持有该锁**，`size()` 与 `removeFirst()` 之间被 clear 抢先就是空链表 `removeFirst`。旁证：同类 `getAverageRenderingTime()` 早已把取首尾包在 try/catch 里——作者知道这个链表会短暂为空，只漏了这一处。改用 `pollFirst()`。DFM 是本仓库内模块，可直接改。
