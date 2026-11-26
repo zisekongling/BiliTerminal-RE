@@ -224,4 +224,62 @@ class ConventionGuardTest {
             offenders.isEmpty()
         )
     }
+
+    /**
+     * `docs/agents/dev-conventions.md` §界面：加载图标必须走 `AppCompatResources`
+     * （统一入口 `util/StringUtil.getDrawable`），**不许**用 `ContextCompat.getDrawable` /
+     * `ResourcesCompat.getDrawable`——本项目开了 `vectorDrawables.useSupportLibrary`，
+     * API&lt;21 没有 PNG 兜底，那两条在这里仍是原生加载路径，遇到 `<vector>` 直接抛
+     * `Resources$NotFoundException`。
+     *
+     * 为什么补这条（26.11.26）：`VectorDrawableCompatTest` 只扫 `res/` 下的 XML，
+     * **代码侧一直是靠记性守的**。26.11.24 给 GlideUtil 加占位图缓存时就用了
+     * `ContextCompat.getDrawable`，成了全仓第一处，CI 全绿、无人发现。
+     */
+    @Test
+    fun `代码侧取图不用 ContextCompat 或 ResourcesCompat`() {
+        val sources = javaSources()
+        assertTrue("src/main/java 只扫到 ${sources.size} 个源文件，路径八成变了", sources.size > 400)
+
+        // SDK>=21 分支显式使用：那里要加载的是「含矢量的 selector」，AppCompatResources 解不了，
+        // 与 VectorDrawableCompatTest 对 drawable/player_selector_progress.xml 的白名单同源。
+        val allowed = setOf("HighEnergyProgressBar.kt")
+        val bad = sources.filter { it.name !in allowed }
+            .flatMap { hits(it, Regex("(ContextCompat|ResourcesCompat)\\.getDrawable\\b")) }
+
+        assertTrue(
+            "这些位置用 ContextCompat/ResourcesCompat 取图，API<21 的矢量资源会崩。" +
+                "改走 AppCompatResources.getDrawable（或 util/StringUtil.getDrawable）：\n" +
+                bad.joinToString("\n"),
+            bad.isEmpty()
+        )
+    }
+
+    /**
+     * 占位图 / 兜底图不许直接传资源 id。
+     *
+     * Glide 的 `placeholder(int)` / `error(int)` 不是「记下 id 以后再用」——构建请求时会
+     * `Context.getDrawable(resId)` 现解一份。Resources 的 drawable cache 在低内存下会被
+     * `onTrimMemory` 整个清空，cache 一空就是每次 bind 重解一遍，`onBindViewHolder` 里直接把
+     * 低端机打 OOM（控制台崩溃 #401：262156 B = 256×256×4 + Bitmap 头）。
+     *
+     * 统一入口是 `GlideUtil.withPlaceholder(context, resId)`（一次设好占位 + 兜底）或
+     * `GlideUtil.placeholderDrawable(context, resId)`（需要单独用一张 Drawable 时）。
+     *
+     * 只拦 `R.mipmap.*`：那是位图类资源，正是这条崩溃的来路；`R.drawable.*` 里多为 shape，
+     * 本来就不占位图，一刀切会误报。
+     */
+    @Test
+    fun `占位图不直传 mipmap 资源 id`() {
+        val sources = javaSources()
+        assertTrue("src/main/java 只扫到 ${sources.size} 个源文件，路径八成变了", sources.size > 400)
+
+        val bad = sources.flatMap { hits(it, Regex("\\.(placeholder|error)\\(\\s*R\\.mipmap\\.")) }
+        assertTrue(
+            "这些位置把 mipmap 资源 id 直接交给 placeholder/error，低内存下每次 bind 都会重解位图。" +
+                "改用 GlideUtil.withPlaceholder(context, R.mipmap.*)：\n" +
+                bad.joinToString("\n"),
+            bad.isEmpty()
+        )
+    }
 }
