@@ -429,6 +429,23 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private var isSeeking: Boolean = false
     private var isDanmakuVisible: Boolean = false
 
+    /**
+     * 最近一次「有意跳转」的目标位置，配合 [seekSettleUntilMs] 只给回跳守卫用。
+     *
+     * -1 表示还没发生过任何有意跳转。写入口只有 [markSeekTarget] 一处。
+     */
+    private var intendedSeekTargetMs: Int = -1
+
+    /**
+     * 有意跳转的「静默截止时刻」（[android.os.SystemClock.elapsedRealtime]）。
+     *
+     * 存在的理由：`markSeekTarget` 只是把 `video_now` 改成新位置，而 IJK 的 seek 是**异步**的。
+     * 落地前的那一两拍 `progressChange` 读到的还是旧位置，于是 `previousVideoNow` 被推高、
+     * 下一拍照常比较出一次「倒退」——补 `markSeekTarget` 本身并不足以消掉那条假回跳日志
+     * （控制台反馈 #297 里那行 `播放位置回跳>从 14798ms 退到 0ms`）。
+     */
+    private var seekSettleUntilMs: Long = 0L
+
     /** 播放页触摸锁定的当前状态（状态转移见 [PlayerLockPolicy]）。 */
     private var lockPhase = PlayerLockPolicy.Phase.UNLOCKED
 
@@ -552,6 +569,15 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
 
         /** seek 之后隔多久去实测落点（毫秒）。IJK 的 seek 是异步的，太早取到的还是旧位置。 */
         private const val SEEK_LANDING_CHECK_MS = 1_500L
+
+        /**
+         * 有意跳转之后，多久内不把「回落到目标位置」记成回跳（毫秒）。
+         *
+         * 取与 [SEEK_LANDING_CHECK_MS] 同量级即可：超过那个时限还没落地时，
+         * `seekToVideo` 自己会留一条「进度条 seek 落点」W 日志，证据不会丢，
+         * 这里就让位给那条更准确的记录，不必延长。
+         */
+        private const val SEEK_SETTLE_SUPPRESS_MS = SEEK_LANDING_CHECK_MS
 
         /**
          * G07「高能条本地兜底」等弹幕装载的时间（毫秒）。
@@ -3589,7 +3615,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     // video_now 同步到目标；所以播放器报出来的位置**倒退**只能是播放器自己往回跳
                     // （解码器重定位、缓存文件索引异常、停下看门狗重建后的续播点）。这条日志会进
                     // 崩溃报告带的内存日志缓冲，用户下次带日志反馈就能直接定案。
-                    if (video_now < previousVideoNow - POSITION_BACKJUMP_ALERT_MS) {
+                    if (video_now < previousVideoNow - POSITION_BACKJUMP_ALERT_MS && !isSeekSettlingInto(video_now)) {
                         val backjumpNow = android.os.SystemClock.elapsedRealtime()
                         if (backjumpNow - positionBackjumpLogMs >= POSITION_BACKJUMP_LOG_INTERVAL_MS) {
                             positionBackjumpLogMs = backjumpNow
@@ -6248,6 +6274,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
     private fun markSeekTarget(position: Long) {
         video_now = position.toInt()
         video_now_last = -1 // 让 progressChange 下一帧立刻按新位置刷新进度条/字幕
+        // 记下目标与静默窗口：IJK 的 seek 是异步的，落地前 progressChange 读到的还是旧位置，
+        // 没有这两项就会把一个正在落地的有意跳转记成「播放位置回跳」。
+        intendedSeekTargetMs = position.toInt()
+        seekSettleUntilMs = android.os.SystemClock.elapsedRealtime() + SEEK_SETTLE_SUPPRESS_MS
         // 片头/片尾判定同样要等 seek 落地，否则 progressChange 把 video_now 拉回旧位置后
         // 会被立刻再判一次（「跳完又跳回去」）。只由自动跳过自己起静默期：用户主动拖动的落点
         // 已经被 onUserSeekTo 正式记为「已处理」，不需要时间兜底，也不该因为拖一下
@@ -6258,6 +6288,22 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         if (pendingSeekIsAutoSkip) {
             skipQuietUntilMs = android.os.SystemClock.elapsedRealtime() + SKIP_QUIET_AFTER_SEEK_MS
         }
+    }
+
+    /**
+     * 这次读数是不是「一次有意跳转正在落地」——回跳守卫据此让路。
+     *
+     * 两条必须同时成立：
+     * - 还在 [seekSettleUntilMs] 静默窗口内（seek 还没落地的窗口）；
+     * - 读数已经贴住 [intendedSeekTargetMs]（容差用回跳阈值 [POSITION_BACKJUMP_ALERT_MS]）。
+     *
+     * 第二条是关键：用户拖到 10 分钟后播放器真的自己往回跳到 0，读数离目标很远，
+     * 照样会报警；而「重播回 0」的读数正好贴住目标 0，被这条挡下。
+     */
+    private fun isSeekSettlingInto(position: Int): Boolean {
+        if (intendedSeekTargetMs < 0) return false
+        if (android.os.SystemClock.elapsedRealtime() > seekSettleUntilMs) return false
+        return Math.abs(position - intendedSeekTargetMs) <= POSITION_BACKJUMP_ALERT_MS
     }
 
     /**
