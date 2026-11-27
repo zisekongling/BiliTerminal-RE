@@ -18,6 +18,18 @@
 
 ## 1. 当前版本状态
 
+- **26.11.28 外部缓存迁移后条目名变成容器名、只剩封面（反馈 #321）**：
+  - **来路**：用户 #321「使用缓存迁移后，只迁移了文件夹名字与封面，而且 2 个缓存文件夹都在 media 下」。
+  - **复现（AVD Android 15，在 `Android/media/` 下造假分支目录后走真实迁移流程）**：
+    - 标准单视频（`TestCache/video.mp4 + cover.jpg`）→ **正常**，300KB + 20KB 全搬，`.quality` 也在；
+    - 合集（`CollectionShow/EP01|EP02/video.mp4`）→ **正常**，两集全搬，「共2P · 外部」识别正确；
+    - 嵌套容器（`com.test.other/video/ShowA/video.mp4`）→ **复现了**：列表里条目名是 **`video`**、封面空白（`video/cover.jpg` 不存在），迁移过去是整层容器。
+  - **机理**：`ExternalCacheRoots.candidateRoots` 把 `Android/media/<包名>` **无条件**当缓存根。本仓库自己的下载根确实就在这一层（`StoragePathPolicy.defaultVideoDir` 在 API≥21 直接返回 media 目录），但别的实现 / 旧版本会再套一层 `video/`，**那一层的子目录才是标题** —— 于是容器被当成视频标题，用户看到的就是「只搬了文件夹名字」。
+  - **改法（1 个文件，`util/ExternalCacheRoots.kt`）**：新增 `MEDIA_SUBDIRS`（`video` / `download` / `files` / `media` / `movies`）与 `containerSubDirs()` —— 只有 `<包名>` 自己「不像缓存根」（既没有媒体文件、也没有 `.folders_info.json`）且下面存在这些子目录时，才用子目录当根。
+  - **验证**：修复后同一份嵌套结构，外部条目从 `video` 变成 `ShowA`，迁移落地是 `ShowA/cover.jpg + ShowA/video.mp4`（平铺到正确层级，源目录清空）。
+  - **取舍**：真有视频标题叫 `video` 会命中白名单被当容器钻一层 —— 结果只是条目层级不同（视频还在、能播），比反过来漏扫一整批缓存轻。
+  - **未验证**：用户那半句「2 个缓存文件夹都在 media 下」没复现出异常——本机下载根就在 `Android/media/<包名>`（`legacyMediaDir()` 如此设计）；若他的实际目录结构不在这三种之内，还需要一次目录清单才能定位。
+
 - **26.11.27 拖动进度条看缩略图（视频快照 `x/player/videoshot`）**：
   - **来路**：接口清单里 `videoshot` 一直没接。拖动进度条时只有「+mm:ss / 目标时间 / 共 mm:ss」三行文字，不知道要跳到哪个画面。
   - **三步落地**（每步单独可验）：
