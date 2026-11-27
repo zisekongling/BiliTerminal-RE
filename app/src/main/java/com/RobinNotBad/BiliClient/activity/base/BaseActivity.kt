@@ -2,6 +2,7 @@ package com.RobinNotBad.BiliClient.activity.base
 
 import com.RobinNotBad.BiliClient.util.UiText
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
@@ -48,6 +49,7 @@ import com.RobinNotBad.BiliClient.ui.appearance.ColorScheme
 import com.RobinNotBad.BiliClient.ui.appearance.GlassStyle
 import com.RobinNotBad.BiliClient.ui.appearance.ImmersiveMode
 import com.RobinNotBad.BiliClient.util.AsyncLayoutInflaterX
+import com.RobinNotBad.BiliClient.util.CrashTrail
 import com.RobinNotBad.BiliClient.util.DisguiseGesture
 import com.RobinNotBad.BiliClient.util.DisguisePrefs
 import com.RobinNotBad.BiliClient.util.Logu
@@ -301,6 +303,84 @@ open class BaseActivity : AppCompatActivity() {
 
     override fun onBackPressed() {
         if (!SharedPreferencesUtil.getBoolean("back_disable", false)) super.onBackPressed()
+    }
+
+    /**
+     * startActivity 系列统一兜底（26.11.27）。
+     *
+     * 背景：精简 ROM 与手表上「Intent 认识、但没人能处理它」是常态——没有相册、没有文件管理器、
+     * 没有安装器、没有浏览器都出现过（线上崩溃 #63 就是 ACTION_PICK 没人接，见
+     * [com.RobinNotBad.BiliClient.activity.user.EditProfileActivity] 的注释）。这类崩溃都发生在
+     * 「用户点一下」的回调里，栈顶看不出任何业务逻辑，只有一句
+     * ActivityNotFoundException: No Activity found to handle Intent。
+     *
+     * 这里在基类接住它：提示一句、留一条面包屑，业务代码照常往下走。
+     *
+     * **只接 [ActivityNotFoundException]**：SecurityException（目标页存在但没导出）是我们自己的
+     * 配置错误，吞掉只会把问题藏起来，照常抛。
+     *
+     * 两个已知边界，写在这里免得后来人以为已经全覆盖：
+     * 1. 用 Context 而不是 Activity 起 Intent 的调用点（如
+     *    [com.RobinNotBad.BiliClient.util.UpdateManager]），以及 Fragment.startActivityForResult
+     *    （走的是另一条内部重载）都不受这里保护，仍需各自兜；
+     * 2. 靠捕获本异常来「探测有没有可用目标」的调用点会被这里吞掉，必须改用 [probeStartActivity]。
+     */
+    override fun startActivity(intent: Intent) {
+        try {
+            super.startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            onNoActivityFor(intent, e)
+        }
+    }
+
+    override fun startActivity(intent: Intent, @Nullable options: Bundle?) {
+        try {
+            super.startActivity(intent, options)
+        } catch (e: ActivityNotFoundException) {
+            onNoActivityFor(intent, e)
+        }
+    }
+
+    override fun startActivityForResult(intent: Intent, requestCode: Int) {
+        try {
+            super.startActivityForResult(intent, requestCode)
+        } catch (e: ActivityNotFoundException) {
+            onNoActivityFor(intent, e)
+        }
+    }
+
+    override fun startActivityForResult(intent: Intent, requestCode: Int, @Nullable options: Bundle?) {
+        try {
+            super.startActivityForResult(intent, requestCode, options)
+        } catch (e: ActivityNotFoundException) {
+            onNoActivityFor(intent, e)
+        }
+    }
+
+    /**
+     * 与 [startActivity] 完全一致，但**不吞**异常，把「有没有起得来」交回调用方。
+     *
+     * 给「先打一下、起不来就换招」的调用点用——典型是
+     * [com.RobinNotBad.BiliClient.util.ShareSheet] 的「其它app打开 / 系统分享」：起不来就复制链接
+     * 兜底。它们若走被兜底的 [startActivity]，会以为已经打开成功，于是**静默地什么都不做**，
+     * 那比崩溃更让人摸不着头脑。
+     *
+     * @return true 表示 Intent 已交给系统；false 表示本机没有能处理它的组件
+     */
+    fun probeStartActivity(intent: Intent): Boolean = try {
+        super.startActivity(intent)
+        true
+    } catch (e: ActivityNotFoundException) {
+        false
+    }
+
+    private fun onNoActivityFor(intent: Intent, e: ActivityNotFoundException) {
+        val action = intent.action ?: ""
+        val type = intent.type ?: ""
+        Logu.w("start", "本机没有能处理该 Intent 的组件：action=" + action + " type=" + type + "（" + e.message + "）")
+        // 面包屑：万一页面上还有别的坑一起崩了，崩溃报告里能看到这里先失败过一次
+        CrashTrail.record("无处理者: " + action + " / " + type)
+        MsgUtil.showMsg(UiText.of(getString(R.string.msg_start_no_handler)))
     }
 
     /**

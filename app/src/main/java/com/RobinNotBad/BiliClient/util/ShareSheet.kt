@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.fragment.app.Fragment
 import com.RobinNotBad.BiliClient.R
+import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.activity.message.ChooseFriendActivity
 import com.RobinNotBad.BiliClient.api.PrivateMsgApi
 import com.RobinNotBad.BiliClient.model.PrivateMessage
@@ -90,8 +91,16 @@ object ShareSheet {
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
         if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         return try {
-            context.startActivity(intent)
-            true
+            // 必须走 probeStartActivity：BaseActivity 的 startActivity 兜底会吞掉
+            // ActivityNotFoundException，那样这里会误以为已经打开成功、连复制链接的兜底都不做。
+            if (context is BaseActivity) {
+                val started = context.probeStartActivity(intent)
+                if (!started) copyAndHint(context, url, R.string.msg_share_no_app_copied)
+                started
+            } else {
+                context.startActivity(intent)
+                true
+            }
         } catch (e: ActivityNotFoundException) {
             copyAndHint(context, url, R.string.msg_share_no_app_copied)
             false
@@ -108,8 +117,15 @@ object ShareSheet {
         val chooser = Intent.createChooser(send, context.getString(R.string.share_panel_title))
         if (context !is Activity) chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         return try {
-            context.startActivity(chooser)
-            true
+            // 同上：靠"打一下看起没起来"决定要不要复制链接兜底，不能被兜底网吞掉
+            if (context is BaseActivity) {
+                val started = context.probeStartActivity(chooser)
+                if (!started) copyAndHint(context, fallbackUrl, R.string.msg_share_no_share_copied)
+                started
+            } else {
+                context.startActivity(chooser)
+                true
+            }
         } catch (e: ActivityNotFoundException) {
             copyAndHint(context, fallbackUrl, R.string.msg_share_no_share_copied)
             false
