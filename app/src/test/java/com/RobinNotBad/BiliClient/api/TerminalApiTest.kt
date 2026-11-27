@@ -129,7 +129,8 @@ class TerminalApiTest {
 
         assertEquals(42, payload.getInt("id"))
         assertEquals("补充：点下一集才复现", payload.getString("content"))
-        assertEquals("载荷应当只有两个字段", 2, payload.length())
+        // 26.11.27 起多带一个 images（空数组），字段数变 3；其余身份字段仍然一个都不许出现
+        assertEquals("载荷应当只有 id / content / images 三个字段", 3, payload.length())
         for (forbidden in listOf("install_id", "mid", "device_key", "log", "category")) {
             assertFalse("追加回复的载荷里不该有 $forbidden", payload.has(forbidden))
         }
@@ -287,5 +288,78 @@ class TerminalApiTest {
     fun deviceKey_blankInputYieldsEmpty() {
         assertEquals("", TerminalApi.hashDeviceKey(null))
         assertEquals("", TerminalApi.hashDeviceKey(""))
+    }
+
+    // ---------- 反馈配图（26.11.27） ----------
+
+    /** 没有图时固定发一个空数组，而不是省略字段：两边等价，但请求形状只此一种。 */
+    @Test
+    fun keysToJson_nullAndEmptyYieldEmptyArray() {
+        assertEquals(0, TerminalApi.keysToJson(null).length())
+        assertEquals(0, TerminalApi.keysToJson(emptyList()).length())
+    }
+
+    @Test
+    fun keysToJson_skipsBlankElements() {
+        val array = TerminalApi.keysToJson(listOf("fb/202611/a.jpg", "", "  ", "fb/202611/b.png"))
+        assertEquals("空串与纯空白不该混进载荷", 2, array.length())
+        assertEquals("fb/202611/a.jpg", array.getString(0))
+        assertEquals("fb/202611/b.png", array.getString(1))
+    }
+
+    /** 老服务端不返回 images、字段是脏值，都不能抛，只能得到空列表。 */
+    @Test
+    fun parseImageKeys_missingOrDirtyYieldsEmpty() {
+        assertEquals(0, TerminalApi.parseImageKeys(null).size)
+        assertEquals(0, TerminalApi.parseImageKeys(JSONObject()).size)
+        assertEquals(0, TerminalApi.parseImageKeys(JSONObject().put("images", "oops")).size)
+    }
+
+    @Test
+    fun parseImageKeys_keepsOrderAndSkipsBlank() {
+        val source = JSONObject().put("images", JSONArray().put("k1").put("").put("k2"))
+        assertEquals(listOf("k1", "k2"), TerminalApi.parseImageKeys(source).toList())
+    }
+
+    /** 读图必须走服务端代理：客户端里绝不能出现对象存储的域名。 */
+    @Test
+    fun mediaUrl_pointsToServerProxy() {
+        assertEquals(
+            "https://rebiliterminal.zsapp.asia/terminal/media/fb/202611/abc.jpg",
+            TerminalApi.mediaUrl("fb/202611/abc.jpg")
+        )
+        assertEquals("空 key 应当得到空串", "", TerminalApi.mediaUrl(""))
+        assertEquals("null key 应当得到空串", "", TerminalApi.mediaUrl(null))
+        assertFalse(
+            "客户端不该直连对象存储",
+            TerminalApi.mediaUrl("fb/x.jpg").contains("cloudflarestorage")
+        )
+    }
+
+    /** 老签名的载荷也要带上空 images（服务端按「没带」处理），老服务端则忽略这个字段。 */
+    @Test
+    fun feedbackPayload_alwaysCarriesImagesArray() {
+        val payload = TerminalApi.buildFeedbackPayload(
+            "abc123", "devkey123", "bug", "内容", null, "", 0, 1, "v", 34, "b", "d"
+        )
+        assertTrue("载荷里必须有 images", payload.has("images"))
+        assertEquals(0, payload.getJSONArray("images").length())
+    }
+
+    @Test
+    fun feedbackPayload_carriesImageKeys() {
+        val payload = TerminalApi.buildFeedbackPayload(
+            "abc123", "devkey123", "bug", "内容", null, "", 0, 1, "v", 34, "b", "d",
+            listOf("fb/202611/a.jpg")
+        )
+        assertEquals(1, payload.getJSONArray("images").length())
+        assertEquals("fb/202611/a.jpg", payload.getJSONArray("images").getString(0))
+    }
+
+    @Test
+    fun replyPayload_carriesImageKeys() {
+        val payload = TerminalApi.buildFeedbackReplyPayload(42, "补充", listOf("fb/202611/a.jpg"))
+        assertEquals(1, payload.getJSONArray("images").length())
+        assertEquals("fb/202611/a.jpg", payload.getJSONArray("images").getString(0))
     }
 }

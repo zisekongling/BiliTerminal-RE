@@ -115,6 +115,16 @@
                 android:textSize="13sp"
                 tools:text="播放器在切集的时候会闪退，复现步骤：先播一个视频再点下一集。" />
 
+            <!-- 用户提交时带的截图（26.11.27 新增）：一行 48dp 缩略图，点开全屏看。没有图时 GONE。 -->
+            <LinearLayout
+                android:id="@+id/detail_images"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal"
+                android:visibility="gone"
+                tools:visibility="visible" />
+
             <!-- 联系方式：用户没填时在代码里置 GONE -->
             <TextView
                 android:id="@+id/detail_contact"
@@ -186,6 +196,27 @@
                         android:alpha="0.7"
                         android:text="@string/text_activityfeedbackdetail_01"
                         android:textSize="11sp" />
+
+                    <!-- 追加说明可以带图（26.11.27 新增）：这一行只在服务端开着图片上传时出现。
+                         点它挑图，点下面的缩略图移除（缩略图是「待发送」，不是「已发送」，所以不点开看大图）。 -->
+                    <TextView
+                        android:id="@+id/note_image_text"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:visibility="gone"
+                        tools:text="附图（0/3）"
+                        tools:visibility="visible" />
+
+                    <LinearLayout
+                        android:id="@+id/note_image_row"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:orientation="horizontal"
+                        android:visibility="gone" />
 
                 </LinearLayout>
 

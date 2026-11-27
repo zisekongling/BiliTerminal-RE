@@ -577,8 +577,28 @@ public class NetWorkUtil {
         // 只记长度、不记 body：body 里常有 csrf（bili_jct）、refresh_token、access_key 等凭据，
         // 而 Logu.d 的 logcat 这一路**不做脱敏**（脱敏只发生在落盘的 toFile 里），原文会直接进 logcat。
         Logu.d("post-data", data == null ? "null" : ("length=" + data.length()));
-        OkHttpClient client = getOkHttpInstance();
         RequestBody body = RequestBody.create(MediaType.parse(contentType + "; charset=utf-8"), data);
+        return executePost(url, headers, contentType, body);
+    }
+
+    /**
+     * 直接发**裸字节** body 的 POST（26.11.27 新增，反馈配图上传用）。
+     *
+     * <p>与 {@link #post(String, String, List, String)} 的唯一区别是不做 `String -> UTF-8 字节`
+     * 这一步：图片是二进制，按字符集编码会把它写坏。请求头的覆盖规则、非 2xx 抛
+     * {@link IOException} 的口径两边完全一致（共用 {@link #executePost}）。
+     *
+     * <p>日志同样只记长度不记内容：这里是图片，记进 logcat 既没意义又占地方。
+     */
+    public static Response postBytes(String url, byte[] data, List<String> headers, String contentType) throws IOException {
+        Logu.d("post-url", url);
+        Logu.d("post-data", data == null ? "null" : ("bytes=" + data.length));
+        RequestBody body = RequestBody.create(MediaType.parse(contentType), data);
+        return executePost(url, headers, contentType, body);
+    }
+
+    private static Response executePost(String url, List<String> headers, String contentType, RequestBody body) throws IOException {
+        OkHttpClient client = getOkHttpInstance();
         Request.Builder requestBuilder = newTaggedRequestBuilder().url(url).post(body);
         for (int i = 0; i < headers.size(); i += 2) {
             String key = headers.get(i);

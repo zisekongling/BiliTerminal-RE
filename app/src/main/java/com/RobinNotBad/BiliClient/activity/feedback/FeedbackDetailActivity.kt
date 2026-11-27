@@ -3,25 +3,35 @@ package com.RobinNotBad.BiliClient.activity.feedback
 import com.RobinNotBad.BiliClient.util.UiText
 
 import android.app.Activity
+import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import com.RobinNotBad.BiliClient.R
+import com.RobinNotBad.BiliClient.activity.ImagePickerActivity
+import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.api.TerminalApi
 import com.RobinNotBad.BiliClient.model.FeedbackItem
 import com.RobinNotBad.BiliClient.model.FeedbackReply
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.FeedbackImage
 import com.RobinNotBad.BiliClient.util.FeedbackState
 import com.RobinNotBad.BiliClient.util.FeedbackUnread
+import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.TimeUtil
+import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.google.android.material.card.MaterialCardView
 
 /**
@@ -84,6 +94,37 @@ class FeedbackDetailActivity : BaseActivity() {
     /** 长线程是否已展开。只在本次页面生命周期内有效——退出重进又回到折叠态，符合「只想看最新」的预期。 */
     private var threadExpanded: Boolean = false
 
+    /**
+     * 服务端是否开着图片上传（26.11.27 新增）。
+     *
+     * 拿到 false（或压根没拿到）就不露出「附图」入口 —— 入口在、点了 403 是最糟的体验，
+     * 所以这里宁可保守。已发送的图不受影响：开关管的是新上传，老图照旧能看。
+     */
+    private var imageEnabled: Boolean = false
+
+    /** 追加说明里已选、还没上传的图。提交成功后才清空；失败保留，方便重试。 */
+    private val pickedImages = ArrayList<Uri>()
+
+    private var noteImageText: TextView? = null
+    private var noteImageRow: LinearLayout? = null
+    private var detailImages: LinearLayout? = null
+
+    /**
+     * 挑图。用内置的 [ImagePickerActivity]，它的返回值与 ACTION_GET_CONTENT 一致，
+     * 部分手表 ROM 上系统的选择器点了就崩（见 EditProfileActivity 的注释），所以不用系统那个。
+     */
+    private val pickImageLauncher: ActivityResultLauncher<Intent> =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode != Activity.RESULT_OK) return@registerForActivityResult
+            val uri = result.data?.data ?: return@registerForActivityResult
+            if (pickedImages.size >= FeedbackImage.MAX_COUNT) {
+                MsgUtil.showMsg(getString(R.string.msg_feedback_image_limit, FeedbackImage.MAX_COUNT))
+                return@registerForActivityResult
+            }
+            pickedImages.add(uri)
+            renderNoteImages()
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -115,6 +156,25 @@ class FeedbackDetailActivity : BaseActivity() {
             }
 
             findViewById<View>(R.id.add_note_card).setOnClickListener { openNoteDialog("") }
+
+            // 附图入口：点文字挑图，点缩略图移除。缩略图是「待发送」的，不点开看大图。
+            noteImageText = findViewById(R.id.note_image_text)
+            noteImageRow = findViewById(R.id.note_image_row)
+            noteImageText?.setOnClickListener { pickImageLauncher.launch(ImagePickerActivity.intent(this)) }
+
+            detailImages = findViewById(R.id.detail_images)
+            renderDetailImages(data)
+            renderNoteImages()
+
+            // 开关只问服务端一个布尔值，不拉整张反馈列表；拿不到就当没开，入口不出现。
+            CenterThreadPool.run {
+                val enabled = TerminalApi.fetchFeedbackImageEnabled()
+                CenterThreadPool.runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    imageEnabled = enabled
+                    renderNoteImages()
+                }
+            }
 
             renderThread()
         }
@@ -279,6 +339,7 @@ class FeedbackDetailActivity : BaseActivity() {
             if (fromUser) UiText.of("我的补充") else reply.title.ifEmpty { UiText.of("开发者回复") }
         view.findViewById<TextView>(R.id.reply_time).text = reply.ctime
         view.findViewById<TextView>(R.id.reply_content).text = reply.content
+        bindImageThumbs(view.findViewById(R.id.reply_images), reply.images)
 
         if (fromUser) {
             (view as MaterialCardView).apply {
@@ -321,8 +382,29 @@ class FeedbackDetailActivity : BaseActivity() {
     private fun sendNote(data: FeedbackItem, text: String) {
         sending = true
         MsgUtil.showMsg(UiText.of("正在发送…"))
+        val images = ArrayList(pickedImages)
         CenterThreadPool.run {
-            val result = TerminalApi.submitFeedbackReply(data.id, text)
+            // 先把附图逐张传上去换成 key：任何一张失败就整条中止并保留已选图，
+            // 不会出现「文字发出去了、图没跟上」的半截线程。
+            val outcome = FeedbackImage.uploadAll(this@FeedbackDetailActivity, images)
+            if (!outcome.ok) {
+                val failure = outcome.failure
+                runOnUiThread {
+                    sending = false
+                    if (isDestroyed) return@runOnUiThread
+                    MsgUtil.showMsg(
+                        if (failure?.code == FeedbackImage.CODE_UNREADABLE) {
+                            getString(R.string.feedback_image_unreadable)
+                        } else {
+                            getString(R.string.feedback_image_fail, failure?.message ?: "")
+                        }
+                    )
+                    openNoteDialog(text)
+                }
+                return@run
+            }
+
+            val result = TerminalApi.submitFeedbackReply(data.id, text, outcome.keys)
             runOnUiThread {
                 sending = false
                 if (isDestroyed) return@runOnUiThread
@@ -338,9 +420,13 @@ class FeedbackDetailActivity : BaseActivity() {
                         "",
                         text,
                         TimeUtil.formatDateTime(System.currentTimeMillis()),
-                        FeedbackReply.AUTHOR_USER
+                        FeedbackReply.AUTHOR_USER,
+                        outcome.keys
                     )
                 )
+                // 图已经随这条消息发出去了，本地这一栏清空；失败路径上面已经保留。
+                pickedImages.clear()
+                renderNoteImages()
                 // 服务端把这条反馈重新打回「待回复」并把 user_state 清零（reopen 语义），
                 // 页面上的状态必须跟着变，否则用户会以为自己刚说的话被跳过了。
                 data.handled = false
@@ -353,6 +439,103 @@ class FeedbackDetailActivity : BaseActivity() {
                 MsgUtil.showMsg(UiText.of("已发送，开发者会看到"))
             }
         }
+    }
+
+    /**
+     * 把一组图片 key 铺成一行缩略图（展示用，点开全屏）。
+     *
+     * 地址一律走服务端代理 [TerminalApi.mediaUrl]：App 不直连 R2，客户端也就拿不到桶地址。
+     * 没有图时整行 GONE —— 不留一行空白去占时间线的视觉节奏。
+     */
+    private fun bindImageThumbs(row: LinearLayout?, keys: List<String>?) {
+        if (row == null) return
+        row.removeAllViews()
+        if (keys.isNullOrEmpty()) {
+            row.visibility = View.GONE
+            return
+        }
+        row.visibility = View.VISIBLE
+        val size = ToolsUtil.dp2px(48f)
+        val gap = ToolsUtil.dp2px(6f)
+        for (key in keys) {
+            val url = TerminalApi.mediaUrl(key)
+            if (url.isEmpty()) continue
+            val thumb = ImageView(this)
+            thumb.layoutParams = LinearLayout.LayoutParams(size, size).also { it.marginEnd = gap }
+            thumb.scaleType = ImageView.ScaleType.CENTER_CROP
+            GlideUtil.request(thumb, url, 6, 0)
+            thumb.setOnClickListener { openImage(url) }
+            row.addView(thumb)
+        }
+        // 全是空 key 时上面的循环一个都没加，别留一条可见的空行
+        if (row.childCount == 0) row.visibility = View.GONE
+    }
+
+    /**
+     * 开全屏看图。
+     *
+     * [ImageViewerActivity] 只认 imageList、没有「从第几张开始」的参数（见它的 onCreate），
+     * 所以一张图一张票 —— 一次只把当前这张传过去。
+     */
+    private fun openImage(url: String) {
+        val intent = Intent(this, ImageViewerActivity::class.java)
+        intent.putExtra("imageList", ArrayList(listOf(url)))
+        startActivity(intent)
+    }
+
+    /** 正文下面那行：用户提交反馈时带的截图。 */
+    private fun renderDetailImages(data: FeedbackItem) {
+        bindImageThumbs(detailImages, data.images)
+    }
+
+    /**
+     * 重画「追加说明」的附图行：没开开关就整块不出现，否则显示「附图（n/3）」+ 已选缩略图。
+     *
+     * 缩略图点一下是**移除**而不是看大图：这里的图还没发出去，用户唯一想做的操作是「这张挑错了」。
+     */
+    private fun renderNoteImages() {
+        val text = noteImageText ?: return
+        val row = noteImageRow ?: return
+        if (!imageEnabled) {
+            text.visibility = View.GONE
+            row.visibility = View.GONE
+            return
+        }
+        text.visibility = View.VISIBLE
+        text.text = getString(R.string.feedback_note_image_add, pickedImages.size, FeedbackImage.MAX_COUNT)
+        row.removeAllViews()
+        if (pickedImages.isEmpty()) {
+            row.visibility = View.GONE
+            return
+        }
+        row.visibility = View.VISIBLE
+        val size = ToolsUtil.dp2px(48f)
+        val gap = ToolsUtil.dp2px(6f)
+        pickedImages.forEachIndexed { index, uri ->
+            val thumb = ImageView(this)
+            thumb.layoutParams = LinearLayout.LayoutParams(size, size).also { it.marginEnd = gap }
+            thumb.scaleType = ImageView.ScaleType.CENTER_CROP
+            GlideUtil.request(thumb, uri.toString(), 6, 0)
+            thumb.setOnClickListener { confirmRemoveNoteImage(index) }
+            row.addView(thumb)
+        }
+    }
+
+    /** 移除一张已选截图。走确认弹窗：手表上手指粗，误触概率不低。 */
+    private fun confirmRemoveNoteImage(index: Int) {
+        if (index < 0 || index >= pickedImages.size) return
+        TerminalDialog.confirm(
+            this,
+            getString(R.string.msg_feedback_image_remove_title),
+            getString(R.string.msg_feedback_image_remove_body),
+            onConfirm = {
+                // 弹窗是异步的，回来时集合可能已经变了，按下标再确认一次
+                if (index < pickedImages.size) {
+                    pickedImages.removeAt(index)
+                    renderNoteImages()
+                }
+            }
+        ).show()
     }
 
     /** 滚到时间线末尾，让刚发出去的那条进入视野。等一帧再滚，否则新加的 View 还没测量完。 */

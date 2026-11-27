@@ -5,6 +5,8 @@ import android.os.Parcelable;
 
 import androidx.annotation.NonNull;
 
+import java.util.ArrayList;
+
 /**
  * 反馈对话里的一条消息（26.10.16 新增）。
  *
@@ -34,13 +36,27 @@ public class FeedbackReply implements Parcelable {
      * 所以不需要额外的兼容分支。
      */
     public String author;
+    /**
+     * 这条消息带的配图 key 列表（26.11.27 新增），可能为空。
+     *
+     * <p>是对象存储里的 key 而不是 URL：客户端靠 {@code TerminalApi.mediaUrl(key)} 拼成
+     * 服务端代理地址，**不直连对象存储**（桶保持私有，不用给 R2 开公共访问，也不用多一个域名）。
+     * 老服务端不返回这个字段，解析出来就是空列表。
+     */
+    public ArrayList<String> images;
 
     public FeedbackReply(int id, String title, String content, String ctime, String author) {
+        this(id, title, content, ctime, author, null);
+    }
+
+    public FeedbackReply(int id, String title, String content, String ctime, String author,
+                         ArrayList<String> images) {
         this.id = id;
         this.title = title;
         this.content = content;
         this.ctime = ctime;
         this.author = author;
+        this.images = images != null ? images : new ArrayList<>();
     }
 
     /** 这条是不是用户自己写的（决定详情页用哪套样式与标签）。 */
@@ -58,6 +74,14 @@ public class FeedbackReply implements Parcelable {
         content = in.readString();
         ctime = in.readString();
         author = in.readString();
+        // 追加在末尾：老进程写出的 Parcel 到上一行就结束了，读不到这一项也不会错位
+        ArrayList<String> parsedImages = null;
+        try {
+            parsedImages = in.createStringArrayList();
+        } catch (RuntimeException ignored) {
+            // 老 Parcel 读到这里已到尾部，按「没有图」处理
+        }
+        images = parsedImages != null ? parsedImages : new ArrayList<>();
     }
 
     public static final Creator<FeedbackReply> CREATOR = new Creator<FeedbackReply>() {
@@ -84,5 +108,6 @@ public class FeedbackReply implements Parcelable {
         dest.writeString(content);
         dest.writeString(ctime);
         dest.writeString(author);
+        dest.writeStringList(images);
     }
 }

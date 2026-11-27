@@ -924,6 +924,17 @@
     <string name="msg_feedback_close_fail">操作失败：%1$s</string>
     <!-- 长线程折叠：超过 5 条时只显示最后 3 条 -->
     <string name="feedback_expand_replies">展开全部 %1$d 条</string>
+    <!-- 反馈截图（26.11.27 新增，Cloudflare R2）：最多 3 张，服务端一个开关可随时关掉 -->
+    <string name="feedback_screenshot_add">添加截图（%1$d/%2$d）</string>
+    <string name="feedback_screenshot_hint">截图能更快说明问题，最多 %1$d 张</string>
+    <string name="msg_feedback_image_limit">最多只能带 %1$d 张截图</string>
+    <string name="msg_feedback_image_remove_title">移除这张截图？</string>
+    <string name="msg_feedback_image_remove_body">移除后要重新挑一次。</string>
+    <string name="feedback_image_uploading">正在上传截图 %1$d/%2$d…</string>
+    <string name="feedback_image_unreadable">这张截图读不出来，换一张试试</string>
+    <string name="feedback_image_fail">截图上传失败：%1$s</string>
+    <!-- 详情页「追加说明」里的附图入口：只显示 n/3，点它挑图，点缩略图移除 -->
+    <string name="feedback_note_image_add">附图（%1$d/%2$d）</string>
 
     <!-- ==================== 匿名统计与崩溃上报（自建服务器，26.10.09 新增） ==================== -->
     <string name="setting_telemetry">匿名使用统计</string>
@@ -3518,6 +3529,8 @@
     <string name="msg_share_no_share_copied">系统分享不可用，已复制链接</string>
     <string name="msg_share_url_missing">链接还没准备好，稍后再试</string>
     <string name="msg_share_send_failed_copied">发送失败，已复制链接</string>
+    <!-- 26.11.27：精简 ROM 上「Intent 有、处理它的应用没有」时由 BaseActivity 统一提示 -->
+    <string name="msg_start_no_handler">这台设备没有能完成这个操作的应用</string>
 
     <!-- 26.11.23：分享至动态（通用卡片），发布页的提示文案 -->
     <string name="uitext_senddynamicactivity_024">正在转发…</string>
