@@ -18,6 +18,21 @@
 
 ## 1. 当前版本状态
 
+- **26.11.27 拖动进度条看缩略图（视频快照 `x/player/videoshot`）**：
+  - **来路**：接口清单里 `videoshot` 一直没接。拖动进度条时只有「+mm:ss / 目标时间 / 共 mm:ss」三行文字，不知道要跳到哪个画面。
+  - **三步落地**（每步单独可验）：
+    1. `e6a0c6bb` 数据层：`PlayerApi.getVideoShot`（带 `index=1` 取时间表，拿不到返回 null，不抛也不给空壳）+ `model/VideoShot` + `util/player/VideoShotGrid`（纯函数：时间→格子、格子→裁剪矩形，刻意不用 `android.graphics.Rect` 才能在纯 JVM 单测里跑）。三个实测坑：`image` 是**数组**（长视频多张）、url 是**协议相对**（要补 `https:`）、`index` 有**重复秒值**（所以取「最后一个不晚于目标」）。
+    2. `83d4f333` 几何层：方屏「屏宽 40%（96×54）贴三行文字上方、间隙 2dp」、圆屏「直径 28%（65×37）」。**都是按实测余量反推的，不是拍的**：方屏顶栏区块 `topBarHeight=44`、预览首行 100，中间只有 56dp——40% 宽的图不把间隙压到 2dp 就顶进顶栏；圆屏上方到标题带底只剩 41dp，下方从三行末尾 154 到顶部按钮热区上沿 170.6 只剩 12.6dp，40% 物理上放不下。`seekThumbFits` 明确判定 200×200 小方屏与高约 100dp 的长条屏「放不下」，UI 据此整块跳过而不是画到屏幕外。
+    3. UI 接入：`SeekThumbView`（`onDraw` 里 `drawBitmap(src→dst)` 直接画那一格，**零 Bitmap 分配**——拖动是每帧都可能变的高频事件，逐帧 `createBitmap` 在 2GB 表上会 GC 抖动）+ `VideoShotLoader`（拼版按访问序 LRU 留 3 张；走 `submit()` 而不是 `into(target)`，避开「进程级 RequestManager + 匿名 target 忘 clear」那类崩溃，正是 PR #37 修过的那一族）+ `PlayerNewUiController` 挂载与逐帧换格 + `PlayerActivity` 在 cid 就绪后异步取数。
+  - **一个必须知道的事实**：这个功能**只活在新版播放器界面**（`PlayerNewUiController`）里，而 `PlayerUiSwitch.EXPERIMENT_ENABLED` 自 26.11.22 起被**写死成 false**（下线观察，设置入口也一并隐藏）。旧播放器的 `seekbar_progress` 只有三行文字、没有预览区，所以：
+    - 总闸没开时 `loadVideoShotIfNeeded` **直接 return**——不给旧播放器用户白发一次 `videoshot` 请求；
+    - 将来重新开实验（`EXPERIMENT_ENABLED` 改回 true + 设置入口放回）后本功能即刻可用，调用点一行都不用再动。
+  - **验证**：
+    - 纯函数 `VideoShotGridTest` **14/14**；几何 `PlayerNewUiGeometryTest` **11/11** + `PlayerNewUiFormSpecTest` **20/20**。
+    - 真机（Android 15 / 2GB 模拟器）：临时打开总闸后日志打出 `缩略图预览>cid=3661168 快照 39 格 / 1 张拼版 / 10×10 每格 160×90`，证明**接口、解析与拼版元数据在真实网络下可用**；**拖动时的画面与交互已由用户真机确认可用**。
+    - 两 flavor 各 **319 套件 / 3473 用例 / 0 失败**；`assembleDebug` 双 flavor 通过。
+  - **注意**：验证时临时把 `EXPERIMENT_ENABLED` 改成 true 的那次改动**没有提交**，提交后该文件与 HEAD 一致。
+
 - **26.11.27 App 里反馈附图全是破图（Glide 请求不带 `X-Install-Id`，服务端一律 404）**：
   - **来路**：用户 m9332「图发不出去/看不见」→（真机复现后）「这三个地方改的有问题」这条线里连着查；最后一句是 m9688「你自己看啊，真机看」——不许看截图，要在真机上自己验。
   - **证据**：真机（NOP-AN00 / Android 12）进反馈详情，三张附图里开发者回复那张是灰底破图；nginx access 里同一个 key 全是 `GET /terminal/media/fb/... 404 36`，uvicorn 日志是 `读图被拒 key=... iid='' mid=0` —— 请求确实到了服务端，但**没带身份**。同一 key 用 `curl -H "X-Install-Id: ..."` 请求立刻 200 / 121922 字节，R2 里对象与 `feedback_image` 登记行都在，所以不是存储或鉴权写错。

@@ -30,6 +30,7 @@ import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.SettingsKeys
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.ToolsUtil
+import com.RobinNotBad.BiliClient.util.player.VideoShotGrid
 
 /**
  * 新版播放器控制层。按钮仍使用原 View，重复槽位与网格项才创建镜像并转发点击。
@@ -111,6 +112,20 @@ class PlayerNewUiController(
     private val seekDelta = TextView(activity)
     private val seekMain = TextView(activity)
     private val seekTotal = TextView(activity)
+
+    /** 拖动预览的缩略图（26.11.27）：贴在文字上方，内容由 [updateSeekThumb] 按当前位置换。 */
+    private val seekThumb = SeekThumbView(activity)
+
+    /** 最近一次的拖动位置（ms）；拼版加载回来后按它重算该显示哪一格。 */
+    private var seekThumbPositionMs = 0L
+
+    /**
+     * 拖动预览的缩略图数据，由 `PlayerActivity` 取到后设入；null = 这个视频没有快照。
+     * 后台线程写、主线程读，所以 `@Volatile`。
+     */
+    @Volatile
+    var videoShot: com.RobinNotBad.BiliClient.model.VideoShot? = null
+
     private val mirrors = ArrayList<Pair<View, View>>()
 
     /**
@@ -404,6 +419,8 @@ class PlayerNewUiController(
         seekText.addView(seekDelta, FrameLayout.LayoutParams(-1, 0))
         seekText.addView(seekMain, FrameLayout.LayoutParams(-1, 0))
         seekText.addView(seekTotal, FrameLayout.LayoutParams(-1, 0))
+        // 缩略图最后加（压在文字之下也无所谓，两者纵向不重叠），尺寸与落点在 placeSeekRows 里摆
+        seekText.addView(seekThumb, FrameLayout.LayoutParams(0, 0))
         placeSeekRows()
     }
 
@@ -431,6 +448,92 @@ class PlayerNewUiController(
                 it.topMargin = dp(tops[index])
                 view.layoutParams = it
             }
+        }
+        placeSeekThumb()
+    }
+
+    /**
+     * 缩略图的落点与大小。
+     *
+     * 圆屏放在三行文字**上方**、方屏同理，比例各按实测余量取：
+     * 圆屏直径 28%（40% 宽的图会压到标题），方屏屏宽 40%（间隙只留 2dp，否则顶进顶栏）。
+     * 判断「这块空间到底放不放得下」交给 [PlayerNewUiFormSpec.Spec.seekThumbFits]：
+     * 200×200 的小方屏与高约 100dp 的长条屏都放不下，此时整块隐藏，
+     * 预览退回到「只有三行文字」——不能画到屏幕外或压到顶栏上。
+     */
+    private fun placeSeekThumb() {
+        val lp = seekThumb.layoutParams as? FrameLayout.LayoutParams ?: return
+        val width = widthDp()
+        val height = heightDp()
+        if (round) {
+            val band = PlayerNewUiGeometry.roundSeekThumbBand(width)
+            lp.width = dp(PlayerNewUiGeometry.roundSeekThumbWidth(width))
+            lp.height = dp(band.height)
+            lp.topMargin = dp(band.top)
+            lp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            seekThumb.cornerRadius = dp(4f).toFloat()
+            seekThumb.visibility = View.VISIBLE
+        } else {
+            if (!spec.seekThumbFits(width, height)) {
+                seekThumb.visibility = View.GONE
+                return
+            }
+            lp.width = dp(spec.seekThumbWidth(width))
+            lp.height = dp(spec.seekThumbHeight(width))
+            lp.topMargin = dp(spec.seekThumbTop(width, height))
+            lp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            seekThumb.cornerRadius = dp(3f).toFloat()
+            seekThumb.visibility = View.VISIBLE
+        }
+        seekThumb.layoutParams = lp
+    }
+
+    /** 上一次打日志的格子，避免拖动时每帧刷 logcat。 */
+    private var loggedCropKey = -1
+
+    /** 换到新格子时留一条 D 级日志，「缩略图不出现」时能一眼看出卡在哪一步。 */
+    private fun logCropOnce(crop: VideoShotGrid.Crop) {
+        val key = crop.sheetIndex * 100000 + crop.rect.top * 1000 + crop.rect.left
+        if (key == loggedCropKey) return
+        loggedCropKey = key
+        Logu.d(
+            "缩略图预览",
+            "裁剪 拼版#${crop.sheetIndex} (${crop.rect.left},${crop.rect.top})-(${crop.rect.right},${crop.rect.bottom})"
+        )
+    }
+
+    /**
+     * 按当前位置换缩略图。
+     *
+     * 拖动是高频事件，这里只做「查缓存 → 设一格」，没缓存就画底衬并触发一次异步加载；
+     * 回包时按 [seekThumbPositionMs] 重算，避免用户已经拖到别处了画面却被旧回包盖回去。
+     */
+    private fun updateSeekThumb(positionMs: Long) {
+        seekThumbPositionMs = positionMs
+        val shot = videoShot
+        val crop = if (shot == null) null else VideoShotGrid.cropFor(shot, positionMs)
+        if (shot == null || crop == null) {
+            seekThumb.show(null, null)
+            return
+        }
+        val url = shot.images.getOrNull(crop.sheetIndex) ?: run {
+            seekThumb.show(null, null)
+            return
+        }
+        val bitmap = VideoShotLoader.cached(url)
+        if (bitmap != null) {
+            logCropOnce(crop)
+            seekThumb.show(bitmap, crop.rect)
+            return
+        }
+        seekThumb.show(null, null)
+        VideoShotLoader.load(activity, url) { loadedUrl, loaded ->
+            val current = videoShot ?: return@load
+            val currentUrl = current.images.getOrNull(
+                VideoShotGrid.cropFor(current, seekThumbPositionMs)?.sheetIndex ?: -1
+            )
+            if (loadedUrl != currentUrl) return@load
+            seekThumb.show(loaded, VideoShotGrid.cropFor(current, seekThumbPositionMs)?.rect)
         }
     }
 
@@ -562,6 +665,7 @@ class PlayerNewUiController(
         if (liveNow) liveRow.visibility = View.GONE
         seekDim.visibility = View.VISIBLE
         seekText.visibility = View.VISIBLE
+        updateSeekThumb(pos)
         if (!seekPreviewShown) {
             seekPreviewShown = true
             onPanelShown(true)
