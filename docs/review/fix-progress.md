@@ -18,6 +18,15 @@
 
 ## 1. 当前版本状态
 
+- **26.11.27 控制台「回复带图」必失败（CSP 不含 blob:，缩图却用 createObjectURL 当 img.src）**：
+  - **来路**：用户 m9474「我在我服务器不能给他发图是为啥，发完说这图读不出来帮我查下服务端日志，看是上传失败还是读图接口报错」。
+  - **证据（先看日志再定位）**：nginx access 里 **一条 `/admin/api/media/upload` 都没有**（只有 `/admin/api/media/status` 与 `usage`），说明请求从未离开浏览器；页面代码里「这张图读不出来」这句 toast 只在 `addFbReplyImage` 的 `if (!enc)` 分支出现，即 `shrinkImage` 返回 null —— 失败发生在上传**之前**的本地缩图。
+  - **机理**：`shrinkImage` 用 `URL.createObjectURL(file)` 生成 `blob:` 地址当 `<img>.src`，而控制台域（`console.zsapp.asia`）的 CSP 是 `img-src 'self' data:`，**没有 blob:** —— 浏览器直接拒绝加载，`img.onerror` 立刻触发，于是每张图都「读不出来」。这条 CSP 是加发图功能之前就有的，属于我加控制台附图时漏掉的联动。
+  - **改法（1 个文件，`server/console.html`，server/ 不进 git、部署才生效）**：新增 `readImageAsDataUrl(file)`（FileReader 读成 `data:` URL，CSP 明确允许），`shrinkImage` 改用它当 `<img>.src`，并在入口先拦掉非 JPEG/PNG 的 `file.type`（`accept` 只管得住文件对话框，拖拽/「所有文件」仍可能塞进 HEIC）；失败提示改成「这张图读不出来，换一张 JPEG / PNG 试试」。CSP 本身不动。
+  - **验证（26.11.27 20:12–20:15，真实浏览器 + 真实文件）**：headless Chrome（CDP `DOM.setFileInputFiles`）在线上页面点「附图」→ 3MB JPEG 与 1200×800 PNG 都变成 `已附图 1 / 3 张`，`/admin/api/media/upload` **200**；再填内容点「发送回复」→ `/admin/api/feedback/reply` **200**，重开抽屉新图 `naturalWidth=1200` 正常渲染；已把这条自测回复（内部 id 599）删掉，`detail?id=320` 的 thread 回到 0 条。存量真实反馈的配图也复核能渲染（#316 的 776×1600 与 1152×1003）。
+  - **部署**：`console.html` md5 `ed91e23b…`、4475 行上线（备份 `console.html.bak-imgdata-261127-2012`），`/terminal/health` code 0；控制台页面按 mtime 读取，不需要 restart。
+  - **未验证（L2 / 已知限制）**：①HEIC / WebP 等格式现在会明确提示换一张，不做服务端转码；②控制台附图仍是「选图即上传」，选完不发送会在服务端留 pending，由每小时一次的孤儿清理收走。
+
 - **26.11.27 反馈附图加固：10MB 限额、服务端自解尺寸、上传限流、读图按身份鉴权**：
   - **来路**：用户 m02959「图片总大小限制10MB，且做好必要的压缩和格式校验，和服务端的安全防御，避免接口被打爆：限制单次上传数量和频率，校验 MIME 与文件头，防路径穿越和 SSRF」+「对于用户上传的图片，限制他们自己下载回去」；卡片拍板 question-19：**单张 10MB（三张合计同样 10MB）、不引 Pillow（标准库解析尺寸）、请求头认身份**（App 带 X-Install-Id，控制台用登录会话）。
   - **机理**：加固前三个洞 —— ①宽高完全信任客户端头 `X-Image-Width/Height`（想填多少填多少，像素上限形同没有，解码炸弹无防护）；②上传只有 IP 维度 30 次/小时，换 IP 就换配额；③`/terminal/media/<key>` **不做任何归属校验**，32 位随机 key 的「猜不到」是唯一保护，而控制台的 `<img src>` 会把 key 写进页面与浏览器历史。另外 nginx `client_max_body_size 4m` 会先把大于 4MB 的图挡在门外，所以 10MB 上限必须连 nginx 一起放宽。
