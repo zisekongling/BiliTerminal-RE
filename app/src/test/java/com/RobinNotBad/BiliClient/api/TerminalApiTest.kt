@@ -362,4 +362,37 @@ class TerminalApiTest {
         assertEquals(1, payload.getJSONArray("images").length())
         assertEquals("fb/202611/a.jpg", payload.getJSONArray("images").getString(0))
     }
+
+    // ---------- 配图开关（26.11.27 真机踩到的回归） ----------
+
+    /**
+     * 服务端下发的是真正的 JSON 布尔 {"image_enabled": true}。
+     *
+     * 这条钉住 26.11.27 真机验证抓到的 bug：原先用 optInt 读这个字段，
+     * 布尔值转不成 int（Android 回落 0、标准 org.json 直接抛 ClassCastException），
+     * 于是线上开关明明开着、App 里「添加截图」永远不出现。
+     */
+    @Test
+    fun readImageEnabled_readsJsonBoolean() {
+        assertTrue(TerminalApi.readImageEnabled(JSONObject().put("image_enabled", true)))
+        assertFalse(TerminalApi.readImageEnabled(JSONObject().put("image_enabled", false)))
+    }
+
+    /** 数字与数字字符串也认，万一以后服务端改回 0/1 不用动客户端。 */
+    @Test
+    fun readImageEnabled_readsNumbersAndNumericStrings() {
+        assertTrue(TerminalApi.readImageEnabled(JSONObject().put("image_enabled", 1)))
+        assertFalse(TerminalApi.readImageEnabled(JSONObject().put("image_enabled", 0)))
+        assertTrue(TerminalApi.readImageEnabled(JSONObject().put("image_enabled", "true")))
+        assertFalse(TerminalApi.readImageEnabled(JSONObject().put("image_enabled", "0")))
+    }
+
+    /** 字段缺失、null、脏值一律当关着：宁可不显示入口，也不要让人点了收到 403。 */
+    @Test
+    fun readImageEnabled_missingOrDirtyYieldsFalse() {
+        assertFalse(TerminalApi.readImageEnabled(null))
+        assertFalse(TerminalApi.readImageEnabled(JSONObject()))
+        assertFalse(TerminalApi.readImageEnabled(JSONObject().put("image_enabled", "oops")))
+        assertFalse(TerminalApi.readImageEnabled(JSONObject().put("image_enabled", JSONObject.NULL)))
+    }
 }

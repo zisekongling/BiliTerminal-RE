@@ -840,11 +840,39 @@ public class TerminalApi {
             // 走 headers()：这个接口不需要身份（不含 X-Install-Id / X-Mid），也不该带 Cookie
             JSONObject result = NetWorkUtil.getJson(BASE_URL + "/feedback/config", headers());
             if (result == null || result.optInt("code", -1) != 0) return false;
-            return result.optInt("image_enabled", 0) != 0;
+            return readImageEnabled(result);
         } catch (Exception e) {
             Logu.w("反馈配图开关读取失败：" + e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * 从 /feedback/config 的响应里读「配图开着吗」（26.11.27 新增，纯函数，可单测）。
+     *
+     * <p><b>不能用 optInt 读这个字段</b>：服务端下发的是真正的 JSON 布尔
+     * （{"image_enabled": true}），而 Android 的 org.json 里 optInt 只认
+     * Integer / Number / 数字字符串，碰到布尔值一律回落默认值 —— 线上就会永远读到 0、
+     * 截图入口永远不出现（26.11.27 真机验证踩到的正是这个）。
+     *
+     * <p>现在布尔、数字、数字字符串三种写法都认；字段缺失或脏值一律当关着（宁可不显示入口）。
+     */
+    public static boolean readImageEnabled(JSONObject json) {
+        if (json == null) return false;
+        Object value = json.opt("image_enabled");
+        if (value instanceof Boolean) return (Boolean) value;
+        if (value instanceof Number) return ((Number) value).intValue() != 0;
+        if (value instanceof String) {
+            String text = ((String) value).trim();
+            if ("true".equalsIgnoreCase(text)) return true;
+            if ("false".equalsIgnoreCase(text)) return false;
+            try {
+                return Integer.parseInt(text) != 0;
+            } catch (NumberFormatException ignored) {
+                return false;
+            }
+        }
+        return false;
     }
 
     /**

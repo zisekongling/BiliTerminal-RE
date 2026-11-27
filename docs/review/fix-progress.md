@@ -18,6 +18,17 @@
 
 ## 1. 当前版本状态
 
+- **26.11.27 真机反馈页「添加截图」不出现（optInt 读 JSON 布尔永远得 0）**：
+  - **来路**：用户 m02432「你自己看啊，真机看」—— 让我自己上真机验证「带图发反馈」。在真机 GTJ0220A17004229（NOP-AN00，Android 12）装 26.11.23 正式包，逐级点到「设置 - 关于与帮助 - 反馈与统计 - 反馈与建议」，控件树里**没有任何「添加截图」**，而服务端 `/terminal/feedback/config` 明确返回 `image_enabled: true`。
+  - **机理**：`TerminalApi.fetchFeedbackImageEnabled()` 原写 `result.optInt("image_enabled", 0) != 0`，但服务端下发的是**真正的 JSON 布尔**。Android 的 org.json 里 `optInt` 只认 Integer / Number / 数字字符串：碰到布尔值，有的实现回落默认值 0，有的直接抛 ClassCastException 被外层 `catch` 吞掉返回 false —— 两条路的结果都是 `false`，于是截图卡永远 GONE。开关本身没坏，是读法坏了。
+  - **改法（两个文件）**：
+    - `app/src/main/java/com/RobinNotBad/BiliClient/api/TerminalApi.java`：新增纯函数 `readImageEnabled(JSONObject)` —— Boolean 直接取值、Number 非 0 为真、String 认 `true`/`false`/数字，其余（缺失、`JSONObject.NULL`、脏值）一律 false；`fetchFeedbackImageEnabled()` 改为调它。KDoc 里写明这次踩坑，防止有人改回 optInt。
+    - `app/src/test/java/com/RobinNotBad/BiliClient/api/TerminalApiTest.kt`：新增 3 条 —— `readImageEnabled_readsJsonBoolean` / `readImageEnabled_readsNumbersAndNumericStrings` / `readImageEnabled_missingOrDirtyYieldsFalse`。
+  - **L0（26.11.27 本机）**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest` BUILD SUCCESSFUL；`app/build/test-results/testStandardDebugUnitTest` **319 份报告 / 3452 用例 / 0 失败 / 0 错误**。
+  - **L1（26.11.27 真机 GTJ0220A17004229，重打 Release 覆盖安装）**：`assembleRelease` 后 standard universal md5 `4e204448cded359c356bf65ccad11902`，`adb install -r -d` 成功（同签名同 versionCode，数据保留）。复验全通：①「添加截图（0/3）」卡出现；②点开进入内置 `ImagePickerActivity`，选相册第一张 → 回页面显示「添加截图（1/3）」+ 48dp 缩略图；③填正文（中文输入法未装 ADBKeyboard，`android_interact type` 自动退化为 ASCII）→ 点「发送反馈」→ 页面显示「已收到，反馈编号：316」、正文与截图同时清空；④线上 `GET /admin/api/feedback/detail?id=316` 返回 `images: [{key: fb/202611/342ba99a….jpg, w: 776, h: 1600}]`、`state: waiting_dev`（客户端压缩到长边 ≤1600 生效，原图 1152×2376）；⑤`feedback_image` 表该行 `target_kind=feedback / target_id=316 / feedback_id=316 / mime=image/jpeg / size=181017`；⑥`GET /terminal/media/<key>` 内网与公网都 200、181017 字节、`file` 认作 776×1600 JPEG。
+  - **未验证（L2 人工）**：①手表 300×300 方屏上缩略图与「添加截图（n/3）」卡的排布观感；②一次带 2–3 张时横向缩略图是否挤出屏幕；③控制台反馈抽屉里这张图的显示效果（这次只核了接口与字节，没开抽屉看）。
+  - **兼容**：老版本客户端压根不调 `/feedback/config`，无影响；新客户端 + 老服务端（没有这个接口）走原有 catch 返回 false，截图入口照旧隐藏，不会崩。
+
 - **26.11.27 控制台 R2 用量从首页卡移到独立页**：
   - **来路**：用户 m02202「单独开一页显示，卡片移除」+ 一张截图（首页那张卡能正常显示「1 个对象 / 占用 225 B / 近 7 天请求 9 · 读 4 写 4」，数字本身没问题，只是位置挤在统计区里）。
   - **口径**：R2 用量从概览页 `.cards` 区撤掉，改成左侧页签的一整页（导航在「令牌」后加「R2 用量」）；页面三块 panel —— 对象存储（四张数字卡 + 刷新按钮 + 口径说明）、近 7 天流量（双线图）、「这些数字是怎么来的」解释块。数据来源不变，仍是 `/admin/api/media/usage`（S3 精算存量 + GraphQL 读操作数与流量，服务端缓存 5 分钟，`?refresh=1` 强制刷新）。
