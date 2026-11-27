@@ -18,6 +18,17 @@
 
 ## 1. 当前版本状态
 
+- **26.11.27 控制台加 R2 用量面板（S3 精算存量 + GraphQL 读操作数与流量）**：
+  - **来路**：用户 m5671「再加个面板，查看cf R2的用量可以吗」；m5768 给了一个新的只读 Cloudflare API Token；卡片拍板（question-15）source = 「两种都做」、where = 「控制台首页统计区加一张卡」、chart = 「要，近 7 天小折线」。
+  - **口径**：存量（对象数 / 占用字节）只能用 S3 的 `ListObjectsV2` 逐页精算，别的路数都不准；操作数与流量 S3 那套 API 根本不给，只能走 Cloudflare 的 GraphQL 分析接口，所以两边都做、合成一张卡；Token 只走服务端环境变量，不写代码、不落库、不进日志；结果缓存 5 分钟，点「刷新」带 `?refresh=1` 绕过；任一侧读不到就只少一行数字，不整卡消失、不弹错。
+  - **机理**：三套数据集分别是 `r2StorageAdaptiveGroups`（`max{objectCount payloadSize}`）、`r2OperationsAdaptiveGroups`（`sum{requests}` + `dimensions{actionType}`）、`r2BandwidthUsageAdaptiveGroups`（`sum{bytesUpload bytesDownload}`），都要 `accountTag` 过滤、单次窗口最多 31 天，一次请求可以同时查三个（自测就是这么发的）。**R2 的流量统计不计小于 100 KiB 的传输**（官方口径），所以线上现在看到流量是 0 不代表链路坏了。Class A/B 按 `actionType` 前缀归类：`delete*` 不计费（free）、`get*` / `head*` 记 Class B、其余记 Class A。既有的 `_r2_request` 的 canonical query 恒为空，装不下 `list-type=2`，所以另写了 `_canonical_query`（键排序 + RFC3986 编码）与 `_r2_signed_get`，签名仍复用同一套 SigV4。窗口取「含今天在内的 7 个自然日」：最初照「往前推 7 天再补 7 天」写会把今天挤出 `daily`，自测当场抓到（末点不是今天），已改成推 6 天。
+  - **改法（两个文件，都不进 git —— `server/` 整目录被 `.gitignore` 忽略）**：
+    - `server/rebiliterminal_api.py`（**7040 行**）：配置位 `REBILITERMINAL_CF_API_TOKEN` / `REBILITERMINAL_CF_ACCOUNT_ID`（缺省回落 R2 的 account）/ `CF_GQL_URL`（可覆盖，自测指假端点）/ `CF_TIMEOUT=15` / `R2_USAGE_TTL=300` / `R2_USAGE_MAX_PAGES=200`；新增 `_canonical_query` / `_r2_signed_get` / `_r2_list_objects` / `_r2_action_class` / `CF_USAGE_QUERY` / `_cf_graphql` / `_r2_usage_graphql` / `_r2_usage`（`_R2_USAGE_CACHE` + `_R2_USAGE_LOCK`，TTL 内命中直接回 `cached=True`）；路由 `GET /admin/api/media/usage`（`_check_token` 不过就 403）。
+    - `server/console.html`（**4372 行**）：CSS `.sparkwrap` / `.spark` / `.lnk`；新增 `fmtInt` / `fmtBytes` / `sparkline`（手写内联 SVG，不引图表库）/ `mediaUsageCard` / `loadMediaUsage`；`loadStats()` 里 `renderCards(d)` 之后挂 `loadMediaUsage(false)`；`#cards` 的点击委托优先处理 `[data-r2]`。**顺手修了一个既有 bug**：`loadMediaStatus()` / `toggleMedia()` 读的是 `res.data`，但这个接口返回的是平铺字段，导致图片上传开关按钮永远停在「图片上传：…」且 disabled，改成 `res.data || res`。
+  - **L0 / 自测（26.11.27 本机）**：`outputs/_t_r2_usage.py` **53 项全 PASS**（假 S3 带分页 + 假 GraphQL + 真 uvicorn + 控制台页面送达与折线末点）；`outputs/_t_usage_console.js` **31/31**（单段内联脚本编译 0 错、格式化与 0 值 / 字节进位、无 token 与 S3 读不到时的降级渲染、空数据不插卡）；`python -m py_compile` OK。
+  - **线上（26.11.27 18:29，`root@file.zsapp.asia`）**：覆盖前核对 md5 与上一轮部署一致（期间无人改动），备份 `*.bak-usage-261127-182924`，上传后 md5 与本地一致；`env` 追加 2 键（现 10 键、`chmod 600`）；`systemctl restart` → active、`user_version` 仍 12、日志 0 error。实测 `/admin/api/media/usage`：S3 读到 **1 个对象 / 225 字节**（部署验证时上传的那张测试图，属孤儿待 GC 清理）、GraphQL 近 7 天 **8 次请求（读 4 / 写 3 / 删除 1）**、流量 0、`daily` 7 天 11-21…11-27。
+  - **未验证（L2，要人看）**：① 卡片在首页统计区里的实际位置与宽窄（手机窄屏折行是否难看）；② 全 0 折线现在画成一条平底线，要不要换成「暂无流量」占位；③ 点「刷新」时没有 loading 态，真打外部接口要几秒、等的时候没反馈。
+  - **兼容与安全**：接口只增不改，老页面不受影响；token 只在服务端 `env` 与本地 `outputs/_cf.env`（已 gitignore），不进代码 / 日志 / 仓库，本文只记口径不记值。
 - **26.11.27 三态与图片合并进线上基线并部署上线**：
   - **来路**：用户 m01360「靠你了」要求把这两轮改动真正上线；卡片拍板（question-12）origin = 「不清楚，按保留线上处理」、scope = 「三态 + 图片都搬」；m01586「继续整段移植三态和图片到 server/console.html，改完跑一遍控制台自测」。
   - **关键发现（线上与本地早已分叉）**：线上 `/opt/rebiliterminal-api` 的 api.py 有 5765 行、console.html 4059 行，**比本地多出整套设备页（`/admin/api/devices`、`/admin/api/device`）、访问令牌与权限（`/admin/api/tokens`、`/token/update|rotate|delete`）、控制台直连 DSH 派工、admin 反馈列表「待回复」二分（`awaiting_only` / `awaiting_open` / `bucket`）**；本地独有的只有三态（`user_state` / `outcome`）与图片（`feedback_image` / R2）。直接 scp 覆盖会丢线上功能，所以改成**以线上为基线反向合并**。迁移版本号还撞了车：线上 v10 = 令牌权限派工，本地 v10 = 反馈两列 → 合并后顺延为 **v11（反馈两列）+ v12（图片表）**。
