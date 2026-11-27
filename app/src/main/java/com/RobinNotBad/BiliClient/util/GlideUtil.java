@@ -13,11 +13,14 @@ import android.widget.ImageView;
 
 import com.RobinNotBad.BiliClient.BiliTerminal;
 import com.RobinNotBad.BiliClient.R;
+import com.RobinNotBad.BiliClient.api.TerminalApi;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.RequestManager;
 import com.bumptech.glide.TransitionOptions;
 import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.load.model.GlideUrl;
+import com.bumptech.glide.load.model.LazyHeaders;
 import com.bumptech.glide.load.resource.bitmap.DownsampleStrategy;
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
@@ -98,9 +101,46 @@ public class GlideUtil {
         }
     }
 
+    /**
+     * 缓存一份安装标识：{@link TerminalApi#getInstallId()} 首次调用要读 SharedPreferences，
+     * 而 {@link #model(String)} 是在主线程里组请求时调的，别每次都去碰存档。
+     */
+    private static volatile String cachedInstallId;
+
+    private static String installId() {
+        String cached = cachedInstallId;
+        if (cached != null) return cached;
+        cached = TerminalApi.getInstallId();
+        cachedInstallId = cached;
+        return cached;
+    }
+
+    /**
+     * 给图片请求挑「数据模型」：自建服务端的地址挂上设备标识，其余原样返回。
+     *
+     * <p><b>为什么不能只靠 OkHttp 拦截器</b>（26.11.27 真机踩到）：feedback 附图读图要认身份
+     * （G5：别人拿到 key 也读不到），服务端按 {@code X-Install-Id} 判断这张图是不是你那条反馈里的。
+     * 我们本来只在 {@code helper/CustomGlideModule} 的拦截器里补这个头，但拦截器跑不跑取决于
+     * Glide 最终选中哪个 ModelLoader —— {@code okhttp3-integration} 自带一个
+     * GlideUrl→InputStream 的默认实现，一旦它抢到，我们那个带拦截器的 OkHttpClient 根本不会被用到，
+     * 请求出去就没有这个头，服务端一律 404（真机日志里 uvicorn 读到 {@code iid=''}）。
+     *
+     * <p>GlideUrl 自带的头是 loader 自己转成 {@code Request.Builder.header(...)} 的，
+     * 无论哪个 loader 实现都吃，所以这条路是稳的。拦截器保留不动，两处写同一个值不冲突。
+     *
+     * <p>只认自建域名（{@link ImageRequestPolicy#shouldAttachInstallId}），站外地址原样返回，
+     * 既不改缓存键也不会把设备标识带到第三方图床。
+     */
+    public static Object model(String url) {
+        if (!ImageRequestPolicy.shouldAttachInstallId(url)) return url;
+        return new GlideUrl(url, new LazyHeaders.Builder()
+                .addHeader(ImageRequestPolicy.INSTALL_ID_HEADER, installId())
+                .build());
+    }
+
     public static void request(ImageView view, String url, int placeholder) {
         if (!canLoad(view)) return;
-        Glide.with(view).asDrawable().load(url(url))
+        Glide.with(view).asDrawable().load(model(url(url)))
                 .apply(thumbOptions(view))
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                 .format(DecodeFormat.PREFER_RGB_565)
@@ -112,7 +152,7 @@ public class GlideUtil {
 
     public static void requestRound(ImageView view, String url, int placeholder) {
         if (!canLoad(view)) return;
-        Glide.with(view).asDrawable().load(url(url))
+        Glide.with(view).asDrawable().load(model(url(url)))
                 // 圆形头像走 circleCrop（先裁方再填满），降采样必须用 cover 语义，见 thumbOptionsCover
                 .apply(thumbOptionsCover(view))
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
@@ -126,7 +166,7 @@ public class GlideUtil {
 
     public static void request(ImageView view, String url, int roundCorners, int placeholder) {
         if (!canLoad(view)) return;
-        Glide.with(view).asDrawable().load(url(url))
+        Glide.with(view).asDrawable().load(model(url(url)))
                 .apply(thumbOptions(view))
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                 .format(DecodeFormat.PREFER_RGB_565)

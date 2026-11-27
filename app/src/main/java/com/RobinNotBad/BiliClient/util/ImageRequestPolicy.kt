@@ -73,6 +73,7 @@ object ImageRequestPolicy {
      * - 不能用 endsWith —— `rebiliterminal.zsapp.asia.evil.com` 这类域也能骗到设备标识；
      * - 也不能用 [shouldAttachSession] 那套 B 站白名单 —— 自建域名本来就不在里面。
      */
+    @JvmStatic
     fun shouldAttachInstallId(url: String?): Boolean = hostOf(url) == TERMINAL_HOST
 
     /**

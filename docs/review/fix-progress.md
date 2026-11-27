@@ -18,6 +18,19 @@
 
 ## 1. 当前版本状态
 
+- **26.11.27 App 里反馈附图全是破图（Glide 请求不带 `X-Install-Id`，服务端一律 404）**：
+  - **来路**：用户 m9332「图发不出去/看不见」→（真机复现后）「这三个地方改的有问题」这条线里连着查；最后一句是 m9688「你自己看啊，真机看」——不许看截图，要在真机上自己验。
+  - **证据**：真机（NOP-AN00 / Android 12）进反馈详情，三张附图里开发者回复那张是灰底破图；nginx access 里同一个 key 全是 `GET /terminal/media/fb/... 404 36`，uvicorn 日志是 `读图被拒 key=... iid='' mid=0` —— 请求确实到了服务端，但**没带身份**。同一 key 用 `curl -H "X-Install-Id: ..."` 请求立刻 200 / 121922 字节，R2 里对象与 `feedback_image` 登记行都在，所以不是存储或鉴权写错。
+  - **机理**：读图鉴权按 `X-Install-Id` 认「这张图是不是你那条反馈里的」（`_media_caller_allowed` → `_db_feedback_image_owned`）。这个头本来只由 `helper/CustomGlideModule` 注册的 OkHttp 拦截器补，但**拦截器跑不跑取决于 Glide 选中哪个 ModelLoader**：`okhttp3-integration-4.16.0` 的 aar 自带一份 `OkHttpGlideModule`（AndroidManifest 里用旧式 `com.bumptech.glide.module.GlideModule` 的 `<meta-data>` 注册，注册顺序早于我们的 `AppGlideModule`），它 `registry.replace(GlideUrl → InputStream, OkHttpUrlLoader.Factory(...))` 之后，我们那个带拦截器的 OkHttpClient 根本没被用上。旁证：nginx 里所有 Glide 图片请求 UA 都是系统默认 `Dalvik/2.1.0 ...`，而 `NetWorkUtil.webHeaders` 的 UA 是 desktop Chrome 的 `USER_AGENT_WEB` —— 拦截器若跑过，UA 必然不是 Dalvik。
+  - **改法（3 个文件）**：
+    - `app/src/main/java/com/RobinNotBad/BiliClient/util/GlideUtil.java`：新增 `private static volatile String cachedInstallId` 与 `installId()`（缓存 `TerminalApi.getInstallId()`，避免主线程每次读 SharedPreferences）、`public static Object model(String url)`（只对自建域名返回 `new GlideUrl(url, new LazyHeaders.Builder().addHeader(ImageRequestPolicy.INSTALL_ID_HEADER, installId()).build())`，其余原样返回）；`request(view,url,placeholder)` / `requestRound` / `request(view,url,roundCorners,placeholder)` 三处 `.load(url(url))` 改成 `.load(model(url(url)))`。
+    - `app/src/main/java/com/RobinNotBad/BiliClient/activity/ImageViewerActivity.kt`：`probePage` 的 `asFile()` 预取与 `bindPhoto` 的 `asDrawable()` 显示，两处 `.load(GlideUtil.url_zoom(...))` 都改成 `.load(GlideUtil.model(GlideUtil.url_zoom(...)))`。
+    - `app/src/main/java/com/RobinNotBad/BiliClient/util/ImageRequestPolicy.kt`：`shouldAttachInstallId` 加 `@JvmStatic`（Java 侧直接调）。
+  - **L0（26.11.27 本机）**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest :app:assembleRelease` → BUILD SUCCESSFUL in 2m 10s；`testStandardDebugUnitTest` **319 份报告 / 3460 用例 / 0 失败**；Release universal APK md5 `fe9d48931b4819e165584a97cecaa987`，`adb install -r -d` 覆盖装机保留数据与登录。
+  - **L1 真机验证（26.11.27 20:34–20:38）**：装 Release 包 → 设置 → 关于与帮助 → 反馈与统计 → 我的反馈 → 打开 #316 详情，**三张图全部渲染**（用户提交、用户补充、开发者回复），nginx 对应行从 `404 36` 变 `200 114124`，服务端不再出现「读图被拒」；点缩略图进 `ImageViewerActivity` 大图正常；提交页「添加截图（0/3）」可见且能调起内置选图页（「全部图片 / 系统选择器」）。
+  - **未验证（L2，交人工）**：①手表小屏上 48dp 缩略图三张并排是否拥挤；②弱网下「先占位再出图」的观感。
+  - **兼容性**：`GlideUrl` 自带头对任何 ModelLoader 都生效，站外地址原样返回字符串（不改缓存键、不把设备标识带到第三方图床）；拦截器保留不动，两处写同一个值不冲突。
+
 - **26.11.27 控制台「回复带图」必失败（CSP 不含 blob:，缩图却用 createObjectURL 当 img.src）**：
   - **来路**：用户 m9474「我在我服务器不能给他发图是为啥，发完说这图读不出来帮我查下服务端日志，看是上传失败还是读图接口报错」。
   - **证据（先看日志再定位）**：nginx access 里 **一条 `/admin/api/media/upload` 都没有**（只有 `/admin/api/media/status` 与 `usage`），说明请求从未离开浏览器；页面代码里「这张图读不出来」这句 toast 只在 `addFbReplyImage` 的 `if (!enc)` 分支出现，即 `shrinkImage` 返回 null —— 失败发生在上传**之前**的本地缩图。

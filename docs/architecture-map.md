@@ -1702,6 +1702,14 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **共用的列表布局里加顶栏按钮，必须在代码里开**：`activity_simple_refresh.xml` 被设置/历史/下载/关注等大量页面共用，收藏夹的 `btn_share` 在 XML 里默认 `android:visibility="gone"`，由 `setupShareButton()` 运行时置 `VISIBLE`，**同时把 `pageName` 的 `toStartOf/toLeftOf` 从 `timeText` 改指到新按钮**。若在 XML 里就让 `pageName` 指向一个 GONE 的锚点，锚点宽度为 0，别的页面标题会被拽到时钟底下。按钮自身要吃掉点击与长按（`setOnLongClickListener { true }`），否则会连带触发顶栏的「退出」与「长按回菜单」。
 - **图标按钮用 `app:srcCompat`**：`icon_share` 是 `<vector>`，写 `android:src` 在 API<21 会抛 `Resources$NotFoundException: invalid drawable tag vector`，`VectorDrawableCompatTest` 会拦下（26.11.23 直播/专栏那轮踩过）。
 
+### 7.74 反馈附图要带设备标识：Glide 拦截器不可靠，必须走 GlideUrl 挂头（26.11.27）
+
+- **症状**：README 里那张图在 App 里全是灰底破图；服务端 access log 是 `GET /terminal/media/fb/... 404 36`，uvicorn 日志写着 `读图被拒 iid=''`。换成 `curl -H "X-Install-Id: ..."` 同样的 key 立刻 200 —— 所以是**客户端没把身份带出去**，不是服务端鉴权写错。
+- **根因**：读图鉴权（见 `server/rebiliterminal_api.py` 的 `_media_caller_allowed` / `_db_feedback_image_owned`）按 `X-Install-Id` 认「这张图是不是你那条反馈里的」。我们本来只在 `helper/CustomGlideModule` 注册的 OkHttp 拦截器里补这个头，但**拦截器跑不跑取决于 Glide 最终选中哪个 ModelLoader**：`okhttp3-integration-4.16.0` 的 aar 自带一份 `OkHttpGlideModule`（`AndroidManifest` 里的 `<meta-data>` 注册的是旧式 `com.bumptech.glide.module.GlideModule`，注册顺序早于我们的 `AppGlideModule`），它 `registry.replace(GlideUrl → InputStream, OkHttpUrlLoader.Factory(...))` 之后，我们那个带拦截器的 OkHttpClient 根本没被用到。旁证：nginx 里所有 Glide 发出的图片请求 UA 都是系统默认 `Dalvik/2.1.0 ...`，而 `NetWorkUtil.webHeaders` 的 UA 是 desktop Chrome 的 `USER_AGENT_WEB` —— 拦截器若跑过，UA 必然不是 Dalvik。
+- **改法**：`util/GlideUtil.java` 新增 `public static Object model(String url)` —— 只对自建域名（`ImageRequestPolicy.shouldAttachInstallId`）返回 `new GlideUrl(url, new LazyHeaders.Builder().addHeader(ImageRequestPolicy.INSTALL_ID_HEADER, installId()).build())`，其余原样返回字符串；`request(...)` / `requestRound(...)` 与 `ImageViewerActivity` 的两处 `.load(...)` 全部改成 `.load(GlideUtil.model(...))`。**GlideUrl 自带的头由 loader 自己转成 `Request.Builder.header(...)`，任何 loader 实现都吃**，所以这条路是稳的；`ImageRequestPolicy.shouldAttachInstallId` 因此要加 `@JvmStatic`（Java 侧直接调）。拦截器保留不动，两处写同一个值不冲突。
+- **改到这里还不够的地方**：`installId()` 里缓存了一份 `TerminalApi.getInstallId()`（首次要读 SharedPreferences，而 `model()` 在主线程组请求时被调）。新增图片请求一律走 `GlideUtil.model()`，**别再直接 `.load(url)`**，否则又会退回「全靠拦截器」的老路。
+- **验证口径**：真机（NOP-AN00 / Android 12）打开反馈详情，三张图（用户提交、用户追加、开发者回复）全部渲染；nginx 对应行从 404 变成 `200 114124`；点缩略图进 `ImageViewerActivity` 也能看到原图（它走 `asFile()` 预取 + `asDrawable()` 显示，两条都得改成 `GlideUtil.model`，漏一条就只有全屏图是破的）。
+
 ## 8. UI 基建速查（新增页面临摹用）
 
 ### 8.1 完整继承体系
