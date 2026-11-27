@@ -18,6 +18,22 @@
 
 ## 1. 当前版本状态
 
+- **26.11.27 反馈附图加固：10MB 限额、服务端自解尺寸、上传限流、读图按身份鉴权**：
+  - **来路**：用户 m02959「图片总大小限制10MB，且做好必要的压缩和格式校验，和服务端的安全防御，避免接口被打爆：限制单次上传数量和频率，校验 MIME 与文件头，防路径穿越和 SSRF」+「对于用户上传的图片，限制他们自己下载回去」；卡片拍板 question-19：**单张 10MB（三张合计同样 10MB）、不引 Pillow（标准库解析尺寸）、请求头认身份**（App 带 X-Install-Id，控制台用登录会话）。
+  - **机理**：加固前三个洞 —— ①宽高完全信任客户端头 `X-Image-Width/Height`（想填多少填多少，像素上限形同没有，解码炸弹无防护）；②上传只有 IP 维度 30 次/小时，换 IP 就换配额；③`/terminal/media/<key>` **不做任何归属校验**，32 位随机 key 的「猜不到」是唯一保护，而控制台的 `<img src>` 会把 key 写进页面与浏览器历史。另外 nginx `client_max_body_size 4m` 会先把大于 4MB 的图挡在门外，所以 10MB 上限必须连 nginx 一起放宽。
+  - **改法（App 4 个文件 + 服务端 1 个文件 + nginx 2 份站点配置；`server/` 与 nginx 都不进 git，部署才生效）**：
+    - `app/src/main/java/com/RobinNotBad/BiliClient/util/ImageRequestPolicy.kt`：新增 `TERMINAL_HOST`、`INSTALL_ID_HEADER`、`shouldAttachInstallId(url)` —— host 用 equals 精确匹配，防 `rebiliterminal.zsapp.asia.evil.com` 这类子域骗到设备标识。
+    - `app/src/main/java/com/RobinNotBad/BiliClient/helper/CustomGlideModule.kt`：Glide 拦截器在写完 webHeaders 之后先 `removeHeader("X-Install-Id")`，再按 `shouldAttachInstallId` 写入 —— 先删后写是为了防跨主机重定向把设备标识带到站外图床。
+    - `app/src/main/java/com/RobinNotBad/BiliClient/util/FeedbackImage.kt`：只改注释（服务端不再信客户端宽高；客户端仍主动压到 2MB，远小于服务端 10MB）。
+    - `app/src/test/java/com/RobinNotBad/BiliClient/util/ImageRequestPolicyTest.kt`：+4 条（本域带上、子域/前缀域/站外不带、空与 null 不带、头名与契约一致）。
+    - 服务端 `rebiliterminal_api.py`：`FEEDBACK_IMAGE_MAX_BYTES` 2MB→10MB，新增 `FEEDBACK_IMAGE_TOTAL_BYTES`（10MB，三张合计）、`FEEDBACK_IMAGE_MAX_PIXELS`（4000 万）、`FEEDBACK_IMAGE_MAX_EDGE`（12000）；新增 `_png_size`（读 IHDR）/`_jpeg_size`（扫 SOF 段）/`_image_size`，`_read_image_body` 改为返回 `(info, err)` 并自己算宽高 —— 读不出尺寸 415、超长边或超像素 413；上传路由不再读客户端宽高头，IP 限流 30→**20 次/小时**，另加 install 维度 **10 次/小时**；新增 `_db_feedback_image_owned` 与 `_bind_images`，绑定前三张合计超 10MB 就不绑（正文照常入库）；`media_proxy` 加 `request` 参数与 `_media_caller_allowed`（管理端 token/会话放行，否则按 X-Install-Id / X-Mid 查归属），**先鉴权再查存在性**，未授权一律真 404；`Cache-Control` 从 `public, max-age=31536000, immutable` 改成 `private, max-age=86400`。
+    - nginx（线上 `/www/server/panel/vhost/nginx/`）：两份站点配置里 4 处 `client_max_body_size 4m;` → `12m`（10MB 图 + 头部余量），`nginx -t` 通过后 reload；仓库快照已从线上回拉对齐。
+  - **L0（26.11.27 本机）**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest` BUILD SUCCESSFUL；清掉报告目录后统计 **319 份 / 3460 用例 / 0 失败**。服务端 `outputs/_t_media.py` **53 项 ALL PASS**（新增尺寸解析 8 项、鉴权 5 项、合计超限 1 项、上传频率 1 项；假图夹具换成结构合法的 JPEG/PNG，因为尺寸现在由服务端自己解析）。
+  - **部署与线上验证（26.11.27 20:02）**：服务端新 md5 `8b5cd43f…`（7232 行）上线并 restart，`/terminal/health` code 0、`PRAGMA user_version` 12；线上跑 `outputs/_t_harden_live.py`：8MB 结构合法 JPEG 上传 code 0（size 8388649、w1600 h1200）、11MB 回 413「图片太大了，单张上限 10MB」、读图匿名 404 / 别人 install 404 / 本人 200 且 md5 与上传字节一致、带图提交 code 0（id 320、images 1）且 mine 回读 images 1；控制台域带会话 cookie 200、不带 404，`/terminal/feedback/config` 在控制台域仍 404。
+  - **L1 真机（26.11.27 20:05）**：release 重打后覆盖安装真机 `GTJ0220A17004229`，进「我的反馈」→ 详情，正文缩略图与「我的补充」气泡里的图都正常显示（Glide 的 X-Install-Id 生效；**不装新包的旧版本读图会 404**）。
+  - **未验证（L2，只能人看）**：①手表 300×300 圆屏上详情页缩略图排布是否挤；②控制台抽屉里附图缩略图在窄屏的折行；③10MB 大图在手表弱网下的等待观感。
+  - **兼容与安全**：老客户端（≤ 26.11.23）读图不带身份会 404，但正文与时间线照旧可用，且它本来也发不了图；老库升级只加列、不改语义；服务端不引 Pillow（标准库解析 IHDR/SOF），EXIF 不专门剥离但客户端 JPEG 重编码已丢大部分元数据；key 仍是 `fb/<yyyymm>/<32hex>`，路由强制 `fb/` 前缀 + 白名单正则 + 禁 `..`，且只从 R2 拉、不接受任何 URL 参数，SSRF 面为零。
+
 - **26.11.27 反馈附图「发图失败 + 回读 404」（images 是对象数组被 optString 取成整段 JSON；大图二次 open 失败）**：
   - **来路**：用户 m02780「我这边发图失败，且发过的图片若重新加载APP里就 404 了」，附图是 toast「这张图读不出来」（正是 `feedback_image_unreadable`，对应 `FeedbackImage.CODE_UNREADABLE`）。
   - **机理一（回读 404）**：服务端 `_db_feedback_image_map` 给 App 下发的是**对象数组** `images: [{"key":"fb/202611/x.jpg","w":776,"h":1600}]`（控制台要宽高排版），而 `TerminalApi.parseImageKeys` 原用 `array.optString(i, "")` 取元素 —— org.json 对 JSONObject 会调 `toString()`，于是 key 变成整段 JSON 文本，URL 拼成 `/terminal/media/{"key":...}`，服务端 media 路由的 key 白名单正则 `[A-Za-z0-9/_.-]{1,200}` 不匹配 → **必然 404**。刚选完还没提交时显示的是本地 `Uri` 所以正常，一重进 App 走服务端回读就全裂，与用户描述完全吻合。

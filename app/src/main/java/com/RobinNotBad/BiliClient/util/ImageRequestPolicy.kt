@@ -56,6 +56,26 @@ object ImageRequestPolicy {
     }
 
     /**
+     * 自建终端服务的域名。反馈配图不经过 B 站，读图走这里（`/terminal/media/<key>`）。
+     *
+     * 26.11.27 起读图要认身份：服务端只让「这张图所属反馈的那个人」和开发者读，
+     * 别人拿到 key 也是 404（G5）。App 侧靠请求头 [INSTALL_ID_HEADER] 证明身份。
+     */
+    const val TERMINAL_HOST = "rebiliterminal.zsapp.asia"
+
+    /** 反馈配图读图的身份头，值取自 `TerminalApi.getInstallId()`。 */
+    const val INSTALL_ID_HEADER = "X-Install-Id"
+
+    /**
+     * 该图片 URL 是否要带 [INSTALL_ID_HEADER]。
+     *
+     * 只认与 [TERMINAL_HOST] 完全相等：
+     * - 不能用 endsWith —— `rebiliterminal.zsapp.asia.evil.com` 这类域也能骗到设备标识；
+     * - 也不能用 [shouldAttachSession] 那套 B 站白名单 —— 自建域名本来就不在里面。
+     */
+    fun shouldAttachInstallId(url: String?): Boolean = hostOf(url) == TERMINAL_HOST
+
+    /**
      * 认 `@0e_75q_640w.webp`（`@…q_…w.jpeg`）这类缩放后缀的 B 站图床主机。
      * 与 [NetWorkUtil.isBilibiliHost] 分开写：主站域名（www/api/passport…）虽然属于 B 站，
      * 但同样不认这个后缀，拼上去一样 404。

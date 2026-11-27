@@ -18,9 +18,10 @@ import kotlin.math.roundToInt
  *
  * <h3>与服务端的契约</h3>
  * 服务端（`server/rebiliterminal_api.py` 的 `POST /terminal/feedback/image`）收的是**裸字节**，
- * 不是 multipart；宽高从 `X-Image-Width` / `X-Image-Height` 头读，服务端不解码图片。
- * 它只认 JPEG / PNG 的魔数，上限 [MAX_BYTES]（与服务端 `FEEDBACK_IMAGE_MAX_BYTES` 一致）。
- * 所以这里统一压成 JPEG：PNG 截图（手表截图常是 PNG）体积太大，直接传必超限。
+ * 不是 multipart。26.11.27 加固后**服务端自己解析图片尺寸**（PNG 的 IHDR / JPEG 的 SOF 段），
+ * 客户端的 `X-Image-Width` / `X-Image-Height` 头不再被信任、也不用再发。
+ * 它只认 JPEG / PNG 的魔数，单张与合计上限都是 10MB，另外还限像素数与长边（见服务端注释）。
+ * 所以这里统一压成 JPEG：PNG 截图（手表截图常是 PNG）体积太大，直接传白白多占流量。
  *
  * <h3>为什么不保留原图</h3>
  * 反馈截图是给开发者看「哪里不对」，长边 1600 已经比手表屏幕大一个数量级；
@@ -39,7 +40,13 @@ object FeedbackImage {
     /** 解码后的长边上限（像素）。 */
     const val MAX_EDGE = 1600
 
-    /** 上传大小上限。与服务端 `FEEDBACK_IMAGE_MAX_BYTES` 保持一致。 */
+    /**
+     * 本地压缩的目标大小上限。
+     *
+     * 服务端 `FEEDBACK_IMAGE_MAX_BYTES` 是 10MB（三张合计也是 10MB），这里刻意定得**远小于**它：
+     * 手表端网络本来就不快，200~500 KB 的图已经足够看清问题，没必要把用户的流量和上传等待
+     * 花在 10MB 的原图上。哪天服务端放宽上限也不用抬这里。
+     */
     const val MAX_BYTES = 2 * 1024 * 1024
 
     /** 首次压缩质量；超限时按 [JPEG_QUALITY_STEP] 递减，最低 [JPEG_QUALITY_MIN]。 */
