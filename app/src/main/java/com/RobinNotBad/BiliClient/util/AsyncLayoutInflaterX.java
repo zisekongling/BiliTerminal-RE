@@ -1,6 +1,7 @@
 package com.RobinNotBad.BiliClient.util;
 
 import android.content.Context;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
 import android.os.SystemClock;
@@ -47,7 +48,14 @@ public class AsyncLayoutInflaterX {
     @UiThread
     public void inflate(@LayoutRes int resid, @Nullable ViewGroup parent,
                         @NonNull OnInflateFinishedListener callback) {
-        if (SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.ASYNC_INFLATE_ENABLE, true)) {
+        // API 23 以下一律回主线程 inflate（26.11.27）。
+        //
+        // 5.x 上后台线程 inflate 与主线程并发跑时，克隆 StateListAnimator 会共享
+        // AnimatorSet 内部那个临时 Node 槽位，两条线程互相踩，稳定复现 NullPointerException。
+        // 本工程 minSdk 19，且 4.4/5.x 的手表用户是真实存在的（见 app/build.gradle:86 与
+        // docs/agents/build.md 里恢复 4.4 的记录），所以这道闸不能省。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                && SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.ASYNC_INFLATE_ENABLE, true)) {
             InflateRequest request = obtainRequest();
             request.inflater = this;
             request.resid = resid;
