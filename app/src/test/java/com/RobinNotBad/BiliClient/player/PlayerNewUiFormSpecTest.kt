@@ -49,6 +49,44 @@ class PlayerNewUiFormSpecTest {
     }
 
     @Test
+    fun `seek thumb fits between the top bar and the three rows`() {
+        // 缩略图宽取屏宽 40%、高 16:9，贴在拖动预览三行文字上方，间隙 2dp。
+        // 小方屏（200×200，scale 0.714 时上方只有约 40dp）与长条屏（高约 100dp）放不下——
+        // 这时 seekThumbFits 必须为 false，UI 层据此整块跳过，绝不能画到顶栏上。
+        for (spec in listOf(watch, phone)) {
+            for ((w, h) in listOf(refW to refH, 200f to 200f, 480f to 560f)) {
+                val width = spec.seekThumbWidth(w)
+                val height = spec.seekThumbHeight(w)
+                val top = spec.seekThumbTop(w, h)
+                val firstRow = spec.seekRows(h)[0]
+                assertEquals("${spec.form} ${w}dp 宽应取 40%", w * 0.4f, width, 0.02f)
+                assertEquals("16:9", width * 9f / 16f, height, 0.02f)
+                if (spec.seekThumbFits(w, h)) {
+                    assertTrue("${spec.form} ${w}x$h 缩略图压到首行", top + height <= firstRow)
+                    assertTrue("${spec.form} ${w}x$h 缩略图顶进顶栏", top >= spec.topBarHeight)
+                } else {
+                    assertTrue(
+                        "${spec.form} ${w}x$h 既然判定放不下，top 必须已经落进顶栏",
+                        top < spec.topBarHeight
+                    )
+                }
+            }
+        }
+        // 参考尺寸下就是设计稿里那块空地：顶栏区块底 44、首行 100，缩略图 44–98。
+        assertTrue("参考尺寸必须放得下", watch.seekThumbFits(refW, refH))
+        assertEquals(44f, watch.seekThumbTop(refW, refH), 0.02f)
+        assertEquals(96f, watch.seekThumbWidth(refW), 0.02f)
+        assertEquals(54f, watch.seekThumbHeight(refW), 0.02f)
+    }
+
+    @Test
+    fun `seek thumb is skipped when the form has no room for it`() {
+        // 长条屏高度约 100dp：三行首行只有 10dp，上方放不下，必须明确判「放不下」
+        // 而不是画到屏幕外或压在顶栏上。
+        assertFalse("长条屏 240×100 应判定放不下", strip.seekThumbFits(240f, 100f))
+    }
+
+    @Test
     fun `watch bottom row is centred with four default slots`() {
         // 默认布局底栏 4 格：48 / 96 / 144 / 192（设计稿 S_BOT_X）。
         assertEquals(listOf(48f, 96f, 144f, 192f), watch.bottomPlacement(4, 0, refW).slotXs)

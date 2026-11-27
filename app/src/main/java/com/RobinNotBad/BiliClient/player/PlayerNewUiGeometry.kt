@@ -52,6 +52,39 @@ object PlayerNewUiGeometry {
         return Band(top * factor, height * factor)
     }
 
+    /** 拖动预览缩略图的宽度占屏幕宽度（圆屏即直径）的比例。 */
+    const val SEEK_THUMB_WIDTH_RATIO = 0.4f
+
+    /** 缩略图按 16:9 算高度。入参是屏幕宽度（dp），不是缩放后的值。 */
+    fun seekThumbHeight(widthDp: Float): Float = widthDp * SEEK_THUMB_WIDTH_RATIO * 9f / 16f
+
+    /**
+     * 圆屏缩略图的宽度占直径的比例。
+     *
+     * 比方屏小：圆屏三行紧贴在「当前 / 总长」下面（参考屏 87 起），上方到标题带底边（46）
+     * 只剩 41dp，40% 宽的图（54dp 高）根本放不下；28% 是「留 3dp 间隙还塞得进」的最大值。
+     * 下方更没空间——底部按钮热区上沿在 170.6dp（`polar(88, 235°)` 的 y=188.6 减半个热区），
+     * 三行末尾 154 之后只剩 12.6dp。
+     */
+    const val ROUND_SEEK_THUMB_WIDTH_RATIO = 0.28f
+
+    fun roundSeekThumbWidth(sizeDp: Float): Float = sizeDp * ROUND_SEEK_THUMB_WIDTH_RATIO
+
+    fun roundSeekThumbHeight(sizeDp: Float): Float = roundSeekThumbWidth(sizeDp) * 9f / 16f
+
+    /**
+     * 圆屏拖动预览的缩略图带：贴在**三行文字上方**。
+     *
+     * 间隙取 3dp（不是别处的 4dp）：参考屏下缩略图底边 83.7、顶边 47.3，
+     * 与标题带底边 46 只差 1.3dp，再大就压上去了。
+     */
+    fun roundSeekThumbBand(sizeDp: Float): Band {
+        val factor = sizeDp / REFERENCE_SIZE_DP
+        val rows = roundSeekRows(sizeDp)
+        val height = roundSeekThumbHeight(sizeDp)
+        return Band(rows[0].top - 3f * factor - height, height)
+    }
+
     data class Spec(
         val slots: List<PlayerUiLayout.Slot>,
         val positions: List<Point>
