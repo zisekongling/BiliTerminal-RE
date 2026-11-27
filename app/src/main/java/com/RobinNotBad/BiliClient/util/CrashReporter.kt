@@ -194,15 +194,25 @@ object CrashReporter {
         } else {
             PendingCrashStore.save(PendingCrashStore.dirOf(context), payload.toString())
         }
+        // 认领：这个目录被两个进程共用（崩溃页 :error_activity 与主进程），冷启动补传那条路径
+        // 可能正在发同一个文件。抢不到认领就跳过本次 POST——崩溃页照样告诉用户「存本机了」，
+        // 那条报告由抢到的一方向外发。落盘都失败了（stored == null）才没得认领，照旧尽力发一次。
+        val claimed = PendingCrashStore.claim(stored)
+        if (stored != null && claimed == null) {
+            Logu.i(TAG, "这条崩溃正被另一条路径上传，跳过本次 POST：" + stored.name)
+            return ApiResult(CODE_SAVED_LOCALLY, UiText.of("已保存在本机，稍后会自动重试上传"))
+        }
         val result = try {
             TerminalApi.uploadCrash(payload)
         } catch (e: Exception) {
             ApiResult(-4, UiText.of("崩溃报告生成失败"))
         }
         if (result.code >= 0) {
-            PendingCrashStore.delete(stored)
+            PendingCrashStore.delete(claimed ?: stored)
             return result
         }
+        // 失败要把认领还回去，否则这条报告停在 .inflight 里，十分钟内谁都捡不到它
+        PendingCrashStore.release(claimed)
         return if (stored != null) {
             ApiResult(CODE_SAVED_LOCALLY, UiText.of("已保存在本机，稍后会自动重试上传"))
         } else {
@@ -222,6 +232,10 @@ object CrashReporter {
     fun retryPending(context: Context?): Int {
         if (context == null) return 0
         val dir = PendingCrashStore.dirOf(context) ?: return 0
+        // 先回收上次认领了却没结果的：进程在 POST 途中被杀，文件会一直停在 .inflight，
+        // 既不在待传队列也不会被别处碰到，只能在这里放出来。
+        val recovered = PendingCrashStore.recoverStaleInflight(dir)
+        if (recovered > 0) Logu.w(TAG, "回收了 $recovered 条超时未完成的认领，重新入队")
         val pending = PendingCrashStore.list(dir)
         // 补传本身不许出声（启动链路上、用户没点任何东西），但**结果必须留一行日志**：
         // 「补传到底有没有生效」在用户那边只能靠排查日志回答，没有这行就又要靠猜。
@@ -232,18 +246,24 @@ object CrashReporter {
         if (pending.isEmpty()) return 0
         var sent = 0
         for (file in pending.take(MAX_RETRY_PER_START)) {
-            val text = PendingCrashStore.read(file)
+            // 认领不到说明崩溃页那条路径正在发它，这次不重复 POST
+            val claimed = PendingCrashStore.claim(file)
+            if (claimed == null) {
+                Logu.i(TAG, "跳过已在别处上传的报告：${file.name}")
+                continue
+            }
+            val text = PendingCrashStore.read(claimed)
             if (text == null) {
                 // 坏文件 / 超大 / 空文件：删掉，别占着那 20 个名额
                 Logu.w(TAG, "待传崩溃报告不可用（空/超大/非文件），已丢弃：${file.name}")
-                PendingCrashStore.delete(file)
+                PendingCrashStore.delete(claimed)
                 continue
             }
             val payload = try {
                 JSONObject(text)
             } catch (e: Exception) {
                 Logu.w(TAG, "待传崩溃报告不是合法 JSON，已丢弃：${file.name}")
-                PendingCrashStore.delete(file)
+                PendingCrashStore.delete(claimed)
                 continue
             }
             val result = try {
@@ -252,11 +272,12 @@ object CrashReporter {
                 null
             }
             if (result != null && result.code >= 0) {
-                PendingCrashStore.delete(file)
+                PendingCrashStore.delete(claimed)
                 sent++
                 Logu.i(TAG, "补传成功，报错ID=${result.code}（${file.name}）")
             } else {
-                // 推到队尾，下次启动先试别的：一条死活传不上去的报告不该把后面的一起堵死
+                // 先归还认领，再推到队尾：一条死活传不上去的报告不该把后面的一起堵死
+                PendingCrashStore.release(claimed)
                 PendingCrashStore.touch(file)
                 Logu.w(TAG, "补传失败 code=${result?.code ?: -4}，推到队尾等下次启动：${file.name}")
             }
