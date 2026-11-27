@@ -18,6 +18,14 @@
 
 ## 1. 当前版本状态
 
+- **26.11.27 控制台反馈抽屉里的附图全 404（控制台域名故意封了 /terminal/）**：
+  - **来路**：用户 m02725「点开显示404」。真机提交的 #316 带图反馈，在控制台抽屉里能看到缩略图位置，但图片本身加载不出来、点开也是 404。
+  - **机理**：控制台前端用**同源相对路径** `/terminal/media/<key>` 挂图（这样 CSP `img-src 'self' data:` 天然满足，不用新开外链域名）。但 `console.zsapp.asia` 的 nginx 里有一条 `location ^~ /terminal/ { return 404; }` —— 控制台域名**故意**不开放终端接口。于是所有附图请求都被这条规则吃掉（146 字节的 html 404）。同一个 key 在 `rebiliterminal.zsapp.asia` 下是 200 且字节数一致，所以问题不在服务端也不在 R2。
+  - **改法（nginx，不进 git）**：在 `/www/server/panel/vhost/nginx/console.zsapp.asia.conf` 那条 404 规则**之前**插入更长前缀的 `location ^~ /terminal/media/`，反代到 `127.0.0.1:8788`（只放行只读图片这一条，其余 `/terminal/` 照旧 404）。备份 `console.zsapp.asia.conf.bak-fbimg-261127-192825`，82 → 91 行；`nginx -t` 通过后 `nginx -s reload`（无需重启服务端）。
+  - **验证**：`https://console.zsapp.asia/terminal/media/<key>` → 200 / 181017 字节 / `image/jpeg`；`/terminal/feedback/config` 仍 **404**；`/terminal/media/../../admin/api/stats` → **403**（穿越被拒）。控制台抽屉用 CDP 复验：`img.complete = true`、`naturalWidth/Height = 776/1600`，列表行同时显示「图 ×1」与三态药丸「待回复」，截图 `outputs/_shot_fb316_fixed.png`。
+  - **环境注意**：这台机器是宝塔面板装的 nginx（二进制 `/www/server/nginx/sbin/nginx`，站点配置在 `/www/server/panel/vhost/nginx/`，`/etc/nginx` 是空的）。日后在面板里改站点配置可能覆盖这条规则，改完要重新确认附图仍能加载。
+  - **未验证（L2）**：手机/手表端弱网下缩略图与点开大图的观感（本机只验到桌面浏览器与真机同网）。
+
 - **26.11.27 真机反馈页「添加截图」不出现（optInt 读 JSON 布尔永远得 0）**：
   - **来路**：用户 m02432「你自己看啊，真机看」—— 让我自己上真机验证「带图发反馈」。在真机 GTJ0220A17004229（NOP-AN00，Android 12）装 26.11.23 正式包，逐级点到「设置 - 关于与帮助 - 反馈与统计 - 反馈与建议」，控件树里**没有任何「添加截图」**，而服务端 `/terminal/feedback/config` 明确返回 `image_enabled: true`。
   - **机理**：`TerminalApi.fetchFeedbackImageEnabled()` 原写 `result.optInt("image_enabled", 0) != 0`，但服务端下发的是**真正的 JSON 布尔**。Android 的 org.json 里 `optInt` 只认 Integer / Number / 数字字符串：碰到布尔值，有的实现回落默认值 0，有的直接抛 ClassCastException 被外层 `catch` 吞掉返回 false —— 两条路的结果都是 `false`，于是截图卡永远 GONE。开关本身没坏，是读法坏了。
