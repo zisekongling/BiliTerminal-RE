@@ -949,6 +949,8 @@ object UiText {
         "捏合缩放" to R.string.uitext_playerzoomdiagnostics_017,
         "拖动画面" to R.string.uitext_playerzoomdiagnostics_018,
         "未消费" to R.string.uitext_playerzoomdiagnostics_019,
+        "待回复" to R.string.feedback_state_waiting,
+        "已回复" to R.string.feedback_state_replied,
 // @INSERT
     )
 

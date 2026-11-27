@@ -27,7 +27,7 @@ class FeedbackUnreadTest {
     private fun user(id: Int) = FeedbackReply(id, "", "用户补充", "2026-11-16 13:00", FeedbackReply.AUTHOR_USER)
 
     private fun item(id: Int, vararg replies: FeedbackReply) =
-        FeedbackItem(id, "bug", "正文", "", "2026-11-16 11:00", false, ArrayList(replies.toList()))
+        FeedbackItem(id, "bug", "正文", "", "2026-11-16 11:00", false, ArrayList(replies.toList()), "")
 
     // ==================== latestDevReplyId ====================
 
