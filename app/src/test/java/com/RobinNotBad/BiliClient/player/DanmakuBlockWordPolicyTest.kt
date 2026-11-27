@@ -78,6 +78,44 @@ class DanmakuBlockWordPolicyTest {
     }
 
     @Test
+    fun `全角数字与字母和半角等价`() {
+        // 用户填全角，弹幕是半角（以及反过来），必须命中
+        assertTrue(DanmakuBlockWordPolicy.parse("７８").isBlocked("前面 78 后面"))
+        assertTrue(DanmakuBlockWordPolicy.parse("78").isBlocked("前面 ７８ 后面"))
+        assertTrue(DanmakuBlockWordPolicy.parse("ＳＣ").isBlocked("这集真是 sc 高能"))
+        assertEquals(listOf("78"), DanmakuBlockWordPolicy.parse("７８").words)
+    }
+
+    @Test
+    fun `键帽与变体选择符被剥掉`() {
+        // 7️⃣ = '7' + U+FE0F + U+20E3；拦 "78" 时不能被这些修饰符挡住
+        val keycap78 = "7\uFE0F\u20E3" + "8\uFE0F\u20E3"
+        assertTrue(DanmakuBlockWordPolicy.parse("78").isBlocked(keycap78))
+        // 填写侧同样归一：词表里落的是纯 "7"
+        assertEquals(listOf("7"), DanmakuBlockWordPolicy.parse("7\uFE0F\u20E3").words)
+        // 变体选择符（文本样式 U+FE0E）也要剥
+        assertEquals(listOf("7"), DanmakuBlockWordPolicy.parse("7\uFE0E").words)
+    }
+
+    @Test
+    fun `夹空白与零宽字符仍算同一个词`() {
+        assertTrue(DanmakuBlockWordPolicy.parse("78").isBlocked("7 8"))
+        assertTrue(DanmakuBlockWordPolicy.parse("78").isBlocked("7\u200B8"))
+        // U+00A0 不算 Character.isWhitespace，必须单列处理，否则这条会漏
+        assertTrue(DanmakuBlockWordPolicy.parse("78").isBlocked("7\u00A08"))
+        assertTrue(DanmakuBlockWordPolicy.parse("广告").isBlocked("广 告"))
+    }
+
+    @Test
+    fun `归一化不放宽包含语义`() {
+        val snapshot = DanmakuBlockWordPolicy.parse("78")
+        assertTrue(snapshot.isBlocked("78"))
+        assertTrue(snapshot.isBlocked("1789"))
+        // 归一化只折码位，不做同音/形近替换：79 依然不拦
+        assertFalse(snapshot.isBlocked("79"))
+    }
+
+    @Test
     fun `回显文本可被再次解析成同一份快照`() {
         val original = DanmakuBlockWordPolicy.parse("剧透 广告,Sc")
         val text = DanmakuBlockWordPolicy.toEditableText(original)
