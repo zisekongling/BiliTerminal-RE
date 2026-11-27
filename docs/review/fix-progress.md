@@ -18,6 +18,19 @@
 
 ## 1. 当前版本状态
 
+- **26.11.27 修控制台三处空白（R2 与三态那批函数插错作用域，整个 loadStats 后半段没跑）**：
+  - **来路**：用户 m02074「这三个地方改的有问题」+ 三张截图——概览页「版本分布 / 品牌分布 / 渠道分布」三张卡只剩标题和图例、条列全空，连「暂无数据」都没有；「品牌构成」那张反而有数据；「活跃设备与新增设备」卡只剩标题与 7/30/60 天分段按钮、图区全空。
+  - **机理**：上一轮往 `server/console.html` 插 R2 面板的五个函数时，插入点落在 `function renderChart(daily) {` 之后，于是 `fmtInt` / `fmtBytes` / `sparkline` / `mediaUsageCard` / `loadMediaUsage` 全变成了 **renderChart 的局部函数**（语法合法、编译 0 错，所以既有的文本抽取式自测全绿）。`loadStats()` 里 `loadMediaUsage(false)` 在顶层作用域找不到 → **ReferenceError**，函数在那一行中断，后面的 `renderChart(d.daily)` 与三个 `renderRank(...)` 全部没执行；而更早的 `fillRankLegend()` 已经跑过，于是正好呈现成「有标题有图例、下面空白」。图三空是 renderChart 没跑；图一没有「暂无数据」是因为 renderRank 压根没被执行（不是数据为空）。R2 用量卡本身也不会出现，点卡上的「刷新」（`#cards` click 委托里的 `loadMediaUsage(true)`）同样 ReferenceError。
+  - **改法（一个文件 + 两个验证脚本，都不进 git —— `server/` 整目录被 `.gitignore` 忽略）**：
+    - `server/console.html`（**4377 行**）：把 R2 那 77 行函数块整体从 renderChart 体内上移到 `function renderChart(daily) {` **之前**（renderChart 现在开头直接是 `lastDaily = daily || [];`）；`loadStats()` 里 `loadMediaUsage(false)` 从 `renderCards(d)` 与 `renderChart(d.daily)` 中间挪到函数**最末尾**，并包 `try { … } catch (e) { console.warn(...) }` —— 以后用量卡再坏也只影响它自己，不许再拖垮上面四块统计。
+    - `outputs/_check_console_scope.js`（新）：用 `vm` + 万能 Proxy stub 跑整段内联 script，再断言 22 个名字必须 `typeof === "function"`（三态 5 + 图片 4 + 媒体开关 4 + R2 5 + renderChart / renderRank / loadStats / foldHints）。**修前 missing = fmtInt, fmtBytes, sparkline, mediaUsageCard, loadMediaUsage，修后 ALL OK** —— 这类「函数被嵌套进别的函数」的错，只有看作用域才抓得到，抽源码 + `new Function` 的旧脚本永远漏。
+    - `outputs/_t_stats_render.js`（新）：假 DOM（元素工厂含 innerHTML / classList / dataset / clientWidth / insertAdjacentHTML 累加）+ 假 `fetch` / `api`，直接跑**真实的 `loadStats()`**，断言 versions / brands / channels 都写出 `class="rank"`、行数与数据条数一致、最新版本号出现、空渠道显示「(未知)」、`#chart` 里含 `<svg` 与折线、R2 卡被插入、图例已填。**11 项 ALL PASS**。
+    - 该脚本三个 stub 坑（不是代码问题，写新脚本时会再遇到）：`querySelector` 必须返回元素（renderChart 里会 `host.querySelector("svg").addEventListener`）；`fetch` 必须按 URL 返回假数据（boot 里也会跑一次 `loadStats()`，返回空 data 会让 `d.idle_days` 抛 TypeError，Node 24 直接终止进程）；`daily` 元素的字段是 `day` 不是 `date`；`loadMediaUsage` 在 loadStats 里没有 await，检查前要等一个 tick。
+  - **L0（26.11.27 本机）**：`node outputs/_check_console_scope.js` → missing 空、firstError 空；`node outputs/_t_stats_render.js` → **11 项 ALL PASS**、bootError none。两套脚本都用**线上真实响应**跑过一遍（`outputs/_live_stats.json` 4648 字节、`outputs/_live_usage.json` 1200 字节）：版本分布画出 **12 行**、最新版本 `26.11.23` 命中、品牌分布含 OPPO、空渠道渲染成「(未知)」、45 天 daily 画出折线与双轴、R2 卡读到「1 个对象 / 225 字节」。既有两套自测复跑仍全绿（`_t_usage_console.js` 31/31、`_t_r2_usage.py` 53/53），但它们都抓不到本次这类作用域错。
+  - **线上（26.11.27 部署）**：覆盖前线上 `console.html` md5 `95288b9ef297bb17776a7d42eab20842` / 4372 行，与上一轮部署一致（期间无人改动）；备份 `console.html.bak-rankfix-261127-184116`；上传后线上 md5 = 本地 `72c891766a335eb34af794b2e4930c91`、**4377 行**；`systemctl restart rebiliterminal-api` → active，`/terminal/health` code 0，`PRAGMA user_version` 仍 12，`journalctl --since '10 min ago'` 里 error / traceback **0 行**。把线上文件 scp 回来再跑上面两套脚本：**ALL OK / 11 项 ALL PASS**。服务端 `rebiliterminal_api.py` 本轮未改（md5 `4b56f0fa0eaff3b50eac169dfc98f472` 不变）。回滚：`cp console.html.bak-rankfix-261127-184116 console.html && systemctl restart rebiliterminal-api`。
+  - **未验证（L2，只能人看）**：①刷新后三张分布卡与折线卡是否真的显示出条列和曲线（我只能证明 DOM 里写出了对应 HTML，看不到真实渲染）；②浏览器若缓存旧页面需强刷（Ctrl+F5）才拿到新文件；③R2 卡在窄屏下的折行、点「刷新」时没有 loading 提示这两项观感。
+  - **兼容与影响面**：只改控制台前端模板，接口、数据库、App 端一行未动；`statePill` / `outcomePill` / 图片那套三态与图片展示全部保留，设备页 / 令牌页 / DSH 派工相关函数未触碰。
+
 - **26.11.27 控制台加 R2 用量面板（S3 精算存量 + GraphQL 读操作数与流量）**：
   - **来路**：用户 m5671「再加个面板，查看cf R2的用量可以吗」；m5768 给了一个新的只读 Cloudflare API Token；卡片拍板（question-15）source = 「两种都做」、where = 「控制台首页统计区加一张卡」、chart = 「要，近 7 天小折线」。
   - **口径**：存量（对象数 / 占用字节）只能用 S3 的 `ListObjectsV2` 逐页精算，别的路数都不准；操作数与流量 S3 那套 API 根本不给，只能走 Cloudflare 的 GraphQL 分析接口，所以两边都做、合成一张卡；Token 只走服务端环境变量，不写代码、不落库、不进日志；结果缓存 5 分钟，点「刷新」带 `?refresh=1` 绕过；任一侧读不到就只少一行数字，不整卡消失、不弹错。
