@@ -911,6 +911,19 @@
     <!-- 「我的反馈」入口（26.10.16 新增，只读列表 + 详情） -->
     <string name="feedback_mine_entry_title">我的反馈</string>
     <string name="feedback_mine_entry_desc">查看你提交过的反馈与开发者的回复</string>
+    <!-- 反馈三态（26.11.27 新增）：只回答「现在轮到谁」。「已结束」复用投票页那条文案 -->
+    <string name="feedback_state_waiting">待回复</string>
+    <string name="feedback_state_replied">已回复</string>
+    <!-- 结案入口：在详情页状态行旁边，确认后调 /terminal/feedback/close -->
+    <string name="feedback_close_entry">问题已解决？</string>
+    <string name="feedback_closed_hint">已结束 · 追加说明会重新打开</string>
+    <string name="msg_feedback_close_title">结束这条反馈？</string>
+    <string name="msg_feedback_close_body">问题已经解决的话，可以标成「已结束」。之后还有情况，追加一条说明就会自动重新打开。</string>
+    <string name="btn_feedback_close_ok">已结束</string>
+    <string name="msg_feedback_close_ok">已结束，谢谢你的反馈</string>
+    <string name="msg_feedback_close_fail">操作失败：%1$s</string>
+    <!-- 长线程折叠：超过 5 条时只显示最后 3 条 -->
+    <string name="feedback_expand_replies">展开全部 %1$d 条</string>
 
     <!-- ==================== 匿名统计与崩溃上报（自建服务器，26.10.09 新增） ==================== -->
     <string name="setting_telemetry">匿名使用统计</string>
@@ -1983,6 +1996,7 @@
     <string name="uitext_listchooseactivity_001">请选择</string>
     <string name="uitext_splashactivity_001">登录信息过期，请重新登录！</string>
     <string name="uitext_splashactivity_002">Cookies已刷新</string>
+    <string name="uitext_splashactivity_004">登录凭证无法自动续期，请重新登录</string>
     <string name="uitext_uitext_001">原文</string>
 
     <string name="uitext_baseactivity_001">圆屏适配执行错误：</string>

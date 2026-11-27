@@ -34,9 +34,21 @@ public class FeedbackItem implements Parcelable {
     public boolean handled;
     /** 开发者回复，可能为空列表。 */
     public ArrayList<FeedbackReply> replies;
+    /**
+     * 服务端派生的三态：{@code waiting_dev} 待回复 / {@code replied} 已回复 / {@code closed} 已结束
+     * （常数见 {@link com.RobinNotBad.BiliClient.util.FeedbackState}）。
+     *
+     * <p>与 {@link #handled} 正交：handled 是开发者的内部待办标记，用户看它得不到任何信息
+     * （线上 88% 的反馈都停在同一个值上）；三态才是给用户看的「现在轮到谁」。
+     *
+     * <p>老服务端不返回这个字段，解析时落空串，显示前由 {@code FeedbackState.resolve}
+     * 按回复情况回落成两态，所以拿不到它也不会显示错。
+     */
+    public String state;
 
     public FeedbackItem(int id, String category, String content, String contact,
-                        String ctime, boolean handled, ArrayList<FeedbackReply> replies) {
+                        String ctime, boolean handled, ArrayList<FeedbackReply> replies,
+                        String state) {
         this.id = id;
         this.category = category;
         this.content = content;
@@ -44,6 +56,7 @@ public class FeedbackItem implements Parcelable {
         this.ctime = ctime;
         this.handled = handled;
         this.replies = replies;
+        this.state = state;
     }
 
     protected FeedbackItem(Parcel in) {
@@ -55,6 +68,8 @@ public class FeedbackItem implements Parcelable {
         handled = in.readByte() != 0;
         ArrayList<FeedbackReply> parsed = in.createTypedArrayList(FeedbackReply.CREATOR);
         replies = parsed != null ? parsed : new ArrayList<>();
+        // 追加在末尾：老进程写出的 Parcel 没有这一项，读到末尾即 EOF，不会错位
+        state = in.readString();
     }
 
     public static final Creator<FeedbackItem> CREATOR = new Creator<FeedbackItem>() {
@@ -83,5 +98,6 @@ public class FeedbackItem implements Parcelable {
         dest.writeString(ctime);
         dest.writeByte((byte) (handled ? 1 : 0));
         dest.writeTypedList(replies);
+        dest.writeString(state);
     }
 }

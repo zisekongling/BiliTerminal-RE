@@ -380,7 +380,11 @@ public class TerminalApi {
                     item.optString("contact", ""),
                     TimeUtil.formatDateTime(item.optLong("ctime", 0) * 1000),
                     item.optInt("handled", 0) != 0,
-                    replies));
+                    replies,
+                    // 26.11.27：服务端派生的三态。**旧服务端不返回这个字段**，取到空串，
+                    // 显示前由 FeedbackState.resolve 按回复情况回落（有开发者回复→已回复），
+                    // 所以老服务端配新客户端也不会显示出错误的状态。
+                    item.optString("state", "")));
         }
         return list;
     }
@@ -710,6 +714,48 @@ public class TerminalApi {
                 return new ApiResult(-1, result.optString("msg", "unknown"));
             }
             return new ApiResult(result.optInt("id", -1), "");
+        } catch (IOException e) {
+            return new ApiResult(-2, "网络连接失败");
+        } catch (JSONException e) {
+            return new ApiResult(-3, "服务器返回了无法解析的内容");
+        }
+    }
+
+    /**
+     * 结案的载荷（26.11.27 新增）。
+     *
+     * <p>**纯函数**，可在 JVM 单测里直接断言。
+     *
+     * <p>只有一个字段：反馈 id。归属同样走请求头，理由同 {@link #buildFeedbackReplyPayload(int, String)}。
+     */
+    public static JSONObject buildFeedbackClosePayload(int feedbackId) throws JSONException {
+        JSONObject data = new JSONObject();
+        data.put("id", feedbackId);
+        return data;
+    }
+
+    /**
+     * 把自己的一条反馈标成「已结束」（26.11.27 新增）。
+     *
+     * <p>用户侧的闭环信号：确定问题已经解决（或者已经不想再跟）时自己结案，
+     * 服务端只置 {@code user_state=1}，**不动 {@code handled}**（那是开发者的待办状态）。
+     * 结案之后用户再追加一条说明会自动把它重新打开，所以这个动作不是不可逆的。
+     *
+     * <p>与追加说明同一套身份（{@link #feedbackHeaders()}），因此服务端那边的归属校验
+     * 也是同一份 SQL：不是自己的反馈返回 404（与「不存在」同码，防枚举）。
+     *
+     * <p>老服务端没有这个路由（404 / 405），调用方把失败当「暂时不可用」提示即可，不要崩。
+     *
+     * @return 成功时 {@code code} 为 0；失败时 {@code message} 是服务端或本地的原因
+     */
+    public static ApiResult closeFeedback(int feedbackId) {
+        try {
+            JSONObject payload = buildFeedbackClosePayload(feedbackId);
+            JSONObject result = postWithHeaders("/feedback/close", payload, feedbackHeaders());
+            if (result.optInt("code", -1) != 0) {
+                return new ApiResult(-1, result.optString("msg", "unknown"));
+            }
+            return new ApiResult(0, "");
         } catch (IOException e) {
             return new ApiResult(-2, "网络连接失败");
         } catch (JSONException e) {

@@ -155,6 +155,22 @@ class BiliTerminal : Application() {
         @Volatile
         private var pendingFeedbackUnread: Int = 0
 
+        /**
+         * 上次检查「我的反馈」新回复的时间戳（26.11.27）。
+         *
+         * 只活在内存里：进程重启后归零，正好让新进程启动时立刻查一次。
+         */
+        @Volatile
+        private var lastFeedbackCheckAt: Long = 0L
+
+        /**
+         * 回到前台时检查反馈回复的节流间隔（26.11.27 用户拍板「按 30 分钟节流」）。
+         *
+         * 手表上应用常驻不退出，只在启动时查一次的话，用户可能一整天都收不到回复提醒；
+         * 但每次 resume 都拉一次又太费电——30 分钟是用户选的折中。
+         */
+        private const val FEEDBACK_CHECK_INTERVAL_MS = 30L * 60L * 1000L
+
         /** 静默下载已下完的版本号；用来避免同一版本反复下载（文件还在就不重下）。 */
         private const val KEY_SILENT_UPDATE_VERSION = "silent_update_version_code"
 
@@ -558,6 +574,9 @@ class BiliTerminal : Application() {
                     // 同样要等前台页就绪——启动页期间弹出来会被首屏盖掉。
                     tryPromptSilentInstall()
                     tryPromptFeedbackUnread()
+                    // 26.11.27：回到前台也顺手查一次新回复（30 分钟节流），否则常驻不重启的
+                    // 手表要等到下次冷启动才知道开发者回复了
+                    checkFeedbackRepliesIfDue(activity)
                 }
 
                 override fun onActivityPaused(activity: Activity) {}
@@ -826,6 +845,7 @@ class BiliTerminal : Application() {
      * 失败一律静默：这只是提醒，不能因为它挂了影响启动。
      */
     private fun checkFeedbackReplies() {
+        lastFeedbackCheckAt = System.currentTimeMillis()
         CenterThreadPool.run {
             try {
                 val list = TerminalApi.getMyFeedback()
@@ -840,6 +860,21 @@ class BiliTerminal : Application() {
                 Logu.w("反馈提醒", "启动检查反馈回复失败：" + e.message)
             }
         }
+    }
+
+    /**
+     * 前台页 resumed 时按 30 分钟节流检查一次（26.11.27 新增）。
+     *
+     * <p>两处直接跳过：
+     * - 用户正停在反馈页里 —— 他刚看完，再拉一次只是白耗电（下次离开后补查）；
+     * - 距上次检查不足 [FEEDBACK_CHECK_INTERVAL_MS]。
+     *
+     * <p>跳过时**不刷新时间戳**，所以离开反馈页之后的那次 resume 会立刻补上检查。
+     */
+    private fun checkFeedbackRepliesIfDue(activity: Activity) {
+        if (activity is FeedbackListActivity || activity is FeedbackDetailActivity) return
+        if (System.currentTimeMillis() - lastFeedbackCheckAt < FEEDBACK_CHECK_INTERVAL_MS) return
+        checkFeedbackReplies()
     }
 
     /** 前台页就绪时弹一次「有 N 条新回复」；用户已在反馈页里就不打扰。 */
