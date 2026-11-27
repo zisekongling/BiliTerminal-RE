@@ -49,6 +49,15 @@ object CookieRefreshScheduler {
     private var loginExpiredAtMs = CookieRefreshPolicy.NO_ATTEMPT
 
     /**
+     * APP 续期已经被服务端拒绝过（这份凭据不属于本端）。
+     *
+     * <p>同一套凭据再刷也不会有不同结果，所以本进程内不再走 APP 链，只保留下面那条 web 链——网页登录
+     * 的 refresh_token 本来就是给 web 链用的。切号 / 重新登录后由 [onAccountChanged] 清掉。
+     */
+    @Volatile
+    private var appChainUnusable = false
+
+    /**
      * 启动进程级调度。可重复调用，只有第一次生效。
      *
      * <p>必须等 `SharedPreferencesUtil.sharedPreferences` 就绪（[com.RobinNotBad.BiliClient.BiliTerminal.onCreate]
@@ -105,6 +114,8 @@ object CookieRefreshScheduler {
         lastAttemptMs = CookieRefreshPolicy.NO_ATTEMPT
         consecutiveFailures = 0
         loginExpiredAtMs = CookieRefreshPolicy.NO_ATTEMPT
+        // 换了账号就是换了一份凭据，「这份凭据本端续不了」的结论不能带到下一个账号
+        appChainUnusable = false
     }
 
     private fun tick() {
@@ -177,22 +188,25 @@ object CookieRefreshScheduler {
             Logu.w(TAG, "补发 confirm 异常（不影响登录态）：" + e.message)
         }
 
-        // TV / APP 登录：refresh_token 同时能续 access_token 与 cookies，走统一的 APP 刷新
-        if (SharedPreferencesUtil.getString(SharedPreferencesUtil.access_key, "").isNotEmpty()) {
-            // 例行刷新受 7 天间隔约束；只有「最近见过 code=-101」时才 force 强刷一次。
-            // 旧实现每次 tick 都无条件轮换一次性口令，一天几十次，每次都是一个丢凭据的窗口
+        // TV / APP 登录：refresh_token 同时能续 access_token 与 cookies，走统一的 APP 刷新。
+        // 已经被服务端拒绝过续期的凭据不再重试（见 appChainUnusable），直接落到下面的 web 链
+        if (!appChainUnusable && SharedPreferencesUtil.getString(SharedPreferencesUtil.access_key, "").isNotEmpty()) {
+            // 例行刷新的时机由 AppTokenRefreshPolicy 按到期时间决定（拿不到到期时间时退回固定间隔）；
+            // 只有「最近见过 code=-101」时才 force 强刷一次
             val force = loginExpiredAtMs != CookieRefreshPolicy.NO_ATTEMPT
             // 与下面 Web 那条同一口径（26.11.16）：OK 才算成功；RETRY 保留登录态等退避重试；
             // NEED_LOGIN 是服务端明确说 refresh_token 没了——这时也不清本地凭证
-            return when (AppTokenRefreshApi.refreshAppToken(force)) {
+            when (AppTokenRefreshApi.refreshAppToken(force)) {
                 AppTokenRefreshApi.RefreshResult.OK -> {
                     // 强制刷新成功时登录态刚被验证过，把「最近见过 -101」清掉，否则下一 tick 还会再强刷
                     loginExpiredAtMs = CookieRefreshPolicy.NO_ATTEMPT
+                    // 这份凭据能续期，之前的「续不了」结论作废
+                    appChainUnusable = false
                     // applyCredentials 会重置本调度器的节流状态（切号语义），成功后要把「刚试过」
                     // 重新记上，否则下一次 tick 会立刻再刷一遍
                     lastAttemptMs = SystemClock.elapsedRealtime()
-                    Logu.i(TAG, if (force) "access_token 已强制刷新" else "access_token 已刷新（或未到间隔）")
-                    true
+                    Logu.i(TAG, if (force) "access_token 已强制刷新" else "access_token 已刷新（或未到续期时间）")
+                    return true
                 }
                 AppTokenRefreshApi.RefreshResult.NEED_LOGIN -> {
                     // 服务端说这份 refresh_token 没了：先试账号快照里更早的那条会话（可能还有效），
@@ -208,15 +222,21 @@ object CookieRefreshScheduler {
                     if (recovered) {
                         Logu.w(TAG, "服务端判定 refresh_token 失效（-101），已回滚到账号快照里的会话")
                         lastAttemptMs = SystemClock.elapsedRealtime()
-                        true
+                        return true
                     } else {
                         Logu.w(TAG, "服务端判定 refresh_token 失效（-101），且没有可回滚的会话；本地凭证保留，等用户重新登录")
-                        false
+                        return false
                     }
+                }
+                AppTokenRefreshApi.RefreshResult.MISMATCH -> {
+                    // 服务端说这份凭据本端续不了：同一套凭据再刷也不会变，停掉 APP 例行刷新，
+                    // 让流程继续走下面的 web 链（网页登录的凭据只能从那条链续）
+                    appChainUnusable = true
+                    Logu.w(TAG, "服务端拒绝为本端续期；已停止 APP 例行刷新，改试 web 刷新（需要时请用户重新登录）")
                 }
                 AppTokenRefreshApi.RefreshResult.RETRY -> {
                     Logu.w(TAG, "access_token 刷新未成功（保留登录态，稍后重试）")
-                    false
+                    return false
                 }
             }
         }

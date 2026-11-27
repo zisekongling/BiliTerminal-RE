@@ -173,8 +173,9 @@ class LocalFolderAdapter(private val context: Context) : RecyclerView.Adapter<Re
      */
     private fun loadCover(image: ImageView, path: String?) {
         if (path.isNullOrEmpty()) {
-            // 空文件夹：布局里本来就是占位图，这里显式设一次，防止 holder 复用留下上一个夹的封面
-            image.setImageResource(R.mipmap.placeholder)
+            // 空文件夹：布局里本来就是占位图，这里显式设一次，防止 holder 复用留下上一个夹的封面。
+            // 走 GlideUtil 的共享解码实例，别用 setImageResource 现解（崩溃 #401 的来路）
+            image.setImageDrawable(GlideUtil.placeholderDrawable(context, R.mipmap.placeholder))
             return
         }
         try {
@@ -185,7 +186,7 @@ class LocalFolderAdapter(private val context: Context) : RecyclerView.Adapter<Re
                 .diskCacheStrategy(DiskCacheStrategy.NONE)
                 .into(image)
         } catch (_: Exception) {
-            image.setImageResource(R.mipmap.placeholder)
+            image.setImageDrawable(GlideUtil.placeholderDrawable(context, R.mipmap.placeholder))
         }
     }
 

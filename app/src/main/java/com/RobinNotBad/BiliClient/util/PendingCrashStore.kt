@@ -36,6 +36,21 @@ object PendingCrashStore {
     private const val TMP_SUFFIX = ".tmp"
 
     /**
+     * 认领中的后缀：`x.json` 被认领后改名为 `x.json.inflight`。
+     *
+     * <p>**为什么需要认领**：同一条报告可能被好几条路径同时发——崩溃页（`:error_activity` 进程）的
+     * [CrashReporter.upload]、主进程冷启动的 [CrashReporter.retryPending]。它们各自 [list] 出同一批文件，
+     * 于是同一条报告会 POST 好几次。
+     *
+     * <p>办法是**改名**而不是加锁：同目录 rename 是原子的，谁先把名字抢走谁发，另一个 rename 直接失败、
+     * 跳过这条。[list] 只收 [SUFFIX] 结尾，所以认领中的文件自然不在待传队列里。
+     */
+    const val INFLIGHT_SUFFIX = ".inflight"
+
+    /** 认领超过这么久还没结果，就当认领它的进程死在半路（被系统杀掉 / 断电），回收重发。 */
+    const val STALE_INFLIGHT_MS = 10 * 60 * 1000L
+
+    /**
      * 取暂存目录。**不在这里 mkdirs**——写的时候才建，读的时候目录不存在就是「没有待传报告」，
      * 免得每次冷启动都白建一个空目录。取不到（context 为空 / filesDir 异常）返回 null。
      */
@@ -94,6 +109,71 @@ object PendingCrashStore {
         } ?: return emptyList()
         return all.filter { it.isFile && it.name.endsWith(SUFFIX) }
             .sortedWith(compareBy({ it.lastModified() }, { it.name }))
+    }
+
+    /**
+     * 认领一条待传报告：把 `x.json` 改名为 `x.json.inflight`。
+     *
+     * <p>认领成功后会把 [File.setLastModified] 打上**当前时间**——不这么做，[recoverStaleInflight]
+     * 看到的是这条报告「崩溃时刻」的修改时间，一条半小时前崩的报告一被认领就会被当成超时回收，
+     * 等于认领白做。改名成功但改时间失败时最多退回原行为（可能被提前回收），不影响正确性。
+     *
+     * @return 认领后的文件（发完要 [delete]，发失败要 [release]）；已被别的路径抢走 / 文件不存在返回 null。
+     */
+    fun claim(file: File?): File? {
+        if (file == null) return null
+        return try {
+            if (!file.isFile) return null
+            val inflight = File(file.parentFile, file.name + INFLIGHT_SUFFIX)
+            if (inflight.exists()) return null
+            if (!file.renameTo(inflight)) return null
+            inflight.setLastModified(System.currentTimeMillis())
+            inflight
+        } catch (t: Throwable) {
+            null
+        }
+    }
+
+    /** 归还认领：把 `x.json.inflight` 改回 `x.json`（上传失败时调，让下次启动还能捡到它）。 */
+    fun release(inflight: File?): Boolean {
+        if (inflight == null) return false
+        return try {
+            val name = inflight.name
+            if (!inflight.isFile || !name.endsWith(INFLIGHT_SUFFIX)) return false
+            inflight.renameTo(File(inflight.parentFile, name.removeSuffix(INFLIGHT_SUFFIX)))
+        } catch (t: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * 回收「认领了但没结果」的文件：超过 [staleMs] 没动过的 `.inflight` 改回 `.json` 重新入队，返回回收条数。
+     *
+     * <p>不回收的话，认领它的进程若在 POST 途中被系统杀掉，这条报告就永远停在 `.inflight` 里：
+     * 既不在待传队列（[list] 按后缀筛），也不在 [prune] 的视野里，等于静默丢失。
+     */
+    fun recoverStaleInflight(
+        dir: File?,
+        now: Long = System.currentTimeMillis(),
+        staleMs: Long = STALE_INFLIGHT_MS
+    ): Int {
+        if (dir == null) return 0
+        val all = try {
+            dir.listFiles()
+        } catch (t: Throwable) {
+            null
+        } ?: return 0
+        var recovered = 0
+        for (f in all) {
+            if (!f.isFile || !f.name.endsWith(INFLIGHT_SUFFIX)) continue
+            try {
+                if (now - f.lastModified() < staleMs) continue
+                if (release(f)) recovered++
+            } catch (t: Throwable) {
+                // 单条回收获失败不影响其它
+            }
+        }
+        return recovered
     }
 
     fun delete(file: File?): Boolean = try {

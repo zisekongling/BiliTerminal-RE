@@ -12,6 +12,8 @@ import java.io.File
  * 宁可少接几条，也不接一条动辄误报的（误报会训练人忽略红灯）。
  *
  * 判定前一律先 strip 注释：这些文档条目本身就在注释里互相解释，不 strip 会把说明文字当成违规。
+ * strip 是**抹成等长空白**而不是删掉——删掉会让后面每一行整体前移，断言报的 `文件:行号`
+ * 就对不上真实位置（26.11.26 实测过差 33 行，照着报错找过去是一段无关代码）。
  *
  * 路径约定同 `DebugActivityExportTest`：Gradle 单测工作目录是 `app/`。
  */
@@ -22,12 +24,15 @@ class ConventionGuardTest {
             .filter { it.isFile && (it.extension == "kt" || it.extension == "java") }
             .toList()
 
+    /** 把命中段抹成等长空白：换行与列位都保留，行号才和源文件对得上。 */
+    private fun blankOut(text: String, pattern: Regex): String =
+        pattern.replace(text) { m -> m.value.replace(Regex("[^\n]"), " ") }
+
     private fun stripJavaComments(text: String): String =
-        text.replace(Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL), "")
-            .replace(Regex("//[^\n]*"), "")
+        blankOut(blankOut(text, Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL)), Regex("//[^\n]*"))
 
     private fun stripXmlComments(text: String): String =
-        text.replace(Regex("<!--.*?-->", RegexOption.DOT_MATCHES_ALL), "")
+        blankOut(text, Regex("<!--.*?-->", RegexOption.DOT_MATCHES_ALL))
 
     /** 行号从 1 起，便于直接跳转。 */
     private fun hits(file: File, pattern: Regex, strip: (String) -> String = ::stripJavaComments): List<String> {
@@ -226,7 +231,7 @@ class ConventionGuardTest {
     }
 
     /**
-     * `docs/agents/dev-conventions.md` §界面：加载图标必须走 `AppCompatResources`
+     * `docs/agents/dev-conventions.md` 的「图标 / 矢量图」一节：加载图标必须走 `AppCompatResources`
      * （统一入口 `util/StringUtil.getDrawable`），**不许**用 `ContextCompat.getDrawable` /
      * `ResourcesCompat.getDrawable`——本项目开了 `vectorDrawables.useSupportLibrary`，
      * API&lt;21 没有 PNG 兜底，那两条在这里仍是原生加载路径，遇到 `<vector>` 直接抛
@@ -263,21 +268,27 @@ class ConventionGuardTest {
      * `onTrimMemory` 整个清空，cache 一空就是每次 bind 重解一遍，`onBindViewHolder` 里直接把
      * 低端机打 OOM（控制台崩溃 #401：262156 B = 256×256×4 + Bitmap 头）。
      *
+     * `setImageResource(R.mipmap.placeholder)` 是同一个坑的另一种写法：它同样现解一份位图，
+     * 而且多在 `onBindViewHolder` 里调用（26.11.26 首轮改漏了 3 处）。
+     *
      * 统一入口是 `GlideUtil.withPlaceholder(context, resId)`（一次设好占位 + 兜底）或
-     * `GlideUtil.placeholderDrawable(context, resId)`（需要单独用一张 Drawable 时）。
+     * `GlideUtil.placeholderDrawable(context, resId)`（需要单独用一张 Drawable 时，配 `setImageDrawable`）。
      *
      * 只拦 `R.mipmap.*`：那是位图类资源，正是这条崩溃的来路；`R.drawable.*` 里多为 shape，
-     * 本来就不占位图，一刀切会误报。
+     * 本来就不占位图，一刀切会误报。`setImageResource` 只针对 `placeholder` 这一张——
+     * 图标类（`morehide` / `danmakuon` / `loading_2233_error` 等）是 UI 状态切换，不在这条线上。
      */
     @Test
     fun `占位图不直传 mipmap 资源 id`() {
         val sources = javaSources()
         assertTrue("src/main/java 只扫到 ${sources.size} 个源文件，路径八成变了", sources.size > 400)
 
-        val bad = sources.flatMap { hits(it, Regex("\\.(placeholder|error)\\(\\s*R\\.mipmap\\.")) }
+        val bad = sources.flatMap { hits(it, Regex("\\.(placeholder|error)\\(\\s*R\\.mipmap\\.")) } +
+            sources.flatMap { hits(it, Regex("setImageResource\\(\\s*R\\.mipmap\\.placeholder\\b")) }
         assertTrue(
-            "这些位置把 mipmap 资源 id 直接交给 placeholder/error，低内存下每次 bind 都会重解位图。" +
-                "改用 GlideUtil.withPlaceholder(context, R.mipmap.*)：\n" +
+            "这些位置把 mipmap 资源 id 直接交给 placeholder/error/setImageResource，" +
+                "低内存下每次 bind 都会重解位图。改用 GlideUtil.withPlaceholder(context, R.mipmap.*)，" +
+                "或 setImageDrawable(GlideUtil.placeholderDrawable(context, R.mipmap.placeholder))：\n" +
                 bad.joinToString("\n"),
             bad.isEmpty()
         )

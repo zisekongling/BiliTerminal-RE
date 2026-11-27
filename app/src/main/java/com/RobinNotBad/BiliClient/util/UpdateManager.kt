@@ -2,6 +2,7 @@ package com.RobinNotBad.BiliClient.util
 
 import com.RobinNotBad.BiliClient.R
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -677,6 +678,13 @@ private const val BETA_TEXT_MAX_BYTES = 2L * 1024 * 1024
             }
         }
 
-        context.startActivity(intent)
+        // 这里的 context 不一定是 Activity（可能是 Service/Application），基类的 startActivity
+        // 兜底覆盖不到，所以自己接一次：没有安装器的设备上点"安装"不该把进度条崩掉。
+        try {
+            context.startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            Logu.w("更新", "本机没有能安装 APK 的组件：" + (e.message ?: ""))
+            MsgUtil.toast(context.getString(R.string.msg_start_no_handler))
+        }
     }
 }

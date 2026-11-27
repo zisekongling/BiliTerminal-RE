@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.api.TerminalApi
 import com.RobinNotBad.BiliClient.model.FeedbackItem
+import com.RobinNotBad.BiliClient.util.FeedbackState
 import com.RobinNotBad.BiliClient.util.FeedbackUnread
 import com.google.android.material.card.MaterialCardView
 
@@ -37,8 +38,16 @@ class FeedbackListAdapter(
         val item = list[position]
 
         holder.category.text = categoryLabel(item.category)
-        // 状态只用「待受理 / 已受理」——绝不要写「已处理」，见 FeedbackItem.handled 的说明
-        holder.status.text = if (item.handled) UiText.of("已受理") else UiText.of("待受理")
+        // 26.11.27：状态从「待受理 / 已受理」换成用户视角三态（待回复 / 已回复 / 已结束）。
+        // 判据与详情页、服务端同一份（FeedbackState.resolve），列表只额外做一点视觉分层：
+        // 轮到用户（已回复）最亮，还在等开发者次之，已结束最弱。绝不写「已处理」。
+        val state = FeedbackState.resolve(item)
+        holder.status.text = FeedbackState.label(state)
+        holder.status.alpha = when (state) {
+            FeedbackState.REPLIED -> 1f
+            FeedbackState.CLOSED -> 0.55f
+            else -> 0.85f
+        }
         holder.content.text = item.content
         holder.time.text = item.ctime
         // 26.11.16：开发者回复过、且用户还没看过这条之后的新回复 —— 挂一个「新回复」标签。

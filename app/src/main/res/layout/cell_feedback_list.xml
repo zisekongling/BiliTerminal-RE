@@ -36,7 +36,7 @@
                 android:textStyle="bold"
                 tools:text="功能异常" />
 
-            <!-- 状态只用「待受理 / 已受理」，绝不要写「已处理」 -->
+            <!-- 三态：待回复 / 已回复 / 已结束（26.11.27 起由 FeedbackState 派生），绝不要写「已处理」 -->
             <TextView
                 android:id="@+id/status"
                 android:layout_width="wrap_content"

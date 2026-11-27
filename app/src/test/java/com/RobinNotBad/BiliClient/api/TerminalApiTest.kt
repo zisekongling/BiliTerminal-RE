@@ -129,7 +129,8 @@ class TerminalApiTest {
 
         assertEquals(42, payload.getInt("id"))
         assertEquals("补充：点下一集才复现", payload.getString("content"))
-        assertEquals("载荷应当只有两个字段", 2, payload.length())
+        // 26.11.27 起多带一个 images（空数组），字段数变 3；其余身份字段仍然一个都不许出现
+        assertEquals("载荷应当只有 id / content / images 三个字段", 3, payload.length())
         for (forbidden in listOf("install_id", "mid", "device_key", "log", "category")) {
             assertFalse("追加回复的载荷里不该有 $forbidden", payload.has(forbidden))
         }
@@ -287,5 +288,160 @@ class TerminalApiTest {
     fun deviceKey_blankInputYieldsEmpty() {
         assertEquals("", TerminalApi.hashDeviceKey(null))
         assertEquals("", TerminalApi.hashDeviceKey(""))
+    }
+
+    // ---------- 反馈配图（26.11.27） ----------
+
+    /** 没有图时固定发一个空数组，而不是省略字段：两边等价，但请求形状只此一种。 */
+    @Test
+    fun keysToJson_nullAndEmptyYieldEmptyArray() {
+        assertEquals(0, TerminalApi.keysToJson(null).length())
+        assertEquals(0, TerminalApi.keysToJson(emptyList()).length())
+    }
+
+    @Test
+    fun keysToJson_skipsBlankElements() {
+        val array = TerminalApi.keysToJson(listOf("fb/202611/a.jpg", "", "  ", "fb/202611/b.png"))
+        assertEquals("空串与纯空白不该混进载荷", 2, array.length())
+        assertEquals("fb/202611/a.jpg", array.getString(0))
+        assertEquals("fb/202611/b.png", array.getString(1))
+    }
+
+    /** 老服务端不返回 images、字段是脏值，都不能抛，只能得到空列表。 */
+    @Test
+    fun parseImageKeys_missingOrDirtyYieldsEmpty() {
+        assertEquals(0, TerminalApi.parseImageKeys(null).size)
+        assertEquals(0, TerminalApi.parseImageKeys(JSONObject()).size)
+        assertEquals(0, TerminalApi.parseImageKeys(JSONObject().put("images", "oops")).size)
+    }
+
+    @Test
+    fun parseImageKeys_keepsOrderAndSkipsBlank() {
+        val source = JSONObject().put("images", JSONArray().put("k1").put("").put("k2"))
+        assertEquals(listOf("k1", "k2"), TerminalApi.parseImageKeys(source).toList())
+    }
+
+    /** 读图必须走服务端代理：客户端里绝不能出现对象存储的域名。 */
+    @Test
+    fun mediaUrl_pointsToServerProxy() {
+        assertEquals(
+            "https://rebiliterminal.zsapp.asia/terminal/media/fb/202611/abc.jpg",
+            TerminalApi.mediaUrl("fb/202611/abc.jpg")
+        )
+        assertEquals("空 key 应当得到空串", "", TerminalApi.mediaUrl(""))
+        assertEquals("null key 应当得到空串", "", TerminalApi.mediaUrl(null))
+        assertFalse(
+            "客户端不该直连对象存储",
+            TerminalApi.mediaUrl("fb/x.jpg").contains("cloudflarestorage")
+        )
+    }
+
+    @Test
+    fun parseImageKeys_readsObjectElements() {
+        val images = JSONArray()
+            .put(JSONObject().put("key", "fb/202611/a.jpg").put("w", 776).put("h", 1600))
+            .put(JSONObject().put("key", "fb/202611/b.jpg").put("w", 60).put("h", 40))
+        val keys = TerminalApi.parseImageKeys(JSONObject().put("images", images)).toList()
+        assertEquals(listOf("fb/202611/a.jpg", "fb/202611/b.jpg"), keys)
+        for (key in keys) {
+            assertFalse(
+                "解析出来的必须是纯 key，把对象整个转成 JSON 文本会拼出 404 的 URL：$key",
+                key.contains("{") || key.contains("\"")
+            )
+        }
+    }
+
+    @Test
+    fun parseImageKeys_mixedElementsAndMissingKey() {
+        val images = JSONArray()
+            .put("fb/202611/plain.jpg")
+            .put(JSONObject().put("w", 1))
+            .put(JSONObject().put("key", "  fb/202611/obj.jpg  "))
+            .put(JSONObject.NULL)
+        assertEquals(
+            listOf("fb/202611/plain.jpg", "fb/202611/obj.jpg"),
+            TerminalApi.parseImageKeys(JSONObject().put("images", images)).toList()
+        )
+    }
+
+    @Test
+    fun imageKeyOf_ignoresNonKeyElements() {
+        assertEquals("", TerminalApi.imageKeyOf(null))
+        assertEquals("", TerminalApi.imageKeyOf(JSONObject.NULL))
+        assertEquals("", TerminalApi.imageKeyOf(42))
+        assertEquals("fb/x.jpg", TerminalApi.imageKeyOf(" fb/x.jpg "))
+        assertEquals(
+            "https://cdn.example/x.jpg",
+            TerminalApi.imageKeyOf(JSONObject().put("url", "https://cdn.example/x.jpg"))
+        )
+    }
+
+    @Test
+    fun mediaUrl_passesAbsoluteUrlThrough() {
+        assertEquals("https://cdn.example/x.jpg", TerminalApi.mediaUrl("https://cdn.example/x.jpg"))
+        assertEquals(
+            "https://rebiliterminal.zsapp.asia/terminal/media/fb/x.jpg",
+            TerminalApi.mediaUrl("  fb/x.jpg ")
+        )
+    }
+
+    /** 老签名的载荷也要带上空 images（服务端按「没带」处理），老服务端则忽略这个字段。 */
+    @Test
+    fun feedbackPayload_alwaysCarriesImagesArray() {
+        val payload = TerminalApi.buildFeedbackPayload(
+            "abc123", "devkey123", "bug", "内容", null, "", 0, 1, "v", 34, "b", "d"
+        )
+        assertTrue("载荷里必须有 images", payload.has("images"))
+        assertEquals(0, payload.getJSONArray("images").length())
+    }
+
+    @Test
+    fun feedbackPayload_carriesImageKeys() {
+        val payload = TerminalApi.buildFeedbackPayload(
+            "abc123", "devkey123", "bug", "内容", null, "", 0, 1, "v", 34, "b", "d",
+            listOf("fb/202611/a.jpg")
+        )
+        assertEquals(1, payload.getJSONArray("images").length())
+        assertEquals("fb/202611/a.jpg", payload.getJSONArray("images").getString(0))
+    }
+
+    @Test
+    fun replyPayload_carriesImageKeys() {
+        val payload = TerminalApi.buildFeedbackReplyPayload(42, "补充", listOf("fb/202611/a.jpg"))
+        assertEquals(1, payload.getJSONArray("images").length())
+        assertEquals("fb/202611/a.jpg", payload.getJSONArray("images").getString(0))
+    }
+
+    // ---------- 配图开关（26.11.27 真机踩到的回归） ----------
+
+    /**
+     * 服务端下发的是真正的 JSON 布尔 {"image_enabled": true}。
+     *
+     * 这条钉住 26.11.27 真机验证抓到的 bug：原先用 optInt 读这个字段，
+     * 布尔值转不成 int（Android 回落 0、标准 org.json 直接抛 ClassCastException），
+     * 于是线上开关明明开着、App 里「添加截图」永远不出现。
+     */
+    @Test
+    fun readImageEnabled_readsJsonBoolean() {
+        assertTrue(TerminalApi.readImageEnabled(JSONObject().put("image_enabled", true)))
+        assertFalse(TerminalApi.readImageEnabled(JSONObject().put("image_enabled", false)))
+    }
+
+    /** 数字与数字字符串也认，万一以后服务端改回 0/1 不用动客户端。 */
+    @Test
+    fun readImageEnabled_readsNumbersAndNumericStrings() {
+        assertTrue(TerminalApi.readImageEnabled(JSONObject().put("image_enabled", 1)))
+        assertFalse(TerminalApi.readImageEnabled(JSONObject().put("image_enabled", 0)))
+        assertTrue(TerminalApi.readImageEnabled(JSONObject().put("image_enabled", "true")))
+        assertFalse(TerminalApi.readImageEnabled(JSONObject().put("image_enabled", "0")))
+    }
+
+    /** 字段缺失、null、脏值一律当关着：宁可不显示入口，也不要让人点了收到 403。 */
+    @Test
+    fun readImageEnabled_missingOrDirtyYieldsFalse() {
+        assertFalse(TerminalApi.readImageEnabled(null))
+        assertFalse(TerminalApi.readImageEnabled(JSONObject()))
+        assertFalse(TerminalApi.readImageEnabled(JSONObject().put("image_enabled", "oops")))
+        assertFalse(TerminalApi.readImageEnabled(JSONObject().put("image_enabled", JSONObject.NULL)))
     }
 }

@@ -117,6 +117,53 @@
                 android:textSize="10sp"
                 tools:text="0 / 4000" />
 
+            <!--
+                反馈截图（26.11.27 新增）：最多 3 张，缩略图由 FeedbackActivity 动态加进来。
+                服务端有总开关（/feedback/config 的 image_enabled），关掉时整块 GONE——
+                不是「显示但点了报错」。点缩略图是移除，不是放大看：提交页看大图没意义。
+            -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/screenshot_card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="6dp">
+
+                    <TextView
+                        android:id="@+id/screenshot_title"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        tools:text="添加截图（0/3）" />
+
+                    <TextView
+                        android:id="@+id/screenshot_hint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:alpha="0.7"
+                        android:textSize="11sp"
+                        tools:text="截图能更快说明问题，最多 3 张" />
+
+                    <LinearLayout
+                        android:id="@+id/screenshot_row"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:orientation="horizontal"
+                        android:visibility="gone" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
             <EditText
                 android:id="@+id/contact_edit"
                 android:layout_width="match_parent"

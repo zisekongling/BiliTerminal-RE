@@ -81,6 +81,15 @@ class PlaybackService : Service() {
         private const val NOTIFICATION_ID = 1028 // 1027 被 DownloadService 占用，勿改
         private const val REFRESH_INTERVAL_MS = 1000L
 
+        /**
+         * 通知指纹里位置的量化粒度（毫秒）。
+         *
+         * 通知正文只显示到秒，位置每秒一变就等于每秒一次 `notify()`——手表上一次 `notify()`
+         * 是一次 binder 调用加一次完整通知重建，播放全程持续如此是实打实的唤醒与耗电。
+         * 量化到 10 秒后，播放中大部分 tick 算出来的指纹与上一次相同，直接跳过（26.11.27）。
+         */
+        private const val NOTICE_POSITION_BUCKET_MS = 10_000
+
         /** 只持有弱引用：播放页被销毁后服务必须能自己结束，不能把 Activity 泄漏到进程级 */
         @Volatile
         private var playerRef: WeakReference<PlayerActivity>? = null
@@ -377,8 +386,34 @@ class PlaybackService : Service() {
         }
     }
 
+    /**
+     * 上一次真正发出去的通知内容指纹；null 表示"下一 tick 一定要发一次"。
+     *
+     * 只在定时器线程读写（[startUpdateTimer] 里被重置，定时器任务里被比较），故不必加锁；
+     * 用 volatile 只是防止以后被挪到别的线程上出可见性问题。
+     */
+    @Volatile
+    private var lastNoticeSnapshot: String? = null
+
+    /**
+     * 通知内容的指纹：它没变，重建出来的通知就与屏幕上那条一模一样，没有必要再送一次。
+     *
+     * 位置按 [NOTICE_POSITION_BUCKET_MS] 量化；时长、标题、播放/暂停状态任一变化都会改变指纹，
+     * 所以暂停、切集、播完这些真正需要刷新通知的时刻不受影响。
+     */
+    private fun noticeSnapshot(a: PlayerActivity): String {
+        val playing = if (a.serviceIsPlaying()) "1" else "0"
+        val positionBucket = a.servicePositionMs() / NOTICE_POSITION_BUCKET_MS
+        val duration = a.serviceDurationMs()
+        val title = a.serviceTitle()?.takeIf { it.isNotBlank() } ?: ""
+        return playing + "|" + positionBucket + "|" + duration + "|" + title
+    }
+
     private fun startUpdateTimer() {
         if (timer != null) return
+        // 进场时那条通知可能是兜底构造（组装抛异常时的退路），内容与真实状态未必一致，
+        // 所以每次重新启动都清空指纹，让第一个 tick 无条件重发一次。
+        lastNoticeSnapshot = null
         timer = Timer().apply {
             schedule(object : TimerTask() {
                 override fun run() {
@@ -389,7 +424,13 @@ class PlaybackService : Service() {
                             stopSelf()
                             cancel()
                         } else {
-                            notifyManager.notify(NOTIFICATION_ID, buildNotification())
+                            // 内容没变就不重发：播放中大部分 tick 的指纹相同，每跳过一次就省一次
+                            // binder 调用与一次完整通知重建（26.11.27，见 NOTICE_POSITION_BUCKET_MS）
+                            val snapshot = noticeSnapshot(a)
+                            if (snapshot != lastNoticeSnapshot) {
+                                lastNoticeSnapshot = snapshot
+                                notifyManager.notify(NOTIFICATION_ID, buildNotification())
+                            }
                         }
                     } catch (e: Exception) {
                         // TimerTask 抛未捕获异常会永久终止整个 Timer，通知从此静默失效

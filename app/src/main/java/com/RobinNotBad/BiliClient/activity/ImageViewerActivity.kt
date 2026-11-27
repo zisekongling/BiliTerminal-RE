@@ -487,7 +487,7 @@ class ImageViewerActivity : BaseActivity() {
     private fun probePage(page: ImagePage, index: Int) {
         val request = try {
             Glide.with(this).asFile()
-                .load(GlideUtil.url_zoom(imageList[index]))
+                .load(GlideUtil.model(GlideUtil.url_zoom(imageList[index])))
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
                 .submit()
         } catch (e: Exception) {
@@ -625,7 +625,7 @@ class ImageViewerActivity : BaseActivity() {
         page.photoCleared = false
         try {
             val builder = Glide.with(this).asDrawable()
-                .load(GlideUtil.url_zoom(imageList[index]))
+                .load(GlideUtil.model(GlideUtil.url_zoom(imageList[index])))
                 .transition(GlideUtil.getTransitionOptions())
                 .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
             if (!fallback) {

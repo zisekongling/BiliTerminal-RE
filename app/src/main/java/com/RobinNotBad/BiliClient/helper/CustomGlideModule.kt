@@ -3,6 +3,7 @@ package com.RobinNotBad.BiliClient.helper
 import android.content.Context
 import android.util.Log
 import com.RobinNotBad.BiliClient.BuildConfig
+import com.RobinNotBad.BiliClient.api.TerminalApi
 import com.RobinNotBad.BiliClient.util.ImageRequestPolicy
 import com.RobinNotBad.BiliClient.util.NetWorkUtil
 import com.RobinNotBad.BiliClient.util.PerformanceManager
@@ -24,6 +25,14 @@ import java.util.concurrent.TimeUnit
 
 @GlideModule
 class CustomGlideModule : AppGlideModule() {
+
+    /**
+     * 本机的安装标识，反馈配图读图要用它证明「这条反馈是我的」。
+     *
+     * 惰性求值：真正第一次加载自建域名的图时才读一次存档（[TerminalApi.getInstallId] 首次
+     * 调用会生成并写回），之后一直复用，避免给每张缩略图都读一次 SharedPreferences。
+     */
+    private val installId: String by lazy { TerminalApi.getInstallId() }
 
     override fun applyOptions(context: Context, builder: GlideBuilder) {
         // 根据设备性能动态调整缓存大小
@@ -68,6 +77,13 @@ class CustomGlideModule : AppGlideModule() {
             ImageRequestPolicy.headersToRemove(url).forEach { requestBuilder.removeHeader(it) }
             ImageRequestPolicy.headersFor(url, NetWorkUtil.webHeaders)
                 .forEach { (name, value) -> requestBuilder.header(name, value) }
+            // 26.11.27 反馈配图读图要认身份（G5：别人拿到 key 也读不到），服务端按
+            // X-Install-Id 判断这张图是不是你那条反馈里的。只对自建域名写；其它域名先删
+            // 一次，避免跨主机重定向把设备标识带到站外图床去。
+            requestBuilder.removeHeader(ImageRequestPolicy.INSTALL_ID_HEADER)
+            if (ImageRequestPolicy.shouldAttachInstallId(url)) {
+                requestBuilder.header(ImageRequestPolicy.INSTALL_ID_HEADER, installId)
+            }
             chain.proceed(requestBuilder.build())
         }
 

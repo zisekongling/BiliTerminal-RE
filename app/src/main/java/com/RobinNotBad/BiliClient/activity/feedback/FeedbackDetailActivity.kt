@@ -3,30 +3,41 @@ package com.RobinNotBad.BiliClient.activity.feedback
 import com.RobinNotBad.BiliClient.util.UiText
 
 import android.app.Activity
+import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import com.RobinNotBad.BiliClient.R
+import com.RobinNotBad.BiliClient.activity.ImagePickerActivity
+import com.RobinNotBad.BiliClient.activity.ImageViewerActivity
 import com.RobinNotBad.BiliClient.activity.base.BaseActivity
 import com.RobinNotBad.BiliClient.api.TerminalApi
 import com.RobinNotBad.BiliClient.model.FeedbackItem
 import com.RobinNotBad.BiliClient.model.FeedbackReply
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.FeedbackImage
+import com.RobinNotBad.BiliClient.util.FeedbackState
 import com.RobinNotBad.BiliClient.util.FeedbackUnread
+import com.RobinNotBad.BiliClient.util.GlideUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.TimeUtil
+import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.google.android.material.card.MaterialCardView
 
 /**
  * 「我的反馈」详情（26.10.16 新增）。
  *
- * <p>展示单条反馈的完整正文、状态（待受理 / 已受理），以及**一条按时间交错的对话时间线**：
+ * <p>展示单条反馈的完整正文、三态（待回复 / 已回复 / 已结束），以及**一条按时间交错的对话时间线**：
  * 开发者回复（服务端写成定向公告）与用户自己追加的说明（`feedback_comment` 表）按时间排在一起。
  * 整条数据由列表页通过 Intent 的 Parcelable extra 传入（[FeedbackItem]），**本页不再发请求拉列表**。
  *
@@ -35,8 +46,17 @@ import com.google.android.material.card.MaterialCardView
  * `POST /terminal/feedback/reply`。服务端会校验归属（不是自己的反馈一律 404），
  * 并把该反馈**重新打回「待受理」**——GitHub 的 reopen 语义：你补充了内容，就该重新进开发者的待办。
  *
- * <p>所以本页在发送成功后会同时做三件事：本地追加这条消息、把状态改回「待受理」、滚到末尾。
+ * <p>所以本页在发送成功后会同时做三件事：本地追加这条消息、把状态改回「待回复」、滚到末尾。
  * 并 `setResult(RESULT_OK)` 通知列表页重拉（状态变了，列表上那份缓存就过期了）。
+ *
+ * <h3>状态与结案（26.11.27 新增）</h3>
+ * 状态由服务端按对话派生下发（`waiting_dev` / `replied` / `closed`，见 [FeedbackState]），
+ * 与开发者内部的 `handled` 正交——`handled` 只是他的待办标记，不代表问题解决了。
+ * 「已回复」时状态行下方给一颗「问题已解决？」胶囊，点了调 `POST /terminal/feedback/close`
+ * 把这条标成「已结束」；之后只要再追加一条说明，服务端会把它自动重新打开。
+ *
+ * <h3>长线程折叠（26.11.27 新增）</h3>
+ * 消息超过 [COLLAPSE_THRESHOLD] 条时只渲染最后 [COLLAPSED_TAIL] 条，上面留一行「展开全部 N 条」。
  *
  * <h3>为什么继承 BaseActivity 而不是 RefreshListActivity</h3>
  * 这是「二级页面（普通）」——内容一次性给全、不需要下拉刷新与分页，用不上列表模板
@@ -47,6 +67,17 @@ class FeedbackDetailActivity : BaseActivity() {
     companion object {
         /** 追加说明的长度上限。与服务端 `feedback_reply` 里的 `as_str(..., 2000)` 保持一致。 */
         private const val MAX_NOTE = 2000
+
+        /**
+         * 超过这么多条就先折叠（26.11.27 新增）。
+         *
+         * 手表一屏只装得下三四条消息，长线程（线上最长 19 条）会把「追加说明」卡片顶到很远，
+         * 而真正需要看的往往只是最后几句。折叠只影响**显示**，不影响数据。
+         */
+        private const val COLLAPSE_THRESHOLD = 5
+
+        /** 折叠时保留最后几条。3 条通常正好够看清「我上次说了什么、开发者怎么回的」。 */
+        private const val COLLAPSED_TAIL = 3
     }
 
     /**
@@ -57,8 +88,42 @@ class FeedbackDetailActivity : BaseActivity() {
      */
     private var item: FeedbackItem? = null
 
-    /** 发送中。挡住连点造成的重复提交（服务端另有 20 次/小时的限流兜底）。 */
+    /** 发送中。挡住连点造成的重复提交（服务端另有 20 次/小时的限流兜底）。结案也复用这个标志。 */
     private var sending: Boolean = false
+
+    /** 长线程是否已展开。只在本次页面生命周期内有效——退出重进又回到折叠态，符合「只想看最新」的预期。 */
+    private var threadExpanded: Boolean = false
+
+    /**
+     * 服务端是否开着图片上传（26.11.27 新增）。
+     *
+     * 拿到 false（或压根没拿到）就不露出「附图」入口 —— 入口在、点了 403 是最糟的体验，
+     * 所以这里宁可保守。已发送的图不受影响：开关管的是新上传，老图照旧能看。
+     */
+    private var imageEnabled: Boolean = false
+
+    /** 追加说明里已选、还没上传的图。提交成功后才清空；失败保留，方便重试。 */
+    private val pickedImages = ArrayList<Uri>()
+
+    private var noteImageText: TextView? = null
+    private var noteImageRow: LinearLayout? = null
+    private var detailImages: LinearLayout? = null
+
+    /**
+     * 挑图。用内置的 [ImagePickerActivity]，它的返回值与 ACTION_GET_CONTENT 一致，
+     * 部分手表 ROM 上系统的选择器点了就崩（见 EditProfileActivity 的注释），所以不用系统那个。
+     */
+    private val pickImageLauncher: ActivityResultLauncher<Intent> =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode != Activity.RESULT_OK) return@registerForActivityResult
+            val uri = result.data?.data ?: return@registerForActivityResult
+            if (pickedImages.size >= FeedbackImage.MAX_COUNT) {
+                MsgUtil.showMsg(getString(R.string.msg_feedback_image_limit, FeedbackImage.MAX_COUNT))
+                return@registerForActivityResult
+            }
+            pickedImages.add(uri)
+            renderNoteImages()
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -92,19 +157,119 @@ class FeedbackDetailActivity : BaseActivity() {
 
             findViewById<View>(R.id.add_note_card).setOnClickListener { openNoteDialog("") }
 
+            // 附图入口：点文字挑图，点缩略图移除。缩略图是「待发送」的，不点开看大图。
+            noteImageText = findViewById(R.id.note_image_text)
+            noteImageRow = findViewById(R.id.note_image_row)
+            noteImageText?.setOnClickListener { pickImageLauncher.launch(ImagePickerActivity.intent(this)) }
+
+            detailImages = findViewById(R.id.detail_images)
+            renderDetailImages(data)
+            renderNoteImages()
+
+            // 开关只问服务端一个布尔值，不拉整张反馈列表；拿不到就当没开，入口不出现。
+            CenterThreadPool.run {
+                val enabled = TerminalApi.fetchFeedbackImageEnabled()
+                CenterThreadPool.runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    imageEnabled = enabled
+                    renderNoteImages()
+                }
+            }
+
             renderThread()
         }
     }
 
     /**
-     * 分类 + 状态那一行。
+     * 分类 + 三态那一行，以及它下面那颗动作胶囊。
      *
-     * 单独抽出来是因为追加说明会把状态打回「待受理」，发送成功后要重画这一行 ——
-     * 不重画的话，用户刚说完话却看到「已受理」，会以为自己被跳过了。
+     * 单独抽出来是因为追加说明与结案都会改状态，成功之后要重画 ——
+     * 不重画的话，用户刚说完话却看到旧状态，会以为自己被跳过了。
      */
     private fun renderMeta(data: FeedbackItem) {
+        val state = FeedbackState.resolve(data)
         findViewById<TextView>(R.id.detail_meta).text =
-            "${categoryLabel(data.category)} · ${if (data.handled) UiText.of("已受理") else UiText.of("待受理")}"
+            "${categoryLabel(data.category)} · ${FeedbackState.label(state)}"
+        renderStateAction(data, state)
+    }
+
+    /**
+     * 状态行下面那颗胶囊（26.11.27 新增），三种状态三副面孔：
+     *
+     * - **已回复** → 可点：「问题已解决？」点了弹确认框再结案；
+     * - **已结束** → 只作提示、不可点，顺便把「追加说明会重新打开」这句话先说清；
+     * - **待回复** → 整块隐藏：开发者还没回，这时劝用户结案只会让人困惑。
+     *
+     * 描边用主题色手画（工程里没有可复用的「胶囊」drawable，为它新增一套 drawable
+     * 要覆盖 7 套主题，不划算）。
+     */
+    private fun renderStateAction(data: FeedbackItem, state: String) {
+        val card = findViewById<MaterialCardView>(R.id.detail_state_action)
+        val text = findViewById<TextView>(R.id.detail_state_action_text)
+        when (state) {
+            FeedbackState.REPLIED -> {
+                card.visibility = View.VISIBLE
+                card.isClickable = true
+                card.strokeWidth = (resources.displayMetrics.density * 1.5f).toInt()
+                card.strokeColor = themeColor(androidx.appcompat.R.attr.colorPrimary)
+                text.alpha = 1f
+                text.text = getString(R.string.feedback_close_entry)
+                card.setOnClickListener { confirmClose(data) }
+            }
+
+            FeedbackState.CLOSED -> {
+                card.visibility = View.VISIBLE
+                card.isClickable = false
+                card.strokeWidth = 0
+                text.alpha = 0.7f
+                text.text = getString(R.string.feedback_closed_hint)
+                card.setOnClickListener(null)
+            }
+
+            else -> {
+                card.visibility = View.GONE
+                card.setOnClickListener(null)
+            }
+        }
+    }
+
+    /** 结案前的确认框。写成「问题已经解决的话」，是因为「已结束」也可以只是「不想再跟了」。 */
+    private fun confirmClose(data: FeedbackItem) {
+        TerminalDialog.confirm(
+            context = this,
+            title = getString(R.string.msg_feedback_close_title),
+            message = getString(R.string.msg_feedback_close_body),
+            confirmText = getString(R.string.btn_feedback_close_ok),
+            cancelText = UiText.of("取消"),
+            confirmIsDanger = false
+        ) { closeFeedback(data) }.show()
+    }
+
+    /**
+     * 调 `POST /terminal/feedback/close` 把这条标成「已结束」。
+     *
+     * 成功后只改本地这份 [FeedbackItem] 的 state 并重画状态行 —— 服务端另有幂等保证，
+     * 重复点不会出错；同时 `setResult(RESULT_OK)` 让列表页重拉，列表上的三态跟着变。
+     */
+    private fun closeFeedback(data: FeedbackItem) {
+        if (sending) return
+        sending = true
+        CenterThreadPool.run {
+            val result = TerminalApi.closeFeedback(data.id)
+            CenterThreadPool.runOnUiThread {
+                sending = false
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (result.code < 0) {
+                    // 老服务端没有这个路由（404 会被 ApiResult 归一成 -1），这里只提示、不改状态
+                    MsgUtil.showMsg(getString(R.string.msg_feedback_close_fail, result.message))
+                    return@runOnUiThread
+                }
+                data.state = FeedbackState.CLOSED
+                renderMeta(data)
+                setResult(Activity.RESULT_OK)
+                MsgUtil.showMsg(getString(R.string.msg_feedback_close_ok))
+            }
+        }
     }
 
     /** 重画整条对话时间线。消息很少（多为 0~5 条），直接清空重建，不必为它单写一个 adapter。 */
@@ -125,10 +290,35 @@ class FeedbackDetailActivity : BaseActivity() {
         findViewById<TextView>(R.id.reply_header).text =
             if (replies.any { it.isFromUser() }) UiText.of("对话记录") else UiText.of("开发者回复")
 
+        // 长线程先折叠：手表一屏装不下十几条，而真正要看的是最后几句
+        val collapsed = !threadExpanded && replies.size > COLLAPSE_THRESHOLD
+        val shown = if (collapsed) replies.takeLast(COLLAPSED_TAIL) else replies
+        if (collapsed) container.addView(buildExpandRow(replies.size))
+
         val inflater = LayoutInflater.from(this)
-        for (reply in replies) {
+        for (reply in shown) {
             container.addView(buildReplyView(inflater, container, reply))
         }
+    }
+
+    /**
+     * 「展开全部 N 条」那一行，只在折叠时出现在时间线最上面。
+     *
+     * 用纯 [TextView] 而不是卡片：它只是一个开关，不该和消息抢视觉重量。
+     * 展开状态只活到本页销毁，退出重进又回到折叠态 —— 符合「只想看最新」的预期。
+     */
+    private fun buildExpandRow(total: Int): View {
+        val view = TextView(this)
+        view.text = getString(R.string.feedback_expand_replies, total)
+        view.textSize = 12f
+        view.setTextColor(themeColor(androidx.appcompat.R.attr.colorPrimary))
+        val pad = (resources.displayMetrics.density * 6f).toInt()
+        view.setPadding(0, pad, 0, pad)
+        view.setOnClickListener {
+            threadExpanded = true
+            renderThread()
+        }
+        return view
     }
 
     /**
@@ -149,6 +339,7 @@ class FeedbackDetailActivity : BaseActivity() {
             if (fromUser) UiText.of("我的补充") else reply.title.ifEmpty { UiText.of("开发者回复") }
         view.findViewById<TextView>(R.id.reply_time).text = reply.ctime
         view.findViewById<TextView>(R.id.reply_content).text = reply.content
+        bindImageThumbs(view.findViewById(R.id.reply_images), reply.images)
 
         if (fromUser) {
             (view as MaterialCardView).apply {
@@ -191,8 +382,29 @@ class FeedbackDetailActivity : BaseActivity() {
     private fun sendNote(data: FeedbackItem, text: String) {
         sending = true
         MsgUtil.showMsg(UiText.of("正在发送…"))
+        val images = ArrayList(pickedImages)
         CenterThreadPool.run {
-            val result = TerminalApi.submitFeedbackReply(data.id, text)
+            // 先把附图逐张传上去换成 key：任何一张失败就整条中止并保留已选图，
+            // 不会出现「文字发出去了、图没跟上」的半截线程。
+            val outcome = FeedbackImage.uploadAll(this@FeedbackDetailActivity, images)
+            if (!outcome.ok) {
+                val failure = outcome.failure
+                runOnUiThread {
+                    sending = false
+                    if (isDestroyed) return@runOnUiThread
+                    MsgUtil.showMsg(
+                        if (failure?.code == FeedbackImage.CODE_UNREADABLE) {
+                            getString(R.string.feedback_image_unreadable)
+                        } else {
+                            getString(R.string.feedback_image_fail, failure?.message ?: "")
+                        }
+                    )
+                    openNoteDialog(text)
+                }
+                return@run
+            }
+
+            val result = TerminalApi.submitFeedbackReply(data.id, text, outcome.keys)
             runOnUiThread {
                 sending = false
                 if (isDestroyed) return@runOnUiThread
@@ -208,12 +420,17 @@ class FeedbackDetailActivity : BaseActivity() {
                         "",
                         text,
                         TimeUtil.formatDateTime(System.currentTimeMillis()),
-                        FeedbackReply.AUTHOR_USER
+                        FeedbackReply.AUTHOR_USER,
+                        outcome.keys
                     )
                 )
-                // 服务端把这条反馈重新打回「待受理」（reopen 语义），页面上的状态必须跟着变，
-                // 否则用户会以为自己刚说的话被当成「已受理」跳过了。
+                // 图已经随这条消息发出去了，本地这一栏清空；失败路径上面已经保留。
+                pickedImages.clear()
+                renderNoteImages()
+                // 服务端把这条反馈重新打回「待回复」并把 user_state 清零（reopen 语义），
+                // 页面上的状态必须跟着变，否则用户会以为自己刚说的话被跳过了。
                 data.handled = false
+                data.state = FeedbackState.WAITING_DEV
                 renderMeta(data)
                 renderThread()
                 scrollToBottom()
@@ -222,6 +439,103 @@ class FeedbackDetailActivity : BaseActivity() {
                 MsgUtil.showMsg(UiText.of("已发送，开发者会看到"))
             }
         }
+    }
+
+    /**
+     * 把一组图片 key 铺成一行缩略图（展示用，点开全屏）。
+     *
+     * 地址一律走服务端代理 [TerminalApi.mediaUrl]：App 不直连 R2，客户端也就拿不到桶地址。
+     * 没有图时整行 GONE —— 不留一行空白去占时间线的视觉节奏。
+     */
+    private fun bindImageThumbs(row: LinearLayout?, keys: List<String>?) {
+        if (row == null) return
+        row.removeAllViews()
+        if (keys.isNullOrEmpty()) {
+            row.visibility = View.GONE
+            return
+        }
+        row.visibility = View.VISIBLE
+        val size = ToolsUtil.dp2px(48f)
+        val gap = ToolsUtil.dp2px(6f)
+        for (key in keys) {
+            val url = TerminalApi.mediaUrl(key)
+            if (url.isEmpty()) continue
+            val thumb = ImageView(this)
+            thumb.layoutParams = LinearLayout.LayoutParams(size, size).also { it.marginEnd = gap }
+            thumb.scaleType = ImageView.ScaleType.CENTER_CROP
+            GlideUtil.request(thumb, url, 6, 0)
+            thumb.setOnClickListener { openImage(url) }
+            row.addView(thumb)
+        }
+        // 全是空 key 时上面的循环一个都没加，别留一条可见的空行
+        if (row.childCount == 0) row.visibility = View.GONE
+    }
+
+    /**
+     * 开全屏看图。
+     *
+     * [ImageViewerActivity] 只认 imageList、没有「从第几张开始」的参数（见它的 onCreate），
+     * 所以一张图一张票 —— 一次只把当前这张传过去。
+     */
+    private fun openImage(url: String) {
+        val intent = Intent(this, ImageViewerActivity::class.java)
+        intent.putExtra("imageList", ArrayList(listOf(url)))
+        startActivity(intent)
+    }
+
+    /** 正文下面那行：用户提交反馈时带的截图。 */
+    private fun renderDetailImages(data: FeedbackItem) {
+        bindImageThumbs(detailImages, data.images)
+    }
+
+    /**
+     * 重画「追加说明」的附图行：没开开关就整块不出现，否则显示「附图（n/3）」+ 已选缩略图。
+     *
+     * 缩略图点一下是**移除**而不是看大图：这里的图还没发出去，用户唯一想做的操作是「这张挑错了」。
+     */
+    private fun renderNoteImages() {
+        val text = noteImageText ?: return
+        val row = noteImageRow ?: return
+        if (!imageEnabled) {
+            text.visibility = View.GONE
+            row.visibility = View.GONE
+            return
+        }
+        text.visibility = View.VISIBLE
+        text.text = getString(R.string.feedback_note_image_add, pickedImages.size, FeedbackImage.MAX_COUNT)
+        row.removeAllViews()
+        if (pickedImages.isEmpty()) {
+            row.visibility = View.GONE
+            return
+        }
+        row.visibility = View.VISIBLE
+        val size = ToolsUtil.dp2px(48f)
+        val gap = ToolsUtil.dp2px(6f)
+        pickedImages.forEachIndexed { index, uri ->
+            val thumb = ImageView(this)
+            thumb.layoutParams = LinearLayout.LayoutParams(size, size).also { it.marginEnd = gap }
+            thumb.scaleType = ImageView.ScaleType.CENTER_CROP
+            GlideUtil.request(thumb, uri.toString(), 6, 0)
+            thumb.setOnClickListener { confirmRemoveNoteImage(index) }
+            row.addView(thumb)
+        }
+    }
+
+    /** 移除一张已选截图。走确认弹窗：手表上手指粗，误触概率不低。 */
+    private fun confirmRemoveNoteImage(index: Int) {
+        if (index < 0 || index >= pickedImages.size) return
+        TerminalDialog.confirm(
+            this,
+            getString(R.string.msg_feedback_image_remove_title),
+            getString(R.string.msg_feedback_image_remove_body),
+            onConfirm = {
+                // 弹窗是异步的，回来时集合可能已经变了，按下标再确认一次
+                if (index < pickedImages.size) {
+                    pickedImages.removeAt(index)
+                    renderNoteImages()
+                }
+            }
+        ).show()
     }
 
     /** 滚到时间线末尾，让刚发出去的那条进入视野。等一帧再滚，否则新加的 View 还没测量完。 */

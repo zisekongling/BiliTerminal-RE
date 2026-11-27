@@ -58,6 +58,16 @@
             android:textSize="12sp"
             tools:text="下个版本会修好，感谢反馈。" />
 
+        <!-- 这条消息带的截图（26.11.27 新增）：48dp 缩略图，点开全屏；没图时 GONE。 -->
+        <LinearLayout
+            android:id="@+id/reply_images"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
     </LinearLayout>
 
 </com.google.android.material.card.MaterialCardView>

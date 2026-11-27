@@ -28,6 +28,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 
 import okhttp3.Response;
@@ -201,6 +203,22 @@ public class TerminalApi {
                                                   String content, String log, String contact, long mid,
                                                   int versionCode, String versionName, int sdk,
                                                   String brand, String device) throws JSONException {
+        return buildFeedbackPayload(installId, deviceKey, category, content, log, contact, mid,
+                versionCode, versionName, sdk, brand, device, null);
+    }
+
+    /**
+     * 同上，多带一组反馈配图的 key（26.11.27 新增）。
+     *
+     * <p>这些 key 来自 {@link #uploadFeedbackImage(byte[], int, int)}，此刻还挂在服务端的
+     * 「待绑定」状态上；随正文提交后才会真正归属这条反馈。没被绑定的待用图由服务端定时清掉。
+     * 传空 / null 等价于没有图；老服务端忽略这个未知字段，行为与以前一致。
+     */
+    public static JSONObject buildFeedbackPayload(String installId, String deviceKey, String category,
+                                                  String content, String log, String contact, long mid,
+                                                  int versionCode, String versionName, int sdk,
+                                                  String brand, String device, List<String> images)
+            throws JSONException {
         JSONObject data = new JSONObject();
         data.put("install_id", safe(installId));
         // 冗余一份设备键：后台要按设备统计反馈数，而 feedback 未必能和 installs 关联上
@@ -216,6 +234,8 @@ public class TerminalApi {
         data.put("sdk", sdk);
         data.put("brand", safe(brand));
         data.put("device", safe(device));
+        // 配图（26.11.27）：空列表也照发，服务端按「没带」处理
+        data.put("images", keysToJson(images));
         return data;
     }
 
@@ -230,9 +250,22 @@ public class TerminalApi {
      */
     public static JSONObject buildFeedbackReplyPayload(int feedbackId, String content)
             throws JSONException {
+        return buildFeedbackReplyPayload(feedbackId, content, null);
+    }
+
+    /**
+     * 同上，多带一组配图 key（26.11.27 新增）。追加说明也可以附图。
+     *
+     * <p>绑定目标由服务端按「这条追加说明的 id」决定（{@code feedback_comment}），
+     * 客户端只负责把在 {@link #uploadFeedbackImage(byte[], int, int)} 拿到的 key 传进来。
+     */
+    public static JSONObject buildFeedbackReplyPayload(int feedbackId, String content,
+                                                       List<String> images)
+            throws JSONException {
         JSONObject data = new JSONObject();
         data.put("id", feedbackId);
         data.put("content", safe(content));
+        data.put("images", keysToJson(images));
         return data;
     }
 
@@ -337,6 +370,68 @@ public class TerminalApi {
     }
 
     /**
+     * 把图片 key 列表收敛成 JSON 数组（26.11.27 新增）。**纯函数**，可在 JVM 单测里断言。
+     *
+     * <p>空列表 / null 都返回空数组而不是「不写这个字段」：服务端两边等价（没有就当没带），
+     * 但固定发一个空数组能让请求形状保持稳定，排查时少一种分支。
+     */
+    public static JSONArray keysToJson(Collection<String> keys) {
+        JSONArray array = new JSONArray();
+        if (keys == null) return array;
+        for (String key : keys) {
+            // trim 判空：空白串既不是合法 key，也没必要塞进请求体
+            if (key != null && !key.trim().isEmpty()) array.put(key);
+        }
+        return array;
+    }
+
+    /**
+     * 解析一条反馈正文 / 一条消息上的配图 key 列表（26.11.27 新增）。**纯函数**。
+     *
+     * <p>`images` 可能缺失、为 null，也可能混着非字符串元素；一律收敛成列表（缺失即空列表），
+     * 不让脏值流进 {@link #mediaUrl(String)} 拼出个半截 URL。老服务端不返回这个字段，得到空列表。
+     */
+    public static ArrayList<String> parseImageKeys(JSONObject source) {
+        ArrayList<String> keys = new ArrayList<>();
+        if (source == null) return keys;
+        JSONArray array = source.optJSONArray("images");
+        if (array == null) return keys;
+        for (int i = 0; i < array.length(); i++) {
+            String key = imageKeyOf(array.opt(i));
+            if (!key.isEmpty()) keys.add(key);
+        }
+        return keys;
+    }
+
+    /**
+     * 从 {@code images} 数组里的**一个元素**取出图片 key。**纯函数**。
+     *
+     * <p>服务端下发的是**对象数组** {@code [{"key":"fb/202611/x.jpg","w":776,"h":1600}]}
+     * —— 控制台要用宽高排版，所以带上了尺寸。只当元素的 {@code key} 缺失时才退回
+     * 老格式的**字符串数组**。
+     *
+     * <p><b>这里踩过坑（26.11.27）</b>：早先直接用 {@code JSONArray.optString(i)}，
+     * 遇到对象元素会把它整个转成 JSON 文本，拼出的 URL 长这样
+     * {@code /terminal/media/{"key":"fb/202611/x.jpg",...}}；服务端的 key 白名单
+     * 只认 {@code [A-Za-z0-9/_.-]}，于是**每条回读的图都 404**，只有刚选完还没提交时
+     * （那时用的是本地 Uri）能显示。用户报的「发过的图片重新加载 App 就 404」就是这个。
+     *
+     * @return 空串表示这个元素不可用（缺失、JSON null、对象里没有 key）
+     */
+    public static String imageKeyOf(Object element) {
+        if (element == null || element == JSONObject.NULL) return "";
+        if (element instanceof String) return ((String) element).trim();
+        if (element instanceof JSONObject) {
+            JSONObject obj = (JSONObject) element;
+            String key = safe(obj.optString("key", "")).trim();
+            if (!key.isEmpty()) return key;
+            // 兼容将来服务端直接下发完整地址的写法
+            return safe(obj.optString("url", "")).trim();
+        }
+        return "";
+    }
+
+    /**
      * 解析「我的反馈」列表。{@code data} 形如 {@code {"items":[...],"total":1}}。
      *
      * <p>纯函数：不碰 Android 运行时，可在 JVM 单测里直接验证。{@code items} 缺失、为空或
@@ -369,7 +464,9 @@ public class TerminalApi {
                             // 26.10.16：一条反馈下面现在有两侧的消息（开发者回复 / 用户追加说明）。
                             // **旧服务端不返回这个字段**，取到空串 -> isFromUser() 为 false，
                             // 正好等于升级前「只可能有开发者回复」的事实，不需要额外兼容分支。
-                            reply.optString("author", "")));
+                            reply.optString("author", ""),
+                            // 26.11.27：这条消息的配图 key。老服务端不返回 -> 空列表。
+                            parseImageKeys(reply)));
                 }
             }
 
@@ -380,7 +477,13 @@ public class TerminalApi {
                     item.optString("contact", ""),
                     TimeUtil.formatDateTime(item.optLong("ctime", 0) * 1000),
                     item.optInt("handled", 0) != 0,
-                    replies));
+                    replies,
+                    // 26.11.27：服务端派生的三态。**旧服务端不返回这个字段**，取到空串，
+                    // 显示前由 FeedbackState.resolve 按回复情况回落（有开发者回复→已回复），
+                    // 所以老服务端配新客户端也不会显示出错误的状态。
+                    item.optString("state", ""),
+                    // 26.11.27：正文配图 key。老服务端不返回 -> 空列表。
+                    parseImageKeys(item)));
         }
         return list;
     }
@@ -673,11 +776,25 @@ public class TerminalApi {
      */
     public static ApiResult submitFeedback(String category, String content, String log,
                                            String contact, long mid) {
+        return submitFeedback(category, content, log, contact, mid, null);
+    }
+
+    /**
+     * 同上，多带一组已上传好的配图 key（26.11.27 新增）。
+     *
+     * <p>把「提交正文」与「绑定图片」合成一次请求：图片先由
+     * {@link #uploadFeedbackImage(byte[], int, int)} 逐张传上去，key 跟着正文走，
+     * 服务端在写入反馈的同一段逻辑里绑定它们，不会出现「正文发了、图没挂上」的半截状态。
+     *
+     * @param images 图片 key 列表；空 / null 表示没有图
+     */
+    public static ApiResult submitFeedback(String category, String content, String log,
+                                           String contact, long mid, List<String> images) {
         try {
             JSONObject payload = buildFeedbackPayload(
                     getInstallId(), getDeviceKey(), category, content, log, contact, mid,
                     BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME,
-                    Build.VERSION.SDK_INT, Build.BRAND, Build.DEVICE);
+                    Build.VERSION.SDK_INT, Build.BRAND, Build.DEVICE, images);
             JSONObject result = post("/feedback/submit", payload);
             if (result.optInt("code", -1) != 0) {
                 return new ApiResult(-1, result.optString("msg", "unknown"));
@@ -703,13 +820,173 @@ public class TerminalApi {
      * @return 成功时 {@code code} 是新消息的 id；失败时 {@code message} 是服务端或本地的原因
      */
     public static ApiResult submitFeedbackReply(int feedbackId, String content) {
+        return submitFeedbackReply(feedbackId, content, null);
+    }
+
+    /** 同上，多带一组配图 key（26.11.27 新增）：追加说明也能附图。 */
+    public static ApiResult submitFeedbackReply(int feedbackId, String content,
+                                                List<String> images) {
         try {
-            JSONObject payload = buildFeedbackReplyPayload(feedbackId, content);
+            JSONObject payload = buildFeedbackReplyPayload(feedbackId, content, images);
             JSONObject result = postWithHeaders("/feedback/reply", payload, feedbackHeaders());
             if (result.optInt("code", -1) != 0) {
                 return new ApiResult(-1, result.optString("msg", "unknown"));
             }
             return new ApiResult(result.optInt("id", -1), "");
+        } catch (IOException e) {
+            return new ApiResult(-2, "网络连接失败");
+        } catch (JSONException e) {
+            return new ApiResult(-3, "服务器返回了无法解析的内容");
+        }
+    }
+
+    /**
+     * 一张反馈配图的**完整访问地址**（26.11.27 新增）。**纯函数**，可在 JVM 单测里断言。
+     *
+     * <p>客户端**不直连对象存储**：图片存在私有桶里，key 由服务端生成且不可猜，
+     * 唯一的入口是服务端的代理路由 `GET /terminal/media/<key>`。这样不用给桶开公共访问、
+     * 不用多绑一个域名，控制台的 CSP（`img-src self`）也不用改。
+     *
+     * @return 完整 URL；key 为空时返回空串（调用方按「没有图」跳过，不要传给图片加载器）
+     */
+    public static String mediaUrl(String imageKey) {
+        String key = imageKey == null ? "" : imageKey.trim();
+        if (key.isEmpty()) return "";
+        // 已经是完整地址（服务端某天改成直给 URL）就原样用，别再拼一层前缀
+        if (key.startsWith("http://") || key.startsWith("https://")) return key;
+        return BASE_URL + "/media/" + key;
+    }
+
+    /**
+     * 问服务端「反馈配图功能现在开着吗」（26.11.27 新增）。
+     *
+     * <p>开关在服务端（控制台随时能关，另有 R2 配置是否齐全这一半），客户端只负责隐藏入口：
+     * 关着就不显示「添加截图」、也不为用户点开选图多发请求。
+     *
+     * <p>**任何失败都返回 false**：拿不到答案就当没这功能 —— 宁可少一个入口，
+     * 也不要让开关早就关了的用户点了之后收到 403。
+     */
+    public static boolean fetchFeedbackImageEnabled() {
+        try {
+            // 走 headers()：这个接口不需要身份（不含 X-Install-Id / X-Mid），也不该带 Cookie
+            JSONObject result = NetWorkUtil.getJson(BASE_URL + "/feedback/config", headers());
+            if (result == null || result.optInt("code", -1) != 0) return false;
+            return readImageEnabled(result);
+        } catch (Exception e) {
+            Logu.w("反馈配图开关读取失败：" + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 从 /feedback/config 的响应里读「配图开着吗」（26.11.27 新增，纯函数，可单测）。
+     *
+     * <p><b>不能用 optInt 读这个字段</b>：服务端下发的是真正的 JSON 布尔
+     * （{"image_enabled": true}），而 Android 的 org.json 里 optInt 只认
+     * Integer / Number / 数字字符串，碰到布尔值一律回落默认值 —— 线上就会永远读到 0、
+     * 截图入口永远不出现（26.11.27 真机验证踩到的正是这个）。
+     *
+     * <p>现在布尔、数字、数字字符串三种写法都认；字段缺失或脏值一律当关着（宁可不显示入口）。
+     */
+    public static boolean readImageEnabled(JSONObject json) {
+        if (json == null) return false;
+        Object value = json.opt("image_enabled");
+        if (value instanceof Boolean) return (Boolean) value;
+        if (value instanceof Number) return ((Number) value).intValue() != 0;
+        if (value instanceof String) {
+            String text = ((String) value).trim();
+            if ("true".equalsIgnoreCase(text)) return true;
+            if ("false".equalsIgnoreCase(text)) return false;
+            try {
+                return Integer.parseInt(text) != 0;
+            } catch (NumberFormatException ignored) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 上传一张反馈配图，拿到待绑定的 key（26.11.27 新增）。
+     *
+     * <p><b>必须先于正文提交</b>：这里返回的 key 还挂在服务端的「待绑定」状态上，随后由
+     * {@link #submitFeedback(String, String, String, String, long, List)} 或
+     * {@link #submitFeedbackReply(int, String, List)} 带上 `images` 一起绑定到具体那条反馈 /
+     * 那条追加说明上。没被绑定的待用图由服务端 24 小时后清掉（用户选完图又退出了）。
+     *
+     * <p>走**裸字节** body（{@link NetWorkUtil#postBytes}）+ 两个尺寸头：宽高在客户端压缩时
+     * 本来就知道，带过去省得服务端再解一遍图。
+     *
+     * @param data   压缩好的 JPEG / PNG 原始字节（服务端上限 2MB，只认这两种魔数）
+     * @param width  压缩后的像素宽（服务端记 0 也没关系，客户端按 0 自行处理比例）
+     * @param height 压缩后的像素高
+     * @return 成功时 {@code code = 0}、{@code message} 是图片 key（喂给 {@link #mediaUrl(String)}）；
+     *         失败时 code 为负：-1 服务端 msg（如「图片上传暂未开放」「只支持 JPEG / PNG 图片」），
+     *         -2 网络，-3 解析，-4 本地参数（空字节）
+     */
+    public static ApiResult uploadFeedbackImage(byte[] data, int width, int height) {
+        if (data == null || data.length == 0) return new ApiResult(-4, "图片是空的");
+        ArrayList<String> headers = feedbackHeaders();
+        headers.add("X-Image-Width");
+        headers.add(String.valueOf(Math.max(0, width)));
+        headers.add("X-Image-Height");
+        headers.add(String.valueOf(Math.max(0, height)));
+        try {
+            Response response = NetWorkUtil.postBytes(BASE_URL + "/feedback/image", data, headers,
+                    "image/jpeg");
+            String body;
+            try {
+                body = response.body() == null ? "" : response.body().string();
+            } finally {
+                response.close();
+            }
+            JSONObject result = new JSONObject(body);
+            if (result.optInt("code", -1) != 0) {
+                return new ApiResult(-1, result.optString("msg", "unknown"));
+            }
+            return new ApiResult(0, result.optString("key", ""));
+        } catch (IOException e) {
+            return new ApiResult(-2, "网络连接失败");
+        } catch (JSONException e) {
+            return new ApiResult(-3, "服务器返回了无法解析的内容");
+        }
+    }
+
+    /**
+     * 结案的载荷（26.11.27 新增）。
+     *
+     * <p>**纯函数**，可在 JVM 单测里直接断言。
+     *
+     * <p>只有一个字段：反馈 id。归属同样走请求头，理由同 {@link #buildFeedbackReplyPayload(int, String)}。
+     */
+    public static JSONObject buildFeedbackClosePayload(int feedbackId) throws JSONException {
+        JSONObject data = new JSONObject();
+        data.put("id", feedbackId);
+        return data;
+    }
+
+    /**
+     * 把自己的一条反馈标成「已结束」（26.11.27 新增）。
+     *
+     * <p>用户侧的闭环信号：确定问题已经解决（或者已经不想再跟）时自己结案，
+     * 服务端只置 {@code user_state=1}，**不动 {@code handled}**（那是开发者的待办状态）。
+     * 结案之后用户再追加一条说明会自动把它重新打开，所以这个动作不是不可逆的。
+     *
+     * <p>与追加说明同一套身份（{@link #feedbackHeaders()}），因此服务端那边的归属校验
+     * 也是同一份 SQL：不是自己的反馈返回 404（与「不存在」同码，防枚举）。
+     *
+     * <p>老服务端没有这个路由（404 / 405），调用方把失败当「暂时不可用」提示即可，不要崩。
+     *
+     * @return 成功时 {@code code} 为 0；失败时 {@code message} 是服务端或本地的原因
+     */
+    public static ApiResult closeFeedback(int feedbackId) {
+        try {
+            JSONObject payload = buildFeedbackClosePayload(feedbackId);
+            JSONObject result = postWithHeaders("/feedback/close", payload, feedbackHeaders());
+            if (result.optInt("code", -1) != 0) {
+                return new ApiResult(-1, result.optString("msg", "unknown"));
+            }
+            return new ApiResult(0, "");
         } catch (IOException e) {
             return new ApiResult(-2, "网络连接失败");
         } catch (JSONException e) {

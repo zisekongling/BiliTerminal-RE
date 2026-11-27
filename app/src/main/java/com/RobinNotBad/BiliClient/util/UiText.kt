@@ -328,6 +328,7 @@ object UiText {
         "请选择" to R.string.uitext_listchooseactivity_001,
         "登录信息过期，请重新登录！" to R.string.uitext_splashactivity_001,
         "Cookies已刷新" to R.string.uitext_splashactivity_002,
+        "登录凭证无法自动续期，请重新登录" to R.string.uitext_splashactivity_004,
         "发送失败" to R.string.settingtext_smsloginfragment_001,
         "正在发送…" to R.string.feedback_sending,
         "我的反馈" to R.string.feedback_mine_entry_title,
@@ -948,6 +949,8 @@ object UiText {
         "捏合缩放" to R.string.uitext_playerzoomdiagnostics_017,
         "拖动画面" to R.string.uitext_playerzoomdiagnostics_018,
         "未消费" to R.string.uitext_playerzoomdiagnostics_019,
+        "待回复" to R.string.feedback_state_waiting,
+        "已回复" to R.string.feedback_state_replied,
 // @INSERT
     )
 

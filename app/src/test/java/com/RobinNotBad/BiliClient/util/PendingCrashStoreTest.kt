@@ -142,4 +142,50 @@ class PendingCrashStoreTest {
         saveOrdered("real")
         assertEquals("只有 .json 才算待传", 1, PendingCrashStore.list(dir).size)
     }
+
+    // ---------- 认领：同一条报告只让一条路径发 ----------
+
+    @Test
+    fun 认领后不在待传队列里() {
+        val file = saveOrdered("payload")
+        val claimed = PendingCrashStore.claim(file)
+        assertNotNull("第一次认领应该成功", claimed)
+        assertTrue("认领后的文件要带 .inflight 后缀", claimed!!.name.endsWith(PendingCrashStore.INFLIGHT_SUFFIX))
+        assertFalse("原名那份文件已经不在了", file.exists())
+        assertTrue("认领中的报告不该出现在待传队列里，否则冷启动会把正在发的再发一遍", PendingCrashStore.list(dir).isEmpty())
+    }
+
+    @Test
+    fun 已被认领的报告别人抢不到() {
+        val file = saveOrdered("payload")
+        assertNotNull(PendingCrashStore.claim(file))
+        assertNull("同一个文件不该被认领两次", PendingCrashStore.claim(file))
+    }
+
+    @Test
+    fun 归还认领后重新入队() {
+        val file = saveOrdered("payload")
+        val claimed = PendingCrashStore.claim(file)!!
+        assertTrue(PendingCrashStore.release(claimed))
+        assertEquals("发失败要把名字还回去，下次启动还得能捡到它", 1, PendingCrashStore.list(dir).size)
+        assertEquals("payload", PendingCrashStore.read(PendingCrashStore.list(dir).first()))
+    }
+
+    @Test
+    fun 超时未完成的认领会回收() {
+        val file = saveOrdered("payload")
+        val claimed = PendingCrashStore.claim(file)!!
+        // 模拟「认领它的进程在 POST 途中被系统杀掉」：把认领时间往前推 11 分钟
+        claimed.setLastModified(System.currentTimeMillis() - 11 * 60 * 1000L)
+        assertEquals("超时的认领必须能回收，否则这条报告永远躺在盘里、永远发不出去", 1, PendingCrashStore.recoverStaleInflight(dir))
+        assertEquals(1, PendingCrashStore.list(dir).size)
+    }
+
+    @Test
+    fun 刚认领的不会被误回收() {
+        val file = saveOrdered("payload")
+        PendingCrashStore.claim(file)
+        assertEquals("正在上传的那条不能被当成超时抢走", 0, PendingCrashStore.recoverStaleInflight(dir))
+        assertTrue("还在认领中，队列里不该有它", PendingCrashStore.list(dir).isEmpty())
+    }
 }

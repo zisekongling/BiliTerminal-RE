@@ -60,14 +60,43 @@
             android:paddingHorizontal="@dimen/activity_padding_horizontal"
             android:paddingVertical="4dp">
 
-            <!-- 第一行：分类 + 状态（待受理 / 已受理） -->
+            <!-- 第一行：分类 + 三态（待回复 / 已回复 / 已结束） -->
             <TextView
                 android:id="@+id/detail_meta"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:textSize="13sp"
                 android:textStyle="bold"
-                tools:text="功能异常 · 待受理" />
+                tools:text="功能异常 · 已回复" />
+
+            <!--
+              26.11.27：状态行下面单独一行的动作胶囊（不塞进上面那行：13sp 粗体已经占满一行，
+              再挤一个可点元素在 300×300 的表盘上很容易误触）。
+              「已回复」时是「问题已解决？」的结案入口；「已结束」时只作提示、不可点；「待回复」时整块隐藏。
+            -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/detail_state_action"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:visibility="gone"
+                app:cardCornerRadius="10dp"
+                app:cardElevation="0dp"
+                tools:visibility="visible">
+
+                <TextView
+                    android:id="@+id/detail_state_action_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="3dp"
+                    android:textSize="12sp"
+                    tools:text="问题已解决？" />
+
+            </com.google.android.material.card.MaterialCardView>
 
             <TextView
                 android:id="@+id/detail_time"
@@ -85,6 +114,16 @@
                 android:layout_marginTop="6dp"
                 android:textSize="13sp"
                 tools:text="播放器在切集的时候会闪退，复现步骤：先播一个视频再点下一集。" />
+
+            <!-- 用户提交时带的截图（26.11.27 新增）：一行 48dp 缩略图，点开全屏看。没有图时 GONE。 -->
+            <LinearLayout
+                android:id="@+id/detail_images"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal"
+                android:visibility="gone"
+                tools:visibility="visible" />
 
             <!-- 联系方式：用户没填时在代码里置 GONE -->
             <TextView
@@ -157,6 +196,27 @@
                         android:alpha="0.7"
                         android:text="@string/text_activityfeedbackdetail_01"
                         android:textSize="11sp" />
+
+                    <!-- 追加说明可以带图（26.11.27 新增）：这一行只在服务端开着图片上传时出现。
+                         点它挑图，点下面的缩略图移除（缩略图是「待发送」，不是「已发送」，所以不点开看大图）。 -->
+                    <TextView
+                        android:id="@+id/note_image_text"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:visibility="gone"
+                        tools:text="附图（0/3）"
+                        tools:visibility="visible" />
+
+                    <LinearLayout
+                        android:id="@+id/note_image_row"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:orientation="horizontal"
+                        android:visibility="gone" />
 
                 </LinearLayout>
 

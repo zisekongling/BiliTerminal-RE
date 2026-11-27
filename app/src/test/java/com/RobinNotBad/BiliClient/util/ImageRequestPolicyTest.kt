@@ -225,4 +225,51 @@ class ImageRequestPolicyTest {
         assertEquals("Mozilla/5.0 lower", headers["User-Agent"])
         assertEquals(1, headers.size)
     }
+
+    // ---------------- shouldAttachInstallId：反馈配图只认自建域名 ----------------
+
+    @Test
+    fun shouldAttachInstallId_terminalHost_true() {
+        // 反馈配图走自建服务端的 /terminal/media/<key>，26.11.27 起读图要带 X-Install-Id 才认。
+        listOf(
+            "https://rebiliterminal.zsapp.asia/terminal/media/fb/202611/abc.jpg",
+            "HTTPS://REBILITERMINAL.ZSAPP.ASIA/terminal/media/fb/202611/abc.jpg"
+        ).forEach { url ->
+            assertTrue("自建域名应带身份头：$url", ImageRequestPolicy.shouldAttachInstallId(url))
+            assertEquals("rebiliterminal.zsapp.asia", ImageRequestPolicy.hostOf(url))
+        }
+    }
+
+    @Test
+    fun shouldAttachInstallId_otherHosts_false() {
+        listOf(
+            // 子域/前后缀骗不到：必须完全相等
+            "https://rebiliterminal.zsapp.asia.evil.com/terminal/media/fb/x.jpg",
+            "https://evil-rebiliterminal.zsapp.asia/terminal/media/fb/x.jpg",
+            // B 站图床不需要这个头
+            "https://i0.hdslb.com/bfs/archive/cover.jpg",
+            // 站外图床更不能拿设备标识
+            "https://afdiancdn.com/img/avatar.jpg",
+            // 没有 scheme 的协议相对地址解析不出 host，fail-closed
+            "//rebiliterminal.zsapp.asia/terminal/media/fb/x.jpg",
+            "content://media/external/images/1"
+        ).forEach { url ->
+            assertFalse("不该带身份头：$url", ImageRequestPolicy.shouldAttachInstallId(url))
+        }
+    }
+
+    @Test
+    fun shouldAttachInstallId_blankOrNull_false() {
+        assertFalse(ImageRequestPolicy.shouldAttachInstallId(null))
+        assertFalse(ImageRequestPolicy.shouldAttachInstallId(""))
+        assertFalse(ImageRequestPolicy.shouldAttachInstallId("   "))
+        assertFalse(ImageRequestPolicy.shouldAttachInstallId("not a url"))
+    }
+
+    @Test
+    fun installIdHeaderName_matchesServerContract() {
+        // 服务端 media_proxy 认的就是这个头名（server/rebiliterminal_api.py 的
+        // _media_caller_allowed 读 x-install-id）；改名必须两边一起改。
+        assertEquals("X-Install-Id", ImageRequestPolicy.INSTALL_ID_HEADER)
+    }
 }
