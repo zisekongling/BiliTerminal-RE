@@ -47,6 +47,9 @@ object FeedbackImage {
     private const val JPEG_QUALITY_MIN = 55
     private const val JPEG_QUALITY_STEP = 15
 
+    /** 原图字节上限：超过这个大小直接放弃，避免一张超大图把内存吃光。 */
+    private const val RAW_LIMIT_BYTES = 32 * 1024 * 1024
+
     /** 「这张图读不出来 / 压不到上限以内」。 */
     const val CODE_UNREADABLE = -5
 
@@ -87,23 +90,26 @@ object FeedbackImage {
      */
     @JvmStatic
     fun encode(context: Context, uri: Uri): Encoded? {
-        val resolver = context.contentResolver
+        // 一次读成字节再解两次（尺寸 + 像素）：同一 Uri 反复 openInputStream 在部分
+        // 国产 ROM 上第二次会失败（云同步相册、跨应用 provider），表现就是「这张图读不出来」。
+        val bytes = readBytes(context, uri) ?: return null
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        try {
-            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-        } catch (e: Exception) {
-            Logu.w("反馈截图", "读取图片尺寸失败：" + e.message)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            Logu.w("反馈截图", "解不出尺寸，可能不是图片：" + uri + " bytes=" + bytes.size)
             return null
         }
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
         val opts = BitmapFactory.Options().apply {
             inSampleSize = sampleSizeFor(bounds.outWidth, bounds.outHeight, MAX_EDGE)
         }
         val decoded: Bitmap = try {
-            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
-        } catch (e: Exception) {
-            Logu.w("反馈截图", "解码图片失败：" + e.message)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts) ?: run {
+                Logu.w("反馈截图", "解码返回空：" + bounds.outWidth + "x" + bounds.outHeight)
+                null
+            }
+        } catch (e: OutOfMemoryError) {
+            Logu.w("反馈截图", "解码内存不足，跳过这张：" + bounds.outWidth + "x" + bounds.outHeight)
             null
         } ?: return null
 
@@ -125,6 +131,46 @@ object FeedbackImage {
             }
         } finally {
             if (!scaled.isRecycled) scaled.recycle()
+        }
+    }
+
+    /**
+     * 把 Uri 一次性读成字节数组。读不到（或大得离谱）返回 null，并留下日志。
+     *
+     * <p>为什么不用 decodeStream：解码要读两遍（先尺寸后像素），而同一 Uri 第二次
+     * openInputStream 在部分 ROM 上会失败。代价是整张原图进内存 —— 截图与相册照片
+     * 几 MB 量级，比「读不出来」划算；[RAW_LIMIT_BYTES] 兜住异常大的文件。
+     */
+    private fun readBytes(context: Context, uri: Uri): ByteArray? {
+        return try {
+            val stream = context.contentResolver.openInputStream(uri)
+            if (stream == null) {
+                Logu.w("反馈截图", "打不开这个图片：" + uri)
+                return null
+            }
+            stream.use {
+                val out = ByteArrayOutputStream()
+                val buffer = ByteArray(64 * 1024)
+                var total = 0
+                while (true) {
+                    val read = it.read(buffer)
+                    if (read <= 0) break
+                    total += read
+                    if (total > RAW_LIMIT_BYTES) {
+                        Logu.w("反馈截图", "原图太大，放弃这张：" + total + " " + uri)
+                        return null
+                    }
+                    out.write(buffer, 0, read)
+                }
+                if (out.size() <= 0) {
+                    Logu.w("反馈截图", "这个图片是空文件：" + uri)
+                    return null
+                }
+                out.toByteArray()
+            }
+        } catch (e: Exception) {
+            Logu.w("反馈截图", "读取图片失败：" + e.message + " " + uri)
+            null
         }
     }
 

@@ -336,6 +336,55 @@ class TerminalApiTest {
         )
     }
 
+    @Test
+    fun parseImageKeys_readsObjectElements() {
+        val images = JSONArray()
+            .put(JSONObject().put("key", "fb/202611/a.jpg").put("w", 776).put("h", 1600))
+            .put(JSONObject().put("key", "fb/202611/b.jpg").put("w", 60).put("h", 40))
+        val keys = TerminalApi.parseImageKeys(JSONObject().put("images", images)).toList()
+        assertEquals(listOf("fb/202611/a.jpg", "fb/202611/b.jpg"), keys)
+        for (key in keys) {
+            assertFalse(
+                "解析出来的必须是纯 key，把对象整个转成 JSON 文本会拼出 404 的 URL：$key",
+                key.contains("{") || key.contains("\"")
+            )
+        }
+    }
+
+    @Test
+    fun parseImageKeys_mixedElementsAndMissingKey() {
+        val images = JSONArray()
+            .put("fb/202611/plain.jpg")
+            .put(JSONObject().put("w", 1))
+            .put(JSONObject().put("key", "  fb/202611/obj.jpg  "))
+            .put(JSONObject.NULL)
+        assertEquals(
+            listOf("fb/202611/plain.jpg", "fb/202611/obj.jpg"),
+            TerminalApi.parseImageKeys(JSONObject().put("images", images)).toList()
+        )
+    }
+
+    @Test
+    fun imageKeyOf_ignoresNonKeyElements() {
+        assertEquals("", TerminalApi.imageKeyOf(null))
+        assertEquals("", TerminalApi.imageKeyOf(JSONObject.NULL))
+        assertEquals("", TerminalApi.imageKeyOf(42))
+        assertEquals("fb/x.jpg", TerminalApi.imageKeyOf(" fb/x.jpg "))
+        assertEquals(
+            "https://cdn.example/x.jpg",
+            TerminalApi.imageKeyOf(JSONObject().put("url", "https://cdn.example/x.jpg"))
+        )
+    }
+
+    @Test
+    fun mediaUrl_passesAbsoluteUrlThrough() {
+        assertEquals("https://cdn.example/x.jpg", TerminalApi.mediaUrl("https://cdn.example/x.jpg"))
+        assertEquals(
+            "https://rebiliterminal.zsapp.asia/terminal/media/fb/x.jpg",
+            TerminalApi.mediaUrl("  fb/x.jpg ")
+        )
+    }
+
     /** 老签名的载荷也要带上空 images（服务端按「没带」处理），老服务端则忽略这个字段。 */
     @Test
     fun feedbackPayload_alwaysCarriesImagesArray() {

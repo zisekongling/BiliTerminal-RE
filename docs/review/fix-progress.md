@@ -18,6 +18,19 @@
 
 ## 1. 当前版本状态
 
+- **26.11.27 反馈附图「发图失败 + 回读 404」（images 是对象数组被 optString 取成整段 JSON；大图二次 open 失败）**：
+  - **来路**：用户 m02780「我这边发图失败，且发过的图片若重新加载APP里就 404 了」，附图是 toast「这张图读不出来」（正是 `feedback_image_unreadable`，对应 `FeedbackImage.CODE_UNREADABLE`）。
+  - **机理一（回读 404）**：服务端 `_db_feedback_image_map` 给 App 下发的是**对象数组** `images: [{"key":"fb/202611/x.jpg","w":776,"h":1600}]`（控制台要宽高排版），而 `TerminalApi.parseImageKeys` 原用 `array.optString(i, "")` 取元素 —— org.json 对 JSONObject 会调 `toString()`，于是 key 变成整段 JSON 文本，URL 拼成 `/terminal/media/{"key":...}`，服务端 media 路由的 key 白名单正则 `[A-Za-z0-9/_.-]{1,200}` 不匹配 → **必然 404**。刚选完还没提交时显示的是本地 `Uri` 所以正常，一重进 App 走服务端回读就全裂，与用户描述完全吻合。
+  - **机理二（读不出来）**：`FeedbackImage.encode` 对同一个 Uri `openInputStream` **两次**（先 `inJustDecodeBounds` 取尺寸、再解码像素），部分国产 ROM（云同步相册、跨应用 provider）第二次 open 直接失败 → 返回 null → CODE_UNREADABLE；原代码这条分支还没有日志，线上无从复现。
+  - **改法（3 个文件）**：
+    - `app/src/main/java/com/RobinNotBad/BiliClient/api/TerminalApi.java`：`parseImageKeys` 改为逐元素调新纯函数 `imageKeyOf(Object)` —— String 走 trim、JSONObject 取 `key`（缺失退 `url`）、null / `JSONObject.NULL` / 其他类型一律空串；`mediaUrl` 先 trim，`http(s)://` 开头原样返回（兼容将来直给 URL）。
+    - `app/src/main/java/com/RobinNotBad/BiliClient/util/FeedbackImage.kt`：`encode` 改为 `readBytes` **一次**读成字节数组（新常量 `RAW_LIMIT_BYTES = 32 * 1024 * 1024`）再 `decodeByteArray` 两次（bounds + 像素），不再二次 open；并补齐失败日志（打不开 / 空文件 / 超上限 / 解不出尺寸 / 解码返回空 / OOM）。
+    - `app/src/test/java/com/RobinNotBad/BiliClient/api/TerminalApiTest.kt`：新增 4 条 —— `parseImageKeys_readsObjectElements`（并断言结果不含 `{` 与 `"`）、`parseImageKeys_mixedElementsAndMissingKey`、`imageKeyOf_ignoresNonKeyElements`、`mediaUrl_passesAbsoluteUrlThrough`。
+  - **L0（26.11.27 19:42 本机）**：`assembleDebug` + `testStandardDebugUnitTest` BUILD SUCCESSFUL；`app/build/test-results/testStandardDebugUnitTest` **319 份报告 / 3456 用例 / 0 失败**（比上一轮 3452 多 4 条，正是新增的图片解析单测）。
+  - **L1（19:43–19:45 真机 GTJ0220A17004229，Release 同签名覆盖安装）**：①重进 App → 我的反馈 → #316 详情，正文下缩略图与「我的补充」气泡里的附图都正常显示（改动前必然 404）；②选 603KB 相册截图提交 **#318**，服务端 images 1 张 776×1600 / 181017 字节、`/terminal/media` 200；③专项测 3MB 相机原图（3093806 字节）——**不再报「这张图读不出来」**，提交 **#319**，服务端压成 1089×1600 / 192621 字节，`feedback_image` 行 `target_kind=feedback, target_id=319`，读回 200。
+  - **未验证（L2）**：手表 300×300 屏上 2–3 张缩略图并排的观感；弱网下上传进度感（目前只有「正在上传截图 n/m」一行文字）。
+  - **兼容**：`images` 缺失、脏值、`JSONObject.NULL` 一律当作没带图，老服务端与老客户端都不受影响；服务端不动。
+
 - **26.11.27 控制台反馈抽屉里的附图全 404（控制台域名故意封了 /terminal/）**：
   - **来路**：用户 m02725「点开显示404」。真机提交的 #316 带图反馈，在控制台抽屉里能看到缩略图位置，但图片本身加载不出来、点开也是 404。
   - **机理**：控制台前端用**同源相对路径** `/terminal/media/<key>` 挂图（这样 CSP `img-src 'self' data:` 天然满足，不用新开外链域名）。但 `console.zsapp.asia` 的 nginx 里有一条 `location ^~ /terminal/ { return 404; }` —— 控制台域名**故意**不开放终端接口。于是所有附图请求都被这条规则吃掉（146 字节的 html 404）。同一个 key 在 `rebiliterminal.zsapp.asia` 下是 200 且字节数一致，所以问题不在服务端也不在 R2。

@@ -397,10 +397,38 @@ public class TerminalApi {
         JSONArray array = source.optJSONArray("images");
         if (array == null) return keys;
         for (int i = 0; i < array.length(); i++) {
-            String key = array.optString(i, "");
-            if (key != null && !key.trim().isEmpty()) keys.add(key);
+            String key = imageKeyOf(array.opt(i));
+            if (!key.isEmpty()) keys.add(key);
         }
         return keys;
+    }
+
+    /**
+     * 从 {@code images} 数组里的**一个元素**取出图片 key。**纯函数**。
+     *
+     * <p>服务端下发的是**对象数组** {@code [{"key":"fb/202611/x.jpg","w":776,"h":1600}]}
+     * —— 控制台要用宽高排版，所以带上了尺寸。只当元素的 {@code key} 缺失时才退回
+     * 老格式的**字符串数组**。
+     *
+     * <p><b>这里踩过坑（26.11.27）</b>：早先直接用 {@code JSONArray.optString(i)}，
+     * 遇到对象元素会把它整个转成 JSON 文本，拼出的 URL 长这样
+     * {@code /terminal/media/{"key":"fb/202611/x.jpg",...}}；服务端的 key 白名单
+     * 只认 {@code [A-Za-z0-9/_.-]}，于是**每条回读的图都 404**，只有刚选完还没提交时
+     * （那时用的是本地 Uri）能显示。用户报的「发过的图片重新加载 App 就 404」就是这个。
+     *
+     * @return 空串表示这个元素不可用（缺失、JSON null、对象里没有 key）
+     */
+    public static String imageKeyOf(Object element) {
+        if (element == null || element == JSONObject.NULL) return "";
+        if (element instanceof String) return ((String) element).trim();
+        if (element instanceof JSONObject) {
+            JSONObject obj = (JSONObject) element;
+            String key = safe(obj.optString("key", "")).trim();
+            if (!key.isEmpty()) return key;
+            // 兼容将来服务端直接下发完整地址的写法
+            return safe(obj.optString("url", "")).trim();
+        }
+        return "";
     }
 
     /**
@@ -822,8 +850,11 @@ public class TerminalApi {
      * @return 完整 URL；key 为空时返回空串（调用方按「没有图」跳过，不要传给图片加载器）
      */
     public static String mediaUrl(String imageKey) {
-        if (imageKey == null || imageKey.isEmpty()) return "";
-        return BASE_URL + "/media/" + imageKey;
+        String key = imageKey == null ? "" : imageKey.trim();
+        if (key.isEmpty()) return "";
+        // 已经是完整地址（服务端某天改成直给 URL）就原样用，别再拼一层前缀
+        if (key.startsWith("http://") || key.startsWith("https://")) return key;
+        return BASE_URL + "/media/" + key;
     }
 
     /**
