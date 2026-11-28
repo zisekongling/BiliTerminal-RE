@@ -26,6 +26,9 @@ import com.RobinNotBad.BiliClient.util.TerminalDialog
  * activity_simple_refresh —— 一级页基类默认用 activity_simple_main_refresh，那边没有
  * filterBar / clearWatched，本页的「全部 / 未看完 / 清除已看完」就没地方放了。
  * 两个布局空态与翻页提示的 id 相同，滚动自动收回由基类统一提供。
+ *
+ * 顶栏左上角按**入口**分派（26.11.28 修）：菜单 / 启动页进来时本页是一级页，顶栏＝展开主菜单；
+ * 从「我的」或视频详情长按进来时是二级页，顶栏＝退出。判据见 onCreate 里的 from extra。
  */
 class WatchLaterActivity : RefreshMainActivity() {
 
@@ -48,6 +51,13 @@ class WatchLaterActivity : RefreshMainActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setPageName(UiText.of("稍后再看"))
+        // 顶栏左上角按入口分派：本页在 26.11.25 换成了菜单页基类，而 InstanceActivity 子类
+        // 不会自动获得顶栏监听（BaseActivity.onStart 只给非 InstanceActivity 装 setTopbarExit），
+        // 之前两处都没调，于是菜单入口进来点左上角毫无反应。
+        // 判据用 MenuActivity.killAndJump / SplashActivity 统一塞的 "from" extra：
+        // 带它的是菜单类入口（＝一级页，顶栏开菜单，图标同时被换成 arrow_down）；
+        // 不带的「我的」入口 / 视频详情长按入口仍是二级页，顶栏退出，图标保持布局里的 arrow_back。
+        if (getIntent()?.getStringExtra("from") != null) setMenuClick() else setTopbarExit()
         recyclerView.setHasFixedSize(true)
 
         // 筛选条：默认隐藏的分组，只有本页把它亮出来
