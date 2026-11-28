@@ -33,6 +33,21 @@
     - 全仓 `[NewApi]` 共 **24 条，全是既有问题，本次三条修复的新增行零命中**：播放器媒体会话 `MediaSession.Callback`（`PlayerActivity.kt:5713`，需 API 21）、`ConcurrentHashMap#newKeySet`（`DownloadProgressStore.kt`，API 24）、`setElevation`（`GlassStyle.kt:249`，API 21）、`Matcher#start`（私有 `AnimeRuleCss.kt:413`，API 26）等；`LinkUrlUtil.java` / `GetIntentActivity.kt` / `MessageUnreadRefresh.kt` 在报告里**任何规则都没有条目**。
     - 新增代码用到的接口全是 API 1 级：`File`、`View.visibility`、`loadFromXmlFile`、`String.matches`、`URL.getQuery`、`Uri.parse`、`Intent`、`URLDecoder.decode`、`CenterThreadPool.runOnUiThread`。`LinkUrlUtil` 里的 try-with-resources 是原有代码，依赖 API 19 的 `Throwable.addSuppressed`，正好卡在 minSdk。
     - 边界：这条只证明「没有调用高于 API 19 的接口」，**不等于 4.4 设备实跑通过**；真机/4.4 模拟器实测另行记录。
+- **26.11.28 Android 4.4（API 19）模拟器实跑：两处必崩已修 + 三条修复的 L1 结论**（AVD `poc19` / x86 / 480×800 / `emulator-5554`，Debug 包 `app-standard-x86-debug.apk`）：
+  - **开屏必崩（26.11.16 起所有版本）**：冷启动立刻闪退，栈 `NullPointerException at android.widget.TextView.getExtendedPaddingTop(TextView.java:1824) ← getTotalPaddingTop(1918) ← SplashActivity.reserveTypewriterHeight(SplashActivity.kt:77) ← onCreate(:112)`。API 19 的这两个 getter 在读 `mLayout` 之前不做空判（5.0+ 才空安全），而 `reserveTypewriterHeight()` 在 `setContentView` 之后、排版之前就读了 `totalPaddingTop`。归属用 `git log -S reserveTypewriterHeight` 定位到唯一一处 `87870aa0`（2026-11-16「开屏图标搬进布局」）——**即 26.11.16 及之后的所有版本在 4.4 上一律开屏闪退**。
+    - **改法**（`activity/SplashActivity.kt`）：留白计算抽成 `measureFontPadding()`，先试老口径，`catch (RuntimeException)` 时按 `paint.fontMetricsInt` 的 `(ascent - top) + (bottom - descent)` 算并打 `W/Splash`。选 try/catch 而不是无条件换算法，是为了让现网正常机型零像素差异。
+    - **L1**：重装后冷启动，logcat `W/Splash: 读不到 TextView 的字体留白，按字体度量算: null`，无 FATAL，进程存活并进到向导/主界面。**未验证（L2）**：开屏文字「不跳动」的观感只能看画面；4.4 上从崩溃恢复正常已由日志 + 进程存活坐实。
+  - **下载服务停止时崩（`NoClassDefFoundError: DownloadProgressStore`）**：让它自行收摊时栈 `FATAL EXCEPTION: main … java.lang.NoClassDefFoundError: com/…/service/download/DownloadProgressStore ← DownloadService$Companion.getDownloadProgressMap(DownloadService.kt:149) ← DownloadService.onDestroy(DownloadService.kt:2459)`。
+    - **根因**：`service/download/DownloadProgressStore.kt` 里 `ConcurrentHashMap.newKeySet()` 是 **API 24** 方法，又是 object 字段 → Dalvik 类校验/初始化失败，整个 object 用不了（lint `[NewApi]` 早报过 `:76/79/96/102`）。
+    - **改法**：换成 `Collections.newSetFromMap(ConcurrentHashMap<Long, Boolean>())`（API 9，语义等价），兼容性注释写在 KDoc 之上（写在 KDoc 与声明之间会让文档注释失去附着）。
+    - **L1**：重装后同一路径再跑，logcat 依次 `onCreate` → `onStartCommand` → `onDestroy: 结束` → `onDestroy: 退出下载服务`（最后一行在 `getDownloadProgressMap` 之后，证明类已能加载），无 FATAL。
+  - **三条修复的 L1 结论**：
+    - **#312 通过**：杀进程后把 `message_update_num` 写成 42、`message_update_check_enable` 写 false，`am start MenuActivity` 后该键变 0，logcat `D/MessageUnreadRefresher>clearStoredUnread: 未读检查已关闭，清掉存量角标：42`，无崩溃。反向（重开开关→刷新→角标恢复）仍归 L2。
+    - **#322 通过**：`am start -n …/.activity.GetIntentActivity -a VIEW -d https://www.bilibili.com/video/BV1GJ411x7h7` → `VideoInfoActivity`（`VideoInfoApi>getInfoByJson: 标题>【官方 MV】Never Gonna Give You Up`）；域内不可解析的 `…/blackboard/faq.html` → `long>暂时无法识别这个链接`；域外 `https://example.com/x` → `long>不支持打开该链接`，两条负向都留在应用内，没跳浏览器。`b23` 短链与 space/opus/search 正向分支仍未测，归 L2。
+    - **#314 通过（双向）**：缓存根放多P 夹具（`files/video/六个AI闯荒岛-1-5集大合集/{P1,P2}/{video.mp4,danmaku.xml}` + `.page_order.json`），缓存页 → 选集页 → 播放页选集按钮切 P：`08:38:13.522 切换到 P2` → `:672 按当前片源装填：本地，文件=…/P2/danmaku.xml 存在=true`；`08:40:54.762 切换到 P1` → `:932 …P1/danmaku.xml 存在=true`；两个状态截图里都有弹幕在画面上滚动。
+    - **为此补的日志**：`loadDanmakuForCurrentSource()` 三个分支各加一条 `Logu.d("弹幕", "按当前片源装填：…")` —— DFM 装填成功不留任何日志，切 P 后到底装没装只能靠这行读出来。
+    - **4.4 模拟器的观测坑**：播放中 `uiautomator dump` 必失败（`ERROR: could not get idle state.`，只能用 `screencap`）；播放时 `input tap` 偶发不生效，改 `input swipe x y x y 120~400` 或点行的文字区更稳；`logcat -c` 清不掉历史，查证据直接 grep 时间前缀；装包前要腾 `/data`（删掉 52MB 缓存条目后 21.7M→72.2M）。
+  - **L0（26.11.28 本机，含上述两处 4.4 修复与日志）**：`./gradlew.bat :app:assembleDebug` BUILD SUCCESSFUL；`testStandardDebugUnitTest` **3486 用例 / 0 失败 / 0 错误**。
 - **26.11.28 外部缓存迁移后条目名变成容器名、只剩封面（反馈 #321）**：
   - **来路**：用户 #321「使用缓存迁移后，只迁移了文件夹名字与封面，而且 2 个缓存文件夹都在 media 下」。
   - **复现（AVD Android 15，在 `Android/media/` 下造假分支目录后走真实迁移流程）**：
