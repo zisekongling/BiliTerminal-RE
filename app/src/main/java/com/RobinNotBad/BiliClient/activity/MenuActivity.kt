@@ -83,7 +83,7 @@ class MenuActivity : BaseActivity() {
          * 反射注入可选的私有菜单项（没有私有注入时一项都不加）。
          *
          * 公共构建里 [OptionalFeatures.menuKeys] 为空列表，这里**一项都不加**，
-         * 于是 btnNames 与公开构建的 15 项完全一致；菜单设置页（SettingMenuActivity）和
+         * 于是 btnNames 与公开构建的 16 项完全一致；菜单设置页（SettingMenuActivity）和
          * 启动页（SplashActivity）都从 btnNames 取显示名与 Class，所以这里注入一次即可全链路生效。
          * 机制见 `docs/optional-features.md`。
          *

@@ -2068,6 +2068,7 @@
     <string name="uitext_liveinfoactivity_013">关注数: </string>
     <string name="uitext_liveinfoactivity_014">直播·</string>
     <string name="uitext_liveinfoactivity_015">路线</string>
+    <string name="uitext_liveinfoactivity_016">房间信息还没加载完</string>
     <string name="uitext_messageactivity_004">未读)</string>
     <string name="uitext_messageactivity_005">没有更多会话了</string>
     <string name="uitext_messagesettingsactivity_006">消息提醒</string>
@@ -2879,13 +2880,25 @@
     <string name="uitext_watchlateractivity_010">确定把《%1$s》从稍后再看里移除吗？</string>
     <string name="uitext_watchlateractivity_011">移除失败，错误码：%1$s</string>
     <string name="uitext_favoritevideolistactivity_017">删除(%1$d)</string>
-    <string name="uitext_favoritevideolistactivity_018">确定把选中的 %1$d 条从收藏夹里移除吗？</string>
+    <string name="uitext_favoritevideolistactivity_018">确定把选中的 %1$d 条从收藏夹里移除吗？此操作不可撤销。</string>
     <string name="uitext_favoritevideolistactivity_019">已删除 %1$d 条</string>
     <string name="uitext_favoritevideolistactivity_020">确定把《%1$s》从收藏夹里去掉吗？</string>
     <string name="uitext_favoritevideolistactivity_021">删除失败，错误码：%1$s</string>
     <string name="uitext_favoritevideolistactivity_022">取消失败，错误码：%1$s</string>
     <string name="uitext_favoritevideolistactivity_024">以虚拟合集连播</string>
     <string name="uitext_favoritevideolistactivity_026">点条目勾选，再点「删除」或「下载」</string>
+    <!-- 26.11.28：收藏夹全选 / 批量移动复制链路补齐登记（原先调用 UiText 但 MAP 里没有键，
+         等于原样返回原文，与硬编码等价） -->
+    <string name="uitext_favoritevideolistactivity_027">全选需要登录喵~</string>
+    <string name="uitext_favoritevideolistactivity_028">读取收藏夹失败，稍后再试</string>
+    <string name="uitext_favoritevideolistactivity_029">这个收藏夹是空的喵~</string>
+    <string name="uitext_favoritevideolistactivity_030">已全选 %1$d 条（整个收藏夹）</string>
+    <string name="uitext_favoritevideolistactivity_031">点条目勾选，长按条目可批量移动/复制</string>
+    <string name="uitext_favoritevideolistactivity_032">取消全选</string>
+    <string name="uitext_favoritevideolistactivity_033">已选 %1$d 条</string>
+    <string name="uitext_favoritevideolistactivity_034">已移动 %1$d 条</string>
+    <string name="uitext_favoritevideolistactivity_035">已复制 %1$d 条</string>
+    <string name="uitext_favoritevideolistactivity_036">\n另有 %1$d 条还没加载到列表里，本次不下载（下载需要标题与封面）</string>
     <string name="uitext_userinfoactivity_002">用户信息-%1$s</string>
     <string name="uitext_bangumiinfofragment_020">已完结</string>
     <string name="uitext_bangumiinfofragment_021">连载中</string>
@@ -3544,11 +3557,18 @@
     <string name="share_favorite">分享收藏夹</string>
     <!-- 顶栏分享入口：手表屏窄，只放两个字，长标题留给 pageName -->
     <string name="share_entry">分享</string>
-    <!-- 直播间榜单（26.11.26）：入口 + 三个榜单名 + 空态/失败 -->
+    <!-- 直播间榜单（26.11.26）：入口 + 三个榜单名 + 失败提示；空态沿用基类 showEmptyView，不单独定义 -->
     <string name="live_rank_entry">直播间榜单</string>
     <string name="live_rank_guard">大航海成员</string>
     <string name="live_rank_fans">粉丝团</string>
     <string name="live_rank_gift">礼物价目</string>
-    <string name="live_rank_empty">暂无数据</string>
     <string name="live_rank_failed">加载失败</string>
+    <!-- 榜单行的文案（26.11.28）：原先硬编码在 LiveRankActivity，收进资源以便走 UiText -->
+    <string name="live_rank_accompany_days">陪伴 %1$d 天</string>
+    <string name="live_rank_score">亲密度 %1$s</string>
+    <string name="live_rank_price_yuan">%1$s 元</string>
+    <string name="live_rank_price_yuan_decimal">%1$s.%2$s 元</string>
+    <string name="live_rank_guard_lv1">总督</string>
+    <string name="live_rank_guard_lv2">提督</string>
+    <string name="live_rank_guard_lv3">舰长</string>
 </resources>

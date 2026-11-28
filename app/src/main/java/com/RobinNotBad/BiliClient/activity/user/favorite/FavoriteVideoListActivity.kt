@@ -1329,7 +1329,7 @@ class FavoriteVideoListActivity : RefreshListActivity() {
         // 第二段就只在第一段不成立时才显示
         val message = getString(R.string.fav_port_download_message, plan.cards.size, qualityText) +
                 (if (skipped > 0) getString(R.string.fav_port_download_skipped, skipped) else "") +
-                (if (notLoaded > 0) "\n另有 $notLoaded 条还没加载到列表里，本次不下载（下载需要标题与封面）" else "")
+                (if (notLoaded > 0) getString(R.string.uitext_favoritevideolistactivity_036, notLoaded) else "")
         TerminalDialog.confirm(
             context = this,
             title = getString(R.string.fav_port_download_title),

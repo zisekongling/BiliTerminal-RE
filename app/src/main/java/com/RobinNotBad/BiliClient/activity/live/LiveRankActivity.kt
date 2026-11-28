@@ -12,6 +12,8 @@ import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity
 import com.RobinNotBad.BiliClient.api.LiveRankApi
 import com.RobinNotBad.BiliClient.util.CenterThreadPool
+import com.RobinNotBad.BiliClient.util.MsgUtil
+import com.RobinNotBad.BiliClient.util.UiText
 
 /**
  * 直播间榜单（26.11.26 新增）：大航海 / 粉丝团 / 礼物价目三合一。
@@ -43,6 +45,9 @@ class LiveRankActivity : RefreshListActivity() {
 
     private val rows = ArrayList<Row>()
     private var adapter: RankAdapter? = null
+
+    /** 每次 load 递增；慢网下旧请求晚到时靠它认出「这份结果已经过期」。 */
+    private var loadGeneration = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,6 +84,8 @@ class LiveRankActivity : RefreshListActivity() {
 
     private fun load() {
         setRefreshing(true)
+        // 下拉刷新与切换榜单都换一代：慢网下旧请求晚到时不覆盖新榜单
+        val generation = ++loadGeneration
         CenterThreadPool.run {
             val list: List<Row> = try {
                 when (kind) {
@@ -86,7 +93,7 @@ class LiveRankActivity : RefreshListActivity() {
                         Row(
                             title = "${member.rank}. ${member.name}",
                             subtitle = if (member.accompanyDays > 0) {
-                                "陪伴 ${member.accompanyDays} 天"
+                                UiText.fmt("陪伴 %1\$d 天", member.accompanyDays)
                             } else {
                                 getString(R.string.live_rank_guard)
                             }
@@ -107,8 +114,7 @@ class LiveRankActivity : RefreshListActivity() {
                                     append(it)
                                     append(" · ")
                                 }
-                                append("亲密度 ")
-                                append(member.score)
+                                append(UiText.fmt("亲密度 %1\$s", member.score))
                             }
                         )
                     }
@@ -127,10 +133,17 @@ class LiveRankActivity : RefreshListActivity() {
                     }
                 }
             } catch (e: Exception) {
-                runOnUiThread { loadFail(e) }
+                runOnUiThread {
+                    if (generation != loadGeneration) return@runOnUiThread
+                    // 基类 loadFail(e) 只 report 异常并复位刷新状态，不提示用户；
+                    // 榜单页失败时会一直空着，所以这里补一句
+                    loadFail(e)
+                    MsgUtil.showMsgLong(getString(R.string.live_rank_failed))
+                }
                 return@run
             }
             runOnUiThread {
+                if (generation != loadGeneration) return@runOnUiThread
                 rows.clear()
                 rows.addAll(list)
                 adapter?.notifyDataSetChanged()
@@ -144,16 +157,16 @@ class LiveRankActivity : RefreshListActivity() {
     private fun yuanText(priceCoin: Long): String {
         val tenthYuan = Math.round(priceCoin / 100.0)
         return if (tenthYuan % 10 == 0L) {
-            "${tenthYuan / 10} 元"
+            UiText.fmt("%1\$s 元", tenthYuan / 10)
         } else {
-            "${tenthYuan / 10}.${tenthYuan % 10} 元"
+            UiText.fmt("%1\$s.%2\$s 元", tenthYuan / 10, tenthYuan % 10)
         }
     }
 
     private fun guardLevelText(level: Int): String? = when (level) {
-        1 -> "总督"
-        2 -> "提督"
-        3 -> "舰长"
+        1 -> getString(R.string.live_rank_guard_lv1)
+        2 -> getString(R.string.live_rank_guard_lv2)
+        3 -> getString(R.string.live_rank_guard_lv3)
         else -> null
     }
 

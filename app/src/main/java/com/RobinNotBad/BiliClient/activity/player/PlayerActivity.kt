@@ -9407,6 +9407,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     videoTitle = newData.title
                     currentEdgeId = newData.edgeId
 
+                    // 互动视频跳转换了 cid：不重取的话缩略图会一直用上一个分支的时间表
+                    // （loadVideoShotIfNeeded 内部按 cid 去重，同一集重复调用不会多发请求）
+                    loadVideoShotIfNeeded()
+
                     if (playerData.qnStrList != null && playerData.qnValueList != null) {
                         qnStrList = playerData.qnStrList
                         qnValueList = playerData.qnValueList

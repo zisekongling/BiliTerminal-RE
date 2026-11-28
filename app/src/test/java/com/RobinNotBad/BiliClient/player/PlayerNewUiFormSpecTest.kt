@@ -53,6 +53,9 @@ class PlayerNewUiFormSpecTest {
         // 缩略图宽取屏宽 40%、高 16:9，贴在拖动预览三行文字上方，间隙 2dp。
         // 小方屏（200×200，scale 0.714 时上方只有约 40dp）与长条屏（高约 100dp）放不下——
         // 这时 seekThumbFits 必须为 false，UI 层据此整块跳过，绝不能画到顶栏上。
+        // 这一条必须单独钉死：循环里的 if/else 两支都 assertTrue，
+        // 判「放得下」和「放不下」都能过，等于没有断言。
+        assertFalse("200×200 小方屏上方只剩约 40dp，必须判定放不下", watch.seekThumbFits(200f, 200f))
         for (spec in listOf(watch, phone)) {
             for ((w, h) in listOf(refW to refH, 200f to 200f, 480f to 560f)) {
                 val width = spec.seekThumbWidth(w)

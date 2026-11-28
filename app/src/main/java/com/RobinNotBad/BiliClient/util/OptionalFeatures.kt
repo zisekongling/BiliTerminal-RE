@@ -51,12 +51,16 @@ object OptionalFeatures {
      */
     fun menuKeys(): List<String> {
         val multi = try {
-            (holder?.getMethod("menuKeys")?.invoke(null) as? Array<*>)?.mapNotNull { it as? String }
+            (holder?.getMethod("menuKeys")?.invoke(null) as? Array<*>)
+                ?.mapNotNull { (it as? String)?.takeIf { s -> s.isNotBlank() } }
+                ?.distinct()
         } catch (e: Throwable) {
             null
         }
+        // 空数组与「没有这个方法」同等对待：都退化成旧的单入口。
+        // （私有侧真想一个入口都不挂，应该不提供 menuKeys，而不是返回空数组。）
         if (!multi.isNullOrEmpty()) return multi
-        return listOfNotNull(menuKey())
+        return listOfNotNull(menuKey()?.takeIf { s -> s.isNotBlank() })
     }
 
     /** 菜单项显示名，不在场时为 null。 */

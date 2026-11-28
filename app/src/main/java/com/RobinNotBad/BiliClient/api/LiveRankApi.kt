@@ -91,7 +91,9 @@ object LiveRankApi {
             val base = item.optJSONObject("uinfo")?.optJSONObject("base")
             out.add(
                 GuardMember(
-                    uid = item.optLong("ruid"),
+                    // 坑：外层 ruid 是**主播**的 uid（与请求参数同值），成员自己的 uid 在 uinfo.uid。
+                    // 全员取 ruid 会让整个榜单看起来只有一个用户（当前 UI 不显示 uid，暂时不可见）。
+                    uid = item.optJSONObject("uinfo")?.optLong("uid") ?: 0L,
                     name = base?.optString("name").orEmpty(),
                     face = base?.optString("face").orEmpty(),
                     rank = item.optInt("rank"),
