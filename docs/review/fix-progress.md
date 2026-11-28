@@ -18,6 +18,17 @@
 
 ## 1. 当前版本状态
 
+- **26.11.28 三处已定位根因的真 bug（反馈 #314 / #322 / #312）**：
+  - **#314 离线缓存番剧切分P 后弹幕消失**：用户原话「离线看缓存番剧，关弹幕→点选分P→选下一集→再开弹幕没有弹幕」。
+    - **根因**：`PlayerActivity.doSwitchPage` 先 `releaseDanmaku()` 释放旧弹幕，重载时只写了 `if (isOnlineVideo) { … loadDanmakuWithGuard() }` 一支，**本地缓存那支根本不存在**；换源/换清晰度重建（互动视频换分支那条路径）是同一份缺失。用户再点弹幕按钮只 `show()` 一个没数据的视图（按钮 onClick 只做 show/hide，不触发加载）。
+    - **改法**：新增 `private fun loadDanmakuForCurrentSource()`（三分支：第三方弹幕只隐藏发送按钮／在线视频先删掉 cache 里残留的 `danmaku.xml` 再 `loadDanmakuWithGuard()`／本地按 `File(danmaku_url)` 存在就 `loadFromXmlFile`，并让 `hasDanmaku` 跟着这一 P 定稿），首播、`doSwitchPage`、换源重建三处调用点统一换成它 —— 三处各写一份正是漏改的来源。
+  - **#322 分享链接点进去只跳浏览器**：深链入口 `GetIntentActivity` 对任何 http(s) 链接只提示「暂不支持直接打开网页链接」，而解析器 `LinkUrlUtil.handleWebURL` 早就存在（私信、评论、搜索框都在用）。
+    - **改法**：`LinkUrlUtil` 新增 `handleWebURL(Context, String, boolean fallbackToBrowser)`（旧签名委托 `true`，页面内行为不变）；深链入口传 `false` —— 该页自己就注册了 `ACTION_VIEW`，兜底再 `startActivity` 一次会把自家 intent-filter 又命中一遍，用户看到的只是「点了没反应」。顺带补两处解析空白：裸域 `bilibili.com` 不匹配 `.*\.bilibili\.com$`、`search` 分支 `url.getQuery()` 为 null 时 NPE 被外层 catch 吞掉后仍落浏览器；三处域名比较改成 `"…".equals(domain)`，无 host 的 URL 不再抛 NPE。
+    - **已知未覆盖**：`parseId` 仍不认 `ep`/`ss` 番剧、`live.bilibili.com/数字`、`t.bilibili.com/数字`，这三类进深链会提示新加的「暂时无法识别这个链接」（`uitext_getintentactivity_002`），与改前的「暂不支持直接打开网页链接」相比只是措辞更准确。
+  - **#312 关掉「消息数量检查」后菜单仍显示私信条数**：`MenuActivity.updateMessageButtonText()` 无条件读 `MESSAGE_UPDATE_NUM` 画按钮；`MessageUnreadRefresher.refreshOnMenuResume` 在开关关闭时只撤销观察者就 return，**SP 里的旧计数不清** → 每次 onResume 又把旧数字画回去（赞评没有，因为从没被写入过）。
+    - **改法**：该分支追加 `clearStoredUnread(onUpdated)`：非 0 就把 SP 清零并 `runOnUiThread { onUpdated(0) }`。**网络失败时不能清**（否则下一次成功会把老未读当成新增、重复弹通知），这条边界写进注释。动态角标（`DYNAMIC_UPDATE_NUM`）不归这个开关管，未动。
+  - **L0（26.11.28 本机）**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest` → BUILD SUCCESSFUL；`testStandardDebugUnitTest` **3486 用例 / 0 失败**。
+  - **未验证（L2，交人工）**：①离线缓存多P 番剧切 P 后弹幕正常出现、切回上一 P 也正常；②手机/手表上点分享链接能进对应页面（视频 BV/av、专栏 cv、空间 UID、b23 短链、搜索链接），无效链接提示改为「暂时无法识别这个链接」；③关掉「消息数量检查」返回菜单，私信角标消失，重新打开并刷新后能恢复。
 - **26.11.28 外部缓存迁移后条目名变成容器名、只剩封面（反馈 #321）**：
   - **来路**：用户 #321「使用缓存迁移后，只迁移了文件夹名字与封面，而且 2 个缓存文件夹都在 media 下」。
   - **复现（AVD Android 15，在 `Android/media/` 下造假分支目录后走真实迁移流程）**：
