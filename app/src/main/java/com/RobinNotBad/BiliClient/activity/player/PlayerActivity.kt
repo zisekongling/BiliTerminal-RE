@@ -4377,6 +4377,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         if (thirdPartyDanmaku) {
             // 弹弹play 弹幕：没有「发送弹幕」入口，也不碰 B 站弹幕接口；
             // 真正的装填由私有侧异步回灌（见 attachThirdPartyDanmaku）
+            Logu.d("弹幕", "按当前片源装填：第三方弹幕，等私有侧回灌")
             runOnUiThread { btn_danmaku_send.visibility = View.GONE }
             return
         }
@@ -4388,6 +4389,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             // 上一支视频留下的缓存弹幕直接清掉：旧接口每次都是整份覆盖下载（DanmakuFileFetcher.fetchToFile），
             // 留着的旧文件既不会被复用，还会被数量保护的流式计数读到。
             if (danmakuFile!!.exists()) danmakuFile!!.delete()
+            Logu.d("弹幕", "按当前片源装填：在线，弹幕地址=" + danmaku_url)
             loadDanmakuWithGuard()
             return
         }
@@ -4397,6 +4399,9 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         danmakuFile = File(danmaku_url)
         val exists = danmakuFile!!.exists()
         hasDanmaku = exists
+        // 成功装填 DFM 不留日志（DanmakuManager.loadFromXmlFile 只在抑制与异常时说话），
+        // 切P 之后到底有没有装填只能靠这一行读出来，别删。
+        Logu.d("弹幕", "按当前片源装填：本地，文件=" + danmaku_url + " 存在=" + exists)
         if (exists) {
             prepareDanmaku { it.loadFromXmlFile(danmakuFile!!.toString()) }
         }
