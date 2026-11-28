@@ -1065,6 +1065,51 @@ public class PlayerApi {
         return viewPoints;
     }
 
+    /**
+     * 取视频快照拼版（拖动进度条时的缩略图预览）。
+     *
+     * <p>依据 {@code bilibili-API/docs/video/snapshot.md} §获取视频快照（web端）：
+     * {@code GET x/player/videoshot?aid=&cid=&index=1}，{@code index=1} 才会下发时间表。
+     *
+     * <p>**拿不到就返回 null**，不抛也不给空壳对象：这一块是纯锦上添花，任何一步不齐
+     * （服务端非 0、没给 image、尺寸为 0）调用方都该当成「这个视频没有快照」直接跳过。
+     */
+    public static com.RobinNotBad.BiliClient.model.VideoShot getVideoShot(long aid, long cid) throws IOException, JSONException {
+        if (aid <= 0 || cid <= 0) return null;
+        String url = "https://api.bilibili.com/x/player/videoshot?aid=" + aid
+                + "&cid=" + cid + "&index=1";
+        JSONObject result = NetWorkUtil.getJson(url);
+        if (result.optInt("code", -1) != 0) return null;
+        JSONObject data = result.optJSONObject("data");
+        if (data == null) return null;
+
+        JSONArray imageArray = data.optJSONArray("image");
+        if (imageArray == null || imageArray.length() == 0) return null;
+        java.util.List<String> images = new java.util.ArrayList<>();
+        for (int i = 0; i < imageArray.length(); i++) {
+            String image = imageArray.optString(i, "");
+            if (image.isEmpty()) continue;
+            // 服务端给的是协议相对 url（//i0.hdslb.com/...），原样交给 Glide 会被当成相对路径
+            images.add(image.startsWith("//") ? "https:" + image : image);
+        }
+        if (images.isEmpty()) return null;
+
+        int xLen = data.optInt("img_x_len", 0);
+        int yLen = data.optInt("img_y_len", 0);
+        int xSize = data.optInt("img_x_size", 0);
+        int ySize = data.optInt("img_y_size", 0);
+        if (xLen <= 0 || yLen <= 0 || xSize <= 0 || ySize <= 0) return null;
+
+        java.util.List<Integer> timeTable = new java.util.ArrayList<>();
+        JSONArray indexArray = data.optJSONArray("index");
+        if (indexArray != null) {
+            for (int i = 0; i < indexArray.length(); i++) {
+                timeTable.add(indexArray.optInt(i, 0));
+            }
+        }
+        return new com.RobinNotBad.BiliClient.model.VideoShot(images, timeTable, xLen, yLen, xSize, ySize);
+    }
+
     public static long getInteractionGraphVersion(long aid, long cid) throws JSONException, IOException {
         String url = "https://api.bilibili.com/x/player/wbi/v2?aid=" + aid
                 + "&cid=" + cid;

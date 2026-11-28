@@ -97,6 +97,22 @@ object PlayerNewUiFormSpec {
         val seekTotalHeight get() = s(13f)
         val seekMainText get() = s(30f)
 
+        /**
+         * 拖动预览缩略图：宽取屏宽 40%、高 16:9，贴在三行文字**上方**。
+         *
+         * 间隙只有 2dp：参考尺寸下顶栏区块高 44、首行 100，中间只有 56dp，
+         * 而 40% 宽的图正好 54dp 高——间隙给 4dp 就会顶进顶栏。下方也不考虑，
+         * 三行末尾与进度条之间的空档在矮屏上会被压没。
+         */
+        fun seekThumbWidth(width: Float): Float = width * PlayerNewUiGeometry.SEEK_THUMB_WIDTH_RATIO
+        fun seekThumbHeight(width: Float): Float = seekThumbWidth(width) * 9f / 16f
+        fun seekThumbTop(width: Float, height: Float): Float =
+            seekRows(height)[0] - s(2f) - seekThumbHeight(width)
+
+        /** 这块空间够不够放下缩略图（长条屏、极窄屏会不够，UI 层据此决定显示或跳过）。 */
+        fun seekThumbFits(width: Float, height: Float): Boolean =
+            seekThumbTop(width, height) >= topBarHeight
+
         // ---- 「更多」网格（格 64×58、间距 6，整块 204×186；240×280 时 top 46）----
         val gridCellW get() = s(64f)
         val gridCellH get() = s(58f)

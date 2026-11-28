@@ -18,6 +18,33 @@
 
 ## 1. 当前版本状态
 
+- **26.11.28 外部缓存迁移后条目名变成容器名、只剩封面（反馈 #321）**：
+  - **来路**：用户 #321「使用缓存迁移后，只迁移了文件夹名字与封面，而且 2 个缓存文件夹都在 media 下」。
+  - **复现（AVD Android 15，在 `Android/media/` 下造假分支目录后走真实迁移流程）**：
+    - 标准单视频（`TestCache/video.mp4 + cover.jpg`）→ **正常**，300KB + 20KB 全搬，`.quality` 也在；
+    - 合集（`CollectionShow/EP01|EP02/video.mp4`）→ **正常**，两集全搬，「共2P · 外部」识别正确；
+    - 嵌套容器（`com.test.other/video/ShowA/video.mp4`）→ **复现了**：列表里条目名是 **`video`**、封面空白（`video/cover.jpg` 不存在），迁移过去是整层容器。
+  - **机理**：`ExternalCacheRoots.candidateRoots` 把 `Android/media/<包名>` **无条件**当缓存根。本仓库自己的下载根确实就在这一层（`StoragePathPolicy.defaultVideoDir` 在 API≥21 直接返回 media 目录），但别的实现 / 旧版本会再套一层 `video/`，**那一层的子目录才是标题** —— 于是容器被当成视频标题，用户看到的就是「只搬了文件夹名字」。
+  - **改法（1 个文件，`util/ExternalCacheRoots.kt`）**：新增 `MEDIA_SUBDIRS`（`video` / `download` / `files` / `media` / `movies`）与 `containerSubDirs()` —— 只有 `<包名>` 自己「不像缓存根」（既没有媒体文件、也没有 `.folders_info.json`）且下面存在这些子目录时，才用子目录当根。
+  - **验证**：修复后同一份嵌套结构，外部条目从 `video` 变成 `ShowA`，迁移落地是 `ShowA/cover.jpg + ShowA/video.mp4`（平铺到正确层级，源目录清空）。
+  - **取舍**：真有视频标题叫 `video` 会命中白名单被当容器钻一层 —— 结果只是条目层级不同（视频还在、能播），比反过来漏扫一整批缓存轻。
+  - **未验证**：用户那半句「2 个缓存文件夹都在 media 下」没复现出异常——本机下载根就在 `Android/media/<包名>`（`legacyMediaDir()` 如此设计）；若他的实际目录结构不在这三种之内，还需要一次目录清单才能定位。
+
+- **26.11.27 拖动进度条看缩略图（视频快照 `x/player/videoshot`）**：
+  - **来路**：接口清单里 `videoshot` 一直没接。拖动进度条时只有「+mm:ss / 目标时间 / 共 mm:ss」三行文字，不知道要跳到哪个画面。
+  - **三步落地**（每步单独可验）：
+    1. `e6a0c6bb` 数据层：`PlayerApi.getVideoShot`（带 `index=1` 取时间表，拿不到返回 null，不抛也不给空壳）+ `model/VideoShot` + `util/player/VideoShotGrid`（纯函数：时间→格子、格子→裁剪矩形，刻意不用 `android.graphics.Rect` 才能在纯 JVM 单测里跑）。三个实测坑：`image` 是**数组**（长视频多张）、url 是**协议相对**（要补 `https:`）、`index` 有**重复秒值**（所以取「最后一个不晚于目标」）。
+    2. `83d4f333` 几何层：方屏「屏宽 40%（96×54）贴三行文字上方、间隙 2dp」、圆屏「直径 28%（65×37）」。**都是按实测余量反推的，不是拍的**：方屏顶栏区块 `topBarHeight=44`、预览首行 100，中间只有 56dp——40% 宽的图不把间隙压到 2dp 就顶进顶栏；圆屏上方到标题带底只剩 41dp，下方从三行末尾 154 到顶部按钮热区上沿 170.6 只剩 12.6dp，40% 物理上放不下。`seekThumbFits` 明确判定 200×200 小方屏与高约 100dp 的长条屏「放不下」，UI 据此整块跳过而不是画到屏幕外。
+    3. UI 接入：`SeekThumbView`（`onDraw` 里 `drawBitmap(src→dst)` 直接画那一格，**零 Bitmap 分配**——拖动是每帧都可能变的高频事件，逐帧 `createBitmap` 在 2GB 表上会 GC 抖动）+ `VideoShotLoader`（拼版按访问序 LRU 留 3 张；走 `submit()` 而不是 `into(target)`，避开「进程级 RequestManager + 匿名 target 忘 clear」那类崩溃，正是 PR #37 修过的那一族）+ `PlayerNewUiController` 挂载与逐帧换格 + `PlayerActivity` 在 cid 就绪后异步取数。
+  - **一个必须知道的事实**：这个功能**只活在新版播放器界面**（`PlayerNewUiController`）里，而 `PlayerUiSwitch.EXPERIMENT_ENABLED` 自 26.11.22 起被**写死成 false**（下线观察，设置入口也一并隐藏）。旧播放器的 `seekbar_progress` 只有三行文字、没有预览区，所以：
+    - 总闸没开时 `loadVideoShotIfNeeded` **直接 return**——不给旧播放器用户白发一次 `videoshot` 请求；
+    - 将来重新开实验（`EXPERIMENT_ENABLED` 改回 true + 设置入口放回）后本功能即刻可用，调用点一行都不用再动。
+  - **验证**：
+    - 纯函数 `VideoShotGridTest` **14/14**；几何 `PlayerNewUiGeometryTest` **11/11** + `PlayerNewUiFormSpecTest` **20/20**。
+    - 真机（Android 15 / 2GB 模拟器）：临时打开总闸后日志打出 `缩略图预览>cid=3661168 快照 39 格 / 1 张拼版 / 10×10 每格 160×90`，证明**接口、解析与拼版元数据在真实网络下可用**；**拖动时的画面与交互已由用户真机确认可用**。
+    - 两 flavor 各 **319 套件 / 3473 用例 / 0 失败**；`assembleDebug` 双 flavor 通过。
+  - **注意**：验证时临时把 `EXPERIMENT_ENABLED` 改成 true 的那次改动**没有提交**，提交后该文件与 HEAD 一致。
+
 - **26.11.27 App 里反馈附图全是破图（Glide 请求不带 `X-Install-Id`，服务端一律 404）**：
   - **来路**：用户 m9332「图发不出去/看不见」→（真机复现后）「这三个地方改的有问题」这条线里连着查；最后一句是 m9688「你自己看啊，真机看」——不许看截图，要在真机上自己验。
   - **证据**：真机（NOP-AN00 / Android 12）进反馈详情，三张附图里开发者回复那张是灰底破图；nginx access 里同一个 key 全是 `GET /terminal/media/fb/... 404 36`，uvicorn 日志是 `读图被拒 key=... iid='' mid=0` —— 请求确实到了服务端，但**没带身份**。同一 key 用 `curl -H "X-Install-Id: ..."` 请求立刻 200 / 121922 字节，R2 里对象与 `feedback_image` 登记行都在，所以不是存储或鉴权写错。
@@ -178,6 +205,42 @@
   - **L0（26.11.27 本机）**：`:app:assembleDebug :app:testStandardDebugUnitTest` → BUILD SUCCESSFUL；`app/build/test-results/testStandardDebugUnitTest` 318 份报告 / **3423 个 testcase / 0 failure / 0 error**（报告时间戳 16:31，本轮）。服务端自测脚本 `outputs/_t_feedback_state.py`（临时库，`REBILITERMINAL_DB` 覆盖 `DB_PATH`）**34 项全 PASS**：迁移升到 v10 与二次幂等、用 `ALTER TABLE DROP COLUMN` + `user_version=9` 模拟老库升级后重新加列、派生六分支（含同秒并列判 waiting_dev、结案压过时间线）、mine 只下发 `state` 而不下发 `user_state`/`outcome` 且保留 `handled`、追加后回 waiting_dev 且 `handled` 归 0、结案不动 `handled`、重复结案幂等、他人 id 与不存在的 id 都返回 None、`device_key` 通道可结案、结案后追加自动重开、`outcome` 落库。控制台侧：内联脚本用 `vm.Script` 包成 async 函数编译 0 语法错误、9 个新标识符全在、旧 `awaiting` 三元残留 0；7 组渲染用例（含无 `state` 的三种回落）输出全对；真起 uvicorn + 临时库走 HTTP：列表 4 条 state 全对、`outcome` 9 回 400、id 999 回 404。
   - **未验证（L2，需人工）**：①胶囊放状态行下（单独一行、12sp）在 300×300 方屏 / 圆屏上的可点性与高度——预览图是按 3 倍渲染的静态图，真机触摸热区没量；②「已结束」胶囊（不可点）与「问题已解决？」（可点、带描边）在同一位置切换，用户会不会误以为都能点；③长线程折叠后「展开全部」是否够显眼、展开后回滚到顶部的手感；④回前台节流 30 分钟的实际观感（连续切页面不重复弹窗、跨半小时能弹）；⑤控制台新药丸在深色 / 浅色主题下的对比度。
   - **兼容性与部署**：老客户端（26.10~26.11）读不到 `state`、`handled` 语义未变 → 无感；新客户端配老服务端则 `state` 缺失走回落、`/feedback/close` 404 只提示不崩；老库升级只加列、默认 0。**`server/` 整个目录被 `.gitignore` 忽略，服务端与控制台改动只在本机，部署后才生效**，本轮因此没有提交它们。
+
+- **26.11.26 收藏夹「全选整个收藏夹」：批量删除/移动/复制不再只作用于已加载的一页**：
+  - **来路**：读「未使用接口清单」时发现 `x/v3/fav/resource/ids` 一直没用——收藏夹列表页的多选只能勾 `videoList` 里已加载的那 20 条，想清空或搬走整个夹得手动翻到底。用户拍板：范围取「整个收藏夹、不设上限」，删除 / 下载 / 移动 / 复制四项全开，破坏性操作走**写明条数**的二次确认。
+  - **实现**：`FavoriteApi.java` + `FavoriteVideoListActivity.kt`。
+    - `getFolderAllIds` 返回 `FavIdPage{code, ids}`。**code 必须带上**：未登录访问私密夹时接口回非 0，若按「失败 = 空表」处理，界面就会把「没登录」说成「这个收藏夹是空的」。解析抽成纯函数 `parseFolderAllIds`。
+    - 选中态补记 `favType`（aid → type）：全选来的条目大多没加载成 `VideoCard`，删 / 移动 / 复制要靠 `id:type` 拼 `resources`。
+    - 三个写操作各加 `*ByIds` 变体（`buildResourcesFromIds` + 复用原来的 `dealFavorites` / `dealResources`），**单条入口一字未动**。
+    - **「全选」复用 `manageBar` 里既有的 `manageSelectAll` 格子**（下载列表页在用、本页原本 `gone`），不新增格子——手表上一格不到 60dp，反馈 #265 的折行就是这条窄屏的教训。
+    - 「移动 / 复制」放在**多选态长按**里弹出，同样是为了不挤 `manageBar`。
+    - **批量删除改走 id 列表**：原来 `videoList.filter { selectedAids.contains(it.aid) }` 在全选之后只会取到当前页那 20 条，删完还提示「已删除 20 条」，用户会以为整个夹清空了——这是本轮唯一的功能性 bug 修复。
+    - 下载保持只覆盖已加载的（它需要标题与封面），确认框里补一句「另有 N 条还没加载到列表里，本次不下载」，不假装全下了。
+  - **验证**：`FavoriteApiTest` **31/31**，含 9 条新用例；其中 `parseFolderAllIds` 的用例直接用了 26.11.26 无 Cookie 实测公开收藏夹（`media_id=1052622027`）的**真实响应片段**。顺带确认一条接口事实：**公开收藏夹的 ids 不需要登录**（`code=0` 直出全量，含 `bv_id`/`bvid`），只有私密夹才要。两 flavor 各 **316 套件 / 3404 用例 / 0 失败**（比上轮多 9 条）；`assembleDebug` 双 flavor 通过。
+  - **未验证（L2 / 待人工）**：整条链路要登录自己的收藏夹才走得通，而模拟器上只有游客态——**全选成功后的删除 / 移动 / 复制、「取消全选」、以及下载时的差额提示都要人测**。
+
+- **26.11.26 新增「直播间榜单」+ 2GB Android 15 模拟器压测（DFM 竞态 15 轮通过）**：
+  - **功能**：直播间信息页底部新增「直播间榜单」入口，点开三选一（大航海成员 / 粉丝团 / 礼物价目），进独立列表页。三个接口都**不需要 Cookie**，未登录也能看，所以没挂登录门槛。
+    - **为什么不做对话框**：手表上的对话框只有 319×322，20 行榜单塞不进去。
+    - **实现**：`api/LiveRankApi.kt`（三接口 + 三个数据模型，失败返回空列表不抛）+ `activity/live/LiveRankActivity.kt`（一个 `Kind` 枚举 + 两行 adapter，三榜共用）+ `res/layout/item_live_rank.xml`；入口按钮加在 `activity_live_info.xml` 的 `description` 之下，**不动任何既有约束**。
+  - **踩到并修掉的三个坑**：
+    - **大航海 `data.list` 从第 4 名开始**，前 3 名单独在 `data.top3`。只读 `list` 会静默吞掉榜首三人（实测 21452505 房间 `list[0].rank == 4`）。已改为 `page == 1` 时先并 `top3`。
+    - **`am start` 会复用已存在的实例**：同一 Activity 停在顶层时新 Intent 直接投给它、不重走 `onCreate`，页面会停在旧的 `kind` 上（看着一切正常、内容却是上一个榜）。补 `onNewIntent` 走同一套 `applyIntent`。
+    - 本页是一次性拉取、不做分页（两个榜单接口的 `page_size` 上限 30，超了服务端按 10 处理）。
+  - **Debug 清单必须同步**：新 Activity 一加，`DebugActivityExportTest` 立刻变红——Debug 包要求主清单里每个非导出页都在 `app/src/debug/AndroidManifest.xml` 里 `exported="true"` + `android:permission="android.permission.DUMP"`。已补。
+  - **返工（用户反馈「那 3 个页面返回键点了没反应、方向也不对」）**：榜单页是从直播间详情点进来的**二级页**，我却继承了一级菜单页基类 `RefreshMainActivity`（它经 `InstanceActivity`）——`setMenuClick()` 把顶栏点击换成「打开菜单」、并把 `pageName` 的图标覆盖成朝下的 `arrow_down`，于是「点返回弹菜单、箭头也朝下」。**back 键本身其实是好的**（`BaseActivity.onBackPressed` 只受 `back_disable` 开关影响），两个症状同源，别当两条 bug 查。已改继承 `RefreshListActivity`（二级页，`activity_simple_refresh` + `arrow_back`），实测「点顶栏」与「按 back」两条路径都回到上一级（`dumpsys activity activities | grep -c LiveRankActivity` 均为 0）。这条选基类的口径已写进 `docs/agents/dev-conventions.md` §列表页。
+  - **功能验证（Android 15 / 2GB RAM 模拟器，x86_64）**：三榜都用 `uiautomator dump` 读到真实文字——大航海 `1. AoineKo青貓 / 陪伴 322 天` 起 13 行（**与接口 top1 对得上，证明 top3 合并生效**）；粉丝团 `1. アメハル / 脆鲨 53 · 舰长 · 亲密度 7099426`；礼物 `小花花 / 0.1 元 · 一花一世界…` 且按价格升序。入口按钮、三选一菜单、空态文案都在控件树里读到。
+  - **压测一：#416 的 DFM 竞态（15 轮真·连进连出）**：
+    - 关键在**每轮自校验**：`am start` 输出里出现 `Warning: Activity not started, intent has been delivered to currently running top-most instance` 就说明这轮没新建实例、压测无效；每轮 back 后还要看 `dumpsys activity activities | grep -c ShortVideoPlayerActivity` 是否为 0。
+    - 结果：**未新建实例 0 次、未真正退出 0 次**（15/15 都是新建 → 播放 6s → 销毁）。`TOTAL PSS` 238972KB → 在 211~265MB 间来回波动、**无单调增长**；`Native Heap` 65~95MB 同幅波动；`NoSuchElementException` / `IndexOutOfBounds` / `Cannot recycle` / `OutOfMemory` / `FATAL EXCEPTION` / `ANR in` 全 **0**。
+    - 结论：`pollFirst()` 这条修复在 15 轮真实重建频率下没再触发。**这不等于真机结论**——原始崩溃来自用户真机（26.11.23），模拟器不构成复现环境，发版后仍要看这一类崩溃的量。
+  - **压测二（没压成，只记方法）**：长视频播放页的连进连出没做成，两个原因都值得留档：
+    1. **`PlayerActivity` 必须带 `url`**：`getExtras()` 里 `video_url == null` 且不是「等私有侧异步给源」就直接 `return false` → `onCreate` 里 `finish()`。`am start --el aid 298` 起 400ms 就 `onDestroy`，压的是空壳进程——那几个内存数很好看，但毫无意义。
+    2. **真入口要过「选择播放器」页**：详情页点播放 → `JumpToPlayerActivity` → `SettingPlayerChooseActivity`；点「内置播放器」不跳转、back 直接回详情页，自动化断在这里。真机点一次确定即可，故转 L2 交接单。
+  - **新增测试纪律（已并入 `docs/agents/testing.md`）**：`input -d <N> tap/keyevent` 投到**非当前画面所在 display** 时会**静默失效**（命令成功返回、事件被丢弃）。所以「先查 display id」不足以保证输入到位，**必须以结果自校验**：操作后 dump 一次看画面是否真的变了，back 之后看目标页面是否真的从 `dumpsys activity activities` 里消失。
+  - **构建验证**：`testStandardDebugUnitTest` / `testCoexistDebugUnitTest` 各 **316 套件 / 3395 用例 / 0 失败**；`assembleDebug` 双 flavor 通过。
+  - **未验证（L2 / 待人工）**：① 播放页真起播连进连出（需人工点一次「内置播放器 → 确定」）；② 榜单在 42mm 圆屏真机上的排版与长昵称截断；③ 礼物价目 100 条的滚动观感。
+
 - **26.11.26 第二轮控制台：DFM 弹幕计时竞态 + 圆屏列表残留变换（一处修四条反馈）**：
   - **来路**：读控制台 28 条待处理反馈 + 9 条待处理崩溃。按版本过滤后只剩 3 条来自当前版本（26.11.23）。
   - **崩溃 #416（26.11.23 当前版本，已修 `33b979eb`）**：`NoSuchElementException at LinkedList.removeFirst` ← `DrawHandler.recordRenderingTime` ← `DanmakuView.onDraw`。**线程竞态**：`recordRenderingTime` 跑在 UI 线程且自己 `synchronized`，但 `mDrawTimes` 的五处 `clear()`（`handleMessage` / `updateInCurrentThread` / `updateInNewThread` / `notifyRendering`×2）**都不持有该锁**，`size()` 与 `removeFirst()` 之间被 clear 抢先就是空链表 `removeFirst`。旁证：同类 `getAverageRenderingTime()` 早已把取首尾包在 try/catch 里——作者知道这个链表会短暂为空，只漏了这一处。改用 `pollFirst()`。DFM 是本仓库内模块，可直接改。

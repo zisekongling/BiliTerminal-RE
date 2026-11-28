@@ -36,6 +36,7 @@ import com.RobinNotBad.BiliClient.util.ShareSheet
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil
 import com.RobinNotBad.BiliClient.util.StringUtil
 import com.RobinNotBad.BiliClient.util.TerminalContext
+import com.RobinNotBad.BiliClient.util.TerminalDialog
 import com.RobinNotBad.BiliClient.util.ToolsUtil
 import com.RobinNotBad.BiliClient.util.live.LiveStreamSelector
 import com.RobinNotBad.BiliClient.util.view.ShareTexts
@@ -113,6 +114,42 @@ class LiveInfoActivity : BaseActivity() {
             // 顶栏分享按钮先挂上：房间详情还没回来时点它也能用（此时只分享链接），
             // 不必等网络结果
             findViewById<View>(R.id.btn_share).setOnClickListener { showSharePanel() }
+
+            // 直播间榜单入口（26.11.26）：大航海 / 粉丝团 / 礼物价目。
+            // 三个接口都不需要 Cookie，所以不卡登录门槛；房间详情还没回来时无从取
+            // roomid/ruid，给提示而不是崩。
+            findViewById<View>(R.id.btn_live_rank).setOnClickListener {
+                val roomInfo = room
+                if (roomInfo == null) {
+                    MsgUtil.showMsg(UiText.of("房间信息还没加载完"))
+                    return@setOnClickListener
+                }
+                TerminalDialog.menu(
+                    context = this,
+                    title = getString(R.string.live_rank_entry),
+                    items = listOf(
+                        getString(R.string.live_rank_guard),
+                        getString(R.string.live_rank_fans),
+                        getString(R.string.live_rank_gift)
+                    )
+                ) { which ->
+                    val kind = when (which) {
+                        0 -> LiveRankActivity.Kind.GUARD
+                        1 -> LiveRankActivity.Kind.FANS
+                        else -> LiveRankActivity.Kind.GIFT
+                    }
+                    startActivity(
+                        LiveRankActivity.intentOf(
+                            this,
+                            kind,
+                            roomInfo.roomid,
+                            roomInfo.uid,
+                            roomInfo.area_parent_id,
+                            roomInfo.area_id
+                        )
+                    )
+                }.show()
+            }
 
             AnimationUtils.crossFade(loading, scrollView)
             TerminalContext.getInstance().getLiveInfoByRoomId(room_id).observe(this) { liveInfoResult ->

@@ -67,7 +67,7 @@
 | 功能有没有真的执行 | `logs/rebili.log` 里对应 `类名>方法名` 的 tag |
 | 请求成没成功 | `logs/http.log` 的 `-> 200` / 响应体首段；注意 `http` 命令的 `appheaders` 默认 false，未登录 + 模拟器上会稳定 -412 |
 | 下载 / 合并对不对 | `merge` 的返回值只能当参考：**回 OK 但 `tracks<2` 或 `samples=0` 就是回归** |
-| MuMu 上点击 / 截图 / dump 没反应，或者截出来是桌面 | App 常跑在**非 0 的 display** 上，且 id 每次开机 / 重连都会变。查法与各命令的 `-d` 写法见 `docs/review/agent-test-guide.md` §6（含「先查 id 再试一张，回 `-2` 才退回控件树」的止损顺序） |
+| MuMu 上点击 / 截图 / dump 没反应，或者截出来是桌面 | App 常跑在**非 0 的 display** 上，且 id 每次开机 / 重连都会变。查法与各命令的 `-d` 写法见 `docs/review/agent-test-guide.md` §6（含「先查 id 再试一张，回 `-2` 才退回控件树」的止损顺序）；**`input -d` 投错 display 会静默失效**，做完必须再 dump 一次自校验，同见 §6 |
 
 ### 3.2 唯一不能降级的：登录态写操作
 

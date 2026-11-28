@@ -153,6 +153,30 @@ class PlayerNewUiGeometryTest {
     }
 
     @Test
+    fun `round seek thumb sits above the three rows and stays inside the circle`() {
+        // 圆屏只能放上方：下方被底部按钮热区堵死（170.6dp），上方到标题带底边只剩 41dp，
+        // 所以比例取 28%（40% 宽的 54dp 高放不下）。
+        for (size in listOf(233f, 192f, 227f, 466f / 2f, 466f)) {
+            val factor = size / PlayerNewUiGeometry.REFERENCE_SIZE_DP
+            val rows = PlayerNewUiGeometry.roundSeekRows(size)
+            val thumb = PlayerNewUiGeometry.roundSeekThumbBand(size)
+            val width = PlayerNewUiGeometry.roundSeekThumbWidth(size)
+            assertEquals(
+                "size=$size 宽应取直径 28%",
+                size * PlayerNewUiGeometry.ROUND_SEEK_THUMB_WIDTH_RATIO, width, 0.02f
+            )
+            assertEquals("size=$size 高应 16:9", width * 9f / 16f, thumb.height, 0.02f)
+            assertTrue("size=$size 缩略图压到第一行", thumb.bottom <= rows[0].top)
+            assertTrue("size=$size 缩略图顶进标题", thumb.top > 46f * factor)
+            // 圆边：缩略图上沿那一行更窄，弦宽必须还容得下它
+            val radius = size / 2f
+            val dy = kotlin.math.abs(thumb.top - radius)
+            val halfChord = kotlin.math.sqrt((radius * radius - dy * dy).coerceAtLeast(0f))
+            assertTrue("size=$size 缩略图超出圆边", width / 2f <= halfChord)
+        }
+    }
+
+    @Test
     fun `round seek text fits its row without font padding`() {
         // includeFontPadding=false 时 TextView 行高约 1.1719em；行高必须装得下字号，否则字被裁。
         for (size in listOf(233f, 192f, 227f, 466f)) {

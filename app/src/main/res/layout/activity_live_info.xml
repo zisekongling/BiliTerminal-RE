@@ -357,6 +357,18 @@
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toBottomOf="@id/liveStatusText" />
 
+            <!-- 直播间榜单入口（26.11.26）：三个榜单都是只读、无需 Cookie，
+                 点开进独立列表页——手表上的对话框只有 319×322，塞不下 20 行榜单。 -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_live_rank"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/live_rank_entry"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/description" />
+
         </androidx.constraintlayout.widget.ConstraintLayout>
 
     </com.RobinNotBad.BiliClient.ui.widget.RotaryNestedScrollView>
