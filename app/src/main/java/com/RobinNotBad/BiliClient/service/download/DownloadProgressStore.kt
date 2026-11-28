@@ -60,6 +60,12 @@ internal object DownloadProgressStore {
     // 调度器（只取 state="none"）不会重新拾取；恢复时清除标志并置回 none。
     val pausedMap = java.util.concurrent.ConcurrentHashMap<Long, Boolean>()
 
+    // 集合的创建方式有硬性要求：必须用 Collections.newSetFromMap 而不是
+    // ConcurrentHashMap.newKeySet()——后者是 API 24 才有的静态方法，而这个集合是 object 的字段，
+    // Dalvik 上类初始化就会抛 NoSuchMethodError，整条 DownloadProgressStore 随之
+    // NoClassDefFoundError（26.11.28 在 Android 4.4 实测到：DownloadService.onDestroy →
+    // DownloadService$Companion.getDownloadProgressMap → NoClassDefFoundError）。
+    // newSetFromMap 自 API 9 起可用，语义等价（并发、无容量、基于 ConcurrentHashMap）。
     /**
      * 已被删除的任务：key=section.id。
      *
@@ -73,7 +79,8 @@ internal object DownloadProgressStore {
      * 而 [removeDownloadProgress] 不会清这个集合。[runDownloadSection] 结束时清掉，
      * 所以它只对「当时在跑的那个 worker」有效，不会长期残留。
      */
-    private val abandonedIds = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
+    private val abandonedIds: MutableSet<Long> =
+        java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Long, Boolean>())
 
     /** 暂停**或**已删除：下载循环据此退出。 */
     fun isPaused(id: Long): Boolean = pausedMap.containsKey(id) || abandonedIds.contains(id)
