@@ -141,7 +141,9 @@
 - 同步只需要只读 PAT（细粒度，Contents: Read）；写权限只在用户自己的机器上。
 - 硬约束：包名固定 `com.RobinNotBad.BiliClient.feature`；Kotlin 不自动解析父包的 `R`，
   用到资源必须显式 `import com.RobinNotBad.BiliClient.R`。
-- 私有 Activity 同样遵守安全红线：`android:exported="false"` + `android:screenOrientation="locked"`。
+- 私有 Activity 默认 `android:exported="false"` + `android:screenOrientation="locked"`；**透明主题的页面
+  不许声明 `screenOrientation`**——Android 8.0 起「非全屏不透明的窗口请求固定方向」会在 `onCreate` 直接抛
+  `IllegalStateException: Only fullscreen opaque activities can request orientation`（26.11.28 控制台那批启动崩溃即此）。
 - 私有类只被反射调用，R8 保留规则写在私有仓库的 `keep.pro` 里。
 
 ## 构建
