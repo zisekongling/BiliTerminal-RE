@@ -36,6 +36,16 @@ object ExternalCacheRoots {
     private val DATA_SUBDIRS = listOf("files", "files/video", "files/download")
 
     /**
+     * `Android/media/<包名>/` 下可能再套一层的缓存子目录名。
+     *
+     * 本仓库自己的下载根就是 `Android/media/<包名>`（见 `FileUtil.getVideoDownloadPath`），
+     * 一级子目录就是视频标题。但别的实现 / 旧版本会再套一层 `video/`、`download/`，
+     * **那一层的子目录才是标题**。不展开的话，用户看到的就是一条标题叫「video」、没有封面的
+     * 假条目，迁移过去也只是把整层容器搬过来（反馈 #321）。
+     */
+    private val MEDIA_SUBDIRS = listOf("video", "download", "files", "media", "movies")
+
+    /**
      * 所有可能的「别人的缓存根」。
      *
      * @param exclude 本机的下载根：扫到自己等于把同一批视频列两遍（导过的内容还会重复），
@@ -48,11 +58,17 @@ object ExternalCacheRoots {
         val external = externalStorageDir() ?: return out
         if (exclude != null) seen.add(canonical(exclude))
 
-        // Android/media/<包名>：就是对方的下载根本身，逐个当候选根
+        // Android/media/<包名>：本仓库自己的下载根就在这一层；再套了 video/ 之类的则钻进去
         val mediaContainer = File(external, "Android/media")
         val mediaChildren = mediaContainer.listFiles() ?: emptyArray()
         for (child in mediaChildren) {
-            if (child.isDirectory) addRoot(child, seen, out)
+            if (!child.isDirectory) continue
+            val nested = containerSubDirs(child)
+            if (nested.isEmpty()) {
+                addRoot(child, seen, out)
+            } else {
+                for (sub in nested) addRoot(sub, seen, out)
+            }
         }
 
         // Android/data/<包名>/files[...]：容器多一层，候选根是那个子目录
@@ -64,6 +80,30 @@ object ExternalCacheRoots {
         }
         return out
     }
+
+    /**
+     * `<包名>` 下是不是还套着一层容器目录（`video/` 之类），返回该用哪个当根。
+     *
+     * **只有 `<包名>` 自己不像缓存根时才展开**：它下面直接有媒体文件，或者有
+     * `.folders_info.json`（文件夹记录），都说明标题就长在它下面，直接用它。
+     *
+     * 已知取舍：真有视频标题叫 `video` 又会命中白名单，此时会被当成容器钻进去一层 ——
+     * 结果只是条目层级不同（视频还在，能播），比反过来漏扫一整批缓存轻。
+     */
+    private fun containerSubDirs(pkgDir: File): List<File> {
+        val children = pkgDir.listFiles() ?: return emptyList()
+        if (CacheMediaPolicy.pickMediaName(children.map { it.name }) != null) return emptyList()
+        if (File(pkgDir, FOLDERS_FILE_NAME).exists()) return emptyList()
+        val out = ArrayList<File>()
+        for (name in MEDIA_SUBDIRS) {
+            val sub = File(pkgDir, name)
+            if (sub.isDirectory) out.add(sub)
+        }
+        return out
+    }
+
+    /** 与本机 `FolderManager` 的文件夹记录同名；这里只做存在性判断，不需要解析。 */
+    private const val FOLDERS_FILE_NAME = ".folders_info.json"
 
     private fun addRoot(dir: File, seen: MutableSet<String>, out: MutableList<File>) {
         if (!dir.isDirectory) return

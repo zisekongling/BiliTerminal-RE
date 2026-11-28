@@ -192,6 +192,99 @@ class FavoriteApiTest {
         assertEquals("4:2", FavoriteApi.buildResources(cards))
     }
 
+    // ==================== 整夹全选用的 id 列表（x/v3/fav/resource/ids） ====================
+
+    /**
+     * 「全选整个收藏夹」拿到的是 `{id, type}` 而不是完整卡片，批量写操作要的
+     * `resources` 串格式与 [FavoriteApi.buildResources] 完全一致，所以这两者必须对得上。
+     */
+    @Test
+    fun buildResourcesFromIds_joinsIdAndType() {
+        val ids = listOf(FavoriteApi.FavId(371494037L, 2), FavoriteApi.FavId(328991940L, 2))
+        assertEquals("371494037:2,328991940:2", FavoriteApi.buildResourcesFromIds(ids))
+    }
+
+    @Test
+    fun buildResourcesFromIds_keepsMixedTypes() {
+        val ids = listOf(
+            FavoriteApi.FavId(1L, FavoriteApi.FAV_TYPE_VIDEO),
+            FavoriteApi.FavId(2L, FavoriteApi.FAV_TYPE_AUDIO),
+            FavoriteApi.FavId(3L, FavoriteApi.FAV_TYPE_COLLECTION)
+        )
+        assertEquals("1:2,2:12,3:21", FavoriteApi.buildResourcesFromIds(ids))
+    }
+
+    @Test
+    fun buildResourcesFromIds_skipsNullAndBadId() {
+        @Suppress("UNCHECKED_CAST")
+        val ids = listOf<FavoriteApi.FavId?>(FavoriteApi.FavId(0L, 2), null, FavoriteApi.FavId(-5L, 2), FavoriteApi.FavId(3L, 2)) as List<FavoriteApi.FavId>
+        assertEquals("跳过 id<=0 与 null 后只剩一条", "3:2", FavoriteApi.buildResourcesFromIds(ids))
+    }
+
+    @Test
+    fun buildResourcesFromIds_nullOrEmpty_returnsEmpty() {
+        assertEquals("", FavoriteApi.buildResourcesFromIds(null))
+        assertEquals("", FavoriteApi.buildResourcesFromIds(emptyList()))
+    }
+
+    /** ids 接口的 type 同样是脏的（0 / 未知值），构造时就归一化，不能等到拼串再兜 */
+    @Test
+    fun favId_normalizesTypeOnConstruction() {
+        assertEquals("未知类型回退视频稿件", FavoriteApi.FAV_TYPE_VIDEO, FavoriteApi.FavId(1L, 99).type)
+        assertEquals("音频保持", FavoriteApi.FAV_TYPE_AUDIO, FavoriteApi.FavId(1L, 12).type)
+        assertEquals("合集保持", FavoriteApi.FAV_TYPE_COLLECTION, FavoriteApi.FavId(1L, 21).type)
+    }
+
+    /**
+     * 真实响应片段（26.11.26 无 Cookie 实测公开收藏夹 media_id=1052622027，
+     * 依据 bilibili-API/docs/fav/list.md §获取收藏夹全部内容id）。
+     * 注意公开收藏夹**不需要登录**也能读到，私密夹才要。
+     */
+    @Test
+    fun parseFolderAllIds_realResponse_parsesIdsInOrder() {
+        val json = JSONObject(
+            """
+            {"code":0,"message":"OK","ttl":1,"data":[
+              {"id":371494037,"type":2,"bv_id":"BV1CZ4y1T7gC","bvid":"BV1CZ4y1T7gC"},
+              {"id":328991940,"type":2,"bv_id":"BV1oA411a72k","bvid":"BV1oA411a72k"},
+              {"id":884042215,"type":2,"bv_id":"BV1fK4y1e7Yj","bvid":"BV1fK4y1e7Yj"}
+            ]}
+            """.trimIndent()
+        )
+        val page = FavoriteApi.parseFolderAllIds(json)
+        assertEquals("成功码", 0, page.code)
+        assertEquals("条数", 3, page.ids.size)
+        assertEquals("顺序与原响应一致", 371494037L, page.ids[0].id)
+        assertEquals("视频稿件类型", FavoriteApi.FAV_TYPE_VIDEO, page.ids[0].type)
+        assertEquals("拼串可直接喂给批量接口", "371494037:2,328991940:2,884042215:2",
+            FavoriteApi.buildResourcesFromIds(page.ids))
+    }
+
+    /** 未登录访问私密夹会回非 0，必须能被识别成「失败」而不是「空夹」 */
+    @Test
+    fun parseFolderAllIds_codeNonZero_returnsFailure() {
+        val page = FavoriteApi.parseFolderAllIds(JSONObject("""{"code":-403,"message":"访问权限不足"}"""))
+        assertEquals("失败码统一归一成 -1", -1, page.code)
+        assertTrue("失败时不带回半截数据", page.ids.isEmpty())
+    }
+
+    @Test
+    fun parseFolderAllIds_dataNull_returnsFailure() {
+        val page = FavoriteApi.parseFolderAllIds(JSONObject("""{"code":0,"message":"OK","data":null}"""))
+        assertEquals(-1, page.code)
+        assertTrue(page.ids.isEmpty())
+    }
+
+    @Test
+    fun parseFolderAllIds_skipsBadIdAndNormalizesType() {
+        val json = JSONObject(
+            """{"code":0,"data":[{"id":0,"type":2},{"id":-3,"type":2},{"id":7,"type":99},{"id":8,"type":21}]}"""
+        )
+        val page = FavoriteApi.parseFolderAllIds(json)
+        assertEquals("只剩两条合法 id", 2, page.ids.size)
+        assertEquals("脏类型回退视频稿件后再拼串", "7:2,8:21", FavoriteApi.buildResourcesFromIds(page.ids))
+    }
+
     @Test
     fun resourceErrorMsg_mapsKnownCodes() {
         assertEquals("成功无文案", "", FavoriteApi.resourceErrorMsg(0))

@@ -93,6 +93,7 @@ import com.RobinNotBad.BiliClient.player.CoverTintPolicy
 import com.RobinNotBad.BiliClient.player.DanmakuLoadPolicy
 import com.RobinNotBad.BiliClient.player.DanmakuDensityHighEnergy
 import com.RobinNotBad.BiliClient.player.PlayerSeekStepPolicy
+import com.RobinNotBad.BiliClient.player.VideoShotLoader
 import com.RobinNotBad.BiliClient.player.DanmakuXmlCounter
 import com.RobinNotBad.BiliClient.player.DanmakuManager
 import com.RobinNotBad.BiliClient.player.DanmakuStreamLoader
@@ -1473,6 +1474,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         }
 
         initUI()
+
+        // 拖动预览的缩略图：cid 在 getExtras 里就多半已知（详情页入口会带），
+        // 这里异步取一次，取不到就当作这个视频没有快照，预览退化成三行文字。
+        loadVideoShotIfNeeded()
 
         // 连播队列恢复：getExtras 里已经按当前列表重建过一次队列，这里再尝试用 token 覆盖，
         // 拿到"上次看的那条视频所在的整个队列"（进程重建后仍能继续连播）。
@@ -5472,6 +5477,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         }
 
         Logu.v("结束")
+        // 拼版每张约 5.8MB，跟着进程活下去不值当；退出播放页就放掉
+        VideoShotLoader.clear()
         if (eventBusInit) {
             EventBus.getDefault().unregister(this)
             eventBusInit = false
@@ -5816,6 +5823,49 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
         } catch (e: Exception) {
             // 通知只是媒体控件的载体，挂不上不该影响播放
             Logu.e("媒体通知", e.message ?: "挂媒体控件通知失败")
+        }
+    }
+
+    /**
+     * 拖动预览的缩略图数据由 `PlayerNewUiController` 持有（它要按当前位置换格子）。
+     * 这里只记「已经为哪个 cid 取过」，切集换了 cid 才重新取。
+     */
+    private var videoShotCid = 0L
+
+    /**
+     * 拉当前 cid 的视频快照（拖动进度条时的缩略图）。
+     *
+     * 失败不打扰用户：拿不到就把 [videoShot] 留空，预览退化成「只有三行文字」。
+     * 但日志里留一条 D 级记录——否则「缩略图一直不出现」没法归因是接口失败还是没有时间表。
+     */
+    private fun loadVideoShotIfNeeded() {
+        // 新版播放器界面没开时这个功能根本不可达（拖动预览的 UI 在 PlayerNewUiController 里），
+        // 别让每一位旧播放器用户白发一次 videoshot 请求。
+        if (newPlayerUi == null) return
+        val targetAid = aid
+        val targetCid = cid
+        if (targetAid <= 0 || targetCid <= 0) return
+        if (videoShotCid == targetCid) return
+        videoShotCid = targetCid
+        newPlayerUi?.videoShot = null
+        CenterThreadPool.run {
+            val shot = try {
+                PlayerApi.getVideoShot(targetAid, targetCid)
+            } catch (e: Exception) {
+                Logu.d("缩略图预览", "取快照失败 ${e.javaClass.simpleName}")
+                null
+            }
+            if (isFinishing || isDestroyed) return@run
+            // 期间切了集：这份结果已经过期，别覆盖新集的
+            if (cid != targetCid) return@run
+            // newPlayerUi 在 initUI 里建好后不再换实例，后台线程直接设即可（字段本身 @Volatile）
+            newPlayerUi?.videoShot = shot
+            Logu.d(
+                "缩略图预览",
+                if (shot == null) "cid=$targetCid 无快照"
+                else "cid=$targetCid 快照 ${shot.timeTableSec.size} 格 / " +
+                    "${shot.images.size} 张拼版 / ${shot.xLen}×${shot.yLen} 每格 ${shot.xSize}×${shot.ySize}"
+            )
         }
     }
 
@@ -8355,6 +8405,8 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     // 都用这个字段，finish() 回传给上一页的也是它。不同步的话切P后弹幕、
                     // 字幕、看点以及观看进度上报全都还挂在切P前的那个 cid 上。
                     if (playerData.cid > 0) cid = playerData.cid
+                    // 换集换了 cid，缩略图要重新取（同一 cid 重复调用会被 videoShotCid 挡住）
+                    loadVideoShotIfNeeded()
                     // aid 同理，而且**虚拟合集下必须同步**：cids 装的是 aid，切到第 N 个视频后
                     // aid 还停在第一个视频上，进度上报就会变成 reportHistory(视频1, 视频N的cid)——
                     // 把 N 的进度写到 1 的记录里（26.10.15 修）
@@ -9354,6 +9406,10 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     setPlayerTitle(newData.title)
                     videoTitle = newData.title
                     currentEdgeId = newData.edgeId
+
+                    // 互动视频跳转换了 cid：不重取的话缩略图会一直用上一个分支的时间表
+                    // （loadVideoShotIfNeeded 内部按 cid 去重，同一集重复调用不会多发请求）
+                    loadVideoShotIfNeeded()
 
                     if (playerData.qnStrList != null && playerData.qnValueList != null) {
                         qnStrList = playerData.qnStrList

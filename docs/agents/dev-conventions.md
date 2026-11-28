@@ -6,6 +6,7 @@
 ## 列表页
 
 - 列表页继承 `RefreshMainActivity`（菜单入口页）或 `RefreshListActivity`（返回式）；加载完必须 `setRefreshing(false)`，否则翻页永久卡死。`onLoad(page)` 的 page 已自增。
+- **这两个基类不能随便挑，选错用户第一个发现**（26.11.26 直播间榜单页踩过）：`RefreshListActivity` 是**二级页**（顶栏 = 返回 + `arrow_back` + `activity_simple_refresh`）；`RefreshMainActivity` 是**一级菜单页**（经 `InstanceActivity`，顶栏点击换成「打开菜单」、图标被 `setMenuClick()` 覆盖成朝下的 `arrow_down` + `activity_simple_main_refresh`）。所以「从某个详情页点进来的页」一律用 `RefreshListActivity`——用错的表现是**点顶栏弹菜单而不是返回、箭头朝下**，而 back 键反而是正常的（它只受 `back_disable` 开关影响），很容易被误判成两个独立 bug。
 - `activity_simple_refresh.xml` 里的 `filterBar`/`sortBar`/`manageBar`/`groupBar` 都是列表的**兄弟节点**（不是列表项），不会随列表滚走。想让某条**滚动时自动收回**，在子类里调 `setupAutoHideBars(条…)`（`RefreshListActivity`，**默认不启用**）；**别把「可见性在运行时才变化」的条放进去**（如收藏夹的多选条 `manageBar`）——展开时会把它强行点亮。判据抽在 `util/view/ScrollRetractDecider.kt`（纯函数，有单测）：**收回随时可以，展开只允许在列表到顶（`!canScrollUp`）时**——条的高度动画会顶动列表内容，中途展开会和滑动手势打架（真机反馈过，别把「向上滚就展开」的旧口径改回去）。
 
 ## 新增菜单页

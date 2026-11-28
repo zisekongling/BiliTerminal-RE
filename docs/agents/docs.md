@@ -19,10 +19,12 @@
 改任何 `.md` 后跑一次，**要求 0 错误**（`docs/archive/` 不参与：归档正文一字不改）。**CI 里也跑这条**（`.github/workflows/ci.yml` 的「校验 Markdown 规范」步骤），违反会把 PR / push 打红——本地先跑一遍比等 CI 便宜：
 
 ```bash
-npx --yes markdownlint-cli2 "*.md" "{docs,.dsh,scripts,ledger}/**/*.md" "!docs/archive/**"
+npx --yes markdownlint-cli2 "*.md" "{docs,.dsh,scripts,ledger}/**/*.md" "private/**/*.md" "!docs/archive/**"
 ```
 
-**范围为什么是这几个目录，而不是 `**/*.md`**：`bilibili-API/` 是上游接口文档的**逐字快照**（1.4 万条 MD007 之类的历史格式问题），改它等于篡改快照；`docs/archive/` 是归档正文；`private/`、`design/`、`biliapp/`（本机逆向工作区）等都在 `.gitignore` 里。**除此之外凡是进了版本库的 `.md` 都在上面这条命令里**——包括 `.dsh/skills/` 这类容易被忘掉的目录（26.11.21：`rebili-version-release/SKILL.md` 攒了 9 条 MD022/031/032 没人发现，就是因为旧命令只扫 `docs/`）。
+**范围为什么是这几个目录，而不是 `**/*.md`**：`bilibili-API/` 是上游接口文档的**逐字快照**（1.4 万条 MD007 之类的历史格式问题），改它等于篡改快照；`docs/archive/` 是归档正文；`design/`、`biliapp/`（本机逆向工作区）在 `.gitignore` 里且是设计稿/抓包资料，不按文档规范约束。**除此之外凡是进了版本库的 `.md` 都在上面这条命令里**——包括 `.dsh/skills/` 这类容易被忘掉的目录（26.11.21：`rebili-version-release/SKILL.md` 攒了 9 条 MD022/031/032 没人发现，就是因为旧命令只扫 `docs/`）。
+
+`private/**/*.md` 也在范围内（26.11.28 起）：它在 `.gitignore` 里，但**是本仓库的私有源码文档**，同样要过规范。CI 上没有这个目录——那一条 glob 匹配不到文件时会被直接跳过，不影响退出码（v0.24.2 实测：单跑这一条 glob 输出 `Linting: 0 files`、exit 0；整套命令在无 `private/` 时输出 `Linting: 87 files`、`Summary: 0 issues in 0 files`、exit 0），不会把构建打红。
 
 **必修项**（默认全开）：标题/围栏/列表/表格前后留一个空行（MD022/031/032/058）、代码围栏**必须写语言**（MD040，纯日志用 `text`）、列表符号统一 `-`（MD004）、表格分隔行统一 `| --- | --- |`（MD055/056）、行尾不留空格（MD009）、文件以单个换行结尾（MD047）、标题不跳级（MD001）。
 

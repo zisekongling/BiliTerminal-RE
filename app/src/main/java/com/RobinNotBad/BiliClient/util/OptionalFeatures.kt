@@ -42,6 +42,27 @@ object OptionalFeatures {
     /** 菜单项 key，不在场时为 null。 */
     fun menuKey(): String? = invokeString("menuKey")
 
+    /**
+     * 全部私有菜单入口的 key（26.11.27 起支持多入口）。
+     *
+     * 私有侧若提供了 `menuKeys()`（返回 `String[]`）就用它；否则**回退到旧的单入口**
+     * [`menuKey`]——老版本的私有注入、以及带私有功能的历史构建都还能照旧只挂一项，
+     * 公开构建里两者都为空，结果是空列表。
+     */
+    fun menuKeys(): List<String> {
+        val multi = try {
+            (holder?.getMethod("menuKeys")?.invoke(null) as? Array<*>)
+                ?.mapNotNull { (it as? String)?.takeIf { s -> s.isNotBlank() } }
+                ?.distinct()
+        } catch (e: Throwable) {
+            null
+        }
+        // 空数组与「没有这个方法」同等对待：都退化成旧的单入口。
+        // （私有侧真想一个入口都不挂，应该不提供 menuKeys，而不是返回空数组。）
+        if (!multi.isNullOrEmpty()) return multi
+        return listOfNotNull(menuKey()?.takeIf { s -> s.isNotBlank() })
+    }
+
     /** 菜单项显示名，不在场时为 null。 */
     fun menuLabel(context: Context): String? = try {
         holder?.getMethod("menuLabel", Context::class.java)?.invoke(null, context) as? String
@@ -49,11 +70,37 @@ object OptionalFeatures {
         null
     }
 
+    /**
+     * 按 key 取菜单项显示名。
+     *
+     * 先试私有侧的 `menuLabel(Context, String)`；没有这个方法（旧注入）就回退到无参版本，
+     * 单入口场景下两者等价。
+     */
+    fun menuLabel(context: Context, key: String): String? {
+        val multi = try {
+            holder?.getMethod("menuLabel", Context::class.java, String::class.java)
+                ?.invoke(null, context, key) as? String
+        } catch (e: Throwable) {
+            null
+        }
+        return multi ?: menuLabel(context)
+    }
+
     /** 菜单项对应的页面 Class，不在场时为 null。 */
     fun menuActivity(): Class<*>? = try {
         holder?.getMethod("menuActivity")?.invoke(null) as? Class<*>
     } catch (e: Throwable) {
         null
+    }
+
+    /** 按 key 取菜单项页面 Class；私有侧没有 `menuActivity(String)` 时回退到无参版本。 */
+    fun menuActivity(key: String): Class<*>? {
+        val multi = try {
+            holder?.getMethod("menuActivity", String::class.java)?.invoke(null, key) as? Class<*>
+        } catch (e: Throwable) {
+            null
+        }
+        return multi ?: menuActivity()
     }
 
     /**

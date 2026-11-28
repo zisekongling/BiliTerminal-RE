@@ -25,7 +25,7 @@ object MenuConfig {
      */
     val OPTIONAL_ITEMS: List<String> by lazy {
         try {
-            listOfNotNull(OptionalFeatures.menuKey())
+            OptionalFeatures.menuKeys()
         } catch (e: Throwable) {
             emptyList()
         }

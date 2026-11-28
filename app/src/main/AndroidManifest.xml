@@ -516,6 +516,11 @@
             android:label="@string/uitext_watchlateractivity_003"
             android:screenOrientation="locked" />
         <activity
+            android:name=".activity.live.LiveRankActivity"
+            android:exported="false"
+            android:label="@string/live_rank_entry"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.user.favorite.FavoriteVideoListActivity"
             android:exported="false"
             android:label="@string/label_activity_no_11"

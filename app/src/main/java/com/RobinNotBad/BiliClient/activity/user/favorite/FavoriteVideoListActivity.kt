@@ -115,7 +115,23 @@ class FavoriteVideoListActivity : RefreshListActivity() {
     /** 多选删除：模式开关与已勾选的 aid（adapter 持有同一个集合引用） */
     private var selectionMode = false
     private val selectedAids = LinkedHashSet<Long>()
+
+    /**
+     * 已选中条目的收藏内容类型（aid → favType）。
+     *
+     * <p>「全选整个收藏夹」的条目大多**不在** [videoList] 里（只拉了第一页），删/移动/复制
+     * 又要靠 {@code id:type} 拼 resources，所以类型不能现从卡片上读，得在勾选那一刻记下来。
+     */
+    private val selectedFavTypes = HashMap<Long, Int>()
+
+    /** 「全选整夹」是否已生效；再点一次变「取消全选」 */
+    private var allSelectedInFolder = false
+
+    /** 正在拉整夹 id（防止连点重复请求） */
+    private var selectAllLoading = false
+
     private var manageToggle: TextView? = null
+    private var manageSelectAll: TextView? = null
     private var manageDelete: TextView? = null
 
     /** 未选中档位的颜色，创建时从布局里的默认文字色抓一次 */
@@ -409,12 +425,79 @@ class FavoriteVideoListActivity : RefreshListActivity() {
     private fun setupManageBar() {
         if (!writable) return
         manageToggle = findViewById(R.id.manageToggle)
+        manageSelectAll = findViewById(R.id.manageSelectAll)
         manageDelete = findViewById(R.id.manageDelete)
         if (unselectedColor == 0) unselectedColor = manageToggle?.currentTextColor ?: unselectedColor
         manageToggle?.setOnClickListener { if (selectionMode) exitSelectionMode() else enterSelectionMode() }
+        // 「全选」格子在 activity_simple_refresh 里本来就有（下载列表页在用，其它页 gone），
+        // 这里点亮它——手表屏窄，manageBar 每多一个格子就挤一分，能复用现成的就别新增。
+        manageSelectAll?.visibility = View.VISIBLE
+        manageSelectAll?.setOnClickListener { toggleSelectAllInFolder() }
         manageDelete?.setOnClickListener { confirmBatchDelete() }
         setupDownloadButton()
         updateManageBar()
+    }
+
+    /**
+     * 「全选 / 取消全选」。
+     *
+     * <p>全选走 {@code x/v3/fav/resource/ids} **一次拿整个收藏夹**的 id，不是把已加载的
+     * [videoList] 勾上——后者只覆盖当前加载到的页，用户想「把这个夹清空」还得手动翻到底。
+     * 代价是这些条目没有 {@link VideoCard}，所以下载（要标题封面）仍然只能覆盖已加载的那部分，
+     * 见 [confirmBatchDownload] 里的提示。
+     */
+    private fun toggleSelectAllInFolder() {
+        if (allSelectedInFolder) {
+            selectedAids.clear()
+            selectedFavTypes.clear()
+            allSelectedInFolder = false
+            videoCardAdapter?.notifyDataSetChanged()
+            updateManageBar()
+            return
+        }
+        if (selectAllLoading) return
+        selectAllLoading = true
+        CenterThreadPool.run {
+            val page = try {
+                FavoriteApi.getFolderAllIds(mediaId)
+            } catch (e: Exception) {
+                runOnUiThread {
+                    selectAllLoading = false
+                    report(e)
+                }
+                return@run
+            }
+            runOnUiThread {
+                selectAllLoading = false
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                // 失败 ≠ 空夹：未登录 / 私密夹无权限时接口都返回非 0，
+                // 一律说「空的」会把人带到错误方向
+                if (page.code != 0) {
+                    MsgUtil.showMsg(
+                        if (SharedPreferencesUtil.getLong("mid", 0) <= 0) {
+                            UiText.of("全选需要登录喵~")
+                        } else {
+                            UiText.of("读取收藏夹失败，稍后再试")
+                        }
+                    )
+                    return@runOnUiThread
+                }
+                if (page.ids.isEmpty()) {
+                    MsgUtil.showMsg(UiText.of("这个收藏夹是空的喵~"))
+                    return@runOnUiThread
+                }
+                selectedAids.clear()
+                selectedFavTypes.clear()
+                for (item in page.ids) {
+                    selectedAids.add(item.id)
+                    selectedFavTypes[item.id] = item.type
+                }
+                allSelectedInFolder = true
+                videoCardAdapter?.notifyDataSetChanged()
+                updateManageBar()
+                MsgUtil.showMsg(UiText.fmt("已全选 %1\$d 条（整个收藏夹）", page.ids.size))
+            }
+        }
     }
 
     /**
@@ -445,17 +528,21 @@ class FavoriteVideoListActivity : RefreshListActivity() {
     private fun enterSelectionMode() {
         selectionMode = true
         selectedAids.clear()
+        selectedFavTypes.clear()
+        allSelectedInFolder = false
         videoCardAdapter?.let {
             it.selectionMode = true
             it.notifyDataSetChanged()
         }
         updateManageBar()
-        MsgUtil.showMsg(UiText.of("点条目勾选，再点「删除」或「下载」"))
+        MsgUtil.showMsg(UiText.of("点条目勾选，长按条目可批量移动/复制"))
     }
 
     private fun exitSelectionMode() {
         selectionMode = false
         selectedAids.clear()
+        selectedFavTypes.clear()
+        allSelectedInFolder = false
         videoCardAdapter?.let {
             it.selectionMode = false
             it.notifyDataSetChanged()
@@ -465,7 +552,14 @@ class FavoriteVideoListActivity : RefreshListActivity() {
 
     private fun toggleSelected(position: Int) {
         val card = videoList.getOrNull(position) ?: return
-        if (!selectedAids.add(card.aid)) selectedAids.remove(card.aid)
+        if (selectedAids.add(card.aid)) {
+            selectedFavTypes[card.aid] = FavoriteApi.normalizeFavType(card.favType)
+        } else {
+            selectedAids.remove(card.aid)
+            selectedFavTypes.remove(card.aid)
+        }
+        // 手动改过勾选态就不再算「已全选整夹」，按钮文字跟着退回「全选」
+        allSelectedInFolder = false
         videoCardAdapter?.notifyItemChanged(position)
         updateManageBar()
     }
@@ -474,6 +568,8 @@ class FavoriteVideoListActivity : RefreshListActivity() {
         findViewById<View>(R.id.manageBar).visibility = if (selectionMode) View.VISIBLE else View.GONE
         manageToggle?.text = if (selectionMode) UiText.of("退出多选") else UiText.of("多选")
         manageToggle?.setTextColor(if (selectionMode) ColorScheme.PRIMARY else unselectedColor)
+        manageSelectAll?.text = if (allSelectedInFolder) UiText.of("取消全选") else UiText.of("全选")
+        manageSelectAll?.setTextColor(if (allSelectedInFolder) ColorScheme.PRIMARY else unselectedColor)
         manageDelete?.text =
             if (selectedAids.isEmpty()) UiText.of("删除") else UiText.fmt("删除(%1\$d)", selectedAids.size)
         // 没选东西时把「删除」压暗，点了给提示而不是弹一个空确认框
@@ -485,29 +581,34 @@ class FavoriteVideoListActivity : RefreshListActivity() {
         manageDownload?.setTextColor(if (selectedAids.isEmpty()) unselectedColor else ColorScheme.PRIMARY)
     }
 
+    /**
+     * 批量删除。
+     *
+     * <p>目标由 [selectedFavTypes] 拼（{@code id:type}），**不再从 [videoList] 反查**——
+     * 「全选整夹」时绝大多数条目根本没加载成 {@link VideoCard}，按旧写法会只删掉当前这一页、
+     * 还提示「已删除 20 条」，用户以为整个夹清完了。删除成功后只把**已加载**的那部分从列表里
+     * 抹掉，其余靠下次刷新对齐。
+     */
     private fun confirmBatchDelete() {
         if (selectedAids.isEmpty()) {
             MsgUtil.showMsg(UiText.of("先选几条吧~"))
             return
         }
-        val targets = videoList.filter { selectedAids.contains(it.aid) }
-        if (targets.isEmpty()) {
-            MsgUtil.showMsg(UiText.of("先选几条吧~"))
-            return
-        }
+        val targets = selectedAids.map { FavoriteApi.FavId(it, selectedFavTypes[it] ?: FavoriteApi.FAV_TYPE_VIDEO) }
         TerminalDialog.confirm(
             context = this,
             title = UiText.of("删除收藏内容"),
-            message = UiText.fmt("确定把选中的 %1\$d 条从收藏夹里移除吗？", targets.size),
+            message = UiText.fmt("确定把选中的 %1\$d 条从收藏夹里移除吗？此操作不可撤销。", targets.size),
             confirmText = UiText.of("删除")
         ) {
             CenterThreadPool.run {
                 try {
-                    val code = FavoriteApi.batchDeleteResources(mediaId, targets)
+                    val code = FavoriteApi.batchDeleteResourcesByIds(mediaId, targets)
                     runOnUiThread {
                         if (code == 0) {
                             MsgUtil.showMsg(UiText.fmt("已删除 %1\$d 条", targets.size))
-                            applyRemoved(targets)
+                            val removed = HashSet<Long>(selectedAids)
+                            applyRemoved(videoList.filter { removed.contains(it.aid) })
                             exitSelectionMode()
                         } else {
                             MsgUtil.showMsg(FavoriteApi.resourceErrorMsg(code))
@@ -642,9 +743,10 @@ class FavoriteVideoListActivity : RefreshListActivity() {
         VirtualCollectionPrefs.collectionEnabled() && !VirtualCollectionPrefs.clickPlayEnabled()
 
     private fun onItemLongClick(position: Int): Boolean {
-        // 多选模式下长按也是勾选，不再弹管理菜单
+        // 多选模式下长按改成「对已选中的全部做跨夹移动/复制」，
+        // 把这两个入口收在这里而不是塞进 manageBar（那条已经四格，手表上一格不到 60dp）
         if (selectionMode) {
-            toggleSelected(position)
+            showBulkTransferMenu()
             return true
         }
         // 自己的收藏夹：长按弹管理菜单（详情/复制/移动/多选/取消收藏）
@@ -746,6 +848,75 @@ class FavoriteVideoListActivity : RefreshListActivity() {
                     if (code == 0) {
                         MsgUtil.showMsg(if (move) UiText.of("已移动") else UiText.of("已复制"))
                         if (move) removeItem(card)
+                    } else {
+                        MsgUtil.showMsg(FavoriteApi.resourceErrorMsg(code))
+                    }
+                }
+            } catch (e: Exception) {
+                report(e)
+            }
+        }
+    }
+
+    /**
+     * 多选态下长按任一条目：对**已选中的全部**做跨夹移动 / 复制。
+     *
+     * <p>目标集合用 {@link FavoriteApi.FavId}（id + 类型）表示，所以「全选整个收藏夹」时
+     * 没加载过的那几百条也能一起搬走。
+     */
+    private fun showBulkTransferMenu() {
+        if (selectedAids.isEmpty()) {
+            MsgUtil.showMsg(UiText.of("先选几条吧~"))
+            return
+        }
+        TerminalDialog.menu(
+            context = this,
+            title = UiText.fmt("已选 %1\$d 条", selectedAids.size),
+            items = listOf(UiText.of("移动到…"), UiText.of("复制到…"))
+        ) { which -> showBulkTargetFolderPicker(which == 0) }.show()
+    }
+
+    private fun showBulkTargetFolderPicker(move: Boolean) {
+        val ids = selectedAids.map {
+            FavoriteApi.FavId(it, selectedFavTypes[it] ?: FavoriteApi.FAV_TYPE_VIDEO)
+        }
+        if (ids.isEmpty()) return
+        CenterThreadPool.run {
+            try {
+                val targets = FavoriteApi.getFavoriteFolders(mid).filter { it.mediaId > 0 && it.mediaId != mediaId }
+                runOnUiThread {
+                    if (targets.isEmpty()) {
+                        MsgUtil.showMsg(UiText.of("没有别的收藏夹可以放喵~"))
+                        return@runOnUiThread
+                    }
+                    TerminalDialog.menu(
+                        context = this@FavoriteVideoListActivity,
+                        title = if (move) UiText.of("移动到…") else UiText.of("复制到…"),
+                        items = targets.map { it.name }
+                    ) { which -> transferByIds(ids, targets[which].mediaId, move) }.show()
+                }
+            } catch (e: Exception) {
+                report(e)
+            }
+        }
+    }
+
+    private fun transferByIds(ids: List<FavoriteApi.FavId>, targetMediaId: Long, move: Boolean) {
+        CenterThreadPool.run {
+            try {
+                val code = if (move) FavoriteApi.moveResourcesByIds(mediaId, targetMediaId, ids)
+                else FavoriteApi.copyResourcesByIds(mediaId, targetMediaId, ids)
+                runOnUiThread {
+                    if (code == 0) {
+                        MsgUtil.showMsg(
+                            if (move) UiText.fmt("已移动 %1\$d 条", ids.size)
+                            else UiText.fmt("已复制 %1\$d 条", ids.size)
+                        )
+                        if (move) {
+                            val moved = ids.map { it.id }.toHashSet()
+                            applyRemoved(videoList.filter { moved.contains(it.aid) })
+                            exitSelectionMode()
+                        }
                     } else {
                         MsgUtil.showMsg(FavoriteApi.resourceErrorMsg(code))
                     }
@@ -1136,6 +1307,9 @@ class FavoriteVideoListActivity : RefreshListActivity() {
             return
         }
         val selected = videoList.filter { selectedAids.contains(it.aid) }
+        // 「全选整个收藏夹」选中的条目大多还没加载成卡片，而下载要标题封面，只能覆盖已加载的那部分。
+        // 这个差额必须说出来，否则用户以为整个夹都在下、实际只下了第一页。
+        val notLoaded = (selectedAids.size - selected.size).coerceAtLeast(0)
         val plan = FavoriteBatchDownloadPolicy.plan(selected)
         if (plan.cards.isEmpty()) {
             MsgUtil.showMsg(getString(R.string.fav_port_download_no_supported))
@@ -1150,8 +1324,12 @@ class FavoriteVideoListActivity : RefreshListActivity() {
             is FavoriteBatchDownloadPolicy.Quality.Fixed -> getString(R.string.fav_port_download_quality_fixed, quality.qn)
         }
         val skipped = plan.skippedUnsupported + plan.skippedDuplicate + plan.skippedOverLimit
+        // 两段补充说明都要能同时出现，必须各自括号括起来——不加括号时
+        // `+ if (a) x else "" + if (b) y else ""` 会解析成 `+ (if (a) x else ("" + ...))`，
+        // 第二段就只在第一段不成立时才显示
         val message = getString(R.string.fav_port_download_message, plan.cards.size, qualityText) +
-                if (skipped > 0) getString(R.string.fav_port_download_skipped, skipped) else ""
+                (if (skipped > 0) getString(R.string.fav_port_download_skipped, skipped) else "") +
+                (if (notLoaded > 0) getString(R.string.uitext_favoritevideolistactivity_036, notLoaded) else "")
         TerminalDialog.confirm(
             context = this,
             title = getString(R.string.fav_port_download_title),
