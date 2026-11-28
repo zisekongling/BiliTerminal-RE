@@ -1583,20 +1583,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     loading_text0.text = UiText.of("装填弹幕中")
                     loading_text1.text = "(≧∇≦)"
                 }
-                if (thirdPartyDanmaku) {
-                    // 弹弹play 弹幕：没有「发送弹幕」入口，也不碰 B 站弹幕接口
-                    runOnUiThread { btn_danmaku_send.visibility = View.GONE }
-                } else if (isOnlineVideo) {
-                    danmakuFile = File(cachepath, "danmaku.xml")
-                    loadDanmakuWithGuard()
-                } else {
-                    runOnUiThread { btn_danmaku_send.visibility = View.GONE }
-                    danmakuFile = File(danmaku_url)
-                    if (danmakuFile!!.exists())
-                        prepareDanmaku { it.loadFromXmlFile(danmakuFile!!.toString()) }
-                    else
-                        hasDanmaku = false
-                }
+                loadDanmakuForCurrentSource()
 
                 // 26.11.21（反馈 #262）：第三方直链（在线但没有 aid/cid）同样点不出字幕，按钮按需隐藏
                 runOnUiThread { refreshSubtitleButton() }
@@ -4373,6 +4360,45 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
             // 回退是自动的，不必再弹 toast 打扰（26.11.21 反馈）；旧版接口若也失败会自己排重试。
             Logu.e("新版弹幕", "获取失败: " + e.message + "，回退到旧版接口")
             CenterThreadPool.run { downdanmuOld() }
+        }
+    }
+
+    /**
+     * 按当前片源装载弹幕：首播、切分P（[doSwitchPage]）、换源/换清晰度重建三条路径共用一个入口。
+     *
+     * 26.11.28（反馈 #314）：切分P 那条路径原本只写了「在线视频」一支，本地缓存的番剧切完 P 之后
+     * 弹幕永远是空的——`releaseDanmaku()` 已经把旧弹幕释放了，却没人重新装填；等用户再点弹幕按钮，
+     * onClick 只做 show/hide（见 onPrepared 里那段），于是一直没有弹幕。三处各写一份正是漏改的来源，
+     * 这里收成一份，后续再改动也不会只改到其中一处。
+     *
+     * **必须在后台线程调用**（三个调用点都在 CenterThreadPool.run 里）。
+     */
+    private fun loadDanmakuForCurrentSource() {
+        if (thirdPartyDanmaku) {
+            // 弹弹play 弹幕：没有「发送弹幕」入口，也不碰 B 站弹幕接口；
+            // 真正的装填由私有侧异步回灌（见 attachThirdPartyDanmaku）
+            runOnUiThread { btn_danmaku_send.visibility = View.GONE }
+            return
+        }
+        if (isOnlineVideo) {
+            // hasDanmaku 跟着「这一支」的弹幕地址走：首播在 onCreate 里算过一次（见 hasDanmaku = danmaku_url.isNotEmpty()），
+            // 切分P / 换源之后地址变了就得重算，否则从「没有弹幕的上一P」切过来会被 loadDanmakuWithGuard 的入口判定直接挡掉。
+            hasDanmaku = danmaku_url.isNotEmpty()
+            danmakuFile = File(cacheDir, "danmaku.xml")
+            // 上一支视频留下的缓存弹幕直接清掉：旧接口每次都是整份覆盖下载（DanmakuFileFetcher.fetchToFile），
+            // 留着的旧文件既不会被复用，还会被数量保护的流式计数读到。
+            if (danmakuFile!!.exists()) danmakuFile!!.delete()
+            loadDanmakuWithGuard()
+            return
+        }
+        // 本地/缓存视频：弹幕是视频目录里现成的 xml（多P 时每 P 一份），有就直接读，没有就当没有弹幕。
+        // hasDanmaku 必须跟着这一 P 的实际情况走：它决定 onPrepared 里要不要 start、暂停/seek 要不要跟。
+        runOnUiThread { btn_danmaku_send.visibility = View.GONE }
+        danmakuFile = File(danmaku_url)
+        val exists = danmakuFile!!.exists()
+        hasDanmaku = exists
+        if (exists) {
+            prepareDanmaku { it.loadFromXmlFile(danmakuFile!!.toString()) }
         }
     }
 
@@ -8823,11 +8849,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                     loading_text1.text = "(≧∇≦)"
                 }
 
-                if (isOnlineVideo) {
-                    danmakuFile = File(cacheDir, "danmaku.xml")
-                    if (danmakuFile!!.exists()) danmakuFile!!.delete()
-                    loadDanmakuWithGuard()
-                }
+                loadDanmakuForCurrentSource()
 
                 if (!destroyed) {
                     maybeAutoSubtitle()
@@ -9456,11 +9478,7 @@ class PlayerActivity : Activity(), IMediaPlayer.OnPreparedListener, OptionalFeat
                                 loading_text1.text = "(≧∇≦)"
                             }
 
-                            if (isOnlineVideo) {
-                                danmakuFile = File(cacheDir, "danmaku.xml")
-                                if (danmakuFile!!.exists()) danmakuFile!!.delete()
-                                loadDanmakuWithGuard()
-                            }
+                            loadDanmakuForCurrentSource()
 
                             if (!destroyed) {
                                 maybeAutoSubtitle()
