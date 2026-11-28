@@ -91,7 +91,25 @@ public class LinkUrlUtil {
         }
     }
 
+    /**
+     * 解析网页链接并跳进站内页面；解析不出来时交给系统浏览器（页面内点击的既有行为）。
+     *
+     * @see #handleWebURL(Context, String, boolean)
+     */
     public static void handleWebURL(Context context, String text) {
+        handleWebURL(context, text, true);
+    }
+
+    /**
+     * 解析网页链接并跳进站内页面。
+     *
+     * @param fallbackToBrowser 解析不出来时是否退化成「交给系统浏览器打开」。
+     *                          页面内点击（私信、评论、搜索框）要 true；**导出的深链入口必须 false**——
+     *                          那边本来就在响应 ACTION_VIEW，再 startActivity 一次会把我们自己的
+     *                          intent-filter 又命中一遍，用户看到的只会是「点了没反应」（反馈 #322）。
+     * @return true = 已跳进站内页面，或已交给短链解析（稍后在回调里再跳）；false = 这个链接没能识别
+     */
+    public static boolean handleWebURL(Context context, String text, boolean fallbackToBrowser) {
         try {
             text = (text.startsWith("http://") || text.startsWith("https://") ? text : (text.startsWith("//") ? "http:" + text : "http://" + text));
             // 很傻逼的一系列解析
@@ -102,26 +120,29 @@ public class LinkUrlUtil {
                 path = path.substring(0, index);
             }
             String domain = url.getHost();
-            if (domain.equals("b23.tv")) {
+            if ("b23.tv".equals(domain)) {
                 handleShortUrl(context, text);
-                return;
+                return true;
             }
-            if (domain.matches(".*\\.bilibili\\.com$")) {
+            if (isBilibiliDomain(domain)) {
                 if (!path.isEmpty()) {
                     Matcher opusMatcher = OPUS_PATTERN.matcher(path);
                     if (opusMatcher.matches()) {
                         TerminalContext.getInstance().enterOpusDetailPage(context, Long.parseLong(opusMatcher.group(1)));
-                        return;
+                        return true;
                     }
                     String lastPathItem = path.replaceAll(".*/([^/]+)/?$", "$1");
-                    if (domain.equals("space.bilibili.com")) {
+                    if ("space.bilibili.com".equals(domain)) {
                         lastPathItem = "UID" + lastPathItem;
                     }
-                    if (domain.equals("search.bilibili.com")) {
+                    if ("search.bilibili.com".equals(domain)) {
+                        // getQuery() 在 ?keyword=x 之外（例如 /search?page=2）也可能为 null，
+                        // 旧写法直接 .replace() 会 NPE，被外层 catch 吞掉后仍落到浏览器
+                        String query = url.getQuery();
                         Intent intent = new Intent(context, SearchActivity.class);
-                        intent.putExtra("keyword", URLDecoder.decode(url.getQuery().replace("keyword=", "")));
+                        intent.putExtra("keyword", URLDecoder.decode(query == null ? "" : query.replace("keyword=", "")));
                         context.startActivity(intent);
-                        return;
+                        return true;
                     }
                     Pair<String, Integer> parse = parseId(lastPathItem);
                     if (parse != null) {
@@ -130,16 +151,16 @@ public class LinkUrlUtil {
                         switch (type) {
                             case TYPE_BVID:
                                 TerminalContext.getInstance().enterVideoDetailPage(context, val);
-                                return;
+                                return true;
                             case TYPE_AVID:
                                 TerminalContext.getInstance().enterVideoDetailPage(context, Long.parseLong(val.replace("av", "")));
-                                return;
+                                return true;
                             case TYPE_CVID:
                                 TerminalContext.getInstance().enterArticleDetailPage(context, Long.parseLong(val.replace("cv", "")));
-                                return;
+                                return true;
                             case TYPE_UID:
                                 BiliTerminal.jumpToUser(context, Long.parseLong(val.replaceFirst("(?i)^uid", "")));
-                                return;
+                                return true;
                         }
                     }
                 }
@@ -147,6 +168,7 @@ public class LinkUrlUtil {
         } catch (Exception e) {
             MsgUtil.err(e);
         }
+        if (!fallbackToBrowser) return false;
         try {
             context.startActivity(new Intent(Intent.ACTION_VIEW).setData(Uri.parse(text)));
         } catch (ActivityNotFoundException e) {
@@ -154,6 +176,17 @@ public class LinkUrlUtil {
         } catch (Throwable th) {
             MsgUtil.err(th);
         }
+        return true;
+    }
+
+    /**
+     * B 站域名判定。
+     *
+     * 通配符只匹配子域，裸域 {@code bilibili.com} 要单独写——主清单里的 intent-filter 踩过同一个坑
+     * （见 app/src/main/AndroidManifest.xml 里 GetIntentActivity 那段注释）。
+     */
+    private static boolean isBilibiliDomain(String host) {
+        return "bilibili.com".equals(host) || host.matches(".*\\.bilibili\\.com$");
     }
 
     public static void handleId(Context context, String text) {

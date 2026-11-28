@@ -2001,6 +2001,7 @@
     <string name="uitext_copytextactivity_001">复制失败，请检查选择的范围</string>
     <string name="uitext_dialogactivity_001">知道了</string>
     <string name="uitext_getintentactivity_001">链接无效：缺少视频参数</string>
+    <string name="uitext_getintentactivity_002">暂时无法识别这个链接</string>
     <string name="uitext_imagevieweractivity_001">超出内存，加载失败</string>
     <string name="uitext_imagevieweractivity_002">再次点击下载</string>
     <string name="uitext_imagevieweractivity_003">未收到图片数据</string>

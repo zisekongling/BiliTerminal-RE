@@ -322,6 +322,7 @@ object UiText {
         "复制失败，请检查选择的范围" to R.string.uitext_copytextactivity_001,
         "知道了" to R.string.uitext_dialogactivity_001,
         "链接无效：缺少视频参数" to R.string.uitext_getintentactivity_001,
+        "暂时无法识别这个链接" to R.string.uitext_getintentactivity_002,
         "超出内存，加载失败" to R.string.uitext_imagevieweractivity_001,
         "再次点击下载" to R.string.uitext_imagevieweractivity_002,
         "未收到图片数据" to R.string.uitext_imagevieweractivity_003,

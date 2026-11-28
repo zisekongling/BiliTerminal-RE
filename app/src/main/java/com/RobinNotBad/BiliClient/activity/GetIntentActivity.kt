@@ -6,6 +6,7 @@ import android.app.Activity
 import android.os.Bundle
 import com.RobinNotBad.BiliClient.BiliTerminal
 import com.RobinNotBad.BiliClient.util.DeepLinkPolicy
+import com.RobinNotBad.BiliClient.util.LinkUrlUtil
 import com.RobinNotBad.BiliClient.util.MsgUtil
 
 class GetIntentActivity : Activity() {
@@ -49,10 +50,15 @@ class GetIntentActivity : Activity() {
                     }
                 }
 
-                // 审计 P2-7：域名已确认是 B 站域，但现有解析只认 bilibili://video|article 的
-                // 路径语义；网页链接（/video/BV…、/read/cv…、b23.tv 短链）的解析不在本次改动范围，
-                // 这里保持与修复前一致的行为——提示不支持，而不是武断地跳到一个猜出来的 id。
-                DeepLinkPolicy.Decision.WEB_LINK -> MsgUtil.showMsgLong(UiText.of("暂不支持直接打开网页链接"))
+                // 网页链接（/video/BV…、/read/cv…、space.bilibili.com/UID、b23.tv 短链）的解析器
+                // util/LinkUrlUtil.handleWebURL 早就有了，消息列表、评论、搜索框都在用，只有这个入口
+                // 当时（审计 P2-7）只做到白名单就停在门口，于是用户点分享链接只能跳浏览器（反馈 #322）。
+                // 这里补上解析；**必须关掉浏览器兜底**——本页面自己就注册了 ACTION_VIEW，
+                // 兜底那次 startActivity 会把我们自己的 intent-filter 再命中一遍，等于什么都没发生。
+                DeepLinkPolicy.Decision.WEB_LINK -> {
+                    val handled = LinkUrlUtil.handleWebURL(this, uri.toString(), false)
+                    if (!handled) MsgUtil.showMsgLong(UiText.of("暂时无法识别这个链接"))
+                }
             }
         }
 
