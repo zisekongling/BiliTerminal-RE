@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
+import android.os.Build
 import android.view.View
 import androidx.core.content.ContextCompat
 import com.RobinNotBad.BiliClient.R
@@ -246,7 +247,8 @@ object GlassStyle {
     fun applyCardBackground(view: View): Boolean {
         if (!isEnabled()) return false
         view.background = panelBackground(view.context, CornerStyle.radiusPx(view.context))
-        view.elevation = 0f
+        // elevation 是 API 21 的接口；4.4 上本来就没有 Material 阴影，直接跳过即可。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) view.elevation = 0f
         return true
     }
 

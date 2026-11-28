@@ -48,6 +48,17 @@
     - **为此补的日志**：`loadDanmakuForCurrentSource()` 三个分支各加一条 `Logu.d("弹幕", "按当前片源装填：…")` —— DFM 装填成功不留任何日志，切 P 后到底装没装只能靠这行读出来。
     - **4.4 模拟器的观测坑**：播放中 `uiautomator dump` 必失败（`ERROR: could not get idle state.`，只能用 `screencap`）；播放时 `input tap` 偶发不生效，改 `input swipe x y x y 120~400` 或点行的文字区更稳；`logcat -c` 清不掉历史，查证据直接 grep 时间前缀；装包前要腾 `/data`（删掉 52MB 缓存条目后 21.7M→72.2M）。
   - **L0（26.11.28 本机，含上述两处 4.4 修复与日志）**：`./gradlew.bat :app:assembleDebug` BUILD SUCCESSFUL；`testStandardDebugUnitTest` **3486 用例 / 0 失败 / 0 错误**。
+- **26.11.28 低版本安卓防崩加固：公开仓 3 处 + 私有仓 3 处（minSdk 19）**：
+  - **来路**：4.4 模拟器实跑撞出 `DownloadProgressStore` 的 `NoClassDefFoundError` 后，用户定下「只要不引起低版本安卓崩溃即可」，并把范围扩到私有功能（那 3 处默认路径也能走到）。
+  - **公开仓三处（默认路径可达，改前会在 4.4 抛 `NoSuchMethodError`）**：
+    - `ui/widget/HighEnergyProgressBar.kt:241`：`canvas.drawRoundRect(x1, y1, x2, y2, rx, ry, paint)` 是 **API 21** 的浮点重载，视频带高能/赞助片段标记时必走 → 改用 `drawRoundRect(RectF, rx, ry, paint)`（API 1），新增复用字段 `markRect` 避免 onDraw 分配。
+    - `ui/shortvideo/ShortVideoNewUi.kt`：`setProgressTintList` / `setProgressBackgroundTintList`（API 21）、`setImageTintList`（API 21）、`View#setForeground`（API 23）、`Context#getDrawable`（API 21）→ 抽出 `tintProgress()`（低于 21 直接 return，保持主题默认两段式上色）与 `tintIcon()`（21+ 走 `imageTintList`，否则 `setColorFilter(SRC_IN)`）；水波纹改用 `AppCompatResources.getDrawable`，23+ 才设 `foreground`，否则退回 `background`。
+    - `ui/appearance/GlassStyle.kt:249`：`view.elevation = 0f` 是 API 21 → 加 `SDK_INT >= LOLLIPOP` 判断（4.4 本来就没有 Material 阴影）。
+  - **私有仓三处**：`KazumiSniffWebView` 的 `WebResourceRequest#getUrl`（21）/ `WebResourceError#getErrorCode`（23）→ 低于 21 的旧 `shouldInterceptRequest` 直接 `return null`，三参 `onReceivedError` 里的日志收进 `SDK_INT >= M`；`MigrationPrivilege` 的 `Process#waitFor(timeout, unit)`（26）→ 新增 `Process.waitForCompat()`，26+ 原样用，否则起 daemon 线程调无参 `waitFor()` 并用 `CountDownLatch.await(timeout, unit)` 等；`AnimeRuleCss` 的 `MatchGroupCollection#get(String)`（26）→ 低于 26 时用自写的 `namedGroupIndex()` 把命名组换成序号再取 `groupValues`（此前在低版本上抛 `NoSuchMethodError` 被 `catch` 吞掉，线路名恒为空）。
+  - **为此补的单测**：`namedGroupIndex()` 是手写解析器，改成 `internal` 并补 4 个用例（普通组计数、非捕获组不占序号、断言/字符类/逃逸、名字缺失与 `(?<x` 未闭合返回 null）；`AnimeRuleCssTest` 18 → 22 例。
+  - **L0（26.11.28 本机，含 private 编译）**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest` BUILD SUCCESSFUL；**320 suites / 3490 用例 / 0 失败 / 0 错误**（原 3486，+4）。
+  - **lint `[NewApi]` 收敛**：24 条 → 20 条（`DownloadProgressStore` 那 4 条随类型改写消失）→ 本轮六处修完再降到 **5 条**，剩下全是不可达或已被挡住：`PlayerActivity.kt:5718` 的 `MediaSession.Callback`（`initMediaSession()` 首行 `SDK_INT < LOLLIPOP` 就 return）、`PlayerArcProgressView.kt:243` / `PlayerNewProgressRenderer.kt:179` / `SeekThumbView.kt:68`（三个绘图类只在 `PlayerNewUiController` 里构造，而它被 `PlayerActivity.kt:1786 if (PlayerUiSwitch.isNewUiEnabled())` 挡着，`PlayerUiSwitch.EXPERIMENT_ENABLED = false`）。
+  - **未验证（L2，交人工）**：4.4 上开「玻璃风格」后卡片观感、4.4 上短视频页的上色与按压反馈（本轮只保证不崩，观感无法从日志读出）。
 - **26.11.28 外部缓存迁移后条目名变成容器名、只剩封面（反馈 #321）**：
   - **来路**：用户 #321「使用缓存迁移后，只迁移了文件夹名字与封面，而且 2 个缓存文件夹都在 media 下」。
   - **复现（AVD Android 15，在 `Android/media/` 下造假分支目录后走真实迁移流程）**：
@@ -60,6 +71,15 @@
   - **取舍**：真有视频标题叫 `video` 会命中白名单被当容器钻一层 —— 结果只是条目层级不同（视频还在、能播），比反过来漏扫一整批缓存轻。
   - **未验证**：用户那半句「2 个缓存文件夹都在 media 下」没复现出异常——本机下载根就在 `Android/media/<包名>`（`legacyMediaDir()` 如此设计）；若他的实际目录结构不在这三种之内，还需要一次目录清单才能定位。
 
+- **26.11.28 「稍后再看」从菜单进入时顶栏左上角点了没反应（26.11.25 换基类的漏改）**：
+  - **来路**：用户报「从菜单页进入的『稍后再看』无法按左上角退出」，要求「从我的页进入的逻辑不变，从菜单页进入的变为展开菜单，其他不变」。
+  - **根因**：26.11.25 把 `WatchLaterActivity` 的基类换成 `RefreshMainActivity`（→ `InstanceActivity`）之后，顶栏监听**两头都没落地**：`setMenuClick()` 必须子类自己在 `onCreate` 调（`InstanceActivity.kt:41`），而 `setTopbarExit()` 又被 `BaseActivity.kt:611-624` 的 `if (this !is InstanceActivity) setTopbarExit()` 挡掉——该页两处都没调，`R.id.top` 上根本没有点击监听，于是两个入口点左上角都毫无反应（用户只注意到菜单那个）。
+  - **改法（1 个文件 `app/src/main/java/com/RobinNotBad/BiliClient/activity/user/WatchLaterActivity.kt`）**：`onCreate` 里按入口分派一行 `if (getIntent()?.getStringExtra("from") != null) setMenuClick() else setTopbarExit()`。
+    - 判据用 `"from"` extra 而不是新增参数：`MenuActivity.killAndJump`（`MenuActivity.kt:371`）与 `SplashActivity.kt:442` 对所有菜单类入口统一塞它，零改动即可区分，且与 `InstanceActivity.menuClick` 把它透传给菜单页的既有语义一致。
+    - 带 `from`（菜单 / 启动页）＝一级页：顶栏开主菜单，`setMenuClick()` 同时把图标换成 `arrow_down`；不带（「我的」`MySpaceMenu.kt:53`、视频详情长按 `VideoInfoFragment.kt:656`）＝二级页：顶栏 `finish()`，图标保持布局里的 `arrow_back`——这正是换基类之前 `RefreshListActivity : BaseActivity` 由 `BaseActivity.onStart` 自动装的行为，等价于「原样保留」。
+    - 明确未动（按用户「其他不变」）：筛选条三格与横向拖动、长按菜单（视频详情 / 移除稍后再看）、物理返回键、`KEYCODE_MENU` 仍走 `InstanceActivity.onKeyDown`（有无 `from` 都开菜单）。
+  - **L0（26.11.28 本机）**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest` → BUILD SUCCESSFUL in 25s；`testStandardDebugUnitTest` **320 套件 / 3490 用例 / 0 失败 / 0 错误**。
+  - **未验证（L2，需人工看画面）**：①菜单进稍后再看，点左上角弹出主菜单、图标是向下箭头，从菜单返回能回到列表；②「我的」进稍后再看，点左上角直接退出、图标仍是返回箭头；③两处筛选条与列表滚动/翻页、长按移除不受影响。**与 26.11.25 那条 L2 的第②项合并验收**（那项本来就等着这次补码）。
 - **26.11.27 拖动进度条看缩略图（视频快照 `x/player/videoshot`）**：
   - **来路**：接口清单里 `videoshot` 一直没接。拖动进度条时只有「+mm:ss / 目标时间 / 共 mm:ss」三行文字，不知道要跳到哪个画面。
   - **三步落地**（每步单独可验）：
@@ -393,7 +413,7 @@
     - `activity/MenuActivity.kt`：`btnNames` 登记 `MenuConfig.WATCH_LATER -> Pair(UiText.of("稍后再看"), WatchLaterActivity::class.java)`（这一处登记后，菜单设置页取名字、启动页选页面都自动认识）；未登录时从菜单里移除；`hiddenCandidates` 里归入「登录后才出现」那一组。
   - **单测**：`MenuConfigTest.disabledFrom_returnsCanonicalComplement` 的期望值补上 `watch_later`（它默认关闭 → 必然出现在未启用区，这是行为变化不是回归）；新增 `watchLater_defaultsToDisabled_notBackfilled`，钉住「在 `ALL_ITEMS` / `SWITCHABLE_KEYS` 里、不在 `DEFAULT_ENABLED` / `FIXED_ITEMS` / `ACTION_ITEMS` 里、且能只带自己在 `menu_enabled` 里往返」。
   - **L0（26.11.25 本机）**：`:app:assembleDebug`（standard + coexist 两个 flavor 都编）与 `:app:testStandardDebugUnitTest` 通过。
-  - **未验证（L2，需人工看画面）**：①菜单设置里把「稍后再看」拖回已启用区后，九宫格排版与底部「更多」折叠区是否正常、圆屏会不会挤；②从菜单进稍后再看后，点顶栏是否弹出主菜单（换了基类才有的能力）、按返回是否回到菜单；③把它设为启动页后重启是否真的进这一页；④筛选条滚动收起/展开的手感是否与改动前一致。
+  - **未验证（L2，需人工看画面）**：①菜单设置里把「稍后再看」拖回已启用区后，九宫格排版与底部「更多」折叠区是否正常、圆屏会不会挤；②从菜单进稍后再看后，点顶栏是否弹出主菜单（换了基类才有的能力）、按返回是否回到菜单（26.11.28 已补上顶栏分派，见同批那条，仍未人工验）；③把它设为启动页后重启是否真的进这一页；④筛选条滚动收起/展开的手感是否与改动前一致。
 
 - **26.11.24 按控制台反馈批量修：5 起崩溃 + 1 条假回跳 + 1 处噪音 + 1 处布局**：
   - **来路**：用户要求「MCP 只读，不用回复，就读反馈然后修就行」，并指明「表冠适配一类的先别动」。把 42 条待处理反馈 + 11 条待处理崩溃全读完。

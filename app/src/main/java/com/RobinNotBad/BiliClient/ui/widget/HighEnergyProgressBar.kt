@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.drawable.StateListDrawable
 import android.os.Build
 import android.util.AttributeSet
@@ -73,6 +74,15 @@ class HighEnergyProgressBar @JvmOverloads constructor(
     /** 片段标记（可为空）。改动只走 [setMarks] / [clearMarks]，两者都会 invalidate。 */
     private var marks: List<Mark> = emptyList()
     private val markPaint = Paint().apply { isAntiAlias = true; style = Paint.Style.FILL }
+
+    /**
+     * 画片段标记时复用的矩形。
+     *
+     * `Canvas.drawRoundRect(x1, y1, x2, y2, rx, ry, paint)` 这个浮点重载是 API 21 才有的，
+     * Android 4.4 上直接调会 `NoSuchMethodError`（播放页进度条一出现 SponsorBlock / 高能片段标记就命中）；
+     * `drawRoundRect(RectF, rx, ry, paint)` 是 API 1，用一块字段复用矩形即可，onDraw 里不额外分配。
+     */
+    private val markRect = RectF()
 
     /** 点标记（可为空）。改动只走 [setPointMarks] / [clearPointMarks]，两者都会 invalidate。 */
     private var pointMarks: List<PointMark> = emptyList()
@@ -238,7 +248,8 @@ class HighEnergyProgressBar @JvmOverloads constructor(
             canvas.drawRect(x1, top, x2, bottom, markPaint)
 
             markPaint.color = withAlpha(mark.color, 0xE6)
-            canvas.drawRoundRect(x1, bottom - stripHeight, x2, bottom, radius, radius, markPaint)
+            markRect.set(x1, bottom - stripHeight, x2, bottom)
+            canvas.drawRoundRect(markRect, radius, radius, markPaint)
         }
     }
 

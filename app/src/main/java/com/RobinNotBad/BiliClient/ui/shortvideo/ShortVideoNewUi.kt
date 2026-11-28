@@ -1,9 +1,12 @@
 package com.RobinNotBad.BiliClient.ui.shortvideo
 
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.PorterDuff
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.text.TextUtils
@@ -17,9 +20,11 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
+import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.widget.TextViewCompat
 import com.RobinNotBad.BiliClient.R
 import com.RobinNotBad.BiliClient.activity.user.info.UserInfoActivity
@@ -170,9 +175,7 @@ class ShortVideoNewUi(
         // 设计稿：细线/小字对黑底不够 3:1 时自动退到浅一档，两档都不够才用白色。
         accentLine = ShortVideoTheme.lineColor(accent, ShortVideoTheme.lighten(accent))
         views.setTextColor(ShortVideoTheme.TEXT_SECONDARY)
-        progress.progressTintList = android.content.res.ColorStateList.valueOf(accentLine)
-        progress.progressBackgroundTintList =
-            android.content.res.ColorStateList.valueOf(ShortVideoTheme.trackColor(accent))
+        tintProgress(progress, accentLine, ShortVideoTheme.trackColor(accent))
         backButton.setOnClickListener { activity.onBackPressed() }
         moreButton.setOnClickListener { showMore() }
         // 「更多」是整屏弹层，设计稿规定「点空白收起」（方屏另有右上角 ⋯）。
@@ -777,6 +780,29 @@ class ShortVideoNewUi(
         if (view.height > 0) apply() else view.post { apply() }
     }
 
+    /**
+     * 给进度条上色。
+     *
+     * `progressTintList` / `progressBackgroundTintList` 是 API 21 的接口，Android 4.4 上直接赋值会
+     * `NoSuchMethodError`（这个页面在 4.4 上是进得去的）。低版本没有等价的两段式上色手段（进度与
+     * 底轨共用同一份 drawable，整体涂一个颜色比默认还难看），所以保持主题默认样子。
+     */
+    private fun tintProgress(bar: ProgressBar, color: Int, track: Int) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return
+        bar.progressTintList = ColorStateList.valueOf(color)
+        bar.progressBackgroundTintList = ColorStateList.valueOf(track)
+    }
+
+    /** 给图标上色：`imageTintList` 是 API 21，低版本退回 [ImageView.setColorFilter]（API 1，视觉等价）。 */
+    @Suppress("DEPRECATION")
+    private fun tintIcon(view: ImageView, color: Int) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            view.imageTintList = ColorStateList.valueOf(color)
+        } else {
+            view.setColorFilter(color, PorterDuff.Mode.SRC_IN)
+        }
+    }
+
     private fun setHeight(view: View, h: Float) {
         (view.layoutParams as? FrameLayout.LayoutParams)?.let {
             it.height = dp(h)
@@ -786,9 +812,7 @@ class ShortVideoNewUi(
 
     private fun renderFavourite() {
         favouriteIcon.setImageResource(if (state.favourite) R.drawable.icon_fav_1 else R.drawable.icon_fav_0)
-        favouriteIcon.imageTintList = android.content.res.ColorStateList.valueOf(
-            ShortVideoTheme.favouriteTint(accent, state.favourite)
-        )
+        tintIcon(favouriteIcon, ShortVideoTheme.favouriteTint(accent, state.favourite))
     }
 
     private fun text(content: String, size: Float = 13f, color: Int = Color.WHITE): TextView =
@@ -805,9 +829,16 @@ class ShortVideoNewUi(
             val p = (10 * resources.displayMetrics.density).toInt()
             setPadding(p, p, p, p)
             setOnClickListener { action() }
-            foreground = TypedValue().let {
+            val ripple = TypedValue().let {
                 root.context.theme.resolveAttribute(android.R.attr.selectableItemBackground, it, true)
-                if (it.resourceId != 0) root.context.getDrawable(it.resourceId) else null
+                if (it.resourceId != 0) AppCompatResources.getDrawable(root.context, it.resourceId) else null
+            }
+            // setForeground 是 API 23、Context#getDrawable 是 API 21；低版本退成背景
+            // （这些按钮本来没有背景，观感一致，只是少了前景层）。
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                foreground = ripple
+            } else {
+                background = ripple
             }
         }
 
