@@ -89,4 +89,4 @@
 3. **归档不是删除**：`git mv` 进 `docs/archive/` 并在 `archive/README.md` 加一行「内容 + 为什么归档」，正文一字不改（只在开头加存档说明）。
 4. **归档前先回迁**：文档里唯一还活着的知识（不要回退的取舍、未落地的待办、实测数字）要先搬进活文档，再归档。
 5. 文档间引用一律写**仓库相对路径**（`docs/...`），归档后同步改引用；源码注释里的文档路径同样要改。
-6. **格式**：改完任何 `.md` 跑一次 `npx --yes markdownlint-cli2 "AGENTS.md" "readme.md" "docs/**/*.md" "!docs/archive/**"`，**0 错误**才算完；规则与豁免理由见 [`agents/docs.md`](agents/docs.md)。
+6. **格式**：改完任何 `.md` 跑一次 `npx --yes markdownlint-cli2 "*.md" "{docs,.dsh,scripts,ledger}/**/*.md" "private/**/*.md" "!docs/archive/**"`，**0 错误**才算完；规则与豁免理由见 [`agents/docs.md`](agents/docs.md)。

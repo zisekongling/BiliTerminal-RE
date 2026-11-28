@@ -56,7 +56,7 @@ private/
 
 | 挂点 | 位置 | 公共侧行为 |
 | --- | --- | --- |
-| 菜单项 | `util/MenuConfig.kt` 的 `OPTIONAL_ITEMS` + `activity/MenuActivity.kt` 的 companion `init` | `OPTIONAL_ITEMS` 为空列表，菜单仍是原有的 14 项 |
+| 菜单项 | `util/MenuConfig.kt` 的 `OPTIONAL_ITEMS` + `activity/MenuActivity.kt` 的 companion `init` | `OPTIONAL_ITEMS` 为空列表，菜单仍是原有的 16 项 |
 | 菜单设置页 | 复用 `MenuActivity.btnNames`（`SettingMenuActivity` 从这里取显示名） | 无需改动 |
 | 启动页跳转 | `SplashActivity` 从 `btnNames` 取 Class | 无需改动 |
 | 视频详情页动作区 | `fragment_video_info.xml` 的 `@id/video_actions` + `VideoInfoFragment` 里的 `OptionalFeatures.attachDetailActionRow(...)` | 空操作，不多出按钮 |
@@ -66,6 +66,19 @@ private/
 | 播放页第三方弹幕 | `PlayerActivity.getExtras()` 读 `third_party_danmaku` 等 extra；不下载 B 站弹幕，改为调 `OptionalFeatures.attachThirdPartyDanmaku(...)`，私有侧后台准备好 XML 后回调 `PlayerActivity.applyThirdPartyDanmaku(file)` | 返回 `false` 或无私有功能 → `hasDanmaku=false`，播放照常、只是没有弹幕 |
 | 启动期静默预热 | `BiliTerminal.onCreate` 的 `if (context == null)` 块内（`CookieRefreshScheduler.start()` 之后）调一次 `OptionalFeatures.warmUpOptionalData()` | 空操作；有私有功能时只是「叫一声」就返回，预热什么、是否节流全由私有侧决定 |
 | 设置页「番剧设置」分组 | `activity/settings/SettingGroupActivity.kt` 的 `GROUP_BANGUMI` + `buildBangumiGroup()`、`SettingMainActivity.buildBangumiGroup()`、`SettingsIndex.build()` 里三条 `if (OptionalFeatures.thirdPartySettingsAvailable)` 条目 | 门面为 `false` → 主设置页不出这张卡片、分组页这一组没有行、全局搜索也搜不到这三条；`openThirdPartySourceSettings(...)` / `openThirdPartyDanmakuSettings(...)` 空操作 |
+
+私有侧菜单**可以挂多个入口**（26.11.27 起）。公共侧门面按下面的顺序逐个探测，全部缺失时等于「没有私有功能」：
+
+| 私有侧静态方法 | 公共侧怎么用 | 缺失时的回退 |
+| --- | --- | --- |
+| `menuKeys(): String[]` | 每个 key 挂一项菜单 | 回退到 `menuKey()` 的单入口 |
+| `menuLabel(Context, String): String` | 按 key 取该入口显示名 | 回退到 `menuLabel(Context)` |
+| `menuActivity(String): Class<*>` | 按 key 取该入口页面 | 回退到 `menuActivity()` |
+
+`menuKeys()` 返回空数组、或数组里只有空串/重复值时，同样按「没提供多入口」处理，走单入口回退——
+这样「旧私有库」与「私有库只有一个入口」共用一条路径。带 key 的两个方法各自降一级、互不依赖，
+私有侧不要求同时提供三个（只给 `menuKeys()` 时，显示名与页面都会退化成无参版本返回的同一个值，
+多个入口看起来会是同一个页面）。
 
 老用户的 `menu_enabled` 里没有可选 key 时，`MenuConfig.loadEnabled` 会走一次迁移把它补进来，
 但**只补「从没被保存过状态」的项**：`MenuConfig.saveEnabled` 会给每个可选 key 写一条

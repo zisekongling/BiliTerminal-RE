@@ -1710,6 +1710,24 @@ CenterThreadPool.supplyAsyncWithLiveData { fetch...().getOrThrow() }
 - **改到这里还不够的地方**：`installId()` 里缓存了一份 `TerminalApi.getInstallId()`（首次要读 SharedPreferences，而 `model()` 在主线程组请求时被调）。新增图片请求一律走 `GlideUtil.model()`，**别再直接 `.load(url)`**，否则又会退回「全靠拦截器」的老路。
 - **验证口径**：真机（NOP-AN00 / Android 12）打开反馈详情，三张图（用户提交、用户追加、开发者回复）全部渲染；nginx 对应行从 404 变成 `200 114124`；点缩略图进 `ImageViewerActivity` 也能看到原图（它走 `asFile()` 预取 + `asDrawable()` 显示，两条都得改成 `GlideUtil.model`，漏一条就只有全屏图是破的）。
 
+### 7.75 直播榜单三榜：大航海 top3 要与 list 合并，成员 UID 在 uinfo.uid（26.11.28）
+
+- **大航海 `xlive/app-room/v2/guardTab/topListNew`（`roomid` / `ruid` / `page` / `type`）**：`page=1` 的响应里 `list` **从第 4 名起**，前 3 名单独在 `top3`——只读 `list` 会吞掉榜首三人（`api/LiveRankApi.kt` 的 `getGuardMembers` 因此在 `page==1` 时先 append top3 再 append list）。`top3` 与 `list` 的元素结构完全一样（`ruid` / `rank` / `accompany` / `uinfo.base.{name,face}`），同一套解析即可；`page>1` 只回 `list`。
+- **响应里的 `ruid` 是主播 UID，不是成员 UID**：请求参数 `ruid` 与每一行的 `ruid` 同值（都是主播），成员自己的 UID 在 `uinfo.uid`。26.11.28 之前写成 `uid = item.optLong("ruid")`，全员等于主播；因为列表只显示 rank / 名称 / 陪伴天数，这个错**看不出症状**，但任何按 `uid` 去重、跳主页的后续实现都会踩。
+- **另两个榜**：粉丝团 `xlive/general-interface/v1/rank/getFansMembersRank`（`ruid` / `page` / `page_size` / `rank_type`，`rank_type=2` 要带毫秒级 `ts`）；礼物 `xlive/web-room/v1/giftPanel/roomGiftList`（`room_id` / `area_parent_id` / `area_id` / `platform`，实测 `platform=pc` 可用，快照参数表里的 `web` 不是唯一答案）。`page_size` **上限 30**，超了服务端按 10 处理（代码里 `PAGE_SIZE = 20`）。
+- **分页要自己挂**：`RefreshListActivity.checkLoadMore` 是 `val loadMore = listener ?: return`，不 `setOnLoadMoreListener` 就只有首页（`LiveRankActivity` 未挂，三榜目前各 20 条）。
+
+### 7.76 播放器缩略图（videoshot）：index=1 才下发时间表，image 是协议相对数组（26.11.28）
+
+- **接口**：`https://api.bilibili.com/x/player/videoshot?aid=&cid=&index=1`（`api/PlayerApi.java` 的 `getVideoShot`）。只有 `index=1` 的响应带 `index`（每格起始**秒**表）与拼版几何 `img_x_len` / `img_y_len` / `img_x_size` / `img_y_size`（任一 ≤0 视为没有快照）；`image` 是**数组**、元素是**协议相对** `//i0.hdslb.com/...`，必须补 `https:`。秒表里会有重复值（一格覆盖一段），按秒查表取「最后一个 ≤ 目标秒」的格。
+- **换 cid 必须重取**：`PlayerActivity.loadVideoShotIfNeeded()` 用 `videoShotCid` 去重，只在同 cid 时短路。互动视频跳分支把 `cid` 改掉后若不重新调它，会一直用上一个分支的时间表——26.11.28 在 `jumpToInteractionPage` 设完 `cid` 后补了一次调用。
+- **总闸**：`PlayerUiSwitch.EXPERIMENT_ENABLED` 现为 `false`，正式包看不到这个功能、也不会发请求（`loadVideoShotIfNeeded()` 开头 `if (newPlayerUi == null) return`）。验收这个功能必须先在调试里打开总闸。
+
+### 7.77 写进 Kotlin 字符串的 `%1$d` 要转义成 `%1\$d`
+
+- **症状**：加 `UiText.fmt("陪伴 %1$d 天", n)` 这种模板后直接编译失败，报 `e: LiveRankActivity.kt:96:51 Unresolved reference 'd'`（`%1$s` 报 `'s'`）——Kotlin 把 `$d` 当成字符串模板插值，去找名为 `d` 的变量。
+- **口径**：`strings.xml` 里的 `%1$d` 是 XML，**不转义**；`util/UiText.kt` 的 MAP 与任何 Kotlin 里的模板字符串一律写 `%1\$d`。`UiText.of()` 查表拿到的是编译后的 `%1$d`（转义已还原），所以 `fmt` 的模板与 `strings.xml` 的值逐字一致即可。
+
 ## 8. UI 基建速查（新增页面临摹用）
 
 ### 8.1 完整继承体系
