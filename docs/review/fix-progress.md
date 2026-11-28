@@ -29,6 +29,10 @@
     - **改法**：该分支追加 `clearStoredUnread(onUpdated)`：非 0 就把 SP 清零并 `runOnUiThread { onUpdated(0) }`。**网络失败时不能清**（否则下一次成功会把老未读当成新增、重复弹通知），这条边界写进注释。动态角标（`DYNAMIC_UPDATE_NUM`）不归这个开关管，未动。
   - **L0（26.11.28 本机）**：`./gradlew.bat :app:assembleDebug :app:testStandardDebugUnitTest` → BUILD SUCCESSFUL；`testStandardDebugUnitTest` **3486 用例 / 0 失败**。
   - **未验证（L2，交人工）**：①离线缓存多P 番剧切 P 后弹幕正常出现、切回上一 P 也正常；②手机/手表上点分享链接能进对应页面（视频 BV/av、专栏 cv、空间 UID、b23 短链、搜索链接），无效链接提示改为「暂时无法识别这个链接」；③关掉「消息数量检查」返回菜单，私信角标消失，重新打开并刷新后能恢复。
+  - **低版本安卓兼容性（minSdk 19 / targetSdk 34，26.11.28 核对）**：`./gradlew.bat :app:lintStandardDebug` → BUILD SUCCESSFUL（2m34s），报告 `lint-results-standardDebug.txt`。
+    - 全仓 `[NewApi]` 共 **24 条，全是既有问题，本次三条修复的新增行零命中**：播放器媒体会话 `MediaSession.Callback`（`PlayerActivity.kt:5713`，需 API 21）、`ConcurrentHashMap#newKeySet`（`DownloadProgressStore.kt`，API 24）、`setElevation`（`GlassStyle.kt:249`，API 21）、`Matcher#start`（私有 `AnimeRuleCss.kt:413`，API 26）等；`LinkUrlUtil.java` / `GetIntentActivity.kt` / `MessageUnreadRefresh.kt` 在报告里**任何规则都没有条目**。
+    - 新增代码用到的接口全是 API 1 级：`File`、`View.visibility`、`loadFromXmlFile`、`String.matches`、`URL.getQuery`、`Uri.parse`、`Intent`、`URLDecoder.decode`、`CenterThreadPool.runOnUiThread`。`LinkUrlUtil` 里的 try-with-resources 是原有代码，依赖 API 19 的 `Throwable.addSuppressed`，正好卡在 minSdk。
+    - 边界：这条只证明「没有调用高于 API 19 的接口」，**不等于 4.4 设备实跑通过**；真机/4.4 模拟器实测另行记录。
 - **26.11.28 外部缓存迁移后条目名变成容器名、只剩封面（反馈 #321）**：
   - **来路**：用户 #321「使用缓存迁移后，只迁移了文件夹名字与封面，而且 2 个缓存文件夹都在 media 下」。
   - **复现（AVD Android 15，在 `Android/media/` 下造假分支目录后走真实迁移流程）**：
