@@ -82,21 +82,26 @@ class MenuActivity : BaseActivity() {
         /**
          * 反射注入可选的私有菜单项（没有私有注入时一项都不加）。
          *
-         * 公共构建里 OptionalFeatures.menuKey() 为 null，这里**一项都不加**，
+         * 公共构建里 [OptionalFeatures.menuKeys] 为空列表，这里**一项都不加**，
          * 于是 btnNames 与公开构建的 15 项完全一致；菜单设置页（SettingMenuActivity）和
          * 启动页（SplashActivity）都从 btnNames 取显示名与 Class，所以这里注入一次即可全链路生效。
          * 机制见 `docs/optional-features.md`。
+         *
+         * 26.11.27 起支持**多个**入口（私有侧提供 `menuKeys()` 即可）；老版本私有注入没有
+         * 那个方法时，[OptionalFeatures.menuKeys] 会回退成单入口，行为与从前一致。
          */
         init {
             try {
                 val context = BiliTerminal.context
-                val key = OptionalFeatures.menuKey()
-                val label = if (context != null) OptionalFeatures.menuLabel(context) else null
-                @Suppress("UNCHECKED_CAST")
-                val page = OptionalFeatures.menuActivity() as? Class<out InstanceActivity>
-                if (key != null && label != null && page != null) {
+                for (key in OptionalFeatures.menuKeys()) {
+                    val label = if (context != null) OptionalFeatures.menuLabel(context, key) else null
                     @Suppress("UNCHECKED_CAST")
-                    (btnNames as MutableMap<String, Pair<String, Class<out InstanceActivity>>>)[key] = Pair(label, page)
+                    val page = OptionalFeatures.menuActivity(key) as? Class<out InstanceActivity>
+                    if (label != null && page != null) {
+                        @Suppress("UNCHECKED_CAST")
+                        (btnNames as MutableMap<String, Pair<String, Class<out InstanceActivity>>>)[key] =
+                            Pair(label, page)
+                    }
                 }
             } catch (e: Throwable) {
                 // 私有功能不可用绝不能影响菜单本身
