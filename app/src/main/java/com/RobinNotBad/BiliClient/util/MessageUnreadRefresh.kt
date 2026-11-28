@@ -210,8 +210,13 @@ object MessageUnreadRefresher {
     fun refreshOnMenuResume(onUpdated: (Int) -> Unit) {
         val account = account()
         if (!MessageUnreadRefresh.shouldCheck(checkEnabled(), account)) {
-            // 关开关 / 登出后回来：别让上一次的角标继续挂着
+            // 关开关 / 登出后回来：别让上一次的角标继续挂着。
+            // 26.11.28（反馈 #312）：光撤回调不够 —— 菜单按钮是按 SP 里的旧计数画的
+            // （MenuActivity.updateMessageButtonText 无条件读 MESSAGE_UPDATE_NUM），
+            // SP 不清掉，每次 onResume 都会把那个数字重新画回去，用户看到的就是
+            // 「关了消息数量检查，菜单还显示私信条数」。
             synchronized(lock) { observers.remove(onUpdated) }
+            clearStoredUnread(onUpdated)
             return
         }
         synchronized(lock) {
@@ -225,6 +230,22 @@ object MessageUnreadRefresher {
             return
         }
         CenterThreadPool.run { fetch(ticket) }
+    }
+
+    /**
+     * 把存量的未读数清零，并顺手把界面上的角标抹掉。
+     *
+     * <p>只在「这次压根不该检查」（关了「消息数量检查」或没登录）时调用；
+     * **网络失败时不能清**——否则下一次成功会把老未读当成新增、重复弹通知（见 [fetch] 里的注释）。
+     */
+    private fun clearStoredUnread(onUpdated: (Int) -> Unit) {
+        val stored = SharedPreferencesUtil.getInt(SharedPreferencesUtil.MESSAGE_UPDATE_NUM, 0)
+        if (stored != 0) {
+            SharedPreferencesUtil.putInt(SharedPreferencesUtil.MESSAGE_UPDATE_NUM, 0)
+            Logu.d(TAG, "未读检查已关闭，清掉存量角标：" + stored)
+        }
+        // 无条件回调一次 0：SP 本来就是 0 时按钮也可能还挂着上一次的画法
+        CenterThreadPool.runOnUiThread { onUpdated(0) }
     }
 
     /** 撤销回调（界面 onPause 时调用）。 */
