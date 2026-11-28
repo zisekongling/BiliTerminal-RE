@@ -74,9 +74,31 @@ class SplashActivity : Activity() {
      */
     private fun reserveTypewriterHeight() {
         val lineCount = splashText.lines().size.coerceAtLeast(1)
-        val fontPadding = (splashTextView.totalPaddingTop - splashTextView.paddingTop) +
-            (splashTextView.totalPaddingBottom - splashTextView.paddingBottom)
-        splashTextView.minHeight = splashTextView.lineHeight * lineCount + fontPadding
+        splashTextView.minHeight = splashTextView.lineHeight * lineCount + measureFontPadding()
+    }
+
+    /**
+     * 量出 `includeFontPadding` 给出的首行上留白与末行下留白。
+     *
+     * 26.11.28 在 Android 4.4（API 19）模拟器上实测：`totalPaddingTop` 会走进
+     * `TextView.getExtendedPaddingTop()`，而那时控件还没排版（`mLayout == null`），
+     * 直接抛 NPE —— 表现是**开屏即闪退**（栈：`SplashActivity.onCreate` →
+     * `reserveTypewriterHeight` → `TextView.getTotalPaddingTop`）。高版本上这两个
+     * getter 已经空安全，所以老口径在 5.0+ 一直是对的。
+     *
+     * 因此这里保持「有排版就用老口径」，只在它抛异常时按字体度量算同一个值：
+     * 行高之外的额外留白 = 首行的 (ascent - top) + 末行的 (bottom - descent)。
+     * 这样 5.0+ 的像素结果一个不差，4.4 上则从闪退变成正常显示。
+     */
+    private fun measureFontPadding(): Int {
+        return try {
+            (splashTextView.totalPaddingTop - splashTextView.paddingTop) +
+                (splashTextView.totalPaddingBottom - splashTextView.paddingBottom)
+        } catch (e: RuntimeException) {
+            Log.w("Splash", "读不到 TextView 的字体留白，按字体度量算: ${e.message}")
+            val fm = splashTextView.paint.fontMetricsInt
+            (fm.ascent - fm.top) + (fm.bottom - fm.descent)
+        }
     }
 
     private fun startTypewriter(text: String) {
